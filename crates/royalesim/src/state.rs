@@ -22063,6 +22063,7 @@ impl BattleState {
                 if let Some(c) = &p.chain {
                     h.u32(0x4348_4e31);
                     h.u32(c.left as u32);
+                    h.u32(u32::from(c.wait));
                     h.i32(c.radius);
                     h.u32(c.hit.len() as u32);
                     for id in &c.hit {

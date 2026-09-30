@@ -401,14 +401,21 @@ pub struct BounceHop {
     pub from: Vec2,
 }
 
-/// A CHAINED SHOT'S HOPS (`Projectile::chain`): the hops left, the chain's radius (subtiles) and every unit it has hit,
-/// in order.
+/// A CHAINED SHOT'S HOPS (`Projectile::chain`): the hops left, the chain's radius (subtiles), every unit it has hit, in
+/// order, and the ticks a hop still waits before its first step (CHAIN_HOP_WAIT_TICKS; 0 on the fired shot).
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ChainHop {
     pub left: u8,
     pub radius: i32,
     pub hit: Vec<EntityId>,
+    #[serde(default)]
+    pub wait: u8,
 }
+
+/// A CHAINED SHOT'S HOP WAITS this many ticks on the target it hit before its first step, then flies at the shot's speed.
+/// Measured on client 15.535.29 (Oracle's sp-chain-*: an Electro Dragon's shot, 2000 a tick, and an Electro Spirit's,
+/// 1000): each next hit came 3 + ceil(hop / speed) ticks after the last, 16 hops of 420 to 3000.
+pub const CHAIN_HOP_WAIT_TICKS: u8 = 3;
 
 /// THE NEXT TARGET OF A CHAINED SHOT (card.rs `ChainHitDef`): the closest enemy of `team` to unit `from`, centre to
 /// centre and within the chain's radius, that the shot has not hit: alive, visible, above the ground, in the air or on
@@ -1355,7 +1362,7 @@ pub fn fire(
             enchant: None,
             trail: None,
             // THE CHAIN (card.rs `ChainHitDef`): the hops after this target.
-            chain: card.chain_hit.map(|c| ChainHop { left: (c.count - 1).clamp(0, 255) as u8, radius: c.radius, hit: vec![target] }),
+            chain: card.chain_hit.map(|c| ChainHop { left: (c.count - 1).clamp(0, 255) as u8, radius: c.radius, hit: vec![target], wait: 0 }),
             // THE BOUNCE (card.rs `BounceDef`, the Evo Bomber's): the bounces after this landing.
             bounce: card.evo.as_ref().and_then(|v| v.bounce).map(|b| BounceHop { left: b.count, range: b.range, from: pos }),
         });
@@ -1925,6 +1932,11 @@ pub fn step_projectiles(
         if p.straight.is_some() {
             return step_straight(ents, hash, cards, calib, p, dmg, fx, scratch, tick);
         }
+        // A CHAINED SHOT'S HOP waits on the target it hit (CHAIN_HOP_WAIT_TICKS).
+        if let Some(c) = p.chain.as_mut().filter(|c| c.wait > 0) {
+            c.wait -= 1;
+            return true;
+        }
         let alive = ents.is_alive(p.target) && ents.hp[p.target.index as usize] > 0;
         // A spark carrier flies to the point it was aimed at and never follows its target, and so does a shot
         // that keeps its aim (`Projectile::fixed`, combat.NON_HOMING_AIM = fixed_at_fire).
@@ -2062,7 +2074,11 @@ pub fn step_projectiles(
                 if let Some(next) = chain_next(ents, cards, calib, tick, p.team, ti, c, p.hits_air, p.hits_ground) {
                     let mut hit = c.hit.clone();
                     hit.push(next);
-                    let hop = ChainHop { left: c.left - 1, radius: c.radius, hit };
+                    #[cfg(not(clash_plant = "chain_hop_no_wait"))]
+                    let wait = CHAIN_HOP_WAIT_TICKS;
+                    #[cfg(clash_plant = "chain_hop_no_wait")]
+                    let wait = 0; // PLANT: the hop steps on the tick after the hit.
+                    let hop = ChainHop { left: c.left - 1, radius: c.radius, hit, wait };
                     released.push(Projectile { pos: ents.pos[ti], target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() });
                 }
             }

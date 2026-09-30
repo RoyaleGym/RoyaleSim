@@ -2,13 +2,14 @@
 //! `chain_next`, the hop in `step_projectiles`): the Electro Dragon's shot hits 3 targets and the Electro Spirit's 9,
 //! each hop going on from the target it landed on to the closest enemy within 4000 that it has not hit.
 //!
-//! Read off the table, not measured yet (no corpus battle plays either card; Oracle's chain scenes are queued): the
-//! pick's reference point, a hop onto a crown tower, and the hop's first step. What these tests pin is the count and the
-//! radius: three and nine targets, the next one within 4000 of the last.
+//! Measured on client 15.535.29 (Oracle's sp-chain-*): the hops go from the last unit hit (an Ice Spirit 3606 from the
+//! Knight hit first and 6325 from the Ice Golem hit second was never hit); a hop takes a crown tower; each next hit comes
+//! 3 + ceil(hop / speed) ticks after the last (CHAIN_HOP_WAIT_TICKS).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! chained_hits`):
-//!   - chain_never -> both tests red.
+//!   - chain_never -> every test red;
+//!   - chain_hop_no_wait -> `each_hop_waits_three_ticks_then_flies_at_the_shot_s_speed` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -76,6 +77,17 @@ fn an_electro_dragon_shot_hits_three_along_a_line_of_knights() {
         assert_eq!(hits, [192], "the {name} Knight hit once for 192: {hits:?}");
     }
     assert!(window.iter().all(|x| x[3] == Some(0)), "the fourth Knight never hit (3 targets)");
+}
+
+#[test]
+fn each_hop_waits_three_ticks_then_flies_at_the_shot_s_speed() {
+    // Three red Knights on the row, 2000 and then 3000 apart (the third 5000 from the first: only a hop from the second
+    // reaches it). The dragon's shot (2000 a tick) hits the second 3 + 1 ticks after the first, the third 3 + 2 after.
+    let units = [("Knight", (9500, 16500)), ("Knight", (11500, 16500)), ("Knight", (14500, 16500))];
+    let f = scene("ElectroDragon", (9500, 13000), &units, 120);
+    let first = |u: usize| f.iter().position(|x| x[u] == Some(192)).unwrap_or_else(|| panic!("Knight {u} hit by the chain"));
+    let (a, b, c) = (first(0), first(1), first(2));
+    assert_eq!((b - a, c - b), (4, 5), "hops of 2000 and 3000: frames {a}, {b}, {c}");
 }
 
 #[test]
