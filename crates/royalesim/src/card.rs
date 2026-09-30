@@ -1795,6 +1795,8 @@ pub struct EvoDef {
     pub barrel: Option<BarrelDef>,
     /// Evo Mortar: a unit its shot puts down where it lands (`ShotSpawnDef`).
     pub shot_spawn: Option<ShotSpawnDef>,
+    /// Evo Royal Hogs: a flier that lands for good at a health line or on its first hit (`FallDef`).
+    pub fall: Option<FallDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -1819,6 +1821,28 @@ pub struct BarrelDef {
     pub extra_offset_y: i32,
     pub death_offset_x: i32,
     pub death_offset_y: i32,
+}
+
+/// THE EVO ROYAL HOGS' FALL (characters/royal_hog_ev1.toml; tools/extract_cards.py `fall_block`; state.rs `FallRun`,
+/// `fall_pass`): each hog flies (its row's FlyingHeight) until the trigger, once: its hitpoints at or below `at_hp_pct`
+/// of its maximum (seen on the tick after the blow), or, with `on_attack`, its first hit (on that tick). It lands
+/// `transition_ms` and one tick after the trigger: it becomes `grounded` (the same stats on the ground; its target and
+/// swing kept), no longer in the air whatever that row's FlyingHeight says; `landing` strikes on its point on the next
+/// tick, and its path is dropped `reset_path_ms` after the landing (a new one planned from where it stands).
+///
+/// Measured on client 15.535.29 (sp-form-RoyalHogs-evo-s0, level 11): hogs hit on t1268 and t1243 (under 99 %) landed
+/// on t1280 and t1255, the first's blow taking 43 (17 at level 1) off the princess tower on t1281 and each walking a new
+/// path from t1282 and t1257; a hog whose first hit on the tower fell on t1278 took a new path on t1289 and its blow
+/// took 43 on t1290. The ground troops beside a landed hog took it as their target from two ticks after its landing.
+/// Open (Oracle's hogs scenes are queued): the attack trigger's tick against the swing's, and the retarget's two ticks.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FallDef {
+    pub at_hp_pct: i32,
+    pub on_attack: bool,
+    pub transition_ms: i32,
+    pub grounded: FormUnit,
+    pub landing: SpellDef,
+    pub reset_path_ms: i32,
 }
 
 /// THE EVO MORTAR (buildings_evo.toml [Mortar_EV1], projectiles_evo.toml MortarProjectile_EV1; tools/extract_cards.py
@@ -4002,6 +4026,8 @@ struct RawEvolution {
     evo_barrel: Option<RawBarrel>,
     /// The Evo Mortar's shot's unit (`shot_spawn_block`).
     evo_shot_spawn: Option<RawShotSpawn>,
+    /// The Evo Royal Hogs' fall (`fall_block`).
+    evo_fall: Option<RawFall>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4012,6 +4038,18 @@ struct RawEvolution {
 struct RawShotSpawn {
     unit: Option<String>,
     deploy_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_fall` (tools/extract_cards.py `fall_block`): the health line, the attack trigger, the
+/// fall's clock, the grounded row's units record, the landing area's name and the path reset's delay.
+#[derive(Deserialize)]
+struct RawFall {
+    at_hp_pct: Option<i32>,
+    on_attack: Option<bool>,
+    transition_ms: Option<i32>,
+    grounded: Option<serde_json::Value>,
+    landing_area: Option<String>,
+    reset_path_ms: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_barrel` (tools/extract_cards.py `barrel_block`): the health line, the two containers (units
@@ -4105,6 +4143,13 @@ struct RawArmy {
 
 /// THE ACTION CLASSES THE ARMY'S ROWS RUN, which `army_block` reads whole: the soldier's (and the Spectral's) death check
 /// and spawn, the General's kill, the Spectral's start group (its buff and an effect).
+/// THE EVO ROYAL HOGS' GRAPH (tools/extract_cards.py `fall_block` reads it whole): the health trigger, the fall's group,
+/// the fall and its landing group (the row change, the landing area, the path reset), animations and effects.
+const FALL_GRAPH: [&str; 8] = [
+    "ActionAirToGround", "ActionChangeGameObjectData", "ActionGroup", "ActionPlayEffect", "ActionResetPath",
+    "ActionRunActionAtHealth", "ActionRunForcedAnimationOnce", "ActionSpawn",
+];
+
 const ARMY_GRAPH: [&str; 7] = [
     "ActionGroup", "ActionKill", "ActionPlayEffect", "ActionRunActionIfUnitGroupContains", "ActionRunOnMatchingUnitsInGroup",
     "ActionSpawn", "ActionSpawnToLocation",
@@ -8989,6 +9034,7 @@ impl CardDb {
             extra.evo_army.is_some(),
             extra.evo_barrel.is_some(),
             extra.evo_shot_spawn.is_some(),
+            extra.evo_fall.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9012,6 +9058,8 @@ impl CardDb {
             &ARMY_GRAPH
         } else if extra.evo_barrel.is_some() {
             &["ActionAddHealthBarPart", "ActionGroup", "ActionRunActionAtHealth", "ActionSkeletonBarrelPopBalloon"]
+        } else if extra.evo_fall.is_some() {
+            &FALL_GRAPH
         } else {
             &[]
         };
@@ -9029,8 +9077,12 @@ impl CardDb {
             let sp = a.spectral.as_deref().unwrap_or_default();
             g.spawns.iter().all(|s| s == &format!("CharacterType:{sp}") || s.starts_with("BuffType:"))
         });
+        // THE FALL'S LANDING AREA is its own block's too (`fall_block` reads it whole).
+        let fall_spawns = |g: &RawActionGraph| {
+            extra.evo_fall.as_ref().and_then(|f| f.landing_area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
+        };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -9097,6 +9149,7 @@ impl CardDb {
                     army: None,
                     barrel: None,
                     shot_spawn: None,
+                    fall: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -9219,6 +9272,22 @@ impl CardDb {
             }
             c.death_spawn = bc.death_spawn;
         }
+        // THE FALL'S GROUNDED ROW: its units record, loaded as a summon-only troop after the form (the flying row's
+        // stats on the ground: the extractor checks the columns).
+        let mut grounded: Option<CardDef> = None;
+        if let Some(f) = &extra.evo_fall {
+            let mut uv = f.grounded.clone().ok_or("a fall with no grounded row")?;
+            let obj = uv.as_object_mut().ok_or("a grounded row that is not an object")?;
+            obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+            obj.entry("count").or_insert(serde_json::Value::from(1));
+            let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("a grounded row: {e}"))?;
+            let (mut g, _, gneeds) = convert(ur, buffs, ctx).map_err(|e| format!("a grounded row: {e}"))?;
+            if !gneeds.is_empty() || self.index(&g.name).is_some() || !self.rarities.iter().any(|r| r.name == g.rarity) {
+                return Err(format!("grounded row {}: it needs a unit, its name is loaded or its rarity is not in rarities.csv", g.name));
+            }
+            g.summon_only = true;
+            grounded = Some(g);
+        }
         if c.kind != bc.kind || c.elixir != bc.elixir || c.rarity != bc.rarity {
             return Err(format!("a {:?} of {} elixir ({}) against its base's {:?} of {} ({})", c.kind, c.elixir, c.rarity, bc.kind, bc.elixir, bc.rarity));
         }
@@ -9244,6 +9313,7 @@ impl CardDb {
             army: None,
             barrel: None,
             shot_spawn: None,
+            fall: None,
             cloned_as: None,
         };
         if let Some(g) = &extra.evo_ghost {
@@ -9270,6 +9340,28 @@ impl CardDb {
                 return Err("a shot spawn on a row with no shot".into());
             }
             evo.shot_spawn = Some(ShotSpawnDef { unit: FormUnit { unit }, deploy_ms: r.deploy_ms.filter(|d| *d >= 0).ok_or("a shot spawn with no deploy time")? });
+        }
+        // THE FALL: a flier's (the extractor reads the flying row), its landing a one-hit area on the enemy side.
+        if let Some(f) = &extra.evo_fall {
+            if !c.is_flying() {
+                return Err("a fall on a row that does not fly".into());
+            }
+            let at_hp_pct = f.at_hp_pct.filter(|p| (1..100).contains(p)).ok_or("a fall with no health line")?;
+            let transition_ms = f.transition_ms.filter(|t| *t > 0).ok_or("a fall with no transition")?;
+            let name = f.landing_area.as_deref().ok_or("a fall with no landing area")?;
+            let aeo = ctx.aeos.get(name).ok_or_else(|| format!("landing area {name}: no record"))?;
+            let (shape, more) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("landing area {name}: {e}"))?;
+            if !more.is_empty() || !matches!(shape, SpellShape::AreaEffect { .. }) {
+                return Err(format!("landing area {name} is not one hit"));
+            }
+            evo.fall = Some(FallDef {
+                at_hp_pct,
+                on_attack: f.on_attack.unwrap_or(false),
+                transition_ms,
+                grounded: FormUnit { unit: u16::MAX },
+                landing: SpellDef { shape, placement: SpellPlacement::Anywhere },
+                reset_path_ms: f.reset_path_ms.filter(|r| *r >= 0).unwrap_or(0),
+            });
         }
         if let Some(b) = &extra.evo_barrel {
             let pct = b.at_hp_pct.filter(|p| (1..100).contains(p)).ok_or("a barrel with no health line")?;
@@ -9426,6 +9518,14 @@ impl CardDb {
             }
             if let Some(ds) = f.death_spawn.as_mut() {
                 ds.unit = first + 1;
+            }
+        }
+        // The fall's grounded row after the form.
+        if let Some(g) = grounded {
+            self.push(g, None)?;
+            let gi = (self.cards.len() - 1) as u16;
+            if let Some(f) = self.cards[form as usize].evo.as_mut().and_then(|v| v.fall.as_mut()) {
+                f.grounded = FormUnit { unit: gi };
             }
         }
         self.forms.push((base, FORM_EVOLUTION, form));
@@ -10107,6 +10207,10 @@ impl CardDb {
         // The Evo Mortar's shot's unit.
         if let Some(s) = c.evo.as_ref().and_then(|v| v.shot_spawn.as_ref()) {
             out.push((UnitRef::EvoUnit(0), s.unit.unit, None));
+        }
+        // The Evo Royal Hogs' grounded row.
+        if let Some(f) = c.evo.as_ref().and_then(|v| v.fall.as_ref()) {
+            out.push((UnitRef::EvoUnit(0), f.grounded.unit, None));
         }
         // LAST, so no earlier block's place moves: every entry of the card's deploy spawn area (the Tri Wizards'
         // TriWizardSpawn): entry 0 the card's own unit (the card itself), then the cards its actions deploy.

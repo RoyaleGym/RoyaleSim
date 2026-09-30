@@ -466,18 +466,23 @@ fn forms_take_slots_after_every_existing_card() {
             ("SkeletonArmy", "SkeletonArmy_EV1"),
             ("Snowball", "Snowball_EV1"),
             ("SkeletonBalloon", "SkeletonBalloon_EV1"),
-            ("Mortar", "Mortar_EV1")
+            ("Mortar", "Mortar_EV1"),
+            ("RoyalHogs", "RoyalHogs_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Thirteen forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Fourteen forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
-    // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), and the
-    // Evo Skeleton Barrel with its two drops, and the Evo Mortar (its Goblin a loaded unit) last.
-    assert_eq!(db.cards.len(), n0 + 21);
+    // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), the
+    // Evo Skeleton Barrel with its two drops, the Evo Mortar (its Goblin a loaded unit), and the Evo Royal Hogs with its
+    // grounded row last.
+    assert_eq!(db.cards.len(), n0 + 23);
     assert_eq!(db.cards[n0 + 20].name, "Mortar_EV1");
     assert!(db.cards[n0 + 20].evo.as_ref().and_then(|e| e.shot_spawn).is_some_and(|s| db.get(s.unit.unit).unit_name == "Goblin" && s.deploy_ms == 500));
+    assert_eq!(db.cards[n0 + 21].name, "RoyalHogs_EV1");
+    assert_eq!(db.cards[n0 + 22].name, "RoyalHog_EV1_Grounded");
+    assert!(db.cards[n0 + 21].evo.as_ref().and_then(|e| e.fall.as_ref()).is_some_and(|f| f.grounded.unit as usize == n0 + 22 && f.at_hp_pct == 99 && f.on_attack));
     let barrel: Vec<&str> = db.cards[n0 + 17..n0 + 20].iter().map(|c| c.name.as_str()).collect();
     assert_eq!(barrel, ["SkeletonBalloon_EV1", "SkeletonBalloonEvoDummyAeO_EXTRA", "SkeletonBalloonEvoDummyAeO_DEATH"]);
     assert!(db.cards[n0 + 18].summon_only && db.cards[n0 + 19].summon_only && db.cards[n0 + 18].death_bomb_fuse_ms() == Some(600));

@@ -3657,7 +3657,7 @@ def globals_block(v: Vintage) -> dict:
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
-    "Mortar_EV1",
+    "Mortar_EV1", "RoyalHogs_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4302,6 +4302,94 @@ def army_block(t: Tables, card: dict, s: dict) -> dict:
     }
 
 
+# THE EVO ROYAL HOGS' FALL (`fall_block`): the columns a grounded row may set beside its flying row's (the two hooks
+# cleared, the display, and JumpHeight, which its flying row inherits at the same value), and the display-only keys of
+# the fall's group and of the air-to-ground action.
+FALL_GROUNDED_SET = {
+    "Base", "ClonedVersion", "VisualActions", "HideHealthbar", "FileName", "BlueExportName", "RedExportName", "Scale",
+    "DeathEffect", "MoveEffect", "DamageEffect", "AttackStartEffect", "OnStartingAction", "OnAttackAction",
+    "JumpHeight",
+}
+
+
+def fall_block(t: Tables, card: dict) -> dict:
+    """THE EVO ROYAL HOGS' FALL (spells_evolved RoyalHogs_EV1; characters/royal_hog_ev1.toml), read whole or the build
+    stops. The unit (RoyalHog_EV1) flies (its FlyingHeight); it falls once:
+      - OnStartingAction: an ActionRunActionAtHealth of one HealthPercentages line (`at_hp_pct`) running one group, the
+        same group as OnAttackAction (`on_attack`);
+      - the group: an ActionGroup, every step at delay 0 (a short SubActionsDelay list pads with 0), run only while its
+        ExecuteIfTrue tag is unset: one ActionAirToGround and animations or effects;
+      - the ActionAirToGround: TransitionDuration (`transition_ms`), a TotalDuration past any battle, Singleton, the
+        tag set (the fall runs once), CloneTriggersLandingActions false, and ActionOnGround a group of an
+        ActionChangeGameObjectData to the grounded row (`grounded`, delay 0), an ActionSpawn of an area whose source is
+        the hog (`landing_area`, delay 0) and an ActionResetPath (`reset_path_ms`, its delay);
+      - the grounded row: the flying row but for the two hooks cleared and display columns (FALL_GROUNDED_SET): the
+        same stats on the ground. Its inherited FlyingHeight is the flying row's; the fall, not the row, grounds it."""
+    acts = t["actions"]
+    unit = card["summon_character"]
+    _, urow = unit_record(t, unit)
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"RoyalHogs_EV1: {what}")
+
+    hp = acts.get(urow["OnStartingAction"]) if isinstance(urow["OnStartingAction"], str) else None
+    need(hp is not None and hp["ClassType"] == "ActionRunActionAtHealth", f"{unit}'s OnStartingAction")
+    need(_present(hp) <= {"ClassType", "HealthPercentages", "Actions"}, "the health trigger's keys")
+    pcts = _action_list(acts, urow["OnStartingAction"], "HealthPercentages")
+    runs = _action_list(acts, urow["OnStartingAction"], "Actions")
+    need(len(pcts) == 1 and len(runs) == 1 and isinstance(pcts[0], int) and 0 < pcts[0] < 100, "one health line")
+    grp = runs[0]
+    need(urow["OnAttackAction"] == grp, "OnAttackAction runs another group")
+    g = acts.get(grp)
+    group_keys = {"ClassType", "SubActions", "SubActionsDelay", "ExecuteIfTrue"}
+    need(g is not None and g["ClassType"] == "ActionGroup" and _present(g) <= group_keys, f"group {grp}")
+    subs = _action_list(acts, grp, "SubActions")
+    delays = _action_list(acts, grp, "SubActionsDelay")
+    need(len(delays) <= len(subs) and all(d == 0 for d in delays), f"{grp}'s delays")
+    fall = [s for s in subs if acts.get(s)["ClassType"] == "ActionAirToGround"]
+    need(len(fall) == 1, f"{grp}: one ActionAirToGround")
+    for s in subs:
+        need(s in fall or acts.get(s)["ClassType"] in ("ActionRunForcedAnimationOnce", "ActionPlayEffect"), f"step {s}")
+    a = acts.get(fall[0])
+    fall_keys = {"ClassType", "TransitionDuration", "TotalDuration", "Singleton", "ActionOnGround", "GameTagsToSet",
+                 "CloneTriggersLandingActions"}
+    need(_present(a) == fall_keys, f"{fall[0]}'s keys")
+    tag = a["GameTagsToSet"]
+    need(g["ExecuteIfTrue"] == f"!{tag}" and a["Singleton"] is True and a["CloneTriggersLandingActions"] is False,
+         "the fall's once-only tag")
+    need(isinstance(a["TransitionDuration"], int) and a["TransitionDuration"] > 0 and a["TotalDuration"] >= 999999,
+         "the fall's clock")
+    landed = a["ActionOnGround"]
+    ls, ld = _action_list(acts, landed, "SubActions"), _action_list(acts, landed, "SubActionsDelay")
+    need(acts.get(landed) is not None and acts.get(landed)["ClassType"] == "ActionGroup" and len(ls) == 3
+         and len(ld) == 3, f"landing group {landed}")
+    by = {acts.get(s)["ClassType"]: (s, d) for s, d in zip(ls, ld, strict=True)}
+    need(sorted(by) == ["ActionChangeGameObjectData", "ActionResetPath", "ActionSpawn"], f"{landed}'s steps")
+    ch, sp, rp = (acts.get(by[k][0]) for k in ("ActionChangeGameObjectData", "ActionSpawn", "ActionResetPath"))
+    need(_present(ch) == {"ClassType", "NewCharacterData"} and by["ActionChangeGameObjectData"][1] == 0,
+         "the row change")
+    need(_present(sp) == {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource"}
+         and sp["SpawnType"] == "AreaEffectType" and sp["ParentGOAsSource"] is True and by["ActionSpawn"][1] == 0,
+         "the landing area")
+    need(_present(rp) == {"ClassType"}, "the path reset")
+    grounded = ch["NewCharacterData"]
+    _, grow = unit_record(t, grounded)
+    extra = t["characters"].set_fields.get(grounded, set()) - FALL_GROUNDED_SET
+    need(not extra and grow["Base"] == f"CHARACTER.{unit}" and not grow["OnStartingAction"]
+         and not grow["OnAttackAction"] and grow["JumpHeight"] == urow["JumpHeight"],
+         f"grounded row {grounded} ({sorted(extra)})")
+    need(t["area_effect_objects"].get(sp["SpawnData"]) is not None, f"no area {sp['SpawnData']}")
+    return {
+        "at_hp_pct": pcts[0],
+        "on_attack": True,
+        "transition_ms": a["TransitionDuration"],
+        "grounded": norm_unit(t, grounded, with_raw=True),
+        "landing_area": sp["SpawnData"],
+        "reset_path_ms": by["ActionResetPath"][1],
+    }
+
+
 def shot_spawn_block(t: Tables, card: dict) -> dict:
     """Mortar_EV1's shot (projectiles_evo.toml MortarProjectile_EV1), read whole or the build stops: its SpawnCharacter
     (`unit`), one of it (SpawnCharacterCount blank or 1, its level the card's: no SpawnCharacterLevelIndex), deploying
@@ -4541,6 +4629,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_barrel"] = barrel_block(t, card)
         elif name == "Mortar_EV1":
             card["evo_shot_spawn"] = shot_spawn_block(t, card)
+        elif name == "RoyalHogs_EV1":
+            card["evo_fall"] = fall_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

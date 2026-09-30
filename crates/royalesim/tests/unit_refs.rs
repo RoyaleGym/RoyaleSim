@@ -296,6 +296,10 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(s) = c.evo.as_ref().and_then(|v| v.shot_spawn.as_ref()) {
         out.push((UnitRef::EvoUnit(0), s.unit.unit, None));
     }
+    // the Evo Royal Hogs' grounded row
+    if let Some(f) = c.evo.as_ref().and_then(|v| v.fall.as_ref()) {
+        out.push((UnitRef::EvoUnit(0), f.grounded.unit, None));
+    }
     // every entry of the card's deploy spawn area (the Tri Wizards' TriWizardSpawn): entry 0 the card itself, then the
     // cards whose deploy areas its actions make
     if let Some(SpellDef { shape: SpellShape::ScheduledArea { schedule, .. }, .. }) = &c.deploy_spawn_area {

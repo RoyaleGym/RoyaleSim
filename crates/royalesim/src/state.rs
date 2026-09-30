@@ -6773,6 +6773,15 @@ pub const CHAIN_SUB_STEP: i32 = 250;
 /// point and its group.
 type SpectralToMake = (Team, u16, i32, Vec2, u32);
 
+/// AN EVO ROYAL HOG'S FALL (card.rs `FallDef`; `fall_pass`): the hog, its flying row, and the tick it lands (None
+/// while it flies untriggered). Saved and hashed (`BattleState::falls`, only when not empty).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FallRun {
+    pub id: EntityId,
+    pub card: u16,
+    pub land_at: Option<u32>,
+}
+
 /// A HERO MINI PEKKA'S QUEST (card.rs `QuestDef`; `quest_pass`): the hero, the tick it was created, the bar's fill
 /// (ms), the stack, the times the bar has filled, and whether it has stopped (the press, or its last fill). Saved and
 /// hashed (`BattleState::quests`, only when not empty).
@@ -7829,6 +7838,8 @@ pub struct BattleState {
     lifts: Vec<LiftRun>,
     /// The heroes' quests (`QuestRun`), in creation order. Empty in every battle without one.
     quests: Vec<QuestRun>,
+    /// The evolved fliers that fall (`FallRun`), in creation order. Empty in every battle without one.
+    falls: Vec<FallRun>,
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
@@ -8226,6 +8237,7 @@ impl BattleState {
             spins: Vec::new(),
             lifts: Vec::new(),
             quests: Vec::new(),
+            falls: Vec::new(),
             deflects: Vec::new(),
             commands: Vec::new(),
             commands_run: Vec::new(),
@@ -8381,6 +8393,10 @@ impl BattleState {
             if matches!(c.ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::LevelUp { .. })) {
                 self.quests.push(QuestRun { id, born: self.tick, filled_ms: 0, stack: 0, resets: 0, stopped: false });
             }
+        }
+        // AN EVOLVED FLIER THAT FALLS (card.rs `FallDef`, the Evo Royal Hogs): watched from its creation (`fall_pass`).
+        if c.evo.as_ref().is_some_and(|v| v.fall.is_some()) {
+            self.falls.push(FallRun { id, card, land_at: None });
         }
         // StartWithBuffWhenNotAttacking false (card.rs `starts_visible`, the Evo Royal Ghost's pair): visible from its
         // creation, its idle time counted from now (target.rs `invisible_at`).
@@ -8740,6 +8756,14 @@ impl BattleState {
         let cards = self.cfg.cards.clone();
         let Some(evo) = cards.get(self.ents.card[i]).evo.as_ref() else { return };
         let id = self.ents.id_of(i);
+        // THE EVO ROYAL HOGS' FALL ON ITS ATTACK (card.rs `FallDef::on_attack`): its first hit triggers it, on this tick.
+        #[cfg(not(clash_plant = "fall_on_attack_unread"))]
+        if let Some(f) = evo.fall.as_ref().filter(|f| f.on_attack) {
+            let land = self.tick + (f.transition_ms / self.cfg.calib.tick_ms.max(1)) as u32 + 1;
+            if let Some(r) = self.falls.iter_mut().find(|r| r.id == id && r.land_at.is_none()) {
+                r.land_at = Some(land);
+            }
+        }
         // THE EVO ROYAL GHOST'S PAIR (card.rs `GhostDef`): a hit it made while hidden, by its own idle window whatever
         // targeting.INVISIBILITY says: its first hit, or one INVIS_VISIBLE_AFTER_HIT_EXTRA ticks or more past its idle
         // time after the tick its last hit revealed it from (target.rs `invisible_at`).
@@ -11665,6 +11689,10 @@ impl BattleState {
         if !self.quests.is_empty() {
             self.quest_pass();
         }
+        // The evolved fliers that fall (`fall_pass`).
+        if !self.falls.is_empty() {
+            self.fall_pass();
+        }
         if !self.hero_units.is_empty() {
             let ents = &self.ents;
             self.hero_units.retain(|h| ents.is_alive(h.id));
@@ -13017,6 +13045,55 @@ impl BattleState {
         self.spells.extend(made);
         let ents = &self.ents;
         self.evo.barrel_drops.retain(|id| ents.is_alive(*id));
+    }
+
+    /// THE EVOLVED FLIERS THAT FALL (card.rs `FallDef`, `FallRun`), in the Status phase: a flier still in the air whose
+    /// hitpoints are at or below its line (a blow in the last tick's Resolve) is triggered now (its first hit triggers it
+    /// in `evo_after_fire`); it lands `transition_ms` and a tick after the trigger, becoming its grounded row (its target
+    /// and swing kept) on the ground; on the next tick its landing area strikes on its point, and `reset_path_ms` after
+    /// the landing its path is dropped. A hog gone ends its fall.
+    fn fall_pass(&mut self) {
+        let tick = self.cfg.calib.tick_ms.max(1);
+        let cards = self.cfg.cards.clone();
+        let runs = std::mem::take(&mut self.falls);
+        let mut keep = Vec::new();
+        for mut r in runs {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            let i = r.id.index as usize;
+            let Some(f) = cards.get(r.card).evo.as_ref().and_then(|v| v.fall.as_ref()) else { continue };
+            if r.land_at.is_none() && (self.ents.hp[i] as i64) * 100 <= (self.ents.max_hp[i] as i64) * (f.at_hp_pct as i64) {
+                r.land_at = Some(self.tick + (f.transition_ms / tick) as u32 + 1);
+            }
+            let Some(land) = r.land_at else {
+                keep.push(r);
+                continue;
+            };
+            #[cfg(clash_plant = "fall_never")]
+            let land = {
+                let _ = land;
+                u32::MAX // PLANT: a triggered hog never lands.
+            };
+            if self.tick == land {
+                self.rebind_unit(i, f.grounded.unit, false);
+                self.ents.flying[i] = false;
+            }
+            #[cfg(not(clash_plant = "landing_blow_dropped"))]
+            if self.tick == land + 1 {
+                let (team, level, pos) = (self.ents.team[i], self.ents.level[i], self.ents.pos[i]);
+                let blow = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, r.card, level, pos, self.tick).expect("the landing area loads with its card");
+                self.spells.extend(blow);
+            }
+            if self.tick >= land.saturating_add((f.reset_path_ms / tick).max(1) as u32) {
+                self.ents.route[i].clear();
+                self.ents.route_goal[i] = None;
+                self.ents.seg_dir[i] = Vec2::default();
+                continue;
+            }
+            keep.push(r);
+        }
+        self.falls = keep;
     }
 
     /// A HERO'S LEVEL SET (card.rs `AbilityEffect::LevelUp`): entity `i` goes `gain` levels up (to the highest its
@@ -21490,6 +21567,16 @@ impl BattleState {
                 h.u32(r.moves);
             }
         }
+        // The fliers that fall, only when there are some.
+        if !self.falls.is_empty() {
+            h.u32(0x4641_4c4c);
+            h.u32(self.falls.len() as u32);
+            for f in &self.falls {
+                h.id(f.id);
+                h.u32(u32::from(f.card));
+                h.u32(f.land_at.map_or(0, |t| t + 1));
+            }
+        }
         // The heroes' quests, only when there are some.
         if !self.quests.is_empty() {
             h.u32(0x5155_4553);
@@ -22329,6 +22416,9 @@ struct Snapshot {
     /// The heroes' quests (`BattleState::quests`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     quests: Vec<QuestRun>,
+    /// The fliers that fall (`BattleState::falls`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    falls: Vec<FallRun>,
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
@@ -23010,6 +23100,7 @@ impl BattleState {
             spins: self.spins.clone(),
             lifts: self.lifts.clone(),
             quests: self.quests.clone(),
+            falls: self.falls.clone(),
             deflects: self.deflects.clone(),
             command_delay_ticks: c.command_delay_ticks,
             commands: self.commands.clone(),
@@ -23266,6 +23357,7 @@ impl BattleState {
             spins: snap.spins,
             lifts: snap.lifts,
             quests: snap.quests,
+            falls: snap.falls,
             deflects: snap.deflects,
             commands: snap.commands,
             commands_run: Vec::new(),

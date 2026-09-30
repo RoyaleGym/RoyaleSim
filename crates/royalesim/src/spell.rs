@@ -359,6 +359,7 @@ pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::Spell
         .or(def.projectile_area.as_ref())
         .or(def.evo.as_ref().and_then(|v| v.barrage.as_ref()).map(|b| &b.shot))
         .or(def.evo.as_ref().and_then(|v| v.ghost.as_ref()).map(|g| &g.strike))
+        .or(def.evo.as_ref().and_then(|v| v.fall.as_ref()).map(|f| &f.landing))
         .or(def.idle_area.as_ref())
         .or(def.deploy_spawn_area.as_ref())
 }
