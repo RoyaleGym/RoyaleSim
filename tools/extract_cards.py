@@ -5930,7 +5930,9 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
         # The form's kind is its base card's: Cannon_EV1 is an [EXT] of CHARACTER.Cannon, filed under characters,
         # with IsBuilding inherited true.
         _, urow = unit_record(t, card["summon_character"])
-        card["kind"] = "building" if urow["IsBuilding"] else kind
+        # A form whose unit is not a building keeps the kind `summon_card` gave it by what it puts on the board (the Evo
+        # Furnace's Furnace_EV1 walks, as its base's Furnace_rework does).
+        card["kind"] = "building" if urow["IsBuilding"] else card["kind"]
         card.pop("card_table_kind", None)
         card["form_of"] = b["Name"]
         card["spells_evolved_row"] = list(ev.records).index(name)

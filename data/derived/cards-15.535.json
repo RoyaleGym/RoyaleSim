@@ -84385,7 +84385,7 @@
   {
    "name": "FirespiritHut_EV1",
    "display_name": "Firespirit Hut_EV1",
-   "kind": "building",
+   "kind": "troop",
    "elixir": 4,
    "rarity": "Rare",
    "summon_character": "Furnace_EV1",

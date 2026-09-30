@@ -38,12 +38,13 @@ fn its_area_stands_where_the_shot_landed_and_hits_once_3000_ms_on() {
     }
     s.tick();
     s.tick();
-    // The spirit 2500 short of a red Knight, a red Musketeer 2040 from the Knight (in the shot's splash), both held.
+    // The spirit 2500 short of a red Knight, a red Giant 2040 from the Knight (in the shot's splash; it targets buildings
+    // only, so it cannot shoot the spirit while it deploys, as a Musketeer there did), both held.
     let (kn_at, mu_at) = (n(9000, 13000), n(7000, 13400));
     s.spawn_unit(Team::Blue, "IceSpirits_EV1", n(9000, 10500), None).expect("the spirit");
     let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
-    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", mu_at, None).expect("a red Musketeer");
-    let (ktop, mtop) = (s.entity(knight).expect("the Knight").max_hp, s.entity(musk).expect("the Musketeer").max_hp);
+    let musk = s.scenario_spawn_now(Team::Red, "Giant", mu_at, None).expect("a red Giant");
+    let (ktop, mtop) = (s.entity(knight).expect("the Knight").max_hp, s.entity(musk).expect("the Giant").max_hp);
     let (mut landed, mut kh, mut mh) = (None, Vec::new(), Vec::new());
     // The spirit's first 60 frames (point, attack phase, target, shots in flight), for the message if the shot never lands.
     let mut trail = Vec::new();
@@ -58,7 +59,7 @@ fn its_area_stands_where_the_shot_landed_and_hits_once_3000_ms_on() {
             trail.push((k, sp, s.projectiles().len()));
         }
         kh.push(s.entity(knight).expect("the Knight").hp);
-        mh.push(s.entity(musk).expect("the Musketeer").hp);
+        mh.push(s.entity(musk).expect("the Giant").hp);
         if landed.is_none() && kh[k] < ktop {
             landed = Some(k);
         }
@@ -68,11 +69,11 @@ fn its_area_stands_where_the_shot_landed_and_hits_once_3000_ms_on() {
     }
     let h = landed.unwrap_or_else(|| panic!("the shot never landed on the Knight: {trail:?}"));
     assert_eq!((kh[h], mh[h]), (ktop - 110, mtop - 110), "the shot's 110 on both");
-    // The area stands where the shot landed: one hit of 110 on the landing + 60 on the Musketeer beside that point, none
+    // The area stands where the shot landed: one hit of 110 on the landing + 60 on the Giant beside that point, none
     // on the Knight 4500 off it.
     for k in h..=h + 70 {
         let want = if k < h + 60 { mtop - 110 } else { mtop - 220 };
-        assert_eq!(mh[k], want, "the Musketeer on frame {k} (landed on {h}): {:?}", &mh[h..]);
+        assert_eq!(mh[k], want, "the Giant on frame {k} (landed on {h}): {:?}", &mh[h..]);
         assert_eq!(kh[k], ktop - 110, "the Knight on frame {k} (landed on {h}): {:?}", &kh[h..]);
     }
 }

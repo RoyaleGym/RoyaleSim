@@ -10052,8 +10052,8 @@ impl CardDb {
             // select and turn, and the hat's layer (`furnace_block` reads them whole).
             &["ActionAnimatorLayer", "ActionFlipFlop", "ActionGroup", "ActionInterval", "ActionPlayEffect", "ActionSelect", "ActionSetVariable", "ActionSpawnToLocation", "ActionWithDuration"]
         } else if extra.evo_dart_poison.is_some() {
-            // The dart select (`dart_poison_block` reads it, and the dart's controller, whole).
-            &["ActionBlowdartGoblinEvoDartSelect"]
+            // The dart select and the dart's controller (`dart_poison_block` reads them whole).
+            &["ActionBlowdartGoblinEvoController", "ActionBlowdartGoblinEvoDartSelect"]
         } else if extra.evo_net.is_some() {
             // The net and its effects (`net_block` reads them, and the net's hit, whole).
             &["ActionHunterNetAttack", "ActionPlayEffect"]
