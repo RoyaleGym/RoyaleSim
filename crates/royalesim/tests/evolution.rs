@@ -508,7 +508,8 @@ fn forms_take_slots_after_every_existing_card() {
             ("Hunter", "Hunter_EV1"),
             ("BlowdartGoblin", "BlowdartGoblin_EV1"),
             ("FirespiritHut", "FirespiritHut_EV1"),
-            ("ElectroDragon", "ElectroDragon_EV1")
+            ("ElectroDragon", "ElectroDragon_EV1"),
+            ("GoblinDrill", "GoblinDrill_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
@@ -521,8 +522,13 @@ fn forms_take_slots_after_every_existing_card() {
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
     // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess,
-    // the Evo Hunter, the Evo Dart Goblin, the Evo Furnace and the Evo Electro Dragon.
-    assert_eq!(db.cards.len(), n0 + 50);
+    // the Evo Hunter, the Evo Dart Goblin, the Evo Furnace, the Evo Electro Dragon and the Evo Goblin Drill with its
+    // building.
+    assert_eq!(db.cards.len(), n0 + 52);
+    assert_eq!((db.cards[n0 + 50].name.as_str(), db.cards[n0 + 51].name.as_str()), ("GoblinDrill_EV1", "units.GoblinDrill_EV1"));
+    let dr = db.cards[n0 + 51].evo.as_ref().and_then(|e| e.drill).expect("the Evo Goblin Drill building's hides");
+    assert!(dr.thresholds == [66, 33] && dr.waves == [[-1, 1], [-1, 0]] && dr.hide_ms == 1000 && dr.goblin_deploy_ms == 500 && db.cards[dr.goblin as usize].name == "Goblin");
+    assert_eq!(db.cards[n0 + 50].spawn_pathfind.and_then(|p| p.morph), Some((n0 + 51) as u16), "the form's dig morphs into its building");
     assert_eq!(db.cards[n0 + 49].name, "ElectroDragon_EV1");
     let ch = db.cards[n0 + 49].evo.as_ref().and_then(|e| e.chain).expect("the Evo Electro Dragon's chain");
     assert!(ch.remember == 2 && ch.range == 4000 * K && ch.strong == 3 && ch.towers_until == 2 && ch.weak_damage == 25 && ch.weak_speed == 400);

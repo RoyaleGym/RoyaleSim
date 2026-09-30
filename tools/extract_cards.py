@@ -3704,7 +3704,7 @@ EVOLUTIONS = (
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
-    "FirespiritHut_EV1", "ElectroDragon_EV1",
+    "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -5071,6 +5071,87 @@ def net_block(t: Tables, card: dict) -> dict:
             "ground_ms": ground[0]["TotalDuration"]}
 
 
+# THE EVO GOBLIN DRILL (`drill_block`): its dig's and its building's columns besides display, and its actions' keys.
+DRILL_DIG_ROW = {"SpawnPathfindMorph"}
+DRILL_ROW = {"OnStartingAction", "SpawnAreaObject", "ClonedVersion"}
+DRILL_RELOCATE = {"ClassType", "HideTime", "SpawnCharaterRadius", "OnHideEffect", "OnReappearEffect",
+                  "TargetEffectList",
+                  "HideHpThresholds", "UseDistanceBasedPositioning", "FirstAppearAction", "HideActions"}
+DRILL_SPAWN = {"ClassType", "SpawnType", "SpawnData", "DeployTime", "RelativeX", "RelativeY"}
+DRILL_FIRST = {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource"}
+DRILL_PHYSICS = {"ClassType", "ActionDuration", "GameTagsToSet"}
+
+
+def drill_block(t: Tables, card: dict) -> dict:
+    """THE EVO GOBLIN DRILL (characters/goblin_drill_ev1.toml), read whole or the build stops. Its dig is its base's dig
+    but for the building it morphs into (`morph`), which is its base's building but for its OnStartingAction and its
+    SpawnAreaObject (blank: the start's FirstAppearAction puts its base's area down instead). The start's
+    ActionGoblinDrillEvoRelocate hides the building at each HideHpThresholds line (`thresholds`) for HideTime
+    (`hide_ms`), each hide running its HideActions group: a DISABLE_PHYSICAL_INTERACTIONS tag for HideTime and,
+    `spawn_ms` on, one ActionSpawnToLocation per Goblin (`waves`: their RelativeX; RelativeY 0), of `goblin` for
+    `goblin_deploy_ms`. UseDistanceBasedPositioning is read and not run: the building did not move in the client
+    (Oracle's sp-f4-drill-s0)."""
+    dig = card["summon_character"]
+    acts = t["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{dig}: {what}")
+
+    def own(table: str, name: str, allowed: set[str]) -> set[str]:
+        return {c for c in t[table].set_fields.get(name, set()) - allowed - DATA_ONLY_DISPLAY
+                if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+
+    dtable, drow = unit_record(t, dig)
+    need(not own(dtable, dig, DRILL_DIG_ROW), f"its dig sets {sorted(own(dtable, dig, DRILL_DIG_ROW))}")
+    morph = drow["SpawnPathfindMorph"]
+    _, bdrow = unit_record(t, drow["Base"].split(".")[-1])
+    base_morph = bdrow["SpawnPathfindMorph"]
+    mtable, mrow = unit_record(t, morph)
+    _, brow = unit_record(t, base_morph)
+    need(mrow["Base"].split(".")[-1] == base_morph, f"its building {morph} is not an [EXT] of its base's {base_morph}")
+    need(not own(mtable, morph, DRILL_ROW), f"its building sets {sorted(own(mtable, morph, DRILL_ROW))}")
+    need(not mrow["SpawnAreaObject"], "its building keeps a SpawnAreaObject of its own")
+    start = group_subactions(t, mrow["OnStartingAction"], f"{morph} start")
+    need(len(start) == 2 and all(d == 0 for _, d in start) and _cosmetic_action(acts, start[1][0]),
+         f"its start {start}")
+    name = start[0][0]
+    rel = acts.get(name)
+    need(rel is not None and rel["ClassType"] == "ActionGoblinDrillEvoRelocate" and _present(rel) <= DRILL_RELOCATE,
+         f"its relocate ({sorted(_present(rel)) if rel is not None else None})")
+    need(isinstance(rel["HideTime"], int) and rel["HideTime"] > 0, "its HideTime")
+    lines = col_list(acts, name, "HideHpThresholds")
+    hides = col_list(acts, name, "HideActions")
+    need(len(lines) == len(hides) >= 1 and lines == sorted(lines, reverse=True) and all(0 < x < 100 for x in lines),
+         f"its lines {lines} and hides {hides}")
+    first = acts.get(rel["FirstAppearAction"])
+    need(first is not None and first["ClassType"] == "ActionSpawn" and _present(first) <= DRILL_FIRST
+         and first["SpawnType"] == "AreaEffectType" and first["SpawnData"] == brow["SpawnAreaObject"],
+         "its first appearance is not its base's area")
+    goblin = brow["DeathSpawnCharacter"]
+    waves, delay, deploy = [], None, None
+    for h in hides:
+        subs = group_subactions(t, h, f"{morph} hide")
+        phys = acts.get(subs[0][0])
+        need(subs[0][1] == 0 and phys is not None and phys["ClassType"] == "ActionWithDuration"
+             and _present(phys) <= DRILL_PHYSICS and phys["ActionDuration"] == rel["HideTime"]
+             and phys["GameTagsToSet"] == "DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS", f"its hide {h}'s tag")
+        xs = []
+        for n, d in subs[1:]:
+            a = acts.get(n)
+            need(a is not None and a["ClassType"] == "ActionSpawnToLocation" and _present(a) <= DRILL_SPAWN
+                 and a["SpawnType"] == "CharacterType" and a["SpawnData"] == goblin and a["RelativeY"] == 0
+                 and isinstance(a["RelativeX"], int) and a["RelativeX"] in (-1, 1), f"its hide {h}'s spawn {n}")
+            need(delay in (None, d) and deploy in (None, a["DeployTime"]), f"its hide {h}'s spawns differ")
+            delay, deploy = d, a["DeployTime"]
+            xs.append(a["RelativeX"])
+        need(1 <= len(xs) <= 2, f"its hide {h}'s Goblins {xs}")
+        waves.append(xs)
+    need(isinstance(delay, int) and delay > 0 and isinstance(deploy, int), "its hides' timing")
+    return {"morph": morph, "hide_ms": rel["HideTime"], "thresholds": lines, "waves": waves, "goblin": goblin,
+            "goblin_deploy_ms": deploy, "spawn_ms": delay}
+
+
 # THE EVO ELECTRO DRAGON (`evo_chain_block`): the unit row's columns it reads besides display, and the chain's keys.
 EVO_CHAIN_ROW = {"AttackSequenceList", "ClonedVersion", "StatsTags", "UseAnimator"}
 EVO_CHAIN_KEYS = {"ClassType", "Projectiles", "ChainRange", "ChainTargets", "AbortIfInstigatorDies", "MaxChainLength",
@@ -6002,6 +6083,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_furnace"] = furnace_block(t, card)
         elif name == "ElectroDragon_EV1":
             card["evo_chain"] = evo_chain_block(t, card)
+        elif name == "GoblinDrill_EV1":
+            card["evo_drill"] = drill_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

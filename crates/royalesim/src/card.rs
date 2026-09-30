@@ -1957,6 +1957,8 @@ pub struct EvoDef {
     pub furnace: Option<FurnaceDef>,
     /// Evo Electro Dragon: his shot's endless chain (`EvoChainDef`).
     pub chain: Option<EvoChainDef>,
+    /// Evo Goblin Drill: its building's hides (`DrillDef`), on the form and on the building it morphs into.
+    pub drill: Option<DrillDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4271,6 +4273,8 @@ struct RawEvolution {
     evo_furnace: Option<RawFurnace>,
     /// The Evo Electro Dragon's endless chain (`evo_chain_block`).
     evo_chain: Option<RawEvoChain>,
+    /// The Evo Goblin Drill's hides (`drill_block`).
+    evo_drill: Option<RawDrill>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4333,6 +4337,18 @@ struct RawCage {
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_drill` (tools/extract_cards.py `drill_block`).
+#[derive(Deserialize)]
+struct RawDrill {
+    morph: Option<String>,
+    hide_ms: Option<i32>,
+    thresholds: Option<Vec<i32>>,
+    waves: Option<Vec<Vec<i32>>>,
+    goblin: Option<String>,
+    goblin_deploy_ms: Option<i32>,
+    spawn_ms: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_chain` (tools/extract_cards.py `evo_chain_block`).
@@ -4500,6 +4516,35 @@ pub const EVO_FIREWORKS: u8 = u8::MAX - 2;
 pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
 /// The Evo Princess's freezing arrow's area (`FreezeVolleyDef::area`).
 pub const EVO_FREEZE_AREA: u8 = u8::MAX - 4;
+
+/// THE EVO GOBLIN DRILL'S HIDES (tools/extract_cards.py `drill_block`; state.rs EvoBoard `drills`, `drill_pass`, the
+/// holds in `phase_status` and `spawner_pass`): its dig morphs into its own building, its base's in play. At each of
+/// `thresholds` (its hitpoints' floored percent at or below the line, on a tick's hitpoints after the tick's damage) the
+/// building goes under where it stands: Hidden (untargetable, unhurt) for `hide_ms` and DRILL_RISE_TICKS more, its
+/// LifeTime's drain held from the next tick through the tick it is up again, its spawner held DRILL_SPAWNER_HOLD_TICKS;
+/// `spawn_ms` after it went under the line's Goblins (`waves`: RelativeX, spawner.RELATIVE_SPAWN_OFFSET's frame; 0
+/// none) stand, deploying `goblin_deploy_ms`.
+///
+/// Measured on client 15.535.29, level 11 (Oracle's sp-f4-drill-s0): under on t1011 (879 of 1313) and t1116 (446), 20
+/// ticks in state 6 and 19 in state 4, up from t1050; its hitpoints frozen at 879 to t1050, draining from t1051; two
+/// Goblins on t1012 at x - 500 and x + 500 (RelativeX -1 and 1), one on t1117 at x + 500; its regular Goblins 97 ticks
+/// apart across each hide; it stayed where it was (the table's UseDistanceBasedPositioning is not run). Read off the
+/// table, not measured: its collisions while under.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DrillDef {
+    pub thresholds: [u8; 2],
+    pub waves: [[i8; 2]; 2],
+    pub hide_ms: i32,
+    pub goblin: u16,
+    pub goblin_deploy_ms: i32,
+    pub spawn_ms: i32,
+}
+
+/// The ticks an Evo Goblin Drill takes to come back up after its HideTime (`DrillDef`): measured 19 (state 4).
+pub const DRILL_RISE_TICKS: u32 = 19;
+/// The ticks an Evo Goblin Drill's spawner is held by each hide (`DrillDef`): measured 37 (its regular Goblins 97 ticks
+/// apart across a hide, 60 without).
+pub const DRILL_SPAWNER_HOLD_TICKS: u32 = 37;
 
 /// THE EVO ELECTRO DRAGON'S CHAIN (tools/extract_cards.py `evo_chain_block`; state.rs `evo_after_fire`; combat.rs
 /// `EvoHop`, `chain_next_remember`): his shot chains without end. From the unit it hit, it hops to the closest enemy
@@ -10001,6 +10046,7 @@ impl CardDb {
             extra.evo_dart_poison.is_some(),
             extra.evo_furnace.is_some(),
             extra.evo_chain.is_some(),
+            extra.evo_drill.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -10184,9 +10230,25 @@ impl CardDb {
         // A RAM FORM'S DEATH SPAWN (Barbarian_EV1): its own unit row, loaded here as a summon-only record after the form,
         // carrying the rage it lands after its hits (`HitRageDef`) in an EvoDef of its own.
         let mut death: Option<CardDef> = None;
+        // THE EVO GOBLIN DRILL'S BUILDING (its dig's morph): its base's building in play, under its own name.
+        let mut morph: Option<CardDef> = None;
         // THE EVO ICE SPIRITS' AREA, riding its shot's target (`EvoDef::impact_area`), made from the area below.
         let mut impact: Option<AttachedArea> = None;
         for (which, u) in needs {
+            // THE EVO GOBLIN DRILL'S BUILDING: its base's building in play (`drill_block` holds the two rows alike but for
+            // the block's own columns), named units.GoblinDrill_EV1 as a unit record beside a card of its name is.
+            if let (Some(d), UnitUse::Morph) = (extra.evo_drill.as_ref(), &which) {
+                if d.morph.as_deref() != Some(u.as_str()) || morph.is_some() {
+                    return Err(format!("morph {u} is not the drill's one building {:?}", d.morph));
+                }
+                let bm = bc.spawn_pathfind.and_then(|p| p.morph).filter(|b| *b != u16::MAX).ok_or("a drill whose base digs to no building")?;
+                let mut m = self.get(bm).clone();
+                m.name = format!("units.{u}");
+                m.unit_name = u.clone();
+                m.summon_only = true;
+                morph = Some(m);
+                continue;
+            }
             // A FORM'S DEATH AREA (the Evo Princess's: a slow whose first update leaves a one-hit blow): its
             // `area_effect_objects` row, converted as a card's death area is.
             if which == UnitUse::DeathAreaEffect && extra.evo_freeze_volley.is_some() {
@@ -10288,6 +10350,7 @@ impl CardDb {
                     dart_poison: None,
                     furnace: None,
                     chain: None,
+                    drill: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10496,6 +10559,7 @@ impl CardDb {
             dart_poison: None,
             furnace: None,
             chain: None,
+            drill: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10613,6 +10677,28 @@ impl CardDb {
                 hit_ms: pos(cg.hit_ms, "hit frequency")?,
                 cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
                 hide,
+            });
+        }
+        // THE HIDES (the Evo Goblin Drill's), read onto the form: its building gets the form's EvoDef when it is pushed.
+        if let Some(d) = &extra.evo_drill {
+            let m = morph.as_ref().ok_or("a drill form whose dig morphs into nothing")?;
+            let ds = m.death_spawn.ok_or("a drill building that puts down no Goblins when it dies")?;
+            if d.goblin.as_deref() != Some(self.get(ds.unit).unit_name.as_str()) {
+                return Err(format!("a drill whose hides' Goblin {:?} is not its building's death spawn", d.goblin));
+            }
+            let lines = d.thresholds.clone().unwrap_or_default();
+            let waves = d.waves.clone().unwrap_or_default();
+            if lines.len() != 2 || waves.len() != 2 || lines.iter().any(|x| !(1..100).contains(x)) || waves.iter().any(|w| w.is_empty() || w.len() > 2 || w.iter().any(|x| x.abs() != 1)) {
+                return Err(format!("a drill's lines {lines:?} and waves {waves:?} are not two of one or two Goblins"));
+            }
+            let wave = |k: usize| [waves[k][0] as i8, waves[k].get(1).copied().unwrap_or(0) as i8];
+            evo.drill = Some(DrillDef {
+                thresholds: [lines[0] as u8, lines[1] as u8],
+                waves: [wave(0), wave(1)],
+                hide_ms: d.hide_ms.filter(|x| *x > 0).ok_or("a drill with no HideTime")?,
+                goblin: ds.unit,
+                goblin_deploy_ms: d.goblin_deploy_ms.filter(|x| *x >= 0).ok_or("a drill with no Goblin DeployTime")?,
+                spawn_ms: d.spawn_ms.filter(|x| *x > 0).ok_or("a drill with no spawn delay")?,
             });
         }
         // THE ENDLESS CHAIN (the Evo Electro Dragon's): on a card whose homing shot chains.
@@ -11086,6 +11172,16 @@ impl CardDb {
             }
             if let Some(ds) = f.death_spawn.as_mut() {
                 ds.unit = first + 1;
+            }
+        }
+        // THE EVO GOBLIN DRILL'S BUILDING after the form, carrying the form's EvoDef (its hides); the form's dig morphs into
+        // it.
+        if let Some(m) = morph {
+            self.push(m, None)?;
+            let mi = (self.cards.len() - 1) as u16;
+            self.cards[mi as usize].evo = self.cards[form as usize].evo.clone();
+            if let Some(sp) = self.cards[form as usize].spawn_pathfind.as_mut() {
+                sp.morph = Some(mi);
             }
         }
         // The fall's grounded row after the form.

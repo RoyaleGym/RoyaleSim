@@ -6598,6 +6598,10 @@ pub struct EvoBoard {
     /// before it still loads; hashed only when not empty.
     #[serde(default)]
     pub furnaces: Vec<FurnaceRun>,
+    /// Each Evo Goblin Drill building's hides (card.rs `DrillDef`, `drill_pass`). `default` so a battle saved before it
+    /// still loads; hashed only when not empty.
+    #[serde(default)]
+    pub drills: Vec<DrillRun>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6681,6 +6685,24 @@ pub struct UppercutRun {
     pub root_from: u32,
     pub root_until: u32,
     pub pin: Option<Vec2>,
+}
+
+/// AN EVO GOBLIN DRILL BUILDING'S HIDES (card.rs `DrillDef`, `drill_pass`): the building, the next of its lines, the tick
+/// it last went under (0: never), and its hide's Goblins' tick (0: none) and line.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DrillRun {
+    pub id: EntityId,
+    pub next: u8,
+    pub under_at: u32,
+    pub wave_at: u32,
+    pub wave: u8,
+}
+
+impl DrillRun {
+    /// The ticks after its going under up to `ticks` on: T + 1 .. T + ticks.
+    fn after(&self, tick: u32, ticks: u32) -> bool {
+        self.under_at > 0 && tick > self.under_at && tick <= self.under_at + ticks
+    }
 }
 
 /// AN EVO FURNACE'S QUICK SPAWN (card.rs `FurnaceDef`, `furnace_pass`): the Furnace, its team, card, level and team
@@ -6786,6 +6808,7 @@ impl EvoBoard {
             && self.nets.is_empty()
             && self.poisons.is_empty()
             && self.furnaces.is_empty()
+            && self.drills.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -8653,6 +8676,10 @@ impl BattleState {
             self.lifetime_acc.resize(i + 1, 0);
         }
         self.lifetime_acc[i] = 0;
+        // AN EVO GOBLIN DRILL'S BUILDING hides at its lines (`drill_pass`), however it was made.
+        if kind == EntityKind::Building && c.evo.as_ref().is_some_and(|v| v.drill.is_some()) {
+            self.evo.drills.push(DrillRun { id, next: 0, under_at: 0, wave_at: 0, wave: 0 });
+        }
         #[cfg(clash_plant = "acquire_delay_every_unit")]
         self.delay_acquisition(i, false); // PLANT: every new troop waits, hand-played and periodic included.
         // A card's deploy projectile is not cast here: it belongs to the PLAY (`deploy_blow`, from `phase_spawn`).
@@ -10273,6 +10300,11 @@ impl BattleState {
             if action {
                 continue; // PLANT (regression): the loader reads the block and the engine never runs it.
             }
+            // AN EVO GOBLIN DRILL'S SPAWNER HELD by each hide (card.rs DRILL_SPAWNER_HOLD_TICKS), its count kept.
+            #[cfg(not(clash_plant = "drill_spawner_unheld"))]
+            if !self.evo.drills.is_empty() && self.evo.drills.iter().any(|r| r.id == e.id_of(i) && r.after(self.tick, crate::card::DRILL_SPAWNER_HOLD_TICKS)) {
+                continue;
+            }
             // AN EVO FURNACE'S INTERVAL HELD (card.rs `FurnaceDef`, EvoBoard `furnaces`): by its quick spawn or its moving
             // check's hold, its count kept.
             #[cfg(not(clash_plant = "furnace_normal_spawn_unpaused"))]
@@ -10402,6 +10434,56 @@ impl BattleState {
             self.ents.spawn_ms[i] = start;
             self.ents.spawn_wave_left[i] = 0;
         }
+        self.create_emissions(emissions, true);
+    }
+
+    /// THE EVO GOBLIN DRILLS' HIDES (card.rs `DrillDef`), at the end of Resolve, on this tick's hitpoints: a building due
+    /// its hide's Goblins puts them down (RelativeX in spawner.RELATIVE_SPAWN_OFFSET's frame, owned by it); one whose hide
+    /// is over comes up; one not under whose hitpoints' floored percent is at or below its next line goes under (Hidden)
+    /// and its Goblins are due `spawn_ms` on. A building gone ends its run.
+    fn drill_pass(&mut self) {
+        let cards = self.cfg.cards.clone();
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let mut emissions: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+        let mut runs = std::mem::take(&mut self.evo.drills);
+        runs.retain(|r| self.ents.is_alive(r.id));
+        for r in runs.iter_mut() {
+            let i = r.id.index as usize;
+            let Some(d) = cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.drill) else { continue };
+            let hide = (d.hide_ms / dt) as u32 + crate::card::DRILL_RISE_TICKS;
+            if r.wave_at == tick {
+                let team = self.ents.team[i];
+                let unit = cards.get(d.goblin);
+                let level = cards.spawner_level(self.ents.card[i], self.ents.level[i]).expect("spawner level validated at deploy");
+                for (k, x) in d.waves[r.wave as usize].iter().copied().filter(|x| *x != 0).enumerate() {
+                    let ox = match self.cfg.calib.relative_spawn_offset {
+                        RelativeSpawnOffset::HalfTileOwnerLeft => -500 * i32::from(x),
+                        RelativeSpawnOffset::TilesOwnerFrame => 1000 * i32::from(x),
+                    };
+                    let wx = if team == Team::Blue { ox } else { -ox };
+                    let at = self.ents.pos[i];
+                    let point = Vec2::new(at.x + wx * crate::fixed::SUBTILE_PER_MILLITILE, at.y);
+                    let pos = self.formation_points(team, 1, unit.collision_radius, unit.is_flying(), point)[0];
+                    emissions.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: d.goblin, level, pos, deploy_ms: Some(d.goblin_deploy_ms), owner: Some(r.id), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
+                }
+                r.wave_at = 0;
+            }
+            if r.under_at > 0 && tick == r.under_at + hide {
+                self.ents.hide[i] = HideState::Up;
+            }
+            let under = r.under_at > 0 && tick < r.under_at + hide;
+            #[cfg(not(clash_plant = "drill_hide_never"))]
+            if let Some(line) = d.thresholds.get(usize::from(r.next)).copied().filter(|_| !under && self.ents.hp[i] > 0) {
+                if i64::from(self.ents.hp[i]) * 100 / i64::from(self.ents.max_hp[i].max(1)) <= i64::from(line) {
+                    r.under_at = tick;
+                    r.wave = r.next;
+                    r.wave_at = tick + (d.spawn_ms / dt).max(1) as u32;
+                    r.next += 1;
+                    self.ents.hide[i] = HideState::Hidden;
+                }
+            }
+        }
+        self.evo.drills = runs;
         self.create_emissions(emissions, true);
     }
 
@@ -12286,6 +12368,15 @@ impl BattleState {
             let decay = if self.ents.kind[i] == EntityKind::Troop { troop_decay } else { decay };
             if lifetime_paused && self.ents.stun_ms[i] > 0 {
                 continue;
+            }
+            // AN EVO GOBLIN DRILL UNDER GROUND drains nothing, from the tick after it went under through the tick it is up
+            // again (card.rs `DrillDef`).
+            #[cfg(not(clash_plant = "drill_hide_drains"))]
+            if !self.evo.drills.is_empty() {
+                let (id, hold) = (self.ents.id_of(i), self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.drill).map(|d| (d.hide_ms / dt.max(1)) as u32 + crate::card::DRILL_RISE_TICKS));
+                if hold.is_some_and(|h| self.evo.drills.iter().any(|r| r.id == id && r.after(self.tick, h))) {
+                    continue;
+                }
             }
             // ignores_hide: a Tesla whose time is up dies under ground too, and a
             // hidden one drains under ground too (combat.rs `resolve` drops every
@@ -19407,6 +19498,10 @@ impl BattleState {
         if self.transform_timing() == TransformTiming::CrossingTickResolve {
             self.health_triggers(None);
         }
+        // THE EVO GOBLIN DRILLS' HIDES (card.rs `DrillDef`), on this tick's hitpoints; their Goblins a tick on.
+        if !self.evo.drills.is_empty() {
+            self.drill_pass();
+        }
         #[cfg(not(clash_plant = "stun_decrement_at_status_start"))]
         if self.cfg.calib.buff_expiry == BuffExpiry::CeilFromNextTick {
             self.tick_status_timers();
@@ -23703,6 +23798,18 @@ impl BattleState {
                         h.i32(p.x);
                         h.i32(p.y);
                     }
+                }
+            }
+            // The Evo Goblin Drills' hides, only when there are some.
+            if !b.drills.is_empty() {
+                h.u32(0x4452_4c4c);
+                h.u32(b.drills.len() as u32);
+                for r in &b.drills {
+                    h.id(r.id);
+                    h.u32(u32::from(r.next));
+                    h.u32(r.under_at);
+                    h.u32(r.wave_at);
+                    h.u32(u32::from(r.wave));
                 }
             }
             // The Evo Hunters' net clocks, only when there are some.
