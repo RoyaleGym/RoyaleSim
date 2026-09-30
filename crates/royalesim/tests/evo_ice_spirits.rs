@@ -8,6 +8,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_ice_spirits`):
 //!   - impact_area_cast -> `its_area_stands_where_the_shot_landed_and_hits_once_3000_ms_on` red.
+//!   - one_hit_area_damage_refused -> the same test red: the form is refused, its area's Damage read as a repeating
+//!     pulse's (card.rs `convert_one_hit_area`).
 #![allow(unexpected_cfgs)]
 mod common;
 

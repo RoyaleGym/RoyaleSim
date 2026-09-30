@@ -7117,6 +7117,23 @@ fn convert_idle_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Lo
 /// `convert_deploy_area_effect`, `convert_spawn_area_effect`). An own-troop area (OnlyOwnTroops)
 /// is read from every caller: the filter is `SpellHit::only_own_troops`.
 fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    area_effect_shape_hits(aeo, buffs, ctx, false)
+}
+
+/// THE ONE-HIT AREA A SHOT LEAVES (the Evo Ice Spirits' impact area, IceSpiritsAOE_EV1): `convert_area_effect` for a
+/// plain area, except that a pulse that hits once, at its life's end (HitSpeed = LifeDuration), deals its own Damage
+/// on that hit. Measured on client 15.535.29 (sp-form-IceSpirits-evo-s0): the area took 43 at level 1 with the Freeze,
+/// 3000 ms after the landing. An area with an action or a schedule goes to `convert_area_effect` whole.
+fn convert_one_hit_area(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    if aeo.schedule.is_some() || aeo.strike_area.is_some() || aeo.clone_action.is_some() || aeo.action_graph.is_some() {
+        return convert_area_effect(aeo, buffs, ctx);
+    }
+    area_effect_shape_hits(aeo, buffs, ctx, true)
+}
+
+/// `area_effect_shape`, with `one_hit`: whether a pulse that hits once (HitSpeed = LifeDuration) may deal its own
+/// Damage (`convert_one_hit_area`).
+fn area_effect_shape_hits(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx, one_hit: bool) -> Result<(SpellShape, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
     // A STRIKING AREA is recognised first: its HitSpeed and its Projectile are its strikes, not a pulse.
     if aeo.hit_biggest_targets == Some(true) {
@@ -7141,7 +7158,12 @@ fn area_effect_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) 
     if pulse_ms.is_some() {
         // Damage 0 deals nothing: the Evo Elite Barbarians' Rage row sets it over the Rage's blank, and only a row that
         // also pulses a buff gets past the next refusal.
-        if aeo.damage.is_some_and(|d| d != 0) {
+        // A pulse that hits once, read by a caller that takes it so (`convert_one_hit_area`), deals its Damage once.
+        #[cfg(not(clash_plant = "one_hit_area_damage_refused"))]
+        let once = one_hit && pulse_ms == aeo.life_duration_ms.filter(|l| *l > 0);
+        #[cfg(clash_plant = "one_hit_area_damage_refused")]
+        let once = { let _ = one_hit; false }; // PLANT (regression): the one-hit area's Damage is refused as a repeating pulse's.
+        if aeo.damage.is_some_and(|d| d != 0) && !once {
             return Err(format!("pulsing area effect {what} deals its own Damage every HitSpeed; not simulated"));
         }
         if aeo.buff.is_none() && hit_buff.is_none() {
@@ -10030,7 +10052,7 @@ impl CardDb {
                     return Err(format!("area {u} is not the impact area {:?}", ia.area));
                 }
                 let aeo = ctx.aeos.get(&u).ok_or_else(|| format!("impact area {u}: no area_effect_objects record"))?;
-                let (shape, aneeds) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("impact area {u}: {e}"))?;
+                let (shape, aneeds) = convert_one_hit_area(aeo, buffs, ctx).map_err(|e| format!("impact area {u}: {e}"))?;
                 let SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None } = shape.clone() else {
                     return Err(format!("impact area {u} is not one pulsing area; not simulated"));
                 };

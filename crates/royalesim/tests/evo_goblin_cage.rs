@@ -4,7 +4,8 @@
 //! THE MEASUREMENTS (client 15.535.29; sp-form-GoblinCage-evo-s0 and Oracle's sp-f2-cage*, sp-grab-*): a troop is
 //! grabbed 3 ticks after its moved point first comes within 3000 plus its radius of the cage's centre (13 grabs); it
 //! stands 10 ticks, steps 5 times toward the cage's point and is set on it on G + 16; it loses 366 (143 at level 1) on
-//! G + 20 and every 20 ticks; the cage's death lets it go on the cage's point, standing that tick and the next; after a
+//! G + 20 and every 20 ticks; the cage's death lets it (a Golem) go on the cage's point, standing that tick and the
+//! next; after a
 //! captive's death the cage takes its next target 6 ticks on, and a Skeleton in reach then made its last step 10 ticks
 //! after the death.
 //!
@@ -105,14 +106,30 @@ fn a_knight_is_grabbed_3_ticks_after_it_comes_in_reach_held_dragged_and_hit_ever
 
 #[test]
 fn the_cages_death_lets_its_captive_go_on_its_point_standing_a_tick() {
-    let (mut s, cage, knight, pts, _, _) = grabbed();
-    assert_eq!(*pts.last().expect("points"), CAGE, "caged");
-    // The cage dies on K: its captive stands on its point on K and K + 1 and walks on K + 2; the Brawler comes out.
+    // The measured captive: a red Golem (Oracle's sp-f2-cagegolem-s0, sp-f2-cagefb-s0), held 4000 to the cage's right
+    // until the cage is up, then let walk in; it is taken and set on the cage's point. The cage dies on K: the Golem
+    // stands on the point on K and K + 1 and walks on K + 2; the Brawler comes out.
+    let (mut s, cage) = battle();
+    let far = n(CAGE.0 + 4000, CAGE.1);
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", far, None).expect("a red Golem");
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(golem, far));
+        s.tick();
+    }
+    let mut on = 0;
+    for _ in 0..120 {
+        s.tick();
+        on = if point(&s, golem) == Some(CAGE) { on + 1 } else { 0 };
+        if on == 4 {
+            break;
+        }
+    }
+    assert_eq!(on, 4, "caged on the point");
     assert!(s.debug_set_hp(cage, 0));
     let mut after = Vec::new();
     for _ in 0..3 {
         s.tick();
-        after.push(point(&s, knight).expect("the Knight"));
+        after.push(point(&s, golem).expect("the Golem"));
     }
     assert!(s.entity(cage).is_none(), "the cage died");
     assert_eq!((after[0], after[1]), (CAGE, CAGE), "stands on the point: {after:?}");
@@ -144,7 +161,9 @@ fn after_its_captives_death_the_next_troop_in_reach_is_grabbed_10_ticks_on() {
             taken = true;
             assert!(s.debug_set_pos(b, side));
         }
-        pts.push(point(&s, b).expect("the second Skeleton"));
+        // The cage's hits kill the second too, after its drag: its points stop there.
+        let Some(p) = point(&s, b) else { break };
+        pts.push(p);
         if death.is_none() && s.entity(a).is_none() {
             death = Some(k);
         }

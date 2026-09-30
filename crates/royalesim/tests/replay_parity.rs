@@ -671,7 +671,12 @@ fn a_form_row_spawns_its_form_and_its_units_score_as_the_base_card() {
     assert_eq!(deploy_play(&row("Cannon", "ev1", "Cannon_EV1"), &db), "Cannon_EV1");
     assert_eq!(deploy_play(&row("Musketeer", "hero", "Musketeer_hero"), &db), "Musketeer_hero");
     assert_eq!(deploy_play(&row("Musketeer", "base", "Musketeer"), &db), "Musketeer");
-    assert_eq!(deploy_play(&row("Witch", "ev1", "Witch_EV1"), &db), "Witch", "a form the engine does not load plays its base card");
+    // A form the engine does not load plays its base card: the first of these evolved rows the table has no card for.
+    let unloaded = ["GoblinBarrel", "GoblinDrill", "FirespiritHut", "ElectroDragon"]
+        .into_iter()
+        .find(|c| db.index(&format!("{c}_EV1")).is_none())
+        .expect("vacuous: every listed form loads; name one that does not");
+    assert_eq!(deploy_play(&row(unloaded, "ev1", &format!("{unloaded}_EV1")), &db), unloaded, "a form the engine does not load plays its base card");
     let mm = db.index("MergeMaiden").expect("the Merge Maiden loads");
     assert!(db.get(mm).variant().is_some(), "vacuous: the Merge Maiden is not a variant card");
     for form in ["MergeMaiden_Mounted", "MergeMaiden_Normal"] {

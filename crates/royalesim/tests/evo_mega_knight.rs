@@ -43,11 +43,11 @@ fn battle() -> BattleState {
 
 #[test]
 fn every_second_hit_throws_its_target_toward_its_king() {
-    // The form held at (9000, 12500), a red Knight 1200 ahead in his reach (its king straight ahead at (9000, 29000)),
-    // held and topped up until his second hit, then let go (topped up still). No dash: the Knight is inside his jump's
-    // minimum range.
+    // The form held at (9000, 12500), a red Knight 1400 ahead in his reach and clear of his body (750 + 500; its king
+    // straight ahead at (9000, 29000)), held and topped up until his second hit, then let go (topped up still). No dash:
+    // the Knight is inside his jump's minimum range.
     let mut s = battle();
-    let (at, kn_at) = (n(9000, 12500), n(9000, 13700));
+    let (at, kn_at) = (n(9000, 12500), n(9000, 13900));
     s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
     let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
     s.tick();
@@ -69,7 +69,7 @@ fn every_second_hit_throws_its_target_toward_its_king() {
     }
     assert!(hits.len() >= 2, "two hits of 268: {hits:?}");
     let (h1, h2) = (hits[0], hits[1]);
-    assert!(ys[h1 + 1..h2].iter().all(|p| *p == (9000, 13700)), "no throw after the first hit: {:?}", &ys[h1 + 1..h2]);
+    assert!(ys[h1 + 1..h2].iter().all(|p| *p == (9000, 13900)), "no throw after the first hit: {:?}", &ys[h1 + 1..h2]);
     // From h2 + 2: 8 steps of 250, then 225 down to 25, 0, and the step back of 25, straight at its king (x unchanged).
     let mut want: Vec<i32> = vec![250; 8];
     want.extend((1..=9).map(|j| 250 - 25 * j));

@@ -26,12 +26,16 @@ fn hers(s: &BattleState, w: EntityId) -> Vec<EntityId> {
     s.entities().filter(|e| e.team == Team::Blue && e.spawned_by == Some(w)).map(|e| e.id).collect()
 }
 
-/// Kill `sk` and tick: the Witch's hitpoints on the death's tick and on each of the 25 after it (her point held).
-fn kill(s: &mut BattleState, w: EntityId, at: Vec2, sk: EntityId) -> Vec<i32> {
-    assert!(s.debug_set_hp(sk, 0));
+/// Kill `sk` and tick: the Witch's hitpoints on the death's tick and on each of the 25 after it (her point held, and
+/// each of `hold`'s living units on its own: her Skeletons would walk into the red tower's reach).
+fn kill(s: &mut BattleState, w: EntityId, at: Vec2, sk: EntityId, hold: &[(EntityId, Vec2)]) -> Vec<i32> {
+    assert!(s.debug_set_hp(sk, 0), "{sk:?} is alive to kill");
     let mut hp = Vec::new();
     for _ in 0..=25 {
         assert!(s.debug_set_pos(w, at));
+        for (id, p) in hold {
+            let _ = s.debug_set_pos(*id, *p);
+        }
         s.tick();
         hp.push(s.entity(w).expect("the Witch").hp);
     }
@@ -62,14 +66,15 @@ fn each_skeleton_she_spawned_that_dies_heals_her_153_on_its_death_plus_21() {
     }
     let first = hers(&s, w);
     assert_eq!(first.len(), 4, "her first wave");
+    let hold: Vec<(EntityId, Vec2)> = first.iter().map(|id| (*id, s.entity(*id).expect("her Skeleton").pos)).collect();
     // A Skeleton she did not spawn heals her nothing.
     let other = s.scenario_spawn_now(Team::Blue, "Skeleton", n(12000, 11500), None).expect("a Skeleton");
-    let hp = kill(&mut s, w, at, other);
+    let hp = kill(&mut s, w, at, other, &hold);
     assert!(hp.iter().all(|h| *h == top), "a stranger's death healed her: {hp:?}");
     // Hers, one at a time: 153 on the death + 21, past her maximum, to 173 % of it.
     for (k, want) in [992, 1145, 1298, 1451].into_iter().enumerate() {
         let before = s.entity(w).expect("the Witch").hp;
-        let hp = kill(&mut s, w, at, first[k]);
+        let hp = kill(&mut s, w, at, first[k], &hold);
         assert!(hp[..21].iter().all(|h| *h == before), "Skeleton {k}: moved before the death + 21: {hp:?}");
         assert_eq!(hp[21], want, "Skeleton {k}: the heal on the death + 21: {hp:?}");
     }
@@ -82,7 +87,7 @@ fn each_skeleton_she_spawned_that_dies_heals_her_153_on_its_death_plus_21() {
         s.tick();
     }
     let next = *hers(&s, w).first().expect("her second wave");
-    let hp = kill(&mut s, w, at, next);
+    let hp = kill(&mut s, w, at, next, &[]);
     assert!(hp.iter().all(|h| *h == 1451), "past the cap: {hp:?}");
 }
 

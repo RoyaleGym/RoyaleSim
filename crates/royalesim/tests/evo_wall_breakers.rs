@@ -74,14 +74,15 @@ fn a_killed_one_leaves_a_runner_on_its_point_and_a_blow_of_192_on_the_next_tick(
 
 #[test]
 fn the_blow_takes_86_percent_off_a_crown_tower() {
-    // Killed 2500 from the red princess tower at (14500, 25500): 192 at 86 %, 165.
+    // Killed 2500 from the red princess tower at (14500, 25500): 192 at 86 %, 166 (ceil(165.12):
+    // combat.CROWN_TOWER_DAMAGE_ROUNDING = ceil_kept_share).
     let (mut s, wb) = battle();
     let tower = s.entities().find(|e| e.team == Team::Red && e.kind == royalesim::entity::EntityKind::PrincessTower && e.pos.x / K == 14500).map(|e| e.id).expect("the red right princess tower");
     let top = s.entity(tower).expect("the tower").hp;
     kill(&mut s, wb, n(14500, 23000));
     assert_eq!(s.entity(tower).expect("the tower").hp, top, "no blow on the kill's tick");
     s.tick();
-    assert_eq!(s.entity(tower).expect("the tower").hp, top - 165, "the blow's 86 % of 192 on the next tick");
+    assert_eq!(s.entity(tower).expect("the tower").hp, top - 166, "the blow's 86 % of 192 on the next tick");
 }
 
 #[test]

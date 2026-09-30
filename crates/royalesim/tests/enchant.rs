@@ -269,6 +269,9 @@ fn the_rune_giant_loads_with_his_enchant() {
         // The Goblin Giant's riders (the row SpearGoblinGiant) fire SpearGoblinGiantProjectile, which the table lists at
         // 0, as the Ram Rider's rider's bola.
         (idx("SpearGoblinGiant"), 0, 1000),
+        // The evolved forms fire their bases' rows: the Evo Firecracker and the Evo Hunter take their bases' shares.
+        (idx("Firecracker_EV1"), 1000, 200),
+        (idx("Hunter_EV1"), 100, 1000),
     ];
     want.sort_unstable();
     assert_eq!(e.per_attacker, want, "the loaded attackers the table's multipliers reach, by the rows their units fire");
