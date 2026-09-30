@@ -1926,6 +1926,8 @@ pub struct EvoDef {
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
     pub uppercut: Option<UppercutDef>,
+    /// Evo P.E.K.K.A.: the heal on each kill (`KillHealDef`).
+    pub kill_heal: Option<KillHealDef>,
     /// Evo Royal Recruits: its charge (the card's `charge`, its range the ShieldLostAction buff's OverrideChargeRange)
     /// runs up only once its shield is gone (state.rs, the charge's gains). Read off the table, not measured: the scene's
     /// recruits lost their shields in melee and never ran up.
@@ -4186,6 +4188,8 @@ struct RawEvolution {
     evo_far_shot: Option<RawFarShot>,
     /// The Evo Mega Knight's uppercut (`uppercut_block`).
     evo_uppercut: Option<RawUppercut>,
+    /// The Evo P.E.K.K.A.'s heal on a kill (`kill_heal_block`).
+    evo_kill_heal: Option<RawKillHeal>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4228,6 +4232,15 @@ struct RawUppercut {
     push_milli: Option<i32>,
     root_delay_ms: Option<i32>,
     root_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_kill_heal` (tools/extract_cards.py `kill_heal_block`).
+#[derive(Deserialize)]
+struct RawKillHeal {
+    level: Option<i32>,
+    below: Option<Vec<i32>>,
+    time_ms: Option<i32>,
+    buffs: Option<Vec<RawBuff>>,
 }
 
 /// THE EVO BOMBER'S BOUNCE (tools/extract_cards.py `bounce_block`; combat.rs `BounceHop`, the bounce in
@@ -4299,6 +4312,25 @@ pub struct UppercutDef {
     pub push: i32,
     pub root_delay_ms: i32,
     pub root_ms: i32,
+}
+
+/// THE EVO P.E.K.K.A.'S HEAL ON A KILL (tools/extract_cards.py `kill_heal_block`; state.rs `Scratch::kills`,
+/// `kill_heals`): a hit of hers that kills its target (in the Resolve of the hit's tick, she alive) hangs one of three
+/// heals on her for `buffs[k].time_ms`: `buffs[0]` for a victim whose card's hitpoints at level `level` are under
+/// `below[0]`, `buffs[1]` under `below[1]`, else `buffs[2]`. Each heals her HealPerSecond (level-scaled on her card and
+/// level) times its HitFrequency, one HitFrequency after the kill, up to its AllowedOverHealPerc of her maximum
+/// (`BuffDef::over_heal_pct`; state.rs `land_buff_heals`).
+///
+/// Measured on client 15.535.29 (sp-form-Pekka-evo-s0, level 11, 3760 max): a Skeleton she killed on t1305 healed her
+/// 168 on t1315 (the first heal's 132 a second: 337 at level 11, half of it every 500 ms), the Knight she killed on
+/// t1376 (1766 max) healed her 320 on t1386 (the second's 250: 640, halved); nothing else moved her hitpoints up.
+/// Read off the table, not measured: the third heal, the overheal, and the victim's size read at level 10 (a level-11
+/// victim reads alike either way; a level-14 Knight does not).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct KillHealDef {
+    pub level: i32,
+    pub below: [i32; 2],
+    pub buffs: [crate::status::BuffApply; 3],
 }
 
 /// cards.json `evolutions[].evo_data_only` (tools/extract_cards.py `data_only_block`): the card blocks the form's data
@@ -5266,6 +5298,8 @@ struct RawBuff {
     /// `BuffDef::char_crown_pct`); 15.535 only, written where set.
     unkillable: Option<bool>,
     character_crown_tower_damage_percent: Option<i32>,
+    /// character_buffs AllowedOverHealPerc (`BuffDef::over_heal_pct`); 15.535 only, written where set.
+    allowed_over_heal_pct: Option<i32>,
 }
 
 /// cards.json buff `death_spawn` block, every field nullable (the extractor writes the whole block whenever
@@ -5452,7 +5486,11 @@ impl RawBuff {
             damage_pct: self.damage_multiplier.unwrap_or(0),
             unkillable: self.unkillable.unwrap_or(false),
             char_crown_pct: self.character_crown_tower_damage_percent.unwrap_or(0),
+            over_heal_pct: self.allowed_over_heal_pct.unwrap_or(0),
         };
+        if def.over_heal_pct != 0 && (def.over_heal_pct < PERCENT_I32 || def.heal_per_second <= 0) {
+            return Err(format!("{what}: buff {name} carries AllowedOverHealPerc {} on no heal over 100 %; not simulated", def.over_heal_pct));
+        }
         // CrownTowerDamagePerHit replaces a PULSE's crown-tower damage (state.rs `buff_pulse_pass`); on a buff that
         // does not pulse it would have nothing to replace.
         if def.crown_hit != 0 && !def.pulses() {
@@ -9446,6 +9484,7 @@ impl CardDb {
             extra.evo_attack_area.is_some(),
             extra.evo_far_shot.is_some(),
             extra.evo_uppercut.is_some(),
+            extra.evo_kill_heal.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9489,6 +9528,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_kill_heal.is_some() {
+            // The kill's select (`kill_heal_block` reads it and its three inline heals whole) and the armour's layer.
+            &["ActionAnimatorLayer", "ActionSelect"]
         } else if extra.evo_uppercut.is_some() {
             // The uppercut's counter, its entries, the throw and the root (`uppercut_block` reads them whole).
             &["ActionGroup", "ActionKnockback", "ActionMegaKnightUppercut", "ActionPlayEffect", "ActionSelect", "ActionSetAttackSequenceIndex", "ActionSetVariable", "ActionWithDuration"]
@@ -9616,6 +9658,7 @@ impl CardDb {
                     attack_area: None,
                     far_shot: None,
                     uppercut: None,
+                    kill_heal: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9789,6 +9832,7 @@ impl CardDb {
             attack_area: None,
             far_shot: None,
             uppercut: None,
+            kill_heal: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -9890,6 +9934,24 @@ impl CardDb {
             let push = u.push_milli.filter(|p| *p > 0).ok_or("an uppercut with no PushBackStrength")?;
             let (root_delay_ms, root_ms) = (u.root_delay_ms.filter(|m| *m >= 0).ok_or("an uppercut's root delay")?, u.root_ms.filter(|m| *m >= 0).ok_or("an uppercut's root")?);
             evo.uppercut = Some(UppercutDef { every, push, root_delay_ms, root_ms });
+        }
+        // THE HEAL ON A KILL (the Evo P.E.K.K.A.'s): three heals over time, one chosen by the victim's size.
+        if let Some(k) = &extra.evo_kill_heal {
+            let level = k.level.filter(|l| *l >= 1).ok_or("a kill heal with no level")?;
+            let below = match k.below.as_deref() {
+                Some(&[a, b]) if 0 < a && a < b => [a, b],
+                _ => return Err("a kill heal whose thresholds are not two rising figures".into()),
+            };
+            let raw = k.buffs.as_deref().filter(|b| b.len() == 3).ok_or("a kill heal with no three heals")?;
+            let mut out = [crate::status::BuffApply { buff: 0, time_ms: 0 }; 3];
+            for (slot, b) in out.iter_mut().zip(raw) {
+                *slot = buffs.apply(b, k.time_ms, "a kill heal")?;
+                let d = buffs.defs[slot.buff as usize];
+                if d.heal_per_second <= 0 || d.damage_per_second != 0 || d.hit_frequency_ms <= 0 {
+                    return Err("a kill heal whose buff is not a heal over time".into());
+                }
+            }
+            evo.kill_heal = Some(KillHealDef { level, below, buffs: out });
         }
         // THE RAGE AFTER HITS on the form's own units (the Evo Barbarians'), as the Evo Battle Ram's Barbarian_EV1 has it.
         if let Some(rage) = &extra.evo_hit_rage {

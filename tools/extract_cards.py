@@ -2138,6 +2138,10 @@ def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
             out["no_damage"] = True
         if b["CharacterCrownTowerDamagePercent"] is not None:
             out["character_crown_tower_damage_percent"] = b["CharacterCrownTowerDamagePercent"]
+        # AllowedOverHealPerc: the buff's heal may take its carrier to this per cent of its maximum (the Evo
+        # P.E.K.K.A.'s 150). Written only where set.
+        if b.get("AllowedOverHealPerc") is not None:
+            out["allowed_over_heal_pct"] = b["AllowedOverHealPerc"]
     return out
 
 
@@ -3697,7 +3701,7 @@ EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
-    "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1",
+    "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4357,6 +4361,45 @@ FALL_GROUNDED_SET = {
 DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", "ClonedVersion"}
 DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"},
                     ["idle_buff"])
+
+
+def kill_heal_block(t: Tables, card: dict) -> dict:
+    """THE EVO P.E.K.K.A.'S HEAL ON A KILL (characters/pekka_ev1.toml Pekka_EV1), read whole or the build stops: its
+    OnKilledDoneAction (run when a hit of hers kills) is an ActionSelect whose PerActionConditions are
+    `target_max_hp(L) < A` and `target_max_hp(L) < B`, A < B (`level` L, `below` [A, B]), over three inline options,
+    each an ActionSpawn of a BuffType on her (ParentGOAsSource) for one SpawnTime (`time_ms`): the first condition that
+    holds picks its option, none the last (`buffs`, each a heal over time). The row's Resurrect* columns only address
+    the effect the kill sends her; they are not read."""
+    unit = card["summon_character"]
+    _, row = unit_record(t, unit)
+    acts = t["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    sel = row["OnKilledDoneAction"]
+    a = acts.get(sel) if isinstance(sel, str) else None
+    need(a is not None and a["ClassType"] == "ActionSelect"
+         and _present(a) <= {"ClassType", "PerActionConditions", "SubActions"}, f"OnKilledDoneAction {sel!r}")
+    conds = _action_list(acts, sel, "PerActionConditions")
+    opts = _action_list(acts, sel, "SubActions")
+    need(len(conds) == 2 and len(opts) == 3, f"{sel}: {len(conds)} conditions over {len(opts)} options")
+    got = [re.fullmatch(r"target_max_hp\((\d+)\) < (\d+)", str(c)) for c in conds]
+    need(all(got) and got[0].group(1) == got[1].group(1), f"{sel}'s conditions {conds}")
+    level, below = int(got[0].group(1)), [int(m.group(2)) for m in got]
+    need(0 < below[0] < below[1], f"{sel}'s thresholds {below}")
+    buffs, times = [], set()
+    for o in opts:
+        need(isinstance(o, dict) and o.get("ClassType") == "ActionSpawn" and o.get("SpawnType") == "BuffType"
+             and o.get("ParentGOAsSource") is True and isinstance(o.get("SpawnTime"), int)
+             and set(o) <= {"ClassType", "SpawnType", "SpawnTime", "SpawnData", "ParentGOAsSource"}, f"option {o}")
+        b = norm_buff(t, o["SpawnData"])
+        need(b is not None and b["heal_per_second"] and b["hit_frequency_ms"], f"option {o}'s buff is not a heal")
+        buffs.append(b)
+        times.add(o["SpawnTime"])
+    need(len(times) == 1, f"{sel}'s options last {sorted(times)}")
+    return {"level": level, "below": below, "time_ms": times.pop(), "buffs": buffs}
 
 
 def uppercut_block(t: Tables, card: dict) -> dict:
@@ -5124,6 +5167,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_attack_area"] = attack_area_block(t, card, ATTACK_AREA_READ_PUSH)
         elif name == "MegaKnight_EV1":
             card["evo_uppercut"] = uppercut_block(t, card)
+        elif name == "Pekka_EV1":
+            card["evo_kill_heal"] = kill_heal_block(t, card)
         elif name == "Archer_EV1":
             card["evo_far_shot"] = far_shot_block(t, card)
         elif name == "AngryBarbarians_EV1":

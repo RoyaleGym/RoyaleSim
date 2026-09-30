@@ -7622,10 +7622,14 @@ struct Scratch {
     /// a counter. Filled and emptied inside one call of `phase_attack_for`, so it never outlives the phase and is not
     /// state: not saved, not hashed.
     parry: Vec<ParryCand>,
-    /// THE TICK'S BUFF HEALS (`buff_pulse_pass`), each (unit, hitpoints): landed in this tick's Resolve after its hits
-    /// (`land_buff_heals`). Cleared at the top of every `buff_pulse_pass` and drained in the Resolve of the same tick,
-    /// so it never outlives its tick: not saved, not hashed.
-    heals: Vec<(EntityId, i32)>,
+    /// THE TICK'S BUFF HEALS (`buff_pulse_pass`), each (unit, hitpoints, the buff's overheal per cent): landed in this
+    /// tick's Resolve after its hits (`land_buff_heals`). Cleared at the top of every `buff_pulse_pass` and drained in
+    /// the Resolve of the same tick, so it never outlives its tick: not saved, not hashed.
+    heals: Vec<(EntityId, i32, i32)>,
+    /// THE TICK'S KILL WATCH (card.rs `KillHealDef`): each (hitter, target) of this tick's Attack-phase hits by a unit
+    /// that heals on a kill (`evo_after_fire`), read and emptied in the same tick's Resolve (`kill_heals`), so it never
+    /// outlives its tick: not saved, not hashed.
+    kills: Vec<(EntityId, EntityId)>,
     /// rider.OFFSET_LAW: each mount whose riders stand off its centre, with its facing at the top of this tick
     /// (`note_mount_facings`). Filled at the top of every tick and read in its Move phase, so it is not state: not
     /// saved, not hashed.
@@ -8980,6 +8984,11 @@ impl BattleState {
         // THE EVO MEGA KNIGHT'S COUNT (card.rs `UppercutDef`): this attack is one.
         if evo.uppercut.is_some() {
             self.uppercut_count(i, hit);
+        }
+        // THE EVO P.E.K.K.A.'S KILL WATCH (card.rs `KillHealDef`): read in this tick's Resolve, once the hit has landed.
+        #[cfg(not(clash_plant = "kill_heal_never"))]
+        if evo.kill_heal.is_some() {
+            self.scratch.kills.push((id, hit));
         }
         // THE EVO INFERNO DRAGON'S COUNT (card.rs `StagesDef`): one more per hit, to its cap, across targets; the hit
         // restarts the decay (`stages_pass`).
@@ -11437,7 +11446,7 @@ impl BattleState {
                     // A HEAL. Not in the damage buffer, because that is a buffer of DAMAGE and a negative hit would make
                     // every shield and death test read a sign: its own list, landed after the hits (`land_buff_heals`).
                     #[cfg(not(clash_plant = "heal_pulse_before_the_hits"))]
-                    self.scratch.heals.push((id, -amount));
+                    self.scratch.heals.push((id, -amount, def.over_heal_pct));
                     // PLANT (regression): the heal lands here, before the tick's hits, capped at the hitpoints missing
                     // at the start of the tick (sweep-Heal's t296 pulse is lost on the full-hp Knight).
                     #[cfg(clash_plant = "heal_pulse_before_the_hits")]
@@ -13480,6 +13489,46 @@ impl BattleState {
         if moved {
             self.hash.rebuild(&self.ents);
         }
+    }
+
+    /// THE HEALS ON A KILL (card.rs `KillHealDef`), in the Resolve, after the tick's hits: each watched hit whose target
+    /// the tick's hits left on 0 or below, its hitter alive, hangs on the hitter the heal the victim's size picks: its
+    /// card's hitpoints at the block's level (a card with none: its maximum). The heal's pulse is scaled on the hitter's
+    /// card and level, and its clock starts a whole HitFrequency out (status.BUFF_PULSE_TIMING).
+    fn kill_heals(&mut self) {
+        let kills = std::mem::take(&mut self.scratch.kills);
+        let cards = self.cfg.cards.clone();
+        for &(by, victim) in &kills {
+            if !self.ents.is_alive(by) || !self.ents.is_alive(victim) {
+                continue;
+            }
+            let (i, v) = (by.index as usize, victim.index as usize);
+            if self.ents.hp[i] <= 0 || self.ents.hp[v] > 0 {
+                continue;
+            }
+            let Some(k) = cards.get(self.ents.card[i]).evo.as_ref().and_then(|e| e.kill_heal) else { continue };
+            let vc = self.ents.card[v];
+            #[cfg(not(clash_plant = "kill_size_at_own_level"))]
+            let size = cards.scaled(vc, k.level, cards.get(vc).hitpoints).ok().filter(|h| *h > 0).unwrap_or(self.ents.max_hp[v]);
+            #[cfg(clash_plant = "kill_size_at_own_level")]
+            let size = {
+                let _ = vc;
+                self.ents.max_hp[v] // PLANT: the victim's own maximum, at its own level.
+            };
+            let b = if size < k.below[0] {
+                k.buffs[0]
+            } else if size < k.below[1] {
+                k.buffs[1]
+            } else {
+                k.buffs[2]
+            };
+            let (card, level) = (self.ents.card[i], self.ents.level[i]);
+            let Ok(pulse) = cards.buffs[b.buff as usize].pulse_amount(self.cfg.calib.buff_pulse_amount, |m| cards.scaled(card, level, m)) else { continue };
+            let h = crate::status::BuffHit::plain(by, b.buff, b.time_ms, pulse);
+            land_buff(&mut self.ents, &cards, &self.cfg.calib, i, &h);
+        }
+        self.scratch.kills = kills;
+        self.scratch.kills.clear();
     }
 
     /// THE EVO MEGA KNIGHT'S COUNT (card.rs `UppercutDef`): one more for each of unit `i`'s attacks, its dash's blow
@@ -18563,6 +18612,10 @@ impl BattleState {
             }
         }
         self.death_queue = out.deaths;
+        // THE EVO P.E.K.K.A.'S HEAL (card.rs `KillHealDef`): her hits this tick that killed.
+        if !self.scratch.kills.is_empty() {
+            self.kill_heals();
+        }
         // THE EVO MINION HORDE'S GHOST (card.rs `EvoDef::first_hit`): the first damage a minion survives lands its buff.
         if !out.hurt.is_empty() {
             self.first_hit(out.hurt);
@@ -18596,7 +18649,7 @@ impl BattleState {
     /// t296, leaves its Knight alive). Empty under the plant heal_pulse_before_the_hits, which heals in the pulse pass.
     fn land_buff_heals(&mut self) {
         let mut heals = std::mem::take(&mut self.scratch.heals);
-        for (id, h) in heals.drain(..) {
+        for (id, h, over) in heals.drain(..) {
             if !self.ents.is_alive(id) {
                 continue;
             }
@@ -18604,7 +18657,15 @@ impl BattleState {
             if self.ents.hp[i] <= 0 {
                 continue;
             }
-            let room = (self.ents.max_hp[i] - self.ents.hp[i]).max(0);
+            // A buff with an overheal (`BuffDef::over_heal_pct`) heals up to that per cent of the maximum.
+            #[cfg(not(clash_plant = "overheal_capped_at_max"))]
+            let top = if over > 100 { (i64::from(self.ents.max_hp[i]) * i64::from(over) / 100) as i32 } else { self.ents.max_hp[i] };
+            #[cfg(clash_plant = "overheal_capped_at_max")]
+            let top = {
+                let _ = over;
+                self.ents.max_hp[i] // PLANT: no overheal.
+            };
+            let room = (top - self.ents.hp[i]).max(0);
             self.ents.hp[i] += room.min(h);
         }
         self.scratch.heals = heals;

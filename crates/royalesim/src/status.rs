@@ -178,6 +178,11 @@ pub struct BuffDef {
     /// reads -75 %) hit a tower; the percent applies after `damage_pct`, as the card's own does.
     #[serde(default)]
     pub char_crown_pct: i32,
+    /// character_buffs AllowedOverHealPerc, per cent (0 = blank): the buff's heal may take its carrier up to this
+    /// per cent of its maximum hitpoints, not only to the maximum (state.rs `land_buff_heals`; the Evo P.E.K.K.A.'s
+    /// 150). Read off the table, not measured. `default` so a record written before the field still reads.
+    #[serde(default)]
+    pub over_heal_pct: i32,
 }
 
 /// A UNIT THAT DIES WITH THIS BUFF LIVE RELEASES `count` of `unit` (character_buffs DeathSpawn,
