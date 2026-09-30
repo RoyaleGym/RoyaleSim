@@ -10,6 +10,7 @@
 //!     level 1) off the Knight on P + 25, and on P + 26 every enemy within 4000 of the point 1000 ahead of the hit (the owner's forward) loses 43
 //!     (17 at level 1): the Knight and a Musketeer beside it;
 //!   - from P + 27 both are pulled toward that point (the Knight +91 a tick in y, the Musketeer -149).
+//!
 //! Read off the table, not measured: the descent (the Wizard died on P + 80, in the air) and the 150 % walk.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
@@ -94,7 +95,7 @@ fn scene(at: (i32, i32), units: &[(&str, (i32, i32))], frames: usize, free: Opti
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut out = Vec::new();
     for k in 0..frames {
-        hold(&mut s, free.is_none_or(|f| k < f));
+        hold(&mut s, free.map_or(true, |f| k < f));
         s.tick();
         let card = s.entity(hero).map(|e| e.card.to_string()).unwrap_or_default();
         let reds = ids.iter().map(|id| s.entity(*id).map(|e| (e.pos, e.hp, e.target))).collect();

@@ -5,6 +5,7 @@
 //!   - the hero stood on t205 and stepped 343, 742, 1144, 1557, 1159, 1548 and 682 on t206-t212 to the furthest of the
 //!     lowest-max-hitpoint enemies (a Skeleton 7200 off), each step aimed at its centre after its own move;
 //!   - it stood on that centre on t212, swung on t213 (progress 1500) and the Skeleton was gone on t214.
+//!
 //! Read off the table, not measured: the strike shot's damage (156 at level 1) and its crown share (25 %), the later
 //! shots' crown share (50 %), the hiding until the strike, the button from 1500 ms after the hero's creation.
 //!

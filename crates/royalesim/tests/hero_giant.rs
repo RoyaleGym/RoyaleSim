@@ -6,6 +6,7 @@
 //!     the table's 800 ms) and walked on t223;
 //!   - the Skeleton's target went on t212 (the pick + 8: PushbackDelay 400) and it moved -250 along x, y unchanged, on
 //!     every tick from t213 (toward the arena's centre, past the Giant) until a tower's arrow killed it on t233.
+//!
 //! THE MEASUREMENTS (sp-slap-*, five scenes: Knights and a Golem, either lane, either side of the Giant): the target
 //! moved 250 along x toward the centre on each of 33 ticks from the throw's next, took 135 (53 on the ladder) on the
 //! 32nd, moved 225, 200, ... 25, stood a tick, stepped back 25 and walked on the next: the table's 23000 as a pushback

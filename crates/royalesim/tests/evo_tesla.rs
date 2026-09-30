@@ -6,6 +6,7 @@
 //!   - three enemies were taken on t1129, t1131 and t1134 and missed on the ticks before, at start-of-tick centre
 //!     distances 5242, 5862 and 6260 against 5330, 5951 and 6317: radius = 1 + 5999 x age / 1500 from age 0 on t1104,
 //!     plus the enemy's own radius (500).
+//!
 //! Read off the table, not measured: the ring made at the Tesla's creation.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test

@@ -7,6 +7,7 @@
 //!   - a hit took it from 665 to 448 (under 75 %) on t974, and its first seven Skeletons appeared on t987;
 //!   - it was gone on t1033, and its next seven appeared on t1045;
 //!   - each seven in a ring about 1,480 from a point beside the barrel.
+//!
 //! Read off the table, not measured: the drop points' offsets ((-350, 450) and (350, 0) in the owner's frame) and the
 //! drops' blow (no enemy stood under either).
 //!

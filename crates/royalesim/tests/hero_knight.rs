@@ -7,6 +7,7 @@
 //!   - after the press its hitpoints stood at 1549 through a Musketeer's 217 on t214, a Skeleton's 81 and a 217 on
 //!     t234, and a Knight's 202 took them on t246: the press set a shield of 512 (ShieldHitpoints 200 on the ladder at
 //!     11), and the hit that breaks it takes nothing past it.
+//!
 //! Read off the table, not measured (every enemy in the scene was on the hero already): the taunt, an area on the hero
 //! for 1100 ms that turns each enemy within 6500 on the hero for 4000 ms.
 //!

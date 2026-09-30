@@ -4,6 +4,7 @@
 //! THE MEASUREMENTS (sp-form-MiniPekka-hero-s0; a press issued on t187, P here, the cast from P + 1):
 //!   - on P + 4 the hero reads level 12, max hitpoints 1525 (1390 before) and 1358 hitpoints (1173 the tick before);
 //!   - its next blow took 828 off a Knight (295 at level 1 on the Rare ladder's 281 %; 755 at level 11).
+//!
 //! THE MEASUREMENTS (Oracle's sp-mph-hp-* and sp-mph-hits-*): six level sets on P + 4, the hitpoints before and after
 //! (11 to 12: 1188 -> 1369, 986 -> 1214, 784 -> 1058, 1107 -> 1306, 1172 -> 1357; 11 to 13: 1063 -> 1400 of 1677): 30 %
 //! of what it misses healed first, then the hitpoints kept in proportion to the max. Presses on the tick of its 1st to

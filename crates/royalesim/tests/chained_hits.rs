@@ -99,5 +99,5 @@ fn an_electro_spirit_hits_nine_along_a_line_of_skeletons() {
     let last = f.last().expect("frames");
     let dead = last.iter().filter(|x| x.is_none()).count();
     assert_eq!(dead, 9, "nine killed: {last:?}");
-    assert!(last.iter().any(|x| *x == Some(0)), "one untouched (9 targets): {last:?}");
+    assert!(last.contains(&Some(0)), "one untouched (9 targets): {last:?}");
 }
