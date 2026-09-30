@@ -2,7 +2,8 @@
 
 WHAT THIS PINS. Under the shipped attack-finish rule a unit whose target is removed waits 6 ticks, unless its card sets
 OverrideAttackFinishTime (or one of the rule's other two conditions holds), in which case it takes its next target after
-1 tick. The value names those cards in `attack_finish_override_units` because cards.json does not carry the column. The
+1 tick. The loader reads the column off the row (card.rs `CardDef::override_attack_finish`), and the value's
+`attack_finish_override_units` names cards besides. The
 client 15.535.29 character table sets OverrideAttackFinishTime on seven troop rows and one hero form. The list names
 four (Valkyrie, Bowler, Princess, ElectroWizard) and misses two basic cards: MiniZapMachine (the Zappies) and
 ElectroDragon. The seventh is LittlePrince, a champion, left for the special cards. Measured on client 15.535.29, over
@@ -12,8 +13,8 @@ tick. So did the listed Valkyrie (5 of 5) and Electro Wizard (2 of 2).
 THE SCENARIO. A blue Zappy (MiniSparkys) with a red 100-hp Knight in reach, a full-hp red Knight beyond it. The Zappy's
 first shot kills the weak Knight; the test reads the tick it takes the second.
 
-WHICH VALUE. The shipped value lists four override units; the proposed one adds MiniZapMachine and ElectroDragon. The
-tests pin each list through the battle's calibration.
+WHICH DECIDES. The row's column: the Zappy takes its next target after 1 tick with MiniZapMachine on the list and off
+it, since its row sets OverrideAttackFinishTime.
 """
 
 from __future__ import annotations
@@ -65,8 +66,9 @@ def test_the_zappy_takes_its_next_target_a_tick_after_the_kill():
     assert retarget_lag(extended=True) == 1
 
 
-def test_the_shipped_list_makes_the_zappy_wait_six_ticks():
-    assert retarget_lag(extended=False) == 6
+def test_the_row_column_decides_without_the_list():
+    # MiniZapMachine left off the list: its row's OverrideAttackFinishTime alone gives the 1 tick.
+    assert retarget_lag(extended=False) == 1
 
 
 def test_the_shipped_list_names_every_loadable_override_unit():
