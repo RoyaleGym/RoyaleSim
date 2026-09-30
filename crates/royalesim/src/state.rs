@@ -15481,6 +15481,18 @@ impl BattleState {
             })
             .collect();
         // THE EVO GOBLIN CAGES' FREED CAPTIVES still in their release hold this tick (EvoBoard `freed`; the rest dropped).
+        // AN EVO GOBLIN DRILL GOING UNDER (card.rs `DrillDef`): its DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS for HideTime from
+        // the tick it went under; no unit meets its body. Measured on client 15.535.29 (sp-f4-drill-s0): its hide's Goblins
+        // stood 500 from its centre, on its footprint, and were not pushed off it.
+        let mut drill_off = vec![false; self.ents.capacity()];
+        #[cfg(not(clash_plant = "drill_hide_collides"))]
+        for r in self.evo.drills.iter().filter(|r| r.under_at > 0 && self.ents.is_alive(r.id)) {
+            let i = r.id.index as usize;
+            let dt = self.cfg.calib.tick_ms.max(1);
+            if self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.drill).is_some_and(|d| self.tick < r.under_at + (d.hide_ms / dt) as u32) {
+                drill_off[i] = true;
+            }
+        }
         let mut freed_hold = vec![false; self.ents.capacity()];
         if !self.evo.freed.is_empty() {
             let (tick, ents) = (self.tick, &self.ents);
@@ -15562,6 +15574,7 @@ impl BattleState {
                         // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK), and an
                         // attached rider, which pushes nothing (`carry_riders`)
                         collidable: alive
+                            && !drill_off[i]
                             && !held
                             && !jumping[i]
                             && dash_state[i] != DashState::Dashing

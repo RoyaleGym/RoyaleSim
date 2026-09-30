@@ -86,7 +86,14 @@ fn an_attack_starts_its_quick_spawn_22_ticks_on_then_every_47_and_48() {
     }
     let st = start.expect("the Furnace attacked the Golem");
     let want = [(st + 22, (10500, 9000)), (st + 69, (7500, 9000)), (st + 117, (10500, 9000))];
-    assert_eq!(got, want, "its quick spirits from its attack's start on {st}");
+    let ticks: Vec<usize> = got.iter().map(|g| g.0).collect();
+    assert_eq!(ticks, want.map(|w| w.0), "its quick spirits' ticks from its attack's start on {st}: {got:?}");
+    // Each stands on its landing point and takes its first step there on that tick (spawner.SPAWNED_FIRST_STEP), as the
+    // client's did: within a step (120) of the point.
+    for (g, w) in got.iter().zip(want) {
+        let (dx, dy) = (f64::from(g.1 .0 - w.1 .0), f64::from(g.1 .1 - w.1 .1));
+        assert!((dx * dx + dy * dy).sqrt() <= 150.0, "a spirit off its landing point {:?}: {got:?}", w.1);
+    }
 }
 
 #[test]

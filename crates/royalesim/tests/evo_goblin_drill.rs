@@ -10,7 +10,8 @@
 //! evo_goblin_drill`):
 //!   - drill_hide_never -> `at_two_thirds_its_building_goes_under_39_ticks_unhurt_and_puts_down_two_goblins` red;
 //!   - drill_hide_drains -> the same red;
-//!   - drill_spawner_unheld -> the same red.
+//!   - drill_spawner_unheld -> the same red;
+//!   - drill_hide_collides -> the same red (its Goblins pushed off its footprint).
 #![allow(unexpected_cfgs)]
 mod common;
 
