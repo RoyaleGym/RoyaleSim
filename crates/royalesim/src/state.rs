@@ -6561,6 +6561,23 @@ pub struct EvoBoard {
     /// before it still loads; hashed only when not empty.
     #[serde(default)]
     pub first_hits: Vec<EntityId>,
+    /// Each Evo Tesla ring under way (`ring_pass`). `default` so a battle saved before it still loads; hashed only when not
+    /// empty.
+    #[serde(default)]
+    pub rings: Vec<RingRun>,
+}
+
+/// AN EVO TESLA'S RING UNDER WAY (card.rs `RingDef`; `ring_pass`): its Tesla, side, card and level (its damage's
+/// ladder), its point, the tick it was made and the enemies it has taken.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RingRun {
+    pub id: EntityId,
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub at: Vec2,
+    pub made: u32,
+    pub taken: Vec<EntityId>,
 }
 
 /// ONE UNIT OF AN EVO SKELETON ARMY'S PLAY (card.rs `ArmyDef`): the unit, its group (one a play, `evo_created`) and its
@@ -6619,6 +6636,7 @@ impl EvoBoard {
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
+            && self.rings.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -8446,6 +8464,10 @@ impl BattleState {
         // AN EVOLVED FLIER THAT FALLS (card.rs `FallDef`, the Evo Royal Hogs): watched from its creation (`fall_pass`).
         if c.evo.as_ref().is_some_and(|v| v.fall.is_some()) {
             self.falls.push(FallRun { id, card, land_at: None });
+        }
+        // THE EVO TESLA'S RING AT ITS CREATION (card.rs `RingDef::on_start`; `ring_pass`).
+        if c.evo.as_ref().and_then(|v| v.ring).is_some_and(|r| r.on_start) {
+            self.evo.rings.push(RingRun { id, team, card, level, at: pos, made: self.tick, taken: Vec::new() });
         }
         // StartWithBuffWhenNotAttacking false (card.rs `starts_visible`, the Evo Royal Ghost's pair): visible from its
         // creation, its idle time counted from now (target.rs `invisible_at`).
@@ -12377,6 +12399,12 @@ impl BattleState {
             }
         }
         for (i, st, ms) in next {
+            // THE EVO TESLA'S RING ON COMING UP (card.rs `RingDef`): made on its surfacing tick, first grown on the next.
+            #[cfg(not(clash_plant = "ring_never"))]
+            if self.ents.hide[i] == HideState::Hidden && st != HideState::Hidden && self.cfg.cards.get(self.ents.card[i]).evo.as_ref().is_some_and(|v| v.ring.is_some()) {
+                let (id, team, card, level, at) = (self.ents.id_of(i), self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
+                self.evo.rings.push(RingRun { id, team, card, level, at, made: self.tick, taken: Vec::new() });
+            }
             self.ents.hide[i] = st;
             self.ents.hide_ms[i] = ms;
         }
@@ -12436,6 +12464,10 @@ impl BattleState {
         decisions.clear();
         if only.is_none() {
             self.hide_pass(&mut nb);
+        }
+        // THE EVO TESLAS' RINGS (`ring_pass`), on start-of-tick points, before the hide pass makes this tick's.
+        if only.is_none() && !self.evo.rings.is_empty() {
+            self.ring_pass();
         }
         // THE TAUNTS (`taunt_pass`): their areas take the enemies they reach, before any decision reads them.
         if only.is_none() && !self.taunts.is_empty() {
@@ -13131,6 +13163,58 @@ impl BattleState {
         }
         let ents = &self.ents;
         self.evo.first_hits.retain(|id| ents.is_alive(*id));
+    }
+
+    /// THE EVO TESLAS' RINGS (card.rs `RingDef`), at the Target phase's start, on start-of-tick points: a ring made on
+    /// an earlier tick is `age` = (this tick - the next after its making) x 50 ms old; past its life it is gone. Its
+    /// radius is Radius + (MaxRadius - Radius) x age / LifeDuration; it takes each enemy not under ground on its layers
+    /// whose centre is within that radius plus the enemy's own of its point, once: the damage (a crown tower's per hit)
+    /// on the Tesla's level into this tick's hits, and the stop landed now, so the enemy stands this tick.
+    fn ring_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let cards = self.cfg.cards.clone();
+        let mut rings = std::mem::take(&mut self.evo.rings);
+        rings.retain(|r| {
+            let Some(d) = cards.get(r.card).evo.as_ref().and_then(|v| v.ring) else { return false };
+            tick <= r.made || ((tick - r.made - 1) as i64) * (tick_ms as i64) <= d.life_ms as i64
+        });
+        for r in rings.iter_mut().filter(|r| tick > r.made) {
+            let d = cards.get(r.card).evo.as_ref().and_then(|v| v.ring).expect("kept above");
+            let age = ((tick - r.made - 1) as i64) * (tick_ms as i64);
+            #[cfg(not(clash_plant = "ring_full_size"))]
+            let radius = d.min_radius as i64 + (d.max_radius - d.min_radius) as i64 * age / d.life_ms as i64;
+            #[cfg(clash_plant = "ring_full_size")]
+            let radius = {
+                let _ = age;
+                d.max_radius as i64 // PLANT: the ring stands at its full size from its first update.
+            };
+            for j in 0..self.ents.capacity() {
+                let e = &self.ents;
+                if !e.alive[j] || e.team[j] == r.team || e.hp[j] <= 0 || e.underground(j) || r.taken.contains(&e.id_of(j)) {
+                    continue;
+                }
+                if !(if e.in_air(j) { d.hits_air } else { d.hits_ground }) {
+                    continue;
+                }
+                let reach = (radius + e.radius[j] as i64) / K as i64;
+                let (dx, dy) = ((e.pos[j].x / K - r.at.x / K) as i64, (e.pos[j].y / K - r.at.y / K) as i64);
+                if dx * dx + dy * dy > reach * reach {
+                    continue;
+                }
+                let id = e.id_of(j);
+                r.taken.push(id);
+                let tower = matches!(e.kind[j], EntityKind::KingTower | EntityKind::PrincessTower);
+                let base = if tower { d.crown_hit } else { d.damage };
+                let amount = cards.scaled(r.card, r.level, base).expect("the Tesla's level validated at deploy");
+                if amount > 0 {
+                    self.dmg.hits.push(Hit { target: id, amount, ignores_hide: false, own: false });
+                }
+                let h = crate::status::BuffHit::plain(id, d.stop.buff, d.stop.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, j, &h);
+            }
+        }
+        self.evo.rings = rings;
     }
 
     /// THE TAUNT AREAS (card.rs `TauntDef`, the Hero Knight's), at the Target phase's start: a taunt ends at its time,
@@ -21889,6 +21973,24 @@ impl BattleState {
                 h.u32(b.first_hits.len() as u32);
                 for id in &b.first_hits {
                     h.id(*id);
+                }
+            }
+            // The Evo Teslas' rings, only when there are some.
+            if !b.rings.is_empty() {
+                h.u32(0x5249_4e47);
+                h.u32(b.rings.len() as u32);
+                for r in &b.rings {
+                    h.id(r.id);
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.card));
+                    h.i32(r.level);
+                    h.i32(r.at.x);
+                    h.i32(r.at.y);
+                    h.u32(r.made);
+                    h.u32(r.taken.len() as u32);
+                    for t in &r.taken {
+                        h.id(*t);
+                    }
                 }
             }
             // The Evo Skeleton Barrels' fallen drops, only when there are some.

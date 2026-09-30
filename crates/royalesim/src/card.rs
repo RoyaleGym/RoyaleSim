@@ -1841,6 +1841,8 @@ pub struct EvoDef {
     /// Evo Minion Horde: the buff its first damage lands on each unit, once (state.rs `first_hit`; the ghost: invisible,
     /// no damage, -33 % speed and hit speed, 3000 ms).
     pub first_hit: Option<BuffApply>,
+    /// Evo Tesla: the ring it makes at its creation and each time it comes up (`RingDef`).
+    pub ring: Option<RingDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -4079,6 +4081,8 @@ struct RawEvolution {
     evo_fall: Option<RawFall>,
     /// The Evo Minion Horde's ghost (`first_hit_block`).
     evo_first_hit: Option<RawFirstHit>,
+    /// The Evo Tesla's ring (`ring_block`).
+    evo_ring: Option<RawRing>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4089,6 +4093,48 @@ struct RawEvolution {
 struct RawShotSpawn {
     unit: Option<String>,
     deploy_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_ring` (tools/extract_cards.py `ring_block`).
+#[derive(Deserialize)]
+struct RawRing {
+    area: Option<String>,
+    on_start: Option<bool>,
+    on_appear: Option<bool>,
+    min_radius_milli: Option<i32>,
+    max_radius_milli: Option<i32>,
+    life_ms: Option<i32>,
+    hit_speed_ms: Option<i32>,
+    hits_air: Option<bool>,
+    hits_ground: Option<bool>,
+    damage: Option<i32>,
+    crown_hit: Option<i32>,
+    stop: Option<RawBuff>,
+    buff_ms: Option<i32>,
+}
+
+/// THE EVO TESLA'S RING (tools/extract_cards.py `ring_block`; state.rs `RingRun`, `ring_pass`): made on the Tesla's
+/// point at its creation (`on_start`) and on each tick it comes up (`on_appear`, the hide pass's surfacing tick), it
+/// stays there for `life_ms` and grows from `min_radius` to `max_radius` over it, taking each enemy (air and ground as
+/// set, not under ground) once: `damage` (level 1, on the Tesla's ladder; `crown_hit` on a crown tower) and `stop` for
+/// its time. Radii in subtiles.
+///
+/// Measured on client 15.535.29 (sp-form-Tesla-evo-s0; the Tesla up on t1103, level 11): a Knight lost 148 (58 at level
+/// 1) and stood still t1134 to t1143 (500 ms), and three enemies were taken on t1129, t1131 and t1134 and missed on
+/// the ticks before, at start-of-tick centre distances 5242, 5862 and 6260 against 5330, 5951 and 6317: all six fit
+/// radius = Radius + (MaxRadius - Radius) x age / LifeDuration from age 0 on t1104, plus the enemy's own radius (500),
+/// and no other integer start. Read off the table, not measured: the ring at the Tesla's creation, on a crown tower.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RingDef {
+    pub on_start: bool,
+    pub min_radius: i32,
+    pub max_radius: i32,
+    pub life_ms: i32,
+    pub hits_air: bool,
+    pub hits_ground: bool,
+    pub damage: i32,
+    pub crown_hit: i32,
+    pub stop: BuffApply,
 }
 
 /// cards.json `evolutions[].evo_first_hit` (tools/extract_cards.py `first_hit_block`): the buff and its time.
@@ -9144,6 +9190,7 @@ impl CardDb {
             extra.evo_shot_spawn.is_some(),
             extra.evo_fall.is_some(),
             extra.evo_first_hit.is_some(),
+            extra.evo_ring.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9172,6 +9219,9 @@ impl CardDb {
         } else if extra.evo_first_hit.is_some() {
             // The ghost's group under its once-only flag (`first_hit_block` reads it whole).
             &["ActionGroup", "ActionPlayEffect", "ActionSetVariable", "ActionSpawn"]
+        } else if extra.evo_ring.is_some() {
+            // The ring's spawn and effects (`ring_block` reads them whole).
+            &["ActionPlayEffect", "ActionSpawn"]
         } else {
             &[]
         };
@@ -9198,8 +9248,12 @@ impl CardDb {
             let name = extra.evo_first_hit.as_ref().and_then(|f| f.buff.as_ref()).and_then(|b| b.name.as_deref());
             name.is_some_and(|n| g.spawns.iter().all(|s| s == &format!("BuffType:{n}")))
         };
+        // THE RING'S AREA is its block's too (`ring_block` reads it whole).
+        let ring_spawns = |g: &RawActionGraph| {
+            extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
+        };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -9268,6 +9322,7 @@ impl CardDb {
                     shot_spawn: None,
                     fall: None,
                     first_hit: None,
+                    ring: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -9433,6 +9488,7 @@ impl CardDb {
             shot_spawn: None,
             fall: None,
             first_hit: None,
+            ring: None,
             cloned_as: None,
         };
         if let Some(g) = &extra.evo_ghost {
@@ -9459,6 +9515,34 @@ impl CardDb {
                 return Err("a shot spawn on a row with no shot".into());
             }
             evo.shot_spawn = Some(ShotSpawnDef { unit: FormUnit { unit }, deploy_ms: r.deploy_ms.filter(|d| *d >= 0).ok_or("a shot spawn with no deploy time")? });
+        }
+        // THE RING: grows every tick (HitSpeed the tick's 50, as measured) on a building that comes up; its stop interned now.
+        if let Some(r) = &extra.evo_ring {
+            let what = "the ring";
+            let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: no {k}"));
+            if r.hit_speed_ms != Some(50) || r.on_appear != Some(true) {
+                return Err(format!("{what}: HitSpeed {:?} or no ring on coming up; the ring was measured growing every 50 ms as it came up", r.hit_speed_ms));
+            }
+            if c.hide.is_none() {
+                return Err(format!("{what} on a building that does not hide; not simulated"));
+            }
+            let (lo, hi) = (pos(r.min_radius_milli, "Radius")?, pos(r.max_radius_milli, "MaxRadius")?);
+            if hi <= lo {
+                return Err(format!("{what}: a ring that does not grow"));
+            }
+            let stop = r.stop.as_ref().ok_or_else(|| format!("{what}: no stop"))?;
+            let buff_ms = pos(r.buff_ms, "stop time")?;
+            evo.ring = Some(RingDef {
+                on_start: r.on_start.unwrap_or(false),
+                min_radius: milli(lo),
+                max_radius: milli(hi),
+                life_ms: pos(r.life_ms, "LifeDuration")?,
+                hits_air: r.hits_air.unwrap_or(false),
+                hits_ground: r.hits_ground.unwrap_or(false),
+                damage: pos(r.damage, "damage")?,
+                crown_hit: r.crown_hit.unwrap_or(0).max(0),
+                stop: buffs.apply(stop, Some(buff_ms), "the ring's stop")?,
+            });
         }
         // THE GHOST: the buff the unit's first damage lands, interned now; it must keep every hit off its carrier.
         if let Some(f) = &extra.evo_first_hit {

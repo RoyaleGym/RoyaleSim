@@ -3667,7 +3667,7 @@ def globals_block(v: Vintage) -> dict:
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
-    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1",
+    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4322,6 +4322,82 @@ FALL_GROUNDED_SET = {
 }
 
 
+# THE EVO TESLA'S RING (`ring_block`): the columns its area may set beside the cosmetic ones.
+RING_AREA_READ = {
+    "Rarity", "OnlyEnemies", "HitsGround", "HitsAir", "Radius", "MaxRadius", "LifeDuration", "HitSpeed", "Damage",
+    "OnHitAction", "OneHitPerTarget",
+}
+
+
+def ring_block(t: Tables, card: dict) -> dict:
+    """THE EVO TESLA'S RING (spells_evolved Tesla_EV1; buildings_evo Tesla_EV1), read whole or the build stops. The
+    building's OnStartingAction and OnAppearAction name one action: an ActionSpawn of an AreaEffectType on the building
+    (ParentGOAsSource), then an effect (`on_start`, `on_appear`); its OnDisappearAction only plays an effect. The area:
+    enemies only, air and ground as set, no damage, OneHitPerTarget, HitSpeed (`hit_speed_ms`), a Radius growing to its
+    MaxRadius over its LifeDuration (`min_radius_milli`, `max_radius_milli`, `life_ms`); its OnHitAction an ActionSpawn of
+    a BuffType for its SpawnTime (`buff`, `buff_ms`), not stopped by the building's death. The buff: a full stop
+    (Speed, HitSpeed and SpawnSpeed multipliers -100) and ONE hit of its DamagePerSecond as it lands (HitFrequency -1;
+    `damage`, `crown_hit`: CrownTowerDamagePerHit), written apart from the stop (`stop`)."""
+    acts = t["actions"]
+    unit = card["summon_character"]
+    _, urow = unit_record(t, unit)
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"Tesla_EV1: {what}")
+
+    start, appear = urow["OnStartingAction"], urow["OnAppearAction"]
+    need(isinstance(appear, str) and start in (None, appear), "OnStartingAction and OnAppearAction name one action")
+    gone = urow["OnDisappearAction"]
+    need(gone is None or _cosmetic_action(acts, gone), "OnDisappearAction plays more than an effect")
+    sp = acts.get(appear)
+    need(sp is not None and sp["ClassType"] == "ActionSpawn" and sp["SpawnType"] == "AreaEffectType"
+         and sp["ParentGOAsSource"] is True, f"{appear} is not an area on the building")
+    need(_present(sp) - {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource", "NextAction"} == set(), f"{appear}'s keys")
+    nxt = sp["NextAction"]
+    need(nxt is None or _cosmetic_action(acts, nxt) or _cosmetic_inline(nxt), f"{appear}'s NextAction")
+    tb = t["area_effect_objects"]
+    name = sp["SpawnData"]
+    r = tb.get(name)
+    need(r is not None, f"no area {name}")
+    unread = tb.set_fields.get(name, set()) - RING_AREA_READ - HERO_AREA_COSMETIC
+    need(not unread, f"area {name} sets {sorted(unread)}")
+    need(r["OnlyEnemies"] is True and r["OneHitPerTarget"] is True and not r["Damage"], f"area {name} is not a one-hit ring")
+    for col in ("Radius", "MaxRadius", "LifeDuration", "HitSpeed"):
+        need(isinstance(r[col], int) and r[col] > 0, f"area {name}'s {col} {r[col]!r}")
+    need(r["MaxRadius"] > r["Radius"], f"area {name} does not grow")
+    hit = acts.get(r["OnHitAction"]) if isinstance(r["OnHitAction"], str) else None
+    need(hit is not None and hit["ClassType"] == "ActionSpawn" and hit["SpawnType"] == "BuffType"
+         and isinstance(hit["SpawnTime"], int) and hit["SpawnTime"] > 0, f"area {name}'s OnHitAction")
+    need(_present(hit) - {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "AbortIfInstigatorDies"} == set()
+         and hit["AbortIfInstigatorDies"] is not True, f"{r['OnHitAction']}'s keys")
+    buff = norm_buff(t, hit["SpawnData"])
+    brow = t["character_buffs"].get(hit["SpawnData"])
+    need(buff is not None and brow["HitFrequency"] == -1 and isinstance(buff["damage_per_second"], int)
+         and buff["damage_per_second"] > 0, f"buff {hit['SpawnData']} is not one hit of its DamagePerSecond")
+    need(all(buff[k] == -100 for k in ("speed_multiplier_raw", "hit_speed_multiplier_raw", "spawn_speed_multiplier_raw")),
+         f"buff {hit['SpawnData']} is not a full stop")
+    stop = dict(buff)
+    for k in ("damage_per_second", "hit_frequency_ms", "crown_tower_damage_per_hit"):
+        if k in stop:
+            stop[k] = None
+    return {
+        "area": name,
+        "on_start": start == appear,
+        "on_appear": True,
+        "min_radius_milli": r["Radius"],
+        "max_radius_milli": r["MaxRadius"],
+        "life_ms": r["LifeDuration"],
+        "hit_speed_ms": r["HitSpeed"],
+        "hits_air": r["HitsAir"] is True,
+        "hits_ground": r["HitsGround"] is True,
+        "damage": buff["damage_per_second"],
+        "crown_hit": buff.get("crown_tower_damage_per_hit"),
+        "stop": stop,
+        "buff_ms": hit["SpawnTime"],
+    }
+
+
 def first_hit_block(t: Tables, card: dict) -> dict:
     """THE EVO MINION HORDE'S GHOST (spells_evolved MinionHorde_EV1; characters/minion_horde_ev1.toml), read whole or the
     build stops. The unit's OnDamageTakenAction (OnDamageTakenActionInstigatorAsSelf) is an ActionGroup run once (its
@@ -4697,6 +4773,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_fall"] = fall_block(t, card)
         elif name == "MinionHorde_EV1":
             card["evo_first_hit"] = first_hit_block(t, card)
+        elif name == "Tesla_EV1":
+            card["evo_ring"] = ring_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k
