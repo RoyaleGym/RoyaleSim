@@ -19181,6 +19181,12 @@ impl BattleState {
             let i = id.index as usize;
             let card = self.cfg.cards.get(self.ents.card[i]);
             if self.ents.death_damage[i] > 0 && card.death_damage_radius > 0 {
+                // The blow's own crown-tower percent where it has one (card.rs `CardDef::death_crown_pct`: the Evo Wall
+                // Breakers'), else the card's.
+                #[cfg(not(clash_plant = "death_crown_pct_unread"))]
+                let crown = card.death_crown_pct.unwrap_or(card.crown_tower_damage_percent);
+                #[cfg(clash_plant = "death_crown_pct_unread")]
+                let crown = card.crown_tower_damage_percent; // PLANT: the card's own percent for every death blow.
                 combat::splash(
                     &self.ents,
                     &self.hash,
@@ -19190,7 +19196,7 @@ impl BattleState {
                     true,
                     true,
                     self.ents.death_damage[i],
-                    card.crown_tower_damage_percent,
+                    crown,
                     self.cfg.calib.crown_rounding,
                     &mut self.dmg,
                     &mut self.scratch.nb,

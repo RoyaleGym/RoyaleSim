@@ -2254,6 +2254,9 @@ pub struct CardDef {
     pub crown_tower_damage_percent: i32,
     pub death_damage: i32,
     pub death_damage_radius: i32,
+    /// The death damage's crown-tower percent, EFFECTIVE, when it is not the card's own (the Evo Wall Breakers' blow,
+    /// WallbreakerBarrelExplosion_EV1's -14: 86); None reads `crown_tower_damage_percent` (state.rs `phase_reap`).
+    pub death_crown_pct: Option<i32>,
     /// Splash centred on the attacker rather than the target (Valkyrie).
     pub self_as_aoe_center: bool,
     /// LifeTime, ms: the entity bleeds its hitpoints away over this long (calibration lifetime.HP_DECAY;
@@ -2829,6 +2832,9 @@ struct RawCard {
     crown_tower_damage_percent: Option<i32>,
     death_damage: Option<i32>,
     death_damage_radius_milli: Option<i32>,
+    /// The death damage's own crown-tower percent, EFFECTIVE (`CardDef::death_crown_pct`); written only where the death
+    /// is a blow of another row's (the Evo Wall Breakers').
+    death_damage_crown_pct: Option<i32>,
     self_as_aoe_center: Option<bool>,
     lifetime_ms: Option<i32>,
     level_scaling: Option<serde_json::Value>,
@@ -4196,6 +4202,8 @@ struct RawEvolution {
     evo_uppercut: Option<RawUppercut>,
     /// The Evo P.E.K.K.A.'s heal on a kill (`kill_heal_block`).
     evo_kill_heal: Option<RawKillHeal>,
+    /// The Evo Wall Breakers' death action (`death_action_block`), written into the record's death columns.
+    evo_death_action: Option<RawDeathAction>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4238,6 +4246,13 @@ struct RawUppercut {
     push_milli: Option<i32>,
     root_delay_ms: Option<i32>,
     root_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_death_action` (tools/extract_cards.py `death_action_block`): the unit its death puts
+/// down (the record's death spawn; the blow is in the record's death columns).
+#[derive(Deserialize)]
+struct RawDeathAction {
+    unit: Option<String>,
 }
 
 /// cards.json `evolutions[].evo_kill_heal` (tools/extract_cards.py `kill_heal_block`).
@@ -6116,6 +6131,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         crown_tower_damage_percent: 100,
         death_damage: 0,
         death_damage_radius: 0,
+        death_crown_pct: None,
         self_as_aoe_center: false,
         lifetime_ms: None,
         level_table: None,
@@ -8357,6 +8373,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         crown_tower_damage_percent: raw.crown_tower_damage_percent.unwrap_or(100),
         death_damage: raw.death_damage.unwrap_or(0),
         death_damage_radius: milli(raw.death_damage_radius_milli.unwrap_or(0)),
+        death_crown_pct: raw.death_damage_crown_pct,
         self_as_aoe_center: raw.self_as_aoe_center.unwrap_or(false),
         lifetime_ms: raw.lifetime_ms,
         level_table,
@@ -9491,6 +9508,7 @@ impl CardDb {
             extra.evo_far_shot.is_some(),
             extra.evo_uppercut.is_some(),
             extra.evo_kill_heal.is_some(),
+            extra.evo_death_action.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9534,6 +9552,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_death_action.is_some() {
+            // The death's spawns (`death_action_block` reads them whole, into the record's death columns).
+            &["ActionSpawn"]
         } else if extra.evo_kill_heal.is_some() {
             // The kill's select (`kill_heal_block` reads it and its three inline heals whole) and the armour's layer.
             &["ActionAnimatorLayer", "ActionSelect"]
@@ -9584,12 +9605,18 @@ impl CardDb {
                 g.spawns.iter().all(|x| x == &format!("AreaEffectType:{area}") || x == &format!("BuffType:{buff}"))
             })
         };
+        // THE DEATH'S UNIT is its block's too (`death_action_block` reads it, and its blow, whole).
+        let death_spawns = |g: &RawActionGraph| {
+            extra.evo_death_action.as_ref().and_then(|d| d.unit.as_deref()).is_some_and(|u| {
+                g.spawns.iter().all(|s| s == &format!("CharacterType:{u}") || s.starts_with("ProjectileType:"))
+            })
+        };
         // THE RING'S AREA is its block's too (`ring_block` reads it whole).
         let ring_spawns = |g: &RawActionGraph| {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -9668,6 +9695,28 @@ impl CardDb {
                     charge_after_shield: false,
                     cloned_as: None,
                 });
+                death = Some(m);
+                continue;
+            }
+            // THE DEATH ACTION'S UNIT (the Evo Wall Breakers' runner): its own row, a plain unit, loaded here as a
+            // summon-only record after the form, the form's death spawn.
+            if let (Some(d), UnitUse::DeathSpawn) = (extra.evo_death_action.as_ref(), &which) {
+                if d.unit.as_deref() != Some(u.as_str()) || death.is_some() {
+                    return Err(format!("death spawn {u} is not the death action's one unit {:?}", d.unit));
+                }
+                let mut uv = ctx.units.get(&u).cloned().ok_or_else(|| format!("death spawn {u}: no units record"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("death spawn {u}: not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("death spawn {u}: {e}"))?;
+                if ur.action_graph.as_ref().is_some_and(|g| g.mechanic.unwrap_or(false)) {
+                    return Err(format!("death spawn {u} runs an action graph; not simulated"));
+                }
+                let (mut m, _, dneeds) = convert(ur, buffs, ctx).map_err(|e| format!("death spawn {u}: {e}"))?;
+                if let Some((_, n)) = dneeds.first() {
+                    return Err(format!("death spawn {u} needs {n}; not simulated"));
+                }
+                m.summon_only = true;
                 death = Some(m);
                 continue;
             }
@@ -9940,6 +9989,22 @@ impl CardDb {
             let push = u.push_milli.filter(|p| *p > 0).ok_or("an uppercut with no PushBackStrength")?;
             let (root_delay_ms, root_ms) = (u.root_delay_ms.filter(|m| *m >= 0).ok_or("an uppercut's root delay")?, u.root_ms.filter(|m| *m >= 0).ok_or("an uppercut's root")?);
             evo.uppercut = Some(UppercutDef { every, push, root_delay_ms, root_ms });
+        }
+        // THE DEATH ACTION (the Evo Wall Breakers'): the record's death is one unit on the point with no deploy and a blow.
+        if extra.evo_death_action.is_some() {
+            let ds = c.death_spawn.ok_or("a death action with no death spawn")?;
+            if ds.count != 1 || ds.radius != Some(0) || ds.deploy_time_ms != Some(0) || c.death_damage <= 0 || c.death_damage_radius <= 0 {
+                return Err("a death action that is not one unit on the point and a blow; not simulated".into());
+            }
+            if !c.death_crown_pct.is_some_and(|p| (0..=100).contains(&p)) {
+                return Err("a death action's blow with no crown-tower percent in 0..=100".into());
+            }
+            #[cfg(clash_plant = "death_action_dropped")]
+            {
+                // PLANT: the form dies as the base Wall Breaker does, with nothing left behind.
+                c.death_spawn = None;
+                c.death_damage = 0;
+            }
         }
         // THE HEAL ON A KILL (the Evo P.E.K.K.A.'s): three heals over time, one chosen by the victim's size.
         if let Some(k) = &extra.evo_kill_heal {

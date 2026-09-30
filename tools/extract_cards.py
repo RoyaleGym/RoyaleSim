@@ -3702,7 +3702,7 @@ EVOLUTIONS = (
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
-    "Bats_EV1",
+    "Bats_EV1", "Wallbreakers_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4586,6 +4586,58 @@ def hit_rage_block(t: Tables, card: dict, stats: frozenset | set = frozenset()) 
     return {"unit": unit, "hits": counts[0], "time_ms": times[0], "buff": buff}
 
 
+# THE EVO WALL BREAKERS' DEATH ACTION (`death_action_block`): the unit row's columns it reads besides display, and the
+# columns its blow's projectile row may set (the rest is display: its file, export, hit effect).
+DEATH_ACTION_ROW = {"OnKilledAction", "Projectile", "IgnoreResurrect", "ClonedVersion"}
+DEATH_ACTION_BLOW = {
+    "Rarity", "Speed", "Damage", "CrownTowerDamagePercent", "Radius", "AoeToGround", "AoeToAir", "OnlyEnemies",
+    "Gravity", "DeflectBehaviour",
+}
+
+
+def death_action_block(t: Tables, card: dict) -> dict:
+    """THE EVO WALL BREAKERS' DEATH ACTION (characters_evo Wallbreaker_EV1), read whole or the build stops: its
+    OnKilledAction is an ActionSpawn of a unit on it (ParentGOAsSource, no deploy) whose NextAction is an ActionSpawn of
+    a projectile on it, a blow (Damage, Radius, both layers, enemies only, its own CrownTowerDamagePercent). Written
+    into the card record as its death: `death_spawn` (the unit, one, on the point, no deploy), `death_damage`,
+    `death_damage_radius_milli` and `death_damage_crown_pct` (the blow's effective percent). The row sets nothing else
+    but display columns and its Projectile (read by the record)."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts = t["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - DEATH_ACTION_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    name = row["OnKilledAction"]
+    sp = acts.get(name) if isinstance(name, str) else None
+    need(sp is not None and sp["ClassType"] == "ActionSpawn" and sp["SpawnType"] == "CharacterType"
+         and sp["ParentGOAsSource"] is True
+         and _present(sp) <= {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource", "NextAction"},
+         f"OnKilledAction {name!r}")
+    nxt = sp["NextAction"]
+    need(isinstance(nxt, dict) and nxt.get("ClassType") == "ActionSpawn" and nxt.get("SpawnType") == "ProjectileType"
+         and nxt.get("ParentGOAsSource") is True
+         and set(nxt) <= {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource"}, f"its NextAction {nxt!r}")
+    blow = nxt["SpawnData"]
+    pt = t["projectiles"]
+    b = pt.get(blow)
+    unread = {c for c in pt.set_fields.get(blow, set()) - DEATH_ACTION_BLOW if not COSMETIC.search(c)}
+    need(b is not None and not unread and b["AoeToGround"] is True and b["AoeToAir"] is True
+         and b["OnlyEnemies"] is True and isinstance(b["Damage"], int) and b["Damage"] > 0
+         and isinstance(b["Radius"], int) and b["Radius"] > 0, f"the blow {blow} (sets {sorted(unread)})")
+    card["death_spawn"] = {"character": sp["SpawnData"], "count": 1, "radius_milli": 0, "deploy_time_ms": 0}
+    card["death_damage"] = b["Damage"]
+    card["death_damage_radius_milli"] = b["Radius"]
+    card["death_damage_crown_pct"] = ct_percent(b["CrownTowerDamagePercent"])
+    return {"unit": sp["SpawnData"], "blow": blow}
+
+
 def data_only_block(t: Tables, card: dict, spec: tuple[set, list]) -> dict:
     """A FORM WHOSE MECHANIC IS DATA (the Evo Knight's BuffWhenNotAttacking: `idle_buff_block` reads it for every row),
     read whole or the build stops: its unit row sets nothing but display columns and the spec's columns, names no
@@ -5164,6 +5216,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_hit_rage"] = hit_rage_block(t, card)
         elif name == "Bats_EV1":
             card["evo_hit_rage"] = hit_rage_block(t, card, {"Hitpoints"})
+        elif name == "Wallbreakers_EV1":
+            card["evo_death_action"] = death_action_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

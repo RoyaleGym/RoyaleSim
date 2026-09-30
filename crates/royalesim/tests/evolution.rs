@@ -483,19 +483,25 @@ fn forms_take_slots_after_every_existing_card() {
             ("RoyalGiant", "RoyalGiant_EV1"),
             ("MegaKnight", "MegaKnight_EV1"),
             ("Pekka", "Pekka_EV1"),
-            ("Bats", "Bats_EV1")
+            ("Bats", "Bats_EV1"),
+            ("Wallbreakers", "Wallbreakers_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Twenty-seven forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Twenty-eight forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
     // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), the
     // Evo Skeleton Barrel with its two drops, the Evo Mortar (its Goblin a loaded unit), and the Evo Royal Hogs with its
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
-    // P.E.K.K.A., then the Evo Bats last.
-    assert_eq!(db.cards.len(), n0 + 36);
+    // P.E.K.K.A., the Evo Bats, then the Evo Wall Breakers with their runner last.
+    assert_eq!(db.cards.len(), n0 + 38);
+    assert_eq!(db.cards[n0 + 36].name, "Wallbreakers_EV1");
+    let wb = &db.cards[n0 + 36];
+    let ds = wb.death_spawn.expect("the Evo Wall Breakers' runner");
+    assert!(ds.count == 1 && usize::from(ds.unit) == n0 + 37 && db.cards[n0 + 37].hitpoints == 64 && db.cards[n0 + 37].summon_only);
+    assert!(wb.death_damage == 75 && wb.death_damage_radius > 0 && wb.death_crown_pct == Some(86));
     assert_eq!(db.cards[n0 + 35].name, "Bats_EV1");
     let heal = db.cards[n0 + 35].evo.as_ref().and_then(|e| e.hit_rage).expect("the Evo Bats' heal");
     let hb = db.buffs[heal.apply.buff as usize];
