@@ -3209,6 +3209,10 @@ def champion_dash_chain(t, unit: str) -> dict | None:
     first = acts.get(subs[0]) if subs else None
     if first is None or first["ClassType"] != "ActionRunActionListOnObjectsInShapeWithPrio":
         return None
+    # A seeker whose trigger runs no dash chain (the Hero Giant's slap, read by `slap_effect`) is not this reader's.
+    trig = first.get("ActionOnSelfWhenTriggered")
+    if not isinstance(trig, str) or acts.get(trig) is None or acts.get(trig)["ClassType"] != "ActionDashingAttackChain":
+        return None
     charge = _one_action(acts, subs[0], "ActionRunActionListOnObjectsInShapeWithPrio", CHAIN_CHARGE_KEYS)
     execute = acts.get(charge["ActionOnSelfWhenTriggered"])
     if execute is None or execute["ClassType"] != "ActionDashingAttackChain":
@@ -4806,6 +4810,7 @@ HERO_FORMS = {
     "MiniPekka_hero": ("MiniPekka", "mini_pekka_hero"),
     "Knight_hero": ("Knight", "knight_hero"),
     "MegaMinion_hero": ("MegaMinion", "mega_minion_hero"),
+    "Giant_hero": ("Giant", "giant_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -5078,6 +5083,114 @@ WARP_STRIKE_SHOWN = {
     "Rarity", "FilterFile", "FilterExportName", "ContinuousEffect", "Invisible", "RemoveOnAttack", "OverrideProjectile",
     "OnRemoveAction", "NotCloned",
 }
+
+
+# THE HERO GIANT'S SLAP (`slap_effect`): the keys its seeker and its push may set, the two filters it implements (its
+# pick: enemy troops, air or ground; its landing blow: enemy ground troops) and the tags that refuse the push.
+SLAP_SEEKER_KEYS = {
+    "ClassType", "GameTagsToSet", "OncePerTarget", "WaitForTarget", "TargetSelectionMode", "TargetFilter", "Actions",
+    "Delays", "Shape", "ActionOnSelfWhenTriggeredLeft", "ActionOnSelfWhenTriggeredRight", "PauseTags",
+    "AbortIfInstigatorDies",
+}
+SLAP_PUSH_KEYS = {
+    "ClassType", "DirectionMode", "PushbackStrength", "GameTagsToDisallowPush", "SuccessAction",
+    "SuccessActionOnInstigator", "FailureActionOnInstigator", "PushbackDelay", "UpdatePhase", "StatsTags",
+}
+SLAP_FILTER = "Enemy_Characters_No_Buildings_Or_Towers"
+SLAP_LANDING_FILTER = "GroundCharacterTargets"
+SLAP_REFUSING_TAGS = {"NO_PUSHBACK", "UNTARGETABLE", "DASHING", "DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS"}
+
+
+def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dict:
+    """THE HERO GIANT'S BUTTON ([ABILITY.GiantHero_Ability]), read whole or the build stops. OnActivationAction is a group
+    of the seeker at delay 0 and the button's UI state and effects. The seeker waits for (WaitForTarget), once per
+    target, the enemy troop with the highest current hitpoints and shield (SLAP_FILTER) in its circle (`radius_milli`);
+    on the Giant it runs, left or right, an animation and a hold (an ActionWithDuration of NO_MOVE and NO_ATTACK:
+    `hold_ms`); on the target, the push: `push_delay_ms` on, toward the arena's horizontal centre, refused by
+    SLAP_REFUSING_TAGS. On success the target is knocked up for `flight_ms` and lands with the landing blow (an area of
+    one hit: `landing_damage`, its level scaling, `landing_radius_milli`, enemy ground troops), and takes the stun (a full
+    stop, `buff` for `time_ms`); on failure the seeker runs again `retry_ms` on."""
+    acts = h["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    seek = [(s, d) for s, d in zip(subs, delays, strict=True) if acts.get(s)["ClassType"] == "ActionRunActionListOnObjectsInShapeWithPrio"]
+    need(len(seek) == 1 and seek[0][1] == 0, "one seeker at delay 0")
+    for s in subs:
+        need(s == seek[0][0] or acts.get(s)["ClassType"] in ("ActionOverrideAbilityButtonState", "ActionPlayEffect"), f"step {s}")
+    sk = _one_action(acts, seek[0][0], "ActionRunActionListOnObjectsInShapeWithPrio", SLAP_SEEKER_KEYS)
+    need(sk["WaitForTarget"] is True and sk["OncePerTarget"] is True and sk["TargetFilter"] == SLAP_FILTER
+         and sk["TargetSelectionMode"] == "HighestCurrentHpIncludeShields", "the seeker's pick")
+    shape = h.shapes.get(sk["Shape"]) if isinstance(sk["Shape"], str) else None
+    need(shape is not None and shape.get("ClassType") == "Circle" and isinstance(shape.get("Radius"), int), "the seeker's circle")
+    per, per_d = _action_list(acts, seek[0][0], "Actions"), _action_list(acts, seek[0][0], "Delays")
+    need(len(per) == 1 and list(per_d) in ([0], []), "the seeker's one action at delay 0")
+    holds = set()
+    for side in ("ActionOnSelfWhenTriggeredLeft", "ActionOnSelfWhenTriggeredRight"):
+        got = _group_leaves(acts, sk[side])
+        need(got is not None and all(d == 0 for d in got[1]), f"the {side} group")
+        for s in got[0]:
+            c = acts.get(s)["ClassType"]
+            if c == "ActionWithDuration":
+                w = _one_action(acts, s, c, {"ClassType", "ActionDuration", "GameTagsToSet"})
+                tags = {x.strip() for x in str(w["GameTagsToSet"]).split(",")}
+                need({"NO_MOVE", "NO_ATTACK"} <= tags and isinstance(w["ActionDuration"], int), f"the hold {s}")
+                holds.add(w["ActionDuration"])
+            else:
+                need(c == "ActionRunForcedAnimationOnce", f"the {side} group runs {c}")
+    need(len(holds) == 1, f"the two sides' holds {sorted(holds)}")
+    push = _one_action(acts, per[0], "ActionDoPushbackFromInstigator", SLAP_PUSH_KEYS)
+    need(push["DirectionMode"] == "ToHorizontalCenterFromInstigator" and push["UpdatePhase"] == "PostGameObjectTick"
+         and isinstance(push["PushbackDelay"], int) and push["PushbackDelay"] >= 0, "the push")
+    need({x.strip() for x in str(push["GameTagsToDisallowPush"]).split(",")} <= SLAP_REFUSING_TAGS, "the push's refusing tags")
+    need(_cosmetic_action(acts, push["SuccessActionOnInstigator"]), "the push's success on the Giant")
+    ok = _group_leaves(acts, push["SuccessAction"])
+    need(ok is not None and all(d == 0 for d in ok[1]), "the push's success group")
+    by = {}
+    for s in ok[0]:
+        by.setdefault(acts.get(s)["ClassType"], []).append(s)
+    need(sorted(by) == ["ActionKnockback", "ActionPlayEffect", "ActionSpawn"] and len(by["ActionKnockback"]) == 1
+         and len(by["ActionSpawn"]) == 1, f"the success group runs {sorted(by)}")
+    kb = _one_action(acts, by["ActionKnockback"][0], "ActionKnockback",
+                     {"ClassType", "Duration", "Height", "AbortIfInstigatorDies", "ActionOnLanding", "PassInstigatorToLandingAction",
+                      "StatsTags"})
+    need(isinstance(kb["Duration"], int) and kb["Duration"] > 0, "the knock's Duration")
+    st = _one_action(acts, by["ActionSpawn"][0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags"})
+    stun = norm_buff(h, st["SpawnData"])
+    need(st["SpawnType"] == "BuffType" and stun is not None and isinstance(st["SpawnTime"], int)
+         and all(stun[k] == -100 for k in ("speed_multiplier_raw", "hit_speed_multiplier_raw", "spawn_speed_multiplier_raw"))
+         and not stun["damage_per_second"], "the stun")
+    land = _group_leaves(acts, kb["ActionOnLanding"])
+    need(land is not None and len(land[0]) == 1 and land[1] == [0], "the landing group")
+    sp = _one_action(acts, land[0][0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "StatsTags"})
+    tb = h["area_effect_objects"]
+    r = tb.get(sp["SpawnData"])
+    need(sp["SpawnType"] == "AreaEffectType" and r is not None, "the landing area")
+    unread = tb.set_fields.get(sp["SpawnData"], set()) - {"Rarity", "LifeDuration", "HitSpeed", "Damage", "DamageType", "Shape", "Filter", "StatsTags"}
+    need(not unread and not r["HitSpeed"] and r["Filter"] == SLAP_LANDING_FILTER and isinstance(r["Damage"], int),
+         f"the landing area sets {sorted(unread)} or is not one hit on enemy ground troops")
+    lshape = h.shapes.get(r["Shape"]) if isinstance(r["Shape"], str) else None
+    need(lshape is not None and lshape.get("ClassType") == "Circle" and isinstance(lshape.get("Radius"), int), "the landing's circle")
+    dt = h.damage_types.get(r["DamageType"]) if isinstance(r["DamageType"], str) else None
+    fail = _group_leaves(acts, push["FailureActionOnInstigator"])
+    need(fail is not None and seek[0][0] in fail[0], "the push's failure does not seek again")
+    for s in fail[0]:
+        need(s == seek[0][0] or _cosmetic_action(acts, s), f"the failure group runs {s}")
+    return {
+        "kind": "slap",
+        "radius_milli": shape["Radius"],
+        "hold_ms": holds.pop(),
+        "push_delay_ms": push["PushbackDelay"],
+        "flight_ms": kb["Duration"],
+        "buff": stun,
+        "time_ms": st["SpawnTime"],
+        "landing_damage": r["Damage"],
+        "landing_radius_milli": lshape["Radius"],
+        "landing_level_scaled": not (dt is not None and dt.get("EnableLevelScaling") is False),
+        "retry_ms": fail[1][fail[0].index(seek[0][0])],
+    }
 
 
 def warp_effect(h: Tables, name: str, lock: str) -> dict:
@@ -5375,7 +5488,12 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
     subs, delays = got
     classes = [acts.get(s)["ClassType"] for s in subs]
     group_classes = {"ActionSpawn", "ActionPlayEffect", "ActionChangeGameObjectData", "ActionSetShield"}
-    if "ActionRunActionListOnObjectsInShapeWithPrio" in classes:
+    seekers = [s for s in subs if acts.get(s)["ClassType"] == "ActionRunActionListOnObjectsInShapeWithPrio"]
+    per_target = [acts.get(x)["ClassType"] for s in seekers for x in _action_list(acts, s, "Actions") if acts.get(x)]
+    if "ActionDoPushbackFromInstigator" in per_target:
+        effect = slap_effect(h, name, subs, delays)
+        classes = []
+    elif "ActionRunActionListOnObjectsInShapeWithPrio" in classes:
         effect = spin_chain_effect(h, name, subs, delays)
         classes = []
     elif "ActionGroundToAir" in classes:

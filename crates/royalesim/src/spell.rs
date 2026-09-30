@@ -362,6 +362,11 @@ pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::Spell
         .or(def.evo.as_ref().and_then(|v| v.fall.as_ref()).map(|f| &f.landing))
         .or(def.idle_area.as_ref())
         .or(def.deploy_spawn_area.as_ref())
+        // The Hero Giant's landing blow (card.rs `SlapDef::landing`; state.rs `slap_pass`).
+        .or(match def.ability.as_ref().map(|a| &a.effect) {
+            Some(crate::card::AbilityEffect::Slap(s)) => Some(&s.landing),
+            _ => None,
+        })
 }
 
 /// The shape `depth` steps down `root`'s chain (`SpellShape::child`), or None past its end.

@@ -6827,6 +6827,25 @@ pub struct LiftRun {
     pub ground: u16,
 }
 
+/// THE SLAPS (card.rs `SlapDef`, the Hero Giant's): each slap under way (`SlapRun`). Saved and hashed
+/// (`BattleState::slaps`, only when not empty).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlapBoard {
+    pub runs: Vec<SlapRun>,
+}
+
+/// A SLAP UNDER WAY: its Giant; its phase (0 seeking, 1 picked and waiting to throw, 2 the target in flight, 3 waiting
+/// to seek again after a refused throw); its target; the tick its phase began; the flight's x sign; the targets tried.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlapRun {
+    pub id: EntityId,
+    pub phase: u8,
+    pub target: Option<EntityId>,
+    pub mark: u32,
+    pub dir: i32,
+    pub tried: Vec<EntityId>,
+}
+
 /// THE WARPS (card.rs `WarpDef`, the Hero Mega Minion's): each warp under way (`WarpRun`) and each warped hero's shots
 /// (`StrikeRun`). Saved and hashed (`BattleState::warps`, only when not empty).
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -7949,6 +7968,8 @@ pub struct BattleState {
     taunts: TauntBoard,
     /// The warps (`WarpBoard`). Empty in every battle without one.
     warps: WarpBoard,
+    /// The slaps (`SlapBoard`). Empty in every battle without one.
+    slaps: SlapBoard,
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
@@ -8349,6 +8370,7 @@ impl BattleState {
             falls: Vec::new(),
             taunts: TauntBoard::default(),
             warps: WarpBoard::default(),
+            slaps: SlapBoard::default(),
             deflects: Vec::new(),
             commands: Vec::new(),
             commands_run: Vec::new(),
@@ -13215,6 +13237,149 @@ impl BattleState {
         self.evo.first_hits.retain(|id| ents.is_alive(*id));
     }
 
+    /// THE SLAP'S PICK from Giant `i` (card.rs `SlapDef`; Enemy_Characters_No_Buildings_Or_Towers,
+    /// HighestCurrentHpIncludeShields): an enemy troop, air or ground, alive, visible, above ground, not mid-leap, not
+    /// dashing, not a rider, not tried before, whose centre is within `radius` of his plus its own radius; the most
+    /// hitpoints and shield, then the earliest created. None when none is.
+    fn slap_pick(&self, i: usize, radius: i32, tried: &[EntityId]) -> Option<EntityId> {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let e = &self.ents;
+        (0..e.capacity())
+            .filter(|&j| {
+                e.alive[j]
+                    && e.hp[j] > 0
+                    && e.team[j] != e.team[i]
+                    && e.kind[j] == EntityKind::Troop
+                    && !e.jumping[j]
+                    && e.dash_state[j] != DashState::Dashing
+                    && e.tunnel_dest[j].is_none()
+                    && !e.underground(j)
+                    && !e.attached(j)
+                    && !tried.contains(&e.id_of(j))
+                    && !target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, j)
+            })
+            .filter(|&j| {
+                let reach = ((radius + e.radius[j]) / K) as i64;
+                let (dx, dy) = ((e.pos[j].x / K - e.pos[i].x / K) as i64, (e.pos[j].y / K - e.pos[i].y / K) as i64);
+                dx * dx + dy * dy <= reach * reach
+            })
+            .map(|j| (-(e.hp[j] as i64 + e.shield[j].max(0) as i64), e.creation_seq[j], j))
+            .min()
+            .map(|(_, _, j)| e.id_of(j))
+    }
+
+    /// THE SLAPS (card.rs `SlapDef`), in the Projectile phase after the move, for each Giant alive:
+    ///   - seeking (paused while he is held): the pick holds him from the next tick, `hold_ms` and
+    ///     SLAP_HOLD_EXTRA_TICKS more, as a cast holds a hero (his target search runs on);
+    ///   - picked: `push_delay_ms` on, a target that ignores pushback, dashes or is gone is refused (the seek runs again
+    ///     `retry_ms` on, that target tried); else it loses its target, takes the stun, and is thrown toward the arena's
+    ///     horizontal centre (its own side of it when it stands on the line: away from the Giant);
+    ///   - in flight: SLAP_FLIGHT_STEP along x every tick after the throw's, inside the arena; `flight_ms` on it lands and
+    ///     the blow strikes on its point (on the level-1 figure unless the damage scales), and the slap is done.
+    fn slap_pass(&mut self) {
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let cards = self.cfg.cards.clone();
+        let mut runs = std::mem::take(&mut self.slaps.runs);
+        let mut moved = false;
+        runs.retain_mut(|r| {
+            if !self.ents.is_alive(r.id) && r.phase != 2 {
+                return false;
+            }
+            let g = r.id.index as usize;
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Slap(d), .. }) = cards.get(self.ents.card[g]).ability.clone() else { return false };
+            match r.phase {
+                0 => {
+                    if self.ents.stun_ms[g] > 0 || self.ents.held(&cards.buffs, g, self.cfg.calib.full_stop_buff_is_stun) {
+                        return true;
+                    }
+                    if let Some(t) = self.slap_pick(g, d.radius, &r.tried) {
+                        #[cfg(not(clash_plant = "slap_hold_table_only"))]
+                        let hold = (whole_ticks_ms(d.hold_ms, tick_ms) / tick_ms + crate::card::SLAP_HOLD_EXTRA_TICKS + 1) * tick_ms;
+                        #[cfg(clash_plant = "slap_hold_table_only")]
+                        let hold = (whole_ticks_ms(d.hold_ms, tick_ms) / tick_ms + 1) * tick_ms; // PLANT: the table's 800 ms alone.
+                        self.ents.stun_ms[g] = self.ents.stun_ms[g].max(hold);
+                        if let Some(u) = self.hero_units.iter_mut().find(|u| u.id == r.id) {
+                            u.casting = true;
+                        }
+                        r.tried.push(t);
+                        r.target = Some(t);
+                        r.phase = 1;
+                        r.mark = tick;
+                    }
+                    true
+                }
+                1 => {
+                    if tick < r.mark + (d.push_delay_ms / tick_ms) as u32 {
+                        return true;
+                    }
+                    let t = r.target.expect("a picked slap has its target");
+                    let ti = t.index as usize;
+                    let refused = !self.ents.is_alive(t)
+                        || cards.get(self.ents.card[ti]).ignore_pushback
+                        || self.ents.dash_state[ti] == DashState::Dashing
+                        || self.ents.attached(ti);
+                    if refused {
+                        r.phase = 3;
+                        r.mark = tick;
+                        return true;
+                    }
+                    self.ents.target[ti] = None;
+                    let h = crate::status::BuffHit::plain(t, d.stun.buff, d.stun.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, ti, &h);
+                    let centre = self.cfg.arena.width / 2;
+                    let x = self.ents.pos[ti].x;
+                    r.dir = if x > centre {
+                        -1
+                    } else if x < centre {
+                        1
+                    } else if self.ents.is_alive(r.id) && self.ents.pos[g].x > x {
+                        -1
+                    } else {
+                        1
+                    };
+                    r.phase = 2;
+                    r.mark = tick;
+                    true
+                }
+                2 => {
+                    let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) else { return false };
+                    let ti = t.index as usize;
+                    #[cfg(not(clash_plant = "slap_flight_never"))]
+                    if tick > r.mark {
+                        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                        let rad = self.ents.radius[ti];
+                        let nx = self.ents.pos[ti].x + r.dir * crate::card::SLAP_FLIGHT_STEP * K;
+                        self.ents.pos[ti].x = nx.clamp(rad, self.cfg.arena.width - rad);
+                        moved = true;
+                    }
+                    if tick < r.mark + (d.flight_ms / tick_ms) as u32 {
+                        return true;
+                    }
+                    #[cfg(not(clash_plant = "slap_landing_dropped"))]
+                    {
+                        let team = self.ents.team[g];
+                        let level = if d.landing_level_scaled { self.ents.level[g] } else { 1 };
+                        let at = self.ents.pos[ti];
+                        let blow = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, self.ents.card[g], level, at, tick).expect("the landing loads with its card");
+                        self.spells.extend(blow);
+                    }
+                    false
+                }
+                _ => {
+                    if tick >= r.mark + (d.retry_ms / tick_ms) as u32 {
+                        r.phase = 0;
+                        r.target = None;
+                    }
+                    true
+                }
+            }
+        });
+        self.slaps.runs = runs;
+        if moved {
+            self.hash.rebuild(&self.ents);
+        }
+    }
+
     /// THE WARP'S PICK from hero `i` (card.rs `WarpDef`; the resolver default_targets_no_towers, LOWEST_MAX_HP then
     /// FURTHEST_TARGET): an enemy troop, air or ground, alive, visible, above ground, not mid-leap, not a rider; the
     /// lowest max hitpoints, then the furthest centre, then the earliest created. None when none is.
@@ -17335,6 +17500,10 @@ impl BattleState {
         if !self.throws.is_empty() {
             self.throw_pass();
         }
+        // The Hero Giant's slaps, on this tick's moved points, before the spells step (`slap_pass`).
+        if !self.slaps.runs.is_empty() {
+            self.slap_pass();
+        }
         // The Hero Valkyrie's spins after the move, before the spells step, so a blow strikes on its own tick (`spin_pass`).
         if !self.spins.is_empty() {
             self.spin_pass();
@@ -20443,6 +20612,15 @@ impl BattleState {
                 }
                 let _ = (team, level);
             }
+            // THE SLAP (the Hero Giant's; `SlapRun`): it seeks from this tick's pass on (`slap_pass`).
+            crate::card::AbilityEffect::Slap(_) => {
+                #[cfg(not(clash_plant = "slap_never"))]
+                {
+                    self.slaps.runs.retain(|r| r.id != hero);
+                    self.slaps.runs.push(SlapRun { id: hero, phase: 0, target: None, mark: self.tick, dir: 0, tried: Vec::new() });
+                }
+                let _ = (team, level, pos);
+            }
             // THE WARP (the Hero Mega Minion's; `WarpRun`): its pick now, its first step in this tick's move pass. With no
             // pick it does nothing.
             crate::card::AbilityEffect::Warp(_) => {
@@ -22094,6 +22272,25 @@ impl BattleState {
                 h.u32(r.moves);
             }
         }
+        // The slaps, only when there are some.
+        if !self.slaps.runs.is_empty() {
+            h.u32(0x534c_4150);
+            h.u32(self.slaps.runs.len() as u32);
+            for r in &self.slaps.runs {
+                h.id(r.id);
+                h.u32(u32::from(r.phase));
+                h.bool(r.target.is_some());
+                if let Some(t) = r.target {
+                    h.id(t);
+                }
+                h.u32(r.mark);
+                h.i32(r.dir);
+                h.u32(r.tried.len() as u32);
+                for t in &r.tried {
+                    h.id(*t);
+                }
+            }
+        }
         // The warps, only when there are some.
         if !self.warps.is_empty() {
             h.u32(0x5741_5250);
@@ -23016,6 +23213,9 @@ struct Snapshot {
     /// The warps (`BattleState::warps`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     warps: WarpBoard,
+    /// The slaps (`BattleState::slaps`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    slaps: SlapBoard,
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
@@ -23701,6 +23901,7 @@ impl BattleState {
             falls: self.falls.clone(),
             taunts: self.taunts.clone(),
             warps: self.warps.clone(),
+            slaps: self.slaps.clone(),
             deflects: self.deflects.clone(),
             command_delay_ticks: c.command_delay_ticks,
             commands: self.commands.clone(),
@@ -23960,6 +24161,7 @@ impl BattleState {
             falls: snap.falls,
             taunts: snap.taunts,
             warps: snap.warps,
+            slaps: snap.slaps,
             deflects: snap.deflects,
             commands: snap.commands,
             commands_run: Vec::new(),

@@ -1255,7 +1255,40 @@ pub enum AbilityEffect {
     LevelUp { levels: Vec<i32>, heal_missing_pct: i32, quest: QuestDef },
     /// THE WARP (the Hero Mega Minion's; `WarpDef`).
     Warp(WarpDef),
+    /// THE SLAP (the Hero Giant's; `SlapDef`).
+    Slap(SlapDef),
 }
+
+/// THE SLAP (the Hero Giant's; tools/extract_cards.py `slap_effect`; state.rs `SlapBoard`, `slap_pick`, `slap_pass`).
+/// From the trigger the Giant waits for a pick (after each tick's move): the enemy troop, air or ground, whose centre
+/// is within `radius` of his plus its own radius, with the most hitpoints and shield, once each. On the pick he stands
+/// `hold_ms` and SLAP_HOLD_EXTRA_TICKS more; `push_delay_ms` on, the target is thrown toward the arena's horizontal
+/// centre, SLAP_FLIGHT_STEP a tick along x for `flight_ms`, stunned (`stun`) from the throw, and where it lands the blow
+/// (`landing`, on the level-1 figure unless `landing_level_scaled`) strikes. A target that ignores pushback is not thrown,
+/// and the seek runs again `retry_ms` on. Radii in subtiles.
+///
+/// Measured on client 15.535.29 (sp-form-Giant-hero-s0; the press issued t200): the Giant, walking, took the Skeleton
+/// 2868 from him on t204 (3008 on t203; 2500 + its 500), stood t205-t222 and walked on t223; the Skeleton's target went
+/// on t212 and it moved -250 along x, y unchanged, every tick t213-t232 (toward the centre, past the Giant), when a
+/// tower's arrow killed it. Read off the table, not measured: the flight's length, the landing blow, the stun, the pick's
+/// order among several, the refusal and the retry.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SlapDef {
+    pub radius: i32,
+    pub hold_ms: i32,
+    pub push_delay_ms: i32,
+    pub flight_ms: i32,
+    pub stun: BuffApply,
+    pub landing: SpellDef,
+    pub landing_level_scaled: bool,
+    pub retry_ms: i32,
+}
+
+/// THE SLAP'S FLIGHT STEP, native a tick along x: measured on client 15.535.29, 250 on each of 20 ticks.
+pub const SLAP_FLIGHT_STEP: i32 = 250;
+
+/// THE SLAP'S HOLD, ticks beyond its ActionDuration: measured on client 15.535.29, 18 standing frames for 800 ms.
+pub const SLAP_HOLD_EXTRA_TICKS: i32 = 2;
 
 /// THE WARP (the Hero Mega Minion's; tools/extract_cards.py `warp_effect`; state.rs `WarpBoard`, `warp_pass`, the step in
 /// the 16402 move pass, `land_warps`, `strike_after_fire`). From the trigger the hero warps to its pick (enemy troops, air
@@ -4723,6 +4756,14 @@ struct RawAbilityEffect {
     levels: Option<Vec<i32>>,
     heal_missing_pct: Option<i32>,
     quest: Option<RawQuest>,
+    /// `slap` (tools/extract_cards.py `slap_effect`; `radius_milli`, `buff` and `time_ms` above).
+    hold_ms: Option<i32>,
+    push_delay_ms: Option<i32>,
+    flight_ms: Option<i32>,
+    landing_damage: Option<i32>,
+    landing_radius_milli: Option<i32>,
+    landing_level_scaled: Option<bool>,
+    retry_ms: Option<i32>,
     /// `warp` (tools/extract_cards.py `warp_effect`, `warp_start`; `speed` above).
     accel: Option<i32>,
     strike_ms: Option<i32>,
@@ -10100,6 +10141,39 @@ impl CardDb {
                     heal_missing_pct,
                     quest: QuestDef { start_delay_ms: q.start_delay_ms, interval_ms: q.interval_ms, per_hit_ms: q.per_hit_ms, max_resets: q.max_resets },
                 }
+            }
+            // THE SLAP (the Hero Giant's): its seek, hold, throw and landing off the table.
+            "slap" => {
+                let e = &a.effect;
+                let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a slap with no {k}"));
+                let rb = e.buff.as_ref().ok_or_else(|| format!("{what}: a slap with no stun"))?;
+                let stun = buffs.apply(rb, Some(pos(e.time_ms, "stun time")?), "the slap's stun")?;
+                let hit = SpellHit {
+                    damage: pos(e.landing_damage, "landing damage")?,
+                    crown_pct: 100,
+                    radius: milli(pos(e.landing_radius_milli, "landing radius")?),
+                    hits_air: false,
+                    hits_ground: true,
+                    only_enemies: true,
+                    only_own_troops: false,
+                    ignore_buildings: true,
+                    no_effect_to_crown_towers: true,
+                    knockback: None,
+                    buff: None,
+                    buff2: None,
+                    caps_buff_time: false,
+                    controls_buff: false,
+                };
+                AbilityEffect::Slap(SlapDef {
+                    radius: milli(pos(e.radius_milli, "radius")?),
+                    hold_ms: pos(e.hold_ms, "hold")?,
+                    push_delay_ms: e.push_delay_ms.unwrap_or(0).max(0),
+                    flight_ms: pos(e.flight_ms, "flight")?,
+                    stun,
+                    landing: SpellDef { shape: SpellShape::AreaEffect { hit }, placement: SpellPlacement::Anywhere },
+                    landing_level_scaled: e.landing_level_scaled.unwrap_or(true),
+                    retry_ms: e.retry_ms.unwrap_or(0).max(0),
+                })
             }
             // THE WARP (the Hero Mega Minion's): its motion and shots off the table; the strike buff hides the hero.
             "warp" => {
