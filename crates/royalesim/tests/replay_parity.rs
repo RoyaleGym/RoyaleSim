@@ -671,8 +671,9 @@ fn a_form_row_spawns_its_form_and_its_units_score_as_the_base_card() {
     assert_eq!(deploy_play(&row("Cannon", "ev1", "Cannon_EV1"), &db), "Cannon_EV1");
     assert_eq!(deploy_play(&row("Musketeer", "hero", "Musketeer_hero"), &db), "Musketeer_hero");
     assert_eq!(deploy_play(&row("Musketeer", "base", "Musketeer"), &db), "Musketeer");
-    // A form the engine does not load plays its base card: the first of these evolved rows the table has no card for.
-    let unloaded = ["GoblinBarrel", "GoblinDrill", "FirespiritHut", "ElectroDragon"]
+    // A form the engine does not load plays its base card: the first of these evolved rows the table has no card for
+    // (the Giant's is NotInUse in the table; the Lumberjack's, RageBarbarian_EV1, is not simulated yet).
+    let unloaded = ["Giant", "RageBarbarian"]
         .into_iter()
         .find(|c| db.index(&format!("{c}_EV1")).is_none())
         .expect("vacuous: every listed form loads; name one that does not");

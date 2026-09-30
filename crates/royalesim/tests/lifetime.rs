@@ -210,6 +210,10 @@ fn a_building_bleeds_its_lifetime_away_tick_by_tick_and_dies_when_the_pool_is_em
         }
         let life = card_stat(&s0, name).lifetime_ms.expect("a lifetime building");
         let deploy = card_stat(&s0, name).deploy_time_ms;
+        // The Evo Goblin Drill's building holds its drain while under at its lines (tests/evo_goblin_drill.rs).
+        if card_stat(&s0, name).evo.as_ref().is_some_and(|v| v.drill.is_some()) {
+            continue;
+        }
         let (deploy_end, hp, died) = life_of(config(), name);
         let max = hp[0];
         let drain = want_drain(max, life);

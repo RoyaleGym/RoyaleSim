@@ -10463,7 +10463,7 @@ impl BattleState {
                     let wx = if team == Team::Blue { ox } else { -ox };
                     let at = self.ents.pos[i];
                     let point = Vec2::new(at.x + wx * crate::fixed::SUBTILE_PER_MILLITILE, at.y);
-                    let pos = self.formation_points(team, 1, unit.collision_radius, unit.is_flying(), point)[0];
+                    let pos = self.released_point(team, unit.is_flying(), point);
                     emissions.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: d.goblin, level, pos, deploy_ms: Some(d.goblin_deploy_ms), owner: Some(r.id), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
                 }
                 r.wave_at = 0;
@@ -10545,7 +10545,7 @@ impl BattleState {
             for (_, point) in r.landings.iter().filter(|(t, _)| *t <= tick) {
                 let unit = cards.get(f.spirit);
                 let level = cards.spawner_level(r.card, r.level).expect("spawner level validated at deploy");
-                let pos = self.formation_points(r.team, 1, unit.collision_radius, unit.is_flying(), *point)[0];
+                let pos = self.released_point(r.team, unit.is_flying(), *point);
                 emissions.push((r.team, r.seq, 0, PendingSpawn { team: r.team, card: f.spirit, level, pos, deploy_ms: Some(0), owner: Some(r.id), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
             }
             r.landings.retain(|(t, _)| *t > tick);
@@ -20370,6 +20370,19 @@ impl BattleState {
     /// radius. A point that is still not ground -- only possible when
     /// spells.SPAWNING_SPELL_WATER_RULE lets the spell land on water -- is ejected to
     /// the nearest land, so a ground unit never materialises on the river.
+    /// WHERE ONE UNIT AN ACTION PUTS AT A POINT STANDS (the Evo Furnace's launched spirit, the Evo Goblin Drill's hide
+    /// Goblins): on the point, or, on ground a ground unit cannot stand on, the nearest that it can. Not the formation
+    /// grid a wave takes: measured on client 15.535.29, the Drill's Goblins stood 500 from its centre exactly
+    /// (sp-f4-drill-s0) and the Furnace's spirits 1500 to its side (sp-f4-furnace-s0).
+    fn released_point(&self, team: Team, flying: bool, point: Vec2) -> Vec2 {
+        let arena = &self.cfg.arena;
+        if flying || arena.is_passable_ground(point) {
+            point
+        } else {
+            arena.nearest_passable_ground(point, team).unwrap_or(point)
+        }
+    }
+
     fn formation_points(&self, team: Team, count: i32, radius: i32, flying: bool, pos: Vec2) -> Vec<Vec2> {
         let arena = &self.cfg.arena;
         #[cfg(clash_plant = "formation_ignores_water")]

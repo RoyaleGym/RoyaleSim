@@ -56,7 +56,8 @@ fn its_decoy_barrel_lands_on_the_mirrored_point_with_three_goblin_dummies() {
         }
         seen = s.entities().map(|e| e.id).collect();
     }
-    let goblins: Vec<_> = first.iter().filter(|f| f.1 == "Goblin").collect();
+    // Its Goblins about its point (a basic play's may land late, far off).
+    let goblins: Vec<_> = first.iter().filter(|f| f.1 == "Goblin" && (f.3 .1 - 13500).abs() < 2000).collect();
     let dummies: Vec<_> = first.iter().filter(|f| f.1 == "GoblinDummy").collect();
     assert_eq!((goblins.len(), dummies.len()), (3, 3), "its units: {first:?}");
     assert!(goblins.iter().chain(&dummies).all(|f| f.0 == goblins[0].0), "one landing tick: {first:?}");

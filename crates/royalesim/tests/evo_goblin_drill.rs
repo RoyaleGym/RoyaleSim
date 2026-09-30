@@ -76,7 +76,9 @@ fn at_two_thirds_its_building_goes_under_39_ticks_unhurt_and_puts_down_two_gobli
     assert!(hp[t] * 100 / top <= 66 && hp[t - 1] * 100 / top > 66, "under on the tick it reached 66 %: {:?}", &hp[t - 2..=t]);
     assert!(under[t..t + 39].iter().all(|u| *u) && !under[t + 39], "under T .. T + 38: {:?}", &under[t..t + 41]);
     assert!(hp[t..=t + 39].iter().all(|h| *h == hp[t]) && hp[t + 40] < hp[t], "frozen T .. T + 39: {:?}", &hp[t..t + 42]);
-    assert_eq!(goblins, [(t + 1, (9500, 10000), true), (t + 1, (8500, 10000), true)], "its hide's Goblins");
+    assert_eq!(goblins[..2], [(t + 1, (9500, 10000), true), (t + 1, (8500, 10000), true)], "its first hide's Goblins: {goblins:?}");
+    // Its second line (33 %) went under later in the run: one Goblin, at x + 500.
+    assert!(goblins.len() == 3 && goblins[2].1 == (9500, 10000) && goblins[2].2, "its second hide's Goblin: {goblins:?}");
     let across: Vec<usize> = regular.windows(2).filter(|w| w[0] < t && w[1] > t).map(|w| w[1] - w[0]).collect();
     assert_eq!(across, [97], "its regular Goblins across the hide: {regular:?}");
 }

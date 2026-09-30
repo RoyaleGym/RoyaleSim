@@ -100,7 +100,10 @@ fn walking_its_spawns_come_110_then_100_ticks_apart() {
     let (mut seen, mut ticks) = (Vec::new(), Vec::new());
     for k in 0..300usize {
         s.tick();
-        assert_eq!(s.entity(f).expect("the Furnace").attack_phase, AttackPhase::Idle, "nothing to attack");
+        // Walking only: its spawns up to its first attack (a red crown tower in its reach).
+        if s.entity(f).expect("the Furnace").attack_phase != AttackPhase::Idle {
+            break;
+        }
         if !fresh(&s, f, &mut seen).is_empty() {
             ticks.push(k);
         }
