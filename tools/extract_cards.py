@@ -2138,8 +2138,8 @@ def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
             out["no_damage"] = True
         if b["CharacterCrownTowerDamagePercent"] is not None:
             out["character_crown_tower_damage_percent"] = b["CharacterCrownTowerDamagePercent"]
-        # AllowedOverHealPerc: the buff's heal may take its carrier to this per cent of its maximum (the Evo
-        # P.E.K.K.A.'s 150). Written only where set.
+        # AllowedOverHealPerc: the buff's heal may take its carrier to this per cent of its maximum (the Evo Bats'
+        # 200, the Evo Witch's 173). Written only where set.
         if b.get("AllowedOverHealPerc") is not None:
             out["allowed_over_heal_pct"] = b["AllowedOverHealPerc"]
     return out
@@ -4605,8 +4605,9 @@ def soul_drain_block(t: Tables, card: dict) -> dict:
         (after `interval_delay_ms`) running an ActionSpawnToLocation of Count units of a Skeleton row (only a spawn
         effect of its own) at SpawnRadius, both as the row's spawner's number and radius;
       - SpawnCharacter a Skeleton row whose only own columns are a StartingBuff of display alone and its time.
-    The record's spawner is written as the base row's (Skeleton, SpawnPauseTime the interval's Interval): its first
-    wave is the row's own, the later ones the interval's, read as one spawner on the interval's clock."""
+    The record's spawner is the row's with the base Skeleton for its unit (its one wave: SpawnPauseTime 300000); the
+    interval's waves run on their own clock (`waves_first_ms`: the group's delay plus StartCounterAt, `waves_every_ms`,
+    `waves_count`)."""
     unit = card["summon_character"]
     table, row = unit_record(t, unit)
     acts, bf = t["actions"], t["character_buffs"]
@@ -4655,10 +4656,10 @@ def soul_drain_block(t: Tables, card: dict) -> dict:
          and bf.set_fields.get(tint, set()) <= {"Rarity", "FilterFile", "FilterExportName"}, "the first wave's unit")
     need(spawner["number"] == sp["Count"] and spawner["radius_milli"] == sp["SpawnRadius"], "the interval's wave")
     spawner["character"] = "Skeleton"
-    spawner["pause_time_ms"] = iv["Interval"]
     return {"flight_ms": fl["ConstantFlightDuration"], "heal": heal, "heal_ms": hs["SpawnTime"],
             "unit": sp["SpawnData"],
-            "interval_ms": iv["Interval"], "start_counter_at_ms": iv["StartCounterAt"], "interval_delay_ms": iv_delay}
+            "waves_first_ms": iv_delay + iv["StartCounterAt"], "waves_every_ms": iv["Interval"],
+            "waves_count": sp["Count"]}
 
 
 # THE EVO FIRECRACKER'S FIREWORKS (`fireworks_block`): the columns each area row may set besides cosmetic ones.
@@ -4713,9 +4714,10 @@ IMPACT_TAG_BUFF = {"Rarity", "TID", "FilterFile", "FilterExportName", "TopEffect
 def impact_area_block(t: Tables, card: dict) -> dict:
     """THE EVO ICE SPIRITS' AREA (characters_evo IceSpirits_EV1; projectiles_evo IceSpiritsProjectile_EV1;
     area_effect_objects_evo IceSpiritsAOE_EV1), read whole or the build stops: the unit row sets nothing but display
-    columns and its Projectile; the shot's SpawnAreaEffectObject (`area`) follows the shot's target (FollowBehaviour
-    FollowTarget), stays where it was when its target dies (StayAfterParentDies) and lives one HitSpeed (LifeDuration
-    = HitSpeed: one hit, at its end); the shot's OnHitTargetAction only hangs a display buff on the target."""
+    columns and its Projectile; the shot's SpawnAreaEffectObject (`area`: FollowBehaviour FollowTarget,
+    StayAfterParentDies) lives one HitSpeed (LifeDuration = HitSpeed: one hit, at its end), and stands where the shot
+    landed (measured: a Hog Rider it froze ran off and took nothing more); the shot's OnHitTargetAction only hangs a
+    display buff on the target."""
     unit = card["summon_character"]
     table, row = unit_record(t, unit)
     acts = t["actions"]

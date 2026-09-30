@@ -4,12 +4,14 @@
 //! THE MEASUREMENTS (client 15.535.29, sp-form-Wallbreakers-evo-s0): each evolved Wall Breaker killed (on t879 and
 //! t933) left a runner of 163 max hitpoints on its point, and the one killed beside a Knight took 192 (75 at level 1)
 //! off it on the next tick (t880).
-//! Read off the table, not measured: the blow's 86 % on a crown tower, and the runner and blow after a kamikaze.
+//! Oracle's sp-f2-wb-s0: two that reached a princess tower (kamikaze) left no unit, and the tower took 281 each alone.
+//! Read off the table, not measured: the blow's 86 % on a crown tower.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_wall_breakers`):
 //!   - death_action_dropped -> both tests red;
-//!   - death_crown_pct_unread -> `the_blow_takes_86_percent_off_a_crown_tower` red.
+//!   - death_crown_pct_unread -> `the_blow_takes_86_percent_off_a_crown_tower` red;
+//!   - death_action_on_kamikaze -> `a_kamikaze_leaves_no_runner_and_no_blow` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -80,4 +82,28 @@ fn the_blow_takes_86_percent_off_a_crown_tower() {
     assert_eq!(s.entity(tower).expect("the tower").hp, top, "no blow on the kill's tick");
     s.tick();
     assert_eq!(s.entity(tower).expect("the tower").hp, top - 165, "the blow's 86 % of 192 on the next tick");
+}
+
+#[test]
+fn a_kamikaze_leaves_no_runner_and_no_blow() {
+    // Put down 2500 short of the red right princess tower and let be: it walks in and fires, its 281 (110 at level 1) the
+    // tower's only loss beside its own shots' targets, and no runner more.
+    let (mut s, wb) = battle();
+    let tower = s.entities().find(|e| e.team == Team::Red && e.kind == royalesim::entity::EntityKind::PrincessTower && e.pos.x / K == 14500).map(|e| e.id).expect("the red right princess tower");
+    let top = s.entity(tower).expect("the tower").hp;
+    let runners = find_live(&s, Team::Blue, "Wallbreaker_mini").len();
+    assert!(s.debug_set_pos(wb, n(14500, 23000)));
+    let mut gone = None;
+    for k in 0..200 {
+        s.tick();
+        if gone.is_none() && s.entity(wb).is_none() {
+            gone = Some(k);
+        }
+        if gone.is_some_and(|g| k >= g + 20) {
+            break;
+        }
+    }
+    assert!(gone.is_some(), "the Wall Breaker never reached the tower");
+    assert_eq!(s.entity(tower).expect("the tower").hp, top - 281, "the kamikaze's 281 alone");
+    assert_eq!(find_live(&s, Team::Blue, "Wallbreaker_mini").len(), runners, "a runner after a kamikaze");
 }

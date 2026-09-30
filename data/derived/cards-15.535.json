@@ -83187,7 +83187,7 @@
     "number": 4,
     "interval_ms": null,
     "start_time_ms": 1000,
-    "pause_time_ms": 7000,
+    "pause_time_ms": 300000,
     "limit": null,
     "radius_milli": 2000,
     "character2": null
@@ -83309,9 +83309,9 @@
     },
     "heal_ms": 50,
     "unit": "Witch_EV1_Skeleton_Interval",
-    "interval_ms": 7000,
-    "start_counter_at_ms": 8000,
-    "interval_delay_ms": 1000
+    "waves_first_ms": 9000,
+    "waves_every_ms": 7000,
+    "waves_count": 4
    },
    "cloned_version": "Witch"
   }

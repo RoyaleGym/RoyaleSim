@@ -179,8 +179,10 @@ pub struct BuffDef {
     #[serde(default)]
     pub char_crown_pct: i32,
     /// character_buffs AllowedOverHealPerc, per cent (0 = blank): the buff's heal may take its carrier up to this
-    /// per cent of its maximum hitpoints, not only to the maximum (state.rs `land_buff_heals`; the Evo P.E.K.K.A.'s
-    /// 150). Read off the table, not measured. `default` so a record written before the field still reads.
+    /// per cent of its maximum hitpoints, not only to the maximum (state.rs `land_buff_heals`). Measured on client
+    /// 15.535.29: the Evo Bats' 200 (a bat healed to 198 of 122) and the Evo Witch's 173 (to 1451 of 839, floored); the
+    /// Evo P.E.K.K.A.'s rows say 150 and she never goes past her maximum (card.rs `KillHealDef`). `default` so a record
+    /// written before the field still reads.
     #[serde(default)]
     pub over_heal_pct: i32,
 }

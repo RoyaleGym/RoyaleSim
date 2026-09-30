@@ -3,13 +3,13 @@
 //!
 //! THE MEASUREMENTS (client 15.535.29, sp-form-Pekka-evo-s0): a Skeleton she killed on t1305 healed her 168 on t1315, a
 //! Knight she killed on t1376 healed her 320 on t1386, and nothing else moved her hitpoints up.
-//! Read off the table, not measured: the third heal (a victim of 1990 or more at level 10), the overheal (to 150 % of
-//! her maximum), and the victim's size read at level 10.
+//! Oracle's sp-pekka-heal-*: a level-14 Knight healed her 320 (its size at level 10), a P.E.K.K.A. 606, and a Giant
+//! killed at her full hitpoints nothing (no overheal, the rows' 150 notwithstanding).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_pekka`):
 //!   - kill_heal_never -> every test red;
-//!   - overheal_capped_at_max -> `a_kill_heals_her_past_her_maximum_up_to_half_again` red;
+//!   - kill_heal_overheals -> `a_kill_heals_her_no_higher_than_her_maximum` red;
 //!   - kill_size_at_own_level -> `the_victims_size_is_its_hitpoints_at_level_10` red.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -90,10 +90,10 @@ fn a_kill_heals_her_by_the_victims_size_one_heal_10_ticks_on() {
 }
 
 #[test]
-fn a_kill_heals_her_past_her_maximum_up_to_half_again() {
-    // From her maximum, 3760: a Giant's 606 lands whole (4366); from 5400 it stops at 150 % of 3760, 5640.
-    assert_one_heal("Giant", &after_a_kill(11, "Giant", 3760), 606);
-    assert_one_heal("Giant", &after_a_kill(11, "Giant", 5400), 240);
+fn a_kill_heals_her_no_higher_than_her_maximum() {
+    // From her maximum, 3760, a Giant's 606 heals nothing; from 3400 it stops at 3760 (360).
+    assert_one_heal("Giant", &after_a_kill(11, "Giant", 3760), 0);
+    assert_one_heal("Giant", &after_a_kill(11, "Giant", 3400), 360);
 }
 
 #[test]

@@ -6565,6 +6565,10 @@ pub struct EvoBoard {
     /// battle saved before it still loads; hashed only when not empty.
     #[serde(default)]
     pub souls: Vec<(EntityId, u32)>,
+    /// Each Evo Witch's next interval wave's tick (`witch_wave_pass`). `default` so a battle saved before it still loads;
+    /// hashed only when not empty.
+    #[serde(default)]
+    pub witch_waves: Vec<(EntityId, u32)>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6665,6 +6669,7 @@ impl EvoBoard {
             && self.uppercut_counts.is_empty()
             && self.uppercuts.is_empty()
             && self.souls.is_empty()
+            && self.witch_waves.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -7627,6 +7632,10 @@ struct Scratch {
     /// a counter. Filled and emptied inside one call of `phase_attack_for`, so it never outlives the phase and is not
     /// state: not saved, not hashed.
     parry: Vec<ParryCand>,
+    /// THE TICK'S KAMIKAZES WHOSE DEATH COMES ON A KILL ONLY (card.rs `EvoDef::death_on_kill_only`, the Evo Wall
+    /// Breakers'): each marked at its kamikaze's fire (its death blow zeroed there) and its death spawn skipped in the
+    /// same tick's Reap, so it never outlives its tick: not saved, not hashed.
+    kamikazed: Vec<EntityId>,
     /// THE TICK'S BUFF HEALS (`buff_pulse_pass`), each (unit, hitpoints, the buff's overheal per cent): landed in this
     /// tick's Resolve after its hits (`land_buff_heals`). Cleared at the top of every `buff_pulse_pass` and drained in
     /// the Resolve of the same tick, so it never outlives its tick: not saved, not hashed.
@@ -8905,6 +8914,12 @@ impl BattleState {
         if evo.spear.is_some() {
             self.evo.spears.push((id, 0));
         }
+        // An Evo Witch's interval clock starts at her creation, this tick her first 50 ms (`witch_wave_pass`).
+        #[cfg(not(clash_plant = "witch_waves_never"))]
+        if let Some(sd) = evo.soul_drain {
+            let first = (sd.waves.first_ms / self.cfg.calib.tick_ms.max(1)) as u32;
+            self.evo.witch_waves.push((id, self.tick + first.saturating_sub(1)));
+        }
         // An Evo Inferno Dragon's count starts at 0, its decay from its creation (`stages_pass`).
         if evo.stages.is_some() {
             self.evo.stages.push((id, self.tick));
@@ -10173,6 +10188,46 @@ impl BattleState {
             self.ents.spawn_ms[i] = ms;
             self.ents.spawn_wave_left[i] = left;
         }
+        self.create_emissions(emissions, true);
+    }
+
+    /// THE EVO WITCH'S INTERVAL WAVES (card.rs `WitchWaves`), right after the spawner pass: on each Evo Witch's due tick,
+    /// `count` of her spawner's unit on her spawner's ring (`measured_ring_points`, else its formation), born walking and
+    /// owned by her (`spawned_by`, so their deaths drain souls), then the next due `every_ms` on. A Witch gone ends hers.
+    fn witch_wave_pass(&mut self) {
+        if self.evo.witch_waves.is_empty() {
+            return;
+        }
+        let cards = self.cfg.cards.clone();
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let mut emissions: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+        let mut keep = Vec::new();
+        for (w, next) in std::mem::take(&mut self.evo.witch_waves) {
+            if !self.ents.is_alive(w) {
+                continue;
+            }
+            let i = w.index as usize;
+            let (Some(sd), Some(sp)) = (cards.get(self.ents.card[i]).evo.as_ref().and_then(|e| e.soul_drain), self.spawner_of(i)) else { continue };
+            if tick < next {
+                keep.push((w, next));
+                continue;
+            }
+            let unit = cards.get(sp.unit);
+            let level = cards.spawner_level(self.ents.card[i], self.ents.level[i]).expect("spawner level validated at deploy");
+            let points = match self.measured_ring_points(i, &sp, sd.waves.count) {
+                Some(p) => p,
+                None => {
+                    let at = self.spawn_point(i, &sp);
+                    self.formation_points(self.ents.team[i], sd.waves.count, unit.collision_radius, unit.is_flying(), at)
+                }
+            };
+            for (k, pos) in points.into_iter().take(sd.waves.count as usize).enumerate() {
+                let (team, seq) = (self.ents.team[i], self.ents.team_seq[i]);
+                emissions.push((team, seq, k as u32, PendingSpawn { team, card: sp.unit, level, pos, deploy_ms: Some(0), owner: Some(w), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
+            }
+            keep.push((w, next + (sd.waves.every_ms / dt) as u32));
+        }
+        self.evo.witch_waves = keep;
         self.create_emissions(emissions, true);
     }
 
@@ -12142,6 +12197,7 @@ impl BattleState {
             // Move instead (spawner.EMISSION_TIMING).
             self.spawner_pass();
             self.life_state_pass();
+            self.witch_wave_pass();
         }
         // The Rune Giant's look, on the start-of-tick positions, the units created this tick included.
         self.enchant_pass();
@@ -16785,6 +16841,8 @@ impl BattleState {
             self.spawner_pass();
             // The Goblin Hut's controller, on the same post-move positions.
             self.life_state_pass();
+            // The Evo Witches' interval waves, as her spawner's own.
+            self.witch_wave_pass();
         }
         // The elixir producers' payouts (economy.*), after the deploy countdown that activates them, under either
         // emission timing: a payout is no unit and waits for no Spawn phase.
@@ -17235,6 +17293,11 @@ impl BattleState {
                     let me = self.ents.id_of(i);
                     let all = self.ents.hp[i].max(0) + self.ents.shield[i].max(0);
                     self.dmg.hits.push(Hit { target: me, amount: all, ignores_hide: false, own: true });
+                    // A death on a kill only (the Evo Wall Breakers'): its kamikaze leaves no runner and no blow.
+                    if self.cfg.cards.get(self.ents.card[i]).evo.as_ref().is_some_and(|v| v.death_on_kill_only) {
+                        self.scratch.kamikazed.push(me);
+                        self.ents.death_damage[i] = 0;
+                    }
                 }
                 // combat.KAMIKAZE_TIME: a DELAYED kamikaze (the Skeleton Barrel) starts to drain on its first fire, this
                 // tick's drain buffered to Resolve with the tick's other damage (`kamikaze_drain`).
@@ -17929,9 +17992,9 @@ impl BattleState {
                 self.spells.push(s);
                 continue;
             }
-            // THE AREA RIDING THE SHOT'S TARGET (card.rs `EvoDef::impact_area`, the Evo Ice Spirits'): made on the target
-            // (where the shot landed; it rides on the target from its first update, and stays where a dead one was).
-            #[cfg(not(clash_plant = "impact_area_stays"))]
+            // THE AREA WHERE THE SHOT LANDED (card.rs `EvoDef::impact_area`, the Evo Ice Spirits'): made there, standing
+            // there, its one hit one HitSpeed on.
+            #[cfg(not(clash_plant = "impact_area_cast"))]
             if let Some(t) = a.target.filter(|_| self.cfg.cards.get(a.card).evo.as_ref().is_some_and(|e| e.impact_area.is_some())) {
                 let s = spell::attached_area(&self.cfg.cards, &self.cfg.calib, a.team, a.card, a.level, t, a.pos, crate::card::EVO_IMPACT_AREA).expect("released area level validated at deploy");
                 self.spells.push(s);
@@ -18871,6 +18934,8 @@ impl BattleState {
 
     fn phase_reap(&mut self) {
         let deaths = std::mem::take(&mut self.death_queue);
+        // The tick's kamikazes whose death comes on a kill only (`Scratch::kamikazed`): no death spawn.
+        let kamikazed = std::mem::take(&mut self.scratch.kamikazed);
         // DEATH SPAWN (card.rs `DeathSpawnDef`): every death that reaches this queue --
         // hp <= 0 from any hit, the lifetime expiry hit included -- leaves its units
         // as released units (spawner.RELEASE_TIMING: on the death frame and inert on it, or
@@ -18892,6 +18957,9 @@ impl BattleState {
         self.scratch.dying_blockers.clear();
         #[cfg(not(clash_plant = "death_spawn_dropped"))]
         for id in &deaths {
+            if kamikazed.contains(id) {
+                continue;
+            }
             let i = id.index as usize;
             let card = self.cfg.cards.get(self.ents.card[i]);
             let Some(ds) = card.death_spawn else { continue };
@@ -22886,6 +22954,15 @@ impl BattleState {
                     for t in &r.taken {
                         h.id(*t);
                     }
+                }
+            }
+            // The Evo Witches' next interval waves, only when there are some.
+            if !b.witch_waves.is_empty() {
+                h.u32(0x5749_5443);
+                h.u32(b.witch_waves.len() as u32);
+                for (id, next) in &b.witch_waves {
+                    h.id(*id);
+                    h.u32(*next);
                 }
             }
             // The Evo Witches' souls in flight, only when there are some.

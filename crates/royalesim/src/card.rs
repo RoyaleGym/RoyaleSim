@@ -1922,16 +1922,21 @@ pub struct EvoDef {
     pub bounce: Option<BounceDef>,
     /// Evo Valkyrie: the area each attack makes on her, and her own buff (`AttackAreaDef`).
     pub attack_area: Option<AttackAreaDef>,
-    /// Evo Ice Spirits: the area its shot leaves rides on the shot's target (`AttachedArea`, part EVO_IMPACT_AREA; the
-    /// form's `projectile_area` converted). Measured on client 15.535.29 (sp-form-IceSpirits-evo-s0, level 11): the shot
-    /// landed on t755 (110 off a Knight and a Musketeer, 43 at level 1, and the Freeze); the area hit both again for 110
-    /// on t815, 3000 ms on, the Knight 2100 from the landing point by then. Read off the table, not measured: that it
-    /// rides on the target (the scene's Knight stayed in reach of the landing point), and stays where a dead target was.
+    /// Evo Ice Spirits: the area its shot leaves stands where the shot landed and hits once, one HitSpeed on
+    /// (`AttachedArea`, part EVO_IMPACT_AREA; the form's `projectile_area` converted), its row's FollowBehaviour
+    /// FollowTarget notwithstanding. Measured on client 15.535.29, level 11: the shot landed on t755 (110 off a Knight and
+    /// a Musketeer, 43 at level 1, and the Freeze) and the area hit both again for 110 on t815, 3000 ms on
+    /// (sp-form-IceSpirits-evo-s0); a Hog Rider it froze (t692 to t714) ran off at its full speed and took nothing more
+    /// (Oracle's sp-f2-ice-s0).
     pub impact_area: Option<AttachedArea>,
     /// Evo Firecracker: the fireworks its rocket and its sparks leave (`FireworksDef`).
     pub fireworks: Option<FireworksDef>,
     /// Evo Witch: a unit she spawned dying heals her (`SoulDrainDef`).
     pub soul_drain: Option<SoulDrainDef>,
+    /// Evo Wall Breakers: the card's death (its runner and its blow) comes on a kill only, never on its own kamikaze
+    /// (state.rs `Scratch::kamikazed`). Measured on client 15.535.29 (Oracle's sp-f2-wb-s0): two that reached a princess
+    /// tower, one hurt and one untouched, left no unit, and the tower took their 281 each alone.
+    pub death_on_kill_only: bool,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4279,6 +4284,9 @@ struct RawSoulDrain {
     heal_ms: Option<i32>,
     /// The interval's unit row (the graph gate's spawn).
     unit: Option<String>,
+    waves_first_ms: Option<i32>,
+    waves_every_ms: Option<i32>,
+    waves_count: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_fireworks` (tools/extract_cards.py `fireworks_block`): the area rows its rocket and its
@@ -4342,7 +4350,7 @@ pub struct AttackAreaDef {
 /// `AttackAreaDef` rather than an area of its ability.
 pub const EVO_ATTACK_AREA: u8 = u8::MAX;
 
-/// The part (spell.rs `SpellMotion::Attached`) that names an evolved form's area riding its shot's target
+/// The part (spell.rs `SpellMotion::Attached`) that names an evolved form's area standing where its shot landed
 /// (`EvoDef::impact_area`, the Evo Ice Spirits').
 pub const EVO_IMPACT_AREA: u8 = u8::MAX - 1;
 
@@ -4354,16 +4362,30 @@ pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
 /// THE EVO WITCH'S SOUL DRAIN (tools/extract_cards.py `soul_drain_block`; state.rs EvoBoard `souls`, `soul_heals`): a
 /// unit she spawned (`spawned_by`) dying sends a soul that reaches her `flight_ms` on and heals her one pulse of `heal`
 /// (its HealPerSecond, level-scaled on her card and level, times its HitFrequency) a tick after, up to its
-/// AllowedOverHealPerc of her maximum; each soul its own heal. Her spawner is the base Witch's, on the interval's clock.
+/// AllowedOverHealPerc of her maximum; each soul its own heal.
 ///
 /// Measured on client 15.535.29 (sp-form-Witch-evo-s0, level 11, 839 max): four of her Skeletons died on t880, t900,
 /// t911 and t922 and she healed 153 on t901, t921, t932 and t943 (1200 a second, 3072 at level 11, for 50 ms), to 992,
-/// 1145, 1298 and 1451 (173 % of 839, floored); her first wave came on t861, the second on t1002 (141 ticks on; the
-/// base spawner's clock gives 140). Read off the table, not measured: a soul reaching a Witch that has died.
+/// 1145, 1298 and 1451 (173 % of 839, floored). Her waves: `WitchWaves`. Read off the table, not measured: a soul
+/// reaching a Witch that has died.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SoulDrainDef {
     pub flight_ms: i32,
     pub heal: BuffApply,
+    pub waves: WitchWaves,
+}
+
+/// THE EVO WITCH'S INTERVAL (her OnStartingAction's ActionInterval running an ActionSpawnToLocation; state.rs
+/// `witch_wave_pass`): `count` of her spawner's unit on her spawner's ring, the first on the tick her age reaches
+/// `first_ms` (the group's delay plus StartCounterAt; her creation tick her first 50 ms), then every `every_ms`, beside
+/// her row's own spawner (its one wave). Measured on client 15.535.29 (Oracle's sp-f2-witch-s0): waves on her creation
+/// + 38 (the row's), + 179, + 319 and + 459, each of 4 Skeletons walking from their first frame. Read off the table, not
+/// measured: the clock's SpawnSpeed and its NO_SUMMON pause.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WitchWaves {
+    pub first_ms: i32,
+    pub every_ms: i32,
+    pub count: i32,
 }
 
 /// THE EVO FIRECRACKER'S FIREWORKS (tools/extract_cards.py `fireworks_block`; combat.rs `step_projectiles`): an area
@@ -4419,14 +4441,15 @@ pub struct UppercutDef {
 /// `kill_heals`): a hit of hers that kills its target (in the Resolve of the hit's tick, she alive) hangs one of three
 /// heals on her for `buffs[k].time_ms`: `buffs[0]` for a victim whose card's hitpoints at level `level` are under
 /// `below[0]`, `buffs[1]` under `below[1]`, else `buffs[2]`. Each heals her HealPerSecond (level-scaled on her card and
-/// level) times its HitFrequency, one HitFrequency after the kill, up to its AllowedOverHealPerc of her maximum
-/// (`BuffDef::over_heal_pct`; state.rs `land_buff_heals`).
+/// level) times its HitFrequency, one HitFrequency after the kill, up to her maximum: the rows' AllowedOverHealPerc 150
+/// is dropped (measured below; the Evo Bats' and the Evo Witch's overheal as their rows say).
 ///
 /// Measured on client 15.535.29 (sp-form-Pekka-evo-s0, level 11, 3760 max): a Skeleton she killed on t1305 healed her
 /// 168 on t1315 (the first heal's 132 a second: 337 at level 11, half of it every 500 ms), the Knight she killed on
 /// t1376 (1766 max) healed her 320 on t1386 (the second's 250: 640, halved); nothing else moved her hitpoints up.
-/// Read off the table, not measured: the third heal, the overheal, and the victim's size read at level 10 (a level-11
-/// victim reads alike either way; a level-14 Knight does not).
+/// Oracle's sp-pekka-heal-*: a level-14 Knight she killed healed her 320 (its size read at level 10, not its own 2263's
+/// 606), a P.E.K.K.A. 606 (the third heal), each one pulse on the kill + 10; a Giant she killed at her full 3760 left
+/// her at 3760 (no overheal); a Giant the tower's shot finished healed her nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct KillHealDef {
     pub level: i32,
@@ -9765,7 +9788,7 @@ impl CardDb {
                     return Err(format!("impact area {u} releases units or does not hit once at its life's end; not simulated"));
                 }
                 c.projectile_area = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
-                impact = Some(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: true, stay: true, end: None });
+                impact = Some(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: false, stay: true, end: None });
                 continue;
             }
             if let (Some(r), UnitUse::DeathSpawn) = (extra.evo_ram.as_ref(), &which) {
@@ -9816,6 +9839,7 @@ impl CardDb {
                     impact_area: None,
                     fireworks: None,
                     soul_drain: None,
+                    death_on_kill_only: false,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10015,6 +10039,7 @@ impl CardDb {
             impact_area: None,
             fireworks: None,
             soul_drain: None,
+            death_on_kill_only: false,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10128,7 +10153,12 @@ impl CardDb {
             if d.heal_per_second <= 0 || d.hit_frequency_ms <= 0 || d.damage_per_second != 0 {
                 return Err("a soul drain whose buff is not a heal over time".into());
             }
-            evo.soul_drain = Some(SoulDrainDef { flight_ms, heal });
+            let waves = WitchWaves {
+                first_ms: sd.waves_first_ms.filter(|m| *m > 0).ok_or("a soul drain's interval with no start")?,
+                every_ms: sd.waves_every_ms.filter(|m| *m > 0).ok_or("a soul drain's interval with no period")?,
+                count: sd.waves_count.filter(|n| *n >= 1).ok_or("a soul drain's interval with no count")?,
+            };
+            evo.soul_drain = Some(SoulDrainDef { flight_ms, heal, waves });
         }
         // THE FIREWORKS (the Evo Firecracker's): each area a plain pulsing one that hangs a buff, standing where it is made
         // and first hitting one HitSpeed after; on a card whose rocket releases sparks.
@@ -10170,6 +10200,11 @@ impl CardDb {
             if !c.death_crown_pct.is_some_and(|p| (0..=100).contains(&p)) {
                 return Err("a death action's blow with no crown-tower percent in 0..=100".into());
             }
+            // Its death on a kill only: its kamikaze leaves nothing.
+            #[cfg(not(clash_plant = "death_action_on_kamikaze"))]
+            {
+                evo.death_on_kill_only = true;
+            }
             #[cfg(clash_plant = "death_action_dropped")]
             {
                 // PLANT: the form dies as the base Wall Breaker does, with nothing left behind.
@@ -10187,7 +10222,16 @@ impl CardDb {
             let raw = k.buffs.as_deref().filter(|b| b.len() == 3).ok_or("a kill heal with no three heals")?;
             let mut out = [crate::status::BuffApply { buff: 0, time_ms: 0 }; 3];
             for (slot, b) in out.iter_mut().zip(raw) {
-                *slot = buffs.apply(b, k.time_ms, "a kill heal")?;
+                // Her heals stop at her maximum, whatever the rows' AllowedOverHealPerc says (measured).
+                #[cfg(not(clash_plant = "kill_heal_overheals"))]
+                {
+                    let def = b.convert("a kill heal")?;
+                    *slot = buffs.apply_def(crate::status::BuffDef { over_heal_pct: 0, ..def }, b, k.time_ms, "a kill heal")?;
+                }
+                #[cfg(clash_plant = "kill_heal_overheals")]
+                {
+                    *slot = buffs.apply(b, k.time_ms, "a kill heal")?; // PLANT: the rows' overheal kept.
+                }
                 let d = buffs.defs[slot.buff as usize];
                 if d.heal_per_second <= 0 || d.damage_per_second != 0 || d.hit_frequency_ms <= 0 {
                     return Err("a kill heal whose buff is not a heal over time".into());

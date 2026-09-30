@@ -3,11 +3,11 @@
 //!
 //! THE MEASUREMENTS (client 15.535.29, sp-form-IceSpirits-evo-s0): the shot landed on t755, 110 off a Knight and a
 //! Musketeer beside it (43 at level 1) and the Freeze; its area hit both again for 110 on t815, 3000 ms on.
-//! Read off the table, not measured: the area riding on the shot's target (FollowTarget), staying where a dead one was.
+//! Oracle's sp-f2-ice-s0: a Hog Rider it froze ran off and took nothing more: the area stands where the shot landed.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_ice_spirits`):
-//!   - impact_area_stays -> `its_area_rides_its_target_and_hits_once_3000_ms_on` red.
+//!   - impact_area_cast -> `its_area_stands_where_the_shot_landed_and_hits_once_3000_ms_on` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -21,7 +21,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 }
 
 #[test]
-fn its_area_rides_its_target_and_hits_once_3000_ms_on() {
+fn its_area_stands_where_the_shot_landed_and_hits_once_3000_ms_on() {
     let mut cfg: BattleConfig = config();
     cfg.decks = [vec!["IceSpirits".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
@@ -60,10 +60,11 @@ fn its_area_rides_its_target_and_hits_once_3000_ms_on() {
     }
     let h = landed.expect("the shot landed on the Knight");
     assert_eq!((kh[h], mh[h]), (ktop - 110, mtop - 110), "the shot's 110 on both");
-    // The area rides on the Knight: one hit of 110 on the landing + 60, on the Knight 4500 off, none on the Musketeer.
+    // The area stands where the shot landed: one hit of 110 on the landing + 60 on the Musketeer beside that point, none
+    // on the Knight 4500 off it.
     for k in h..=h + 70 {
-        let want = if k < h + 60 { ktop - 110 } else { ktop - 220 };
-        assert_eq!(kh[k], want, "the Knight on frame {k} (landed on {h}): {:?}", &kh[h..]);
-        assert_eq!(mh[k], mtop - 110, "the Musketeer on frame {k} (landed on {h}): {:?}", &mh[h..]);
+        let want = if k < h + 60 { mtop - 110 } else { mtop - 220 };
+        assert_eq!(mh[k], want, "the Musketeer on frame {k} (landed on {h}): {:?}", &mh[h..]);
+        assert_eq!(kh[k], ktop - 110, "the Knight on frame {k} (landed on {h}): {:?}", &kh[h..]);
     }
 }
