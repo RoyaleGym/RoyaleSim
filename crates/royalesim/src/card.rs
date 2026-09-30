@@ -1253,7 +1253,41 @@ pub enum AbilityEffect {
     /// hitpoints, max hitpoints and damage taken on the new level, and then it heals `heal_missing_pct` per cent of the
     /// hitpoints it is missing. The stack is `quest`'s (`QuestDef`, state.rs `QuestRun`), stopped by the press.
     LevelUp { levels: Vec<i32>, heal_missing_pct: i32, quest: QuestDef },
+    /// THE WARP (the Hero Mega Minion's; `WarpDef`).
+    Warp(WarpDef),
 }
+
+/// THE WARP (the Hero Mega Minion's; tools/extract_cards.py `warp_effect`; state.rs `WarpBoard`, `warp_pass`, the step in
+/// the 16402 move pass, `land_warps`, `strike_after_fire`). From the trigger the hero warps to its pick (enemy troops, air
+/// or ground, visible and above ground: the lowest max hitpoints, then the furthest, then the earliest created), a step
+/// a tick toward the target's centre where the move pass has it: WARP_FIRST_STEP on the first, then `accel` more a tick
+/// while under `speed` and `accel` less while over; the tick a step covers the rest it stands on that centre. There it
+/// keeps its target, is hidden (the strike buff, `strike_ms`) until it fires, and, with the target within
+/// `instant_range`, fires on the next tick. That shot deals `strike_damage` (level 1) and `strike_crown_pct` on a crown
+/// tower; every later one `after_crown_pct` (from `after_delay_ms` after it). A press is taken from `available_after_ms`
+/// after the hero's creation, with a pick. Radii in subtiles.
+///
+/// Measured on client 15.535.29 (sp-form-MegaMinion-hero-s0; the press issued t200, the cast t201-t204): the hero stood
+/// on t205, stepped 343, 742, 1144, 1557, 1159, 1548 and 682 on t206-t212 to the furthest Skeleton (key 9, 7200 off;
+/// each step aimed at its centre after its own move), stood on its centre on t212, swung on t213 (progress 1500) and
+/// killed it. Read off the table, not measured: the strike shot's damage and the crown figures, the hiding, the
+/// availability and the mark's re-pick.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WarpDef {
+    pub speed: i32,
+    pub accel: i32,
+    pub instant_range: i32,
+    pub strike: BuffApply,
+    pub strike_damage: i32,
+    pub strike_crown_pct: i32,
+    pub after_crown_pct: i32,
+    pub after_delay_ms: i32,
+    pub available_after_ms: i32,
+}
+
+/// THE WARP'S FIRST STEP, native: measured on client 15.535.29, 343 (one warp; the steps after it follow the table's
+/// Acceleration 400 around its Speed 1500 to within 16).
+pub const WARP_FIRST_STEP: i32 = 343;
 
 /// THE HERO MINI PEKKA'S QUEST (the unit's OnStartingAction, an ActionMiniPekkaHeroQuest; tools/extract_cards.py
 /// `hero_quest`; state.rs `QuestRun`, `quest_pass`): a bar that fills a tick's time a tick from `start_delay_ms` after
@@ -4689,6 +4723,14 @@ struct RawAbilityEffect {
     levels: Option<Vec<i32>>,
     heal_missing_pct: Option<i32>,
     quest: Option<RawQuest>,
+    /// `warp` (tools/extract_cards.py `warp_effect`, `warp_start`; `speed` above).
+    accel: Option<i32>,
+    strike_ms: Option<i32>,
+    strike_damage: Option<i32>,
+    strike_crown_pct: Option<i32>,
+    after_crown_pct: Option<i32>,
+    after_delay_ms: Option<i32>,
+    available_after_ms: Option<i32>,
 }
 
 /// A `level_up` effect's quest (tools/extract_cards.py `hero_quest`).
@@ -9821,7 +9863,9 @@ impl CardDb {
         // THE BUTTON.
         let a = &extra.ability;
         let what = format!("ability {}", a.name);
-        if a.max_charges != Some(1) || a.cooldown_ms.is_some() {
+        // A warp's cooldown runs only after its mark's target dies before a press (the table's forced cooldown), which is
+        // not simulated: with its one charge it is read and not run.
+        if a.max_charges != Some(1) || (a.cooldown_ms.is_some() && a.effect.kind != "warp") {
             return Err(format!("{what}: {:?} charges and cooldown {:?}; only one charge and no cooldown is simulated", a.max_charges, a.cooldown_ms));
         }
         if a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
@@ -10056,6 +10100,25 @@ impl CardDb {
                     heal_missing_pct,
                     quest: QuestDef { start_delay_ms: q.start_delay_ms, interval_ms: q.interval_ms, per_hit_ms: q.per_hit_ms, max_resets: q.max_resets },
                 }
+            }
+            // THE WARP (the Hero Mega Minion's): its motion and shots off the table; the strike buff hides the hero.
+            "warp" => {
+                let e = &a.effect;
+                let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a warp with no {k}"));
+                let pct = |v: Option<i32>, k: &str| v.filter(|x| (0..=100).contains(x)).ok_or_else(|| format!("{what}: a warp's {k}"));
+                let strike_ms = pos(e.strike_ms, "strike time")?;
+                let strike = buffs.push_own(crate::status::BuffDef { invisible: true, ..Default::default() }, "MegaMinion_hero_Damage_Buff")?;
+                AbilityEffect::Warp(WarpDef {
+                    speed: pos(e.speed, "speed")?,
+                    accel: pos(e.accel, "acceleration")?,
+                    instant_range: milli(pos(e.instant_range_milli, "instant range")?),
+                    strike: BuffApply { buff: strike, time_ms: strike_ms },
+                    strike_damage: pos(e.strike_damage, "strike damage")?,
+                    strike_crown_pct: pct(e.strike_crown_pct, "strike crown share")?,
+                    after_crown_pct: pct(e.after_crown_pct, "crown share")?,
+                    after_delay_ms: e.after_delay_ms.unwrap_or(0).max(0),
+                    available_after_ms: e.available_after_ms.unwrap_or(0).max(0),
+                })
             }
             other => return Err(format!("{what}: effect {other} is not simulated")),
         };

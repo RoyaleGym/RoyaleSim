@@ -4805,6 +4805,7 @@ HERO_FORMS = {
     "Wizard_hero": ("Wizard", "wizard_hero"),
     "MiniPekka_hero": ("MiniPekka", "mini_pekka_hero"),
     "Knight_hero": ("Knight", "knight_hero"),
+    "MegaMinion_hero": ("MegaMinion", "mega_minion_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -5050,6 +5051,117 @@ SELF_BUFF_FORM_COSMETIC = {"Base", "ClonedVersion", "PrefabAsset", "DamageEffect
 SELF_BUFF_FORM_COLUMNS = {"OverrideAttackFinishTime", "AttackFinishTime"}
 
 
+# THE HERO MEGA MINION'S WARP (`warp_effect`, `warp_start`): the keys each of its actions may set (read, or display
+# only), the resolver it reads (its filter: enemy characters, visible, above ground; its order), and the start's steps.
+WARP_LOCK_KEYS = {
+    "ClassType", "WarpDelay", "LockDelay", "WarpAction", "ReleaseLockDelay", "AllowWarpWhenMovementSpeedZero",
+    "AllowWarpWhenAttackSpeedZero",
+}
+WARP_HERO_KEYS = {
+    "ClassType", "ActionToGetTargetFrom", "ActionToExecute", "SpellTargetIndicatorFilename", "SpellTargetIndicatorClipName",
+    "HasTargetOnDeployAction", "NoTargetOnDeployAction", "Singleton", "ForceStopIfTrue",
+}
+WARP_KEYS = {
+    "ClassType", "WarpMode", "Speed", "Acceleration", "TargetResolver", "OnWarpEndAction",
+    "OffsetToTargetConsideringDirectionToTower", "ResetPendingDamageAtWarp", "OffsetX", "OffsetY",
+    "ForceKeepTargetAfterWarp", "Singleton", "WarpTargetEffect",
+}
+WARP_MARK_KEYS = {
+    "ClassType", "TargetResolver", "RadiusListForEffectSelection", "PlayerTargettedEffectList", "EnemyTargettedEffectList",
+    "PlayerCircleTargetIndicatorList", "EnemyCircleTargetIndicatorList", "OnPickNewTargetAction", "OnTargetDiedAction",
+    "GameTagsToSetWhileHasNotTarget", "PauseIfInCooldown", "DelayBeforeSearchForNextTarget", "Singleton", "NextAction",
+    "ForceStopIfTrue", "EnemyTargetterEffect", "PlayerTargetterEffect",
+}
+WARP_FILTER = "default_targets_no_towers"
+WARP_STRATEGIES = ["RESOLVER_STRATEGY_LOWEST_MAX_HP", "RESOLVER_STRATEGY_FURTHEST_TARGET"]
+WARP_STRIKE_SHOWN = {
+    "Rarity", "FilterFile", "FilterExportName", "ContinuousEffect", "Invisible", "RemoveOnAttack", "OverrideProjectile",
+    "OnRemoveAction", "NotCloned",
+}
+
+
+def warp_effect(h: Tables, name: str, lock: str) -> dict:
+    """THE HERO MEGA MINION'S WARP ([ABILITY] OnActivationAction an ActionBossBanditAbility), read whole or the build
+    stops. The lock (no warp or lock delay) runs an ActionMegaMinionHeroAbility, which takes its target from the mark
+    (an ActionSetIndicatorOnTarget) and runs the warp (an ActionWarpCharacter, InjectedCharacter: `speed`, `accel`, no
+    offset, its target kept). Mark and warp read one resolver: a Global shape, WARP_FILTER, WARP_STRATEGIES (the lowest
+    max hitpoints, then the furthest). The warp's end is a group of the strike buff (`strike_ms`) and the instant hit
+    (an ActionSetInstantHit on `target_in_range(N) && is_combat_enabled`: `instant_range_milli`). The strike buff hides
+    the hero (Invisible) until its attack (RemoveOnAttack); its OverrideProjectile is the strike's shot (`strike_damage`,
+    `strike_crown_pct`), and its OnRemoveAction lands, `after_delay_ms` on, a buff whose OverrideProjectile gives every
+    later shot `after_crown_pct` on a crown tower. The mark's re-pick after a death (DelayBeforeSearchForNextTarget, the
+    forced cooldown) and its bots' buff are read and not run."""
+    acts = h["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    lk = _one_action(acts, lock, "ActionBossBanditAbility", WARP_LOCK_KEYS)
+    need(not lk["WarpDelay"] and not lk["LockDelay"], "a delayed warp or lock")
+    x = _one_action(acts, lk["WarpAction"], "ActionMegaMinionHeroAbility", WARP_HERO_KEYS)
+    mark = _one_action(acts, x["ActionToGetTargetFrom"], "ActionSetIndicatorOnTarget", WARP_MARK_KEYS)
+    w = _one_action(acts, x["ActionToExecute"], "ActionWarpCharacter", WARP_KEYS)
+    need(w["WarpMode"] == "InjectedCharacter" and isinstance(w["Speed"], int) and w["Speed"] > 0
+         and isinstance(w["Acceleration"], int) and w["Acceleration"] > 0, "the warp's motion")
+    need(not w["OffsetX"] and not w["OffsetY"] and not w["OffsetToTargetConsideringDirectionToTower"]
+         and w["ForceKeepTargetAfterWarp"] is True, "the warp's offsets or its target")
+    need(w["TargetResolver"] == mark["TargetResolver"], "the warp and the mark read two resolvers")
+    res = h.resolvers.get(w["TargetResolver"])
+    shape = h.shapes.get(res.get("Shape")) if res else None
+    need(res is not None and shape is not None and shape.get("ClassType") == "Global" and res.get("Filter") == WARP_FILTER
+         and list(res.get("StrategyList") or []) == WARP_STRATEGIES, f"the resolver {w['TargetResolver']!r}")
+    end = _group_leaves(acts, w["OnWarpEndAction"])
+    need(end is not None and end[1] == [0] * len(end[0]), "the warp's end is not a group at delay 0")
+    by = {acts.get(s)["ClassType"]: s for s in end[0]}
+    need(sorted(by) == ["ActionSetInstantHit", "ActionSpawn"] and len(end[0]) == 2, f"the warp's end runs {sorted(by)}")
+    sp = _one_action(acts, by["ActionSpawn"], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime"})
+    need(sp["SpawnType"] == "BuffType" and isinstance(sp["SpawnTime"], int) and sp["SpawnTime"] > 0, "the strike buff")
+    ih = _one_action(acts, by["ActionSetInstantHit"], "ActionSetInstantHit", {"ClassType", "ExecuteIfTrue"})
+    m = re.fullmatch(r"target_in_range\((\d+)\) && is_combat_enabled", str(ih["ExecuteIfTrue"]))
+    need(m is not None, f"the instant hit's test {ih['ExecuteIfTrue']!r}")
+    bt = h["character_buffs"]
+    strike = bt.get(sp["SpawnData"])
+    need(strike is not None and bt.set_fields.get(sp["SpawnData"], set()) <= WARP_STRIKE_SHOWN
+         and flag(strike, "Invisible") and flag(strike, "RemoveOnAttack"), f"the strike buff {sp['SpawnData']}")
+    rm = _one_action(acts, strike["OnRemoveAction"], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ActionDelay"})
+    need(rm["SpawnType"] == "BuffType" and isinstance(rm["SpawnTime"], int) and rm["SpawnTime"] >= 99999, "the after buff")
+    after = bt.get(rm["SpawnData"])
+    need(after is not None and bt.set_fields.get(rm["SpawnData"], set()) <= {"Rarity", "OverrideProjectile"},
+         f"the after buff {rm['SpawnData']}")
+    shot1, shot2 = norm_projectile(h, strike["OverrideProjectile"]), norm_projectile(h, after["OverrideProjectile"])
+    need(shot1 is not None and shot2 is not None, "the override projectiles")
+    return {
+        "kind": "warp",
+        "speed": w["Speed"],
+        "accel": w["Acceleration"],
+        "instant_range_milli": int(m.group(1)),
+        "strike_ms": sp["SpawnTime"],
+        "strike_damage": shot1["damage"],
+        "strike_crown_pct": shot1["crown_tower_damage_percent"],
+        "after_crown_pct": shot2["crown_tower_damage_percent"],
+        "after_delay_ms": rm["ActionDelay"] or 0,
+        "mark": x["ActionToGetTargetFrom"],
+    }
+
+
+def warp_start(h: Tables, form: str, start, mark: str) -> int:
+    """THE WARP'S START (the hero row's OnStartingAction, an ActionGroup): the button hidden at once until its variable is
+    set (an ActionOverrideAbilityButtonState), and at one delay the variable set to 1 and the warp's mark begun. That
+    delay, the ms after the hero's creation from which a press is taken (`available_after_ms`); else the build stops."""
+    acts = h["actions"]
+    got = _group_leaves(acts, start) if isinstance(start, str) else None
+    if got is None:
+        raise SystemExit(f"hero form {form}: its start is not a group")
+    by = {acts.get(s)["ClassType"]: (s, d) for s, d in zip(*got, strict=True)}
+    if sorted(by) != ["ActionOverrideAbilityButtonState", "ActionSetIndicatorOnTarget", "ActionSetVariable"]:
+        raise SystemExit(f"hero form {form}: its start runs {sorted(by)}")
+    (sv, dv), (mk, dm), (_, dh) = by["ActionSetVariable"], by["ActionSetIndicatorOnTarget"], by["ActionOverrideAbilityButtonState"]
+    if mk != mark or dv != dm or dh != 0 or not isinstance(dm, int) or dm <= 0 or acts.get(sv)["Value"] != "1":
+        raise SystemExit(f"hero form {form}: its start's mark, variable or delays")
+    return dm
+
+
 def shows_only(h: Tables, buff: str) -> bool:
     """A buff row that only shows: it sets nothing but display columns and GameTagsToSet, and each tag it sets appears
     once in the hero's own files (`h.hero_text`: its setting here), so no action of the hero's reads it."""
@@ -5244,6 +5356,18 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "keep_current_target": a.get("KeepCurrentTarget") is True,
             "is_champion": a.get("IsChampion") is True,
             "effect": effect,
+        }
+    if first is not None and first["ClassType"] == "ActionBossBanditAbility":
+        return {
+            "name": name,
+            "mana_cost": a["ManaCost"],
+            "max_charges": a.get("MaxCharges"),
+            "cooldown_ms": a.get("Cooldown"),
+            "cast_ms": a.get("CastTime") or 0,
+            "trigger_delay_ms": a.get("TriggerDelay") or 0,
+            "keep_current_target": a.get("KeepCurrentTarget") is True,
+            "is_champion": a.get("IsChampion") is True,
+            "effect": warp_effect(h, name, a["OnActivationAction"]),
         }
     got = _group_leaves(acts, a["OnActivationAction"])
     if got is None:
@@ -5818,6 +5942,17 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         # The hero's own files, where `shows_only` looks for a reader of a tag its button's buff sets.
         h.hero_text = "".join(p.read_text(encoding="utf-8") for p in hero_files(v, stem))
         card["ability"] = ability_block(h, urow["Ability"], units, unit)
+        # THE WARP'S START (the Hero Mega Minion's, `warp_start`): its mark from 1500 ms after the hero's creation; the
+        # action graph that start alone makes is read whole here.
+        if card["ability"]["effect"]["kind"] == "warp":
+            card["ability"]["effect"]["available_after_ms"] = warp_start(h, form, urow["OnStartingAction"],
+                                                                         card["ability"]["effect"]["mark"])
+            roots = (units[unit].get("action_graph") or {}).get("roots", {})
+            others = sorted(k for k, v in roots.items() if k != "OnStartingAction" and h["actions"].get(v) is not None)
+            if others:
+                raise SystemExit(f"hero form {form}: a warp start beside other actions {others}")
+            card["action_graph"] = None
+            units[unit]["action_graph"] = None
         # ITS DEATH SPAWN (the Hero Balloon's BalloonHero_Bomb, a BalloonBomb [EXT] that changes display columns only):
         # its own row, in the form's units, which the loader loads for it.
         if urow["DeathSpawnCharacter"] is not None:

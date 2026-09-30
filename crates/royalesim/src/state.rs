@@ -6827,6 +6827,47 @@ pub struct LiftRun {
     pub ground: u16,
 }
 
+/// THE WARPS (card.rs `WarpDef`, the Hero Mega Minion's): each warp under way (`WarpRun`) and each warped hero's shots
+/// (`StrikeRun`). Saved and hashed (`BattleState::warps`, only when not empty).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WarpBoard {
+    pub runs: Vec<WarpRun>,
+    pub strikes: Vec<StrikeRun>,
+}
+
+impl WarpBoard {
+    fn is_empty(&self) -> bool {
+        self.runs.is_empty() && self.strikes.is_empty()
+    }
+
+    /// Is hero `id` warping (or on its arrival tick)?
+    fn warping(&self, id: EntityId) -> bool {
+        self.runs.iter().any(|r| r.id == id)
+    }
+}
+
+/// A WARP UNDER WAY: its hero, its target, the tick it was made (the trigger's: the hero stands on it), this tick's step
+/// (native), the steps taken, and whether it has arrived (the arrival tick: the run holds the hero's attack through it
+/// and ends on the next Path phase).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WarpRun {
+    pub id: EntityId,
+    pub target: EntityId,
+    pub made: u32,
+    pub step: i32,
+    pub moves: u32,
+    pub arrived: bool,
+}
+
+/// A WARPED HERO'S SHOTS: the tick its strike buff ends and the tick from which its shots take the after share on a
+/// crown tower (None until its strike shot, or its strike buff's end).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StrikeRun {
+    pub id: EntityId,
+    pub until: u32,
+    pub crown_from: Option<u32>,
+}
+
 /// THE TAUNTS (card.rs `TauntDef`, the Hero Knight's; `taunt_pass`, `taunt_override`): each taunt area under way and
 /// each enemy a taunt holds. Saved and hashed (`BattleState::taunts`, only when not empty).
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -7906,6 +7947,8 @@ pub struct BattleState {
     falls: Vec<FallRun>,
     /// The taunts (`TauntBoard`). Empty in every battle without one.
     taunts: TauntBoard,
+    /// The warps (`WarpBoard`). Empty in every battle without one.
+    warps: WarpBoard,
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
@@ -8305,6 +8348,7 @@ impl BattleState {
             quests: Vec::new(),
             falls: Vec::new(),
             taunts: TauntBoard::default(),
+            warps: WarpBoard::default(),
             deflects: Vec::new(),
             commands: Vec::new(),
             commands_run: Vec::new(),
@@ -11030,6 +11074,10 @@ impl BattleState {
                     if !self.spins.is_empty() {
                         self.spin_seek();
                     }
+                    // The Hero Mega Minion's warps' steps for this tick's move pass (`warp_pass`).
+                    if !self.warps.runs.is_empty() {
+                        self.warp_pass();
+                    }
                     // An Evo Cannon bomb due this tick lands before anything moves (`land_barrage_early`).
                     self.land_barrage_early();
                     match self.cfg.path_model {
@@ -12528,6 +12576,8 @@ impl BattleState {
                     && !self.chains.iter().any(|c| c.id == self.ents.id_of(i) && !(c.phase == ChainPhase::Seek && pending_redecides))
                     // A spin's chain keeps its own target too (`spin_seek`, `spin_pass`).
                     && !self.spins.iter().any(|r| r.id == self.ents.id_of(i) && r.chaining)
+                    // A warp keeps its target (ForceKeepTargetAfterWarp; `WarpRun`).
+                    && !self.warps.warping(self.ents.id_of(i))
                 {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
@@ -13163,6 +13213,132 @@ impl BattleState {
         }
         let ents = &self.ents;
         self.evo.first_hits.retain(|id| ents.is_alive(*id));
+    }
+
+    /// THE WARP'S PICK from hero `i` (card.rs `WarpDef`; the resolver default_targets_no_towers, LOWEST_MAX_HP then
+    /// FURTHEST_TARGET): an enemy troop, air or ground, alive, visible, above ground, not mid-leap, not a rider; the
+    /// lowest max hitpoints, then the furthest centre, then the earliest created. None when none is.
+    fn warp_pick(&self, i: usize) -> Option<EntityId> {
+        let e = &self.ents;
+        (0..e.capacity())
+            .filter(|&j| {
+                e.alive[j]
+                    && e.hp[j] > 0
+                    && e.team[j] != e.team[i]
+                    && e.kind[j] == EntityKind::Troop
+                    && !e.jumping[j]
+                    && e.tunnel_dest[j].is_none()
+                    && !e.underground(j)
+                    && !e.attached(j)
+                    && !target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, j)
+            })
+            .map(|j| (e.max_hp[j], -e.pos[j].dist2(e.pos[i]), e.creation_seq[j], j))
+            .min()
+            .map(|(_, _, _, j)| e.id_of(j))
+    }
+
+    /// THE WARPS' STEPS (card.rs `WarpDef`), at the top of the Path phase: a run whose hero is gone ends; one that
+    /// arrived on the tick before ends (its hero free from this tick); one whose target is gone ends where it is, with no
+    /// target (unmeasured). Each other takes this tick's step: WARP_FIRST_STEP on the first, then `accel` more while under
+    /// `speed` and `accel` less while over.
+    fn warp_pass(&mut self) {
+        let cards = self.cfg.cards.clone();
+        let mut runs = std::mem::take(&mut self.warps.runs);
+        runs.retain(|r| {
+            let alive = self.ents.is_alive(r.id) && !r.arrived;
+            if alive && !self.ents.is_alive(r.target) {
+                self.ents.target[r.id.index as usize] = None;
+                return false;
+            }
+            alive
+        });
+        for r in runs.iter_mut() {
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Warp(w), .. }) = cards.get(self.ents.card[r.id.index as usize]).ability else { continue };
+            // ON THE TRIGGER'S TICK THE HERO STANDS (the lock's ReleaseLockDelay 50): measured, the trigger on t205 and
+            // the first step on t206.
+            if self.tick <= r.made {
+                r.step = 0;
+                continue;
+            }
+            #[cfg(not(clash_plant = "warp_full_speed"))]
+            {
+                r.step = if r.moves == 0 {
+                    crate::card::WARP_FIRST_STEP
+                } else if r.step < w.speed {
+                    r.step + w.accel
+                } else {
+                    r.step - w.accel
+                };
+            }
+            #[cfg(clash_plant = "warp_full_speed")]
+            {
+                r.step = w.speed; // PLANT: the warp runs at its Speed from its first step.
+            }
+            r.moves += 1;
+        }
+        self.warps.runs = runs;
+    }
+
+    /// THE WARPS' ARRIVALS (the move pass's): the run holds through this tick; the hero keeps its target, takes its strike
+    /// buff (hidden until it fires) and, with the target within the instant range, its swing is set one tick short of its
+    /// HitSpeed, so it fires on the next tick (measured: on its centre on t212, progress 1500 on t213).
+    fn land_warps(&mut self, arrivals: Vec<(usize, EntityId)>) {
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        for (i, t) in arrivals {
+            let id = self.ents.id_of(i);
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Warp(w), .. }) = self.cfg.cards.get(self.ents.card[i]).ability else { continue };
+            if let Some(r) = self.warps.runs.iter_mut().find(|r| r.id == id) {
+                r.arrived = true;
+            }
+            self.ents.target[i] = Some(t);
+            let h = crate::status::BuffHit::plain(id, w.strike.buff, w.strike.time_ms, 0);
+            land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+            self.warps.strikes.retain(|s| s.id != id);
+            self.warps.strikes.push(StrikeRun { id, until: tick + (w.strike.time_ms / tick_ms) as u32, crown_from: None });
+            let ti = t.index as usize;
+            #[cfg(not(clash_plant = "warp_no_instant_hit"))]
+            if target::in_attack_range(&self.cfg.calib, self.ents.pos[ti], w.instant_range, self.ents.radius[i], self.ents.pos[ti], self.ents.radius[ti]) {
+                let hs = self.cfg.cards.get(self.ents.card[i]).hit_speed_ms;
+                self.ents.attack_phase[i] = AttackPhase::Windup;
+                self.ents.attack_ms[i] = (hs - tick_ms).max(tick_ms);
+            }
+        }
+    }
+
+    /// A WARPED HERO'S SHOT (`phase_attack_for`, after `combat::fire`; `shots_from` the list's length before it): while
+    /// its strike buff lasts and before its first shot, the shot is the strike (its damage at the hero's level and its
+    /// crown share), the buff comes off (RemoveOnAttack) and the after share runs from `after_delay_ms` on; a buff that
+    /// ran out does the same without a strike. From then every shot takes the after share on a crown tower.
+    fn strike_after_fire(&mut self, i: usize, shots_from: usize) {
+        let id = self.ents.id_of(i);
+        let Some(k) = self.warps.strikes.iter().position(|s| s.id == id) else { return };
+        let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Warp(w), .. }) = self.cfg.cards.get(self.ents.card[i]).ability else { return };
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let delay = (w.after_delay_ms / tick_ms) as u32;
+        let s = self.warps.strikes[k].clone();
+        if s.crown_from.is_none() && tick < s.until {
+            let dmg = self.cfg.cards.scaled(self.ents.card[i], self.ents.level[i], w.strike_damage).expect("the hero's level validated at its creation");
+            #[cfg(not(clash_plant = "strike_shot_unread"))]
+            for p in self.projectiles[shots_from..].iter_mut().filter(|p| p.firer == Some(id)) {
+                p.damage = dmg;
+                p.crown_pct = w.strike_crown_pct;
+            }
+            #[cfg(clash_plant = "strike_shot_unread")]
+            let _ = dmg; // PLANT: the strike shot is an ordinary one.
+            for slot in self.ents.buff_slots_mut(i) {
+                if slot.id == w.strike.buff + 1 {
+                    *slot = crate::status::BuffSlot::default();
+                }
+            }
+            self.warps.strikes[k].crown_from = Some(tick + delay);
+            return;
+        }
+        let from = *self.warps.strikes[k].crown_from.get_or_insert(s.until + delay);
+        if tick >= from {
+            for p in self.projectiles[shots_from..].iter_mut().filter(|p| p.firer == Some(id)) {
+                p.crown_pct = w.after_crown_pct;
+            }
+        }
     }
 
     /// THE EVO TESLAS' RINGS (card.rs `RingDef`), at the Target phase's start, on start-of-tick points: a ring made on
@@ -14072,6 +14248,12 @@ impl BattleState {
             }
         }
         let mut chain_hits: Vec<(usize, EntityId)> = Vec::new();
+        // THE WARPS this tick (`warp_pass` set their steps): per entity, (target, step); and the arrivals.
+        let mut warp_at: Vec<Option<(EntityId, i32)>> = vec![None; self.ents.capacity()];
+        for r in self.warps.runs.iter().filter(|r| !r.arrived) {
+            warp_at[r.id.index as usize] = Some((r.target, r.step));
+        }
+        let mut warp_arrivals: Vec<(usize, EntityId)> = Vec::new();
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -14136,6 +14318,7 @@ impl BattleState {
                             && !jumping[i]
                             && dash_state[i] != DashState::Dashing
                             && !matches!(chain_at[i], Some((ChainPhase::Dash, _, _)))
+                            && warp_at[i].is_none()
                             && !e.attached(i),
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
@@ -14458,6 +14641,35 @@ impl BattleState {
                 let epoch = self.scratch.occluder_epoch[team as usize];
                 let actor = (bodies[i].x, bodies[i].y);
                 let node_centre = |p: Vec2| (p.x / K, p.y / K);
+                // ---- THE WARP (card.rs `WarpDef`, the Hero Mega Minion's): one step a tick, the run's, toward the
+                // target's centre where this pass has it (a unit created before the hero has moved already: measured on
+                // client 15.535.29, each step aimed at the Skeleton's centre after its own move, within 1 degree); the
+                // tick the step covers the rest, the hero stands on that centre (`land_warps`, after the pass). No scan:
+                // a warping hero is no body.
+                if let Some((t, step)) = warp_at[i].filter(|(t, _)| e.is_alive(*t)) {
+                    let ti = t.index as usize;
+                    let tp = (bodies[ti].x, bodies[ti].y);
+                    let (dx, dy) = ((tp.0 - actor.0) as i64, (tp.1 - actor.1) as i64);
+                    let left = isqrt(dx * dx + dy * dy);
+                    let p = if step > 0 && left <= step as i64 {
+                        warp_arrivals.push((i, t));
+                        tp
+                    } else if step > 0 {
+                        (actor.0 + (dx * step as i64 / left) as i32, actor.1 + (dy * step as i64 / left) as i32)
+                    } else {
+                        actor
+                    };
+                    let mut v = (p.0 - actor.0, p.1 - actor.1);
+                    if move16402::normalize_to(&mut v, 256) != 0 {
+                        facing[i] = Vec2::new(v.0, v.1);
+                        bodies[i].dir = v;
+                    }
+                    bodies[i].x = p.0;
+                    bodies[i].y = p.1;
+                    deltas[i] = Vec2::new(p.0 * K, p.1 * K).sub(e.pos[i]);
+                    walk_step[i] = 0;
+                    continue;
+                }
                 // ---- THE DASH (combat.DASH_ATTACK = client_dash; card.rs `DashDef`), measured on client
                 // 15.535.29 on the Bandit and the Mega Knight. Distances on the start-of-tick positions
                 // (`e.pos`), which this pass has not moved.
@@ -15121,6 +15333,9 @@ impl BattleState {
         self.ents.dash_immune_until = dash_immune;
         self.land_dash_blows(dash_blows);
         self.land_chain_hits(chain_hits);
+        if !warp_arrivals.is_empty() {
+            self.land_warps(warp_arrivals);
+        }
         self.end_dashes(dash_ended);
         self.scratch.deltas = deltas;
         self.scratch.walk_step = walk_step;
@@ -16295,7 +16510,9 @@ impl BattleState {
             let chaining = self.chains.iter().any(|c| c.id == e.id_of(i))
                 || self.spins.iter().any(|r| r.id == e.id_of(i) && r.began.is_some())
                 // A lift's descent holds the attack (its NO_ATTACK), `lift_pass`.
-                || self.lifts.iter().any(|l| l.id == e.id_of(i) && self.lift_descending(l));
+                || self.lifts.iter().any(|l| l.id == e.id_of(i) && self.lift_descending(l))
+                // A warp holds it too, through its arrival tick (`WarpRun`).
+                || self.warps.warping(e.id_of(i));
             let can_act = e.deploy_ms[i] == 0
                 && !held
                 && !chaining
@@ -16422,6 +16639,10 @@ impl BattleState {
                 // AN EVOLVED UNIT'S HIT (`evo_after_fire`): the group's count, the snipe.
                 if self.cfg.cards.get(self.ents.card[i]).evo.is_some() {
                     self.evo_after_fire(i, shots_from, t, revealed_from);
+                }
+                // A WARPED HERO'S SHOT (`strike_after_fire`): the strike, then the crown share.
+                if !self.warps.strikes.is_empty() {
+                    self.strike_after_fire(i, shots_from);
                 }
                 // THE COMBO (card.rs `ComboDef`; combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK): `fire` dealt the entry
                 // the count names; the next hit deals the next one, whatever it hits (the count runs across targets).
@@ -19973,6 +20194,15 @@ impl BattleState {
             // A champion's charge is out while its chain runs and until it recharges.
             return Err(if self.champion_button(form) && self.charge_recovers(form) { DeployError::AbilityNotReady } else { DeployError::AbilitySpent });
         }
+        // THE WARP'S BUTTON (card.rs `WarpDef`, the Hero Mega Minion's): taken from `available_after_ms` after the hero's
+        // creation (its start's mark), and only with a pick (the table's ABILITY_DISABLED while the mark has no target).
+        if let crate::card::AbilityEffect::Warp(w) = &a.effect {
+            let i = u.id.index as usize;
+            let from = self.ents.spawn_tick[i] + (w.available_after_ms / self.cfg.calib.tick_ms.max(1)) as u32;
+            if self.tick < from || self.warp_pick(i).is_none() {
+                return Err(DeployError::AbilityNotReady);
+            }
+        }
         Ok(())
     }
 
@@ -20212,6 +20442,17 @@ impl BattleState {
                     }
                 }
                 let _ = (team, level);
+            }
+            // THE WARP (the Hero Mega Minion's; `WarpRun`): its pick now, its first step in this tick's move pass. With no
+            // pick it does nothing.
+            crate::card::AbilityEffect::Warp(_) => {
+                #[cfg(not(clash_plant = "warp_never"))]
+                if let Some(t) = self.warp_pick(i) {
+                    self.warps.runs.retain(|r| r.id != hero);
+                    self.warps.runs.push(WarpRun { id: hero, target: t, made: self.tick, step: 0, moves: 0, arrived: false });
+                    self.ents.target[i] = Some(t);
+                }
+                let _ = (team, level, pos);
             }
             // THE LEVEL SET (the Hero Mini PEKKA's; `level_up`): its quest's stack picks the gain.
             crate::card::AbilityEffect::LevelUp { levels, heal_missing_pct, .. } => {
@@ -21853,6 +22094,25 @@ impl BattleState {
                 h.u32(r.moves);
             }
         }
+        // The warps, only when there are some.
+        if !self.warps.is_empty() {
+            h.u32(0x5741_5250);
+            h.u32(self.warps.runs.len() as u32);
+            for r in &self.warps.runs {
+                h.id(r.id);
+                h.id(r.target);
+                h.u32(r.made);
+                h.i32(r.step);
+                h.u32(r.moves);
+                h.bool(r.arrived);
+            }
+            h.u32(self.warps.strikes.len() as u32);
+            for s in &self.warps.strikes {
+                h.id(s.id);
+                h.u32(s.until);
+                h.u32(s.crown_from.map_or(0, |t| t + 1));
+            }
+        }
         // The taunts, only when there are some.
         if !self.taunts.is_empty() {
             h.u32(0x5441_554e);
@@ -22753,6 +23013,9 @@ struct Snapshot {
     /// The taunts (`BattleState::taunts`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     taunts: TauntBoard,
+    /// The warps (`BattleState::warps`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    warps: WarpBoard,
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
@@ -23437,6 +23700,7 @@ impl BattleState {
             quests: self.quests.clone(),
             falls: self.falls.clone(),
             taunts: self.taunts.clone(),
+            warps: self.warps.clone(),
             deflects: self.deflects.clone(),
             command_delay_ticks: c.command_delay_ticks,
             commands: self.commands.clone(),
@@ -23695,6 +23959,7 @@ impl BattleState {
             quests: snap.quests,
             falls: snap.falls,
             taunts: snap.taunts,
+            warps: snap.warps,
             deflects: snap.deflects,
             commands: snap.commands,
             commands_run: Vec::new(),
