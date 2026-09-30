@@ -174,6 +174,9 @@ pub struct AreaRelease {
     /// The shot's target, where the area comes from a shot (the Evo Ice Spirits' rides on it: card.rs
     /// `EvoDef::impact_area`); None for a spear's trail.
     pub target: Option<crate::EntityId>,
+    /// The attached part it is made as (`attached_area`: the Evo Firecracker's fireworks, standing where they are made),
+    /// or None for the card's own area (`cast`).
+    pub part: Option<u8>,
 }
 
 /// A container whose fuse ran out at `pos` (a death bomb that carries a death spawn, the
@@ -413,6 +416,11 @@ pub(crate) fn attached_def(cards: &CardDb, card: u16, part: u8) -> Option<&Attac
     // THE AREA AN ATTACK MAKES ON ITS UNIT (card.rs `AttackAreaDef`, the Evo Valkyrie's tornado): off its EvoDef.
     if part == crate::card::EVO_ATTACK_AREA {
         return cards.cards.get(card as usize).and_then(|c| c.evo.as_ref()).and_then(|v| v.attack_area.as_ref()).map(|a| &a.area);
+    }
+    // THE EVO FIRECRACKER'S FIREWORKS (card.rs `FireworksDef`): where its rocket lands, where a spark's flight ends.
+    if part == crate::card::EVO_FIREWORKS || part == crate::card::EVO_SPARK_FIREWORKS {
+        let fw = cards.cards.get(card as usize).and_then(|c| c.evo.as_ref()).and_then(|v| v.fireworks.as_ref())?;
+        return Some(if part == crate::card::EVO_FIREWORKS { &fw.big } else { &fw.small });
     }
     // THE AREA RIDING A SHOT'S TARGET (card.rs `EvoDef::impact_area`, the Evo Ice Spirits').
     if part == crate::card::EVO_IMPACT_AREA {

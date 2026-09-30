@@ -17891,6 +17891,12 @@ impl BattleState {
         // A landing object's area effect: cast at its point and appended after them, so
         // it too first applies next tick (as a death's area effect does, `phase_reap`).
         for a in areas {
+            // AN ATTACHED PART (the Evo Firecracker's fireworks): made where it was released, standing there.
+            if let Some(part) = a.part {
+                let s = spell::attached_area(&self.cfg.cards, &self.cfg.calib, a.team, a.card, a.level, a.target.unwrap_or_default(), a.pos, part).expect("released area level validated at deploy");
+                self.spells.push(s);
+                continue;
+            }
             // THE AREA RIDING THE SHOT'S TARGET (card.rs `EvoDef::impact_area`, the Evo Ice Spirits'): made on the target
             // (where the shot landed; it rides on the target from its first update, and stays where a dead one was).
             #[cfg(not(clash_plant = "impact_area_stays"))]

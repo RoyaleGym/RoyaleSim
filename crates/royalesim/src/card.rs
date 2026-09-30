@@ -1928,6 +1928,8 @@ pub struct EvoDef {
     /// on t815, 3000 ms on, the Knight 2100 from the landing point by then. Read off the table, not measured: that it
     /// rides on the target (the scene's Knight stayed in reach of the landing point), and stays where a dead target was.
     pub impact_area: Option<AttachedArea>,
+    /// Evo Firecracker: the fireworks its rocket and its sparks leave (`FireworksDef`).
+    pub fireworks: Option<FireworksDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4212,6 +4214,8 @@ struct RawEvolution {
     evo_death_action: Option<RawDeathAction>,
     /// The Evo Ice Spirits' area riding its shot's target (`impact_area_block`).
     evo_impact_area: Option<RawImpactArea>,
+    /// The Evo Firecracker's fireworks (`fireworks_block`).
+    evo_fireworks: Option<RawFireworks>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4261,6 +4265,14 @@ struct RawUppercut {
 #[derive(Deserialize)]
 struct RawDeathAction {
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_fireworks` (tools/extract_cards.py `fireworks_block`): the area rows its rocket and its
+/// sparks leave.
+#[derive(Deserialize)]
+struct RawFireworks {
+    big: Option<String>,
+    small: Option<String>,
 }
 
 /// cards.json `evolutions[].evo_impact_area` (tools/extract_cards.py `impact_area_block`): the area row the form's shot
@@ -4319,6 +4331,26 @@ pub const EVO_ATTACK_AREA: u8 = u8::MAX;
 /// The part (spell.rs `SpellMotion::Attached`) that names an evolved form's area riding its shot's target
 /// (`EvoDef::impact_area`, the Evo Ice Spirits').
 pub const EVO_IMPACT_AREA: u8 = u8::MAX - 1;
+
+/// The parts (spell.rs `SpellMotion::Attached`) that name the Evo Firecracker's fireworks (`FireworksDef`): where its
+/// rocket lands, and where each spark's flight ends.
+pub const EVO_FIREWORKS: u8 = u8::MAX - 2;
+pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
+
+/// THE EVO FIRECRACKER'S FIREWORKS (tools/extract_cards.py `fireworks_block`; combat.rs `step_projectiles`): an area
+/// where its rocket lands (`big`, released with its sparks) and one where each spark's flight ends (`small`), each
+/// standing where it is made (`SpellMotion::Attached` on no unit) and hanging its buff (FirecrackerFireworks_EV1: a
+/// slow and a DamagePerSecond pulse) first one HitSpeed after it is made, then every HitSpeed while it lives.
+///
+/// Measured on client 15.535.29 (sp-form-Firecracker-evo-s0, level 11): the rocket landed on t964 by a Knight and a
+/// Musketeer (the five sparks' 64 each on the Knight); both lost 12 on t974 and every 5 ticks after while in the area
+/// (the buff's 20 a second, 51 at level 11, a quarter every 250 ms: hung on t969, its first pulse a period later).
+/// Read off the table, not measured: the sparks' areas and where they stand, and the buff's crown-tower percent.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FireworksDef {
+    pub big: AttachedArea,
+    pub small: AttachedArea,
+}
 
 /// THE EVO ARCHER'S POWER SHOT (tools/extract_cards.py `far_shot_block`; state.rs `select_attack`; combat.rs `fire`): her
 /// OnStartingAttackAction `!target_in_range(4500)` sets her attack entry, read as the Three Musketeers' selector is
@@ -8559,7 +8591,9 @@ fn custom_shot_of(name: &str, table: &BTreeMap<String, serde_json::Value>) -> Re
 /// row reads None until cards.json carries them.
 fn spark_of(v: &serde_json::Value) -> Option<SparkDef> {
     let p: RawSpellProjectile = serde_json::from_value(v.clone()).ok()?;
-    if p.scatter.as_deref() != Some("Line")
+    // Circle (the Evo Firecracker's spark row) lays the same fan here: measured on client 15.535.29
+    // (sp-form-Firecracker-evo-s0, t964: five sparks aimed 16 degrees apart about the rocket's line, as the Line row's).
+    if !matches!(p.scatter.as_deref(), Some("Line") | Some("Circle"))
         || p.spawn_character.is_some()
         || p.spawn_projectile.is_some()
         || p.spawn_area_effect_object.is_some()
@@ -9529,6 +9563,7 @@ impl CardDb {
             extra.evo_kill_heal.is_some(),
             extra.evo_death_action.is_some(),
             extra.evo_impact_area.is_some(),
+            extra.evo_fireworks.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9733,6 +9768,7 @@ impl CardDb {
                     uppercut: None,
                     kill_heal: None,
                     impact_area: None,
+                    fireworks: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9930,6 +9966,7 @@ impl CardDb {
             uppercut: None,
             kill_heal: None,
             impact_area: None,
+            fireworks: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10031,6 +10068,33 @@ impl CardDb {
             let push = u.push_milli.filter(|p| *p > 0).ok_or("an uppercut with no PushBackStrength")?;
             let (root_delay_ms, root_ms) = (u.root_delay_ms.filter(|m| *m >= 0).ok_or("an uppercut's root delay")?, u.root_ms.filter(|m| *m >= 0).ok_or("an uppercut's root")?);
             evo.uppercut = Some(UppercutDef { every, push, root_delay_ms, root_ms });
+        }
+        // THE FIREWORKS (the Evo Firecracker's): each area a plain pulsing one that hangs a buff, standing where it is made
+        // and first hitting one HitSpeed after; on a card whose rocket releases sparks.
+        if let Some(fw) = &extra.evo_fireworks {
+            if c.spark.is_none() {
+                return Err("fireworks on a card whose shot releases no sparks".into());
+            }
+            let mut area = |name: Option<&str>| -> Result<AttachedArea, String> {
+                let name = name.ok_or("fireworks with no area")?;
+                let aeo = ctx.aeos.get(name).ok_or_else(|| format!("fireworks {name}: no area_effect_objects record"))?;
+                let (shape, aneeds) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("fireworks {name}: {e}"))?;
+                match shape {
+                    SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None } if aneeds.is_empty() && hit_speed_ms > 0 && hit.buff.is_some() => {
+                        Ok(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: false, stay: true, end: None })
+                    }
+                    _ => Err(format!("fireworks {name} is not a plain pulsing area that hangs a buff; not simulated")),
+                }
+            };
+            #[cfg(not(clash_plant = "fireworks_at_once"))]
+            let (big, small) = (area(fw.big.as_deref())?, area(fw.small.as_deref())?);
+            #[cfg(clash_plant = "fireworks_at_once")]
+            let (big, small) = {
+                // PLANT: each first hits on its first update.
+                let (b, s) = (area(fw.big.as_deref())?, area(fw.small.as_deref())?);
+                (AttachedArea { first_ms: 50, ..b }, AttachedArea { first_ms: 50, ..s })
+            };
+            evo.fireworks = Some(FireworksDef { big, small });
         }
         // THE AREA RIDING THE SHOT'S TARGET (the Evo Ice Spirits'), made from the form's projectile area above.
         if extra.evo_impact_area.is_some() {

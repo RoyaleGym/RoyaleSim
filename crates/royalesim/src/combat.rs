@@ -1933,7 +1933,15 @@ pub fn step_projectiles(
             return true;
         }
         if p.straight.is_some() {
-            return step_straight(ents, hash, cards, calib, p, dmg, fx, scratch, tick);
+            let more = step_straight(ents, hash, cards, calib, p, dmg, fx, scratch, tick);
+            // THE EVO FIRECRACKER'S SPARK leaves its small fireworks where its flight ends (card.rs `FireworksDef`).
+            #[cfg(not(clash_plant = "fireworks_never"))]
+            if !more {
+                if let Some(card) = p.firer_card.filter(|c| cards.get(*c).evo.as_ref().is_some_and(|v| v.fireworks.is_some())) {
+                    areas.push(crate::spell::AreaRelease { team: p.team, card, level: p.src_level, pos: p.pos, target: None, part: Some(crate::card::EVO_SPARK_FIREWORKS) });
+                }
+            }
+            return more;
         }
         // A CHAINED SHOT'S HOP waits on the target it hit (CHAIN_HOP_WAIT_TICKS).
         if let Some(c) = p.chain.as_mut().filter(|c| c.wait > 0) {
@@ -1965,7 +1973,7 @@ pub fn step_projectiles(
             if let Some(sp) = cards.get(tr.card).evo.as_ref().and_then(|v| v.spear) {
                 let dt = calib.tick_ms.max(1);
                 while i32::from(tr.steps) >= (sp.trail_first_ms + sp.trail_every_ms * i32::from(tr.next)) / dt {
-                    areas.push(crate::spell::AreaRelease { team: p.team, card: tr.card, level: tr.level, pos: start, target: None });
+                    areas.push(crate::spell::AreaRelease { team: p.team, card: tr.card, level: tr.level, pos: start, target: None, part: None });
                     tr.next = tr.next.saturating_add(1);
                 }
             }
@@ -2000,6 +2008,11 @@ pub fn step_projectiles(
         if let Some(c) = p.carrier {
             // It lands: it deals nothing itself (the rocket's row has no Damage) and releases its sparks.
             release_sparks(ents, hash, cards, calib, p, c, dmg, fx, scratch, &mut released, tick);
+            // THE EVO FIRECRACKER'S ROCKET leaves its big fireworks where it lands (card.rs `FireworksDef`).
+            #[cfg(not(clash_plant = "fireworks_never"))]
+            if cards.get(c.card).evo.as_ref().is_some_and(|v| v.fireworks.is_some()) {
+                areas.push(crate::spell::AreaRelease { team: p.team, card: c.card, level: p.src_level, pos: p.aim, target: None, part: Some(crate::card::EVO_FIREWORKS) });
+            }
             return false;
         }
         // The enchant bonus the shot was fired with (`enchant_bonus`): on each splash victim, or on the one target.
@@ -2112,7 +2125,7 @@ pub fn step_projectiles(
             // `CardDef::projectile_area_ahead` along the owner's forward (the Hero Wizard's air form's 1000; 0 on every
             // other card).
             let ahead = cards.get(card).projectile_area_ahead * crate::spell::forward_dy(p.team);
-            areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: Vec2::new(p.aim.x, p.aim.y + ahead), target: Some(p.target) });
+            areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: Vec2::new(p.aim.x, p.aim.y + ahead), target: Some(p.target), part: None });
         }
         // THE UNIT THE SHOT PUTS DOWN (card.rs `ShotSpawnDef`, the Evo Mortar's Goblin): one, where it landed, released
         // this tick at the firer's level on the unit's ladder (state.rs `phase_projectile`: on this frame, inert on it).

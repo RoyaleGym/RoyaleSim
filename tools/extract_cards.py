@@ -3702,7 +3702,7 @@ EVOLUTIONS = (
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
-    "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1",
+    "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4586,6 +4586,50 @@ def hit_rage_block(t: Tables, card: dict, stats: frozenset | set = frozenset()) 
     return {"unit": unit, "hits": counts[0], "time_ms": times[0], "buff": buff}
 
 
+# THE EVO FIRECRACKER'S FIREWORKS (`fireworks_block`): the columns each area row may set besides cosmetic ones.
+FIREWORKS_AREA = {"Rarity", "LifeDuration", "Radius", "HitSpeed", "Buff", "BuffTime", "OnlyEnemies", "HitsGround",
+                  "HitsAir"}
+
+
+def fireworks_block(t: Tables, card: dict) -> dict:
+    """THE EVO FIRECRACKER'S FIREWORKS (characters_evo Firecracker_EV1; projectiles_evo FirecrackerProjectile_EV1 and
+    FirecrackerExplosion_EV1; area_effect_objects_evo), read whole or the build stops: the unit row sets nothing but
+    display columns, its Projectile and a ProjectileSpecial with no SpecialRange (no special attack: the record's
+    `special` is not written); the rocket's SpawnAreaEffectObject (`big`) stands where it lands and each spark's
+    (`small`) where its flight ends, each a plain pulsing area of the rows' columns that hangs a buff. Both names are
+    taken off the record's projectile and its spark here (this block runs them)."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - {"Projectile", "ProjectileSpecial", "ClonedVersion"} - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra and card.get("special") is None, f"its row sets {sorted(extra)} or a special")
+    pt, at = t["projectiles"], t["area_effect_objects"]
+    rocket = pt.get(row["Projectile"])
+    need(rocket is not None and isinstance(rocket["SpawnProjectile"], str), f"its rocket {row['Projectile']!r}")
+    spark = pt.get(rocket["SpawnProjectile"])
+    need(spark is not None, f"its spark {rocket['SpawnProjectile']!r}")
+    names = []
+    for r in (rocket, spark):
+        name = r["SpawnAreaEffectObject"]
+        a = at.get(name) if isinstance(name, str) else None
+        unread = {c for c in at.set_fields.get(name, set()) - FIREWORKS_AREA if not COSMETIC.search(c)} if a else {"?"}
+        need(a is not None and not unread and isinstance(a["HitSpeed"], int) and a["HitSpeed"] > 0
+             and isinstance(a["Buff"], str), f"the area {name!r} (sets {sorted(unread)})")
+        names.append(name)
+    p = card["projectile"]
+    need(p["spawn_area_effect_object"] == names[0] and p["spawn_projectile"]["spawn_area_effect_object"] == names[1],
+         "the record's areas")
+    p["spawn_area_effect_object"] = None
+    p["spawn_projectile"]["spawn_area_effect_object"] = None
+    return {"big": names[0], "small": names[1]}
+
+
 # THE EVO ICE SPIRITS' SHOT (`impact_area_block`): the columns its OnHitTargetAction's buff may set (display only).
 IMPACT_TAG_BUFF = {"Rarity", "TID", "FilterFile", "FilterExportName", "TopEffect", "TopEffectVerticalOffset",
                    "TopEffectDisabledForAttachedCharacters", "NotCloned"}
@@ -5258,6 +5302,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_death_action"] = death_action_block(t, card)
         elif name == "IceSpirits_EV1":
             card["evo_impact_area"] = impact_area_block(t, card)
+        elif name == "Firecracker_EV1":
+            card["evo_fireworks"] = fireworks_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":
