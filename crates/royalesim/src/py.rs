@@ -205,6 +205,32 @@ pub const EMBEDDED_GLOBALS_CSV: &str = include_str!("../../../data/raw/retroroya
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
 /// returns. ENGINE_ERROR is not a protocol status: it marks a DeployError that a
 /// slot-indexed command cannot produce, and Python raises on it.
+/// THE DEFAULT CATALOGUE'S FIRST 133 CARDS, in the order RoyaleSim 087c060 (ship20) listed them. A catalogue id is a
+/// card's place in the catalogue, so `Battle(card_names=None)` lists these first, in this order, and appends every other
+/// loadable card after them in card-table order: a card that begins to load (a row the loader used to refuse, or a new
+/// row) gets the next id and moves no other card's. A name here that no longer loads drops out, which does move the
+/// ids after it; the list is never edited, only grown past.
+pub const CATALOGUE_ORDER: &[&str] = &[
+    "Knight", "Archer", "Goblins", "Giant", "Pekka", "Minions", "Balloon", "Witch", "Barbarians", "Golem",
+    "Skeletons", "Valkyrie", "SkeletonArmy", "Bomber", "Musketeer", "BabyDragon", "Prince", "Wizard", "MiniPekka",
+    "SpearGoblins", "GiantSkeleton", "HogRider", "MinionHorde", "IceWizard", "RoyalGiant", "SkeletonWarriors",
+    "Princess", "DarkPrince", "ThreeMusketeers", "LavaHound", "IceSpirits", "FireSpirits", "Miner", "ZapMachine",
+    "Bowler", "RageBarbarian", "BattleRam", "InfernoDragon", "IceGolemite", "MegaMinion", "BlowdartGoblin",
+    "GoblinGang", "ElectroWizard", "AngryBarbarians", "Hunter", "AxeMan", "Assassin", "RoyalRecruits", "DarkWitch",
+    "Bats", "Ghost", "RamRider", "MiniSparkys", "Rascals", "MovingCannon", "MegaKnight", "SkeletonBalloon",
+    "DartBarrell", "Wallbreakers", "RoyalHogs", "GoblinGiant", "Fisherman", "EliteArcher", "ElectroDragon",
+    "Firecracker", "MightyMiner", "ElixirGolem", "BattleHealer", "SkeletonKing", "ArcherQueen", "GoldenKnight",
+    "SuperIceGolemite", "Monk", "SuperArcher", "RoyalRecruits_Chess", "SkeletonDragons", "SuperHogRiderTerry",
+    "WitchMother", "ElectroSpirit", "ElectroGiant", "PrinceBuff", "Phoenix", "TriWizards", "GoblinDemolisher",
+    "GoblinMachine", "SuspiciousBush", "SuperKnight", "SkeletonWarriors_SpookyChess", "GiantBuffer", "Berserker",
+    "MergeMaiden_Normal", "MergeMaiden_Mounted", "Ronin", "Cannon", "GoblinHut", "Mortar", "InfernoTower",
+    "BombTower", "BarbarianHut", "Tesla", "Elixir Collector", "Xbow", "Tombstone", "FirespiritHut",
+    "BarbarianLauncher", "GoblinCage", "GoblinDrill", "GoblinPartyHut", "Fireball", "Arrows", "Rage", "Rocket",
+    "GoblinBarrel", "Freeze", "Mirror", "Lightning", "Zap", "Poison", "Graveyard", "Log", "Tornado", "Clone",
+    "Earthquake", "BarbLog", "Heal", "Snowball", "RoyalDelivery", "WarmSpell", "DarkMagic", "GoblinCurse",
+    "MergeMaiden", "Vines", "MinionGiant",
+];
+
 pub const DEPLOY_REASONS: [&str; 19] = [
     "OK",
     "BAD_TEAM",
@@ -1211,15 +1237,21 @@ impl Battle {
             // Every REGISTERED non-tower, non-summon card: a card rejected after its
             // push (its spawned unit could not load) is in `cards` but not by name. The
             // Mirror (code 6) and the tunnellers (code 5) are in it (module doc, SPELLS).
-            None => (0..db.cards.len() as u16)
-                .filter(|i| {
-                    let c = db.get(*i);
-                    !is_tower(&c.name)
-                        && !c.summon_only
-                        && c.evo.is_none()
-                        && db.index(&c.name) == Some(*i)
-                })
-                .collect(),
+            // In CATALOGUE_ORDER first, every other one after (its doc).
+            None => {
+                let loadable: Vec<u16> = (0..db.cards.len() as u16)
+                    .filter(|i| {
+                        let c = db.get(*i);
+                        !is_tower(&c.name)
+                            && !c.summon_only
+                            && c.evo.is_none()
+                            && db.index(&c.name) == Some(*i)
+                    })
+                    .collect();
+                let pinned: Vec<u16> = CATALOGUE_ORDER.iter().filter_map(|n| loadable.iter().copied().find(|i| db.get(*i).name == *n)).collect();
+                let rest = loadable.iter().copied().filter(|i| !pinned.contains(i));
+                pinned.iter().copied().chain(rest).collect()
+            }
         };
         let mut seen = vec![false; db.cards.len()];
         for idx in &catalogue {
@@ -2157,6 +2189,16 @@ mod tests {
     //! `Battle.step` call (grep the call sites; nothing else is in between).
     use super::*;
     use crate::state::BattleConfig;
+
+    /// THE DEFAULT CATALOGUE KEEPS ITS IDS: its first cards are CATALOGUE_ORDER, in that order, every other loadable card
+    /// after them, so a card that begins to load takes the next id and moves no other.
+    #[test]
+    fn the_default_catalogue_lists_catalogue_order_first() {
+        let Ok(b) = Battle::build(None, [[0, 1, 2], [0, 1, 2]], None, None, None, None, None, None, None, None) else { panic!("the default Battle was refused") };
+        let names: Vec<&str> = b.catalogue.iter().map(|i| b.cards.get(*i).name.as_str()).collect();
+        assert!(names.len() >= CATALOGUE_ORDER.len(), "the catalogue lost cards: {} of {}", names.len(), CATALOGUE_ORDER.len());
+        assert_eq!(&names[..CATALOGUE_ORDER.len()], CATALOGUE_ORDER, "the first ids moved");
+    }
 
     /// EVERY REASON CODE HAS A NAME: `reason_of` over every DeployError variant lands inside DEPLOY_REASONS. The
     /// array is length-annotated and grows by editing two places; TOO_EARLY and CARD_PENDING each once grew one half.
