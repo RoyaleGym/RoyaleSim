@@ -6581,6 +6581,10 @@ pub struct EvoBoard {
     /// before it still loads; hashed only when not empty.
     #[serde(default)]
     pub volleys: Vec<(EntityId, u32)>,
+    /// Each Evo Hunter's net clock (card.rs `NetDef`, `net_pass`). `default` so a battle saved before it still loads;
+    /// hashed only when not empty.
+    #[serde(default)]
+    pub nets: Vec<NetRun>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6666,6 +6670,17 @@ pub struct UppercutRun {
     pub pin: Option<Vec2>,
 }
 
+/// AN EVO HUNTER'S NET CLOCK (card.rs `NetDef`, `net_pass`): the Hunter, the tick he may next check, his target and the
+/// tick he took it, and the tick a cast net is thrown.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct NetRun {
+    pub id: EntityId,
+    pub ready_at: u32,
+    pub target: Option<EntityId>,
+    pub since: u32,
+    pub throw_at: Option<u32>,
+}
+
 /// AN EVO GOBLIN CAGE'S CAPTURE (card.rs `CageDef`, `cage_pass`): the cage, its captive with the grab's tick (a captive
 /// taken walks on until then), its grab distance (millitiles) and point, and the tick it is freed on.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -6697,6 +6712,7 @@ impl EvoBoard {
             && self.cages.is_empty()
             && self.spawn_gates.is_empty()
             && self.volleys.is_empty()
+            && self.nets.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -8944,6 +8960,12 @@ impl BattleState {
         // An Evo Goblin Cage starts with no captive (`cage_pass`).
         if evo.cage.is_some() {
             self.evo.cages.push(CageRun { cage: id, captive: None, grab: 0, d0: 0, from: pos, free_at: 0 });
+        }
+        // An Evo Hunter's net is ready its InitialCooldown after his deploy (`net_pass`).
+        if let Some(n) = evo.net {
+            let dt = self.cfg.calib.tick_ms.max(1);
+            let ready_at = self.tick + ((cards.get(card).deploy_time_ms + n.initial_ms) / dt) as u32;
+            self.evo.nets.push(NetRun { id, ready_at, target: None, since: 0, throw_at: None });
         }
         // An Evo Witch's interval clock starts at her creation, this tick her first 50 ms (`witch_wave_pass`).
         #[cfg(not(clash_plant = "witch_waves_never"))]
@@ -13774,6 +13796,100 @@ impl BattleState {
         }
     }
 
+    /// THE EVO HUNTERS' NETS (card.rs `NetDef`), in the Projectile phase: each notes when he took his current target; a
+    /// cast net is thrown on its tick at that target if it lives, and his next check is `cooldown_ms` and a tick on; else,
+    /// ready and deployed, with a target held NET_TARGET_HOLD_TICKS and within his net's range (edge to edge), the cast
+    /// starts: the throw `cast_ms` on.
+    fn net_pass(&mut self) {
+        let cards = self.cfg.cards.clone();
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let mut runs = std::mem::take(&mut self.evo.nets);
+        runs.retain(|r| self.ents.is_alive(r.id));
+        for r in runs.iter_mut() {
+            let i = r.id.index as usize;
+            let Some(nd) = cards.get(self.ents.card[i]).evo.as_ref().and_then(|e| e.net) else { continue };
+            let t = self.ents.target[i];
+            if t != r.target {
+                r.target = t;
+                r.since = tick;
+            }
+            if let Some(at) = r.throw_at {
+                if tick < at {
+                    continue;
+                }
+                r.throw_at = None;
+                if let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) {
+                    self.throw_net(i, t, &nd);
+                }
+                r.ready_at = tick + (nd.cooldown_ms / dt) as u32 + 1;
+                continue;
+            }
+            #[cfg(clash_plant = "net_never")]
+            continue; // PLANT: no net is ever cast.
+            #[allow(unreachable_code)]
+            if tick < r.ready_at || self.ents.deploy_ms[i] > 0 {
+                continue;
+            }
+            let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) else { continue };
+            let ti = t.index as usize;
+            #[cfg(not(clash_plant = "net_without_hold"))]
+            let held = tick >= r.since + crate::card::NET_TARGET_HOLD_TICKS;
+            #[cfg(clash_plant = "net_without_hold")]
+            let held = tick >= r.since; // PLANT: cast on the tick the target is taken.
+            if held && crate::fixed::in_range_edge(self.ents.pos[i], self.ents.pos[ti], nd.range + self.ents.radius[i], self.ents.radius[ti]) {
+                r.throw_at = Some(tick + (nd.cast_ms / dt) as u32);
+            }
+        }
+        self.evo.nets = runs;
+    }
+
+    /// Hunter `i`'s net at `t` (`net_pass`): a homing shot from his ProjectileStartRadius plus the net's extra toward it, of
+    /// the net's speed and no damage, carrying the snare; it first steps next tick.
+    fn throw_net(&mut self, i: usize, t: EntityId, nd: &crate::card::NetDef) {
+        let ti = t.index as usize;
+        let (src, tgt) = (self.ents.pos[i], self.ents.pos[ti]);
+        let reach = i64::from(self.cfg.cards.get(self.ents.card[i]).projectile_start_radius + nd.start_extra);
+        let (dx, dy) = (i64::from(tgt.x - src.x), i64::from(tgt.y - src.y));
+        let len = crate::fixed::isqrt(dx * dx + dy * dy).max(1);
+        let pos = Vec2::new(src.x + (dx * reach / len) as i32, src.y + (dy * reach / len) as i32);
+        #[cfg(not(clash_plant = "net_snare_dropped"))]
+        let buff = Some(nd.snare);
+        #[cfg(clash_plant = "net_snare_dropped")]
+        let buff = None; // PLANT: the net holds nothing.
+        self.projectiles.push(Projectile {
+            team: self.ents.team[i],
+            pos,
+            target: t,
+            aim: tgt,
+            speed: nd.speed * self.cfg.calib.projectile_speed_to_subtiles_per_tick,
+            damage: 0,
+            crown_pct: 100,
+            splash: 0,
+            hits_air: true,
+            hits_ground: true,
+            frac: Vec2::default(),
+            fresh: true,
+            buff,
+            pulse: 0,
+            firer_card: Some(self.ents.card[i]),
+            firer: Some(self.ents.id_of(i)),
+            deflected: false,
+            straight: None,
+            hook: None,
+            carrier: None,
+            fixed: false,
+            release: None,
+            buff_first: false,
+            src_level: self.ents.level[i],
+            enchant: None,
+            bonus: 0,
+            bonus_crown: 0,
+            trail: None,
+            chain: None,
+            bounce: None,
+        });
+    }
+
     /// THE EVO WITCH'S SOUL HEALS (card.rs `SoulDrainDef`), in the Resolve before the tick's heals land: each soul due this
     /// tick on a Witch still alive heals her one pulse of her heal (on her card and level), capped at its overheal
     /// (`land_buff_heals`); souls on a Witch that has died are dropped. Each soul is its own heal (AddAsIndividualBuff).
@@ -18114,6 +18230,10 @@ impl BattleState {
         // The Evo Goblin Cages' captures, on this tick's moved points (`cage_pass`).
         if !self.evo.cages.is_empty() {
             self.cage_pass();
+        }
+        // The Evo Hunters' nets, on this tick's targets and moved points (`net_pass`).
+        if !self.evo.nets.is_empty() {
+            self.net_pass();
         }
         // The Hero Valkyrie's spins after the move, before the spells step, so a blow strikes on its own tick (`spin_pass`).
         if !self.spins.is_empty() {
@@ -23197,6 +23317,18 @@ impl BattleState {
                     h.i32(r.from.x);
                     h.i32(r.from.y);
                     h.u32(r.free_at);
+                }
+            }
+            // The Evo Hunters' net clocks, only when there are some.
+            if !b.nets.is_empty() {
+                h.u32(0x4e45_5453);
+                h.u32(b.nets.len() as u32);
+                for r in &b.nets {
+                    h.id(r.id);
+                    h.u32(r.ready_at);
+                    h.opt_id(r.target);
+                    h.u32(r.since);
+                    h.u32(r.throw_at.unwrap_or(u32::MAX));
                 }
             }
             // The Evo Princesses' counts of volleys, only when there are some.

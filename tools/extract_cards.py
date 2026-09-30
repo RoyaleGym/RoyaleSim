@@ -3703,7 +3703,7 @@ EVOLUTIONS = (
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
-    "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1",
+    "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4997,6 +4997,73 @@ def pt_row(t: Tables, name: str):
     return t["projectiles"].get(name)
 
 
+# THE EVO HUNTER (`net_block`): the unit row's columns it reads besides display, the net action's keys, and the columns
+# its snares must agree on.
+NET_ROW = {"OnStartingAction", "Projectile", "CustomFirstProjectile", "UseAnimator", "CustomAnimationPostfix",
+           "ClonedVersion", "StatsTags"}
+NET_READ = {"ClassType", "Projectile", "Range", "MinRange", "Cooldown", "InitialCooldown", "ActionOnCooldownReady",
+            "TrapCastTime", "ProjectileStartExtraRadius", "ActionOnShot", "TargetFilter", "StatsTags"}
+NET_SNARE_COLUMNS = ("SpeedMultiplier", "HitSpeedMultiplier", "SpawnSpeedMultiplier", "DamagePerSecond", "HitFrequency",
+                     "HealPerSecond", "DamageReduction")
+
+
+def net_block(t: Tables, card: dict) -> dict:
+    """THE EVO HUNTER'S NET (characters/hunter_ev1.toml), read whole or the build stops: his OnStartingAction is an
+    ActionHunterNetAttack (TargetFilter default_character_targets_no_buildings; Range `range_milli`, MinRange at most 0;
+    InitialCooldown `initial_ms`, Cooldown `cooldown_ms`, TrapCastTime `cast_ms`; ProjectileStartExtraRadius
+    `start_extra_milli`; its ready and shot actions effects and a tag); its Projectile, the net (homing, no damage,
+    `speed`), runs on its hit (unless DASHING) an ActionAirToGround (`ground_ms`) and an ActionSelect of three
+    ActionSpawn of snares by the target's radius, alike in play and time: the first is `snare`, for `snare_ms`. His
+    shotgun is the base's (his CustomFirstProjectile his Projectile)."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts, pt = t["actions"], t["projectiles"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - NET_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    need(row["CustomFirstProjectile"] == row["Projectile"], "a CustomFirstProjectile of its own")
+    a = acts.get(row["OnStartingAction"])
+    need(a is not None and a["ClassType"] == "ActionHunterNetAttack" and _present(a) <= NET_READ
+         and a["TargetFilter"] == "default_character_targets_no_buildings",
+         f"its net action (sets {_present(a or {})})")
+    ints = ("Range", "Cooldown", "InitialCooldown", "TrapCastTime", "ProjectileStartExtraRadius")
+    need(all(isinstance(a[k], int) and not isinstance(a[k], bool) and a[k] >= 0 for k in ints)
+         and isinstance(a["MinRange"], int) and a["MinRange"] <= 0, "its net's numbers")
+    need(_cosmetic_action(acts, a["ActionOnCooldownReady"]), "its ready action")
+    shot = a["ActionOnShot"]
+    need(isinstance(shot, dict) and shot.get("ClassType") == "ActionGroup"
+         and all(_cosmetic_action(acts, n) or (acts.get(n) or {}).get("ClassType") == "ActionWithDuration"
+                 for n in shot.get("SubActions", [])), "its shot action")
+    net = norm_projectile(t, a["Projectile"])
+    need(net is not None and net["homing"] and net["speed"] and not net["damage"] and not net["radius_milli"],
+         "its net's row")
+    hit = acts.get(pt.get(a["Projectile"])["OnHitTargetAction"])
+    need(hit is not None and hit["ClassType"] == "ActionGroup" and "ExecuteIfTrue" in _present(hit)
+         and hit["ExecuteIfTrue"] == "!DASHING", "its net's hit")
+    subs = group_subactions(t, pt.get(a["Projectile"])["OnHitTargetAction"], f"{unit} net hit")
+    ground = [acts.get(n) for n, _ in subs if (acts.get(n) or {}).get("ClassType") == "ActionAirToGround"]
+    select = [n for n, _ in subs if (acts.get(n) or {}).get("ClassType") == "ActionSelect"]
+    need(len(ground) == 1 and len(select) == 1 and len(subs) == 2 and all(d == 0 for _, d in subs),
+         f"its net's hit {subs}")
+    spawns = [acts.get(n) for n in col_list(acts, select[0], "SubActions")]
+    need(len(spawns) == 3 and all(s is not None and s["ClassType"] == "ActionSpawn" and s["SpawnType"] == "BuffType"
+                                  for s in spawns), "its snares")
+    rows = [t["character_buffs"].get(s["SpawnData"]) for s in spawns]
+    need(all(r is not None for r in rows) and all(r[c] == rows[0][c] for r in rows for c in NET_SNARE_COLUMNS)
+         and len({s["SpawnTime"] for s in spawns}) == 1, "its snares differ in play")
+    need(rows[0]["SpeedMultiplier"] == -100 and rows[0]["HitSpeedMultiplier"] == -100, "its snare is no full stop")
+    return {"range_milli": a["Range"], "cooldown_ms": a["Cooldown"], "initial_ms": a["InitialCooldown"],
+            "cast_ms": a["TrapCastTime"], "start_extra_milli": a["ProjectileStartExtraRadius"], "speed": net["speed"],
+            "snare": norm_buff(t, spawns[0]["SpawnData"]), "snare_ms": spawns[0]["SpawnTime"],
+            "ground_ms": ground[0]["TotalDuration"]}
+
+
 # THE EVO ICE SPIRITS' SHOT (`impact_area_block`): the columns its OnHitTargetAction's buff may set (display only).
 IMPACT_TAG_BUFF = {"Rarity", "TID", "FilterFile", "FilterExportName", "TopEffect", "TopEffectVerticalOffset",
                    "TopEffectDisabledForAttachedCharacters", "NotCloned"}
@@ -5682,6 +5749,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_spawn_below"] = spawn_below_block(t, card)
         elif name == "Princess_EV1":
             card["evo_freeze_volley"] = freeze_volley_block(t, card)
+        elif name == "Hunter_EV1":
+            card["evo_net"] = net_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

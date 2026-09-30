@@ -500,8 +500,14 @@ fn forms_take_slots_after_every_existing_card() {
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
-    // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant and the Evo Princess.
-    assert_eq!(db.cards.len(), n0 + 46);
+    // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess and
+    // the Evo Hunter.
+    assert_eq!(db.cards.len(), n0 + 47);
+    assert_eq!(db.cards[n0 + 46].name, "Hunter_EV1");
+    let net = db.cards[n0 + 46].evo.as_ref().and_then(|e| e.net).expect("the Evo Hunter's net");
+    assert!(net.range == 4000 * K && net.cooldown_ms == 5000 && net.initial_ms == 1000 && net.cast_ms == 200 && net.speed == 600);
+    let sn = db.buffs[net.snare.buff as usize];
+    assert!(sn.speed_pct == -100 && sn.hit_speed_pct == -100 && net.snare.time_ms == 3000);
     assert_eq!(db.cards[n0 + 45].name, "Princess_EV1");
     let fv = db.cards[n0 + 45].evo.as_ref().and_then(|e| e.freeze_volley).expect("the Evo Princess's freezing volley");
     assert!(fv.every == 2 && fv.freeze.radius == 3000 * K && fv.freeze.damage == 66 && fv.area.life_ms == 5500 && fv.area.hit_speed_ms == 300);

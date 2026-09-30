@@ -56,7 +56,7 @@ fn her_first_and_third_volleys_leave_a_freezing_area_the_second_does_not() {
     let gat = n(at.0, at.1 + 7000);
     let g = s.scenario_spawn_now(Team::Red, "Golem", gat, None).expect("a red Golem");
     let (mut landings, mut made, mut areas) = (Vec::new(), Vec::new(), 0usize);
-    for k in 0..260 {
+    for k in 0..260usize {
         assert!(s.debug_set_pos(pr, n(at.0, at.1)) && s.debug_set_pos(g, gat));
         let top = s.entity(g).expect("the Golem").max_hp;
         assert!(s.debug_set_hp(g, top));

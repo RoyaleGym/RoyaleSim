@@ -1949,6 +1949,8 @@ pub struct EvoDef {
     pub axe: Option<AxeDef>,
     /// Evo Princess: every so many volleys her freezing arrow, its slow and the area it leaves (`FreezeVolleyDef`).
     pub freeze_volley: Option<FreezeVolleyDef>,
+    /// Evo Hunter: his net at his target on its own clock (`NetDef`).
+    pub net: Option<NetDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4255,6 +4257,8 @@ struct RawEvolution {
     evo_spawn_below: Option<RawSpawnBelow>,
     /// The Evo Princess's freezing volley (`freeze_volley_block`).
     evo_freeze_volley: Option<RawFreezeVolley>,
+    /// The Evo Hunter's net (`net_block`).
+    evo_net: Option<RawNet>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4317,6 +4321,19 @@ struct RawCage {
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_net` (tools/extract_cards.py `net_block`).
+#[derive(Deserialize)]
+struct RawNet {
+    range_milli: Option<i32>,
+    cooldown_ms: Option<i32>,
+    initial_ms: Option<i32>,
+    cast_ms: Option<i32>,
+    start_extra_milli: Option<i32>,
+    speed: Option<i32>,
+    snare: Option<RawBuff>,
+    snare_ms: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_freeze_volley` (tools/extract_cards.py `freeze_volley_block`): the frequency and her two
@@ -4426,6 +4443,32 @@ pub const EVO_FIREWORKS: u8 = u8::MAX - 2;
 pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
 /// The Evo Princess's freezing arrow's area (`FreezeVolleyDef::area`).
 pub const EVO_FREEZE_AREA: u8 = u8::MAX - 4;
+
+/// The ticks the Evo Hunter must have held his target before his net is cast at it (`NetDef`): measured 5 (with
+/// TrapCastTime's 4, the net 9 ticks after he takes a target already in reach, five runs of five).
+pub const NET_TARGET_HOLD_TICKS: u32 = 5;
+
+/// THE EVO HUNTER'S NET (tools/extract_cards.py `net_block`; state.rs EvoBoard `nets`, `net_pass`): his InitialCooldown
+/// after his deploy, then each tick: once he has held his target NET_TARGET_HOLD_TICKS and it stands within `range`
+/// (SUBTILES, edge to edge), the net is cast and thrown `cast_ms` later at it (a homing shot of `speed`, no damage, from
+/// his ProjectileStartRadius plus `start_extra`), and he checks again `cooldown_ms` and a tick after the throw; what it
+/// lands on takes `snare` (a full stop).
+///
+/// Measured on client 15.535.29, level 11 (Oracle's sp-f4-hunter*-s0: a Golem arriving 0, 40 and 80 ticks after he was
+/// up, a lone Baby Dragon, a lone Knight): each net thrown 9 ticks after he took a target in reach, or 4 after one he
+/// had held walked into reach (5300 away, 3950 edge to edge); 105 ticks throw to throw on the same target (109-114
+/// across a change); the Giant, the Golem, a Knight and a Baby Dragon each held still from the net's landing to 61
+/// ticks on. Read off the table, not measured: the flyer's descent (ActionAirToGround; it held still like the rest).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct NetDef {
+    pub range: i32,
+    pub cooldown_ms: i32,
+    pub initial_ms: i32,
+    pub cast_ms: i32,
+    pub start_extra: i32,
+    pub speed: i32,
+    pub snare: BuffApply,
+}
 
 /// The ms of its age at which the Evo Princess's freezing area first pulses (`FreezeVolleyDef::area`): its first update.
 /// Read off the table, not measured (every walker it caught was deploying on the landing).
@@ -9784,6 +9827,7 @@ impl CardDb {
             extra.evo_axe.is_some(),
             extra.evo_spawn_below.is_some(),
             extra.evo_freeze_volley.is_some(),
+            extra.evo_net.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9827,6 +9871,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_net.is_some() {
+            // The net and its effects (`net_block` reads them, and the net's hit, whole).
+            &["ActionHunterNetAttack", "ActionPlayEffect"]
         } else if extra.evo_freeze_volley.is_some() {
             // Her count's start and effect, and her selector (`freeze_volley_block` reads them, and her arrows', whole).
             &["ActionFilter", "ActionGroup", "ActionPlayEffect", "ActionSetAttackSequenceIndex", "ActionSetVariable"]
@@ -10046,6 +10093,7 @@ impl CardDb {
                     cage: None,
                     axe: None,
                     freeze_volley: None,
+                    net: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10250,6 +10298,7 @@ impl CardDb {
             cage: None,
             axe: None,
             freeze_volley: None,
+            net: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10367,6 +10416,23 @@ impl CardDb {
                 hit_ms: pos(cg.hit_ms, "hit frequency")?,
                 cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
                 hide,
+            });
+        }
+        // THE NET (the Evo Hunter's): a full stop as its buff.
+        if let Some(n) = &extra.evo_net {
+            let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a net with no {k}"));
+            let snare = buffs.apply(n.snare.as_ref().ok_or("a net with no snare")?, Some(pos(n.snare_ms, "snare time")?), "the net's snare")?;
+            if !buffs.stops(snare.buff) {
+                return Err("a net whose snare is no full stop".into());
+            }
+            evo.net = Some(NetDef {
+                range: milli(pos(n.range_milli, "Range")?),
+                cooldown_ms: pos(n.cooldown_ms, "Cooldown")?,
+                initial_ms: n.initial_ms.filter(|x| *x >= 0).ok_or("a net with no InitialCooldown")?,
+                cast_ms: n.cast_ms.filter(|x| *x >= 0).ok_or("a net with no TrapCastTime")?,
+                start_extra: milli(n.start_extra_milli.filter(|x| *x >= 0).ok_or("a net with no ProjectileStartExtraRadius")?),
+                speed: pos(n.speed, "net speed")?,
+                snare,
             });
         }
         // THE FREEZE VOLLEY (the Evo Princess's): her plain real arrow as the card's, and every `every`-th volley's
