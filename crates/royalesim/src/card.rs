@@ -289,6 +289,9 @@ pub enum SpellShape {
     /// All distances SUBTILES; speeds raw.
     /// `spawn`: the units the roll releases where it stops (the Barbarian Barrel's Barbarian; `SpellShape::release`).
     Rolling { airborne_speed: i32, airborne_min_distance: i32, speed: i32, range: i32, half_width: i32, half_depth: i32, hit: SpellHit, spawn: Option<SpawnDef> },
+    /// A FLIGHT THAT LANDS A CAPTURING ROLL (the Evo Giant Snowball; `CaptureRollDef`; spell.rs
+    /// `SpellMotion::CaptureRoll`).
+    CaptureRoll(Box<CaptureRollDef>),
     /// A HITPOINT-LESS SUMMON (Rage's bottle): a building row with a DeployTime, no Hitpoints and a
     /// DeathAreaEffect, nothing else. It is not an entity -- nothing targets it, nothing collides
     /// with it -- so it is a spell object that counts `fuse_ms` down and releases `then` where it
@@ -1121,6 +1124,7 @@ impl SpellShape {
             SpellShape::Echo { hit, .. } => Some(hit),
             SpellShape::Strikes(d) => Some(&d.hit),
             SpellShape::Clone { hit, .. } => Some(hit),
+            SpellShape::CaptureRoll(d) => Some(&d.hit),
             SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } => None,
         };
         if let Some(h) = hit {
@@ -1134,6 +1138,8 @@ impl SpellShape {
         let extra: Vec<u16> = match self {
             SpellShape::Strikes(d) => d.selector.as_ref().map_or(Vec::new(), |s| s.buffs.iter().map(|b| b.buff).collect()),
             SpellShape::Clone { hold, .. } => vec![hold.buff],
+            // The captive's hold and its buff at the release.
+            SpellShape::CaptureRoll(d) => vec![d.hold, d.release.buff],
             _ => Vec::new(),
         };
         for b in extra {
@@ -1221,6 +1227,48 @@ pub enum AbilityEffect {
     /// rest buff's SpawnTime: its HitSpeedMultiplier -100 stops her attack). Radii in subtiles.
     SpinChain { radius: i32, count: i32, pending_delay_ms: i32, every_ms: i32, spin_ms: i32, pending_buff: BuffApply, chain_buff: BuffApply, guard_buff: BuffApply, rest_ms: i32, area: AttachedArea },
 }
+
+/// THE EVO GIANT SNOWBALL (tools/extract_cards.py `capture_block`; spell.rs `SpellMotion::CaptureRoll`, `capture_roll`):
+/// a flight from the king tower to the tap at `flight_speed`, as the Snowball's own, with no hit; on the tick it arrives
+/// a ball stands on the tap and rolls `roll_speed` a tick along the owner's forward for `roll_len`. On its
+/// CAPTURE_DELAY_TICKS-th tick `hit` strikes around it and every troop it strikes is captured (up to `max_units`), held
+/// by buff `hold` to the release: for CAPTURE_DRAG_PER_10000.len() ticks it steps straight at the ball's point by its
+/// distance at the capture times that tick's share, joining the ball within `hide_distance`, and then rides on the
+/// ball's point. On the tick after the ball's last step every captive is let go, carrying `release`: a lone one on the
+/// ball's point, two RELEASE_SPREAD either side of it along the owner's forward, the first made ahead. Distances in
+/// subtiles; `flight_speed` raw.
+///
+/// Measured on client 15.535.29 (sp-form-Snowball-evo-s0; Oracle's sp-snow-* lone-unit scenes; level 11): the ball's
+/// first point is the tap on the flight's arrival tick R; it moves 300 a tick; the hit (70 at level 1: 179) and the
+/// capture on R + 2 on every unit within reach, deploying ones included; the drag steps on R + 3 .. R + 7 (a Knight
+/// 1601 away: 59, 118, 172, 209, 234), the snap on R + 8, the ride to the ball's end on R + 14 (4000 rolled); on
+/// R + 15 a lone unit stands on the end point and a pair 150 either side, walking at 65 % from R + 16. Open: a unit the
+/// ball rolls onto after the capture tick (none measured is hit or captured here); the drag of a unit near the ball at
+/// the capture (a Musketeer 332 away stepped 7, 16, 25, 31, 35, short of this table's 12, 24, 36, 43, 48), and of one
+/// the ball rolled over on its first drag tick; three or more released together (the third and on stay on the point).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct CaptureRollDef {
+    pub flight_speed: i32,
+    pub roll_speed: i32,
+    pub roll_len: i32,
+    pub hit: SpellHit,
+    /// BuffDuringCapture: its index; its time is the capture's length, set at the capture.
+    pub hold: u16,
+    pub release: BuffApply,
+    pub hide_distance: i32,
+    pub max_units: i32,
+}
+
+/// The capture's tick from the ball's first (R + 2) and the drag's shares of the capture distance, per 10,000, one a
+/// tick (the table's CaptureDragTime 300: five ticks and a snap on the sixth), measured on client 15.535.29 (Oracle's
+/// sp-snow-* scenes, within about 3 % for four Knights 1167 to 2399 away) and not in the table: its drag curve is the
+/// client's own.
+pub const CAPTURE_DELAY_TICKS: u32 = 2;
+pub const CAPTURE_DRAG_PER_10000: [i32; 5] = [367, 735, 1070, 1300, 1460];
+pub const CAPTURE_DRAG_MS: i32 = 300;
+/// A released pair's offset from the ball's end point along the owner's forward, native (measured: 150, the first-made
+/// ahead, in both pair scenes).
+pub const RELEASE_SPREAD: i32 = 150;
 
 /// ONE STEP OF AN ACTION GROUP (`AbilityEffect::ActionGroup`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -3878,9 +3926,75 @@ struct RawEvolution {
     evo_wind: Option<RawWind>,
     evo_ghost: Option<RawGhost>,
     evo_army: Option<RawArmy>,
+    /// The Evo Giant Snowball's roll (`capture_block`).
+    evo_capture: Option<RawCapture>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_capture` (tools/extract_cards.py `capture_block`).
+#[derive(Deserialize)]
+struct RawCapture {
+    roll_speed: Option<i32>,
+    roll_len_milli: Option<i32>,
+    radius_milli: Option<i32>,
+    damage: Option<i32>,
+    crown_tower_damage_percent: Option<i32>,
+    hits_air: Option<bool>,
+    hits_ground: Option<bool>,
+    hit_buff: Option<RawBuff>,
+    hit_buff_ms: Option<i32>,
+    hold_buff: Option<RawBuff>,
+    release_buff: Option<RawBuff>,
+    release_ms: Option<i32>,
+    drag_ms: Option<i32>,
+    hide_distance_milli: Option<i32>,
+    max_units: Option<i32>,
+}
+
+/// The Evo Giant Snowball's roll from its record (`CaptureRollDef`): its drag must be the measured one (CAPTURE_DRAG_MS).
+fn capture_of(r: &RawCapture, flight_speed: i32, buffs: &mut BuffTable) -> Result<CaptureRollDef, String> {
+    let what = "the capture roll";
+    if r.drag_ms != Some(CAPTURE_DRAG_MS) {
+        return Err(format!("{what}: a drag of {:?} ms, where it was measured at {CAPTURE_DRAG_MS}", r.drag_ms));
+    }
+    let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: no {k}"));
+    fn need<'a>(b: &'a Option<RawBuff>, k: &str) -> Result<&'a RawBuff, String> {
+        b.as_ref().ok_or_else(|| format!("the capture roll: no {k}"))
+    }
+    let hit_buff = buffs.apply(need(&r.hit_buff, "hit buff")?, r.hit_buff_ms, "the roll's hit buff")?;
+    let hold = buffs.apply(need(&r.hold_buff, "hold buff")?, Some(CAPTURE_DRAG_MS), "the capture's hold")?.buff;
+    if buffs.defs.get(hold as usize).is_none_or(|b| b.speed_pct != -100 || b.hit_speed_pct != -100) {
+        return Err(format!("{what}: a hold that is not a full stop"));
+    }
+    let release = buffs.apply(need(&r.release_buff, "release buff")?, r.release_ms, "the release's buff")?;
+    let hit = SpellHit {
+        damage: pos(r.damage, "damage")?,
+        crown_pct: r.crown_tower_damage_percent.unwrap_or(100),
+        radius: milli(pos(r.radius_milli, "radius")?),
+        hits_air: r.hits_air.unwrap_or(false),
+        hits_ground: r.hits_ground.unwrap_or(false),
+        only_enemies: true,
+        only_own_troops: false,
+        ignore_buildings: false,
+        no_effect_to_crown_towers: false,
+        knockback: None,
+        buff: Some(hit_buff),
+        buff2: None,
+        caps_buff_time: false,
+        controls_buff: false,
+    };
+    Ok(CaptureRollDef {
+        flight_speed,
+        roll_speed: milli(pos(r.roll_speed, "roll speed")?),
+        roll_len: milli(pos(r.roll_len_milli, "roll length")?),
+        hit,
+        hold,
+        release,
+        hide_distance: milli(r.hide_distance_milli.unwrap_or(0).max(0)),
+        max_units: pos(r.max_units, "unit count")?,
+    })
 }
 
 /// cards.json `evolutions[].evo_army` (tools/extract_cards.py `army_block`).
@@ -8787,8 +8901,25 @@ impl CardDb {
             }
         }
         raw.action_graph = None;
+        // THE EVO GIANT SNOWBALL: its flight's rolling projectile is the block's (`capture_block` reads it whole); the
+        // flight loads as the carrier it is, and the spell's shape is the block's (`SpellShape::CaptureRoll`, below).
+        if extra.evo_capture.is_some() {
+            if let Some(p) = raw.projectile.as_mut().and_then(|v| v.as_object_mut()) {
+                p.remove("spawn_projectile");
+            }
+        }
         let raw_damage = raw.damage;
         let (mut c, _, needs) = convert(raw, buffs, ctx)?;
+        if let Some(cap) = &extra.evo_capture {
+            let d = c.spell.clone().ok_or("a capture roll on a card with no spell")?;
+            let SpellShape::Projectile { speed, hit, waves: 1, .. } = &d.shape else {
+                return Err("a capture roll whose flight is not one projectile".into());
+            };
+            if hit.is_some_and(|h| h.damage != 0 || h.buff.is_some() || h.knockback.is_some()) {
+                return Err("a capture roll whose flight strikes".into());
+            }
+            c.spell = Some(SpellDef { shape: SpellShape::CaptureRoll(Box::new(capture_of(cap, *speed, buffs)?)), placement: d.placement });
+        }
         // A SPEAR FORM'S OTHER MEMBERS (summon_members 1..): each its own unit row, loaded here as a summon-only record
         // after the form, with the form's block, and held to the form's graph. Any other unit a form needs is refused.
         let mut members: Vec<(u8, CardDef)> = Vec::new();
@@ -9921,6 +10052,8 @@ impl CardDb {
                         | Some(SpellShape::PulsingAreaEffect { hit: h, .. })
                         | Some(SpellShape::Rolling { hit: h, .. }) => h.crown_pct = pct,
                         Some(SpellShape::Projectile { hit: None, .. }) => return Err(format!("{what}: the spell deals no damage")),
+                        // The rolling ball's hit (the Evo Giant Snowball's).
+                        Some(SpellShape::CaptureRoll(d)) => d.hit.crown_pct = pct,
                         Some(SpellShape::Strikes(d)) => {
                             d.hit.crown_pct = pct;
                             // A centre-aimed strike's damage lands through its delivery's hit.

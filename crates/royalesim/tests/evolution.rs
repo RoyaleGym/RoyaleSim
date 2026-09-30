@@ -463,15 +463,18 @@ fn forms_take_slots_after_every_existing_card() {
             ("InfernoDragon", "InfernoDragon_EV1"),
             ("BabyDragon", "BabyDragon_EV1"),
             ("Ghost", "Ghost_EV1"),
-            ("SkeletonArmy", "SkeletonArmy_EV1")
+            ("SkeletonArmy", "SkeletonArmy_EV1"),
+            ("Snowball", "Snowball_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Ten forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
-    // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, and the
-    // Evo Skeleton Army's General and Spectral right after it.
-    assert_eq!(db.cards.len(), n0 + 16);
+    // Eleven forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
+    // Skeleton Army's General and Spectral right after it, and the Evo Giant Snowball (a spell: no unit of its own) last.
+    assert_eq!(db.cards.len(), n0 + 17);
+    assert_eq!(db.cards[n0 + 16].name, "Snowball_EV1");
+    assert!(matches!(db.cards[n0 + 16].spell.as_ref().map(|d| &d.shape), Some(royalesim::card::SpellShape::CaptureRoll(_))));
     let army: Vec<&str> = db.cards[n0 + 13..n0 + 16].iter().map(|c| c.name.as_str()).collect();
     assert_eq!(army, ["SkeletonArmy_EV1", "SkeletonArmy_EV1_General", "SkeletonArmy_EV1_Spectral"]);
     assert!(db.cards[n0 + 14].summon_only && db.cards[n0 + 15].summon_only && db.cards[n0 + 15].no_damage && !db.cards[n0 + 14].no_damage);

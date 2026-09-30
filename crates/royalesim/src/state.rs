@@ -16562,7 +16562,16 @@ impl BattleState {
         // DRAINED HERE, in `SpellOut`'s documented order, and nothing is kept past the
         // phase. Destructured without `..`, so a field added to the bundle does not
         // compile until it has a consumer below.
-        let spell::SpellOut { released, scheduled, mut born, mut launched, areas, clones, fuse_ends } = out;
+        let spell::SpellOut { released, scheduled, mut born, mut launched, areas, clones, fuse_ends, carried } = out;
+        // THE UNITS A BALL CARRIES (card.rs `SpellShape::CaptureRoll`) stand where its step put them this tick.
+        if !carried.is_empty() {
+            for (id, p) in carried {
+                if self.ents.is_alive(id) {
+                    self.ents.pos[id.index as usize] = p;
+                }
+            }
+            self.hash.rebuild(&self.ents);
+        }
         for r in released {
             // spawner.RELEASE_TIMING: on this frame and inert on it, or queued for the next
             // Spawn phase under the earlier convention.
@@ -20969,6 +20978,18 @@ impl BattleState {
                         // PLANT: a scheduled area's clock is not hashed.
                         h.u32(7);
                         h.vec(*pos);
+                    }
+                    spell::SpellMotion::CaptureRoll { pos, travelled, age, captives } => {
+                        h.u32(9);
+                        h.vec(*pos);
+                        h.i32(*travelled);
+                        h.u32(*age);
+                        h.u32(captives.len() as u32);
+                        for c in captives {
+                            h.id(c.id);
+                            h.i32(c.d0);
+                            h.bool(c.joined);
+                        }
                     }
                     spell::SpellMotion::Attached { parent, pos, part, life_ms, next_ms } => {
                         h.u32(8);

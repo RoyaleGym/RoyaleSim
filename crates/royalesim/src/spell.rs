@@ -70,6 +70,15 @@ use crate::state::{
 };
 use crate::{EntityId, Team};
 
+/// ONE UNIT A BALL CAUGHT (`SpellMotion::CaptureRoll`): its distance to the ball at the capture, native, and whether it
+/// has joined the ball.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Captive {
+    pub id: EntityId,
+    pub d0: i32,
+    pub joined: bool,
+}
+
 /// Where a spell is in its life.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SpellMotion {
@@ -81,6 +90,9 @@ pub enum SpellMotion {
     /// A rolling projectile moving along its caster's forward axis. `hit` holds every
     /// entity it has already struck (each at most once), sorted.
     Rolling { pos: Vec2, travelled: i32, len: i32, hit: Vec<EntityId> },
+    /// THE EVO GIANT SNOWBALL'S BALL (card.rs `SpellShape::CaptureRoll`): its point, the distance it rolled, its age in
+    /// ticks from its first point, and its captives.
+    CaptureRoll { pos: Vec2, travelled: i32, age: u32, captives: Vec<Captive> },
     /// A one-shot area effect at `pos`, applied on its first update.
     Area { pos: Vec2 },
     /// A PULSING area effect standing at `pos` (Poison, Earthquake): it applies its
@@ -236,6 +248,9 @@ pub struct SpellOut {
     pub areas: Vec<AreaRelease>,
     pub clones: Vec<CloneOrder>,
     pub fuse_ends: Vec<FuseEnd>,
+    /// THE POINTS OF THE UNITS A BALL CARRIES this tick (`SpellMotion::CaptureRoll`), set after the spells step (state.rs
+    /// `phase_projectile`).
+    pub carried: Vec<(EntityId, Vec2)>,
 }
 
 /// One buffered knockback. Which variant a spell writes is calibration
@@ -464,6 +479,11 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         }
         SpellShape::AreaEffect { hit } => {
             out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap }, depth });
+        }
+        // The Evo Giant Snowball's flight, as a projectile spell's (spells.LAUNCH_POINT), carrying its roll's hit.
+        SpellShape::CaptureRoll(d) => {
+            let launch = arena.ok_or("a capture roll down a spell chain has no launch point")?.king_tower_pos(team);
+            out.push(Spell { team, card, level, damage: scaled(&d.hit)?, pulse: 0, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms: 0 }, depth });
         }
         // An echoing area (card.rs `SpellShape::Echo`, the Evo Zap): its own hit as an `AreaEffect`'s, and its second
         // strike's fuse, made with it at the same point.
@@ -1543,6 +1563,105 @@ pub fn delay_ticks(calib: &Calib, ms: i32) -> u32 {
     }) as u32
 }
 
+/// ONE TICK OF THE EVO GIANT SNOWBALL'S BALL (card.rs `CaptureRollDef`), after its first point: it rolls `roll_speed`
+/// along the owner's forward (to `roll_len`); on CAPTURE_DELAY_TICKS it strikes and takes every troop it struck; each
+/// captive then steps at the ball's point by its capture distance times the tick's share, or rides on it once joined
+/// (within `hide_distance`, or after the drag's last tick); on the tick after the ball's last step every captive is let
+/// go with the release buff and the ball is gone. The captives' points come out in `out.carried`. Each capture hangs
+/// the hold until the release's tick, so a captive stands (held: no walk, no attack) until then.
+#[allow(clippy::too_many_arguments)]
+fn capture_roll(
+    ctx: &SpellCtx,
+    team: Team,
+    card: u16,
+    level: i32,
+    damage: i32,
+    d: &crate::card::CaptureRollDef,
+    pos: &mut Vec2,
+    travelled: &mut i32,
+    age: &mut u32,
+    captives: &mut Vec<Captive>,
+    dmg: &mut DamageBuffer,
+    fx: &mut EffectBuffer,
+    out: &mut SpellOut,
+    nb: &mut Vec<u32>,
+) -> bool {
+    use crate::card::{CAPTURE_DELAY_TICKS, CAPTURE_DRAG_PER_10000, RELEASE_SPREAD};
+    let e = ctx.ents;
+    let fwd = forward_dy(team);
+    let step = d.roll_speed.max(1);
+    let last = ((d.roll_len + step - 1) / step) as u32;
+    *age += 1;
+    if *age > last {
+        // THE RELEASE: every live captive let go, a lone one on the ball's point, two either side of it.
+        #[cfg(not(clash_plant = "capture_never_released"))]
+        {
+            let mut live: Vec<(u32, EntityId)> = captives.iter().filter(|c| e.is_alive(c.id)).map(|c| (e.creation_seq[c.id.index as usize], c.id)).collect();
+            live.sort_unstable();
+            let n = live.len();
+            for (k, (_, id)) in live.into_iter().enumerate() {
+                let off = if n >= 2 && k < 2 { if k == 0 { RELEASE_SPREAD } else { -RELEASE_SPREAD } } else { 0 };
+                out.carried.push((id, Vec2::new(pos.x, pos.y + fwd * off * K)));
+                fx.buffs.push(BuffHit::plain(id, d.release.buff, d.release.time_ms, 0));
+            }
+        }
+        return false;
+    }
+    let s = step.min(d.roll_len - *travelled).max(0);
+    pos.y += fwd * s;
+    *travelled += s;
+    if *age == CAPTURE_DELAY_TICKS {
+        // THE CAPTURE: the hit, and every troop it struck taken, held to the release's tick.
+        let from = dmg.hits.len();
+        impact(ctx, team, card, level, *pos, &d.hit, damage, 0, dmg, fx, nb, None);
+        let hold_ms = (last + 1 - *age) as i32 * ctx.calib.tick_ms;
+        let mut taken: Vec<EntityId> = Vec::new();
+        for h in &dmg.hits[from..] {
+            let v = h.target.index as usize;
+            if e.is_alive(h.target) && e.kind[v] == EntityKind::Troop && !taken.contains(&h.target) && (taken.len() as i32) < d.max_units {
+                taken.push(h.target);
+            }
+        }
+        for id in taken {
+            let v = id.index as usize;
+            let d0 = isqrt(((e.pos[v].x / K - pos.x / K) as i64).pow(2) + ((e.pos[v].y / K - pos.y / K) as i64).pow(2)) as i32;
+            fx.buffs.push(BuffHit::plain(id, d.hold, hold_ms, 0));
+            captives.push(Captive { id, d0, joined: false });
+        }
+        return true;
+    }
+    // THE DRAG, then the ride.
+    let k = age.saturating_sub(CAPTURE_DELAY_TICKS) as usize;
+    for c in captives.iter_mut().filter(|c| e.is_alive(c.id)) {
+        let v = c.id.index as usize;
+        #[cfg(not(clash_plant = "capture_snaps_at_once"))]
+        let snapped = c.joined || k > CAPTURE_DRAG_PER_10000.len();
+        #[cfg(clash_plant = "capture_snaps_at_once")]
+        let snapped = true; // PLANT (regression): the captive rides on the ball from the tick after the capture.
+        if snapped {
+            c.joined = true;
+            out.carried.push((c.id, *pos));
+            continue;
+        }
+        let (cx, cy) = (e.pos[v].x / K, e.pos[v].y / K);
+        let (dx, dy) = ((pos.x / K - cx) as i64, (pos.y / K - cy) as i64);
+        let dist = isqrt(dx * dx + dy * dy);
+        let len = (c.d0 as i64 * CAPTURE_DRAG_PER_10000[k - 1] as i64 / 10_000) as i32;
+        let at = if dist <= len as i64 {
+            *pos
+        } else {
+            Vec2::new((cx + (dx * len as i64 / dist) as i32) * K, (cy + (dy * len as i64 / dist) as i32) * K)
+        };
+        if at.dist(*pos) <= d.hide_distance {
+            c.joined = true;
+            out.carried.push((c.id, *pos));
+        } else {
+            out.carried.push((c.id, at));
+        }
+    }
+    true
+}
+
 /// Advance every spell by one tick. What the step hands on comes back in `out`
 /// (`SpellOut`, drained by the caller): units released by landing spells in
 /// `out.released`, in `spells` order (deterministic; team_seq is per team, and a
@@ -1665,6 +1784,19 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     release_units(ctx, s.team, s.card, s.level, sp, *aim, &mut out.released);
                 }
                 false
+            }
+            // THE EVO GIANT SNOWBALL'S FLIGHT: as a projectile spell's (combat.PROJECTILE_STEP); on the tick it arrives the
+            // ball stands on the tap, its first point.
+            (SpellMotion::Flight { pos, aim, frac, .. }, SpellShape::CaptureRoll(d)) => {
+                let np = crate::combat::projectile_advance(ctx.calib.projectile_step, *pos, *aim, d.flight_speed * mult, frac, s.team);
+                *pos = np;
+                if np == *aim {
+                    s.motion = SpellMotion::CaptureRoll { pos: np, travelled: 0, age: 0, captives: Vec::new() };
+                }
+                true
+            }
+            (SpellMotion::CaptureRoll { pos, travelled, age, captives }, SpellShape::CaptureRoll(d)) => {
+                capture_roll(ctx, s.team, s.card, s.level, s.damage, d, pos, travelled, age, captives, dmg, fx, out, nb)
             }
             (SpellMotion::Area { pos }, SpellShape::AreaEffect { hit } | SpellShape::Echo { hit, .. }) => {
                 let first_new = fx.buffs.len();

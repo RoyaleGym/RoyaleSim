@@ -3652,8 +3652,21 @@ def globals_block(v: Vintage) -> dict:
 # nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
-    "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1",
+    "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1",
 )
+# THE EVO GIANT SNOWBALL'S ROLL (`capture_block`): the keys its capture and its roll may set, and the two filters it
+# implements; any other stops the build.
+CAPTURE_KEYS = {
+    "ClassType", "CapturePriority", "CaptureRadius", "HitFrequency", "DamagePerHit", "NumberOfUnitsToCapture",
+    "TargetFilter", "CaptureDragTime", "HideDistance", "PullFileName", "HideAction", "OnFirstCaptureAction",
+    "ActionOnCapturedObject", "BuffDuringCapture",
+    # display only
+    "PullEndClipExportName", "PullStartEffect", "StretchingClipExportName",
+}
+CAPTURE_ROLL_KEYS = {"ClassType", "Speed", "DistanceY", "DistanceX", "Radius", "TargetFilter", "BuffOnHit", "BuffTime",
+                     "StatsTags"}
+CAPTURE_FILTER = "characters_no_buildings_no_deflecting_including_invisible"
+CAPTURE_ROLL_FILTER = "characters_no_deflecting_including_invisible"
 # Evolved rows the 15.535.29 spells_evolved.csv marks NotInUse that the client puts down all the same, each with the
 # measurement that shows it (the oracle's scenes of client 15.535.29).
 # The card tables an evolved row's base card may come from, and the kind each gives the form.
@@ -4271,6 +4284,89 @@ def army_block(t: Tables, card: dict, s: dict) -> dict:
     }
 
 
+def capture_block(t: Tables, card: dict) -> dict:
+    """THE EVO GIANT SNOWBALL (spells_evolved Snowball_EV1; characters/snowball_ev1.toml), read whole or the build
+    stops:
+      - the flight (the card's projectile, SnowballSpell_EV1): no damage, no push, no buff; it lands a rolling
+        projectile (SpawnProjectile, SpawnChain 1, SpawnAxisY) whose MinDistance is the roll's DistanceY;
+      - the roll (SnowballSpell_EV1_Rolling): its Damage and crown-tower percent are the hit; its OnStartingAction an
+        ActionGroup of the capture and the ActionRollingProjectile, both at 0;
+      - the ActionRollingProjectile: `roll_speed` (Speed, native a tick) along the owner's forward for `roll_len_milli`
+        (DistanceY; DistanceX 0) through CAPTURE_ROLL_FILTER, its Radius the capture's CaptureRadius, hanging BuffOnHit
+        for BuffTime (`hit_buff`): a slow whose DamagePerSecond is written as none (its HitFrequency -1 never pulses:
+        measured on client 15.535.29, one hit of the Damage per unit and no other);
+      - the ActionCaptureCharacter: every character but a building (CAPTURE_FILTER) within CaptureRadius, up to
+        NumberOfUnitsToCapture, dragged over CaptureDragTime (`drag_ms`) and joined to the roll within HideDistance
+        (`hide_distance_milli`), held by BuffDuringCapture (`hold_buff`: -100 speed, hit speed and spawn speed), and at
+        the roll's end given its ActionOnCapturedObject's buff (an ActionRunActionOnInstigatorDeath of an ActionSpawn of
+        a BuffType: `release_buff` for `release_ms`); DamagePerHit 0 and a HitFrequency past the roll's life (one
+        capture). OnFirstCaptureAction swaps the projectile's display row and HideAction the unit's: display only."""
+    acts = t["actions"]
+    pt = t["projectiles"]
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"Snowball_EV1: {what}")
+
+    fl = card["projectile"]
+    need(fl is not None and fl["damage"] == 0 and fl["pushback_milli"] == 0 and fl["target_buff"] is None,
+         "the flight is not a bare carrier")
+    rp = fl["spawn_projectile"]
+    need(rp is not None and rp["spawn_projectile"] is None, "the flight lands no single rolling projectile")
+    flight_row = pt.get(fl["name"] + "_EV1") or pt.get("SnowballSpell_EV1")
+    need(flight_row is not None and flight_row["SpawnChain"] == 1 and flight_row["SpawnAxisY"] is True,
+         "the flight's SpawnChain / SpawnAxisY")
+    roll_row = pt.get(flight_row["SpawnProjectile"])
+    need(roll_row is not None, f"no rolling row {flight_row['SpawnProjectile']}")
+    group = group_subactions(t, roll_row["OnStartingAction"], "Snowball_EV1 roll")
+    classes = [acts.get(n)["ClassType"] for n, _ in group]
+    need(classes == ["ActionCaptureCharacter", "ActionRollingProjectile"] and all(d == 0 for _, d in group),
+         f"the roll's group runs {classes}")
+    cap = _one_action(acts, group[0][0], "ActionCaptureCharacter", CAPTURE_KEYS)
+    roll = _one_action(acts, group[1][0], "ActionRollingProjectile", CAPTURE_ROLL_KEYS)
+    need(cap["TargetFilter"] == CAPTURE_FILTER and roll["TargetFilter"] == CAPTURE_ROLL_FILTER, "the filters")
+    need(roll["DistanceX"] == 0 and roll["DistanceY"] == flight_row["MinDistance"]
+         and roll["Radius"] == cap["CaptureRadius"] and roll["Radius"] == rp["radius_milli"],
+         "the roll's distances and radii")
+    need(cap["DamagePerHit"] == 0 and isinstance(cap["HitFrequency"], int)
+         and cap["HitFrequency"] > roll["DistanceY"] * 1000 // max(roll["Speed"] * 20, 1),
+         "the capture hits more than once")
+    hold = norm_buff(t, cap["BuffDuringCapture"])
+    need(hold is not None and hold["speed_multiplier_raw"] == -100 and hold["hit_speed_multiplier_raw"] == -100
+         and hold["spawn_speed_multiplier_raw"] == -100, "the capture's hold is not a full stop")
+    run = _one_action(acts, cap["ActionOnCapturedObject"], "ActionRunActionOnInstigatorDeath",
+                      {"ClassType", "ActionToRun", "AbortIfInstigatorDies"})
+    need(run["AbortIfInstigatorDies"] is False, "the release's AbortIfInstigatorDies")
+    sp = _one_action(acts, run["ActionToRun"], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime"})
+    release = norm_buff(t, sp["SpawnData"])
+    need(sp["SpawnType"] == "BuffType" and release is not None and isinstance(sp["SpawnTime"], int),
+         "the release's buff")
+    need(_one_action(acts, cap["OnFirstCaptureAction"], "ActionChangeGameObjectData",
+                     {"ClassType", "NewProjectileData"}) is not None, "the first capture's swap")
+    need(acts.get(cap["HideAction"])["ClassType"] == "ActionHide", "the capture's HideAction")
+    hit_buff = norm_buff(t, roll["BuffOnHit"])
+    brow = t["character_buffs"].get(roll["BuffOnHit"])
+    need(hit_buff is not None and brow["HitFrequency"] == -1, f"the roll's buff {roll['BuffOnHit']}")
+    hit_buff = {**hit_buff, "damage_per_second": None, "hit_frequency_ms": None, "crown_tower_damage_per_hit": None}
+    return {
+        "roll_speed": roll["Speed"],
+        "roll_len_milli": roll["DistanceY"],
+        "radius_milli": roll["Radius"],
+        "damage": rp["damage"],
+        "crown_tower_damage_percent": rp["crown_tower_damage_percent"],
+        "hits_air": rp["aoe_to_air"] is True,
+        "hits_ground": rp["aoe_to_ground"] is True,
+        "hit_buff": hit_buff,
+        "hit_buff_ms": roll["BuffTime"],
+        "hold_buff": hold,
+        "release_buff": release,
+        "release_ms": sp["SpawnTime"],
+        "drag_ms": cap["CaptureDragTime"],
+        "hide_distance_milli": cap["HideDistance"],
+        "max_units": cap["NumberOfUnitsToCapture"],
+    }
+
+
 def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
     (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
@@ -4297,6 +4393,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["form_of"] = b["Name"]
             card["spells_evolved_row"] = list(ev.records).index(name)
             card["evo_cycles"] = s["DarkElixirCost"]
+            if name == "Snowball_EV1":
+                card["evo_capture"] = capture_block(t, card)
             out.append(card)
             continue
         card = summon_card(t, rarities, kind, "spells_evolved", s)

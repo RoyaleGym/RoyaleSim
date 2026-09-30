@@ -1062,6 +1062,8 @@ pub fn state_json_text(
             SpellMotion::Flight { pos, aim, delay_ms, .. } => (MOTION_FLIGHT, *pos, *aim, *delay_ms, 0, 0, 0),
             SpellMotion::Airborne { pos, aim, .. } => (MOTION_AIRBORNE, *pos, *aim, 0, 0, 0, 0),
             SpellMotion::Rolling { pos, travelled, len, hit } => (MOTION_ROLLING, *pos, Vec2::new(pos.x, pos.y + fwd * (len - travelled)), 0, *travelled, *len, hit.len()),
+            // a capturing ball (the Evo Giant Snowball's): a rolling spell whose hits are its captives
+            SpellMotion::CaptureRoll { pos, travelled, captives, .. } => (MOTION_ROLLING, *pos, *pos, 0, *travelled, 0, captives.len()),
             SpellMotion::Area { pos } => (MOTION_AREA, *pos, *pos, 0, 0, 0, 0),
             // a pulsing area: `delay_ms` carries its remaining life, so the viewer can
             // draw a Poison cloud shrinking rather than a one-frame flash.
