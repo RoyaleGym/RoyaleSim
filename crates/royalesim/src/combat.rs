@@ -1033,7 +1033,7 @@ pub fn fire(
             bonus: 0,
             bonus_crown: 0,
             carrier: None,
-            release: card.projectile_area.as_ref().map(|_| (ents.card[a], ents.level[a])),
+            release: (card.projectile_area.is_some() || card.evo.as_ref().is_some_and(|v| v.shot_spawn.is_some())).then(|| (ents.card[a], ents.level[a])),
             buff_first: false,
             src_level: ents.level[a],
             enchant: None,
@@ -1294,7 +1294,7 @@ pub fn fire(
             bonus: if carrier.is_some() { 0 } else { direct.hit },
             bonus_crown: if carrier.is_some() { 0 } else { direct.crown },
             carrier,
-            release: card.projectile_area.as_ref().map(|_| (ents.card[a], ents.level[a])),
+            release: (card.projectile_area.is_some() || card.evo.as_ref().is_some_and(|v| v.shot_spawn.is_some())).then(|| (ents.card[a], ents.level[a])),
             buff_first: card.attack_buff_first,
             src_level: ents.level[a],
             enchant: None,
@@ -1846,6 +1846,7 @@ pub fn step_projectiles(
     dmg: &mut DamageBuffer,
     fx: &mut EffectBuffer,
     areas: &mut Vec<crate::spell::AreaRelease>,
+    units: &mut Vec<crate::spell::Release>,
     scratch: &mut Vec<u32>,
     tick: u32,
     deflecting: &[EntityId],
@@ -1980,11 +1981,20 @@ pub fn step_projectiles(
         // THE AREA THE SHOT LEAVES (CardDef::projectile_area), at the point it landed on: cast in
         // this Projectile phase, so it first acts next tick (state.rs `phase_projectile`).
         #[cfg(not(clash_plant = "projectile_area_dropped"))]
-        if let Some((card, level)) = p.release {
+        if let Some((card, level)) = p.release.filter(|(c, _)| cards.get(*c).projectile_area.is_some()) {
             // `CardDef::projectile_area_ahead` along the owner's forward (the Hero Wizard's air form's 1000; 0 on every
             // other card).
             let ahead = cards.get(card).projectile_area_ahead * crate::spell::forward_dy(p.team);
             areas.push(crate::spell::AreaRelease { team: p.team, card, level, pos: Vec2::new(p.aim.x, p.aim.y + ahead) });
+        }
+        // THE UNIT THE SHOT PUTS DOWN (card.rs `ShotSpawnDef`, the Evo Mortar's Goblin): one, where it landed, released
+        // this tick at the firer's level on the unit's ladder (state.rs `phase_projectile`: on this frame, inert on it).
+        #[cfg(not(clash_plant = "shot_spawn_dropped"))]
+        if let Some((card, level)) = p.release {
+            if let Some(ss) = cards.get(card).evo.as_ref().and_then(|v| v.shot_spawn) {
+                let lvl = cards.unit_level(card, ss.unit.unit, None, level).expect("the shot's unit's level validated at deploy");
+                units.push(crate::spell::Release { team: p.team, unit: ss.unit.unit, level: lvl, pos: p.aim, deploy_ms: Some(ss.deploy_ms), count: 1 });
+            }
         }
         #[cfg(clash_plant = "projectile_area_dropped")]
         let _ = &areas; // PLANT: the shot's area is dropped.

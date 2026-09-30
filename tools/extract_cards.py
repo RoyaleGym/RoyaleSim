@@ -3657,6 +3657,7 @@ def globals_block(v: Vintage) -> dict:
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
+    "Mortar_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4301,6 +4302,26 @@ def army_block(t: Tables, card: dict, s: dict) -> dict:
     }
 
 
+def shot_spawn_block(t: Tables, card: dict) -> dict:
+    """Mortar_EV1's shot (projectiles_evo.toml MortarProjectile_EV1), read whole or the build stops: its SpawnCharacter
+    (`unit`), one of it (SpawnCharacterCount blank or 1, its level the card's: no SpawnCharacterLevelIndex), deploying
+    SpawnCharacterDeployTime (`deploy_ms`), put down where the shot lands; the shot releases nothing else (no
+    SpawnProjectile, no SpawnAreaEffectObject, no action graph)."""
+    p = card["projectile"]
+    unit = card["summon_character"]
+    if p is None or not p["spawn_character"]:
+        raise SystemExit(f"{unit}: its shot puts no unit down")
+    if p["spawn_character_count"] not in (None, 1) or p["spawn_character_level_index"] is not None:
+        raise SystemExit(f"{unit}: its shot's unit count or level index")
+    if p["spawn_projectile"] is not None or p["spawn_area_effect_object"] is not None or p.get("action_graph"):
+        raise SystemExit(f"{unit}: its shot releases more than its unit")
+    if not isinstance(p["spawn_character_deploy_time_ms"], int):
+        raise SystemExit(f"{unit}: its shot's unit has no deploy time")
+    if unit_record(t, p["spawn_character"])[1] is None:
+        raise SystemExit(f"{unit}: its shot's unit {p['spawn_character']} is no row")
+    return {"unit": p["spawn_character"], "deploy_ms": p["spawn_character_deploy_time_ms"]}
+
+
 def barrel_block(t: Tables, card: dict) -> dict:
     """SkeletonBalloon_EV1's two drops (characters/skeleton_balloon_ev1.toml), read whole or the build stops:
       - the row's OnStartingAction: an ActionGroup, at 0, of an ActionRunActionAtHealth (HealthPercentages [p]:
@@ -4518,6 +4539,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_army"] = army_block(t, card, s)
         elif name == "SkeletonBalloon_EV1":
             card["evo_barrel"] = barrel_block(t, card)
+        elif name == "Mortar_EV1":
+            card["evo_shot_spawn"] = shot_spawn_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

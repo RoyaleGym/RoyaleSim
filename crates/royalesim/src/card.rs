@@ -1772,6 +1772,8 @@ pub struct EvoDef {
     pub army: Option<ArmyDef>,
     /// Evo Skeleton Barrel: a second drop at a health line beside the one at its death (`BarrelDef`).
     pub barrel: Option<BarrelDef>,
+    /// Evo Mortar: a unit its shot puts down where it lands (`ShotSpawnDef`).
+    pub shot_spawn: Option<ShotSpawnDef>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -1796,6 +1798,20 @@ pub struct BarrelDef {
     pub extra_offset_y: i32,
     pub death_offset_x: i32,
     pub death_offset_y: i32,
+}
+
+/// THE EVO MORTAR (buildings_evo.toml [Mortar_EV1], projectiles_evo.toml MortarProjectile_EV1; tools/extract_cards.py
+/// `shot_spawn_block`; combat.rs `step_projectiles`): every shot puts one `unit` down where it lands, on its landing tick,
+/// at the Mortar's level, deploying `deploy_ms` (a released unit: state.rs `phase_projectile`). Its row's HitSpeed 4700,
+/// LoadTime 3700 and shot (104, Radius 2000) are the card's own columns.
+///
+/// Measured on client 15.535.29 (sp-form-Mortar-evo-s0, level 11): its first swing read 3750 on its first attack frame
+/// (LoadTime + 50); its shot landed on t1194, taking 266 off a Knight and a Musketeer and killing a Skeleton, and a Goblin
+/// (202 hitpoints, deploying) was on the landing point that frame; the next Goblin on t1290.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ShotSpawnDef {
+    pub unit: FormUnit,
+    pub deploy_ms: i32,
 }
 
 /// THE EVO BATTLE RAM (characters_evo.toml [BattleRam_EV1]; tools/extract_cards.py `ram_block`). Its row keeps the base
@@ -3963,9 +3979,18 @@ struct RawEvolution {
     evo_capture: Option<RawCapture>,
     /// The Evo Skeleton Barrel's drops (`barrel_block`).
     evo_barrel: Option<RawBarrel>,
+    /// The Evo Mortar's shot's unit (`shot_spawn_block`).
+    evo_shot_spawn: Option<RawShotSpawn>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_shot_spawn` (tools/extract_cards.py `shot_spawn_block`).
+#[derive(Deserialize)]
+struct RawShotSpawn {
+    unit: Option<String>,
+    deploy_ms: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_barrel` (tools/extract_cards.py `barrel_block`): the health line, the two containers (units
@@ -8928,6 +8953,7 @@ impl CardDb {
             extra.evo_ghost.is_some(),
             extra.evo_army.is_some(),
             extra.evo_barrel.is_some(),
+            extra.evo_shot_spawn.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9035,6 +9061,7 @@ impl CardDb {
                     ghost: None,
                     army: None,
                     barrel: None,
+                    shot_spawn: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -9181,6 +9208,7 @@ impl CardDb {
             ghost: None,
             army: None,
             barrel: None,
+            shot_spawn: None,
             cloned_as: None,
         };
         if let Some(g) = &extra.evo_ghost {
@@ -9198,6 +9226,15 @@ impl CardDb {
             }
             let spectral_buff = buffs.apply_def(def, raw, a.spectral_buff_ms, "the Spectral's buff")?;
             evo.army = Some(ArmyDef { general: FormUnit { unit: u16::MAX }, general_offset_x: x, general_offset_y: y, spectral: FormUnit { unit: u16::MAX }, spectral_buff });
+        }
+        // THE SHOT'S UNIT: a loaded unit record (the Goblin), found by name.
+        if let Some(r) = &extra.evo_shot_spawn {
+            let name = r.unit.as_deref().ok_or("a shot spawn with no unit")?;
+            let unit = self.index(name).filter(|&u| self.get(u).kind == CardKind::Troop).ok_or_else(|| format!("its shot's unit {name} is not a loaded troop"))?;
+            if c.projectile.is_none() {
+                return Err("a shot spawn on a row with no shot".into());
+            }
+            evo.shot_spawn = Some(ShotSpawnDef { unit: FormUnit { unit }, deploy_ms: r.deploy_ms.filter(|d| *d >= 0).ok_or("a shot spawn with no deploy time")? });
         }
         if let Some(b) = &extra.evo_barrel {
             let pct = b.at_hp_pct.filter(|p| (1..100).contains(p)).ok_or("a barrel with no health line")?;
@@ -10011,6 +10048,10 @@ impl CardDb {
         // The Evo Skeleton Barrel's drop at its health line (its death drop is its death spawn, above).
         if let Some(b) = c.evo.as_ref().and_then(|v| v.barrel.as_ref()) {
             out.push((UnitRef::EvoUnit(0), b.extra.unit, None));
+        }
+        // The Evo Mortar's shot's unit.
+        if let Some(s) = c.evo.as_ref().and_then(|v| v.shot_spawn.as_ref()) {
+            out.push((UnitRef::EvoUnit(0), s.unit.unit, None));
         }
         // LAST, so no earlier block's place moves: every entry of the card's deploy spawn area (the Tri Wizards'
         // TriWizardSpawn): entry 0 the card's own unit (the card itself), then the cards its actions deploy.

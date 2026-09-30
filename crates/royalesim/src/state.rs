@@ -16657,7 +16657,7 @@ impl BattleState {
         let now = self.tick;
         self.deflects.retain(|(id, until)| now < *until && self.ents.is_alive(*id));
         let deflecting: Vec<EntityId> = self.deflects.iter().map(|(id, _)| *id).collect();
-        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut self.scratch.nb, self.tick, &deflecting);
+        combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut out.released, &mut self.scratch.nb, self.tick, &deflecting);
         // The Hero Balloon's throws, before the spells step, so a landing's blow strikes on its own tick (`throw_pass`).
         if !self.throws.is_empty() {
             self.throw_pass();

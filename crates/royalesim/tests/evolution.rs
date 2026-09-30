@@ -465,16 +465,19 @@ fn forms_take_slots_after_every_existing_card() {
             ("Ghost", "Ghost_EV1"),
             ("SkeletonArmy", "SkeletonArmy_EV1"),
             ("Snowball", "Snowball_EV1"),
-            ("SkeletonBalloon", "SkeletonBalloon_EV1")
+            ("SkeletonBalloon", "SkeletonBalloon_EV1"),
+            ("Mortar", "Mortar_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Twelve forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Thirteen forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
     // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), and the
-    // Evo Skeleton Barrel with its two drops last.
-    assert_eq!(db.cards.len(), n0 + 20);
+    // Evo Skeleton Barrel with its two drops, and the Evo Mortar (its Goblin a loaded unit) last.
+    assert_eq!(db.cards.len(), n0 + 21);
+    assert_eq!(db.cards[n0 + 20].name, "Mortar_EV1");
+    assert!(db.cards[n0 + 20].evo.as_ref().and_then(|e| e.shot_spawn).is_some_and(|s| db.get(s.unit.unit).unit_name == "Goblin" && s.deploy_ms == 500));
     let barrel: Vec<&str> = db.cards[n0 + 17..n0 + 20].iter().map(|c| c.name.as_str()).collect();
     assert_eq!(barrel, ["SkeletonBalloon_EV1", "SkeletonBalloonEvoDummyAeO_EXTRA", "SkeletonBalloonEvoDummyAeO_DEATH"]);
     assert!(db.cards[n0 + 18].summon_only && db.cards[n0 + 19].summon_only && db.cards[n0 + 18].death_bomb_fuse_ms() == Some(600));
