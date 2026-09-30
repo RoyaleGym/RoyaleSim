@@ -4163,6 +4163,8 @@ struct RawEvolution {
     evo_shield_blast: Option<RawShieldBlast>,
     /// A form whose mechanic is data the card reads (`data_only_block`, the Evo Knight's idle buff): the blocks.
     evo_data_only: Option<RawDataOnly>,
+    /// The Evo Barbarians' rage after hits (`hit_rage_block`), read as the Evo Battle Ram's death spawn's.
+    evo_hit_rage: Option<RawSpawnRage>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -9311,6 +9313,7 @@ impl CardDb {
             extra.evo_charge_after_shield.is_some(),
             extra.evo_shield_blast.is_some(),
             extra.evo_data_only.is_some(),
+            extra.evo_hit_rage.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9684,6 +9687,18 @@ impl CardDb {
                 crown_hit: r.crown_hit.unwrap_or(0).max(0),
                 stop: buffs.apply(stop, Some(buff_ms), "the ring's stop")?,
             });
+        }
+        // THE RAGE AFTER HITS on the form's own units (the Evo Barbarians'), as the Evo Battle Ram's Barbarian_EV1 has it.
+        if let Some(rage) = &extra.evo_hit_rage {
+            let raw_buff = rage.buff.as_ref().ok_or("a hit rage with no buff")?;
+            let apply = buffs.apply(raw_buff, rage.time_ms, "the form's hit rage")?;
+            let hits = rage.hits.and_then(|h| u32::try_from(h).ok()).filter(|h| *h >= 1).ok_or("a hit rage with no BuffAfterHitsCount of at least 1")?;
+            #[cfg(not(clash_plant = "form_hit_rage_dropped"))]
+            {
+                evo.hit_rage = Some(HitRageDef { hits, apply });
+            }
+            #[cfg(clash_plant = "form_hit_rage_dropped")]
+            let _ = (hits, apply); // PLANT: the form's units never rage.
         }
         // A FORM OF DATA (the Evo Knight's idle buff): each block the extractor names must have loaded on the form.
         if let Some(d) = &extra.evo_data_only {

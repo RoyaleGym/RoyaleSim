@@ -3672,6 +3672,7 @@ EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
+    "Barbarians_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4332,6 +4333,27 @@ DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", 
 DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"}, ["idle_buff"])
 
 
+def hit_rage_block(t: Tables, card: dict) -> dict:
+    """THE EVO BARBARIANS' RAGE (spells_evolved Barbarians_EV1; its unit Barbarian_EV1, the Evo Battle Ram's death
+    spawn), read whole or the build stops: the unit row sets nothing but display columns and BuffAfterHits*, single
+    entries, whose buff spawns nothing; its rage lands after every `hits`-th hit for `time_ms`."""
+    unit = card["summon_character"]
+    table, _ = unit_record(t, unit)
+    tb = t[table]
+    own = tb.set_fields.get(unit, set())
+    extra = {c for c in own - {"BuffAfterHits", "BuffAfterHitsCount", "BuffAfterHitsTime"} - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    if extra or card.get("action_graph"):
+        raise SystemExit(f"{card['name']}: its unit {unit} sets {sorted(extra)} or names an action")
+    counts, times, names = (col_list(tb, unit, c) for c in ("BuffAfterHitsCount", "BuffAfterHitsTime", "BuffAfterHits"))
+    if len(counts) != 1 or len(times) != 1 or len(names) != 1:
+        raise SystemExit(f"{unit}: BuffAfterHits* are not single entries ({counts}, {times}, {names})")
+    buff = norm_buff(t, names[0])
+    if buff is None or buff.get("death_spawn") is not None:
+        raise SystemExit(f"{unit}: its BuffAfterHits {names[0]} is no buff, or spawns")
+    return {"unit": unit, "hits": counts[0], "time_ms": times[0], "buff": buff}
+
+
 def data_only_block(t: Tables, card: dict, spec: tuple[set, list]) -> dict:
     """A FORM WHOSE MECHANIC IS DATA (the Evo Knight's BuffWhenNotAttacking: `idle_buff_block` reads it for every row),
     read whole or the build stops: its unit row sets nothing but display columns and the spec's columns, names no
@@ -4899,6 +4921,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_shield_blast"] = shield_blast_block(t, card)
         elif name == "Knight_EV1":
             card["evo_data_only"] = data_only_block(t, card, DATA_ONLY_KNIGHT)
+        elif name == "Barbarians_EV1":
+            card["evo_hit_rage"] = hit_rage_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k
