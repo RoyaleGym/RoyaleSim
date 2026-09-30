@@ -6809,6 +6809,47 @@ pub struct LiftRun {
     pub ground: u16,
 }
 
+/// THE TAUNTS (card.rs `TauntDef`, the Hero Knight's; `taunt_pass`, `taunt_override`): each taunt area under way and
+/// each enemy a taunt holds. Saved and hashed (`BattleState::taunts`, only when not empty).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TauntBoard {
+    pub areas: Vec<TauntRun>,
+    pub taunted: Vec<Taunted>,
+}
+
+impl TauntBoard {
+    fn is_empty(&self) -> bool {
+        self.areas.is_empty() && self.taunted.is_empty()
+    }
+}
+
+/// A TAUNT AREA UNDER WAY: its hero, the tick it was made, and the enemies it has taken (once each).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TauntRun {
+    pub by: EntityId,
+    pub made: u32,
+    pub taken: Vec<EntityId>,
+}
+
+/// AN ENEMY A TAUNT HOLDS: the hero it must target and the first tick it no longer must.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Taunted {
+    pub victim: EntityId,
+    pub by: EntityId,
+    pub until: u32,
+}
+
+/// The taunt a card's button makes (`AbilityAction::Taunt` in its action group), if any.
+fn taunt_of(cards: &CardDb, card: u16) -> Option<crate::card::TauntDef> {
+    let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::ActionGroup { steps }, .. }) = &cards.get(card).ability else {
+        return None;
+    };
+    steps.iter().find_map(|st| match st.action {
+        crate::card::AbilityAction::Taunt(t) => Some(t),
+        _ => None,
+    })
+}
+
 /// A HERO VALKYRIE'S SPIN UNDER WAY (card.rs `AbilityEffect::SpinChain`; `spin_seek`, `spin_pass`): the hero, the tick
 /// her button fired, whether its pending buff has landed, the tick her spin began (None while she waits for a first
 /// target), whether her chain still runs, its target, the targets she has reached and the links left, and the blows
@@ -7845,6 +7886,8 @@ pub struct BattleState {
     quests: Vec<QuestRun>,
     /// The evolved fliers that fall (`FallRun`), in creation order. Empty in every battle without one.
     falls: Vec<FallRun>,
+    /// The taunts (`TauntBoard`). Empty in every battle without one.
+    taunts: TauntBoard,
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
@@ -8243,6 +8286,7 @@ impl BattleState {
             lifts: Vec::new(),
             quests: Vec::new(),
             falls: Vec::new(),
+            taunts: TauntBoard::default(),
             deflects: Vec::new(),
             commands: Vec::new(),
             commands_run: Vec::new(),
@@ -12393,6 +12437,10 @@ impl BattleState {
         if only.is_none() {
             self.hide_pass(&mut nb);
         }
+        // THE TAUNTS (`taunt_pass`): their areas take the enemies they reach, before any decision reads them.
+        if only.is_none() && !self.taunts.is_empty() {
+            self.taunt_pass();
+        }
         let casting = self.casting_heroes();
         let in_flight = &self.projectiles[..shots.min(self.projectiles.len())];
         // targeting.DOOMED_TARGET_DROP = projectile_attackers: who is doomed by the shots in flight at
@@ -12455,6 +12503,10 @@ impl BattleState {
         }
         for &(i, ms) in &casting {
             self.ents.stun_ms[i] = ms;
+        }
+        // A TAUNTED ENEMY takes the hero that taunted it (`taunt_override`).
+        if !self.taunts.taunted.is_empty() {
+            self.taunt_override(&mut decisions);
         }
         let carry = self.cfg.calib.resume_retarget_windup == ResumeWindup::Carry;
         let retarget_resets_charge = self.cfg.calib.charge_reset_on_retarget;
@@ -13079,6 +13131,91 @@ impl BattleState {
         }
         let ents = &self.ents;
         self.evo.first_hits.retain(|id| ents.is_alive(*id));
+    }
+
+    /// THE TAUNT AREAS (card.rs `TauntDef`, the Hero Knight's), at the Target phase's start: a taunt ends at its time,
+    /// with its hero or its enemy, or once its enemy's row is the one that stops it; each area on a live hero, within its
+    /// life (whole ticks from the trigger's), takes every enemy not under ground on the layers it hits whose centre is
+    /// within its radius plus the enemy's own of the hero's, once, replacing any taunt that enemy carries (Singleton).
+    /// Read off the table, not measured.
+    fn taunt_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let cards = self.cfg.cards.clone();
+        let e = &self.ents;
+        self.taunts.taunted.retain(|t| {
+            t.until > tick
+                && e.is_alive(t.by)
+                && e.is_alive(t.victim)
+                && taunt_of(&cards, e.card[t.by.index as usize]).is_some_and(|d| d.stop_unit != Some(e.card[t.victim.index as usize]))
+        });
+        let mut runs = std::mem::take(&mut self.taunts.areas);
+        runs.retain(|r| {
+            self.ents.is_alive(r.by)
+                && taunt_of(&cards, self.ents.card[r.by.index as usize]).is_some_and(|d| tick < r.made + (whole_ticks_ms(d.life_ms, tick_ms) / tick_ms) as u32)
+        });
+        for r in runs.iter_mut() {
+            let k = r.by.index as usize;
+            let d = taunt_of(&cards, self.ents.card[k]).expect("kept above");
+            let (team, at) = (self.ents.team[k], self.ents.pos[k]);
+            for j in 0..self.ents.capacity() {
+                let e = &self.ents;
+                if !e.alive[j] || e.team[j] == team || e.hp[j] <= 0 || e.underground(j) || r.taken.contains(&e.id_of(j)) {
+                    continue;
+                }
+                if !(if e.in_air(j) { d.hits_air } else { d.hits_ground }) {
+                    continue;
+                }
+                let reach = ((d.radius + e.radius[j]) / K) as i64;
+                let (dx, dy) = ((e.pos[j].x / K - at.x / K) as i64, (e.pos[j].y / K - at.y / K) as i64);
+                if dx * dx + dy * dy > reach * reach {
+                    continue;
+                }
+                let id = e.id_of(j);
+                let tower = matches!(e.kind[j], EntityKind::KingTower | EntityKind::PrincessTower);
+                let ms = if tower { d.tower_ms } else { d.troop_ms };
+                r.taken.push(id);
+                self.taunts.taunted.retain(|t| t.victim != id);
+                #[cfg(not(clash_plant = "taunt_never"))]
+                self.taunts.taunted.push(Taunted { victim: id, by: r.by, until: tick + (whole_ticks_ms(ms, tick_ms) / tick_ms) as u32 });
+                #[cfg(clash_plant = "taunt_never")]
+                let _ = ms; // PLANT: the area takes no enemy.
+            }
+        }
+        self.taunts.areas = runs;
+    }
+
+    /// THE TAUNT'S HOLD on this phase's decisions: a taunted enemy free to decide (deployed, not held, not knocked, not
+    /// under ground; a king tower awake) that can strike the hero where it is (its air or ground attack; a building-only
+    /// attacker too, AllowBuildingRetargeting) takes the hero, whatever its own search found; a crown tower only with the
+    /// hero in its reach. Read off the table, not measured.
+    fn taunt_override(&self, decisions: &mut [(usize, target::TargetDecision)]) {
+        let e = &self.ents;
+        for (i, d) in decisions.iter_mut() {
+            let i = *i;
+            let Some(t) = self.taunts.taunted.iter().find(|t| t.victim == e.id_of(i) && t.until > self.tick && e.is_alive(t.by)) else { continue };
+            let k = t.by.index as usize;
+            if e.deploy_ms[i] > 0 || e.stun_ms[i] > 0 || e.knocked(i) || e.underground(i) {
+                continue;
+            }
+            if e.kind[i] == EntityKind::KingTower && !self.king_active[e.team[i] as usize] {
+                continue;
+            }
+            let c = self.cfg.cards.get(e.card[i]);
+            if !(if e.in_air(k) { c.attacks_air } else { c.attacks_ground }) {
+                continue;
+            }
+            let tower = matches!(e.kind[i], EntityKind::KingTower | EntityKind::PrincessTower);
+            if tower && !target::in_attack_range(&self.cfg.calib, e.pos[i], c.range, e.radius[i], e.pos[k], e.radius[k]) {
+                continue;
+            }
+            #[cfg(not(clash_plant = "taunt_unread"))]
+            {
+                d.target = Some(t.by);
+            }
+            #[cfg(clash_plant = "taunt_unread")]
+            let _ = d; // PLANT: a taunted enemy decides as if untaunted.
+        }
     }
 
     /// THE EVOLVED FLIERS THAT FALL (card.rs `FallDef`, `FallRun`), in the Status phase: a flier still in the air whose
@@ -20018,6 +20155,23 @@ impl BattleState {
                             land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
                         }
                         crate::card::AbilityAction::FormWhileBuff { .. } => {}
+                        // THE SHIELD SET (the Hero Knight's): its row's ShieldHitpoints at its level, the share set.
+                        // Measured on client 15.535.29 (sp-form-Knight-hero-s0, press issued t196): the hero's hitpoints
+                        // stood at 1549 through a Musketeer's 217 on t214, a Skeleton's 81 and a 217 on t234, and a
+                        // Knight's 202 took them on t246: 512 (200 on the ladder at 11), a hit that breaks it taking none
+                        // past it.
+                        #[cfg(not(clash_plant = "shield_press_ignored"))]
+                        crate::card::AbilityAction::SetShield { shield, pct } => {
+                            let full = self.cfg.cards.scaled(card, level, shield).expect("the hero's scaling, taken at its creation");
+                            self.ents.shield[i] = full * pct / 100;
+                        }
+                        #[cfg(clash_plant = "shield_press_ignored")]
+                        crate::card::AbilityAction::SetShield { .. } => {} // PLANT: the press sets no shield.
+                        // THE TAUNT (the Hero Knight's): its area, from the next Target phase (`taunt_pass`).
+                        crate::card::AbilityAction::Taunt(_) => {
+                            self.taunts.areas.retain(|r| r.by != hero);
+                            self.taunts.areas.push(TauntRun { by: hero, made: self.tick, taken: Vec::new() });
+                        }
                     }
                 }
             }
@@ -21615,6 +21769,25 @@ impl BattleState {
                 h.u32(r.moves);
             }
         }
+        // The taunts, only when there are some.
+        if !self.taunts.is_empty() {
+            h.u32(0x5441_554e);
+            h.u32(self.taunts.areas.len() as u32);
+            for r in &self.taunts.areas {
+                h.id(r.by);
+                h.u32(r.made);
+                h.u32(r.taken.len() as u32);
+                for t in &r.taken {
+                    h.id(*t);
+                }
+            }
+            h.u32(self.taunts.taunted.len() as u32);
+            for t in &self.taunts.taunted {
+                h.id(t.victim);
+                h.id(t.by);
+                h.u32(t.until);
+            }
+        }
         // The fliers that fall, only when there are some.
         if !self.falls.is_empty() {
             h.u32(0x4641_4c4c);
@@ -22475,6 +22648,9 @@ struct Snapshot {
     /// The fliers that fall (`BattleState::falls`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     falls: Vec<FallRun>,
+    /// The taunts (`BattleState::taunts`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    taunts: TauntBoard,
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
@@ -23158,6 +23334,7 @@ impl BattleState {
             lifts: self.lifts.clone(),
             quests: self.quests.clone(),
             falls: self.falls.clone(),
+            taunts: self.taunts.clone(),
             deflects: self.deflects.clone(),
             command_delay_ticks: c.command_delay_ticks,
             commands: self.commands.clone(),
@@ -23415,6 +23592,7 @@ impl BattleState {
             lifts: snap.lifts,
             quests: snap.quests,
             falls: snap.falls,
+            taunts: snap.taunts,
             deflects: snap.deflects,
             commands: snap.commands,
             commands_run: Vec::new(),

@@ -4726,6 +4726,7 @@ HERO_FORMS = {
     "Valkyrie_hero": ("Valkyrie", "valkyrie_hero"),
     "Wizard_hero": ("Wizard", "wizard_hero"),
     "MiniPekka_hero": ("MiniPekka", "mini_pekka_hero"),
+    "Knight_hero": ("Knight", "knight_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -4971,6 +4972,105 @@ SELF_BUFF_FORM_COSMETIC = {"Base", "ClonedVersion", "PrefabAsset", "DamageEffect
 SELF_BUFF_FORM_COLUMNS = {"OverrideAttackFinishTime", "AttackFinishTime"}
 
 
+def shows_only(h: Tables, buff: str) -> bool:
+    """A buff row that only shows: it sets nothing but display columns and GameTagsToSet, and each tag it sets appears
+    once in the hero's own files (`h.hero_text`: its setting here), so no action of the hero's reads it."""
+    tb = h["character_buffs"]
+    if tb.get(buff) is None or tb.set_fields.get(buff, set()) - {"Rarity", "ContinuousEffect", "GameTagsToSet"}:
+        return False
+    tags = [x.strip() for x in str(tb.get(buff)["GameTagsToSet"] or "").split(",") if x.strip()]
+    text = getattr(h, "hero_text", "")
+    return bool(text) and all(text.count(tag) == 1 for tag in tags)
+
+
+def shield_start(h: Tables, form: str, start) -> int | None:
+    """A hero row's OnStartingAction that only sets its shield (the Hero Knight's Knight_hero_OnStartingGroup): an
+    ActionGroup of one ActionSetShield at delay 0. Its ShieldPercent (0 to 100), or None for any other start, which the
+    row's action graph then carries as before (and the loader refuses a mechanic there)."""
+    if not isinstance(start, str) or not start:
+        return None
+    acts = h["actions"]
+    got = _group_leaves(acts, start)
+    if got is None or len(got[0]) != 1 or got[1] != [0] or acts.get(got[0][0])["ClassType"] != "ActionSetShield":
+        return None
+    if _present(acts.get(start)) - {"ClassType", "SubActions", "SubActionsDelay"}:
+        raise SystemExit(f"hero form {form}: its start {start} sets {sorted(_present(acts.get(start)))}")
+    pct = _one_action(acts, got[0][0], "ActionSetShield", {"ClassType", "ShieldPercent"})["ShieldPercent"]
+    if not isinstance(pct, int) or not 0 <= pct <= 100:
+        raise SystemExit(f"hero form {form}: its start's ShieldPercent {pct!r}")
+    return pct
+
+
+# THE HERO KNIGHT'S TAUNT (`taunt_area`): the columns its area may set beside the cosmetic ones, the keys of its
+# ActionTaunt, and the columns its two taunted buffs may set (they only show: no LockTarget).
+TAUNT_AREA_READ = {
+    "Rarity", "LifeDuration", "Radius", "Damage", "OneHitPerTarget", "HitSpeed", "OnlyEnemies", "HitsGround", "HitsAir",
+    "FollowBehaviour", "OnStartingAction", "OnHitAction",
+}
+TAUNT_KEYS = {
+    "ClassType", "Singleton", "ResetsOnDistance", "AllowBuildingRetargeting", "ValidDuration", "ValidTargetBuff",
+    "CrownTowerDuration", "CrownTowerBuff", "ForceStopIfTrue", "StatsTags",
+}
+TAUNT_BUFF_SHOWN = {"Name", "Rarity", "LockTarget", "FilterFile", "FilterExportName", "ContinuousEffect"}
+
+
+def taunt_area(h: Tables, ability: str, name: str) -> dict:
+    """THE HERO KNIGHT'S TAUNT (an ActionSpawn of an AreaEffectType in its button's group), read whole or the build
+    stops. The area rides on the hero (FollowParent) for LifeDuration: a Radius, no damage, OneHitPerTarget, HitSpeed 0,
+    enemies only, air and ground (`radius_milli`, `life_ms`, `hits_air`, `hits_ground`); its OnStartingAction only plays
+    an effect. Its OnHitAction is an ActionGroup of one ActionTaunt at delay 0, run on a unit that is not warping
+    (ExecuteIfTrue `!WARP`, read as: not under ground). The taunt: Singleton, not reset by distance, a building-only
+    attacker taken too (AllowBuildingRetargeting), for ValidDuration on a unit and CrownTowerDuration on a crown tower
+    (`troop_ms`, `tower_ms`), each with a buff that only shows, and stopped when its unit's row is the one
+    ForceStopIfTrue's `has_data(ROW)` names (`stop_if_row`: the Goblin Demolisher's kamikaze form)."""
+    tb = h["area_effect_objects"]
+    r = tb.get(name)
+    if r is None:
+        raise SystemExit(f"hero ability {ability}: no area {name}")
+    unread = tb.set_fields.get(name, set()) - TAUNT_AREA_READ - HERO_AREA_COSMETIC
+    if unread:
+        raise SystemExit(f"hero ability {ability}: area {name} sets {sorted(unread)}, which the taunt reader does not read")
+    acts = h["actions"]
+    ok = (
+        isinstance(r["LifeDuration"], int) and r["LifeDuration"] > 0 and isinstance(r["Radius"], int) and r["Radius"] > 0
+        and not r["Damage"] and r["OneHitPerTarget"] is True and not r["HitSpeed"] and r["OnlyEnemies"] is True
+        and r["FollowBehaviour"] == "FollowParent"
+    )
+    if not ok:
+        raise SystemExit(f"hero ability {ability}: area {name} is not a taunt that rides on the hero")
+    if r["OnStartingAction"] is not None and not _cosmetic_action(acts, r["OnStartingAction"]):
+        raise SystemExit(f"hero ability {ability}: area {name}'s OnStartingAction is not an effect")
+    got = _group_leaves(acts, r["OnHitAction"]) if isinstance(r["OnHitAction"], str) else None
+    g = acts.get(r["OnHitAction"]) if got is not None else None
+    if got is None or len(got[0]) != 1 or got[1] != [0] or g["ExecuteIfTrue"] != "!WARP":
+        raise SystemExit(f"hero ability {ability}: area {name}'s OnHitAction is not one taunt on a unit not warping")
+    if _present(g) - {"ClassType", "SubActions", "SubActionsDelay", "ExecuteIfTrue"}:
+        raise SystemExit(f"hero ability {ability}: group {r['OnHitAction']} sets {sorted(_present(g))}")
+    t = _one_action(acts, got[0][0], "ActionTaunt", TAUNT_KEYS)
+    if t["Singleton"] is not True or t["ResetsOnDistance"] is not False or t["AllowBuildingRetargeting"] is not True:
+        raise SystemExit(f"hero ability {ability}: taunt {got[0][0]} is not a single taunt held at any distance")
+    for col in ("ValidDuration", "CrownTowerDuration"):
+        if not isinstance(t[col], int) or t[col] <= 0:
+            raise SystemExit(f"hero ability {ability}: taunt {got[0][0]}'s {col} {t[col]!r}")
+    for col in ("ValidTargetBuff", "CrownTowerBuff"):
+        b = h["character_buffs"].get(t[col]) if isinstance(t[col], str) else None
+        shown = {k for k, v in b.items() if v is not None} if b is not None else {"?"}
+        if not shown <= TAUNT_BUFF_SHOWN or b["LockTarget"] not in (None, False):
+            raise SystemExit(f"hero ability {ability}: taunt buff {t[col]!r} sets {sorted(shown - TAUNT_BUFF_SHOWN)}")
+    m = re.fullmatch(r"has_data\((\w+)\)", str(t["ForceStopIfTrue"] or ""))
+    if t["ForceStopIfTrue"] is not None and m is None:
+        raise SystemExit(f"hero ability {ability}: taunt stop {t['ForceStopIfTrue']!r}")
+    return {
+        "radius_milli": r["Radius"],
+        "life_ms": r["LifeDuration"],
+        "hits_air": r["HitsAir"] is True,
+        "hits_ground": r["HitsGround"] is True,
+        "troop_ms": t["ValidDuration"],
+        "tower_ms": t["CrownTowerDuration"],
+        "stop_if_row": m.group(1) if m else None,
+    }
+
+
 def action_group_effect(h: Tables, name: str, subs: list[str], delays: list[int], hero_unit: str) -> dict:
     """`action_group` (the Hero Berserker's rage): the ActionGroup's sub-actions as STEPS, each at its SubActionsDelay
     from the trigger, in SubActions order. The steps read:
@@ -4979,7 +5079,9 @@ def action_group_effect(h: Tables, name: str, subs: list[str], delays: list[int]
       - ActionChangeGameObjectData: `form`, the hero wears another character (or its own again). A form must differ
         from the hero only in display columns and the attack finish pair, whose values the step carries as
         `override_attack_finish` and `attack_finish_time_ms` (null where the form leaves them to the hero, and on the
-        hero's own row).
+        hero's own row);
+      - ActionSetShield: `shield`, the hero's shield set to ShieldPercent of its ShieldHitpoints (the Hero Knight's);
+      - ActionSpawn of an AreaEffectType: `taunt`, a taunt area (`taunt_area`, the Hero Knight's).
     Any other sub-action, or a form that sets any other column, stops the build."""
     acts = h["actions"]
     steps: list[dict] = []
@@ -4987,11 +5089,23 @@ def action_group_effect(h: Tables, name: str, subs: list[str], delays: list[int]
         cls = acts.get(sub)["ClassType"]
         if cls == "ActionPlayEffect":
             _one_action(acts, sub, cls, SELF_BUFF_EFFECT_KEYS)
+        elif cls == "ActionSetShield":
+            pct = _one_action(acts, sub, cls, {"ClassType", "ShieldPercent"})["ShieldPercent"]
+            if not isinstance(pct, int) or not 0 <= pct <= 100:
+                raise SystemExit(f"hero ability {name}: {sub}'s ShieldPercent {pct!r}")
+            steps.append({"delay_ms": d, "do": "shield", "pct": pct})
+        elif cls == "ActionSpawn" and acts.get(sub)["SpawnType"] == "AreaEffectType":
+            area = _one_action(acts, sub, cls, {"ClassType", "SpawnType", "SpawnData"})["SpawnData"]
+            steps.append({"delay_ms": d, "do": "taunt", **taunt_area(h, name, area)})
         elif cls == "ActionSpawn":
             sp = _one_action(acts, sub, cls, SELF_BUFF_SPAWN_KEYS)
             buff, time = norm_buff(h, sp["SpawnData"]), sp["SpawnTime"]
             if sp["SpawnType"] != "BuffType" or buff is None or not isinstance(time, int) or time <= 0:
                 raise SystemExit(f"hero ability {name}: {sub} is not a buff row spawned with a SpawnTime")
+            # A BUFF THAT ONLY SHOWS (the Hero Knight's self buff: a ContinuousEffect and a tag nothing else in the
+            # hero's own files reads): no step.
+            if shows_only(h, sp["SpawnData"]):
+                continue
             steps.append({"delay_ms": d, "do": "buff", "buff": buff, "time_ms": time})
         elif cls == "ActionChangeGameObjectData":
             form = _one_action(acts, sub, cls, SELF_BUFF_SWAP_KEYS)["NewCharacterData"]
@@ -5019,8 +5133,8 @@ def action_group_effect(h: Tables, name: str, subs: list[str], delays: list[int]
             )
         else:
             raise SystemExit(f"hero ability {name}: {sub} is an {cls}, which an action group does not read")
-    if not any(st["do"] == "buff" for st in steps):
-        raise SystemExit(f"hero ability {name}: an action group with no buff is not read")
+    if not any(st["do"] in ("buff", "shield", "taunt") for st in steps):
+        raise SystemExit(f"hero ability {name}: an action group with no buff, shield or taunt is not read")
     return {"kind": "action_group", "steps": steps}
 
 
@@ -5058,7 +5172,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
         raise SystemExit(f"hero ability {name}: OnActivationAction is not an ActionGroup")
     subs, delays = got
     classes = [acts.get(s)["ClassType"] for s in subs]
-    group_classes = {"ActionSpawn", "ActionPlayEffect", "ActionChangeGameObjectData"}
+    group_classes = {"ActionSpawn", "ActionPlayEffect", "ActionChangeGameObjectData", "ActionSetShield"}
     if "ActionRunActionListOnObjectsInShapeWithPrio" in classes:
         effect = spin_chain_effect(h, name, subs, delays)
         classes = []
@@ -5609,8 +5723,22 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         unit = card["summon_character"]
         _, urow = unit_record(h, unit)
         units = {unit: norm_unit(h, unit, with_raw=True)}
+        # A START THAT ONLY SETS THE SHIELD (the Hero Knight's, `shield_start`): the hero comes with that share of its
+        # ShieldHitpoints (`spawn_shield_pct`), and the action graph that start alone makes is read whole here.
+        pct = shield_start(h, form, urow["OnStartingAction"])
+        if pct is not None:
+            # Every other root must name no action row (the VisualActions health bar, as the Ronin's).
+            roots = (units[unit].get("action_graph") or {}).get("roots", {})
+            others = sorted(k for k, v in roots.items() if k != "OnStartingAction" and h["actions"].get(v) is not None)
+            if others:
+                raise SystemExit(f"hero form {form}: a shield start beside other actions {others}")
+            card["spawn_shield_pct"] = pct
+            card["action_graph"] = None
+            units[unit]["action_graph"] = None
         # Its ProjectileYOffset (the Hero Musketeer's 300) is on `card` already: summon_card copies what norm_unit
         # writes on every 15.535 row that sets it (COSMETIC keeps it out of `raw`).
+        # The hero's own files, where `shows_only` looks for a reader of a tag its button's buff sets.
+        h.hero_text = "".join(p.read_text(encoding="utf-8") for p in hero_files(v, stem))
         card["ability"] = ability_block(h, urow["Ability"], units, unit)
         # ITS DEATH SPAWN (the Hero Balloon's BalloonHero_Bomb, a BalloonBomb [EXT] that changes display columns only):
         # its own row, in the form's units, which the loader loads for it.

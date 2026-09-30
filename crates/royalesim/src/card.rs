@@ -1336,6 +1336,32 @@ pub enum AbilityAction {
     /// then it changes nothing: no override unit waits in the engine (the listed units take their next target on the
     /// loss + 1 whatever their AttackFinishTime, 100 to 200 on their rows).
     FormWhileBuff { buff: u16, finish_override: bool },
+    /// An ActionSetShield: the hero's shield set to `pct` % of `shield` (its row's ShieldHitpoints, level 1; the level's
+    /// scaling at the step), the Hero Knight's 100.
+    SetShield { shield: i32, pct: i32 },
+    /// A TAUNT AREA (the Hero Knight's; `TauntDef`).
+    Taunt(TauntDef),
+}
+
+/// A TAUNT AREA (the Hero Knight's; tools/extract_cards.py `taunt_area`; state.rs `TauntBoard`, `taunt_pass`,
+/// `taunt_override`): from the trigger, for `life_ms`, an area on the hero takes each enemy whose centre comes within
+/// `radius` of the hero's plus its own radius, once, on air and ground as set; an enemy it takes must target the hero for
+/// `troop_ms` (`tower_ms` a crown tower), a building-only attacker too, whatever its own search finds, unless its row
+/// turns into `stop_unit` (the Goblin Demolisher's kamikaze form, where it loads). A new taunt replaces the one an enemy
+/// carries. Radius in subtiles.
+///
+/// Read off the table, not measured (the Hero Knight's scene has every enemy on him already): the area's first update
+/// (the tick after the trigger's), its reach (centre to centre, as an area's), a tower (taken only with the hero in its
+/// reach) and a taunted unit held or under ground (it keeps what it had).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TauntDef {
+    pub radius: i32,
+    pub life_ms: i32,
+    pub hits_air: bool,
+    pub hits_ground: bool,
+    pub troop_ms: i32,
+    pub tower_ms: i32,
+    pub stop_unit: Option<u16>,
 }
 
 /// AN ABILITY AREA'S DAMAGE SCALES WITH THE HERO'S LEVEL even when its damage type says EnableLevelScaling = false
@@ -4516,6 +4542,9 @@ fn snipe_of(sn: &RawSnipe) -> Result<SnipeDef, String> {
 #[derive(Deserialize)]
 struct RawHeroForm {
     form_of: String,
+    /// The share of its ShieldHitpoints the hero comes with (tools/extract_cards.py `shield_start`: the Hero Knight's
+    /// 0); absent: all of it.
+    spawn_shield_pct: Option<i32>,
     ability: RawAbility,
     #[serde(default)]
     tables: RawHeroTables,
@@ -4672,6 +4701,16 @@ struct RawAbilityStep {
     form: Option<String>,
     override_attack_finish: Option<bool>,
     attack_finish_time_ms: Option<i32>,
+    /// `shield`: ShieldPercent.
+    pct: Option<i32>,
+    /// `taunt` (tools/extract_cards.py `taunt_area`).
+    radius_milli: Option<i32>,
+    life_ms: Option<i32>,
+    hits_air: Option<bool>,
+    hits_ground: Option<bool>,
+    troop_ms: Option<i32>,
+    tower_ms: Option<i32>,
+    stop_if_row: Option<String>,
 }
 
 /// One area of a `parent_areas` effect (tools/extract_cards.py `hero_area`).
@@ -4956,7 +4995,7 @@ struct RawBuffDeathSpawn {
 /// AttackFinishTime only under OverrideAttackFinishTime). A buff that multiplies the hero's
 /// damage is refused on a hero whose attack is not a direct hit of its own damage (a projectile, an attack selector):
 /// `own_damage` scales that hit alone.
-fn action_group(what: &str, raw: &[RawAbilityStep], hero: &CardDef, buffs: &mut BuffTable) -> Result<AbilityEffect, String> {
+fn action_group(what: &str, raw: &[RawAbilityStep], hero: &CardDef, buffs: &mut BuffTable, cards: &[CardDef]) -> Result<AbilityEffect, String> {
     let mut steps = Vec::new();
     let mut swaps: Vec<(i32, &str, bool)> = Vec::new();
     for (k, st) in raw.iter().enumerate() {
@@ -4984,14 +5023,44 @@ fn action_group(what: &str, raw: &[RawAbilityStep], hero: &CardDef, buffs: &mut 
                 }
                 swaps.push((st.delay_ms, form, over));
             }
+            // THE SHIELD SET (the Hero Knight's 100 %), at the trigger, on a hero whose row has a shield.
+            "shield" => {
+                let pct = st.pct.filter(|p| (0..=100).contains(p)).ok_or_else(|| format!("{at}: a shield step with no share"))?;
+                if st.delay_ms != 0 || hero.shield_hitpoints <= 0 {
+                    return Err(format!("{at}: a shield set after the trigger, or on a row with no shield; not simulated"));
+                }
+                steps.push(AbilityStep { delay_ms: 0, action: AbilityAction::SetShield { shield: hero.shield_hitpoints, pct } });
+            }
+            // THE TAUNT (the Hero Knight's), at the trigger; its stop row resolved to a loaded record, none where it does
+            // not load.
+            "taunt" => {
+                let need = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{at}: a taunt with no {k}"));
+                if st.delay_ms != 0 {
+                    return Err(format!("{at}: a taunt after the trigger; not simulated"));
+                }
+                let stop_unit = st.stop_if_row.as_deref().and_then(|r| cards.iter().position(|c| c.unit_name == r || c.name == r)).map(|k| k as u16);
+                steps.push(AbilityStep {
+                    delay_ms: 0,
+                    action: AbilityAction::Taunt(TauntDef {
+                        radius: milli(need(st.radius_milli, "radius")?),
+                        life_ms: need(st.life_ms, "life")?,
+                        hits_air: st.hits_air.unwrap_or(false),
+                        hits_ground: st.hits_ground.unwrap_or(false),
+                        troop_ms: need(st.troop_ms, "duration")?,
+                        tower_ms: need(st.tower_ms, "tower duration")?,
+                        stop_unit,
+                    }),
+                });
+            }
             other => return Err(format!("{at}: a step that does {other}; not simulated")),
         }
     }
-    let own: Vec<BuffApply> = steps.iter().map(|s| match s.action {
-        AbilityAction::OwnBuff(b) => b,
-        AbilityAction::FormWhileBuff { .. } => unreachable!("no form step pushed yet"),
+    let own: Vec<BuffApply> = steps.iter().filter_map(|s| match s.action {
+        AbilityAction::OwnBuff(b) => Some(b),
+        _ => None,
     }).collect();
-    if own.is_empty() {
+    // A group that sets a shield or makes a taunt (the Hero Knight's) needs no buff of its own.
+    if own.is_empty() && !steps.iter().any(|s| matches!(s.action, AbilityAction::SetShield { .. } | AbilityAction::Taunt(_))) {
         return Err(format!("{what}: an action group that hangs no buff; not simulated"));
     }
     match swaps.as_slice() {
@@ -9716,7 +9785,7 @@ impl CardDb {
                 }
                 AbilityEffect::Areas { areas, start }
             }
-            "action_group" => action_group(&what, a.effect.steps.as_deref().unwrap_or_default(), &c, buffs)?,
+            "action_group" => action_group(&what, a.effect.steps.as_deref().unwrap_or_default(), &c, buffs, &self.cards)?,
             // THE THROW (the Hero Balloon's): its clock must be the measured one (THROW_CLOCK); its unit loads as the
             // spawn-ahead unit does, with the landing as its spawn area (a one-shot area: the row's life is one pulse),
             // which every creation of the unit casts where it appears (state.rs `spawn_with`).
@@ -9907,6 +9976,18 @@ impl CardDb {
             other => return Err(format!("{what}: effect {other} is not simulated")),
         };
         c.ability = Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect });
+        // THE SHIELD IT COMES WITH (`RawHeroForm::spawn_shield_pct`, the Hero Knight's 0): the rest is its button's to set
+        // (`AbilityAction::SetShield`, which keeps the row's whole figure). Measured on client 15.535.29
+        // (sp-form-Knight-hero-s0): a Musketeer's 217 took the hero from 1766 to 1549 before the press.
+        if let Some(p) = extra.spawn_shield_pct {
+            if !(0..=100).contains(&p) {
+                return Err(format!("a shield share of {p} % at the hero's creation"));
+            }
+            #[cfg(not(clash_plant = "shield_start_ignored"))]
+            {
+                c.shield_hitpoints = c.shield_hitpoints * p / 100;
+            }
+        }
         c.form_of = Some(base);
         c.summon_only = true;
         if !self.rarities.iter().any(|r| r.name == c.rarity) {
