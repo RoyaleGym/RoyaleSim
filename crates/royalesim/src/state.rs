@@ -14125,7 +14125,7 @@ impl BattleState {
         for k in 0..self.evo.poisons.len() {
             self.poison_pass_for(k);
         }
-        self.evo.poisons.retain(|r| !r.hits.is_empty() || (r.until.is_none_or(|u| tick < u)));
+        self.evo.poisons.retain(|r| !r.hits.is_empty() || (r.until.map_or(true, |u| tick < u)));
     }
 
     /// Run `k`'s step this tick (`poison_pass`).
@@ -14139,7 +14139,7 @@ impl BattleState {
         };
         let alive = self.ents.is_alive(r.target);
         // Its area, on its tick, while the unit lives (and a crown tower's poison lasts), at the stack's level now.
-        if alive && tick >= r.next_spawn && r.until.is_none_or(|u| tick < u) {
+        if alive && tick >= r.next_spawn && r.until.map_or(true, |u| tick < u) {
             let lvl = d.checks.iter().filter(|c| r.stacks >= **c as u32).count();
             if lvl > 0 {
                 let damage = cards.scaled(r.card, r.level, d.damages[lvl - 1]).unwrap_or(d.damages[lvl - 1]);

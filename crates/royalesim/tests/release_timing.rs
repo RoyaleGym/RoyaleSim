@@ -189,7 +189,7 @@ fn a_golems_golemites_exist_on_the_tick_it_dies_moving_and_step_on_the_next() {
     }
     // born moving and inert on the death frame: the first displacement is on the NEXT tick
     let first_steps: Vec<Option<u32>> = lives.values().map(|l| l.first_step).collect();
-    assert!(first_steps.iter().all(|s| s.is_none_or(|t| t > died)), "a {unit} stepped on its own first frame: {first_steps:?}");
+    assert!(first_steps.iter().all(|s| s.map_or(true, |t| t > died)), "a {unit} stepped on its own first frame: {first_steps:?}");
 }
 
 #[test]
