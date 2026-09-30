@@ -1,0 +1,43 @@
+# THE MINION GIANT: a card the live client has and the 15.535.29 tables do not (card id 26000107, the row after the
+# Ronin). Its gameplay rows as the 16.402.12 client's own tables datamine them (characters/minion_giant.toml,
+# characters/minion_giant_spell.toml), laid over the 15.535.29 tables by tools/extract_cards.py `load_tables`, which
+# takes a row from here only where the pack has none of that name.
+#
+# Left out: the art, sound and text columns, and the unit's OnStartingAction (MinonGiant_easter_egg_group), a visual
+# effect near its side's own Minions with no gameplay. The projectile extends MergeMaidenProjectile_Mounted, which the
+# 15.535.29 tables carry (homing, speed 600, only enemies); it overrides Damage, Speed and AoeToAir.
+
+[CHARACTER.MinionGiant]
+Name = "MinionGiant"
+Rarity = "Common"
+Hitpoints = 710
+HitSpeed = 1500
+LoadTime = 700
+Speed = 60
+Range = 4000
+SightRange = 6500
+AttacksGround = true
+AttacksAir = false
+TargetOnlyBuildings = true
+IgnorePushback = true
+Projectile = "MinionGiant_Projectile"
+DeployTime = 1000
+FlyingHeight = 3000
+CollisionRadius = 750
+Mass = 15
+ProjectileStartRadius = 1700
+ProjectileStartZ = 3500
+
+[EXT.MinionGiant_Projectile]
+Base = "PROJECTILE.MergeMaidenProjectile_Mounted"
+Name = "MinionGiant_Projectile"
+Damage = 74
+Speed = 600
+AoeToAir = false
+
+[SPELL_CHARACTER.MinionGiant]
+Name = "MinionGiant"
+SummonCharacter = "MinionGiant"
+UnlockArena = "Arena5"
+Rarity = "Rare"
+ManaCost = 4

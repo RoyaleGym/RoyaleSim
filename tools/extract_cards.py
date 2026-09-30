@@ -853,6 +853,26 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
                         body = {n: f for n, f in body.items() if n not in moved}
                 t[key].overlay(p, body, f"{sub}/{p.name} [{section}]")
 
+    # THE CLIENT ADDITIONS (data/client_additions/*.toml): a card the live client has and these tables lack, its
+    # gameplay rows as a later client's tables datamine them (the file names the client). A row is taken only where
+    # the pack has none of that name: an addition never changes a card the pack carries.
+    additions = ROOT / "data" / "client_additions"
+    for p in sorted(additions.glob("*.toml")) if additions.is_dir() else []:
+        for section, body in tomllib.load(p.open("rb")).items():
+            if not isinstance(body, dict):
+                raise SystemExit(f"{p.name}: [{section}] is not a table")
+            for name, fields in body.items():
+                if section == "EXT":
+                    base = fields.get("Base") if isinstance(fields, dict) else None
+                    key = SECTION_TABLE.get(base.split(".")[0]) if isinstance(base, str) and "." in base else None
+                else:
+                    key = SECTION_TABLE.get(section)
+                if key is None:
+                    raise SystemExit(f"{p.name}: [{section}.{name}] names no table")
+                if t[key].get(name) is not None:
+                    raise SystemExit(f"{p.name}: [{section}.{name}] is in the pack already; an addition may not change it")
+                t[key].overlay(p, {name: fields}, f"client_additions/{p.name} [{section}]")
+
     # The target filters an action names (TargetFilter, HitFilter), by name: read by `strike_area_block`.
     filters = v.raw / "game_object_filters.toml"
     if filters.is_file():
@@ -6489,7 +6509,8 @@ def build(t: Tables) -> dict:
     for k in [*v.sources, *(["actions"] if "actions" in t else [])]:
         tb = t[k]
         for p in tb.files:
-            rel = p.relative_to(v.raw).as_posix()
+            # A client addition (`load_tables`) is named by its repo path, the pack's files by their pack path.
+            rel = p.relative_to(v.raw).as_posix() if p.is_relative_to(v.raw) else p.relative_to(ROOT).as_posix()
             entry = files.setdefault(rel, {"sha256": sha256_of(p)})
             if p == tb.path:
                 entry["continuation_rows"] = tb.continuation_rows
@@ -6530,6 +6551,10 @@ def build(t: Tables) -> dict:
             "*.toml [KIND.Name] sections in file-name order); overlay wins; a TOML value on a "
             "CSV-typed column is coerced to that type and the build fails on a mismatch"
         )
+    # A CLIENT ADDITION'S CARD GOES LAST (`load_tables`), whatever its kind: a card's place in this list is its id in a
+    # catalogue built from it, so an addition moves no card the pack carries.
+    added = {n for n, labels in t["spells_characters"].overlaid.items() if any(lb.startswith("client_additions/") for lb in labels)}
+    cards = [c for c in cards if c["name"] not in added] + [c for c in cards if c["name"] in added]
     doc = {
         "version": v.version,
         "vintage_warning": v.warning,
