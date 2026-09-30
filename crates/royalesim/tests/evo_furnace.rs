@@ -10,7 +10,7 @@
 //! evo_furnace`):
 //!   - furnace_quick_never -> `an_attack_starts_its_quick_spawn_22_ticks_on_then_every_47_and_48` red;
 //!   - furnace_normal_spawn_unpaused -> `walking_its_spawns_come_110_then_100_ticks_apart` red;
-//!   - furnace_quick_never_stops -> `a_walk_of_20_ticks_ends_its_quick_spawn` red.
+//!   - furnace_quick_never_stops -> `a_walk_of_20_ticks_ends_its_quick_spawn` red (three spirits after the walk).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -121,25 +121,27 @@ fn walking_its_spawns_come_110_then_100_ticks_apart() {
 
 #[test]
 fn a_walk_of_20_ticks_ends_its_quick_spawn() {
-    // As the first scene, the Golem killed after the second quick spirit: the Furnace walks, and after 20 ticks of it
-    // no quick spirit comes (the next would stand on the second + 48).
+    // As the first scene with a red Knight in the Golem's place (no death spawn to keep the Furnace attacking), the
+    // Knight killed after the second quick spirit: the Furnace walks, and 20 ticks of it end its quick spawn. In the
+    // 150 ticks after the kill at most one spirit comes (its interval's, held by the walk); quick spirits 47 and 48
+    // ticks apart would put three there.
     let mut s = battle();
     let at = n(9000, 10000);
     s.spawn_unit(Team::Blue, "FirespiritHut_EV1", at, None).expect("the Furnace");
     s.tick();
     let f = find_live(&s, Team::Blue, "FirespiritHut_EV1").first().expect("the Furnace").id;
-    let gat = n(9000, 14000);
-    let (mut seen, mut quick, mut golem) = (Vec::new(), Vec::new(), None);
+    let kat = n(9000, 14000);
+    let (mut seen, mut quick, mut knight) = (Vec::new(), Vec::new(), None);
     let mut attacking = false;
     for _ in 0..400usize {
-        if golem.is_none() && !seen.is_empty() {
-            golem = Some(s.scenario_spawn_now(Team::Red, "Golem", gat, None).expect("a red Golem"));
+        if knight.is_none() && !seen.is_empty() {
+            knight = Some(s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("a red Knight"));
         }
-        if let Some(g) = golem.filter(|_| quick.len() < 2) {
+        if let Some(k) = knight.filter(|_| quick.len() < 2) {
             assert!(s.debug_set_pos(f, at));
-            assert!(s.debug_set_pos(g, gat));
-            let top = s.entity(g).expect("the Golem").max_hp;
-            assert!(s.debug_set_hp(g, top));
+            assert!(s.debug_set_pos(k, kat));
+            let top = s.entity(k).expect("the Knight").max_hp;
+            assert!(s.debug_set_hp(k, top));
         }
         s.tick();
         attacking |= s.entity(f).expect("the Furnace").attack_phase != AttackPhase::Idle;
@@ -151,15 +153,21 @@ fn a_walk_of_20_ticks_ends_its_quick_spawn() {
         }
     }
     assert_eq!(quick.len(), 2, "two quick spirits");
-    // The Golem gone: the Furnace walks on from here.
-    let g = golem.expect("the Golem");
-    assert!(s.debug_set_hp(g, 0));
+    // The Knight gone: the Furnace walks on from here.
+    let k = knight.expect("the Knight");
+    assert!(s.debug_set_hp(k, 0));
+    let kill = s.tick_count();
     let mut after = Vec::new();
-    for _ in 0..60 {
+    let mut walked = 0;
+    for _ in 0..150 {
+        let before = s.entity(f).expect("the Furnace").pos;
         s.tick();
+        let e = s.entity(f).expect("the Furnace");
+        walked += i32::from(e.pos != before && e.attack_phase == AttackPhase::Idle);
         if !fresh(&s, f, &mut seen).is_empty() {
-            after.push(s.tick_count());
+            after.push(s.tick_count() - kill);
         }
     }
-    assert!(!after.contains(&(quick[1] + 48)), "a quick spirit after the walk: {quick:?} then {after:?}");
+    assert!(walked >= 20, "the Furnace walked {walked} ticks after the kill");
+    assert!(after.len() <= 1, "spirits after the walk (ticks from the kill), quick ones among them: {quick:?} then {after:?}");
 }
