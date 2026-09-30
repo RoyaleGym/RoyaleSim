@@ -12639,7 +12639,9 @@ impl BattleState {
     /// combat.POST_KILL_RETARGET_WAIT under that arm, HideTimeMs under the old one. Measured on
     /// client 15.535.29 (tesla-vs-knight: surfaces 240, the Knight locks on 241, first hit 247)
     /// and the 16.402 corpus (first hits 674 -> 681 and 1980 -> 1987; back under 6 ticks after the
-    /// loss, the hide on the corpus only).
+    /// loss). Under that arm the kill's tick counts as one with a target, and a wait that runs out
+    /// with an enemy in its wake reach leaves it up for the Target phase to take (the Up arm below;
+    /// Oracle's tesla-hide grid on client 15.535.29).
     fn hide_pass(&mut self, nb: &mut Vec<u32>) {
         let dt = self.cfg.calib.tick_ms;
         let mut next: Vec<(usize, HideState, i32)> = Vec::new();
@@ -12693,14 +12695,38 @@ impl BattleState {
                         }
                     }
                     HideState::Up => {
-                        let has_target = e.target[i].is_some_and(|t| e.is_alive(t) && e.hp[t.index as usize] > 0);
+                        // hide.RISE_LAW = client16402_surface_attacking: the tick its target dies on counts as one with a
+                        // target, however the death came (a shot landing before this pass leaves the victim in the table
+                        // at 0 hitpoints until the Reap): the building is up on the kill's tick and the wait's ticks
+                        // after it. Measured on client 15.535.29 (Oracle's tesla-hide grid): the victim gone on t171, the
+                        // Tesla up t171 .. t176 and under on t177.
+                        #[cfg(not(clash_plant = "hide_kill_tick_uncounted"))]
+                        let kill_tick = surfacing;
+                        #[cfg(clash_plant = "hide_kill_tick_uncounted")]
+                        let kill_tick = false; // PLANT (regression): a target at 0 hitpoints is lost on its death's tick.
+                        let has_target = e.target[i].is_some_and(|t| e.is_alive(t) && (kill_tick || e.hp[t.index as usize] > 0));
                         let left = e.hide_ms[i] - dt;
+                        // Under the same law, a wait that runs out with an enemy it could take in its wake reach leaves it
+                        // up, and this tick's Target phase takes the enemy. Oracle's grid: a Knight there from t172, t174
+                        // or t176 was taken on t177 and the Tesla never went under; one coming on t178 found it under
+                        // from t177. So did the Evo Tesla's scene (sp-form-Tesla-evo-s0): targets lost on t1110 and
+                        // t1129, the next taken on t1116 and t1135, up throughout.
+                        #[cfg(not(clash_plant = "hide_despite_enemy_in_reach"))]
+                        let stays_for_enemy = surfacing;
+                        #[cfg(clash_plant = "hide_despite_enemy_in_reach")]
+                        let stays_for_enemy = false; // PLANT (regression): the wait's end sends it under whatever stands there.
                         let (st, ms) = match self.cfg.calib.hide_delay_meaning {
                             // A live target re-arms the countdown; HideTimeMs of no target
                             // (the countdown REACHING 0) sends it under -- or, under hide.RISE_LAW =
                             // client16402_surface_attacking, the attack-finish wait (`hide_wait_ms`).
                             HideDelayMeaning::IdleTimeWithoutTarget if has_target => (HideState::Up, wait_ms),
-                            HideDelayMeaning::IdleTimeWithoutTarget if left <= 0 => (HideState::Hidden, 0),
+                            HideDelayMeaning::IdleTimeWithoutTarget if left <= 0 => {
+                                if stays_for_enemy && target::enemy_in_wake_range(&ctx, i, nb) {
+                                    (HideState::Up, 0)
+                                } else {
+                                    (HideState::Hidden, 0)
+                                }
+                            }
                             HideDelayMeaning::IdleTimeWithoutTarget => (HideState::Up, left),
                             // Counts from the last shot (phase_attack re-arms it on fire) and
                             // sends it under on the first Target phase MORE than HideTimeMs

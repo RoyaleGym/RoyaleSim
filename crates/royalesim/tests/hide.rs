@@ -7,7 +7,9 @@
 //!      exactly ceil(UpTimeMs / TICK_MS) ticks later, and its first shot lands on
 //!      the first tick the attack pipeline allows after that;
 //!   3. its target dying sends it under exactly ceil(HideTimeMs / TICK_MS) ticks
-//!      after the first Target phase with no live target;
+//!      after the first Target phase with no live target (under the shipped rise law: up on
+//!      the kill's tick and the 5 after it, under on the 6th, or on it taking an enemy in its
+//!      reach without going under);
 //!   4. a Fireball on a hidden Tesla changes nothing; the same Fireball on an up
 //!      Tesla deals the data's damage;
 //!   5. a hidden Tesla still dies at its lifetime expiry;
@@ -36,7 +38,10 @@
 //! PLANTS: tesla_always_up (the earlier engine; (1) and (4) go red),
 //! hidden_targetable, hidden_takes_damage, expiry_respects_hide. Aimed at the
 //! `under_the_shipped_rise_law_*` tests, not yet proven on a plant build: tesla_rise_kept,
-//! tesla_surface_tick_targetable, tesla_hide_wait_hidetime.
+//! tesla_surface_tick_targetable, tesla_hide_wait_hidetime. hide_kill_tick_uncounted ->
+//! `under_the_shipped_rise_law_losing_its_target_sends_the_tesla_under_six_ticks_later` red;
+//! hide_despite_enemy_in_reach ->
+//! `under_the_shipped_rise_law_an_enemy_in_reach_at_the_waits_end_is_taken_without_going_under` red.
 
 mod common;
 
@@ -329,23 +334,29 @@ fn under_the_shipped_rise_law_a_knight_entering_sight_surfaces_the_tesla_attacki
 // ---------------------------------------------------------------------------
 // (3) hiding again
 
-/// Kill the Knight by hp (dies in that tick's Resolve). The hide pass of the very tick the
-/// target is no longer live counts, so the Tesla is under after exactly ceil(wait / TICK_MS)
-/// tick calls from the kill, the wait being `up_wait_ms`. Idle ticks before the kill do not
-/// count: a live target resets the countdown every Target phase.
+/// Kill the Knight by hp (dies in that tick's Resolve). Under engine_rising_phase the hide pass of
+/// the very tick the target is no longer live counts, so the Tesla is under after exactly
+/// ceil(wait / TICK_MS) tick calls from the kill, the wait being `up_wait_ms`. Under the shipped
+/// rise law the kill's tick counts as one with a target (the Knight is still in the table at 0
+/// hitpoints), so the countdown starts on the next tick call and the Tesla is under one later:
+/// measured on client 15.535.29 (Oracle's tesla-hide grid), the victim gone on t171 and the Tesla
+/// under on t177. Idle ticks before the kill do not count: a live target resets the countdown
+/// every Target phase.
 fn losing_its_target_sends_it_under_after_its_up_wait(cfg: BattleConfig) {
     let (mut s, tesla, knight, _) = approach_until_first_shot(cfg);
     let wait = up_wait_ms(&s);
+    let kill_counts = s.config().calib.hide_rise_law == RiseLaw::Client16402SurfaceAttacking;
     for _ in 0..5 {
         s.tick();
         assert_eq!(hide_of(&s, tesla), (HideState::Up, wait), "a live target must hold the countdown at {wait} ms");
     }
     assert!(s.debug_set_hp(knight, 0));
-    let n = ticks_of(wait);
+    let n = ticks_of(wait) + u32::from(kill_counts);
     for k in 1..n {
         s.tick();
         assert!(s.entity(knight).is_none(), "the Knight did not die");
-        assert_eq!(hide_of(&s, tesla), (HideState::Up, wait - (k as i32) * dt()), "tick call {k} after the kill");
+        let left = wait - (k as i32 - i32::from(kill_counts)) * dt();
+        assert_eq!(hide_of(&s, tesla), (HideState::Up, left), "tick call {k} after the kill");
         assert_eq!(s.entity(tesla).unwrap().target, None);
     }
     s.tick();
@@ -366,8 +377,55 @@ fn losing_its_target_sends_the_tesla_under_exactly_hide_time_later() {
 #[test]
 fn under_the_shipped_rise_law_losing_its_target_sends_the_tesla_under_six_ticks_later() {
     // client16402_surface_attacking: the up wait is the attack-finish wait. Measured on the
-    // 16.402 corpus: back under 6 ticks after the loss, where HideTimeMs gives 16.
+    // 16.402 corpus: back under 6 ticks after the loss, where HideTimeMs gives 16; on client
+    // 15.535.29, up on the loss's tick and the 5 after it, under on the 6th.
     losing_its_target_sends_it_under_after_its_up_wait(shipped_rise_law());
+}
+
+/// AN ENEMY IN ITS REACH AT THE WAIT'S END (hide.RISE_LAW = client16402_surface_attacking).
+/// Measured on client 15.535.29 (Oracle's tesla-hide grid, seven runs): the Tesla's victim gone
+/// on K, a Knight coming into its reach on K + 1, K + 3 or K + 5 was taken on K + 6 and the Tesla
+/// never went under; one coming on K + 7 found it under from K + 6. Here the victim dies to the
+/// Tesla's own shot, and a second Knight is held on its last point from tick call K + `from`.
+#[test]
+fn under_the_shipped_rise_law_an_enemy_in_reach_at_the_waits_end_is_taken_without_going_under() {
+    for (from, hides) in [(1u32, false), (5, false), (7, true)] {
+        let (mut s, tesla, knight, _) = approach_until_first_shot(shipped_rise_law());
+        // The Tesla's next shot kills it; tick call K is the first after which it is gone.
+        assert!(s.debug_set_hp(knight, 1));
+        let mut spot = None;
+        for _ in 0..60 {
+            spot = Some(s.entity(knight).expect("the Knight").pos);
+            s.tick();
+            if s.entity(knight).is_none() {
+                break;
+            }
+        }
+        assert!(s.entity(knight).is_none(), "from K + {from}: the Tesla never killed the Knight");
+        let spot = spot.expect("the Knight's last point");
+        let mut states = vec![hide_of(&s, tesla).0];
+        let mut targets = vec![s.entity(tesla).expect("the Tesla").target];
+        let mut second = None;
+        for j in 1..=10u32 {
+            if j == from {
+                second = Some(s.scenario_spawn_now(Team::Red, "Knight", spot, None).expect("a second Knight"));
+            }
+            if let Some(id) = second {
+                assert!(s.debug_set_pos(id, spot));
+            }
+            s.tick();
+            states.push(hide_of(&s, tesla).0);
+            targets.push(s.entity(tesla).expect("the Tesla").target);
+        }
+        if hides {
+            assert!(states[..6].iter().all(|h| *h == HideState::Up), "from K + {from}: up K .. K + 5: {states:?}");
+            assert_eq!(states[6], HideState::Hidden, "from K + {from}: under on K + 6: {states:?}");
+        } else {
+            assert!(states.iter().all(|h| *h == HideState::Up), "from K + {from}: never under: {states:?}");
+            assert!(targets[..6].iter().all(|t| t.is_none()), "from K + {from}: nothing taken before K + 6: {targets:?}");
+            assert_eq!(targets[6], second, "from K + {from}: the Knight taken on K + 6: {targets:?}");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
