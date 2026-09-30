@@ -3671,7 +3671,7 @@ def globals_block(v: Vintage) -> dict:
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
-    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1",
+    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4326,6 +4326,29 @@ FALL_GROUNDED_SET = {
 }
 
 
+# A FORM WHOSE MECHANIC IS DATA THE CARD RECORD READS (`data_only_block`): per form, the columns its own row may set
+# beside display ones, and the card blocks they make (each must be on the record).
+DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", "ClonedVersion"}
+DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"}, ["idle_buff"])
+
+
+def data_only_block(t: Tables, card: dict, spec: tuple[set, list]) -> dict:
+    """A FORM WHOSE MECHANIC IS DATA (the Evo Knight's BuffWhenNotAttacking: `idle_buff_block` reads it for every row),
+    read whole or the build stops: its unit row sets nothing but display columns and the spec's columns, names no
+    action, and its record carries each of the spec's blocks (`reads`)."""
+    cols, reads = spec
+    unit = card["summon_character"]
+    table, _ = unit_record(t, unit)
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - cols - DATA_ONLY_DISPLAY if not COSMETIC.search(c) and not c.startswith("Prestige")}
+    if extra:
+        raise SystemExit(f"{card['name']}: its row sets {sorted(extra)}, which is not data this form's card reads")
+    missing = [r for r in reads if not card.get(r)]
+    if missing or card.get("action_graph"):
+        raise SystemExit(f"{card['name']}: its record lacks {missing} or names an action")
+    return {"reads": reads}
+
+
 def shield_blast_block(t: Tables, card: dict) -> dict:
     """THE EVO WIZARD'S BLAST (spells_evolved Wizard_EV1; characters_evo Wizard_EV1), read whole or the build stops. The
     unit row sets ShieldHitpoints; its ShieldLostAction is a group of one ActionSpawn, at delay 0, of an AreaEffectType
@@ -4777,6 +4800,19 @@ def capture_block(t: Tables, card: dict) -> dict:
     }
 
 
+def hero_file_links(v: Vintage) -> dict[str, list]:
+    """Each base card's EvolvedSpells as the hero form files set it ([SPELL_CHARACTER.<base>] or [SPELL_BUILDING.<base>]
+    in characters/hero_form/*_spell.toml), by base name."""
+    out: dict[str, list] = {}
+    for p in sorted((v.raw / "characters" / "hero_form").glob("*_spell.toml")):
+        doc = tomllib.loads(p.read_text(encoding="utf-8"))
+        for section in ("SPELL_CHARACTER", "SPELL_BUILDING"):
+            for base, row in (doc.get(section) or {}).items():
+                if isinstance(row, dict) and isinstance(row.get("EvolvedSpells"), list):
+                    out.setdefault(base, []).extend(row["EvolvedSpells"])
+    return out
+
+
 def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     """The `evolutions` list (15.535 only): one card record per EVOLUTIONS row, built as its base card's record is
     (`summon_card`), with `form_of` naming the base card and the block of the mechanic the form runs."""
@@ -4793,6 +4829,16 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             for b in t[key].records.values()
             if b["EvolvedSpells"] == name and not b["NotInUse"]
         ]
+        # A base row whose EvolvedSpells lists this form only in a hero form's file (the Knight's ["Knight_EV1",
+        # "Knight_hero"], in knight_hero_spell.toml, which this pass does not lay): that row.
+        if not bases:
+            linked = hero_file_links(t.vintage)
+            bases = [
+                (key, kind, b)
+                for key, kind in EVOLVED_BASE_TABLES
+                for b in t[key].records.values()
+                if name in linked.get(b["Name"], []) and not b["NotInUse"]
+            ]
         if len(bases) != 1:
             raise SystemExit(f"spells_evolved.{name}: {len(bases)} base cards name it in EvolvedSpells")
         _, kind, b = bases[0]
@@ -4851,6 +4897,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_charge_after_shield"] = charge_after_shield_block(t, card)
         elif name == "Wizard_EV1":
             card["evo_shield_blast"] = shield_blast_block(t, card)
+        elif name == "Knight_EV1":
+            card["evo_data_only"] = data_only_block(t, card, DATA_ONLY_KNIGHT)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

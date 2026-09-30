@@ -4161,6 +4161,8 @@ struct RawEvolution {
     evo_charge_after_shield: Option<RawChargeAfterShield>,
     /// The Evo Wizard's blast (`shield_blast_block`): the area and the buff that only shows.
     evo_shield_blast: Option<RawShieldBlast>,
+    /// A form whose mechanic is data the card reads (`data_only_block`, the Evo Knight's idle buff): the blocks.
+    evo_data_only: Option<RawDataOnly>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4171,6 +4173,13 @@ struct RawEvolution {
 struct RawShotSpawn {
     unit: Option<String>,
     deploy_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_data_only` (tools/extract_cards.py `data_only_block`): the card blocks the form's data
+/// makes, each of which the loaded form must carry.
+#[derive(Deserialize)]
+struct RawDataOnly {
+    reads: Vec<String>,
 }
 
 /// cards.json `evolutions[].evo_shield_blast` (tools/extract_cards.py `shield_blast_block`).
@@ -9301,6 +9310,7 @@ impl CardDb {
             extra.evo_ring.is_some(),
             extra.evo_charge_after_shield.is_some(),
             extra.evo_shield_blast.is_some(),
+            extra.evo_data_only.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9674,6 +9684,22 @@ impl CardDb {
                 crown_hit: r.crown_hit.unwrap_or(0).max(0),
                 stop: buffs.apply(stop, Some(buff_ms), "the ring's stop")?,
             });
+        }
+        // A FORM OF DATA (the Evo Knight's idle buff): each block the extractor names must have loaded on the form.
+        if let Some(d) = &extra.evo_data_only {
+            for r in &d.reads {
+                let ok = match r.as_str() {
+                    "idle_buff" => c.idle_buff.is_some(),
+                    _ => false,
+                };
+                if !ok {
+                    return Err(format!("a form of data whose {r} did not load; not simulated"));
+                }
+            }
+            #[cfg(clash_plant = "evo_data_dropped")]
+            {
+                c.idle_buff = None; // PLANT: the form plays as its base card.
+            }
         }
         // THE SHIELD'S BLAST: the area converted as an area spell's (it must release no unit), on a card with a shield.
         if let Some(b) = &extra.evo_shield_blast {
