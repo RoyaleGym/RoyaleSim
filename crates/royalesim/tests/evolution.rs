@@ -487,20 +487,27 @@ fn forms_take_slots_after_every_existing_card() {
             ("Wallbreakers", "Wallbreakers_EV1"),
             ("IceSpirits", "IceSpirits_EV1"),
             ("Firecracker", "Firecracker_EV1"),
-            ("Witch", "Witch_EV1")
+            ("Witch", "Witch_EV1"),
+            ("GoblinCage", "GoblinCage_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Thirty-one forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Thirty-two forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
     // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), the
     // Evo Skeleton Barrel with its two drops, the Evo Mortar (its Goblin a loaded unit), and the Evo Royal Hogs with its
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
-    // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, then
-    // the Evo Witch.
-    assert_eq!(db.cards.len(), n0 + 41);
+    // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
+    // Evo Witch, then the Evo Goblin Cage with its Brawler.
+    assert_eq!(db.cards.len(), n0 + 43);
+    assert_eq!(db.cards[n0 + 41].name, "GoblinCage_EV1");
+    let cg = db.cards[n0 + 41].evo.as_ref().and_then(|e| e.cage).expect("the Evo Goblin Cage's capture");
+    assert!(cg.reach == 3000 * K && cg.grab_delay_ms == 100 && cg.pause_ms == 500 && cg.damage == 143 && cg.hit_ms == 1000);
+    assert!(db.buffs[cg.hide as usize].invisible);
+    let ds = db.cards[n0 + 41].death_spawn.expect("its Brawler");
+    assert!(usize::from(ds.unit) == n0 + 42 && db.cards[n0 + 42].hitpoints == 422);
     assert_eq!(db.cards[n0 + 40].name, "Witch_EV1");
     let sd = db.cards[n0 + 40].evo.as_ref().and_then(|e| e.soul_drain).expect("the Evo Witch's soul drain");
     let hb = db.buffs[sd.heal.buff as usize];

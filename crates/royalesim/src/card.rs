@@ -1937,6 +1937,8 @@ pub struct EvoDef {
     /// (state.rs `Scratch::kamikazed`). Measured on client 15.535.29 (Oracle's sp-f2-wb-s0): two that reached a princess
     /// tower, one hurt and one untouched, left no unit, and the tower took their 281 each alone.
     pub death_on_kill_only: bool,
+    /// Evo Goblin Cage: its capture of one enemy ground troop (`CageDef`).
+    pub cage: Option<CageDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4225,6 +4227,8 @@ struct RawEvolution {
     evo_fireworks: Option<RawFireworks>,
     /// The Evo Witch's soul drain (`soul_drain_block`).
     evo_soul_drain: Option<RawSoulDrain>,
+    /// The Evo Goblin Cage's capture (`cage_block`).
+    evo_cage: Option<RawCage>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4273,6 +4277,19 @@ struct RawUppercut {
 /// down (the record's death spawn; the blow is in the record's death columns).
 #[derive(Deserialize)]
 struct RawDeathAction {
+    unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_cage` (tools/extract_cards.py `cage_block`).
+#[derive(Deserialize)]
+struct RawCage {
+    radius_milli: Option<i32>,
+    grab_delay_ms: Option<i32>,
+    pause_ms: Option<i32>,
+    damage: Option<i32>,
+    hit_ms: Option<i32>,
+    cooldown_ms: Option<i32>,
+    /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
 }
 
@@ -4387,6 +4404,52 @@ pub struct WitchWaves {
     pub every_ms: i32,
     pub count: i32,
 }
+
+/// THE EVO GOBLIN CAGE'S CAPTURE (tools/extract_cards.py `cage_block`; state.rs EvoBoard `cages`, `cage_pass`, the
+/// release in `phase_reap`): with no captive, on a tick's moved points, the closest enemy ground troop whose centre is
+/// within `reach` (CaptureRadius, SUBTILES) plus its own radius of the cage's centre is taken; it walks on for
+/// `grab_delay_ms` (DragDelay) and CAGE_GRAB_LAG_TICKS more and is grabbed where it then stands (G, 3 ticks on): it
+/// stands `pause_ms` (held, no attack), then steps toward the cage's point by CAPTURE_DRAG_PER_10000 (the Evo Giant
+/// Snowball's shares) of its grab distance plus CAGE_DRAG_EXTRA, one a tick, and is set on the point on the next tick
+/// (G + 16), hidden there (`hide`: invisible, no hit lands but the cage's); the cage's `damage` (on its own card and
+/// level) lands on it every `hit_ms` from the grab (G + 20, G + 40, ...). When the cage dies (destroyed, or its
+/// LifeTime spent) the captive is let go on the cage's point, held CAGE_RELEASE_HOLD_TICKS more. A captive that dies
+/// frees the cage `cooldown_ms` (CaptureCooldown) after its death's tick, and the cage takes a troop from the tick after
+/// that one.
+///
+/// Measured on client 15.535.29, level 11 (sp-form-GoblinCage-evo-s0; Oracle's sp-grab-*, sp-f2-cage-s0,
+/// sp-f2-cagegolem-s0 and sp-f2-cagefb-s0): 13 grabs, each made 3 ticks after the first tick the troop's moved point
+/// came within 3000 plus its radius of the centre (four Knights, straight and oblique, a Giant, two Golems, a Mini
+/// P.E.K.K.A. and five Skeletons, four of them one run with its placement put off 0 to 3 ticks; the reach fits between
+/// 2996 and 3014 plus the radius, whatever the troop's speed); each stood 10 ticks, stepped 5 times (the Knight 161,
+/// 324, 472, 573, 642; the Golem 169, 341, 497, 603, 677: the Snowball's shares of the grab distance plus 1090) and was
+/// set on the cage's point on the 16th; the Knight and the Golem lost 366 (143 at level 1) on G + 20 and every 20 ticks;
+/// a Golem caged when the cage expired (and in another run when a Fireball killed it) was let go on its point on that
+/// tick, stood that tick and the next and walked from the one after, and took no Fireball hit while caged. A captive
+/// Skeleton that died on G + 16: the cage took its next target 6 ticks after the death, and the next Skeleton, in reach
+/// by then, made its last step 10 ticks after it. Not measured: which troop the cage takes when several are in reach
+/// (here the closest); in the client it takes its target, and a target that dies outside the reach also holds it 6
+/// ticks (seen once in the form's scene), which this does not.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CageDef {
+    pub reach: i32,
+    pub grab_delay_ms: i32,
+    pub pause_ms: i32,
+    pub damage: i32,
+    pub hit_ms: i32,
+    pub cooldown_ms: i32,
+    pub hide: u16,
+}
+
+/// The ticks an Evo Goblin Cage's grab takes past its DragDelay (`CageDef`): measured 3 ticks in all, the table's
+/// DragDelay 100 ms giving two.
+pub const CAGE_GRAB_LAG_TICKS: i32 = 1;
+/// Added to the grab distance before the drag's shares (`CageDef`), millitiles: 1090 fits both drags measured (a Knight
+/// 3318 and a Golem 3549 away) to within a unit.
+pub const CAGE_DRAG_EXTRA: i32 = 1090;
+/// The ticks a released captive stands after the cage's death tick (`CageDef`): measured 1 (it walks on the death tick
+/// + 2).
+pub const CAGE_RELEASE_HOLD_TICKS: i32 = 1;
 
 /// THE EVO FIRECRACKER'S FIREWORKS (tools/extract_cards.py `fireworks_block`; combat.rs `step_projectiles`): an area
 /// where its rocket lands (`big`, released with its sparks) and one where each spark's flight ends (`small`), each
@@ -9617,6 +9680,7 @@ impl CardDb {
             extra.evo_impact_area.is_some(),
             extra.evo_fireworks.is_some(),
             extra.evo_soul_drain.is_some(),
+            extra.evo_cage.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9660,6 +9724,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_cage.is_some() {
+            // The capture, its hide and effect, and the shake (`cage_block` reads them whole).
+            &["ActionCaptureCharacter", "ActionGroup", "ActionHide", "ActionPlayAnimationIfHasTarget", "ActionPlayEffect"]
         } else if extra.evo_soul_drain.is_some() {
             // The soul's trigger, flight and heal, the interval's spawn, and the gem's layer (`soul_drain_block`).
             &["ActionAnimatorLayer", "ActionGroup", "ActionInterval", "ActionPlayEffect", "ActionRunActionOnTroopDestroyed", "ActionSoulDrain", "ActionSpawn", "ActionSpawnToLocation"]
@@ -9840,17 +9907,19 @@ impl CardDb {
                     fireworks: None,
                     soul_drain: None,
                     death_on_kill_only: false,
+                    cage: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
                 death = Some(m);
                 continue;
             }
-            // THE DEATH ACTION'S UNIT (the Evo Wall Breakers' runner): its own row, a plain unit, loaded here as a
-            // summon-only record after the form, the form's death spawn.
-            if let (Some(d), UnitUse::DeathSpawn) = (extra.evo_death_action.as_ref(), &which) {
-                if d.unit.as_deref() != Some(u.as_str()) || death.is_some() {
-                    return Err(format!("death spawn {u} is not the death action's one unit {:?}", d.unit));
+            // THE DEATH ACTION'S UNIT (the Evo Wall Breakers' runner), or THE CAGE'S BRAWLER (the Evo Goblin Cage's): its
+            // own row, a plain unit, loaded here as a summon-only record after the form, the form's death spawn.
+            let named = extra.evo_death_action.as_ref().and_then(|d| d.unit.clone()).or_else(|| extra.evo_cage.as_ref().and_then(|c| c.unit.clone()));
+            if let (Some(d_unit), UnitUse::DeathSpawn) = (named, &which) {
+                if d_unit != u || death.is_some() {
+                    return Err(format!("death spawn {u} is not the form's one death unit {d_unit}"));
                 }
                 let mut uv = ctx.units.get(&u).cloned().ok_or_else(|| format!("death spawn {u}: no units record"))?;
                 let obj = uv.as_object_mut().ok_or_else(|| format!("death spawn {u}: not an object"))?;
@@ -10040,6 +10109,7 @@ impl CardDb {
             fireworks: None,
             soul_drain: None,
             death_on_kill_only: false,
+            cage: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10141,6 +10211,23 @@ impl CardDb {
             let push = u.push_milli.filter(|p| *p > 0).ok_or("an uppercut with no PushBackStrength")?;
             let (root_delay_ms, root_ms) = (u.root_delay_ms.filter(|m| *m >= 0).ok_or("an uppercut's root delay")?, u.root_ms.filter(|m| *m >= 0).ok_or("an uppercut's root")?);
             evo.uppercut = Some(UppercutDef { every, push, root_delay_ms, root_ms });
+        }
+        // THE CAPTURE (the Evo Goblin Cage's): on a building with a death spawn; its hide an invisible buff no hit passes.
+        if let Some(cg) = &extra.evo_cage {
+            if c.kind != CardKind::Building || c.death_spawn.is_none() {
+                return Err("a cage that is not a building with a death spawn".into());
+            }
+            let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a cage with no {k}"));
+            let hide = buffs.push_own(crate::status::BuffDef { invisible: true, no_damage: true, ..Default::default() }, "GoblinCage_EV1 captive")?;
+            evo.cage = Some(CageDef {
+                reach: milli(pos(cg.radius_milli, "CaptureRadius")?),
+                grab_delay_ms: cg.grab_delay_ms.filter(|x| *x >= 0).ok_or("a cage with no DragDelay")?,
+                pause_ms: pos(cg.pause_ms, "pause")?,
+                damage: pos(cg.damage, "damage")?,
+                hit_ms: pos(cg.hit_ms, "hit frequency")?,
+                cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
+                hide,
+            });
         }
         // THE SOUL DRAIN (the Evo Witch's): on a card with a spawner, a heal over time as its buff.
         if let Some(sd) = &extra.evo_soul_drain {

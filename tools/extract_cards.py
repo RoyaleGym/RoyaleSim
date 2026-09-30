@@ -3703,6 +3703,7 @@ EVOLUTIONS = (
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
+    "GoblinCage_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4586,6 +4587,63 @@ def hit_rage_block(t: Tables, card: dict, stats: frozenset | set = frozenset()) 
     return {"unit": unit, "hits": counts[0], "time_ms": times[0], "buff": buff}
 
 
+# THE EVO GOBLIN CAGE (`cage_block`): the unit row's columns it reads besides display, and the capture's keys: the
+# ones read, and the ones that only address its animations and effects.
+CAGE_ROW = {"OnStartingAction", "DeathSpawnCharacter", "ClonedVersion", "StatsTags"}
+CAGE_READ = {"ClassType", "CaptureRadius", "HitFrequency", "DamagePerHit", "NumberOfUnitsToCapture", "TargetFilter",
+             "DragDelay", "CaptureDragTime", "HideDistance", "CaptureCooldown", "PullCenterOffsetX",
+             "PullCenterOffsetY",
+             "GrabPointOffset", "HideAction", "TimePausedWhenGrabbing", "CapturePriority", "OnCaptureAction"}
+CAGE_DISPLAY = {"PullEndIdleStartFrame", "PullEndIdleEndFrame", "PullEndGrabStartFrame", "PullEndGrabEndFrame",
+                "CaptureAnimationStartLabel", "CaptureAnimationEndLabel", "IdleAnimationStartLabel",
+                "IdleAnimationEndLabel", "StatsTags", "PullEndClipExportName", "PullEndClipScale", "PullFileName",
+                "PullGrabEffect", "PullStartEffect", "StretchingClipExportName", "StretcingClipWidthScale"}
+
+
+def cage_block(t: Tables, card: dict) -> dict:
+    """THE EVO GOBLIN CAGE (characters/goblin_cage_ev1.toml GoblinCage_EV1_TEMPNAME), read whole or the build stops: its
+    OnStartingAction is a group, at 0, of an ActionCaptureCharacter (one enemy ground troop, TargetFilter
+    GroundCharacterTargetsNoBuildings) and an animation; the capture's CaptureRadius (`radius_milli`), GrabPointOffset
+    (`grab_ahead_milli`), DragDelay (`grab_delay_ms`), TimePausedWhenGrabbing (`pause_ms`), CaptureDragTime
+    (`drag_ms`), DamagePerHit (`damage`, level 1) every HitFrequency (`hit_ms`) and CaptureCooldown (`cooldown_ms`);
+    its HideAction an ActionHide and its OnCaptureAction an effect. Its DeathSpawnCharacter (`unit`) is the record's
+    death spawn."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts = t["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - CAGE_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    subs = group_subactions(t, row["OnStartingAction"], f"{unit} start")
+    cls = {(acts.get(n) or {}).get("ClassType"): (n, d) for n, d in subs}
+    need(sorted(cls) == ["ActionCaptureCharacter", "ActionPlayAnimationIfHasTarget"] and all(d == 0 for _, d in subs),
+         f"its start runs {subs}")
+    cap = acts.get(cls["ActionCaptureCharacter"][0])
+    unread = _present(cap) - CAGE_READ - CAGE_DISPLAY
+    need(not unread and cap["NumberOfUnitsToCapture"] == 1
+         and cap["TargetFilter"] == "GroundCharacterTargetsNoBuildings",
+         f"the capture (sets {sorted(unread)})")
+    hide = acts.get(cap["HideAction"])
+    need(hide is not None and hide["ClassType"] == "ActionHide", "the capture's hide")
+    need(_cosmetic_action(acts, cap["OnCaptureAction"]), "the capture's OnCaptureAction")
+    ints = ("CaptureRadius", "GrabPointOffset", "DragDelay", "TimePausedWhenGrabbing", "CaptureDragTime",
+            "DamagePerHit", "HitFrequency", "CaptureCooldown")
+    need(all(isinstance(cap[k], int) and cap[k] >= 0 for k in ints) and cap["HitFrequency"] > 0,
+         "the capture's numbers")
+    need(card["death_spawn"] is not None and card["death_spawn"]["character"] == row["DeathSpawnCharacter"],
+         "the record's death spawn")
+    return {"radius_milli": cap["CaptureRadius"], "grab_ahead_milli": cap["GrabPointOffset"],
+            "grab_delay_ms": cap["DragDelay"], "pause_ms": cap["TimePausedWhenGrabbing"],
+            "drag_ms": cap["CaptureDragTime"], "damage": cap["DamagePerHit"], "hit_ms": cap["HitFrequency"],
+            "cooldown_ms": cap["CaptureCooldown"], "unit": row["DeathSpawnCharacter"]}
+
+
 # THE EVO WITCH (`soul_drain_block`): the unit row's columns it reads besides display, and the keys of the actions it
 # reads (the soul's flight's other keys only address its effects and their path).
 SOUL_DRAIN_ROW = {"OnStartingAction", "SpawnCharacter", "SpawnStartTime", "SpawnPauseTime", "VisualActions",
@@ -5383,6 +5441,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_fireworks"] = fireworks_block(t, card)
         elif name == "Witch_EV1":
             card["evo_soul_drain"] = soul_drain_block(t, card)
+        elif name == "GoblinCage_EV1":
+            card["evo_cage"] = cage_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

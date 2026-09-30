@@ -6569,6 +6569,10 @@ pub struct EvoBoard {
     /// hashed only when not empty.
     #[serde(default)]
     pub witch_waves: Vec<(EntityId, u32)>,
+    /// Each Evo Goblin Cage's capture (`cage_pass`). `default` so a battle saved before it still loads; hashed only
+    /// when not empty.
+    #[serde(default)]
+    pub cages: Vec<CageRun>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6654,6 +6658,18 @@ pub struct UppercutRun {
     pub pin: Option<Vec2>,
 }
 
+/// AN EVO GOBLIN CAGE'S CAPTURE (card.rs `CageDef`, `cage_pass`): the cage, its captive with the grab's tick (a captive
+/// taken walks on until then), its grab distance (millitiles) and point, and the tick it is freed on.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CageRun {
+    pub cage: EntityId,
+    pub captive: Option<EntityId>,
+    pub grab: u32,
+    pub d0: i32,
+    pub from: Vec2,
+    pub free_at: u32,
+}
+
 impl EvoBoard {
     fn is_empty(&self) -> bool {
         self.members.is_empty()
@@ -6670,6 +6686,7 @@ impl EvoBoard {
             && self.uppercuts.is_empty()
             && self.souls.is_empty()
             && self.witch_waves.is_empty()
+            && self.cages.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -8913,6 +8930,10 @@ impl BattleState {
         // An Evo Elite Barbarian starts holding its spear (the ranged state of its OnStartingAction).
         if evo.spear.is_some() {
             self.evo.spears.push((id, 0));
+        }
+        // An Evo Goblin Cage starts with no captive (`cage_pass`).
+        if evo.cage.is_some() {
+            self.evo.cages.push(CageRun { cage: id, captive: None, grab: 0, d0: 0, from: pos, free_at: 0 });
         }
         // An Evo Witch's interval clock starts at her creation, this tick her first 50 ms (`witch_wave_pass`).
         #[cfg(not(clash_plant = "witch_waves_never"))]
@@ -13567,6 +13588,118 @@ impl BattleState {
         }
     }
 
+    /// THE EVO GOBLIN CAGES (card.rs `CageDef`), in the Projectile phase on this tick's moved points: a free cage past its
+    /// deploy, from the tick after the one it was freed on, takes the closest enemy ground troop within reach of its centre
+    /// (the lowest creation order on a tie) that no cage holds; the troop walks on until the grab's tick and is grabbed
+    /// where it stands; a held captive stands (its hold timer), then is dragged, set on the point and hidden, and takes the
+    /// cage's damage straight off its hitpoints (the hide keeps every other hit off it); a captive gone frees the cage
+    /// after the cooldown. A cage gone ends its run (its captive is let go in `phase_reap`).
+    fn cage_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let cards = self.cfg.cards.clone();
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let mut runs = std::mem::take(&mut self.evo.cages);
+        let held: Vec<EntityId> = runs.iter().filter_map(|r| r.captive).collect();
+        let mut moved = false;
+        runs.retain(|r| self.ents.is_alive(r.cage));
+        for r in runs.iter_mut() {
+            let ci = r.cage.index as usize;
+            let Some(cd) = cards.get(self.ents.card[ci]).evo.as_ref().and_then(|e| e.cage) else { continue };
+            let at = self.ents.pos[ci];
+            // A captive another hit killed died on the tick before: the cooldown runs from there.
+            if r.captive.is_some_and(|c| !self.ents.is_alive(c) || self.ents.hp[c.index as usize] <= 0) {
+                r.captive = None;
+                r.free_at = tick.saturating_sub(1) + (cd.cooldown_ms / dt) as u32;
+            }
+            if r.captive.is_none() {
+                #[cfg(not(clash_plant = "cage_never"))]
+                let never = false;
+                #[cfg(clash_plant = "cage_never")]
+                let never = true; // PLANT: the cage grabs nothing.
+                // Freed on `free_at`, it takes a troop from the tick after.
+                #[cfg(not(clash_plant = "cage_takes_on_free"))]
+                let busy = tick <= r.free_at;
+                #[cfg(clash_plant = "cage_takes_on_free")]
+                let busy = tick < r.free_at; // PLANT: taken on the tick it is freed on.
+                if never || busy || self.ents.deploy_ms[ci] > 0 {
+                    continue;
+                }
+                let team = self.ents.team[ci];
+                let pick = self
+                    .ents
+                    .live_indices()
+                    .filter(|&j| self.ents.team[j] != team && self.ents.kind[j] == EntityKind::Troop && !self.ents.flying[j] && self.ents.hp[j] > 0)
+                    .filter(|&j| !held.contains(&self.ents.id_of(j)))
+                    .filter(|&j| {
+                        let reach = i64::from(cd.reach + self.ents.radius[j]);
+                        self.ents.pos[j].dist2(at) <= reach * reach
+                    })
+                    .map(|j| (self.ents.pos[j].dist2(at), self.ents.creation_seq[j], j))
+                    .min()
+                    .map(|(_, _, j)| j);
+                let Some(j) = pick else { continue };
+                r.captive = Some(self.ents.id_of(j));
+                // It walks on for DragDelay and a tick more, then is grabbed where it stands.
+                #[cfg(not(clash_plant = "cage_grab_at_once"))]
+                let lag = cd.grab_delay_ms / dt + crate::card::CAGE_GRAB_LAG_TICKS;
+                #[cfg(clash_plant = "cage_grab_at_once")]
+                let lag = 0; // PLANT: grabbed on the tick it is taken.
+                r.grab = tick + lag.max(0) as u32;
+            }
+            let Some(c) = r.captive else { continue };
+            let ti = c.index as usize;
+            if tick < r.grab {
+                continue;
+            }
+            if tick == r.grab {
+                let from = self.ents.pos[ti];
+                r.from = from;
+                r.d0 = (crate::fixed::isqrt(from.dist2(at)) / i64::from(K)) as i32;
+                self.ents.stun_ms[ti] = i32::MAX / 4;
+                continue;
+            }
+            let k = (tick - r.grab) as i32;
+            let pause = cd.pause_ms / dt;
+            let steps = crate::card::CAPTURE_DRAG_PER_10000.len() as i32;
+            let np = if k <= pause {
+                r.from
+            } else if k <= pause + steps {
+                // The drag: the shares so far of the grab distance plus CAGE_DRAG_EXTRA, along the line to the point.
+                let done: i64 = crate::card::CAPTURE_DRAG_PER_10000[..(k - pause) as usize].iter().map(|&x| i64::from(x)).sum();
+                let (d0, extra) = (i64::from(r.d0.max(1)), i64::from(crate::card::CAGE_DRAG_EXTRA));
+                let (dx, dy) = (i64::from((at.x - r.from.x) / K), i64::from((at.y - r.from.y) / K));
+                let (sx, sy) = (dx * done * (d0 + extra) / (10_000 * d0), dy * done * (d0 + extra) / (10_000 * d0));
+                Vec2::new(r.from.x + sx as i32 * K, r.from.y + sy as i32 * K)
+            } else {
+                at
+            };
+            // Set on the point, hidden there (the hide lasts until the release takes it off).
+            if k == pause + steps + 1 {
+                let h = crate::status::BuffHit::plain(c, cd.hide, i32::MAX / 4, 0);
+                land_buff(&mut self.ents, &cards, &self.cfg.calib, ti, &h);
+            }
+            if self.ents.pos[ti] != np {
+                self.ents.pos[ti] = np;
+                moved = true;
+            }
+            let every = (cd.hit_ms / dt).max(1);
+            #[cfg(not(clash_plant = "cage_hits_never"))]
+            if k >= every && k % every == 0 {
+                let dmg = cards.scaled(self.ents.card[ci], self.ents.level[ci], cd.damage).unwrap_or(cd.damage);
+                self.ents.hp[ti] -= dmg;
+                // A captive this hit kills frees the cage from this tick's cooldown.
+                if self.ents.hp[ti] <= 0 {
+                    r.captive = None;
+                    r.free_at = tick + (cd.cooldown_ms / dt) as u32;
+                }
+            }
+        }
+        self.evo.cages = runs;
+        if moved {
+            self.hash.rebuild(&self.ents);
+        }
+    }
+
     /// THE EVO WITCH'S SOUL HEALS (card.rs `SoulDrainDef`), in the Resolve before the tick's heals land: each soul due this
     /// tick on a Witch still alive heals her one pulse of her heal (on her card and level), capped at its overheal
     /// (`land_buff_heals`); souls on a Witch that has died are dropped. Each soul is its own heal (AddAsIndividualBuff).
@@ -17904,6 +18037,10 @@ impl BattleState {
         if !self.evo.uppercuts.is_empty() || !self.evo.uppercut_counts.is_empty() {
             self.uppercut_pass();
         }
+        // The Evo Goblin Cages' captures, on this tick's moved points (`cage_pass`).
+        if !self.evo.cages.is_empty() {
+            self.cage_pass();
+        }
         // The Hero Valkyrie's spins after the move, before the spells step, so a blow strikes on its own tick (`spin_pass`).
         if !self.spins.is_empty() {
             self.spin_pass();
@@ -19297,6 +19434,24 @@ impl BattleState {
         self.spells.append(&mut released);
         for id in &deaths {
             let i = id.index as usize;
+            // THE EVO GOBLIN CAGE'S CAPTIVE is let go when the cage dies (card.rs `CageDef`): on the cage's point, its hide
+            // off, held CAGE_RELEASE_HOLD_TICKS more.
+            if let Some(k) = self.evo.cages.iter().position(|r| r.cage == *id) {
+                let r = self.evo.cages.remove(k);
+                if let Some(c) = r.captive.filter(|c| self.ents.is_alive(*c) && self.ents.hp[c.index as usize] > 0) {
+                    let ci = c.index as usize;
+                    let hide = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|e| e.cage).map(|cd| cd.hide);
+                    if let Some(h) = hide {
+                        self.drop_buff(ci, h);
+                    }
+                    // The hold timer set here in Reap runs down at the next tick's start: the ticks it stands, plus that one.
+                    #[cfg(not(clash_plant = "cage_release_at_once"))]
+                    let hold = (crate::card::CAGE_RELEASE_HOLD_TICKS + 1) * self.cfg.calib.tick_ms;
+                    #[cfg(clash_plant = "cage_release_at_once")]
+                    let hold = 0; // PLANT: the captive walks on the tick after the cage's death.
+                    self.ents.stun_ms[ci] = hold;
+                }
+            }
             // THE EVO WITCH'S SOUL (card.rs `SoulDrainDef`): a unit she spawned dying sends one, due its flight and a
             // tick on (the heal's pulse).
             #[cfg(not(clash_plant = "soul_drain_never"))]
@@ -22954,6 +23109,20 @@ impl BattleState {
                     for t in &r.taken {
                         h.id(*t);
                     }
+                }
+            }
+            // The Evo Goblin Cages' captures, only when there are some.
+            if !b.cages.is_empty() {
+                h.u32(0x4341_4745);
+                h.u32(b.cages.len() as u32);
+                for r in &b.cages {
+                    h.id(r.cage);
+                    h.opt_id(r.captive);
+                    h.u32(r.grab);
+                    h.i32(r.d0);
+                    h.i32(r.from.x);
+                    h.i32(r.from.y);
+                    h.u32(r.free_at);
                 }
             }
             // The Evo Witches' next interval waves, only when there are some.
