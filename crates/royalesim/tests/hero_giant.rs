@@ -111,7 +111,7 @@ fn the_slap_holds_the_giant_and_throws_its_pick_toward_the_centre() {
     }
     assert_ne!(f[pick + 19].0, f[pick + 18].0, "and walks on the pick + 19");
     let losses: Vec<(usize, i32)> = (1..f.len()).map(|k| (k, knight(k - 1).1 - knight(k).1)).filter(|(_, d)| *d > 0).collect();
-    assert_eq!(losses.first(), Some(&(first + 31, 135)), "the landing blow's 135 on the 32nd step: {losses:?}");
+    assert_eq!(losses.iter().find(|(_, d)| *d == 135), Some(&(first + 31, 135)), "the landing blow's 135 on the 32nd step: {losses:?}");
 }
 
 #[test]

@@ -9683,6 +9683,8 @@ impl CardDb {
                 obj.entry("count").or_insert(serde_json::Value::from(1));
                 let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("a barrel drop: {e}"))?;
                 let (mut d, _, dneeds) = convert(ur, buffs, ctx).map_err(|e| format!("a barrel drop: {e}"))?;
+                // Summon-only before the test: a death bomb's fuse is read on a summon-only record alone.
+                d.summon_only = true;
                 if d.death_bomb_fuse_ms().is_none() || d.death_spawn.is_none() {
                     return Err(format!("barrel drop {} is not a death bomb with a death spawn", d.name));
                 }
@@ -9695,7 +9697,6 @@ impl CardDb {
                 if self.index(&d.name).is_some() || !self.rarities.iter().any(|r| r.name == d.rarity) {
                     return Err(format!("barrel drop {}: a name already loaded or a rarity not in rarities.csv", d.name));
                 }
-                d.summon_only = true;
                 drops.push(d);
             }
             c.death_spawn = bc.death_spawn;
@@ -10113,6 +10114,11 @@ impl CardDb {
         let mut raw: RawCard = serde_json::from_value(v).map_err(|e| format!("hero form: {e}"))?;
         // Its button is this pass's (`RawHeroForm::ability`, below), not a champion's (`convert_champion_ability`).
         raw.ability = None;
+        // A LEVEL SET'S QUEST (the Hero Mini PEKKA's): the unit's graph is the quest and its bar, which the ability's
+        // block reads whole (tools/extract_cards.py `hero_quest`), so the unit loads without it.
+        if extra.ability.effect.kind == "level_up" {
+            raw.action_graph = None;
+        }
         let base = self.index(&extra.form_of).filter(|&b| self.get(b).name == extra.form_of && !self.get(b).summon_only && self.get(b).evo.is_none());
         let base = base.ok_or_else(|| format!("base card {} is not a loaded card", extra.form_of))?;
         if self.form_card(base, FORM_HERO).is_some() {

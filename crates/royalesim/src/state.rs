@@ -13415,7 +13415,9 @@ impl BattleState {
                         self.ents.pos[ti].x = nx.clamp(rad, self.cfg.arena.width - rad);
                         moved = true;
                     }
-                    let land = 1 + d.flight_ms / tick_ms;
+                    // It lands `flight_ms` after its first step; the blow, cast here before the spells step (so it strikes on
+                    // its cast tick), is cast on the tick after: the client's throw + 32 on every slap scene.
+                    let land = 2 + d.flight_ms / tick_ms;
                     if k != land {
                         return k < land || rem > -decel;
                     }

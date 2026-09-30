@@ -64,7 +64,8 @@ fn start(units: &[(Team, &str, (i32, i32), bool)]) -> (BattleState, EntityId, Ve
     let held = units
         .iter()
         .map(|(team, card, p, top)| {
-            let e = s.entities().find(|e| e.team == *team && e.card == *card && e.pos == n(p.0, p.1)).expect("the unit where it was put");
+            // The placement may move a unit a unit or so off its point (formation.GROUND_DEPLOY_POINT): the nearest.
+            let e = s.entities().filter(|e| e.team == *team && e.card == *card).min_by_key(|e| e.pos.dist2(n(p.0, p.1))).expect("the unit where it was put");
             (e.id, *p, *top)
         })
         .collect();
@@ -100,10 +101,10 @@ fn it_comes_with_no_shield_and_the_press_sets_512() {
 
 #[test]
 fn shots_after_the_press_fall_on_the_shield_until_one_breaks_it() {
-    // A red Musketeer 5000 ahead of the hero, held and topped up: 217 a shot. One shot on the hitpoints before the
+    // A red Musketeer 4500 ahead of the hero, held and topped up: 217 a shot. One shot on the hitpoints before the
     // press; after it 512 -> 295 -> 78 -> 0 on the shield (the third takes the last 78 and nothing past it), then 217 on
     // the hitpoints again.
-    let (mut s, hero, held) = start(&[(Team::Red, "Musketeer", (AT.0, AT.1 + 5000), true)]);
+    let (mut s, hero, held) = start(&[(Team::Red, "Musketeer", (AT.0, AT.1 + 4500), true)]);
     let hp = |s: &BattleState| {
         let e = s.entity(hero).expect("the hero");
         (e.hp, e.shield)

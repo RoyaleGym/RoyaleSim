@@ -247,12 +247,12 @@ fn without_a_press_a_kill_costs_her_no_retarget_wait() {
         s.tick();
     }
     let skeleton = s.scenario_spawn_now(Team::Red, "Skeleton", n(9500, 12600), None).expect("a red Skeleton");
-    let knight = s.scenario_spawn_now(Team::Red, "Knight", n(9500, 16000), None).expect("a red Knight");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", n(9500, 14500), None).expect("a red Knight");
     let top = s.entity(knight).expect("the Knight").max_hp;
     let mut targets = Vec::new();
     let mut gone = None;
     for k in 0..60 {
-        assert!(s.debug_set_pos(knight, n(9500, 16000)));
+        assert!(s.debug_set_pos(knight, n(9500, 14500)));
         assert!(s.debug_set_hp(knight, top));
         s.tick();
         if gone.is_none() && s.entity(skeleton).is_none() {

@@ -74,7 +74,7 @@ fn the_warp_steps_up_to_its_speed_and_stands_on_its_pick() {
     // less while over: 343, 743, 1143, 1543, 1143, 1543, and a last step onto the Minion's centre (where the move pass has
     // it, after its own step). It swings on the next tick, and the Minion is gone on the one after.
     let minion = (AT.0 - 4320, AT.1 + 5760);
-    let (mut s, hero, reds) = start(&[("Knight", (AT.0, AT.1 + 3000)), ("Minion", minion)]);
+    let (mut s, hero, reds) = start(&[("Knight", (AT.0, AT.1 + 3000)), ("Minions", minion)]);
     let target = reds[1].0;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut steps = Vec::new();

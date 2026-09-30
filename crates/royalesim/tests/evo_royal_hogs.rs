@@ -135,8 +135,8 @@ fn under_99_percent_a_hog_lands_12_ticks_on_and_its_blow_takes_43() {
 
 #[test]
 fn a_hog_that_strikes_lands_11_ticks_after_its_first_hit() {
-    // A red Cannon in front of the first hog (a Cannon shoots no flier), the other three parked away from it.
-    let f = scene(&[("Cannon", (0, 1400))], true, 90, |_, _, _| {});
+    // A red Cannon behind the first hog, off the river (a Cannon shoots no flier), the other three parked away from it.
+    let f = scene(&[("Cannon", (0, -1400))], true, 90, |_, _, _| {});
     let d = f.iter().position(|x| x.losses[0] == 74).expect("the first hog's first hit on the Cannon (29 at level 1)");
     assert!(f[..d + 11].iter().all(|x| x.flying), "in the air to frame {}", d + 10);
     assert_eq!((f[d + 11].card.as_str(), f[d + 11].flying), ("RoyalHog_EV1_Grounded", false), "landed 11 ticks after its hit (the client's t1278 -> t1289)");

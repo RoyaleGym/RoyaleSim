@@ -55,11 +55,11 @@ fn the_third_play_is_the_evolved_mortar() {
 
 #[test]
 fn each_shot_puts_a_goblin_down_where_it_lands_on_its_landing_frame() {
-    // The form at (9500, 8500); a red Giant held 7000 in front of it (it walks at buildings; held, it never arrives), its
+    // The form at (9500, 8500); a red Giant held 6000 in front of it (it walks at buildings; held, it never arrives), its
     // hp topped up.
     let mut s = battle();
     s.spawn_unit(Team::Blue, "Mortar_EV1", n(9500, 8500), None).expect("the Mortar");
-    let giant = s.scenario_spawn_now(Team::Red, "Giant", n(9500, 15500), None).expect("a red Giant");
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", n(9500, 14500), None).expect("a red Giant");
     let top = s.entity(giant).expect("the Giant").max_hp;
     // A landing: the Giant losing the shot's 266 or more on a frame (a Goblin's own hits are smaller). A Goblin: each
     // new blue Goblin, with its first frame, point, hp and deploy state.
@@ -67,7 +67,7 @@ fn each_shot_puts_a_goblin_down_where_it_lands_on_its_landing_frame() {
     let mut goblins_seen: Vec<(usize, Vec2, i32, bool)> = Vec::new();
     let mut known: Vec<royalesim::EntityId> = Vec::new();
     for k in 0..300 {
-        assert!(s.debug_set_pos(giant, n(9500, 15500)));
+        assert!(s.debug_set_pos(giant, n(9500, 14500)));
         s.tick();
         let hp = s.entity(giant).expect("the Giant").hp;
         if top - hp >= 266 {
@@ -84,7 +84,7 @@ fn each_shot_puts_a_goblin_down_where_it_lands_on_its_landing_frame() {
     assert!(landings.len() >= 2, "two landings: {landings:?}");
     let first_goblin = goblins_seen.first().expect("a Goblin");
     assert_eq!(first_goblin.0, landings[0].0, "the first Goblin on the first landing's frame");
-    assert!(first_goblin.1.dist(n(9500, 15500)) <= 600 * K, "on the landing point: {:?}", first_goblin.1);
+    assert!(first_goblin.1.dist(n(9500, 14500)) <= 600 * K, "on the landing point: {:?}", first_goblin.1);
     assert_eq!(first_goblin.2, 202, "202 hitpoints at level 11");
     let second = goblins_seen.iter().find(|g| g.0 == landings[1].0).expect("a Goblin on the second landing's frame");
     assert!(second.3, "deploying");

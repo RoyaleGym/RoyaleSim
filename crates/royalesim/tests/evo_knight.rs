@@ -33,17 +33,17 @@ fn battle() -> BattleState {
 
 #[test]
 fn a_musketeers_217_lands_as_86_while_it_has_not_hit() {
-    // The evolved Knight held on blue's side, a red Musketeer held 5000 ahead (out of every blue tower's reach, the
+    // The evolved Knight held on blue's side, a red Musketeer held 4500 ahead (out of every blue tower's reach, the
     // Knight never reaching it): each of its shots takes 86 off the Knight, 217 x 40 / 100.
     let mut s = battle();
     s.spawn_unit(Team::Blue, "Knight_EV1", n(9000, 10000), None).expect("the Knight");
-    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", n(9000, 15000), None).expect("a red Musketeer");
+    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", n(9000, 14500), None).expect("a red Musketeer");
     s.tick();
     let knight = find_live(&s, Team::Blue, "Knight_EV1")[0].id;
     let mut losses = Vec::new();
     for _ in 0..140 {
         assert!(s.debug_set_pos(knight, n(9000, 10000)));
-        assert!(s.debug_set_pos(musk, n(9000, 15000)));
+        assert!(s.debug_set_pos(musk, n(9000, 14500)));
         let before = s.entity(knight).expect("the Knight").hp;
         s.tick();
         let after = s.entity(knight).expect("the Knight").hp;
