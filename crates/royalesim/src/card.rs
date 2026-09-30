@@ -1913,6 +1913,8 @@ pub struct EvoDef {
     /// Evo Wizard: the blast its shield's loss makes on it (state.rs `shield_blasts`; spell.rs `shape_of`), a one-hit
     /// area. Read off the table, not measured: the client's scene never broke the shield.
     pub shield_blast: Option<SpellDef>,
+    /// Evo Bomber: its bomb bounces on along its line where it lands (`BounceDef`).
+    pub bounce: Option<BounceDef>,
     /// Evo Royal Recruits: its charge (the card's `charge`, its range the ShieldLostAction buff's OverrideChargeRange)
     /// runs up only once its shield is gone (state.rs, the charge's gains). Read off the table, not measured: the scene's
     /// recruits lost their shields in melee and never ran up.
@@ -4165,6 +4167,8 @@ struct RawEvolution {
     evo_data_only: Option<RawDataOnly>,
     /// The Evo Barbarians' rage after hits (`hit_rage_block`), read as the Evo Battle Ram's death spawn's.
     evo_hit_rage: Option<RawSpawnRage>,
+    /// The Evo Bomber's bounce (`bounce_block`).
+    evo_bounce: Option<RawBounce>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4175,6 +4179,27 @@ struct RawEvolution {
 struct RawShotSpawn {
     unit: Option<String>,
     deploy_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_bounce` (tools/extract_cards.py `bounce_block`).
+#[derive(Deserialize)]
+struct RawBounce {
+    count: Option<i32>,
+    range_milli: Option<i32>,
+}
+
+/// THE EVO BOMBER'S BOUNCE (tools/extract_cards.py `bounce_block`; combat.rs `BounceHop`, the bounce in
+/// `step_projectiles`): where its bomb lands (and splashes) a new bomb goes on from that point along the line of the
+/// last step, `range` further, with the same speed, damage and splash, `count` times. Radius in subtiles.
+///
+/// Measured on client 15.535.29 (sp-form-Bomber-evo-s0, two throws): the bomb (400 a tick) landed on t855; a bomb stood
+/// on its landing point on t855, moved 400 a tick from t856 along the throw's line (within 0.01 of its bearing) and
+/// landed 2499 on on t862, and the next did the same, landing on t869; the second throw alike (t891, t898). Read off
+/// the table, not measured: each landing's splash.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BounceDef {
+    pub count: u8,
+    pub range: i32,
 }
 
 /// cards.json `evolutions[].evo_data_only` (tools/extract_cards.py `data_only_block`): the card blocks the form's data
@@ -9314,6 +9339,7 @@ impl CardDb {
             extra.evo_shield_blast.is_some(),
             extra.evo_data_only.is_some(),
             extra.evo_hit_rage.is_some(),
+            extra.evo_bounce.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9464,6 +9490,7 @@ impl CardDb {
                     first_hit: None,
                     ring: None,
                     shield_blast: None,
+                    bounce: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9632,6 +9659,7 @@ impl CardDb {
             first_hit: None,
             ring: None,
             shield_blast: None,
+            bounce: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -9687,6 +9715,15 @@ impl CardDb {
                 crown_hit: r.crown_hit.unwrap_or(0).max(0),
                 stop: buffs.apply(stop, Some(buff_ms), "the ring's stop")?,
             });
+        }
+        // THE BOUNCE (the Evo Bomber's): on a card whose shot splashes.
+        if let Some(b) = &extra.evo_bounce {
+            let count = b.count.and_then(|c| u8::try_from(c).ok()).filter(|c| *c >= 1).ok_or("a bounce with no SpawnChain")?;
+            let range = b.range_milli.filter(|r| *r > 0).ok_or("a bounce with no ProjectileRange")?;
+            if !c.projectile.is_some_and(|p| p.radius > 0) {
+                return Err("a bounce on a card whose shot does not splash; not simulated".into());
+            }
+            evo.bounce = Some(BounceDef { count, range: milli(range) });
         }
         // THE RAGE AFTER HITS on the form's own units (the Evo Barbarians'), as the Evo Battle Ram's Barbarian_EV1 has it.
         if let Some(rage) = &extra.evo_hit_rage {

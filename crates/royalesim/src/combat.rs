@@ -216,6 +216,11 @@ pub struct Projectile {
     /// None on every other shot. `default` so a snapshot saved before it still loads; hashed only when Some.
     #[serde(default)]
     pub chain: Option<ChainHop>,
+    /// AN EVO BOMBER'S BOUNCE (card.rs `BounceDef`): the bounces it has left and their length; where it lands it goes on
+    /// (`step_projectiles`). None on every other shot. `default` so a snapshot saved before it still loads; hashed only
+    /// when Some.
+    #[serde(default)]
+    pub bounce: Option<BounceHop>,
 }
 
 /// A spear's trail (`Projectile::trail`): the thrower's card and level (the area is the card's `projectile_area`), the
@@ -385,6 +390,15 @@ fn add_splash_bonus(ents: &Entities, calib: &Calib, hits: &mut [Hit], b: Bonus, 
             h.amount += b.on(ents.kind[h.target.index as usize]);
         }
     }
+}
+
+/// AN EVO BOMBER'S BOUNCES (`Projectile::bounce`): the bounces left, their length (subtiles) and the point this flight
+/// started from (the thrower's, then each landing's): the line a bounce goes on along.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct BounceHop {
+    pub left: u8,
+    pub range: i32,
+    pub from: Vec2,
 }
 
 /// A CHAINED SHOT'S HOPS (`Projectile::chain`): the hops left, the chain's radius (subtiles) and every unit it has hit,
@@ -1069,6 +1083,7 @@ pub fn fire(
             enchant: None,
             trail: Some(SpearTrail { card: ents.card[a], level: ents.level[a], steps: 0, next: 0 }),
             chain: None,
+            bounce: None,
         });
         return;
     }
@@ -1221,6 +1236,7 @@ pub fn fire(
                         bonus_crown: direct.crown,
                         trail: None,
                         chain: None,
+                        bounce: None,
                     };
                     // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
                     // launch point against the start-of-tick positions, measured on client
@@ -1333,6 +1349,8 @@ pub fn fire(
             trail: None,
             // THE CHAIN (card.rs `ChainHitDef`): the hops after this target.
             chain: card.chain_hit.map(|c| ChainHop { left: (c.count - 1).clamp(0, 255) as u8, radius: c.radius, hit: vec![target] }),
+            // THE BOUNCE (card.rs `BounceDef`, the Evo Bomber's): the bounces after this landing.
+            bounce: card.evo.as_ref().and_then(|v| v.bounce).map(|b| BounceHop { left: b.count, range: b.range, from: pos }),
         });
         return;
     }
@@ -1568,6 +1586,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         bonus_crown: 0,
         trail: None,
         chain: None,
+        bounce: None,
     });
 }
 
@@ -1968,6 +1987,20 @@ pub fn step_projectiles(
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
             add_splash_bonus(ents, calib, &mut dmg.hits[from..], bonus, p.target);
             apply_attack_buff(ents, calib, p.buff, p.pulse, (p.src_level, p.buff_first), p.target, scratch, fx);
+            // AN EVO BOMBER'S BOUNCE (`Projectile::bounce`, card.rs `BounceDef`): a new bomb on the landing point, aimed
+            // `range` on along the line this flight came (from `BounceHop::from`), one bounce fewer; it first steps next
+            // tick, as every released shot does.
+            #[cfg(not(clash_plant = "bounce_never"))]
+            if let Some(b) = p.bounce.filter(|b| b.left > 0) {
+                let (dx, dy) = (i64::from(p.aim.x - b.from.x), i64::from(p.aim.y - b.from.y));
+                let len = isqrt(dx * dx + dy * dy);
+                if len > 0 {
+                    let r = i64::from(b.range);
+                    let next = Vec2::new(p.aim.x + (dx * r / len) as i32, p.aim.y + (dy * r / len) as i32);
+                    let hop = BounceHop { left: b.left - 1, range: b.range, from: p.aim };
+                    released.push(Projectile { pos: p.aim, aim: next, fixed: true, frac: Vec2::default(), fresh: false, bounce: Some(hop), ..p.clone() });
+                }
+            }
         } else if alive {
             let ti = p.target.index as usize;
             dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: false, own: false });
@@ -2002,6 +2035,7 @@ pub fn step_projectiles(
                     enchant: None,
                     trail: None,
                     chain: None,
+                    bounce: None,
                     bonus: 0,
                     bonus_crown: 0,
                     ..p.clone()
@@ -2114,6 +2148,7 @@ fn release_sparks(
             bonus_crown: c.bonus_crown,
             trail: None,
             chain: None,
+            bounce: None,
         };
         straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb, tick);
         out.push(spark);

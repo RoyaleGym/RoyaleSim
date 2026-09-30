@@ -3672,7 +3672,7 @@ EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
-    "Barbarians_EV1",
+    "Barbarians_EV1", "Bomber_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4333,6 +4333,30 @@ DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", 
 DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"}, ["idle_buff"])
 
 
+def bounce_block(t: Tables, card: dict) -> dict:
+    """THE EVO BOMBER'S BOUNCE (spells_evolved Bomber_EV1; characters_evo Bomber_EV1; projectiles_evo), read whole or the
+    build stops. The unit's projectile (not Homing, a splash) names a SpawnProjectile and a SpawnChain (`count`); the
+    spawned row extends the first and sets only a ProjectileRange (`range_milli`): where the bomb lands it goes on along
+    its line that far and lands again, `count` times. The spawned record is dropped from the card's projectile (this
+    block runs it)."""
+    pt = t["projectiles"]
+    shot = card.get("projectile") or {}
+    row = pt.get(shot.get("name"))
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"Bomber_EV1: {what}")
+
+    need(row is not None and not row["Homing"] and isinstance(row["Radius"], int) and row["Radius"] > 0, "the bomb is not a splash that keeps its aim")
+    need(isinstance(row["SpawnChain"], int) and row["SpawnChain"] >= 1 and isinstance(row["SpawnProjectile"], str), "the bomb's SpawnProjectile / SpawnChain")
+    nxt = row["SpawnProjectile"]
+    own = {c for c in pt.set_fields.get(nxt, set()) if not COSMETIC.search(c)}
+    need(pt.get(nxt) is not None and own <= {"Base", "ProjectileRange"} and isinstance(pt.get(nxt)["ProjectileRange"], int)
+         and pt.get(nxt)["ProjectileRange"] > 0, f"the bounce row {nxt} sets {sorted(own)}")
+    shot["spawn_projectile"] = None
+    return {"count": row["SpawnChain"], "range_milli": pt.get(nxt)["ProjectileRange"]}
+
+
 def hit_rage_block(t: Tables, card: dict) -> dict:
     """THE EVO BARBARIANS' RAGE (spells_evolved Barbarians_EV1; its unit Barbarian_EV1, the Evo Battle Ram's death
     spawn), read whole or the build stops: the unit row sets nothing but display columns and BuffAfterHits*, single
@@ -4923,6 +4947,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_data_only"] = data_only_block(t, card, DATA_ONLY_KNIGHT)
         elif name == "Barbarians_EV1":
             card["evo_hit_rage"] = hit_rage_block(t, card)
+        elif name == "Bomber_EV1":
+            card["evo_bounce"] = bounce_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k
