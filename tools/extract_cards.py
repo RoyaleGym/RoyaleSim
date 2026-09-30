@@ -3703,7 +3703,7 @@ EVOLUTIONS = (
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
-    "GoblinCage_EV1", "AxeMan_EV1",
+    "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4842,6 +4842,74 @@ def axe_block(t: Tables, card: dict) -> dict:
             "push_milli": ctl["FirstStrongHitPushback"]}
 
 
+# THE EVO GOBLIN GIANT (`spawn_below_block`): the unit row's columns it sets besides display, and the keys of its
+# health trigger.
+SPAWN_BELOW_ROW = {"OnStartingAction", "SpawnCharacter", "VisualActions", "ClonedVersion", "StatsTags"}
+SPAWN_BELOW_TRIGGER = {"ClassType", "HealthPercentages", "Actions"}
+
+
+def spawn_below_block(t: Tables, card: dict) -> dict:
+    """THE EVO GOBLIN GIANT (characters/goblin_giant_ev1.toml), read whole or the build stops: its OnStartingAction
+    is an ActionRunActionAtHealth whose HealthPercentages are one share (`health_pct`) for all its Actions, of which
+    one is an ActionInterval running an ActionSpawnToLocation of a character (the interval spawner's shape) and the
+    rest effects; its VisualActions an animator layer. The interval is written as the card's `interval_spawner`, with
+    its `health_pct`. Its SpawnCharacter, the riders, is a row of the base's riders that sets only art: the base's
+    riders are written in its place."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts = t["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - SPAWN_BELOW_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    # The riders: the base's, restyled.
+    rider = row["SpawnCharacter"]
+    rset = t[table].set_fields.get(rider, set())
+    base = rider.removesuffix("_EV1")
+    need(card["spawner"] is not None and card["spawner"]["character"] == rider and card["spawner"]["attach"] is True
+         and base != rider and t[table].get(base) is not None
+         and all(c == "Base" or c.startswith("Prestige") for c in rset), f"its riders {rider!r}")
+    card["spawner"]["character"] = base
+    # The trigger: one share for every action it runs.
+    trig_name = row["OnStartingAction"]
+    trig = acts.get(trig_name) if isinstance(trig_name, str) else None
+    need(trig is not None and trig["ClassType"] == "ActionRunActionAtHealth" and _present(trig) <= SPAWN_BELOW_TRIGGER,
+         f"its trigger {trig_name!r}")
+    shares, runs = col_list(acts, trig_name, "HealthPercentages"), col_list(acts, trig_name, "Actions")
+    need(len(shares) == len(runs) and len(set(shares)) == 1 and isinstance(shares[0], int) and 0 < shares[0] < 100,
+         f"its trigger's shares {shares} for {runs}")
+    ivs = [n for n in runs if (acts.get(n) or {}).get("ClassType") == "ActionInterval"]
+    need(len(ivs) == 1 and all(n in ivs or _cosmetic_action(acts, n) for n in runs), f"its trigger runs {runs}")
+    iv = acts.get(ivs[0])
+    need(not (set_keys(iv) - INTERVAL_KEYS), f"its interval sets {sorted(set_keys(iv) - INTERVAL_KEYS)}")
+    sp = acts.get(iv["ActionToExecute"]) if isinstance(iv["ActionToExecute"], str) else None
+    need(sp is not None and sp["ClassType"] == "ActionSpawnToLocation" and not (set_keys(sp) - SPAWN_TO_LOCATION_KEYS)
+         and sp["SpawnType"] == "CharacterType" and isinstance(sp["SpawnData"], str) and sp["SpawnData"]
+         and (sp["ActionToRunOnSpawned"] is None or _cosmetic_action(acts, sp["ActionToRunOnSpawned"])),
+         f"its interval's spawn {iv['ActionToExecute']!r}")
+    vis = row["VisualActions"]
+    need(vis is None or all(_cosmetic_action(acts, n) or (acts.get(n) or {}).get("ClassType") == "ActionAnimatorLayer"
+                            for n in col_list(t[table], unit, "VisualActions")), f"its visual actions {vis!r}")
+    tags = iv["PauseTag"]
+    card["interval_spawner"] = {
+        "start_counter_at_ms": iv["StartCounterAt"],
+        "interval_ms": iv["Interval"],
+        "affected_by_spawn_speed": iv["AffectedBySpawnSpeed"],
+        "pause_tags": [x.strip() for x in tags.split(",") if x.strip()] if isinstance(tags, str) else [],
+        "character": sp["SpawnData"],
+        "deploy_time_ms": sp["DeployTime"],
+        "mirrored_x": sp["MirroredX"],
+        "mirrored_y": sp["MirroredY"],
+        "health_pct": shares[0],
+    }
+    return {"health_pct": shares[0]}
+
+
 # THE EVO ICE SPIRITS' SHOT (`impact_area_block`): the columns its OnHitTargetAction's buff may set (display only).
 IMPACT_TAG_BUFF = {"Rarity", "TID", "FilterFile", "FilterExportName", "TopEffect", "TopEffectVerticalOffset",
                    "TopEffectDisabledForAttachedCharacters", "NotCloned"}
@@ -5523,6 +5591,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_cage"] = cage_block(t, card)
         elif name == "AxeMan_EV1":
             card["evo_axe"] = axe_block(t, card)
+        elif name == "GoblinGiant_EV1":
+            card["evo_spawn_below"] = spawn_below_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

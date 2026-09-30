@@ -6573,6 +6573,10 @@ pub struct EvoBoard {
     /// when not empty.
     #[serde(default)]
     pub cages: Vec<CageRun>,
+    /// Each spawner armed below a share of its unit's hitpoints (card.rs `SpawnerDef::below_hp_pct`), with the tick its
+    /// clock starts (`spawner_pass`). `default` so a battle saved before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub spawn_gates: Vec<(EntityId, u32)>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6687,6 +6691,7 @@ impl EvoBoard {
             && self.souls.is_empty()
             && self.witch_waves.is_empty()
             && self.cages.is_empty()
+            && self.spawn_gates.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -10073,12 +10078,37 @@ impl BattleState {
         // (team, spawner team_seq, k, the spawn) and the per-spawner timer results.
         let mut emissions: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
         let mut timers: Vec<(usize, i32, i32)> = Vec::new();
+        // The spawners armed below a health share this pass: (index, id, the tick their clock starts, StartCounterAt).
+        let mut armed: Vec<(usize, EntityId, u32, i32)> = Vec::new();
+        self.evo.spawn_gates.retain(|(g, _)| self.ents.is_alive(*g));
         for i in 0..self.ents.capacity() {
             let e = &self.ents;
             if !e.alive[i] || e.deploy_ms[i] > 0 {
                 continue;
             }
             let Some(sp) = self.spawner_of(i) else { continue };
+            // A SPAWNER ARMED BELOW A SHARE OF ITS UNIT'S HITPOINTS (card.rs `SpawnerDef::below_hp_pct`, the Evo Goblin
+            // Giant's interval under half): nothing until its unit is there; the pass that first sees it arms it, and
+            // its clock starts at StartCounterAt on the next pass.
+            #[cfg(not(clash_plant = "spawn_gate_ignored"))]
+            if let Some(pct) = sp.below_hp_pct {
+                let id = e.id_of(i);
+                match self.evo.spawn_gates.iter().find(|(g, _)| *g == id).map(|(_, from)| *from) {
+                    Some(from) if self.tick >= from => {}
+                    Some(_) => continue,
+                    None => {
+                        #[cfg(not(clash_plant = "spawn_gate_never"))]
+                        if i64::from(e.hp[i]) * 100 <= i64::from(e.max_hp[i]) * i64::from(pct) {
+                            #[cfg(not(clash_plant = "spawn_gate_clock_late"))]
+                            let from = self.tick + 1;
+                            #[cfg(clash_plant = "spawn_gate_clock_late")]
+                            let from = self.tick + 2; // PLANT: its clock starts a tick late.
+                            armed.push((i, id, from, sp.start_time_ms.unwrap_or(0)));
+                        }
+                        continue;
+                    }
+                }
+            }
             // AN INTERVAL SPAWNER (the Furnace's ActionInterval running an ActionSpawnToLocation; card.rs
             // `interval_spawner_of`): the same timer law, with its clock at the spawner's composed SpawnSpeed under
             // spawner.ACTION_SPAWNER_SPAWN_SPEED = buffed (the row sets AffectedBySpawnSpeed; a stun is the -100 that
@@ -10208,6 +10238,11 @@ impl BattleState {
         for (i, ms, left) in timers {
             self.ents.spawn_ms[i] = ms;
             self.ents.spawn_wave_left[i] = left;
+        }
+        for (i, id, from, start) in armed {
+            self.evo.spawn_gates.push((id, from));
+            self.ents.spawn_ms[i] = start;
+            self.ents.spawn_wave_left[i] = 0;
         }
         self.create_emissions(emissions, true);
     }
@@ -23123,6 +23158,15 @@ impl BattleState {
                     h.i32(r.from.x);
                     h.i32(r.from.y);
                     h.u32(r.free_at);
+                }
+            }
+            // The spawners armed below a health share, only when there are some.
+            if !b.spawn_gates.is_empty() {
+                h.u32(0x4741_5445);
+                h.u32(b.spawn_gates.len() as u32);
+                for (g, from) in &b.spawn_gates {
+                    h.id(*g);
+                    h.u32(*from);
                 }
             }
             // The Evo Witches' next interval waves, only when there are some.

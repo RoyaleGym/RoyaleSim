@@ -1523,6 +1523,12 @@ pub struct SpawnerDef {
     /// instead of its own DeployTime (the Furnace's Fire Spirit 500 against its own 1000). None on
     /// a Spawn* block (spawner.SPAWNED_DEPLOY_TIME decides) and on an action that sets none.
     pub emit_deploy_ms: Option<i32>,
+    /// AN INTERVAL ARMED BELOW A SHARE OF ITS UNIT'S HITPOINTS (an ActionRunActionAtHealth running the interval; the
+    /// Evo Goblin Giant's 50): the spawner runs nothing until its unit is at or below this per cent of its maximum; the
+    /// pass that first sees it there arms it, and its clock starts at StartCounterAt on the next tick's pass (state.rs
+    /// `spawner_pass`, EvoBoard `spawn_gates`). Measured on client 15.535.29 (Oracle's sp-f3-gg-s0 and -s1, one side
+    /// each): hit to 1475 of 3110 on C, its Goblins came on C + 2, C + 45 and C + 89. None: it runs from the start.
+    pub below_hp_pct: Option<i32>,
 }
 
 /// Which columns a `SpawnerDef` came from.
@@ -3403,6 +3409,9 @@ struct RawIntervalSpawner {
     deploy_time_ms: Option<i32>,
     mirrored_x: Option<i32>,
     mirrored_y: Option<i32>,
+    /// The share of its unit's hitpoints at or below which the interval starts (an ActionRunActionAtHealth running it;
+    /// the Evo Goblin Giant's 50). None: it runs from the unit's start.
+    health_pct: Option<i32>,
 }
 
 /// The pause tags an interval spawner may name. Nothing a basic card runs sets either on a unit
@@ -3424,7 +3433,9 @@ fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>)
         Some(u) if !u.is_empty() => u.to_string(),
         _ => return refuse("it spawns no character"),
     };
-    if g.class_types.iter().any(|c| !matches!(c.as_str(), "ActionInterval" | "ActionSpawnToLocation" | "ActionPlayEffect")) {
+    // An interval under a health share runs from an ActionRunActionAtHealth; an animator layer is art.
+    let gated = raw.health_pct.is_some();
+    if g.class_types.iter().any(|c| !matches!(c.as_str(), "ActionInterval" | "ActionSpawnToLocation" | "ActionPlayEffect" | "ActionAnimatorLayer") && !(gated && c == "ActionRunActionAtHealth")) {
         return refuse(&format!("the graph runs more than the interval and its spawn ({})", g.class_types.join(", ")));
     }
     let want = format!("CharacterType:{unit}");
@@ -3452,6 +3463,9 @@ fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>)
         Some(d) if d < 0 => return refuse(&format!("DeployTime {d}")),
         d => d,
     };
+    if raw.health_pct.is_some_and(|p| !(1..100).contains(&p)) {
+        return refuse(&format!("a health share of {:?}", raw.health_pct));
+    }
     Ok((
         SpawnerDef {
             unit: u16::MAX,
@@ -3464,6 +3478,7 @@ fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>)
             source: SpawnerSource::ActionInterval,
             to_location: Some(at),
             emit_deploy_ms: deploy,
+            below_hp_pct: raw.health_pct,
         },
         unit,
     ))
@@ -4233,6 +4248,9 @@ struct RawEvolution {
     evo_cage: Option<RawCage>,
     /// The Evo Executioner's axe (`axe_block`).
     evo_axe: Option<RawAxe>,
+    /// The Evo Goblin Giant's interval under half its hitpoints (`spawn_below_block`; the interval itself is the
+    /// card's `interval_spawner`).
+    evo_spawn_below: Option<RawSpawnBelow>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4295,6 +4313,12 @@ struct RawCage {
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_spawn_below` (tools/extract_cards.py `spawn_below_block`).
+#[derive(Deserialize)]
+struct RawSpawnBelow {
+    health_pct: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_axe` (tools/extract_cards.py `axe_block`).
@@ -4407,9 +4431,9 @@ pub struct SoulDrainDef {
 /// THE EVO WITCH'S INTERVAL (her OnStartingAction's ActionInterval running an ActionSpawnToLocation; state.rs
 /// `witch_wave_pass`): `count` of her spawner's unit on her spawner's ring, the first on the tick her age reaches
 /// `first_ms` (the group's delay plus StartCounterAt; her creation tick her first 50 ms), then every `every_ms`, beside
-/// her row's own spawner (its one wave). Measured on client 15.535.29 (Oracle's sp-f2-witch-s0): waves on her creation
-/// + 38 (the row's), + 179, + 319 and + 459, each of 4 Skeletons walking from their first frame. Read off the table, not
-/// measured: the clock's SpawnSpeed and its NO_SUMMON pause.
+/// her row's own spawner (its one wave). Measured on client 15.535.29 (Oracle's sp-f2-witch-s0): waves 38 (the row's),
+/// 179, 319 and 459 ticks after her creation, each of 4 Skeletons walking from their first frame. Read off the table,
+/// not measured: the clock's SpawnSpeed and its NO_SUMMON pause.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct WitchWaves {
     pub first_ms: i32,
@@ -4459,8 +4483,8 @@ pub const CAGE_GRAB_LAG_TICKS: i32 = 1;
 /// Added to the grab distance before the drag's shares (`CageDef`), millitiles: 1090 fits both drags measured (a Knight
 /// 3318 and a Golem 3549 away) to within a unit.
 pub const CAGE_DRAG_EXTRA: i32 = 1090;
-/// The ticks a released captive stands after the cage's death tick (`CageDef`): measured 1 (it walks on the death tick
-/// + 2).
+/// The ticks a released captive stands after the cage's death tick (`CageDef`): measured 1 (it walks two ticks after the
+/// death tick).
 pub const CAGE_RELEASE_HOLD_TICKS: i32 = 1;
 
 /// THE EVO EXECUTIONER'S AXE (tools/extract_cards.py `axe_block`; combat.rs `straight_hits`): his pingpong throw hits
@@ -7444,6 +7468,7 @@ fn convert_spawner(raw: Option<RawSpawner>) -> Result<Option<(SpawnerDef, String
             source: SpawnerSource::Columns,
             to_location: None,
             emit_deploy_ms: None,
+            below_hp_pct: None,
         },
         unit,
     )))
@@ -8273,7 +8298,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     // spawner, is a shape nothing here was written for.
     let spawner = match (spawner, interval) {
         (Some(_), Some(_)) => return Err("the unit carries a Spawn* block and an interval spawner; not simulated".into()),
-        (None, Some(_)) if attach.is_some() => return Err("the unit carries attached riders and an interval spawner; not simulated".into()),
+        (None, Some((iv, _))) if attach.is_some() && iv.below_hp_pct.is_none() => {
+            return Err("the unit carries attached riders and an interval spawner; not simulated".into())
+        }
         (a, b) => a.or(b),
     };
     let mana = convert_mana(raw.mana, kind)?;
@@ -9714,6 +9741,7 @@ impl CardDb {
             extra.evo_soul_drain.is_some(),
             extra.evo_cage.is_some(),
             extra.evo_axe.is_some(),
+            extra.evo_spawn_below.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9757,6 +9785,10 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_spawn_below.is_some() {
+            // The health trigger, its interval and spawn, their effects and the bag's layer (`spawn_below_block`; the
+            // interval spawner's own reader holds the graph to its one unit).
+            &["ActionAnimatorLayer", "ActionInterval", "ActionPlayEffect", "ActionRunActionAtHealth", "ActionSpawnToLocation"]
         } else if extra.evo_cage.is_some() {
             // The capture, its hide and effect, and the shake (`cage_block` reads them whole).
             &["ActionCaptureCharacter", "ActionGroup", "ActionHide", "ActionPlayAnimationIfHasTarget", "ActionPlayEffect"]
@@ -9829,16 +9861,21 @@ impl CardDb {
                 g.spawns.iter().all(|s| s == &format!("CharacterType:{u}") || s.starts_with("ProjectileType:"))
             })
         };
+        // THE INTERVAL'S UNIT is the interval spawner's (`interval_spawner_of` holds the graph to it).
+        let below_spawns = |g: &RawActionGraph| extra.evo_spawn_below.is_some() && g.spawns.len() == 1;
         // THE RING'S AREA is its block's too (`ring_block` reads it whole).
         let ring_spawns = |g: &RawActionGraph| {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
-        raw.action_graph = None;
+        // The interval under a health share keeps its graph: the interval spawner's reader checks it (`convert`).
+        if extra.evo_spawn_below.is_none() {
+            raw.action_graph = None;
+        }
         // THE EVO GIANT SNOWBALL: its flight's rolling projectile is the block's (`capture_block` reads it whole); the
         // flight loads as the carrier it is, and the spell's shape is the block's (`SpellShape::CaptureRoll`, below).
         if extra.evo_capture.is_some() {
@@ -9867,6 +9904,16 @@ impl CardDb {
         // THE EVO ICE SPIRITS' AREA, riding its shot's target (`EvoDef::impact_area`), made from the area below.
         let mut impact: Option<AttachedArea> = None;
         for (which, u) in needs {
+            // THE EVO GOBLIN GIANT'S GOBLIN AND RIDERS: loaded unit records found by name (the riders the base's).
+            if extra.evo_spawn_below.is_some() && matches!(which, UnitUse::Spawner | UnitUse::Attach) {
+                let idx = self.index(&u).filter(|&i| self.get(i).kind == CardKind::Troop).ok_or_else(|| format!("its unit {u} is not a loaded troop"))?;
+                if which == UnitUse::Spawner {
+                    c.spawner.as_mut().ok_or("a spawner need with no spawner block")?.unit = idx;
+                } else {
+                    c.attach.as_mut().ok_or("a rider need with no rider block")?.unit = idx;
+                }
+                continue;
+            }
             // THE EVO WITCH'S SPAWNER: the base Witch's Skeleton, a loaded unit record found by name.
             if let (Some(_), UnitUse::Spawner) = (extra.evo_soul_drain.as_ref(), &which) {
                 let idx = self.index(&u).filter(|&i| self.get(i).kind == CardKind::Troop).ok_or_else(|| format!("its spawner's unit {u} is not a loaded troop"))?;
@@ -10263,6 +10310,12 @@ impl CardDb {
                 cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
                 hide,
             });
+        }
+        // THE INTERVAL UNDER A HEALTH SHARE (the Evo Goblin Giant's): the card's spawner carries it.
+        if let Some(sb) = &extra.evo_spawn_below {
+            if !c.spawner.is_some_and(|s| s.below_hp_pct.is_some() && s.below_hp_pct == sb.health_pct) {
+                return Err("a health-share interval the card's spawner does not carry".into());
+            }
         }
         // THE AXE (the Evo Executioner's): on a card whose shot is a pingpong throw.
         if let Some(ax) = &extra.evo_axe {

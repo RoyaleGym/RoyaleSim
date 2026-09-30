@@ -500,8 +500,12 @@ fn forms_take_slots_after_every_existing_card() {
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
-    // Evo Witch, then the Evo Goblin Cage with its Brawler, and the Evo Executioner.
-    assert_eq!(db.cards.len(), n0 + 44);
+    // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner and the Evo Goblin Giant.
+    assert_eq!(db.cards.len(), n0 + 45);
+    assert_eq!(db.cards[n0 + 44].name, "GoblinGiant_EV1");
+    let gg = db.cards[n0 + 44].spawner.expect("the Evo Goblin Giant's interval");
+    assert!(gg.below_hp_pct == Some(50) && gg.pause_time_ms == 2200 && gg.start_time_ms == Some(0) && gg.to_location == Some((0, -5)));
+    assert!(db.cards[gg.unit as usize].name == "Goblin" && db.cards[n0 + 44].attach.is_some_and(|a| db.cards[a.unit as usize].name == "SpearGoblinGiant"));
     assert_eq!(db.cards[n0 + 43].name, "AxeMan_EV1");
     let ax = db.cards[n0 + 43].evo.as_ref().and_then(|e| e.axe).expect("the Evo Executioner's axe");
     assert!(ax.strong_damage == 94 && ax.strong_range == 2500 * K && ax.push == 1000 * K);
