@@ -6590,6 +6590,10 @@ pub struct EvoBoard {
     /// hashed only when not empty.
     #[serde(default)]
     pub nets: Vec<NetRun>,
+    /// Each unit an Evo Dart Goblin's darts have poisoned (card.rs `DartPoisonDef`, `poison_pass`). `default` so a
+    /// battle saved before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub poisons: Vec<PoisonRun>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6675,6 +6679,32 @@ pub struct UppercutRun {
     pub pin: Option<Vec2>,
 }
 
+/// A UNIT AN EVO DART GOBLIN HAS POISONED (card.rs `DartPoisonDef`, `dart_hit`, `poison_pass`): the unit, the Dart
+/// Goblin's team, card and level, the darts it has taken, the tick the next area is made, the tick a crown tower's
+/// poison stops, and the areas made (`PoisonHit`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PoisonRun {
+    pub target: EntityId,
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub stacks: u32,
+    pub next_spawn: u32,
+    pub until: Option<u32>,
+    pub hits: Vec<PoisonHit>,
+}
+
+/// ONE POISON AREA (`PoisonRun`): the tick it takes what it reaches, the tick those take its damage, the damage (on the
+/// Dart Goblin's ladder, before a crown tower's share), its point, and what it took.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PoisonHit {
+    pub pick_at: u32,
+    pub due: u32,
+    pub damage: i32,
+    pub pos: Vec2,
+    pub victims: Vec<EntityId>,
+}
+
 /// AN EVO HUNTER'S NET CLOCK (card.rs `NetDef`, `net_pass`): the Hunter, the tick he may next check, his target and the
 /// tick he took it, and the tick a cast net is thrown.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -6719,6 +6749,7 @@ impl EvoBoard {
             && self.spawn_gates.is_empty()
             && self.volleys.is_empty()
             && self.nets.is_empty()
+            && self.poisons.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -13828,6 +13859,94 @@ impl BattleState {
         }
     }
 
+    /// AN EVO DART GOBLIN'S DART on live unit `t` (card.rs `DartPoisonDef`): one more dart on its stack; the first starts
+    /// its poison, an area made this tick (`poison_area`); a crown tower's poison is set to stop `tower_ms` after it.
+    fn dart_hit(&mut self, t: EntityId, team: Team, card: u16, level: i32) {
+        if !self.ents.is_alive(t) {
+            return;
+        }
+        let Some(d) = self.cfg.cards.get(card).evo.as_ref().and_then(|e| e.dart_poison) else { return };
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let tower = matches!(self.ents.kind[t.index as usize], EntityKind::KingTower | EntityKind::PrincessTower);
+        let until = tower.then(|| tick + (d.tower_ms / dt) as u32);
+        match self.evo.poisons.iter_mut().find(|r| r.target == t) {
+            Some(r) => {
+                r.stacks += 1;
+                if tower {
+                    r.until = until;
+                }
+            }
+            None => {
+                self.evo.poisons.push(PoisonRun { target: t, team, card, level, stacks: 1, next_spawn: tick, until, hits: Vec::new() });
+                self.poison_pass_for(self.evo.poisons.len() - 1);
+            }
+        }
+    }
+
+    /// THE EVO DART GOBLINS' POISONS (card.rs `DartPoisonDef`), in the Projectile phase before the landings' areas: each
+    /// run makes its area on its tick, each area takes what it reaches on its pick tick and deals on its due tick;
+    /// a run whose unit is gone, or whose crown tower's poison is over with no area left, ends.
+    fn poison_pass(&mut self) {
+        let tick = self.tick;
+        let ents = &self.ents;
+        self.evo.poisons.retain(|r| ents.is_alive(r.target) || !r.hits.is_empty());
+        for k in 0..self.evo.poisons.len() {
+            self.poison_pass_for(k);
+        }
+        self.evo.poisons.retain(|r| !r.hits.is_empty() || (r.until.is_none_or(|u| tick < u)));
+    }
+
+    /// Run `k`'s step this tick (`poison_pass`).
+    fn poison_pass_for(&mut self, k: usize) {
+        let cards = self.cfg.cards.clone();
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let mut r = std::mem::replace(&mut self.evo.poisons[k], PoisonRun { target: EntityId::default(), team: Team::Blue, card: 0, level: 0, stacks: 0, next_spawn: 0, until: None, hits: Vec::new() });
+        let Some(d) = cards.get(r.card).evo.as_ref().and_then(|e| e.dart_poison) else {
+            self.evo.poisons[k] = r;
+            return;
+        };
+        let alive = self.ents.is_alive(r.target);
+        // Its area, on its tick, while the unit lives (and a crown tower's poison lasts), at the stack's level now.
+        if alive && tick >= r.next_spawn && r.until.is_none_or(|u| tick < u) {
+            let lvl = d.checks.iter().filter(|c| r.stacks >= **c as u32).count();
+            if lvl > 0 {
+                let damage = cards.scaled(r.card, r.level, d.damages[lvl - 1]).unwrap_or(d.damages[lvl - 1]);
+                let pick_at = tick + (d.first_ms / dt) as u32;
+                r.hits.push(PoisonHit { pick_at, due: pick_at + (d.delay_ms / dt) as u32, damage, pos: self.ents.pos[r.target.index as usize], victims: Vec::new() });
+            }
+            r.next_spawn = tick + (d.interval_ms / dt) as u32;
+        }
+        // Each area's pick, then its damage.
+        for h in r.hits.iter_mut() {
+            if h.pick_at == tick {
+                let reach = |j: usize| crate::fixed::in_range_edge(h.pos, self.ents.pos[j], d.radius, self.ents.radius[j]);
+                #[cfg(not(clash_plant = "dart_poison_target_only"))]
+                let picked: Vec<EntityId> = self
+                    .ents
+                    .live_indices()
+                    .filter(|&j| self.ents.team[j] != r.team && self.ents.hp[j] > 0 && reach(j))
+                    .filter(|&j| if self.ents.in_air(j) { d.hits_air } else { d.hits_ground })
+                    .map(|j| self.ents.id_of(j))
+                    .collect();
+                #[cfg(clash_plant = "dart_poison_target_only")]
+                let picked: Vec<EntityId> = vec![r.target].into_iter().filter(|t| self.ents.is_alive(*t) && reach(t.index as usize)).collect(); // PLANT: the darted unit alone.
+                h.victims = picked;
+            }
+            if h.due == tick {
+                for v in std::mem::take(&mut h.victims) {
+                    let vi = v.index as usize;
+                    if self.ents.is_alive(v) && self.ents.hp[vi] > 0 {
+                        let tower = matches!(self.ents.kind[vi], EntityKind::KingTower | EntityKind::PrincessTower);
+                        let amount = if tower { h.damage * d.crown_pct / 100 } else { h.damage };
+                        self.ents.hp[vi] -= amount;
+                    }
+                }
+            }
+        }
+        r.hits.retain(|h| h.due > tick);
+        self.evo.poisons[k] = r;
+    }
+
     /// THE EVO HUNTERS' NETS (card.rs `NetDef`), in the Projectile phase: each notes when he took his current target; a
     /// cast net is thrown on its tick at that target if it lives, and his next check is `cooldown_ms` and a tick on; else,
     /// ready and deployed, with a target held NET_TARGET_HOLD_TICKS and within his net's range (edge to edge), the cast
@@ -18363,9 +18482,20 @@ impl BattleState {
         // Spell objects made by spell objects, appended after every spell has stepped,
         // so they first act next tick.
         self.spells.append(&mut born);
+        // THE EVO DART GOBLINS' POISON AREAS, made, picking and dealing on their ticks (`poison_pass`).
+        if !self.evo.poisons.is_empty() {
+            self.poison_pass();
+        }
         // A landing object's area effect: cast at its point and appended after them, so
         // it too first applies next tick (as a death's area effect does, `phase_reap`).
         for a in areas {
+            // AN EVO DART GOBLIN'S DART LANDING (card.rs `DartPoisonDef`): it stacks the poison on its target.
+            if a.part == Some(crate::card::EVO_DART_POISON) {
+                if let Some(t) = a.target {
+                    self.dart_hit(t, a.team, a.card, a.level);
+                }
+                continue;
+            }
             // AN ATTACHED PART (the Evo Firecracker's fireworks): made where it was released, standing there.
             if let Some(part) = a.part {
                 let s = spell::attached_area(&self.cfg.cards, &self.cfg.calib, a.team, a.card, a.level, a.target.unwrap_or_default(), a.pos, part).expect("released area level validated at deploy");
@@ -23378,6 +23508,31 @@ impl BattleState {
                 for (id, until) in &b.freed {
                     h.id(*id);
                     h.u32(*until);
+                }
+            }
+            // The Evo Dart Goblins' poisons, only when there are some.
+            if !b.poisons.is_empty() {
+                h.u32(0x504f_4953);
+                h.u32(b.poisons.len() as u32);
+                for r in &b.poisons {
+                    h.id(r.target);
+                    h.u32(r.card as u32);
+                    h.i32(r.level);
+                    h.u32(r.stacks);
+                    h.u32(r.next_spawn);
+                    h.u32(r.until.unwrap_or(u32::MAX));
+                    h.u32(r.hits.len() as u32);
+                    for p in &r.hits {
+                        h.u32(p.pick_at);
+                        h.u32(p.due);
+                        h.i32(p.damage);
+                        h.i32(p.pos.x);
+                        h.i32(p.pos.y);
+                        h.u32(p.victims.len() as u32);
+                        for v in &p.victims {
+                            h.id(*v);
+                        }
+                    }
                 }
             }
             // The Evo Hunters' net clocks, only when there are some.

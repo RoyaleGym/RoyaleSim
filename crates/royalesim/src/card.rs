@@ -1951,6 +1951,8 @@ pub struct EvoDef {
     pub freeze_volley: Option<FreezeVolleyDef>,
     /// Evo Hunter: his net at his target on its own clock (`NetDef`).
     pub net: Option<NetDef>,
+    /// Evo Dart Goblin: the poison his darts stack on what they land on (`DartPoisonDef`).
+    pub dart_poison: Option<DartPoisonDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4259,6 +4261,8 @@ struct RawEvolution {
     evo_freeze_volley: Option<RawFreezeVolley>,
     /// The Evo Hunter's net (`net_block`).
     evo_net: Option<RawNet>,
+    /// The Evo Dart Goblin's poison (`dart_poison_block`).
+    evo_dart_poison: Option<RawDartPoison>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4321,6 +4325,21 @@ struct RawCage {
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_dart_poison` (tools/extract_cards.py `dart_poison_block`).
+#[derive(Deserialize)]
+struct RawDartPoison {
+    checks: Option<Vec<i32>>,
+    interval_ms: Option<i32>,
+    tower_ms: Option<i32>,
+    radius_milli: Option<i32>,
+    first_ms: Option<i32>,
+    hits_air: Option<bool>,
+    hits_ground: Option<bool>,
+    delay_ms: Option<i32>,
+    damages: Option<Vec<i32>>,
+    crown_pct: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_net` (tools/extract_cards.py `net_block`).
@@ -4443,6 +4462,37 @@ pub const EVO_FIREWORKS: u8 = u8::MAX - 2;
 pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
 /// The Evo Princess's freezing arrow's area (`FreezeVolleyDef::area`).
 pub const EVO_FREEZE_AREA: u8 = u8::MAX - 4;
+
+/// The Evo Dart Goblin's dart landing (`DartPoisonDef`), released as a part: `state.rs` starts or stacks the poison on its
+/// target (`dart_hit`) instead of casting an area.
+pub const EVO_DART_POISON: u8 = u8::MAX - 5;
+
+/// THE EVO DART GOBLIN'S POISON (tools/extract_cards.py `dart_poison_block`; combat.rs `step_projectiles`, part
+/// EVO_DART_POISON; state.rs EvoBoard `poisons`, `dart_hit`, `poison_pass`): each of his darts that lands on a unit adds
+/// one to that unit's stack; from the first, a poison area is made on the unit every `interval_ms` at the stack's level
+/// then (level k from the `checks[k]`-th dart); the area takes what it reaches (`radius`, SUBTILES, past each one's
+/// edge; enemies of his, air and ground as set) `first_ms` after it is made, and each takes the level's damage
+/// (`damages`, level 1, on his card's ladder; a crown tower `crown_pct` % of it) `delay_ms` after that. On a crown tower
+/// the areas stop `tower_ms` after its last dart; on anything else, when it dies.
+///
+/// Measured on client 15.535.29, level 11 (Oracle's sp-f4-dart-s0: a Golem darted every 15-16 ticks; sp-f4-dart2-s0:
+/// an Ice Golem 1000 beside the darted Golem): the first poison 25 ticks after the first dart, then every 20; 64, 128
+/// and 307 (25, 50 and 120 at level 1), each from the first area made after the 1st, 4th and 7th dart; the Ice Golem,
+/// never darted, lost the same on the same ticks, 1493-1800 from the Golem. Read off the table, not measured: the crown
+/// tower's share and end.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DartPoisonDef {
+    pub checks: [i32; 3],
+    pub interval_ms: i32,
+    pub tower_ms: i32,
+    pub radius: i32,
+    pub first_ms: i32,
+    pub hits_air: bool,
+    pub hits_ground: bool,
+    pub delay_ms: i32,
+    pub damages: [i32; 3],
+    pub crown_pct: i32,
+}
 
 /// The ticks the Evo Hunter must have held his target before his net is cast at it (`NetDef`): measured 5 (with
 /// TrapCastTime's 4, the net 9 ticks after he takes a target already in reach, five runs of five).
@@ -9852,6 +9902,7 @@ impl CardDb {
             extra.evo_spawn_below.is_some(),
             extra.evo_freeze_volley.is_some(),
             extra.evo_net.is_some(),
+            extra.evo_dart_poison.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9895,6 +9946,9 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_dart_poison.is_some() {
+            // The dart select (`dart_poison_block` reads it, and the dart's controller, whole).
+            &["ActionBlowdartGoblinEvoDartSelect"]
         } else if extra.evo_net.is_some() {
             // The net and its effects (`net_block` reads them, and the net's hit, whole).
             &["ActionHunterNetAttack", "ActionPlayEffect"]
@@ -10118,6 +10172,7 @@ impl CardDb {
                     axe: None,
                     freeze_volley: None,
                     net: None,
+                    dart_poison: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10323,6 +10378,7 @@ impl CardDb {
             axe: None,
             freeze_volley: None,
             net: None,
+            dart_poison: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10440,6 +10496,29 @@ impl CardDb {
                 hit_ms: pos(cg.hit_ms, "hit frequency")?,
                 cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
                 hide,
+            });
+        }
+        // THE POISON (the Evo Dart Goblin's): on a card whose shot lands on its target.
+        if let Some(d) = &extra.evo_dart_poison {
+            let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a dart poison with no {k}"));
+            let three = |v: &Option<Vec<i32>>, k: &str| -> Result<[i32; 3], String> {
+                let v = v.as_deref().ok_or_else(|| format!("a dart poison with no {k}"))?;
+                <[i32; 3]>::try_from(v).map_err(|_| format!("a dart poison whose {k} is not three"))
+            };
+            if c.projectile.is_none() || c.range_shot.is_some() {
+                return Err("a dart poison on a card whose shot does not land on its target".into());
+            }
+            evo.dart_poison = Some(DartPoisonDef {
+                checks: three(&d.checks, "StackAmountChecks")?,
+                interval_ms: pos(d.interval_ms, "SpawnInterval")?,
+                tower_ms: pos(d.tower_ms, "CrownTowerDuration")?,
+                radius: milli(pos(d.radius_milli, "Radius")?),
+                first_ms: pos(d.first_ms, "HitSpeed")?,
+                hits_air: d.hits_air.unwrap_or(false),
+                hits_ground: d.hits_ground.unwrap_or(false),
+                delay_ms: pos(d.delay_ms, "damage HitSpeed")?,
+                damages: three(&d.damages, "DamageList")?,
+                crown_pct: d.crown_pct.filter(|x| *x >= 0).ok_or("a dart poison with no crown share")?,
             });
         }
         // THE NET (the Evo Hunter's): a full stop as its buff.

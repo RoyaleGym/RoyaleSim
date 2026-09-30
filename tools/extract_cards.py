@@ -3703,7 +3703,7 @@ EVOLUTIONS = (
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
-    "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1",
+    "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -5064,6 +5064,75 @@ def net_block(t: Tables, card: dict) -> dict:
             "ground_ms": ground[0]["TotalDuration"]}
 
 
+# THE EVO DART GOBLIN (`dart_poison_block`): the unit row's columns it reads besides display, and the keys of its dart
+# select, its controller, its poison area and the area's damage.
+DART_ROW = {"Projectile", "OnStartingAction", "ClonedVersion", "StatsTags"}
+DART_SELECT = {"ClassType", "SpecialProjectile", "ActionToTakeDataFrom"}
+DART_CONTROLLER = {"ClassType", "StackAmountChecks", "MaxStacks", "SpawnInterval", "Duration", "CrownTowerDuration",
+                   "AeoList", "StatsTags", "Singleton"}
+DART_DAMAGE = {"ClassType", "HitSpeed", "Duration", "ActionToGetDataFrom", "CrownDamageDamageMultiplier",
+               "CrownTowerDuration", "DamageList", "Singleton", "StatsTags"}
+DART_AREA_COLUMNS = ("Radius", "LifeDuration", "HitsAir", "HitsGround", "HitSpeed", "Buff", "BuffTime", "OnlyEnemies",
+                     "OnHitAction", "Damage", "Pushback")
+
+
+def dart_poison_block(t: Tables, card: dict) -> dict:
+    """THE EVO DART GOBLIN'S POISON (characters/blowdart_goblin_evo.toml), read whole or the build stops: his
+    OnStartingAction an ActionBlowdartGoblinEvoDartSelect whose SpecialProjectile is his dart restyled (a HitEffect);
+    his dart's OnHitTargetAction the ActionBlowdartGoblinEvoController: StackAmountChecks (`checks`), MaxStacks, a spawn
+    every SpawnInterval (`interval_ms`) for Duration (a crown tower's CrownTowerDuration, `tower_ms`), of its AeoList's
+    area for the level (three rows alike in play: Radius `radius_milli`, HitSpeed `first_ms`, OnlyEnemies, air and
+    ground), whose OnHitAction, an ActionBlowdartGoblinEvoDamage, deals DamageList (`damages`, level 1) HitSpeed
+    (`delay_ms`) after the hit, a crown tower CrownDamageDamageMultiplier (`crown_pct`) of it. His dart's action graph,
+    read here, is dropped."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts, pt, at = t["actions"], t["projectiles"], t["area_effect_objects"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - DART_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    sel = acts.get(row["OnStartingAction"])
+    need(sel is not None and sel["ClassType"] == "ActionBlowdartGoblinEvoDartSelect" and _present(sel) <= DART_SELECT,
+         "its dart select")
+    special = sel["SpecialProjectile"]
+    need(pt.get(special) is not None and {c for c in pt.set_fields.get(special, set()) if not COSMETIC.search(c)}
+         <= {"Base"}, f"its special dart {special!r}")
+    dart = pt.get(row["Projectile"])
+    ctl_name = dart["OnHitTargetAction"]
+    need(sel["ActionToTakeDataFrom"] == ctl_name, "its select's controller")
+    ctl = acts.get(ctl_name)
+    need(ctl is not None and ctl["ClassType"] == "ActionBlowdartGoblinEvoController"
+         and _present(ctl) <= DART_CONTROLLER, "its controller")
+    checks, aeos = col_list(acts, ctl_name, "StackAmountChecks"), col_list(acts, ctl_name, "AeoList")
+    need(len(checks) == ctl["MaxStacks"] == len(aeos) == 3 and checks == sorted(checks) and checks[0] >= 1,
+         f"its stacks {checks} / {aeos}")
+    rows = [at.get(n) for n in aeos]
+    need(all(r is not None for r in rows) and all(r[c] == rows[0][c] for r in rows for c in DART_AREA_COLUMNS),
+         "its poison areas differ in play")
+    a = rows[0]
+    need(a["OnlyEnemies"] and a["Damage"] is None and a["Pushback"] is None and a["Radius"] and a["HitSpeed"],
+         "its poison area")
+    dmg_name = a["OnHitAction"]
+    dm = acts.get(dmg_name)
+    need(dm is not None and dm["ClassType"] == "ActionBlowdartGoblinEvoDamage" and _present(dm) <= DART_DAMAGE
+         and dm["ActionToGetDataFrom"] == ctl_name, "its poison's damage")
+    damages = col_list(acts, dmg_name, "DamageList")
+    need(len(damages) == 3 and all(isinstance(d, int) and d > 0 for d in damages), f"its damages {damages}")
+    p = card["projectile"]
+    need(p is not None and p["name"] == row["Projectile"], "its dart's record")
+    p["action_graph"] = None
+    return {"checks": checks, "interval_ms": ctl["SpawnInterval"], "tower_ms": ctl["CrownTowerDuration"],
+            "radius_milli": a["Radius"], "first_ms": a["HitSpeed"], "hits_air": bool(a["HitsAir"]),
+            "hits_ground": bool(a["HitsGround"]), "delay_ms": dm["HitSpeed"], "damages": damages,
+            "crown_pct": dm["CrownDamageDamageMultiplier"]}
+
+
 # THE EVO ICE SPIRITS' SHOT (`impact_area_block`): the columns its OnHitTargetAction's buff may set (display only).
 IMPACT_TAG_BUFF = {"Rarity", "TID", "FilterFile", "FilterExportName", "TopEffect", "TopEffectVerticalOffset",
                    "TopEffectDisabledForAttachedCharacters", "NotCloned"}
@@ -5751,6 +5820,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_freeze_volley"] = freeze_volley_block(t, card)
         elif name == "Hunter_EV1":
             card["evo_net"] = net_block(t, card)
+        elif name == "BlowdartGoblin_EV1":
+            card["evo_dart_poison"] = dart_poison_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

@@ -2119,6 +2119,11 @@ pub fn step_projectiles(
                     ..p.clone()
                 });
             }
+            // THE EVO DART GOBLIN'S DART (card.rs `DartPoisonDef`): its landing starts or stacks the poison on its target.
+            #[cfg(not(clash_plant = "dart_poison_never"))]
+            if let Some(card) = p.firer_card.filter(|c| cards.get(*c).evo.as_ref().is_some_and(|v| v.dart_poison.is_some())) {
+                areas.push(crate::spell::AreaRelease { team: p.team, card, level: p.src_level, pos: p.aim, target: Some(p.target), part: Some(crate::card::EVO_DART_POISON) });
+            }
             if let Some(b) = p.buff {
                 // The shot's buff rides its arrival. A row that sets ApplyBuffBeforeDamage (the Mother Witch's) says so
                 // on the application, and Resolve lands a death-spawning buff on a unit this same hit kills

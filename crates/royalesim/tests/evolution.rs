@@ -500,9 +500,12 @@ fn forms_take_slots_after_every_existing_card() {
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
-    // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess and
-    // the Evo Hunter.
-    assert_eq!(db.cards.len(), n0 + 47);
+    // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess,
+    // the Evo Hunter and the Evo Dart Goblin.
+    assert_eq!(db.cards.len(), n0 + 48);
+    assert_eq!(db.cards[n0 + 47].name, "BlowdartGoblin_EV1");
+    let dp = db.cards[n0 + 47].evo.as_ref().and_then(|e| e.dart_poison).expect("the Evo Dart Goblin's poison");
+    assert!(dp.checks == [1, 4, 7] && dp.damages == [25, 50, 120] && dp.interval_ms == 1000 && dp.radius == 1500 * K && dp.crown_pct == 25);
     assert_eq!(db.cards[n0 + 46].name, "Hunter_EV1");
     let net = db.cards[n0 + 46].evo.as_ref().and_then(|e| e.net).expect("the Evo Hunter's net");
     assert!(net.range == 4000 * K && net.cooldown_ms == 5000 && net.initial_ms == 1000 && net.cast_ms == 200 && net.speed == 600);
