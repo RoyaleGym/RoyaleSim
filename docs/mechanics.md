@@ -94,8 +94,9 @@ engine is usable for your purpose.
 
 ### Cards outside the slice
 
-`data/derived/cards.json` holds **144 cards** (102 troops, 15 buildings, 27 spells) and 334
-units. The engine loads every simulable non-tower card of it;
+`data/derived/cards.json` holds **145 cards** (103 troops, 15 buildings, 27 spells) and 335
+units: the 15.535.29 table's 144 and the Minion Giant, a later client's card added last
+(`data/client_additions`). The engine loads every simulable non-tower card of it;
 `Battle(card_names=None).catalogue_json()` lists what loaded and `CardDb::rejected` what did
 not, with the reason. That default includes the Mirror (code 6) and the cards that travel under
 ground (the Miner and the Goblin Drill, code 5), which RoyaleGym places. Some of the loaded

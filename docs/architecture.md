@@ -162,8 +162,8 @@ The crate itself has no Python dependency and builds alone.
   not serialised by it. Bulk state crosses as one JSON byte string (`state_json()`), which the env
   layer decodes with msgspec's typed C decoder.
 - **The catalogue.** `Battle(card_names=None, ...)` loads every simulable non-tower card in
-  `cards.json` order. The 15.535.29 table holds 144 cards (102 troops, 15 buildings, 27 spells)
-  and 334 units, and `catalogue_json()` lists the ones that loaded while `CardDb::rejected` names
+  `cards.json` order. The table holds 145 cards (103 troops, 15 buildings, 27 spells)
+  and 335 units, the 15.535.29 client's 144 and the Minion Giant added last (`data/client_additions`), and `catalogue_json()` lists the ones that loaded while `CardDb::rejected` names
   the rest with the reason. That includes the Mirror (code 6) and the cards that travel under
   ground (the Miner and the Goblin Drill, code 5), which RoyaleGym places. `path_search="trace_fitted_astar"`
   selects the frame-planned arm and `ground_y_clamp="deploy_column_range_own_frame"` the own-frame
