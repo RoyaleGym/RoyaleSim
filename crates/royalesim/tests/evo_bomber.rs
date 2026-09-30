@@ -4,17 +4,15 @@
 //! THE MEASUREMENTS (client 15.535.29, sp-form-Bomber-evo-s0, two throws):
 //!   - its bomb (400 a tick) landed, and on that frame a bomb stood on the landing point;
 //!   - that bomb moved from the next frame, 400 a tick along the throw's line (within 0.01 of its bearing), and landed
-//!     2500 on (2499 read) 7 frames after the first landing; a second did the same 7 frames later (SpawnChain 2).
-//!
+//!     2500 on (2499 read) 7 frames after the first landing; a second did the same 7 frames later (SpawnChain 2);
 //!   - a later landing spared a Musketeer the bomb had hit, 1551 and 1807 from the bounces' landings.
 //!
 //! Read off the table, not measured: a fresh unit's splash from a bounce (the bounce's row extends the bomb's).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_bomber`):
-//!   - bounce_never -> `the_bomb_bounces_twice_along_its_line_2500_each` red.
-//! PLANT bounce_rehits (`RUSTFLAGS='--cfg clash_plant="bounce_rehits"' CARGO_TARGET_DIR=target/plant cargo test
-//! --profile gate --test evo_bomber`) -> `a_bounce_spares_what_the_throws_landing_hit` red.
+//!   - bounce_never -> `the_bomb_bounces_twice_along_its_line_2500_each` red;
+//!   - bounce_rehits -> `a_bounce_spares_what_the_throws_landing_hit` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
