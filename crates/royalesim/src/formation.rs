@@ -158,6 +158,80 @@ fn shr10_trunc(v: i32) -> i32 {
 /// Lane ids as the arena's lane bits name them: 1 = left, 2 = right, in the frame
 /// the point is given in (state.rs passes the OWNER's frame, so 1 is own-left).
 pub const LANE_NONE: u8 = 0;
+/// A LINE'S PLACE (a SummonWidth line of two or more with no second summon: the Royal Recruits', the Royal Hogs'; state.rs
+/// `formation_members_with`), in the owner's frame, native. The line is laid around a tile centre: the tap's, when the
+/// line may stand there, else the nearest one (to the tap) where it may, looked for ring by ring around the tap's tile
+/// (each ring from its top-left corner down its left edge, along its bottom, up its right edge and back along its top;
+/// the first of equals kept). It may stand on a tile centre `c` whose ground point `e` (`c` + `ground`, the
+/// formation.GROUND_DEPLOY_POINT offset) is out of the king's zone (LINE_KING_ZONE_*) and on the owner's half, whose ends
+/// stand no more than half a tile off the arena, and none of whose members (`e` + its offset) stands on a princess
+/// tower's rows (LINE_PRINCESS_*) or behind the king (LINE_KING_*). None when no tile within LINE_SEARCH_RINGS rings is
+/// one: the tap stands.
+///
+/// Fitted on client 15.535.29 (Oracle's sp-rrtap-*: 59 accepted Royal Recruits taps on side 0, x 2500 to 17000 and y 3500
+/// to 11500): 57 are this law's, centre to the native unit (6499: the tile centre 6500 less the left half's ground
+/// offset). Side 1's two taps are not fitted here. The other two are the exact ties of the princess rows, a tap on y 6500 with 4500 and 8500 equally
+/// near: (4500, 6500) went up and (13500, 6500) down, where this order takes the other; no ring order fits all five
+/// such taps. A tap in the king's zone itself was refused by the client (9000, 4000); here it is placed.
+pub fn line_centre(tap: Vec2, offsets: &[Vec2], ground: Vec2, width: i32) -> Option<Vec2> {
+    let cell = LINE_CELL;
+    let half = offsets.iter().map(|o| o.x.abs()).max().unwrap_or(0);
+    let valid = |c: Vec2| {
+        let e = c.add(ground);
+        if c.x - half < -cell / 2 || c.x + half > width + cell / 2 || e.y >= LINE_OWN_HALF_Y {
+            return false;
+        }
+        if (LINE_KING_ZONE_X.0..LINE_KING_ZONE_X.1).contains(&e.x) && e.y < LINE_KING_ZONE_Y {
+            return false;
+        }
+        offsets.iter().all(|o| {
+            let m = e.add(*o);
+            let princess = (LINE_PRINCESS_Y.0..LINE_PRINCESS_Y.1).contains(&m.y) && LINE_PRINCESS_X.iter().any(|(a, b)| (*a..*b).contains(&m.x));
+            let king = (LINE_KING_COLUMNS.0..LINE_KING_COLUMNS.1).contains(&m.x) && m.y < LINE_KING_BACK_Y;
+            !princess && !king
+        })
+    };
+    let (tx, ty) = (tap.x.div_euclid(cell), tap.y.div_euclid(cell));
+    let centre = |dx: i32, dy: i32| Vec2::new((tx + dx) * cell + cell / 2, (ty + dy) * cell + cell / 2);
+    if valid(centre(0, 0)) {
+        return Some(centre(0, 0));
+    }
+    let mut best: Option<(i64, Vec2)> = None;
+    for r in 1..=LINE_SEARCH_RINGS {
+        let (mut dx, mut dy) = (-r, r);
+        for (sx, sy) in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
+            for _ in 0..2 * r {
+                let c = centre(dx, dy);
+                if valid(c) {
+                    let d = c.dist2(tap);
+                    if best.map_or(true, |(b, _)| d < b) {
+                        best = Some((d, c));
+                    }
+                }
+                dx += sx;
+                dy += sy;
+            }
+        }
+    }
+    best.map(|(_, c)| c)
+}
+
+/// `line_centre`'s tile, native.
+pub const LINE_CELL: i32 = 1000;
+/// `line_centre`: the king's zone a line's ground point may not stand in (x, then below this y), native, owner's frame.
+pub const LINE_KING_ZONE_X: (i32, i32) = (6500, 11500);
+pub const LINE_KING_ZONE_Y: i32 = 5000;
+/// `line_centre`: the princess towers' columns and rows no member may stand on, native, owner's frame.
+pub const LINE_PRINCESS_X: [(i32, i32); 2] = [(2000, 5000), (13000, 16000)];
+pub const LINE_PRINCESS_Y: (i32, i32) = (5000, 8000);
+/// `line_centre`: the king's columns, behind whose LINE_KING_BACK_Y no member may stand, native, owner's frame.
+pub const LINE_KING_COLUMNS: (i32, i32) = (7000, 11000);
+pub const LINE_KING_BACK_Y: i32 = 4000;
+/// `line_centre`: the owner's half ends here (a ground point on or past it is the river's or the enemy's).
+pub const LINE_OWN_HALF_Y: i32 = 15000;
+/// `line_centre`: how many rings around the tap's tile it looks at.
+pub const LINE_SEARCH_RINGS: i32 = 18;
+
 pub const LANE_LEFT: u8 = 1;
 pub const LANE_RIGHT: u8 = 2;
 

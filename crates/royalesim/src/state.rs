@@ -19659,14 +19659,27 @@ impl BattleState {
                 // one's is laid around the tap itself. Measured, both seats. In the
                 // OWNER's frame an absolute -1 is -1 for Blue and +1 for Red, so the
                 // two offsets are signed by the frame, not by the rule.
-                let ground_tap = match calib.formation_ground_deploy_point {
-                    GroundDeployPoint::None => tap,
+                let ground_delta = match calib.formation_ground_deploy_point {
+                    GroundDeployPoint::None => Vec2::default(),
                     GroundDeployPoint::Client16402OneUnit => {
                         let dy = if team == Team::Red { 1 } else { 0 };
                         let dx = if pos.x < arena.width / 2 { if team == Team::Red { 1 } else { -1 } } else { 0 };
-                        Vec2::new(tap.x + dx, tap.y + dy)
+                        Vec2::new(dx, dy)
                     }
                 };
+                // A LINE'S PLACE (formation.rs `line_centre`; the Royal Recruits', the Royal Hogs'): a tile centre where
+                // the whole line may stand, the tap's or the nearest.
+                let line = fd.summon_width != 0 && s == 0 && n >= 2 && members.is_none() && !cards.get(unit_of(0)).is_flying();
+                #[cfg(not(clash_plant = "line_centre_on_tap"))]
+                let tap = if line {
+                    let offsets: Vec<Vec2> = (0..n).map(|k| crate::formation::member_offset(layout, k)).collect();
+                    crate::formation::line_centre(tap, &offsets, ground_delta, arena.width / K).unwrap_or(tap)
+                } else {
+                    tap
+                };
+                #[cfg(clash_plant = "line_centre_on_tap")]
+                let _ = line; // PLANT: the line stands on the tap.
+                let ground_tap = tap.add(ground_delta);
                 let y_range = match calib.formation_ground_y_clamp {
                     GroundYClamp::Client16402DeployColumnRange | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
                     GroundYClamp::None => None,
