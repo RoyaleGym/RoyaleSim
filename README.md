@@ -67,7 +67,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 133 of the 145 cards in its card table (the 15.535 client's, plus the Minion Giant) and refuses 12, with a reason for each, and thirty-four of them also in their evolved or hero form. Counted by the loader itself (its census at `f3f68c8`, `cards.json` FNV-1a 64 9f62e5a75a90ac73). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 133 of the 145 cards in its card table (the 15.535 client's, plus the Minion Giant) and refuses 12, with a reason for each, and fifty-one of them also in their evolved or hero form. Counted by the loader itself (its census at `6b1aae7`, `cards.json` FNV-1a 64 0a33362cc35a082e). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 373 carry a status from guess to measured, and 258 are measured (RoyaleSim e70e458). 318 also name the rivals they were chosen against, and 327 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -493,15 +493,15 @@ Working:
 - Cards. **Of the card table's 145 rows the engine loads 133 and refuses 12**, with a reason for
   each refusal. 144 rows are the 15.535 client's own table; the 145th, the Minion Giant, is a
   card the live client has and that table lacks, taken from a later client's table and added
-  last. The engine's own census reports **159 loadable, 12 rejected and 55 summon-only**, and
-  those do not sum to 145 for a reason worth stating: the 159 is the 133 plus the King and
-  Princess towers plus 24 evolved forms (the `_EV1` rows), which load as cards of their own, and
-  the 55 summon-only are unit definitions that are not rows of the card table at all - a
+  last. The engine's own census reports **176 loadable, 12 rejected and 60 summon-only**, and
+  those do not sum to 145 for a reason worth stating: the 176 is the 133 plus the King and
+  Princess towers plus 41 evolved forms (the `_EV1` rows), which load as cards of their own, and
+  the 60 summon-only are unit definitions that are not rows of the card table at all - a
   Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon* drops, the
   MusketeerTurret is what the Hero Musketeer's ability makes, and no hand can play either. The
-  three lists are disjoint and their union is 226: the 145 rows plus the 2 towers plus the 24
-  evolved forms plus those 55. Counts from the census at `f3f68c8`, against `cards.json` FNV-1a
-  64 9f62e5a75a90ac73. The loadable and refused lists are pinned row by row in
+  three lists are disjoint and their union is 248: the 145 rows plus the 2 towers plus the 41
+  evolved forms plus those 60. Counts from the census at `6b1aae7`, against `cards.json` FNV-1a
+  64 0a33362cc35a082e. The loadable and refused lists are pinned row by row in
   `crates/royalesim/tests/loadable_census.rs`, which CI runs. The default card list holds every
   card that loads, the Miner, the Goblin Drill and the Mirror included, and the Minion Giant last.
   A clone reads the same 145-row table: it is committed rather than generated. The 2018
