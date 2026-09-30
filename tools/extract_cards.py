@@ -3704,6 +3704,7 @@ EVOLUTIONS = (
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
+    "FirespiritHut_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -5064,6 +5065,106 @@ def net_block(t: Tables, card: dict) -> dict:
             "ground_ms": ground[0]["TotalDuration"]}
 
 
+# THE EVO FURNACE (`furnace_block`): the unit row's columns it reads besides display, and the keys of each action.
+FURNACE_ROW = {"OnStartingAttackAction", "Projectile", "OnStartingAction", "ClonedVersion", "VisualActions",
+               "StatsTags"}
+FURNACE_FLIP = {"ClassType", "Condition", "ActivationTime", "OnActivatedAction"}
+FURNACE_DURATION = {"ClassType", "ActionDuration", "GameTagsToSet", "ForceStopIfTrue", "AbortIfInstigatorDies"}
+FURNACE_QUICK = {"ClassType", "Interval", "StartCounterAt", "ActionToExecute", "AffectedBySpawnSpeed", "PauseTag",
+                 "ForceStopIfTrue", "AbortIfInstigatorDies", "Singleton", "StatsTags"}
+FURNACE_SELECT = {"ClassType", "SubActions", "PerActionConditions", "PassOptionalActionDelay"}
+FURNACE_SIDE = {"ClassType", "ActionToRunOnSpawned", "SpawnType", "SpawnData", "NextAction", "NextActionWait",
+                "TargetExprX", "TargetExprY", "StartPositionZOffset", "ParentGOAsSource"}
+FURNACE_SIDE_X = re.compile(r"^x ([-+]) \(team_y_direction\(team_index\) \* (\d+)\)$")
+FURNACE_SIDE_Y = re.compile(r"^team_y_direction\(team_index\) \* (\d+) \+ y$")
+
+
+def furnace_block(t: Tables, card: dict) -> dict:
+    """THE EVO FURNACE (characters/furnace_ev1.toml), read whole or the build stops. Its OnStartingAction runs its
+    base's interval (`start_counter_at_ms`, `interval_ms`, its spawn's `character` for `deploy_time_ms` at `mirrored_x`
+    / `mirrored_y`; paused by UNIT_CUSTOM_TAG_1 and FURNACE_DELAY_NORMAL_SPAWN) beside an ActionFlipFlop on is_moving()
+    for ActivationTime (`move_ms`), whose group ends the quick spawn (FURNACE_STOP_QUICK_SPAWN) and holds the interval
+    for FURNACE_DELAY_NORMAL_SPAWN's ActionDuration (`delay_ms`). Its OnStartingAttackAction group pauses the interval
+    at once (UNIT_CUSTOM_TAG_1, until the stop) and starts, `quick_after_ms` on, the quick spawn: an ActionInterval
+    every `quick_ms` from StartCounterAt 0 whose group launches, `launch_ms` on, one projectile (no damage,
+    `flight_speed`, its SpawnCharacter the interval's character) to x -/+ team_y_direction * `side_x_milli`, y +
+    team_y_direction * `back_y_milli`, the sides taking turns on a variable. Its own Projectile is its base's
+    restyled."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts, pt = t["actions"], t["projectiles"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    def act(name, cls: str, keys: set[str], what: str):
+        a = acts.get(name) if isinstance(name, str) else None
+        need(a is not None and a["ClassType"] == cls and _present(a) <= keys,
+             f"its {what} ({name!r} sets {sorted(_present(a)) if a is not None else None})")
+        return a
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - FURNACE_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    shot = row["Projectile"]
+    need(pt.get(shot) is not None and {c for c in pt.set_fields.get(shot, set()) if not COSMETIC.search(c)} <= {"Base"},
+         f"its shot {shot!r}")
+    start = group_subactions(t, row["OnStartingAction"], f"{unit} start")
+    need(len(start) == 2 and all(d == 0 for _, d in start), f"its start group {start}")
+    iv = act(start[0][0], "ActionInterval", INTERVAL_KEYS, "interval")
+    tags = {x.strip() for x in (iv["PauseTag"] or "").split(",") if x.strip()}
+    need(tags == {"NO_SUMMON", "UNIT_CUSTOM_TAG_1", "FURNACE_DELAY_NORMAL_SPAWN"}
+         and iv["AffectedBySpawnSpeed"] is True,
+         f"its interval's pause tags {sorted(tags)}")
+    sp = act(iv["ActionToExecute"], "ActionSpawnToLocation", SPAWN_TO_LOCATION_KEYS, "interval's spawn")
+    need(sp["SpawnType"] == "CharacterType" and isinstance(sp["SpawnData"], str)
+         and _cosmetic_action(acts, sp["ActionToRunOnSpawned"]), "its interval's spawn")
+    flip = act(start[1][0], "ActionFlipFlop", FURNACE_FLIP, "moving check")
+    need(flip["Condition"] == "is_moving()" and isinstance(flip["ActivationTime"], int), "its moving check")
+    stop = group_subactions(t, flip["OnActivatedAction"], f"{unit} stop")
+    need(len(stop) == 2 and all(d == 0 for _, d in stop), f"its stop group {stop}")
+    stop_tag = act(stop[0][0], "ActionWithDuration", FURNACE_DURATION, "stop tag")
+    delay_tag = act(stop[1][0], "ActionWithDuration", FURNACE_DURATION, "delay tag")
+    need(stop_tag["GameTagsToSet"] == "FURNACE_STOP_QUICK_SPAWN"
+         and delay_tag["GameTagsToSet"] == "FURNACE_DELAY_NORMAL_SPAWN"
+         and isinstance(delay_tag["ActionDuration"], int), "its stop group's tags")
+    atk = group_subactions(t, row["OnStartingAttackAction"], f"{unit} attack")
+    need(len(atk) == 3 and atk[0][1] == 0 and atk[1][1] == atk[2][1], f"its attack group {atk}")
+    pause = act(atk[0][0], "ActionWithDuration", FURNACE_DURATION, "pause")
+    need(pause["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1" and pause["ForceStopIfTrue"] == "FURNACE_STOP_QUICK_SPAWN()",
+         "its pause")
+    quick = act(atk[1][0], "ActionInterval", FURNACE_QUICK, "quick spawn")
+    need(quick["StartCounterAt"] == 0 and quick["ForceStopIfTrue"] == "!UNIT_CUSTOM_TAG_1"
+         and quick["Singleton"] is True
+         and quick["PauseTag"] == "NO_SUMMON" and quick["AffectedBySpawnSpeed"] is True, "its quick spawn's clock")
+    need(_cosmetic_action(acts, atk[2][0]), "its quick spawn's effect")
+    qs = group_subactions(t, quick["ActionToExecute"], f"{unit} quick start")
+    need(len(qs) == 2 and qs[0][1] == 0 and _cosmetic_action(acts, qs[0][0]), f"its quick start {qs}")
+    act(qs[1][0], "ActionSelect", FURNACE_SELECT, "side select")
+    sides = col_list(acts, qs[1][0], "SubActions")
+    need(len(sides) == 2, f"its sides {sides}")
+    left = act(sides[0], "ActionSpawnToLocation", FURNACE_SIDE, "first side")
+    right = act(sides[1], "ActionSpawnToLocation", FURNACE_SIDE, "second side")
+    xs = [FURNACE_SIDE_X.match(s["TargetExprX"] or "") for s in (left, right)]
+    ys = [FURNACE_SIDE_Y.match(s["TargetExprY"] or "") for s in (left, right)]
+    need(all(xs) and all(ys) and xs[0][1] == "-" and xs[1][1] == "+" and xs[0][2] == xs[1][2] and ys[0][1] == ys[1][1],
+         "its sides' points")
+    need(left["SpawnType"] == right["SpawnType"] == "ProjectileType" and left["SpawnData"] == right["SpawnData"]
+         and left["NextAction"] == right["NextAction"], "its sides' launches")
+    tick = acts.get(left["NextAction"])
+    need(tick is not None and tick["ClassType"] == "ActionSetVariable", "its sides' turn")
+    proj = pt.get(left["SpawnData"])
+    need(proj is not None and proj["SpawnCharacter"] == sp["SpawnData"] and not proj["Damage"]
+         and isinstance(proj["Speed"], int), f"its launch {left['SpawnData']!r}")
+    return {"start_counter_at_ms": iv["StartCounterAt"], "interval_ms": iv["Interval"], "character": sp["SpawnData"],
+            "deploy_time_ms": sp["DeployTime"], "mirrored_x": sp["MirroredX"], "mirrored_y": sp["MirroredY"],
+            "move_ms": flip["ActivationTime"], "delay_ms": delay_tag["ActionDuration"], "quick_after_ms": atk[1][1],
+            "quick_ms": quick["Interval"], "launch_ms": qs[1][1], "side_x_milli": int(xs[0][2]),
+            "back_y_milli": int(ys[0][1]), "flight_speed": proj["Speed"]}
+
+
 # THE EVO DART GOBLIN (`dart_poison_block`): the unit row's columns it reads besides display, and the keys of its dart
 # select, its controller, its poison area and the area's damage.
 DART_ROW = {"Projectile", "OnStartingAction", "ClonedVersion", "StatsTags"}
@@ -5822,6 +5923,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_net"] = net_block(t, card)
         elif name == "BlowdartGoblin_EV1":
             card["evo_dart_poison"] = dart_poison_block(t, card)
+        elif name == "FirespiritHut_EV1":
+            card["evo_furnace"] = furnace_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

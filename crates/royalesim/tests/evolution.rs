@@ -501,7 +501,13 @@ fn forms_take_slots_after_every_existing_card() {
             ("IceSpirits", "IceSpirits_EV1"),
             ("Firecracker", "Firecracker_EV1"),
             ("Witch", "Witch_EV1"),
-            ("GoblinCage", "GoblinCage_EV1")
+            ("GoblinCage", "GoblinCage_EV1"),
+            ("AxeMan", "AxeMan_EV1"),
+            ("GoblinGiant", "GoblinGiant_EV1"),
+            ("Princess", "Princess_EV1"),
+            ("Hunter", "Hunter_EV1"),
+            ("BlowdartGoblin", "BlowdartGoblin_EV1"),
+            ("FirespiritHut", "FirespiritHut_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
@@ -514,8 +520,12 @@ fn forms_take_slots_after_every_existing_card() {
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
     // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess,
-    // the Evo Hunter and the Evo Dart Goblin.
-    assert_eq!(db.cards.len(), n0 + 48);
+    // the Evo Hunter, the Evo Dart Goblin and the Evo Furnace.
+    assert_eq!(db.cards.len(), n0 + 49);
+    assert_eq!(db.cards[n0 + 48].name, "FirespiritHut_EV1");
+    let fu = db.cards[n0 + 48].evo.as_ref().and_then(|e| e.furnace).expect("the Evo Furnace's quick spawn");
+    assert!(fu.quick_ms == 2400 && fu.quick_after_ms == 400 && fu.move_ms == 1000 && fu.delay_ms == 400 && fu.side_x == 1500 * K && fu.back_y == 1000 * K);
+    assert!(db.cards[n0 + 48].spawner.is_some_and(|s| s.unit == fu.spirit), "its base's interval, its spirit the quick spawn's");
     assert_eq!(db.cards[n0 + 47].name, "BlowdartGoblin_EV1");
     let dp = db.cards[n0 + 47].evo.as_ref().and_then(|e| e.dart_poison).expect("the Evo Dart Goblin's poison");
     assert!(dp.checks == [1, 4, 7] && dp.damages == [25, 50, 120] && dp.interval_ms == 1000 && dp.radius == 1500 * K && dp.crown_pct == 25);

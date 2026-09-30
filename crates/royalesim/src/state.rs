@@ -6594,6 +6594,10 @@ pub struct EvoBoard {
     /// battle saved before it still loads; hashed only when not empty.
     #[serde(default)]
     pub poisons: Vec<PoisonRun>,
+    /// Each Evo Furnace's quick spawn and holds (card.rs `FurnaceDef`, `furnace_pass`). `default` so a battle saved
+    /// before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub furnaces: Vec<FurnaceRun>,
     /// Each Evo Skeleton Army unit, its play's group and its role (`army_deaths`). `default` so a battle saved before it
     /// still loads; hashed only when not empty.
     #[serde(default)]
@@ -6679,6 +6683,37 @@ pub struct UppercutRun {
     pub pin: Option<Vec2>,
 }
 
+/// AN EVO FURNACE'S QUICK SPAWN (card.rs `FurnaceDef`, `furnace_pass`): the Furnace, its team, card, level and team
+/// order (its spirits' owner and place), its point on the last pass, whether it was attacking then, the passes it has
+/// moved without attacking, whether its quick spawn runs, the quick spawn's next fire and whether the gap to it is the
+/// first, whether the next launch goes to its left, the last tick its interval is held by the moving check, its
+/// launches (tick, to the left) and the spirits in flight (tick, point).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FurnaceRun {
+    pub id: EntityId,
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub seq: u32,
+    pub at: Vec2,
+    pub attacking: bool,
+    pub moving: u32,
+    pub quick: bool,
+    pub next: u32,
+    pub first: bool,
+    pub right: bool,
+    pub hold_until: u32,
+    pub launches: Vec<(u32, bool)>,
+    pub landings: Vec<(u32, Vec2)>,
+}
+
+impl FurnaceRun {
+    /// Whether it holds its interval on `tick`: its quick spawn runs, or the moving check's hold does.
+    fn holds(&self, tick: u32) -> bool {
+        self.quick || tick <= self.hold_until
+    }
+}
+
 /// A UNIT AN EVO DART GOBLIN HAS POISONED (card.rs `DartPoisonDef`, `dart_hit`, `poison_pass`): the unit, the Dart
 /// Goblin's team, card and level, the darts it has taken, the tick the next area is made, the tick a crown tower's
 /// poison stops, and the areas made (`PoisonHit`).
@@ -6750,6 +6785,7 @@ impl EvoBoard {
             && self.volleys.is_empty()
             && self.nets.is_empty()
             && self.poisons.is_empty()
+            && self.furnaces.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
@@ -8998,6 +9034,11 @@ impl BattleState {
         if evo.cage.is_some() {
             self.evo.cages.push(CageRun { cage: id, captive: None, grab: 0, d0: 0, from: pos, free_at: 0 });
         }
+        // An Evo Furnace starts with no quick spawn (`furnace_pass`).
+        if evo.furnace.is_some() {
+            let seq = self.ents.team_seq[i];
+            self.evo.furnaces.push(FurnaceRun { id, team, card, level, seq, at: pos, attacking: false, moving: 0, quick: false, next: 0, first: false, right: true, hold_until: 0, launches: Vec::new(), landings: Vec::new() });
+        }
         // An Evo Hunter's net is ready its InitialCooldown after his deploy (`net_pass`).
         if let Some(n) = evo.net {
             let dt = self.cfg.calib.tick_ms.max(1);
@@ -10219,6 +10260,12 @@ impl BattleState {
             if action {
                 continue; // PLANT (regression): the loader reads the block and the engine never runs it.
             }
+            // AN EVO FURNACE'S INTERVAL HELD (card.rs `FurnaceDef`, EvoBoard `furnaces`): by its quick spawn or its moving
+            // check's hold, its count kept.
+            #[cfg(not(clash_plant = "furnace_normal_spawn_unpaused"))]
+            if action && !self.evo.furnaces.is_empty() && self.evo.furnaces.iter().any(|r| r.id == e.id_of(i) && r.holds(self.tick)) {
+                continue;
+            }
             let step = if action {
                 match self.cfg.calib.action_spawner_spawn_speed {
                     ActionSpawnSpeed::Buffed => dt * e.buffed(&cards.buffs, i, Sel::SpawnSpeed, 100) / 100,
@@ -10342,6 +10389,74 @@ impl BattleState {
             self.ents.spawn_ms[i] = start;
             self.ents.spawn_wave_left[i] = 0;
         }
+        self.create_emissions(emissions, true);
+    }
+
+    /// THE EVO FURNACES' QUICK SPAWNS (card.rs `FurnaceDef`), right before the spawner pass, on this tick's moved points
+    /// and attacks: an attack's start (its attack phase leaving Idle) starts the quick spawn if none runs, its first fire
+    /// `quick_after_ms` on; moving `move_ms` of passes without attacking ends it and holds the interval; each fire due
+    /// makes a launch `launch_ms` on; each launch due puts its spirit in flight to the side's point; each spirit due
+    /// stands there, born walking and owned by the Furnace. A Furnace gone makes no more launches; its spirits in flight
+    /// land.
+    fn furnace_pass(&mut self) {
+        let cards = self.cfg.cards.clone();
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let ticks = |ms: i32| (ms / dt).max(0) as u32;
+        let mut emissions: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+        let mut runs = std::mem::take(&mut self.evo.furnaces);
+        for r in runs.iter_mut() {
+            let Some(f) = cards.get(r.card).evo.as_ref().and_then(|e| e.furnace) else { continue };
+            if self.ents.is_alive(r.id) {
+                let i = r.id.index as usize;
+                if self.ents.deploy_ms[i] == 0 {
+                    let attacking = self.ents.attack_phase[i] != AttackPhase::Idle;
+                    #[cfg(not(clash_plant = "furnace_quick_never"))]
+                    if attacking && !r.attacking && !r.quick {
+                        r.quick = true;
+                        r.first = true;
+                        r.next = tick + ticks(f.quick_after_ms);
+                    }
+                    let pos = self.ents.pos[i];
+                    r.moving = if pos != r.at && !attacking { r.moving + 1 } else { 0 };
+                    if r.moving == ticks(f.move_ms) {
+                        #[cfg(not(clash_plant = "furnace_quick_never_stops"))]
+                        {
+                            r.quick = false;
+                        }
+                        r.hold_until = tick + ticks(f.delay_ms) + crate::card::FURNACE_DELAY_EXTRA_TICKS - 1;
+                    }
+                    if r.quick && tick >= r.next {
+                        r.launches.push((tick + ticks(f.launch_ms), r.right));
+                        r.right = !r.right;
+                        r.next = tick + ticks(f.quick_ms - if r.first { dt } else { 0 });
+                        r.first = false;
+                    }
+                    r.attacking = attacking;
+                    r.at = pos;
+                }
+                // Each launch due: its spirit in flight to the side's point, from where the Furnace stands now.
+                let fwd = spell::forward_dy(r.team);
+                let at = self.ents.pos[i];
+                for (_, right) in r.launches.iter().filter(|(t, _)| *t <= tick) {
+                    let side = if *right { 1 } else { -1 };
+                    let point = Vec2::new(at.x + side * fwd * f.side_x, at.y - fwd * f.back_y);
+                    r.landings.push((tick + crate::card::FURNACE_SPIRIT_FLIGHT_TICKS, point));
+                }
+                r.launches.retain(|(t, _)| *t > tick);
+            } else {
+                r.launches.clear();
+            }
+            // Each spirit due stands where it landed.
+            for (_, point) in r.landings.iter().filter(|(t, _)| *t <= tick) {
+                let unit = cards.get(f.spirit);
+                let level = cards.spawner_level(r.card, r.level).expect("spawner level validated at deploy");
+                let pos = self.formation_points(r.team, 1, unit.collision_radius, unit.is_flying(), *point)[0];
+                emissions.push((r.team, r.seq, 0, PendingSpawn { team: r.team, card: f.spirit, level, pos, deploy_ms: Some(0), owner: Some(r.id), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
+            }
+            r.landings.retain(|(t, _)| *t > tick);
+        }
+        runs.retain(|r| self.ents.is_alive(r.id) || !r.landings.is_empty());
+        self.evo.furnaces = runs;
         self.create_emissions(emissions, true);
     }
 
@@ -12349,6 +12464,9 @@ impl BattleState {
             // The earlier arm: periodic spawners emit into the (now empty) queue, so
             // their units materialise NEXT tick. The shipped arm runs the pass in
             // Move instead (spawner.EMISSION_TIMING).
+            if !self.evo.furnaces.is_empty() {
+                self.furnace_pass();
+            }
             self.spawner_pass();
             self.life_state_pass();
             self.witch_wave_pass();
@@ -17329,6 +17447,10 @@ impl BattleState {
             // The spawner pass runs here, right after the countdown, for the first
             // time on the tick the deploy timer reaches zero, and creates its units in
             // this tick (spawner.EMISSION_TIMING, measured on 44 live Tombstones).
+            // The Evo Furnaces' quick spawns and holds, on this tick's moved points and attacks (`furnace_pass`).
+            if !self.evo.furnaces.is_empty() {
+                self.furnace_pass();
+            }
             self.spawner_pass();
             // The Goblin Hut's controller, on the same post-move positions.
             self.life_state_pass();
@@ -23532,6 +23654,35 @@ impl BattleState {
                         for v in &p.victims {
                             h.id(*v);
                         }
+                    }
+                }
+            }
+            // The Evo Furnaces' quick spawns, only when there are some.
+            if !b.furnaces.is_empty() {
+                h.u32(0x4655_524e);
+                h.u32(b.furnaces.len() as u32);
+                for r in &b.furnaces {
+                    h.id(r.id);
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.card));
+                    h.i32(r.level);
+                    h.u32(r.seq);
+                    h.i32(r.at.x);
+                    h.i32(r.at.y);
+                    h.u32(u32::from(r.attacking) | (u32::from(r.quick) << 1) | (u32::from(r.first) << 2) | (u32::from(r.right) << 3));
+                    h.u32(r.moving);
+                    h.u32(r.next);
+                    h.u32(r.hold_until);
+                    h.u32(r.launches.len() as u32);
+                    for (t, right) in &r.launches {
+                        h.u32(*t);
+                        h.u32(u32::from(*right));
+                    }
+                    h.u32(r.landings.len() as u32);
+                    for (t, p) in &r.landings {
+                        h.u32(*t);
+                        h.i32(p.x);
+                        h.i32(p.y);
                     }
                 }
             }

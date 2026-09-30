@@ -1953,6 +1953,8 @@ pub struct EvoDef {
     pub net: Option<NetDef>,
     /// Evo Dart Goblin: the poison his darts stack on what they land on (`DartPoisonDef`).
     pub dart_poison: Option<DartPoisonDef>,
+    /// Evo Furnace: the quick spawn its attacks start (`FurnaceDef`).
+    pub furnace: Option<FurnaceDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4263,6 +4265,8 @@ struct RawEvolution {
     evo_net: Option<RawNet>,
     /// The Evo Dart Goblin's poison (`dart_poison_block`).
     evo_dart_poison: Option<RawDartPoison>,
+    /// The Evo Furnace's quick spawn (`furnace_block`).
+    evo_furnace: Option<RawFurnace>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4325,6 +4329,24 @@ struct RawCage {
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_furnace` (tools/extract_cards.py `furnace_block`).
+#[derive(Deserialize)]
+struct RawFurnace {
+    start_counter_at_ms: Option<i32>,
+    interval_ms: Option<i32>,
+    character: Option<String>,
+    deploy_time_ms: Option<i32>,
+    mirrored_x: Option<i32>,
+    mirrored_y: Option<i32>,
+    move_ms: Option<i32>,
+    delay_ms: Option<i32>,
+    quick_after_ms: Option<i32>,
+    quick_ms: Option<i32>,
+    launch_ms: Option<i32>,
+    side_x_milli: Option<i32>,
+    back_y_milli: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_dart_poison` (tools/extract_cards.py `dart_poison_block`).
@@ -4462,6 +4484,39 @@ pub const EVO_FIREWORKS: u8 = u8::MAX - 2;
 pub const EVO_SPARK_FIREWORKS: u8 = u8::MAX - 3;
 /// The Evo Princess's freezing arrow's area (`FreezeVolleyDef::area`).
 pub const EVO_FREEZE_AREA: u8 = u8::MAX - 4;
+
+/// THE EVO FURNACE'S QUICK SPAWN (tools/extract_cards.py `furnace_block`; state.rs EvoBoard `furnaces`, `furnace_pass`,
+/// the interval's hold in `spawner_pass`): its normal spawn is its base's interval (`CardDef::spawner`). An attack's
+/// start holds that interval and starts, `quick_after_ms` on, the quick spawn: a fire at once and every `quick_ms`
+/// after (the first gap a tick short, the interval's start carrying its tick), each launching, `launch_ms` on, a unit
+/// of `spirit` that lands FURNACE_SPIRIT_FLIGHT_TICKS later `side_x` (SUBTILES) to one side of the Furnace's point
+/// then and `back_y` behind it, the sides taking turns, the first to its owner's right. Moving `move_ms` without
+/// attacking ends the quick spawn and holds the interval `delay_ms` more (FURNACE_DELAY_EXTRA_TICKS past it); the
+/// interval keeps its count through every hold.
+///
+/// Measured on client 15.535.29, level 11 (Oracle's sp-f4-furnace-s0 and sp-f4-furnwalk-s0): the quick spirits on the
+/// attack's start + 22, then + 47, + 48, ... (t926, 973, 1021, ...; t1219, 1266, 1314), 1500 to either side and 1000
+/// behind; a walk of 20 ticks ended them; the walking spawns t936, 1046 and 1146 (+ 110 across the moving check's hold,
+/// then + 100); the interval's count kept through two attacks and three walks (t882 -> 1613). Read off the table, not
+/// measured: its clocks under Rage or a freeze.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FurnaceDef {
+    pub spirit: u16,
+    pub move_ms: i32,
+    pub delay_ms: i32,
+    pub quick_after_ms: i32,
+    pub quick_ms: i32,
+    pub launch_ms: i32,
+    pub side_x: i32,
+    pub back_y: i32,
+}
+
+/// The ticks an Evo Furnace's launched spirit flies before it stands (`FurnaceDef`): measured 10 (the spirit on the
+/// fire + 14, its launch 200 ms after the fire).
+pub const FURNACE_SPIRIT_FLIGHT_TICKS: u32 = 10;
+/// The ticks the Evo Furnace's moving check holds its interval past the delay tag's ActionDuration (`FurnaceDef`):
+/// measured 2 (400 ms held 10 ticks: t936 -> 1046 walking).
+pub const FURNACE_DELAY_EXTRA_TICKS: u32 = 2;
 
 /// The Evo Dart Goblin's dart landing (`DartPoisonDef`), released as a part: `state.rs` starts or stacks the poison on its
 /// target (`dart_hit`) instead of casting an area.
@@ -9903,6 +9958,7 @@ impl CardDb {
             extra.evo_freeze_volley.is_some(),
             extra.evo_net.is_some(),
             extra.evo_dart_poison.is_some(),
+            extra.evo_furnace.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9946,6 +10002,10 @@ impl CardDb {
         } else if extra.evo_far_shot.is_some() {
             // The power shot's filter and its two entries (`far_shot_block` reads them whole).
             &["ActionFilter", "ActionSetAttackSequenceIndex"]
+        } else if extra.evo_furnace.is_some() {
+            // Its interval, the moving check and its stop, the attack's pause and quick spawn, their effects, the sides'
+            // select and turn, and the hat's layer (`furnace_block` reads them whole).
+            &["ActionAnimatorLayer", "ActionFlipFlop", "ActionGroup", "ActionInterval", "ActionPlayEffect", "ActionSelect", "ActionSetVariable", "ActionSpawnToLocation", "ActionWithDuration"]
         } else if extra.evo_dart_poison.is_some() {
             // The dart select (`dart_poison_block` reads it, and the dart's controller, whole).
             &["ActionBlowdartGoblinEvoDartSelect"]
@@ -10037,8 +10097,14 @@ impl CardDb {
         let ring_spawns = |g: &RawActionGraph| {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
+        // THE FURNACE'S SPIRITS AND THEIR LAUNCH are its block's too (`furnace_block` reads them whole).
+        let furnace_spawns = |g: &RawActionGraph| {
+            extra.evo_furnace.as_ref().and_then(|f| f.character.as_deref()).is_some_and(|u| {
+                g.spawns.iter().all(|s| s == &format!("CharacterType:{u}") || s.starts_with("ProjectileType:"))
+            })
+        };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -10173,6 +10239,7 @@ impl CardDb {
                     freeze_volley: None,
                     net: None,
                     dart_poison: None,
+                    furnace: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10379,6 +10446,7 @@ impl CardDb {
             freeze_volley: None,
             net: None,
             dart_poison: None,
+            furnace: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10496,6 +10564,34 @@ impl CardDb {
                 hit_ms: pos(cg.hit_ms, "hit frequency")?,
                 cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
                 hide,
+            });
+        }
+        // THE QUICK SPAWN (the Evo Furnace's): its normal spawn is its base's interval, which the block must restate.
+        if let Some(f) = &extra.evo_furnace {
+            let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("a furnace with no {k}"));
+            let sp = bc
+                .spawner
+                .filter(|s| {
+                    s.source == SpawnerSource::ActionInterval
+                        && s.start_time_ms == f.start_counter_at_ms
+                        && Some(s.pause_time_ms) == f.interval_ms
+                        && s.to_location == f.mirrored_x.zip(f.mirrored_y)
+                        && s.emit_deploy_ms == f.deploy_time_ms
+                })
+                .ok_or("a furnace whose interval spawn is not its base's")?;
+            if f.character.as_deref() != Some(self.get(sp.unit).unit_name.as_str()) {
+                return Err(format!("a furnace whose spirit {:?} is not its base's spawn", f.character));
+            }
+            c.spawner = Some(sp);
+            evo.furnace = Some(FurnaceDef {
+                spirit: sp.unit,
+                move_ms: pos(f.move_ms, "ActivationTime")?,
+                delay_ms: pos(f.delay_ms, "delay")?,
+                quick_after_ms: f.quick_after_ms.filter(|x| *x >= 0).ok_or("a furnace with no quick spawn delay")?,
+                quick_ms: pos(f.quick_ms, "quick Interval")?,
+                launch_ms: f.launch_ms.filter(|x| *x >= 0).ok_or("a furnace with no launch delay")?,
+                side_x: milli(pos(f.side_x_milli, "side")?),
+                back_y: milli(pos(f.back_y_milli, "back")?),
             });
         }
         // THE POISON (the Evo Dart Goblin's): on a card whose shot lands on its target.
