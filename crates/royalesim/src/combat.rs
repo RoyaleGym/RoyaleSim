@@ -1665,6 +1665,8 @@ fn straight_hits(
 ) -> bool {
     let (team, damage, crown_pct, hits_air, hits_ground, buff, pulse) = (p.team, p.damage, p.crown_pct, p.hits_air, p.hits_ground, p.buff, p.pulse);
     let (src_level, before_damage) = (p.src_level, p.buff_first);
+    // The Evo Executioner's axe (card.rs `AxeDef`), on a throw of his.
+    let axe = p.firer_card.and_then(|c| cards.get(c).evo.as_ref().and_then(|e| e.axe).map(|a| (c, a)));
     // The enchant bonus the shot was fired with (`enchant_bonus`), on each unit it hits.
     let bonus = Bonus { hit: p.bonus, crown: p.bonus_crown };
     let Some(s) = p.straight.as_mut() else { return false };
@@ -1715,7 +1717,29 @@ fn straight_hits(
             Err(k) => s.hit.insert(k, id),
         }
         any = true;
-        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], damage, crown_pct, calib.crown_rounding) + bonus.on(ents.kind[v]), ignores_hide: false, own: false });
+        // THE EVO EXECUTIONER'S AXE (card.rs `AxeDef`): strong on a victim whose edge is within its range of his, from
+        // where he stands (from where he threw, once he is gone); its strong hit on the way out pushes the victim away.
+        let mut hit_damage = damage;
+        if let Some((c, ax)) = axe {
+            let (from, r) = match s.thrower.filter(|t| ents.is_alive(*t)) {
+                Some(t) => (ents.pos[t.index as usize], ents.radius[t.index as usize]),
+                None => (s.origin, cards.get(c).collision_radius),
+            };
+            #[cfg(not(clash_plant = "axe_strong_by_centre"))]
+            let strong = in_range_edge(from, ents.pos[v], ax.strong_range + r, ents.radius[v]);
+            #[cfg(clash_plant = "axe_strong_by_centre")]
+            let strong = in_range_edge(from, ents.pos[v], ax.strong_range, 0); // PLANT: the range read centre to centre.
+            #[cfg(clash_plant = "axe_strong_never")]
+            let strong = !strong && false; // PLANT: every hit normal.
+            if strong {
+                hit_damage = cards.scaled(c, src_level, ax.strong_damage).unwrap_or(ax.strong_damage);
+                #[cfg(not(clash_plant = "axe_push_never"))]
+                if 2 * s.t <= s.period || cfg!(clash_plant = "axe_push_both_legs") {
+                    push_from(&ctx, team, v, from, &KnockbackDef { distance: ax.push, all: false }, false, fx);
+                }
+            }
+        }
+        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], hit_damage, crown_pct, calib.crown_rounding) + bonus.on(ents.kind[v]), ignores_hide: false, own: false });
         if let Some(b) = buff {
             fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(id, b.buff, b.time_ms, pulse) });
         }

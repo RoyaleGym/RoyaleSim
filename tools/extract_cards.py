@@ -3703,7 +3703,7 @@ EVOLUTIONS = (
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
-    "GoblinCage_EV1",
+    "GoblinCage_EV1", "AxeMan_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4764,6 +4764,84 @@ def fireworks_block(t: Tables, card: dict) -> dict:
     return {"big": names[0], "small": names[1]}
 
 
+# THE EVO EXECUTIONER'S AXE (`axe_block`): the unit row's columns it sets besides display, the columns its axe's rows
+# must agree on (the rows the axe's data swaps between), and the keys of its controller, its swaps and their changes.
+AXE_ROW = {"Projectile", "ClonedVersion", "StatsTags"}
+AXE_SHOT_COLUMNS = ("Speed", "Damage", "Radius", "AoeToAir", "AoeToGround", "OnlyEnemies", "ProjectileRadius",
+                    "ProjectileRange", "MinDistance", "ConstantHeight", "PingpongVisualTime", "Pushback", "TargetBuff",
+                    "Homing", "SpawnAreaEffectObject", "SpawnProjectile", "SpawnCharacter")
+AXE_CONTROLLER = {"ClassType", "Singleton", "Damage", "StrongDamage", "StrongDamageRange", "FirstStrongHitPushback",
+                  "HitAction", "StrongHitAction", "StatsTags"}
+AXE_SWAP = {"ClassType", "Condition", "ActionDelay", "OnActivateAction"}
+AXE_CHANGE = {"ClassType", "NewProjectileData", "NextAction", "NextActionWait"}
+
+
+def axe_block(t: Tables, card: dict) -> dict:
+    """THE EVO EXECUTIONER'S AXE (characters/axeman_ev1.toml), read whole or the build stops: the unit throws its
+    Projectile (a pingpong row, as the Executioner's), whose OnStartingAction is a group, at 0, of an
+    ActionExecutionerEvoProjectile (the controller: Damage; StrongDamage `strong_damage`, level 1, within
+    StrongDamageRange `strong_range_milli`; FirstStrongHitPushback `push_milli`; its hit actions effects), the swaps of
+    the axe's data between its three rows (ActionWaitToActivate -> ActionChangeGameObjectData; the rows agree on every
+    column of play, so the swaps are display only) and an effect. The controller's Damage is written as the axe's (its
+    rows say 0), and the axe's action graph, read whole here, is dropped."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts, pt = t["actions"], t["projectiles"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - AXE_ROW - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    first = pt.get(row["Projectile"])
+    need(first is not None and isinstance(first["OnStartingAction"], str), f"its axe {row['Projectile']!r}")
+    # A group with no SubActionsDelay: every entry at 0.
+    grp = acts.get(first["OnStartingAction"])
+    need(grp is not None and grp["ClassType"] == "ActionGroup" and _present(grp) <= {"ClassType", "SubActions"},
+         f"the axe's start {first['OnStartingAction']!r}")
+    subs = [(n, 0) for n in col_list(acts, first["OnStartingAction"], "SubActions")]
+    by: dict[str, list[str]] = {}
+    for n, d in subs:
+        a = acts.get(n)
+        need(a is not None and d == 0, f"the axe's start runs {subs}")
+        by.setdefault(a["ClassType"], []).append(n)
+    need(sorted(by) == ["ActionExecutionerEvoProjectile", "ActionPlayEffect", "ActionWaitToActivate"]
+         and all(len(v) == 1 for v in by.values()), f"the axe's start runs {subs}")
+    ctl_name = by["ActionExecutionerEvoProjectile"][0]
+    ctl = acts.get(ctl_name)
+    need(_present(ctl) <= AXE_CONTROLLER
+         and all(_cosmetic_action(acts, ctl[k]) for k in ("HitAction", "StrongHitAction")),
+         f"the controller (sets {sorted(_present(ctl) - AXE_CONTROLLER)})")
+    ints = ("Damage", "StrongDamage", "StrongDamageRange", "FirstStrongHitPushback")
+    need(all(isinstance(ctl[k], int) and not isinstance(ctl[k], bool) and ctl[k] > 0 for k in ints),
+         "the controller's numbers")
+    # The swaps: each changes the axe's data to another row, then runs the next swap, or an effect that ends them.
+    rows, n = {row["Projectile"]}, by["ActionWaitToActivate"][0]
+    while True:
+        w = acts.get(n) if isinstance(n, str) else None
+        need(w is not None, f"the swap {n!r}")
+        if w["ClassType"] == "ActionPlayEffect":
+            break
+        need(w["ClassType"] == "ActionWaitToActivate" and _present(w) <= AXE_SWAP, f"the swap {n!r}")
+        ch = w["OnActivateAction"]
+        need(isinstance(ch, dict) and ch.get("ClassType") == "ActionChangeGameObjectData" and set(ch) <= AXE_CHANGE,
+             f"the swap {n!r}'s change")
+        rows.add(ch["NewProjectileData"])
+        n = ch.get("NextAction")
+    need(len(rows) == 3 and all(pt.get(r) is not None for r in rows), f"the axe's rows {sorted(rows)}")
+    need(all(pt.get(r)[c] == first[c] for r in rows for c in AXE_SHOT_COLUMNS), f"the axe's rows {sorted(rows)} differ")
+    p = card["projectile"]
+    need(p["damage"] == 0 and p["pingpong_visual_time_ms"] and p["pushback_milli"] is None,
+         "the axe's own damage, pingpong or pushback")
+    p["damage"], p["action_graph"] = ctl["Damage"], None
+    card["damage"], card["damage_source"] = ctl["Damage"], f"actions.{ctl_name}.Damage"
+    return {"strong_damage": ctl["StrongDamage"], "strong_range_milli": ctl["StrongDamageRange"],
+            "push_milli": ctl["FirstStrongHitPushback"]}
+
+
 # THE EVO ICE SPIRITS' SHOT (`impact_area_block`): the columns its OnHitTargetAction's buff may set (display only).
 IMPACT_TAG_BUFF = {"Rarity", "TID", "FilterFile", "FilterExportName", "TopEffect", "TopEffectVerticalOffset",
                    "TopEffectDisabledForAttachedCharacters", "NotCloned"}
@@ -5443,6 +5521,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_soul_drain"] = soul_drain_block(t, card)
         elif name == "GoblinCage_EV1":
             card["evo_cage"] = cage_block(t, card)
+        elif name == "AxeMan_EV1":
+            card["evo_axe"] = axe_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":

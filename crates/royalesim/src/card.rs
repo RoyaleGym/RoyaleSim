@@ -1939,6 +1939,8 @@ pub struct EvoDef {
     pub death_on_kill_only: bool,
     /// Evo Goblin Cage: its capture of one enemy ground troop (`CageDef`).
     pub cage: Option<CageDef>,
+    /// Evo Executioner: his axe's strong hit near him and its push on the way out (`AxeDef`).
+    pub axe: Option<AxeDef>,
     /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
     pub far_shot: Option<FarShotDef>,
     /// Evo Mega Knight: the uppercut every so many attacks (`UppercutDef`).
@@ -4229,6 +4231,8 @@ struct RawEvolution {
     evo_soul_drain: Option<RawSoulDrain>,
     /// The Evo Goblin Cage's capture (`cage_block`).
     evo_cage: Option<RawCage>,
+    /// The Evo Executioner's axe (`axe_block`).
+    evo_axe: Option<RawAxe>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4291,6 +4295,14 @@ struct RawCage {
     cooldown_ms: Option<i32>,
     /// The death spawn's row (the Brawler), loaded after the form.
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_axe` (tools/extract_cards.py `axe_block`).
+#[derive(Deserialize)]
+struct RawAxe {
+    strong_damage: Option<i32>,
+    strong_range_milli: Option<i32>,
+    push_milli: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_soul_drain` (tools/extract_cards.py `soul_drain_block`).
@@ -4450,6 +4462,26 @@ pub const CAGE_DRAG_EXTRA: i32 = 1090;
 /// The ticks a released captive stands after the cage's death tick (`CageDef`): measured 1 (it walks on the death tick
 /// + 2).
 pub const CAGE_RELEASE_HOLD_TICKS: i32 = 1;
+
+/// THE EVO EXECUTIONER'S AXE (tools/extract_cards.py `axe_block`; combat.rs `straight_hits`): his pingpong throw hits
+/// for `strong_damage` (level 1, on his card's ladder) a victim whose edge is within `strong_range` (SUBTILES) of his
+/// own at the hit, and for the axe's own damage (the controller's Damage) beyond, out and back alike; a strong hit on
+/// the way out pushes its victim `push` (SUBTILES) straight away from him, as a Pushback does (spell.rs `push_from`; a
+/// unit that ignores pushback stays).
+///
+/// Measured on client 15.535.29, level 11 (Oracle's sp-axe-Golem-* and sp-axe-Knight-2000; sp-form-AxeMan-evo-s0):
+/// hits of 240 and 179 (94 and 70 at level 1); a Golem hit strong at 3834 from his centre and normal at 3888 (edges
+/// 2484 and 2538, his radius 600 and its 750), out and back the same, and every hit of the grid and of the form's scene
+/// (a Knight strong at 3536 on the way back, 2436 edge to edge) on its side of 2500; a Knight hit strong on the way out
+/// moved about 820 straight away from him over the 6 ticks after, on each of 3 throws, and not after the back hits; a
+/// Golem never moved. Not measured: a victim hit normal on the way out and strong on the way back (pushed here only on
+/// the way out), and his axe still out when he dies (measured from where he threw).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct AxeDef {
+    pub strong_damage: i32,
+    pub strong_range: i32,
+    pub push: i32,
+}
 
 /// THE EVO FIRECRACKER'S FIREWORKS (tools/extract_cards.py `fireworks_block`; combat.rs `step_projectiles`): an area
 /// where its rocket lands (`big`, released with its sparks) and one where each spark's flight ends (`small`), each
@@ -9681,6 +9713,7 @@ impl CardDb {
             extra.evo_fireworks.is_some(),
             extra.evo_soul_drain.is_some(),
             extra.evo_cage.is_some(),
+            extra.evo_axe.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9908,6 +9941,7 @@ impl CardDb {
                     soul_drain: None,
                     death_on_kill_only: false,
                     cage: None,
+                    axe: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -10110,6 +10144,7 @@ impl CardDb {
             soul_drain: None,
             death_on_kill_only: false,
             cage: None,
+            axe: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -10227,6 +10262,18 @@ impl CardDb {
                 hit_ms: pos(cg.hit_ms, "hit frequency")?,
                 cooldown_ms: cg.cooldown_ms.filter(|x| *x >= 0).ok_or("a cage with no cooldown")?,
                 hide,
+            });
+        }
+        // THE AXE (the Evo Executioner's): on a card whose shot is a pingpong throw.
+        if let Some(ax) = &extra.evo_axe {
+            if !c.range_shot.as_ref().is_some_and(|r| r.pingpong_ms.is_some()) {
+                return Err("an axe on a card whose shot is no pingpong throw".into());
+            }
+            let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("an axe with no {k}"));
+            evo.axe = Some(AxeDef {
+                strong_damage: pos(ax.strong_damage, "StrongDamage")?,
+                strong_range: milli(pos(ax.strong_range_milli, "StrongDamageRange")?),
+                push: milli(pos(ax.push_milli, "FirstStrongHitPushback")?),
             });
         }
         // THE SOUL DRAIN (the Evo Witch's): on a card with a spawner, a heal over time as its buff.

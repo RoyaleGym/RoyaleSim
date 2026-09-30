@@ -500,8 +500,11 @@ fn forms_take_slots_after_every_existing_card() {
     // grounded row, the Evo Minion Horde, the Evo Tesla, the Evo Royal Recruits, the Evo Wizard, the Evo Knight, and the Evo
     // Barbarians, the Evo Bomber, the Evo Valkyrie, the Evo Archer, the Evo Royal Giant, the Evo Mega Knight, the Evo
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
-    // Evo Witch, then the Evo Goblin Cage with its Brawler.
-    assert_eq!(db.cards.len(), n0 + 43);
+    // Evo Witch, then the Evo Goblin Cage with its Brawler, and the Evo Executioner.
+    assert_eq!(db.cards.len(), n0 + 44);
+    assert_eq!(db.cards[n0 + 43].name, "AxeMan_EV1");
+    let ax = db.cards[n0 + 43].evo.as_ref().and_then(|e| e.axe).expect("the Evo Executioner's axe");
+    assert!(ax.strong_damage == 94 && ax.strong_range == 2500 * K && ax.push == 1000 * K);
     assert_eq!(db.cards[n0 + 41].name, "GoblinCage_EV1");
     let cg = db.cards[n0 + 41].evo.as_ref().and_then(|e| e.cage).expect("the Evo Goblin Cage's capture");
     assert!(cg.reach == 3000 * K && cg.grab_delay_ms == 100 && cg.pause_ms == 500 && cg.damage == 143 && cg.hit_ms == 1000);
