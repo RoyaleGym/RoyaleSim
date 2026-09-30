@@ -4,14 +4,20 @@
 //! THE MEASUREMENTS (sp-form-MiniPekka-hero-s0; a press issued on t187, P here, the cast from P + 1):
 //!   - on P + 4 the hero reads level 12, max hitpoints 1525 (1390 before) and 1358 hitpoints (1173 the tick before);
 //!   - its next blow took 828 off a Knight (295 at level 1 on the Rare ladder's 281 %; 755 at level 11).
-//! Read off the table, not measured: the quest that fills the stack (a bar of 22 s filling from 1 s after the hero's
-//! creation, 8 s more for each hit, the stack up by one each time it fills) and the gains past the first (+2, +3 and
-//! +5 levels for a stack of 1, 2 and 3). Oracle's scenes are queued.
+//! THE MEASUREMENTS (Oracle's sp-mph-hp-* and sp-mph-hits-*): six level sets on P + 4, the hitpoints before and after
+//! (11 to 12: 1188 -> 1369, 986 -> 1214, 784 -> 1058, 1107 -> 1306, 1172 -> 1357; 11 to 13: 1063 -> 1400 of 1677): 30 %
+//! of what it misses healed first, then the hitpoints kept in proportion to the max. Presses on the tick of its 1st to
+//! 4th blow on a Golem (114, 146, 178 and 210 ticks after its creation) took it to 12, 12, 13 and 13; its blows took
+//! 755, 828 and 911 at 11, 12 and 13.
+//! Read off the table, not measured: the quest's clock (a bar of 22 s filling from 1 s after the hero's creation, 8 s
+//! more for each hit, the stack up by one each time it fills; the Golem presses bound it and do not pin it) and the
+//! gains past +2 (+3 and +5 levels for a stack of 2 and 3).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_mini_pekka`):
 //!   - level_up_never -> every test here red;
 //!   - level_set_on_trigger -> `the_press_sets_it_one_level_up_and_heals_30_percent_of_what_it_misses_on_p_plus_4` red;
+//!   - level_set_heals_after -> `the_heal_comes_before_the_level_as_six_scenes_measure` red;
 //!   - quest_hits_unread -> `each_hit_fills_8_seconds_of_its_bar` red.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -115,8 +121,27 @@ fn the_press_sets_it_one_level_up_and_heals_30_percent_of_what_it_misses_on_p_pl
     for d in 1..4 {
         assert_eq!(f[at(d)], (11, 1390, 1173), "level 11 on P + {d}");
     }
-    assert_eq!(f[at(4)], (12, 1525, 1358), "level 12 on P + 4: 1173 x 281 / 256 = 1287, then 30 % of the 238 it misses");
+    assert_eq!(f[at(4)], (12, 1525, 1358), "level 12 on P + 4: 1173 + 30 % of the 217 it misses = 1238, x 1525 / 1390");
     assert_eq!(f[at(8)], (12, 1525, 1358), "one level set");
+}
+
+#[test]
+fn the_heal_comes_before_the_level_as_six_scenes_measure() {
+    // Each measured hitpoint count set on the hero before a press with its quest's stack still 0 (2 s in): the level set
+    // on P + 4 leaves what the client read.
+    for (before, after) in [(1188, 1369), (986, 1214), (784, 1058), (1107, 1306), (1172, 1357)] {
+        let (mut s, hero, reds) = start(&[]);
+        for _ in 0..40 {
+            step(&mut s, hero, &reds);
+        }
+        assert!(s.debug_set_hp(hero, before));
+        s.press_ability_button(Team::Blue, 0).expect("the press");
+        for _ in 0..4 {
+            step(&mut s, hero, &reds);
+        }
+        let e = s.entity(hero).expect("the hero");
+        assert_eq!((e.level, e.max_hp, e.hp), (12, 1525, after), "{before} before the level set");
+    }
 }
 
 #[test]

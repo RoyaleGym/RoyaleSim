@@ -13778,12 +13778,25 @@ impl BattleState {
             return;
         }
         let c = cards.get(card);
+        let _ = (m0, m1);
+        // The heal first, on the old level: `heal_pct` of what it misses (floor). Then the level: the hitpoints kept in
+        // proportion to the max (floor). Measured on client 15.535.29 (Oracle's sp-mph-hp-* and sp-mph-hits-*, level 11
+        // to 12 and 13): 1188, 986, 784, 1107, 1172 and 1063 became 1369, 1214, 1058, 1306, 1357 and 1400; scaling first
+        // and healing the new missing share gives 1370, 1214, 1059, 1308, 1358 and 1401.
+        let (old_max, hp) = (self.ents.max_hp[i], self.ents.hp[i]);
+        #[cfg(not(clash_plant = "level_set_heals_after"))]
+        let healed = hp + (old_max - hp).max(0) * heal_pct / 100;
+        #[cfg(clash_plant = "level_set_heals_after")]
+        let healed = hp; // PLANT: no heal before the level (the old reading heals after it, below).
         self.ents.level[i] = to;
         self.ents.max_hp[i] = cards.scaled(card, to, c.hitpoints).expect("the level checked above");
         self.ents.damage[i] = cards.scaled(card, to, c.damage).expect("the level checked above");
-        let hp = ((self.ents.hp[i] as i64) * (m1 as i64) / (m0.max(1) as i64)) as i32;
-        let hp = hp.min(self.ents.max_hp[i]);
-        self.ents.hp[i] = hp + (self.ents.max_hp[i] - hp) * heal_pct / 100;
+        let hp = ((healed as i64) * (self.ents.max_hp[i] as i64) / (old_max.max(1) as i64)) as i32;
+        self.ents.hp[i] = hp.min(self.ents.max_hp[i]);
+        #[cfg(clash_plant = "level_set_heals_after")]
+        {
+            self.ents.hp[i] += (self.ents.max_hp[i] - self.ents.hp[i]) * heal_pct / 100;
+        }
     }
 
     /// A HERO'S QUEST'S HIT (card.rs `QuestDef::per_hit_ms`): entity `i`'s running quest, when it has one, fills by the
