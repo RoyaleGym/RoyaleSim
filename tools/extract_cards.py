@@ -4334,14 +4334,15 @@ FALL_GROUNDED_SET = {
 # A FORM WHOSE MECHANIC IS DATA THE CARD RECORD READS (`data_only_block`): per form, the columns its own row may set
 # beside display ones, and the card blocks they make (each must be on the record).
 DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", "ClonedVersion"}
-DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"}, ["idle_buff"])
+DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"},
+                    ["idle_buff"])
 
 
 def far_shot_block(t: Tables, card: dict) -> dict:
-    """THE EVO ARCHER'S POWER SHOT (characters_evo Archer_EV1), read whole or the build stops: its OnStartingAttackAction
-    is an ActionFilter on `!target_in_range(N)` (`range_milli`) whose OnTrueAction sets the attack sequence index 1 and
-    OnFalseAction 0, the row's AttackSequenceMode None; its Projectile2 is its Projectile but for Damage (`damage`) and
-    cosmetic columns."""
+    """THE EVO ARCHER'S POWER SHOT (characters_evo Archer_EV1), read whole or the build stops: its
+    OnStartingAttackAction is an ActionFilter on `!target_in_range(N)` (`range_milli`) whose OnTrueAction sets the
+    attack sequence index 1 and OnFalseAction 0, the row's AttackSequenceMode None; its Projectile2 is its Projectile
+    but for Damage (`damage`) and cosmetic columns."""
     unit = card["summon_character"]
     _, row = unit_record(t, unit)
     acts = t["actions"]
@@ -4353,23 +4354,27 @@ def far_shot_block(t: Tables, card: dict) -> dict:
 
     name = row["OnStartingAttackAction"]
     f = acts.get(name or "")
-    need(f is not None and f["ClassType"] == "ActionFilter" and acts.set_fields.get(name, set()) == {"ClassType", "Condition", "OnTrueAction", "OnFalseAction"},
+    need(f is not None and f["ClassType"] == "ActionFilter"
+         and acts.set_fields.get(name, set()) == {"ClassType", "Condition", "OnTrueAction", "OnFalseAction"},
          f"OnStartingAttackAction {name!r} is not a two-way filter")
     m = re.fullmatch(r"!target_in_range\((\d+)\)", str(f["Condition"]))
     need(m is not None, f"the filter's condition {f['Condition']!r}")
 
     def index_of(n: str) -> int:
         a = acts.get(n or "")
-        need(a is not None and a["ClassType"] == "ActionSetAttackSequenceIndex" and acts.set_fields.get(n, set()) == {"ClassType", "AttackIndex"},
+        need(a is not None and a["ClassType"] == "ActionSetAttackSequenceIndex"
+             and acts.set_fields.get(n, set()) == {"ClassType", "AttackIndex"},
              f"{n!r} does not set an attack index")
         return a["AttackIndex"]
 
-    need(index_of(f["OnTrueAction"]) == 1 and index_of(f["OnFalseAction"]) == 0, "the filter's branches are not the far and near entries")
+    need(index_of(f["OnTrueAction"]) == 1 and index_of(f["OnFalseAction"]) == 0,
+         "the filter's branches are not the far and near entries")
     need(row["AttackSequenceMode"] == "None", f"AttackSequenceMode {row['AttackSequenceMode']!r}")
     r1, r2 = pt.get(row["Projectile"]), pt.get(row["Projectile2"])
     need(r1 is not None and r2 is not None, f"Projectile {row['Projectile']!r} / Projectile2 {row['Projectile2']!r}")
     differ = {c for c in pt.columns if not COSMETIC.search(c) and c not in ("Name", "Base") and r1[c] != r2[c]}
-    need(differ == {"Damage"} and isinstance(r2["Damage"], int) and r2["Damage"] > 0, f"Projectile2 differs in {sorted(differ)}")
+    need(differ == {"Damage"} and isinstance(r2["Damage"], int) and r2["Damage"] > 0,
+         f"Projectile2 differs in {sorted(differ)}")
     return {"range_milli": int(m.group(1)), "damage": r2["Damage"]}
 
 
@@ -4380,11 +4385,11 @@ ATTACK_AREA_READ_PUSH = {"Damage", "HitsGround", "LifeDuration", "OnlyEnemies", 
 
 
 def attack_area_block(t: Tables, card: dict, read: set) -> dict:
-    """THE AREA AN ATTACK MAKES ON ITS UNIT (characters_evo Valkyrie_EV1, RoyalGiant_EV1), read whole or the build stops:
-    the OnAttackAction is an ActionSpawn of an area on the unit (ParentGOAsSource), whose NextAction (inline), when it
-    has one, hangs a buff on the unit for its SpawnTime (`self_buff`, `self_buff_ms`); the area (`area`, as `norm_aeo`
-    reads it, its row setting only `read` beside cosmetic columns, Tags only NO_AOE_PUSHBACK_VFX) rides on the unit when
-    its FollowBehaviour is FollowParent (`follow`), else stays where it was made, and releases nothing."""
+    """THE AREA AN ATTACK MAKES ON ITS UNIT (characters_evo Valkyrie_EV1, RoyalGiant_EV1), read whole or the build
+    stops: the OnAttackAction is an ActionSpawn of an area on the unit (ParentGOAsSource), whose NextAction (inline),
+    when it has one, hangs a buff on the unit for its SpawnTime (`self_buff`, `self_buff_ms`); the area (`area`, as
+    `norm_aeo` reads it, its row setting only `read` beside cosmetic columns, Tags only NO_AOE_PUSHBACK_VFX) rides on
+    the unit when its FollowBehaviour is FollowParent (`follow`), else stays where it was made, and releases nothing."""
     unit = card["summon_character"]
     _, row = unit_record(t, unit)
     acts = t["actions"]
@@ -4397,12 +4402,14 @@ def attack_area_block(t: Tables, card: dict, read: set) -> dict:
     a = acts.get(row["OnAttackAction"] or "")
     need(a is not None and a["ClassType"] == "ActionSpawn" and a["SpawnType"] == "AreaEffectType"
          and a["ParentGOAsSource"] is True, f"OnAttackAction {row['OnAttackAction']!r} is not an area on her")
-    need(_present(a) <= {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource", "NextAction"}, f"OnAttackAction's keys {sorted(_present(a))}")
+    need(_present(a) <= {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource", "NextAction"},
+         f"OnAttackAction's keys {sorted(_present(a))}")
     nxt = a["NextAction"]
     buff, buff_ms = None, None
     if nxt is not None:
         need(isinstance(nxt, dict) and nxt.get("ClassType") == "ActionSpawn" and nxt.get("SpawnType") == "BuffType"
-             and isinstance(nxt.get("SpawnTime"), int) and {k for k, v in nxt.items() if v is not None} <= {"ClassType", "SpawnType", "SpawnData", "SpawnTime"},
+             and isinstance(nxt.get("SpawnTime"), int)
+             and {k for k, v in nxt.items() if v is not None} <= {"ClassType", "SpawnType", "SpawnData", "SpawnTime"},
              f"its NextAction {nxt!r} is not a buff on it for a time")
         buff, buff_ms = norm_buff(t, nxt["SpawnData"]), nxt["SpawnTime"]
         need(buff is not None, f"its NextAction's buff {nxt['SpawnData']!r} is no buff")
@@ -4411,19 +4418,21 @@ def attack_area_block(t: Tables, card: dict, read: set) -> dict:
     need(aeos.get(name) is not None and own <= read, f"the area {name} sets {sorted(own - read)}")
     need(aeos.get(name)["Tags"] in (None, "NO_AOE_PUSHBACK_VFX"), f"the area's Tags {aeos.get(name)['Tags']!r}")
     follow = aeos.get(name)["FollowBehaviour"] == "FollowParent"
-    need(follow or aeos.get(name)["FollowBehaviour"] is None, f"the area's FollowBehaviour {aeos.get(name)['FollowBehaviour']!r}")
+    need(follow or aeos.get(name)["FollowBehaviour"] is None,
+         f"the area's FollowBehaviour {aeos.get(name)['FollowBehaviour']!r}")
     area = norm_aeo(t, name)
-    need(not area["spawn_character"] and not area["spawn_area_effect_object"] and not area["projectile"] and not area["action_graph"],
+    need(not area["spawn_character"] and not area["spawn_area_effect_object"] and not area["projectile"]
+         and not area["action_graph"],
          "the area releases something")
     return {"area": area, "follow": follow, "self_buff": buff, "self_buff_ms": buff_ms}
 
 
 def bounce_block(t: Tables, card: dict) -> dict:
-    """THE EVO BOMBER'S BOUNCE (spells_evolved Bomber_EV1; characters_evo Bomber_EV1; projectiles_evo), read whole or the
-    build stops. The unit's projectile (not Homing, a splash) names a SpawnProjectile and a SpawnChain (`count`); the
-    spawned row extends the first and sets only a ProjectileRange (`range_milli`): where the bomb lands it goes on along
-    its line that far and lands again, `count` times. The spawned record is dropped from the card's projectile (this
-    block runs it)."""
+    """THE EVO BOMBER'S BOUNCE (spells_evolved Bomber_EV1; characters_evo Bomber_EV1; projectiles_evo), read whole or
+    the build stops. The unit's projectile (not Homing, a splash) names a SpawnProjectile and a SpawnChain (`count`);
+    the spawned row extends the first and sets only a ProjectileRange (`range_milli`): where the bomb lands it goes on
+    along its line that far and lands again, `count` times. The spawned record is dropped from the card's projectile
+    (this block runs it)."""
     pt = t["projectiles"]
     shot = card.get("projectile") or {}
     row = pt.get(shot.get("name"))
@@ -4432,11 +4441,14 @@ def bounce_block(t: Tables, card: dict) -> dict:
         if not ok:
             raise SystemExit(f"Bomber_EV1: {what}")
 
-    need(row is not None and not row["Homing"] and isinstance(row["Radius"], int) and row["Radius"] > 0, "the bomb is not a splash that keeps its aim")
-    need(isinstance(row["SpawnChain"], int) and row["SpawnChain"] >= 1 and isinstance(row["SpawnProjectile"], str), "the bomb's SpawnProjectile / SpawnChain")
+    need(row is not None and not row["Homing"] and isinstance(row["Radius"], int) and row["Radius"] > 0,
+         "the bomb is not a splash that keeps its aim")
+    need(isinstance(row["SpawnChain"], int) and row["SpawnChain"] >= 1 and isinstance(row["SpawnProjectile"], str),
+         "the bomb's SpawnProjectile / SpawnChain")
     nxt = row["SpawnProjectile"]
     own = {c for c in pt.set_fields.get(nxt, set()) if not COSMETIC.search(c)}
-    need(pt.get(nxt) is not None and own <= {"Base", "ProjectileRange"} and isinstance(pt.get(nxt)["ProjectileRange"], int)
+    need(pt.get(nxt) is not None and own <= {"Base", "ProjectileRange"}
+         and isinstance(pt.get(nxt)["ProjectileRange"], int)
          and pt.get(nxt)["ProjectileRange"] > 0, f"the bounce row {nxt} sets {sorted(own)}")
     shot["spawn_projectile"] = None
     return {"count": row["SpawnChain"], "range_milli": pt.get(nxt)["ProjectileRange"]}
@@ -4483,9 +4495,9 @@ def data_only_block(t: Tables, card: dict, spec: tuple[set, list]) -> dict:
 def shield_blast_block(t: Tables, card: dict) -> dict:
     """THE EVO WIZARD'S BLAST (spells_evolved Wizard_EV1; characters_evo Wizard_EV1), read whole or the build stops. The
     unit row sets ShieldHitpoints; its ShieldLostAction is a group of one ActionSpawn, at delay 0, of an AreaEffectType
-    on the Wizard (`area`: the blast, a row of `area_effect_objects`); its OnStartingAction is a group of one ActionSpawn
-    of a buff that only shows while the shield holds (`shown_buff`: no column but AliveIfTrue HAS_SHIELD()) and an
-    effect."""
+    on the Wizard (`area`: the blast, a row of `area_effect_objects`); its OnStartingAction is a group of one
+    ActionSpawn of a buff that only shows while the shield holds (`shown_buff`: no column but AliveIfTrue HAS_SHIELD())
+    and an effect."""
     acts = t["actions"]
     unit = card["summon_character"]
     _, urow = unit_record(t, unit)
@@ -4497,8 +4509,10 @@ def shield_blast_block(t: Tables, card: dict) -> dict:
     need(isinstance(urow["ShieldHitpoints"], int) and urow["ShieldHitpoints"] > 0, "no shield")
     got = _group_leaves(acts, urow["ShieldLostAction"]) if isinstance(urow["ShieldLostAction"], str) else None
     need(got is not None and len(got[0]) == 1 and got[1] == [0], "ShieldLostAction is not one step at delay 0")
-    sp = _one_action(acts, got[0][0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "AbortIfInstigatorDies", "ParentGOAsSource"})
-    need(sp["SpawnType"] == "AreaEffectType" and sp["ParentGOAsSource"] is True, "the blast is not an area on the Wizard")
+    sp = _one_action(acts, got[0][0], "ActionSpawn",
+                     {"ClassType", "SpawnType", "SpawnData", "AbortIfInstigatorDies", "ParentGOAsSource"})
+    need(sp["SpawnType"] == "AreaEffectType" and sp["ParentGOAsSource"] is True,
+         "the blast is not an area on the Wizard")
     area = sp["SpawnData"]
     need(t["area_effect_objects"].get(area) is not None, f"no area {area}")
     # The start group lists one step and two delays ([100, 100]): its SubActions are read directly.
@@ -4506,7 +4520,8 @@ def shield_blast_block(t: Tables, card: dict) -> dict:
     need(g is not None and g["ClassType"] == "ActionGroup", "OnStartingAction is not a group")
     ssubs = _action_list(acts, urow["OnStartingAction"], "SubActions")
     need(len(ssubs) == 1, "OnStartingAction is not one step")
-    vfx = _one_action(acts, ssubs[0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "AbortIfInstigatorDies", "SpawnTime", "NextAction"})
+    vfx = _one_action(acts, ssubs[0], "ActionSpawn",
+                      {"ClassType", "SpawnType", "SpawnData", "AbortIfInstigatorDies", "SpawnTime", "NextAction"})
     shown = t["character_buffs"].get(vfx["SpawnData"])
     need(vfx["SpawnType"] == "BuffType" and shown is not None
          and t["character_buffs"].set_fields.get(vfx["SpawnData"], set()) <= {"Rarity", "AliveIfTrue"}
@@ -4518,8 +4533,8 @@ def shield_blast_block(t: Tables, card: dict) -> dict:
 
 def charge_after_shield_block(t: Tables, card: dict) -> dict:
     """THE EVO ROYAL RECRUITS' CHARGE (spells_evolved RoyalRecruits_EV1; characters_evo Recruit_EV1), read whole or the
-    build stops. The unit row sets ChargeSpeedMultiplier and DamageSpecial and no ChargeRange; its ShieldLostAction is an
-    ActionSpawn on itself of a buff for good (SpawnTime past any battle) whose one column is OverrideChargeRange: the
+    build stops. The unit row sets ChargeSpeedMultiplier and DamageSpecial and no ChargeRange; its ShieldLostAction is
+    an ActionSpawn on itself of a buff for good (SpawnTime past any battle) whose one column is OverrideChargeRange: the
     charge's range from the shield's loss (`range_raw`). The card's charge block is completed with it (its `charge`),
     and the block says the run-up waits for the shield's loss."""
     acts = t["actions"]
@@ -4535,7 +4550,8 @@ def charge_after_shield_block(t: Tables, card: dict) -> dict:
     sp = acts.get(urow["ShieldLostAction"]) if isinstance(urow["ShieldLostAction"], str) else None
     need(sp is not None and sp["ClassType"] == "ActionSpawn" and sp["SpawnType"] == "BuffType"
          and isinstance(sp["SpawnTime"], int) and sp["SpawnTime"] >= 99999, "ShieldLostAction is not a buff for good")
-    need(_present(sp) <= {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ParentGOAsSource"}, "ShieldLostAction's keys")
+    need(_present(sp) <= {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ParentGOAsSource"},
+         "ShieldLostAction's keys")
     bt = t["character_buffs"]
     b = bt.get(sp["SpawnData"])
     need(b is not None and bt.set_fields.get(sp["SpawnData"], set()) <= {"Rarity", "OverrideChargeRange"}
@@ -4560,8 +4576,8 @@ def ring_block(t: Tables, card: dict) -> dict:
     building's OnStartingAction and OnAppearAction name one action: an ActionSpawn of an AreaEffectType on the building
     (ParentGOAsSource), then an effect (`on_start`, `on_appear`); its OnDisappearAction only plays an effect. The area:
     enemies only, air and ground as set, no damage, OneHitPerTarget, HitSpeed (`hit_speed_ms`), a Radius growing to its
-    MaxRadius over its LifeDuration (`min_radius_milli`, `max_radius_milli`, `life_ms`); its OnHitAction an ActionSpawn of
-    a BuffType for its SpawnTime (`buff`, `buff_ms`), not stopped by the building's death. The buff: a full stop
+    MaxRadius over its LifeDuration (`min_radius_milli`, `max_radius_milli`, `life_ms`); its OnHitAction an ActionSpawn
+    of a BuffType for its SpawnTime (`buff`, `buff_ms`), not stopped by the building's death. The buff: a full stop
     (Speed, HitSpeed and SpawnSpeed multipliers -100) and ONE hit of its DamagePerSecond as it lands (HitFrequency -1;
     `damage`, `crown_hit`: CrownTowerDamagePerHit), written apart from the stop (`stop`)."""
     acts = t["actions"]
@@ -4579,7 +4595,8 @@ def ring_block(t: Tables, card: dict) -> dict:
     sp = acts.get(appear)
     need(sp is not None and sp["ClassType"] == "ActionSpawn" and sp["SpawnType"] == "AreaEffectType"
          and sp["ParentGOAsSource"] is True, f"{appear} is not an area on the building")
-    need(_present(sp) - {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource", "NextAction"} == set(), f"{appear}'s keys")
+    need(_present(sp) - {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource", "NextAction"} == set(),
+         f"{appear}'s keys")
     nxt = sp["NextAction"]
     need(nxt is None or _cosmetic_action(acts, nxt) or _cosmetic_inline(nxt), f"{appear}'s NextAction")
     tb = t["area_effect_objects"]
@@ -4588,7 +4605,8 @@ def ring_block(t: Tables, card: dict) -> dict:
     need(r is not None, f"no area {name}")
     unread = tb.set_fields.get(name, set()) - RING_AREA_READ - HERO_AREA_COSMETIC
     need(not unread, f"area {name} sets {sorted(unread)}")
-    need(r["OnlyEnemies"] is True and r["OneHitPerTarget"] is True and not r["Damage"], f"area {name} is not a one-hit ring")
+    need(r["OnlyEnemies"] is True and r["OneHitPerTarget"] is True and not r["Damage"],
+         f"area {name} is not a one-hit ring")
     for col in ("Radius", "MaxRadius", "LifeDuration", "HitSpeed"):
         need(isinstance(r[col], int) and r[col] > 0, f"area {name}'s {col} {r[col]!r}")
     need(r["MaxRadius"] > r["Radius"], f"area {name} does not grow")
@@ -4601,7 +4619,8 @@ def ring_block(t: Tables, card: dict) -> dict:
     brow = t["character_buffs"].get(hit["SpawnData"])
     need(buff is not None and brow["HitFrequency"] == -1 and isinstance(buff["damage_per_second"], int)
          and buff["damage_per_second"] > 0, f"buff {hit['SpawnData']} is not one hit of its DamagePerSecond")
-    need(all(buff[k] == -100 for k in ("speed_multiplier_raw", "hit_speed_multiplier_raw", "spawn_speed_multiplier_raw")),
+    need(all(buff[k] == -100
+             for k in ("speed_multiplier_raw", "hit_speed_multiplier_raw", "spawn_speed_multiplier_raw")),
          f"buff {hit['SpawnData']} is not a full stop")
     stop = dict(buff)
     for k in ("damage_per_second", "hit_frequency_ms", "crown_tower_damage_per_hit"):
@@ -4625,12 +4644,12 @@ def ring_block(t: Tables, card: dict) -> dict:
 
 
 def first_hit_block(t: Tables, card: dict) -> dict:
-    """THE EVO MINION HORDE'S GHOST (spells_evolved MinionHorde_EV1; characters/minion_horde_ev1.toml), read whole or the
-    build stops. The unit's OnDamageTakenAction (OnDamageTakenActionInstigatorAsSelf) is an ActionGroup run once (its
-    ExecuteIfTrue `<var> == 0`, and an ActionSetVariable of <var> to 1 at delay 0) of an ActionSpawn of a BuffType at
-    delay 0 (`buff`, for its SpawnTime: `time_ms`) and effects. The buff hides the unit (Invisible) and keeps every hit
-    off it (NO_DAMAGE); its OnRemoveAction only puts a display buff back and plays an effect. The unit's OnStartingAction
-    only plays an effect."""
+    """THE EVO MINION HORDE'S GHOST (spells_evolved MinionHorde_EV1; characters/minion_horde_ev1.toml), read whole or
+    the build stops. The unit's OnDamageTakenAction (OnDamageTakenActionInstigatorAsSelf) is an ActionGroup run once
+    (its ExecuteIfTrue `<var> == 0`, and an ActionSetVariable of <var> to 1 at delay 0) of an ActionSpawn of a BuffType
+    at delay 0 (`buff`, for its SpawnTime: `time_ms`) and effects. The buff hides the unit (Invisible) and keeps every
+    hit off it (NO_DAMAGE); its OnRemoveAction only puts a display buff back and plays an effect. The unit's
+    OnStartingAction only plays an effect."""
     acts = t["actions"]
     unit = card["summon_character"]
     _, urow = unit_record(t, unit)
@@ -5324,7 +5343,8 @@ WARP_LOCK_KEYS = {
     "AllowWarpWhenAttackSpeedZero",
 }
 WARP_HERO_KEYS = {
-    "ClassType", "ActionToGetTargetFrom", "ActionToExecute", "SpellTargetIndicatorFilename", "SpellTargetIndicatorClipName",
+    "ClassType", "ActionToGetTargetFrom", "ActionToExecute", "SpellTargetIndicatorFilename",
+    "SpellTargetIndicatorClipName",
     "HasTargetOnDeployAction", "NoTargetOnDeployAction", "Singleton", "ForceStopIfTrue",
 }
 WARP_KEYS = {
@@ -5333,7 +5353,8 @@ WARP_KEYS = {
     "ForceKeepTargetAfterWarp", "Singleton", "WarpTargetEffect",
 }
 WARP_MARK_KEYS = {
-    "ClassType", "TargetResolver", "RadiusListForEffectSelection", "PlayerTargettedEffectList", "EnemyTargettedEffectList",
+    "ClassType", "TargetResolver", "RadiusListForEffectSelection", "PlayerTargettedEffectList",
+    "EnemyTargettedEffectList",
     "PlayerCircleTargetIndicatorList", "EnemyCircleTargetIndicatorList", "OnPickNewTargetAction", "OnTargetDiedAction",
     "GameTagsToSetWhileHasNotTarget", "PauseIfInCooldown", "DelayBeforeSearchForNextTarget", "Singleton", "NextAction",
     "ForceStopIfTrue", "EnemyTargetterEffect", "PlayerTargetterEffect",
@@ -5363,29 +5384,32 @@ SLAP_REFUSING_TAGS = {"NO_PUSHBACK", "UNTARGETABLE", "DASHING", "DISABLE_PHYSICA
 
 
 def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dict:
-    """THE HERO GIANT'S BUTTON ([ABILITY.GiantHero_Ability]), read whole or the build stops. OnActivationAction is a group
-    of the seeker at delay 0 and the button's UI state and effects. The seeker waits for (WaitForTarget), once per
+    """THE HERO GIANT'S BUTTON ([ABILITY.GiantHero_Ability]), read whole or the build stops. OnActivationAction is a
+    group of the seeker at delay 0 and the button's UI state and effects. The seeker waits for (WaitForTarget), once per
     target, the enemy troop with the highest current hitpoints and shield (SLAP_FILTER) in its circle (`radius_milli`);
     on the Giant it runs, left or right, an animation and a hold (an ActionWithDuration of NO_MOVE and NO_ATTACK:
     `hold_ms`); on the target, the push: `push_delay_ms` on, toward the arena's horizontal centre, `push_milli` long,
-    refused by SLAP_REFUSING_TAGS. On success the target is knocked up for `flight_ms` and lands with the landing blow (an area of
-    one hit: `landing_damage`, its level scaling, `landing_radius_milli`, enemy ground troops), and takes the stun (a full
-    stop, `buff` for `time_ms`); on failure the seeker runs again `retry_ms` on."""
+    refused by SLAP_REFUSING_TAGS. On success the target is knocked up for `flight_ms` and lands with the landing blow
+    (an area of one hit: `landing_damage`, its level scaling, `landing_radius_milli`, enemy ground troops), and takes
+    the stun (a full stop, `buff` for `time_ms`); on failure the seeker runs again `retry_ms` on."""
     acts = h["actions"]
 
     def need(ok: bool, what: str) -> None:
         if not ok:
             raise SystemExit(f"hero ability {name}: {what}")
 
-    seek = [(s, d) for s, d in zip(subs, delays, strict=True) if acts.get(s)["ClassType"] == "ActionRunActionListOnObjectsInShapeWithPrio"]
+    seek = [(s, d) for s, d in zip(subs, delays, strict=True)
+            if acts.get(s)["ClassType"] == "ActionRunActionListOnObjectsInShapeWithPrio"]
     need(len(seek) == 1 and seek[0][1] == 0, "one seeker at delay 0")
     for s in subs:
-        need(s == seek[0][0] or acts.get(s)["ClassType"] in ("ActionOverrideAbilityButtonState", "ActionPlayEffect"), f"step {s}")
+        need(s == seek[0][0] or acts.get(s)["ClassType"] in ("ActionOverrideAbilityButtonState", "ActionPlayEffect"),
+             f"step {s}")
     sk = _one_action(acts, seek[0][0], "ActionRunActionListOnObjectsInShapeWithPrio", SLAP_SEEKER_KEYS)
     need(sk["WaitForTarget"] is True and sk["OncePerTarget"] is True and sk["TargetFilter"] == SLAP_FILTER
          and sk["TargetSelectionMode"] == "HighestCurrentHpIncludeShields", "the seeker's pick")
     shape = h.shapes.get(sk["Shape"]) if isinstance(sk["Shape"], str) else None
-    need(shape is not None and shape.get("ClassType") == "Circle" and isinstance(shape.get("Radius"), int), "the seeker's circle")
+    need(shape is not None and shape.get("ClassType") == "Circle" and isinstance(shape.get("Radius"), int),
+         "the seeker's circle")
     per, per_d = _action_list(acts, seek[0][0], "Actions"), _action_list(acts, seek[0][0], "Delays")
     need(len(per) == 1 and list(per_d) in ([0], []), "the seeker's one action at delay 0")
     holds = set()
@@ -5406,7 +5430,8 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
     need(push["DirectionMode"] == "ToHorizontalCenterFromInstigator" and push["UpdatePhase"] == "PostGameObjectTick"
          and isinstance(push["PushbackDelay"], int) and push["PushbackDelay"] >= 0
          and isinstance(push["PushbackStrength"], int) and push["PushbackStrength"] > 0, "the push")
-    need({x.strip() for x in str(push["GameTagsToDisallowPush"]).split(",")} <= SLAP_REFUSING_TAGS, "the push's refusing tags")
+    need({x.strip() for x in str(push["GameTagsToDisallowPush"]).split(",")} <= SLAP_REFUSING_TAGS,
+         "the push's refusing tags")
     need(_cosmetic_action(acts, push["SuccessActionOnInstigator"]), "the push's success on the Giant")
     ok = _group_leaves(acts, push["SuccessAction"])
     need(ok is not None and all(d == 0 for d in ok[1]), "the push's success group")
@@ -5416,13 +5441,16 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
     need(sorted(by) == ["ActionKnockback", "ActionPlayEffect", "ActionSpawn"] and len(by["ActionKnockback"]) == 1
          and len(by["ActionSpawn"]) == 1, f"the success group runs {sorted(by)}")
     kb = _one_action(acts, by["ActionKnockback"][0], "ActionKnockback",
-                     {"ClassType", "Duration", "Height", "AbortIfInstigatorDies", "ActionOnLanding", "PassInstigatorToLandingAction",
+                     {"ClassType", "Duration", "Height", "AbortIfInstigatorDies", "ActionOnLanding",
+                      "PassInstigatorToLandingAction",
                       "StatsTags"})
     need(isinstance(kb["Duration"], int) and kb["Duration"] > 0, "the knock's Duration")
-    st = _one_action(acts, by["ActionSpawn"][0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags"})
+    st = _one_action(acts, by["ActionSpawn"][0], "ActionSpawn",
+                     {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags"})
     stun = norm_buff(h, st["SpawnData"])
     need(st["SpawnType"] == "BuffType" and stun is not None and isinstance(st["SpawnTime"], int)
-         and all(stun[k] == -100 for k in ("speed_multiplier_raw", "hit_speed_multiplier_raw", "spawn_speed_multiplier_raw"))
+         and all(stun[k] == -100
+                 for k in ("speed_multiplier_raw", "hit_speed_multiplier_raw", "spawn_speed_multiplier_raw"))
          and not stun["damage_per_second"], "the stun")
     land = _group_leaves(acts, kb["ActionOnLanding"])
     need(land is not None and len(land[0]) == 1 and land[1] == [0], "the landing group")
@@ -5430,11 +5458,13 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
     tb = h["area_effect_objects"]
     r = tb.get(sp["SpawnData"])
     need(sp["SpawnType"] == "AreaEffectType" and r is not None, "the landing area")
-    unread = tb.set_fields.get(sp["SpawnData"], set()) - {"Rarity", "LifeDuration", "HitSpeed", "Damage", "DamageType", "Shape", "Filter", "StatsTags"}
+    unread = tb.set_fields.get(sp["SpawnData"], set()) - {"Rarity", "LifeDuration", "HitSpeed", "Damage", "DamageType",
+                                                          "Shape", "Filter", "StatsTags"}
     need(not unread and not r["HitSpeed"] and r["Filter"] == SLAP_LANDING_FILTER and isinstance(r["Damage"], int),
          f"the landing area sets {sorted(unread)} or is not one hit on enemy ground troops")
     lshape = h.shapes.get(r["Shape"]) if isinstance(r["Shape"], str) else None
-    need(lshape is not None and lshape.get("ClassType") == "Circle" and isinstance(lshape.get("Radius"), int), "the landing's circle")
+    need(lshape is not None and lshape.get("ClassType") == "Circle" and isinstance(lshape.get("Radius"), int),
+         "the landing's circle")
     dt = h.damage_types.get(r["DamageType"]) if isinstance(r["DamageType"], str) else None
     fail = _group_leaves(acts, push["FailureActionOnInstigator"])
     need(fail is not None and seek[0][0] in fail[0], "the push's failure does not seek again")
@@ -5463,10 +5493,10 @@ def warp_effect(h: Tables, name: str, lock: str) -> dict:
     offset, its target kept). Mark and warp read one resolver: a Global shape, WARP_FILTER, WARP_STRATEGIES (the lowest
     max hitpoints, then the furthest). The warp's end is a group of the strike buff (`strike_ms`) and the instant hit
     (an ActionSetInstantHit on `target_in_range(N) && is_combat_enabled`: `instant_range_milli`). The strike buff hides
-    the hero (Invisible) until its attack (RemoveOnAttack); its OverrideProjectile is the strike's shot (`strike_damage`,
-    `strike_crown_pct`), and its OnRemoveAction lands, `after_delay_ms` on, a buff whose OverrideProjectile gives every
-    later shot `after_crown_pct` on a crown tower. The mark's re-pick after a death (DelayBeforeSearchForNextTarget, the
-    forced cooldown) and its bots' buff are read and not run."""
+    the hero (Invisible) until its attack (RemoveOnAttack); its OverrideProjectile is the strike's shot
+    (`strike_damage`, `strike_crown_pct`), and its OnRemoveAction lands, `after_delay_ms` on, a buff whose
+    OverrideProjectile gives every later shot `after_crown_pct` on a crown tower. The mark's re-pick after a death
+    (DelayBeforeSearchForNextTarget, the forced cooldown) and its bots' buff are read and not run."""
     acts = h["actions"]
 
     def need(ok: bool, what: str) -> None:
@@ -5485,7 +5515,8 @@ def warp_effect(h: Tables, name: str, lock: str) -> dict:
     need(w["TargetResolver"] == mark["TargetResolver"], "the warp and the mark read two resolvers")
     res = h.resolvers.get(w["TargetResolver"])
     shape = h.shapes.get(res.get("Shape")) if res else None
-    need(res is not None and shape is not None and shape.get("ClassType") == "Global" and res.get("Filter") == WARP_FILTER
+    need(res is not None and shape is not None and shape.get("ClassType") == "Global"
+         and res.get("Filter") == WARP_FILTER
          and list(res.get("StrategyList") or []) == WARP_STRATEGIES, f"the resolver {w['TargetResolver']!r}")
     end = _group_leaves(acts, w["OnWarpEndAction"])
     need(end is not None and end[1] == [0] * len(end[0]), "the warp's end is not a group at delay 0")
@@ -5500,8 +5531,10 @@ def warp_effect(h: Tables, name: str, lock: str) -> dict:
     strike = bt.get(sp["SpawnData"])
     need(strike is not None and bt.set_fields.get(sp["SpawnData"], set()) <= WARP_STRIKE_SHOWN
          and flag(strike, "Invisible") and flag(strike, "RemoveOnAttack"), f"the strike buff {sp['SpawnData']}")
-    rm = _one_action(acts, strike["OnRemoveAction"], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ActionDelay"})
-    need(rm["SpawnType"] == "BuffType" and isinstance(rm["SpawnTime"], int) and rm["SpawnTime"] >= 99999, "the after buff")
+    rm = _one_action(acts, strike["OnRemoveAction"], "ActionSpawn",
+                     {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ActionDelay"})
+    need(rm["SpawnType"] == "BuffType" and isinstance(rm["SpawnTime"], int) and rm["SpawnTime"] >= 99999,
+         "the after buff")
     after = bt.get(rm["SpawnData"])
     need(after is not None and bt.set_fields.get(rm["SpawnData"], set()) <= {"Rarity", "OverrideProjectile"},
          f"the after buff {rm['SpawnData']}")
@@ -5522,8 +5555,8 @@ def warp_effect(h: Tables, name: str, lock: str) -> dict:
 
 
 def warp_start(h: Tables, form: str, start, mark: str) -> int:
-    """THE WARP'S START (the hero row's OnStartingAction, an ActionGroup): the button hidden at once until its variable is
-    set (an ActionOverrideAbilityButtonState), and at one delay the variable set to 1 and the warp's mark begun. That
+    """THE WARP'S START (the hero row's OnStartingAction, an ActionGroup): the button hidden at once until its variable
+    is set (an ActionOverrideAbilityButtonState), and at one delay the variable set to 1 and the warp's mark begun. That
     delay, the ms after the hero's creation from which a press is taken (`available_after_ms`); else the build stops."""
     acts = h["actions"]
     got = _group_leaves(acts, start) if isinstance(start, str) else None
@@ -5532,7 +5565,8 @@ def warp_start(h: Tables, form: str, start, mark: str) -> int:
     by = {acts.get(s)["ClassType"]: (s, d) for s, d in zip(*got, strict=True)}
     if sorted(by) != ["ActionOverrideAbilityButtonState", "ActionSetIndicatorOnTarget", "ActionSetVariable"]:
         raise SystemExit(f"hero form {form}: its start runs {sorted(by)}")
-    (sv, dv), (mk, dm), (_, dh) = by["ActionSetVariable"], by["ActionSetIndicatorOnTarget"], by["ActionOverrideAbilityButtonState"]
+    (sv, dv), (mk, dm) = by["ActionSetVariable"], by["ActionSetIndicatorOnTarget"]
+    _, dh = by["ActionOverrideAbilityButtonState"]
     if mk != mark or dv != dm or dh != 0 or not isinstance(dm, int) or dm <= 0 or acts.get(sv)["Value"] != "1":
         raise SystemExit(f"hero form {form}: its start's mark, variable or delays")
     return dm
@@ -5595,10 +5629,13 @@ def taunt_area(h: Tables, ability: str, name: str) -> dict:
         raise SystemExit(f"hero ability {ability}: no area {name}")
     unread = tb.set_fields.get(name, set()) - TAUNT_AREA_READ - HERO_AREA_COSMETIC
     if unread:
-        raise SystemExit(f"hero ability {ability}: area {name} sets {sorted(unread)}, which the taunt reader does not read")
+        raise SystemExit(
+            f"hero ability {ability}: area {name} sets {sorted(unread)}, which the taunt reader does not read"
+        )
     acts = h["actions"]
     ok = (
-        isinstance(r["LifeDuration"], int) and r["LifeDuration"] > 0 and isinstance(r["Radius"], int) and r["Radius"] > 0
+        isinstance(r["LifeDuration"], int) and r["LifeDuration"] > 0 and isinstance(r["Radius"],
+                                                                                    int) and r["Radius"] > 0
         and not r["Damage"] and r["OneHitPerTarget"] is True and not r["HitSpeed"] and r["OnlyEnemies"] is True
         and r["FollowBehaviour"] == "FollowParent"
     )

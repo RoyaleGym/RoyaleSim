@@ -897,7 +897,10 @@ fn the_loader_refuses_a_partial_hide_block_and_reads_teslas_whole() {
     assert_eq!(raw["hides_when_not_attacking"], serde_json::Value::Bool(true));
     assert_eq!(h.hide_time_ms as i64, raw["hide_time_ms"].as_i64().unwrap());
     assert_eq!(h.up_time_ms as i64, raw["up_time_ms"].as_i64().unwrap());
-    assert!(s.cards().cards.iter().filter(|c| c.hide.is_some()).all(|c| c.name == "Tesla"), "only Tesla hides in the 2018 data");
+    assert!(
+        s.cards().cards.iter().filter(|c| c.hide.is_some()).all(|c| c.name == "Tesla" || c.name == "Tesla_EV1"),
+        "only Tesla and its evolved form hide in the 2018 data"
+    );
     // A broken block REJECTS the card with a reason (CardDb::rejected, the loader's
     // per-card refusal path); it never loads as a plain building.
     for (field, value) in [("hide_time_ms", serde_json::Value::Null), ("up_time_ms", serde_json::Value::Null), ("hides_when_not_attacking", serde_json::Value::Bool(false))] {

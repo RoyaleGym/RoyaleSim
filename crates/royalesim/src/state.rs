@@ -13752,7 +13752,7 @@ impl BattleState {
                 self.ents.flying[i] = false;
             }
             #[cfg(not(clash_plant = "landing_blow_dropped"))]
-            if self.tick == land + 1 {
+            if self.tick == land.saturating_add(1) {
                 let (team, level, pos) = (self.ents.team[i], self.ents.level[i], self.ents.pos[i]);
                 let blow = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, r.card, level, pos, self.tick).expect("the landing area loads with its card");
                 self.spells.extend(blow);

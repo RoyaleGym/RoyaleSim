@@ -116,14 +116,16 @@ fn every_death_bomb_row_loads_as_a_timed_impact_and_only_a_death_releases_one() 
         seen += 1;
     }
     assert_eq!(seen, BOMB_CARDS.len(), "vacuous: no bomb card loaded");
-    // A bomb is released by a DEATH SPAWN and by nothing else: any other block that
-    // named one (`CardDb::unit_refs`: a spawner, a spell release, a second summon)
-    // would reach `spawn_now` with a hitpoint-less record (card.rs refuses such a card
-    // instead).
+    // A bomb is released by a DEATH SPAWN, and by the Evo Skeleton Barrel's drop at its
+    // health line (state.rs `barrel_pass` releases it as a timed impact, as a death
+    // spawn's is), and by nothing else: any other block that named one
+    // (`CardDb::unit_refs`: a spawner, a spell release, a second summon) would reach
+    // `spawn_now` with a hitpoint-less record (card.rs refuses such a card instead).
     let mut others = 0;
     for idx in 0..db.cards.len() as u16 {
+        let drop = db.get(idx).evo.as_ref().and_then(|v| v.barrel.as_ref()).map(|b| b.extra.unit);
         for (path, u, _) in db.unit_refs(idx) {
-            if path == UnitRef::DeathSpawn {
+            if path == UnitRef::DeathSpawn || (path == UnitRef::EvoUnit(0) && drop == Some(u)) {
                 continue;
             }
             others += 1;
