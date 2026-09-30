@@ -2107,6 +2107,10 @@ def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
         # Wizard's shot's HeroWizardNoMove). Written only where set.
         if "NO_PUSHED_BY_ALLY" in [x.strip() for x in str(b["GameTagsToSet"] or "").split(",")]:
             out["no_pushed_by_ally"] = True
+        # NO_DAMAGE among GameTagsToSet: the carrier takes no damage while the buff lasts (the Evo Minion Horde's
+        # MinionHorde_EV1_GhostBuff). Written only where set.
+        if "NO_DAMAGE" in [x.strip() for x in str(b["GameTagsToSet"] or "").split(",")]:
+            out["no_damage"] = True
         if b["CharacterCrownTowerDamagePercent"] is not None:
             out["character_crown_tower_damage_percent"] = b["CharacterCrownTowerDamagePercent"]
     return out
@@ -3663,7 +3667,7 @@ def globals_block(v: Vintage) -> dict:
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
-    "Mortar_EV1", "RoyalHogs_EV1",
+    "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4318,6 +4322,60 @@ FALL_GROUNDED_SET = {
 }
 
 
+def first_hit_block(t: Tables, card: dict) -> dict:
+    """THE EVO MINION HORDE'S GHOST (spells_evolved MinionHorde_EV1; characters/minion_horde_ev1.toml), read whole or the
+    build stops. The unit's OnDamageTakenAction (OnDamageTakenActionInstigatorAsSelf) is an ActionGroup run once (its
+    ExecuteIfTrue `<var> == 0`, and an ActionSetVariable of <var> to 1 at delay 0) of an ActionSpawn of a BuffType at
+    delay 0 (`buff`, for its SpawnTime: `time_ms`) and effects. The buff hides the unit (Invisible) and keeps every hit
+    off it (NO_DAMAGE); its OnRemoveAction only puts a display buff back and plays an effect. The unit's OnStartingAction
+    only plays an effect."""
+    acts = t["actions"]
+    unit = card["summon_character"]
+    _, urow = unit_record(t, unit)
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"MinionHorde_EV1: {what}")
+
+    start = acts.get(urow["OnStartingAction"]) if isinstance(urow["OnStartingAction"], str) else None
+    need(start is None or start["ClassType"] == "ActionPlayEffect", "OnStartingAction plays more than an effect")
+    need(urow["OnDamageTakenActionInstigatorAsSelf"] is True, "OnDamageTakenActionInstigatorAsSelf")
+    grp = urow["OnDamageTakenAction"]
+    g = acts.get(grp) if isinstance(grp, str) else None
+    need(g is not None and g["ClassType"] == "ActionGroup", "OnDamageTakenAction is not a group")
+    m = re.fullmatch(r"(\w+) == 0", str(g["ExecuteIfTrue"]))
+    need(m is not None and m.group(1) in t.variables, f"the group's once-only test {g['ExecuteIfTrue']}")
+    var = m.group(1)
+    subs, delays = _action_list(acts, grp, "SubActions"), _action_list(acts, grp, "SubActionsDelay")
+    need(len(subs) == len(delays), "the group's delays")
+    buff_steps = [(s, d) for s, d in zip(subs, delays, strict=True) if acts.get(s)["ClassType"] == "ActionSpawn"]
+    sets = [(s, d) for s, d in zip(subs, delays, strict=True) if acts.get(s)["ClassType"] == "ActionSetVariable"]
+    need(len(buff_steps) == 1 and buff_steps[0][1] == 0 and len(sets) == 1 and sets[0][1] == 0, "the group's steps")
+    for s in subs:
+        need(acts.get(s)["ClassType"] in ("ActionSpawn", "ActionSetVariable", "ActionPlayEffect"), f"step {s}")
+    sv = acts.get(sets[0][0])
+    need(sv["Variable"] == var and sv["Value"] == "1", "the once-only flag")
+    sp = acts.get(buff_steps[0][0])
+    need(sp["SpawnType"] == "BuffType" and isinstance(sp["SpawnTime"], int) and sp["SpawnTime"] > 0, "the ghost buff")
+    brow = t["character_buffs"].get(sp["SpawnData"])
+    need(brow is not None and flag(brow, "Invisible"), "the ghost buff is not Invisible")
+    rem = brow["OnRemoveAction"]
+    if rem:
+        rg = _group_leaves(acts, rem)
+        need(rg is not None, "the ghost's OnRemoveAction")
+        for s in rg[0]:
+            a = acts.get(s)
+            if a["ClassType"] == "ActionSpawn":
+                db = t["character_buffs"].get(a["SpawnData"])
+                shown = {k for k, v in db.items() if v is not None} if db is not None else {"?"}
+                need(a["SpawnType"] == "BuffType" and shown <= {"Rarity", "ShadowAlpha"}, f"remove step {s}")
+            else:
+                need(a["ClassType"] == "ActionPlayEffect", f"remove step {s}")
+    buff = norm_buff(t, sp["SpawnData"])
+    need(buff.get("no_damage") is True, "the ghost buff does not set NO_DAMAGE")
+    return {"buff": buff, "time_ms": sp["SpawnTime"]}
+
+
 def fall_block(t: Tables, card: dict) -> dict:
     """THE EVO ROYAL HOGS' FALL (spells_evolved RoyalHogs_EV1; characters/royal_hog_ev1.toml), read whole or the build
     stops. The unit (RoyalHog_EV1) flies (its FlyingHeight); it falls once:
@@ -4637,6 +4695,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_shot_spawn"] = shot_spawn_block(t, card)
         elif name == "RoyalHogs_EV1":
             card["evo_fall"] = fall_block(t, card)
+        elif name == "MinionHorde_EV1":
+            card["evo_first_hit"] = first_hit_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

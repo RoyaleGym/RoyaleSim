@@ -467,17 +467,20 @@ fn forms_take_slots_after_every_existing_card() {
             ("Snowball", "Snowball_EV1"),
             ("SkeletonBalloon", "SkeletonBalloon_EV1"),
             ("Mortar", "Mortar_EV1"),
-            ("RoyalHogs", "RoyalHogs_EV1")
+            ("RoyalHogs", "RoyalHogs_EV1"),
+            ("MinionHorde", "MinionHorde_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );
     assert!(db.forms.iter().all(|(_, _, f)| *f as usize >= n0));
-    // Fourteen forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
+    // Fifteen forms, the Elite Barbarians' second member (AngryBarbarian_EV1_2) right after its form, the Evo Battle Ram's
     // death spawn (Barbarian_EV1, with its rage) right after the ram, the Evo Royal Ghost's pair right after it, the Evo
     // Skeleton Army's General and Spectral right after it, the Evo Giant Snowball (a spell: no unit of its own), the
     // Evo Skeleton Barrel with its two drops, the Evo Mortar (its Goblin a loaded unit), and the Evo Royal Hogs with its
-    // grounded row last.
-    assert_eq!(db.cards.len(), n0 + 23);
+    // grounded row, and the Evo Minion Horde last.
+    assert_eq!(db.cards.len(), n0 + 24);
+    assert_eq!(db.cards[n0 + 23].name, "MinionHorde_EV1");
+    assert!(db.cards[n0 + 23].evo.as_ref().and_then(|e| e.first_hit).is_some_and(|b| b.time_ms == 3000 && db.buffs[b.buff as usize].no_damage && db.buffs[b.buff as usize].invisible));
     assert_eq!(db.cards[n0 + 20].name, "Mortar_EV1");
     assert!(db.cards[n0 + 20].evo.as_ref().and_then(|e| e.shot_spawn).is_some_and(|s| db.get(s.unit.unit).unit_name == "Goblin" && s.deploy_ms == 500));
     assert_eq!(db.cards[n0 + 21].name, "RoyalHogs_EV1");

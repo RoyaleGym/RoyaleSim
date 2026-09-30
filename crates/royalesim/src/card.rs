@@ -1812,6 +1812,9 @@ pub struct EvoDef {
     pub shot_spawn: Option<ShotSpawnDef>,
     /// Evo Royal Hogs: a flier that lands for good at a health line or on its first hit (`FallDef`).
     pub fall: Option<FallDef>,
+    /// Evo Minion Horde: the buff its first damage lands on each unit, once (state.rs `first_hit`; the ghost: invisible,
+    /// no damage, -33 % speed and hit speed, 3000 ms).
+    pub first_hit: Option<BuffApply>,
     /// ClonedVersion: the card a Clone copies this unit as (the base card, whose unit is the named row). None when the
     /// row names none.
     pub cloned_as: Option<u16>,
@@ -4048,6 +4051,8 @@ struct RawEvolution {
     evo_shot_spawn: Option<RawShotSpawn>,
     /// The Evo Royal Hogs' fall (`fall_block`).
     evo_fall: Option<RawFall>,
+    /// The Evo Minion Horde's ghost (`first_hit_block`).
+    evo_first_hit: Option<RawFirstHit>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4058,6 +4063,13 @@ struct RawEvolution {
 struct RawShotSpawn {
     unit: Option<String>,
     deploy_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_first_hit` (tools/extract_cards.py `first_hit_block`): the buff and its time.
+#[derive(Deserialize)]
+struct RawFirstHit {
+    buff: Option<RawBuff>,
+    time_ms: Option<i32>,
 }
 
 /// cards.json `evolutions[].evo_fall` (tools/extract_cards.py `fall_block`): the health line, the attack trigger, the
@@ -4917,6 +4929,8 @@ struct RawBuff {
     invisible: Option<bool>,
     /// character_buffs GameTagsToSet NO_PUSHED_BY_ALLY (`BuffDef::no_pushed_by_ally`); 15.535 only, written where set.
     no_pushed_by_ally: Option<bool>,
+    /// character_buffs GameTagsToSet NO_DAMAGE (`BuffDef::no_damage`); 15.535 only, written where set.
+    no_damage: Option<bool>,
     /// character_buffs GameTagsToSet UNKILLABLE and CharacterCrownTowerDamagePercent (`BuffDef::unkillable`,
     /// `BuffDef::char_crown_pct`); 15.535 only, written where set.
     unkillable: Option<bool>,
@@ -5071,6 +5085,7 @@ impl RawBuff {
             not_cloned: self.not_cloned.unwrap_or(false),
             invisible: self.invisible.unwrap_or(false),
             no_pushed_by_ally: self.no_pushed_by_ally.unwrap_or(false),
+            no_damage: self.no_damage.unwrap_or(false),
             damage_reduction,
             damage_pct: self.damage_multiplier.unwrap_or(0),
             unkillable: self.unkillable.unwrap_or(false),
@@ -9059,6 +9074,7 @@ impl CardDb {
             extra.evo_barrel.is_some(),
             extra.evo_shot_spawn.is_some(),
             extra.evo_fall.is_some(),
+            extra.evo_first_hit.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9084,6 +9100,9 @@ impl CardDb {
             &["ActionAddHealthBarPart", "ActionGroup", "ActionRunActionAtHealth", "ActionSkeletonBarrelPopBalloon"]
         } else if extra.evo_fall.is_some() {
             &FALL_GRAPH
+        } else if extra.evo_first_hit.is_some() {
+            // The ghost's group under its once-only flag (`first_hit_block` reads it whole).
+            &["ActionGroup", "ActionPlayEffect", "ActionSetVariable", "ActionSpawn"]
         } else {
             &[]
         };
@@ -9105,8 +9124,13 @@ impl CardDb {
         let fall_spawns = |g: &RawActionGraph| {
             extra.evo_fall.as_ref().and_then(|f| f.landing_area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
+        // THE GHOST BUFF is the first hit's block's too (`first_hit_block` reads it whole).
+        let ghost_spawns = |g: &RawActionGraph| {
+            let name = extra.evo_first_hit.as_ref().and_then(|f| f.buff.as_ref()).and_then(|b| b.name.as_deref());
+            name.is_some_and(|n| g.spawns.iter().all(|s| s == &format!("BuffType:{n}")))
+        };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -9174,6 +9198,7 @@ impl CardDb {
                     barrel: None,
                     shot_spawn: None,
                     fall: None,
+                    first_hit: None,
                     cloned_as: None,
                 });
                 death = Some(m);
@@ -9338,6 +9363,7 @@ impl CardDb {
             barrel: None,
             shot_spawn: None,
             fall: None,
+            first_hit: None,
             cloned_as: None,
         };
         if let Some(g) = &extra.evo_ghost {
@@ -9364,6 +9390,15 @@ impl CardDb {
                 return Err("a shot spawn on a row with no shot".into());
             }
             evo.shot_spawn = Some(ShotSpawnDef { unit: FormUnit { unit }, deploy_ms: r.deploy_ms.filter(|d| *d >= 0).ok_or("a shot spawn with no deploy time")? });
+        }
+        // THE GHOST: the buff the unit's first damage lands, interned now; it must keep every hit off its carrier.
+        if let Some(f) = &extra.evo_first_hit {
+            let raw_buff = f.buff.as_ref().ok_or("a first-hit buff with no buff")?;
+            if raw_buff.no_damage != Some(true) {
+                return Err("a first-hit buff that lets damage through is not simulated".into());
+            }
+            let time = f.time_ms.filter(|t| *t > 0).ok_or("a first-hit buff with no time")?;
+            evo.first_hit = Some(buffs.apply(raw_buff, Some(time), "the first hit's buff")?);
         }
         // THE FALL: a flier's (the extractor reads the flying row), its landing a one-hit area on the enemy side.
         if let Some(f) = &extra.evo_fall {

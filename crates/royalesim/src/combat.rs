@@ -2198,6 +2198,9 @@ pub struct ResolveOut {
     pub deaths: Vec<EntityId>,
     /// Teams whose king tower took damage this tick.
     pub king_hit: [bool; 2],
+    /// Units of a card with a first-hit buff (card.rs `EvoDef::first_hit`) that took damage this tick and live on it,
+    /// ascending slot order (state.rs `first_hit`).
+    pub hurt: Vec<EntityId>,
 }
 
 /// Apply every buffered hit in one pass. `sums` is scratch.
@@ -2264,6 +2267,12 @@ pub fn resolve(
         if cards.get(ents.card[h.target.index as usize]).no_damage {
             continue;
         }
+        // NO_DAMAGE ON A BUFF (status.rs `BuffDef::no_damage`, the Evo Minion Horde's ghost): no hit lands on its carrier
+        // while the buff lasts. The table's word; the scene shows a hit minion untouched for a while after (open).
+        #[cfg(not(clash_plant = "ghost_takes_damage"))]
+        if ents.buffs_of(&cards.buffs, h.target.index as usize).any(|b| b.no_damage) {
+            continue;
+        }
         // status.DAMAGE_REDUCTION: each hit is scaled on its own, before the tick's sum meets the shield.
         let r = damage_reduction_of(ents, cards, calib, tick, h.target.index as usize);
         sums[h.target.index as usize] += landed(&h, r, calib.damage_reduction) as i64;
@@ -2281,6 +2290,9 @@ pub fn resolve(
         } else {
             ents.hp[i] = (ents.hp[i] as i64 - s).max(i32::MIN as i64) as i32;
             unkillable_floor(ents, cards, i);
+        }
+        if ents.hp[i] > 0 && cards.get(ents.card[i]).evo.as_ref().is_some_and(|v| v.first_hit.is_some()) {
+            out.hurt.push(ents.id_of(i));
         }
     }
     // Every live entity at or below zero dies, however it got there.

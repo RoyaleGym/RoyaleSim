@@ -6557,6 +6557,10 @@ pub struct EvoBoard {
     /// before it still loads; hashed only when not empty.
     #[serde(default)]
     pub barrel_drops: Vec<EntityId>,
+    /// Each Evo Minion Horde minion whose first damage has landed its buff (`first_hit`). `default` so a battle saved
+    /// before it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub first_hits: Vec<EntityId>,
 }
 
 /// ONE UNIT OF AN EVO SKELETON ARMY'S PLAY (card.rs `ArmyDef`): the unit, its group (one a play, `evo_created`) and its
@@ -6614,6 +6618,7 @@ impl EvoBoard {
             && self.winds.is_empty()
             && self.armies.is_empty()
             && self.barrel_drops.is_empty()
+            && self.first_hits.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -13048,6 +13053,34 @@ impl BattleState {
         self.evo.barrel_drops.retain(|id| ents.is_alive(*id));
     }
 
+    /// THE FIRST DAMAGE'S BUFF (card.rs `EvoDef::first_hit`, the Evo Minion Horde's ghost), in the Resolve phase right
+    /// after the tick's damage: each unit of a card that carries one, hurt this tick and alive, takes the buff once in its
+    /// life (the table's OnDamageTakenAction under its once-only flag). The hit that triggers it lands in full.
+    ///
+    /// Measured on client 15.535.29 (sp-form-MinionHorde-evo-s0, level 11): every evolved minion a Musketeer's shot took
+    /// from 230 to 13 took no other damage for a stretch and died later, one of them hit again 78 ticks on. Read off the
+    /// table, not measured: the ghost's 3000 ms, its tick against the hit's, and its slow (-33 %).
+    fn first_hit(&mut self, hurt: Vec<EntityId>) {
+        let cards = self.cfg.cards.clone();
+        for id in hurt {
+            let i = id.index as usize;
+            if !self.ents.is_alive(id) || self.ents.hp[i] <= 0 || self.evo.first_hits.contains(&id) {
+                continue;
+            }
+            let Some(b) = cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.first_hit) else { continue };
+            #[cfg(not(clash_plant = "ghost_never"))]
+            {
+                let h = crate::status::BuffHit::plain(id, b.buff, b.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+            }
+            #[cfg(clash_plant = "ghost_never")]
+            let _ = b; // PLANT: the first damage lands no buff.
+            self.evo.first_hits.push(id);
+        }
+        let ents = &self.ents;
+        self.evo.first_hits.retain(|id| ents.is_alive(*id));
+    }
+
     /// THE EVOLVED FLIERS THAT FALL (card.rs `FallDef`, `FallRun`), in the Status phase: a flier still in the air whose
     /// hitpoints are at or below its line (a blow in the last tick's Resolve) is triggered now (its first hit triggers it
     /// in `evo_after_fire`); it lands `transition_ms` and a tick after the trigger, becoming its grounded row (its target
@@ -17678,6 +17711,10 @@ impl BattleState {
             }
         }
         self.death_queue = out.deaths;
+        // THE EVO MINION HORDE'S GHOST (card.rs `EvoDef::first_hit`): the first damage a minion survives lands its buff.
+        if !out.hurt.is_empty() {
+            self.first_hit(out.hurt);
+        }
         self.riders_die_with_their_mounts();
         // transform.HEALTH_TRIGGER_TIMING = crossing_tick_resolve: the health trigger read right after the tick's
         // damage lands, on the crossing tick itself (the units it kills are skipped: they are dying).
@@ -21671,6 +21708,14 @@ impl BattleState {
                 for (id, ms) in &b.spears {
                     h.id(*id);
                     h.i32(*ms);
+                }
+            }
+            // The Evo Minion Horde's minions whose first damage has landed, only when there are some.
+            if !b.first_hits.is_empty() {
+                h.u32(0x4748_4f53);
+                h.u32(b.first_hits.len() as u32);
+                for id in &b.first_hits {
+                    h.id(*id);
                 }
             }
             // The Evo Skeleton Barrels' fallen drops, only when there are some.
