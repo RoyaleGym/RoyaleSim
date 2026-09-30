@@ -6,9 +6,12 @@
 //!     the table's 800 ms) and walked on t223;
 //!   - the Skeleton's target went on t212 (the pick + 8: PushbackDelay 400) and it moved -250 along x, y unchanged, on
 //!     every tick from t213 (toward the arena's centre, past the Giant) until a tower's arrow killed it on t233.
-//! Read off the table, not measured: the flight's 1500 ms, the landing blow (53, not level-scaled, 1000 around, enemy
-//! ground troops), the 2000 ms stun, the pick among several (the most hitpoints and shield), the refusal of a unit that
-//! ignores pushback and the seek again 400 ms on.
+//! THE MEASUREMENTS (sp-slap-*, five scenes: Knights and a Golem, either lane, either side of the Giant): the target
+//! moved 250 along x toward the centre on each of 33 ticks from the throw's next, took 135 (53 on the ladder) on the
+//! 32nd, moved 225, 200, ... 25, stood a tick, stepped back 25 and walked on the next: the table's 23000 as a pushback
+//! ladder capped at 250.
+//! Read off the table, not measured: the 2000 ms stun (inside the hold), the pick among several (the most hitpoints and
+//! shield), the refusal of a unit that ignores pushback and the seek again 400 ms on.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_giant`):
@@ -86,25 +89,29 @@ fn run(s: &mut BattleState, giant: EntityId, reds: &[EntityId], frames: usize) -
 #[test]
 fn the_slap_holds_the_giant_and_throws_its_pick_toward_the_centre() {
     // A red Knight 2800 ahead of the Giant (within 2500 + its 500): the pick on the first pass. The Giant stands 18
-    // frames from the next; 8 frames after the pick the Knight loses its target and from the next it moves -250 along x
-    // (toward the centre line, x 9000), y unchanged, for 30 frames (1500 ms); where it lands the blow takes 53 off it.
+    // frames from the next; 8 frames after the pick the Knight loses its target and from the next it moves along x
+    // (toward the centre line, x 9000), y unchanged: -250 on 33 frames, -225, -200, ... -25, 0, then +25; the blow takes
+    // 135 off it on the 32nd.
     let (mut s, giant, reds) = start(&[("Knight", (AT.0, AT.1 + 2800))]);
     let f = run(&mut s, giant, &reds, 70);
     let knight = |k: usize| f[k].1[0].expect("the Knight alive");
     let first = (1..f.len()).find(|&k| knight(k).0.x - knight(k - 1).0.x == -250 * K).expect("the Knight thrown");
     let pick = first - 9;
     assert!(!knight(pick + 8).2, "its target gone on the pick + 8");
-    for k in first..first + 30 {
+    let mut ladder: Vec<i32> = vec![-250; 33];
+    ladder.extend((1..=9).map(|j| -250 + 25 * j));
+    ladder.extend([0, 25]);
+    for (j, want) in ladder.iter().enumerate() {
+        let k = first + j;
         let (dx, dy) = (knight(k).0.x - knight(k - 1).0.x, knight(k).0.y - knight(k - 1).0.y);
-        assert_eq!((dx / K, dy / K), (-250, 0), "frame {k}: the throw's step");
+        assert_eq!((dx / K, dy / K), (*want, 0), "frame {k}: step {j} of the throw");
     }
-    assert_eq!(knight(first + 30).0.x, knight(first + 29).0.x, "the flight ends after 30 steps");
     for k in pick + 1..=pick + 18 {
         assert_eq!(f[k].0, f[pick].0, "the Giant stands on frame {k} (the pick + {})", k - pick);
     }
     assert_ne!(f[pick + 19].0, f[pick + 18].0, "and walks on the pick + 19");
     let losses: Vec<(usize, i32)> = (1..f.len()).map(|k| (k, knight(k - 1).1 - knight(k).1)).filter(|(_, d)| *d > 0).collect();
-    assert!(losses.iter().any(|(k, d)| *d == 53 && (first + 29..=first + 31).contains(k)), "the landing blow's 53: {losses:?}");
+    assert_eq!(losses.first(), Some(&(first + 31, 135)), "the landing blow's 135 on the 32nd step: {losses:?}");
 }
 
 #[test]

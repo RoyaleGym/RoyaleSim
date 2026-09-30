@@ -85128,6 +85128,7 @@
      "radius_milli": 2500,
      "hold_ms": 800,
      "push_delay_ms": 400,
+     "push_milli": 23000,
      "flight_ms": 1500,
      "buff": {
       "name": "GiantHero_Slap_Stun",

@@ -5358,8 +5358,8 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
     of the seeker at delay 0 and the button's UI state and effects. The seeker waits for (WaitForTarget), once per
     target, the enemy troop with the highest current hitpoints and shield (SLAP_FILTER) in its circle (`radius_milli`);
     on the Giant it runs, left or right, an animation and a hold (an ActionWithDuration of NO_MOVE and NO_ATTACK:
-    `hold_ms`); on the target, the push: `push_delay_ms` on, toward the arena's horizontal centre, refused by
-    SLAP_REFUSING_TAGS. On success the target is knocked up for `flight_ms` and lands with the landing blow (an area of
+    `hold_ms`); on the target, the push: `push_delay_ms` on, toward the arena's horizontal centre, `push_milli` long,
+    refused by SLAP_REFUSING_TAGS. On success the target is knocked up for `flight_ms` and lands with the landing blow (an area of
     one hit: `landing_damage`, its level scaling, `landing_radius_milli`, enemy ground troops), and takes the stun (a full
     stop, `buff` for `time_ms`); on failure the seeker runs again `retry_ms` on."""
     acts = h["actions"]
@@ -5395,7 +5395,8 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
     need(len(holds) == 1, f"the two sides' holds {sorted(holds)}")
     push = _one_action(acts, per[0], "ActionDoPushbackFromInstigator", SLAP_PUSH_KEYS)
     need(push["DirectionMode"] == "ToHorizontalCenterFromInstigator" and push["UpdatePhase"] == "PostGameObjectTick"
-         and isinstance(push["PushbackDelay"], int) and push["PushbackDelay"] >= 0, "the push")
+         and isinstance(push["PushbackDelay"], int) and push["PushbackDelay"] >= 0
+         and isinstance(push["PushbackStrength"], int) and push["PushbackStrength"] > 0, "the push")
     need({x.strip() for x in str(push["GameTagsToDisallowPush"]).split(",")} <= SLAP_REFUSING_TAGS, "the push's refusing tags")
     need(_cosmetic_action(acts, push["SuccessActionOnInstigator"]), "the push's success on the Giant")
     ok = _group_leaves(acts, push["SuccessAction"])
@@ -5435,6 +5436,7 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
         "radius_milli": shape["Radius"],
         "hold_ms": holds.pop(),
         "push_delay_ms": push["PushbackDelay"],
+        "push_milli": push["PushbackStrength"],
         "flight_ms": kb["Duration"],
         "buff": stun,
         "time_ms": st["SpawnTime"],

@@ -1263,20 +1263,25 @@ pub enum AbilityEffect {
 /// From the trigger the Giant waits for a pick (after each tick's move): the enemy troop, air or ground, whose centre
 /// is within `radius` of his plus its own radius, with the most hitpoints and shield, once each. On the pick he stands
 /// `hold_ms` and SLAP_HOLD_EXTRA_TICKS more; `push_delay_ms` on, the target is thrown toward the arena's horizontal
-/// centre, SLAP_FLIGHT_STEP a tick along x for `flight_ms`, stunned (`stun`) from the throw, and where it lands the blow
-/// (`landing`, on the level-1 figure unless `landing_level_scaled`) strikes. A target that ignores pushback is not thrown,
-/// and the seek runs again `retry_ms` on. Radii in subtiles.
+/// centre along x: a pushback ladder of `push` (native; move16402.rs `ladder_speed`, 25 off before each step) whose every
+/// step is capped at SLAP_FLIGHT_STEP, its last the ladder's step back; stunned (`stun`) from the throw and held until the
+/// ladder ends. `flight_ms` after its first step it lands, and the blow (`landing`, on the level-1 figure unless
+/// `landing_level_scaled`) strikes on the next tick. A target that ignores pushback is not thrown, and the seek runs
+/// again `retry_ms` on. Radii in subtiles.
 ///
 /// Measured on client 15.535.29 (sp-form-Giant-hero-s0; the press issued t200): the Giant, walking, took the Skeleton
-/// 2868 from him on t204 (3008 on t203; 2500 + its 500), stood t205-t222 and walked on t223; the Skeleton's target went
-/// on t212 and it moved -250 along x, y unchanged, every tick t213-t232 (toward the centre, past the Giant), when a
-/// tower's arrow killed it. Read off the table, not measured: the flight's length, the landing blow, the stun, the pick's
-/// order among several, the refusal and the retry.
+/// 2868 from him on t204 (3008 on t203; 2500 + its 500), stood t205-t222 and walked on t223. On five slap scenes
+/// (sp-slap-*; Knights and a Golem, either lane, either side of the Giant; the press t274): the target moved 250 along x
+/// toward the centre on each of t284-t316, took 135 on t315 (53 on the ladder at level 11), moved 225, 200, ... 25 on
+/// t317-t325, stood on t326, stepped back 25 on t327 and walked from t328: 9375 in all, the Golem as the Knight. That is
+/// a ladder of the table's 23000 (first speed 1075) under a 250 cap. Read off the table, not measured: the stun (inside
+/// the hold), the pick's order among several, the refusal and the retry.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SlapDef {
     pub radius: i32,
     pub hold_ms: i32,
     pub push_delay_ms: i32,
+    pub push: i32,
     pub flight_ms: i32,
     pub stun: BuffApply,
     pub landing: SpellDef,
@@ -1284,7 +1289,7 @@ pub struct SlapDef {
     pub retry_ms: i32,
 }
 
-/// THE SLAP'S FLIGHT STEP, native a tick along x: measured on client 15.535.29, 250 on each of 20 ticks.
+/// THE SLAP'S STEP CAP, native a tick along x: measured on client 15.535.29, 250 on each of 33 ticks of every slap.
 pub const SLAP_FLIGHT_STEP: i32 = 250;
 
 /// THE SLAP'S HOLD, ticks beyond its ActionDuration: measured on client 15.535.29, 18 standing frames for 800 ms.
@@ -4877,6 +4882,7 @@ struct RawAbilityEffect {
     /// `slap` (tools/extract_cards.py `slap_effect`; `radius_milli`, `buff` and `time_ms` above).
     hold_ms: Option<i32>,
     push_delay_ms: Option<i32>,
+    push_milli: Option<i32>,
     flight_ms: Option<i32>,
     landing_damage: Option<i32>,
     landing_radius_milli: Option<i32>,
@@ -10418,10 +10424,13 @@ impl CardDb {
                     radius: milli(pos(e.radius_milli, "radius")?),
                     hold_ms: pos(e.hold_ms, "hold")?,
                     push_delay_ms: e.push_delay_ms.unwrap_or(0).max(0),
+                    push: pos(e.push_milli, "push")?,
                     flight_ms: pos(e.flight_ms, "flight")?,
                     stun,
                     landing: SpellDef { shape: SpellShape::AreaEffect { hit }, placement: SpellPlacement::Anywhere },
-                    landing_level_scaled: e.landing_level_scaled.unwrap_or(true),
+                    // Its damage type says no level scaling; the client scales it (135 at level 11 on five scenes), as
+                    // every ability area's (ABILITY_AREA_DAMAGE_ALWAYS_SCALES).
+                    landing_level_scaled: e.landing_level_scaled.unwrap_or(true) || ABILITY_AREA_DAMAGE_ALWAYS_SCALES,
                     retry_ms: e.retry_ms.unwrap_or(0).max(0),
                 })
             }

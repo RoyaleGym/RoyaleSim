@@ -7382,8 +7382,6 @@ pub struct EntityView<'a> {
     pub card: &'a str,
     /// Index of `card` in the CardDb (for bindings that must not look names up).
     pub card_idx: u16,
-    /// Its level (a hero's level set moves it: card.rs `AbilityEffect::LevelUp`).
-    pub level: i32,
     pub pos: Vec2,
     /// The direction this entity faces, as a vector rather than an angle (there is no
     /// floating point here). Read by the spawner's ring law, which lays a set
@@ -13326,10 +13324,13 @@ impl BattleState {
     ///   - seeking (paused while he is held): the pick holds him from the next tick, `hold_ms` and
     ///     SLAP_HOLD_EXTRA_TICKS more, as a cast holds a hero (his target search runs on);
     ///   - picked: `push_delay_ms` on, a target that ignores pushback, dashes or is gone is refused (the seek runs again
-    ///     `retry_ms` on, that target tried); else it loses its target, takes the stun, and is thrown toward the arena's
-    ///     horizontal centre (its own side of it when it stands on the line: away from the Giant);
-    ///   - in flight: SLAP_FLIGHT_STEP along x every tick after the throw's, inside the arena; `flight_ms` on it lands and
-    ///     the blow strikes on its point (on the level-1 figure unless the damage scales), and the slap is done.
+    ///     `retry_ms` on, that target tried); else it loses its target, takes the stun, is held until its ladder ends,
+    ///     and is thrown toward the arena's horizontal centre (its own side of it when it stands on the line: away from
+    ///     the Giant);
+    ///   - in flight: on step k after the throw's tick, the ladder's remaining `ladder_speed(push) - 25 k`, capped at
+    ///     SLAP_FLIGHT_STEP, along x inside the arena, and when it has gone negative its step back; `flight_ms` after
+    ///     the first step it lands, and the blow strikes on its point on the next tick (on the level-1 figure unless the
+    ///     damage scales); the slap is done with the step back.
     fn slap_pass(&mut self) {
         let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
         let cards = self.cfg.cards.clone();
@@ -13380,6 +13381,10 @@ impl BattleState {
                     self.ents.target[ti] = None;
                     let h = crate::status::BuffHit::plain(t, d.stun.buff, d.stun.time_ms, 0);
                     land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, ti, &h);
+                    // Held through the ladder's last step, its step back (the pick's hold law: N ticks of stun_ms set
+                    // here hold it N - 1 ticks).
+                    let steps = crate::move16402::ladder_speed(d.push) / crate::move16402::PUSHBACK_DECEL + 1;
+                    self.ents.stun_ms[ti] = self.ents.stun_ms[ti].max((steps + 1) * tick_ms);
                     let centre = self.cfg.arena.width / 2;
                     let x = self.ents.pos[ti].x;
                     r.dir = if x > centre {
@@ -13398,16 +13403,21 @@ impl BattleState {
                 2 => {
                     let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) else { return false };
                     let ti = t.index as usize;
+                    let decel = crate::move16402::PUSHBACK_DECEL;
+                    let k = (tick - r.mark) as i32;
+                    let rem = crate::move16402::ladder_speed(d.push) - decel * k;
                     #[cfg(not(clash_plant = "slap_flight_never"))]
-                    if tick > r.mark {
+                    if k > 0 && rem >= -decel {
                         use crate::fixed::SUBTILE_PER_MILLITILE as K;
                         let rad = self.ents.radius[ti];
-                        let nx = self.ents.pos[ti].x + r.dir * crate::card::SLAP_FLIGHT_STEP * K;
+                        let step = rem.min(crate::card::SLAP_FLIGHT_STEP);
+                        let nx = self.ents.pos[ti].x + r.dir * step * K;
                         self.ents.pos[ti].x = nx.clamp(rad, self.cfg.arena.width - rad);
                         moved = true;
                     }
-                    if tick < r.mark + (d.flight_ms / tick_ms) as u32 {
-                        return true;
+                    let land = 1 + d.flight_ms / tick_ms;
+                    if k != land {
+                        return k < land || rem > -decel;
                     }
                     #[cfg(not(clash_plant = "slap_landing_dropped"))]
                     {
@@ -13417,7 +13427,7 @@ impl BattleState {
                         let blow = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, self.ents.card[g], level, at, tick).expect("the landing loads with its card");
                         self.spells.extend(blow);
                     }
-                    false
+                    rem > -decel
                 }
                 _ => {
                     if tick >= r.mark + (d.retry_ms / tick_ms) as u32 {
@@ -16859,7 +16869,7 @@ impl BattleState {
                 let bolts: Vec<EntityId> = Vec::new(); // PLANT (regression): the new arm delivers one bolt an attack, as not_read.
                 // THE SELECTOR'S MELEE ENTRY lands as a direct strike with no projectile (combat.rs `fire`), so the
                 // projectile bookkeeping below leaves it alone. False on every card without a selector.
-                let melee = select.is_some_and(|sel| combat::melee_chosen(&self.ents, i, t.index as usize, sel));
+                let melee = self.cfg.cards.get(self.ents.card[i]).attack_select.is_some_and(|sel| combat::melee_chosen(&self.ents, i, t.index as usize, sel));
                 // An Evo Elite Barbarian's throw (combat.rs `fire`, the spear) is a shot too.
                 let throw = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().is_some_and(|v| v.spear.is_some()) && self.ents.attack_seq[i] == 1;
                 let shot = (self.cfg.cards.get(self.ents.card[i]).projectile.is_some() && !melee) || throw;
@@ -21436,7 +21446,6 @@ impl BattleState {
             kind: e.kind[i],
             card: &self.cfg.cards.get(e.card[i]).name,
             card_idx: e.card[i],
-            level: e.level[i],
             pos: e.pos[i],
             facing: e.facing[i],
             push_applied: e.push_applied[i],
