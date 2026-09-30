@@ -3676,7 +3676,7 @@ EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
     "Mortar_EV1", "RoyalHogs_EV1", "MinionHorde_EV1", "Tesla_EV1", "RoyalRecruits_EV1", "Wizard_EV1", "Knight_EV1",
-    "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1",
+    "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4337,6 +4337,42 @@ DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", 
 DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"}, ["idle_buff"])
 
 
+def far_shot_block(t: Tables, card: dict) -> dict:
+    """THE EVO ARCHER'S POWER SHOT (characters_evo Archer_EV1), read whole or the build stops: its OnStartingAttackAction
+    is an ActionFilter on `!target_in_range(N)` (`range_milli`) whose OnTrueAction sets the attack sequence index 1 and
+    OnFalseAction 0, the row's AttackSequenceMode None; its Projectile2 is its Projectile but for Damage (`damage`) and
+    cosmetic columns."""
+    unit = card["summon_character"]
+    _, row = unit_record(t, unit)
+    acts = t["actions"]
+    pt = t["projectiles"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    name = row["OnStartingAttackAction"]
+    f = acts.get(name or "")
+    need(f is not None and f["ClassType"] == "ActionFilter" and acts.set_fields.get(name, set()) == {"ClassType", "Condition", "OnTrueAction", "OnFalseAction"},
+         f"OnStartingAttackAction {name!r} is not a two-way filter")
+    m = re.fullmatch(r"!target_in_range\((\d+)\)", str(f["Condition"]))
+    need(m is not None, f"the filter's condition {f['Condition']!r}")
+
+    def index_of(n: str) -> int:
+        a = acts.get(n or "")
+        need(a is not None and a["ClassType"] == "ActionSetAttackSequenceIndex" and acts.set_fields.get(n, set()) == {"ClassType", "AttackIndex"},
+             f"{n!r} does not set an attack index")
+        return a["AttackIndex"]
+
+    need(index_of(f["OnTrueAction"]) == 1 and index_of(f["OnFalseAction"]) == 0, "the filter's branches are not the far and near entries")
+    need(row["AttackSequenceMode"] == "None", f"AttackSequenceMode {row['AttackSequenceMode']!r}")
+    r1, r2 = pt.get(row["Projectile"]), pt.get(row["Projectile2"])
+    need(r1 is not None and r2 is not None, f"Projectile {row['Projectile']!r} / Projectile2 {row['Projectile2']!r}")
+    differ = {c for c in pt.columns if not COSMETIC.search(c) and c not in ("Name", "Base") and r1[c] != r2[c]}
+    need(differ == {"Damage"} and isinstance(r2["Damage"], int) and r2["Damage"] > 0, f"Projectile2 differs in {sorted(differ)}")
+    return {"range_milli": int(m.group(1)), "damage": r2["Damage"]}
+
+
 # THE EVO VALKYRIE'S TORNADO (`attack_area_block`): the columns its area row may set beside the cosmetic ones.
 ATTACK_AREA_READ = {"Base", "Buff", "FollowBehaviour", "LifeDuration", "Radius"}
 
@@ -4993,6 +5029,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "Valkyrie_EV1":
             card["evo_attack_area"] = attack_area_block(t, card)
+        elif name == "Archer_EV1":
+            card["evo_far_shot"] = far_shot_block(t, card)
         elif name == "AngryBarbarians_EV1":
             card["evo_spear"] = spear_block(t, card)
             # SummonSpawnDelay (its [SPELL_EVOLVED] section's; the base card's row says SummonDeployDelay): member k

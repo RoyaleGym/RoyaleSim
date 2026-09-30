@@ -1040,6 +1040,13 @@ pub fn fire(
     // THE CARRIER'S OWN BUFF (status.rs `BuffDef::damage_pct`, `char_crown_pct`; the Hero Berserker's rage): the hit
     // is scaled by the strongest DamageMultiplier the attacker carries, and a crown tower takes the buff's own percent
     // of it in place of the card's. Nothing moves for a unit without such a buff.
+    // THE EVO ARCHER'S POWER SHOT (card.rs `FarShotDef`): an attack of her far entry (`attack_seq` 1, state.rs
+    // `select_attack`) deals her Projectile2's level-scaled Damage in place of her own.
+    #[cfg(not(clash_plant = "far_shot_never"))]
+    let amount = match card.evo.as_ref().and_then(|v| v.far_shot) {
+        Some(fs) if ents.attack_seq[a] == 1 => cards.scaled(ents.card[a], ents.level[a], fs.damage).expect("level validated at spawn"),
+        _ => amount,
+    };
     let amount = own_damage(ents, cards, a, amount);
     let pct = own_crown_pct(ents, cards, a).unwrap_or(card.crown_tower_damage_percent);
     // THE EVO ELITE BARBARIANS' SPEAR (card.rs `SpearDef`; state.rs `spear_pass`): an attack of the thrown entry

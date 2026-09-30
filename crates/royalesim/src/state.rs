@@ -16688,6 +16688,19 @@ impl BattleState {
     /// the melee entry at centre distances up to 2469.5 and shots from 2864 out, which 1600 + the musketeer's 500 + the
     /// Giant's 750 = 2850 alone of four readings fits.
     fn select_attack(&self, i: usize) -> u8 {
+        // THE EVO ARCHER'S POWER SHOT (card.rs `FarShotDef`): her far entry (1) for a target beyond its reach, on the
+        // selector's reach.
+        #[cfg(not(clash_plant = "far_shot_never"))]
+        if let Some(fs) = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.far_shot) {
+            let e = &self.ents;
+            let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) else { return 0 };
+            let ti = t.index as usize;
+            let near = match self.cfg.calib.attack_select_range {
+                AttackSelectRange::RangePlusBothRadii => crate::fixed::in_range_edge(e.pos[i], e.pos[ti], fs.range + e.radius[i], e.radius[ti]),
+                AttackSelectRange::CentreDistance => crate::fixed::in_range_edge(e.pos[i], e.pos[ti], fs.range, 0),
+            };
+            return u8::from(!near);
+        }
         let Some(sel) = self.cfg.cards.get(self.ents.card[i]).attack_select else { return 0 };
         let e = &self.ents;
         let Some(t) = e.target[i].filter(|t| e.is_alive(*t)) else { return 0 };
@@ -16773,8 +16786,10 @@ impl BattleState {
             // swing's entry when the swing starts -- a fresh cycle's first tick here, and the hit that ends a swing for
             // the next one (below, after `fire`) -- or, under at_fire, at the hit itself. Written only for a card that
             // carries a selector.
-            let select = self.cfg.cards.get(self.ents.card[i]).attack_select;
-            if select.is_some() {
+            // The Evo Archer's power shot picks its entry the same way (card.rs `FarShotDef`).
+            let card_i = self.cfg.cards.get(self.ents.card[i]);
+            let select = card_i.attack_select.is_some() || card_i.evo.as_ref().is_some_and(|v| v.far_shot.is_some());
+            if select {
                 let fresh = self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle;
                 let now = match self.cfg.calib.attack_select_moment {
                     AttackSelectMoment::AtSwingStart => fresh,
@@ -16995,7 +17010,7 @@ impl BattleState {
                 }
                 // combat.ATTACK_SELECT_MOMENT = at_swing_start: the hit ends this swing and starts the next, whose entry is
                 // chosen now, on the start-of-tick positions.
-                if select.is_some() && self.cfg.calib.attack_select_moment == AttackSelectMoment::AtSwingStart {
+                if select && self.cfg.calib.attack_select_moment == AttackSelectMoment::AtSwingStart {
                     self.ents.attack_seq[i] = self.select_attack(i);
                 }
                 #[cfg(clash_plant = "inline_damage")]

@@ -1917,6 +1917,8 @@ pub struct EvoDef {
     pub bounce: Option<BounceDef>,
     /// Evo Valkyrie: the area each attack makes on her, and her own buff (`AttackAreaDef`).
     pub attack_area: Option<AttackAreaDef>,
+    /// Evo Archer: her power shot at a target beyond its range (`FarShotDef`).
+    pub far_shot: Option<FarShotDef>,
     /// Evo Royal Recruits: its charge (the card's `charge`, its range the ShieldLostAction buff's OverrideChargeRange)
     /// runs up only once its shield is gone (state.rs, the charge's gains). Read off the table, not measured: the scene's
     /// recruits lost their shields in melee and never ran up.
@@ -4173,6 +4175,8 @@ struct RawEvolution {
     evo_bounce: Option<RawBounce>,
     /// The Evo Valkyrie's tornado and her own buff (`attack_area_block`).
     evo_attack_area: Option<RawAttackArea>,
+    /// The Evo Archer's power shot (`far_shot_block`).
+    evo_far_shot: Option<RawFarShot>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4199,6 +4203,13 @@ struct RawAttackArea {
     follow: bool,
     self_buff: Option<RawBuff>,
     self_buff_ms: Option<i32>,
+}
+
+/// cards.json `evolutions[].evo_far_shot` (tools/extract_cards.py `far_shot_block`).
+#[derive(Deserialize)]
+struct RawFarShot {
+    range_milli: Option<i32>,
+    damage: Option<i32>,
 }
 
 /// THE EVO BOMBER'S BOUNCE (tools/extract_cards.py `bounce_block`; combat.rs `BounceHop`, the bounce in
@@ -4232,6 +4243,21 @@ pub struct AttackAreaDef {
 /// The `part` of an area riding on a unit (spell.rs `SpellMotion::Attached`, `attached_def`) that names its card's
 /// `AttackAreaDef` rather than an area of its ability.
 pub const EVO_ATTACK_AREA: u8 = u8::MAX;
+
+/// THE EVO ARCHER'S POWER SHOT (tools/extract_cards.py `far_shot_block`; state.rs `select_attack`; combat.rs `fire`): her
+/// OnStartingAttackAction `!target_in_range(4500)` sets her attack entry, read as the Three Musketeers' selector is
+/// (combat.ATTACK_SELECT_MOMENT, combat.ATTACK_SELECT_RANGE): a target beyond `range` takes her Projectile2, her own arrow
+/// but for its Damage (`damage`, level 1: 55 against 44). Range in subtiles.
+///
+/// Measured on client 15.535.29 (sp-form-Archer-evo-s0, two evolved Archers, 14 arrows at level 11): each took 140 (55
+/// on the ladder) or 112 (44). The shipped selector pair (the entry chosen when the swing starts, or at the hit that
+/// ends the swing before; reach 4500 + both radii) gives all 14: 140 where that moment saw the target 6051 or more from
+/// her centre, 112 where it saw 5498 or less. The fire-time centre distance against 4500 gives all 14 too.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FarShotDef {
+    pub range: i32,
+    pub damage: i32,
+}
 
 /// cards.json `evolutions[].evo_data_only` (tools/extract_cards.py `data_only_block`): the card blocks the form's data
 /// makes, each of which the loaded form must carry.
@@ -9375,6 +9401,7 @@ impl CardDb {
             extra.evo_hit_rage.is_some(),
             extra.evo_bounce.is_some(),
             extra.evo_attack_area.is_some(),
+            extra.evo_far_shot.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         if (spell_form && carried != 0) || (!spell_form && carried != 1) {
@@ -9415,6 +9442,9 @@ impl CardDb {
         } else if extra.evo_attack_area.is_some() {
             // The attack's area and her buff (`attack_area_block` reads them whole).
             &["ActionSpawn"]
+        } else if extra.evo_far_shot.is_some() {
+            // The power shot's filter and its two entries (`far_shot_block` reads them whole).
+            &["ActionFilter", "ActionSetAttackSequenceIndex"]
         } else {
             &[]
         };
@@ -9537,6 +9567,7 @@ impl CardDb {
                     shield_blast: None,
                     bounce: None,
                     attack_area: None,
+                    far_shot: None,
                     charge_after_shield: false,
                     cloned_as: None,
                 });
@@ -9707,6 +9738,7 @@ impl CardDb {
             shield_blast: None,
             bounce: None,
             attack_area: None,
+            far_shot: None,
             charge_after_shield: false,
             cloned_as: None,
         };
@@ -9789,6 +9821,15 @@ impl CardDb {
             };
             let area = AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: true, stay: false, end: None };
             evo.attack_area = Some(AttackAreaDef { area, self_buff });
+        }
+        // THE POWER SHOT (the Evo Archer's): on a card whose attack is a projectile, and with no selector of its own.
+        if let Some(f) = &extra.evo_far_shot {
+            let range = f.range_milli.filter(|r| *r > 0).ok_or("a power shot with no range")?;
+            let damage = f.damage.filter(|d| *d > 0).ok_or("a power shot with no damage")?;
+            if c.projectile.is_none() || c.attack_select.is_some() {
+                return Err("a power shot on a card with no projectile or with a selector of its own; not simulated".into());
+            }
+            evo.far_shot = Some(FarShotDef { range: milli(range), damage });
         }
         // THE RAGE AFTER HITS on the form's own units (the Evo Barbarians'), as the Evo Battle Ram's Barbarian_EV1 has it.
         if let Some(rage) = &extra.evo_hit_rage {
