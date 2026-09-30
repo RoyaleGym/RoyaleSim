@@ -1,0 +1,91 @@
+//! CHAINED HITS (projectiles.csv ChainedHitCount / ChainedHitRadius; card.rs `ChainHitDef`; combat.rs `ChainHop`,
+//! `chain_next`, the hop in `step_projectiles`): the Electro Dragon's shot hits 3 targets and the Electro Spirit's 9,
+//! each hop going on from the target it landed on to the closest enemy within 4000 that it has not hit.
+//!
+//! Read off the table, not measured yet (no corpus battle plays either card; Oracle's chain scenes are queued): the
+//! pick's reference point, a hop onto a crown tower, and the hop's first step. What these tests pin is the count and the
+//! radius: three and nine targets, the next one within 4000 of the last.
+//!
+//! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
+//! chained_hits`):
+//!   - chain_never -> both tests red.
+#![allow(unexpected_cfgs)]
+mod common;
+
+use common::*;
+use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::state::{BattleConfig, BattleState};
+use royalesim::{EntityId, Team};
+
+fn n(x: i32, y: i32) -> Vec2 {
+    Vec2::new(x * K, y * K)
+}
+
+fn battle() -> BattleState {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["ElectroDragon".into(), "ElectroSpirit".into()], vec!["Knight".into()]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    s
+}
+
+/// A blue `attacker` held at `at`, red `units` held at their points with their hp topped up every tick; `frames` ticks.
+/// Returns, per frame, what each red unit lost on the tick (None once it is gone).
+fn scene(attacker: &str, at: (i32, i32), units: &[(&str, (i32, i32))], frames: usize) -> Vec<Vec<Option<i32>>> {
+    let mut s = battle();
+    let hero = s.scenario_spawn_now(Team::Blue, attacker, n(at.0, at.1), None).expect("the attacker");
+    let reds: Vec<(EntityId, (i32, i32), i32)> = units
+        .iter()
+        .map(|(card, p)| {
+            let id = s.scenario_spawn_now(Team::Red, card, n(p.0, p.1), None).expect("a red unit");
+            (id, *p, s.entity(id).expect("the red unit").max_hp)
+        })
+        .collect();
+    let mut out = Vec::new();
+    for _ in 0..frames {
+        if s.entity(hero).is_some() {
+            assert!(s.debug_set_pos(hero, n(at.0, at.1)));
+        }
+        for (id, p, top) in &reds {
+            if s.entity(*id).is_some() {
+                assert!(s.debug_set_pos(*id, n(p.0, p.1)));
+                assert!(s.debug_set_hp(*id, *top));
+            }
+        }
+        s.tick();
+        out.push(reds.iter().map(|(id, _, top)| s.entity(*id).map(|e| top - e.hp)).collect());
+    }
+    out
+}
+
+#[test]
+fn an_electro_dragon_shot_hits_three_along_a_line_of_knights() {
+    // Four red Knights 1500 apart on one row, the first 3500 ahead of the dragon (in its reach), out of every crown
+    // tower's: its first shot hits the first, then the second (1500 on) and the third, never the fourth. 75 at level 1
+    // is 192 at 11, on each.
+    let row = [(9500, 16500), (11000, 16500), (12500, 16500), (14000, 16500)];
+    let units: Vec<(&str, (i32, i32))> = row.iter().map(|p| ("Knight", *p)).collect();
+    let f = scene("ElectroDragon", (9500, 13000), &units, 120);
+    let first = f.iter().position(|x| x[0] == Some(192)).expect("the dragon's first shot on the first Knight");
+    // Up to the next shot (HitSpeed 2100: 42 ticks), each of the first three loses 192 once, the fourth nothing.
+    let window = &f[first..(first + 40).min(f.len())];
+    for (k, name) in ["first", "second", "third"].iter().enumerate() {
+        let hits: Vec<i32> = window.iter().filter_map(|x| x[k]).filter(|d| *d > 0).collect();
+        assert_eq!(hits, [192], "the {name} Knight hit once for 192: {hits:?}");
+    }
+    assert!(window.iter().all(|x| x[3] == Some(0)), "the fourth Knight never hit (3 targets)");
+}
+
+#[test]
+fn an_electro_spirit_hits_nine_along_a_line_of_skeletons() {
+    // Ten red Skeletons 1700 apart on one row (81 hitpoints: each hit, 39 at level 1 or 100 at 11, kills), the spirit
+    // beside the first: nine die, the tenth stands.
+    let units: Vec<(&str, (i32, i32))> = (0..10).map(|k| ("Skeleton", (1000 + 1700 * k, 17500))).collect();
+    let f = scene("ElectroSpirit", (1000, 16000), &units, 120);
+    let last = f.last().expect("frames");
+    let dead = last.iter().take(9).filter(|x| x.is_none()).count();
+    assert_eq!(dead, 9, "the first nine killed: {last:?}");
+    assert_eq!(last[9], Some(0), "the tenth untouched (9 targets)");
+}

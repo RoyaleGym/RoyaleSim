@@ -82,6 +82,21 @@ pub struct ProjectileDef {
     pub radius: i32,
 }
 
+/// A CHAINED SHOT (projectiles.csv ChainedHitCount / ChainedHitRadius, set on the Electro Dragon's and the Electro
+/// Spirit's rows only; combat.rs `ChainHop`, `chain_next`): where the shot lands on its live target it goes on, a new
+/// shot of the same speed, damage and buff from that target's point, to the closest enemy within `radius` of it that it
+/// has not hit, `count` targets in all. On the card, not on `ProjectileDef` (its Debug is inside the format-3 card
+/// fingerprint). Radius in subtiles.
+///
+/// Read off the table, not measured yet (no corpus battle plays either card; Oracle's chain scenes are queued): the
+/// pick's reference point (the last target hit, here), whether a hop takes a crown tower (here it may, as the default
+/// targets do), and the hop's first step (the tick after the landing, as a released shot's).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ChainHitDef {
+    pub count: i32,
+    pub radius: i32,
+}
+
 /// A TROOP PROJECTILE THAT FLIES TO A RANGE instead of ending on its target
 /// (projectiles.csv ProjectileRange with ProjectileRadius: the Bowler's boulder, the
 /// Hunter's pellets, the Elite Archer's arrow, the Executioner's axe). Read by combat.rs
@@ -2480,6 +2495,8 @@ pub struct CardDef {
     /// phase_target, combat.POST_KILL_RETARGET_WAIT's clause (a), beside that key's list of unit names). false on every
     /// other row.
     pub override_attack_finish: bool,
+    /// A CHAINED SHOT (`ChainHitDef`: the Electro Dragon's, the Electro Spirit's); None on every other card.
+    pub chain_hit: Option<ChainHitDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -2645,6 +2662,9 @@ struct RawProjectileObj {
     check_collisions: Option<bool>,
     projectile_start_extra_radius_milli: Option<i32>,
     random_delay_ms: Option<i32>,
+    /// projectiles.csv ChainedHitCount and ChainedHitRadius (`ChainHitDef`). Written on the rows that set them only.
+    chained_hit_count: Option<i32>,
+    chained_hit_radius_milli: Option<i32>,
     /// projectiles.csv SpawnAreaEffectObject: the NAME of the area the projectile leaves where it lands
     /// (`CardDef::projectile_area`; the Heal Spirit's heal, the SuperArcher's charge pull).
     spawn_area_effect_object: Option<String>,
@@ -5741,6 +5761,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         ignore_clone: false,
         projectile_y_offset: 0,
         override_attack_finish: false,
+        chain_hit: None,
         evo: None,
         form_of: None,
         ability: None,
@@ -7501,6 +7522,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let mut projectile_name: Option<String> = None;
     let mut range_shot: Option<RangeShotDef> = None;
     let mut spark: Option<SparkDef> = None;
+    let mut chain_hit: Option<ChainHitDef> = None;
     let mut projectile_area_need: Option<String> = None;
     let projectile = match raw.projectile {
         None | Some(serde_json::Value::Null) => None,
@@ -7538,6 +7560,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             projectile_homing = p.homing.unwrap_or(true);
             projectile_name = p.name.clone();
             range_shot = range_shot_of(&p);
+            chain_hit = p.chained_hit_count.filter(|c| *c > 1).map(|count| ChainHitDef { count, radius: milli(p.chained_hit_radius_milli.unwrap_or(0).max(0)) });
             spark = p.spawn_projectile.as_ref().and_then(spark_of);
             #[cfg(not(clash_plant = "projectile_area_unread"))]
             if let Some(a) = &p.spawn_area_effect_object {
@@ -8004,6 +8027,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         override_attack_finish: raw.override_attack_finish.unwrap_or(false),
         #[cfg(clash_plant = "finish_column_unread")]
         override_attack_finish: false, // PLANT: the row's column is not read; only the key's list of names exempts.
+        chain_hit,
         #[cfg(clash_plant = "projectile_y_offset_unread")]
         projectile_y_offset: 0, // PLANT (regression): the loader drops the column, so the King's shot is born where it always was.
         evo: None,

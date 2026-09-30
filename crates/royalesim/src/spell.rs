@@ -1161,6 +1161,7 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         bonus: 0,
         bonus_crown: 0,
         trail: None,
+        chain: None,
     });
 }
 

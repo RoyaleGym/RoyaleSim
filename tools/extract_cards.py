@@ -2169,6 +2169,12 @@ def norm_projectile(t: dict[str, Table], name: str | None, chain: tuple[str, ...
         out["check_collisions"] = flag(p, "CheckCollisions")
         out["projectile_start_extra_radius_milli"] = p["ProjectileStartExtraRadius"]
         out["random_delay_ms"] = p["RandomDelay"]
+        # ChainedHitCount and ChainedHitRadius: a shot that goes on from its target to the next enemy,
+        # ChainedHitCount targets in all (the Electro Dragon's 3, the Electro Spirit's 9: the only rows that set
+        # them), read by card.rs `ChainHitDef`. Written only where set, so every other record is unchanged.
+        if p["ChainedHitCount"]:
+            out["chained_hit_count"] = p["ChainedHitCount"]
+            out["chained_hit_radius_milli"] = p["ChainedHitRadius"]
         # SpawnCount, Scatter and SpawnRadius: the sparks a SpawnProjectile row releases where its carrier
         # lands (the Firecracker's FirecrackerExplosion: 5, "Line", 80), read under calibration
         # combat.SPAWN_PROJECTILE. SpawnRadius is carried raw: what it means is unsettled (it moves no spark's

@@ -211,6 +211,11 @@ pub struct Projectile {
     /// loads; hashed only when Some.
     #[serde(default)]
     pub trail: Option<SpearTrail>,
+    /// A CHAINED SHOT (card.rs `ChainHitDef`: the Electro Dragon's, the Electro Spirit's): the hops it has left and the
+    /// units it has hit; where it lands on its live target it goes on from there (`step_projectiles`, `chain_next`).
+    /// None on every other shot. `default` so a snapshot saved before it still loads; hashed only when Some.
+    #[serde(default)]
+    pub chain: Option<ChainHop>,
 }
 
 /// A spear's trail (`Projectile::trail`): the thrower's card and level (the area is the card's `projectile_area`), the
@@ -380,6 +385,31 @@ fn add_splash_bonus(ents: &Entities, calib: &Calib, hits: &mut [Hit], b: Bonus, 
             h.amount += b.on(ents.kind[h.target.index as usize]);
         }
     }
+}
+
+/// A CHAINED SHOT'S HOPS (`Projectile::chain`): the hops left, the chain's radius (subtiles) and every unit it has hit,
+/// in order.
+#[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ChainHop {
+    pub left: u8,
+    pub radius: i32,
+    pub hit: Vec<EntityId>,
+}
+
+/// THE NEXT TARGET OF A CHAINED SHOT (card.rs `ChainHitDef`): the closest enemy of `team` to unit `from`, centre to
+/// centre and within the chain's radius, that the shot has not hit: alive, visible, above the ground, in the air or on
+/// it as the shot hits (a crown tower included, as the default targets are). Ties by creation order.
+#[allow(clippy::too_many_arguments)]
+pub fn chain_next(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, team: Team, from: usize, hop: &ChainHop, hits_air: bool, hits_ground: bool) -> Option<EntityId> {
+    let r2 = (hop.radius as i64) * (hop.radius as i64);
+    (0..ents.capacity())
+        .filter(|&j| ents.alive[j] && ents.hp[j] > 0 && ents.team[j] != team && !hop.hit.contains(&ents.id_of(j)))
+        .filter(|&j| if ents.in_air(j) { hits_air } else { hits_ground })
+        .filter(|&j| !ents.underground(j) && !crate::target::invisible_at(calib, cards, ents, tick, j))
+        .map(|j| (ents.pos[j].dist2(ents.pos[from]), ents.creation_seq[j], j))
+        .filter(|(d2, _, _)| *d2 <= r2)
+        .min()
+        .map(|(_, _, j)| ents.id_of(j))
 }
 
 /// The state of a straight shot (`Projectile::straight`). Distances SUBTILES. `Default` is a
@@ -1038,6 +1068,7 @@ pub fn fire(
             src_level: ents.level[a],
             enchant: None,
             trail: Some(SpearTrail { card: ents.card[a], level: ents.level[a], steps: 0, next: 0 }),
+            chain: None,
         });
         return;
     }
@@ -1189,6 +1220,7 @@ pub fn fire(
                         bonus: direct.hit,
                         bonus_crown: direct.crown,
                         trail: None,
+                        chain: None,
                     };
                     // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
                     // launch point against the start-of-tick positions, measured on client
@@ -1299,6 +1331,8 @@ pub fn fire(
             src_level: ents.level[a],
             enchant: None,
             trail: None,
+            // THE CHAIN (card.rs `ChainHitDef`): the hops after this target.
+            chain: card.chain_hit.map(|c| ChainHop { left: (c.count - 1).clamp(0, 255) as u8, radius: c.radius, hit: vec![target] }),
         });
         return;
     }
@@ -1533,6 +1567,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         bonus: 0,
         bonus_crown: 0,
         trail: None,
+        chain: None,
     });
 }
 
@@ -1966,6 +2001,7 @@ pub fn step_projectiles(
                     release: None,
                     enchant: None,
                     trail: None,
+                    chain: None,
                     bonus: 0,
                     bonus_crown: 0,
                     ..p.clone()
@@ -1976,6 +2012,18 @@ pub fn step_projectiles(
                 // on the application, and Resolve lands a death-spawning buff on a unit this same hit kills
                 // (status.APPLY_BUFF_BEFORE_DAMAGE, state.rs `apply_effects`).
                 fx.buffs.push(BuffHit { src_level: p.src_level, before_damage: p.buff_first, ..BuffHit::plain(p.target, b.buff, b.time_ms, p.pulse) });
+            }
+            // A CHAINED SHOT (`Projectile::chain`, card.rs `ChainHitDef`): it goes on from the target it landed on to
+            // the next (`chain_next`), a new shot from that target's point with the same speed, damage and buff, which
+            // first steps next tick as every released shot does.
+            #[cfg(not(clash_plant = "chain_never"))]
+            if let Some(c) = p.chain.as_ref().filter(|c| c.left > 0) {
+                if let Some(next) = chain_next(ents, cards, calib, tick, p.team, ti, c, p.hits_air, p.hits_ground) {
+                    let mut hit = c.hit.clone();
+                    hit.push(next);
+                    let hop = ChainHop { left: c.left - 1, radius: c.radius, hit };
+                    released.push(Projectile { pos: ents.pos[ti], target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() });
+                }
             }
         }
         // THE AREA THE SHOT LEAVES (CardDef::projectile_area), at the point it landed on: cast in
@@ -2065,6 +2113,7 @@ fn release_sparks(
             bonus: c.bonus,
             bonus_crown: c.bonus_crown,
             trail: None,
+            chain: None,
         };
         straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb, tick);
         out.push(spark);
