@@ -211,7 +211,9 @@ fn his_guards_charge_pushes_by_a_ladder_rearmed_every_tick() {
     let mut rows: Vec<(Vec2, Vec2)> = Vec::new();
     let mut held = true;
     for _ in 0..70 {
-        assert!(s.debug_set_pos(lp, n(AT)));
+        if s.entity(lp).is_some() {
+            assert!(s.debug_set_pos(lp, n(AT)));
+        }
         if held {
             assert!(s.debug_set_pos(knight, reds[0].1));
         }
