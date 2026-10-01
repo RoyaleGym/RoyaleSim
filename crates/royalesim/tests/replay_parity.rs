@@ -21,7 +21,8 @@
 //!                scenario troop row is played at its RAW tap under the tile-centre snap
 //!                (plant: replay_plays_the_snapped_tap); a
 //!                Clone's copy is rooted as "Clone", the card the recording names every
-//!                copy by (plant: replay_roots_a_copy_as_its_unit); a truth entity with
+//!                copy by (plant: replay_roots_a_copy_as_its_unit), and a Skeleton King's soul as
+//!                its King (plant: replay_roots_a_soul_as_clone); a truth entity with
 //!                no hitpoints (a visual dummy) takes no pair (plant: replay_pairs_a_dummy).
 //!   the floor    the ISOLATED-WALK unit-ticks within WALK_TIGHT_NATIVE (20 native:
 //!                a unit walking at a tower with full hp, bit-exact) -- measured at
@@ -860,4 +861,29 @@ fn a_truth_entity_with_no_hitpoints_takes_no_pair() {
     let r = play(&f);
     assert!(!r.pairs.iter().any(|p| p.truth_key == key), "the dummy took a pair");
     assert_eq!(pairs(&r), pairs(&base), "the dummy moved a pair");
+}
+
+/// A SKELETON KING'S SOUL IS ROOTED TO ITS KING (`register_new`): the units his button puts down are copies (state.rs
+/// `soul_pass`, 1 hitpoint), and the recording names them by the King's card, as it names any unit a button puts down;
+/// a Clone spell's copy stays "Clone" (`a_clones_copy_is_rooted_as_clone`). Plant: replay_roots_a_soul_as_clone.
+#[test]
+fn a_skeleton_kings_soul_is_rooted_to_its_king() {
+    let row = |tick: u32, kind: &str, count: u32, source: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": {tick}, "side": 0, "card": "SkeletonKing", "card_id": 26000069, "kind": "{kind}", "level": 11,
+                "count": {count}, "pos": [8500, 5500], "source": "{source}", "form": "base", "form_row": "SkeletonKing"}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    let mut f = sample();
+    f.deploys.push(row(700, "troop", 1, "tap_tile"));
+    f.deploys.push(row(760, "ability", 0, "ability_press"));
+    f.deploys.sort_by_key(|d| d.tick);
+    let r = play(&f);
+    let press = r.deploys.iter().find(|d| d.card == "SkeletonKing ability").expect("the press is issued");
+    assert!(press.result.is_ok(), "the press is taken: {press:?}");
+    let kings = r.unmatched_sim.iter().filter(|(_, _, root)| root == "SkeletonKing").count();
+    let clones = r.unmatched_sim.iter().filter(|(_, _, root)| root == "Clone").count();
+    assert_eq!(clones, 0, "a soul rooted as Clone: {:?}", r.unmatched_sim);
+    assert!(kings >= 2, "vacuous: no soul stood on the board (rooted to the King: {kings}, the King included)");
 }

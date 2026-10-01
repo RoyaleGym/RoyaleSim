@@ -1528,6 +1528,22 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let ids = s.tower_ids(e.team);
                 tower_slot = ids.iter().position(|t| *t == Some(e.id));
                 (e.card.to_string(), "tower")
+            } else if let Some(heroes) = roots.ability_of.get(&e.card_idx).filter(|_| {
+                // A SKELETON KING'S SOUL (state.rs `soul_pass`) is a copy (1 hitpoint) of the unit his button puts
+                // down, and the recording names it by the King's card, as any unit a button puts down: it roots to its
+                // hero, as an uncopied one does below. Rooted "Clone" it had no counterpart: 6 to 9 souls a side were
+                // unmatched in each of sp-sk-souls-* and sp-champ-SkeletonKing-*. A copy the Clone spell made of such a
+                // unit (its side cast a Clone within SPELL_RELEASE_LOOKBACK) stays "Clone".
+                // PLANT replay_roots_a_soul_as_clone: a soul roots as "Clone", as any copy.
+                e.cloned
+                    && cfg!(not(clash_plant = "replay_roots_a_soul_as_clone"))
+                    && !spell_casts.iter().any(|(t, team, c)| {
+                        *team == e.team
+                            && tick.saturating_sub(*t) <= SPELL_RELEASE_LOOKBACK
+                            && matches!(db.get(*c).spell.as_ref().map(|sp| &sp.shape), Some(royalesim::card::SpellShape::Clone { .. }))
+                    })
+            }) {
+                (db.get(heroes[0]).name.clone(), "ability")
             } else if e.cloned && cfg!(not(clash_plant = "replay_roots_a_copy_as_its_unit")) {
                 // A CLONE'S COPY (state.rs `make_copy`; a copy's death spawn is one too, spells.CLONE_DEATH_SPAWNS) is rooted
                 // to the Clone card. The recording names every copy by the Clone card's id (28000013), whatever unit it
