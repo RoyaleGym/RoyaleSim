@@ -912,3 +912,30 @@ fn an_evo_goblin_barrels_decoy_dummies_are_rooted_to_the_goblin_barrel() {
     assert_eq!(dummies, 0, "a decoy dummy rooted as itself: {:?}", r.unmatched_sim);
     assert!(barrels >= 6, "vacuous: the barrel's Goblins and the decoy's dummies did not all stand ({barrels} rooted to it)");
 }
+
+/// A CAPTURE RUNS ITS CLIENT'S OWN MECHANICS (`CLIENT15535_ARMS`): a fixture naming client 15.535.29 runs
+/// movement.DYING_UNIT_VISIBILITY = client_doomed_static; one naming no client (the sample, a 16.402 corpus capture) or
+/// 16.402 runs the ledger's whole_tick; a run that overrides the key runs its override. Plant: replay_client_arms_unread.
+#[test]
+fn a_capture_runs_its_clients_own_mechanics() {
+    use royalesim::state::{Calib, DyingUnitVisibility};
+    let none = std::collections::BTreeMap::new();
+    assert_eq!(Calib::shipped().dying_unit_visibility, DyingUnitVisibility::WholeTick, "the ledger ships whole_tick; this test reads a client that differs");
+    let plain = sample();
+    assert_eq!(config_for_with(&plain, common::cards(), None, &none).unwrap().0.calib.dying_unit_visibility, DyingUnitVisibility::WholeTick);
+    let mut old = sample();
+    old.card_table = Some(CardTable { game_version: Some("15.535.29".to_string()) });
+    let (cfg, notes) = config_for_with(&old, common::cards(), None, &none).unwrap();
+    assert_eq!(cfg.calib.dying_unit_visibility, DyingUnitVisibility::ClientDoomedStatic, "a 15.535.29 capture runs its client's arm");
+    assert!(notes.iter().any(|n| n.contains("DYING_UNIT_VISIBILITY")), "the notes do not name the client's arm: {notes:?}");
+    let mut new = sample();
+    new.card_table = Some(CardTable { game_version: Some("16.402.7".to_string()) });
+    assert_eq!(config_for_with(&new, common::cards(), None, &none).unwrap().0.calib.dying_unit_visibility, DyingUnitVisibility::WholeTick);
+    let mut ov = std::collections::BTreeMap::new();
+    ov.insert("movement.DYING_UNIT_VISIBILITY".to_string(), "\"whole_tick\"".to_string());
+    assert_eq!(
+        config_for_with(&old, common::cards(), None, &ov).unwrap().0.calib.dying_unit_visibility,
+        DyingUnitVisibility::WholeTick,
+        "a run that overrides the key runs its override, whatever the fixture's client"
+    );
+}

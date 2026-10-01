@@ -1330,6 +1330,20 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
     other.then(|| v.to_string())
 }
 
+/// THE MECHANICS CLIENT 15.535.29 RUNS APART FROM THE LEDGER'S (the 16.402 client's), as (`section.KEY`, JSON value): a
+/// capture that client recorded (card_table.game_version) runs each, unless the run overrides its key.
+///   movement.DYING_UNIT_VISIBILITY = client_doomed_static: a troop whose death is settled before the move pass is a
+///   static obstacle to every avoidance scan. Measured on client 15.535.29: Oracle's sp-order-{kvm,vmk}-{1500,2500}-s0
+///   scenes (the killer created before and after the mover) exact to their end under it and departing at the first kill
+///   under whole_tick; sp-f4-furnace-s0 t267, sp-hogs-cannon-s0 t285, sp-ram-kill-s0 t309 exact. The 16.402 corpus keeps
+///   whole_tick (20260918-122757.b2 t1067; 31 of 31 first effects of the arm on 9 battles nearer under whole_tick).
+pub const CLIENT15535_ARMS: &[(&str, &str)] = &[("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\"")];
+
+/// The client version a capture names (card_table.game_version), when it is 15.535.29's.
+fn capture_client15535(f: &Fixture) -> bool {
+    f.card_table.as_ref().and_then(|c| c.game_version.as_deref()).is_some_and(|v| v == "15.535.29" || v.starts_with("15.535."))
+}
+
 /// Build the engine config a fixture asks for.
 pub fn config_for(f: &Fixture, db: CardDb) -> Result<(BattleConfig, Vec<String>), String> {
     config_for_with(f, db, None, &BTreeMap::new())
@@ -1344,6 +1358,18 @@ pub fn config_for_with(
 ) -> Result<(BattleConfig, Vec<String>), String> {
     let mut cfg = BattleConfig::with_cards(db);
     let mut notes = Vec::new();
+    // A 15.535.29 capture runs that client's own mechanics (`CLIENT15535_ARMS`), each unless the run overrides its key.
+    let mut merged = overrides.clone();
+    #[cfg(not(clash_plant = "replay_client_arms_unread"))]
+    if capture_client15535(f) {
+        for (k, v) in CLIENT15535_ARMS {
+            if !overrides.contains_key(*k) {
+                merged.insert((*k).to_string(), (*v).to_string());
+                notes.push(format!("client 15.535.29 runs {k} = {v}"));
+            }
+        }
+    }
+    let overrides = &merged;
     if !overrides.is_empty() {
         let (c, applied) = royalesim::state::Calib::shipped_with_overrides(overrides)?;
         cfg.set_calib(c);
