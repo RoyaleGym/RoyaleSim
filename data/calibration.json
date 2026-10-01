@@ -2895,6 +2895,17 @@
       "PushbackAll / IgnorePushback are card data. Everything below is in NO column and in no",
       "globals.csv key of the 2018 or 2023 data sets (docs/spell-spec.md, shared mechanics)."
     ],
+    "LADDER_END_ROUTE": {
+      "value": "client16402_dropped",
+      "status": "measured",
+      "candidates": ["client16402_dropped", "client15535_kept"],
+      "confidence": "HIGH for client15535_kept on client 15.535.29 (135 of 154 ladders); LOW for the shipped arm on 16.402 (one ladder with a route in its corpus, replanned, which a drop and a new target both explain)",
+      "provenance": "MEASURED by parity (2026-10-01) over every knockback ladder in the client 15.535.29 records (a unit's steps shrinking by 25 a tick for four or more ticks from 100 or more): the route it held on the tick before the ladder against its routes on the three ticks after the ladder's last step. Kept (the same cells, or that route's own suffix) 135; a new route 11 (a new target); none 8 (the unit attacked). sp-il-db5f t255-t271: a Hog Rider knocked back by a Log, then frozen, held its four cells throughout and walked them on, where the engine dropped the route at the ladder's end, replanned six cells from where it stood and stepped into a Skeleton. The 16.402 corpus: one ladder with a route, replanned (3 cells before, 14 after).",
+      "meaning": "client16402_dropped: the route is dropped the tick a knockback ladder ends, and the replan gate plans afresh from where the unit stands the next tick (the engine's arm). client15535_kept: the route waits out the ladder as it is, and the unit walks it on from where the ladder left it.",
+      "open": "Whether 16.402 drops it (its corpus cannot say: one event). The frame-planned path arms' own ladder step (state.rs step_pushback_ladders) is not this key's.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_kept (examples/replay_parity/harness.rs CLIENT15535_ARMS). A 16.402 ladder with a route and no new target would decide the shipped value.",
+      "engine": "state.rs phase_path16402_for (the pushback tick's end), selected by Calib::ladder_end_route; tests/ladder_end_route.rs."
+    },
     "DISPLACEMENT_LAW": {
       "value": "client16402",
       "status": "measured",

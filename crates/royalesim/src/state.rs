@@ -205,6 +205,10 @@ pub struct Calib {
     /// `default` is the old arm, what a battle saved before it ran.
     #[serde(default = "death_damage_tick_default")]
     pub death_damage_tick: DeathDamageTick,
+    /// knockback.LADDER_END_ROUTE (`phase_path16402_for`, the pushback tick): whether a knockback ladder's end drops the
+    /// unit's route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "ladder_end_route_default")]
+    pub ladder_end_route: LadderEndRoute,
     pub mana_regen_ms_1x: i32,
     pub mana_regen_ms_2x: i32,
     /// match.MANA_REGEN_MS_OVERTIME: the late-overtime regen, ms for a full bar (0: no third rate, the engine before
@@ -1801,6 +1805,10 @@ fn jump_landing_contact_default() -> JumpLandingContact {
 
 fn death_damage_tick_default() -> DeathDamageTick {
     DeathDamageTick::NextTick
+}
+
+fn ladder_end_route_default() -> LadderEndRoute {
+    LadderEndRoute::Client16402Dropped
 }
 
 fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
@@ -4982,6 +4990,15 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.LADDER_END_ROUTE -- see `Calib::ladder_end_route`.
+    LadderEndRoute {
+        /// The route is dropped the tick the ladder ends; the replan gate finds it empty the next tick.
+        Client16402Dropped = "client16402_dropped",
+        /// The route waits out the ladder as it is, and the unit walks it on (client 15.535.29: 135 of 154 ladders).
+        Client15535Kept = "client15535_kept",
+    }
+);
+calib_enum!(
     /// combat.DEATH_DAMAGE_TICK -- see `Calib::death_damage_tick`.
     DeathDamageTick {
         /// The blow is buffered in Reap and lands with the next tick's hits: an enemy in its radius loses the damage on
@@ -5796,6 +5813,7 @@ impl Calib {
             jump_water_hop: pick(&v, &["movement", "JUMP_WATER_HOP", "value"], JumpWaterHop::from_calibration_name)?,
             jump_landing_contact: pick(&v, &["movement", "JUMP_LANDING_CONTACT", "value"], JumpLandingContact::from_calibration_name)?,
             death_damage_tick: pick(&v, &["combat", "DEATH_DAMAGE_TICK", "value"], DeathDamageTick::from_calibration_name)?,
+            ladder_end_route: pick(&v, &["knockback", "LADDER_END_ROUTE", "value"], LadderEndRoute::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
             mana_regen_ms_3x: int(&v, &["match", "MANA_REGEN_MS_OVERTIME", "value"])?,
@@ -16914,9 +16932,14 @@ impl BattleState {
                     pushed[i] = true;
                     push_speed[i] = rem;
                     push_active[i] = rem >= 0;
-                    if rem < 0 {
-                        // the path is dropped the tick the ladder ends; the replan gate
-                        // finds it empty next tick
+                    // knockback.LADDER_END_ROUTE = client15535_kept: the route waits out the ladder as it is and the unit
+                    // walks it on (client 15.535.29: 135 of 154 ladders); client16402_dropped: the path is dropped the tick
+                    // the ladder ends, and the replan gate finds it empty next tick.
+                    #[cfg(not(clash_plant = "ladder_end_route_dropped"))]
+                    let keeps_route = calib.ladder_end_route == LadderEndRoute::Client15535Kept;
+                    #[cfg(clash_plant = "ladder_end_route_dropped")]
+                    let keeps_route = false; // PLANT (regression): the 15.535.29 arm still drops the route at the ladder's end.
+                    if rem < 0 && !keeps_route {
                         routes[i].clear();
                         goals[i] = None;
                         segs[i] = Vec2::default();
@@ -26867,6 +26890,9 @@ impl BattleState {
 /// 20, unchanged, combat.DEATH_DAMAGE_TICK: Calib gained death_damage_tick (serde default the old arm, next_tick), no
 ///    new state (the new arm lands the blow inside the Reap that buffers it), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.LADDER_END_ROUTE: Calib gained ladder_end_route (serde default the old arm,
+///    client16402_dropped), no new state (the new arm keeps the saved route instead of clearing it), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SLIDE_AIM: Calib gained death_slide_aim (serde default the old arm, current_ray),
 ///    Entities gained `death_slide_end` (serde default, sized on load) and PendingSpawn `slide_end` (serde default):
 ///    a sliding member's fixed end point, set at birth under fixed_end_point alone and hashed only while its slide
@@ -27510,6 +27536,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // combat.DEATH_DAMAGE_TICK: a format-3 battle's death blows landed with the next tick's hits; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("death_damage_tick".into(), serde_json::to_value(DeathDamageTick::NextTick).map_err(|e| e.to_string())?);
+    // knockback.LADDER_END_ROUTE: a format-3 battle's ladders dropped the route at their end (the same rule).
+    sh.insert("ladder_end_route".into(), serde_json::to_value(LadderEndRoute::Client16402Dropped).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
     sh.insert("death_slide_aim".into(), serde_json::to_value(DeathSlideAim::CurrentRay).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_BIRTH and DEATH_SLIDE_STOP: the same (a format-3 battle laid no slide at all).

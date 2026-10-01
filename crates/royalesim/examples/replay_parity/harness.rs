@@ -1346,10 +1346,13 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.DEATH_DAMAGE_TICK = client15535_death_tick: a dying unit's death blow lands on its death tick. Measured on
 ///   client 15.535.29: an enemy within a dying Golem's or Ice Golemite's death radius loses the damage on the death
 ///   frame, 122 of 122. The 16.402 corpus keeps next_tick (9 of 10 on the frame after).
+///   knockback.LADDER_END_ROUTE = client15535_kept: a knockback ladder's end leaves the unit's route as it was (135 of 154
+///   ladders on client 15.535.29). The 16.402 corpus's one ladder with a route does not separate the arms.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
     ("combat.DEATH_DAMAGE_TICK", "\"client15535_death_tick\""),
+    ("knockback.LADDER_END_ROUTE", "\"client15535_kept\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
