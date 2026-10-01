@@ -16,7 +16,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! fall_and_resume`): doomed_building_collides -> `a_troop_on_a_building_that_falls_this_tick_is_not_pushed_by_it` red;
-//! struck_building_collides -> the same red (its sequential-order half);
+//! struck_building_collides -> `a_troop_on_a_crown_tower_a_strike_fells_is_not_pushed_by_it` red (a Cannon decays, and
+//! its decay is a buffered hit the mask already reads once the strike has taken it to 0; a crown tower does not);
 //! resume_carry_out_of_reach -> `a_windup_paused_by_a_freeze_is_dropped_when_the_new_target_is_out_of_reach` red.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -56,6 +57,53 @@ fn a_troop_on_a_building_that_falls_this_tick_is_not_pushed_by_it() {
     assert!(met >= 1, "the control: whole_tick under the sequential order still meets the Cannon on its fall tick ({met})");
     let (met, _) = fall(DyingUnitVisibility::WholeTick, TickOrder::Client16402);
     assert!(met >= 1, "the shipped whole_tick (16.402's): the Cannon still meets the Knight on the tick it falls");
+}
+
+#[test]
+fn a_troop_on_a_crown_tower_a_strike_fells_is_not_pushed_by_it() {
+    // Under the sequential order the Knight's blow lands in its own turn and leaves no hit in the buffer, and a crown
+    // tower, unlike a Cannon, has no decay of its own there: the falling tower must still be out of the move pass
+    // (sp-hogs-musk-s0 t641, a princess tower a Royal Hog felled).
+    let (met, standing) = tower_fall(DyingUnitVisibility::ClientDoomedStatic, TickOrder::ClientSequentialStrike);
+    assert!(standing >= 3, "the scene drifted: the tower pushed the Knight on {standing} ticks before it fell");
+    assert_eq!(met, 0, "client 15.535.29's arm under the sequential order: the tick the tower falls, the Knight met it");
+    assert_eq!(tower_fall(DyingUnitVisibility::ClientDoomedStatic, TickOrder::Client16402).0, 0, "the buffered blow, client16402");
+    let (met, _) = tower_fall(DyingUnitVisibility::WholeTick, TickOrder::ClientSequentialStrike);
+    assert!(met >= 1, "the control: whole_tick still meets the tower on its fall tick ({met})");
+}
+
+/// The tower scene under `arm` and `order`: a blue Knight held overlapping red's k = 1 princess tower at 150 hitpoints (one
+/// blow): (bodies the Knight met on the tick the tower fell, ticks the tower pushed it before).
+fn tower_fall(arm: DyingUnitVisibility, order: TickOrder) -> (i32, i32) {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), RED.iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.dying_unit_visibility = arm;
+    cfg.calib.tick_order = order;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    let tower = s.tower_ids(Team::Red)[1].expect("red's k = 1 tower");
+    let tv = s.entity(tower).expect("the tower");
+    let (tp, rt) = (tv.pos, tv.radius / K);
+    let knight_at = Vec2::new(tp.x, tp.y - (rt + 400) * K);
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", knight_at, None).expect("the Knight");
+    let rk = s.entity(knight).unwrap().radius / K;
+    assert!(rt + 400 < rt + rk, "the scene drifted: the Knight does not overlap the tower's body ({rt} + {rk})");
+    s.scenario_set_tower_hp(Team::Red, 1, 150).expect("the tower at 150, one Knight blow");
+    let mut met_while_standing = 0;
+    for _ in 0..80 {
+        assert!(s.debug_set_pos(knight, knight_at));
+        s.tick();
+        let k = s.entity(knight).expect("the Knight lives");
+        if s.entity(tower).is_none() {
+            return (k.push_neighbours, met_while_standing);
+        }
+        if k.push_neighbours >= 1 {
+            met_while_standing += 1;
+        }
+    }
+    panic!("the scene drifted: the Knight never felled the tower");
 }
 
 /// The fall scene under `arm` and `order`: (bodies the Knight met on the tick the Cannon fell, ticks the Cannon pushed it
