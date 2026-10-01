@@ -3320,11 +3320,12 @@ struct RawCard {
     /// ProjectileSpecial row): `CardDef::special`. Not yet written by the extractor; absent
     /// reads as no special.
     special: Option<RawSpecial>,
+    /// The Little Prince's ramp (`champion_ramp`).
+    #[serde(default)]
+    ramp: Option<RawRamp>,
     /// A CHAMPION'S BUTTON (tools/extract_cards.py `champion_dash_chain`): 15.535 only, on the Golden Knight's row.
     /// Absent on every other card.
     #[serde(default)]
-    /// The Little Prince's ramp (`champion_ramp`).
-    ramp: Option<RawRamp>,
     ability: Option<RawAbility>,
     /// cards.json `death_spawn_projectile`: the NAME of the `projectiles` row the unit's death
     /// releases (characters DeathSpawnProjectile; the Phoenix's PhoenixFireball).
@@ -12287,15 +12288,16 @@ impl CardDb {
             // after the form.
             "reroll" => {
                 let e = &a.effect;
-                let rp: RawProjectileObj = serde_json::from_value(e.roll.clone().ok_or_else(|| format!("{what}: a re-roll with no roll"))?).map_err(|x| format!("{what}: its roll: {x}"))?;
+                let rp: RawSpellProjectile = serde_json::from_value(e.roll.clone().ok_or_else(|| format!("{what}: a re-roll with no roll"))?).map_err(|x| format!("{what}: its roll: {x}"))?;
                 let range = rp.projectile_range_milli.filter(|r| *r > 0).ok_or_else(|| format!("{what}: a roll with no range"))?;
                 let speed = rp.speed.filter(|s| *s > 0).ok_or_else(|| format!("{what}: a roll with no speed"))?;
-                if rp.homing == Some(true) || rp.target_buff.is_some() || rp.spawn_projectile.as_ref().is_some_and(|x| !x.is_null()) || rp.spawn_area_effect_object.is_some() {
+                let buffs_it = rp.target_buff.as_ref().is_some_and(|v| !v.is_null());
+                if buffs_it || rp.spawn_projectile.is_some() || rp.spawn_area_effect_object.is_some() || rp.spawn_character.is_some() {
                     return Err(format!("{what}: a roll with a mechanic the re-roll does not run"));
                 }
                 let hit = SpellHit {
                     damage: rp.damage.ok_or_else(|| format!("{what}: a roll without damage"))?,
-                    crown_pct: crown(e.roll.as_ref().and_then(|v| v.get("crown_tower_damage_percent")).and_then(serde_json::Value::as_i64).and_then(|x| i32::try_from(x).ok())),
+                    crown_pct: crown(rp.crown_tower_damage_percent),
                     radius: 0,
                     hits_air: rp.aoe_to_air.unwrap_or(false),
                     hits_ground: rp.aoe_to_ground.unwrap_or(false),

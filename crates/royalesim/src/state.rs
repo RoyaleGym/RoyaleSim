@@ -25973,7 +25973,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?}, override_attack_finish: {}, chain_hit: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?}, override_attack_finish: {}, chain_hit: {:?}, ramp: {:?} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -26038,7 +26038,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.deploy_spawn_area,
                     c.combo,
                     c.override_attack_finish,
-                    c.chain_hit
+                    c.chain_hit,
+                    c.ramp
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
