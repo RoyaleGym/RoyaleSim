@@ -22,7 +22,8 @@
 //!                (plant: replay_plays_the_snapped_tap); a
 //!                Clone's copy is rooted as "Clone", the card the recording names every
 //!                copy by (plant: replay_roots_a_copy_as_its_unit), and a Skeleton King's soul as
-//!                its King (plant: replay_roots_a_soul_as_clone); a truth entity with
+//!                its King (plant: replay_roots_a_soul_as_clone), and the Evo Goblin Barrel's decoy
+//!                dummies as the Goblin Barrel (plant: replay_decoy_unrooted); a truth entity with
 //!                no hitpoints (a visual dummy) takes no pair (plant: replay_pairs_a_dummy).
 //!   the floor    the ISOLATED-WALK unit-ticks within WALK_TIGHT_NATIVE (20 native:
 //!                a unit walking at a tower with full hp, bit-exact) -- measured at
@@ -886,4 +887,26 @@ fn a_skeleton_kings_soul_is_rooted_to_its_king() {
     let clones = r.unmatched_sim.iter().filter(|(_, _, root)| root == "Clone").count();
     assert_eq!(clones, 0, "a soul rooted as Clone: {:?}", r.unmatched_sim);
     assert!(kings >= 2, "vacuous: no soul stood on the board (rooted to the King: {kings}, the King included)");
+}
+
+/// THE EVO GOBLIN BARREL'S DECOY DUMMIES ARE ROOTED TO THE GOBLIN BARREL (the harness's spell casts): the engine casts the
+/// decoy barrel with the form (card.rs `EvoDef::mirror`), and the recording names its GoblinDummies by the Goblin Barrel.
+/// Plant: replay_decoy_unrooted.
+#[test]
+fn an_evo_goblin_barrels_decoy_dummies_are_rooted_to_the_goblin_barrel() {
+    let row: Deploy = serde_json::from_str(
+        r#"{"tick": 700, "side": 0, "card": "GoblinBarrel", "card_id": 28000004, "kind": "spell", "level": 11, "count": 1,
+            "pos": [14500, 22500], "source": "tap_tile", "form": "ev1", "form_row": "GoblinBarrel_EV1"}"#,
+    )
+    .expect("a deploy parses");
+    let mut f = sample();
+    f.deploys.push(row);
+    f.deploys.sort_by_key(|d| d.tick);
+    let r = play(&f);
+    let cast = r.deploys.iter().find(|d| d.tick == 700 && d.card.starts_with("GoblinBarrel")).expect("the cast is issued");
+    assert!(cast.result.is_ok(), "the cast is taken: {cast:?}");
+    let dummies = r.unmatched_sim.iter().filter(|(_, _, root)| root == "GoblinDummy").count();
+    let barrels = r.unmatched_sim.iter().filter(|(_, _, root)| root == "GoblinBarrel").count();
+    assert_eq!(dummies, 0, "a decoy dummy rooted as itself: {:?}", r.unmatched_sim);
+    assert!(barrels >= 6, "vacuous: the barrel's Goblins and the decoy's dummies did not all stand ({barrels} rooted to it)");
 }

@@ -1727,6 +1727,14 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     if let Some(idx) = db.index(&name) {
                         if db.get(idx).kind == CardKind::Spell {
                             spell_casts.push((tick + 1, team, idx));
+                            // THE EVO GOBLIN BARREL'S DECOY (card.rs `EvoDef::mirror`): the engine casts it with the form,
+                            // so its GoblinDummies root to it (its base the Goblin Barrel, `base_of_form`), as the
+                            // recording names them. Unrecorded, they rooted as themselves and paired with nothing.
+                            // PLANT replay_decoy_unrooted.
+                            #[cfg(not(clash_plant = "replay_decoy_unrooted"))]
+                            if let Some(m) = db.get(idx).evo.as_ref().and_then(|v| v.mirror) {
+                                spell_casts.push((tick + 1, team, m));
+                            }
                         } else {
                             deploys_issued.push((tick + 1, team, idx));
                         }
