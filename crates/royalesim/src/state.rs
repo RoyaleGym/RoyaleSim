@@ -15248,19 +15248,19 @@ impl BattleState {
         self.warps.magic = keep;
     }
 
-    /// THE SKELETON KINGS' AREAS (card.rs `SoulSummonDef`), in the Status phase after the tick's presses fired: the area
-    /// stands on its King's point while he lives (FollowParent) and where he was after (StayAfterParentDies). On its first
-    /// update (the trigger + 1) it shuffles its n = count - 1 directions: max(1, 50 n) pairs of draws i = rnd(n), j =
-    /// rnd(n), swapped when they differ. Copy k is put down on the trigger + `first_ms` + k `every_ms` (released at the end
-    /// of the tick, so its first frame is that tick's), a copy (`make_copy`: 1 hitpoint) deploying `deploy_ms`, at theta =
-    /// perm[(k + n - 2) mod n] x 360 / n degrees from +y toward +x and r = `min_radius` + rnd(`area_radius` minus
-    /// `min_radius` minus its collision radius) (x += sin(theta) r >> 10, y += sin(theta + 90) r >> 10, the 1024 table,
-    /// `formation::sin1024`),
-    /// set onto land and into the arena as a scheduled spawn is (`scheduled_point`). The draws are the client's generator's
-    /// (`client_rnd`). Read off the client by Oracle and checked draw for draw on client 15.535.29's frames (sp-champ-
-    /// SkeletonKing-s0: 500 draws from t205 to t206, perm [3, 2, 1, 0, 4], one draw per copy; the phase k + n - 2 is read
-    /// off both scenes' copies, not the code). Not run: the client's four retries of a point that fails its placement check
-    /// (none in the measured scenes; the river points are set on the bank instead).
+    /// THE SKELETON KINGS' AREAS (card.rs `SoulSummonDef`), in the Status phase after the tick's presses fired: the
+    /// area stands on its King's point while he lives (FollowParent) and where he was after (StayAfterParentDies). On
+    /// its first update (the trigger + 1) it shuffles its n = count - 1 directions: max(1, 50 n) pairs of draws i =
+    /// rnd(n), j = rnd(n), swapped when they differ. Copy k is put down on the trigger + `first_ms` + k `every_ms`
+    /// (released at the end of the tick, so its first frame is that tick's), a copy (`make_copy`: 1 hitpoint) deploying
+    /// `deploy_ms`, at theta = perm[(k + n - 2) mod n] x 360 / n degrees from +y toward +x and r = `min_radius` +
+    /// rnd(`area_radius` minus `min_radius` minus its collision radius) (x += sin(theta) r >> 10, y += sin(theta + 90)
+    /// r >> 10, the 1024 table, `formation::sin1024`), set into the arena as a scheduled spawn is (`scheduled_point`)
+    /// and, a ground copy drawn onto the river, onto land by the grid rule (arena.rs `nearest_land_grid`; Oracle's fit,
+    /// 4 copies of 4). The draws are the client's generator's (`client_rnd`). Read off the client by Oracle and checked
+    /// draw for draw on client 15.535.29's frames (sp-champ-SkeletonKing-s0: 500 draws from t205 to t206, perm [3, 2,
+    /// 1, 0, 4], one draw per copy; the phase k + n - 2 is read off both scenes' copies, not the code). Not run: the
+    /// client's four retries of a point that fails its placement check (none in the measured scenes).
     fn soul_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let tick_ms = self.cfg.calib.tick_ms.max(1);
@@ -15294,7 +15294,20 @@ impl BattleState {
                 let dy = (crate::formation::sin1024(theta + 90) * radius) >> 10;
                 let flying = self.cfg.cards.get(sd.unit).is_flying();
                 let to = Vec2::new(r.at.x + dx * K, r.at.y + dy * K);
-                let p = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying);
+                // A copy drawn onto the river: the grid rule, not the scheduled spawn's one-axis eject. Measured on
+                // client 15.535.29 (sp-champ-SkeletonKing-s0): the draw (11212, 16174) stood on (10962, 14924).
+                let q = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, true);
+                #[cfg(not(clash_plant = "souls_axis_eject"))]
+                let grid = !flying
+                    && self.cfg.calib.scheduled_spawn_invalid_point == ScheduledSpawnInvalidPoint::ClampThenEjectToLand
+                    && !self.cfg.arena.is_passable_ground(q);
+                #[cfg(clash_plant = "souls_axis_eject")]
+                let grid = false; // PLANT (regression): the scheduled spawn's one-axis eject.
+                let p = if grid {
+                    self.cfg.arena.nearest_land_grid(q, r.team).unwrap_or(q)
+                } else {
+                    self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying)
+                };
                 #[cfg(not(clash_plant = "souls_not_copies"))]
                 let cloned = true;
                 #[cfg(clash_plant = "souls_not_copies")]
@@ -17185,6 +17198,18 @@ impl BattleState {
                                     dash_blows.push((i, live(dash_target[i]), Vec2::new(p.0 * K, p.1 * K)));
                                 }
                                 ended = self.tick >= blow + DASH_BLOW_TO_END_TICKS;
+                            }
+                        }
+                        // A DASH THAT ENDS OVER WATER puts its ground dasher on land on its end's tick, by the grid
+                        // rule (arena.rs `nearest_land_grid`); the blow is struck from the point over the water.
+                        // Measured on client 15.535.29 (sp-champ-BossBandit-nopress-s0): the Boss Bandit's blow on the
+                        // Knight on t178 from (11043, 15703), and the Boss Bandit on (10793, 14953) on t178, walking
+                        // from there.
+                        #[cfg(not(clash_plant = "dash_ends_on_water"))]
+                        if ended && !flying {
+                            let at = Vec2::new(p.0 * K, p.1 * K);
+                            if let Some(q) = self.cfg.arena.nearest_land_grid(at, e.team[i]) {
+                                p = (q.x / K, q.y / K);
                             }
                         }
                         let mut v = (p.0 - actor.0, p.1 - actor.1);
@@ -23563,10 +23588,18 @@ impl BattleState {
             // and his deflect is active that long (`deflects`). Measured on client 15.535.29 (sp-champ-Monk-s0, press
             // first frame P = t197): he casts P..P + 16, is active P + 17..P + 95, stands and attacks nothing through
             // both, and every hit on him in the active window lands at 35 % (217 -> 75, 202 -> 70, 81 -> 28).
-            crate::card::AbilityEffect::Deflect { buff, active_ms, .. } => {
+            crate::card::AbilityEffect::Deflect { buff, active_ms, stay, .. } => {
                 // His hold through the active state was set at the cast's start (`start_ability`).
                 let h = crate::status::BuffHit::plain(hero, buff.buff, buff.time_ms, 0);
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                // AND NO ONE PUSHES HIM while it is active (`stay`, his ability's NO_MOVE_ALLOW_ATTRACT). Measured on
+                // client 15.535.29 (sp-champ-Monk-recharge-q20-s0): a Giant walking into him from t228 left him on
+                // (3273, 12402) to the end of his deflect, where the engine's moved him 1,108 back.
+                #[cfg(not(clash_plant = "deflect_pushed"))]
+                {
+                    let h = crate::status::BuffHit::plain(hero, stay, active_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                }
                 let ticks = (active_ms / self.cfg.calib.tick_ms.max(1)).max(1) as u32;
                 self.deflects.retain(|(id, _)| *id != hero);
                 self.deflects.push((hero, self.tick + ticks));

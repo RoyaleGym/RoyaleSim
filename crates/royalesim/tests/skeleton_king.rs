@@ -1,12 +1,12 @@
 //! THE SKELETON KING'S BUTTON (tools/extract_cards.py `champion_soul_summon`; card.rs `SoulSummonDef`, `UnitUse::SoulUnit`;
 //! state.rs `SoulKing`, `SoulRun`, `count_souls`, `soul_pass`), at level 11.
 //!
-//! THE MEASUREMENTS (client 15.535.29, Oracle's sp-champ-SkeletonKing-s0 and -late-s0; P the press's issue tick): his area
-//! is made on the trigger P + 10 and puts down a copy of SkeletonKingSkeleton on P + 15, then every 5 ticks: 6 with no
-//! death before the press, 9 after three red Skeletons died; each 1 hitpoint of 1, deploying its first 8 frames; at exact
-//! directions around him, count - 1 evenly spaced, radii 2505 to 2978. The directions' start and order and the radius
-//! are the client's draw, which the engine does not reproduce: this file pins the count, the clock, the copies, the deploy
-//! and the ring's span, not the points.
+//! THE MEASUREMENTS (client 15.535.29, Oracle's sp-champ-SkeletonKing-s0 and -late-s0; P the press's issue tick): his
+//! area is made on the trigger P + 10 and puts down a copy of SkeletonKingSkeleton on P + 15, then every 5 ticks: 6
+//! with no death before the press, 9 after three red Skeletons died; each 1 hitpoint of 1, deploying its first 8
+//! frames; at exact directions around him, count - 1 evenly spaced, radii 2505 to 2978. The directions' start and order
+//! and the radius are the client's draw (state.rs `client_rnd`), pinned here from the client's own state; a copy drawn
+//! onto the river stands on land by the grid rule (arena.rs `nearest_land_grid`).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! skeleton_king`):
@@ -15,7 +15,8 @@
 //!   - souls_count_ignore_resurrect -> `an_ignore_resurrect_death_is_no_soul` red;
 //!   - souls_not_copies -> `his_press_puts_down_six_one_hitpoint_copies_every_five_ticks` red;
 //!   - souls_unshuffled -> `the_client_generator_shuffles_his_directions` and
-//!     `from_the_clients_state_his_copies_stand_where_the_clients_did` red.
+//!     `from_the_clients_state_his_copies_stand_where_the_clients_did` red;
+//!   - souls_axis_eject -> `a_copy_drawn_onto_the_river_stands_where_the_clients_did` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -35,6 +36,11 @@ fn n(p: (i32, i32)) -> Vec2 {
 /// The King held on AT 40 ticks with `victims` red Skeletons put down in a knot 1300 ahead of him, which his first blow
 /// (AreaDamageRadius 1300) kills before the press; then the press. Returns the battle, the King and P.
 fn scene(victims: usize) -> (BattleState, EntityId, u32) {
+    scene_at(victims, AT)
+}
+
+/// `scene` with the King held on `at`.
+fn scene_at(victims: usize, at: (i32, i32)) -> (BattleState, EntityId, u32) {
     let mut cfg = config();
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
@@ -42,13 +48,13 @@ fn scene(victims: usize) -> (BattleState, EntityId, u32) {
     let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let king = s.scenario_spawn_now(Team::Blue, "SkeletonKing", n(AT), None).expect("the Skeleton King");
+    let king = s.scenario_spawn_now(Team::Blue, "SkeletonKing", n(at), None).expect("the Skeleton King");
     let mut doomed = Vec::new();
     for k in 0..victims {
-        doomed.push(s.scenario_spawn_now(Team::Red, "Skeletons", n((AT.0 - 200 + 200 * k as i32, AT.1 + 1300)), None).expect("a red Skeleton"));
+        doomed.push(s.scenario_spawn_now(Team::Red, "Skeletons", n((at.0 - 200 + 200 * k as i32, at.1 + 1300)), None).expect("a red Skeleton"));
     }
     for _ in 0..40 {
-        assert!(s.debug_set_pos(king, n(AT)));
+        assert!(s.debug_set_pos(king, n(at)));
         s.tick();
     }
     for d in &doomed {
@@ -61,9 +67,14 @@ fn scene(victims: usize) -> (BattleState, EntityId, u32) {
 
 /// The copies after the press: (first tick from P, point, hitpoints, ticks deploying), in creation order.
 fn copies(s: &mut BattleState, king: EntityId, p: u32, ticks: u32) -> Vec<(u32, Vec2, i32, u32)> {
+    copies_at(s, king, p, ticks, AT)
+}
+
+/// `copies` with the King held on `at`.
+fn copies_at(s: &mut BattleState, king: EntityId, p: u32, ticks: u32, at: (i32, i32)) -> Vec<(u32, Vec2, i32, u32)> {
     let mut seen: Vec<(EntityId, u32, Vec2, i32, u32)> = Vec::new();
     for _ in 0..ticks {
-        assert!(s.debug_set_pos(king, n(AT)));
+        assert!(s.debug_set_pos(king, n(at)));
         s.tick();
         let k = s.tick_count() - 1 - p;
         for e in s.entities().filter(|e| e.team == Team::Blue && e.cloned) {
@@ -221,4 +232,21 @@ fn his_button_is_a_champions() {
     let b = s.ability_buttons(Team::Blue);
     assert_eq!(b.len(), 1, "one button: his");
     assert!(b[0].champion && b[0].available, "a champion's button, charged: {:?}", b[0]);
+}
+
+/// A COPY DRAWN ONTO THE RIVER (Oracle's fit, client 15.535.29 sp-champ-SkeletonKing-s0): the King on (11212, 13299),
+/// the client's generator at 2180262551, his first copy drawn at 0 degrees and 2875, onto (11212, 16174) on the water,
+/// stood on (10962, 14924): the nearest land point of the 500 grid set half a step off the draw, the tie between 1250
+/// down and 1250 up to his own side. Every copy stands on land.
+#[test]
+fn a_copy_drawn_onto_the_river_stands_where_the_clients_did() {
+    const KING: (i32, i32) = (11212, 13299);
+    let (mut s, king, p) = scene_at(0, KING);
+    s.scenario_set_client_rng(2_180_262_551);
+    let got = copies_at(&mut s, king, p, 45, KING);
+    assert_eq!(got.len(), 6, "the scene drifted: {got:?}");
+    assert_eq!((got[0].1.x / K, got[0].1.y / K), (10962, 14924), "the first copy, drawn onto (11212, 16174)");
+    for (k, c) in got.iter().enumerate() {
+        assert!(s.arena().is_passable_ground(c.1), "copy {k} on water: {:?}", (c.1.x / K, c.1.y / K));
+    }
 }

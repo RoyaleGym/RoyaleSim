@@ -24,6 +24,8 @@
 //!   ability_time_rounds_up    his 933 ms cast and 933 ms trigger keep their part-tick: (2) goes red (row 98).
 //!   deflect_catches_at_body   a shot at him flies to his centre: `a_shot_at_him_is_caught_at_his_deflect_areas_edge`
 //!                             goes red.
+//!   deflect_pushed            the active window leaves him to his neighbours' pushes:
+//!                             `a_giant_walking_into_him_does_not_move_him_while_it_is_active` goes red.
 //!
 //! THE CATCH (combat.rs `step_projectiles`): a shot at him while his deflect is active lands on the tick its step brings it
 //! within his deflect area's Radius (1500), not at his centre. Measured on client 15.535.29 (sp-champ-Monk-s0): a
@@ -153,5 +155,56 @@ fn a_shot_at_him_is_caught_at_his_deflect_areas_edge() {
     for (k, lost, d) in &caught {
         assert_eq!(*lost, 75, "row {k}: 35 % of the Musketeer's 217");
         assert!(*d > 1500, "row {k}: the shot was last seen {d} from him, inside his deflect area, before it landed");
+    }
+}
+
+/// HE IS PUSHED BY NO ONE WHILE IT IS ACTIVE (card.rs `AbilityEffect::Deflect::stay`, his ability's
+/// NO_MOVE_ALLOW_ATTRACT): measured on client 15.535.29 (sp-champ-Monk-recharge-q20-s0), a Giant walking into him left
+/// him on his point to the end of his deflect. Here a red Giant walks down his lane at him: he is held on his point
+/// until it is near, pressed, and from the trigger (P + 17) to P + 90 he stands where the active window began, the
+/// Giant on him.
+#[test]
+fn a_giant_walking_into_him_does_not_move_him_while_it_is_active() {
+    const RED: [&str; 8] = ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), RED.iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let at = n((3500, 12500));
+    let monk = s.scenario_spawn_now(Team::Blue, "Monk", at, None).expect("the Monk");
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", n((3500, 17500)), None).expect("the Giant");
+    let gap = |s: &BattleState| {
+        let (a, b) = (s.entity(monk).expect("the Monk").pos, s.entity(giant).expect("the Giant").pos);
+        let (dx, dy) = (((a.x - b.x) / K) as i64, ((a.y - b.y) / K) as i64);
+        isqrt(dx * dx + dy * dy)
+    };
+    let mut waited = 0;
+    while gap(&s) > 2200 {
+        assert!(s.debug_set_pos(monk, at));
+        s.tick();
+        waited += 1;
+        assert!(waited < 400, "the scene drifted: the Giant never came near ({})", gap(&s));
+    }
+    assert!(s.debug_set_pos(monk, at));
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut rows = Vec::new();
+    let mut nearest = i64::MAX;
+    while s.tick_count() - 1 < p + 90 {
+        s.tick();
+        let k = s.tick_count() - 1 - p;
+        let m = s.entity(monk).expect("the Monk").pos;
+        if k >= 17 {
+            rows.push((k, m.x / K, m.y / K));
+            nearest = nearest.min(gap(&s));
+        }
+    }
+    assert!(nearest < 1300, "the scene drifted: the Giant never stood on him in the active window ({nearest})");
+    let first = (rows[0].1, rows[0].2);
+    for r in &rows {
+        assert_eq!((r.1, r.2), first, "P + {}: he stands where the active window began: {rows:?}", r.0);
     }
 }

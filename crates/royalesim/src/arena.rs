@@ -617,6 +617,40 @@ impl Arena {
         best.map(|(_, _, q)| q)
     }
 
+    /// A GROUND POINT LEFT ON WATER BY A DASH'S END OR A SKELETON KING'S COPY, put on land as client 15.535.29 puts it
+    /// (Oracle's fit off the frames, 5 of 5; the client's routine is not located). The candidates are `p` + (500 i -
+    /// 250, 500 j - 250) native: a 500 grid set half a step off `p` on both axes, so neither axis stays put. The
+    /// nearest one on passable ground by its offset's length wins; a tie goes to the offset toward `team`'s own left,
+    /// then toward its own side (for Blue the most negative, as measured; Red's ties are unmeasured and taken in its
+    /// own frame, so a unit and its rotated twin land on rotated points). Measured: the Boss Bandit's dash ending on
+    /// (11043, 15703) put on (10793, 14953); the Skeleton King's copies drawn onto (11212, 16174), (10006, 15623),
+    /// (11892, 16480) and (11438, 16328) put on (10962, 14924), (9756, 14873), (11642, 17230) and (11188, 17078). `p`
+    /// itself when it is passable; None when no candidate within 4,250 of it is (never on the shipped map). Open:
+    /// whether land means the point's cell or the unit's footprint, and a tie between an x-only and a y-only candidate
+    /// beside a bridge.
+    pub fn nearest_land_grid(&self, p: Vec2, team: Team) -> Option<Vec2> {
+        if self.is_passable_ground(p) {
+            return Some(p);
+        }
+        let k = SUBTILE / 1000;
+        let (left, side) = (Arena::own_left_dx(team), Arena::own_side_dy(team));
+        let mut best: Option<((i64, i32, i32), Vec2)> = None;
+        for i in -8..=9 {
+            for j in -8..=9 {
+                let (dx, dy) = (500 * i - 250, 500 * j - 250);
+                let q = Vec2::new(p.x + dx * k, p.y + dy * k);
+                if !self.is_passable_ground(q) {
+                    continue;
+                }
+                let key = (i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy), -dx * left, -dy * side);
+                if best.map_or(true, |(b, _)| key < b) {
+                    best = Some((key, q));
+                }
+            }
+        }
+        best.map(|(_, q)| q)
+    }
+
     /// Inclusive index range of cells on one axis that touch coordinate v.
     #[inline]
     fn axis_span(&self, v: i32, n: i32) -> (i32, i32) {
