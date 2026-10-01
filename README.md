@@ -67,7 +67,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="docs/media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 133 of the 145 cards in its card table (the 15.535 client's, plus the Minion Giant) and refuses 12, with a reason for each, and fifty-one of them also in their evolved or hero form. Counted by the loader itself (its census at `6b1aae7`, `cards.json` FNV-1a 64 0a33362cc35a082e). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="docs/media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 136 of the 145 cards in its card table (the 15.535 client's, plus the Minion Giant) and refuses 9, all event-only, with a reason for each, and fifty-eight of them also in their evolved or hero form. Counted by the loader itself (its census at `cdd967e`, `cards.json` FNV-1a 64 82b51b3efd433316). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="docs/media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="docs/media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 373 carry a status from guess to measured, and 258 are measured (RoyaleSim e70e458). 318 also name the rivals they were chosen against, and 327 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -490,26 +490,26 @@ Working:
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
   Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 120 s overtime with
   triple elixir in its last minute, the 3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
-- Cards. **Of the card table's 145 rows the engine loads 133 and refuses 12**, with a reason for
-  each refusal. 144 rows are the 15.535 client's own table; the 145th, the Minion Giant, is a
+- Cards. **Of the card table's 145 rows the engine loads 136 and refuses 9**, with a reason for
+  each refusal; the nine are event-only cards. 144 rows are the 15.535 client's own table; the 145th, the Minion Giant, is a
   card the live client has and that table lacks, taken from a later client's table and added
-  last. The engine's own census reports **176 loadable, 12 rejected and 60 summon-only**, and
-  those do not sum to 145 for a reason worth stating: the 176 is the 133 plus the King and
-  Princess towers plus 41 evolved forms (the `_EV1` rows), which load as cards of their own, and
-  the 60 summon-only are unit definitions that are not rows of the card table at all - a
+  last. The engine's own census reports **180 loadable, 9 rejected and 79 summon-only**, and
+  those do not sum to 145 for a reason worth stating: the 180 is the 136 plus the King and
+  Princess towers plus 42 evolved forms (the `_EV1` rows), which load as cards of their own, and
+  the 79 summon-only are unit definitions that are not rows of the card table at all - a
   Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon* drops, the
   MusketeerTurret is what the Hero Musketeer's ability makes, and no hand can play either. The
-  three lists are disjoint and their union is 248: the 145 rows plus the 2 towers plus the 41
-  evolved forms plus those 60. Counts from the census at `6b1aae7`, against `cards.json` FNV-1a
-  64 0a33362cc35a082e. The loadable and refused lists are pinned row by row in
+  three lists are disjoint and their union is 268: the 145 rows plus the 2 towers plus the 42
+  evolved forms plus those 79. Counts from the census at `cdd967e`, against `cards.json` FNV-1a 64 82b51b3efd433316. The loadable and refused lists are pinned row by row in
   `crates/royalesim/tests/loadable_census.rs`, which CI runs. The default card list holds every
   card that loads, the Miner, the Goblin Drill and the Mirror included, and the Minion Giant last.
   A clone reads the same 145-row table: it is committed rather than generated. The 2018
   table, 78 cards, is still built beside it and still used by tests.
-- Evolved and hero forms for fifty-one special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Evo
+- Evolved and hero forms for fifty-eight special cards: Evo Cannon, Evo Skeletons, Evo Musketeer, Evo
   Elite Barbarians, Evo Zap, Evo Battle Ram, Evo Inferno Dragon, Evo Baby Dragon, Evo Royal Ghost,
-  Evo Skeleton Army, Evo Giant Snowball, Evo Skeleton Barrel, Evo Mortar, Evo Royal Hogs, Evo Minion Horde, Evo Tesla, Evo Royal Recruits, Evo Wizard, Evo Knight, Evo Barbarians, Evo Bomber, Evo Valkyrie, Evo Archer, Evo Royal Giant, Evo Mega Knight, Evo P.E.K.K.A., Evo Bats, Evo Wall Breakers, Evo Ice Spirits, Evo Firecracker, Evo Witch, Evo Goblin Cage, Evo Executioner, Evo Goblin Giant, Evo Princess, Evo Hunter, Evo Dart Goblin, Evo Furnace, Evo Electro Dragon, Evo Goblin Drill, Evo Goblin Barrel, Hero Musketeer, Hero Ice Golem, Hero Berserker, Hero Balloon,
-  Hero Valkyrie, Hero Wizard, Hero Mini P.E.K.K.A., Hero Knight, Hero Mega Minion and Hero Giant.
+  Evo Skeleton Army, Evo Giant Snowball, Evo Skeleton Barrel, Evo Mortar, Evo Royal Hogs, Evo Minion Horde, Evo Tesla, Evo Royal Recruits, Evo Wizard, Evo Knight, Evo Barbarians, Evo Bomber, Evo Valkyrie, Evo Archer, Evo Royal Giant, Evo Mega Knight, Evo P.E.K.K.A., Evo Bats, Evo Wall Breakers, Evo Ice Spirits, Evo Firecracker, Evo Witch, Evo Goblin Cage, Evo Executioner, Evo Goblin Giant, Evo Princess, Evo Hunter, Evo Dart Goblin, Evo Furnace, Evo Electro Dragon, Evo Goblin Drill, Evo Goblin Barrel, Evo Lumberjack, Hero Musketeer, Hero Ice Golem, Hero Berserker, Hero Balloon,
+  Hero Valkyrie, Hero Wizard, Hero Mini P.E.K.K.A., Hero Knight, Hero Mega Minion, Hero Giant, Hero Magic
+  Archer, Hero Bowler, Hero Goblins, Hero Barbarian Barrel, Hero Dark Prince and Hero Tombstone.
   `reset(..., forms=...)` marks
   a deck's card 1 for its evolution or 2 for its hero. Counting each card's own plays, an evolved
   card plays its evolution after its cycle of basic plays: two for most, one for the Elite
@@ -523,8 +523,8 @@ Working:
   The Monk's hits run in his three-hit combo, the third pushing its target away. His button runs
   too: after its cast he stands, takes every hit at 35 % and sends enemy shots back at their
   shooters, once. The Archer Queen's button runs as well: for 3.5 seconds no enemy can target
-  her and she shoots 2.8 times as fast, once. The Skeleton King and the Mighty Miner play as
-  plain troops.
+  her and she shoots 2.8 times as fast, once. The Boss Bandit's, the Little Prince's and
+  Goblinstein's buttons run too. The Skeleton King and the Mighty Miner play as plain troops.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
