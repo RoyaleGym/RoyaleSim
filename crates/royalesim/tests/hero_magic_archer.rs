@@ -12,7 +12,7 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_magic_archer`): decoy_never, early_trigger_late, decoy_warp_never, power_shot_unread, decoy_never_killed,
-//! decoy_pushed.
+//! decoy_pushed, warp_keeps_route (`after_its_warp_its_walk_is_planned_from_where_it_landed` red).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -190,4 +190,30 @@ fn its_decoy_is_killed_7000_ms_after_its_creation() {
     }
     let made = made.expect("a decoy");
     assert_eq!(gone, Some(made + 140), "the decoy's last tick is its creation + 139");
+}
+
+/// THE WARP DROPS THE ROUTE (measured on client 15.535.29, sp-f2-ma-9500-13500-s0, no enemy near: 16 path nodes planned
+/// from the warped point, where the route from before the warp held 13): once the hero walks again after its warp, its
+/// next waypoint lies near where it landed, not near the point it left 3500 ahead. No enemy here either: one in its reach
+/// after the warp would be shot at, and the hero would not walk.
+#[test]
+fn after_its_warp_its_walk_is_planned_from_where_it_landed() {
+    let (mut s, hero, reds) = start(&[]);
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut seen = None;
+    for _ in 0..160 {
+        hold(&mut s, &reds);
+        s.tick();
+        let k = s.tick_count() - 1 - p;
+        let h = s.entity(hero).expect("the hero");
+        if k >= 8 && h.pos.y / K < AT.1 - 3000 {
+            if let Some(next) = h.route.last() {
+                seen = Some((k, dist(*next, h.pos)));
+                break;
+            }
+        }
+    }
+    let (k, d) = seen.expect("the scene drifted: the hero never walked again after its warp");
+    assert!(d < 2000, "P + {k}: its next waypoint {d} from it, as if planned from the point it left");
 }

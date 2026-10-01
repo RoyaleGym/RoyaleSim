@@ -1225,7 +1225,7 @@ pub enum AbilityEffect {
     /// time, and for `active_ms` he stands (no walk, no attack; state.rs `fire_ability`, the hold) while every enemy
     /// shot that lands on him is also sent back at its firer for its full damage (combat.rs `step_projectiles`,
     /// state.rs `deflects`). One charge: measured on client 15.535.29, no second press is taken within 60 s.
-    Deflect { buff: BuffApply, active_ms: i32 },
+    Deflect { buff: BuffApply, active_ms: i32, radius: i32 },
     /// A CHAMPION'S BUFF ON HERSELF (the Archer Queen's cape; `convert_champion_ability`): from the trigger, `buff` on
     /// the champion for its time (state.rs `fire_ability`). Measured on client 15.535.29 (sp-champ-ArcherQueen-s0):
     /// the cape lands on P + 4 (TriggerDelay 200), every enemy drops her then (its Invisible), and she attacks at 2.8
@@ -8634,7 +8634,9 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut
         let rb = e.buff.as_ref().ok_or_else(|| format!("{what}: a deflect with no buff"))?;
         let buff = buffs.apply(rb, e.time_ms, &what)?;
         let active_ms = e.active_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a deflect with no active time"))?;
-        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect: AbilityEffect::Deflect { buff, active_ms } }));
+        // Its area's Radius: a shot at him is caught at its edge (state.rs `phase_projectile`, combat.rs `step_projectiles`).
+        let radius = milli(e.radius_milli.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a deflect with no area radius"))?);
+        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect: AbilityEffect::Deflect { buff, active_ms, radius } }));
     }
     // GOBLINSTEIN'S TETHER: one charge; its units resolve after the unit loop (the Doctor, the card's second summon).
     if a.effect.kind == "tether" {

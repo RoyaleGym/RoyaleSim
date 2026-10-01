@@ -34,6 +34,8 @@
 //!   chain_retakes_hit   the chain takes a target it hit again: (3) goes red.
 //!   chain_end_keeps_target the measured end keeps the last dash target: (5) goes red.
 //!   pending_run_walks   the waiting press walks at his own speed: (6) goes red.
+//!   pending_run_on_press_tick the pending run starts on the chain's first tick:
+//!                       `the_pending_run_starts_the_tick_after_the_press_s_first` goes red.
 //!   pending_trigger_without_radius the trigger reads DashRange alone: (6) goes red.
 //!   pending_target_frozen the waiting press keeps its target from the press: (7) goes red.
 //!   chain_end_keeps_cycle the measured cycle keeps the one the chain left: under_the_measured_cycle_... goes red.
@@ -280,6 +282,15 @@ fn a_press_with_nothing_in_reach_runs_him_at_twice_his_walk_and_dashes_at_his_ta
     assert!(rows[1..d].iter().all(|r| (115..=125).contains(&r.0)), "he runs 2 x his walk until the dash: {rows:?}");
     let (rows, _) = lone_press(DashChainPending::WaitForGroundCharacter);
     assert!(rows.iter().all(|r| r.0 < 390), "wait_for_ground_character dashed at a tower: {rows:?}");
+}
+
+/// Measured on client 15.535.29 (sp-champ-GK-empty-s0, pressed on P = t161, nothing in reach): his step on P + 1 is his
+/// walk, (+42, +42), and from P + 2 twice it, (+84, +84).
+#[test]
+fn the_pending_run_starts_the_tick_after_the_press_s_first() {
+    let (rows, _) = lone_press(DashChainPending::ClientRunToCurrentTarget);
+    assert!((55..=65).contains(&rows[0].0), "P + 1: his own walk: {rows:?}");
+    assert!((115..=125).contains(&rows[1].0), "P + 2: twice his walk: {rows:?}");
 }
 
 #[test]

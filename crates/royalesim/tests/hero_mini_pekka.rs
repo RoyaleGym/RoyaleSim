@@ -19,7 +19,12 @@
 //!   - level_up_never -> every test here red;
 //!   - level_set_on_trigger -> `the_press_sets_it_one_level_up_and_heals_30_percent_of_what_it_misses_on_p_plus_4` red;
 //!   - level_set_heals_after -> `the_heal_comes_before_the_level_as_six_scenes_measure` red;
-//!   - quest_hits_unread -> `each_hit_fills_8_seconds_of_its_bar` red.
+//!   - quest_hits_unread -> `each_hit_fills_8_seconds_of_its_bar` red;
+//!   - keep_target_cast_resets -> `its_cast_keeps_its_target_and_freezes_its_swing` red.
+//!
+//! ITS CAST KEEPS ITS SWING (its row sets KeepCurrentTarget; state.rs `start_ability`): measured on Oracle's
+//! sp-mph-hp-784-Knight-s0, pressed on t260 mid-swing, progress 3750 and load 550 through t261..t279, 3800 and 500 on
+//! t280, its blow on t300 at 4800.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -210,4 +215,31 @@ fn each_hit_fills_8_seconds_of_its_bar() {
         step(&mut s, hero, &reds);
     }
     assert_eq!(s.entity(hero).expect("the hero").level, 13, "a stack of 1: two levels");
+}
+
+/// A Golem in its reach, held and topped up; pressed mid-swing, it keeps its target, and its attack progress and load
+/// timer stand where they were through the cast; the first change after is the swing running on by one tick (+50).
+#[test]
+fn its_cast_keeps_its_target_and_freezes_its_swing() {
+    let (mut s, hero, reds) = start(&[("Golem", (AT.0, AT.1 + 1500))]);
+    let golem = reds[0].0;
+    for _ in 0..40 {
+        step(&mut s, hero, &reds);
+    }
+    let h = s.entity(hero).expect("the hero");
+    assert_eq!(h.target, Some(golem), "the scene drifted: it is not on the Golem before the press");
+    let before = (h.attack_ms, h.attack_load_ms);
+    assert!(before.0 > 0, "the scene drifted: no swing under way at the press");
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut rows = Vec::new();
+    for _ in 0..30 {
+        step(&mut s, hero, &reds);
+        let h = s.entity(hero).expect("the hero");
+        rows.push((h.attack_ms, h.attack_load_ms, h.target));
+    }
+    for (k, r) in rows.iter().enumerate().take(15) {
+        assert_eq!((r.0, r.1, r.2), (before.0, before.1, Some(golem)), "P + {}: its swing frozen and its target kept: {rows:?}", k + 1);
+    }
+    let next = rows.iter().find(|r| (r.0, r.1) != before).expect("the swing never ran on after the cast");
+    assert_eq!(next.0, before.0 + 50, "the swing runs on from where it stood: {rows:?}");
 }

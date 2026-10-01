@@ -13437,6 +13437,14 @@ impl BattleState {
     /// The heroes their own cast holds now (`start_ability`), with their hold timers: the entries marked casting whose
     /// hold has not run out. An entry whose hold has run out (or whose hero is gone) is unmarked here. Empty under the
     /// plant cast_blinds_target_search.
+    /// Unit `i` is a hero held by its own cast whose button sets KeepCurrentTarget (`start_ability`): its attack cycle
+    /// stands still, load timer and all, until the hold ends (`phase_attack_for`).
+    fn keep_cast_holds(&self, i: usize) -> bool {
+        self.ents.stun_ms[i] > 0
+            && self.hero_units.iter().any(|u| u.casting && u.id == self.ents.id_of(i))
+            && self.cfg.cards.get(self.ents.card[i]).ability.as_ref().is_some_and(|a| a.keep_target)
+    }
+
     fn casting_heroes(&mut self) -> Vec<(usize, i32)> {
         let mut out = Vec::new();
         for u in self.hero_units.iter_mut().filter(|u| u.casting) {
@@ -15401,6 +15409,15 @@ impl BattleState {
                 self.ents.pos[i] = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying);
                 self.ents.target[i] = None;
                 self.ents.target_locked[i] = false;
+                // ITS ROUTE GOES WITH ITS TARGET: its next walk is planned from where it landed. Measured on client
+                // 15.535.29 (sp-f2-ma-9500-13500-s0): 16 path nodes from the warped point, where the route planned before
+                // the warp held 13.
+                #[cfg(not(clash_plant = "warp_keeps_route"))]
+                {
+                    self.ents.route[i].clear();
+                    self.ents.route_goal[i] = None;
+                    self.ents.seg_dir[i] = Vec2::default();
+                }
                 moved = true;
             }
             let _ = (to, flying);
@@ -16480,11 +16497,15 @@ impl BattleState {
                 freed_hold[id.index as usize] = true;
             }
         }
+        // A chain on its first tick, seeking, before any blow (the press's trigger): its champion walks at his own speed
+        // this tick (the pending run below starts on the next). Measured on client 15.535.29 (sp-champ-GK-empty-s0).
+        let mut chain_fresh = vec![false; self.ents.capacity()];
         for c in &self.chains {
             let ci = c.id.index as usize;
             if let Some(crate::card::AbilityEffect::DashChain { speed, .. }) = self.cfg.cards.get(self.ents.card[ci]).ability.as_ref().map(|a| a.effect.clone()) {
                 chain_at[ci] = Some((c.phase, c.target, speed));
             }
+            chain_fresh[ci] = matches!(c.phase, ChainPhase::Seek) && c.mark == self.tick && c.hit.is_empty();
         }
         let mut chain_hits: Vec<(usize, EntityId)> = Vec::new();
         // THE WARPS this tick (`warp_pass` set their steps): per entity, (target, step); and the arrivals.
@@ -17433,17 +17454,28 @@ impl BattleState {
                 // is unchanged for the whole contact corpus
                 let native_speed = if paused || dash_stand { 0 } else { self.effective_speed(i) / K };
                 // combat.DASH_CHAIN_PENDING = client15535_run_to_current_target: a champion whose press waits runs at its
-                // pending SpeedMultiplier (`chain_pass`'s Seek; the Golden Knight's 200).
+                // pending SpeedMultiplier (`chain_pass`'s Seek; the Golden Knight's 200), from the tick after the chain's first
+                // (`chain_fresh`: measured, sp-champ-GK-empty-s0, (+42, +42) on P + 1 and (+84, +84) a tick from P + 2).
+                #[cfg(not(clash_plant = "pending_run_on_press_tick"))]
+                let fresh = chain_fresh[i];
+                #[cfg(clash_plant = "pending_run_on_press_tick")]
+                let fresh = {
+                    let _ = &chain_fresh;
+                    false // PLANT (regression): the pending run starts on the chain's first tick.
+                };
                 #[cfg(not(clash_plant = "pending_run_walks"))]
                 let pending_pct = match (chain_at[i], self.cfg.calib.dash_chain_pending) {
-                    (Some((ChainPhase::Seek, _, _)), DashChainPending::ClientRunToCurrentTarget) => match card.ability.as_ref().map(|a| &a.effect) {
+                    (Some((ChainPhase::Seek, _, _)), DashChainPending::ClientRunToCurrentTarget) if !fresh => match card.ability.as_ref().map(|a| &a.effect) {
                         Some(crate::card::AbilityEffect::DashChain { pending_speed_pct, .. }) => *pending_speed_pct,
                         _ => 100,
                     },
                     _ => 100,
                 };
                 #[cfg(clash_plant = "pending_run_walks")]
-                let pending_pct = 100; // PLANT (regression): the waiting press walks at his own speed.
+                let pending_pct = {
+                    let _ = fresh;
+                    100 // PLANT (regression): the waiting press walks at his own speed.
+                };
                 let native_speed = native_speed * pending_pct / 100;
                 // a held unit (`held_walk`) aims at itself at speed 0, as an attacking one does: the separation
                 // mean alone moves it and its facing stays
@@ -18805,6 +18837,12 @@ impl BattleState {
             if self.cfg.calib.special_hook == SpecialHook::ClientHookDrag && self.special_step(i, can_act) {
                 continue;
             }
+            // A KeepCurrentTarget hero's cast hold (`start_ability`) freezes its whole cycle, its load timer with its
+            // progress, where a stun runs the load timer down: measured on client 15.535.29 (sp-mph-hp-784-Knight-s0),
+            // 3750 / 550 on the press's tick t260 and on every tick of the hold t261..t279, 3800 / 500 on t280.
+            if !can_act && self.keep_cast_holds(i) {
+                continue;
+            }
             let step = combat::attack_step(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act);
             // combat.ATTACK_SELECT_MOMENT (card.rs `AttackSelectDef`; the Three Musketeers): the selector picks the
             // swing's entry when the swing starts -- a fresh cycle's first tick here, and the hit that ends a swing for
@@ -19632,7 +19670,18 @@ impl BattleState {
         // A deflect sends back what lands on its champion while it is active (`deflects`; ended ones dropped here).
         let now = self.tick;
         self.deflects.retain(|(id, until)| now < *until && self.ents.is_alive(*id));
-        let deflecting: Vec<EntityId> = self.deflects.iter().map(|(id, _)| *id).collect();
+        // (champion, his deflect area's radius): a shot at him is caught at its edge (combat.rs `step_projectiles`).
+        let deflecting: Vec<(EntityId, i32)> = self
+            .deflects
+            .iter()
+            .map(|(id, _)| {
+                let r = match self.cfg.cards.get(self.ents.card[id.index as usize]).ability.as_ref().map(|a| &a.effect) {
+                    Some(crate::card::AbilityEffect::Deflect { radius, .. }) => *radius,
+                    _ => 0,
+                };
+                (*id, r)
+            })
+            .collect();
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut out.released, &mut self.scratch.nb, self.tick, &deflecting);
         // The Hero Balloon's throws, before the spells step, so a landing's blow strikes on its own tick (`throw_pass`).
         if !self.throws.is_empty() {
@@ -23348,8 +23397,16 @@ impl BattleState {
             if let Some(u) = self.hero_units.iter_mut().find(|u| u.id == hero) {
                 u.casting = true;
             }
+            // A BUTTON THAT SETS KeepCurrentTarget keeps the lock and the swing: the hold freezes them where they stand and
+            // the swing runs on after it. Measured on client 15.535.29: the Hero Mini PEKKA (sp-mph-hp-784-Knight-s0)
+            // held 3750 / 550 through its cast and read 3800 / 500 the tick after, its blow at 4800; the Little Prince
+            // (sp-lp-far-s0) 900 / 750 through his, then 950 / 700.
+            #[cfg(not(clash_plant = "keep_target_cast_resets"))]
+            let keep = a.keep_target;
+            #[cfg(clash_plant = "keep_target_cast_resets")]
+            let keep = false; // PLANT (regression): every cast resets the swing, KeepCurrentTarget or not.
             #[cfg(not(clash_plant = "cast_releases_target"))]
-            {
+            if !keep {
                 self.ents.target_locked[i] = false;
                 self.ents.attack_phase[i] = AttackPhase::Idle;
                 self.ents.attack_ms[i] = 0;
@@ -23458,7 +23515,7 @@ impl BattleState {
             // and his deflect is active that long (`deflects`). Measured on client 15.535.29 (sp-champ-Monk-s0, press
             // first frame P = t197): he casts P..P + 16, is active P + 17..P + 95, stands and attacks nothing through
             // both, and every hit on him in the active window lands at 35 % (217 -> 75, 202 -> 70, 81 -> 28).
-            crate::card::AbilityEffect::Deflect { buff, active_ms } => {
+            crate::card::AbilityEffect::Deflect { buff, active_ms, .. } => {
                 // His hold through the active state was set at the cast's start (`start_ability`).
                 let h = crate::status::BuffHit::plain(hero, buff.buff, buff.time_ms, 0);
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);

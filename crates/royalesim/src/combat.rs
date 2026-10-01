@@ -2041,7 +2041,7 @@ pub fn step_projectiles(
     units: &mut Vec<crate::spell::Release>,
     scratch: &mut Vec<u32>,
     tick: u32,
-    deflecting: &[EntityId],
+    deflecting: &[(EntityId, i32)],
 ) {
     let rounding = calib.crown_rounding;
     // combat.SPAWN_PROJECTILE = client_spark_fan: the sparks the carriers landing this tick release,
@@ -2102,7 +2102,18 @@ pub fn step_projectiles(
         // combat.PROJECTILE_STEP: the aim is the target's position after it moved this tick.
         let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac, p.team);
         p.pos = np;
-        if np != p.aim {
+        // A DEFLECT'S AREA (card.rs `AbilityEffect::Deflect::radius`, the Monk's 1500): an enemy single-target shot at a
+        // champion whose deflect is active lands on the tick its step brings it within the area's radius of him, not at
+        // his centre. Measured on client 15.535.29 (sp-champ-Monk-s0): a Musketeer 5996 away, three shots of three a tick
+        // before a flight to his centre would land (t233, t253, t273), their returns a tick earlier too.
+        #[cfg(not(clash_plant = "deflect_catches_at_body"))]
+        let caught = alive && p.splash == 0 && !p.deflected && {
+            let tp = ents.pos[p.target.index as usize];
+            deflecting.iter().any(|(id, r)| *id == p.target && np.dist2(tp) <= i64::from(*r) * i64::from(*r))
+        };
+        #[cfg(clash_plant = "deflect_catches_at_body")]
+        let caught = false; // PLANT (regression): the shot flies to his centre.
+        if np != p.aim && !caught {
             return true;
         }
         // THE RUNE GIANT'S PROJECTILE deals no damage either. Its landing on a live friend is handed to Resolve
@@ -2186,7 +2197,7 @@ pub fn step_projectiles(
             // three. A splash shot, and a shot that was itself deflected, go nowhere; a returned shot carries its damage
             // only, not the shot's buff, area or trail (an Evo Elite Barbarian's spear comes back bare); all unmeasured.
             #[cfg(not(clash_plant = "deflect_returns_nothing"))]
-            let returns = !p.deflected && deflecting.contains(&p.target);
+            let returns = !p.deflected && deflecting.iter().any(|(id, _)| *id == p.target);
             #[cfg(clash_plant = "deflect_returns_nothing")]
             let returns = {
                 let _ = deflecting;

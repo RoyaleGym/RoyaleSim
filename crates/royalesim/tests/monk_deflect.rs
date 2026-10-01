@@ -22,10 +22,17 @@
 //!   deflect_returns_nothing   the deflect sends nothing back: (3) goes red.
 //!   deflect_walks             the active window does not hold him: (2) goes red.
 //!   ability_time_rounds_up    his 933 ms cast and 933 ms trigger keep their part-tick: (2) goes red (row 98).
+//!   deflect_catches_at_body   a shot at him flies to his centre: `a_shot_at_him_is_caught_at_his_deflect_areas_edge`
+//!                             goes red.
+//!
+//! THE CATCH (combat.rs `step_projectiles`): a shot at him while his deflect is active lands on the tick its step brings it
+//! within his deflect area's Radius (1500), not at his centre. Measured on client 15.535.29 (sp-champ-Monk-s0): a
+//! Musketeer 5996 away, three shots of three a tick before a flight to his centre would land, their returns a tick
+//! earlier too.
 mod common;
 
 use common::*;
-use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleState, DeployError};
 use royalesim::{EntityId, Team};
 
@@ -117,4 +124,34 @@ fn the_deflect_holds_the_monk_cuts_every_hit_to_35_percent_and_sends_the_shots_b
     let b = s.ability_buttons(Team::Blue)[0];
     assert!(!b.available && b.spent, "the charge is spent: {b:?}");
     eprintln!("walks again {walks_again}; on him {on_monk:?}; on her {on_musk:?}");
+}
+
+/// Every Musketeer shot that lands on him in his active window was last seen beyond his deflect area's 1500, and takes 35 %
+/// of its 217 off him.
+#[test]
+fn a_shot_at_him_is_caught_at_his_deflect_areas_edge() {
+    let (mut s, monk, _musk) = scene();
+    for _ in 0..5 {
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut seen: Option<i64> = None;
+    let mut caught = Vec::new();
+    let mut hp = s.entity(monk).expect("the Monk").hp;
+    for k in 1..=95u32 {
+        s.tick();
+        let m = s.entity(monk).expect("the Monk lives");
+        if m.hp < hp && (20..=90).contains(&k) {
+            if let Some(d) = seen {
+                caught.push((k, hp - m.hp, d));
+            }
+        }
+        hp = m.hp;
+        seen = s.projectiles().iter().filter(|p| p.target == monk && !p.deflected).map(|p| isqrt(p.pos.dist2(m.pos)) / K as i64).min();
+    }
+    assert!(caught.len() >= 2, "the scene drifted: {caught:?}");
+    for (k, lost, d) in &caught {
+        assert_eq!(*lost, 75, "row {k}: 35 % of the Musketeer's 217");
+        assert!(*d > 1500, "row {k}: the shot was last seen {d} from him, inside his deflect area, before it landed");
+    }
 }
