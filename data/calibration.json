@@ -1929,6 +1929,17 @@
       "promotion_rules": "The test file passes. The flip moves the landing tick of slow projectiles (Rocket, bombs) in some flights and every projectile's position by up to a few native units; register the prediction before the flip.",
       "engine": "path.rs advance (a native-integer variant), combat.rs fire (the start point) and step_projectiles, spell.rs Flight, combat.rs ticks_to_land"
     },
+    "DEATH_DAMAGE_TICK": {
+      "value": "next_tick",
+      "status": "measured",
+      "candidates": ["next_tick", "client15535_death_tick"],
+      "confidence": "HIGH that the two clients differ: client 15.535.29 122 of 122 on the death frame, the 16.402 corpus 9 of 10 on the frame after",
+      "provenance": "MEASURED by parity (2026-10-01) over every truth record with a unit whose card has death damage (DeathDamage and a radius) dying on frame t: each enemy within the death radius plus its own radius on t - 1 (start-of-tick positions), and the frame its hp drops by the death damage. Client 15.535.29 (the scenario and IL records): on t, 122 of 122 (Golem 30, Ice Golemite 92). The 16.402 corpus: on t + 1, 9 of 10; the tenth lost 1 hp on t and the death damage (85) on t + 1. First seen as six Minion Horde minions a dying Golem hit a tick early in an IL record.",
+      "meaning": "next_tick: a dying unit's death blow is buffered in the Reap of its death tick and lands with the next tick's hits (the 16.402 client's). client15535_death_tick: it lands in that Reap (combat.rs land_at_once), so its victims carry it on the death frame (client 15.535.29's); a victim it takes to 0 dies in the next tick's Resolve under both arms.",
+      "open": "Whether a victim the blow kills leaves on the death frame or the frame after under client 15.535.29 (both arms put it on the frame after; no record has one). The 16.402 tenth event's 1-hp drop on t.",
+      "promotion_rules": "The shipped value is 16.402's, measured on its corpus. replay_parity runs a client 15.535.29 capture at client15535_death_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS), as it runs that client's card values; a 16.402 record on the death frame would reopen it.",
+      "engine": "state.rs phase_reap (the death blow, land_death_blow), selected by Calib::death_damage_tick; tests/death_damage_tick.rs; the harness's per-client list."
+    },
     "KAMIKAZE_DEATH": {
       "value": "at_fire",
       "status": "measured",

@@ -1343,8 +1343,14 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   and 8 of 8 (towers near) on the kill frame, before it 72 of 75 and 2 of 2 a frame later; an attacker's post-kill
 ///   wait ends on the sixth frame either way (187 and 376). The 16.402 corpus keeps client16402 (the ledger's
 ///   measured_16402_2026_09_26: 104 of 112 a frame later where the arm puts all 112 on the kill frame).
-pub const CLIENT15535_ARMS: &[(&str, &str)] =
-    &[("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""), ("match.TICK_ORDER", "\"client_sequential_strike\"")];
+///   combat.DEATH_DAMAGE_TICK = client15535_death_tick: a dying unit's death blow lands on its death tick. Measured on
+///   client 15.535.29: an enemy within a dying Golem's or Ice Golemite's death radius loses the damage on the death
+///   frame, 122 of 122. The 16.402 corpus keeps next_tick (9 of 10 on the frame after).
+pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
+    ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
+    ("match.TICK_ORDER", "\"client_sequential_strike\""),
+    ("combat.DEATH_DAMAGE_TICK", "\"client15535_death_tick\""),
+];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
 fn capture_client15535(f: &Fixture) -> bool {

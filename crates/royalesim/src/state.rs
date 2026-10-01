@@ -200,6 +200,11 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
     #[serde(default = "jump_landing_contact_default")]
     pub jump_landing_contact: JumpLandingContact,
+    /// combat.DEATH_DAMAGE_TICK (`phase_reap`, a dying unit's death blow): whether the blow lands with the next tick's
+    /// hits (16.402's) or in the Reap of the death tick (client 15.535.29's). Added after SNAPSHOT_FORMAT 20; the
+    /// `default` is the old arm, what a battle saved before it ran.
+    #[serde(default = "death_damage_tick_default")]
+    pub death_damage_tick: DeathDamageTick,
     pub mana_regen_ms_1x: i32,
     pub mana_regen_ms_2x: i32,
     /// match.MANA_REGEN_MS_OVERTIME: the late-overtime regen, ms for a full bar (0: no third rate, the engine before
@@ -1792,6 +1797,10 @@ fn mana_triple_after_overtime_s_default() -> i32 {
 
 fn jump_landing_contact_default() -> JumpLandingContact {
     JumpLandingContact::LandingTick
+}
+
+fn death_damage_tick_default() -> DeathDamageTick {
+    DeathDamageTick::NextTick
 }
 
 fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
@@ -4973,6 +4982,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DEATH_DAMAGE_TICK -- see `Calib::death_damage_tick`.
+    DeathDamageTick {
+        /// The blow is buffered in Reap and lands with the next tick's hits: an enemy in its radius loses the damage on
+        /// the frame after the death (the 16.402 corpus: 9 of 10).
+        NextTick = "next_tick",
+        /// The blow lands in the Reap of the death tick (combat.rs `land_at_once`): the damage is on the death frame
+        /// (client 15.535.29: 122 of 122). Its victims still die in the next tick's Resolve, as under next_tick.
+        Client15535DeathTick = "client15535_death_tick",
+    }
+);
+calib_enum!(
     /// movement.JUMP_WATER_HOP -- see `Calib::jump_water_hop`.
     JumpWaterHop {
         Client16402 = "client16402",
@@ -5775,6 +5795,7 @@ impl Calib {
             path_search: pick(&v, &["pathfinding", "PATH_SEARCH", "value"], PathSearch::from_calibration_name)?,
             jump_water_hop: pick(&v, &["movement", "JUMP_WATER_HOP", "value"], JumpWaterHop::from_calibration_name)?,
             jump_landing_contact: pick(&v, &["movement", "JUMP_LANDING_CONTACT", "value"], JumpLandingContact::from_calibration_name)?,
+            death_damage_tick: pick(&v, &["combat", "DEATH_DAMAGE_TICK", "value"], DeathDamageTick::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
             mana_regen_ms_3x: int(&v, &["match", "MANA_REGEN_MS_OVERTIME", "value"])?,
@@ -19902,6 +19923,31 @@ impl BattleState {
         self.scratch.strike_shield_broke.extend(landed.shield_broke);
     }
 
+    /// LAND A DEATH BLOW IN ITS REAP (combat.DEATH_DAMAGE_TICK = client15535_death_tick): the hits `combat::splash` just
+    /// buffered from `from` on, applied as `land_strike` applies a strike (combat.rs `land_at_once`), so the victims'
+    /// hitpoints carry the blow on the death tick's frame. A victim the blow takes to 0 dies in the next tick's Resolve,
+    /// as under next_tick. What `resolve` would report from the blow (a first-hit card's unit hurt, an Evo shield taken
+    /// to 0) is answered here, in this Reap, so nothing is carried into the next tick. Measured on client 15.535.29: an
+    /// enemy within a dying Golem's or Ice Golemite's death radius loses the death damage on the death frame, 122 of 122.
+    fn land_death_blow(&mut self, from: usize) {
+        let hits: Vec<Hit> = self.dmg.hits.drain(from..).collect();
+        let underground_immune = self.underground_immune();
+        let landed =
+            combat::land_at_once(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &hits, self.cfg.calib.hide_hidden_immune, underground_immune, target::riders_immune(&self.cfg.calib), self.tick);
+        for (t, hit) in landed.king_hit.into_iter().enumerate() {
+            if hit && self.king_wake_ms[t].is_none() {
+                self.king_wake_ms[t] = Some(0);
+            }
+        }
+        let hurt: Vec<EntityId> = landed.hurt.into_iter().filter(|id| self.ents.is_alive(*id) && self.ents.hp[id.index as usize] > 0).collect();
+        if !hurt.is_empty() {
+            self.first_hit(hurt);
+        }
+        if !landed.shield_broke.is_empty() {
+            self.shield_blasts(landed.shield_broke);
+        }
+    }
+
     fn phase_projectile(&mut self) {
         // No early return on an empty spell list: stepping no spell is a no-op, and what
         // the phase hands on (spell.rs `SpellOut`) need not come from a spell: a troop's shot
@@ -21951,6 +21997,7 @@ impl BattleState {
                 }
             }
             let card = self.cfg.cards.get(self.ents.card[i]);
+            let blow_from = self.dmg.hits.len();
             if self.ents.death_damage[i] > 0 && card.death_damage_radius > 0 {
                 // The blow's own crown-tower percent where it has one (card.rs `CardDef::death_crown_pct`: the Evo Wall
                 // Breakers'), else the card's.
@@ -21972,7 +22019,14 @@ impl BattleState {
                     &mut self.dmg,
                     &mut self.scratch.nb,
                 );
+                // combat.DEATH_DAMAGE_TICK = client15535_death_tick: the blow lands here, on the death tick.
+                #[cfg(not(clash_plant = "death_blow_next_tick"))]
+                if self.cfg.calib.death_damage_tick == DeathDamageTick::Client15535DeathTick {
+                    self.land_death_blow(blow_from);
+                }
             }
+            #[cfg(clash_plant = "death_blow_next_tick")]
+            let _ = blow_from; // PLANT (regression): the 15.535.29 arm's blow still lands with the next tick's hits.
             let team = self.ents.team[i] as usize;
             if let Some(slot) = self.towers[team].iter().position(|t| *t == Some(*id)) {
                 self.towers_down[team][slot] = true;
@@ -26810,6 +26864,9 @@ impl BattleState {
 /// 20, unchanged, movement.JUMP_LANDING_CONTACT: Calib gained jump_landing_contact (serde default the old arm,
 ///    landing_tick), no new state (the new arm leaves a body the pass builds inside one tick), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DEATH_DAMAGE_TICK: Calib gained death_damage_tick (serde default the old arm, next_tick), no
+///    new state (the new arm lands the blow inside the Reap that buffers it), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SLIDE_AIM: Calib gained death_slide_aim (serde default the old arm, current_ray),
 ///    Entities gained `death_slide_end` (serde default, sized on load) and PendingSpawn `slide_end` (serde default):
 ///    a sliding member's fixed end point, set at birth under fixed_end_point alone and hashed only while its slide
@@ -27450,6 +27507,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("jump_landing_contact".into(), serde_json::to_value(JumpLandingContact::LandingTick).map_err(|e| e.to_string())?);
+    // combat.DEATH_DAMAGE_TICK: a format-3 battle's death blows landed with the next tick's hits; it keeps the old arm
+    // whatever the ledger ships (the same rule).
+    sh.insert("death_damage_tick".into(), serde_json::to_value(DeathDamageTick::NextTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
     sh.insert("death_slide_aim".into(), serde_json::to_value(DeathSlideAim::CurrentRay).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_BIRTH and DEATH_SLIDE_STOP: the same (a format-3 battle laid no slide at all).
