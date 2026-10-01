@@ -8,7 +8,9 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! line_placement`):
-//!   - line_centre_on_tap -> `the_royal_recruits_line_stands_where_the_client_put_it` red.
+//!   - line_centre_on_tap -> `the_royal_recruits_line_stands_where_the_client_put_it` red;
+//!   - line_tap_relocated -> `a_line_put_down_stands_where_the_client_put_it` red (a tap on a princess box relocated
+//!     first).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -77,6 +79,29 @@ const TAPS: [((i32, i32), (i32, i32)); 57] = [
     ((17000, 6500), (11500, 8500)),
     ((17000, 11500), (11500, 11500)),
 ];
+
+/// THE SAME TAPS PUT DOWN (`spawn_unit`, the replay's scenario spawn, which resolves a tap as a play does): the line's own
+/// law reads the raw tap, with no troop relocation off a tower first.
+#[test]
+fn a_line_put_down_stands_where_the_client_put_it() {
+    let mut wrong = Vec::new();
+    for ((x, y), want) in TAPS {
+        let mut s = BattleState::new(7, config());
+        past_deploy_lockout(&mut s);
+        s.spawn_unit(Team::Blue, "RoyalRecruits", Vec2::new(x * K, y * K), None).expect("the line");
+        s.tick();
+        let members: Vec<Vec2> = find_live(&s, Team::Blue, "RoyalRecruits").iter().map(|e| e.pos).collect();
+        assert_eq!(members.len(), 6, "six recruits");
+        let mut xs: Vec<i32> = members.iter().map(|m| m.x / K).collect();
+        xs.sort();
+        let cy = members.iter().map(|m| m.y / K).sum::<i32>() / 6;
+        let got = ((xs[2] + xs[3]) / 2, cy);
+        if got != want {
+            wrong.push(((x, y), want, got));
+        }
+    }
+    assert!(wrong.is_empty(), "taps whose line stands elsewhere put down (tap, client, here): {wrong:?}");
+}
 
 #[test]
 fn the_royal_recruits_line_stands_where_the_client_put_it() {

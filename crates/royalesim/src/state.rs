@@ -7725,6 +7725,23 @@ fn fixed_ring_offset(k: i32, n: i32, r: i32) -> (i32, i32) {
 /// it), so the measured first-step split of `phase_path16402` is not reproduced here. The
 /// radial step under either spawner.DEATH_SLIDE_AIM arm: the key is read by the 16.402 pass
 /// alone, where the captures it was read off ran.
+/// NOT SERVING A POST-KILL WAIT (entity.rs `retarget_wait`, combat.POST_KILL_RETARGET_WAIT and the holds that ride its
+/// counter): a unit that is may not steer its neighbours by heading (move16402.rs `Body::heading_counts`). The client
+/// keeps its attacking state (2) with no target through the whole wait and walks (1) only with its next target, and
+/// states 8/0/2/10 zero the avoidance dot product; the engine zeroes the attack timer on the wait's last tick by setting
+/// its phase Idle, which alone would read as a walker's. Measured on client 15.535.29 (sp-hogs-musk-s0): four Royal Hogs
+/// lose their Cannon on t281, read state 2 with no target through t286 and walk with the princess tower on t287; a
+/// Skeleton whose look circle meets a Hog on t286 turns +190 there ((+90, -11) in the client).
+fn serves_no_wait(e: &Entities, i: usize) -> bool {
+    #[cfg(not(clash_plant = "waiting_heading_counts"))]
+    return e.retarget_wait[i] == 0;
+    #[cfg(clash_plant = "waiting_heading_counts")]
+    {
+        let _ = (e, i);
+        true // PLANT (regression): the wait's last tick reads as a walker's heading.
+    }
+}
+
 fn frame_planned_slide(e: &Entities, i: usize) -> (Vec2, bool) {
     use crate::fixed::SUBTILE_PER_MILLITILE as K;
     let (p, c) = (e.pos[i], e.death_slide_centre[i]);
@@ -9256,6 +9273,7 @@ impl BattleState {
             offset: e.avoid_offset[i],
             dir: (e.facing[i].x, e.facing[i].y),
             heading_counts: e.attack_phase[i] == AttackPhase::Idle
+                && serves_no_wait(e, i)
                 && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
                 && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
             avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0,
@@ -16290,7 +16308,10 @@ impl BattleState {
                         // blocker and turned a same-facing walker 72 degrees.
                         // movement.WAITING_HEADING = zeroed: a member still waiting out its stagger is a
                         // blocker, whatever DEPLOYING_HEADING says of a deploying one.
+                        // A unit serving its post-kill wait is in state 2 through the wait's last tick too, where the
+                        // engine's phase reads Idle (`serves_no_wait`).
                         heading_counts: e.attack_phase[i] == AttackPhase::Idle
+                            && serves_no_wait(e, i)
                             && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
                             && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
                         // movement.WAITING_HEADING = static_obstacle: a member still waiting out its
@@ -22289,6 +22310,10 @@ impl BattleState {
         // bottle, so the footprint is judged where the troop (or a spell placed as one, placement.SPELL_AS_DEPLOY_TAPS)
         // will stand.
         let at = if self.relocates_taps(card) { self.resolve_point(team, idx, pos) } else { pos };
+        // A LINE is placed by its own law (`lays_a_line`, formation.rs `line_centre`), off a tower's rows: its tap on a
+        // footprint is taken (Oracle's sp-rrtap-*: taps on the princess boxes accepted).
+        #[cfg(not(clash_plant = "line_tap_relocated"))]
+        let footprint_rule = footprint_rule && !self.lays_a_line(idx);
         if footprint_rule && self.footprint_covers(at, 0) {
             return Err(DeployError::Occupied);
         }
@@ -22338,6 +22363,16 @@ impl BattleState {
         self.resolve_point_with(team, idx, pos, !troop)
     }
 
+    /// A CARD WHOSE PLAY LAYS A LINE: a troop card with a SummonWidth, two or more members, no second summon, no summon
+    /// members and a ground unit (state.rs `formation_members_with`'s `line`; the Royal Recruits', the Royal Hogs'). Its
+    /// own placement law (formation.rs `line_centre`) moves its tap, so no troop relocation reads the tap first and the
+    /// play path does not refuse it on a tower's footprint.
+    fn lays_a_line(&self, idx: u16) -> bool {
+        let c = self.cfg.cards.get(idx);
+        let second = c.formation.second_summon.filter(|d| d.unit != u16::MAX).map_or(0, |d| d.count.max(0));
+        c.kind == CardKind::Troop && c.formation.summon_width != 0 && second == 0 && c.count.max(1) >= 2 && c.summon_members.is_none() && !c.is_flying()
+    }
+
     /// A TROOP CARD WHOSE PLAY LAYS ONE UNIT: one member, no second summon and no summon members. `spawn_unit_with` and
     /// `resolve_observed_point` leave such a troop's observed point unresolved.
     fn lays_one_unit(&self, idx: u16) -> bool {
@@ -22352,6 +22387,14 @@ impl BattleState {
         let calib = &self.cfg.calib;
         if card.kind == CardKind::Building {
             return self.building_placement(team, idx, pos).map_or(pos, |(c, _)| c);
+        }
+        // A LINE (`lays_a_line`) is placed by its own law from the raw tap (formation.rs `line_centre`, fitted on raw
+        // taps: Oracle's sp-rrtap-*, client 15.535.29): no snap and no troop relocation read it first. Relocated off a
+        // princess box first, a Royal Recruits line tapped on (2500, 7000) stood on y 4500, where the client's stood on
+        // 8500.
+        #[cfg(not(clash_plant = "line_tap_relocated"))]
+        if self.lays_a_line(idx) {
+            return pos;
         }
         let mut p = pos;
         if card.kind == CardKind::Spell && calib.illegal_spell_tap == IllegalSpellTap::ClampToLegalEdge {
