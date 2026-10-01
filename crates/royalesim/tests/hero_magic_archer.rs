@@ -11,7 +11,8 @@
 //! t125, last seen t264, gone on t265.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! hero_magic_archer`): decoy_never, early_trigger_late, decoy_warp_never, power_shot_unread, decoy_never_killed.
+//! hero_magic_archer`): decoy_never, early_trigger_late, decoy_warp_never, power_shot_unread, decoy_never_killed,
+//! decoy_pushed.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -119,6 +120,10 @@ fn its_decoy_stands_on_its_point_then_the_hero_hides_and_warps_back() {
     assert!(from.y / K - y6 < 1000, "no warp before P + 7: {rows:?}");
     assert!((y6 - y7 - 3500).abs() <= 200, "the warp on P + 7 (3500 and a push): {rows:?}");
     assert_eq!(rows[6].2, None, "the hero's target dropped by the warp: {rows:?}");
+    // NO_MOVE_ALLOW_ATTRACT: the decoy stands on its point while the hero and the Knight meet it (measured: on its point
+    // from its first frame to its kill).
+    let points: Vec<Vec2> = rows[4..].iter().filter_map(|r| r.4.first().map(|d| d.1)).collect();
+    assert!(points.len() >= 7 && points.iter().all(|p| dist(*p, from) <= 1), "the decoy unmoved: {rows:?}");
 }
 
 #[test]

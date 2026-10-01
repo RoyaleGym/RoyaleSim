@@ -15087,6 +15087,18 @@ impl BattleState {
                 self.ents.attack_seq[i] = 0;
             }
             let kill = at(d.decoy_life_ms);
+            // ITS DECOY PUSHED BY NO ONE (card.rs `DecoyWarpDef::stay`, NO_MOVE_ALLOW_ATTRACT), from the tick after its
+            // creation (the end of the trigger's Reap) to its kill. Measured on client 15.535.29
+            // (sp-form-EliteArcher-hero-s0): on its point from its first frame to its kill, the hero pushed 150 off it.
+            #[cfg(not(clash_plant = "decoy_pushed"))]
+            if self.tick == r.made + 1 {
+                for j in 0..self.ents.capacity() {
+                    if self.ents.alive[j] && self.ents.card[j] == d.decoy && self.ents.team[j] == r.team && self.ents.spawn_tick[j] == r.made {
+                        let h = crate::status::BuffHit::plain(self.ents.id_of(j), d.stay, d.decoy_life_ms, 0);
+                        land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, j, &h);
+                    }
+                }
+            }
             #[cfg(not(clash_plant = "decoy_never_killed"))]
             if self.tick == kill {
                 for j in 0..self.ents.capacity() {

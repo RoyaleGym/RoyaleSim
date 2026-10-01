@@ -1565,6 +1565,9 @@ pub struct DecoyWarpDef {
     pub decoy_life_ms: i32,
     pub power_ms: i32,
     pub power: PowerShotDef,
+    /// Its decoy pushed by no one (NO_MOVE_ALLOW_ATTRACT): an own buff of NO_PUSHED_BY_ALLY and NO_PUSHED_BY_ENEMY, landed
+    /// the tick after the decoy's creation for its life (state.rs `magic_pass`).
+    pub stay: u16,
 }
 
 /// THE SIEGE (the Hero Bowler's; tools/extract_cards.py `siege_effect`; state.rs `SiegeRun`, `siege_pass`, the swing's
@@ -12421,6 +12424,7 @@ impl CardDb {
                     decoy_life_ms: e.decoy_life_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a decoy with no life"))?,
                     power_ms: e.power_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a power shot with no time"))?,
                     power,
+                    stay: buffs.push_own(crate::status::BuffDef { no_pushed_by_ally: true, no_pushed_by_enemy: true, ..Default::default() }, &format!("{} decoy stay", a.name))?,
                 })
             }
             // THE RE-ROLL (the Hero Barbarian Barrel's): its Barbarian (the roll's unit, above) and its log's record load
