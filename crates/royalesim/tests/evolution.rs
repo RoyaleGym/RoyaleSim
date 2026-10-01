@@ -525,10 +525,12 @@ fn forms_take_slots_after_every_existing_card() {
     // P.E.K.K.A., the Evo Bats, the Evo Wall Breakers with their runner, the Evo Ice Spirits, the Evo Firecracker, the
     // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess,
     // the Evo Hunter, the Evo Dart Goblin, the Evo Furnace, the Evo Electro Dragon, the Evo Goblin Drill with its
-    // building and the Evo Goblin Barrel with its GoblinDummy and its decoy barrel.
-    assert_eq!(db.cards.len(), n0 + 55);
-    let barrel: Vec<&str> = db.cards[n0 + 52..].iter().map(|c| c.name.as_str()).collect();
+    // building, the Evo Goblin Barrel with its GoblinDummy and its decoy barrel, and the Evo Lumberjack with its ghost.
+    assert_eq!(db.cards.len(), n0 + 57);
+    let barrel: Vec<&str> = db.cards[n0 + 52..n0 + 55].iter().map(|c| c.name.as_str()).collect();
     assert_eq!(barrel, ["GoblinBarrel_EV1", "GoblinDummy", "GoblinBarrel_EV1_Decoy"]);
+    let lumberjack: Vec<&str> = db.cards[n0 + 55..].iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(lumberjack, ["RageBarbarian_EV1", "RageBarbarianEvoGhost"]);
     assert_eq!(db.cards[n0 + 52].evo.as_ref().and_then(|e| e.mirror), Some((n0 + 54) as u16), "the form casts its decoy");
     assert!(db.cards[n0 + 54].summon_only && db.cards[n0 + 54].evo.is_none() && db.cards[n0 + 53].hitpoints == 32);
     assert_eq!((db.cards[n0 + 50].name.as_str(), db.cards[n0 + 51].name.as_str()), ("GoblinDrill_EV1", "units.GoblinDrill_EV1"));

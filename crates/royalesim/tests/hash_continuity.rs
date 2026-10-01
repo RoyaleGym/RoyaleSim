@@ -117,6 +117,9 @@ const ROW: usize = 8;
 /// as (table file, card name). Empty in a change that loads no card. The rule is in the
 /// header (LOADED_SINCE_PARENT): never a row the parent refused after pushing it.
 const LOADED_SINCE_PARENT: &[(&str, &str)] = &[
+    // The Minion Giant: a row the record's table did not have at all (data/client_additions), appended last; the record
+    // was not taken again after it loaded.
+    ("cards.json", "MinionGiant"),
     // The three champions whose buttons this change reads (the parent refused each while converting it: its action graph).
     ("cards.json", "LittlePrince"),
     ("cards.json", "Goblinstein"),

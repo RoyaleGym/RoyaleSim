@@ -10,6 +10,7 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_dark_prince`): dismount_never, dismount_never_hops, mount_never_held, mount_blow_never, dismount_collides,
+//! press_during_jump,
 //! early_trigger_late.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -75,6 +76,37 @@ fn press_and_watch(s: &mut BattleState, team: Team, ticks: u32) -> Vec<Row> {
 
 fn row(rows: &[Row], k: u32) -> Row {
     *rows.iter().find(|r| r.0 == k).unwrap_or_else(|| panic!("no row {k}"))
+}
+
+/// A PRESS WHILE THE HERO LEAPS THE RIVER waits for its landing: measured on client 15.535.29
+/// (sp-form-DarkPrince-hero-s0: the press issued mid-leap on t100, the leap's last frame t112, the dismount's first
+/// frame, its mount's, t113).
+#[test]
+fn a_press_while_it_leaps_the_river_waits_for_its_landing() {
+    // Off both bridges with the river ahead: it walks up to it and leaps.
+    let at = n(10500, 13000);
+    let (mut s, h) = hero(Team::Blue, at);
+    let mut k = 0;
+    while !s.entity(h).expect("the hero").jumping {
+        s.tick();
+        k += 1;
+        assert!(k < 300, "the hero never leapt");
+    }
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.press_ability_button(Team::Blue, 0).expect("the press, mid-leap");
+    let (mut landed, mut mount) = (None, None);
+    for _ in 0..80 {
+        s.tick();
+        let now = s.tick_count() - 1;
+        if landed.is_none() && !s.entity(h).expect("the hero").jumping {
+            landed = Some(now);
+        }
+        if mount.is_none() && !find_live(&s, Team::Blue, MOUNT).is_empty() {
+            mount = Some(now);
+        }
+    }
+    let landed = landed.expect("the leap's end");
+    assert_eq!(mount, Some(landed), "the dismount on the first tick off the leap, {landed}");
 }
 
 #[test]

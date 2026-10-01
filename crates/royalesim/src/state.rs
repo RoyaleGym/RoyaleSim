@@ -1402,12 +1402,31 @@ fn team_blue() -> Team {
     Team::Blue
 }
 
-/// IS HERO `i` FREE to start a press (`fire_scheduled`)? Not while it deploys, and not while it is held (a stun
-/// timer, or buffs that stop it: the Freeze). A press that has started runs its clock whatever holds the hero after,
-/// its own cast hold included. Measured on client 15.535.29 for the deploy and the Freeze only; any other hold is
-/// read the same way, unmeasured.
-fn hero_free(ents: &Entities, buffs: &[crate::status::BuffDef], i: usize) -> bool {
-    ents.deploy_ms[i] <= 0 && ents.stun_ms[i] <= 0 && ents.buffed(buffs, i, Sel::Speed, 100) != 0
+/// IS HERO `i` FREE to start a press (`fire_scheduled`)? Not while it deploys, not while it leaps the river, and not
+/// while it is held (a stun timer, or buffs that stop it: the Freeze). A press that has started runs its clock whatever
+/// holds the hero after, its own cast hold included. Measured on client 15.535.29 for the deploy, the Freeze and the leap
+/// (sp-form-DarkPrince-hero-s0: the Hero Dark Prince pressed mid-leap on t100, its leap's end and its dismount's first
+/// frame both t113: a leap that ends in this tick's move frees it this tick, `leap_ends_now`); any other hold is read
+/// the same way, unmeasured.
+fn hero_free(ents: &Entities, cards: &CardDb, i: usize) -> bool {
+    #[cfg(not(clash_plant = "press_during_jump"))]
+    let leaping = ents.jumping[i] && !leap_ends_now(ents, cards, i);
+    #[cfg(clash_plant = "press_during_jump")]
+    let leaping = false; // PLANT: a press starts mid-leap.
+    ents.deploy_ms[i] <= 0 && ents.stun_ms[i] <= 0 && !leaping && ents.buffed(&cards.buffs, i, Sel::Speed, 100) != 0
+}
+
+/// DOES UNIT `i`'S LEAP END IN THIS TICK'S MOVE? Its landing test (jump16402.rs `landed`) on the distance its move will
+/// leave it from its landing node: JumpSpeed less, at 0 once it reaches the node.
+fn leap_ends_now(ents: &Entities, cards: &CardDb, i: usize) -> bool {
+    let (Some(jump), Some(&node)) = (cards.get(ents.card[i]).jump, ents.route[i].last()) else { return false };
+    if jump.speed <= 0 {
+        return false;
+    }
+    let k = crate::fixed::SUBTILE_PER_MILLITILE;
+    let (dx, dy) = (((node.x - ents.pos[i].x) / k) as i64, ((node.y - ents.pos[i].y) / k) as i64);
+    let left = (isqrt(dx * dx + dy * dy) as i32 - jump.speed).max(0);
+    crate::jump16402::landed((left, 0), (0, 0), jump.speed)
 }
 
 fn leaping_unit_targetability_default() -> LeapingUnitTargetability {
@@ -8931,6 +8950,18 @@ impl BattleState {
             self.warps.flags.push(FlagRun { id, form, made: self.tick, trigger: None });
             let h = crate::status::BuffHit::plain(id, f.hide.buff, f.hide.time_ms, 0);
             land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+            // THE FLAG'S BIRTH STEP: one lifetime-drain step on its creation, the remainder carried, as a tunneller's
+            // building's (`morph_birth`). Measured on client 15.535.29 (sp-form-Goblins-hero-s0 and its nopress twin):
+            // 2559 of 2560 on its first frame, then 2558, 2557, 2555 (1.28 a tick, the hundredths carried).
+            #[cfg(not(clash_plant = "flag_birth_full_hp"))]
+            if let Some(rate) = self.lifetime_drain_per_tick(i) {
+                let whole = rate / 100;
+                self.ents.hp[i] -= whole;
+                if self.lifetime_acc.len() <= i {
+                    self.lifetime_acc.resize(i + 1, 0);
+                }
+                self.lifetime_acc[i] = rate - whole * 100;
+            }
         }
         if appearance && holds {
             self.hero_units.push(HeroUnit { id, spent: false, casting: false, recharge_at: 0, uses: 0 });
@@ -12204,7 +12235,7 @@ impl BattleState {
         let mut refunds: Vec<(Team, i32)> = Vec::new();
         let mut starts: Vec<(EntityId, bool)> = Vec::new();
         let after_move = self.cfg.calib.waited_press_cast == WaitedPressCast::AfterMove;
-        let (ents, buffs) = (&self.ents, &self.cfg.cards.buffs);
+        let (ents, cards) = (&self.ents, &self.cfg.cards);
         self.scheduled.retain_mut(|s| {
             if let ScheduledAction::Ability { hero, team, cost, started, waited } = &mut s.action {
                 if !ents.is_alive(*hero) {
@@ -12212,7 +12243,7 @@ impl BattleState {
                     return false;
                 }
                 if !*started {
-                    if !hero_free(ents, buffs, hero.index as usize) {
+                    if !hero_free(ents, cards, hero.index as usize) {
                         *waited |= after_move;
                         return true;
                     }

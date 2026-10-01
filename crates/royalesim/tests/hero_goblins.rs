@@ -8,7 +8,8 @@
 //! and the flag's end 1500 ms after it, and a play of the Goblins card tagging the goblins then standing.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! hero_goblins`): flag_never, flag_spawns_never, flag_play_ignored, flag_never_dies.
+//! hero_goblins`): flag_never, flag_spawns_never, flag_play_ignored, flag_never_dies, flag_birth_full_hp,
+//! no_damage_blocks_drain.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -74,9 +75,19 @@ fn flag(s: &BattleState) -> Option<(EntityId, Vec2)> {
 fn the_last_goblins_death_leaves_the_flag_and_its_button_for_5000_ms() {
     let mut s = battle();
     let d = goblins_killed(&mut s);
-    let (_, at) = flag(&s).expect("the flag on the death tick");
+    let (fid, at) = flag(&s).expect("the flag on the death tick");
     let off = ((at.x - n(AT.0, AT.1).x) / K, (at.y - n(AT.0, AT.1).y) / K);
     assert!(off.0.abs() <= 200 && off.1.abs() <= 200, "the flag on the goblin's point (tick {d}): {off:?}");
+    // Its LifeTime drains from its first frame, one step taken on its creation: 1.28 a tick of 2560 at level 11, the
+    // hundredths carried (measured: 2559, 2558, 2557, 2555 on its first four frames).
+    let lost = |s: &BattleState| s.entity(fid).map(|e| e.max_hp - e.hp);
+    let mut losses = vec![lost(&s)];
+    let mut probe = s.clone();
+    for _ in 0..3 {
+        probe.tick();
+        losses.push(lost(&probe));
+    }
+    assert_eq!(losses, [Some(1), Some(2), Some(3), Some(5)], "the flag's losses on its first four frames");
     assert_eq!(s.check_ability_button(Team::Blue, 0), Ok(()), "its button, ready at once");
     let mut ready_until = None;
     let mut gone = None;

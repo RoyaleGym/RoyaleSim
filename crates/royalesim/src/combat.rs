@@ -2513,16 +2513,23 @@ pub fn resolve(
         if riders_immune && ents.attached(h.target.index as usize) {
             continue;
         }
+        // NO_DAMAGE stops the hits of others, not a unit's own (`Hit::own`: its lifetime drain, its expiry, its
+        // kamikaze): measured on client 15.535.29, the Hero Goblins' flag, NO_DAMAGE, drains its LifeTime 1.28 a tick
+        // (sp-form-Goblins-hero-s0).
+        #[cfg(not(clash_plant = "no_damage_blocks_drain"))]
+        let others = !h.own;
+        #[cfg(clash_plant = "no_damage_blocks_drain")]
+        let others = true; // PLANT: NO_DAMAGE stops the unit's own drain too.
         // NO_DAMAGE (card.rs `CardDef::no_damage`, the Evo Skeleton Army's Spectral): no hit lands on it. Measured on client
         // 15.535.29 (sp-esa-spectrals-s0): two Spectrals 1025 and 1319 from a Zap's centre kept their 2 hp.
         #[cfg(not(clash_plant = "spectral_takes_damage"))]
-        if cards.get(ents.card[h.target.index as usize]).no_damage {
+        if others && cards.get(ents.card[h.target.index as usize]).no_damage {
             continue;
         }
         // NO_DAMAGE ON A BUFF (status.rs `BuffDef::no_damage`, the Evo Minion Horde's ghost): no hit lands on its carrier
         // while the buff lasts. The table's word; the scene shows a hit minion untouched for a while after (open).
         #[cfg(not(clash_plant = "ghost_takes_damage"))]
-        if ents.buffs_of(&cards.buffs, h.target.index as usize).any(|b| b.no_damage) {
+        if others && ents.buffs_of(&cards.buffs, h.target.index as usize).any(|b| b.no_damage) {
             continue;
         }
         // status.DAMAGE_REDUCTION: each hit is scaled on its own, before the tick's sum meets the shield.
