@@ -8057,6 +8057,11 @@ struct Scratch {
     /// that heals on a kill (`evo_after_fire`), read and emptied in the same tick's Resolve (`kill_heals`), so it never
     /// outlives its tick: not saved, not hashed.
     kills: Vec<(EntityId, EntityId)>,
+    /// THE SEQUENTIAL STRIKE'S REPORTS (`land_strike`, match.TICK_ORDER = client_sequential_strike): the units a strike
+    /// landed at once hurt (a first-hit card's) and the Evo shields it took to 0, folded into the same tick's Resolve
+    /// (`phase_resolve`), so they never outlive their tick: not saved, not hashed.
+    strike_hurt: Vec<EntityId>,
+    strike_shield_broke: Vec<EntityId>,
     /// rider.OFFSET_LAW: each mount whose riders stand off its centre, with its facing at the top of this tick
     /// (`note_mount_facings`). Filled at the top of every tick and read in its Move phase, so it is not state: not
     /// saved, not hashed.
@@ -19885,13 +19890,16 @@ impl BattleState {
         let underground_immune = self.underground_immune();
         #[cfg(clash_plant = "strike_lands_under_ground")]
         let underground_immune = false; // PLANT (regression): the strike lands on a unit under ground.
-        let king_hit =
+        let landed =
             combat::land_at_once(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &hits, self.cfg.calib.hide_hidden_immune, underground_immune, target::riders_immune(&self.cfg.calib), self.tick);
-        for (t, hit) in king_hit.into_iter().enumerate() {
+        for (t, hit) in landed.king_hit.into_iter().enumerate() {
             if hit && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
             }
         }
+        // What `resolve` would report from these hits waits for the tick's Resolve (`phase_resolve`).
+        self.scratch.strike_hurt.extend(landed.hurt);
+        self.scratch.strike_shield_broke.extend(landed.shield_broke);
     }
 
     fn phase_projectile(&mut self) {
@@ -20812,7 +20820,23 @@ impl BattleState {
         }
         let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
-        let out = combat::resolve(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
+        let mut out = combat::resolve(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
+        // The reports of the strikes the sequential pass landed at once (`land_strike`) join this Resolve's: a unit hurt
+        // that still stands, a shield broken; ascending slot order as `resolve` gives them.
+        if !self.scratch.strike_hurt.is_empty() || !self.scratch.strike_shield_broke.is_empty() {
+            for id in std::mem::take(&mut self.scratch.strike_hurt) {
+                if self.ents.is_alive(id) && self.ents.hp[id.index as usize] > 0 && !out.hurt.contains(&id) {
+                    out.hurt.push(id);
+                }
+            }
+            out.hurt.sort_by_key(|id| id.index);
+            for id in std::mem::take(&mut self.scratch.strike_shield_broke) {
+                if !out.shield_broke.contains(&id) {
+                    out.shield_broke.push(id);
+                }
+            }
+            out.shield_broke.sort_by_key(|id| id.index);
+        }
         // THE EVO WITCH'S SOULS due this tick heal her with the tick's other heals (`soul_heals`).
         if !self.evo.souls.is_empty() {
             self.soul_heals();

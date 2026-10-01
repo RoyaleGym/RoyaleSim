@@ -12,6 +12,8 @@
 //!     15.535.29: 8 walkers created after the striker read their attack and no target on the kill frame, then waited).
 //! (5) THE PASS RUNS THE TICK'S OWN PASSES once before its first unit (the hide pass, the Evo Teslas' rings, the
 //!     taunts), as the Target phase does: the hero Knight's taunt turns an enemy on the same tick under both orders.
+//! (6) A STRIKE LANDED AT ONCE REPORTS WHAT RESOLVE WOULD: a Knight whose blow takes an Evo Wizard's shield to 0 is
+//!     blasted on the tick it would be under client16402 (sp-form-Wizard-evo-s0: under the arm the Knight lived on).
 //!
 //! The scenes: Knights on Blue's half, out of every tower's reach. A Red Knight of 100 hitpoints is the victim; Blue's
 //! first Knight kills it with its first blow.
@@ -20,7 +22,8 @@
 //! sequential_strike`): attacker_reads_pass_kills -> `an_attackers_post_kill_wait_runs_as_under_client16402` red;
 //! struck_victim_skips_turn -> `a_unit_struck_down_in_the_pass_still_strikes` red;
 //! reach_walker_reads_pass_kills -> `a_walker_with_its_target_in_reach_reads_the_pass_as_it_began` red;
-//! sequential_skips_tick_passes -> `the_pass_takes_the_taunt_on_the_tick_the_target_phase_does` red.
+//! sequential_skips_tick_passes -> `the_pass_takes_the_taunt_on_the_tick_the_target_phase_does` red;
+//! strike_skips_resolve_effects -> `a_strike_that_breaks_an_evo_shield_sets_off_its_blast_as_a_buffered_hit_does` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -243,4 +246,45 @@ fn the_pass_takes_the_taunt_on_the_tick_the_target_phase_does() {
     let old = taunted(TickOrder::Client16402);
     assert!(old.is_some(), "the scene drifted: the taunt never turned the red Knight under client16402");
     assert_eq!(taunted(TickOrder::ClientSequentialStrike), old, "the taunt's tick under the sequential order");
+}
+
+/// The Evo Wizard's blast scene (tests/evo_wizard.rs) under `order`: its shield set to 1, a red Knight held 1,500 off, in
+/// its reach and the blast's; the Knight's hitpoints on each of 60 ticks (0 once gone), and the tick the shield read 0.
+fn blast_scene(order: TickOrder) -> (Vec<i32>, Option<usize>) {
+    const AT: (i32, i32) = (9000, 14500);
+    let mut cfg = config();
+    cfg.decks = [vec!["Wizard".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.tick_order = order;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    s.spawn_unit(Team::Blue, "Wizard_EV1", at(AT.0, AT.1), None).expect("the Wizard");
+    let red = s.scenario_spawn_now(Team::Red, "Knight", at(AT.0 + 1500, AT.1), None).expect("the red Knight");
+    s.tick();
+    let wiz = find_live(&s, Team::Blue, "Wizard_EV1")[0].id;
+    assert!(s.debug_set_shield(wiz, 1));
+    let (mut hp, mut broke) = (Vec::new(), None);
+    for k in 0..60 {
+        if s.entity(red).is_some() {
+            assert!(s.debug_set_pos(red, at(AT.0 + 1500, AT.1)));
+        }
+        s.tick();
+        hp.push(s.entity(red).map_or(0, |e| e.hp));
+        if broke.is_none() && s.entity(wiz).is_some_and(|e| e.shield == 0) {
+            broke = Some(k);
+        }
+    }
+    (hp, broke)
+}
+
+#[test]
+fn a_strike_that_breaks_an_evo_shield_sets_off_its_blast_as_a_buffered_hit_does() {
+    let (old, at) = blast_scene(TickOrder::Client16402);
+    let k = at.expect("the scene drifted: the Knight never broke the shield");
+    assert!(k > 0 && old[k] < old[k - 1], "the scene drifted: under client16402 the Knight lost nothing on the break tick");
+    let (seq, at_seq) = blast_scene(TickOrder::ClientSequentialStrike);
+    assert_eq!(at_seq, at, "the shield's break tick under the sequential order");
+    assert_eq!(seq, old, "the red Knight's hitpoints tick by tick: the blast under the sequential order");
 }

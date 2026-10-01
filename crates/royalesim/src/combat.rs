@@ -2655,9 +2655,13 @@ pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, undergrou
 ///
 /// ONE STRIKE AT A TIME, where `resolve` sums a tick's hits on one target before the shield: a
 /// shield broken by this strike lets a later hit of the same tick through. Unmeasured.
+///
+/// `resolve`'s NO_DAMAGE guards hold here too, and what `resolve` reports from its hits -- a first-hit card's unit hurt
+/// and alive, an Evo shield taken to 0 -- is returned for the same tick's Resolve to fold into its own (state.rs
+/// `phase_resolve`), so a strike's blast and buff land when a buffered hit's would.
 #[allow(clippy::too_many_arguments)]
-pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[Hit], hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> [bool; 2] {
-    let mut king_hit = [false; 2];
+pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[Hit], hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> StrikeOut {
+    let mut out = StrikeOut::default();
     for h in hits {
         if !ents.is_alive(h.target) || h.amount <= 0 {
             continue;
@@ -2679,19 +2683,51 @@ pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[
         if riders_immune && ents.attached(t) {
             continue;
         }
+        // `resolve`'s NO_DAMAGE guards, its plants with them: the card's (the Evo Skeleton Army's Spectral) and a buff's
+        // (the Evo Minion Horde's ghost), against the hits of others.
+        #[cfg(not(clash_plant = "no_damage_blocks_drain"))]
+        let others = !h.own;
+        #[cfg(clash_plant = "no_damage_blocks_drain")]
+        let others = true;
+        #[cfg(not(clash_plant = "spectral_takes_damage"))]
+        if others && cards.get(ents.card[t]).no_damage {
+            continue;
+        }
+        #[cfg(not(clash_plant = "ghost_takes_damage"))]
+        if others && ents.buffs_of(&cards.buffs, t).any(|b| b.no_damage) {
+            continue;
+        }
+        let _ = others;
         if ents.kind[t] == EntityKind::KingTower {
-            king_hit[ents.team[t] as usize] = true;
+            out.king_hit[ents.team[t] as usize] = true;
         }
         // status.DAMAGE_REDUCTION, as `resolve` scales each hit.
         let amount = landed(h, damage_reduction_of(ents, cards, calib, tick, t), calib.damage_reduction) as i64;
         if ents.shield[t] > 0 {
             ents.shield[t] = (ents.shield[t] as i64 - amount).max(0) as i32;
+            #[cfg(not(clash_plant = "strike_skips_resolve_effects"))]
+            if ents.shield[t] == 0 && cards.get(ents.card[t]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) && !out.shield_broke.contains(&ents.id_of(t)) {
+                out.shield_broke.push(ents.id_of(t));
+            }
         } else {
             ents.hp[t] = (ents.hp[t] as i64 - amount).max(i32::MIN as i64) as i32;
             unkillable_floor(ents, cards, t);
         }
+        #[cfg(not(clash_plant = "strike_skips_resolve_effects"))]
+        if amount > 0 && ents.hp[t] > 0 && cards.get(ents.card[t]).evo.as_ref().is_some_and(|v| v.first_hit.is_some()) && !out.hurt.contains(&ents.id_of(t)) {
+            out.hurt.push(ents.id_of(t));
+        }
     }
-    king_hit
+    out
+}
+
+/// What a strike landed at once leaves for the tick's Resolve (`land_at_once`): the teams whose king tower it struck, and
+/// the units `resolve` would report from its hits (`ResolveOut::hurt`, `ResolveOut::shield_broke`).
+#[derive(Default, Debug)]
+pub struct StrikeOut {
+    pub king_hit: [bool; 2],
+    pub hurt: Vec<EntityId>,
+    pub shield_broke: Vec<EntityId>,
 }
 
 #[cfg(test)]
