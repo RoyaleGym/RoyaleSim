@@ -4,7 +4,8 @@
 //! sp-champ-SkeletonKing-s0 and -late-s0 (tests/skeleton_king.rs pins one in the battle).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! water_landing`): dash_ends_on_water -> `a_bandits_dash_that_ends_over_the_river_ends_on_land` red.
+//! water_landing`): dash_ends_on_water -> `a_bandits_dash_that_ends_over_the_river_ends_on_land` red;
+//! chain_hop_ends_on_water -> `a_golden_knights_hop_whose_blow_lands_over_the_river_ends_on_land` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -82,4 +83,49 @@ fn a_bandits_dash_that_ends_over_the_river_ends_on_land() {
         before = Some(at);
     }
     panic!("the scene drifted: no blow on the Knight");
+}
+
+/// A GOLDEN KNIGHT'S HOP THAT ENDS OVER WATER (state.rs, the dash chain's step): his blow lands with his point over the
+/// river, and he stands on the grid rule's land point that tick (Oracle's GK scenes on client 15.535.29: s0 t213 and
+/// the delay variants' landings; the target-death end, s0 t206, is the same hook). The scene: Blue's Golden Knight at
+/// (6500, 13000), Red's Giant deploying at (6500, 18000) across the river, the press issued: the chain hops at the Giant,
+/// and its blow lands within Range 1,200 + radii 800 and 750 of it, over the water.
+#[test]
+fn a_golden_knights_hop_whose_blow_lands_over_the_river_ends_on_land() {
+    const DECK: [&str; 8] = ["GoldenKnight", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
+    const GIANT: (i32, i32) = (6500, 18000);
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let gk = s.scenario_spawn_now(Team::Blue, "GoldenKnight", n((6500, 13000)), None).expect("the Golden Knight");
+    s.spawn_unit(Team::Red, "Giant", n(GIANT), None).expect("the Giant");
+    s.tick();
+    let giant = s.entities().find(|e| e.team == Team::Red && e.card == "Giant").map(|e| e.id).expect("the Giant is down");
+    let hp0 = s.entity(giant).expect("the Giant").hp;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut prev = s.entity(gk).expect("he lives").pos;
+    for _ in 0..30 {
+        s.tick();
+        let at = s.entity(gk).expect("he lives").pos;
+        if s.entity(giant).expect("the Giant lives").hp < hp0 {
+            // Where the hop's sub-steps (250, then the rest of 400) would have ended it: the first within reach.
+            let (p0, g) = ((prev.x / K, prev.y / K), GIANT);
+            let reach = |q: (i32, i32)| {
+                let (dx, dy) = (i64::from(q.0 - g.0), i64::from(q.1 - g.1));
+                dx * dx + dy * dy <= 2750 * 2750
+            };
+            let (q1, _) = royalesim::move16402::dash_half_step(p0, g, 250);
+            let q = if reach(q1) { q1 } else { royalesim::move16402::dash_half_step(q1, g, 150).0 };
+            assert!(!s.arena().is_passable_ground(n(q)), "the scene drifted: the blow lands on land ({q:?})");
+            let want = s.arena().nearest_land_grid(n(q), Team::Blue).expect("land within reach");
+            assert_eq!((at.x / K, at.y / K), (want.x / K, want.y / K), "the blow tick: he stands on the grid rule's land point for {q:?}");
+            return;
+        }
+        prev = at;
+    }
+    panic!("the scene drifted: the hop never landed its blow on the Giant");
 }

@@ -16589,6 +16589,18 @@ impl BattleState {
             chain_fresh[ci] = matches!(c.phase, ChainPhase::Seek) && c.mark == self.tick && c.hit.is_empty();
         }
         let mut chain_hits: Vec<(usize, EntityId)> = Vec::new();
+        // A HOP WHOSE TARGET DIES THIS TICK (the hits buffered before the move pass take its hp to 0, no shield standing):
+        // the hop ends with this tick's step, and a step ending over water is put on land (below).
+        let mut chain_target_doomed = vec![false; self.ents.capacity()];
+        for c in &self.chains {
+            if let (ChainPhase::Dash, Some(t)) = (c.phase, c.target) {
+                if self.ents.is_alive(t) {
+                    let ti = t.index as usize;
+                    let sum: i64 = self.dmg.hits.iter().filter(|h| h.target == t).map(|h| i64::from(h.amount)).sum();
+                    chain_target_doomed[c.id.index as usize] = self.ents.shield[ti] <= 0 && sum >= i64::from(self.ents.hp[ti]);
+                }
+            }
+        }
         // THE WARPS this tick (`warp_pass` set their steps): per entity, (target, step); and the arrivals.
         let mut warp_at: Vec<Option<(EntityId, i32)>> = vec![None; self.ents.capacity()];
         for r in self.warps.runs.iter().filter(|r| !r.arrived) {
@@ -17069,6 +17081,7 @@ impl BattleState {
                         let ti = t.index as usize;
                         let mut p = actor;
                         let mut left = speed;
+                        let mut landed = false;
                         while left > 0 {
                             let len = left.min(CHAIN_SUB_STEP);
                             let tp = (bodies[ti].x, bodies[ti].y);
@@ -17081,9 +17094,23 @@ impl BattleState {
                             let test = left == 0; // PLANT (regression): one range test a tick, after the whole JumpSpeed.
                             if test && target::in_attack_range(calib, Vec2::new(p.0 * K, p.1 * K), card.range, e.radius[i], Vec2::new(tp.0 * K, tp.1 * K), e.radius[ti]) {
                                 chain_hits.push((i, t));
+                                landed = true;
                                 break;
                             }
                         }
+                        // A HOP THAT ENDS OVER WATER (its blow lands, or its target dies this tick) puts him on land by
+                        // the grid rule (arena.rs `nearest_land_grid`); mid-hop he crosses the water as it is. Oracle's
+                        // scenes on client 15.535.29 (sp-champ-GoldenKnight-s0 t206: a step toward a Skeleton dying that
+                        // tick ends on (12436, 15171), the client's him on (12189, 14922); -delay20-s0 t217 exact;
+                        // -delay40-s0 t225, a step ending on land, kept).
+                        #[cfg(not(clash_plant = "chain_hop_ends_on_water"))]
+                        if (landed || chain_target_doomed[i]) && !e.flying[i] {
+                            if let Some(q) = self.cfg.arena.nearest_land_grid(Vec2::new(p.0 * K, p.1 * K), e.team[i]) {
+                                p = (q.x / K, q.y / K);
+                            }
+                        }
+                        #[cfg(clash_plant = "chain_hop_ends_on_water")]
+                        let _ = (landed, &chain_target_doomed); // PLANT (regression): the hop's end stays over the water.
                         let mut v = (p.0 - actor.0, p.1 - actor.1);
                         if move16402::normalize_to(&mut v, 256) != 0 {
                             facing[i] = Vec2::new(v.0, v.1);
