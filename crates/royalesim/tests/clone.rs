@@ -33,7 +33,10 @@
 //!  12. a copy is state: a save edited only in its flag fails the load's hash self-check, and an unedited save taken
 //!      during the slide resumes it hash for hash;
 //!  13. the copy takes its original's buffs under copied_except_not_cloned and none but the hold under none (not
-//!      measured: the one staging was confounded; the key is a hypothesis).
+//!      measured: the one staging was confounded; the key is a hypothesis);
+//!  14. the sliding pair is a body in its neighbours' contact scans: an enemy the original slides into is pushed off it,
+//!      and the original stays on its slide's points (measured on client 15.535.29, sp-m5-clone-s0: an enemy Giant whose
+//!      look circle met a sliding Skeleton on t818 turned and was pushed off it, the Skeleton on its points).
 //!
 //! THE SCENE. Blue's own half, the tap at (9000, 9000), where the slide stays on open ground and no crown tower is on
 //! the pair's line. Units are put down already deployed unless said, so they walk from tick 0.
@@ -57,6 +60,7 @@
 //!   * `ignore_clone_unread` -- IgnoreClone not read: (11) goes red.
 //!   * `clone_hash_skips_flag` -- the copy's flag not hashed: (12) goes red.
 //!   * `clone_buffs_not_copied` -- no buff copied under either arm: (13) goes red.
+//!   * `clone_slide_hidden` -- the sliding pair is out of its neighbours' scans: (14) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -259,6 +263,39 @@ fn the_pair_slides_125_a_tick_apart_for_ten_ticks_along_the_owner_axis() {
         }
         let (o, c) = got[10];
         assert_eq!(centre_distance(o, c), 2500, "{team:?}: 2500 apart on C + 10");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// (14)
+
+/// Plant: clone_slide_hidden. A Red Giant (it targets buildings, so it walks and runs its contact update) held 1,900 north
+/// of a Blue Knight; the Clone's original slides north into it from C + 6 (1,900 - 125 x 6 < 750 + 500).
+#[test]
+fn the_sliding_pair_pushes_its_neighbours_and_is_not_pushed() {
+    let giant_at = at((TAP.0, TAP.1 + 1900));
+    let mut s = BattleState::new(0, shipped());
+    assert_eq!(s.config().calib.knock_duration_ms, 0, "the shipped knockback.DURATION_MS: no knockback slides");
+    let k = s.scenario_spawn_now(Team::Blue, "Knight", at(TAP), None).expect("spawn Knight");
+    let g = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("spawn Giant");
+    s.spawn_unit(Team::Blue, "Clone", at(TAP), None).expect("cast Clone");
+    let mut o0 = None;
+    for step in 0..11 {
+        s.debug_set_pos(g, giant_at);
+        s.tick();
+        let o = s.entity(k).expect("the original lives");
+        let gv = s.entity(g).expect("the Giant lives");
+        let o0 = *o0.get_or_insert(o.pos);
+        assert_eq!(o.pos, Vec2::new(o0.x, o0.y + 125 * step * K), "the original on its slide's point on C + {step}: contact does not move it");
+        let overlap = centre_distance(o.pos, giant_at) < (o.radius / K + gv.radius / K) as i64;
+        if (6..=10).contains(&step) {
+            assert!(overlap, "the scene drifted: the original does not reach the Giant on C + {step}");
+        }
+        // from C + 7 the original overlaps the Giant at the Giant's update whether its slide steps before the move
+        // pass or after it
+        if (7..=10).contains(&step) {
+            assert!(gv.push_neighbours >= 1 && gv.push_applied.y > 0, "the Giant is pushed off the sliding original on C + {step}: {:?} from {}", gv.push_applied, gv.push_neighbours);
+        }
     }
 }
 

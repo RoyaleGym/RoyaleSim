@@ -11,15 +11,18 @@
 //! moved 250 along x toward the centre on each of 33 ticks from the throw's next, took 135 (53 on the ladder) on the
 //! 32nd, moved 225, 200, ... 25, stood a tick, stepped back 25 and walked on the next: the table's 23000 as a pushback
 //! ladder capped at 250.
+//! The Golem sets IgnorePushback and is thrown as the Knights are (sp-slap-Golem-14500-1000-s0, from t284 with the
+//! press t275): the table refuses the push by game tags alone (GameTagsToDisallowPush), not by that column.
 //! Read off the table, not measured: the 2000 ms stun (inside the hold), the pick among several (the most hitpoints and
-//! shield), the refusal of a unit that ignores pushback and the seek again 400 ms on.
+//! shield), the refusal of a dashing unit or a rider and the seek again 400 ms on (not pinned here).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_giant`):
 //!   - slap_never -> both tests red;
 //!   - slap_hold_table_only -> `the_slap_holds_the_giant_and_throws_its_pick_toward_the_centre` red;
 //!   - slap_flight_never -> both red;
-//!   - slap_landing_dropped -> `the_slap_holds_the_giant_and_throws_its_pick_toward_the_centre` red.
+//!   - slap_landing_dropped -> `the_slap_holds_the_giant_and_throws_its_pick_toward_the_centre` red;
+//!   - slap_refuses_ignore_pushback -> `a_unit_that_ignores_pushback_is_thrown_as_any_other` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -116,9 +119,11 @@ fn the_slap_holds_the_giant_and_throws_its_pick_toward_the_centre() {
 }
 
 #[test]
-fn a_unit_that_ignores_pushback_is_not_thrown_and_the_slap_seeks_again() {
+fn a_unit_that_ignores_pushback_is_thrown_as_any_other() {
     // A red Giant (IgnorePushback, the most hitpoints) 2600 ahead and a red Knight 2800 ahead: the red Giant is the pick
-    // and is refused; 400 ms on the seek runs again and takes the Knight, which is thrown.
+    // and is thrown (measured: the Golem, IgnorePushback, thrown as a Knight); the slap takes no second target.
+    let giant_row = card_stat(&battle(), "Giant").ignore_pushback;
+    assert!(giant_row, "the scene drifted: the Giant's row no longer sets IgnorePushback");
     let (mut s, giant, reds) = start(&[("Giant", (AT.0 - 1000, AT.1 + 2400)), ("Knight", (AT.0 + 800, AT.1 + 2680))]);
     let f = run(&mut s, giant, &reds, 90);
     let steps = |u: usize| {
@@ -126,6 +131,6 @@ fn a_unit_that_ignores_pushback_is_not_thrown_and_the_slap_seeks_again() {
             .filter(|&k| matches!((f[k].1[u], f[k - 1].1[u]), (Some(a), Some(b)) if a.0.x - b.0.x == -250 * K && a.0.y == b.0.y))
             .count()
     };
-    assert_eq!(steps(0), 0, "the red Giant is never thrown");
-    assert!(steps(1) >= 20, "the Knight is thrown: {} steps", steps(1));
+    assert!(steps(0) >= 20, "the red Giant is thrown: {} steps", steps(0));
+    assert_eq!(steps(1), 0, "the Knight is not: the slap threw its pick");
 }

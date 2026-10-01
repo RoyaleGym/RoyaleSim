@@ -26,13 +26,18 @@
 //!   3. `spawn_unit_tapped`: the two Cannons' and the Drill's measured points under both placement.SNAP_EVEN_CORNER
 //!      arms, the Tesla's under absolute, the shipped arm since the 2026-09-28 placement batch (placer_frame puts it
 //!      on (6000, 21000), the placer's corner, not the client's); `spawn_unit` puts each where it was tapped;
-//!   4. the shipped values are the measured arms, as_tower_tap and troop_relocation (the 2026-09-28 placement batch).
+//!   4. the shipped values are the measured arms, as_tower_tap and troop_relocation (the 2026-09-28 placement batch);
+//!   5. a tap whose relocation falls to the ring search (the axis push into the river) goes to the fitting tile nearest
+//!      the RAW tap: measured on client 15.535.29 (Oracle's sp-esk-bank-*), Evo Skeletons tapped on an own Elixir
+//!      Collector's box by the river: blue's raw (14639, 14500) by a Collector on (14500, 13500) laid on (16500, 14500),
+//!      red's raw (3360, 17500) by one on (3500, 18500) on (1500, 17500); the snapped tile's two candidates tie at 2000.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! own_building_taps`), each reddening exactly its test:
 //!   * `troop_building_taps_touching` -- an own building's box blocks a tile that only touches it: (1) goes red.
 //!   * `spell_as_deploy_taps_troops_only` -- no spell is placed as a troop: (2) goes red.
 //!   * `spawn_unit_tapped_keeps_the_tap` -- `spawn_unit_tapped` keeps a building on its tap: (3) goes red.
+//!   * `ring_nearest_snapped_tap` -- the ring's nearest measured from the snapped tap: (5) goes red.
 mod common;
 
 use common::*;
@@ -152,6 +157,34 @@ fn a_troop_tap_on_an_own_cannon_goes_where_the_client_laid_it() {
             let (kept, _) = tap(old, &tesla, Team::Blue, "Golem", (3500, 1500));
             assert_eq!(kept, native((3500, 1500)), "{old:?} moved the corpus Golem");
         }
+    }
+}
+
+/// (5), under the shipped arms (a precondition below).
+#[test]
+fn a_ring_relocation_goes_to_the_tile_nearest_the_raw_tap() {
+    let c = config();
+    assert_eq!(
+        (c.calib.placement_troop_building_taps, c.calib.placement_tower_tap_push, c.calib.placement_tap_snap),
+        (TroopBuildingTaps::AsTowerTap, TowerTapPush::Client16402AxisPush, TapSnap::TileCentre),
+        "the shipped arms this test reads"
+    );
+    let shipped = Arms {
+        building: c.calib.placement_troop_building_taps,
+        spell: c.calib.placement_spell_as_deploy_taps,
+        push: c.calib.placement_tower_tap_push,
+        snap: c.calib.placement_tap_snap,
+        even: c.calib.placement_snap_even,
+    };
+    let rows: [(Team, P, P, P); 2] = [(Team::Blue, (14500, 13500), (14639, 14500), (16500, 14500)), (Team::Red, (3500, 18500), (3360, 17500), (1500, 17500))];
+    for (team, collector, at, client) in rows {
+        let standing = [(team, "Elixir Collector", collector)];
+        let (resolved, _) = tap(shipped, &standing, team, "IceSpirits", at);
+        assert_eq!(resolved, native(client), "{team:?} tapped on {at:?} by an own Collector on {collector:?}");
+        // Not vacuous: the snapped tile's two candidates stand equally far.
+        let snapped = (at.0.div_euclid(1000) * 1000 + 500, at.1.div_euclid(1000) * 1000 + 500);
+        let other = (2 * snapped.0 - client.0, client.1);
+        assert_eq!((snapped.0 - client.0).abs(), (snapped.0 - other.0).abs(), "the scene drifted: no tie from the snapped tile {snapped:?}");
     }
 }
 

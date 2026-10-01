@@ -1513,16 +1513,18 @@ pub struct WarpBackDef {
 /// centre along x: a pushback ladder of `push` (native; move16402.rs `ladder_speed`, 25 off before each step) whose every
 /// step is capped at SLAP_FLIGHT_STEP, its last the ladder's step back; stunned (`stun`) from the throw and held until the
 /// ladder ends. `flight_ms` after its first step it lands, and the blow (`landing`, on the level-1 figure unless
-/// `landing_level_scaled`) strikes on the next tick. A target that ignores pushback is not thrown, and the seek runs
-/// again `retry_ms` on. Radii in subtiles.
+/// `landing_level_scaled`) strikes on the next tick. A target dashing or riding is not thrown, and the seek runs again
+/// `retry_ms` on (the table's GameTagsToDisallowPush); a row's IgnorePushback refuses nothing (measured: the Golem is
+/// thrown as a Knight). Radii in subtiles.
 ///
 /// Measured on client 15.535.29 (sp-form-Giant-hero-s0; the press issued t200): the Giant, walking, took the Skeleton
 /// 2868 from him on t204 (3008 on t203; 2500 + its 500), stood t205-t222 and walked on t223. On five slap scenes
 /// (sp-slap-*; Knights and a Golem, either lane, either side of the Giant; the press t274): the target moved 250 along x
 /// toward the centre on each of t284-t316, took 135 on t315 (53 on the ladder at level 11), moved 225, 200, ... 25 on
 /// t317-t325, stood on t326, stepped back 25 on t327 and walked from t328: 9375 in all, the Golem as the Knight. That is
-/// a ladder of the table's 23000 (first speed 1075) under a 250 cap. Read off the table, not measured: the stun (inside
-/// the hold), the pick's order among several, the refusal and the retry.
+/// a ladder of the table's 23000 (first speed 1075) under a 250 cap. The Golem sets IgnorePushback and is thrown (on
+/// sp-slap-Golem-14500-1000-s0 from t284, still deploying). Read off the table, not measured: the stun (inside the hold),
+/// the pick's order among several, the refusal of a dashing unit or a rider, and the retry.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SlapDef {
     pub radius: i32,

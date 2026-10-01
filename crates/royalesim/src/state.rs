@@ -7742,6 +7742,22 @@ fn serves_no_wait(e: &Entities, i: usize) -> bool {
     }
 }
 
+/// WHETHER A SLIDE (`knock_ms`) HIDES ITS UNIT FROM ITS NEIGHBOURS' CONTACT SCANS: only under knockback.DURATION_MS > 0,
+/// the fixed_distance slide arm's reading (unmeasured). Under the shipped DURATION_MS 0 no knockback slides, and the only
+/// slide left is the Clone's (spells.CLONE_OFFSET), whose pair stays a body in its neighbours' avoidance and separation
+/// scans. Measured on client 15.535.29 (sp-m5-clone-s0): an enemy Giant whose look circle meets a sliding Skeleton on t818
+/// turns +190 and is pushed off it there ((-51, -8), where it had walked (0, -52)), the Skeleton itself on its slide's
+/// points. The pair still takes no contact update of its own (the move pass's `frozen`), so contact does not move it.
+fn slide_hides(calib: &Calib) -> bool {
+    #[cfg(not(clash_plant = "clone_slide_hidden"))]
+    return calib.knock_duration_ms > 0;
+    #[cfg(clash_plant = "clone_slide_hidden")]
+    {
+        let _ = calib;
+        true // PLANT (regression): the Clone's sliding pair is out of its neighbours' scans.
+    }
+}
+
 fn frame_planned_slide(e: &Entities, i: usize) -> (Vec2, bool) {
     use crate::fixed::SUBTILE_PER_MILLITILE as K;
     let (p, c) = (e.pos[i], e.death_slide_centre[i]);
@@ -9257,7 +9273,7 @@ impl BattleState {
         let (x, y) = (e.pos[i].x / K, e.pos[i].y / K);
         let held_hidden = e.held(&self.cfg.cards.buffs, i, calib.full_stop_buff_is_stun) && calib.held_unit_contact == HeldUnitContact::OutOfThePass;
         let buried = calib.spawn_pathfind_body == SpawnPathfindBody::Untouchable && e.underground(i);
-        let held = held_hidden || e.knock_ms[i] > 0 || e.hooked_by[i].is_some() || buried;
+        let held = held_hidden || (e.knock_ms[i] > 0 && slide_hides(calib)) || e.hooked_by[i].is_some() || buried;
         move16402::Body {
             x,
             y,
@@ -14176,8 +14192,9 @@ impl BattleState {
     /// THE SLAPS (card.rs `SlapDef`), in the Projectile phase after the move, for each Giant alive:
     ///   - seeking (paused while he is held): the pick holds him from the next tick, `hold_ms` and
     ///     SLAP_HOLD_EXTRA_TICKS more, as a cast holds a hero (his target search runs on);
-    ///   - picked: `push_delay_ms` on, a target that ignores pushback, dashes or is gone is refused (the seek runs again
-    ///     `retry_ms` on, that target tried); else it loses its target, takes the stun, is held until its ladder ends,
+    ///   - picked: `push_delay_ms` on, a target that dashes, rides or is gone is refused (the seek runs again `retry_ms`
+    ///     on, that target tried; a row's IgnorePushback refuses nothing: measured, the Golem is thrown as a Knight);
+    ///     else it loses its target, takes the stun, is held until its ladder ends,
     ///     and is thrown toward the arena's horizontal centre (its own side of it when it stands on the line: away from
     ///     the Giant);
     ///   - in flight: on step k after the throw's tick, the ladder's remaining `ladder_speed(push) - 25 k`, capped at
@@ -14222,10 +14239,14 @@ impl BattleState {
                     }
                     let t = r.target.expect("a picked slap has its target");
                     let ti = t.index as usize;
-                    let refused = !self.ents.is_alive(t)
-                        || cards.get(self.ents.card[ti]).ignore_pushback
-                        || self.ents.dash_state[ti] == DashState::Dashing
-                        || self.ents.attached(ti);
+                    // The table's GameTagsToDisallowPush names game tags (NO_PUSHBACK, UNTARGETABLE, DASHING,
+                    // DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS), not the IgnorePushback column: measured on client
+                    // 15.535.29 (sp-slap-Golem-14500-1000-s0), a Golem thrown as a Knight.
+                    #[cfg(not(clash_plant = "slap_refuses_ignore_pushback"))]
+                    let column = false;
+                    #[cfg(clash_plant = "slap_refuses_ignore_pushback")]
+                    let column = cards.get(self.ents.card[ti]).ignore_pushback; // PLANT (regression): IgnorePushback refuses the throw.
+                    let refused = !self.ents.is_alive(t) || column || self.ents.dash_state[ti] == DashState::Dashing || self.ents.attached(ti);
                     if refused {
                         r.phase = 3;
                         r.mark = tick;
@@ -15311,9 +15332,12 @@ impl BattleState {
     }
 
     /// THE TAUNT'S HOLD on this phase's decisions: a taunted enemy free to decide (deployed, not held, not knocked, not
-    /// under ground; a king tower awake) that can strike the hero where it is (its air or ground attack; a building-only
-    /// attacker too, AllowBuildingRetargeting) takes the hero, whatever its own search found; a crown tower only with the
-    /// hero in its reach. Read off the table, not measured.
+    /// under ground; a king tower awake) that can strike the hero where it is (its air or ground attack) takes the hero,
+    /// whatever its own search found; a crown tower only with the hero in its reach. Read off the table, not measured,
+    /// but for this: A UNIT THAT TARGETS ONLY BUILDINGS is not turned on the hero, a troop. Measured on client 15.535.29
+    /// (sp-taunt-giant-s0): a Giant 3,760 from the hero (the taunt's radius 6,500) kept the Cannon it walked to through
+    /// the whole taunt, where the engine had turned it on the hero (the scene's first divergence). The taunt row's
+    /// AllowBuildingRetargeting (TRUE) does not make such a unit take a troop; what else it allows is not measured.
     fn taunt_override(&self, decisions: &mut [(usize, target::TargetDecision)]) {
         let e = &self.ents;
         for (i, d) in decisions.iter_mut() {
@@ -15328,6 +15352,10 @@ impl BattleState {
             }
             let c = self.cfg.cards.get(e.card[i]);
             if !(if e.in_air(k) { c.attacks_air } else { c.attacks_ground }) {
+                continue;
+            }
+            #[cfg(not(clash_plant = "taunt_takes_building_only"))]
+            if c.target_only_buildings {
                 continue;
             }
             let tower = matches!(e.kind[i], EntityKind::KingTower | EntityKind::PrincessTower);
@@ -16275,7 +16303,9 @@ impl BattleState {
                     let held_hidden = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) && calib.held_unit_contact == HeldUnitContact::OutOfThePass;
                     #[cfg(clash_plant = "held_contact_invisible")]
                     let held_hidden = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun); // PLANT (regression): the new arm still hides a held unit.
-                    let held = held_hidden || e.knock_ms[i] > 0 || e.hooked_by[i].is_some() || buried(i);
+                    // A slide hides its unit only under the fixed_distance slide arm (`slide_hides`): the Clone's pair
+                    // stays in its neighbours' scans.
+                    let held = held_hidden || (e.knock_ms[i] > 0 && slide_hides(calib)) || e.hooked_by[i].is_some() || buried(i);
                     move16402::Body {
                         x,
                         y,
@@ -22536,7 +22566,15 @@ impl BattleState {
         // (10500, 1500) went -y, side 1's (7500, 30500) -x and side 1's (10500, 30500) +y (client
         // 15.535.29): this order fits 1 of the 3 and misses 12 of the 36 princess-box taps.
         // client16402_axis_push (`axis_push`, above) fits all of them.
-        self.ring_nearest_fit(team, snapped, tap, fits).unwrap_or(tap)
+        // THE NEAREST IS MEASURED FROM THE RAW TAP (an exact tie keeps the walk order). Measured on client 15.535.29
+        // (Oracle's sp-esk-bank-*): Evo Skeletons tapped on an own Elixir Collector's box by the river, the axis push into
+        // the water: blue's raw (14639, 14500) by a Collector on (14500, 13500) laid on (16500, 14500), red's raw
+        // (3360, 17500) by one on (3500, 18500) on (1500, 17500), where the snapped tile's two candidates tie at 2000.
+        #[cfg(not(clash_plant = "ring_nearest_snapped_tap"))]
+        let near = raw;
+        #[cfg(clash_plant = "ring_nearest_snapped_tap")]
+        let near = tap; // PLANT (regression): the nearest measured from the snapped tap.
+        self.ring_nearest_fit(team, snapped, near, fits).unwrap_or(tap)
     }
 
     /// placement.LIVE_BOTTLE_TAPS = client16402_relocate: a troop tap whose SNAPPED one-tile box shares positive area

@@ -11,13 +11,17 @@
 //! Read off the table, not measured (every enemy in the scene was on the hero already): the taunt, an area on the hero
 //! for 1100 ms that turns each enemy within 6500 on the hero for 4000 ms.
 //!
+//! MEASURED (sp-taunt-giant-s0): a unit that targets only buildings is not turned: a Giant 3,760 from the hero kept the
+//! Cannon it walked to through the whole taunt (the taunt row's AllowBuildingRetargeting does not make it take a troop).
+//!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_knight`):
 //!   - shield_start_ignored -> `it_comes_with_no_shield_and_the_press_sets_512` and
 //!     `shots_after_the_press_fall_on_the_shield_until_one_breaks_it` red;
 //!   - shield_press_ignored -> the same two red;
 //!   - taunt_never -> `the_taunt_turns_an_enemy_on_the_hero` red;
-//!   - taunt_unread -> the same red.
+//!   - taunt_unread -> the same red;
+//!   - taunt_takes_building_only -> `the_taunt_leaves_a_building_only_attacker_on_its_building` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -148,4 +152,25 @@ fn the_taunt_turns_an_enemy_on_the_hero() {
     let first = on.iter().position(|x| *x).expect("the taunt turns it on the hero");
     assert!(first <= 6, "within the trigger's ticks of the press: {first}");
     assert!(on[first..].iter().all(|x| *x), "held on the hero while the taunt lasts: {on:?}");
+}
+
+#[test]
+fn the_taunt_leaves_a_building_only_attacker_on_its_building() {
+    // A red Giant 3162 from the hero (inside the taunt's 6500), held and topped up, walking on blue's right princess
+    // tower: it keeps the tower through the taunt (measured: sp-taunt-giant-s0's Giant kept its Cannon).
+    let (mut s, hero, held) = start(&[(Team::Red, "Giant", (12000, 9000), true)]);
+    let giant = held[0].0;
+    for _ in 0..40 {
+        step(&mut s, hero, &held);
+    }
+    let before = s.entity(giant).expect("the Giant").target.expect("the scene drifted: the Giant has no target before the press");
+    assert!(
+        s.entity(before).is_some_and(|t| t.team == Team::Blue && t.card != "Knight_hero"),
+        "the scene drifted: the Giant is not on a blue building before the press"
+    );
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for k in 0..80 {
+        step(&mut s, hero, &held);
+        assert_eq!(s.entity(giant).expect("the Giant").target, Some(before), "the Giant's target {k} ticks after the press");
+    }
 }
