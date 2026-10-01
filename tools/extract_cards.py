@@ -3422,6 +3422,81 @@ def champion_guard(t, unit: str) -> dict | None:
     }
 
 
+# GOBLINSTEIN (`champion_tether`): the tether action's keys (read, or display only), the Doctor's button's keys, the
+# classes the Monster's own start may run (a play's tag and the champion's health bar: display only).
+TETHER_READ = {"ClassType", "TetherDuration", "TetherWidth", "TetherDamage", "TetherCrownTowerDamage",
+               "TetherHitInterval", "TetherDamageTargets"}
+TETHER_DISPLAY = {"DeathAreaEffectData", "TetherHitActionInterval", "ConnectedCharacterGameTagsToSetDutingTether",
+                  "GameTagsToSetDutingTether", "TetherEffect", "TetherHitAction", "OnTetherActivationAction",
+                  "OnTetherActivationActionOnConnectedUnit", "TetherVolumeEffect", "TetherVolumeEffectDistance",
+                  "TetherTargetEffect", "TetherTargetEffectMaxPerFrame", "TetherTargetEffectOffset", "StatsTags"}
+TETHER_ABILITY_READ = {"CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "OnActivationAction", "KeepCurrentTarget",
+                       "Stats", "StatsTags", "PopoverIconExportName", "PopoverIconFileName"}
+MONSTER_START = {"ActionGroup", "ActionActivateOnCardDeploy", "ActionWithDuration",
+                 "ActionEnabbleHPBarConditionForDuration"}
+
+
+def champion_tether(t, unit: str, second: str | None) -> dict | None:
+    """GOBLINSTEIN'S BUTTON (15.535: the Doctor's goblinstein_ability), or None. The card puts down two units: the
+    Monster (`unit`) and the Doctor (`second`, its SummonCharacterSecond), whose row carries the button. The Doctor's
+    OnStartingAction puts down an area that follows it and never hits (HitSpeed -1), whose OnStartingAction is the
+    tether (ActionGoblinsteinAbility): once the button is pressed, for TetherDuration (`duration_ms`) every
+    TetherHitInterval (`every_ms`) the enemies within TetherWidth (`width_milli`) and their radius of the line from the
+    Doctor to the Monster take TetherDamage (`damage`), a crown tower TetherCrownTowerDamage (`crown_damage`). The
+    button's own action only hangs an aura's look; the tether's tags and effects only show. The Monster's start tags it
+    on a play of its card group and shows the champion's health bar, which only the display reads."""
+    if not second:
+        return None
+    acts = t["actions"]
+    drow = t["characters"].get(second)
+    name = drow["Ability"] if isinstance(drow, Row) and "Ability" in drow.columns else None
+    a = t.abilities.get(name) if isinstance(name, str) else None
+    if a is None or set(a) - TETHER_ABILITY_READ - DEFLECT_ABILITY_COSMETIC or a.get("MaxCharges") != 1:
+        return None
+    aura = acts.get(a.get("OnActivationAction"))
+    if aura is None or aura["ClassType"] != "ActionSpawn" or aura["SpawnType"] != "BuffType":
+        return None
+    if _present(t["character_buffs"].get(aura["SpawnData"])) - {"Rarity", "ContinuousEffect"}:
+        return None
+    start = drow["OnStartingAction"]
+    if not isinstance(start, dict) or start.get("ClassType") != "ActionSpawn":
+        return None
+    if start.get("SpawnType") != "AreaEffectType":
+        return None
+    aeo = t["area_effect_objects"].get(start["SpawnData"])
+    if aeo is None or aeo["HitSpeed"] != -1 or aeo["FollowBehaviour"] != "FollowParent":
+        return None
+    tn = aeo["OnStartingAction"]
+    teth = acts.get(tn)
+    if teth is None or teth["ClassType"] != "ActionGoblinsteinAbility":
+        return None
+    if acts.set_fields.get(tn, set()) - TETHER_READ - TETHER_DISPLAY:
+        return None
+    if teth["TetherDamageTargets"] != "areadamage_filter":
+        return None
+    mrow = t["characters"].get(unit)
+    mstart = acts.get(mrow["OnStartingAction"]) if isinstance(mrow, Row) else None
+    if mstart is None:
+        return None
+    ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost")] + [teth[k] for k in (
+        "TetherDuration", "TetherWidth", "TetherDamage", "TetherCrownTowerDamage", "TetherHitInterval")]
+    if not all(isinstance(v, int) and v >= 0 for v in ints):
+        return None
+    cast_ms, trigger_ms, mana, duration, width, damage, crown, every = ints
+    return {
+        "name": name,
+        "mana_cost": mana,
+        "max_charges": 1,
+        "cooldown_ms": None,
+        "cast_ms": cast_ms,
+        "trigger_delay_ms": trigger_ms,
+        "keep_current_target": bool(a.get("KeepCurrentTarget")),
+        "is_champion": True,
+        "effect": {"kind": "tether", "unit": second, "duration_ms": duration, "width_milli": width, "damage": damage,
+                   "crown_damage": crown, "every_ms": every},
+    }
+
+
 def champion_dash_chain(t, unit: str) -> dict | None:
     """THE BUTTON OF A CHAMPION WHOSE PRESS RUNS A DASH CHAIN (15.535: the Golden Knight's GoldenKnightChain), or
     None for a unit with no [ABILITY] or another one (it loads as a plain troop). The ability's OnActivationAction is
@@ -3572,6 +3647,7 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         or champion_self_buff(t, res["character"])
         or champion_warp_back(t, res["character"])
         or champion_guard(t, res["character"])
+        or champion_tether(t, res["character"], s["SummonCharacterSecond"])
     )
     if chain is not None:
         card["ability"] = chain
@@ -3580,6 +3656,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         g = card.get("action_graph")
         voicelines = g and not g["spawns"] and set(g["class_types"]) <= VOICELINE_CLASSES
         if chain["effect"]["kind"] == "warp_back" and voicelines:
+            card["action_graph"] = None
+        # GOBLINSTEIN'S MONSTER'S OWN GRAPH: a play's tag and the champion's health bar, display only.
+        if chain["effect"]["kind"] == "tether" and g and not g["spawns"] and set(g["class_types"]) <= MONSTER_START:
             card["action_graph"] = None
         # THE LITTLE PRINCE'S RAMP (`champion_ramp`): his row's graph is the ramp, read whole.
         ramp = champion_ramp(t, res["character"]) if chain["effect"]["kind"] == "guard" else None
@@ -8219,6 +8298,12 @@ def build(t: Tables) -> dict:
             if name in units:
                 raise SystemExit(f"unit name {name!r} in both characters and buildings")
             units[name] = norm_unit(t, name, with_raw=True)
+    # A TETHER CHAMPION'S SECOND UNIT (Goblinstein's Doctor): its start (the tether's area) is the button's, read whole
+    # (`champion_tether`); its graph goes.
+    for card in cards:
+        eff = (card.get("ability") or {}).get("effect") or {}
+        if eff.get("kind") == "tether":
+            units[eff["unit"]]["action_graph"] = None
 
     towers = []
     for name in TOWERS:

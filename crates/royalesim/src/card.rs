@@ -1267,7 +1267,34 @@ pub enum AbilityEffect {
     FlagSpawns(FlagSpawnsDef),
     /// THE GUARD'S CHARGE (the Little Prince's; `GuardDef`).
     Guard(GuardDef),
+    /// THE TETHER (Goblinstein's; `TetherDef`).
+    Tether(TetherDef),
 }
+
+/// THE TETHER (Goblinstein's; tools/extract_cards.py `champion_tether`; state.rs `TetherRun`, `tether_pass`). The card
+/// puts down the Monster (its own unit, `monster`) and the Doctor (its second summon, `unit`), which holds the button.
+/// From the trigger + TETHER_FIRST_HIT_TICKS, every `every_ms` for `duration_ms`, while both stand, every enemy whose
+/// centre is within `width` and its radius of the line from the Doctor to the Monster takes `damage` (level-scaled), a
+/// crown tower `crown_damage`.
+///
+/// Measured on client 15.535.29 (Oracle's sp-champ-Goblinstein-s0, level 11, the press issued t214, the cast t215..t232):
+/// a Knight near the Monster losing 94 (37) on t234 and every 10 ticks to t304, a Musketeer 2279 from the line hit on
+/// t294 (missed at 2803 on t284); the Monster's death on t307 ends it. Unmeasured: the tether's end, a crown tower's
+/// share.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TetherDef {
+    pub unit: u16,
+    pub monster: u16,
+    pub duration_ms: i32,
+    pub width: i32,
+    pub damage: i32,
+    pub crown_damage: i32,
+    pub every_ms: i32,
+}
+
+/// The ticks from the tether's trigger to its first hit: FITTED on one scene (Oracle's sp-champ-Goblinstein-s0: the
+/// trigger t215 under EARLY_TRIGGER_TICKS, the first hit t234: the cast's end, t232, and two).
+pub const TETHER_FIRST_HIT_TICKS: u32 = 19;
 
 /// THE LITTLE PRINCE'S ATTACK-SPEED RAMP (tools/extract_cards.py `champion_ramp`; state.rs `RampRun`, `ramp_pass`,
 /// `swing_started`). Each shot counts one (to 99) and sets a grace of `grace_ms`; each swing's start sets the grace too,
@@ -5765,6 +5792,10 @@ struct RawAbilityEffect {
     decoy_life_ms: Option<i32>,
     power_ms: Option<i32>,
     power: Option<RawPowerShot>,
+    /// `tether` (tools/extract_cards.py `champion_tether`; `damage` above).
+    duration_ms: Option<i32>,
+    width_milli: Option<i32>,
+    crown_damage: Option<i32>,
     /// `guard` (tools/extract_cards.py `champion_guard`; `unit` above: the guard).
     hold_ms: Option<i32>,
     spawn_delay_ms: Option<i32>,
@@ -8380,6 +8411,24 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut
         let active_ms = e.active_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a deflect with no active time"))?;
         return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect: AbilityEffect::Deflect { buff, active_ms } }));
     }
+    // GOBLINSTEIN'S TETHER: one charge; its units resolve after the unit loop (the Doctor, the card's second summon).
+    if a.effect.kind == "tether" {
+        let e = &a.effect;
+        if a.max_charges != Some(1) || a.cooldown_ms.is_some() || a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
+            return Err(format!("{what}: a tether other than one charge with no cooldown is not simulated"));
+        }
+        let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a tether with no {k}"));
+        let effect = AbilityEffect::Tether(TetherDef {
+            unit: u16::MAX,
+            monster: u16::MAX,
+            duration_ms: pos(e.duration_ms, "duration")?,
+            width: milli(pos(e.width_milli, "width")?),
+            damage: pos(e.damage, "damage")?,
+            crown_damage: e.crown_damage.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a tether with no crown damage"))?,
+            every_ms: pos(e.every_ms, "hit interval")?,
+        });
+        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect }));
+    }
     // THE LITTLE PRINCE'S GUARD: one charge; its hold buff his own; its unit loads as a need of the card (`UnitUse::GuardUnit`).
     if a.effect.kind == "guard" {
         let e = &a.effect;
@@ -10194,6 +10243,21 @@ impl CardDb {
                 }
                 Err(e) => unloadable.push((spell_idx, e)),
             }
+        }
+        // A TETHER CHAMPION'S SECOND UNIT (Goblinstein's Doctor) holds its button: the Doctor's and the card's own
+        // indices onto the button, and the button onto the Doctor's record (state.rs `spawn_with` registers the unit
+        // whose button names it).
+        for idx in 0..db.cards.len() {
+            let d = match (db.cards[idx].ability.as_ref().map(|a| &a.effect), db.cards[idx].formation.second_summon.as_ref().map(|s| s.unit)) {
+                (Some(AbilityEffect::Tether(_)), Some(u)) if u != u16::MAX => u,
+                _ => continue,
+            };
+            if let Some(AbilityDef { effect: AbilityEffect::Tether(t), .. }) = db.cards[idx].ability.as_mut() {
+                t.unit = d;
+                t.monster = idx as u16;
+            }
+            let a = db.cards[idx].ability.clone();
+            db.cards[d as usize].ability = a;
         }
         // A CARD THAT HANGS A BUFF WHOSE DEATH UNIT WAS NEVER LOADED FOR IT is refused, never run as a card whose curse
         // leaves nothing (a buff it hangs through a block resolved above, whose need no card pushed). Then every death
@@ -12357,6 +12421,16 @@ impl CardDb {
     /// not one here: it carries `form_of` and loads summon-only (`is_hero_record`).
     pub fn is_form(&self, idx: u16) -> bool {
         self.cards.get(idx as usize).is_some_and(|c| c.evo.is_some())
+    }
+
+    /// THE UNIT THAT HOLDS A CARD'S BUTTON when another than the card's own does: the flag (`FlagSpawnsDef::flag`, the
+    /// Hero Goblins'), the Doctor (`TetherDef::unit`, Goblinstein's). None for every other card.
+    pub fn button_unit(&self, form: u16) -> Option<u16> {
+        match self.get(form).ability.as_ref().map(|a| &a.effect) {
+            Some(AbilityEffect::FlagSpawns(f)) => Some(f.flag),
+            Some(AbilityEffect::Tether(t)) => Some(t.unit),
+            _ => None,
+        }
     }
 
     /// THE FLAG A FORM'S BUTTON STANDS ON (`FlagSpawnsDef::flag`, the Hero Goblins'), None for every other card.

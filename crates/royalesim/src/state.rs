@@ -7064,6 +7064,9 @@ pub struct WarpBoard {
     /// The Hero Bowler's sieges under way (`SiegeRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sieges: Vec<SiegeRun>,
+    /// Goblinstein's tethers under way (`TetherRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tethers: Vec<TetherRun>,
     /// The Little Prince's ramps (`RampRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ramps: Vec<RampRun>,
@@ -7077,6 +7080,17 @@ pub struct WarpBoard {
     /// snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flag_plays: Vec<(Team, u16, u32)>,
+}
+
+/// A GOBLINSTEIN TETHER UNDER WAY (card.rs `TetherDef`; `tether_pass`): its Doctor and Monster, the card, the level and
+/// the tick of its first hit.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TetherRun {
+    pub doctor: EntityId,
+    pub monster: EntityId,
+    pub card: u16,
+    pub level: i32,
+    pub first: u32,
 }
 
 /// A LITTLE PRINCE'S RAMP (card.rs `RampDef`; `ramp_pass`, `swing_started`): his count, his grace and his last point.
@@ -7116,7 +7130,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -8590,7 +8604,7 @@ impl BattleState {
             let champions: Vec<u16> = config.decks[t]
                 .iter()
                 .filter_map(|n| cards.index(n))
-                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::Guard(_))))
+                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_))))
                 .fold(Vec::new(), |mut v, idx| {
                     if !v.contains(&idx) {
                         v.push(idx);
@@ -8839,6 +8853,8 @@ impl BattleState {
         // good (card.rs `FlagSpawnsDef`).
         let holds = match c.ability.as_ref().map(|a| &a.effect) {
             Some(crate::card::AbilityEffect::FlagSpawns(f)) => f.flag == card,
+            // GOBLINSTEIN: the Doctor holds the charge, not the Monster.
+            Some(crate::card::AbilityEffect::Tether(t)) => t.unit == card,
             other => other.is_some(),
         };
         if let Some(crate::card::AbilityEffect::FlagSpawns(f)) = c.ability.as_ref().map(|a| &a.effect).filter(|_| holds) {
@@ -19973,6 +19989,10 @@ impl BattleState {
     }
 
     fn phase_resolve(&mut self) {
+        // GOBLINSTEIN'S TETHERS (`tether_pass`): their hits, on this tick's positions, into this Resolve.
+        if !self.warps.tethers.is_empty() {
+            self.tether_pass();
+        }
         let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
         let out = combat::resolve(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
@@ -20107,6 +20127,62 @@ impl BattleState {
             let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos, tick).expect("the idle area loaded and the level was validated at spawn");
             self.spells.extend(area);
         }
+    }
+
+    /// GOBLINSTEIN'S TETHERS (card.rs `TetherDef`, `TetherRun`), at the start of Resolve on this tick's positions: every
+    /// `every_ms` from its first hit for `duration_ms`, while its Doctor and its Monster both stand, every enemy whose
+    /// centre is within `width` and its radius of the segment from the Doctor to the Monster takes the tether's damage at
+    /// the Doctor's level (a crown tower its crown damage), in this Resolve. A run
+    /// whose units are gone, or whose time is out, ends.
+    fn tether_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1) as u32;
+        let runs = std::mem::take(&mut self.warps.tethers);
+        let mut keep = Vec::new();
+        for r in runs {
+            if !self.ents.is_alive(r.doctor) || !self.ents.is_alive(r.monster) {
+                continue;
+            }
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Tether(tt), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            let (every, dur) = ((tt.every_ms as u32 / tick_ms).max(1), tt.duration_ms as u32 / tick_ms);
+            if self.tick >= r.first + dur {
+                continue;
+            }
+            if self.tick >= r.first && (self.tick - r.first) % every == 0 {
+                let (di, mi) = (r.doctor.index as usize, r.monster.index as usize);
+                let (a, b, team) = (self.ents.pos[di], self.ents.pos[mi], self.ents.team[di]);
+                let dc = self.ents.card[di];
+                let dmg = self.cfg.cards.scaled(dc, r.level, tt.damage).expect("the Doctor's level is validated at try_new");
+                let crown = self.cfg.cards.scaled(dc, r.level, tt.crown_damage).expect("the Doctor's level is validated at try_new");
+                let (vx, vy) = ((b.x - a.x) as i64, (b.y - a.y) as i64);
+                let den = vx * vx + vy * vy;
+                for j in 0..self.ents.capacity() {
+                    let e = &self.ents;
+                    if !e.alive[j] || e.team[j] == team || e.hp[j] <= 0 {
+                        continue;
+                    }
+                    let p = e.pos[j];
+                    let (px, py) = ((p.x - a.x) as i64, (p.y - a.y) as i64);
+                    let num = px * vx + py * vy;
+                    let d2 = if den == 0 || num <= 0 {
+                        px * px + py * py
+                    } else if num >= den {
+                        let (qx, qy) = ((p.x - b.x) as i64, (p.y - b.y) as i64);
+                        qx * qx + qy * qy
+                    } else {
+                        (px * px + py * py) - num * num / den
+                    };
+                    let reach = (tt.width + e.radius[j]) as i64;
+                    if d2 > reach * reach {
+                        continue;
+                    }
+                    let tower = matches!(e.kind[j], EntityKind::KingTower | EntityKind::PrincessTower);
+                    let id = e.id_of(j);
+                    self.dmg.hits.push(Hit { target: id, amount: if tower { crown } else { dmg }, ignores_hide: false, own: false });
+                }
+            }
+            keep.push(r);
+        }
+        self.warps.tethers = keep;
     }
 
     /// A PLAY OF A FLAG FORM'S CARD GROUP (card.rs `FlagSpawnsDef::group`, the Hero Goblins': the base card played as
@@ -22278,7 +22354,7 @@ impl BattleState {
 
     /// Is `form` a champion's (card.rs `AbilityEffect::DashChain`, `Deflect`) rather than a hero form's?
     fn champion_button(&self, form: u16) -> bool {
-        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::Guard(_)))
+        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_)))
     }
 
     /// Has hero unit `u` of `form` a charge left behind its cooldown (the Boss Bandit's: card.rs `WarpBackDef::charges`)?
@@ -22296,7 +22372,7 @@ impl BattleState {
     fn newest_hero(&self, team: Team, form: u16) -> Option<usize> {
         self.hero_units.iter().rposition(|u| {
             let i = u.id.index as usize;
-            self.ents.is_alive(u.id) && self.ents.team[i] == team && (self.ents.card[i] == form || self.cfg.cards.flag_of(form) == Some(self.ents.card[i]))
+            self.ents.is_alive(u.id) && self.ents.team[i] == team && (self.ents.card[i] == form || self.cfg.cards.button_unit(form) == Some(self.ents.card[i]))
         })
     }
 
@@ -22416,7 +22492,7 @@ impl BattleState {
         }
         // A DECOY WARP (the Hero Magic Archer's) and a SIEGE (the Hero Bowler's) land EARLY_TRIGGER_TICKS before that too.
         #[cfg(not(clash_plant = "early_trigger_late"))]
-        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_)) {
+        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_)) {
             ms -= EARLY_TRIGGER_TICKS * self.cfg.calib.tick_ms;
         }
         self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
@@ -22677,6 +22753,20 @@ impl BattleState {
                     self.warps.sieges.push(SiegeRun { id: hero, form: card, made: self.tick });
                 }
                 let _ = (team, level, pos, sg);
+            }
+            // THE TETHER (Goblinstein's; `TetherRun`): the Doctor's Monster (the live unit of the card of its side made
+            // nearest its own creation), hit from TETHER_FIRST_HIT_TICKS on (`tether_pass`).
+            crate::card::AbilityEffect::Tether(tt) => {
+                #[cfg(not(clash_plant = "tether_never"))]
+                {
+                    let (e, made) = (&self.ents, self.ents.spawn_tick[i]);
+                    let monster = (0..e.capacity()).filter(|&j| e.alive[j] && e.card[j] == tt.monster && e.team[j] == team).min_by_key(|&j| (e.spawn_tick[j].abs_diff(made), j)).map(|j| e.id_of(j));
+                    if let Some(m) = monster {
+                        self.warps.tethers.retain(|r| r.doctor != hero);
+                        self.warps.tethers.push(TetherRun { doctor: hero, monster: m, card: tt.monster, level, first: self.tick + crate::card::TETHER_FIRST_HIT_TICKS });
+                    }
+                }
+                let _ = (pos, tt);
             }
             // THE GUARD'S CHARGE (the Little Prince's; `GuardRun`): his hold lands now; his guard `spawn_delay_ms` on.
             crate::card::AbilityEffect::Guard(g) => {
@@ -24426,6 +24516,17 @@ impl BattleState {
                     h.u32(r.team as u32);
                     h.u32(u32::from(r.card));
                     h.u32(r.made);
+                }
+            }
+            if !self.warps.tethers.is_empty() {
+                h.u32(0x5445_5448);
+                h.u32(self.warps.tethers.len() as u32);
+                for r in &self.warps.tethers {
+                    h.id(r.doctor);
+                    h.id(r.monster);
+                    h.u32(u32::from(r.card));
+                    h.i32(r.level);
+                    h.u32(r.first);
                 }
             }
             if !self.warps.ramps.is_empty() {

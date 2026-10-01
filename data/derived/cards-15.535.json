@@ -13536,21 +13536,27 @@
    "special": null,
    "ignore_buffs": null,
    "death_pushback_milli": null,
-   "action_graph": {
-    "roots": {
-     "OnStartingAction": "goblinstein_on_starting_action",
-     "VisualActions": "Healthbar_High"
-    },
-    "class_types": [
-     "ActionActivateOnCardDeploy",
-     "ActionEnabbleHPBarConditionForDuration",
-     "ActionGroup",
-     "ActionWithDuration"
-    ],
-    "spawns": [],
-    "mechanic": true
-   },
+   "action_graph": null,
    "death_spawn_pushback": false,
+   "ability": {
+    "name": "goblinstein_ability",
+    "mana_cost": 2,
+    "max_charges": 1,
+    "cooldown_ms": null,
+    "cast_ms": 933,
+    "trigger_delay_ms": 50,
+    "keep_current_target": true,
+    "is_champion": true,
+    "effect": {
+     "kind": "tether",
+     "unit": "goblinstein_doctor",
+     "duration_ms": 4000,
+     "width_milli": 2000,
+     "damage": 37,
+     "crown_damage": 9,
+     "every_ms": 500
+    }
+   },
    "count": 1,
    "summon_radius_milli": 3500,
    "summon_width_milli": -1000,
@@ -41748,14 +41754,7 @@
     "flying_height",
     "shield_hitpoints"
    ],
-   "action_graph": {
-    "roots": {
-     "VisualActions": "Healthbar_Medium"
-    },
-    "class_types": [],
-    "spawns": [],
-    "mechanic": false
-   },
+   "action_graph": null,
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",
