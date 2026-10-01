@@ -849,8 +849,8 @@ fn a_truth_entity_with_no_hitpoints_takes_no_pair() {
     let k = truth
         .entities
         .iter()
-        .position(|e| e.role == "troop" && e.max_hp > 0 && e.t0 > 0)
-        .expect("a troop row after the first frame");
+        .position(|e| e.role != "tower" && e.max_hp > 0 && e.t0 > 0)
+        .expect("a unit row after the first frame");
     let mut dummy = truth.entities[k].clone();
     dummy.key = truth.entities.iter().map(|e| e.key).max().unwrap_or(0) + 1;
     dummy.max_hp = -1;
