@@ -10,7 +10,8 @@
 //! evo_goblin_giant`):
 //!   - spawn_gate_never -> every test red;
 //!   - spawn_gate_ignored -> every test red;
-//!   - spawn_gate_clock_late -> `below_half_it_makes_a_goblin_behind_it_2_ticks_on_then_43_and_44_ticks_apart` red.
+//!   - spawn_gate_clock_late -> `below_half_it_makes_a_goblin_behind_it_2_ticks_on_then_43_and_44_ticks_apart` red;
+//!   - action_spawn_unset_deploy_own -> every test red (its Goblins deploying 1000 ms, standing 2500 behind).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -42,7 +43,8 @@ fn giant(team: Team, at: (i32, i32)) -> (BattleState, EntityId) {
     (s, g)
 }
 
-/// Down to half less one after tick C: each Goblin's first tick after it (C + k) and its first point, over 95 ticks.
+/// Down to half less one after tick C: each Goblin's first tick after it (C + k) and its first point, over 95 ticks. Each
+/// is walking on its first frame (not deploying).
 fn goblins(s: &mut BattleState, g: EntityId, team: Team, at: (i32, i32)) -> Vec<(usize, (i32, i32))> {
     assert!(find_live(s, team, "Goblin").is_empty(), "a Goblin above half");
     let max = s.entity(g).expect("the Giant").max_hp;
@@ -55,6 +57,7 @@ fn goblins(s: &mut BattleState, g: EntityId, team: Team, at: (i32, i32)) -> Vec<
         for gob in find_live(s, team, "Goblin") {
             if !seen.contains(&gob.id) {
                 seen.push(gob.id);
+                assert!(!gob.deploying, "a Goblin deploying on its first frame, C + {k}");
                 born.push((k, (gob.pos.x / K, gob.pos.y / K)));
             }
         }
@@ -69,8 +72,8 @@ fn below_half_it_makes_a_goblin_behind_it_2_ticks_on_then_43_and_44_ticks_apart(
     let born = goblins(&mut s, g, Team::Blue, at);
     let ks: Vec<usize> = born.iter().map(|b| b.0).collect();
     assert_eq!(ks, vec![2, 45, 89], "the Goblins' ticks: {born:?}");
-    // 2500 behind (its own king's way), less the first step forward.
-    assert!(born.iter().all(|(_, p)| (2300..=2500).contains(&(at.1 - p.1)) && (p.0 - at.0).abs() <= 150), "points: {born:?}");
+    // 2500 behind (its own king's way), less the first step forward (120): 2380, as the client's.
+    assert!(born.iter().all(|(_, p)| (2350..=2410).contains(&(at.1 - p.1)) && (p.0 - at.0).abs() <= 150), "points: {born:?}");
 }
 
 #[test]
@@ -79,5 +82,5 @@ fn on_the_red_side_behind_is_up() {
     let (mut s, g) = giant(Team::Red, at);
     let born = goblins(&mut s, g, Team::Red, at);
     assert_eq!(born.first().map(|b| b.0), Some(2), "the first Goblin: {born:?}");
-    assert!(born.iter().all(|(_, p)| (2300..=2500).contains(&(p.1 - at.1)) && (p.0 - at.0).abs() <= 150), "points: {born:?}");
+    assert!(born.iter().all(|(_, p)| (2350..=2410).contains(&(p.1 - at.1)) && (p.0 - at.0).abs() <= 150), "points: {born:?}");
 }

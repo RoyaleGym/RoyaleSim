@@ -3831,8 +3831,14 @@ fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>)
     if at.0 != 0 {
         return refuse(&format!("MirroredX {}, an x offset nothing measured", at.0));
     }
+    // THE UNIT'S DEPLOY: the action sets no UseDeploy (the extractor takes none that does), so its unit deploys the
+    // action's own DeployTime when it sets one (the Furnace's Fire Spirits, 500: measured) and not at all when it sets
+    // none. Measured on client 15.535.29 (Oracle's sp-f3-gg-s0): the Evo Goblin Giant's Goblins walked from their first
+    // frame, as the Hero Dark Prince's mount (an ActionSpawnToLocation with neither) did.
     let deploy = match raw.deploy_time_ms {
         Some(d) if d < 0 => return refuse(&format!("DeployTime {d}")),
+        #[cfg(not(clash_plant = "action_spawn_unset_deploy_own"))]
+        None => Some(0),
         d => d,
     };
     if raw.health_pct.is_some_and(|p| !(1..100).contains(&p)) {
