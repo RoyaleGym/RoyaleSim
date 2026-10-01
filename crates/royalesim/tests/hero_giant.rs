@@ -22,7 +22,8 @@
 //!   - slap_hold_table_only -> `the_slap_holds_the_giant_and_throws_its_pick_toward_the_centre` red;
 //!   - slap_flight_never -> both red;
 //!   - slap_landing_dropped -> `the_slap_holds_the_giant_and_throws_its_pick_toward_the_centre` red;
-//!   - slap_refuses_ignore_pushback -> `a_unit_that_ignores_pushback_is_thrown_as_any_other` red.
+//!   - slap_refuses_ignore_pushback -> `a_unit_that_ignores_pushback_is_thrown_as_any_other` red;
+//!   - slap_flight_collides -> `a_thrown_unit_flies_through_the_giant` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -133,4 +134,23 @@ fn a_unit_that_ignores_pushback_is_thrown_as_any_other() {
     };
     assert!(steps(0) >= 20, "the red Giant is thrown: {} steps", steps(0));
     assert_eq!(steps(1), 0, "the Knight is not: the slap threw its pick");
+}
+
+#[test]
+fn a_thrown_unit_flies_through_the_giant() {
+    // As the slap scenes stage it, a Knight 835 right of the Giant and 1008 ahead: thrown toward the centre, its line
+    // crosses him (1008 apart, under the radii's 1250). Measured on client 15.535.29 (sp-slap-Knight-14500-1000-s0): -250
+    // a step with y unchanged across him, and he does not move while he stands.
+    let (mut s, giant, reds) = start(&[("Knight", (AT.0 + 835, AT.1 + 1008))]);
+    let f = run(&mut s, giant, &reds, 60);
+    let knight = |k: usize| f[k].1[0].expect("the Knight alive");
+    let first = (1..f.len()).find(|&k| knight(k).0.x - knight(k - 1).0.x == -250 * K).expect("the Knight thrown");
+    assert!(knight(first - 1).0.x > f[first].0.x && knight(first + 11).0.x < f[first].0.x, "the scene drifted: no crossing");
+    for k in first..first + 12 {
+        let d = (knight(k).0.x - knight(k - 1).0.x, knight(k).0.y - knight(k - 1).0.y);
+        assert_eq!((d.0 / K, d.1 / K), (-250, 0), "frame {k}: the flight's step across the Giant");
+    }
+    for k in first..first + 9 {
+        assert_eq!(f[k].0, f[first - 1].0, "frame {k}: the Giant stands, unpushed");
+    }
 }

@@ -48,7 +48,7 @@
 mod common;
 
 use common::*;
-use royalesim::card::{CardDb, CardDef, SpellDef, SpellHit, SpellShape, UnitRef};
+use royalesim::card::{AbilityDef, AbilityEffect, CardDb, CardDef, SpellDef, SpellHit, SpellShape, UnitRef};
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE};
 use royalesim::state::{BattleConfig, BattleState, Calib, DeathBombSpawnTiming};
@@ -116,16 +116,21 @@ fn every_death_bomb_row_loads_as_a_timed_impact_and_only_a_death_releases_one() 
         seen += 1;
     }
     assert_eq!(seen, BOMB_CARDS.len(), "vacuous: no bomb card loaded");
-    // A bomb is released by a DEATH SPAWN, and by the Evo Skeleton Barrel's drop at its
+    // A bomb is released by a DEATH SPAWN, by the Evo Skeleton Barrel's drop at its
     // health line (state.rs `barrel_pass` releases it as a timed impact, as a death
-    // spawn's is), and by nothing else: any other block that named one
+    // spawn's is), and by the Mighty Miner's lane switch (state.rs `fire_ability`, the
+    // same timed impact), and by nothing else: any other block that named one
     // (`CardDb::unit_refs`: a spawner, a spell release, a second summon) would reach
     // `spawn_now` with a hitpoint-less record (card.rs refuses such a card instead).
     let mut others = 0;
     for idx in 0..db.cards.len() as u16 {
         let drop = db.get(idx).evo.as_ref().and_then(|v| v.barrel.as_ref()).map(|b| b.extra.unit);
+        let lane = match &db.get(idx).ability {
+            Some(AbilityDef { effect: AbilityEffect::LaneSwitch(l), .. }) => Some(l.bomb),
+            _ => None,
+        };
         for (path, u, _) in db.unit_refs(idx) {
-            if path == UnitRef::DeathSpawn || (path == UnitRef::EvoUnit(0) && drop == Some(u)) {
+            if path == UnitRef::DeathSpawn || (path == UnitRef::EvoUnit(0) && drop == Some(u)) || (path == UnitRef::AbilityUnit && lane == Some(u)) {
                 continue;
             }
             others += 1;

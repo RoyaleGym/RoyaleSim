@@ -2168,6 +2168,7 @@
    ],
    "death_pushback_milli": 1800,
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": true,
    "count": 1,
    "summon_radius_milli": null,
@@ -4835,6 +4836,7 @@
    ],
    "death_pushback_milli": null,
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": true,
    "count": 1,
    "summon_radius_milli": null,
@@ -5769,6 +5771,7 @@
    ],
    "death_pushback_milli": null,
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -8030,6 +8033,7 @@
     "pct": 50,
     "noop_spawns": []
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -8306,6 +8310,7 @@
     "spawns": [],
     "mechanic": false
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -9581,6 +9586,22 @@
     "mechanic": false
    },
    "death_spawn_pushback": false,
+   "ability": {
+    "name": "MightyMinerLaneSwitch",
+    "mana_cost": 1,
+    "max_charges": 1,
+    "cooldown_ms": null,
+    "cast_ms": 933,
+    "trigger_delay_ms": 500,
+    "keep_current_target": false,
+    "is_champion": true,
+    "effect": {
+     "kind": "lane_switch",
+     "unit": "MightyMinerBomb",
+     "unit_deploy_ms": 0,
+     "speed": 650
+    }
+   },
    "count": 1,
    "summon_radius_milli": null,
    "summon_width_milli": null,
@@ -9883,6 +9904,7 @@
     "on_death": null,
     "on_death_for_opponent": 1000
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -10109,6 +10131,29 @@
     "mechanic": false
    },
    "death_spawn_pushback": false,
+   "ability": {
+    "name": "SkeletonKing",
+    "mana_cost": 2,
+    "max_charges": 1,
+    "cooldown_ms": null,
+    "cast_ms": 933,
+    "trigger_delay_ms": 500,
+    "keep_current_target": false,
+    "is_champion": true,
+    "effect": {
+     "kind": "soul_summon",
+     "unit": "SkeletonKingSkeleton",
+     "count": 6,
+     "max_count": 16,
+     "spawn_delay_ms": 250,
+     "every_ms": 250,
+     "unit_deploy_ms": 400,
+     "min_radius_milli": 2500,
+     "max_radius_milli": 3500,
+     "duration_ms": 10000,
+     "radius_milli": 3500
+    }
+   },
    "count": 1,
    "summon_radius_milli": null,
    "summon_width_milli": null,
@@ -10259,6 +10304,7 @@
    ],
    "death_pushback_milli": null,
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": true,
    "count": 1,
    "summon_radius_milli": null,
@@ -13309,6 +13355,7 @@
     "use_attack_range": false,
     "area_damage_when_invisible": true
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -22827,6 +22874,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": true,
    "raw": {
     "Name": "Golem",
@@ -24856,6 +24904,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": true,
    "raw": {
     "Name": "LavaHound",
@@ -26093,6 +26142,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "BattleRam",
@@ -27805,6 +27855,7 @@
     "spawns": [],
     "mechanic": false
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "SkeletonBalloon",
@@ -28605,6 +28656,7 @@
    ],
    "action_graph": null,
    "spawn_max_angle_deg": 90,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "SpearGoblinGiant",
@@ -28906,6 +28958,7 @@
    },
    "deprioritize_targets_with_buff": true,
    "attach_max_rotation_deg": 90,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "RamRider",
@@ -29421,6 +29474,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "ElixirGolem1",
@@ -29534,6 +29588,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "ElixirGolem2",
@@ -31358,6 +31413,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": true,
    "raw": {
     "Name": "SuperLavaHound",
@@ -31595,6 +31651,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": true,
    "raw": {
     "Name": "SuperLavaHound2",
@@ -33938,6 +33995,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "PhoenixEgg",
@@ -36387,6 +36445,7 @@
     "spawns": [],
     "mechanic": true
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "BattleRam",
@@ -36751,6 +36810,7 @@
     ],
     "mechanic": true
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "Wallbreaker",
@@ -38392,6 +38452,7 @@
     "pct": 50,
     "noop_spawns": []
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",
@@ -40856,6 +40917,7 @@
    ],
    "action_graph": null,
    "spawn_max_angle_deg": 90,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "SpearGoblinGiant",
@@ -43368,6 +43430,7 @@
     "area_damage_when_invisible": false
    },
    "ignore_clone": true,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "RageBarbarian",
@@ -44151,6 +44214,7 @@
     "mechanic": true
    },
    "ignore_clone": true,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "Skeleton",
@@ -44264,6 +44328,7 @@
     "spawns": [],
     "mechanic": true
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "SkeletonBalloon",
@@ -44380,6 +44445,7 @@
     "use_attack_range": false,
     "area_damage_when_invisible": true
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",
@@ -56719,6 +56785,7 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "raw": {
     "Rarity": "Common",
@@ -78864,6 +78931,7 @@
     "spawns": [],
     "mechanic": true
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -79949,6 +80017,7 @@
     "spawns": [],
     "mechanic": true
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -82813,6 +82882,7 @@
     ],
     "mechanic": true
    },
+   "ignore_resurrect": true,
    "death_spawn_pushback": false,
    "count": 2,
    "summon_radius_milli": 750,
@@ -85334,6 +85404,7 @@
       "area_damage_when_invisible": false
      },
      "ignore_clone": true,
+     "ignore_resurrect": true,
      "death_spawn_pushback": false,
      "raw": {
       "Name": "RageBarbarian",
@@ -89608,6 +89679,7 @@
        "shield_hitpoints"
       ],
       "action_graph": null,
+      "ignore_resurrect": true,
       "death_spawn_pushback": false,
       "raw": {
        "Rarity": "Common",
@@ -90573,6 +90645,7 @@
        "shield_hitpoints"
       ],
       "action_graph": null,
+      "ignore_resurrect": true,
       "death_spawn_pushback": false,
       "raw": {
        "Rarity": "Common",
@@ -91840,6 +91913,7 @@
       ],
       "action_graph": null,
       "ignore_clone": true,
+      "ignore_resurrect": true,
       "death_spawn_pushback": false,
       "raw": {
        "Rarity": "Common",

@@ -206,7 +206,12 @@ fn death_bomb_push(ctx: &SpellCtx, def: &crate::card::CardDef) -> Option<Knockba
         return None;
     }
     let reads = match ctx.calib.death_pushback {
-        DeathPushbackScope::ContainersLadder => def.death_spawn.is_some(),
+        // A bomb a champion's button drops pushes too (`CardDef::dropped_by_ability`, the Mighty Miner's: measured, the
+        // Knight it hit stepped the ladder of 1800).
+        #[cfg(not(clash_plant = "lane_bomb_unpushed"))]
+        DeathPushbackScope::ContainersLadder => def.death_spawn.is_some() || def.dropped_by_ability,
+        #[cfg(clash_plant = "lane_bomb_unpushed")]
+        DeathPushbackScope::ContainersLadder => def.death_spawn.is_some(), // PLANT (regression): the dropped bomb does not push.
         DeathPushbackScope::EveryDeathBombLadder => true,
         DeathPushbackScope::NotRead => false,
     };

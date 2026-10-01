@@ -536,6 +536,42 @@ pub struct Fixture {
     /// The client whose card data the truth ran (`own_client_card_values`). Absent on a corpus fixture.
     #[serde(default)]
     pub card_table: Option<CardTable>,
+    /// The client's battle generator's state after each frame (`RngColumn`), where the fixture's maker recorded it.
+    #[serde(default)]
+    pub rng: Option<RngColumn>,
+}
+
+/// THE CLIENT'S BATTLE GENERATOR AS RECORDED (Oracle's specials fixtures): its algorithm, its state after the first frame,
+/// and every later frame on which it changed, as (frame tick, state). Frame ticks, not the issued + 1 deploy labels.
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct RngColumn {
+    pub algorithm: String,
+    pub first: [u32; 2],
+    #[serde(default)]
+    pub changes: Vec<[u32; 2]>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// The one algorithm the engine's client generator runs (state.rs `client_rnd`, client 15.535.29's xorshift32), named
+/// in a fixture's `rng.algorithm` by its tail: the generator and the client version.
+pub const RNG_ALGORITHM_TAIL: &str = "_xorshift32_v150535029";
+
+impl RngColumn {
+    /// The state after frame `tick`: the latest recorded at or before it; None before the first frame or under another
+    /// algorithm.
+    pub fn state_after(&self, tick: u32) -> Option<u32> {
+        if !self.algorithm.ends_with(RNG_ALGORITHM_TAIL) || tick < self.first[0] {
+            return None;
+        }
+        let mut st = self.first[1];
+        for c in &self.changes {
+            if c[0] <= tick {
+                st = c[1];
+            }
+        }
+        Some(st)
+    }
 }
 
 impl Fixture {
@@ -1685,6 +1721,11 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         }
         let alive_before: Vec<(EntityId, Team, u16, Vec2)> = s.entities().map(|e| (e.id, e.team, e.card_idx, e.pos)).collect();
         let containers_before = containers_waiting(&s);
+        // THE CLIENT'S GENERATOR (`RngColumn`): this tick starts from the state the client's had after the frame before,
+        // so the engine's draws from it (state.rs `client_rnd`) are the client's.
+        if let Some(st) = f.rng.as_ref().and_then(|r| r.state_after(tick)) {
+            s.scenario_set_client_rng(st);
+        }
         if s.is_done() {
             if report.engine_end_tick.is_none() {
                 report.engine_end_tick = Some(tick);

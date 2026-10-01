@@ -7118,6 +7118,47 @@ pub struct WarpBoard {
     /// The Hero Tombstones' tombs and monsters (`TombRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tombs: Vec<TombRun>,
+    /// The Mighty Miners' lane switches waiting to go under ground (`LaneRun`). Absent in older snapshots, and hashed only
+    /// when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lanes: Vec<LaneRun>,
+    /// The Skeleton Kings' souls (`SoulKing`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub souls: Vec<SoulKing>,
+    /// The Skeleton Kings' areas under way (`SoulRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub soul_runs: Vec<SoulRun>,
+}
+
+/// A SKELETON KING'S SOULS (card.rs `SoulSummonDef`; `count_souls`): the troops' deaths since his last trigger.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SoulKing {
+    pub id: EntityId,
+    pub souls: i32,
+}
+
+/// A SKELETON KING'S AREA UNDER WAY (card.rs `SoulSummonDef`; `soul_pass`): its King, side, form and level, the trigger's
+/// tick, where it stands (his point while he lives), how many copies it puts down and how many it has, and the
+/// directions' shuffled order (drawn on the area's first update; empty before).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SoulRun {
+    pub id: EntityId,
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub made: u32,
+    pub at: Vec2,
+    pub count: i32,
+    pub done: i32,
+    pub order: Vec<u8>,
+}
+
+/// A MIGHTY MINER'S LANE SWITCH TRIGGERED (card.rs `LaneSwitchDef`; `lane_pass`): its champion and the trigger's tick. He
+/// goes under ground on the tick after it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LaneRun {
+    pub id: EntityId,
+    pub made: u32,
 }
 
 /// A HERO TOMBSTONE'S TOMB AND MONSTER (card.rs `TombMonsterDef`; `tomb_status`, `tomb_resolve`): its side, its form, the
@@ -7206,7 +7247,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -8384,6 +8425,9 @@ pub struct BattleState {
     falls: Vec<FallRun>,
     /// The taunts (`TauntBoard`). Empty in every battle without one.
     taunts: TauntBoard,
+    /// THE CLIENT'S BATTLE GENERATOR's state (`client_rnd`, the battle's single xorshift32): None until its first draw,
+    /// so a battle that never draws from it saves and hashes as before the field.
+    client_rng: Option<u32>,
     /// The warps (`WarpBoard`). Empty in every battle without one.
     warps: WarpBoard,
     /// The slaps (`SlapBoard`). Empty in every battle without one.
@@ -8713,7 +8757,7 @@ impl BattleState {
             let champions: Vec<u16> = config.decks[t]
                 .iter()
                 .filter_map(|n| cards.index(n))
-                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_))))
+                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::LaneSwitch(_) | crate::card::AbilityEffect::SoulSummon(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_))))
                 .fold(Vec::new(), |mut v, idx| {
                     if !v.contains(&idx) {
                         v.push(idx);
@@ -8798,6 +8842,7 @@ impl BattleState {
             quests: Vec::new(),
             falls: Vec::new(),
             taunts: TauntBoard::default(),
+            client_rng: None,
             warps: WarpBoard::default(),
             slaps: SlapBoard::default(),
             deflects: Vec::new(),
@@ -12649,6 +12694,14 @@ impl BattleState {
         if !self.warps.sieges.is_empty() {
             self.siege_pass();
         }
+        // The Mighty Miners' lane switches (`lane_pass`).
+        if !self.warps.lanes.is_empty() {
+            self.lane_pass();
+        }
+        // The Skeleton Kings' areas (`soul_pass`).
+        if !self.warps.soul_runs.is_empty() {
+            self.soul_pass();
+        }
         // The Little Princes' ramps (`ramp_pass`).
         if !self.warps.ramps.is_empty() {
             self.ramp_pass();
@@ -13029,7 +13082,14 @@ impl BattleState {
     /// re-aimed at the next node, the node aimed at dropped after a sub-step that ends within the reach + 1.
     fn tunnel_step(&mut self, i: usize) -> bool {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
-        let Some(sp) = self.cfg.cards.get(self.ents.card[i]).spawn_pathfind else { return true };
+        // A card that tunnels from its play (SpawnPathfindSpeed) or a champion's lane switch (IngamePathfindSpeed, card.rs
+        // `LaneSwitchDef::speed`).
+        let card_i = self.cfg.cards.get(self.ents.card[i]);
+        let lane_speed = match card_i.ability.as_ref().map(|a| &a.effect) {
+            Some(crate::card::AbilityEffect::LaneSwitch(l)) => Some(l.speed),
+            _ => None,
+        };
+        let Some(pace) = card_i.spawn_pathfind.map(|sp| sp.speed).or(lane_speed) else { return true };
         let Some(dest) = self.ents.tunnel_dest[i] else { return false };
         let cell = path16402::CELL;
         let (cols, rows) = (self.cfg.arena.cols, self.cfg.arena.rows);
@@ -13065,10 +13125,10 @@ impl BattleState {
             self.ents.route_goal[i] = Some(goal_v);
         }
         #[cfg(not(clash_plant = "tunnel_at_card_speed"))]
-        let speed = sp.speed;
+        let speed = pace;
         #[cfg(clash_plant = "tunnel_at_card_speed")]
         let speed = {
-            let _ = sp;
+            let _ = pace;
             self.ents.speed[i] / K // PLANT: the card's walking speed.
         };
         let reach = if self.cfg.calib.spawn_pathfind_reach_from_speed { speed } else { self.cfg.calib.waypoint_arrive_radius / K };
@@ -15154,6 +15214,165 @@ impl BattleState {
         self.warps.magic = keep;
     }
 
+    /// THE SKELETON KINGS' AREAS (card.rs `SoulSummonDef`), in the Status phase after the tick's presses fired: the area
+    /// stands on its King's point while he lives (FollowParent) and where he was after (StayAfterParentDies). On its first
+    /// update (the trigger + 1) it shuffles its n = count - 1 directions: max(1, 50 n) pairs of draws i = rnd(n), j =
+    /// rnd(n), swapped when they differ. Copy k is put down on the trigger + `first_ms` + k `every_ms` (released at the end
+    /// of the tick, so its first frame is that tick's), a copy (`make_copy`: 1 hitpoint) deploying `deploy_ms`, at theta =
+    /// perm[(k + n - 2) mod n] x 360 / n degrees from +y toward +x and r = `min_radius` + rnd(`area_radius` - `min_radius`
+    /// - its collision radius) (x += sin(theta) r >> 10, y += sin(theta + 90) r >> 10, the 1024 table, `formation::sin1024`),
+    /// set onto land and into the arena as a scheduled spawn is (`scheduled_point`). The draws are the client's generator's
+    /// (`client_rnd`). Read off the client by Oracle and checked draw for draw on client 15.535.29's frames (sp-champ-
+    /// SkeletonKing-s0: 500 draws from t205 to t206, perm [3, 2, 1, 0, 4], one draw per copy; the phase k + n - 2 is read
+    /// off both scenes' copies, not the code). Not run: the client's four retries of a point that fails its placement check
+    /// (none in the measured scenes; the river points are set on the bank instead).
+    fn soul_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let runs = std::mem::take(&mut self.warps.soul_runs);
+        let mut keep = Vec::new();
+        for mut r in runs {
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::SoulSummon(sd), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            if self.ents.is_alive(r.id) {
+                r.at = self.ents.pos[r.id.index as usize];
+            }
+            let n = (r.count - 1).max(1) as u32;
+            if self.tick == r.made + 1 && r.order.is_empty() {
+                let mut perm: Vec<u8> = (0..n as u8).collect();
+                #[cfg(not(clash_plant = "souls_unshuffled"))]
+                for _ in 0..(50 * n).max(1) {
+                    let (i, j) = (self.client_rnd(n) as usize, self.client_rnd(n) as usize);
+                    if i != j {
+                        perm.swap(i, j);
+                    }
+                }
+                r.order = perm;
+            }
+            let due = r.made + ((sd.first_ms + r.done * sd.every_ms) / tick_ms) as u32;
+            if self.tick == due && !r.order.is_empty() && sd.first_ms + r.done * sd.every_ms < sd.life_ms {
+                let idx = ((r.done as u32 + 2 * n - 2) % n) as usize;
+                let theta = i32::from(r.order[idx]) * 360 / n as i32;
+                let unit_r = self.cfg.cards.get(sd.unit).collision_radius / K;
+                let span = (sd.area_radius / K - sd.min_radius / K - unit_r).max(1) as u32;
+                let radius = sd.min_radius / K + self.client_rnd(span) as i32;
+                let dx = (crate::formation::sin1024(theta) * radius) >> 10;
+                let dy = (crate::formation::sin1024(theta + 90) * radius) >> 10;
+                let flying = self.cfg.cards.get(sd.unit).is_flying();
+                let to = Vec2::new(r.at.x + dx * K, r.at.y + dy * K);
+                let p = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying);
+                #[cfg(not(clash_plant = "souls_not_copies"))]
+                let cloned = true;
+                #[cfg(clash_plant = "souls_not_copies")]
+                let cloned = false; // PLANT (regression): the souls come at their row's hitpoints.
+                self.release(PendingSpawn { team: r.team, card: sd.unit, level: r.level, pos: p, deploy_ms: Some(sd.deploy_ms), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned, action_made: true });
+                r.done += 1;
+            }
+            if r.done < r.count && sd.first_ms + r.done * sd.every_ms < sd.life_ms {
+                keep.push(r);
+            }
+        }
+        self.warps.soul_runs = keep;
+    }
+
+    /// ONE DRAW OF THE CLIENT'S BATTLE GENERATOR, rnd(n), read off the client by Oracle and checked draw for draw on
+    /// client 15.535.29's frames: a single xorshift32 -- s = -1 when s is 0; s ^= s << 13; s ^= s >> 17 (arithmetic, on
+    /// the signed value); s ^= s << 5 -- and the draw |s| mod n, unsigned (|INT_MIN| stays 2^31). Seeded on its first use
+    /// from the engine's own generator unless a replay set it (`scenario_set_client_rng`). Only the Skeleton King's area
+    /// draws from it (`soul_pass`).
+    fn client_rnd(&mut self, n: u32) -> u32 {
+        let mut s = match self.client_rng {
+            Some(v) => v as i32,
+            None => (self.rng.next_u32() | 1) as i32,
+        };
+        if s == 0 {
+            s = -1;
+        }
+        s ^= s.wrapping_shl(13);
+        s ^= s >> 17;
+        s ^= s.wrapping_shl(5);
+        self.client_rng = Some(s as u32);
+        if n == 0 {
+            return 0;
+        }
+        s.unsigned_abs() % n
+    }
+
+    /// THE SKELETON KINGS' SOULS (card.rs `SoulSummonDef`), at the top of Reap: each troop's death this tick, either side,
+    /// spawned units included, is a soul for every live King not dying with it (ResurrectEnemies, ResurrectOwnTroops), up to
+    /// his limit less his base; a building's is not, nor a unit's whose row sets IgnoreResurrect (`CardDef::
+    /// ignore_resurrect`). His trigger takes them and sets them back to 0. Measured on client 15.535.29 (Oracle's sp-champ-
+    /// SkeletonKing-late-s0 and sp-sk-souls-<class>-s0, count = 6 + souls): three red Skeletons 9; an own Skeleton 7; two
+    /// Tombstone Skeletons 8; three Skeletons dead between the press and the trigger 9; a Cannon 6; a Battle Ram 6; a death
+    /// after the trigger left the count; deaths 6000 to 7600 from him all counted (no range). Not measured: whether deaths
+    /// before his deploy count, fliers, crown towers.
+    fn count_souls(&mut self, deaths: &[EntityId]) {
+        let e = &self.ents;
+        let kings: Vec<(EntityId, i32)> = (0..e.capacity())
+            .filter(|&i| e.alive[i] && !deaths.contains(&e.id_of(i)))
+            .filter_map(|i| match self.cfg.cards.get(e.card[i]).ability.as_ref().map(|a| &a.effect) {
+                Some(crate::card::AbilityEffect::SoulSummon(sd)) => Some((e.id_of(i), sd.limit - sd.base)),
+                _ => None,
+            })
+            .collect();
+        if kings.is_empty() {
+            return;
+        }
+        let cards = &self.cfg.cards;
+        let e = &self.ents;
+        #[cfg(not(clash_plant = "souls_count_ignore_resurrect"))]
+        let soul = |i: usize| e.kind[i] == EntityKind::Troop && !cards.get(e.card[i]).ignore_resurrect;
+        #[cfg(clash_plant = "souls_count_ignore_resurrect")]
+        let soul = |i: usize| {
+            let _ = cards;
+            e.kind[i] == EntityKind::Troop // PLANT (regression): an IgnoreResurrect unit's death is a soul.
+        };
+        let troops = deaths.iter().filter(|d| soul(d.index as usize)).count() as i32;
+        if troops == 0 {
+            return;
+        }
+        for (id, cap) in kings {
+            match self.warps.souls.iter_mut().find(|k| k.id == id) {
+                Some(k) => k.souls = (k.souls + troops).min(cap),
+                None => self.warps.souls.push(SoulKing { id, souls: troops.min(cap) }),
+            }
+        }
+        self.warps.souls.retain(|k| self.ents.is_alive(k.id));
+    }
+
+    /// THE MIGHTY MINERS' LANE SWITCHES (card.rs `LaneSwitchDef`), in the Status phase after the tick's presses fired: on
+    /// the tick after its trigger the champion goes under ground, bound for the other lane's mirror point (the arena's
+    /// width less his x, his y), his target, its lock and his swing dropped; from there the tunnel law runs him
+    /// (`phase_tunnel`, `tunnel_step` at his `speed`) and he comes up as a Miner does (`surface`). Measured on client
+    /// 15.535.29 (sp-champ-MightyMiner-s0): standing on the trigger P + 10, his first step under ground on P + 11, the
+    /// Knight that held him on a tower that tick.
+    fn lane_pass(&mut self) {
+        let runs = std::mem::take(&mut self.warps.lanes);
+        let mut keep = Vec::new();
+        for r in runs {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            #[cfg(not(clash_plant = "lane_under_at_trigger"))]
+            let due = self.tick > r.made;
+            #[cfg(clash_plant = "lane_under_at_trigger")]
+            let due = self.tick >= r.made; // PLANT (regression): under ground on the trigger's own tick.
+            if !due {
+                keep.push(r);
+                continue;
+            }
+            let i = r.id.index as usize;
+            let p = self.ents.pos[i];
+            self.ents.tunnel_dest[i] = Some(Vec2::new(self.cfg.arena.width - p.x, p.y));
+            self.ents.target[i] = None;
+            self.ents.target_locked[i] = false;
+            self.ents.attack_phase[i] = AttackPhase::Idle;
+            self.ents.attack_ms[i] = 0;
+            self.ents.route[i].clear();
+            self.ents.route_goal[i] = None;
+        }
+        self.warps.lanes = keep;
+    }
+
     /// THE HERO MAGIC ARCHER'S WARP (card.rs `DecoyWarpDef::warp_y`), after the move pass `warp_delay_ms` after the
     /// trigger: the hero moves `warp_y` along its side's forward (negative: back), clamped as a scheduled spawn's point
     /// is (`scheduled_point`: inside the arena's edge margin, and a ground unit on water onto the nearest land), and
@@ -16014,6 +16233,21 @@ impl BattleState {
         let mut g = self.scratch.grid16402.take().unwrap_or_else(|| Grid16402::new(&self.cfg.arena, &self.cfg.calib));
         g.refresh(self.scratch.occluder_epoch, &self.scratch.obstacles[0]);
         let cap = self.ents.capacity();
+        // A UNIT IN A SLAP'S FLIGHT (`slap_pass`, the Hero Giant's) is out of this pass, as a knockback's slide is: it takes
+        // no contact update of its own and no neighbour meets it. Measured on client 15.535.29 (sp-slap-Knight-*): the
+        // thrown Knight crosses the Giant that threw it on a straight line, 250 a step, and the Giant does not move.
+        #[cfg(not(clash_plant = "slap_flight_collides"))]
+        let slap_flight: Vec<bool> = {
+            let mut v = vec![false; cap];
+            for r in self.slaps.runs.iter().filter(|r| r.phase == 2) {
+                if let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) {
+                    v[t.index as usize] = true;
+                }
+            }
+            v
+        };
+        #[cfg(clash_plant = "slap_flight_collides")]
+        let slap_flight: Vec<bool> = vec![false; cap]; // PLANT (regression): the thrown unit is a contact body.
         // THE TORNADO'S ATTRACT (status.ATTRACT_LAW): one vector per entity, computed
         // from the START-OF-TICK positions, before anything moves and before the entity
         // arrays are borrowed.
@@ -16305,7 +16539,7 @@ impl BattleState {
                     let held_hidden = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun); // PLANT (regression): the new arm still hides a held unit.
                     // A slide hides its unit only under the fixed_distance slide arm (`slide_hides`): the Clone's pair
                     // stays in its neighbours' scans.
-                    let held = held_hidden || (e.knock_ms[i] > 0 && slide_hides(calib)) || e.hooked_by[i].is_some() || buried(i);
+                    let held = held_hidden || (e.knock_ms[i] > 0 && slide_hides(calib)) || e.hooked_by[i].is_some() || buried(i) || slap_flight[i];
                     move16402::Body {
                         x,
                         y,
@@ -16616,6 +16850,7 @@ impl BattleState {
                 let held_walk = calib.held_unit_contact == HeldUnitContact::Client16402SpeedZeroUpdate
                     && e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun)
                     && e.knock_ms[i] == 0
+                    && !slap_flight[i]
                     && e.hooked_by[i].is_none()
                     && !jumping[i]
                     && !(phase_hold && calib.attacking_unit_movement == AttackingUnitMovement::Frozen);
@@ -20931,6 +21166,11 @@ impl BattleState {
 
     fn phase_reap(&mut self) {
         let deaths = std::mem::take(&mut self.death_queue);
+        // THE SKELETON KINGS' SOULS (`count_souls`).
+        #[cfg(not(clash_plant = "souls_unread"))]
+        if !deaths.is_empty() {
+            self.count_souls(&deaths);
+        }
         // The tick's kamikazes whose death comes on a kill only (`Scratch::kamikazed`): no death spawn.
         let kamikazed = std::mem::take(&mut self.scratch.kamikazed);
         // DEATH SPAWN (card.rs `DeathSpawnDef`): every death that reaches this queue --
@@ -22898,7 +23138,7 @@ impl BattleState {
 
     /// Is `form` a champion's (card.rs `AbilityEffect::DashChain`, `Deflect`) rather than a hero form's?
     fn champion_button(&self, form: u16) -> bool {
-        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_)))
+        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::LaneSwitch(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_)))
     }
 
     /// Has hero unit `u` of `form` a charge left behind its cooldown (the Boss Bandit's: card.rs `WarpBackDef::charges`)?
@@ -23049,7 +23289,7 @@ impl BattleState {
         }
         // A DECOY WARP (the Hero Magic Archer's) and a SIEGE (the Hero Bowler's) land EARLY_TRIGGER_TICKS before that too.
         #[cfg(not(clash_plant = "early_trigger_late"))]
-        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_) | crate::card::AbilityEffect::ReRoll(_) | crate::card::AbilityEffect::Dismount(_)) {
+        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::LaneSwitch(_) | crate::card::AbilityEffect::SoulSummon(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_) | crate::card::AbilityEffect::ReRoll(_) | crate::card::AbilityEffect::Dismount(_)) {
             ms -= EARLY_TRIGGER_TICKS * self.cfg.calib.tick_ms;
         }
         self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
@@ -23366,6 +23606,42 @@ impl BattleState {
                     self.warps.magic.push(MagicRun { id: hero, team, card, made: self.tick });
                 }
                 let _ = (level, pos, w);
+            }
+            // THE SOUL SUMMON (the Skeleton King's; `SoulRun`): his area is made now on his point, putting down his base
+            // count plus his souls (at most the limit) from its first delay on (`soul_pass`); his souls go back to 0.
+            crate::card::AbilityEffect::SoulSummon(sd) => {
+                #[cfg(not(clash_plant = "soul_summon_never"))]
+                {
+                    let souls = self.warps.souls.iter().find(|k| k.id == hero).map_or(0, |k| k.souls);
+                    self.warps.souls.retain(|k| k.id != hero);
+                    #[cfg(not(clash_plant = "souls_unread"))]
+                    let count = (sd.base + souls).min(sd.limit);
+                    #[cfg(clash_plant = "souls_unread")]
+                    let count = {
+                        let _ = souls;
+                        sd.base // PLANT (regression): the base count alone, whatever died.
+                    };
+                    let lvl = self.cfg.cards.unit_level(card, sd.unit, None, level).expect("the ability unit's level is validated at try_new");
+                    self.warps.soul_runs.retain(|r| r.id != hero);
+                    self.warps.soul_runs.push(SoulRun { id: hero, team, card, level: lvl, made: self.tick, at: pos, count, done: 0, order: Vec::new() });
+                }
+                let _ = (team, level, pos, sd);
+            }
+            // THE LANE SWITCH (the Mighty Miner's; `LaneRun`): his bomb is dropped where he stands now, a delayed impact of
+            // its DeathDamage at his level, its DeployTime on (as `phase_reap` drops a death bomb; it lands on the trigger +
+            // 20: measured, P + 30); he stands this tick and goes under ground on the next (`lane_pass`).
+            crate::card::AbilityEffect::LaneSwitch(l) => {
+                #[cfg(not(clash_plant = "lane_switch_never"))]
+                {
+                    let lvl = self.cfg.cards.unit_level(card, l.bomb, None, level).expect("the ability unit's level is validated at try_new");
+                    let bomb = self.cfg.cards.get(l.bomb);
+                    let fuse_ms = bomb.death_bomb_fuse_ms().expect("a lane switch's bomb is a death bomb (card.rs `UnitUse::LaneSwitchBomb`)");
+                    let damage = self.cfg.cards.scaled(l.bomb, lvl, bomb.death_damage).expect("the bomb's level is validated at try_new");
+                    self.spells.push(Spell { team, card: l.bomb, level: lvl, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms }, depth: 0 });
+                    self.warps.lanes.retain(|r| r.id != hero);
+                    self.warps.lanes.push(LaneRun { id: hero, made: self.tick });
+                }
+                let _ = (team, level, pos, l);
             }
             // THE TOMB'S MONSTER (the Hero Tombstone's; `TombRun`): the monster is its active row now, its hitpoints and
             // their maximum that row's, its hide off, its hold on; its tomb dies TOMB_KILL_TICKS on (`tomb_resolve`).
@@ -23807,6 +24083,11 @@ impl BattleState {
     // a set-up battle looks like one that got there by playing.
 
     /// Start the clock at `tick`. At or past regulation the battle is in overtime.
+    /// Test/replay entry point: set the client's battle generator's state (`client_rnd`), as a capture's frames expose it.
+    pub fn scenario_set_client_rng(&mut self, state: u32) {
+        self.client_rng = Some(state);
+    }
+
     pub fn scenario_set_tick(&mut self, tick: u32) {
         self.tick = tick;
         let c = &self.cfg.calib;
@@ -25222,6 +25503,38 @@ impl BattleState {
                     h.u32(u32::from(r.reset));
                 }
             }
+            if !self.warps.souls.is_empty() || !self.warps.soul_runs.is_empty() {
+                h.u32(0x534f_554c);
+                h.u32(self.warps.souls.len() as u32);
+                for k in &self.warps.souls {
+                    h.id(k.id);
+                    h.i32(k.souls);
+                }
+                h.u32(self.warps.soul_runs.len() as u32);
+                for r in &self.warps.soul_runs {
+                    h.id(r.id);
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.card));
+                    h.i32(r.level);
+                    h.u32(r.made);
+                    h.i32(r.at.x);
+                    h.i32(r.at.y);
+                    h.i32(r.count);
+                    h.i32(r.done);
+                    h.u32(r.order.len() as u32);
+                    for o in &r.order {
+                        h.u32(u32::from(*o));
+                    }
+                }
+            }
+            if !self.warps.lanes.is_empty() {
+                h.u32(0x4c41_4e45);
+                h.u32(self.warps.lanes.len() as u32);
+                for r in &self.warps.lanes {
+                    h.id(r.id);
+                    h.u32(r.made);
+                }
+            }
             if !self.warps.dismounts.is_empty() {
                 h.u32(0x444d_4e54);
                 h.u32(self.warps.dismounts.len() as u32);
@@ -25235,6 +25548,11 @@ impl BattleState {
                     h.opt_id(r.mount);
                 }
             }
+        }
+        // The client's generator, once drawn from.
+        if let Some(s) = self.client_rng {
+            h.u32(0x5852_5331);
+            h.u32(s);
         }
         // The taunts, only when there are some.
         if !self.taunts.is_empty() {
@@ -26309,6 +26627,9 @@ struct Snapshot {
     /// The taunts (`BattleState::taunts`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     taunts: TauntBoard,
+    /// The client's generator (`BattleState::client_rng`). Added after SNAPSHOT_FORMAT 20; `default` none (never drawn).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    client_rng: Option<u32>,
     /// The warps (`BattleState::warps`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     warps: WarpBoard,
@@ -27000,6 +27321,7 @@ impl BattleState {
             quests: self.quests.clone(),
             falls: self.falls.clone(),
             taunts: self.taunts.clone(),
+            client_rng: self.client_rng,
             warps: self.warps.clone(),
             slaps: self.slaps.clone(),
             deflects: self.deflects.clone(),
@@ -27260,6 +27582,7 @@ impl BattleState {
             quests: snap.quests,
             falls: snap.falls,
             taunts: snap.taunts,
+            client_rng: snap.client_rng,
             warps: snap.warps,
             slaps: snap.slaps,
             deflects: snap.deflects,

@@ -2758,6 +2758,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # Written only where set, so every other row is unchanged.
         if flag(c, "IgnoreClone"):
             u["ignore_clone"] = True
+        # IgnoreResurrect: the Skeleton King's souls pass over this unit's death (the Golem, the Battle Ram, the Lava
+        # Hound, the Phoenix's egg, ...). Written only where set, so every other row is unchanged.
+        if flag(c, "IgnoreResurrect"):
+            u["ignore_resurrect"] = True
         # DeathSpawnPushback, beside the death_spawn block it qualifies: whether this row's
         # death spawn starts on a small ring and slides out to DeathSpawnRadius (calibration
         # spawner.DEATH_SPAWN_PUSHBACK; measured on client 16.402 on the Golem and the Lava
@@ -3278,6 +3282,107 @@ def champion_warp_back(t, unit: str) -> dict | None:
     }
 
 
+# The lane switch (`champion_lane_switch`): every column the reader takes, or none (the cosmetic columns aside).
+LANE_SWITCH_ABILITY_READ = {
+    "ActivationSpawnCharacter", "ActivationSpawnDeployTime", "CastTime", "TriggerDelay", "ManaCost", "MaxCharges",
+    "SwitchLanes", "Name", "Stats", "StatsTags", "PopoverIconExportName", "PopoverIconFileName",
+}
+
+
+def champion_lane_switch(t, unit: str) -> dict | None:
+    """THE BUTTON OF A CHAMPION THAT SWITCHES LANES (15.535: the Mighty Miner's MightyMinerLaneSwitch), or None. Its row
+    sets SwitchLanes TRUE and an ActivationSpawnCharacter (`unit`: the bomb it drops, a units row) put down with
+    ActivationSpawnDeployTime 0 (`unit_deploy_ms`); the champion's own IngamePathfindSpeed (`speed`, native a tick) is its
+    pace under ground to the other lane. One charge, no Cooldown column. Any other column, or any other shape, gives
+    None."""
+    row = t["characters"].get(unit)
+    name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
+    a = t.abilities.get(name) if isinstance(name, str) else None
+    if a is None or set(a) - LANE_SWITCH_ABILITY_READ - DEFLECT_ABILITY_COSMETIC:
+        return None
+    if a.get("SwitchLanes") is not True or not isinstance(a.get("ActivationSpawnCharacter"), str):
+        return None
+    speed = row["IngamePathfindSpeed"] if "IngamePathfindSpeed" in row.columns else None
+    ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "ActivationSpawnDeployTime")]
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints + [speed]):
+        return None
+    cast_ms, trigger_ms, mana, charges, deploy_ms = ints
+    return {
+        "name": name,
+        "mana_cost": mana,
+        "max_charges": charges,
+        "cooldown_ms": None,
+        "cast_ms": cast_ms,
+        "trigger_delay_ms": trigger_ms,
+        "keep_current_target": False,
+        "is_champion": True,
+        "effect": {"kind": "lane_switch", "unit": a["ActivationSpawnCharacter"], "unit_deploy_ms": deploy_ms,
+                   "speed": speed},
+    }
+
+
+# The soul summon (`champion_soul_summon`): every column the reader takes off the ability and its area, or none (the
+# cosmetic columns aside).
+SOUL_ABILITY_READ = {
+    "AreaEffectObject", "CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "Name", "ResurrectBaseCount",
+    "ResurrectChargeFilter", "ResurrectEnemies", "ResurrectOwnTroops", "SpawnLimit", "Stats", "StatsTags",
+    "PopoverIconExportName", "PopoverIconFileName",
+}
+SOUL_ABILITY_COSMETIC = {"ResurrectGainChargeEffect", "ResurrectHealthBar"}
+SOUL_AEO_READ = {
+    "BuffNumber", "CapBuffTimeToAreaEffectTime", "FollowBehaviour", "HitsAir", "HitsGround", "LifeDuration", "Name",
+    "OnlyOwnTroops", "Radius", "Rarity", "SpawnCharacter", "SpawnClones", "SpawnInitialDelay", "SpawnInterval",
+    "SpawnMaxRadius", "SpawnMinRadius", "SpawnRandomizeSequence", "SpawnTime", "StayAfterParentDies",
+}
+SOUL_AEO_COSMETIC = {"ScaledEffect", "ScaledEffectFollowAeO", "SpawnDeployBaseAnim", "SpawnEffect"}
+
+
+def champion_soul_summon(t, unit: str) -> dict | None:
+    """THE BUTTON OF A CHAMPION THAT RAISES ITS SOULS (15.535: the Skeleton King's SkeletonKing), or None. The ability
+    counts souls (ResurrectEnemies and ResurrectOwnTroops TRUE) from ResurrectBaseCount (`count`) to SpawnLimit
+    (`max_count`), and its AreaEffectObject, following the champion and staying after him (FollowParent,
+    StayAfterParentDies), puts down that many copies (SpawnClones) of its SpawnCharacter (`unit`), the first
+    SpawnInitialDelay on (`spawn_delay_ms`), then one every SpawnInterval (`every_ms`), each deploying SpawnTime
+    (`unit_deploy_ms`), in the ring SpawnMinRadius .. SpawnMaxRadius (`min_radius_milli`, `max_radius_milli`) in a
+    randomized sequence, for LifeDuration (`duration_ms`). One charge. Any other column, or any other shape, gives None."""
+    row = t["characters"].get(unit)
+    name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
+    a = t.abilities.get(name) if isinstance(name, str) else None
+    if a is None or set(a) - SOUL_ABILITY_READ - SOUL_ABILITY_COSMETIC - DEFLECT_ABILITY_COSMETIC:
+        return None
+    if a.get("ResurrectEnemies") is not True or a.get("ResurrectOwnTroops") is not True:
+        return None
+    aeo_name = a.get("AreaEffectObject")
+    aeo_tb = t["area_effect_objects"]
+    aeo = aeo_tb.get(aeo_name) if isinstance(aeo_name, str) else None
+    if aeo is None or aeo_tb.set_fields.get(aeo_name, set()) - SOUL_AEO_READ - SOUL_AEO_COSMETIC:
+        return None
+    if aeo["FollowBehaviour"] != "FollowParent" or not aeo["SpawnClones"] or not aeo["SpawnRandomizeSequence"] \
+            or not aeo["StayAfterParentDies"] or not isinstance(aeo["SpawnCharacter"], str):
+        return None
+    ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "ResurrectBaseCount", "SpawnLimit")]
+    aints = [aeo[k] for k in ("SpawnInitialDelay", "SpawnInterval", "SpawnTime", "SpawnMinRadius", "SpawnMaxRadius",
+                              "LifeDuration", "Radius")]
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints + aints):
+        return None
+    cast_ms, trigger_ms, mana, charges, base, limit = ints
+    first_ms, every_ms, deploy_ms, min_r, max_r, life_ms, area_r = aints
+    return {
+        "name": name,
+        "mana_cost": mana,
+        "max_charges": charges,
+        "cooldown_ms": None,
+        "cast_ms": cast_ms,
+        "trigger_delay_ms": trigger_ms,
+        "keep_current_target": False,
+        "is_champion": True,
+        "effect": {"kind": "soul_summon", "unit": aeo["SpawnCharacter"], "count": base, "max_count": limit,
+                   "spawn_delay_ms": first_ms, "every_ms": every_ms, "unit_deploy_ms": deploy_ms,
+                   "min_radius_milli": min_r, "max_radius_milli": max_r, "duration_ms": life_ms,
+                   "radius_milli": area_r},
+    }
+
+
 # THE LITTLE PRINCE (`champion_ramp`, `champion_guard`): the ramp's variables' expressions, word for word, and the
 # guard's ability and spawn keys.
 RAMP_GRACE_SET = "{g}"
@@ -3630,6 +3735,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # 15.535 only and only where set (norm_unit): the card row whose own unit the Clone never copies.
     if "ignore_clone" in u:
         card["ignore_clone"] = u["ignore_clone"]
+    if "ignore_resurrect" in u:
+        card["ignore_resurrect"] = u["ignore_resurrect"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
     # carries the flag that qualifies it (the loader reads both off the same row).
     if "death_spawn_pushback" in u:
@@ -3646,6 +3753,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         or champion_deflect(t, res["character"])
         or champion_self_buff(t, res["character"])
         or champion_warp_back(t, res["character"])
+        or champion_lane_switch(t, res["character"])
+        or champion_soul_summon(t, res["character"])
         or champion_guard(t, res["character"])
         or champion_tether(t, res["character"], s["SummonCharacterSecond"])
     )

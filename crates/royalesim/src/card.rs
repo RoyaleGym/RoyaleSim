@@ -1263,6 +1263,10 @@ pub enum AbilityEffect {
     Siege(SiegeDef),
     /// THE WARP BACK (the Boss Bandit's; `WarpBackDef`).
     WarpBack(WarpBackDef),
+    /// THE LANE SWITCH (the Mighty Miner's; `LaneSwitchDef`).
+    LaneSwitch(LaneSwitchDef),
+    /// THE SOUL SUMMON (the Skeleton King's; `SoulSummonDef`).
+    SoulSummon(SoulSummonDef),
     /// THE FLAG'S SPAWNS (the Hero Goblins'; `FlagSpawnsDef`).
     FlagSpawns(FlagSpawnsDef),
     /// THE GUARD'S CHARGE (the Little Prince's; `GuardDef`).
@@ -1504,6 +1508,56 @@ pub struct WarpBackDef {
     pub warp_y: i32,
     pub charges: u8,
     pub cooldown_ms: i32,
+}
+
+/// THE SOUL SUMMON (the Skeleton King's SkeletonKing and its area SkeletonKingGraveyard; tools/extract_cards.py
+/// `champion_soul_summon`; state.rs `SoulKing`, `SoulRun`, `count_souls`, `soul_pass`). Every troop's death on the board
+/// is a soul for each live King; on the trigger his area, following him (and staying where he was if he dies), puts
+/// down `base` plus his souls, at most `limit`, copies of `unit` (1 hitpoint, `make_copy`), the first `first_ms` on, then
+/// one every `every_ms`, each deploying `deploy_ms`, on the ring `min_radius` .. `max_radius` around him; his souls go
+/// back to 0.
+///
+/// Measured on client 15.535.29 (Oracle's sp-champ-SkeletonKing-s0 and -late-s0, level 11): 6 and 9 copies (no death,
+/// three deaths before the press), the first on the trigger + 5, then every 5 ticks, each 1 hitpoint, deploying 8
+/// ticks, its target on its 10th frame; at exact directions, count - 1 evenly spaced (90, 162, 234, 306, 18, then 90
+/// again; 225, 45, 135, 90, 0, 270, 180, 315, then 225), radii 2505 to 2978: the client's draw, which Oracle read off the
+/// client's code (state.rs `soul_pass`, `client_rnd`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SoulSummonDef {
+    /// The copies' CardDb index (`UnitUse::SoulUnit`); u16::MAX until resolved.
+    pub unit: u16,
+    pub base: i32,
+    pub limit: i32,
+    pub first_ms: i32,
+    pub every_ms: i32,
+    pub deploy_ms: i32,
+    /// The ring, subtiles: SpawnMinRadius, SpawnMaxRadius and the area's own Radius (the draw's span is Radius -
+    /// SpawnMinRadius - the copy's collision radius).
+    pub min_radius: i32,
+    pub max_radius: i32,
+    pub area_radius: i32,
+    /// The area's LifeDuration: a copy due after it is never put down.
+    pub life_ms: i32,
+}
+
+/// THE LANE SWITCH (the Mighty Miner's MightyMinerLaneSwitch; tools/extract_cards.py `champion_lane_switch`; state.rs
+/// `LaneRun`, `lane_pass`, `tunnel_step`, `surface`). On the trigger he drops `bomb` (its ActivationSpawnCharacter, a
+/// hitpointless bomb row: a delayed impact of its DeathDamage, its DeployTime on, whose DeathPushBack pushes,
+/// `CardDef::dropped_by_ability`) where he stands; from the next tick he is under ground, travelling at `speed` (his
+/// IngamePathfindSpeed, native a tick) by the tunnel law to the other lane's mirror point (the arena's width less his x,
+/// his y), where he comes up as a Miner does.
+///
+/// Measured on client 15.535.29 (Oracle's sp-champ-MightyMiner-s0, level 11, the press issued on P = t196): the cast
+/// P + 1 .. P + 9, the trigger P + 10 (state 7, standing); under ground from P + 11 (the Knight that held him took a
+/// tower that tick): (11314, 13178) to 10667, 10017, 9367, 8717, 8067, 7417, then his point (6686, 13178) on P + 17,
+/// deploying to P + 35, attacking from P + 37; the bomb's 332 (130 at level 11) on a Knight 3486 from it on P + 30, the
+/// ladder of 1800 from P + 31.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LaneSwitchDef {
+    /// The bomb's CardDb index (a `summon_only` death bomb, `UnitUse::LaneSwitchBomb`); u16::MAX until resolved.
+    pub bomb: u16,
+    /// His pace under ground, native a tick (IngamePathfindSpeed).
+    pub speed: i32,
 }
 
 /// THE SLAP (the Hero Giant's; tools/extract_cards.py `slap_effect`; state.rs `SlapBoard`, `slap_pick`, `slap_pass`).
@@ -2981,9 +3035,17 @@ pub struct CardDef {
     /// container 1000). Loaded on every row: the Golem's 1800 and the Giant Skeleton's bomb's 1800
     /// stay unread under the shipped arm.
     pub death_pushback: i32,
+    /// A BOMB A CHAMPION'S BUTTON DROPS (`LaneSwitchDef::bomb`, the Mighty Miner's): its DeathPushBack pushes under
+    /// knockback.DEATH_PUSHBACK = containers_ladder too (spell.rs `death_bomb_push`). Measured on client 15.535.29
+    /// (sp-champ-MightyMiner-s0): the Knight it hit stepped the ladder of 1800 from the tick after.
+    pub dropped_by_ability: bool,
     /// characters / buildings IgnoreClone (cards.json `ignore_clone`; the Goblin Drill's dig, the chess Recruits): the
     /// Clone spell never copies this unit (spell.rs `step_spells`). False on a blank.
     pub ignore_clone: bool,
+    /// characters / buildings IgnoreResurrect (cards.json `ignore_resurrect`; the Golem, the Battle Ram, the Lava Hound):
+    /// this unit's death is no soul for a Skeleton King (state.rs `count_souls`). False on a blank. Measured on client
+    /// 15.535.29 (Oracle's sp-sk-souls-ignore-s0): a Battle Ram's death left his count at 6.
+    pub ignore_resurrect: bool,
     /// ProjectileYOffset, SUBTILES (0 = blank): a projectile is born this much further along its attacker's OWN
     /// forward y (Blue +y, Red -y) than ProjectileStartRadius alone puts it (combat.rs `launch_point`). A record the
     /// hero pass loads (`CardDb::is_hero_record`: the Hero Musketeer 300, her turret 300; measured on client 16.402)
@@ -3275,6 +3337,8 @@ struct RawCard {
     parry: Option<RawParry>,
     /// cards.json `ignore_clone` (IgnoreClone; 15.535 only, written where set): `CardDef::ignore_clone`.
     ignore_clone: Option<bool>,
+    /// cards.json `ignore_resurrect` (IgnoreResurrect; 15.535 only, written where set): `CardDef::ignore_resurrect`.
+    ignore_resurrect: Option<bool>,
     /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
     idle_invisibility: Option<RawIdleInvisibility>,
     /// Not in cards.json: set by a loader whose block hangs Invisible on the unit for its whole life (the Evo Lumberjack's
@@ -4394,6 +4458,12 @@ enum UnitUse {
     /// The unit a champion's button puts down (`GuardDef::unit`, the Little Prince's guard): loaded from `units` as a plain
     /// troop (its dash columns are the charge's, which the button runs).
     GuardUnit,
+    /// The bomb a champion's lane switch drops (`LaneSwitchDef::bomb`, the Mighty Miner's): loaded from `units`, and only a
+    /// hitpointless death bomb is taken.
+    LaneSwitchBomb,
+    /// The unit a champion's soul summon puts down (`SoulSummonDef::unit`, the Skeleton King's SkeletonKingSkeleton):
+    /// loaded from `units` as a plain troop.
+    SoulUnit,
     /// Member k >= 1 of a deploy at explicit offsets (`CardDef::summon_members`; the Three Musketeers' second and
     /// third): a unit, loaded like a spawner's. Member 0 is the card itself and needs nothing.
     SummonMember(u8),
@@ -5948,6 +6018,11 @@ struct RawAbilityEffect {
     hops: Option<i32>,
     mount_hold_ms: Option<i32>,
     blow_ms: Option<i32>,
+    /// `soul_summon` (tools/extract_cards.py `champion_soul_summon`; `unit`, `count`, `spawn_delay_ms`, `every_ms`,
+    /// `unit_deploy_ms` and `duration_ms` above): the cap and the ring.
+    max_count: Option<i32>,
+    min_radius_milli: Option<i32>,
+    max_radius_milli: Option<i32>,
 }
 
 /// cards.json `cards[].ramp` (tools/extract_cards.py `champion_ramp`): the grace and each level.
@@ -7212,7 +7287,9 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         parry: None,
         kamikaze_time_ms: 0,
         death_pushback: 0,
+        dropped_by_ability: false,
         ignore_clone: false,
+        ignore_resurrect: false,
         projectile_y_offset: 0,
         override_attack_finish: false,
         chain_hit: None,
@@ -8596,6 +8673,48 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut
         });
         return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect }));
     }
+    // THE SKELETON KING'S SOUL SUMMON: one charge; its copies' unit loads as a need of the card (`UnitUse::SoulUnit`).
+    if a.effect.kind == "soul_summon" {
+        let e = &a.effect;
+        if a.max_charges != Some(1) || a.cooldown_ms.is_some() || a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
+            return Err(format!("{what}: a soul summon other than one charge with no cooldown is not simulated"));
+        }
+        let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a soul summon with no {k}"));
+        let base = pos(e.count, "base count")?;
+        let limit = e.max_count.filter(|m| *m >= base).ok_or_else(|| format!("{what}: a soul summon whose limit is below its base"))?;
+        let (min_radius, max_radius) = (milli(pos(e.min_radius_milli, "ring")?), milli(pos(e.max_radius_milli, "ring")?));
+        if max_radius < min_radius {
+            return Err(format!("{what}: a soul summon's ring runs backwards"));
+        }
+        e.unit.as_ref().ok_or_else(|| format!("{what}: a soul summon with no unit"))?;
+        let effect = AbilityEffect::SoulSummon(SoulSummonDef {
+            unit: u16::MAX,
+            base,
+            limit,
+            first_ms: e.spawn_delay_ms.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a soul summon with no first delay"))?,
+            every_ms: pos(e.every_ms, "interval")?,
+            deploy_ms: e.unit_deploy_ms.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a soul summon with no deploy time"))?,
+            min_radius,
+            max_radius,
+            area_radius: milli(pos(e.radius_milli, "area radius")?),
+            life_ms: pos(e.duration_ms, "life")?,
+        });
+        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect }));
+    }
+    // THE MIGHTY MINER'S LANE SWITCH: one charge; its bomb loads as a need of the card (`UnitUse::LaneSwitchBomb`).
+    if a.effect.kind == "lane_switch" {
+        let e = &a.effect;
+        if a.max_charges != Some(1) || a.cooldown_ms.is_some() || a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
+            return Err(format!("{what}: a lane switch other than one charge with no cooldown is not simulated"));
+        }
+        if e.unit_deploy_ms != Some(0) {
+            return Err(format!("{what}: a lane switch's bomb put down with a deploy time ({:?}) is not simulated", e.unit_deploy_ms));
+        }
+        let speed = e.speed.filter(|v| *v > 0).ok_or_else(|| format!("{what}: a lane switch with no pace under ground"))?;
+        e.unit.as_ref().ok_or_else(|| format!("{what}: a lane switch with no bomb"))?;
+        let effect = AbilityEffect::LaneSwitch(LaneSwitchDef { bomb: u16::MAX, speed });
+        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect }));
+    }
     // THE BOSS BANDIT'S WARP BACK: its charges and its cooldown are the table's (state.rs `HeroUnit::uses`,
     // `recharge_at`); its buff at the trigger, its warp `warp_delay_ms` on.
     if a.effect.kind == "warp_back" {
@@ -9211,6 +9330,10 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let special = convert_special(raw.special, kind)?;
     // THE LITTLE PRINCE'S GUARD: its unit, a need of the card (`UnitUse::GuardUnit`).
     let guard_unit = raw.ability.as_ref().filter(|a| a.effect.kind == "guard").and_then(|a| a.effect.unit.clone());
+    // THE MIGHTY MINER'S BOMB: a need of the card (`UnitUse::LaneSwitchBomb`).
+    let lane_bomb = raw.ability.as_ref().filter(|a| a.effect.kind == "lane_switch").and_then(|a| a.effect.unit.clone());
+    // THE SKELETON KING'S COPIES' UNIT: a need of the card (`UnitUse::SoulUnit`).
+    let soul_unit = raw.ability.as_ref().filter(|a| a.effect.kind == "soul_summon").and_then(|a| a.effect.unit.clone());
     let ability = convert_champion_ability(raw.ability, kind, buffs)?;
     // THE LITTLE PRINCE'S RAMP: each level's buff, for good while its count holds (`RampDef`).
     let ramp = match raw.ramp {
@@ -9238,6 +9361,12 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let mut units: Vec<(UnitUse, String)> = Vec::new();
     if let Some(g) = guard_unit {
         units.push((UnitUse::GuardUnit, g));
+    }
+    if let Some(u) = soul_unit {
+        units.push((UnitUse::SoulUnit, u));
+    }
+    if let Some(b) = lane_bomb {
+        units.push((UnitUse::LaneSwitchBomb, b));
     }
     if let Some((_, name)) = &life_state {
         units.push((UnitUse::LifeState, name.clone()));
@@ -9585,7 +9714,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         parry,
         kamikaze_time_ms,
         death_pushback,
+        dropped_by_ability: false,
         ignore_clone: raw.ignore_clone.unwrap_or(false),
+        ignore_resurrect: raw.ignore_resurrect.unwrap_or(false),
         // ProjectileYOffset: a blank (every row but the King Tower's among the loaded ones) is none. Signed: the
         // column may point backwards (an event row ships -800), so it is not `nonneg`.
         #[cfg(not(clash_plant = "projectile_y_offset_unread"))]
@@ -10314,6 +10445,10 @@ impl CardDb {
                 // THE MORPH TARGET IS A BUILDING WITH HITPOINTS (the one measured: the Goblin Drill's
                 // 1313-hp building). A morph into a troop, or into a hitpoint-less death bomb, is a
                 // shape nothing measured: the card is refused.
+                // A LANE SWITCH'S BOMB is a hitpointless death bomb (the Mighty Miner's), or the card is refused.
+                Ok(u) if which == UnitUse::LaneSwitchBomb && db.cards[u as usize].death_bomb_fuse_ms().is_none() => {
+                    unloadable.push((spell_idx, format!("units.{unit}: a lane switch's drop that is not a death bomb is not simulated")));
+                }
                 Ok(u) if which == UnitUse::Morph && (db.cards[u as usize].kind != CardKind::Building || db.cards[u as usize].death_bomb_fuse_ms().is_some()) => {
                     unloadable.push((spell_idx, format!("units.{unit}: an underground morph into anything but a building with hitpoints is not simulated")));
                 }
@@ -10360,6 +10495,17 @@ impl CardDb {
                             if let Some(AbilityDef { effect: AbilityEffect::Guard(g), .. }) = card.ability.as_mut() {
                                 g.unit = u;
                             }
+                        }
+                        UnitUse::SoulUnit => {
+                            if let Some(AbilityDef { effect: AbilityEffect::SoulSummon(sd), .. }) = card.ability.as_mut() {
+                                sd.unit = u;
+                            }
+                        }
+                        UnitUse::LaneSwitchBomb => {
+                            if let Some(AbilityDef { effect: AbilityEffect::LaneSwitch(l), .. }) = card.ability.as_mut() {
+                                l.bomb = u;
+                            }
+                            db.cards[u as usize].dropped_by_ability = true;
                         }
                         UnitUse::SummonMember(k) => {
                             card.summon_members.as_mut().expect("summon_members present")[k as usize].unit = u;
@@ -10462,12 +10608,18 @@ impl CardDb {
         // thing on the board that dies the moment it is looked at. No shipped row
         // does -- BalloonBomb, GiantSkeletonBomb and BombTowerBomb are named by
         // DeathSpawnCharacter and by nothing else -- and a row that starts to is
-        // REFUSED rather than run wrong.
+        // REFUSED rather than run wrong. The one other path that drops a bomb as the
+        // same timed impact is a champion's lane switch (the Mighty Miner's bomb,
+        // state.rs `fire_ability`), which never reaches `spawn_now` with it.
         for idx in 0..db.cards.len() as u16 {
+            let lane_bomb = match db.cards[idx as usize].ability.as_ref().map(|a| &a.effect) {
+                Some(AbilityEffect::LaneSwitch(l)) => Some(l.bomb),
+                _ => None,
+            };
             let from_other_path = db
                 .unit_refs(idx)
                 .into_iter()
-                .filter(|(path, _, _)| *path != UnitRef::DeathSpawn)
+                .filter(|(path, u, _)| *path != UnitRef::DeathSpawn && !(*path == UnitRef::AbilityUnit && Some(*u) == lane_bomb))
                 .find(|(_, u, _)| db.cards.get(*u as usize).and_then(CardDef::death_bomb_fuse_ms).is_some());
             if let Some((path, u, _)) = from_other_path {
                 let name = db.cards[u as usize].name.clone();
@@ -13167,6 +13319,14 @@ impl CardDb {
         // The Little Prince's guard.
         if let Some(AbilityDef { effect: AbilityEffect::Guard(g), .. }) = &c.ability {
             out.push((UnitRef::AbilityUnit, g.unit, None));
+        }
+        // The Mighty Miner's bomb.
+        if let Some(AbilityDef { effect: AbilityEffect::LaneSwitch(l), .. }) = &c.ability {
+            out.push((UnitRef::AbilityUnit, l.bomb, None));
+        }
+        // The Skeleton King's copies.
+        if let Some(AbilityDef { effect: AbilityEffect::SoulSummon(sd), .. }) = &c.ability {
+            out.push((UnitRef::AbilityUnit, sd.unit, None));
         }
         // The Hero Goblins' flag and its spawns' units.
         if let Some(AbilityDef { effect: AbilityEffect::FlagSpawns(f), .. }) = &c.ability {
