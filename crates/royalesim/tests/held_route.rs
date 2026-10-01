@@ -31,7 +31,7 @@ fn a_zapped_hog_rider_keeps_its_route_through_the_stun() {
         s.tick();
         let h = s.entity(hog).expect("the Hog Rider");
         if !h.deploying && !h.route.is_empty() && h.pos.y > 18500 * K {
-            before = h.route.clone();
+            before = h.route.to_vec();
             break;
         }
     }
@@ -51,11 +51,11 @@ fn a_zapped_hog_rider_keeps_its_route_through_the_stun() {
                 kept = last.clone(); // the route on the last tick it walked
             }
             held += 1;
-            assert_eq!(h.route, kept, "held tick {held}: the route the Hog Rider held on its last walking tick ({log:?})");
+            assert_eq!(h.route, kept.as_slice(), "held tick {held}: the route the Hog Rider held on its last walking tick ({log:?})");
         } else if held > 0 {
             break;
         }
-        last = h.route.clone();
+        last = h.route.to_vec();
     }
     assert!(held >= 5, "the scene drifted: the Zap held the Hog Rider {held} ticks ({log:?})");
 }
