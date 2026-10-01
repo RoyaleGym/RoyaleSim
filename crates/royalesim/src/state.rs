@@ -15297,12 +15297,12 @@ impl BattleState {
                 // A copy drawn onto the river: the grid rule, not the scheduled spawn's one-axis eject. Measured on
                 // client 15.535.29 (sp-champ-SkeletonKing-s0): the draw (11212, 16174) stood on (10962, 14924).
                 let q = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, true);
+                // Whatever spells.SCHEDULED_SPAWN_INVALID_POINT says: its shipped clamp_keep_water is the Graveyard's
+                // (its Skeletons measured deploying on the water), his copies' landing is measured apart.
                 #[cfg(not(clash_plant = "souls_axis_eject"))]
-                let grid = !flying
-                    && self.cfg.calib.scheduled_spawn_invalid_point == ScheduledSpawnInvalidPoint::ClampThenEjectToLand
-                    && !self.cfg.arena.is_passable_ground(q);
+                let grid = !flying && !self.cfg.arena.is_passable_ground(q);
                 #[cfg(clash_plant = "souls_axis_eject")]
-                let grid = false; // PLANT (regression): the scheduled spawn's one-axis eject.
+                let grid = false; // PLANT (regression): the scheduled spawn rule (shipped: kept on the water).
                 let p = if grid {
                     self.cfg.arena.nearest_land_grid(q, r.team).unwrap_or(q)
                 } else {

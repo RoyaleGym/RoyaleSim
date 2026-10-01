@@ -21,7 +21,8 @@
 //!                scenario troop row is played at its RAW tap under the tile-centre snap
 //!                (plant: replay_plays_the_snapped_tap); a
 //!                Clone's copy is rooted as "Clone", the card the recording names every
-//!                copy by (plant: replay_roots_a_copy_as_its_unit).
+//!                copy by (plant: replay_roots_a_copy_as_its_unit); a truth entity with
+//!                no hitpoints (a visual dummy) takes no pair (plant: replay_pairs_a_dummy).
 //!   the floor    the ISOLATED-WALK unit-ticks within WALK_TIGHT_NATIVE (20 native:
 //!                a unit walking at a tower with full hp, bit-exact) -- measured at
 //!                100 % for the Prince (92 frames, charge included),
@@ -832,4 +833,31 @@ fn a_capture_runs_the_card_values_of_the_client_that_recorded_it() {
         shipped,
         "a run that overrides the key runs its override, whatever the fixture's client"
     );
+}
+
+/// A TRUTH ENTITY WITH NO HITPOINTS AT ALL (max_hp below 0: the Hero Tombstone's visual dummy, NO_DAMAGE, UNTARGETABLE,
+/// NO_CHECKCOLLISIONS) is paired with nothing, as an unknown object is. A copy of a troop's row made such a dummy and
+/// put a frame ahead of it, first in its group, takes no pair and leaves every pair as the sample's own.
+#[test]
+fn a_truth_entity_with_no_hitpoints_takes_no_pair() {
+    let pairs = |r: &Report| -> Vec<(i64, u32, u32)> {
+        r.pairs.iter().map(|p| (p.truth_key, p.sim_index, p.sim_generation)).collect()
+    };
+    let base = play(&sample());
+    let mut f = sample();
+    let k = f
+        .truth
+        .entities
+        .iter()
+        .position(|e| e.role == "troop" && e.max_hp > 0 && e.t0 > 0)
+        .expect("a troop row after the first frame");
+    let mut dummy = f.truth.entities[k].clone();
+    dummy.key = f.truth.entities.iter().map(|e| e.key).max().unwrap_or(0) + 1;
+    dummy.max_hp = -1;
+    dummy.t0 -= 1;
+    let key = dummy.key;
+    f.truth.entities.push(dummy);
+    let r = play(&f);
+    assert!(!r.pairs.iter().any(|p| p.truth_key == key), "the dummy took a pair");
+    assert_eq!(pairs(&r), pairs(&base), "the dummy moved a pair");
 }
