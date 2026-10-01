@@ -11,7 +11,7 @@
 //!   3. a new copy brings a fresh charge after the first spent its own.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test hero_newest_copy`):
-//!   hero_button_falls_back   no copy is superseded: (1) and (2) go red.
+//!   hero_button_falls_back   no copy is superseded: (2) goes red (the button falls back to the older copy).
 mod common;
 
 use common::*;
