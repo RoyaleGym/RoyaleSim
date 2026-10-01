@@ -22655,10 +22655,19 @@ impl BattleState {
         // placement.TROOP_BUILDING_TAPS one on an own building and under placement.LIVE_BOTTLE_TAPS one on an own live
         // bottle, so the footprint is judged where the troop (or a spell placed as one, placement.SPELL_AS_DEPLOY_TAPS)
         // will stand.
-        let at = if self.relocates_taps(card) { self.resolve_point(team, idx, pos) } else { pos };
-        // A LINE is placed by its own law (`lays_a_line`, formation.rs `line_centre`), off a tower's rows: its tap on a
-        // footprint is taken (Oracle's sp-rrtap-*: taps on the princess boxes accepted).
-        #[cfg(not(clash_plant = "line_tap_relocated"))]
+        // A LINE is laid from its raw tap by its own law (`lays_a_line`, formation.rs `line_centre`) but JUDGED on the
+        // footprints where a troop's tap would stand (`resolve_point_judged`, the troop relocation): a tap on its own
+        // princess box is taken, as a troop's is moved off it (Oracle's sp-rrtap-*: taps on the princess boxes
+        // accepted), and one on any other building is refused as a troop's is.
+        let at = if !self.relocates_taps(card) {
+            pos
+        } else if self.lays_a_line(idx) {
+            self.resolve_point_judged(team, idx, pos, true, false)
+        } else {
+            self.resolve_point(team, idx, pos)
+        };
+        #[cfg(clash_plant = "line_footprint_unjudged")]
+        // PLANT (regression): r20's line taken on every footprint.
         let footprint_rule = footprint_rule && !self.lays_a_line(idx);
         if footprint_rule && self.footprint_covers(at, 0) {
             return Err(DeployError::Occupied);
@@ -22729,6 +22738,12 @@ impl BattleState {
 
     /// `resolve_point`, with `snap` false leaving out placement.TAP_SNAP (`spawn_unit_resolved`'s troops).
     fn resolve_point_with(&self, team: Team, idx: u16, pos: Vec2, snap: bool) -> Vec2 {
+        self.resolve_point_judged(team, idx, pos, snap, true)
+    }
+
+    /// `resolve_point_with`, with `raw_line` false for a line card judged as a troop's tap is (`check_position`): the
+    /// troop's snap and relocations apply to it too.
+    fn resolve_point_judged(&self, team: Team, idx: u16, pos: Vec2, snap: bool, raw_line: bool) -> Vec2 {
         let card = self.cfg.cards.get(idx);
         let calib = &self.cfg.calib;
         if card.kind == CardKind::Building {
@@ -22739,9 +22754,10 @@ impl BattleState {
         // princess box first, a Royal Recruits line tapped on (2500, 7000) stood on y 4500, where the client's stood on
         // 8500.
         #[cfg(not(clash_plant = "line_tap_relocated"))]
-        if self.lays_a_line(idx) {
+        if raw_line && self.lays_a_line(idx) {
             return pos;
         }
+        let _ = raw_line;
         let mut p = pos;
         if card.kind == CardKind::Spell && calib.illegal_spell_tap == IllegalSpellTap::ClampToLegalEdge {
             let (territory, _) = deploy_rule(calib, card);

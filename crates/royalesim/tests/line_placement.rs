@@ -10,7 +10,8 @@
 //! line_placement`):
 //!   - line_centre_on_tap -> `the_royal_recruits_line_stands_where_the_client_put_it` red;
 //!   - line_tap_relocated -> `a_line_put_down_stands_where_the_client_put_it` red (a tap on a princess box relocated
-//!     first).
+//!     first);
+//!   - line_footprint_unjudged -> `a_line_is_taken_on_its_own_princess_box_and_refused_on_an_enemy_building` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -119,4 +120,30 @@ fn the_royal_recruits_line_stands_where_the_client_put_it() {
         }
     }
     assert!(wrong.is_empty(), "taps whose line stands elsewhere (tap, client, here): {wrong:?}");
+}
+
+/// A LINE'S TAP IS JUDGED AS A TROOP'S (state.rs `check_position`, `resolve_point_judged`): taken on its own princess
+/// tower's box, where a troop's tap is moved off the box (Oracle's sp-rrtap-*: the client took such taps), and refused
+/// on an enemy building, as a Knight's tap is.
+#[test]
+fn a_line_is_taken_on_its_own_princess_box_and_refused_on_an_enemy_building() {
+    use royalesim::state::DeployError;
+    let mut cfg = config();
+    const DECK: [&str; 8] = ["RoyalRecruits", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
+    let deck: Vec<String> = DECK.iter().map(|c| c.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    let mut s = BattleState::try_new(7, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let free = Vec2::new(5000 * K, 5000 * K);
+    for card in ["RoyalRecruits", "Knight"] {
+        assert_eq!(s.check_deploy(Team::Blue, card, free), Ok(()), "the scene: {card} playable on free ground");
+    }
+    let at = Vec2::new(9000 * K, 12500 * K);
+    s.scenario_spawn_now(Team::Red, "Cannon", at, None).expect("a red Cannon on Blue's half");
+    for card in ["RoyalRecruits", "Knight"] {
+        assert_eq!(s.check_deploy(Team::Blue, card, at), Err(DeployError::Occupied), "{card} tapped on the red Cannon");
+    }
+    let own_box = Vec2::new(3500 * K, 6500 * K);
+    assert_eq!(s.check_deploy(Team::Blue, "RoyalRecruits", own_box), Ok(()), "a line on its own princess box");
 }
