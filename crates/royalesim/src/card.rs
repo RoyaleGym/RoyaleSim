@@ -12489,21 +12489,18 @@ impl CardDb {
                     let mut uv = extra.tables.units.get(name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
                     let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
                     obj.insert("kind".into(), serde_json::Value::String(kind.into()));
-                    // The flag attacks nothing (AttacksGround and AttacksAir false, no Damage): its row ships no HitSpeed,
-                    // read as 0 (the Target and Attack passes skip a hit speed of 0), as the Elixir Collector's.
-                    // Its blank CollisionRadius (NO_CHECKCOLLISIONS: it meets no body) read as 0, as the flag is set below.
-                    let blank = |k: &str| obj.get(k).map_or(true, serde_json::Value::is_null);
-                    let building = kind == "building";
-                    let (no_hit, no_radius) = (building && blank("damage") && blank("hit_speed_ms"), building && blank("collision_radius_milli"));
-                    if no_hit {
-                        obj.insert("hit_speed_ms".into(), serde_json::Value::from(0));
-                    }
-                    if no_radius {
-                        obj.insert("collision_radius_milli".into(), serde_json::Value::from(0));
-                    }
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
                     ur.ability = None;
+                    // The flag attacks nothing (AttacksGround and AttacksAir false, no Damage): its row ships no HitSpeed,
+                    // read as 0 (the Target and Attack passes skip a hit speed of 0), as the Elixir Collector's. Its blank
+                    // CollisionRadius (NO_CHECKCOLLISIONS: it meets no body) read as 0, as the flag is set below.
+                    if kind == "building" {
+                        if ur.damage.is_none() && ur.hit_speed_ms.is_none() {
+                            ur.hit_speed_ms = Some(0);
+                        }
+                        ur.collision_radius_milli = ur.collision_radius_milli.or(Some(0));
+                    }
                     let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
                     if let Some((w, n)) = uneeds.first() {
                         return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on a flag"));
@@ -12668,15 +12665,14 @@ impl CardDb {
                     let mut uv = extra.tables.units.get(name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
                     let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
                     obj.insert("kind".into(), serde_json::Value::String("troop".into()));
-                    // A charge block of DamageSpecial alone (the walking row's 208, its base's copied): no ChargeRange and
-                    // no ChargeSpeedMultiplier, so no charge (the row runs, it never charges); dropped, not refused.
-                    let blank = |c: &serde_json::Value, k: &str| c.get(k).map_or(true, serde_json::Value::is_null);
-                    if obj.get("charge").is_some_and(|c| c.is_object() && blank(c, "charge_range_raw") && blank(c, "charge_speed_multiplier_percent")) {
-                        obj.insert("charge".into(), serde_json::Value::Null);
-                    }
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
                     ur.ability = None;
+                    // A charge block of DamageSpecial alone (the walking row's 208, its base's copied): no ChargeRange and
+                    // no ChargeSpeedMultiplier, so no charge (the row runs, it never charges); dropped, not refused.
+                    if ur.charge.as_ref().is_some_and(|c| c.charge_range_raw.is_none() && c.charge_speed_multiplier_percent.is_none()) {
+                        ur.charge = None;
+                    }
                     let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
                     if let Some((w, n)) = uneeds.first() {
                         return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on a dismount"));
@@ -13182,6 +13178,11 @@ impl CardDb {
         if let Some(AbilityDef { effect: AbilityEffect::TombMonster(t), .. }) = &c.ability {
             out.push((UnitRef::AbilityUnit, t.passive, None));
             out.push((UnitRef::AbilityUnit, t.active, None));
+        }
+        // Goblinstein's Doctor (its tether's unit; its card's second summon, named above) and the Hero Barbarian Barrel's
+        // Barbarian (its re-roll's unit; its spell's release, named above).
+        if let Some(AbilityDef { effect: AbilityEffect::Tether(TetherDef { unit, .. }) | AbilityEffect::ReRoll(ReRollDef { unit, .. }), .. }) = &c.ability {
+            out.push((UnitRef::AbilityUnit, *unit, None));
         }
         // After it, so no earlier block's place moves: the units an evolved form's own mechanic puts down (loaded right
         // after the form, `load_evolution`): the Evo Royal Ghost's pair.

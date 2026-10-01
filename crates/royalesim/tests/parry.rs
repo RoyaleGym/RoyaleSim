@@ -819,8 +819,9 @@ fn a_row_that_stops_the_walk_but_not_the_clock_is_not_a_stun() {
         assert_eq!(most, 500, "{arm:?}: the Zap's stun");
     }
 
-    // The arms part on the Ronin's row alone: every other row the table loads whose speed composes to 0 has its hit
-    // speed at 0 too, so no card loaded before the Ronin moves.
+    // The arms part on the Ronin's row and the buttons' holds alone (the Little Prince's, the Hero Bowler's siege, the
+    // Hero Tombstone's stand-still): every other row the table loads whose speed composes to 0 has its hit speed at 0
+    // too, so no card loaded before the Ronin moves.
     let s = BattleState::new(0, shipped());
     let db = s.cards();
     let split: Vec<&str> = db
@@ -830,7 +831,11 @@ fn a_row_that_stops_the_walk_but_not_the_clock_is_not_a_stun() {
         .filter(|(b, _)| compose([**b].iter(), Sel::Speed, 100) == 0 && compose([**b].iter(), Sel::HitSpeed, 100) != 0)
         .map(|(_, n)| n.as_str())
         .collect();
-    assert_eq!(split, ["ronin_reflect_stun_buff"], "the rows that stop the walk and not the clock");
+    assert_eq!(
+        split,
+        ["ChampGuardianAbility hold", "ronin_reflect_stun_buff", "BowlerHero_ability_buff", "Tombstone_hero_Monster_StandStillBuff"],
+        "the rows that stop the walk and not the clock"
+    );
 }
 
 // ---------------------------------------------------------------------------

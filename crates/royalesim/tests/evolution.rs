@@ -510,7 +510,8 @@ fn forms_take_slots_after_every_existing_card() {
             ("FirespiritHut", "FirespiritHut_EV1"),
             ("ElectroDragon", "ElectroDragon_EV1"),
             ("GoblinDrill", "GoblinDrill_EV1"),
-            ("GoblinBarrel", "GoblinBarrel_EV1")
+            ("GoblinBarrel", "GoblinBarrel_EV1"),
+            ("RageBarbarian", "RageBarbarian_EV1")
         ]
         .map(|(a, b)| (a.to_string(), b.to_string()))
     );

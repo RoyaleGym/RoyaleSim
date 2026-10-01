@@ -273,8 +273,24 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
             };
         }
     }
-    // the unit a hero's button puts down (the Hero Musketeer's turret)
-    if let Some(royalesim::card::AbilityDef { effect: royalesim::card::AbilityEffect::SpawnAhead { unit, .. } | royalesim::card::AbilityEffect::Throw { unit, .. } | royalesim::card::AbilityEffect::GroundToAir { unit, .. }, .. }) = &c.ability {
+    // the unit a hero's button puts down (the Hero Musketeer's turret, the Hero Magic Archer's decoy, the Hero Bowler's
+    // siege form), then the guard, the flag and its spawns, the walking row and the mount, the tomb's two monsters, and
+    // the tether's and the re-roll's units, read field by field
+    use royalesim::card::AbilityEffect as E;
+    if let Some(royalesim::card::AbilityDef { effect: E::SpawnAhead { unit, .. } | E::Throw { unit, .. } | E::GroundToAir { unit, .. } | E::DecoyWarp(royalesim::card::DecoyWarpDef { decoy: unit, .. }) | E::Siege(royalesim::card::SiegeDef { unit, .. }), .. }) = &c.ability {
+        out.push((UnitRef::AbilityUnit, *unit, None));
+    }
+    match c.ability.as_ref().map(|a| &a.effect) {
+        Some(E::Guard(g)) => out.push((UnitRef::AbilityUnit, g.unit, None)),
+        Some(E::FlagSpawns(f)) => {
+            out.push((UnitRef::AbilityUnit, f.flag, None));
+            out.extend(f.spawns.iter().map(|sp| (UnitRef::AbilityUnit, sp.unit, None)));
+        }
+        Some(E::Dismount(d)) => out.extend([(UnitRef::AbilityUnit, d.walker, None), (UnitRef::AbilityUnit, d.mount, None)]),
+        Some(E::TombMonster(t)) => out.extend([(UnitRef::AbilityUnit, t.passive, None), (UnitRef::AbilityUnit, t.active, None)]),
+        _ => {}
+    }
+    if let Some(royalesim::card::AbilityDef { effect: E::Tether(royalesim::card::TetherDef { unit, .. }) | E::ReRoll(royalesim::card::ReRollDef { unit, .. }), .. }) = &c.ability {
         out.push((UnitRef::AbilityUnit, *unit, None));
     }
     // the units an evolved form's own mechanic puts down (the Evo Royal Ghost's pair, left then right)
@@ -300,6 +316,10 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
     if let Some(f) = c.evo.as_ref().and_then(|v| v.fall.as_ref()) {
         out.push((UnitRef::EvoUnit(0), f.grounded.unit, None));
     }
+    // the Evo Lumberjack's ghost
+    if let Some(r) = c.evo.as_ref().and_then(|v| v.rage_ghost.as_ref()) {
+        out.push((UnitRef::EvoUnit(0), r.ghost.unit, None));
+    }
     // every entry of the card's deploy spawn area (the Tri Wizards' TriWizardSpawn): entry 0 the card itself, then the
     // cards whose deploy areas its actions make
     if let Some(SpellDef { shape: SpellShape::ScheduledArea { schedule, .. }, .. }) = &c.deploy_spawn_area {
@@ -311,9 +331,11 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
 }
 
 /// Every `unit: <n>` field in `text`, the underground walk's `morph: Some(<n>)` (SpawnPathfindDef, the Goblin Drill's
-/// building), and every `card: <n>` (a VariantOption's form, a card index). `unit_name:` does not match.
+/// building), every `card: <n>` (a VariantOption's form, a card index), and the buttons' units under their own names
+/// (DecoyWarpDef's `decoy`, FlagSpawnsDef's `flag`, DismountDef's `walker` and `mount`, TombMonsterDef's `passive` and
+/// `active`). `unit_name:` does not match.
 fn unit_fields_in(text: &str) -> usize {
-    ["{ unit: ", ", unit: ", "morph: Some(", ", card: "]
+    ["{ unit: ", ", unit: ", "morph: Some(", ", card: ", ", decoy: ", "{ flag: ", "{ walker: ", ", mount: ", "{ passive: ", ", active: "]
         .into_iter()
         .map(|sep| text.match_indices(sep).filter(|&(at, _)| text[at + sep.len()..].starts_with(|ch: char| ch.is_ascii_digit())).count())
         .sum()

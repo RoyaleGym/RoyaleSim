@@ -214,6 +214,11 @@ fn a_building_bleeds_its_lifetime_away_tick_by_tick_and_dies_when_the_pool_is_em
         if card_stat(&s0, name).evo.as_ref().is_some_and(|v| v.drill.is_some()) {
             continue;
         }
+        // A building put down with no deploy (the Hero Goblins' flag, which its button ends: tests/hero_goblins.rs) has
+        // no deploy end for this scan's arithmetic to read.
+        if deploy == 0 {
+            continue;
+        }
         let (deploy_end, hp, died) = life_of(config(), name);
         let max = hp[0];
         let drain = want_drain(max, life);
@@ -369,12 +374,14 @@ fn a_snapshot_mid_drain_resumes_hitpoint_for_hitpoint() {
 #[test]
 fn only_buildings_and_transformation_targets_carry_a_lifetime() {
     // card.rs refuses a TROOP with a LifeTime (`units.{unit} is a troop with a LifeTime`) unless a transformation is
-    // what reaches it: the Goblin Demolisher's kamikaze form, and nothing else in the 15.535.29 table.
+    // what reaches it: the Goblin Demolisher's kamikaze form, and nothing else in the 15.535.29 table but the Hero
+    // Tombstone's two monster rows, which its button's block loads (their LifeTimes the table's: the waiting one's
+    // 41000 outlasts its tomb's 30000 and its window, the active one's 0 drains nothing).
     let mut s = bare(config());
     let db = s.cards();
     let troops: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).kind != royalesim::card::CardKind::Building && db.get(*i).lifetime_ms.is_some()).collect();
     let names: Vec<&str> = troops.iter().map(|i| db.get(*i).name.as_str()).collect();
-    assert_eq!(names, ["GoblinDemolisher_kamikaze_form"], "the non-buildings with a LifeTime");
+    assert_eq!(names, ["GoblinDemolisher_kamikaze_form", "TombstoneHero_Monster_Passive", "TombstoneHero_Monster_Active"], "the non-buildings with a LifeTime");
     let form = troops[0];
     assert!(db.get(form).summon_only, "the kamikaze form is never played");
     let named_by: Vec<UnitRef> = (0..db.cards.len() as u16).flat_map(|i| db.unit_refs(i)).filter(|(_, u, _)| *u == form).map(|(path, _, _)| path).collect();

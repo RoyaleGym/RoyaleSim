@@ -209,10 +209,11 @@ fn the_loader_reads_the_dash_blocks_and_drops_none() {
     let m = get("MegaKnight").dash.expect("the Mega Knight's dash block is read");
     assert_eq!((m.damage, m.min_range / K, m.max_range / K, m.cooldown_ms, m.speed), (210, 3500, 5000, 900, 250));
     assert_eq!((m.radius.map(|r| r / K), m.pushback_raw, m.immune_ms, m.constant_time_ms, m.landing_time_ms), (Some(2200), Some(1000), None, Some(800), Some(300)));
-    // No other loaded card dashes but the Evo Mega Knight, whose form carries its base's: the Golden Knight's and the
-    // event Hog Rider's dash start from an Ability and ride in `triggered_dash`, which nothing reads.
+    // No other loaded card dashes but the Boss Bandit (its own row's dash, beside its button's warp back) and the Evo
+    // Mega Knight, whose form carries its base's: the Golden Knight's and the event Hog Rider's dash start from an
+    // Ability and ride in `triggered_dash`, which nothing reads.
     let dashers: Vec<&str> = db.cards.iter().filter(|c| c.dash.is_some()).map(|c| c.name.as_str()).collect();
-    assert_eq!(dashers, ["Assassin", "MegaKnight", "MegaKnight_EV1"], "the loaded cards with a dash");
+    assert_eq!(dashers, ["Assassin", "MegaKnight", "BossBandit", "MegaKnight_EV1"], "the loaded cards with a dash");
     let mk = get("MegaKnight_EV1").dash.expect("the Evo Mega Knight's dash");
     assert_eq!((mk.damage, mk.min_range, mk.max_range, mk.speed), (m.damage, m.min_range, m.max_range, m.speed), "its base's dash");
     // No block dropped quietly: every cards.json dash block with a speed key is a loaded DashDef (the 2018 file's

@@ -100,11 +100,48 @@ fn the_forms_load_after_every_other_slot() {
     }
     assert_eq!(bare.buffs[..], full.buffs[..bare.buffs.len()], "a buff index moved");
     assert_eq!(bare.rejected, full.rejected);
-    // After them: the ten forms, each with its base, the turret after the Hero Musketeer, and the Hero Balloon's
-    // Skeletrooper and bomb after it; every one summon-only, so no deck or catalogue names one.
+    // After them: the sixteen forms, each with its base, and each form's button's units after it (the Hero Musketeer's
+    // turret, the Hero Balloon's Skeletrooper and bomb, the Hero Wizard's air row, the Hero Magic Archer's decoy, the Hero
+    // Bowler's siege form, the Hero Goblins' flag and dummy, the Hero Barbarian Barrel's Barbarian and log, the Hero Dark
+    // Prince's walking row and mount, the Hero Tombstone's two monsters); every one summon-only, so no deck or catalogue
+    // names one.
     assert!(full.rejected_forms.is_empty(), "refused forms: {:?}", full.rejected_forms);
     let names: Vec<&str> = full.cards[n..].iter().map(|c| c.name.as_str()).collect();
-    assert_eq!(names, ["Musketeer_hero", "MusketeerTurret", "IceGolemite_hero", "Berserker_hero", "Balloon_hero", "SkeletonTrooper", "BalloonHero_Bomb", "Valkyrie_hero", "Wizard_hero", "WizardHero_air", "MiniPekka_hero", "Knight_hero", "MegaMinion_hero", "Giant_hero"]);
+    assert_eq!(
+        names,
+        [
+            "Musketeer_hero",
+            "MusketeerTurret",
+            "IceGolemite_hero",
+            "Berserker_hero",
+            "Balloon_hero",
+            "SkeletonTrooper",
+            "BalloonHero_Bomb",
+            "Valkyrie_hero",
+            "Wizard_hero",
+            "WizardHero_air",
+            "MiniPekka_hero",
+            "Knight_hero",
+            "MegaMinion_hero",
+            "Giant_hero",
+            "EliteArcher_hero",
+            "EliteArcherHero_Dummy",
+            "Bowler_hero",
+            "BowlerHero_Siege",
+            "Goblins_hero",
+            "GoblinHero_Flag_Building",
+            "Goblin_dummy",
+            "BarbLog_hero",
+            "BarbLogBarbarianHero",
+            "BarbLog_hero_reroll",
+            "DarkPrince_hero",
+            "DarkPrinceHero_Walking",
+            "DarkPrinceHero_Mount",
+            "Tombstone_hero",
+            "TombstoneHero_Monster_Passive",
+            "TombstoneHero_Monster_Active"
+        ]
+    );
     assert!(full.cards[n..].iter().all(|c| c.summon_only));
     for base in ["Musketeer", "IceGolemite", "Berserker", "Balloon", "Valkyrie", "Wizard", "MiniPekka", "Knight", "MegaMinion", "Giant"] {
         let b = full.index(base).unwrap();

@@ -34,7 +34,7 @@ fn shipped_data() -> CardDb {
     (*Calib::shipped().card_data(Arc::new(cards())).expect("the shipped card data")).clone()
 }
 
-/// Every default catalogue card (133, the Minion Giant last), by index.
+/// Every default catalogue card (136, the Minion Giant last), by index.
 fn catalogue(db: &CardDb) -> Vec<u16> {
     (0..db.cards.len() as u16)
         .filter(|i| {
@@ -61,7 +61,7 @@ fn the_own_row_is_the_catalogues_hitpoints_for_every_card() {
     let db = shipped_data();
     let calib = Calib::shipped();
     let catalogue = catalogue(&db);
-    assert_eq!(catalogue.len(), 133, "scene: the default catalogue's 133 cards");
+    assert_eq!(catalogue.len(), 136, "scene: the default catalogue's 136 cards");
     let mut checked = 0;
     for level in [11, 13] {
         for &i in &catalogue {
