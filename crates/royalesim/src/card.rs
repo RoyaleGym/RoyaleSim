@@ -1273,7 +1273,37 @@ pub enum AbilityEffect {
     ReRoll(ReRollDef),
     /// THE DISMOUNT (the Hero Dark Prince's; `DismountDef`).
     Dismount(DismountDef),
+    /// THE TOMB'S MONSTER (the Hero Tombstone's; `TombMonsterDef`).
+    TombMonster(TombMonsterDef),
 }
+
+/// THE HERO TOMBSTONE'S MONSTER (tools/extract_cards.py `tomb_group`, `tomb_button`; state.rs `TombRun`, `tomb_status`,
+/// `tomb_resolve`). The form is the tomb (its base's building, its skeletons the base's). Its play puts `passive` down right
+/// after the tomb on its point: the monster waiting, which holds the button, hidden for good (`hide`: invisible, no
+/// damage taken), nothing meeting its body, held (the stun timer: no walk, no attack), its row's LifeTime draining it.
+/// While its tomb stands its button is ready; once the tomb is gone, for `window_ms` more, and `window_ms` + `fade_ms`
+/// after the tomb's death the monster dies. A later play of `base` or of the form by its side kills a waiting monster.
+/// The press (no cast): the monster becomes `active` (state.rs `rebind_unit`, its target kept), its hitpoints and their
+/// maximum the active row's, its hide off, `hold` on it; its tomb dies TOMB_KILL_TICKS after the trigger.
+///
+/// Measured on client 15.535.29 (Oracle's sp-hero2-Tombstone-*-s0 and -s1, level 11, the press P): the monster at 4224
+/// of 4224 on P + 1 whatever its tomb's hitpoints, one step (-106, -106) on P + 2 beside a standing tomb, walking from
+/// P + 41; the tomb gone on P + 3 with its four Skeletons; with no press, the monster gone 50 ticks after its tomb, a press
+/// 20 ticks after the tomb accepted; the active monster's death putting four Skeletons down 500 to each side of its last
+/// point and 500 to each side 1000 behind it, deploying 10 ticks, on the tick after its last.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TombMonsterDef {
+    pub passive: u16,
+    pub active: u16,
+    pub base: u16,
+    pub hide: BuffApply,
+    pub hold: BuffApply,
+    pub window_ms: i32,
+    pub fade_ms: i32,
+}
+
+/// The ticks from the Hero Tombstone's trigger to its tomb's death: measured, 2 (its 50 ms check and its kill's 100 ms).
+pub const TOMB_KILL_TICKS: u32 = 2;
 
 /// THE RE-ROLL (the Hero Barbarian Barrel's; tools/extract_cards.py `spell_hero_card`, `reroll_button`; state.rs
 /// `RerollRun`, `reroll_pass`, `reroll_logs`). The form is a spell whose roll releases `unit`, which holds the button. At
@@ -5886,6 +5916,10 @@ struct RawAbilityEffect {
     far: Option<RawSiegeShot>,
     near: Option<RawSiegeShot>,
     normal_start_radius_milli: Option<i32>,
+    /// `tomb_monster` (tools/extract_cards.py `tomb_button`; `unit`, `hold_ms`, `window_ms`, `fade_ms` and `card_group`
+    /// above: the waiting monster, its hold's time, its button's window and end, its card group).
+    active: Option<String>,
+    hold: Option<RawBuff>,
     /// `dismount` (tools/extract_cards.py `dismount_effect`; `unit` above: the walking row).
     mount: Option<String>,
     no_collide_ms: Option<i32>,
@@ -11954,6 +11988,17 @@ impl CardDb {
                 rider = Some(u);
                 continue;
             }
+            // THE HERO TOMBSTONE'S TOMB: its skeleton is its base's (the extractor reads its display [EXT] as the Skeleton).
+            if extra.ability.effect.kind == "tomb_monster" && matches!(which, UnitUse::Spawner | UnitUse::DeathSpawn) {
+                let b = self.get(base);
+                let skel = b.spawner.as_ref().map(|x| x.unit).filter(|&u| u != u16::MAX && b.death_spawn.as_ref().map(|d| d.unit) == Some(u));
+                let skel = skel.filter(|_| name == "Skeleton").ok_or_else(|| format!("its tomb's {name} is not its base's skeleton"))?;
+                match which {
+                    UnitUse::Spawner => c.spawner.as_mut().expect("spawner block present").unit = skel,
+                    _ => c.death_spawn.as_mut().expect("death_spawn block present").unit = skel,
+                }
+                continue;
+            }
             if which == UnitUse::DeathSpawn && death.is_none() {
                 let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("death spawn {name}: no units record"))?;
                 let obj = uv.as_object_mut().ok_or_else(|| format!("death spawn {name}: not an object"))?;
@@ -12495,6 +12540,63 @@ impl CardDb {
                     near_start: milli(near.start_radius_milli),
                 })
             }
+            // THE TOMB'S MONSTER (the Hero Tombstone's): its waiting row and its active row load after the form; the active
+            // one's death area puts the base's Skeleton down.
+            "tomb_monster" => {
+                let e = &a.effect;
+                let b = self.get(base);
+                let skel = b.spawner.as_ref().map(|x| x.unit).filter(|&u| u != u16::MAX).ok_or_else(|| format!("{what}: its base has no skeleton"))?;
+                let groups: Vec<&str> = e.card_group.as_deref().unwrap_or_default().iter().map(String::as_str).collect();
+                if groups != [extra.form_of.as_str(), c.name.as_str()] {
+                    return Err(format!("{what}: a card group {groups:?} other than its base and itself"));
+                }
+                let mut rows = Vec::new();
+                for key in [e.unit.clone(), e.active.clone()] {
+                    let name = key.ok_or_else(|| format!("{what}: a monster row missing"))?;
+                    let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                    let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                    obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                    obj.entry("count").or_insert(serde_json::Value::from(1));
+                    let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                    ur.ability = None;
+                    let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                    for (w, n) in uneeds {
+                        if w != UnitUse::DeathAreaEffect {
+                            return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated"));
+                        }
+                        let aeo = extra.tables.area_effect_objects.get(&n).ok_or_else(|| format!("{what}: death area effect {n}: no record"))?;
+                        let (mut shape, more) = convert_area_effect(aeo, buffs, &fctx).map_err(|e| format!("{what}: death area effect {n}: {e}"))?;
+                        for (mw, mn) in more {
+                            let UnitUse::Scheduled(k) = mw else { return Err(format!("{what}: death area effect {n} needs {mn} ({mw:?})")) };
+                            if mn != "Skeleton" {
+                                return Err(format!("{what}: death area effect {n} puts {mn} down, not its base's skeleton"));
+                            }
+                            let slot = shape.schedule_mut().and_then(|x| x.get_mut(k as usize)).ok_or_else(|| format!("{what}: death area effect {n}: no entry {k}"))?;
+                            slot.unit = skel;
+                        }
+                        u.death_area_effect = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
+                    }
+                    if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                        return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                    }
+                    u.summon_only = true;
+                    rows.push(u);
+                }
+                let rb = e.hold.as_ref().ok_or_else(|| format!("{what}: a monster with no hold"))?;
+                let hold = buffs.apply_own(rb, e.hold_ms, &format!("{what} hold"))?;
+                let hide = buffs.push_own(crate::status::BuffDef { invisible: true, no_damage: true, ..Default::default() }, &format!("{} wait", a.name))?;
+                let effect = AbilityEffect::TombMonster(TombMonsterDef {
+                    passive: 0,
+                    active: 1,
+                    base,
+                    hide: BuffApply { buff: hide, time_ms: i32::MAX / 4 },
+                    hold,
+                    window_ms: e.window_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a monster with no window"))?,
+                    fade_ms: e.fade_ms.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a monster with no fade"))?,
+                });
+                flag_units.extend(rows);
+                effect
+            }
             // THE DISMOUNT (the Hero Dark Prince's): its walking row and its mount load after the form (the walking row
             // first, the mount's spawn blow its deploy projectile).
             "dismount" => {
@@ -12612,7 +12714,15 @@ impl CardDb {
                 d.walker += first;
                 d.mount += first;
             }
+            // The Hero Tombstone's monster's rows, both holding the button.
+            if let Some(AbilityDef { effect: AbilityEffect::TombMonster(t), .. }) = self.cards[form as usize].ability.as_mut() {
+                t.passive += first;
+                t.active += first;
+            }
             let fixed = self.cards[form as usize].ability.clone();
+            if matches!(fixed.as_ref().map(|x| &x.effect), Some(AbilityEffect::TombMonster(_))) {
+                self.cards[first as usize + 1].ability = fixed.clone();
+            }
             self.cards[first as usize].ability = fixed;
         }
         if let Some(d) = death {
@@ -12650,8 +12760,19 @@ impl CardDb {
             Some(AbilityEffect::FlagSpawns(f)) => Some(f.flag),
             Some(AbilityEffect::Tether(t)) => Some(t.unit),
             Some(AbilityEffect::ReRoll(r)) => Some(r.unit),
-            // The Hero Dark Prince's walking row: the hero once it has dismounted (its charge spent).
+            // The Hero Tombstone's monster, waiting.
+            Some(AbilityEffect::TombMonster(t)) => Some(t.passive),
+            _ => None,
+        }
+    }
+
+    /// THE UNIT A CARD'S BUTTON IS ON ONCE PRESSED, when the press made it another record: the Hero Dark Prince's walking
+    /// row (`DismountDef::walker`), the Hero Tombstone's active monster (`TombMonsterDef::active`). None for every other
+    /// card.
+    pub fn spent_unit(&self, form: u16) -> Option<u16> {
+        match self.get(form).ability.as_ref().map(|a| &a.effect) {
             Some(AbilityEffect::Dismount(d)) => Some(d.walker),
+            Some(AbilityEffect::TombMonster(t)) => Some(t.active),
             _ => None,
         }
     }
@@ -12987,6 +13108,11 @@ impl CardDb {
         if let Some(AbilityDef { effect: AbilityEffect::Dismount(d), .. }) = &c.ability {
             out.push((UnitRef::AbilityUnit, d.walker, None));
             out.push((UnitRef::AbilityUnit, d.mount, None));
+        }
+        // The Hero Tombstone's monster, waiting and active.
+        if let Some(AbilityDef { effect: AbilityEffect::TombMonster(t), .. }) = &c.ability {
+            out.push((UnitRef::AbilityUnit, t.passive, None));
+            out.push((UnitRef::AbilityUnit, t.active, None));
         }
         // After it, so no earlier block's place moves: the units an evolved form's own mechanic puts down (loaded right
         // after the form, `load_evolution`): the Evo Royal Ghost's pair.

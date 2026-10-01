@@ -6585,6 +6585,7 @@ HERO_FORMS = {
     "Goblins_hero": ("Goblins", "goblins_hero"),
     "BarbLog_hero": ("BarbLog", "barb_log_hero"),
     "DarkPrince_hero": ("DarkPrince", "dark_prince_hero"),
+    "Tombstone_hero": ("Tombstone", "tombstone_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -6686,6 +6687,13 @@ def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
                     continue
                 if section == "SHAPE":
                     t.shapes.update(body)
+                    continue
+                # [FILTER.*] (the Hero Tombstone's): the unit-group filters its actions name, beside the target filters.
+                if section == "FILTER":
+                    clash = sorted(set(body) & set(t.filters))
+                    if clash:
+                        raise SystemExit(f"{label}: [FILTER] {clash} already named")
+                    t.filters.update(body)
                     continue
                 if section == "VARIABLE":
                     t.variables.update(body)
@@ -7987,6 +7995,266 @@ def dismount_effect(h: Tables, name: str, group: str, units: dict, hero_unit: st
             "blow_ms": pdelay}
 
 
+# THE HERO TOMBSTONE (`tomb_group`, `tomb_button`): the classes of the actions that only show things (the button's
+# state and timer bar, the health bar and its badges, animations, effects, display variables and the tomb's hitpoints
+# sent to them); the tags of its display dummy and of its monster while it waits; the columns a display-only [EXT] of
+# the Skeleton may set.
+TOMB_UI = {"ActionEnabbleHPBarConditionForDuration", "ActionOverrideAbilityButtonState", "ActionPlayEffect",
+           "ActionRunForcedAnimationOnce", "ActionAddHealthBarPart", "ActionBlackboardSetInt",
+           "ActionContextToVariable",
+           "ActionSetVariable", "ActionRunOnMatchingUnitsInGroup"}
+TOMB_DUMMY_TAGS = ("NO_DAMAGE,UNTARGETABLE,DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS,NO_CHECKCOLLISIONS,NO_BUFFS,"
+                   "NO_GIANTBUFFER_CHEF_ENCHANTMENT")
+TOMB_MONSTER_TAGS = "NO_DAMAGE,UNTARGETABLE,DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS,NO_GIANTBUFFER_CHEF_ENCHANTMENT"
+TOMB_SKELETON_DISPLAY = {"Base", "SpawnEffect", "DeployBaseAnimExportName", "HideHealthbar", "PrefabAsset",
+                         "PrestigeSWF",
+                         "PrestigeExportName2", "PrestigeExportName3", "VisualActions", "FileName", "BlueExportName",
+                         "RedExportName"}
+TOMB_LINKS = ("NextAction", "ActionToExecute", "Action", "ActionIfNoMatch", "ActionIfMatch", "OnActivateAction",
+              "ActionToRun", "OnIntervalReachedAction", "OnRemoveAction")
+
+
+def _reach(acts, roots: list) -> list[str]:
+    """Every action row reachable from `roots` (sub-actions and every link column), each once, in visit order."""
+    seen: list[str] = []
+    todo = [r for r in roots if isinstance(r, str)]
+    while todo:
+        x = todo.pop(0)
+        if x in seen or acts.get(x) is None:
+            continue
+        seen.append(x)
+        a = acts.get(x)
+        todo += [a[k] for k in TOMB_LINKS if isinstance(a[k], str)]
+        todo += col_list(acts, x, "SubActions")
+    return seen
+
+
+def tomb_group(h: Tables, form: str, s) -> dict | None:
+    """A GROUP HERO FORM (the Hero Tombstone): its [SPELL_HERO] row IsAGroup, its SummonCharacter "", and a
+    SummonCharactersList of three at offset 0: a display dummy, the card's own building and the monster that holds the
+    button, in that order. None for a form that is not a group; any other group stops the build."""
+    arr = h["spells_hero"].arrays.get(form, {})
+    lst = arr.get("SummonCharactersList")
+    if s["IsAGroup"] is not True or s["SummonCharacter"] not in ("", None) or not lst:
+        return None
+    if len(lst) != 3 \
+            or arr.get("SummonCharactersOffsetsX") != [0, 0, 0] or arr.get("SummonCharactersOffsetsY") != [0, 0, 0]:
+        raise SystemExit(f"hero form {form}: a group other than three members on the tap")
+    dummy, tomb, monster = lst
+    return {"dummy": dummy, "tomb": tomb, "monster": monster}
+
+
+def tomb_button(h: Tables, form: str, group: dict, units: dict, card: dict) -> dict:
+    """THE HERO TOMBSTONE'S BUTTON, read whole or the build stops. The play puts three units on the tap:
+      - `dummy`, a display object (no damage, untargetable, no collisions, no buffs: TOMB_DUMMY_TAGS) whose actions only
+        change its look and kill it: read and not run;
+      - the tomb, the card's unit: the base's row but for its skeleton (a display [EXT] of the Skeleton, read as the
+        Skeleton) and a second death spawn of the same skeleton (read into the first's count). Its start shows the
+        button's badge and sends its hitpoints to the monster's display, and every `check_ms` it looks for its group's
+        monster turned active: then it takes UNIT_CUSTOM_TAG_1 (the check ends) and dies `kill_ms` on. A play of its
+        card group gives it the tag (its check ends);
+      - `unit`, the monster, which holds the button: waiting (TOMB_MONSTER_TAGS: no damage, untargetable, no collisions;
+        its own buff holds its walk, its damage and its spawns; hidden), its row's LifeTime its end. Every 50 ms it
+        looks for its group's tomb; with none, the button stays `window_ms` (an ActionTimerQuest of one interval), then
+        shows the champion gone, and `fade_ms` after that the monster dies unless it casts. A play of its card group
+        kills it unless it is active.
+    The press (CastTime and TriggerDelay 0): the monster becomes `active` (ActionChangeGameObjectData), healed to its
+    full hitpoints (an ActionHeal of max_hp, then one of 0), takes UNIT_CUSTOM_TAG_1 (its wait's buff, hide and watch
+    end, and its tomb's check finds it), and `hold` lands on it for `hold_ms` (SpeedMultiplier and DamageMultiplier
+    -100). The active monster's death area puts four skeletons down around its point (its schedule, the skeleton read
+    as the Skeleton), written under `aeos` for the form's tables."""
+    import re
+
+    acts = h["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero form {form}: {what}")
+
+    def classes(names: list[str]) -> set[str]:
+        return {acts.get(x)["ClassType"] for x in names}
+
+    # The dummy.
+    _, drow = unit_record(h, group["dummy"])
+    need(drow["GameTagsToSet"] == TOMB_DUMMY_TAGS and not drow["Damage"] and drow["IgnoreClone"] is True
+         and not drow["Ability"] and not drow["SpawnCharacter"] and not drow["DeathSpawnCharacter"], "its dummy's row")
+    dreach = _reach(acts, [drow["OnStartingAction"], drow["OnDeathAction"]])
+    need(classes(dreach) <= TOMB_UI | {"ActionInterval", "ActionRunActionIfUnitGroupContains", "ActionGroup",
+                                       "ActionChangeGameObjectData", "ActionWithDuration", "ActionKill"},
+         f"its dummy runs {sorted(classes(dreach))}")
+    # The skeleton: a display [EXT] of the Skeleton, read as it.
+    ttable, trow = unit_record(h, group["tomb"])
+    need(ttable == "buildings", "its tomb is not a building")
+    sk = trow["SpawnCharacter"]
+    need(sk == trow["DeathSpawnCharacter"] == trow["DeathSpawnCharacter2"], "its tomb's skeletons")
+    need(h["characters"].set_fields.get(sk, set()) <= TOMB_SKELETON_DISPLAY,
+         f"its skeleton {sk} sets more than display")
+    a_, b_ = norm_unit(h, sk), norm_unit(h, "Skeleton")
+    sg = a_.get("action_graph")
+    need(not sg or (not sg["class_types"] and not sg["spawns"]), f"its skeleton {sk} runs actions")
+    same = {"name": None, "damage_source": None, "action_graph": None}
+    need({**a_, **same} == {**b_, **same}, f"its skeleton {sk} is not the Skeleton")
+    count2 = trow["DeathSpawnCount2"]
+    need(isinstance(count2, int) and count2 > 0, "its tomb's second death spawn")
+    for rec in (card, units[group["tomb"]]):
+        need(rec["spawner"]["character"] == sk and rec["death_spawn"]["character"] == sk, "its tomb's spawn blocks")
+        rec["spawner"]["character"] = "Skeleton"
+        rec["death_spawn"] = {**rec["death_spawn"], "character": "Skeleton",
+                              "count": rec["death_spawn"]["count"] + count2}
+        rec["action_graph"] = None
+    # The tomb's start: its check for the active monster, its kill, the listener; the rest display.
+    tstart = group_subactions(h, trow["OnStartingAction"], f"hero form {form} tomb start")
+    need(all(d == 0 for _, d in tstart), "its tomb's start is delayed")
+    checks = [x for x, _ in tstart if acts.get(x)["ClassType"] == "ActionInterval"]
+    kill_ms = check_ms = None
+    for x in checks:
+        iv = acts.get(x)
+        run = acts.get(iv["ActionToExecute"])
+        if run is not None and run["ClassType"] == "ActionRunActionIfUnitGroupContains":
+            need(check_ms is None and isinstance(iv["Interval"], int), "its tomb's checks")
+            check_ms = iv["Interval"]
+            f = h.filters.get(run["ObjectFilter"]) or {}
+            active = (f.get("IncludeCharactersWithData") or [None])[0]
+            need(f.get("MatchTeamOwn") is True and f.get("FilterSummoner") is True
+                 and len(f["IncludeCharactersWithData"]) == 1,
+                 f"its tomb's filter {run['ObjectFilter']}")
+            kg = group_subactions(h, run["Action"], f"hero form {form} tomb kill")
+            need([acts.get(k)["ClassType"] for k, _ in kg] == ["ActionWithDuration", "ActionKill"] and kg[0][1] == 0
+                 and acts.get(kg[0][0])["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1", "its tomb's kill")
+            kill_ms = kg[1][1]
+        else:
+            need(classes(_reach(acts, [x])) <= TOMB_UI | {"ActionInterval", "ActionGroup"}, f"its tomb's {x}")
+    need(check_ms is not None and kill_ms is not None, "its tomb has no kill check")
+    listeners = [x for x, _ in tstart if acts.get(x)["ClassType"] == "ActionActivateOnCardDeploy"]
+    need(len(listeners) == 1, "its tomb's listener")
+    tl = acts.get(listeners[0])
+    tag = _one_action(acts, tl["OnActivateAction"], "ActionWithDuration",
+                      {"ClassType", "ActionDuration", "GameTagsToSet"})
+    need(tag["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1", "its tomb's listener's tag")
+    card_group = tl["CardGroup"]
+    need(classes([x for x, _ in tstart]) <= TOMB_UI | {"ActionInterval", "ActionActivateOnCardDeploy"},
+         "its tomb's start")
+    looks = TOMB_UI | {"ActionGroup", "ActionChangeGameObjectData", "ActionInterval",
+                       "ActionRunActionIfUnitGroupContains", "ActionKill"}
+    need(classes(_reach(acts, [trow["OnDeathAction"]])) <= looks, "its tomb's death runs more than the dummy's look")
+    need(acts.get(trow["OnDeathAction"])["ClassType"] == "ActionRunOnMatchingUnitsInGroup"
+         and (h.filters.get(acts.get(trow["OnDeathAction"])["ObjectFilter"]) or {}).get("IncludeCharactersWithData")
+         == [group["dummy"]], "its tomb's death acts on more than its dummy")
+    # The monster.
+    mname = group["monster"]
+    _, mrow = unit_record(h, mname)
+    need(mrow["GameTagsToSet"] == TOMB_MONSTER_TAGS and isinstance(mrow["LifeTime"], int) and not mrow["Damage"],
+         "its monster's row")
+    ab = h.abilities.get(mrow["Ability"])
+    need(ab is not None and not set(ab) - ABILITY_READ_KEYS - ABILITY_UI_KEYS, "its button")
+    need(ab.get("MaxCharges") == 1 and not ab.get("Cooldown") and not ab.get("CastTime") and not ab.get("TriggerDelay"),
+         "its button's charges and times")
+    mstart = group_subactions(h, mrow["OnStartingAction"], f"hero form {form} monster start")
+    need(all(d == 0 for _, d in mstart), "its monster's start is delayed")
+    mreach = _reach(acts, [x for x, _ in mstart])
+    waiting = TOMB_UI | {"ActionGroup", "ActionHide", "ActionSpawn", "ActionInterval",
+                         "ActionRunActionIfUnitGroupContains", "ActionTimerQuest", "ActionKill",
+                         "ActionActivateOnCardDeploy"}
+    need(classes(mreach) <= waiting, f"its monster's start runs {sorted(classes(mreach))}")
+    # Its wait's buff: speed, damage and spawns held, for as long as it has no UNIT_CUSTOM_TAG_1.
+    waits = [x for x in mreach if acts.get(x)["ClassType"] == "ActionSpawn"]
+    need(len(waits) == 1 and acts.get(waits[0])["SpawnType"] == "BuffType", "its monster's wait")
+    wb = h["character_buffs"].get(acts.get(waits[0])["SpawnData"])
+    need(wb is not None and wb["SpeedMultiplier"] == -100 and wb["DamageMultiplier"] == -100
+         and str(wb["AliveIfTrue"]) == "!UNIT_CUSTOM_TAG_1", "its monster's wait's buff")
+    # Its watch: with no tomb of its group, the timer's one interval, then its end `fade_ms` on.
+    timers = [x for x in mreach if acts.get(x)["ClassType"] == "ActionTimerQuest"]
+    need(len(timers) == 1, "its monster's timer")
+    tq = acts.get(timers[0])
+    iv = col_list(acts, timers[0], "Intervals")
+    need(len(iv) == 1 and isinstance(iv[0], int) and tq["MaxResets"] == 1, f"its timer's intervals {iv}")
+    end = group_subactions(h, tq["OnIntervalReachedAction"], f"hero form {form} timer end")
+    kills = [(x, d) for x, d in end if acts.get(x)["ClassType"] == "ActionKill"]
+    need(len(kills) == 1 and classes([x for x, _ in end]) <= TOMB_UI | {"ActionKill"}
+         and str(acts.get(kills[0][0])["ExecuteIfTrue"]).replace(" ", "") == "!UNIT_CUSTOM_TAG_1&&!CASTING_ABILITY",
+         "its timer's end")
+    finders = [x for x in mreach if acts.get(x)["ClassType"] == "ActionRunActionIfUnitGroupContains"]
+    need(len(finders) == 1
+         and (h.filters.get(acts.get(finders[0])["ObjectFilter"]) or {}).get("IncludeCharactersWithData")
+         == [group["tomb"]], "its monster's watch")
+    watch = [x for x in mreach if acts.get(x)["ClassType"] == "ActionInterval"]
+    need(len(watch) == 1 and acts.get(watch[0])["Interval"] == 50, "its monster's watch's clock")
+    mkills = [x for x in mreach if acts.get(x)["ClassType"] == "ActionKill" and x != kills[0][0]]
+    need(len(mkills) == 1 and str(acts.get(mkills[0])["ExecuteIfTrue"]) == "!UNIT_CUSTOM_TAG_1", "its monster's reset")
+    mlisten = [x for x in mreach if acts.get(x)["ClassType"] == "ActionActivateOnCardDeploy"]
+    need(len(mlisten) == 1 and acts.get(mlisten[0])["CardGroup"] == card_group, "its monster's listener")
+    # The press.
+    press = col_list(acts, ab["OnActivationAction"], "SubActions")
+    pdelays = col_list(acts, ab["OnActivationAction"], "SubActionsDelay")
+    need(bool(press) and len(pdelays) >= len(press) and all(d == 0 for d in pdelays), "its press's group")
+    by: dict[str, list[str]] = {}
+    for x in press:
+        by.setdefault(acts.get(x)["ClassType"], []).append(x)
+    need(set(by) - TOMB_UI == {"ActionChangeGameObjectData", "ActionWithDuration", "ActionSpawn"},
+         f"its press runs {sorted(by)}")
+    [ch] = by["ActionChangeGameObjectData"]
+    change = _one_action(acts, ch, "ActionChangeGameObjectData", {"ClassType", "NewCharacterData", "NextAction",
+                                                                  "NextActionWait"})
+    active_name = change["NewCharacterData"]
+    need(active_name == active, "its press's monster is not the one its tomb looks for")
+    heal = _one_action(acts, change["NextAction"], "ActionHeal",
+                       {"ClassType", "Value", "MaxOverHealPercent", "NextAction",
+                                                                   "NextActionWait"})
+    need(str(heal["Value"]) == "max_hp" and heal["MaxOverHealPercent"] == 0, "its press's heal")
+    heal2 = _one_action(acts, heal["NextAction"], "ActionHeal",
+                        {"ClassType", "Value", "MaxOverHealPercent", "StatsTags"})
+    need(str(heal2["Value"]) == "0" and not heal2["NextAction"], "its press's second heal heals something")
+    [tg] = by["ActionWithDuration"]
+    need(acts.get(tg)["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1", "its press's tag")
+    [hs] = by["ActionSpawn"]
+    hsp = _one_action(acts, hs, "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime"})
+    need(hsp["SpawnType"] == "BuffType" and isinstance(hsp["SpawnTime"], int), "its press's hold")
+    hb = h["character_buffs"].get(hsp["SpawnData"])
+    need(hb is not None and hb["SpeedMultiplier"] == -100 and hb["DamageMultiplier"] == -100 and not hb["AliveIfTrue"],
+         "its press's hold's buff")
+    # The monster's two rows.
+    prec = norm_unit(h, mname, with_raw=True)
+    prec["action_graph"] = None
+    arec = norm_unit(h, active_name, with_raw=True)
+    need(not (arec.get("action_graph") or {}).get("class_types"), f"its active monster {active_name} runs actions")
+    arec["action_graph"] = None
+    units[mname], units[active_name] = prec, arec
+    aeos = {}
+    dae = arec.get("death_area_effect")
+    if dae:
+        aeo = norm_aeo(h, dae)
+        need(aeo is not None and aeo["schedule"] is not None, f"its active monster's death area {dae}")
+        for e in aeo["schedule"]["entries"]:
+            need(e["spawn"] == sk and e["unread"] == ["columns ParentGOAsSource"]
+                 and acts.get(e["action"])["ParentGOAsSource"] is True, f"its death area's entry {e['action']}")
+            # ParentGOAsSource: the area is the source, and it stands on the monster's death point.
+            e["spawn"], e["unread"] = "Skeleton", []
+        aeo["action_graph"] = None
+        aeos[dae] = aeo
+    m = re.fullmatch(r"\w+", str(card_group))
+    need(m is not None, "its card group")
+    groups: dict = {}
+    for f in hero_files(h.vintage, HERO_FORMS[form][1]):
+        groups.update(tomllib.loads(f.read_text(encoding="utf-8")).get("CARD_GROUP", {}))
+    g = groups.get(card_group)
+    need(g is not None and not g.get("SupportCards"), f"its card group {card_group}")
+    return {
+        "name": mrow["Ability"],
+        "mana_cost": ab["ManaCost"],
+        "max_charges": 1,
+        "cooldown_ms": None,
+        "cast_ms": 0,
+        "trigger_delay_ms": 0,
+        "keep_current_target": bool(ab.get("KeepCurrentTarget")),
+        "is_champion": ab.get("IsChampion") is True,
+        "effect": {"kind": "tomb_monster", "unit": mname, "active": active_name, "check_ms": check_ms,
+                   "kill_ms": kill_ms, "window_ms": iv[0], "fade_ms": kills[0][1],
+                   "hold": norm_buff_row(h, hsp["SpawnData"], hb), "hold_ms": hsp["SpawnTime"],
+                   "card_group": list(g.get("PlayableCards") or []) + list(g.get("Heroes") or [])},
+        "aeos": aeos,
+    }
+
+
 def throw_effect(h: Tables, name: str, seeker: str, units: dict) -> dict:
     """THE HERO BALLOON'S BUTTON ([ABILITY.BalloonHero_Ability]), read whole or the build stops:
       - OnActivationAction: an ActionRunActionListOnObjectsInShapeWithPrio (the seeker) that takes, after its one Delay,
@@ -8455,12 +8723,16 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
             continue
         if key is None:
             raise SystemExit(f"hero form {form}: base card {base} is not a troop or building card")
+        # A GROUP FORM (the Hero Tombstone): the card of its own building (`tomb_group`); the others are its button's.
+        group = tomb_group(h, form, s)
         # A ROW THAT NAMES ONLY WHAT DIFFERS FROM ITS BASE'S (the Hero Dark Prince's: its unit, no Rarity, no ManaCost):
         # the base card's row with its columns over it, as a spell's hero form's is (`spell_hero_card`).
         if s["Rarity"] is None:
             brow = h[key].get(base)
             s = Row(set(brow.columns) | set(s.columns), {**brow, **{k: v for k, v in s.items() if v is not None},
                                                           "Name": form})
+        if group is not None:
+            s = Row(s.columns, {**s, "SummonCharacter": group["tomb"], "SummonNumber": 1, "IsAGroup": None})
         card = summon_card(h, rarities, "troop" if key == "spells_characters" else "building", "spells_hero", s)
         card["display_name"] = f"Hero {display_name(base)}"
         card["form_of"] = base
@@ -8487,7 +8759,9 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         # leaves): the unit's row names no Ability; the button is the flag's (`flag_button`), and the unit's graph is
         # read there.
         linked = s.get("LinkedChampionCharacter")
-        if linked is not None:
+        if group is not None:
+            card["ability"] = tomb_button(h, form, group, units, card)
+        elif linked is not None:
             groups: dict = {}
             for f in hero_files(v, stem):
                 groups.update(tomllib.loads(f.read_text(encoding="utf-8")).get("CARD_GROUP", {}))
@@ -8509,9 +8783,13 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
             units[unit]["action_graph"] = None
         # ITS DEATH SPAWN (the Hero Balloon's BalloonHero_Bomb, a BalloonBomb [EXT] that changes display columns only):
         # its own row, in the form's units, which the loader loads for it.
-        if urow["DeathSpawnCharacter"] is not None:
+        if urow["DeathSpawnCharacter"] is not None and group is None:
             units[urow["DeathSpawnCharacter"]] = norm_unit(h, urow["DeathSpawnCharacter"], with_raw=True)
         aeos = {}
+        # The Hero Tombstone's monster's death area (`tomb_button`).
+        for name, rec in (card["ability"].get("aeos") or {}).items():
+            aeos[name] = rec
+        card["ability"].pop("aeos", None)
         dae = card.get("death_area_effect")
         if dae:
             aeos[dae] = norm_aeo(h, dae)

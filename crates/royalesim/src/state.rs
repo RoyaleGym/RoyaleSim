@@ -7088,6 +7088,24 @@ pub struct WarpBoard {
     /// empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dismounts: Vec<DismountRun>,
+    /// The Hero Tombstones' tombs and monsters (`TombRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tombs: Vec<TombRun>,
+}
+
+/// A HERO TOMBSTONE'S TOMB AND MONSTER (card.rs `TombMonsterDef`; `tomb_status`, `tomb_resolve`): its side, its form, the
+/// tomb and the monster, the play's tick, the trigger's tick once pressed, the tomb's death tick once gone, and whether a
+/// later play of its card group has ended its wait.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TombRun {
+    pub team: Team,
+    pub form: u16,
+    pub tomb: EntityId,
+    pub monster: EntityId,
+    pub made: u32,
+    pub pressed: Option<u32>,
+    pub tomb_gone: Option<u32>,
+    pub reset: bool,
 }
 
 /// A HERO DARK PRINCE'S DISMOUNT UNDER WAY (card.rs `DismountDef`; `dismount_pass`, `dismount_hops`): the hero, its side,
@@ -7161,7 +7179,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -8888,8 +8906,26 @@ impl BattleState {
             Some(crate::card::AbilityEffect::Tether(t)) => t.unit == card,
             // THE HERO BARBARIAN BARREL: its Barbarian holds the charge (the spell form puts no unit of its own down).
             Some(crate::card::AbilityEffect::ReRoll(r)) => r.unit == card,
+            // THE HERO TOMBSTONE: its monster holds the charge, not its tomb.
+            Some(crate::card::AbilityEffect::TombMonster(t)) => t.passive == card,
             other => other.is_some(),
         };
+        // THE HERO TOMBSTONE (card.rs `TombMonsterDef`): its tomb's appearance puts its monster down right after it on its
+        // point, waiting (`TombRun`): hidden for good, held, nothing meeting its body.
+        if let Some(crate::card::AbilityEffect::TombMonster(t)) = c.ability.as_ref().map(|a| &a.effect) {
+            if appearance && card != t.passive && card != t.active {
+                let t = *t;
+                #[cfg(not(clash_plant = "tomb_monster_never"))]
+                {
+                    let lvl = cards.unit_level(card, t.passive, None, level)?;
+                    let m = self.spawn_now(team, t.passive, lvl, pos, EntityKind::Troop)?;
+                    let h = crate::status::BuffHit::plain(m, t.hide.buff, t.hide.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, m.index as usize, &h);
+                    self.warps.tombs.push(TombRun { team, form: card, tomb: id, monster: m, made: self.tick, pressed: None, tomb_gone: None, reset: false });
+                }
+                let _ = t;
+            }
+        }
         if let Some(crate::card::AbilityEffect::FlagSpawns(f)) = c.ability.as_ref().map(|a| &a.effect).filter(|_| holds) {
             let form = self.cfg.cards.hero_forms.iter().map(|(_, f)| *f).find(|&k| self.cfg.cards.flag_of(k) == Some(card)).unwrap_or(card);
             self.warps.flags.push(FlagRun { id, form, made: self.tick, trigger: None });
@@ -12542,6 +12578,10 @@ impl BattleState {
         if !self.warps.dismounts.is_empty() {
             self.dismount_pass();
         }
+        // The Hero Tombstones' monsters waiting (`tomb_status`).
+        if !self.warps.tombs.is_empty() {
+            self.tomb_status();
+        }
         if !self.hero_units.is_empty() {
             let ents = &self.ents;
             self.hero_units.retain(|h| ents.is_alive(h.id));
@@ -16035,6 +16075,12 @@ impl BattleState {
                     drill_off[r.id.index as usize] = true;
                 }
             }
+        }
+        // A HERO TOMBSTONE'S MONSTER WAITING (card.rs `TombMonsterDef`): DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS; no unit
+        // meets its body.
+        #[cfg(not(clash_plant = "tomb_monster_collides"))]
+        for r in self.warps.tombs.iter().filter(|r| r.pressed.is_none() && self.ents.is_alive(r.monster)) {
+            drill_off[r.monster.index as usize] = true;
         }
         let mut freed_hold = vec![false; self.ents.capacity()];
         if !self.evo.freed.is_empty() {
@@ -20084,6 +20130,10 @@ impl BattleState {
         if !self.warps.flags.is_empty() {
             self.flag_pass();
         }
+        // THE HERO TOMBSTONES (`tomb_resolve`): the tombs and the waiting monsters that end, into this Resolve's deaths.
+        if !self.warps.tombs.is_empty() {
+            self.tomb_resolve();
+        }
         // THE EVO LUMBERJACKS' GHOSTS (`rage_ghost_pass`): the Rage's pulses and the ghosts it has let go, into this
         // Resolve's deaths.
         if !self.evo.rage_ghosts.is_empty() {
@@ -20263,6 +20313,81 @@ impl BattleState {
             self.spells.push(Spell { team, card: rr.log, level: r.level, damage, pulse: 0, motion: spell::SpellMotion::Rolling { pos: start, travelled: 0, len, hit: Vec::new() }, depth: 0 });
             let _ = (team, damage, len, start);
         }
+    }
+
+    /// A PLAY OF A CARD OF A HERO TOMBSTONE'S CARD GROUP (its base, or the form itself), from every path that puts a card's
+    /// units down (`enqueue_with`): every monster of that side still waiting from an earlier play dies (`tomb_resolve`;
+    /// its row's listener, an ActionKill while it has no UNIT_CUSTOM_TAG_1).
+    fn note_tomb_play(&mut self, team: Team, idx: u16) {
+        let cards = &self.cfg.cards;
+        let tick = self.tick;
+        #[cfg(not(clash_plant = "tomb_play_ignored"))]
+        for r in self.warps.tombs.iter_mut().filter(|r| r.team == team && r.pressed.is_none() && r.made < tick) {
+            if let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::TombMonster(t), .. }) = cards.get(r.form).ability {
+                if idx == r.form || idx == t.base {
+                    r.reset = true;
+                }
+            }
+        }
+        let _ = (cards, tick, team, idx);
+    }
+
+    /// THE HERO TOMBSTONES' MONSTERS WAITING (card.rs `TombMonsterDef`, `TombRun`), in the Status phase: each is held (the
+    /// stun timer: no walk, no attack), and its tomb's death tick noted (the tick before the first it is gone on).
+    fn tomb_status(&mut self) {
+        let dt = self.cfg.calib.tick_ms.max(1);
+        for k in 0..self.warps.tombs.len() {
+            let r = self.warps.tombs[k].clone();
+            if r.pressed.is_some() || !self.ents.is_alive(r.monster) {
+                continue;
+            }
+            let mi = r.monster.index as usize;
+            self.ents.stun_ms[mi] = self.ents.stun_ms[mi].max(dt);
+            if r.tomb_gone.is_none() && !self.ents.is_alive(r.tomb) {
+                self.warps.tombs[k].tomb_gone = Some(self.tick.saturating_sub(1));
+            }
+        }
+    }
+
+    /// THE HERO TOMBSTONES (card.rs `TombMonsterDef`, `TombRun`), at the end of Resolve: a pressed one's tomb dies
+    /// TOMB_KILL_TICKS after the trigger; a waiting monster dies `window_ms` + `fade_ms` after its tomb's death, or at
+    /// once after a later play of its card group. Both join this Resolve's deaths (the monster takes no hit: NO_DAMAGE).
+    /// A run ends with its tomb's kill once pressed, or with its monster while waiting.
+    fn tomb_resolve(&mut self) {
+        let dt = self.cfg.calib.tick_ms.max(1) as u32;
+        let runs = std::mem::take(&mut self.warps.tombs);
+        let mut keep = Vec::new();
+        for r in runs {
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::TombMonster(t), .. }) = self.cfg.cards.get(r.form).ability else { continue };
+            let (tomb, monster) = (self.ents.is_alive(r.tomb), self.ents.is_alive(r.monster));
+            let mut dies = None;
+            let done = match r.pressed {
+                Some(p) => {
+                    #[cfg(not(clash_plant = "tomb_never_killed"))]
+                    if tomb && self.tick == p + crate::card::TOMB_KILL_TICKS {
+                        dies = Some(r.tomb);
+                    }
+                    self.tick >= p + crate::card::TOMB_KILL_TICKS
+                }
+                None => {
+                    let faded = r.tomb_gone.is_some_and(|g| self.tick >= g + (t.window_ms + t.fade_ms) as u32 / dt);
+                    if monster && (r.reset || faded) {
+                        dies = Some(r.monster);
+                    }
+                    !monster || dies.is_some()
+                }
+            };
+            if let Some(id) = dies {
+                if !self.death_queue.contains(&id) {
+                    self.death_queue.push(id);
+                    self.death_queue.sort_by_key(|x| x.index);
+                }
+            }
+            if !done {
+                keep.push(r);
+            }
+        }
+        self.warps.tombs = keep;
     }
 
     /// THE HERO DARK PRINCES' MOUNTS (card.rs `DismountDef`, `DismountRun`), in the Status phase: from the tick after the
@@ -21557,6 +21682,7 @@ impl BattleState {
     /// takes no single-unit deploy point (`formation_members_with`).
     fn enqueue_with(&mut self, team: Team, idx: u16, level: i32, pos: Vec2, observed: bool) {
         self.note_flag_play(team, idx);
+        self.note_tomb_play(team, idx);
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // A SPELL SUMMON deploys its unit as a troop card deploys: the unit's own formation and
@@ -22589,7 +22715,8 @@ impl BattleState {
     fn newest_hero(&self, team: Team, form: u16) -> Option<usize> {
         self.hero_units.iter().rposition(|u| {
             let i = u.id.index as usize;
-            self.ents.is_alive(u.id) && self.ents.team[i] == team && (self.ents.card[i] == form || self.cfg.cards.button_unit(form) == Some(self.ents.card[i]))
+            let card = self.ents.card[i];
+            self.ents.is_alive(u.id) && self.ents.team[i] == team && (card == form || self.cfg.cards.button_unit(form) == Some(card) || self.cfg.cards.spent_unit(form) == Some(card))
         })
     }
 
@@ -22638,6 +22765,18 @@ impl BattleState {
         if u.spent {
             // A champion's charge is out while its chain runs and until it recharges.
             return Err(if self.champion_button(form) && (self.charge_recovers(form) || self.charges_left(&u, form)) { DeployError::AbilityNotReady } else { DeployError::AbilitySpent });
+        }
+        // THE TOMB'S MONSTER'S BUTTON (card.rs `TombMonsterDef`, the Hero Tombstone's): taken while its tomb stands and
+        // `window_ms` after it.
+        if let crate::card::AbilityEffect::TombMonster(t) = &a.effect {
+            let dt = self.cfg.calib.tick_ms.max(1);
+            #[cfg(not(clash_plant = "tomb_window_unread"))]
+            if let Some(g) = self.warps.tombs.iter().find(|r| r.monster == u.id).and_then(|r| r.tomb_gone) {
+                if self.tick >= g + (t.window_ms / dt) as u32 {
+                    return Err(DeployError::NoHero);
+                }
+            }
+            let _ = (t, dt);
         }
         // THE FLAG'S BUTTON (card.rs `FlagSpawnsDef`, the Hero Goblins'): taken while its window runs.
         if let crate::card::AbilityEffect::FlagSpawns(f) = &a.effect {
@@ -23025,6 +23164,28 @@ impl BattleState {
                     self.warps.magic.push(MagicRun { id: hero, team, card, made: self.tick });
                 }
                 let _ = (level, pos, w);
+            }
+            // THE TOMB'S MONSTER (the Hero Tombstone's; `TombRun`): the monster is its active row now, its hitpoints and
+            // their maximum that row's, its hide off, its hold on; its tomb dies TOMB_KILL_TICKS on (`tomb_resolve`).
+            crate::card::AbilityEffect::TombMonster(t) => {
+                #[cfg(not(clash_plant = "tomb_never"))]
+                {
+                    self.rebind_unit(i, t.active, false);
+                    let full = self.cfg.cards.scaled(t.active, level, self.cfg.cards.get(t.active).hitpoints).expect("the monster's level is validated at try_new");
+                    self.ents.max_hp[i] = full;
+                    self.ents.hp[i] = full;
+                    for slot in self.ents.buff_slots_mut(i) {
+                        if slot.id == t.hide.buff + 1 {
+                            *slot = BuffSlot::default();
+                        }
+                    }
+                    let h = crate::status::BuffHit::plain(hero, t.hold.buff, t.hold.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    if let Some(r) = self.warps.tombs.iter_mut().find(|r| r.monster == hero) {
+                        r.pressed = Some(self.tick);
+                    }
+                }
+                let _ = (team, level, pos, t);
             }
             // THE DISMOUNT (the Hero Dark Prince's; `DismountRun`): the hero is its walking row now, its mount queued beside
             // it (made in this tick's Spawn phase, no deploy); its hops after this tick's move pass on (`dismount_hops`),
@@ -24841,6 +25002,20 @@ impl BattleState {
                     h.id(r.id);
                     h.u32(u32::from(r.form));
                     h.u32(r.made);
+                }
+            }
+            if !self.warps.tombs.is_empty() {
+                h.u32(0x544f_4d42);
+                h.u32(self.warps.tombs.len() as u32);
+                for r in &self.warps.tombs {
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.form));
+                    h.id(r.tomb);
+                    h.id(r.monster);
+                    h.u32(r.made);
+                    h.u32(r.pressed.map_or(0, |t| t + 1));
+                    h.u32(r.tomb_gone.map_or(0, |t| t + 1));
+                    h.u32(u32::from(r.reset));
                 }
             }
             if !self.warps.dismounts.is_empty() {
