@@ -89,7 +89,8 @@ fn its_decoy_stands_on_its_point_then_the_hero_hides_and_warps_back() {
     let (mut s, hero, reds) = start(&[("Knight", (AT.0, AT.1 + 3000))]);
     let knight = reds[0].0;
     assert_eq!(s.entity(knight).and_then(|e| e.target), Some(hero), "the Knight holds the hero before the press");
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     let from = s.entity(hero).expect("the hero").pos;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     // The decoy's first frame P + 5 (the cast's start P + 1, its TriggerDelay 250 less a tick) on the hero's point, at
@@ -122,8 +123,9 @@ fn its_decoy_stands_on_its_point_then_the_hero_hides_and_warps_back() {
 
 #[test]
 fn its_next_shot_is_the_middle_arrow_and_two_copies_beside_it() {
-    // A red Giant held 7500 ahead of where the warp puts the hero (its first shot's target), and nothing else.
-    let (mut s, hero, reds) = start(&[("Giant", (AT.0 + 1500, AT.1 + 4000))]);
+    // A red Giant held 7300 ahead of where the warp puts the hero (its first shot's target; the river from 15000), and
+    // nothing else.
+    let (mut s, hero, reds) = start(&[("Giant", (AT.0 + 1500, AT.1 + 3800))]);
     let db = s.cards().clone();
     let form = db.index("EliteArcher_hero").expect("the form");
     let conv = s.config().calib.projectile_speed_to_subtiles_per_tick;

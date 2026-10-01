@@ -135,7 +135,8 @@ fn its_siege_form_lasts_its_buffs_7300_ms() {
     // No enemy near: the hero is its siege form from the trigger, P + 4 (the cast's start P + 1, its TriggerDelay 200 less
     // a tick), for 146 ticks, then its own row again.
     let (mut s, hero, _) = start(&[]);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut rows = Vec::new();
     for _ in 0..200 {

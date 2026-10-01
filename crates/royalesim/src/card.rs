@@ -1304,6 +1304,11 @@ pub struct TombMonsterDef {
 
 /// The ticks from the Hero Tombstone's trigger to its tomb's death: measured, 2 (its 50 ms check and its kill's 100 ms).
 pub const TOMB_KILL_TICKS: u32 = 2;
+/// The Hero Tombstone's active monster's one step off its tomb's point, the tick after the trigger (native, its side's
+/// frame: +x its right, +y its forward): measured, (-106, -106) on sp-hero2-Tombstone-full-s0 and (+106, +106) on the
+/// red -s1, the monster standing on its tomb's point until then and still after it (its hold) beside the standing tomb,
+/// which meets no body of it. FITTED: the cause is not modelled.
+pub const TOMB_MONSTER_STEP: (i32, i32) = (-106, -106);
 
 /// THE RE-ROLL (the Hero Barbarian Barrel's; tools/extract_cards.py `spell_hero_card`, `reroll_button`; state.rs
 /// `RerollRun`, `reroll_pass`, `reroll_logs`). The form is a spell whose roll releases `unit`, which holds the button. At
@@ -3267,6 +3272,10 @@ struct RawCard {
     ignore_clone: Option<bool>,
     /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
     idle_invisibility: Option<RawIdleInvisibility>,
+    /// Not in cards.json: set by a loader whose block hangs Invisible on the unit for its whole life (the Evo Lumberjack's
+    /// ghost, `rage_ghost_block`), which shadows the row's idle invisibility: `convert` reads none.
+    #[serde(skip)]
+    idle_shadowed: bool,
     /// cards.json `idle_buff` (15.535 only, written where BuffWhenNotAttacking names a buff that is not an
     /// invisibility): `CardDef::idle_buff`, `idle_buff_of`.
     idle_buff: Option<RawIdleBuff>,
@@ -6455,7 +6464,10 @@ impl RawBuff {
                 return Err(format!("{what}: buff {name} carries {col}, which is not simulated"));
             }
         }
-        if self.damage_multiplier.is_some_and(|m| m <= 0) || self.character_crown_tower_damage_percent.is_some_and(|p| p < 0) {
+        // DamageMultiplier -100 on a buff its carrier hangs on itself (the Hero Tombstone's stand-still hold): its hits
+        // leave nothing (combat.rs `own_damage`). Every other multiplier below 1 stays refused.
+        let none_own = own && self.damage_multiplier == Some(-100);
+        if self.damage_multiplier.is_some_and(|m| m <= 0 && !none_own) || self.character_crown_tower_damage_percent.is_some_and(|p| p < 0) {
             return Err(format!("{what}: buff {name}: a DamageMultiplier below 1 or a negative CharacterCrownTowerDamagePercent; not simulated"));
         }
         // A DamageReduction the arithmetic reads is 1..=100 (0 reads as blank). A negative one is a damage INCREASE
@@ -6630,6 +6642,18 @@ impl BuffTable {
     /// `apply` for a buff a hero's button hangs on the hero itself (`RawBuff::convert_own`).
     fn apply_own(&mut self, raw: &RawBuff, time_ms: Option<i32>, what: &str) -> Result<BuffApply, String> {
         let def = raw.convert_own(what)?;
+        self.apply_def(def, raw, time_ms, what)
+    }
+
+    /// `apply` for a MARKER row whose one column is Invisible (status.rs `BuffDef::invisible`, which target.rs
+    /// `invisible_at` reads on any carried buff): the Boss Bandit's warp, the Hero Magic Archer's decoy, the Evo
+    /// Lumberjack's ghost. Refused if it sets anything else, as the Spectral's is; every other buff with no effect column
+    /// stays refused.
+    fn apply_invisible(&mut self, raw: &RawBuff, time_ms: Option<i32>, what: &str) -> Result<BuffApply, String> {
+        let def = raw.convert_with(what, true)?;
+        if !def.invisible || !def.is_inert() {
+            return Err(format!("{what}: buff {} is not an Invisible marker alone; not simulated", raw.name.clone().unwrap_or_default()));
+        }
         self.apply_def(def, raw, time_ms, what)
     }
 
@@ -7504,8 +7528,10 @@ fn scheduled_area(aeo: &RawAreaEffect) -> Option<Result<(SpellShape, UnitNeeds),
                 (Some(dx), Some(dy)) => SpawnOffset::MirroredToWall { dx: milli(dx), dy: milli(dy) },
                 _ => return refuse(format!("its action {name} has a position expression of a form this loader does not read")),
             },
-            (None, None, Some(r)) if r.y.unwrap_or(0) == 0 => SpawnOffset::Relative { x: r.x.unwrap_or(0), y: 0 },
-            (None, None, Some(_)) => return refuse(format!("its action {name} sets a RelativeY")),
+            // RelativeX and RelativeY in the owner's frame (state.rs `scheduled_point`, spawner.RELATIVE_SPAWN_OFFSET):
+            // the Hero Tombstone's monster's death, its four Skeletons at (+-1, 0) and (+-1, -2), measured on client
+            // 15.535.29 (sp-form-Tombstone-hero-s0) 500 either side of its last point and 1000 behind it.
+            (None, None, Some(r)) => SpawnOffset::Relative { x: r.x.unwrap_or(0), y: r.y.unwrap_or(0) },
             _ => return refuse(format!("its action {name} places {unit} by neither both position expressions nor a RelativeX")),
         };
         schedule.push(ScheduledSpawn { delay_ms, unit: u16::MAX, deploy_time_ms: e.deploy_time_ms, offset, via: SpawnVia::Action });
@@ -8575,7 +8601,7 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut
             return Err(format!("{what}: a negative cost or time"));
         }
         let rb = e.buff.as_ref().ok_or_else(|| format!("{what}: a warp back with no buff"))?;
-        let buff = buffs.apply(rb, e.buff_ms, &what)?;
+        let buff = buffs.apply_invisible(rb, e.buff_ms, &what)?;
         let warp_y = e.warp_y_milli.filter(|y| *y != 0).ok_or_else(|| format!("{what}: a warp of nothing"))?;
         let warp_delay_ms = e.warp_delay_ms.filter(|d| *d >= 0).ok_or_else(|| format!("{what}: a warp with no delay"))?;
         let effect = AbilityEffect::WarpBack(WarpBackDef { buff, warp_delay_ms, warp_y, charges: charges as u8, cooldown_ms });
@@ -8988,6 +9014,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let dies_on_its_hit = raw.kamikaze.unwrap_or(false) && raw.kamikaze_time_ms.is_none();
     let invisible_when_idle = match &raw.idle_invisibility {
         None => None,
+        Some(_) if raw.idle_shadowed => None,
         Some(iv) => {
             if !iv.area_damage_when_invisible.unwrap_or(false) {
                 return Err("an invisibility that keeps area damage off is not simulated".into());
@@ -9354,9 +9381,16 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         Some(x) => Ok(x),
         None => Ok(0),
     };
+    // SummonWidth is signed on a card with one second summon, where formation.rs `finish` stands that summon at (W,
+    // -radius): Goblinstein's -1000, its Doctor measured 1000 left of the Monster and 3500 behind (client 15.535.29,
+    // Oracle's sp-champ-Goblinstein-s0). Anywhere else a negative width stays refused.
+    let summon_width = match raw.summon_width_milli {
+        Some(w) if w < 0 && second_summon.as_ref().is_some_and(|d| d.count == 1) => w,
+        other => nonneg(other, "summon_width_milli")?,
+    };
     let formation = FormationDef {
         summon_radius: milli(nonneg(raw.summon_radius_milli, "summon_radius_milli")?),
-        summon_width: milli(nonneg(raw.summon_width_milli, "summon_width_milli")?),
+        summon_width: milli(summon_width),
         summon_deploy_delay_ms: nonneg(raw.summon_deploy_delay_ms, "summon_deploy_delay_ms")?,
         summon_deploy_delay_second_ms: nonneg(raw.summon_deploy_delay_second_ms, "summon_deploy_delay_second_ms")?,
         spawn_radius: milli(nonneg(raw.spawn_radius_milli, "spawn_radius_milli")?),
@@ -10877,6 +10911,13 @@ impl CardDb {
                 morph = Some(m);
                 continue;
             }
+            // THE EVO LUMBERJACK'S DEATH (`rage_ghost_block`): its base's death area, the name the extractor writes the
+            // base's, with the base's chain already loaded under it (the bottle, then the Rage): copied from the base.
+            if which == UnitUse::DeathAreaEffect && extra.evo_rage_ghost.is_some() {
+                let d = bc.death_area_effect.clone().ok_or_else(|| format!("death area effect {u}: its base {} has none loaded", bc.name))?;
+                c.death_area_effect = Some(d);
+                continue;
+            }
             // A FORM'S DEATH AREA (the Evo Princess's: a slow whose first update leaves a one-hit blow): its
             // `area_effect_objects` row, converted as a card's death area is.
             if which == UnitUse::DeathAreaEffect && extra.evo_freeze_volley.is_some() {
@@ -11341,7 +11382,10 @@ impl CardDb {
             let obj = uv.as_object_mut().ok_or("a ghost record that is not an object")?;
             obj.insert("kind".into(), serde_json::Value::String("troop".into()));
             obj.entry("count").or_insert(serde_json::Value::from(1));
-            let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("ghost {}: {e}", g.ghost))?;
+            let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("ghost {}: {e}", g.ghost))?;
+            // Its idle invisibility (GhostInvisibility, area damage kept off) is shadowed by the block's Invisible for good
+            // (`buff` below): hidden from its first frame to its last, and NO_DAMAGE, so no area lands on it either way.
+            ur.idle_shadowed = true;
             if ur.action_graph.as_ref().is_some_and(|a| a.mechanic.unwrap_or(false)) {
                 return Err(format!("ghost {} runs a graph its block did not clear", g.ghost));
             }
@@ -11359,7 +11403,7 @@ impl CardDb {
             m.summon_only = true;
             m.no_damage = true;
             let raw = g.buff.as_ref().ok_or("a ghost with no Invisible")?;
-            let buff = buffs.apply(raw, g.buff_ms, &format!("ghost {}", g.ghost))?;
+            let buff = buffs.apply_invisible(raw, g.buff_ms, &format!("ghost {}", g.ghost))?;
             evo.rage_ghost = Some(RageGhostDef { ghost: FormUnit { unit: u16::MAX }, buff, life_ms: life, radius: milli(g.rage.radius_milli), pulse_ms: pulse, area_ms: area, buff_time_ms: g.rage.buff_time_ms });
             rage_ghost_unit = Some(m);
         }
@@ -12337,7 +12381,7 @@ impl CardDb {
                 let e = &a.effect;
                 let time = |v: Option<i32>, k: &str| v.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a decoy warp's {k}"));
                 let raw_buff = e.buff.as_ref().ok_or_else(|| format!("{what}: a decoy warp with no buff"))?;
-                let buff = buffs.apply_own(raw_buff, e.buff_ms, &format!("{what} buff"))?;
+                let buff = buffs.apply_invisible(raw_buff, e.buff_ms, &format!("{what} buff"))?;
                 let warp_y = e.warp_y_milli.filter(|y| *y != 0).ok_or_else(|| format!("{what}: a warp of nothing"))?;
                 let decoy_delay_ms = time(e.decoy_delay_ms, "decoy delay")?;
                 if decoy_delay_ms != 0 {
@@ -12445,6 +12489,18 @@ impl CardDb {
                     let mut uv = extra.tables.units.get(name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
                     let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
                     obj.insert("kind".into(), serde_json::Value::String(kind.into()));
+                    // The flag attacks nothing (AttacksGround and AttacksAir false, no Damage): its row ships no HitSpeed,
+                    // read as 0 (the Target and Attack passes skip a hit speed of 0), as the Elixir Collector's.
+                    // Its blank CollisionRadius (NO_CHECKCOLLISIONS: it meets no body) read as 0, as the flag is set below.
+                    let blank = |k: &str| obj.get(k).map_or(true, serde_json::Value::is_null);
+                    let building = kind == "building";
+                    let (no_hit, no_radius) = (building && blank("damage") && blank("hit_speed_ms"), building && blank("collision_radius_milli"));
+                    if no_hit {
+                        obj.insert("hit_speed_ms".into(), serde_json::Value::from(0));
+                    }
+                    if no_radius {
+                        obj.insert("collision_radius_milli".into(), serde_json::Value::from(0));
+                    }
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
                     ur.ability = None;
@@ -12504,7 +12560,8 @@ impl CardDb {
                 let raw_buff = e.buff.as_ref().ok_or_else(|| format!("{what}: a siege with no buff"))?;
                 let buff = buffs.apply_own(raw_buff, e.buff_ms, &format!("{what} buff"))?;
                 let mult = e.hit_speed_multiplier.filter(|m| *m > 0).ok_or_else(|| format!("{what}: a siege with no rate"))?;
-                let rate = buffs.push_own(crate::status::BuffDef { hit_speed_pct: mult - 100, ..Default::default() }, &format!("{} siege rate", a.name))?;
+                // Raw, as every row's HitSpeedMultiplier is (status.rs `compose`: a speed-up counts above 100).
+                let rate = buffs.push_own(crate::status::BuffDef { hit_speed_pct: mult, ..Default::default() }, &format!("{} siege rate", a.name))?;
                 let (far, near) = match (e.far.as_ref(), e.near.as_ref()) {
                     (Some(f), Some(n)) => (f, n),
                     _ => return Err(format!("{what}: a siege without its two entries")),
@@ -12611,6 +12668,12 @@ impl CardDb {
                     let mut uv = extra.tables.units.get(name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
                     let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
                     obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                    // A charge block of DamageSpecial alone (the walking row's 208, its base's copied): no ChargeRange and
+                    // no ChargeSpeedMultiplier, so no charge (the row runs, it never charges); dropped, not refused.
+                    let blank = |c: &serde_json::Value, k: &str| c.get(k).map_or(true, serde_json::Value::is_null);
+                    if obj.get("charge").is_some_and(|c| c.is_object() && blank(c, "charge_range_raw") && blank(c, "charge_speed_multiplier_percent")) {
+                        obj.insert("charge".into(), serde_json::Value::Null);
+                    }
                     obj.entry("count").or_insert(serde_json::Value::from(1));
                     let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
                     ur.ability = None;

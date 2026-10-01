@@ -104,15 +104,18 @@ fn its_press_puts_two_dummies_down_toward_the_centre_and_takes_the_flag() {
         s.tick();
     }
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut dummies: Vec<(u32, Vec2)> = Vec::new();
+    let mut ids: Vec<EntityId> = Vec::new();
     let mut gone = None;
     for _ in 0..20 {
         s.tick();
         let now = s.tick_count() - 1;
         for e in find_live(&s, Team::Blue, "Goblin_dummy") {
-            if !dummies.iter().any(|(_, q)| *q == e.pos) && e.deploying {
+            if !ids.contains(&e.id) && e.deploying {
+                ids.push(e.id);
                 dummies.push((now - p, e.pos));
             }
         }

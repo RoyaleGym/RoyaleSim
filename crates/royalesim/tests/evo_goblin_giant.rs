@@ -43,8 +43,9 @@ fn giant(team: Team, at: (i32, i32)) -> (BattleState, EntityId) {
     (s, g)
 }
 
-/// Down to half less one after tick C: each Goblin's first tick after it (C + k) and its first point, over 95 ticks. Each
-/// is walking on its first frame (not deploying).
+/// Down to half less one after tick C: each Goblin's first tick after it (C + k) and its first point from the Giant's on
+/// that tick, as if the Giant stood on `at` (it steps before its spawner, and is held back on `at` after), over 95 ticks.
+/// Each is walking on its first frame (not deploying).
 fn goblins(s: &mut BattleState, g: EntityId, team: Team, at: (i32, i32)) -> Vec<(usize, (i32, i32))> {
     assert!(find_live(s, team, "Goblin").is_empty(), "a Goblin above half");
     let max = s.entity(g).expect("the Giant").max_hp;
@@ -54,11 +55,12 @@ fn goblins(s: &mut BattleState, g: EntityId, team: Team, at: (i32, i32)) -> Vec<
     for k in 1..=95 {
         assert!(s.debug_set_pos(g, n(at.0, at.1)));
         s.tick();
+        let gp = s.entity(g).expect("the Giant").pos;
         for gob in find_live(s, team, "Goblin") {
             if !seen.contains(&gob.id) {
                 seen.push(gob.id);
                 assert!(!gob.deploying, "a Goblin deploying on its first frame, C + {k}");
-                born.push((k, (gob.pos.x / K, gob.pos.y / K)));
+                born.push((k, ((gob.pos.x - gp.x) / K + at.0, (gob.pos.y - gp.y) / K + at.1)));
             }
         }
     }

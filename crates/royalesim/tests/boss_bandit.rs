@@ -43,7 +43,8 @@ fn scene() -> (BattleState, EntityId) {
 fn its_press_warps_it_6000_back_700_ms_after_its_trigger() {
     // A free press on P: the cast from P + 1, the trigger P + 4 (TriggerDelay 200 less a tick), the warp P + 18.
     let (mut s, bb) = scene();
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut rows = Vec::new();
     for _ in 0..24 {
@@ -61,7 +62,8 @@ fn its_press_warps_it_6000_back_700_ms_after_its_trigger() {
 fn it_has_two_charges_the_second_after_a_3000_ms_cooldown() {
     let (mut s, bb) = scene();
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the first press");
     assert_eq!(s.check_ability_button(Team::Blue, 0), Err(DeployError::AbilityNotReady), "a charge left, behind its cooldown");
     // The cast starts on P + 1; its cooldown gives the button back 60 ticks on.

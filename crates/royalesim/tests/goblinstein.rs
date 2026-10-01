@@ -42,8 +42,23 @@ fn scene() -> (BattleState, EntityId, EntityId) {
 
 #[test]
 fn its_doctor_stands_1000_left_and_3500_behind_its_monster() {
-    let (s, monster, doctor) = scene();
-    let (m, d) = (s.entity(monster).expect("m").pos, s.entity(doctor).expect("d").pos);
+    // Each unit's first point (the Doctor is put down 100 ms after the Monster), both deploying there.
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.deploy(Team::Blue, "Goblinstein", n(TAP)).expect("the play");
+    let (mut m, mut d) = (None, None);
+    for _ in 0..10 {
+        s.tick();
+        m = m.or_else(|| find_live(&s, Team::Blue, "Goblinstein").first().map(|e| e.pos));
+        d = d.or_else(|| find_live(&s, Team::Blue, "goblinstein_doctor").first().map(|e| e.pos));
+    }
+    let (m, d) = (m.expect("the Monster"), d.expect("the Doctor"));
+    assert!(((m.x / K) - TAP.0).abs() <= 150 && ((m.y / K) - TAP.1).abs() <= 150, "the Monster on the tap: {m:?}");
     let off = ((d.x - m.x) / K, (d.y - m.y) / K);
     assert!((off.0 + 1000).abs() <= 150 && (off.1 + 3500).abs() <= 150, "the Doctor's offset from the Monster: {off:?}");
 }
@@ -68,8 +83,14 @@ fn its_tether_hits_what_stands_by_the_line_every_10_ticks_from_the_press_plus_20
         hold(&mut s);
         s.tick();
     }
+    // Blue's princess towers down: an arrow landing on a tether's tick would hide that hit.
+    let towers: Vec<EntityId> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press, on the Doctor");
     let (mut hits_near, mut hits_far) = (Vec::new(), Vec::new());
     for _ in 0..110 {

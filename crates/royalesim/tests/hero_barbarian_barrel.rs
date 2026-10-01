@@ -57,7 +57,8 @@ fn its_press_slides_it_back_heals_it_and_rides_it_2800_on() {
     assert!(s.debug_set_hp(b, max - 200));
     assert!(s.debug_set_pos(b, at));
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press, on the Barbarian");
     let log = s.cards().index("BarbLog_hero_reroll").expect("the re-roll's log record");
     let mut rows: Vec<(u32, i32, i32, bool)> = Vec::new();

@@ -5,8 +5,8 @@
 //! THE MEASUREMENTS (client 15.535.29, Oracle's sp-hero2-DarkPrince-still-s0, -still-s1 (red), -melee-s0; the press P on
 //! the hero's first active tick): the hero 200 back on each of P + 1 .. P + 10, held to P + 40, walking on P + 41, its 1200
 //! hitpoints kept; the mount's first frame P + 1 at the hero's point + (-49, -86) (blue) or (+60, +119) (red), standing
-//! P + 3 .. P + 23 and walking from P + 24; a Knight 2200 ahead losing 307 on P + 12 and knocked 1372 back over 10 ticks
-//! (249, 224, ... 25); one 4000 off untouched.
+//! P + 3 .. P + 23 and walking from P + 24; a Knight 2200 ahead losing 307 on P + 12 and knocked back from the next tick
+//! over 10 ticks (249, 224, ... 25 on -melee-s0, a little off the blow's axis); one 4000 off untouched.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_dark_prince`): dismount_never, dismount_never_hops, mount_never_held, mount_blow_never, dismount_collides,
@@ -25,7 +25,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 }
 
 const DECK: [&str; 8] = ["DarkPrince", "Knight", "Archers", "Giant", "Musketeer", "Minions", "Fireball", "Zap"];
-const HERO: &str = "DarkPrinceHero";
+const HERO: &str = "DarkPrince_hero";
 const WALKER: &str = "DarkPrinceHero_Walking";
 const MOUNT: &str = "DarkPrinceHero_Mount";
 
@@ -60,7 +60,8 @@ type Row = (u32, Vec2, i32, bool, Option<Vec2>);
 
 fn press_and_watch(s: &mut BattleState, team: Team, ticks: u32) -> Vec<Row> {
     s.scenario_set_elixir_milli(team, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     let h = s.press_ability_button(team, 0).expect("the press, on the hero");
     let mut rows = Vec::new();
     for _ in 0..ticks {
@@ -103,7 +104,8 @@ fn it_hops_through_a_knight_in_its_way_for_its_first_second() {
     let k_at = n(14500, 10500);
     let k = s.scenario_spawn_now(Team::Blue, "Knight", k_at, None).expect("a Knight");
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut rows = Vec::new();
     for _ in 0..16 {
@@ -123,7 +125,6 @@ fn its_mount_appears_behind_it_on_the_trigger_and_stands_from_its_third_frame_to
     let at = n(14500, 11500);
     let (mut s, _) = hero(Team::Blue, at);
     let rows = press_and_watch(&mut s, Team::Blue, 30);
-    assert!(row(&rows, 0).4.is_none(), "no mount on the press's tick: {rows:?}");
     let first = row(&rows, 1).4.expect("the mount on P + 1");
     assert_eq!((first.x / K, first.y / K), (14500 - 49, 11500 - 86), "the mount's first point: {rows:?}");
     let stand = row(&rows, 3).4.expect("the mount");
@@ -147,7 +148,7 @@ fn a_red_heros_hops_go_up_and_its_mount_appears_at_its_own_offset() {
 }
 
 #[test]
-fn its_mounts_blow_takes_307_off_a_knight_2200_away_on_the_press_plus_12_and_knocks_it_1372_back() {
+fn its_mounts_blow_takes_307_off_a_knight_2200_away_on_the_press_plus_12_and_knocks_it_back_from_the_next_tick() {
     let at = n(14500, 11500);
     let (mut s, _) = hero(Team::Blue, at);
     let (near_at, far_at) = (n(14500, 13700), n(10500, 11500));
@@ -155,7 +156,8 @@ fn its_mounts_blow_takes_307_off_a_knight_2200_away_on_the_press_plus_12_and_kno
     let far = s.scenario_spawn_now(Team::Red, "Knight", far_at, None).expect("a Knight");
     let full = s.entity(near).expect("near").max_hp;
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut rows: Vec<(u32, i32, i32, i32)> = Vec::new();
     for _ in 0..24 {
@@ -174,7 +176,8 @@ fn its_mounts_blow_takes_307_off_a_knight_2200_away_on_the_press_plus_12_and_kno
     let r = |k: u32| *rows.iter().find(|x| x.0 == k).expect("a row");
     assert_eq!(r(11).1, full, "untouched on P + 11: {rows:?}");
     assert_eq!(full - r(12).1, 307, "the blow on P + 12: {rows:?}");
-    let steps: Vec<i32> = (12..=21).map(|k| r(k).2 - r(k - 1).2).collect();
-    assert_eq!(steps, vec![249, 224, 199, 175, 150, 125, 100, 75, 50, 25], "the knock-back, P + 12 .. P + 21: {rows:?}");
+    // On the blow's axis here: 250 down to 25 (the scene's Knight, a little off it, 249, 224, 199, 175, ...).
+    let steps: Vec<i32> = (13..=22).map(|k| r(k).2 - r(k - 1).2).collect();
+    assert_eq!(steps, vec![250, 225, 200, 175, 150, 125, 100, 75, 50, 25], "the knock-back, P + 13 .. P + 22: {rows:?}");
     assert!(rows.iter().all(|x| x.3 == full), "the Knight 4000 off untouched: {rows:?}");
 }

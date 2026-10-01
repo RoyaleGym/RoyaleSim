@@ -8,7 +8,7 @@
 //! losing 256 once.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, early_trigger_late.
+//! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, guard_collides, early_trigger_late.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -81,8 +81,10 @@ fn gaps(t: &[u32]) -> Vec<u32> {
 
 #[test]
 fn his_shots_quicken_twice_after_his_third_and_sixth() {
-    // A red Golem held 5000 ahead: in his reach, too big to die.
-    let (mut s, lp, reds) = scene(&[("Golem", (AT.0, AT.1 + 5000))]);
+    // A red Golem held 5000 ahead (in his reach, too big to die), put down after his hold: his first shot is counted.
+    let (mut s, lp, _) = scene(&[]);
+    let at = (AT.0, AT.1 + 5000);
+    let reds = vec![(s.scenario_spawn_now(Team::Red, "Golem", n(at), None).expect("a red Golem"), n(at))];
     let t = shots(&mut s, lp, &reds, 220, None);
     let g = gaps(&t);
     assert!(g.len() >= 8, "his shots: {t:?}");
@@ -105,7 +107,8 @@ fn a_stun_starts_his_ramp_again() {
 #[test]
 fn his_guard_appears_behind_him_and_charges_to_a_fixed_point_ahead() {
     let (mut s, lp, _) = scene(&[]);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut rows: Vec<(u32, Vec2, bool)> = Vec::new();
     for _ in 0..50 {
@@ -130,6 +133,11 @@ fn his_guards_charge_hits_a_knight_near_its_path_once() {
     // A red Knight held 2400 to the right of the guard's path.
     let (mut s, lp, reds) = scene(&[("Knight", (AT.0 + 2400, AT.1 + 1000))]);
     let knight = reds[0].0;
+    // Blue's princess towers down (their arrows reach the Knight): his own shots are its other losses.
+    let towers: Vec<EntityId> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut losses = Vec::new();
     for _ in 0..45 {
@@ -142,5 +150,8 @@ fn his_guards_charge_hits_a_knight_near_its_path_once() {
             losses.push(before - after);
         }
     }
-    assert_eq!(losses.iter().filter(|l| **l == 256).count(), 1, "one charge hit of 256: {losses:?}");
+    // The charge's hit is the one loss of 256 or more: 256, or 256 and one of his shots on its tick.
+    let (hits, shots): (Vec<i32>, Vec<i32>) = losses.iter().partition(|l| **l >= 256);
+    assert_eq!(hits.len(), 1, "one charge hit: {losses:?}");
+    assert!(hits[0] == 256 || shots.contains(&(hits[0] - 256)), "a charge hit of 256: {losses:?}");
 }

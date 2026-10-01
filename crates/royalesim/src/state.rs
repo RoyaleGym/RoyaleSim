@@ -14913,8 +14913,9 @@ impl BattleState {
                 keep.push(r);
                 continue;
             }
-            // Held from its first frame to its charge's end: its own walk and swing wait.
-            self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(dt);
+            // Held from its first frame to its charge's end: its own walk and swing wait. Two ticks: this pass runs after
+            // Move, and the next Status spends one before that tick's walk.
+            self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(2 * dt);
             if tick < r.born + crate::card::GUARD_DASH_START_TICKS {
                 keep.push(r);
                 continue;
@@ -16076,9 +16077,19 @@ impl BattleState {
                 }
             }
         }
+        // THE LITTLE PRINCE'S GUARD (card.rs `GuardDef`): from its first frame to its landing no unit meets its body (its
+        // charge a jump). Measured on client 15.535.29 (sp-champ-LittlePrince-s0, Oracle's sp-lp-* dash runs): 398 a tick
+        // on the straight line to its end, through him.
+        #[cfg(not(clash_plant = "guard_collides"))]
+        for r in self.warps.guards.iter() {
+            if let Some(g) = r.guard.filter(|g| self.ents.is_alive(*g)) {
+                drill_off[g.index as usize] = true;
+            }
+        }
         // A HERO TOMBSTONE'S MONSTER WAITING (card.rs `TombMonsterDef`): DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS; no unit
-        // meets its body (no plant: its tomb's body covers it while it stands, and nothing measured it after).
-        for r in self.warps.tombs.iter().filter(|r| r.pressed.is_none() && self.ents.is_alive(r.monster)) {
+        // meets its body (no plant: its tomb's body covers it while it stands, and nothing measured it after). Pressed, it
+        // meets none while its tomb stands (measured: still beside the standing tomb after its one step, TOMB_MONSTER_STEP).
+        for r in self.warps.tombs.iter().filter(|r| (r.pressed.is_none() || self.ents.is_alive(r.tomb)) && self.ents.is_alive(r.monster)) {
             drill_off[r.monster.index as usize] = true;
         }
         let mut freed_hold = vec![false; self.ents.capacity()];
@@ -20337,6 +20348,13 @@ impl BattleState {
         let dt = self.cfg.calib.tick_ms.max(1);
         for k in 0..self.warps.tombs.len() {
             let r = self.warps.tombs[k].clone();
+            // A PRESSED MONSTER'S ONE STEP (card.rs TOMB_MONSTER_STEP), the tick after the trigger.
+            #[cfg(not(clash_plant = "tomb_monster_unstepped"))]
+            if r.pressed.is_some_and(|p| self.tick == p + 1) && self.ents.is_alive(r.monster) {
+                let mi = r.monster.index as usize;
+                self.ents.pos[mi] = guard_point(r.team, self.ents.pos[mi], crate::card::TOMB_MONSTER_STEP);
+                self.hash.rebuild(&self.ents);
+            }
             if r.pressed.is_some() || !self.ents.is_alive(r.monster) {
                 continue;
             }
@@ -20421,7 +20439,8 @@ impl BattleState {
                     let (team, card, level, at) = (self.ents.team[mi], self.ents.card[mi], self.ents.level[mi], self.ents.pos[mi]);
                     if let Some(SpellShape::Projectile { hit: Some(h), .. }) = self.cfg.cards.get(card).deploy_projectile.as_ref().map(|x| &x.shape) {
                         let damage = self.cfg.cards.scaled(card, level, h.damage).expect("the mount's level is validated at try_new");
-                        self.spells.push(Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: 0 }, depth: 0 });
+                        // Landing a tick on: measured, the Knight's loss on P + 12, the mount's first frame P + 1.
+                        self.spells.push(Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: dt }, depth: 0 });
                     }
                 }
             }
@@ -20506,7 +20525,8 @@ impl BattleState {
                         let (qx, qy) = ((p.x - b.x) as i64, (p.y - b.y) as i64);
                         qx * qx + qy * qy
                     } else {
-                        (px * px + py * py) - num * num / den
+                        // The projection's square in i128: `num` reaches 10^11 on subtiles.
+                        (px * px + py * py) - (i128::from(num) * i128::from(num) / i128::from(den)) as i64
                     };
                     let reach = (tt.width + e.radius[j]) as i64;
                     if d2 > reach * reach {
@@ -23077,15 +23097,16 @@ impl BattleState {
                 }
                 let _ = (team, level, pos);
             }
-            // THE DECOY AND WARP (the Hero Magic Archer's; `MagicRun`): its decoy is queued on the hero's own point (made in
-            // this tick's Spawn phase, and targetable at once: the enemies that held the hero took it on the next tick),
+            // THE DECOY AND WARP (the Hero Magic Archer's; `MagicRun`): its decoy is released on the hero's own point (made
+            // at the end of this tick's Reap with no update: measured, its first frame on the hero's point, their push the
+            // tick after, when the enemies that held the hero took it),
             // the hero's attack entry is the power shot's from now (combat.rs `fire`), and its buff, its warp, its power's
             // end and its decoy's kill run on the trigger's clock (`magic_pass`, `magic_warps`).
             crate::card::AbilityEffect::DecoyWarp(d) => {
                 #[cfg(not(clash_plant = "decoy_never"))]
                 {
                     let lvl = self.cfg.cards.unit_level(card, d.decoy, None, level).expect("the ability unit's level is validated at try_new");
-                    self.spawn_queue.push(PendingSpawn { team, card: d.decoy, level: lvl, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+                    self.release(PendingSpawn { team, card: d.decoy, level: lvl, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
                 }
                 self.ents.attack_seq[i] = 1;
                 self.warps.magic.retain(|r| r.id != hero);
@@ -23187,15 +23208,17 @@ impl BattleState {
                 }
                 let _ = (team, level, pos, t);
             }
-            // THE DISMOUNT (the Hero Dark Prince's; `DismountRun`): the hero is its walking row now, its mount queued beside
-            // it (made in this tick's Spawn phase, no deploy); its hops after this tick's move pass on (`dismount_hops`),
+            // THE DISMOUNT (the Hero Dark Prince's; `DismountRun`): the hero is its walking row now, its mount released
+            // beside it (made at the end of this tick's Reap, no deploy); its hops after this tick's move pass on (`dismount_hops`),
             // its mount's hold and blow on the mount's clock (`dismount_pass`).
             crate::card::AbilityEffect::Dismount(d) => {
                 #[cfg(not(clash_plant = "dismount_never"))]
                 {
                     let lvl = self.cfg.cards.unit_level(card, d.mount, None, level).expect("the ability unit's level is validated at try_new");
                     let at = guard_point(team, pos, crate::card::DISMOUNT_MOUNT_OFFSET[team as usize]);
-                    self.spawn_queue.push(PendingSpawn { team, card: d.mount, level: lvl, pos: at, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+                    // Made at the end of this Reap with no update (`release`): its first frame on its point, its one step
+                    // on its second, as measured; and no play's deploy blow (its blow is `dismount_pass`'s).
+                    self.release(PendingSpawn { team, card: d.mount, level: lvl, pos: at, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
                     self.rebind_unit(i, d.walker, false);
                     self.warps.dismounts.retain(|r| r.id != hero);
                     self.warps.dismounts.push(DismountRun { id: hero, team, card, made: self.tick, at, mount: None });

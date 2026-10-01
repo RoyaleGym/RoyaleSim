@@ -2571,6 +2571,12 @@ pub fn own_damage(ents: &Entities, cards: &CardDb, a: usize, amount: i32) -> i32
         let _ = (ents, cards, a);
         0 // PLANT (regression): the carrier's DamageMultiplier is not read.
     };
+    // A NEGATIVE DamageMultiplier (card.rs `RawBuff::convert_opts`: -100 alone, the Hero Tombstone's stand-still hold)
+    // leaves its carrier's hits nothing. Unmeasured: no scene has the held monster hit.
+    #[cfg(not(clash_plant = "own_damage_multiplier_ignored"))]
+    if ents.buff_slots(a).iter().any(|s| !s.is_empty() && cards.buffs[(s.id - 1) as usize].damage_pct < 0) {
+        return 0;
+    }
     if m <= 0 {
         return amount;
     }

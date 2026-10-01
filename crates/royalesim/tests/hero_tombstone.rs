@@ -10,7 +10,8 @@
 //! (-500, 0), (-500, -1000) and (500, -1000) on the tick after its last, deploying 10 ticks.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! hero_tombstone`): tomb_monster_never, tomb_never, tomb_never_killed, tomb_window_unread, tomb_play_ignored.
+//! hero_tombstone`): tomb_monster_never, tomb_never, tomb_never_killed, tomb_window_unread, tomb_play_ignored,
+//! tomb_monster_unstepped.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -25,7 +26,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 }
 
 const DECK: [&str; 8] = ["Tombstone", "Knight", "Archers", "Giant", "Musketeer", "Minions", "Fireball", "Zap"];
-const TOMB: &str = "TombstoneHero";
+const TOMB: &str = "Tombstone_hero";
 const WAITING: &str = "TombstoneHero_Monster_Passive";
 const ACTIVE: &str = "TombstoneHero_Monster_Active";
 
@@ -67,7 +68,8 @@ fn its_press_makes_its_monster_active_at_full_hitpoints_and_its_tomb_dies_on_the
     let (tomb, m) = play(&mut s, Team::Blue, n(14500, 11500));
     assert_eq!(s.entity(m).expect("the monster").max_hp, 529, "the monster waiting: 207 at level 11");
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     assert_eq!(s.press_ability_button(Team::Blue, 0).expect("the press"), m, "the press is the monster's");
     let mut rows: Vec<(u32, bool, i32, i32, bool, usize)> = Vec::new();
     for _ in 0..4 {
@@ -87,7 +89,8 @@ fn its_active_monster_steps_106_106_beside_its_tomb_then_stands_to_the_press_plu
     let mut s = battle();
     let (_, m) = play(&mut s, Team::Blue, n(14500, 11500));
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let p = s.tick_count();
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut rows: Vec<(u32, i32, i32)> = Vec::new();
     for _ in 0..43 {
@@ -165,6 +168,10 @@ fn its_active_monsters_death_puts_four_skeletons_down_around_its_last_point_on_t
     }
     let at = s.entity(m).expect("the monster").pos;
     let before: Vec<EntityId> = skeletons(&s, Team::Blue).into_iter().map(|x| x.0).collect();
+    // The tomb's own Skeletons gone with it: nothing but the four stands by the point.
+    for id in &before {
+        assert!(s.debug_set_hp(*id, 0));
+    }
     assert!(s.debug_set_hp(m, 0));
     s.tick();
     assert!(s.entity(m).is_none(), "the monster dead on its tick");
