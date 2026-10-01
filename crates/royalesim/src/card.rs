@@ -1257,6 +1257,126 @@ pub enum AbilityEffect {
     Warp(WarpDef),
     /// THE SLAP (the Hero Giant's; `SlapDef`).
     Slap(SlapDef),
+    /// THE DECOY AND WARP (the Hero Magic Archer's; `DecoyWarpDef`).
+    DecoyWarp(DecoyWarpDef),
+    /// THE SIEGE (the Hero Bowler's; `SiegeDef`).
+    Siege(SiegeDef),
+    /// THE WARP BACK (the Boss Bandit's; `WarpBackDef`).
+    WarpBack(WarpBackDef),
+    /// THE FLAG'S SPAWNS (the Hero Goblins'; `FlagSpawnsDef`).
+    FlagSpawns(FlagSpawnsDef),
+    /// THE GUARD'S CHARGE (the Little Prince's; `GuardDef`).
+    Guard(GuardDef),
+}
+
+/// THE LITTLE PRINCE'S ATTACK-SPEED RAMP (tools/extract_cards.py `champion_ramp`; state.rs `RampRun`, `ramp_pass`,
+/// `swing_started`). Each shot counts one (to 99) and sets a grace of `grace_ms`; each swing's start sets the grace too,
+/// and at a count of `levels[k].at` hangs `levels[k].buff`, which lives while the count is between `at` and `until`. The
+/// grace runs down only while he moves; at 0, or while his combat is disabled (a stun, a freeze, a cast), the count is 0.
+///
+/// Measured on client 15.535.29 (Oracle's sp-lp-ramp-s0, sp-lp-walk-s0 and sp-lp-walk2-s0; sp-champ-LittlePrince-s0):
+/// his shots 24, 24, 12, 12, 12, 8, 8 ... ticks apart (HitSpeed 1200; x2 from the 3rd shot, x3 from the 6th), across
+/// a change of target; a Zap's stun and his own cast both start it again at 24; a walk of 68 ticks between targets too.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RampDef {
+    pub grace_ms: i32,
+    pub levels: Vec<RampLevel>,
+}
+
+/// One step of the ramp (`RampDef::levels`): the count it starts at, the last count it lives at (None: for good), and
+/// its buff.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RampLevel {
+    pub at: u8,
+    pub until: Option<u8>,
+    pub buff: BuffApply,
+}
+
+/// THE GUARD'S CHARGE (the Little Prince's; tools/extract_cards.py `champion_guard`; state.rs `GuardRun`,
+/// `guard_release`, `guard_bind`, `guard_moves`). At the trigger `hold` (NO_MOVE, speed -100) lands on him for its time;
+/// `spawn_delay_ms` on, `unit` is put down deploying at his point + GUARD_SPAWN_OFFSET (his side's frame), and from
+/// GUARD_DASH_START_TICKS after its first frame it charges GUARD_STEP a tick to his point + GUARD_END_OFFSET, hitting
+/// each ground troop whose centre comes within `push_radius` + its radius once, `push_damage` (level-scaled) and a push
+/// of `push` x (1 - its distance / that reach) away from it; GUARD_LANDING_TICKS after it arrives it is free.
+///
+/// Measured on client 15.535.29 (sp-champ-LittlePrince-s0 and Oracle's five sp-lp-* dash runs, the press P): the
+/// guard's first frame P + 18, 1944 behind him (and 18 across), deploying 6 frames; its first step P + 25, 398 a tick
+/// (+16..19 across), its last P + 37 at his point + (239, 3083), whether nothing, a deploying Knight 3606 off, a walking
+/// one 3780 off or one 6000 off stood near; free on P + 39; a Knight 2962 from its path losing 256 (100 at level 11)
+/// once. TargetRadius is read and not run: nothing it could name moved the charge.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct GuardDef {
+    pub hold: BuffApply,
+    pub unit: u16,
+    pub spawn_delay_ms: i32,
+    pub push_radius: i32,
+    pub push: i32,
+    pub push_damage: i32,
+}
+
+/// The guard's first point from the Little Prince's (native, his side's frame: +x his right, +y his forward): measured,
+/// (18, -1944) on six runs (AppearBehindAtDistance 2000).
+pub const GUARD_SPAWN_OFFSET: (i32, i32) = (18, -1944);
+/// The guard's charge's end from the Little Prince's point (native, his side's frame): measured, (239, 3083) on six runs.
+pub const GUARD_END_OFFSET: (i32, i32) = (239, 3083);
+/// Ticks from the guard's first frame to its charge's first step: measured, 7 (6 deploying frames and one in its dash
+/// state).
+pub const GUARD_DASH_START_TICKS: u32 = 7;
+/// The guard's charge's step, native a tick: measured, 398 along its line (its JumpSpeed 400).
+pub const GUARD_STEP: i32 = 398;
+/// Ticks after the guard's arrival before it is free: measured, 2 (DashLandingTime 200 less a tick... in its dash state
+/// the arrival's frame and the next, walking on the one after).
+pub const GUARD_LANDING_TICKS: u32 = 2;
+
+/// THE FLAG'S SPAWNS (the Hero Goblins'; tools/extract_cards.py `flag_button`; state.rs `FlagRun`, `flag_pass`, the
+/// flag's release in `phase_reap`, `note_flag_play`). The form's units hold no button: when one dies, untagged, with no
+/// untagged unit of its form of its side left, `flag` (a summon-only building: no damage taken, nothing collides with
+/// it, `hide` on it for good, so untargetable) is put down where it died, and the button is the flag's for
+/// `window_ms`; `fade_ms` after that the flag dies. A play of a card of `group` (the form's base, played as itself or
+/// as the form) tags every unit of the form of that side then standing (none of their deaths leaves a flag) and kills
+/// a flag whose window runs. The press: at the trigger each of `spawns` is put down deploying at the flag's point moved
+/// as a MirroredToWall offset moves it (x toward the nearer side wall, y along the team's y direction), each
+/// `delay_ms` on, and `kill_ms` on the flag dies.
+///
+/// Measured on client 15.535.29 (sp-form-Goblins-hero-s0, level 11, the press issued t366): the last goblin's last frame t285, the flag's first t286 on its
+/// point (2560 hitpoints); its dummies' first frames t376 and t380 at the flag's point + (1000, -500) and (-1000, -500)
+/// (the trigger t376: the cast's start t367 and its TriggerDelay 500 less a tick, EARLY_TRIGGER_TICKS); the flag's last
+/// frame t384. Unmeasured: the window's end, the fade, a play's tag.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FlagSpawnsDef {
+    pub flag: u16,
+    pub hide: BuffApply,
+    pub window_ms: i32,
+    pub fade_ms: i32,
+    pub kill_ms: i32,
+    pub group: Vec<u16>,
+    pub spawns: Vec<FlagSpawn>,
+}
+
+/// One of the flag's spawns (`FlagSpawnsDef::spawns`): its unit, its MirroredToWall offset (subtiles) and its delay.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FlagSpawn {
+    pub unit: u16,
+    pub dx: i32,
+    pub dy: i32,
+    pub delay_ms: i32,
+}
+
+/// THE WARP BACK (the Boss Bandit's; tools/extract_cards.py `champion_warp_back`; state.rs `MagicRun`, `magic_warps`,
+/// `HeroUnit::uses`). At the trigger `buff` (Invisible) lands on the champion; `warp_delay_ms` on it moves `warp_y`
+/// (native, along its side's forward: negative is back) and drops its target, as the Hero Magic Archer's warp does.
+/// Its button takes `charges` presses a unit (MaxCharges), each after the last one's cast start + `cooldown_ms`.
+///
+/// Measured on client 15.535.29 (Oracle's sp-champ-BossBandit-s0, level 11, the press issued t175 mid-dash, the cast t178..t194): charges 2 -> 1 and the cooldown 3000 on t176; the dash's
+/// blow (491, 192 at level 11) still on t178; 6000 back on t195 (the trigger, t181 under EARLY_TRIGGER_TICKS, + 14),
+/// its target dropped; the cooldown down from t179, the button back on t238 (t178 + 60) with one charge.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WarpBackDef {
+    pub buff: BuffApply,
+    pub warp_delay_ms: i32,
+    pub warp_y: i32,
+    pub charges: u8,
+    pub cooldown_ms: i32,
 }
 
 /// THE SLAP (the Hero Giant's; tools/extract_cards.py `slap_effect`; state.rs `SlapBoard`, `slap_pick`, `slap_pass`).
@@ -1294,6 +1414,81 @@ pub const SLAP_FLIGHT_STEP: i32 = 250;
 
 /// THE SLAP'S HOLD, ticks beyond its ActionDuration: measured on client 15.535.29, 18 standing frames for 800 ms.
 pub const SLAP_HOLD_EXTRA_TICKS: i32 = 2;
+
+/// THE DECOY AND WARP (the Hero Magic Archer's; tools/extract_cards.py `decoy_warp_effect`; state.rs `MagicRun`,
+/// `magic_pass`, `magic_warps`; combat.rs `fire`, the power shot). At the trigger `decoy` (a summon-only record that stands
+/// still: its row's NO_MOVE_ALLOW_ATTRACT) is put down deploying on the hero's own point, and killed `decoy_life_ms` after
+/// its creation (its row's ActionInterval to an ActionKill); `buff_delay_ms` on, `buff` (Invisible) lands on the hero;
+/// `warp_delay_ms` on, the hero moves `warp_y` (native, along its side's forward: negative is back) and drops its target.
+/// From the trigger its attack entry is 1 (`power`) until its next shot or `power_ms` on.
+///
+/// Measured on client 15.535.29 (sp-form-EliteArcher-hero-s0, level 11, the press issued t214): the cast from t215; the decoy's first frame t219
+/// on the hero's point, 271 hitpoints, deploying 20 frames; the Knight and a Skeleton that held the hero took the decoy on
+/// t220; the hero 150 back on t220 (its decoy's push) and 3,650 further on t221, its target dropped; its first shot
+/// after its cast, t249, the power shot (`PowerShotDef`). The decoy's kill, measured on Oracle's sp-f2-ma-3500-9500-s0
+/// and sp-f2-ma-9500-13500-s0 (no red unit anywhere): first seen t125, last seen t264 at 271, gone on t265, 140 frames.
+/// Unmeasured: the power's end without a shot.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DecoyWarpDef {
+    pub buff: BuffApply,
+    pub buff_delay_ms: i32,
+    pub warp_y: i32,
+    pub warp_delay_ms: i32,
+    pub decoy: u16,
+    pub decoy_life_ms: i32,
+    pub power_ms: i32,
+    pub power: PowerShotDef,
+}
+
+/// THE SIEGE (the Hero Bowler's; tools/extract_cards.py `siege_effect`; state.rs `SiegeRun`, `siege_pass`, the swing's
+/// entry pick in `phase_attack_for`; combat.rs `fire`, the near start). At the trigger `buff` (SpeedMultiplier -100: it
+/// stands) and `rate` (its entries' HitSpeedMultiplier, an own buff) land for their time, its attack is held
+/// `no_attack_ms` (NO_ATTACK), and the hero becomes `unit` (state.rs `rebind_unit`, its target and swing kept): its row
+/// with the far entry's CustomRange, CustomSightRange, mortar shot and start radius. `reset_target_ms` on it drops its
+/// target. Each swing's start picks the near entry (its shot from `near_start`) for a target within `near_range` (the
+/// attack reach's rule) and the far one for any other. At `buff`'s end the hero is its own row again, its target
+/// dropped, its entry 0.
+///
+/// Measured on client 15.535.29 (sp-form-Bowler-hero-s0, level 11, the press issued t214): the cast t215..t263; its first swing t267 at progress 2065 (its LoadTime
+/// 2000 and 65: 50 x 130 / 100); its shots first seen 2000 out on the Knight 2,581 away (the near entry), 400 a tick, the
+/// Knight losing 384 (150 at level 11) on t276 and t315, 39 ticks apart (2500 at 65 a tick). On sp-bowler-siege-s0 (a
+/// Knight walking in from 9000 ahead): the far entry's shells first seen 150 out on t180, t219 and t257 (38 and 39 ticks
+/// apart), each stepping 400 to the Knight's point of the tick before and taking 384 off it on landing (its 2000
+/// splash); the siege's end on the trigger + 146 (`siege_pass`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SiegeDef {
+    pub buff: BuffApply,
+    pub rate: BuffApply,
+    pub no_attack_ms: i32,
+    pub reset_target_ms: i32,
+    pub unit: u16,
+    pub near_range: i32,
+    pub near_start: i32,
+}
+
+/// THE POWER SHOT (the Hero Magic Archer's AttackSequenceList entry 1; combat.rs `fire`, `power_copies`): `middle` is
+/// fired as the hero's straight shot is (its range from the hero's centre), and `count` copies of `side` stand `distance`
+/// (subtiles) apart across its line through its first point (750 to each side for two 1,500 apart), each flying its own
+/// range from there after a tick's stand: the client makes them on the tick after the middle (its OnStartingAction's
+/// ActionCreateParallelProjectiles). Measured on client 15.535.29 (sp-form-EliteArcher-hero-s0, level 11): the middle's first frame t249, 2,000 out on
+/// the bearing to the Knight, stepping 1,100; the copies' first frames t250 at its first point 750 to each side, stepping
+/// 1,000; 48 from each on the Knight and the Musketeer.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PowerShotDef {
+    pub middle: PowerArrow,
+    pub side: PowerArrow,
+    pub count: i32,
+    pub distance: i32,
+}
+
+/// One arrow of a power shot: its row's Speed, its level-1 Damage, its crown-tower share and its straight-to-range block.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PowerArrow {
+    pub speed: i32,
+    pub damage: i32,
+    pub crown_pct: i32,
+    pub shot: RangeShotDef,
+}
 
 /// THE WARP (the Hero Mega Minion's; tools/extract_cards.py `warp_effect`; state.rs `WarpBoard`, `warp_pass`, the step in
 /// the 16402 move pass, `land_warps`, `strike_after_fire`). From the trigger the hero warps to its pick (enemy troops, air
@@ -1959,6 +2154,8 @@ pub struct EvoDef {
     pub chain: Option<EvoChainDef>,
     /// Evo Goblin Drill: its building's hides (`DrillDef`), on the form and on the building it morphs into.
     pub drill: Option<DrillDef>,
+    /// Evo Lumberjack: the ghost his death's Rage puts down (`RageGhostDef`), on the form and on the ghost.
+    pub rage_ghost: Option<RageGhostDef>,
     /// Evo Goblin Barrel: its decoy barrel's card (a summon-only spell: the form's with GoblinDummies for its Goblins),
     /// cast with the form at the point mirrored across the arena's middle (state.rs `phase_spawn`).
     pub mirror: Option<u16>,
@@ -2135,6 +2332,39 @@ pub struct ArmyDef {
     /// The buff a Spectral hangs on itself when made: an Invisible one (status.rs `BuffDef::invisible`), for good.
     pub spectral_buff: BuffApply,
 }
+
+/// THE EVO LUMBERJACK'S GHOST (tools/extract_cards.py `rage_ghost_block`; state.rs `RageGhostRun`, `rage_ghost_release`,
+/// `rage_ghost_bind`, `rage_ghost_pass`). His death runs his base's chain (the bottle, then the Rage), and
+/// RAGE_GHOST_APPEAR_TICKS after it `ghost` (a summon-only record: his row with 1 hitpoint, NO_DAMAGE, hovering, blind
+/// to Rage, half on a crown tower) is put down deploying on his death point, where the Rage stands, and hangs `buff`
+/// (Invisible) for good. It is killed `life_ms` after it appears, or once the Rage leaves it: the area pulses every
+/// `pulse_ms` for `area_ms` from the ghost's appearance and reaches `radius` of its point, and a pulse that reaches the
+/// ghost's centre holds it `buff_time_ms` (the Rage's BuffTime) and RAGE_GHOST_LAPSE_EXTRA_TICKS more.
+///
+/// Measured on client 15.535.29 (Oracle's sp-lumber-fight-s0, -arrows-s0 and -tower-s0; D the tick the Lumberjack is
+/// gone): the ghost first seen D+12 on his death point at 2 hitpoints, deploying 20 frames; untouched by Arrows cast on
+/// it; 128 a hit on a king (256 at level 11, half) every 16 ticks. Standing on the Rage's point (the tower run) its last
+/// frame is its first + 109; flying off at 120 a tick (the fight run: 2860 from the point at its first + 60, 3574 at
+/// + 66) its last frame is its first + 84.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RageGhostDef {
+    pub ghost: FormUnit,
+    pub buff: BuffApply,
+    pub life_ms: i32,
+    pub radius: i32,
+    pub pulse_ms: i32,
+    pub area_ms: i32,
+    pub buff_time_ms: i32,
+}
+
+/// The ticks from the tick the Lumberjack is gone to his ghost's first frame: measured D+12 on all three runs (his base
+/// chain: the bottle's 50 ms dummy and 500 ms deploy, then the Rage's start).
+pub const RAGE_GHOST_APPEAR_TICKS: u32 = 12;
+
+/// The ticks past the Rage's hold (a pulse's BuffTime) before a ghost out of it is gone: FITTED on one run (Oracle's
+/// sp-lumber-fight-s0, and -arrows-s0, the same run): its last pulse within 3000 of the point at its first + 60, its last
+/// frame its first + 84 (60 + 20 + 5 = 85, the kill's tick).
+pub const RAGE_GHOST_LAPSE_EXTRA_TICKS: u32 = 5;
 
 /// A UNIT AN EVOLVED FORM'S OWN MECHANIC PUTS DOWN (`ArmyDef`): its CardDb index, u16::MAX until it loads.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -2666,6 +2896,8 @@ pub struct CardDef {
     pub override_attack_finish: bool,
     /// A CHAINED SHOT (`ChainHitDef`: the Electro Dragon's, the Electro Spirit's); None on every other card.
     pub chain_hit: Option<ChainHitDef>,
+    /// The Little Prince's attack-speed ramp (`RampDef`).
+    pub ramp: Option<RampDef>,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -3035,6 +3267,8 @@ struct RawCard {
     /// A CHAMPION'S BUTTON (tools/extract_cards.py `champion_dash_chain`): 15.535 only, on the Golden Knight's row.
     /// Absent on every other card.
     #[serde(default)]
+    /// The Little Prince's ramp (`champion_ramp`).
+    ramp: Option<RawRamp>,
     ability: Option<RawAbility>,
     /// cards.json `death_spawn_projectile`: the NAME of the `projectiles` row the unit's death
     /// releases (characters DeathSpawnProjectile; the Phoenix's PhoenixFireball).
@@ -4014,6 +4248,9 @@ enum UnitUse {
     /// An attached rider (`AttachDef::unit`, the Ram Rider's rider), whose row must be a shape the
     /// rider law covers (`rider_shape`).
     Attach,
+    /// The unit a champion's button puts down (`GuardDef::unit`, the Little Prince's guard): loaded from `units` as a plain
+    /// troop (its dash columns are the charge's, which the button runs).
+    GuardUnit,
     /// Member k >= 1 of a deploy at explicit offsets (`CardDef::summon_members`; the Three Musketeers' second and
     /// third): a unit, loaded like a spawner's. Member 0 is the card itself and needs nothing.
     SummonMember(u8),
@@ -4280,6 +4517,8 @@ struct RawEvolution {
     evo_drill: Option<RawDrill>,
     /// The Evo Goblin Barrel's decoy (`mirror_block`).
     evo_mirror: Option<RawMirror>,
+    /// The Evo Lumberjack's ghost (`rage_ghost_block`).
+    evo_rage_ghost: Option<RawRageGhost>,
     /// spells_evolved DarkElixirCost (`EvoDef::cycles`).
     evo_cycles: Option<i32>,
     cloned_version: Option<String>,
@@ -4348,6 +4587,27 @@ struct RawCage {
 #[derive(Deserialize)]
 struct RawMirror {
     unit: Option<String>,
+}
+
+/// cards.json `evolutions[].evo_rage_ghost` (tools/extract_cards.py `rage_ghost_block`): the ghost's name and record,
+/// its Invisible for good, its life, and its Rage area's reach and clock.
+#[derive(Deserialize)]
+struct RawRageGhost {
+    ghost: String,
+    ghost_record: serde_json::Value,
+    buff: Option<RawBuff>,
+    buff_ms: Option<i32>,
+    life_ms: i32,
+    rage: RawRageArea,
+}
+
+/// A `rage_ghost` block's Rage area: its Radius, its pulse (HitSpeed), its LifeDuration and its BuffTime.
+#[derive(Deserialize)]
+struct RawRageArea {
+    radius_milli: i32,
+    hit_speed_ms: i32,
+    life_ms: i32,
+    buff_time_ms: i32,
 }
 
 /// cards.json `evolutions[].evo_drill` (tools/extract_cards.py `drill_block`).
@@ -5496,6 +5756,76 @@ struct RawAbilityEffect {
     after_crown_pct: Option<i32>,
     after_delay_ms: Option<i32>,
     available_after_ms: Option<i32>,
+    /// `decoy_warp` (tools/extract_cards.py `decoy_warp_effect`; `buff`, `buff_ms`, `unit` and `use_deploy` above).
+    buff_delay_ms: Option<i32>,
+    warp_y_milli: Option<i32>,
+    warp_delay_ms: Option<i32>,
+    no_move: Option<bool>,
+    decoy_delay_ms: Option<i32>,
+    decoy_life_ms: Option<i32>,
+    power_ms: Option<i32>,
+    power: Option<RawPowerShot>,
+    /// `guard` (tools/extract_cards.py `champion_guard`; `unit` above: the guard).
+    hold_ms: Option<i32>,
+    spawn_delay_ms: Option<i32>,
+    push_radius_milli: Option<i32>,
+    push_damage: Option<i32>,
+    /// `flag_spawns` (tools/extract_cards.py `flag_button`; `unit` above: the flag).
+    window_ms: Option<i32>,
+    fade_ms: Option<i32>,
+    kill_ms: Option<i32>,
+    card_group: Option<Vec<String>>,
+    spawns: Option<Vec<RawFlagSpawn>>,
+    /// `siege` (tools/extract_cards.py `siege_effect`; `buff`, `buff_ms` and `unit` above).
+    no_attack_ms: Option<i32>,
+    reset_target_ms: Option<i32>,
+    near_range_milli: Option<i32>,
+    range_milli: Option<i32>,
+    sight_range_milli: Option<i32>,
+    hit_speed_multiplier: Option<i32>,
+    far: Option<RawSiegeShot>,
+    near: Option<RawSiegeShot>,
+    normal_start_radius_milli: Option<i32>,
+}
+
+/// cards.json `cards[].ramp` (tools/extract_cards.py `champion_ramp`): the grace and each level.
+#[derive(Deserialize)]
+struct RawRamp {
+    grace_ms: i32,
+    levels: Vec<RawRampLevel>,
+}
+
+/// One level of a `ramp`: its count, its last count and its buff.
+#[derive(Deserialize)]
+struct RawRampLevel {
+    at: i32,
+    until: Option<i32>,
+    buff: Option<RawBuff>,
+}
+
+/// A `flag_spawns` effect's spawn: its unit, its offset and its delay.
+#[derive(Deserialize)]
+struct RawFlagSpawn {
+    unit: String,
+    dx_milli: i32,
+    dy_milli: i32,
+    delay_ms: i32,
+}
+
+/// A `siege` effect's entry: its projectile object and its CustomProjectileStartRadius.
+#[derive(Deserialize)]
+struct RawSiegeShot {
+    projectile: serde_json::Value,
+    start_radius_milli: i32,
+}
+
+/// A `decoy_warp` effect's power shot: its middle and side projectile objects, the side's count and their spacing.
+#[derive(Deserialize)]
+struct RawPowerShot {
+    middle: serde_json::Value,
+    side: serde_json::Value,
+    count: i32,
+    distance_milli: i32,
 }
 
 /// A `level_up` effect's quest (tools/extract_cards.py `hero_quest`).
@@ -6709,6 +7039,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         projectile_y_offset: 0,
         override_attack_finish: false,
         chain_hit: None,
+        ramp: None,
         evo: None,
         form_of: None,
         ability: None,
@@ -8049,6 +8380,41 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut
         let active_ms = e.active_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a deflect with no active time"))?;
         return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect: AbilityEffect::Deflect { buff, active_ms } }));
     }
+    // THE LITTLE PRINCE'S GUARD: one charge; its hold buff his own; its unit loads as a need of the card (`UnitUse::GuardUnit`).
+    if a.effect.kind == "guard" {
+        let e = &a.effect;
+        if a.max_charges != Some(1) || a.cooldown_ms.is_some() || a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
+            return Err(format!("{what}: a guard other than one charge with no cooldown is not simulated"));
+        }
+        let hold_ms = e.hold_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a guard with no hold"))?;
+        let hold = buffs.push_own(crate::status::BuffDef { speed_pct: -100, ..Default::default() }, &format!("{} hold", a.name))?;
+        let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a guard with no {k}"));
+        let effect = AbilityEffect::Guard(GuardDef {
+            hold: BuffApply { buff: hold, time_ms: hold_ms },
+            unit: u16::MAX,
+            spawn_delay_ms: e.spawn_delay_ms.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a guard with no delay"))?,
+            push_radius: milli(pos(e.push_radius_milli, "push radius")?),
+            push: milli(pos(e.push_milli, "push")?),
+            push_damage: pos(e.push_damage, "push damage")?,
+        });
+        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect }));
+    }
+    // THE BOSS BANDIT'S WARP BACK: its charges and its cooldown are the table's (state.rs `HeroUnit::uses`,
+    // `recharge_at`); its buff at the trigger, its warp `warp_delay_ms` on.
+    if a.effect.kind == "warp_back" {
+        let e = &a.effect;
+        let charges = a.max_charges.filter(|c| (1..=8).contains(c)).ok_or_else(|| format!("{what}: a warp back with {:?} charges", a.max_charges))?;
+        let cooldown_ms = a.cooldown_ms.filter(|c| *c > 0).ok_or_else(|| format!("{what}: a warp back with no cooldown"))?;
+        if a.mana_cost < 0 || a.cast_ms < 0 || a.trigger_delay_ms < 0 {
+            return Err(format!("{what}: a negative cost or time"));
+        }
+        let rb = e.buff.as_ref().ok_or_else(|| format!("{what}: a warp back with no buff"))?;
+        let buff = buffs.apply(rb, e.buff_ms, &what)?;
+        let warp_y = e.warp_y_milli.filter(|y| *y != 0).ok_or_else(|| format!("{what}: a warp of nothing"))?;
+        let warp_delay_ms = e.warp_delay_ms.filter(|d| *d >= 0).ok_or_else(|| format!("{what}: a warp with no delay"))?;
+        let effect = AbilityEffect::WarpBack(WarpBackDef { buff, warp_delay_ms, warp_y, charges: charges as u8, cooldown_ms });
+        return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect }));
+    }
     if a.max_charges != Some(1) || a.cooldown_ms.is_some() {
         return Err(format!("{what}: {:?} charges and cooldown {:?}; one charge, the cooldown from the ledger, is simulated", a.max_charges, a.cooldown_ms));
     }
@@ -8645,13 +9011,36 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let variable_damage = convert_variable_damage(raw.variable_damage)?;
     let combo = convert_combo(raw.combo)?;
     let special = convert_special(raw.special, kind)?;
+    // THE LITTLE PRINCE'S GUARD: its unit, a need of the card (`UnitUse::GuardUnit`).
+    let guard_unit = raw.ability.as_ref().filter(|a| a.effect.kind == "guard").and_then(|a| a.effect.unit.clone());
     let ability = convert_champion_ability(raw.ability, kind, buffs)?;
+    // THE LITTLE PRINCE'S RAMP: each level's buff, for good while its count holds (`RampDef`).
+    let ramp = match raw.ramp {
+        None => None,
+        Some(r) => {
+            let mut levels = Vec::new();
+            for l in &r.levels {
+                let rb = l.buff.as_ref().ok_or("a ramp level with no buff")?;
+                let buff = buffs.apply(rb, Some(i32::MAX / 4), "a ramp level")?;
+                let at = u8::try_from(l.at).map_err(|_| "a ramp level's count")?;
+                let until = l.until.map(u8::try_from).transpose().map_err(|_| "a ramp level's last count")?;
+                levels.push(RampLevel { at, until, buff });
+            }
+            if r.grace_ms <= 0 || levels.is_empty() {
+                return Err("a ramp with no grace or no level".into());
+            }
+            Some(RampDef { grace_ms: r.grace_ms, levels })
+        }
+    };
     let attack_pushback = match raw.attack_pushback_milli {
         Some(x) if x < 0 => return Err(format!("attack_pushback_milli {x} < 0")),
         Some(x) => milli(x),
         None => 0,
     };
     let mut units: Vec<(UnitUse, String)> = Vec::new();
+    if let Some(g) = guard_unit {
+        units.push((UnitUse::GuardUnit, g));
+    }
     if let Some((_, name)) = &life_state {
         units.push((UnitUse::LifeState, name.clone()));
     }
@@ -9001,6 +9390,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         #[cfg(clash_plant = "finish_column_unread")]
         override_attack_finish: false, // PLANT: the row's column is not read; only the key's list of names exempts.
         chain_hit,
+        ramp,
         #[cfg(clash_plant = "projectile_y_offset_unread")]
         projectile_y_offset: 0, // PLANT (regression): the loader drops the column, so the King's shot is born where it always was.
         evo: None,
@@ -9034,6 +9424,24 @@ fn range_shot_of(p: &RawProjectileObj) -> Option<RangeShotDef> {
         start_extra: milli(p.projectile_start_extra_radius_milli.unwrap_or(0).max(0)),
         random_delay_ms: p.random_delay_ms.unwrap_or(0).max(0),
     })
+}
+
+/// One arrow of a power shot (`PowerArrow`) off its projectile object: a straight shot to a range with a speed and a
+/// damage, and none of a homing shot, a buff, a spawn, a pushback, a stop on its first hit, a pingpong, a random
+/// release or a chained hit, which the power shot does not run.
+fn power_arrow(v: &serde_json::Value, what: &str) -> Result<PowerArrow, String> {
+    let p: RawProjectileObj = serde_json::from_value(v.clone()).map_err(|e| format!("{what}: its power shot: {e}"))?;
+    let name = p.name.clone().unwrap_or_default();
+    let shot = range_shot_of(&p).ok_or_else(|| format!("{what}: power shot {name} is not a straight shot to a range"))?;
+    let (Some(speed), Some(damage)) = (p.speed.filter(|x| *x > 0), p.damage.filter(|x| *x > 0)) else {
+        return Err(format!("{what}: power shot {name} has no speed or no damage"));
+    };
+    let spawns = p.spawn_projectile.as_ref().is_some_and(|x| !x.is_null()) || p.spawn_area_effect_object.is_some();
+    if p.homing == Some(true) || p.target_buff.is_some() || spawns || shot.knockback.is_some() || shot.check_collisions || shot.pingpong_ms.is_some() || shot.random_delay_ms > 0 || p.chained_hit_count.is_some_and(|c| c > 0) {
+        return Err(format!("{what}: power shot {name} carries a mechanic the power shot does not run"));
+    }
+    let crown_pct = crown(v.get("crown_tower_damage_percent").and_then(serde_json::Value::as_i64).and_then(|x| i32::try_from(x).ok()));
+    Ok(PowerArrow { speed, damage, crown_pct, shot })
 }
 
 /// A unit's CustomFirstProjectile row, `name`, from the file's `projectiles` table
@@ -9649,6 +10057,11 @@ impl CardDb {
                     // 15.535.29: the new Phoenix appears exactly (0, +1100) from where the egg appeared, 76 ticks
                     // later, so the egg never walks. Its row's Speed 40 is not a walk: the row also sets
                     // GameTagsToSet NO_MOVE_ALLOW_ATTRACT, which no other row carries.
+                    // THE LITTLE PRINCE'S GUARD walks and fights as a plain troop: its dash columns are its charge's, which
+                    // the button runs (state.rs `guard_moves`).
+                    if which == UnitUse::GuardUnit {
+                        c.dash = None;
+                    }
                     if which == UnitUse::DeathProjectileRelease {
                         c.speed = 0;
                     }
@@ -9738,6 +10151,11 @@ impl CardDb {
                         UnitUse::LifeState => card.life_state.as_mut().expect("life_state present").unit = u,
                         UnitUse::Morph => card.spawn_pathfind.as_mut().expect("spawn_pathfind present").morph = Some(u),
                         UnitUse::Attach => card.attach.as_mut().expect("attach block present").unit = u,
+                        UnitUse::GuardUnit => {
+                            if let Some(AbilityDef { effect: AbilityEffect::Guard(g), .. }) = card.ability.as_mut() {
+                                g.unit = u;
+                            }
+                        }
                         UnitUse::SummonMember(k) => {
                             card.summon_members.as_mut().expect("summon_members present")[k as usize].unit = u;
                         }
@@ -10059,6 +10477,7 @@ impl CardDb {
             extra.evo_chain.is_some(),
             extra.evo_drill.is_some(),
             extra.evo_mirror.is_some(),
+            extra.evo_rage_ghost.is_some(),
         ];
         let carried = blocks.iter().filter(|b| **b).count();
         // A spell form's mechanic is its own spell object's, save the Evo Goblin Barrel's decoy, a block of its own.
@@ -10379,6 +10798,7 @@ impl CardDb {
                     furnace: None,
                     chain: None,
                     drill: None,
+                    rage_ghost: None,
                     mirror: None,
                     charge_after_shield: false,
                     cloned_as: None,
@@ -10589,6 +11009,7 @@ impl CardDb {
             furnace: None,
             chain: None,
             drill: None,
+            rage_ghost: None,
             mirror: None,
             charge_after_shield: false,
             cloned_as: None,
@@ -10731,6 +11152,36 @@ impl CardDb {
                 Some(m)
             }
         };
+        // THE GHOST (the Evo Lumberjack's): its own record, loaded after the form, taking no damage (NO_DAMAGE); its
+        // graph is the block's (`rage_ghost_block` reads it whole).
+        let mut rage_ghost_unit: Option<CardDef> = None;
+        if let Some(g) = &extra.evo_rage_ghost {
+            let mut uv = g.ghost_record.clone();
+            let obj = uv.as_object_mut().ok_or("a ghost record that is not an object")?;
+            obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+            obj.entry("count").or_insert(serde_json::Value::from(1));
+            let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("ghost {}: {e}", g.ghost))?;
+            if ur.action_graph.as_ref().is_some_and(|a| a.mechanic.unwrap_or(false)) {
+                return Err(format!("ghost {} runs a graph its block did not clear", g.ghost));
+            }
+            let (mut m, _, gneeds) = convert(ur, buffs, ctx).map_err(|e| format!("ghost {}: {e}", g.ghost))?;
+            if let Some((_, n)) = gneeds.first() {
+                return Err(format!("ghost {} needs {n}; not simulated", g.ghost));
+            }
+            if !self.rarities.iter().any(|r| r.name == m.rarity) || self.index(&m.name).is_some() {
+                return Err(format!("ghost {}: a rarity not in rarities.csv or a name already loaded", g.ghost));
+            }
+            let (life, pulse, area) = (g.life_ms, g.rage.hit_speed_ms, g.rage.life_ms);
+            if life <= 0 || pulse <= 0 || area <= 0 || g.rage.radius_milli <= 0 || g.rage.buff_time_ms <= 0 {
+                return Err("a ghost with no life or a Rage with no clock".into());
+            }
+            m.summon_only = true;
+            m.no_damage = true;
+            let raw = g.buff.as_ref().ok_or("a ghost with no Invisible")?;
+            let buff = buffs.apply(raw, g.buff_ms, &format!("ghost {}", g.ghost))?;
+            evo.rage_ghost = Some(RageGhostDef { ghost: FormUnit { unit: u16::MAX }, buff, life_ms: life, radius: milli(g.rage.radius_milli), pulse_ms: pulse, area_ms: area, buff_time_ms: g.rage.buff_time_ms });
+            rage_ghost_unit = Some(m);
+        }
         // THE HIDES (the Evo Goblin Drill's), read onto the form: its building gets the form's EvoDef when it is pushed.
         if let Some(d) = &extra.evo_drill {
             let m = morph.as_ref().ok_or("a drill form whose dig morphs into nothing")?;
@@ -11212,6 +11663,18 @@ impl CardDb {
                 self.cards[k as usize].evo = Some(evo.clone());
             }
         }
+        // The Evo Lumberjack's ghost after the form, carrying the form's EvoDef with its index written.
+        if let Some(m) = rage_ghost_unit {
+            self.push(m, None)?;
+            let gi = (self.cards.len() - 1) as u16;
+            let mut evo = self.cards[form as usize].evo.clone().expect("the form's EvoDef");
+            if let Some(r) = evo.rage_ghost.as_mut() {
+                r.ghost = FormUnit { unit: gi };
+            }
+            for k in [form, gi] {
+                self.cards[k as usize].evo = Some(evo.clone());
+            }
+        }
         // The barrel's two containers after the form: the health line's, then the death's (the form's death spawn).
         if !drops.is_empty() {
             let first = self.cards.len() as u16;
@@ -11296,6 +11759,17 @@ impl CardDb {
         if extra.ability.effect.kind == "level_up" {
             raw.action_graph = None;
         }
+        // A DECOY WARP'S ENTRY RESET (the Hero Magic Archer's OnAttackSelfAction, an ActionSetAttackSequenceIndex): the
+        // ability's block reads it whole (tools/extract_cards.py `decoy_warp_effect`; state.rs, after `fire`).
+        // A SIEGE'S ENTRY PICK AND TOWER CHECK (the Hero Bowler's OnStartingAttackAction and OnStartingAction): the
+        // ability's block reads both whole (tools/extract_cards.py `siege_effect`; state.rs, the swing's entry pick).
+        const SIEGE_ROW: [&str; 6] = ["ActionFilter", "ActionGroup", "ActionInterval", "ActionPlayEffect", "ActionSetAttackSequenceIndex", "ActionSetVariable"];
+        if extra.ability.effect.kind == "siege" && raw.action_graph.as_ref().is_some_and(|g| g.spawns.is_empty() && g.class_types.iter().all(|c| SIEGE_ROW.contains(&c.as_str()))) {
+            raw.action_graph = None;
+        }
+        if extra.ability.effect.kind == "decoy_warp" && raw.action_graph.as_ref().is_some_and(|g| g.spawns.is_empty() && g.class_types.iter().all(|c| c == "ActionSetAttackSequenceIndex")) {
+            raw.action_graph = None;
+        }
         let base = self.index(&extra.form_of).filter(|&b| self.get(b).name == extra.form_of && !self.get(b).summon_only && self.get(b).evo.is_none());
         let base = base.ok_or_else(|| format!("base card {} is not a loaded card", extra.form_of))?;
         if self.form_card(base, FORM_HERO).is_some() {
@@ -11358,6 +11832,8 @@ impl CardDb {
             return Err(format!("{what}: a negative cost or time"));
         }
         let mut unit: Option<CardDef> = None;
+        // A FLAG'S RECORDS (the Hero Goblins'): the flag, then each spawn's unit, loaded after the form.
+        let mut flag_units: Vec<CardDef> = Vec::new();
         let effect = match a.effect.kind.as_str() {
             "spawn_ahead" => {
                 let name = a.effect.unit.clone().ok_or_else(|| format!("{what}: spawn_ahead without a unit"))?;
@@ -11642,6 +12118,164 @@ impl CardDb {
                     available_after_ms: e.available_after_ms.unwrap_or(0).max(0),
                 })
             }
+            // THE DECOY AND WARP (the Hero Magic Archer's): its decoy loads as the ability's unit, standing still; its buff,
+            // warp and power shot off the table.
+            "decoy_warp" => {
+                let e = &a.effect;
+                let time = |v: Option<i32>, k: &str| v.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a decoy warp's {k}"));
+                let raw_buff = e.buff.as_ref().ok_or_else(|| format!("{what}: a decoy warp with no buff"))?;
+                let buff = buffs.apply_own(raw_buff, e.buff_ms, &format!("{what} buff"))?;
+                let warp_y = e.warp_y_milli.filter(|y| *y != 0).ok_or_else(|| format!("{what}: a warp of nothing"))?;
+                let decoy_delay_ms = time(e.decoy_delay_ms, "decoy delay")?;
+                if decoy_delay_ms != 0 {
+                    return Err(format!("{what}: a decoy {decoy_delay_ms} ms after the trigger is not simulated"));
+                }
+                let pw = e.power.as_ref().ok_or_else(|| format!("{what}: a decoy warp with no power shot"))?;
+                if pw.count < 1 || pw.distance_milli < 0 {
+                    return Err(format!("{what}: a power shot of {} copies {} apart", pw.count, pw.distance_milli));
+                }
+                let power = PowerShotDef { middle: power_arrow(&pw.middle, &what)?, side: power_arrow(&pw.side, &what)?, count: pw.count, distance: milli(pw.distance_milli) };
+                let name = e.unit.clone().ok_or_else(|| format!("{what}: a decoy warp with no decoy"))?;
+                if e.use_deploy != Some(true) || e.no_move != Some(true) {
+                    return Err(format!("{what}: a decoy put down without its deploy, or one that walks, is not simulated"));
+                }
+                let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                if let Some((w, n)) = uneeds.first() {
+                    return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on a decoy"));
+                }
+                if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                    return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                }
+                // NO_MOVE_ALLOW_ATTRACT: it stands where it is put, as the Phoenix egg does (its Speed 40 is not a walk).
+                u.speed = 0;
+                u.summon_only = true;
+                unit = Some(u);
+                AbilityEffect::DecoyWarp(DecoyWarpDef {
+                    buff,
+                    buff_delay_ms: time(e.buff_delay_ms, "buff delay")?,
+                    warp_y,
+                    warp_delay_ms: time(e.warp_delay_ms, "warp delay")?,
+                    decoy: u16::MAX,
+                    decoy_life_ms: e.decoy_life_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a decoy with no life"))?,
+                    power_ms: e.power_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a power shot with no time"))?,
+                    power,
+                })
+            }
+            // THE FLAG'S SPAWNS (the Hero Goblins'): the flag and its spawns' units load after the form; the group's cards
+            // are loaded cards (the base cards load before every hero form).
+            "flag_spawns" => {
+                let e = &a.effect;
+                let time = |v: Option<i32>, k: &str| v.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a flag's {k}"));
+                let load = |name: &str, kind: &str, buffs: &mut BuffTable| -> Result<CardDef, String> {
+                    let mut uv = extra.tables.units.get(name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                    let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                    obj.insert("kind".into(), serde_json::Value::String(kind.into()));
+                    obj.entry("count").or_insert(serde_json::Value::from(1));
+                    let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                    ur.ability = None;
+                    let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                    if let Some((w, n)) = uneeds.first() {
+                        return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on a flag"));
+                    }
+                    if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                        return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                    }
+                    u.summon_only = true;
+                    Ok(u)
+                };
+                let flag_name = e.unit.clone().ok_or_else(|| format!("{what}: a flag with no flag"))?;
+                let mut flag = load(&flag_name, "building", buffs)?;
+                // NO_DAMAGE, NO_CHECKCOLLISIONS, UNTARGETABLE (the extractor holds the row to them).
+                flag.no_damage = true;
+                flag.collision_radius = 0;
+                // Its button is ready on its first frame (the flag's own start sets it Ready at once): no deploy.
+                flag.deploy_time_ms = 0;
+                let hide = buffs.push_own(crate::status::BuffDef { invisible: true, no_damage: true, ..Default::default() }, &format!("{} flag", a.name))?;
+                let mut group = Vec::new();
+                for n in e.card_group.as_deref().unwrap_or_default() {
+                    group.push(self.index(n).filter(|&k| !self.get(k).summon_only).ok_or_else(|| format!("{what}: its card group's {n} is not a loaded card"))?);
+                }
+                let raw_spawns = e.spawns.as_deref().unwrap_or_default();
+                if raw_spawns.is_empty() || group.is_empty() {
+                    return Err(format!("{what}: a flag that makes nothing or answers no play"));
+                }
+                flag_units.push(flag);
+                let mut spawns = Vec::new();
+                for sp in raw_spawns {
+                    let k = match flag_units.iter().position(|u| u.name == sp.unit) {
+                        Some(k) => k,
+                        None => {
+                            flag_units.push(load(&sp.unit, "troop", buffs)?);
+                            flag_units.len() - 1
+                        }
+                    };
+                    spawns.push(FlagSpawn { unit: k as u16, dx: milli(sp.dx_milli), dy: milli(sp.dy_milli), delay_ms: time(Some(sp.delay_ms), "spawn delay")? });
+                }
+                AbilityEffect::FlagSpawns(FlagSpawnsDef {
+                    flag: 0,
+                    hide: BuffApply { buff: hide, time_ms: i32::MAX / 4 },
+                    window_ms: e.window_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a flag with no window"))?,
+                    fade_ms: time(e.fade_ms, "fade")?,
+                    kill_ms: time(e.kill_ms, "kill")?,
+                    group,
+                    spawns,
+                })
+            }
+            // THE SIEGE (the Hero Bowler's): its siege form loads as the ability's unit (the far entry's row); the near
+            // entry differs from it by its start radius alone (the extractor holds the rest equal).
+            "siege" => {
+                let e = &a.effect;
+                let time = |v: Option<i32>, k: &str| v.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a siege's {k}"));
+                let raw_buff = e.buff.as_ref().ok_or_else(|| format!("{what}: a siege with no buff"))?;
+                let buff = buffs.apply_own(raw_buff, e.buff_ms, &format!("{what} buff"))?;
+                let mult = e.hit_speed_multiplier.filter(|m| *m > 0).ok_or_else(|| format!("{what}: a siege with no rate"))?;
+                let rate = buffs.push_own(crate::status::BuffDef { hit_speed_pct: mult - 100, ..Default::default() }, &format!("{} siege rate", a.name))?;
+                let (far, near) = match (e.far.as_ref(), e.near.as_ref()) {
+                    (Some(f), Some(n)) => (f, n),
+                    _ => return Err(format!("{what}: a siege without its two entries")),
+                };
+                let name = e.unit.clone().ok_or_else(|| format!("{what}: a siege with no siege form"))?;
+                let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                ur.ability = None;
+                let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                if let Some((w, n)) = uneeds.first() {
+                    return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on a siege form"));
+                }
+                let same = |v: Option<i32>, got: i32| v.is_some_and(|x| milli(x) == got);
+                if u.projectile.is_none() || u.range_shot.is_some() || u.projectile_area.is_some() || !same(e.range_milli, u.range) || !same(e.sight_range_milli, u.sight_range) || milli(far.start_radius_milli) != u.projectile_start_radius {
+                    return Err(format!("{what}: {name} is not the far entry's shooter"));
+                }
+                if far.projectile.get("name") == near.projectile.get("name") {
+                    return Err(format!("{what}: its two entries fire one row"));
+                }
+                if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                    return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                }
+                u.summon_only = true;
+                unit = Some(u);
+                // Entry 0's own start radius (the Hero Bowler's boulder from 800, the base's from 1000).
+                if let Some(r) = e.normal_start_radius_milli {
+                    c.projectile_start_radius = milli(r);
+                }
+                AbilityEffect::Siege(SiegeDef {
+                    buff,
+                    rate: BuffApply { buff: rate, time_ms: buff.time_ms },
+                    no_attack_ms: time(e.no_attack_ms, "hold")?,
+                    reset_target_ms: time(e.reset_target_ms, "target reset")?,
+                    unit: u16::MAX,
+                    near_range: milli(e.near_range_milli.filter(|r| *r > 0).ok_or_else(|| format!("{what}: a siege with no near range"))?),
+                    near_start: milli(near.start_radius_milli),
+                })
+            }
             other => return Err(format!("{what}: effect {other} is not simulated")),
         };
         c.ability = Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect });
@@ -11674,6 +12308,28 @@ impl CardDb {
             if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. } | AbilityEffect::GroundToAir { unit, .. }, .. }) = self.cards[form as usize].ability.as_mut() {
                 *unit = ui;
             }
+            if let Some(AbilityDef { effect: AbilityEffect::DecoyWarp(d), .. }) = self.cards[form as usize].ability.as_mut() {
+                d.decoy = ui;
+            }
+            if let Some(AbilityDef { effect: AbilityEffect::Siege(sg), .. }) = self.cards[form as usize].ability.as_mut() {
+                sg.unit = ui;
+            }
+        }
+        // The flag and its spawns' units after the form (their indices, relative until now, made absolute); the flag
+        // carries the form's button, so it is the unit that holds the charge (state.rs `spawn_now`).
+        if !flag_units.is_empty() {
+            let first = self.cards.len() as u16;
+            for u in flag_units {
+                self.push(u, None)?;
+            }
+            if let Some(AbilityDef { effect: AbilityEffect::FlagSpawns(f), .. }) = self.cards[form as usize].ability.as_mut() {
+                f.flag = first;
+                for sp in f.spawns.iter_mut() {
+                    sp.unit += first;
+                }
+            }
+            let fixed = self.cards[form as usize].ability.clone();
+            self.cards[first as usize].ability = fixed;
         }
         if let Some(d) = death {
             self.push(d, None)?;
@@ -11701,6 +12357,25 @@ impl CardDb {
     /// not one here: it carries `form_of` and loads summon-only (`is_hero_record`).
     pub fn is_form(&self, idx: u16) -> bool {
         self.cards.get(idx as usize).is_some_and(|c| c.evo.is_some())
+    }
+
+    /// THE FLAG A FORM'S BUTTON STANDS ON (`FlagSpawnsDef::flag`, the Hero Goblins'), None for every other card.
+    pub fn flag_of(&self, form: u16) -> Option<u16> {
+        match self.get(form).ability.as_ref().map(|a| &a.effect) {
+            Some(AbilityEffect::FlagSpawns(f)) => Some(f.flag),
+            _ => None,
+        }
+    }
+
+    /// THE SIEGE A RECORD IS THE SIEGE FORM OF (`SiegeDef::unit`, the Hero Bowler's), None for every other record.
+    pub fn siege_of(&self, unit: u16) -> Option<SiegeDef> {
+        if !self.is_hero_record(unit) {
+            return None;
+        }
+        self.hero_forms.iter().find_map(|(_, f)| match self.get(*f).ability.as_ref().map(|a| &a.effect) {
+            Some(AbilityEffect::Siege(sg)) if sg.unit == unit => Some(*sg),
+            _ => None,
+        })
     }
 
     /// Did the hero pass load record `idx` (`load_hero_forms`: a hero form or its ability's unit)? Such a record
@@ -11992,8 +12667,24 @@ impl CardDb {
         // After them, so no earlier block's place moves: the unit a hero's button puts down (loaded after every other
         // record, `load_hero_forms`). A base card's hero form is not a block of the base: a form-2 deck entry plays it
         // (state.rs `try_new` checks its levels, py.rs `ids_of_indices` reports it under the base).
-        if let Some(AbilityDef { effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. } | AbilityEffect::GroundToAir { unit, .. }, .. }) = &c.ability {
+        if let Some(AbilityDef {
+            effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. } | AbilityEffect::GroundToAir { unit, .. } | AbilityEffect::DecoyWarp(DecoyWarpDef { decoy: unit, .. })
+                | AbilityEffect::Siege(SiegeDef { unit, .. }),
+            ..
+        }) = &c.ability
+        {
             out.push((UnitRef::AbilityUnit, *unit, None));
+        }
+        // The Little Prince's guard.
+        if let Some(AbilityDef { effect: AbilityEffect::Guard(g), .. }) = &c.ability {
+            out.push((UnitRef::AbilityUnit, g.unit, None));
+        }
+        // The Hero Goblins' flag and its spawns' units.
+        if let Some(AbilityDef { effect: AbilityEffect::FlagSpawns(f), .. }) = &c.ability {
+            out.push((UnitRef::AbilityUnit, f.flag, None));
+            for sp in &f.spawns {
+                out.push((UnitRef::AbilityUnit, sp.unit, None));
+            }
         }
         // After it, so no earlier block's place moves: the units an evolved form's own mechanic puts down (loaded right
         // after the form, `load_evolution`): the Evo Royal Ghost's pair.
@@ -12020,6 +12711,10 @@ impl CardDb {
         // The Evo Royal Hogs' grounded row.
         if let Some(f) = c.evo.as_ref().and_then(|v| v.fall.as_ref()) {
             out.push((UnitRef::EvoUnit(0), f.grounded.unit, None));
+        }
+        // The Evo Lumberjack's ghost.
+        if let Some(r) = c.evo.as_ref().and_then(|v| v.rage_ghost.as_ref()) {
+            out.push((UnitRef::EvoUnit(0), r.ghost.unit, None));
         }
         // LAST, so no earlier block's place moves: every entry of the card's deploy spawn area (the Tri Wizards'
         // TriWizardSpawn): entry 0 the card's own unit (the card itself), then the cards its actions deploy.

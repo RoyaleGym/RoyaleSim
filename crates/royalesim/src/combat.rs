@@ -650,6 +650,43 @@ fn fan_aim(src: Vec2, tgt: Vec2, dist: i32, deg: i64, team: Team) -> Vec2 {
     Vec2::new(((sx as i128 + rx * d / den) as i32) * K, ((sy as i128 + ry * d / den) as i32) * K)
 }
 
+/// THE POWER SHOT'S SIDE COPIES (card.rs `PowerShotDef`; `fire`, right after the middle): `count` copies of `side`,
+/// `distance` apart across the middle's line through its first point, each a straight shot of its own range from there
+/// that stands a tick (`hold`) before its first step, as the client makes them on the tick after the middle. Measured on
+/// client 15.535.29 (sp-form-EliteArcher-hero-s0): the middle's first frame t249, the copies' t250 at its first point 750
+/// to each side, stepping 1,000 from t251.
+fn power_copies(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, ti: usize, pw: crate::card::PowerShotDef, projectiles: &mut Vec<Projectile>) {
+    let Some(middle) = projectiles.last().filter(|p| p.firer == Some(ents.id_of(a)) && p.straight.is_some()).cloned() else { return };
+    let (team, src, tgt) = (ents.team[a], ents.pos[a], ents.pos[ti]);
+    let base = fan_aim(src, tgt, 0, 0, team);
+    let off = |d: i32, deg: i64| {
+        let q = fan_aim(src, tgt, d, deg, team);
+        Vec2::new(q.x - base.x, q.y - base.y)
+    };
+    let ahead = off(pw.side.shot.range, 0);
+    let damage = own_damage(ents, cards, a, cards.scaled(ents.card[a], ents.level[a], pw.side.damage).expect("level validated at spawn"));
+    let crown_pct = own_crown_pct(ents, cards, a).unwrap_or(pw.side.crown_pct);
+    let (push, push_all) = pw.side.shot.knockback.map_or((0, false), |k| (k.distance, k.all));
+    for k in 0..pw.count {
+        // Across the line, from -distance / 2 to +distance / 2 in `count` steps.
+        let across = pw.distance * (2 * k - (pw.count - 1)) / 2;
+        let side = if across >= 0 { off(across, 90) } else { off(-across, -90) };
+        let pos = Vec2::new(middle.pos.x + side.x, middle.pos.y + side.y);
+        projectiles.push(Projectile {
+            pos,
+            aim: Vec2::new(pos.x + ahead.x, pos.y + ahead.y),
+            speed: pw.side.speed * calib.projectile_speed_to_subtiles_per_tick,
+            damage,
+            crown_pct,
+            hits_air: pw.side.shot.hits_air,
+            hits_ground: pw.side.shot.hits_ground,
+            frac: Vec2::default(),
+            straight: Some(Straight { origin: pos, reach: pw.side.shot.reach, push, push_all, only_enemies: pw.side.shot.only_enemies, hold: 1, period: 0, start: 0, t: 0, hit: Vec::new(), stop_on_hit: false, thrower: None }),
+            ..middle.clone()
+        });
+    }
+}
+
 /// The offset of pellet `k` of a fan, degrees: 0, +7, -7, +14, -14, ... (`FAN_STEP_DEG`).
 fn fan_offset_deg(k: i32) -> i64 {
     let m = ((k + 1) / 2) as i64 * FAN_STEP_DEG;
@@ -1181,7 +1218,24 @@ pub fn fire(
         };
         // combat.RANGE_PROJECTILE = straight_to_range, and combat.MULTIPLE_PROJECTILES =
         // client_fan: a row with a ProjectileRange fires straight shots (`Straight`).
-        if let (None, Some(rs)) = (custom, card.range_shot) {
+        // THE HERO MAGIC ARCHER'S POWER SHOT (card.rs `PowerShotDef`): an attack of its entry 1 (`attack_seq`, set by its
+        // button: state.rs `fire_ability`) fires the middle arrow, its speed, damage, crown share and straight block in
+        // place of the row's own, and its side copies beside it (`power_copies`).
+        #[cfg(not(clash_plant = "power_shot_unread"))]
+        let power = match card.ability.as_ref().map(|x| &x.effect) {
+            Some(crate::card::AbilityEffect::DecoyWarp(d)) if ents.attack_seq[a] == 1 => Some(d.power),
+            _ => None,
+        };
+        #[cfg(clash_plant = "power_shot_unread")]
+        let power: Option<crate::card::PowerShotDef> = None; // PLANT: the hero's own arrow on every attack.
+        if let (None, Some(rs)) = (custom, power.map(|pw| pw.middle.shot).or(card.range_shot)) {
+            let (amount, pct, speed) = match power {
+                Some(pw) => {
+                    let base = cards.scaled(ents.card[a], ents.level[a], pw.middle.damage).expect("level validated at spawn");
+                    (own_damage(ents, cards, a, base), own_crown_pct(ents, cards, a).unwrap_or(pw.middle.crown_pct), pw.middle.speed)
+                }
+                None => (amount, pct, p.speed),
+            };
             let pellets = fan_count(calib, card);
             #[cfg(not(clash_plant = "range_projectile_unread"))]
             let straight_arm = calib.range_projectile == RangeProjectile::StraightToRange;
@@ -1248,7 +1302,7 @@ pub fn fire(
                         pos,
                         target,
                         aim,
-                        speed: p.speed * calib.projectile_speed_to_subtiles_per_tick,
+                        speed: speed * calib.projectile_speed_to_subtiles_per_tick,
                         damage: amount,
                         crown_pct: pct,
                         splash: 0,
@@ -1317,6 +1371,9 @@ pub fn fire(
                     }
                     projectiles.push(shot);
                 }
+                if let Some(pw) = power {
+                    power_copies(ents, cards, calib, a, ti, pw, projectiles);
+                }
                 return;
             }
         }
@@ -1328,7 +1385,13 @@ pub fn fire(
         // 16.402: the Hero Musketeer's shots first appear at 1800 x the aim + 300 x her side's forward, 100 launches over
         // five captures; the base Musketeer's at 450 x the aim), under combat.PROJECTILE_Y_OFFSET on every other.
         let always = cards.is_hero_record(ents.card[a]);
-        let (pos, fresh) = launch_point(ents, calib, card.projectile_start_radius, card.projectile_y_offset, always, a, ti);
+        // THE HERO BOWLER'S NEAR ENTRY (card.rs `SiegeDef::near_start`; state.rs, the swing's entry pick): its shot
+        // leaves from its own CustomProjectileStartRadius.
+        let start_radius = match cards.siege_of(ents.card[a]) {
+            Some(sg) if ents.attack_seq[a] == 2 => sg.near_start,
+            _ => card.projectile_start_radius,
+        };
+        let (pos, fresh) = launch_point(ents, calib, start_radius, card.projectile_y_offset, always, a, ti);
         // combat.SPAWN_PROJECTILE = client_spark_fan: a card whose shot releases sparks
         // (`CardDef::spark`, the Firecracker's rocket) fires a CARRIER, aimed at the target's
         // start-of-tick centre and flown there whatever the target does (measured on client

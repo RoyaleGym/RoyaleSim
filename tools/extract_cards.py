@@ -3207,6 +3207,221 @@ def champion_self_buff(t, unit: str) -> dict | None:
     }
 
 
+# The warp-back ability (`champion_warp_back`): every column the reader takes, or none (the Deflect's cosmetic columns
+# and the popover's aside); the classes a unit graph of voicelines alone runs.
+WARP_BACK_ABILITY_READ = {
+    "CastTime", "TriggerDelay", "ManaCost", "Cooldown", "MaxCharges", "OnActivationAction", "Stats", "StatsTags",
+    "PopoverIconExportName", "PopoverIconFileName",
+}
+VOICELINE_CLASSES = {"ActionGroup", "ActionPlayEffect", "ActionRunIfGameObjectExists", "ActionRunIfInstigatorMatches"}
+
+
+def champion_warp_back(t, unit: str) -> dict | None:
+    """THE BUTTON OF A CHAMPION WHOSE PRESS WARPS IT BACK (15.535: the Boss Bandit's BossBandit_ability), or None. Its
+    OnActivationAction is an ActionGroup, every step at 0 (a trailing delay names no step), of an ActionSpawn of an
+    Invisible buff for its SpawnTime (`buff`, `buff_ms`), an ActionBossBanditAbility with no LockDelay whose
+    ActionWarpCharacter, WarpDelay on (`warp_delay_ms`), moves the champion WarpY (`warp_y_milli`, the owner's frame)
+    and drops its target (its end only plays effects), and an effect. `max_charges` presses (MaxCharges), `cooldown_ms`
+    (Cooldown) after each before the next. Any other column, or any other shape, gives None."""
+    row = t["characters"].get(unit)
+    name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
+    a = t.abilities.get(name) if isinstance(name, str) else None
+    if a is None or set(a) - WARP_BACK_ABILITY_READ - DEFLECT_ABILITY_COSMETIC:
+        return None
+    acts = t["actions"]
+    on = a.get("OnActivationAction")
+    g = acts.get(on) if isinstance(on, str) else None
+    if g is None or g["ClassType"] != "ActionGroup":
+        return None
+    subs, delays = col_list(acts, on, "SubActions"), col_list(acts, on, "SubActionsDelay")
+    if len(delays) < len(subs) or any(delays):
+        return None
+    by: dict[str, list[str]] = {}
+    for x in subs:
+        by.setdefault(acts.get(x)["ClassType"], []).append(x)
+    if set(by) != {"ActionSpawn", "ActionBossBanditAbility", "ActionPlayEffect"} or len(by["ActionSpawn"]) != 1 \
+            or len(by["ActionBossBanditAbility"]) != 1:
+        return None
+    sp_name, lk_name = by["ActionSpawn"][0], by["ActionBossBanditAbility"][0]
+    sp, lk = acts.get(sp_name), acts.get(lk_name)
+    if acts.set_fields.get(sp_name, set()) - {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags"} \
+            or sp["SpawnType"] != "BuffType" or not isinstance(sp["SpawnTime"], int):
+        return None
+    brow = t["character_buffs"].get(sp["SpawnData"])
+    if brow is None or not flag(brow, "Invisible"):
+        return None
+    if acts.set_fields.get(lk_name, set()) - WARP_LOCK_KEYS or lk["LockDelay"] or not isinstance(lk["WarpDelay"], int):
+        return None
+    w = acts.get(lk["WarpAction"]) if isinstance(lk["WarpAction"], str) else None
+    if w is None or w["ClassType"] != "ActionWarpCharacter" or acts.set_fields.get(lk["WarpAction"],
+                                                                                   set()) - DECOY_WARP_KEYS:
+        return None
+    if not isinstance(w["WarpY"], int) or not w["WarpY"] or w["ResetTarget"] is not True:
+        return None
+    if w["NextAction"] and not _cosmetic_action(acts, w["NextAction"]):
+        return None
+    ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost", "Cooldown", "MaxCharges")]
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints):
+        return None
+    cast_ms, trigger_ms, mana, cooldown_ms, charges = ints
+    return {
+        "name": name,
+        "mana_cost": mana,
+        "max_charges": charges,
+        "cooldown_ms": cooldown_ms,
+        "cast_ms": cast_ms,
+        "trigger_delay_ms": trigger_ms,
+        "keep_current_target": False,
+        "is_champion": True,
+        "effect": {"kind": "warp_back", "buff": norm_buff_row(t, sp["SpawnData"], brow), "buff_ms": sp["SpawnTime"],
+                   "warp_delay_ms": lk["WarpDelay"], "warp_y_milli": w["WarpY"]},
+    }
+
+
+# THE LITTLE PRINCE (`champion_ramp`, `champion_guard`): the ramp's variables' expressions, word for word, and the
+# guard's ability and spawn keys.
+RAMP_GRACE_SET = "{g}"
+RAMP_GRACE_TICK = "max(0, {g} - 50 * is_moving)"
+RAMP_COUNT_UP = "min(99, {c} + 1)"
+RAMP_RESET_IF = "{g} == 0 && {c} > 0"
+GUARD_ABILITY_READ = {
+    "CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "OnActivationAction", "KeepCurrentTarget", "Name", "Stats",
+    "StatsTags", "PopoverIconExportName", "PopoverIconFileName",
+}
+GUARD_SPAWN_KEYS = {"ClassType", "ActionDelay", "AppearBehindAtDistance", "ContinuosPushBack",
+                    "DistanceProportinalPush",
+                    "HitFilter", "PushBackDamage", "PushBackRadius", "PushBackStrength", "SpawnData", "TargetRadius",
+                    "StatsTags"}
+
+
+def champion_ramp(t, unit: str) -> dict | None:
+    """THE LITTLE PRINCE'S ATTACK-SPEED RAMP (his row's OnStartingAttackAction, OnAttackAction and OnStartingAction), or
+    None for a row without that graph. Read whole: each attack (OnAttackAction) counts one up to 99 and sets a grace of
+    `grace_ms`; each attack's start sets the grace too, and at a count of `levels[k].at` hangs `levels[k].buff` for
+    good, which lives while the count is at least that and below the next level's (its AliveIfTrue); a ticker takes 50
+    off the grace each tick he moves, and sets the count to 0 when the grace is 0 or his combat is disabled. His attack
+    entries only change his animation (every entry is his one projectile)."""
+    import re
+
+    acts = t["actions"]
+    row = t["characters"].get(unit)
+    if not isinstance(row, Row) or "OnStartingAttackAction" not in row.columns or row["OnStartingAttackAction"] is None:
+        return None
+    start = acts.get(row["OnStartingAttackAction"])
+    if start is None or start["ClassType"] != "ActionSetVariable":
+        return None
+    grace_var, grace = start["Variable"], start["Value"]
+    choose = acts.get(start["NextAction"])
+    if choose is None or choose["ClassType"] != "ActionFilter":
+        return None
+    count_var = None
+    levels = []
+    node = choose
+    while isinstance(node, dict):
+        m = re.fullmatch(r"(\w+) == (\d+)", str(node["Condition"]))
+        if m is None:
+            return None
+        count_var = count_var or m.group(1)
+        if m.group(1) != count_var:
+            return None
+        on = node["OnTrueAction"]
+        a = acts.get(on) if isinstance(on, str) else None
+        if a is None:
+            return None
+        if a["ClassType"] == "ActionSpawn":
+            if a["SpawnType"] != "BuffType" or a["SpawnTime"] < 99999:
+                return None
+            buf = t["character_buffs"].get(a["SpawnData"])
+            alive = str(buf["AliveIfTrue"]) if buf is not None else ""
+            levels.append({"at": int(m.group(2)), "buff": norm_buff(t, a["SpawnData"]), "alive": alive})
+            nxt = a["NextAction"]
+            while nxt:
+                x = acts.get(nxt)
+                if x is None or x["ClassType"] not in ("ActionSetAttackSequenceIndex", "ActionPlayEffect"):
+                    return None
+                nxt = x["NextAction"]
+        elif a["ClassType"] != "ActionSetAttackSequenceIndex":
+            return None
+        node = node.get("OnFalseAction")
+    # Each level's buff lives from its count to the next's: AliveIfTrue says so.
+    for k, lv in enumerate(levels):
+        hi = levels[k + 1]["at"] - 1 if k + 1 < len(levels) else None
+        want = f"{count_var} >= {lv['at']}" + (f" && {count_var} <= {hi}" if hi is not None else "")
+        if lv["alive"] != want or lv["buff"] is None:
+            return None
+        lv["until"] = hi
+        del lv["alive"]
+    on_attack = [acts.get(x) for x in col_list(acts, row["OnAttackAction"], "SubActions")]
+    ups = {(a["Variable"], a["Value"]) for a in on_attack if a is not None and a["ClassType"] == "ActionSetVariable"}
+    if ups != {(count_var, RAMP_COUNT_UP.format(c=count_var)), (grace_var, grace)}:
+        return None
+    tick = acts.get(row["OnStartingAction"])
+    if tick is None or tick["ClassType"] != "ActionInterval" or tick["Interval"] != 50:
+        return None
+    body = tick["ActionToExecute"]
+    subs = body.get("SubActions") if isinstance(body, dict) else None
+    steps = {acts.get(x)["Value"]: acts.get(x) for x in (subs or []) if acts.get(x) is not None}
+    dec = steps.get(RAMP_GRACE_TICK.format(g=grace_var))
+    if dec is None or dec["Variable"] != grace_var:
+        return None
+    resets = sorted(str(a["ExecuteIfTrue"]) for a in (acts.get(x) for x in subs) if a is not None and a["Value"] == "0")
+    if resets != sorted(["COMBAT_DISABLED", RAMP_RESET_IF.format(g=grace_var, c=count_var)]):
+        return None
+    shots = {row["Projectile"], row["Projectile2"], row["Projectile3"]}
+    if len(shots) != 1 or not grace.isdigit():
+        return None
+    return {"grace_ms": int(grace), "levels": levels}
+
+
+def champion_guard(t, unit: str) -> dict | None:
+    """THE LITTLE PRINCE'S BUTTON (15.535: ChampGuardianAbility), or None. Its OnActivationAction holds him still
+    (NO_MOVE, `hold_ms`) and at once (its NextAction) puts down an area whose OnStartingAction, `spawn_delay_ms` on, is
+    an ActionSpawnGuard: `unit` appears AppearBehindAtDistance behind him and charges, pushing the ground characters
+    within PushBackRadius of it (PushBackStrength, in proportion to their distance) and hitting each PushBackDamage
+    (`push`). TargetRadius is read and not run: measured, the charge's end is a fixed point from him whatever stands
+    near (state.rs GUARD_*)."""
+    row = t["characters"].get(unit)
+    name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
+    a = t.abilities.get(name) if isinstance(name, str) else None
+    if a is None or set(a) - GUARD_ABILITY_READ - DEFLECT_ABILITY_COSMETIC or a.get("MaxCharges") != 1:
+        return None
+    acts = t["actions"]
+    hold = acts.get(a.get("OnActivationAction"))
+    if hold is None or hold["ClassType"] != "ActionWithDuration" or hold["GameTagsToSet"] != "NO_MOVE":
+        return None
+    nxt = hold["NextAction"]
+    if not isinstance(nxt, dict) or nxt.get("ClassType") != "ActionSpawn" or nxt.get("SpawnType") != "AreaEffectType":
+        return None
+    aeo = t["area_effect_objects"].get(nxt["SpawnData"])
+    if aeo is None or aeo["HitSpeed"] != 0 or aeo["Damage"] or aeo["Buff"]:
+        return None
+    g = acts.get(aeo["OnStartingAction"])
+    if g is None or g["ClassType"] != "ActionSpawnGuard" or acts.set_fields.get(aeo["OnStartingAction"],
+                                                                                set()) - GUARD_SPAWN_KEYS:
+        return None
+    if g["HitFilter"] != "PassiveForcedHitGroundCharacters" or g["ContinuosPushBack"] is not True \
+            or g["DistanceProportinalPush"] is not True:
+        return None
+    ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost")]
+    if not all(isinstance(v, int) and v >= 0 for v in ints):
+        return None
+    cast_ms, trigger_ms, mana = ints
+    return {
+        "name": name,
+        "mana_cost": mana,
+        "max_charges": 1,
+        "cooldown_ms": None,
+        "cast_ms": cast_ms,
+        "trigger_delay_ms": trigger_ms,
+        "keep_current_target": bool(a.get("KeepCurrentTarget")),
+        "is_champion": True,
+        "effect": {"kind": "guard", "hold_ms": hold["ActionDuration"], "unit": g["SpawnData"],
+                   "spawn_delay_ms": g["ActionDelay"] or 0, "behind_milli": g["AppearBehindAtDistance"],
+                   "target_radius_milli": g["TargetRadius"], "push_radius_milli": g["PushBackRadius"],
+                   "push_milli": g["PushBackStrength"], "push_damage": g["PushBackDamage"]},
+    }
+
+
 def champion_dash_chain(t, unit: str) -> dict | None:
     """THE BUTTON OF A CHAMPION WHOSE PRESS RUNS A DASH CHAIN (15.535: the Golden Knight's GoldenKnightChain), or
     None for a unit with no [ABILITY] or another one (it loads as a plain troop). The ability's OnActivationAction is
@@ -3355,9 +3570,22 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         champion_dash_chain(t, res["character"])
         or champion_deflect(t, res["character"])
         or champion_self_buff(t, res["character"])
+        or champion_warp_back(t, res["character"])
+        or champion_guard(t, res["character"])
     )
     if chain is not None:
         card["ability"] = chain
+        # A WARP-BACK CHAMPION'S OWN GRAPH (the Boss Bandit's) is its voicelines alone: greetings for the friends on the
+        # field and a line for a duel with the Bandit, every branch an effect.
+        g = card.get("action_graph")
+        voicelines = g and not g["spawns"] and set(g["class_types"]) <= VOICELINE_CLASSES
+        if chain["effect"]["kind"] == "warp_back" and voicelines:
+            card["action_graph"] = None
+        # THE LITTLE PRINCE'S RAMP (`champion_ramp`): his row's graph is the ramp, read whole.
+        ramp = champion_ramp(t, res["character"]) if chain["effect"]["kind"] == "guard" else None
+        if ramp is not None:
+            card["ramp"] = ramp
+            card["action_graph"] = None
     # Only on a row that reflects (norm_unit), so every other card row is unchanged.
     if "reflected_attack" in u:
         card["reflected_attack"] = u["reflected_attack"]
@@ -3704,7 +3932,7 @@ EVOLUTIONS = (
     "Barbarians_EV1", "Bomber_EV1", "Valkyrie_EV1", "Archer_EV1", "RoyalGiant_EV1", "MegaKnight_EV1", "Pekka_EV1",
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
-    "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1", "GoblinBarrel_EV1",
+    "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1", "GoblinBarrel_EV1", "RageBarbarian_EV1",
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -4203,6 +4431,117 @@ def wind_block(t: Tables, card: dict) -> dict:
         "ally": ally,
         "ally_ms": ally_ms,
     }
+
+
+# THE EVO LUMBERJACK'S GHOST (`rage_ghost_block`): the display columns, the columns its chain's evolved rows may set
+# over their base rows, the ghost row's columns over the form's, and its start group's watch keys.
+RAGE_DISPLAY = {"BlueExportName", "RedExportName", "FileName", "Scale", "ShadowScaleX", "ShadowScaleY", "ShadowSkew",
+                "ShadowX", "ShadowY", "SpawnEffect", "DamageEffect", "ContinuousEffect", "DeathEffect"}
+RAGE_BOTTLE_SET = {"Base", "DeathAreaEffect", "DeathEffect"}
+RAGE_AREA_SET = {"Base", "OnStartingAction"}
+RAGE_SPAWN_KEYS = {"ClassType", "SpawnType", "SpawnData", "UseDeploy", "ParentGOAsSource", "ActionDelay"}
+RAGE_GHOST_SET = {"Base", "Hitpoints", "CrownTowerDamagePercent", "Hovering", "DeathSpawnCharacter", "HealthBar",
+                  "IgnoreClone", "IgnoreResurrect", "IgnoreBuff", "HideHealthbar", "GameTagsToSet", "OnDeathAction",
+                  "OnStartingAction", "BuffWhenNotAttacking", "StatsTags", "DeathAreaEffect"} | RAGE_DISPLAY
+RAGE_WATCH_KEYS = {"ClassType", "BuffToConsider", "BuffOverride", "ActionToExecute", "Delay", "PortalTimer",
+                   "OnAboutToDieAction"}
+
+
+def rage_ghost_block(t: Tables, card: dict, base: dict) -> dict:
+    """RageBarbarian_EV1's ghost (characters/rage_barbarian_evo.toml), read whole or the build stops. The form's death
+    runs its base's chain (its DeathAreaEffect an area that puts down a bottle whose death leaves the Rage area), each
+    evolved row an [EXT] of the base's that changes only the next link and effects, but for one step: the evolved
+    Rage area's OnStartingAction puts `ghost` down on its point, deploying (UseDeploy). The form's death area is written
+    as the base's, and this block carries the ghost:
+      - its row: the form's row with Hitpoints 1, its crown-tower share, Hovering, NO_DAMAGE, IgnoreBuff Rage, and
+        BuffWhenNotAttacking an Invisible buff; its start group hangs `buff` (Invisible) for good and a life buff of
+        `life_ms`, and watches two buffs, each loss killing it (ActionLumberjackGhostWaitUntilLooseBuff: the life buff,
+        and the Rage its area's pulses keep on it, BuffOverride Rage over a stat-less RageDummyBuff);
+      - the Rage area's clock and reach (`rage`): its Radius, its pulse (HitSpeed), its LifeDuration and its
+      BuffTime."""
+    unit = card["summon_character"]
+    _, row = unit_record(t, unit)
+    acts = t["actions"]
+    aeos = t["area_effect_objects"]
+    chars = t["characters"]
+
+    def need(cond: bool, what: str) -> None:
+        if not cond:
+            raise SystemExit(f"{unit}: {what}")
+
+    _, brow = unit_record(t, base["SummonCharacter"])
+    dummy, bdummy = row["DeathAreaEffect"], brow["DeathAreaEffect"]
+    need(dummy is not None and bdummy is not None
+         and aeos.set_fields.get(dummy, set()) == aeos.set_fields.get(bdummy, set()) == {"Rarity", "LifeDuration",
+                                                                                           "OnStartingAction"}
+         and aeos.get(dummy)["LifeDuration"] == aeos.get(bdummy)["LifeDuration"], f"its death area {dummy}")
+    spawn = _one_action(acts, aeos.get(dummy)["OnStartingAction"], "ActionSpawn",
+                        {"ClassType", "SpawnType", "SpawnData"})
+    bspawn = _one_action(acts, aeos.get(bdummy)["OnStartingAction"], "ActionSpawn",
+                         {"ClassType", "SpawnType", "SpawnData"})
+    need(spawn["SpawnType"] == bspawn["SpawnType"] == "CharacterType", "its death area's spawn")
+    bottle, bbottle = spawn["SpawnData"], bspawn["SpawnData"]
+    need((t["buildings"].set_fields.get(bottle) or chars.set_fields.get(bottle) or set()) <= RAGE_BOTTLE_SET,
+         f"its bottle {bottle}")
+    _, bot = unit_record(t, bottle)
+    _, bbot = unit_record(t, bbottle)
+    area, barea = bot["DeathAreaEffect"], bbot["DeathAreaEffect"]
+    need(aeos.set_fields.get(area, set()) <= RAGE_AREA_SET and aeos.get(area)["Base"] in (f"AEO.{barea}", barea),
+         f"its Rage area {area}")
+    ga = _one_action(acts, aeos.get(area)["OnStartingAction"], "ActionSpawn", RAGE_SPAWN_KEYS)
+    need(ga["SpawnType"] == "CharacterType" and ga["UseDeploy"] is True and not ga["ActionDelay"],
+         "its Rage area's spawn")
+    ghost = ga["SpawnData"]
+    gset = chars.set_fields.get(ghost, set())
+    _, grow = unit_record(t, ghost)
+    need(gset <= RAGE_GHOST_SET and grow["Base"] == f"CHARACTER.{unit}",
+         f"its ghost {ghost} sets {sorted(gset - RAGE_GHOST_SET)}")
+    need(grow["GameTagsToSet"] == "NO_DAMAGE" and grow["Hovering"] is True and grow["Hitpoints"] == 1
+         and not grow["DeathAreaEffect"] and not grow["DeathSpawnCharacter"] and not grow["OnDeathAction"],
+         "its ghost's row")
+    idle = t["character_buffs"].get(grow["BuffWhenNotAttacking"])
+    need(idle is not None and flag(idle, "Invisible"), "its ghost's idle buff")
+    # Its group lists four steps and three delays: the missing delay reads 0 (every step at once; unmeasured, and
+    # the one step it could hold back is the Invisible for good, whose loss would only show on an attacking ghost).
+    gsubs = col_list(acts, grow["OnStartingAction"], "SubActions")
+    gdelays = col_list(acts, grow["OnStartingAction"], "SubActionsDelay")
+    need(acts.get(grow["OnStartingAction"])["ClassType"] == "ActionGroup" and len(gdelays) <= len(gsubs),
+         "its ghost's start group")
+    subs = list(zip(gsubs, gdelays + [0] * (len(gsubs) - len(gdelays)), strict=True))
+    by: dict[str, list[str]] = {}
+    for n_, _d in subs:
+        by.setdefault(acts.get(n_)["ClassType"], []).append(n_)
+    need(set(by) == {"ActionSpawn", "ActionLumberjackGhostWaitUntilLooseBuff"} and len(by["ActionSpawn"]) == 2
+         and len(by["ActionLumberjackGhostWaitUntilLooseBuff"]) == 2 and all(d == 0 for _, d in subs),
+         f"its ghost's start {subs}")
+    spawns = [_one_action(acts, n_, "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime"})
+              for n_ in by["ActionSpawn"]]
+    need(all(x["SpawnType"] == "BuffType" and flag(t["character_buffs"].get(x["SpawnData"]), "Invisible")
+             for x in spawns), "its ghost's buffs")
+    forever = max(spawns, key=lambda x: x["SpawnTime"])
+    life = min(spawns, key=lambda x: x["SpawnTime"])
+    watches = [_one_action(acts, n_, "ActionLumberjackGhostWaitUntilLooseBuff", RAGE_WATCH_KEYS)
+               for n_ in by["ActionLumberjackGhostWaitUntilLooseBuff"]]
+    for w in watches:
+        need(_one_action(acts, w["ActionToExecute"], "ActionKill", {"ClassType", "OnKillAction"}) is not None
+             and (w["OnAboutToDieAction"] is None or _cosmetic_action(acts, w["OnAboutToDieAction"]))
+             and not w["Delay"], "a watch's kill")
+    watched = sorted((w["BuffToConsider"], w["BuffOverride"]) for w in watches)
+    rage = aeos.get(barea)
+    need(watched[0] == (life["SpawnData"], life["SpawnData"]) or watched[1] == (life["SpawnData"], life["SpawnData"]),
+         f"its ghost's watches {watched}")
+    rw = [w for w in watched if w[0] != life["SpawnData"]]
+    need(len(rw) == 1 and rw[0][1] == rage["Buff"] and _present(t["character_buffs"].get(rw[0][0])) <= {"Rarity"},
+         f"its ghost's Rage watch {rw}")
+    need(isinstance(rage["Radius"], int) and isinstance(rage["HitSpeed"], int) and isinstance(rage["LifeDuration"], int)
+         and isinstance(rage["BuffTime"], int), "its Rage area's clock")
+    card["death_area_effect"] = bdummy
+    g = norm_unit(t, ghost, with_raw=True)
+    g["action_graph"] = None
+    return {"ghost": ghost, "ghost_record": g, "buff": norm_buff(t, forever["SpawnData"]),
+            "buff_ms": forever["SpawnTime"], "life_ms": life["SpawnTime"],
+            "rage": {"radius_milli": rage["Radius"], "hit_speed_ms": rage["HitSpeed"],
+                     "life_ms": rage["LifeDuration"], "buff_time_ms": rage["BuffTime"]}}
 
 
 def ghost_block(t: Tables, card: dict) -> dict:
@@ -6118,6 +6457,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_drill"] = drill_block(t, card)
         elif name == "Bomber_EV1":
             card["evo_bounce"] = bounce_block(t, card)
+        elif name == "RageBarbarian_EV1":
+            card["evo_rage_ghost"] = rage_ghost_block(t, card, b)
         elif name == "Valkyrie_EV1":
             card["evo_attack_area"] = attack_area_block(t, card, ATTACK_AREA_READ)
         elif name == "RoyalGiant_EV1":
@@ -6155,11 +6496,14 @@ HERO_FORMS = {
     "Berserker_hero": ("Berserker", "berserker_hero"),
     "Balloon_hero": ("Balloon", "balloon_hero"),
     "Valkyrie_hero": ("Valkyrie", "valkyrie_hero"),
+    "EliteArcher_hero": ("EliteArcher", "elite_archer_hero"),
     "Wizard_hero": ("Wizard", "wizard_hero"),
     "MiniPekka_hero": ("MiniPekka", "mini_pekka_hero"),
     "Knight_hero": ("Knight", "knight_hero"),
     "MegaMinion_hero": ("MegaMinion", "mega_minion_hero"),
     "Giant_hero": ("Giant", "giant_hero"),
+    "Bowler_hero": ("Bowler", "bowler_hero"),
+    "Goblins_hero": ("Goblins", "goblins_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -6169,7 +6513,7 @@ ABILITY_READ_KEYS = {
 ABILITY_UI_KEYS = {
     "TID", "TID_INFO", "IconSWF", "IconExportName", "KeepIconEvenWhenOutOfCharges", "HideChargesTextField",
     "DeployedEffect", "DeployedClip", "PopoverIconFileName", "PopoverIconExportName", "Stats", "StatsTags",
-    "OutOfChargesTID",
+    "OutOfChargesTID", "DeployedEffectAbsolutePositionToParent",
 }
 # The columns a hero ability's area may set: the ones `hero_area` reads, and the display ones.
 HERO_AREA_READ = {
@@ -6242,6 +6586,7 @@ def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
     for _form, (_base, stem) in forms.items():
         for p in hero_files(v, stem):
             label = f"characters/hero_form/{p.name}"
+            made: set[tuple[str, str]] = set()
             for section, body in tomllib.load(p.open("rb")).items():
                 if not isinstance(body, dict):
                     raise SystemExit(f"{label}: [{section}] is not a table")
@@ -6286,8 +6631,16 @@ def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
                     route = {n: key for n in body}
                 for n, key in route.items():
                     if n in t[key].records:
+                        # A row this file made may take its array tables from a section of its own table (the Hero
+                        # Magic Archer's [[CHARACTER.EliteArcherHero.AttackSequenceList]] beside its [EXT]).
+                        arrays = all(isinstance(x, list) and all(isinstance(y, dict) for y in x)
+                                     for x in body[n].values())
+                        if (key, n) in made and arrays:
+                            t[key].overlay(p, {n: body[n]}, f"{label} [{section}]")
+                            continue
                         raise SystemExit(f"{label}: [{section}.{n}] names a row {key} already holds")
                     t[key].overlay(p, {n: body[n]}, f"{label} [{section}]")
+                    made.add((key, n))
 
 
 def _one_action(acts, name, cls: str, keys: set[str]) -> dict:
@@ -6552,6 +6905,371 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
         "landing_radius_milli": lshape["Radius"],
         "landing_level_scaled": not (dt is not None and dt.get("EnableLevelScaling") is False),
         "retry_ms": fail[1][fail[0].index(seek[0][0])],
+    }
+
+
+# THE HERO MAGIC ARCHER'S BUTTON (`decoy_warp_effect`): the keys of its warp's lock and warp, its decoy's spawn, its
+# attack-entry setters, its tag and its parallel shot.
+DECOY_WARP_KEYS = {"ClassType", "WarpY", "WarpTargetEffect", "WarpPositionEffect", "ResetTarget", "NextAction",
+                   "StatsTags"}
+DECOY_SPAWN_KEYS = {"ClassType", "SpawnType", "SpawnData", "RelativeX", "RelativeY", "UseDeploy", "StatsTags",
+                    "ValidatePlacementAsBuilding", "IsDeathSpawn"}
+DECOY_INDEX_KEYS = {"ClassType", "AttackIndex", "SetEvenIfCombatDisabled", "StatsTags"}
+DECOY_TAG_KEYS = {"ClassType", "GameTagsToSet", "ForceStopIfTrue", "ActionDuration", "StatsTags"}
+PARALLEL_KEYS = {"ClassType", "ProjectileType", "ProjectileCount", "ProjectileDistance", "StatsTags"}
+# Its decoy's row: its tags (it stands; the other two are a path hint and a Rune Giant rule), its life's interval
+# and its hit animation's callback.
+DECOY_ROW_TAGS = {"NO_MOVE_ALLOW_ATTRACT", "AVOIDANCE_AS_OBSTACLE", "NO_GIANTBUFFER_CHEF_ENCHANTMENT"}
+DECOY_LIFE_KEYS = {"ClassType", "Interval", "StartCounterAt", "ActionToExecute", "StatsTags"}
+DECOY_HIT_KEYS = {"ClassType", "TimeThreshold", "TriggerOnParentDamaged", "ActionToRun"}
+
+
+def decoy_warp_effect(h: Tables, name: str, subs: list, delays: list, units: dict, hero_unit: str) -> dict:
+    """THE HERO MAGIC ARCHER'S BUTTON ([ABILITY] OnActivationAction a group), read whole or the build stops. At the
+    trigger its decoy (`decoy`: an ActionSpawnToLocation on the hero's own point, deploying) stands; `buff_delay_ms` on,
+    `buff` (its SpawnTime) on the hero; `warp_delay_ms` on (the group's delay and the lock's WarpDelay), an
+    ActionBossBanditAbility's ActionWarpCharacter moves the hero WarpY (`warp_y_milli`, the owner's frame) and drops its
+    target; and its attack entry is set to 1 (`power`: the hero's AttackSequenceList entry 1, whose projectile,
+    `middle`, fires `count` parallel copies of `side` `distance_milli` apart) until its next attack (its
+    OnAttackSelfAction sets entry 0) or `power_ms` (the group's last step sets entry 0). The tag the attack clears and
+    the effects only show. The decoy's own row is read whole too: its GameTagsToSet hold it still (`no_move`), and its
+    start group is its life (`decoy_life_ms`: an ActionInterval whose first run, StartCounterAt on, is an ActionKill)
+    and a hit animation; its graph is then cleared."""
+    acts = h["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    by: dict[str, list[tuple[str, int]]] = {}
+    for sub, d in zip(subs, delays, strict=True):
+        by.setdefault(acts.get(sub)["ClassType"], []).append((sub, d))
+    need(set(by) <= {"ActionSpawn", "ActionBossBanditAbility", "ActionPlayEffect", "ActionSpawnToLocation",
+                     "ActionSetAttackSequenceIndex", "ActionWithDuration"}, f"its group runs {sorted(by)}")
+    need(all(d == 0 for _, d in by.get("ActionPlayEffect", [])), "a delayed effect")
+    [(bsub, bdelay)] = by["ActionSpawn"]
+    sp = _one_action(acts, bsub, "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags"})
+    need(sp["SpawnType"] == "BuffType" and isinstance(sp["SpawnTime"], int), "its buff")
+    buff = h["character_buffs"].get(sp["SpawnData"])
+    need(buff is not None and flag(buff, "Invisible"), f"its buff {sp['SpawnData']} is not an invisibility")
+    [(lsub, ldelay)] = by["ActionBossBanditAbility"]
+    lk = _one_action(acts, lsub, "ActionBossBanditAbility", WARP_LOCK_KEYS)
+    need(not lk["LockDelay"] and isinstance(lk["WarpDelay"], int), "its lock")
+    w = _one_action(acts, lk["WarpAction"], "ActionWarpCharacter", DECOY_WARP_KEYS)
+    need(isinstance(w["WarpY"], int) and w["WarpY"] != 0 and w["ResetTarget"] is True, "its warp")
+    need(_cosmetic_action(acts, w["NextAction"]) if w["NextAction"] else True, "its warp's end")
+    [(dsub, ddelay)] = by["ActionSpawnToLocation"]
+    dsp = _one_action(acts, dsub, "ActionSpawnToLocation", DECOY_SPAWN_KEYS)
+    need(dsp["SpawnType"] == "CharacterType" and not dsp["RelativeX"] and not dsp["RelativeY"]
+         and dsp["UseDeploy"] is True
+         and dsp["ValidatePlacementAsBuilding"] is False and dsp["IsDeathSpawn"] is False, "its decoy's spawn")
+    sets = sorted((acts.get(x)["AttackIndex"], d) for x, d in by["ActionSetAttackSequenceIndex"])
+    for x, _ in by["ActionSetAttackSequenceIndex"]:
+        _one_action(acts, x, "ActionSetAttackSequenceIndex", DECOY_INDEX_KEYS)
+    need(len(sets) == 2 and sets[0][0] == 0 and sets[1] == (1, ddelay) and sets[0][1] > 0, f"its entries {sets}")
+    [(tsub, _)] = by["ActionWithDuration"]
+    tag = _one_action(acts, tsub, "ActionWithDuration", DECOY_TAG_KEYS)
+    need(tag["ForceStopIfTrue"] == "ATTACKING" and tag["ActionDuration"] == sets[0][1], "its tag")
+    table, row = unit_record(h, hero_unit)
+    seq = col_list(h[table], hero_unit, "AttackSequenceList")
+    need(row["AttackSequenceMode"] == "None" and len(seq) == 2 and all(set(e) == {"Projectile"} for e in seq)
+         and seq[0]["Projectile"] == row["Projectile"], f"the hero's attack entries {seq}")
+    reset = _one_action(acts, row["OnAttackSelfAction"], "ActionSetAttackSequenceIndex", DECOY_INDEX_KEYS)
+    need(reset["AttackIndex"] == 0, "the hero's attack does not set entry 0")
+    pt = h["projectiles"]
+    mid = pt.get(seq[1]["Projectile"])
+    par = _one_action(acts, mid["OnStartingAction"], "ActionCreateParallelProjectiles", PARALLEL_KEYS)
+    need(isinstance(par["ProjectileCount"], int) and par["ProjectileCount"] >= 1
+         and isinstance(par["ProjectileDistance"], int), "its parallel shot")
+    middle, side = norm_projectile(h, seq[1]["Projectile"]), norm_projectile(h, par["ProjectileType"])
+    need(middle is not None and side is not None, "its power shot's rows")
+    middle["action_graph"] = None
+    decoy = dsp["SpawnData"]
+    _, drow = unit_record(h, decoy)
+    tags = {x.strip() for x in str(drow["GameTagsToSet"] or "").split(",") if x.strip()}
+    need(tags == DECOY_ROW_TAGS, f"its decoy's tags {sorted(tags)}")
+    got = _group_leaves(acts, drow["OnStartingAction"])
+    need(got is not None, "its decoy's start is not a group")
+    dsubs, ddelays = got
+    need(sorted(acts.get(x)["ClassType"] for x in dsubs) == ["ActionInterval", "ActionRunActionOnCallbackWithThreshold"]
+         and all(d == 0 for d in ddelays), f"its decoy's start {dsubs}")
+    life = next(_one_action(acts, x, "ActionInterval", DECOY_LIFE_KEYS) for x in dsubs
+                if acts.get(x)["ClassType"] == "ActionInterval")
+    need(isinstance(life["StartCounterAt"], int) and life["StartCounterAt"] > 0
+         and life["Interval"] == life["StartCounterAt"]
+         and _one_action(acts, life["ActionToExecute"], "ActionKill", {"ClassType"}) is not None, "its decoy's life")
+    hit = next(_one_action(acts, x, "ActionRunActionOnCallbackWithThreshold", DECOY_HIT_KEYS) for x in dsubs
+               if acts.get(x)["ClassType"] != "ActionInterval")
+    need(_one_action(acts, hit["ActionToRun"], "ActionRunForcedAnimationOnce", {"ClassType", "PlaybackDuration"})
+         is not None, "its decoy's hit")
+    units[decoy] = norm_unit(h, decoy, with_raw=True)
+    units[decoy]["action_graph"] = None
+    return {"kind": "decoy_warp", "buff": norm_buff_row(h, sp["SpawnData"], buff), "buff_ms": sp["SpawnTime"],
+            "buff_delay_ms": bdelay, "warp_y_milli": w["WarpY"], "warp_delay_ms": ldelay + lk["WarpDelay"],
+            "unit": decoy, "use_deploy": True, "no_move": True, "decoy_delay_ms": ddelay,
+            "decoy_life_ms": life["StartCounterAt"], "power_ms": sets[0][1],
+            "power": {"middle": middle, "side": side, "count": par["ProjectileCount"],
+                      "distance_milli": par["ProjectileDistance"]}}
+
+
+# THE HERO BOWLER'S SIEGE (`siege_effect`): the keys of its variable's setter, its buff's spawn and row, its tag hold,
+# its attack entries, its entry selector, and the classes its row's tower check may run (display only).
+SIEGE_VAR_KEYS = {"ClassType", "Variable", "Value", "NextAction"}
+SIEGE_BUFF_KEYS = {"Rarity", "AliveIfTrue", "SpeedMultiplier", "OnRemoveAction", "GameTagsToSet"}
+SIEGE_TAG_KEYS = {"ClassType", "ActionDuration", "GameTagsToSet"}
+SIEGE_ENTRY_KEYS = {"Projectile", "CustomRange", "CustomSightRange", "HitSpeedMultiplier", "CustomProjectileStartZ",
+                    "CustomProjectileStartRadius", "StatsTags"}
+SIEGE_PICK_KEYS = {"ClassType", "Condition", "OnTrueAction", "OnFalseAction", "ExecuteIfTrue"}
+SIEGE_DISPLAY_CLASSES = {"ActionInterval", "ActionFilter", "ActionGroup", "ActionPlayEffect", "ActionSetVariable"}
+SIEGE_ACTION_KEYS = ("ActionToExecute", "OnTrueAction", "OnFalseAction", "NextAction", "OnActivateAction")
+
+
+def siege_effect(h: Tables, name: str, subs: list, delays: list, units: dict, hero_unit: str) -> dict:
+    """THE HERO BOWLER'S SIEGE ([ABILITY] OnActivationAction a group), read whole or the build stops. At the trigger a
+    [VARIABLE] goes to 1 (the siege is on), `buff` lands for `buff_ms` (SpeedMultiplier -100: it stands; its
+    AliveIfTrue is the variable, and its OnRemoveAction sets it to 0, then drops the target and sets attack entry 0),
+    NO_ATTACK holds its attack `no_attack_ms`, and attack entry 1 is set; `reset_target_ms` on, its target is dropped.
+    While the variable is 1, each attack's start (the row's OnStartingAttackAction, an ActionFilter) picks entry 2
+    (`near`) for a target within `near_range_milli` (target_in_range) and entry 1 (`far`) for any other. Entries 1 and 2
+    share CustomRange, CustomSightRange and HitSpeedMultiplier (`range_milli`, `sight_range_milli`,
+    `hit_speed_multiplier`); each has its projectile and its CustomProjectileStartRadius (StartZ and the near row's
+    arc are its flight's height alone). Entry 0 is the row's Projectile at `normal_start_radius_milli`. The siege form
+    (`unit`, added to `units`) is the hero's row with the far entry's range, sight, shot and start radius. The row's
+    OnStartingAction only shows a crown tower in reach (display variables and effects), and is read so."""
+    import re
+
+    acts = h["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    by: dict[str, list[tuple[str, int]]] = {}
+    for sub_, d in zip(subs, delays, strict=True):
+        by.setdefault(acts.get(sub_)["ClassType"], []).append((sub_, d))
+    need(set(by) == {"ActionSetVariable", "ActionSpawn", "ActionPlayEffect", "ActionSetAttackSequenceIndex",
+                     "ActionResetTarget", "ActionWithDuration"}, f"its group runs {sorted(by)}")
+    [(vsub, vdelay)] = by["ActionSetVariable"]
+    on = _one_action(acts, vsub, "ActionSetVariable", SIEGE_VAR_KEYS)
+    var = on["Variable"]
+    need(str(on["Value"]) == "1" and vdelay == 0 and not on["NextAction"], "its variable's setter")
+    [(bsub, bdelay)] = by["ActionSpawn"]
+    sp = _one_action(acts, bsub, "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags"})
+    need(sp["SpawnType"] == "BuffType" and isinstance(sp["SpawnTime"], int) and bdelay == 0, "its buff's spawn")
+    brow = h["character_buffs"].get(sp["SpawnData"])
+    need(brow is not None and _present(brow) <= SIEGE_BUFF_KEYS, f"its buff {sp['SpawnData']}")
+    need(brow["SpeedMultiplier"] == -100 and str(brow["AliveIfTrue"]).replace(" ", "") == f"{var}>0"
+         and brow["GameTagsToSet"] == "IGNORE_RANGE_EXTENSION_TO_KEEP_TARGET", "its buff's columns")
+    off = _one_action(acts, brow["OnRemoveAction"], "ActionSetVariable", SIEGE_VAR_KEYS)
+    need(off["Variable"] == var and str(off["Value"]) == "0", "its buff's end")
+    end = group_subactions(h, off["NextAction"], f"hero ability {name} end")
+    need(sorted(acts.get(x)["ClassType"] for x, _ in end) == ["ActionResetTarget", "ActionSetAttackSequenceIndex"]
+         and all(d == 0 for _, d in end), f"its end's group {end}")
+    need(all(acts.get(x)["AttackIndex"] == 0 for x, _ in end if acts.get(x)["ClassType"] != "ActionResetTarget"),
+         "its end does not set entry 0")
+    [(isub, idelay)] = by["ActionSetAttackSequenceIndex"]
+    need(acts.get(isub)["AttackIndex"] == 1 and idelay == 0, "its entry at the trigger")
+    [(rsub, rdelay)] = by["ActionResetTarget"]
+    _one_action(acts, rsub, "ActionResetTarget", {"ClassType"})
+    [(tsub, tdelay)] = by["ActionWithDuration"]
+    tag = _one_action(acts, tsub, "ActionWithDuration", SIEGE_TAG_KEYS)
+    need(tag["GameTagsToSet"] == "NO_ATTACK" and isinstance(tag["ActionDuration"], int) and tdelay == 0, "its hold")
+    table, row = unit_record(h, hero_unit)
+    seq = col_list(h[table], hero_unit, "AttackSequenceList")
+    need(row["AttackSequenceMode"] == "None" and len(seq) == 3 and all(set(e) <= SIEGE_ENTRY_KEYS for e in seq[1:])
+         and set(seq[0]) <= {"Projectile", "CustomProjectileStartRadius"}, f"the hero's attack entries {seq}")
+    far, near = seq[1], seq[2]
+    for k in ("CustomRange", "CustomSightRange", "HitSpeedMultiplier"):
+        need(isinstance(far.get(k), int) and far.get(k) == near.get(k), f"its entries' {k}")
+    # Entry 0's shot is the row's, or a row that reads the same but for its name (BowlerHeroProjectile: StatsTags
+    # alone).
+    e0, own = norm_projectile(h, seq[0]["Projectile"]), norm_projectile(h, row["Projectile"])
+    need(e0 is not None and own is not None and {**e0, "name": None} == {**own, "name": None},
+         f"the hero's entry 0 shot {seq[0]['Projectile']} is not its row's")
+    pick = _one_action(acts, row["OnStartingAttackAction"], "ActionFilter", SIEGE_PICK_KEYS)
+    m = re.fullmatch(r"target_in_range\((\d+)\)", str(pick["Condition"]))
+    need(m is not None and str(pick["ExecuteIfTrue"]).replace(" ", "") == f"{var}>0", f"its pick {pick['Condition']!r}")
+    picks = [_one_action(acts, pick[k], "ActionSetAttackSequenceIndex", {"ClassType", "AttackIndex",
+                                                                          "SetEvenIfCombatDisabled"})["AttackIndex"]
+             for k in ("OnTrueAction", "OnFalseAction")]
+    need(picks == [2, 1], f"its pick's entries {picks}")
+    # The row's tower check: every action it reaches plays an effect or sets a display variable, never the siege's.
+    seen, todo = set(), [row["OnStartingAction"]]
+    while todo:
+        x = todo.pop()
+        if not isinstance(x, str) or x in seen:
+            continue
+        seen.add(x)
+        a = acts.get(x)
+        need(a is not None and a["ClassType"] in SIEGE_DISPLAY_CLASSES, f"its row's start runs {x}")
+        need(a["ClassType"] != "ActionSetVariable" or a["Variable"] != var, "its row's start sets the siege")
+        todo += [a[k] for k in SIEGE_ACTION_KEYS if k in _present(a)]
+        todo += acts.arrays.get(x, {}).get("SubActions") or ([a["SubActions"]] if "SubActions" in _present(a) else [])
+    shots = {}
+    for part, e in (("far", far), ("near", near)):
+        pr = norm_projectile(h, e["Projectile"])
+        need(pr is not None and isinstance(e.get("CustomProjectileStartRadius"), int), f"its {part} entry's shot")
+        pr["action_graph"] = None
+        shots[part] = {"projectile": pr, "start_radius_milli": e["CustomProjectileStartRadius"]}
+    for k in ("speed", "damage", "radius_milli", "crown_tower_damage_percent", "aoe_to_air", "aoe_to_ground"):
+        need(shots["far"]["projectile"][k] == shots["near"]["projectile"][k], f"its two shots' {k}")
+    siege = f"{hero_unit}_Siege"
+    rec = norm_unit(h, hero_unit, with_raw=True)
+    rec.update({"name": siege, "range_milli": far["CustomRange"], "sight_range_milli": far["CustomSightRange"],
+                "projectile": shots["far"]["projectile"], "damage": shots["far"]["projectile"]["damage"],
+                "projectile_start_radius_milli": far["CustomProjectileStartRadius"], "action_graph": None})
+    units[siege] = rec
+    return {"kind": "siege", "buff": norm_buff_row(h, sp["SpawnData"], brow), "buff_ms": sp["SpawnTime"],
+            "no_attack_ms": tag["ActionDuration"], "reset_target_ms": rdelay, "unit": siege,
+            "near_range_milli": int(m.group(1)), "range_milli": far["CustomRange"],
+            "sight_range_milli": far["CustomSightRange"], "hit_speed_multiplier": far["HitSpeedMultiplier"],
+            "far": shots["far"], "near": shots["near"],
+            "normal_start_radius_milli": seq[0].get("CustomProjectileStartRadius")}
+
+
+# THE HERO GOBLINS' FLAG (`flag_button`): the keys of its spawns and the two position expressions a wave may use (the
+# Graveyard's MirroredToWall: x toward the side wall the point is nearer, y along the team's y direction); the UI-only
+# action classes; the flag row's columns.
+FLAG_WAVE_KEYS = {"ClassType", "SpawnType", "SpawnData", "UseDeploy", "IgnoreEffects", "AddToSourceGroup",
+                  "XPositionExpression", "YPositionExpression"}
+FLAG_X = r"x ([+-]) \((\d+) \* select\(x > \(map_width / 2\), -1, 1\)\)"
+FLAG_Y = r"y - \((-?\d+) \* team_y_direction\(team_index\)\)"
+FLAG_UI = {"ActionEnabbleHPBarConditionForDuration", "ActionOverrideAbilityButtonState", "ActionPlayEffect",
+           "ActionRunForcedAnimationOnce", "ActionAddHealthBarPart"}
+FLAG_ROW_SET = {"Rarity", "IsBuilding", "Hitpoints", "AttacksGround", "AttacksAir", "LifeTime", "UseAnimator",
+                "IgnorePushback", "DeployDelay", "IgnoreBuff", "IgnoreResurrect", "VisualActions", "HideHealthbar",
+                "GameTagsToSet", "OnStartingAction", "Ability", "AbilityPendingEffect", "DamageExportName",
+                "DeathEffect",
+                "DeployBaseAnimExportName", "PrefabAsset", "Scale", "SpawnEffect"}
+
+
+def flag_button(h: Tables, form: str, unit: str, urow: dict, flag: str, units: dict, groups: dict) -> dict:
+    """THE HERO GOBLINS' BUTTON: a button on a building the form's units leave (its SPELL_HERO row's
+    LinkedChampionCharacter, `flag`), read whole or the build stops.
+      - each goblin's OnDeathAction: unless it carries UNIT_CUSTOM_TAG_1, with no friendly troop left in its group
+        (ActionRunActionIfUnitGroupContains), `flag` is put down where it died (ActionSpawnToLocation, placed as a
+        building); with one left, only an effect;
+      - each goblin's OnStartingAction: a play of a card of its card group (`card_group`: its PlayableCards and its
+        Heroes) sets UNIT_CUSTOM_TAG_1 on it for good (ActionActivateOnCardDeploy), beside the button's display;
+      - the flag: a building (NO_DAMAGE, NO_CHECKCOLLISIONS, UNTARGETABLE) whose button is ready at once and for
+        `window_ms` (an ActionTimerQuest of one interval), which then shows it gone and kills the flag `fade_ms` on; a
+        play of the card group kills it while its timer runs;
+      - its button (an [ABILITY]): at the trigger the flag is tagged, `spawns` put their unit down deploying at the
+        flag's point moved as the Graveyard's MirroredToWall moves it, each at its delay, and `kill_ms` on the flag
+        dies."""
+    import re
+
+    acts = h["actions"]
+    bufs = h["character_buffs"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero form {form}: {what}")
+
+    def group(name: str) -> list[tuple[str, int]]:
+        g = acts.get(name)
+        need(g is not None and g["ClassType"] == "ActionGroup", f"{name} is not a group")
+        subs, delays = col_list(acts, name, "SubActions"), col_list(acts, name, "SubActionsDelay")
+        need(len(delays) <= len(subs), f"{name}'s delays")
+        return list(zip(subs, delays + [0] * (len(subs) - len(delays)), strict=True))
+
+    def tag_for_good(name: str) -> None:
+        a = _one_action(acts, name, "ActionWithDuration", {"ClassType", "ActionDuration", "GameTagsToSet"})
+        need(a["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1" and a["ActionDuration"] >= 99999, f"{name}'s tag")
+
+    def listener(name: str) -> tuple[str, list]:
+        a = _one_action(acts, name, "ActionActivateOnCardDeploy",
+                        {"ClassType", "OnActivateAction", "CardGroup", "EvaluateDeployedCard"})
+        g = groups.get(a["CardGroup"])
+        need(g is not None and a["EvaluateDeployedCard"] is True and form in (g.get("Heroes") or []),
+             f"{name}'s card group {a['CardGroup']}")
+        return a["OnActivateAction"], list(g.get("PlayableCards") or [])
+
+    # The goblin's start: its listener sets the tag for good; the rest is the button's display.
+    start = group(urow["OnStartingAction"])
+    kinds = {acts.get(n)["ClassType"] for n, _ in start}
+    need(kinds <= FLAG_UI | {"ActionActivateOnCardDeploy"}, f"its start runs {sorted(kinds)}")
+    [lst] = [n for n, _ in start if acts.get(n)["ClassType"] == "ActionActivateOnCardDeploy"]
+    on_play, playable = listener(lst)
+    tag_for_good(on_play)
+    # The goblin's death: the flag when its group holds no friendly troop, else an effect's buff.
+    d = _one_action(acts, urow["OnDeathAction"], "ActionRunActionIfUnitGroupContains",
+                    {"ClassType", "ExecuteIfTrue", "ObjectFilter", "ActionIfNoMatch", "Action"})
+    need(d["ExecuteIfTrue"] == "!UNIT_CUSTOM_TAG_1" and d["ObjectFilter"] == "friendly_troop", "its death's check")
+    sp = _one_action(acts, d["ActionIfNoMatch"], "ActionSpawnToLocation",
+                     {"ClassType", "SpawnType", "SpawnData", "AddToSourceGroup", "ValidatePlacementAsBuilding"})
+    need(sp["SpawnType"] == "CharacterType" and sp["SpawnData"] == flag and sp["ValidatePlacementAsBuilding"] is True,
+         "its death's flag")
+    look = _one_action(acts, d["Action"], "ActionRunOnMatchingUnitsInGroup",
+                       {"ClassType", "ObjectFilter", "ActionToRun"})
+    look2 = _one_action(acts, look["ActionToRun"], "ActionRunActionIfUnitGroupContains",
+                        {"ClassType", "ExecuteIfTrue", "ObjectFilter", "ActionIfNoMatch"})
+    mark = _one_action(acts, look2["ActionIfNoMatch"], "ActionSpawn",
+                       {"ClassType", "SpawnType", "SpawnTime", "SpawnData"})
+    need(mark["SpawnType"] == "BuffType" and _present(bufs.get(mark["SpawnData"])) <= {"Rarity", "AliveIfTrue"},
+         "its last survivor's mark")
+    # The flag.
+    fset = h["characters"].set_fields.get(flag, set()) | h["buildings"].set_fields.get(flag, set())
+    _, frow = unit_record(h, flag)
+    need(fset <= FLAG_ROW_SET and frow["IsBuilding"] is True, f"the flag sets {sorted(fset - FLAG_ROW_SET)}")
+    tags = {x.strip() for x in str(frow["GameTagsToSet"]).split(",")}
+    need(tags == {"NO_DAMAGE", "NO_CHECKCOLLISIONS", "UNTARGETABLE"} and not frow["AttacksGround"]
+         and not frow["AttacksAir"], "the flag's row")
+    fstart = group(frow["OnStartingAction"])
+    fkinds = {acts.get(n)["ClassType"] for n, _ in fstart}
+    need(fkinds <= FLAG_UI | {"ActionActivateOnCardDeploy", "ActionTimerQuest"},
+         f"the flag's start runs {sorted(fkinds)}")
+    [flst] = [n for n, _ in fstart if acts.get(n)["ClassType"] == "ActionActivateOnCardDeploy"]
+    fon_play, fplayable = listener(flst)
+    need(fplayable == playable, "the flag's card group is not the goblins'")
+    fdie = _one_action(acts, fon_play, "ActionKill", {"ClassType", "ExecuteIfTrue"})
+    need(fdie["ExecuteIfTrue"] == "!UNIT_CUSTOM_TAG_1 && !CASTING_ABILITY", "the flag's death on a play")
+    [tq] = [n for n, _ in fstart if acts.get(n)["ClassType"] == "ActionTimerQuest"]
+    tqa = acts.get(tq)
+    ivs = col_list(acts, tq, "Intervals")
+    need(len(ivs) == 1 and tqa["MaxResets"] == 1 and not tqa["IntervalStartAt"], f"the flag's timer {ivs}")
+    fade = group(tqa["OnIntervalReachedAction"])
+    fade_kill = [(n, dl) for n, dl in fade if acts.get(n)["ClassType"] == "ActionKill"]
+    need(len(fade_kill) == 1 and fade_kill[0][0] == fon_play and {acts.get(n)["ClassType"] for n, _ in fade} <= FLAG_UI
+         | {"ActionKill"}, "the flag's end")
+    # The button.
+    ab = h.abilities.get(frow["Ability"])
+    need(ab is not None and not set(ab) - ABILITY_READ_KEYS - ABILITY_UI_KEYS - {"OnDeathAction"}, "the flag's button")
+    need(ab.get("MaxCharges") == 1 and not ab.get("Cooldown"), "the flag's button's charges")
+    steps = group(ab["OnActivationAction"])
+    waves, kill = [], None
+    for n, dl in steps:
+        c = acts.get(n)["ClassType"]
+        if c == "ActionWithDuration":
+            tag_for_good(n)
+        elif c == "ActionKill":
+            need(_present(acts.get(n)) <= {"ClassType"} and kill is None, "the button's kill")
+            kill = dl
+        else:
+            w = _one_action(acts, n, "ActionSpawnToLocation", FLAG_WAVE_KEYS)
+            mx, my = re.fullmatch(FLAG_X, str(w["XPositionExpression"])), re.fullmatch(FLAG_Y,
+                                                                                       str(w["YPositionExpression"]))
+            need(w["SpawnType"] == "CharacterType" and w["UseDeploy"] is True and mx is not None and my is not None,
+                 f"the button's spawn {n}")
+            dx = int(mx.group(2)) * (1 if mx.group(1) == "+" else -1)
+            waves.append({"unit": w["SpawnData"], "dx_milli": dx, "dy_milli": int(my.group(1)), "delay_ms": dl})
+    need(bool(waves) and kill is not None, "the button makes nothing or keeps its flag")
+    frec = norm_unit(h, flag, with_raw=True)
+    frec["action_graph"] = None
+    units[flag] = frec
+    for w in waves:
+        units[w["unit"]] = norm_unit(h, w["unit"], with_raw=True)
+    return {
+        "name": frow["Ability"],
+        "mana_cost": ab["ManaCost"],
+        "max_charges": 1,
+        "cooldown_ms": None,
+        "cast_ms": ab["CastTime"],
+        "trigger_delay_ms": ab["TriggerDelay"],
+        "keep_current_target": bool(ab.get("KeepCurrentTarget")),
+        "is_champion": True,
+        "effect": {"kind": "flag_spawns", "unit": flag, "window_ms": ivs[0], "fade_ms": fade_kill[0][1],
+                   "kill_ms": kill, "card_group": playable, "spawns": waves},
     }
 
 
@@ -6867,6 +7585,12 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
         classes = []
     elif "ActionGroundToAir" in classes:
         effect = ground_to_air_effect(h, name, subs, delays, units, hero_unit or "")
+        classes = []
+    elif "ActionSetAttackSequenceIndex" in classes and "ActionResetTarget" in classes:
+        effect = siege_effect(h, name, subs, delays, units, hero_unit or "")
+        classes = []
+    elif "ActionBossBanditAbility" in classes and "ActionSetAttackSequenceIndex" in classes:
+        effect = decoy_warp_effect(h, name, subs, delays, units, hero_unit or "")
         classes = []
     elif "ActionSelect" in classes and "ActionHeal" in classes:
         effect = level_up_effect(h, name, subs, delays, hero_unit or "")
@@ -7428,7 +8152,19 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         # writes on every 15.535 row that sets it (COSMETIC keeps it out of `raw`).
         # The hero's own files, where `shows_only` looks for a reader of a tag its button's buff sets.
         h.hero_text = "".join(p.read_text(encoding="utf-8") for p in hero_files(v, stem))
-        card["ability"] = ability_block(h, urow["Ability"], units, unit)
+        # A BUTTON ON A LINKED BUILDING (the Hero Goblins': LinkedChampionCharacter, the flag the last goblin
+        # leaves): the unit's row names no Ability; the button is the flag's (`flag_button`), and the unit's graph is
+        # read there.
+        linked = s.get("LinkedChampionCharacter")
+        if linked is not None:
+            groups: dict = {}
+            for f in hero_files(v, stem):
+                groups.update(tomllib.loads(f.read_text(encoding="utf-8")).get("CARD_GROUP", {}))
+            card["ability"] = flag_button(h, form, unit, urow, linked, units, groups)
+            card["action_graph"] = None
+            units[unit]["action_graph"] = None
+        else:
+            card["ability"] = ability_block(h, urow["Ability"], units, unit)
         # THE WARP'S START (the Hero Mega Minion's, `warp_start`): its mark from 1500 ms after the hero's creation; the
         # action graph that start alone makes is read whole here.
         if card["ability"]["effect"]["kind"] == "warp":

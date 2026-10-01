@@ -6398,6 +6398,14 @@ pub const ABILITY_START_TICKS: i32 = 1;
 /// and the retargeting.
 pub const LEVEL_SET_EARLY_TICKS: i32 = 1;
 
+/// THE EARLY TRIGGER (the Hero Magic Archer's decoy warp, the Hero Bowler's siege; card.rs `DecoyWarpDef`, `SiegeDef`),
+/// ticks before every other hero's effect (`press_ability_button`), as the level set's (`LEVEL_SET_EARLY_TICKS`): two more
+/// effects with no placeholder on the client's earlier reading. Measured on client 15.535.29: sp-form-EliteArcher-hero-s0
+/// (the press issued t214, the cast from t215), the decoy's first frame t219, its TriggerDelay 250 from the cast's start
+/// less a tick; sp-bowler-siege-s0 (the press issued t120), the siege's end, its buff's 7300 ms on, on t270 = t124 + 146,
+/// its TriggerDelay 200 from the cast's start (t121) less a tick.
+pub const EARLY_TRIGGER_TICKS: i32 = 1;
+
 /// AN ABILITY'S TIME IN WHOLE TICKS: `ms` less its part-tick, what the client runs a CastTime, a TriggerDelay and an
 /// ability's state duration on. Measured on client 15.535.29: CastTime 933 holds 17 frames past the first, as 900
 /// would, and 950 holds 18 (`start_ability`); the Monk's TriggerDelay 933 lands his Deflect on P + 18, not P + 19.
@@ -6618,6 +6626,23 @@ pub struct EvoBoard {
     /// empty.
     #[serde(default)]
     pub rings: Vec<RingRun>,
+    /// Each Evo Lumberjack's ghost, due or standing (`rage_ghost_pass`). `default` so a battle saved before it still loads;
+    /// hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rage_ghosts: Vec<RageGhostRun>,
+}
+
+/// AN EVO LUMBERJACK'S GHOST (card.rs `RageGhostDef`): his side, his card and level, his death point (the Rage's) and
+/// tick, the ghost once it stands, and the last tick a pulse of the Rage reached it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RageGhostRun {
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub pos: Vec2,
+    pub made: u32,
+    pub ghost: Option<EntityId>,
+    pub last_in: u32,
 }
 
 /// AN EVO TESLA'S RING UNDER WAY (card.rs `RingDef`; `ring_pass`): its Tesla, side, card and level (its damage's
@@ -6813,6 +6838,7 @@ impl EvoBoard {
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
             && self.rings.is_empty()
+            && self.rage_ghosts.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -6898,6 +6924,10 @@ pub struct HeroUnit {
     /// combat.DASH_CHAIN_COOLDOWN). `default` 0 for an entry saved before the field; hashed only when set.
     #[serde(default)]
     pub recharge_at: u32,
+    /// A MANY-CHARGE CHAMPION'S PRESSES SO FAR (card.rs `WarpBackDef::charges`, the Boss Bandit's): `default` 0 for an
+    /// entry saved before the field; hashed only when set.
+    #[serde(default)]
+    pub uses: u8,
 }
 
 /// A THROW UNDER WAY (card.rs `AbilityEffect::Throw`, the Hero Balloon's button; `throw_pass`): the hero, its side,
@@ -7028,11 +7058,65 @@ pub struct SlapRun {
 pub struct WarpBoard {
     pub runs: Vec<WarpRun>,
     pub strikes: Vec<StrikeRun>,
+    /// The Hero Magic Archer's buttons under way (`MagicRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub magic: Vec<MagicRun>,
+    /// The Hero Bowler's sieges under way (`SiegeRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sieges: Vec<SiegeRun>,
+    /// The Little Prince's ramps (`RampRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ramps: Vec<RampRun>,
+    /// The Little Prince's guards under way (`GuardRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub guards: Vec<GuardRun>,
+    /// The Hero Goblins' flags standing (`FlagRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<FlagRun>,
+    /// Each side's last play of a flag form's card group, by form (`note_flag_play`): (side, form, tick). Absent in older
+    /// snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flag_plays: Vec<(Team, u16, u32)>,
+}
+
+/// A LITTLE PRINCE'S RAMP (card.rs `RampDef`; `ramp_pass`, `swing_started`): his count, his grace and his last point.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RampRun {
+    pub id: EntityId,
+    pub count: u8,
+    pub grace_ms: i32,
+    pub at: Vec2,
+}
+
+/// A LITTLE PRINCE'S GUARD UNDER WAY (card.rs `GuardDef`; `guard_release`, `guard_bind`, `guard_moves`): his side, card
+/// and level, the trigger's tick, his point then, the guard once made (and its first frame), its charge's end, and the
+/// enemies its charge has hit.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct GuardRun {
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub made: u32,
+    pub from: Vec2,
+    pub guard: Option<EntityId>,
+    pub born: u32,
+    pub arrived: Option<u32>,
+    pub hit: Vec<EntityId>,
+}
+
+/// A HERO GOBLINS' FLAG STANDING (card.rs `FlagSpawnsDef`; `flag_pass`): the flag, its form, its creation tick and its
+/// button's trigger once pressed.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FlagRun {
+    pub id: EntityId,
+    pub form: u16,
+    pub made: u32,
+    pub trigger: Option<u32>,
 }
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -7071,6 +7155,25 @@ pub struct StrikeRun {
     pub id: EntityId,
     pub until: u32,
     pub crown_from: Option<u32>,
+}
+
+/// A HERO BOWLER'S SIEGE UNDER WAY (card.rs `SiegeDef`; `siege_pass`): its hero, its own row (its form, which it is
+/// again at the siege's end) and the trigger's tick.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SiegeRun {
+    pub id: EntityId,
+    pub form: u16,
+    pub made: u32,
+}
+
+/// A HERO MAGIC ARCHER'S BUTTON UNDER WAY (card.rs `DecoyWarpDef`; `magic_pass`, `magic_warps`): its hero, side and form
+/// (its decoy is killed on its own clock, the hero alive or not), and the trigger's tick, which every step counts from.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MagicRun {
+    pub id: EntityId,
+    pub team: Team,
+    pub card: u16,
+    pub made: u32,
 }
 
 /// THE TAUNTS (card.rs `TauntDef`, the Hero Knight's; `taunt_pass`, `taunt_override`): each taunt area under way and
@@ -8218,6 +8321,17 @@ fn gcd(a: i64, b: i64) -> i64 {
 /// TWO ROWS NEVER LAND, and take no slot and no stun: a buff whose row sets IgnoreBuildings on a
 /// building or a crown tower (the curses), and a buff the unit's own row lists in IgnoreBuff
 /// (`CardDef::ignore_buffs`: the VoodooHog is never cursed).
+/// A POINT OFF THE LITTLE PRINCE'S (card.rs GUARD_SPAWN_OFFSET, GUARD_END_OFFSET): `off` (native) in `team`'s frame (+x
+/// its right, +y its forward: Red's is Blue's turned 180 degrees).
+fn guard_point(team: Team, at: Vec2, off: (i32, i32)) -> Vec2 {
+    let k = crate::fixed::SUBTILE_PER_MILLITILE;
+    let (x, y) = match team {
+        Team::Blue => (off.0, off.1),
+        Team::Red => (-off.0, -off.1),
+    };
+    Vec2::new(at.x + x * k, at.y + y * k)
+}
+
 fn land_buff(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, h: &crate::status::BuffHit) -> bool {
     let Some(def) = cards.buffs.get(h.buff as usize).copied() else { return false };
     #[cfg(not(clash_plant = "curse_on_buildings"))]
@@ -8476,7 +8590,7 @@ impl BattleState {
             let champions: Vec<u16> = config.decks[t]
                 .iter()
                 .filter_map(|n| cards.index(n))
-                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. })))
+                .filter(|&idx| matches!(cards.get(idx).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::Guard(_))))
                 .fold(Vec::new(), |mut v, idx| {
                     if !v.contains(&idx) {
                         v.push(idx);
@@ -8717,8 +8831,24 @@ impl BattleState {
             self.spawn_riders(id, at, team, level, pos)?;
         }
         // A HERO UNIT'S ONE CHARGE (`HeroUnit`), for every creation of a card with an ability but a Clone's copy.
-        if appearance && c.ability.is_some() {
-            self.hero_units.push(HeroUnit { id, spent: false, casting: false, recharge_at: 0 });
+        // THE LITTLE PRINCE'S RAMP (card.rs `RampDef`): from his creation (`ramp_pass`).
+        if c.ramp.is_some() {
+            self.warps.ramps.push(RampRun { id, count: 0, grace_ms: 0, at: pos });
+        }
+        // A FLAG FORM'S UNITS (the Hero Goblins') hold no charge: the flag they leave does, from its creation, hidden for
+        // good (card.rs `FlagSpawnsDef`).
+        let holds = match c.ability.as_ref().map(|a| &a.effect) {
+            Some(crate::card::AbilityEffect::FlagSpawns(f)) => f.flag == card,
+            other => other.is_some(),
+        };
+        if let Some(crate::card::AbilityEffect::FlagSpawns(f)) = c.ability.as_ref().map(|a| &a.effect).filter(|_| holds) {
+            let form = self.cfg.cards.hero_forms.iter().map(|(_, f)| *f).find(|&k| self.cfg.cards.flag_of(k) == Some(card)).unwrap_or(card);
+            self.warps.flags.push(FlagRun { id, form, made: self.tick, trigger: None });
+            let h = crate::status::BuffHit::plain(id, f.hide.buff, f.hide.time_ms, 0);
+            land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+        }
+        if appearance && holds {
+            self.hero_units.push(HeroUnit { id, spent: false, casting: false, recharge_at: 0, uses: 0 });
             if matches!(c.ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::LevelUp { .. })) {
                 self.quests.push(QuestRun { id, born: self.tick, filled_ms: 0, stack: 0, resets: 0, stopped: false });
             }
@@ -11607,7 +11737,17 @@ impl BattleState {
                         _ => self.phase_path(),
                     }
                 }
-                Phase::Move => self.phase_move(),
+                Phase::Move => {
+                    self.phase_move();
+                    // The Hero Magic Archer's warps, after the tick's pushes (`magic_warps`).
+                    if !self.warps.magic.is_empty() {
+                        self.magic_warps();
+                    }
+                    // The Little Princes' guards' charges, after the tick's walks (`guard_moves`).
+                    if !self.warps.guards.is_empty() {
+                        self.guard_moves();
+                    }
+                }
                 Phase::Attack => self.phase_attack(),
                 Phase::Projectile => self.phase_projectile(),
                 Phase::Resolve => self.phase_resolve(),
@@ -12328,6 +12468,18 @@ impl BattleState {
         // The evolved fliers that fall (`fall_pass`).
         if !self.falls.is_empty() {
             self.fall_pass();
+        }
+        // The Hero Magic Archer's buttons (`magic_pass`).
+        if !self.warps.magic.is_empty() {
+            self.magic_pass();
+        }
+        // The Hero Bowler's sieges (`siege_pass`).
+        if !self.warps.sieges.is_empty() {
+            self.siege_pass();
+        }
+        // The Little Princes' ramps (`ramp_pass`).
+        if !self.warps.ramps.is_empty() {
+            self.ramp_pass();
         }
         if !self.hero_units.is_empty() {
             let ents = &self.ents;
@@ -14507,6 +14659,325 @@ impl BattleState {
                 self.ents.attack_phase[i] = AttackPhase::Windup;
                 self.ents.attack_ms[i] = (hs - tick_ms).max(tick_ms);
             }
+        }
+    }
+
+    /// A SWING STARTS for unit `i` (`phase_attack_for`: a fresh cycle's first tick, and right after each shot, when the
+    /// next swing begins; the rows' OnStartingAttackAction):
+    ///   - the Hero Bowler's siege form picks its near entry, 2, for a target within its near range (the attack reach's
+    ///     rule), and its far one, 1, for any other (card.rs `SiegeDef`);
+    ///   - the Little Prince's grace is set, and at a level's count its buff lands for good, the level below's coming off
+    ///     (card.rs `RampDef`).
+    fn swing_started(&mut self, i: usize) {
+        if let Some(sg) = self.cfg.cards.siege_of(self.ents.card[i]) {
+            let e = &self.ents;
+            let near = e.target[i].filter(|t| e.is_alive(*t)).is_some_and(|t| {
+                let ti = t.index as usize;
+                target::in_attack_range(&self.cfg.calib, e.pos[i], sg.near_range, e.radius[i], e.pos[ti], e.radius[ti])
+            });
+            #[cfg(clash_plant = "siege_always_far")]
+            let near = near && false; // PLANT: every siege shot from the far entry's start.
+            self.ents.attack_seq[i] = if near { 2 } else { 1 };
+        }
+        let Some(ramp) = self.cfg.cards.get(self.ents.card[i]).ramp.clone() else { return };
+        let id = self.ents.id_of(i);
+        let Some(k) = self.warps.ramps.iter().position(|r| r.id == id) else { return };
+        self.warps.ramps[k].grace_ms = ramp.grace_ms;
+        let count = self.warps.ramps[k].count;
+        #[cfg(not(clash_plant = "ramp_never"))]
+        if let Some(lv) = ramp.levels.iter().find(|l| l.at == count) {
+            self.ramp_clear(i, &ramp);
+            let h = crate::status::BuffHit::plain(id, lv.buff.buff, lv.buff.time_ms, 0);
+            land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+        }
+    }
+
+    /// THE LITTLE PRINCE'S SHOT (his OnAttackAction): his count one up (to 99) and his grace set.
+    fn ramp_shot(&mut self, i: usize) {
+        let Some(ramp) = self.cfg.cards.get(self.ents.card[i]).ramp.as_ref().map(|r| r.grace_ms) else { return };
+        let id = self.ents.id_of(i);
+        if let Some(r) = self.warps.ramps.iter_mut().find(|r| r.id == id) {
+            r.count = r.count.saturating_add(1).min(99);
+            r.grace_ms = ramp;
+        }
+    }
+
+    /// Every level buff of `ramp` off unit `i`.
+    fn ramp_clear(&mut self, i: usize, ramp: &crate::card::RampDef) {
+        for slot in self.ents.buff_slots_mut(i) {
+            if ramp.levels.iter().any(|l| slot.id == l.buff.buff + 1) {
+                *slot = crate::status::BuffSlot::default();
+            }
+        }
+    }
+
+    /// THE LITTLE PRINCES' RAMPS (card.rs `RampDef`), in the Status phase: the grace runs down 50 a tick he moves (his
+    /// point is not the last tick's), and the count is 0, every level buff off, when the grace is 0 or his combat is
+    /// disabled (a stun or a cast's hold: the stun timer; a freeze: his attack clock stopped). A Little Prince gone ends
+    /// his run.
+    fn ramp_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms;
+        let runs = std::mem::take(&mut self.warps.ramps);
+        let mut keep = Vec::new();
+        for mut r in runs {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            let i = r.id.index as usize;
+            let Some(ramp) = self.cfg.cards.get(self.ents.card[i]).ramp.clone() else { continue };
+            let pos = self.ents.pos[i];
+            if pos != r.at {
+                r.grace_ms = (r.grace_ms - tick_ms).max(0);
+            }
+            r.at = pos;
+            let disabled = self.ents.stun_ms[i] > 0 || self.ents.buffed(&self.cfg.cards.buffs, i, Sel::HitSpeed, 100) <= 0;
+            #[cfg(not(clash_plant = "ramp_never_resets"))]
+            if (r.grace_ms == 0 && r.count > 0) || disabled {
+                r.count = 0;
+                self.ramp_clear(i, &ramp);
+            }
+            let _ = disabled;
+            keep.push(r);
+        }
+        self.warps.ramps = keep;
+    }
+
+    /// THE LITTLE PRINCE'S GUARDS DUE (card.rs `GuardDef`), in Reap before the released units are made: each guard
+    /// `spawn_delay_ms` after its trigger, released at his point (or where he stood at the trigger, when he is gone) +
+    /// GUARD_SPAWN_OFFSET in his side's frame, at his level on its own ladder, deploying its own DeployTime.
+    fn guard_release(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1) as u32;
+        let due: Vec<GuardRun> = self.warps.guards.iter().filter(|r| r.guard.is_none()).cloned().collect();
+        for r in due {
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Guard(g), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            if self.tick != r.made + g.spawn_delay_ms as u32 / tick_ms {
+                continue;
+            }
+            let pos = guard_point(r.team, r.from, crate::card::GUARD_SPAWN_OFFSET);
+            let level = self.cfg.cards.unit_level(r.card, g.unit, None, r.level).expect("the guard's level is validated at try_new");
+            self.release(PendingSpawn { team: r.team, card: g.unit, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+        }
+    }
+
+    /// EACH GUARD MADE THIS TICK (`guard_release`), right after the released units: its run takes it (the guard of its
+    /// side made now nearest its point). A run whose guard was not made is dropped.
+    fn guard_bind(&mut self) {
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1) as u32);
+        let mut runs = std::mem::take(&mut self.warps.guards);
+        runs.retain_mut(|r| {
+            if r.guard.is_some() {
+                return true;
+            }
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Guard(g), .. }) = self.cfg.cards.get(r.card).ability else { return false };
+            if tick != r.made + g.spawn_delay_ms as u32 / tick_ms {
+                return tick < r.made + g.spawn_delay_ms as u32 / tick_ms;
+            }
+            let at = guard_point(r.team, r.from, crate::card::GUARD_SPAWN_OFFSET);
+            let e = &self.ents;
+            let found = (0..e.capacity()).filter(|&j| e.alive[j] && e.card[j] == g.unit && e.team[j] == r.team && e.spawn_tick[j] == tick).min_by_key(|&j| (e.pos[j].dist2(at), j));
+            let Some(j) = found else { return false };
+            r.guard = Some(self.ents.id_of(j));
+            r.born = tick;
+            true
+        });
+        self.warps.guards = runs;
+    }
+
+    /// THE GUARDS' CHARGES (card.rs `GuardDef`), after the move pass: from GUARD_DASH_START_TICKS after its first frame
+    /// each guard steps GUARD_STEP toward its end (his point at the trigger + GUARD_END_OFFSET, his side's frame), its last
+    /// step onto it, held meanwhile (the stun timer: no walk, no attack of its own); each step hits every ground troop of
+    /// the other side whose centre is within `push_radius` + its radius, once, `push_damage` at his level and a push away
+    /// of `push` x (1 - its distance / that reach). GUARD_LANDING_TICKS after its arrival it is free and the run ends.
+    fn guard_moves(&mut self) {
+        let tick = self.tick;
+        let dt = self.cfg.calib.tick_ms;
+        let runs = std::mem::take(&mut self.warps.guards);
+        let mut keep = Vec::new();
+        let mut moved = false;
+        for mut r in runs {
+            let Some(gid) = r.guard else {
+                keep.push(r);
+                continue;
+            };
+            if !self.ents.is_alive(gid) {
+                continue;
+            }
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Guard(g), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            let gi = gid.index as usize;
+            if let Some(a) = r.arrived {
+                if tick >= a + crate::card::GUARD_LANDING_TICKS {
+                    continue;
+                }
+                self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(dt);
+                keep.push(r);
+                continue;
+            }
+            // Held from its first frame to its charge's end: its own walk and swing wait.
+            self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(dt);
+            if tick < r.born + crate::card::GUARD_DASH_START_TICKS {
+                keep.push(r);
+                continue;
+            }
+            let end = guard_point(r.team, r.from, crate::card::GUARD_END_OFFSET);
+            let p = self.ents.pos[gi];
+            let (dx, dy) = ((end.x - p.x) as i64, (end.y - p.y) as i64);
+            let d = crate::fixed::isqrt(dx * dx + dy * dy);
+            let step = (crate::card::GUARD_STEP * crate::fixed::SUBTILE_PER_MILLITILE) as i64;
+            #[cfg(not(clash_plant = "guard_never_charges"))]
+            {
+                self.ents.pos[gi] = if d <= step { end } else { Vec2::new(p.x + (dx * step / d) as i32, p.y + (dy * step / d) as i32) };
+                moved = true;
+            }
+            if self.ents.pos[gi] == end {
+                r.arrived = Some(tick);
+            }
+            // The push: once each, ground troops of the other side within the reach of the guard's centre.
+            let at = self.ents.pos[gi];
+            let dmg = self.cfg.cards.scaled(r.card, r.level, g.push_damage).expect("the Little Prince's level is validated at try_new");
+            for j in 0..self.ents.capacity() {
+                let e = &self.ents;
+                if !e.alive[j] || e.team[j] == r.team || e.flying[j] || e.kind[j] != EntityKind::Troop || r.hit.contains(&e.id_of(j)) {
+                    continue;
+                }
+                let reach = (g.push_radius + e.radius[j]) as i64;
+                let d2 = e.pos[j].dist2(at);
+                if d2 > reach * reach {
+                    continue;
+                }
+                let id = e.id_of(j);
+                r.hit.push(id);
+                self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false });
+                let d = crate::fixed::isqrt(d2).max(1);
+                let push = (g.push as i64) * (reach - d).max(0) / reach;
+                let q = self.ents.pos[j];
+                let (ux, uy) = ((q.x - at.x) as i64, (q.y - at.y) as i64);
+                self.ents.pos[j] = Vec2::new(q.x + (ux * push / d) as i32, q.y + (uy * push / d) as i32);
+                moved = true;
+            }
+            keep.push(r);
+        }
+        self.warps.guards = keep;
+        if moved {
+            self.hash.rebuild(&self.ents);
+        }
+    }
+
+    /// THE HERO BOWLER'S SIEGES (card.rs `SiegeDef`, `SiegeRun`), in the Status phase after the tick's presses fired, on
+    /// the trigger's clock in whole ticks: `reset_target_ms` on the hero drops its target; at its buff's end (`buff`'s
+    /// time) it is its own row again (`rebind_unit`, its swing kept), its target dropped and its entry 0 (the buff's
+    /// OnRemoveAction). A hero gone ends its siege. Measured on client 15.535.29 (sp-bowler-siege-s0, the press issued
+    /// t120): its target dropped on t270 (the trigger + 146) and its Knight taken again on t271, its swing kept, now at 50
+    /// a tick (8370 on t270, 8420 on t271), and its next shot the boulder, from 800 out on t303.
+    fn siege_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let runs = std::mem::take(&mut self.warps.sieges);
+        let mut keep = Vec::new();
+        for r in runs {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Siege(sg), .. }) = self.cfg.cards.get(r.form).ability else { continue };
+            let i = r.id.index as usize;
+            let at = |ms: i32| r.made + (ms / tick_ms) as u32;
+            if self.tick == at(sg.reset_target_ms) || self.tick >= at(sg.buff.time_ms) {
+                self.ents.target[i] = None;
+                self.ents.target_locked[i] = false;
+            }
+            if self.tick >= at(sg.buff.time_ms) {
+                #[cfg(not(clash_plant = "siege_never_ends"))]
+                {
+                    self.rebind_unit(i, r.form, false);
+                    self.ents.attack_seq[i] = 0;
+                    continue;
+                }
+            }
+            keep.push(r);
+        }
+        self.warps.sieges = keep;
+    }
+
+    /// THE HERO MAGIC ARCHER'S BUTTONS (card.rs `DecoyWarpDef`, `MagicRun`), in the Status phase after the tick's presses
+    /// fired, each step on the trigger's clock in whole ticks: its buff lands on the hero `buff_delay_ms` on; its power
+    /// ends `power_ms` on (the group's last step: the hero's entry back to 0 unless a shot set it so already); and its
+    /// decoy is killed `decoy_life_ms` on, by a hit of everything it has, so its last frame is its creation + 139. The run
+    /// ends with its last step. The warp is `magic_warps`'s.
+    ///
+    /// Measured on client 15.535.29 (sp-form-EliteArcher-hero-s0, level 11): the buff on the trigger + 1: the Knight and a Skeleton that held the
+    /// hero took the decoy that tick; the decoy's kill on Oracle's sp-f2-ma-3500-9500-s0 and sp-f2-ma-9500-13500-s0 (no
+    /// red unit): first seen t125, last seen t264, gone on t265. Unmeasured: the power's end without a shot.
+    fn magic_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let runs = std::mem::take(&mut self.warps.magic);
+        let mut keep = Vec::new();
+        for r in runs {
+            // A WARP BACK's run (the Boss Bandit's) waits for its warp alone (`magic_warps`).
+            if let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::WarpBack(w), .. }) = self.cfg.cards.get(r.card).ability {
+                if self.tick <= r.made + (w.warp_delay_ms / tick_ms) as u32 {
+                    keep.push(r);
+                }
+                continue;
+            }
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::DecoyWarp(d), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            let at = |ms: i32| r.made + (ms / tick_ms) as u32;
+            let (alive, i) = (self.ents.is_alive(r.id), r.id.index as usize);
+            if alive && self.tick == at(d.buff_delay_ms) {
+                let h = crate::status::BuffHit::plain(r.id, d.buff.buff, d.buff.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+            }
+            if alive && self.tick == at(d.power_ms) && self.ents.attack_seq[i] == 1 {
+                self.ents.attack_seq[i] = 0;
+            }
+            let kill = at(d.decoy_life_ms);
+            #[cfg(not(clash_plant = "decoy_never_killed"))]
+            if self.tick == kill {
+                for j in 0..self.ents.capacity() {
+                    if self.ents.alive[j] && self.ents.card[j] == d.decoy && self.ents.team[j] == r.team && self.ents.spawn_tick[j] == r.made {
+                        let amount = self.ents.hp[j].max(0).saturating_add(self.ents.shield[j].max(0)).max(1);
+                        self.dmg.hits.push(Hit { target: self.ents.id_of(j), amount, ignores_hide: false, own: true });
+                    }
+                }
+            }
+            if self.tick <= at(d.power_ms).max(kill).max(at(d.warp_delay_ms)) {
+                keep.push(r);
+            }
+        }
+        self.warps.magic = keep;
+    }
+
+    /// THE HERO MAGIC ARCHER'S WARP (card.rs `DecoyWarpDef::warp_y`), after the move pass `warp_delay_ms` after the
+    /// trigger: the hero moves `warp_y` along its side's forward (negative: back), clamped as a scheduled spawn's point
+    /// is (`scheduled_point`: inside the arena's edge margin, and a ground unit on water onto the nearest land), and
+    /// drops its target (the warp's ResetTarget). Measured on client 15.535.29 (sp-form-EliteArcher-hero-s0, level 11): the hero, pushed 150 back
+    /// by its decoy on the trigger + 1, stood 3,650 further back on + 2 (a second push of 150, then the warp), its target
+    /// gone that frame.
+    fn magic_warps(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let mut moved = false;
+        for k in 0..self.warps.magic.len() {
+            let r = self.warps.magic[k].clone();
+            let (warp_delay_ms, warp_y) = match self.cfg.cards.get(r.card).ability.as_ref().map(|a| &a.effect) {
+                Some(crate::card::AbilityEffect::DecoyWarp(d)) => (d.warp_delay_ms, d.warp_y),
+                Some(crate::card::AbilityEffect::WarpBack(w)) => (w.warp_delay_ms, w.warp_y),
+                _ => continue,
+            };
+            if !self.ents.is_alive(r.id) || self.tick != r.made + (warp_delay_ms / tick_ms) as u32 {
+                continue;
+            }
+            let i = r.id.index as usize;
+            let p = self.ents.pos[i];
+            let to = Vec2::new(p.x, p.y + warp_y * spell::forward_dy(r.team) * crate::fixed::SUBTILE_PER_MILLITILE);
+            let flying = self.ents.flying[i];
+            #[cfg(not(clash_plant = "decoy_warp_never"))]
+            {
+                self.ents.pos[i] = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying);
+                self.ents.target[i] = None;
+                self.ents.target_locked[i] = false;
+                moved = true;
+            }
+            let _ = (to, flying);
+        }
+        if moved {
+            self.hash.rebuild(&self.ents);
         }
     }
 
@@ -17838,6 +18309,12 @@ impl BattleState {
                     self.ents.attack_seq[i] = self.select_attack(i);
                 }
             }
+            // THE HERO BOWLER'S SIEGE (card.rs `SiegeDef`; its row's OnStartingAttackAction): each swing's start picks its
+            // near entry, 2, for a target within its near range (the attack reach's rule), and its far one, 1, for any
+            // other.
+            if self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle {
+                self.swing_started(i);
+            }
             // THE EVO INFERNO DRAGON (card.rs `StagesDef`): an attack's start restarts its count's decay (`stages_pass`).
             if self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle && !self.evo.stages.is_empty() {
                 self.stage_restart(self.ents.id_of(i));
@@ -17939,6 +18416,17 @@ impl BattleState {
                 // A WARPED HERO'S SHOT (`strike_after_fire`): the strike, then the crown share.
                 if !self.warps.strikes.is_empty() {
                     self.strike_after_fire(i, shots_from);
+                }
+                // THE LITTLE PRINCE'S SHOT counts (his OnAttackAction), and his next swing starts (`swing_started`); the
+                // Hero Bowler's next swing picks its entry.
+                if !self.warps.ramps.is_empty() {
+                    self.ramp_shot(i);
+                }
+                self.swing_started(i);
+                // THE HERO MAGIC ARCHER'S POWER SHOT was this one when its entry was 1 (combat.rs `fire`): its row's
+                // OnAttackSelfAction sets entry 0 again.
+                if self.ents.attack_seq[i] == 1 && matches!(self.cfg.cards.get(self.ents.card[i]).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DecoyWarp(_))) {
+                    self.ents.attack_seq[i] = 0;
                 }
                 // THE COMBO (card.rs `ComboDef`; combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK): `fire` dealt the entry
                 // the count names; the next hit deals the next one, whatever it hits (the count runs across targets).
@@ -19516,6 +20004,15 @@ impl BattleState {
             self.attack_areas();
         }
         self.riders_die_with_their_mounts();
+        // THE HERO GOBLINS' FLAGS (`flag_pass`): their spawns, and the flags that end, into this Resolve's deaths.
+        if !self.warps.flags.is_empty() {
+            self.flag_pass();
+        }
+        // THE EVO LUMBERJACKS' GHOSTS (`rage_ghost_pass`): the Rage's pulses and the ghosts it has let go, into this
+        // Resolve's deaths.
+        if !self.evo.rage_ghosts.is_empty() {
+            self.rage_ghost_pass();
+        }
         // transform.HEALTH_TRIGGER_TIMING = crossing_tick_resolve: the health trigger read right after the tick's
         // damage lands, on the crossing tick itself (the units it kills are skipped: they are dying).
         if self.transform_timing() == TransformTiming::CrossingTickResolve {
@@ -19610,6 +20107,158 @@ impl BattleState {
             let area = spell::cast(&cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos, tick).expect("the idle area loaded and the level was validated at spawn");
             self.spells.extend(area);
         }
+    }
+
+    /// A PLAY OF A FLAG FORM'S CARD GROUP (card.rs `FlagSpawnsDef::group`, the Hero Goblins': the base card played as
+    /// itself or as the form), from every path that puts a card's units down (`enqueue_with`): noted per side and form, so
+    /// every unit of the form then standing is tagged (its death leaves no flag) and a flag in its window dies
+    /// (`flag_pass`).
+    fn note_flag_play(&mut self, team: Team, idx: u16) {
+        let cards = &self.cfg.cards;
+        let forms: Vec<u16> = cards
+            .hero_forms
+            .iter()
+            .map(|(_, f)| *f)
+            .filter(|&f| matches!(cards.get(f).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::FlagSpawns(d)) if f == idx || d.group.contains(&idx)))
+            .collect();
+        #[cfg(clash_plant = "flag_play_ignored")]
+        let forms: Vec<u16> = {
+            let _ = forms;
+            Vec::new() // PLANT: a play tags nothing and takes no flag down.
+        };
+        for f in forms {
+            self.warps.flag_plays.retain(|(t, k, _)| !(*t == team && *k == f));
+            self.warps.flag_plays.push((team, f, self.tick));
+        }
+    }
+
+    /// Is unit `i` of flag form `form` tagged: did its side play the form's card group after the unit was made?
+    fn flag_tagged(&self, i: usize, form: u16) -> bool {
+        let team = self.ents.team[i];
+        self.warps.flag_plays.iter().any(|(t, f, at)| *t == team && *f == form && *at > self.ents.spawn_tick[i])
+    }
+
+    /// THE HERO GOBLINS' FLAGS (card.rs `FlagSpawnsDef`, `FlagRun`), at the end of Resolve: a pressed flag's spawns each
+    /// released at their delay from its trigger, and the flag gone `kill_ms` on; an unpressed one gone `fade_ms` after its
+    /// window, or at once on a play of its card group made after it while its window runs. A flag dies through this
+    /// Resolve's deaths (it takes no hit: NO_DAMAGE). A flag gone ends its run.
+    fn flag_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1) as u32;
+        let runs = std::mem::take(&mut self.warps.flags);
+        let mut keep = Vec::new();
+        for r in runs {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::FlagSpawns(f), .. }) = self.cfg.cards.get(r.form).ability.clone() else { continue };
+            let i = r.id.index as usize;
+            let (team, level, at) = (self.ents.team[i], self.ents.level[i], self.ents.pos[i]);
+            let dies = match r.trigger {
+                Some(t) => {
+                    for sp in f.spawns.iter().filter(|sp| t + sp.delay_ms as u32 / tick_ms == self.tick) {
+                        let lvl = self.cfg.cards.unit_level(r.form, sp.unit, None, level).expect("the flag's spawn's level is validated at try_new");
+                        let pos = self.scheduled_point(team, at, crate::card::SpawnOffset::MirroredToWall { dx: sp.dx, dy: sp.dy }, false);
+                        self.release(PendingSpawn { team, card: sp.unit, level: lvl, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+                    }
+                    self.tick >= t + f.kill_ms as u32 / tick_ms
+                }
+                None => {
+                    let window = r.made + f.window_ms as u32 / tick_ms;
+                    let played = self.warps.flag_plays.iter().any(|(pt, pf, pat)| *pt == team && *pf == r.form && *pat > r.made);
+                    self.tick >= window + f.fade_ms as u32 / tick_ms || (self.tick < window && played)
+                }
+            };
+            #[cfg(not(clash_plant = "flag_never_dies"))]
+            if dies {
+                if !self.death_queue.contains(&r.id) {
+                    self.death_queue.push(r.id);
+                    self.death_queue.sort_by_key(|id| id.index);
+                }
+                continue;
+            }
+            let _ = dies;
+            keep.push(r);
+        }
+        self.warps.flags = keep;
+    }
+
+    /// THE EVO LUMBERJACKS' GHOSTS DUE (card.rs `RageGhostDef`), in Reap before the released units are made: each ghost
+    /// RAGE_GHOST_APPEAR_TICKS after its Lumberjack's death, released on his death point at his level on its own ladder,
+    /// deploying its own DeployTime, targetable by nothing (its Invisible lands with it: `rage_ghost_bind`).
+    fn rage_ghost_release(&mut self) {
+        let tick = self.tick;
+        let due: Vec<RageGhostRun> = self.evo.rage_ghosts.iter().filter(|r| r.ghost.is_none() && r.made + crate::card::RAGE_GHOST_APPEAR_TICKS == tick).cloned().collect();
+        for r in due {
+            let Some(rg) = self.cfg.cards.get(r.card).evo.as_ref().and_then(|v| v.rage_ghost) else { continue };
+            let level = self.cfg.cards.unit_level(r.card, rg.ghost.unit, None, r.level).expect("the ghost's level is validated at try_new");
+            self.release(PendingSpawn { team: r.team, card: rg.ghost.unit, level, pos: r.pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+        }
+    }
+
+    /// EACH GHOST MADE THIS TICK (`rage_ghost_release`), right after the released units: its run takes the ghost of its
+    /// side made now nearest its point, and the ghost hangs its Invisible for good. A run whose ghost was not made (a
+    /// release on water, say) is dropped.
+    fn rage_ghost_bind(&mut self) {
+        let tick = self.tick;
+        let mut taken: Vec<EntityId> = self.evo.rage_ghosts.iter().filter_map(|r| r.ghost).collect();
+        let mut runs = std::mem::take(&mut self.evo.rage_ghosts);
+        runs.retain_mut(|r| {
+            if r.ghost.is_some() || r.made + crate::card::RAGE_GHOST_APPEAR_TICKS != tick {
+                return true;
+            }
+            let Some(rg) = self.cfg.cards.get(r.card).evo.as_ref().and_then(|v| v.rage_ghost) else { return false };
+            let e = &self.ents;
+            let found = (0..e.capacity()).filter(|&j| e.alive[j] && e.card[j] == rg.ghost.unit && e.team[j] == r.team && e.spawn_tick[j] == tick && !taken.contains(&e.id_of(j))).min_by_key(|&j| (e.pos[j].dist2(r.pos), j));
+            let Some(j) = found else { return false };
+            let id = self.ents.id_of(j);
+            taken.push(id);
+            r.ghost = Some(id);
+            r.last_in = tick;
+            let h = crate::status::BuffHit::plain(id, rg.buff.buff, rg.buff.time_ms, 0);
+            land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, j, &h);
+            true
+        });
+        self.evo.rage_ghosts = runs;
+    }
+
+    /// THE EVO LUMBERJACKS' GHOSTS (card.rs `RageGhostDef`), at the end of Resolve on this tick's positions: every
+    /// `pulse_ms` from its first frame, while its Rage lasts, a pulse reaches the ghost when its centre stands within
+    /// `radius` of the Rage's point; the ghost dies `life_ms` after its first frame, or at its last reached pulse +
+    /// `buff_time_ms` + RAGE_GHOST_LAPSE_EXTRA_TICKS, joining this Resolve's deaths (it takes no hit: NO_DAMAGE). A ghost
+    /// gone ends its run.
+    fn rage_ghost_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1) as u32;
+        let runs = std::mem::take(&mut self.evo.rage_ghosts);
+        let mut keep = Vec::new();
+        for mut r in runs {
+            let Some(g) = r.ghost else {
+                keep.push(r);
+                continue;
+            };
+            if !self.ents.is_alive(g) {
+                continue;
+            }
+            let Some(rg) = self.cfg.cards.get(r.card).evo.as_ref().and_then(|v| v.rage_ghost) else { continue };
+            let appear = r.made + crate::card::RAGE_GHOST_APPEAR_TICKS;
+            let age = self.tick.saturating_sub(appear);
+            let pulse = (rg.pulse_ms as u32 / tick_ms).max(1);
+            let reach = rg.radius as i64;
+            if age % pulse == 0 && age < rg.area_ms as u32 / tick_ms && self.ents.pos[g.index as usize].dist2(r.pos) <= reach * reach {
+                r.last_in = self.tick;
+            }
+            let lapse = r.last_in + rg.buff_time_ms as u32 / tick_ms + crate::card::RAGE_GHOST_LAPSE_EXTRA_TICKS;
+            #[cfg(not(clash_plant = "rage_ghost_never_killed"))]
+            if age >= rg.life_ms as u32 / tick_ms || self.tick >= lapse {
+                if !self.death_queue.contains(&g) {
+                    self.death_queue.push(g);
+                    self.death_queue.sort_by_key(|id| id.index);
+                }
+                continue;
+            }
+            let _ = lapse;
+            keep.push(r);
+        }
+        self.evo.rage_ghosts = keep;
     }
 
     /// rider.DIES_WITH_MOUNT = same_tick_full_hp (measured on client 16.402 on one Ram Rider: the
@@ -19997,6 +20646,40 @@ impl BattleState {
         for (_, _, _, p) in spawned {
             self.release(p);
         }
+        // THE HERO GOBLINS' FLAG (card.rs `FlagSpawnsDef`): an untagged unit of a flag form dying with no untagged unit of
+        // its form of its side left standing (this tick's dying ones aside) leaves the flag where it died, one a side a
+        // tick, released with the tick's other units.
+        #[cfg(not(clash_plant = "flag_never"))]
+        {
+            let mut flagged: Vec<Team> = Vec::new();
+            for id in &deaths {
+                let i = id.index as usize;
+                let (card, team) = (self.ents.card[i], self.ents.team[i]);
+                let Some(flag) = self.cfg.cards.flag_of(card).filter(|&fl| fl != card) else { continue };
+                if flagged.contains(&team) || self.flag_tagged(i, card) {
+                    continue;
+                }
+                let others = (0..self.ents.capacity()).any(|j| j != i && self.ents.alive[j] && self.ents.card[j] == card && self.ents.team[j] == team && !deaths.contains(&self.ents.id_of(j)) && !self.flag_tagged(j, card));
+                if others {
+                    continue;
+                }
+                let level = self.cfg.cards.unit_level(card, flag, None, self.ents.level[i]).expect("the flag's level is validated at try_new");
+                self.release(PendingSpawn { team, card: flag, level, pos: self.ents.pos[i], deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+                flagged.push(team);
+            }
+        }
+        // THE EVO LUMBERJACK'S GHOST (card.rs `RageGhostDef`): each of his deaths puts one down RAGE_GHOST_APPEAR_TICKS on,
+        // on his death point (`rage_ghost_release`); his ghost's own death none.
+        #[cfg(not(clash_plant = "rage_ghost_never"))]
+        for id in &deaths {
+            let i = id.index as usize;
+            let card = self.ents.card[i];
+            if let Some(rg) = self.cfg.cards.get(card).evo.as_ref().and_then(|v| v.rage_ghost) {
+                if card != rg.ghost.unit {
+                    self.evo.rage_ghosts.push(RageGhostRun { team: self.ents.team[i], card, level: self.ents.level[i], pos: self.ents.pos[i], made: self.tick, ghost: None, last_in: 0 });
+                }
+            }
+        }
         // A death releases its area effect (card.rs `death_area_effect`) into the same
         // spell list a cast goes into, so the disc applies in the NEXT tick's
         // Projectile phase -- the same tick the death damage buffered below resolves,
@@ -20184,10 +20867,26 @@ impl BattleState {
         // an original this tick killed is not copied, and before the released units, so a copy's creation order follows
         // its original's cast and not the tick's deaths.
         self.materialise_clones();
+        // The Little Princes' guards due this tick join the released units (`guard_release`).
+        if !self.warps.guards.is_empty() {
+            self.guard_release();
+        }
+        // The Evo Lumberjacks' ghosts due this tick join the released units (`rage_ghost_release`).
+        if !self.evo.rage_ghosts.is_empty() {
+            self.rage_ghost_release();
+        }
         // RELEASED UNITS (spawner.RELEASE_TIMING = end_of_event_phase): after the dead
         // are despawned, so a freed slot can be reused without any later read of it, and
         // before the rebuild, so the hash holds them.
         self.materialise_released();
+        // Each guard made just now is its run's (`guard_bind`).
+        if !self.warps.guards.is_empty() {
+            self.guard_bind();
+        }
+        // Each ghost made just now is its run's, and invisible from its first frame (`rage_ghost_bind`).
+        if !self.evo.rage_ghosts.is_empty() {
+            self.rage_ghost_bind();
+        }
         // THE EVO SKELETONS COPIES this tick's hits earned, after the released units (`evo_copies`).
         if !self.scratch.evo_copies.is_empty() || !self.evo.is_empty() {
             self.evo_copies();
@@ -20564,6 +21263,7 @@ impl BattleState {
     /// `enqueue`, with `observed` a troop's already-resolved creation point (`spawn_unit_resolved`): its formation
     /// takes no single-unit deploy point (`formation_members_with`).
     fn enqueue_with(&mut self, team: Team, idx: u16, level: i32, pos: Vec2, observed: bool) {
+        self.note_flag_play(team, idx);
         let card = self.cfg.cards.get(idx).clone();
         if card.kind == CardKind::Spell {
             // A SPELL SUMMON deploys its unit as a troop card deploys: the unit's own formation and
@@ -21578,7 +22278,12 @@ impl BattleState {
 
     /// Is `form` a champion's (card.rs `AbilityEffect::DashChain`, `Deflect`) rather than a hero form's?
     fn champion_button(&self, form: u16) -> bool {
-        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. }))
+        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::Guard(_)))
+    }
+
+    /// Has hero unit `u` of `form` a charge left behind its cooldown (the Boss Bandit's: card.rs `WarpBackDef::charges`)?
+    fn charges_left(&self, u: &HeroUnit, form: u16) -> bool {
+        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::WarpBack(w)) if u.uses < w.charges)
     }
 
     /// Does `form`'s used charge come back? The Golden Knight's does (combat.DASH_CHAIN_COOLDOWN); the Monk's Deflect is
@@ -21591,7 +22296,7 @@ impl BattleState {
     fn newest_hero(&self, team: Team, form: u16) -> Option<usize> {
         self.hero_units.iter().rposition(|u| {
             let i = u.id.index as usize;
-            self.ents.is_alive(u.id) && self.ents.team[i] == team && self.ents.card[i] == form
+            self.ents.is_alive(u.id) && self.ents.team[i] == team && (self.ents.card[i] == form || self.cfg.cards.flag_of(form) == Some(self.ents.card[i]))
         })
     }
 
@@ -21607,7 +22312,7 @@ impl BattleState {
                 // A champion's used charge comes back: it is never `spent`, and reads its recharge instead.
                 let champion = self.champion_button(form);
                 let cooldown_ticks = hu.map_or(0, |u| u.recharge_at.saturating_sub(self.tick));
-                let recovers = champion && self.charge_recovers(form);
+                let recovers = champion && (self.charge_recovers(form) || hu.is_some_and(|u| self.charges_left(&u, form)));
                 Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: hu.is_some() && !used, spent: used && !recovers, cost, champion, cooldown_ticks })
             })
             .collect()
@@ -21639,7 +22344,14 @@ impl BattleState {
         let u = self.hero_units[h];
         if u.spent {
             // A champion's charge is out while its chain runs and until it recharges.
-            return Err(if self.champion_button(form) && self.charge_recovers(form) { DeployError::AbilityNotReady } else { DeployError::AbilitySpent });
+            return Err(if self.champion_button(form) && (self.charge_recovers(form) || self.charges_left(&u, form)) { DeployError::AbilityNotReady } else { DeployError::AbilitySpent });
+        }
+        // THE FLAG'S BUTTON (card.rs `FlagSpawnsDef`, the Hero Goblins'): taken while its window runs.
+        if let crate::card::AbilityEffect::FlagSpawns(f) = &a.effect {
+            let window = (f.window_ms / self.cfg.calib.tick_ms.max(1)) as u32;
+            if self.tick >= self.ents.spawn_tick[u.id.index as usize] + window {
+                return Err(DeployError::NoHero);
+            }
         }
         // THE WARP'S BUTTON (card.rs `WarpDef`, the Hero Mega Minion's): taken from `available_after_ms` after the hero's
         // creation (its start's mark), and only with a pick (the table's ABILITY_DISABLED while the mark has no target).
@@ -21682,6 +22394,11 @@ impl BattleState {
         let a = self.cfg.cards.get(form).ability.clone().expect("checked");
         self.players[team as usize].mana -= (a.cost as i64) * self.mana_unit;
         self.hero_units[h].spent = true;
+        // A MANY-CHARGE CHAMPION'S PRESS (the Boss Bandit's): one of its charges; its next comes back after its cooldown
+        // (`start_ability`).
+        if matches!(a.effect, crate::card::AbilityEffect::WarpBack(_)) {
+            self.hero_units[h].uses = self.hero_units[h].uses.saturating_add(1);
+        }
         let id = self.hero_units[h].id;
         // The effect: ABILITY_START_TICKS from the first free tick after the press, then TriggerDelay in whole ticks
         // (`whole_ticks_ms`).
@@ -21696,6 +22413,11 @@ impl BattleState {
             if let Some(q) = self.quests.iter_mut().find(|q| q.id == id) {
                 q.stopped = true;
             }
+        }
+        // A DECOY WARP (the Hero Magic Archer's) and a SIEGE (the Hero Bowler's) land EARLY_TRIGGER_TICKS before that too.
+        #[cfg(not(clash_plant = "early_trigger_late"))]
+        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_)) {
+            ms -= EARLY_TRIGGER_TICKS * self.cfg.calib.tick_ms;
         }
         self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
         Ok(id)
@@ -21730,6 +22452,19 @@ impl BattleState {
         let i = hero.index as usize;
         let Some(a) = self.cfg.cards.get(self.ents.card[i]).ability.clone() else { return };
         let tick = self.cfg.calib.tick_ms.max(1);
+        // A MANY-CHARGE CHAMPION'S NEXT CHARGE (the Boss Bandit's, card.rs `WarpBackDef`): back its Cooldown after this
+        // cast's start while it has one left. Measured: the press on t176, the cast from t178, the button back on t238.
+        if let crate::card::AbilityEffect::WarpBack(w) = a.effect {
+            if let Some(u) = self.hero_units.iter_mut().find(|u| u.id == hero) {
+                #[cfg(not(clash_plant = "champion_charges_unread"))]
+                let left = u.uses < w.charges;
+                #[cfg(clash_plant = "champion_charges_unread")]
+                let left = false; // PLANT: one charge, as every other champion's.
+                if left {
+                    u.recharge_at = self.tick + (w.cooldown_ms / tick) as u32;
+                }
+            }
+        }
         let mut hold = whole_ticks_ms(a.cast_ms, tick);
         #[cfg(not(clash_plant = "deflect_walks"))]
         if let crate::card::AbilityEffect::Deflect { active_ms, .. } = a.effect {
@@ -21909,6 +22644,68 @@ impl BattleState {
                     self.ents.target[i] = Some(t);
                 }
                 let _ = (team, level, pos);
+            }
+            // THE DECOY AND WARP (the Hero Magic Archer's; `MagicRun`): its decoy is queued on the hero's own point (made in
+            // this tick's Spawn phase, and targetable at once: the enemies that held the hero took it on the next tick),
+            // the hero's attack entry is the power shot's from now (combat.rs `fire`), and its buff, its warp, its power's
+            // end and its decoy's kill run on the trigger's clock (`magic_pass`, `magic_warps`).
+            crate::card::AbilityEffect::DecoyWarp(d) => {
+                #[cfg(not(clash_plant = "decoy_never"))]
+                {
+                    let lvl = self.cfg.cards.unit_level(card, d.decoy, None, level).expect("the ability unit's level is validated at try_new");
+                    self.spawn_queue.push(PendingSpawn { team, card: d.decoy, level: lvl, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+                }
+                self.ents.attack_seq[i] = 1;
+                self.warps.magic.retain(|r| r.id != hero);
+                self.warps.magic.push(MagicRun { id: hero, team, card, made: self.tick });
+            }
+            // THE SIEGE (the Hero Bowler's; `SiegeRun`): its two buffs land now, its attack is held NO_ATTACK's time (as a
+            // cast holds a hero: the stun timer), and it becomes its siege form, target and swing kept, on its entry 1;
+            // its target's reset and its end run on the trigger's clock (`siege_pass`).
+            crate::card::AbilityEffect::Siege(sg) => {
+                #[cfg(not(clash_plant = "siege_never"))]
+                {
+                    for b in [sg.buff, sg.rate] {
+                        let h = crate::status::BuffHit::plain(hero, b.buff, b.time_ms, 0);
+                        land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    }
+                    let hold = whole_ticks_ms(sg.no_attack_ms, self.cfg.calib.tick_ms);
+                    self.ents.stun_ms[i] = self.ents.stun_ms[i].max(hold);
+                    self.rebind_unit(i, sg.unit, false);
+                    self.ents.attack_seq[i] = 1;
+                    self.warps.sieges.retain(|r| r.id != hero);
+                    self.warps.sieges.push(SiegeRun { id: hero, form: card, made: self.tick });
+                }
+                let _ = (team, level, pos, sg);
+            }
+            // THE GUARD'S CHARGE (the Little Prince's; `GuardRun`): his hold lands now; his guard `spawn_delay_ms` on.
+            crate::card::AbilityEffect::Guard(g) => {
+                #[cfg(not(clash_plant = "guard_never"))]
+                {
+                    let h = crate::status::BuffHit::plain(hero, g.hold.buff, g.hold.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    self.warps.guards.push(GuardRun { team, card, level, made: self.tick, from: pos, guard: None, born: 0, arrived: None, hit: Vec::new() });
+                }
+                let _ = g;
+            }
+            // THE FLAG'S PRESS (the Hero Goblins'; `FlagRun`): its spawns and its end from now (`flag_pass`).
+            crate::card::AbilityEffect::FlagSpawns(_) => {
+                #[cfg(not(clash_plant = "flag_spawns_never"))]
+                if let Some(r) = self.warps.flags.iter_mut().find(|r| r.id == hero) {
+                    r.trigger = Some(self.tick);
+                }
+                let _ = (team, level, pos);
+            }
+            // THE WARP BACK (the Boss Bandit's; `MagicRun`): its buff lands now; its warp `warp_delay_ms` on (`magic_warps`).
+            crate::card::AbilityEffect::WarpBack(w) => {
+                #[cfg(not(clash_plant = "warp_back_never"))]
+                {
+                    let h = crate::status::BuffHit::plain(hero, w.buff.buff, w.buff.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    self.warps.magic.retain(|r| r.id != hero);
+                    self.warps.magic.push(MagicRun { id: hero, team, card, made: self.tick });
+                }
+                let _ = (level, pos, w);
             }
             // THE LEVEL SET (the Hero Mini PEKKA's; `level_up`): its quest's stack picks the gain.
             crate::card::AbilityEffect::LevelUp { levels, heal_missing_pct, .. } => {
@@ -23505,6 +24302,10 @@ impl BattleState {
                     h.u32(0x5243_4847);
                     h.u32(u.recharge_at);
                 }
+                if u.uses != 0 {
+                    h.u32(0x5553_4553);
+                    h.u32(u32::from(u.uses));
+                }
             }
         }
         // The commands waiting, only when there are some (`command_delay_ticks`).
@@ -23617,6 +24418,70 @@ impl BattleState {
                 h.id(s.id);
                 h.u32(s.until);
                 h.u32(s.crown_from.map_or(0, |t| t + 1));
+            }
+            if !self.warps.magic.is_empty() {
+                h.u32(self.warps.magic.len() as u32);
+                for r in &self.warps.magic {
+                    h.id(r.id);
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.card));
+                    h.u32(r.made);
+                }
+            }
+            if !self.warps.ramps.is_empty() {
+                h.u32(0x5241_4d50);
+                h.u32(self.warps.ramps.len() as u32);
+                for r in &self.warps.ramps {
+                    h.id(r.id);
+                    h.u32(u32::from(r.count));
+                    h.i32(r.grace_ms);
+                    h.i32(r.at.x);
+                    h.i32(r.at.y);
+                }
+            }
+            if !self.warps.guards.is_empty() {
+                h.u32(0x4755_4152);
+                h.u32(self.warps.guards.len() as u32);
+                for r in &self.warps.guards {
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.card));
+                    h.i32(r.level);
+                    h.u32(r.made);
+                    h.i32(r.from.x);
+                    h.i32(r.from.y);
+                    h.opt_id(r.guard);
+                    h.u32(r.born);
+                    h.u32(r.arrived.map_or(0, |t| t + 1));
+                    h.u32(r.hit.len() as u32);
+                    for id in &r.hit {
+                        h.id(*id);
+                    }
+                }
+            }
+            if !self.warps.flags.is_empty() || !self.warps.flag_plays.is_empty() {
+                h.u32(0x464c_4147);
+                h.u32(self.warps.flags.len() as u32);
+                for r in &self.warps.flags {
+                    h.id(r.id);
+                    h.u32(u32::from(r.form));
+                    h.u32(r.made);
+                    h.u32(r.trigger.map_or(0, |t| t + 1));
+                }
+                h.u32(self.warps.flag_plays.len() as u32);
+                for (t, f, at) in &self.warps.flag_plays {
+                    h.u32(*t as u32);
+                    h.u32(u32::from(*f));
+                    h.u32(*at);
+                }
+            }
+            if !self.warps.sieges.is_empty() {
+                h.u32(0x5345_4745);
+                h.u32(self.warps.sieges.len() as u32);
+                for r in &self.warps.sieges {
+                    h.id(r.id);
+                    h.u32(u32::from(r.form));
+                    h.u32(r.made);
+                }
             }
         }
         // The taunts, only when there are some.
@@ -23834,6 +24699,21 @@ impl BattleState {
                         h.i32(p.x);
                         h.i32(p.y);
                     }
+                }
+            }
+            // The Evo Lumberjacks' ghosts, only when there are some.
+            if !b.rage_ghosts.is_empty() {
+                h.u32(0x4748_5354);
+                h.u32(b.rage_ghosts.len() as u32);
+                for r in &b.rage_ghosts {
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.card));
+                    h.i32(r.level);
+                    h.i32(r.pos.x);
+                    h.i32(r.pos.y);
+                    h.u32(r.made);
+                    h.opt_id(r.ghost);
+                    h.u32(r.last_in);
                 }
             }
             // The Evo Goblin Drills' hides, only when there are some.
