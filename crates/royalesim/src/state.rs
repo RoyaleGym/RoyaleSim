@@ -19879,6 +19879,15 @@ impl BattleState {
             }
             self.hash.rebuild(&self.ents);
         }
+        // A SPELL'S RELEASED UNITS (the Goblin Barrel's Goblins) take their first update on their creation tick, as a
+        // scheduled area's do (spawner.SCHEDULED_UNIT_FIRST_UPDATE = client_creation_tick, `materialise_released`):
+        // deploying, they do not walk, but a neighbour's contact push moves them. Measured on client 15.535.29
+        // (sp-form-GoblinBarrel-evo-s0 t117: a Goblin born on (16000, 2212) beside an own Skeleton stands on (16148, 2235),
+        // the Skeleton's push of 150).
+        #[cfg(not(clash_plant = "release_first_update_next_tick"))]
+        let release_first = self.cfg.calib.scheduled_unit_first_update == ScheduledUnitFirstUpdate::ClientCreationTick;
+        #[cfg(clash_plant = "release_first_update_next_tick")]
+        let release_first = false; // PLANT (regression): the released units' first update is the next tick's.
         for r in released {
             // spawner.RELEASE_TIMING: on this frame and inert on it, or queued for the next
             // Spawn phase under the earlier convention.
@@ -19888,7 +19897,7 @@ impl BattleState {
                 ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
             };
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: release_first, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false });
             }
         }
         // A SCHEDULED AREA'S UNITS (the Graveyard's Skeletons, the Suspicious Bush's goblins), each at its own point
