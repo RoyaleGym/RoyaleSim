@@ -457,7 +457,9 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # differ by MiniSparkys alone. The Electro Dragon, the Princess and the Bowler lose the key and stay for others.
     # 94 -> 95 with the Minion Giant, a card appended from a later client's table (data/client_additions): its one
     # flag is projectile.only_enemies (its shot's OnlyEnemies, unread).
-    outside_by_vintage = {"2018": 40, "15.535": 95}
+    # 95 -> 98 when the Boss Bandit, the Little Prince and Goblinstein began to load (r19): the three new flags, each for
+    # columns of its row the engine does not read (its Ability among them, read by the champion builders instead).
+    outside_by_vintage = {"2018": 40, "15.535": 98}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (
