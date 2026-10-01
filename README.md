@@ -524,7 +524,8 @@ Working:
   too: after its cast he stands, takes every hit at 35 % and sends enemy shots back at their
   shooters, once. The Archer Queen's button runs as well: for 3.5 seconds no enemy can target
   her and she shoots 2.8 times as fast, once. The Boss Bandit's, the Little Prince's and
-  Goblinstein's buttons run too. The Skeleton King and the Mighty Miner play as plain troops.
+  Goblinstein's buttons run too, and the Skeleton King's and the Mighty Miner's: every champion's
+  button runs.
 - Mechanics measured against recordings of the game, and switchable in the constants file: route
   choice (743 of 744 routes node for node), how units push each other (99.24% of per-tick positions
   exact over 31 captures), reach and the attack cycle, the charged hit, knockback, the river hop,
