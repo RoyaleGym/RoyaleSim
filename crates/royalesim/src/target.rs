@@ -114,6 +114,17 @@ pub const ACQUIRE_DELAY_TICKS: u32 = 6; // PLANT: the first target lands on F + 
 /// Prince and a Mini P.E.K.K.A fit one constant between 990 and 1008.
 pub const CHASE_DROP_SHORT_OF_SIGHT: i32 = 1000;
 
+/// A BUILDINGS-ONLY WALKER'S SCAN IGNORES A FAR BUILDING (`scan_with`): a player building (not a crown tower) whose x
+/// lies more than this from the walker's own x is no candidate, however near by centre. NATIVE units. Measured on
+/// client 15.535.29 (Oracle's 18 building scenes: a Giant or an Ice Golem against a Cannon or a Bomb Tower, on the
+/// lanes and off them): with that building ignored, plain straight-line sight and centre ranking fit every switch.
+/// Taken at |dx| 2049, 3236, about 5000, 6212 to 6223 and 6231 (x4); never taken at 7231 (x4), 7232, and 7269 to 7984
+/// while it stood in sight and nearer than the tower. The cut-off lies between 6231 and 7231; 7000 is a value inside
+/// that band, not a measured one. On a lane (x 3268 or 14731) any value in the band plays alike, a building's x being a
+/// tile centre. Unmeasured: troops that target anything (no scene has one past 6600 of sight), and whether the
+/// cut-off is per card (the Giant's sight 7500 and the Ice Golem's 7000 both reject at 7231).
+pub const BUILDING_SCAN_DX: i32 = 7000;
+
 /// targeting.FIRST_TOWER_PICK = client_spawn_lane: how long after its deploy ends a troop's default tower still comes
 /// from its spawn lane, ms (state.rs `on_deployed`). Measured on client 15.535.29: 6 of 6 re-picks by x fall 10
 /// ticks after the first pick.
@@ -752,6 +763,14 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
         }
         #[cfg(not(clash_plant = "sight_ignored"))]
         if !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, c), e.radius[a], e.pos[c], e.radius[c]) {
+            continue;
+        }
+        // A buildings-only walker ignores a player building more than BUILDING_SCAN_DX across in x.
+        #[cfg(not(clash_plant = "building_scan_dx_unbounded"))]
+        if card.target_only_buildings
+            && e.kind[c] == EntityKind::Building
+            && (e.pos[c].x - e.pos[a].x).abs() > BUILDING_SCAN_DX * crate::fixed::SUBTILE_PER_MILLITILE
+        {
             continue;
         }
         // targeting.MINIMUM_RANGE = client16402_edge_distance: never TAKE a target inside the minimum range.
