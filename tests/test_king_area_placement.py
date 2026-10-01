@@ -51,8 +51,9 @@ PUSH_NEW, PUSH_OLD = "client16402_axis_push", "ring_nearest"
 #: unit short of it. The client takes the first outward direction in the order -y, -x, +y, +x in arena coordinates (42
 #: of 42 princess-box taps and the king's 3 ties, measured on client 15.535.29), which is client16402_axis_push. Strict,
 #: so a change to ring_nearest shows as XPASS.
-#: (0, (7500, 1499)) left the set at r20: ring_nearest now lands its three casts as the client does (XPASS on
-#: RoyaleSim 30e248e). The change is in r20's patch series and is not traced here; the shipped arm is unaffected.
+#: (0, (7500, 1499)) left the set at r20: ring_nearest now lands its three casts as the client does, since a ring
+#: relocation off an own building measures nearness from the raw tap, not the snapped one (the tie between its two
+#: ring tiles breaks the client's way; plant ring_nearest_snapped_tap). The shipped arm is unaffected.
 TIE_CASTS = {(1, (7500, 1500)), (1, (10500, 1500))}
 TIE_ORDER = pytest.mark.xfail(
     strict=True,
