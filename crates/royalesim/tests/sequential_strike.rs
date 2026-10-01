@@ -8,17 +8,24 @@
 //!     on the sixth frame after the kill, none on the fifth).
 //! (3) A UNIT STRUCK DOWN EARLIER IN THE PASS still takes its turn: its strike lands on the frame it dies (3 of 3 on the
 //!     16.402 corpus, 2 of 2 on client 15.535.29).
+//! (4) A WALKER WHOSE TARGET STANDS IN ITS ATTACK REACH reads the pass as it began, as an attacker does (client
+//!     15.535.29: 8 walkers created after the striker read their attack and no target on the kill frame, then waited).
+//! (5) THE PASS RUNS THE TICK'S OWN PASSES once before its first unit (the hide pass, the Evo Teslas' rings, the
+//!     taunts), as the Target phase does: the hero Knight's taunt turns an enemy on the same tick under both orders.
 //!
 //! The scenes: Knights on Blue's half, out of every tower's reach. A Red Knight of 100 hitpoints is the victim; Blue's
 //! first Knight kills it with its first blow.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! sequential_strike`): attacker_reads_pass_kills -> `an_attackers_post_kill_wait_runs_as_under_client16402` red;
-//! struck_victim_skips_turn -> `a_unit_struck_down_in_the_pass_still_strikes` red.
+//! struck_victim_skips_turn -> `a_unit_struck_down_in_the_pass_still_strikes` red;
+//! reach_walker_reads_pass_kills -> `a_walker_with_its_target_in_reach_reads_the_pass_as_it_began` red;
+//! sequential_skips_tick_passes -> `the_pass_takes_the_taunt_on_the_tick_the_target_phase_does` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
+use royalesim::card::FORM_HERO;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleState, TickOrder};
@@ -148,4 +155,92 @@ fn a_unit_struck_down_in_the_pass_still_strikes() {
     let (hp, max) = duel(TickOrder::ClientSequentialStrike);
     assert!(hp < max, "the Red Knight struck down on its own strike tick did not strike: Blue's Knight at {hp} of {max}");
     assert_eq!(duel(TickOrder::Client16402).0, hp, "the same blow under client16402");
+}
+
+/// The walker scene, the striker created first: (state, striker, walker, victim).
+fn walker_scene() -> (BattleState, EntityId, EntityId, EntityId) {
+    let mut s = battle(TickOrder::ClientSequentialStrike);
+    let k1 = knight(&mut s, Team::Blue, (9000, 12100), None);
+    let w = knight(&mut s, Team::Blue, (9000, 9000), None);
+    let v = knight(&mut s, Team::Red, (9000, 13600), Some(100));
+    (s, k1, w, v)
+}
+
+#[test]
+fn a_walker_with_its_target_in_reach_reads_the_pass_as_it_began() {
+    // The walker created after the striker, put in its attack reach of the victim (1,200 off, its attack not begun)
+    // for the kill tick: it keeps the victim to the tick's end, as an attacker does, where out of reach it lets go.
+    let kill = {
+        let (mut s, _, _, v) = walker_scene();
+        until_gone(&mut s, v, 80)
+    };
+    let (mut s, _, w, v) = walker_scene();
+    for _ in 1..kill {
+        s.tick();
+    }
+    let e = s.entity(w).expect("the walker");
+    assert_eq!((e.target, e.attack_phase), (Some(v), AttackPhase::Idle), "the scene drifted: the walker was not walking at the victim");
+    assert!(s.debug_set_pos(w, at(10200, 13600)));
+    s.tick();
+    assert!(s.entity(v).is_none(), "the scene drifted: the victim did not fall on the kill tick");
+    assert_eq!(s.entity(w).expect("the walker").target, Some(v), "in reach on the kill tick, the walker read the pass as it began");
+}
+
+const HERO_DECK: [&str; 8] = ["Knight", "Archer", "Giant", "Musketeer", "MiniPekka", "HogRider", "Fireball", "Zap"];
+
+/// The hero Knight's taunt scene (tests/hero_knight.rs `the_taunt_turns_an_enemy_on_the_hero`) under `order`: the tick
+/// after the press on which the red Knight first targets the hero.
+fn taunted(order: TickOrder) -> Option<usize> {
+    const AT: (i32, i32) = (9000, 10000);
+    const ARCHER: (i32, i32) = (5000, 13500);
+    const RED: (i32, i32) = (5000, 12500);
+    let mut cfg = config();
+    let deck: Vec<String> = HERO_DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.tick_order = order;
+    let mut s = BattleState::try_new(7, cfg).expect("the deck loads");
+    let lockout = s.config().calib.deploy_lockout_ticks as u32;
+    s.scenario_set_tick(lockout);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.scenario_set_elixir_milli(Team::Red, 10_000);
+    s.spawn_unit(Team::Blue, "Knight_hero", at(AT.0, AT.1), None).expect("the hero");
+    s.spawn_unit_resolved(Team::Blue, "Archer", at(ARCHER.0, ARCHER.1), None).expect("the Archer");
+    s.spawn_unit_resolved(Team::Red, "Knight", at(RED.0, RED.1), None).expect("the red Knight");
+    s.tick();
+    let hero = find_live(&s, Team::Blue, "Knight_hero")[0].id;
+    let archer = find_live(&s, Team::Blue, "Archer")[0].id;
+    let red = find_live(&s, Team::Red, "Knight")[0].id;
+    let hold = |s: &mut BattleState| {
+        for (id, p) in [(hero, AT), (archer, ARCHER), (red, RED)] {
+            assert!(s.debug_set_pos(id, at(p.0, p.1)));
+        }
+        for id in [archer, red] {
+            let max = s.entity(id).expect("a held unit").max_hp;
+            assert!(s.debug_set_hp(id, max));
+        }
+    };
+    for _ in 0..40 {
+        hold(&mut s);
+        s.tick();
+    }
+    assert_eq!(s.entity(red).expect("the red Knight").target, Some(archer), "the scene drifted: the red Knight was not on the Archer");
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for k in 0..40 {
+        hold(&mut s);
+        s.tick();
+        if s.entity(red).expect("the red Knight").target == Some(hero) {
+            return Some(k);
+        }
+    }
+    None
+}
+
+#[test]
+fn the_pass_takes_the_taunt_on_the_tick_the_target_phase_does() {
+    let old = taunted(TickOrder::Client16402);
+    assert!(old.is_some(), "the scene drifted: the taunt never turned the red Knight under client16402");
+    assert_eq!(taunted(TickOrder::ClientSequentialStrike), old, "the taunt's tick under the sequential order");
 }

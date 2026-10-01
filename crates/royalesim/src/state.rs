@@ -16597,6 +16597,17 @@ impl BattleState {
                 fallen[t] = self.ents.shield[t] <= 0 && sum >= i64::from(self.ents.hp[t]);
             }
         }
+        // match.TICK_ORDER = client_sequential_strike: a direct strike has already landed (`land_strike`), so a building
+        // it felled stands at 0 hp with no hit left in the buffer; it has fallen as well (`doomed_mask` reads a troop so).
+        // sp-hogs-musk-s0 t641 under the arm: the princess tower a Royal Hog felled pushed the striker 198 and its fellow 88.
+        #[cfg(not(any(clash_plant = "doomed_building_collides", clash_plant = "struck_building_collides")))]
+        if self.cfg.calib.dying_unit_visibility == DyingUnitVisibility::ClientDoomedStatic && self.tick_order() == TickOrder::ClientSequentialStrike {
+            for t in 0..self.ents.capacity() {
+                if self.ents.alive[t] && self.ents.kind[t] != EntityKind::Troop && self.ents.hp[t] <= 0 {
+                    fallen[t] = true;
+                }
+            }
+        }
         let mut deflect_off = vec![false; self.ents.capacity()];
         #[cfg(not(clash_plant = "deflect_contact_kept"))]
         for (id, until) in &self.deflects {
@@ -19760,18 +19771,22 @@ impl BattleState {
     /// the kill frame when every striker was created before it (11 of 11), one frame later when
     /// every striker was created after it (9 of 9) or no melee strike killed it (22 of 23).
     ///
-    /// ONLY A WALKER READS THE PASS'S KILLS. A unit whose attack is under way (`AttackPhase` not
-    /// Idle), and a unit struck to 0 hp earlier in the pass, decide on the hitpoints as the pass
-    /// found them, so a kill earlier in the pass reaches them on the next tick as under
-    /// client16402: an attacker's post-kill wait (combat.POST_KILL_RETARGET_WAIT) ends on the
-    /// sixth frame after the kill whatever the order. Measured on client 15.535.29, every death
+    /// ONLY A WALKER OUT OF REACH READS THE PASS'S KILLS. A unit whose attack is under way
+    /// (`AttackPhase` not Idle), a walker whose target stands in its attack reach (it enters its
+    /// attack: client 15.535.29, 8 of the walkers created after the striker read their attack and
+    /// no target on the kill frame, then waited; 129 out of reach took their next target on it),
+    /// and a unit struck to 0 hp earlier in the pass, decide on the hitpoints as the pass
+    /// found them (its own, while it stands, as the pass left them), so a kill earlier in the pass
+    /// reaches them on the next tick as under client16402: an attacker's post-kill wait
+    /// (combat.POST_KILL_RETARGET_WAIT) ends on the sixth frame after the kill whatever the order. Measured on client 15.535.29, every death
     /// with one landed blow: an attacker created after the striker walked or held a new target 6
     /// frames after the kill 187 times and never on the fifth; one created before it, 376 times.
     /// A unit struck down earlier in the pass still takes its turn, and its own strike or launch
     /// lands on that frame (3 of 3 on the 16.402 corpus, 2 of 2 on client 15.535.29: an Elite
     /// Archer struck down by a Knight still launched its arrow). For every later unit it is dead
     /// (entity.rs `standing`, target.rs `can_target`), and it leaves the table in Reap as every
-    /// death does. The hide pass runs once, before the first unit. The doom
+    /// death does. The hide pass runs once, before the first unit, and the Evo Teslas' rings and the
+    /// taunts after it, as the Target phase runs them. The doom
     /// readings of the Target phase (targeting.DOOMED_TARGET_DROP, combat.POST_KILL_RETARGET_WAIT)
     /// are taken at each unit's turn over the shots in flight as the pass started, so a shot an
     /// earlier unit launched in the pass is not one of them, as under client16402; the hp they
@@ -19788,6 +19803,17 @@ impl BattleState {
             let mut nb = std::mem::take(&mut self.scratch.nb);
             self.hide_pass(&mut nb);
             self.scratch.nb = nb;
+            // The tick's other passes the Target phase runs once, in its order: the Evo Teslas' rings and the taunts
+            // (`phase_target_with` runs them for a whole-tick call alone, which no unit's turn is).
+            #[cfg(not(clash_plant = "sequential_skips_tick_passes"))]
+            {
+                if !self.evo.rings.is_empty() {
+                    self.ring_pass();
+                }
+                if !self.taunts.is_empty() {
+                    self.taunt_pass();
+                }
+            }
         }
         let mut order: Vec<usize> = (0..self.ents.capacity())
             .filter(|&i| self.ents.alive[i] && self.cfg.cards.get(self.ents.card[i]).hit_speed_ms > 0 && only.map_or(true, |o| o.contains(&i)))
@@ -19803,15 +19829,37 @@ impl BattleState {
             if self.ents.hp[i] <= 0 {
                 continue; // PLANT (regression): a unit struck down earlier in the pass loses its turn.
             }
+            // A walker whose target stands in its attack reach enters its attack on the board as the pass found it, as an
+            // attacker does (client 15.535.29: of the walkers created after the striker, 8 read their attack and no target
+            // on the kill frame and then waited; 129 out of reach took their next target on it).
+            #[cfg(not(clash_plant = "reach_walker_reads_pass_kills"))]
+            let in_reach = self.ents.target[i].filter(|t| self.ents.is_alive(*t)).is_some_and(|t| {
+                let (ti, c) = (t.index as usize, self.cfg.cards.get(self.ents.card[i]));
+                let own = if self.ents.route_goal[i].is_some() {
+                    target::walking_own_radius(&self.cfg.calib, c, self.ents.radius[i])
+                } else {
+                    self.ents.radius[i]
+                };
+                target::in_attack_range(&self.cfg.calib, self.ents.pos[i], c.range, own, self.ents.pos[ti], self.ents.radius[ti])
+            });
+            #[cfg(clash_plant = "reach_walker_reads_pass_kills")]
+            let in_reach = false; // PLANT (regression): a walker in reach of its target reads the kills earlier in the pass.
             #[cfg(not(clash_plant = "attacker_reads_pass_kills"))]
-            let reads_start = self.ents.attack_phase[i] != AttackPhase::Idle || self.ents.hp[i] <= 0;
+            let reads_start = self.ents.attack_phase[i] != AttackPhase::Idle || self.ents.hp[i] <= 0 || in_reach;
             #[cfg(clash_plant = "attacker_reads_pass_kills")]
-            let reads_start = self.ents.hp[i] <= 0; // PLANT (regression): an attacker reads the kills earlier in the pass.
+            let reads_start = {
+                let _ = in_reach;
+                self.ents.hp[i] <= 0 // PLANT (regression): an attacker (in reach or under way) reads the kills earlier in the pass.
+            };
             if reads_start {
-                // Each unit whose hitpoints the pass has changed reads its starting value for this decision, and gets
-                // back the pass's value after it.
-                let changed: Vec<(usize, i32)> =
-                    (0..start_hp.len()).filter(|&j| self.ents.hp[j] != start_hp[j]).map(|j| (j, self.ents.hp[j])).collect();
+                // Each OTHER unit whose hitpoints the pass has changed reads its starting value for this decision, and
+                // gets back the pass's value after it. The unit's own hitpoints stay as the pass left them while it
+                // stands (its health threshold is read in its own turn: transform.rs, the Cannon Cart's melee crossing),
+                // and read their starting value once it is struck down.
+                let changed: Vec<(usize, i32)> = (0..start_hp.len())
+                    .filter(|&j| self.ents.hp[j] != start_hp[j] && (j != i || self.ents.hp[i] <= 0))
+                    .map(|j| (j, self.ents.hp[j]))
+                    .collect();
                 for &(j, _) in &changed {
                     self.ents.hp[j] = start_hp[j];
                 }
