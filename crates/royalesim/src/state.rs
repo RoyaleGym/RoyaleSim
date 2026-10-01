@@ -1402,18 +1402,26 @@ fn team_blue() -> Team {
     Team::Blue
 }
 
-/// IS HERO `i` FREE to start a press (`fire_scheduled`)? Not while it deploys, not while it leaps the river, and not
-/// while it is held (a stun timer, or buffs that stop it: the Freeze). A press that has started runs its clock whatever
+/// IS HERO `i` FREE to start a press (`fire_scheduled`)? Not while it deploys, not while it leaps the river or dashes
+/// (its stand before the dash included), and not while it is held (a stun timer, or buffs that stop it: the Freeze). A press that has started runs its clock whatever
 /// holds the hero after, its own cast hold included. Measured on client 15.535.29 for the deploy, the Freeze and the leap
 /// (sp-form-DarkPrince-hero-s0: the Hero Dark Prince pressed mid-leap on t100, its leap's end and its dismount's first
-/// frame both t113: a leap that ends in this tick's move frees it this tick, `leap_ends_now`); any other hold is read
-/// the same way, unmeasured.
-fn hero_free(ents: &Entities, cards: &CardDb, i: usize) -> bool {
+/// frame both t113: a leap that ends in this tick's move frees it this tick, `leap_ends_now`) and for the dash
+/// (sp-champ-BossBandit-s0: the Boss Bandit pressed mid-dash on t175, the dash's last frame t177, the cast from t178);
+/// any other hold is read the same way, unmeasured.
+fn hero_free(ents: &Entities, cards: &CardDb, i: usize, dash_ends: bool) -> bool {
     #[cfg(not(clash_plant = "press_during_jump"))]
     let leaping = ents.jumping[i] && !leap_ends_now(ents, cards, i);
     #[cfg(clash_plant = "press_during_jump")]
     let leaping = false; // PLANT: a press starts mid-leap.
-    ents.deploy_ms[i] <= 0 && ents.stun_ms[i] <= 0 && !leaping && ents.buffed(&cards.buffs, i, Sel::Speed, 100) != 0
+    #[cfg(not(clash_plant = "press_during_dash"))]
+    let dashing = ents.dash_state[i] != DashState::None && !dash_ends;
+    #[cfg(clash_plant = "press_during_dash")]
+    let dashing = {
+        let _ = dash_ends;
+        false // PLANT: a press starts mid-dash.
+    };
+    ents.deploy_ms[i] <= 0 && ents.stun_ms[i] <= 0 && !leaping && !dashing && ents.buffed(&cards.buffs, i, Sel::Speed, 100) != 0
 }
 
 /// DOES UNIT `i`'S LEAP END IN THIS TICK'S MOVE? Its landing test (jump16402.rs `landed`) on the distance its move will
@@ -12235,6 +12243,16 @@ impl BattleState {
         let mut refunds: Vec<(Team, i32)> = Vec::new();
         let mut starts: Vec<(EntityId, bool)> = Vec::new();
         let after_move = self.cfg.calib.waited_press_cast == WaitedPressCast::AfterMove;
+        // The waiting presses' heroes whose dash ends in this tick's move (`dash_ends_now`): free this tick.
+        let dash_ends: Vec<EntityId> = self
+            .scheduled
+            .iter()
+            .filter_map(|s| match s.action {
+                ScheduledAction::Ability { hero, started: false, .. } if self.ents.is_alive(hero) => Some(hero),
+                _ => None,
+            })
+            .filter(|h| self.dash_ends_now(h.index as usize))
+            .collect();
         let (ents, cards) = (&self.ents, &self.cfg.cards);
         self.scheduled.retain_mut(|s| {
             if let ScheduledAction::Ability { hero, team, cost, started, waited } = &mut s.action {
@@ -12243,7 +12261,7 @@ impl BattleState {
                     return false;
                 }
                 if !*started {
-                    if !hero_free(ents, cards, hero.index as usize) {
+                    if !hero_free(ents, cards, hero.index as usize, dash_ends.contains(hero)) {
                         *waited |= after_move;
                         return true;
                     }
@@ -14938,6 +14956,14 @@ impl BattleState {
             let gi = gid.index as usize;
             if let Some(a) = r.arrived {
                 if tick >= a + crate::card::GUARD_LANDING_TICKS {
+                    // FREE, its load timer full and its swing at 0: its first hit a whole HitSpeed on. Measured on client
+                    // 15.535.29 (Oracle's sp-lp-far-s0): free on P + 39, attacking a Knight at its end from P + 40, its
+                    // first hit on P + 62.
+                    #[cfg(not(clash_plant = "guard_lands_loaded"))]
+                    {
+                        self.ents.attack_load_ms[gi] = self.cfg.cards.get(self.ents.card[gi]).load_time_ms.max(0);
+                        self.ents.attack_ms[gi] = 0;
+                    }
                     continue;
                 }
                 self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(dt);
@@ -15862,6 +15888,37 @@ impl BattleState {
     /// the first hit lands HitSpeed / 50 - 1 ticks later (measured on client 15.535.29: on the
     /// first tick out of the dash the load timer reads LoadTime, on the next the attack progress
     /// reads 100, then +50 a tick), and damage is discarded for DashImmuneToDamageTime more.
+    /// DOES UNIT `i`'S DASH END IN THIS TICK'S MOVE? The move's own test (`phase_path16402`'s dash), run ahead on this
+    /// tick's start positions: two half-steps of JumpSpeed / 2 toward its goal, ending within its Range of its target or on
+    /// the goal, or with no target alive; a timed jump (DashConstantTime) on its blow + DASH_BLOW_TO_END_TICKS.
+    fn dash_ends_now(&self, i: usize) -> bool {
+        let e = &self.ents;
+        if e.dash_state[i] != DashState::Dashing {
+            return false;
+        }
+        let card = self.cfg.cards.get(e.card[i]);
+        let Some(d) = card.dash else { return false };
+        let k = crate::fixed::SUBTILE_PER_MILLITILE;
+        let goal = (e.dash_goal[i].x / k, e.dash_goal[i].y / k);
+        let mut p = (e.pos[i].x / k, e.pos[i].y / k);
+        match d.constant_time_ms {
+            None => {
+                let Some(t) = e.dash_target[i].filter(|t| e.is_alive(*t)) else { return true };
+                let ti = t.index as usize;
+                for _ in 0..2 {
+                    let (q, arrived) = move16402::dash_half_step(p, goal, d.speed / 2);
+                    p = q;
+                    let at = Vec2::new(p.0 * k, p.1 * k);
+                    if arrived || target::in_attack_range(&self.cfg.calib, at, card.range, e.radius[i], e.pos[ti], e.radius[ti]) {
+                        return true;
+                    }
+                }
+                false
+            }
+            Some(ct) => self.tick >= e.dash_mark[i] + (ct / self.cfg.calib.tick_ms.max(1)) as u32 + DASH_BLOW_TO_END_TICKS,
+        }
+    }
+
     fn end_dashes(&mut self, ended: Vec<usize>) {
         let tk = self.cfg.calib.tick_ms.max(1);
         for i in ended {

@@ -6,7 +6,7 @@
 //! target dropped; the button back on t238, the cast's start + 60, with one charge left.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! boss_bandit`): warp_back_never, champion_charges_unread, early_trigger_late.
+//! boss_bandit`): warp_back_never, champion_charges_unread, early_trigger_late, press_during_dash.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -56,6 +56,72 @@ fn its_press_warps_it_6000_back_700_ms_after_its_trigger() {
     assert_eq!(moved, Some(18), "the warp's tick from the press: {rows:?}");
     let r = rows.iter().find(|r| r.0 == 18).expect("row 18");
     assert!((AT.1 - 6000 - r.1).abs() <= 150 && r.2.is_none(), "6000 back, its target dropped: {rows:?}");
+}
+
+/// A point's distance from another, native.
+fn dist(a: Vec2, b: Vec2) -> i64 {
+    let (dx, dy) = (((a.x - b.x) / K) as i64, ((a.y - b.y) / K) as i64);
+    royalesim::fixed::isqrt(dx * dx + dy * dy)
+}
+
+/// A PRESS MID-DASH waits for the dash's end: measured on client 15.535.29 (sp-champ-BossBandit-s0: the press issued t175
+/// mid-dash, the dash's last frame t177, the cast from t178, the warp on t195, the cast's start + 17).
+#[test]
+fn a_press_mid_dash_waits_for_the_dash_to_end() {
+    // tests/dash_attack.rs's geometry: a red Knight walking to the blue right princess tower, the Boss Bandit after it from
+    // beyond its trigger distance.
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let bb = s.scenario_spawn_now(Team::Blue, "BossBandit", n((8200, 6200)), None).expect("the Boss Bandit");
+    s.scenario_spawn_now(Team::Red, "Knight", n((14231, 9500)), None).expect("a red Knight");
+    // Its dash under way: a tick it steps more than 300 (its walk is under 100 a tick).
+    let mut at = s.entity(bb).expect("the Boss Bandit").pos;
+    let mut k = 0;
+    loop {
+        s.tick();
+        let p = s.entity(bb).expect("the Boss Bandit").pos;
+        if dist(p, at) > 300 {
+            break;
+        }
+        at = p;
+        k += 1;
+        assert!(k < 200, "the Boss Bandit never dashed");
+    }
+    // The dash's end with no press, on a twin: the first tick it steps 300 or less.
+    let mut twin = s.clone();
+    let mut end = None;
+    let mut at = twin.entity(bb).expect("the Boss Bandit").pos;
+    for _ in 0..40 {
+        twin.tick();
+        let p = twin.entity(bb).expect("the Boss Bandit").pos;
+        if dist(p, at) <= 300 {
+            end = Some(twin.tick_count() - 1);
+            break;
+        }
+        at = p;
+    }
+    let end = end.expect("the dash's end");
+    let p0 = s.tick_count() - 1;
+    assert!(end > p0 + 1, "a press mid-dash: pressed on {p0}, the dash's end on {end}");
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.press_ability_button(Team::Blue, 0).expect("the press, mid-dash");
+    // The warp: the tick it moves 3000 or more.
+    let mut warp = None;
+    let mut at = s.entity(bb).expect("the Boss Bandit").pos;
+    for _ in 0..60 {
+        s.tick();
+        let Some(e) = s.entity(bb) else { break };
+        if warp.is_none() && dist(e.pos, at) >= 3000 {
+            warp = Some(s.tick_count() - 1);
+        }
+        at = e.pos;
+    }
+    assert_eq!(warp, Some(end + 17), "the warp the cast's start + 17, the cast from the dash's end {end} (pressed on {p0})");
 }
 
 #[test]

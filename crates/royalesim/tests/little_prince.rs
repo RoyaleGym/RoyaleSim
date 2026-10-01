@@ -8,7 +8,8 @@
 //! losing 256 once.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, guard_collides, early_trigger_late.
+//! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, guard_collides, early_trigger_late,
+//! guard_lands_loaded.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -126,6 +127,40 @@ fn his_guard_appears_behind_him_and_charges_to_a_fixed_point_ahead() {
     assert!(at(25).y > first.1.y, "its first step on the press + 25: {rows:?}");
     assert_eq!(at(37), n((AT.0 + 239, AT.1 + 3083)), "its end on the press + 37: {rows:?}");
     assert_ne!(at(36), at(37), "its last step on the press + 37: {rows:?}");
+}
+
+/// THE GUARD'S FIRST HIT after its charge: a whole swing on, its load timer full as it comes free. Measured on client
+/// 15.535.29 (Oracle's sp-lp-far-s0: the press P = t122, the guard free P + 39, a Knight at its end losing 232 (91 at level
+/// 11) first on P + 62, then every 24 ticks).
+#[test]
+fn his_guards_first_hit_after_its_charge_is_a_whole_swing_on() {
+    // A red Knight held 1500 beyond the guard's end (in its reach); Blue's princess towers down.
+    let at = (AT.0 + 239, AT.1 + 3083 + 1500);
+    let (mut s, lp, reds) = scene(&[("Knight", at)]);
+    let knight = reds[0].0;
+    let towers: Vec<EntityId> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut losses = Vec::new();
+    for _ in 0..100 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        let full = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(knight, n(at)));
+        assert!(s.debug_set_hp(knight, full));
+        s.tick();
+        let lost = full - s.entity(knight).expect("the Knight").hp;
+        if lost > 0 {
+            losses.push((s.tick_count() - 1 - p, lost));
+        }
+    }
+    // The guard's hits are 232; his own shots at the Knight the other losses (232 with one of them on a tick).
+    let shots: Vec<i32> = losses.iter().map(|l| l.1).filter(|l| *l < 232).collect();
+    let guard: Vec<u32> = losses.iter().filter(|l| l.1 == 232 || shots.contains(&(l.1 - 232))).map(|l| l.0).collect();
+    assert_eq!(guard.first(), Some(&62), "the guard's first hit, from the press: {losses:?}");
 }
 
 #[test]
