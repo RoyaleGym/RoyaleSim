@@ -19760,21 +19760,28 @@ impl BattleState {
     /// the kill frame when every striker was created before it (11 of 11), one frame later when
     /// every striker was created after it (9 of 9) or no melee strike killed it (22 of 23).
     ///
-    /// A unit struck to 0 hp earlier in the pass neither decides nor strikes: it is dead for
-    /// every later unit (entity.rs `standing`, target.rs `can_target`), and it leaves the table
-    /// in Reap as every death does. The hide pass runs once, before the first unit. The doom
+    /// ONLY A WALKER READS THE PASS'S KILLS. A unit whose attack is under way (`AttackPhase` not
+    /// Idle), and a unit struck to 0 hp earlier in the pass, decide on the hitpoints as the pass
+    /// found them, so a kill earlier in the pass reaches them on the next tick as under
+    /// client16402: an attacker's post-kill wait (combat.POST_KILL_RETARGET_WAIT) ends on the
+    /// sixth frame after the kill whatever the order. Measured on client 15.535.29, every death
+    /// with one landed blow: an attacker created after the striker walked or held a new target 6
+    /// frames after the kill 187 times and never on the fifth; one created before it, 376 times.
+    /// A unit struck down earlier in the pass still takes its turn, and its own strike or launch
+    /// lands on that frame (3 of 3 on the 16.402 corpus, 2 of 2 on client 15.535.29: an Elite
+    /// Archer struck down by a Knight still launched its arrow). For every later unit it is dead
+    /// (entity.rs `standing`, target.rs `can_target`), and it leaves the table in Reap as every
+    /// death does. The hide pass runs once, before the first unit. The doom
     /// readings of the Target phase (targeting.DOOMED_TARGET_DROP, combat.POST_KILL_RETARGET_WAIT)
     /// are taken at each unit's turn over the shots in flight as the pass started, so a shot an
     /// earlier unit launched in the pass is not one of them, as under client16402; the hp they
     /// compare against is the hp as it then stands. `only`: a first update's fresh units
     /// (`first_update`), which leaves the hide pass to the tick's own phase.
     ///
-    /// NOT MEASURED, and read here as the ordering implies: a victim due to strike on the tick
-    /// an earlier unit kills it loses its strike (no scenario has one); a second striker whose
-    /// target an earlier one killed on the same tick does not strike the corpse (it retargets, or
-    /// starts combat.POST_KILL_RETARGET_WAIT on that tick, one tick before the killer does); a
-    /// shield absorbs each strike on its own rather than the tick's sum (combat.rs
-    /// `land_at_once`).
+    /// NOT MEASURED, and read here as the ordering implies: a second striker whose target an
+    /// earlier one killed on the same tick strikes the corpse as under client16402 (it decides on
+    /// the pass's starting hitpoints); a shield absorbs each strike on its own rather than the
+    /// tick's sum (combat.rs `land_at_once`).
     fn phase_target_attack_sequential(&mut self, only: Option<&[usize]>) {
         if only.is_none() {
             self.hash.rebuild(&self.ents);
@@ -19789,11 +19796,32 @@ impl BattleState {
         // The shots in flight as the pass starts: a launch inside the pass is appended after them
         // (combat.rs `fire`), and the doom readings leave it out (`phase_target_with`).
         let shots = self.projectiles.len();
+        // The hitpoints as the pass found them, which an attacking unit and a struck-down one decide on.
+        let start_hp = self.ents.hp.clone();
         for i in order {
+            #[cfg(clash_plant = "struck_victim_skips_turn")]
             if self.ents.hp[i] <= 0 {
-                continue; // struck down earlier in this pass
+                continue; // PLANT (regression): a unit struck down earlier in the pass loses its turn.
             }
-            self.phase_target_with(Some(&[i]), shots);
+            #[cfg(not(clash_plant = "attacker_reads_pass_kills"))]
+            let reads_start = self.ents.attack_phase[i] != AttackPhase::Idle || self.ents.hp[i] <= 0;
+            #[cfg(clash_plant = "attacker_reads_pass_kills")]
+            let reads_start = self.ents.hp[i] <= 0; // PLANT (regression): an attacker reads the kills earlier in the pass.
+            if reads_start {
+                // Each unit whose hitpoints the pass has changed reads its starting value for this decision, and gets
+                // back the pass's value after it.
+                let changed: Vec<(usize, i32)> =
+                    (0..start_hp.len()).filter(|&j| self.ents.hp[j] != start_hp[j]).map(|j| (j, self.ents.hp[j])).collect();
+                for &(j, _) in &changed {
+                    self.ents.hp[j] = start_hp[j];
+                }
+                self.phase_target_with(Some(&[i]), shots);
+                for &(j, hp) in &changed {
+                    self.ents.hp[j] = hp;
+                }
+            } else {
+                self.phase_target_with(Some(&[i]), shots);
+            }
             self.phase_attack_for(Some(&[i]));
         }
     }
