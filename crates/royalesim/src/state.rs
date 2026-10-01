@@ -6955,6 +6955,13 @@ pub struct HeroUnit {
     /// entry saved before the field; hashed only when set.
     #[serde(default)]
     pub uses: u8,
+    /// A NEWER COPY OF ITS FORM HAS ARRIVED on its side: this copy has no button any more, alive or not, and the button
+    /// is the newest copy's (`newest_hero`). Measured on client 15.535.29 (sp-hero-twin-death-s0 and -fresh-s0, two Hero
+    /// Ice Golems): the older copy loses its ability fields on the tick the newer appears, and keeps none after the
+    /// newer dies (a press on it refused); the newer copy starts with its own charge whatever the older spent. Live
+    /// read the same on client 16.402. `default` false for an entry saved before the field; hashed only when set.
+    #[serde(default)]
+    pub superseded: bool,
 }
 
 /// A THROW UNDER WAY (card.rs `AbilityEffect::Throw`, the Hero Balloon's button; `throw_pass`): the hero, its side,
@@ -9050,7 +9057,26 @@ impl BattleState {
             }
         }
         if appearance && holds {
-            self.hero_units.push(HeroUnit { id, spent: false, casting: false, recharge_at: 0, uses: 0 });
+            // THE BUTTON FOLLOWS THE NEWEST COPY (`HeroUnit::superseded`): every older copy of a form this unit is a copy
+            // of, on its side, gives the button up now.
+            #[cfg(not(clash_plant = "hero_button_falls_back"))]
+            {
+                let p = &self.players[team as usize];
+                let forms: Vec<u16> = (0..p.heroes.len() + p.champions.len())
+                    .filter_map(|k| self.button_form(team, k).map(|(_, f)| f))
+                    .filter(|f| self.copy_of(card, *f))
+                    .collect();
+                let older: Vec<usize> = (0..self.hero_units.len())
+                    .filter(|&k| {
+                        let o = self.hero_units[k].id.index as usize;
+                        self.ents.team[o] == team && forms.iter().any(|f| self.copy_of(self.ents.card[o], *f))
+                    })
+                    .collect();
+                for k in older {
+                    self.hero_units[k].superseded = true;
+                }
+            }
+            self.hero_units.push(HeroUnit { id, spent: false, casting: false, recharge_at: 0, uses: 0, superseded: false });
             if matches!(c.ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::LevelUp { .. })) {
                 self.quests.push(QuestRun { id, born: self.tick, filled_ms: 0, stack: 0, resets: 0, stopped: false });
             }
@@ -23202,13 +23228,18 @@ impl BattleState {
         matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. }))
     }
 
-    /// The `hero_units` entry of the newest living hero of `team`'s hero form `form`, or None.
+    /// The `hero_units` entry of the NEWEST copy of `team`'s form `form` if it lives, or None: an older copy left alive
+    /// is superseded and has no button (`HeroUnit::superseded`).
     fn newest_hero(&self, team: Team, form: u16) -> Option<usize> {
         self.hero_units.iter().rposition(|u| {
             let i = u.id.index as usize;
-            let card = self.ents.card[i];
-            self.ents.is_alive(u.id) && self.ents.team[i] == team && (card == form || self.cfg.cards.button_unit(form) == Some(card) || self.cfg.cards.spent_unit(form) == Some(card))
+            !u.superseded && self.ents.is_alive(u.id) && self.ents.team[i] == team && self.copy_of(self.ents.card[i], form)
         })
+    }
+
+    /// Is a unit of card `card` a copy of the button form `form`: the form itself, its button unit or its spent unit?
+    fn copy_of(&self, card: u16, form: u16) -> bool {
+        card == form || self.cfg.cards.button_unit(form) == Some(card) || self.cfg.cards.spent_unit(form) == Some(card)
     }
 
     /// EVERY ABILITY BUTTON OF `team`, in button order (`AbilityButton`).
@@ -25343,6 +25374,9 @@ impl BattleState {
                 if u.uses != 0 {
                     h.u32(0x5553_4553);
                     h.u32(u32::from(u.uses));
+                }
+                if u.superseded {
+                    h.u32(0x5355_5052);
                 }
             }
         }
