@@ -877,6 +877,8 @@ fn a_skeleton_kings_soul_is_rooted_to_its_king() {
         .expect("a deploy parses")
     };
     let mut f = sample();
+    // A champion's button comes from the deck: the sample's side 0 has no Skeleton King, so he goes first in it.
+    f.decks.entry("0".to_string()).or_default().deploy_order.insert(0, "SkeletonKing".to_string());
     f.deploys.push(row(700, "troop", 1, "tap_tile"));
     f.deploys.push(row(760, "ability", 0, "ability_press"));
     f.deploys.sort_by_key(|d| d.tick);
