@@ -143,7 +143,8 @@ pub struct Body {
     pub air: bool,
     /// Walks (troops); false for buildings and towers.
     pub mover: bool,
-    /// Alive, and collidable (false while jumping / dashing / with NO_CHECKCOLLISIONS).
+    /// Alive, and collidable (false while jumping / dashing / with NO_CHECKCOLLISIONS). `alive` false with
+    /// `collidable` true: met by no separation scan, still by the avoidance scans (a deflecting Monk, state.rs).
     pub alive: bool,
     pub collidable: bool,
     /// The neighbour's own avoidance offset (movers only; 0 otherwise).

@@ -26,6 +26,8 @@
 //!                             goes red.
 //!   deflect_pushed            the active window leaves him to his neighbours' pushes:
 //!                             `a_giant_walking_into_him_does_not_move_him_while_it_is_active` goes red.
+//!   deflect_contact_kept      the active window leaves him in his neighbours' separation scans (and their avoidance
+//!                             meets him as a mover): `a_giant_on_him_is_not_pushed_by_him_while_it_is_active` red.
 //!
 //! THE CATCH (combat.rs `step_projectiles`): a shot at him while his deflect is active lands on the tick its step brings it
 //! within his deflect area's Radius (1500), not at his centre. Measured on client 15.535.29 (sp-champ-Monk-s0): a
@@ -206,5 +208,54 @@ fn a_giant_walking_into_him_does_not_move_him_while_it_is_active() {
     let first = (rows[0].1, rows[0].2);
     for r in &rows {
         assert_eq!((r.1, r.2), first, "P + {}: he stands where the active window began: {rows:?}", r.0);
+    }
+}
+
+/// NOR DOES HE PUSH ANYONE WHILE IT IS ACTIVE (state.rs `deflect_off`, his ability's AVOIDANCE_AS_OBSTACLE): read off the
+/// 16.402 code by Oracle, measured on client 15.535.29 (sp-champ-Monk-recharge-q20-s0 t229..t246: a Giant slides round
+/// him at about 1,207, inside both radii, and is never pushed). The scene above: on every tick of the active window
+/// that starts with the Giant inside both radii and 20 of him (its only neighbour), the Giant takes no contact push.
+#[test]
+fn a_giant_on_him_is_not_pushed_by_him_while_it_is_active() {
+    const RED: [&str; 8] = ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), RED.iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let at = n((3500, 12500));
+    let monk = s.scenario_spawn_now(Team::Blue, "Monk", at, None).expect("the Monk");
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", n((3500, 17500)), None).expect("the Giant");
+    let gap = |s: &BattleState| {
+        let (a, b) = (s.entity(monk).expect("the Monk").pos, s.entity(giant).expect("the Giant").pos);
+        let (dx, dy) = (((a.x - b.x) / K) as i64, ((a.y - b.y) / K) as i64);
+        isqrt(dx * dx + dy * dy)
+    };
+    let reach = (s.entity(monk).expect("the Monk").radius + s.entity(giant).expect("the Giant").radius) as i64 / K as i64 + 20;
+    let mut waited = 0;
+    while gap(&s) > 2200 {
+        assert!(s.debug_set_pos(monk, at));
+        s.tick();
+        waited += 1;
+        assert!(waited < 400, "the scene drifted: the Giant never came near ({})", gap(&s));
+    }
+    assert!(s.debug_set_pos(monk, at));
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut on_him = Vec::new();
+    while s.tick_count() - 1 < p + 90 {
+        let before = gap(&s);
+        s.tick();
+        let k = s.tick_count() - 1 - p;
+        let g = s.entity(giant).expect("the Giant");
+        if k >= 18 && before <= reach {
+            on_him.push((k, before, g.push_neighbours, g.push_applied.x / K, g.push_applied.y / K));
+        }
+    }
+    assert!(on_him.len() >= 3, "the scene drifted: the Giant stood inside {reach} of him on {} ticks of the active window", on_him.len());
+    for r in &on_him {
+        assert!(r.2 == 0 && (r.3, r.4) == (0, 0), "P + {}: the Giant, {} from him, was pushed: {on_him:?}", r.0, r.1);
     }
 }

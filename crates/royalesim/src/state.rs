@@ -16558,6 +16558,18 @@ impl BattleState {
         for r in self.warps.tombs.iter().filter(|r| (r.pressed.is_none() || self.ents.is_alive(r.tomb)) && self.ents.is_alive(r.monster)) {
             drill_off[r.monster.index as usize] = true;
         }
+        // THE MONK'S DEFLECT (card.rs `AbilityEffect::Deflect`, `deflects`; his ability's AVOIDANCE_AS_OBSTACLE): while it
+        // is active he takes part in no contact either way (no other unit's separation meets him, and his own is held by
+        // his `stay`), and every other unit's avoidance meets him as a static obstacle, as a building. Read off the 16.402
+        // code by Oracle; measured on client 15.535.29 (sp-champ-Monk-recharge-q20-s0 t229..t246): a Giant slides round
+        // him at about 1,207 centre to centre, inside both radii, and is never pushed.
+        let mut deflect_off = vec![false; self.ents.capacity()];
+        #[cfg(not(clash_plant = "deflect_contact_kept"))]
+        for (id, until) in &self.deflects {
+            if self.tick < *until && self.ents.is_alive(*id) {
+                deflect_off[id.index as usize] = true;
+            }
+        }
         let mut freed_hold = vec![false; self.ents.capacity()];
         if !self.evo.freed.is_empty() {
             let (tick, ents) = (self.tick, &self.ents);
@@ -16640,7 +16652,8 @@ impl BattleState {
                         mass: move16402::loaded_mass(e.mass[i].unwrap_or(0), e.radius[i] / K),
                         air: e.flying[i],
                         mover: e.kind[i] == EntityKind::Troop,
-                        alive,
+                        // a deflecting Monk (`deflect_off`) is met by no unit's separation, his body kept for avoidance
+                        alive: alive && !deflect_off[i],
                         // a unit mid river-jump is skipped by every neighbour's scans
                         // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK), and an
                         // attached rider, which pushes nothing (`carry_riders`)
@@ -16676,7 +16689,9 @@ impl BattleState {
                             && e.stagger_ms[i] > 0)
                             // movement.DYING_UNIT_VISIBILITY = client_doomed_static: a troop whose death is
                             // settled before the pass (`doomed_mask`) is static to the avoidance scan too.
-                            || (doomed_static && self.scratch.doomed.get(i).copied().unwrap_or(false)),
+                            || (doomed_static && self.scratch.doomed.get(i).copied().unwrap_or(false))
+                            // a deflecting Monk is a static obstacle to every avoidance scan (`deflect_off`)
+                            || deflect_off[i],
                         // creation order breaks a tie inside one group (`move16402::Index::query`): a slot is
                         // reused, a creation order is not
                         seq: e.creation_seq[i],
