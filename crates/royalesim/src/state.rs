@@ -23188,7 +23188,7 @@ impl BattleState {
 
     /// Is `form` a champion's (card.rs `AbilityEffect::DashChain`, `Deflect`) rather than a hero form's?
     fn champion_button(&self, form: u16) -> bool {
-        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::LaneSwitch(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_)))
+        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::LaneSwitch(_) | crate::card::AbilityEffect::SoulSummon(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_)))
     }
 
     /// Has hero unit `u` of `form` a charge left behind its cooldown (the Boss Bandit's: card.rs `WarpBackDef::charges`)?

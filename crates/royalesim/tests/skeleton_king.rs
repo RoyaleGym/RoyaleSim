@@ -204,3 +204,21 @@ fn an_ignore_resurrect_death_is_no_soul() {
     let got = copies(&mut s, king, p, 60);
     assert_eq!(got.len(), 8, "6 and the two Skeletons' souls, not the Golem's: {got:?}");
 }
+
+/// His button is a champion's (state.rs `champion_button`): reported so, and charged, before the press.
+#[test]
+fn his_button_is_a_champions() {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_spawn_now(Team::Blue, "SkeletonKing", n(AT), None).expect("the champion");
+    for _ in 0..30 {
+        s.tick();
+    }
+    let b = s.ability_buttons(Team::Blue);
+    assert_eq!(b.len(), 1, "one button: his");
+    assert!(b[0].champion && b[0].available, "a champion's button, charged: {:?}", b[0]);
+}

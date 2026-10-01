@@ -118,3 +118,21 @@ fn his_bomb_strikes_and_pushes_twenty_ticks_after_the_trigger() {
     let step = (row(31).knight.0 - row(30).knight.0, row(31).knight.1 - row(30).knight.1);
     assert_eq!(step, (-250, 0), "P + 31: the ladder of 1800's first step, 250 capped, away from the bomb");
 }
+
+/// His button is a champion's (state.rs `champion_button`): reported so, and charged, before the press.
+#[test]
+fn his_button_is_a_champions() {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_spawn_now(Team::Blue, "MightyMiner", n(AT), None).expect("the champion");
+    for _ in 0..30 {
+        s.tick();
+    }
+    let b = s.ability_buttons(Team::Blue);
+    assert_eq!(b.len(), 1, "one button: his");
+    assert!(b[0].champion && b[0].available, "a champion's button, charged: {:?}", b[0]);
+}
