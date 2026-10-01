@@ -21788,13 +21788,22 @@ impl BattleState {
                     self.evo.freed.push((c, self.tick + crate::card::CAGE_RELEASE_HOLD_TICKS as u32));
                 }
             }
-            // THE EVO WITCH'S SOUL (card.rs `SoulDrainDef`): a unit she spawned dying sends one, due its flight and a
-            // tick on (the heal's pulse).
+            // THE EVO WITCH'S SOUL (card.rs `SoulDrainDef`): a unit of her ROW's own wave dying sends one, due its
+            // flight and a tick on (the heal's pulse). A unit of her interval waves (`witch_wave_pass`, created from her
+            // creation + the interval's first delay on) sends none. Measured on client 15.535.29 (r4c's witch_souls
+            // reading): row-wave deaths healed her 8 of 8, interval-wave deaths 0 of 8 (sp-f2-witch-s0, none at her cap).
             #[cfg(not(clash_plant = "soul_drain_never"))]
             if let Some(w) = self.ents.spawned_by[i].filter(|w| self.ents.is_alive(*w) && self.ents.hp[w.index as usize] > 0) {
                 if let Some(sd) = self.cfg.cards.get(self.ents.card[w.index as usize]).evo.as_ref().and_then(|e| e.soul_drain) {
-                    let due = self.tick + (sd.flight_ms / self.cfg.calib.tick_ms.max(1)) as u32 + 1;
-                    self.evo.souls.push((w, due));
+                    let dt = self.cfg.calib.tick_ms.max(1);
+                    #[cfg(not(clash_plant = "interval_units_send_souls"))]
+                    let from_row = self.ents.spawn_tick[i] < self.ents.spawn_tick[w.index as usize] + ((sd.waves.first_ms / dt) as u32).saturating_sub(1);
+                    #[cfg(clash_plant = "interval_units_send_souls")]
+                    let from_row = true; // PLANT (regression): every unit she spawned sends a soul.
+                    if from_row {
+                        let due = self.tick + (sd.flight_ms / dt) as u32 + 1;
+                        self.evo.souls.push((w, due));
+                    }
                 }
             }
             let card = self.cfg.cards.get(self.ents.card[i]);

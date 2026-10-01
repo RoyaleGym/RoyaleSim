@@ -9,7 +9,8 @@
 //! evo_witch`):
 //!   - soul_drain_never -> `each_skeleton_she_spawned_that_dies_heals_her_153_on_its_death_plus_21` red;
 //!   - overheal_capped_at_max -> the same red;
-//!   - witch_waves_never -> `her_interval_waves_come_on_her_creation_plus_179_then_every_140` red.
+//!   - witch_waves_never -> `her_interval_waves_come_on_her_creation_plus_179_then_every_140` red;
+//!   - interval_units_send_souls -> `a_skeleton_of_her_interval_waves_sends_no_soul` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -119,4 +120,56 @@ fn her_interval_waves_come_on_her_creation_plus_179_then_every_140() {
     // Her row's wave first (its tick is the base Witch's spawner's), then the interval's on + 179, + 319, + 459.
     let later: Vec<(usize, usize)> = arrivals.iter().copied().skip(1).collect();
     assert_eq!(later, vec![(179, 4), (319, 4), (459, 4)], "her waves: {arrivals:?}");
+}
+
+/// ONLY HER ROW'S WAVE SENDS SOULS (state.rs, her soul in Reap): a Skeleton of her interval waves dying heals her nothing,
+/// below her cap; one of her row's wave, after it, heals her 153 on its death + 21. Measured on client 15.535.29: row-wave
+/// deaths healed her 8 of 8, interval-wave deaths 0 of 8 (sp-f2-witch-s0's second and third waves).
+#[test]
+fn a_skeleton_of_her_interval_waves_sends_no_soul() {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["Witch".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let at = n(9000, 11500);
+    s.spawn_unit(Team::Blue, "Witch_EV1", at, None).expect("the Witch");
+    s.tick();
+    let w = find_live(&s, Team::Blue, "Witch_EV1").first().expect("the Witch").id;
+    let top = s.entity(w).expect("the Witch").max_hp;
+    let mut hold: Vec<(EntityId, Vec2)> = Vec::new();
+    let mut row: Vec<EntityId> = Vec::new();
+    for _ in 0..260 {
+        let mine = hers(&s, w);
+        if row.is_empty() && mine.len() >= 4 {
+            row = mine.clone();
+        }
+        if !row.is_empty() && mine.len() >= 8 {
+            break;
+        }
+        for id in &mine {
+            if !hold.iter().any(|(h, _)| h == id) {
+                hold.push((*id, s.entity(*id).expect("hers").pos));
+            }
+        }
+        assert!(s.debug_set_pos(w, at));
+        for (id, p) in &hold {
+            let _ = s.debug_set_pos(*id, *p);
+        }
+        s.tick();
+    }
+    let interval: Vec<EntityId> = hers(&s, w).into_iter().filter(|id| !row.contains(id)).collect();
+    assert_eq!((row.len(), interval.len()), (4, 4), "the scene drifted: her row's wave and her first interval wave");
+    for id in &interval {
+        if !hold.iter().any(|(h, _)| h == id) {
+            hold.push((*id, s.entity(*id).expect("hers").pos));
+        }
+    }
+    assert_eq!(s.entity(w).expect("the Witch").hp, top, "the scene drifted: she is not at her maximum");
+    let hp = kill(&mut s, w, at, interval[0], &hold);
+    assert!(hp.iter().all(|h| *h == top), "an interval wave's Skeleton healed her: {hp:?}");
+    let hp = kill(&mut s, w, at, row[0], &hold);
+    assert_eq!(hp[21], top + 153, "the control: her row's Skeleton heals her 153 on its death + 21: {hp:?}");
 }
