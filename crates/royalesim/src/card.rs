@@ -1271,6 +1271,8 @@ pub enum AbilityEffect {
     Tether(TetherDef),
     /// THE RE-ROLL (the Hero Barbarian Barrel's; `ReRollDef`).
     ReRoll(ReRollDef),
+    /// THE DISMOUNT (the Hero Dark Prince's; `DismountDef`).
+    Dismount(DismountDef),
 }
 
 /// THE RE-ROLL (the Hero Barbarian Barrel's; tools/extract_cards.py `spell_hero_card`, `reroll_button`; state.rs
@@ -1299,6 +1301,40 @@ pub struct ReRollDef {
 /// The re-roll's roll is its row's ProjectileRange less this many steps: FITTED on one scene (sp-form-BarbLog-hero-s0:
 /// 2800 of 3000, 14 steps of 200).
 pub const REROLL_ROLL_SHORT_STEPS: i32 = 1;
+
+/// THE DISMOUNT (the Hero Dark Prince's; tools/extract_cards.py `dismount_effect`; state.rs `DismountRun`,
+/// `dismount_pass`, `dismount_hops`). At the trigger the hero becomes `walker` (state.rs `rebind_unit`: its hitpoints,
+/// shield, target and swing kept), nothing meets its body for `no_collide_ms`, and `mount` is put down with no deploy
+/// on its point + DISMOUNT_MOUNT_OFFSET (its side's frame). The hero hops `hop_y` (native, its side's forward: negative
+/// is back), its target dropped, on the trigger's tick and every `hop_ms` after, `hops` in all, after the move pass.
+/// The mount is held (the stun timer) from DISMOUNT_MOUNT_HOLD_FROM_TICKS after its first frame for its NO_MOVE's
+/// `mount_hold_ms` and DISMOUNT_MOUNT_HOLD_EXTRA_TICKS more, and `blow_ms` after its first frame its spawn blow (its
+/// `deploy_projectile`) is put down on its point.
+///
+/// Measured on client 15.535.29 (Oracle's sp-hero2-DarkPrince-*-s0 and -s1, level 11, the press P): the hero 200 back
+/// on each of P + 1 .. P + 10, held to P + 40, walking P + 41, its 1200 hitpoints kept; the mount's first frame P + 1,
+/// one step on P + 2, standing P + 3 .. P + 23, walking P + 24 (1356 hitpoints, the princess tower its target); a
+/// Knight 2200 from it losing 307 (120 at level 11) on P + 12, knocked 1372 back over 10 ticks; one 4000 off untouched.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DismountDef {
+    pub walker: u16,
+    pub mount: u16,
+    pub no_collide_ms: i32,
+    pub hop_y: i32,
+    pub hop_ms: i32,
+    pub hops: i32,
+    pub mount_hold_ms: i32,
+    pub blow_ms: i32,
+}
+
+/// The mount's first point from the hero's at the trigger (native, the side's frame: +x its right, +y its forward), by
+/// side (Blue, Red): FITTED, (-49, -86) on two blue runs of a standing hero, (-60, -119) on one red run. The cause is
+/// not modelled: a charging and a swinging blue hero's were (-57, -101) and (-45, -82).
+pub const DISMOUNT_MOUNT_OFFSET: [(i32, i32); 2] = [(-49, -86), (-60, -119)];
+/// The ticks from the mount's first frame to its hold's first: measured, 2 (its one step on its second frame).
+pub const DISMOUNT_MOUNT_HOLD_FROM_TICKS: u32 = 2;
+/// The ticks past its NO_MOVE's time the mount stands: measured, 1 (21 frames for 1000 ms).
+pub const DISMOUNT_MOUNT_HOLD_EXTRA_TICKS: u32 = 1;
 
 /// THE TETHER (Goblinstein's; tools/extract_cards.py `champion_tether`; state.rs `TetherRun`, `tether_pass`). The card
 /// puts down the Monster (its own unit, `monster`) and the Doctor (its second summon, `unit`), which holds the button.
@@ -5850,6 +5886,14 @@ struct RawAbilityEffect {
     far: Option<RawSiegeShot>,
     near: Option<RawSiegeShot>,
     normal_start_radius_milli: Option<i32>,
+    /// `dismount` (tools/extract_cards.py `dismount_effect`; `unit` above: the walking row).
+    mount: Option<String>,
+    no_collide_ms: Option<i32>,
+    hop_y_milli: Option<i32>,
+    hop_ms: Option<i32>,
+    hops: Option<i32>,
+    mount_hold_ms: Option<i32>,
+    blow_ms: Option<i32>,
 }
 
 /// cards.json `cards[].ramp` (tools/extract_cards.py `champion_ramp`): the grace and each level.
@@ -12451,6 +12495,47 @@ impl CardDb {
                     near_start: milli(near.start_radius_milli),
                 })
             }
+            // THE DISMOUNT (the Hero Dark Prince's): its walking row and its mount load after the form (the walking row
+            // first, the mount's spawn blow its deploy projectile).
+            "dismount" => {
+                let e = &a.effect;
+                let load = |name: &str, buffs: &mut BuffTable| -> Result<CardDef, String> {
+                    let mut uv = extra.tables.units.get(name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                    let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                    obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                    obj.entry("count").or_insert(serde_json::Value::from(1));
+                    let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                    ur.ability = None;
+                    let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("{what}: units.{name}: {e}"))?;
+                    if let Some((w, n)) = uneeds.first() {
+                        return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on a dismount"));
+                    }
+                    if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                        return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                    }
+                    u.summon_only = true;
+                    Ok(u)
+                };
+                let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a dismount with no {k}"));
+                let walker = load(&e.unit.clone().ok_or_else(|| format!("{what}: a dismount with no walking row"))?, buffs)?;
+                let mount = load(&e.mount.clone().ok_or_else(|| format!("{what}: a dismount with no mount"))?, buffs)?;
+                if mount.deploy_projectile.is_none() || mount.kind != CardKind::Troop {
+                    return Err(format!("{what}: a mount with no spawn blow"));
+                }
+                let effect = AbilityEffect::Dismount(DismountDef {
+                    walker: 0,
+                    mount: 1,
+                    no_collide_ms: pos(e.no_collide_ms, "no-collide time")?,
+                    hop_y: e.hop_y_milli.filter(|y| *y != 0).ok_or_else(|| format!("{what}: a hop of nothing"))?,
+                    hop_ms: pos(e.hop_ms, "hop clock")?,
+                    hops: pos(e.hops, "hop")?,
+                    mount_hold_ms: pos(e.mount_hold_ms, "mount hold")?,
+                    blow_ms: pos(e.blow_ms, "blow delay")?,
+                });
+                flag_units.push(walker);
+                flag_units.push(mount);
+                effect
+            }
             other => return Err(format!("{what}: effect {other} is not simulated")),
         };
         c.ability = Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect });
@@ -12522,6 +12607,11 @@ impl CardDb {
                     sp.unit += first;
                 }
             }
+            // The Hero Dark Prince's walking row (which so holds the button) and its mount.
+            if let Some(AbilityDef { effect: AbilityEffect::Dismount(d), .. }) = self.cards[form as usize].ability.as_mut() {
+                d.walker += first;
+                d.mount += first;
+            }
             let fixed = self.cards[form as usize].ability.clone();
             self.cards[first as usize].ability = fixed;
         }
@@ -12560,6 +12650,8 @@ impl CardDb {
             Some(AbilityEffect::FlagSpawns(f)) => Some(f.flag),
             Some(AbilityEffect::Tether(t)) => Some(t.unit),
             Some(AbilityEffect::ReRoll(r)) => Some(r.unit),
+            // The Hero Dark Prince's walking row: the hero once it has dismounted (its charge spent).
+            Some(AbilityEffect::Dismount(d)) => Some(d.walker),
             _ => None,
         }
     }
@@ -12890,6 +12982,11 @@ impl CardDb {
             for sp in &f.spawns {
                 out.push((UnitRef::AbilityUnit, sp.unit, None));
             }
+        }
+        // The Hero Dark Prince's walking row and mount.
+        if let Some(AbilityDef { effect: AbilityEffect::Dismount(d), .. }) = &c.ability {
+            out.push((UnitRef::AbilityUnit, d.walker, None));
+            out.push((UnitRef::AbilityUnit, d.mount, None));
         }
         // After it, so no earlier block's place moves: the units an evolved form's own mechanic puts down (loaded right
         // after the form, `load_evolution`): the Evo Royal Ghost's pair.

@@ -7084,6 +7084,22 @@ pub struct WarpBoard {
     /// snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flag_plays: Vec<(Team, u16, u32)>,
+    /// The Hero Dark Princes' dismounts under way (`DismountRun`). Absent in older snapshots, and hashed only when not
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dismounts: Vec<DismountRun>,
+}
+
+/// A HERO DARK PRINCE'S DISMOUNT UNDER WAY (card.rs `DismountDef`; `dismount_pass`, `dismount_hops`): the hero, its side,
+/// its form, the trigger's tick (the mount's first frame), the mount's point then, and the mount once taken.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DismountRun {
+    pub id: EntityId,
+    pub team: Team,
+    pub card: u16,
+    pub made: u32,
+    pub at: Vec2,
+    pub mount: Option<EntityId>,
 }
 
 /// A HERO BARBARIAN BARREL RE-ROLL UNDER WAY (card.rs `ReRollDef`; `reroll_pass`, `reroll_logs`): the Barbarian, its
@@ -7145,7 +7161,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -11780,6 +11796,10 @@ impl BattleState {
                     if !self.warps.guards.is_empty() {
                         self.guard_moves();
                     }
+                    // The Hero Dark Princes' hops, after the tick's walks (`dismount_hops`).
+                    if !self.warps.dismounts.is_empty() {
+                        self.dismount_hops();
+                    }
                 }
                 Phase::Attack => self.phase_attack(),
                 Phase::Projectile => self.phase_projectile(),
@@ -12517,6 +12537,10 @@ impl BattleState {
         // The Hero Barbarian Barrels' re-rolls (`reroll_pass`).
         if !self.warps.rerolls.is_empty() {
             self.reroll_pass();
+        }
+        // The Hero Dark Princes' mounts (`dismount_pass`).
+        if !self.warps.dismounts.is_empty() {
+            self.dismount_pass();
         }
         if !self.hero_units.is_empty() {
             let ents = &self.ents;
@@ -15999,6 +16023,17 @@ impl BattleState {
             let dt = self.cfg.calib.tick_ms.max(1);
             if self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.drill).is_some_and(|d| self.tick < r.under_at + (d.hide_ms / dt) as u32) {
                 drill_off[i] = true;
+            }
+        }
+        // THE HERO DARK PRINCE'S DISMOUNT (card.rs `DismountDef`): DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS for its
+        // `no_collide_ms` from the trigger; no unit meets its body.
+        #[cfg(not(clash_plant = "dismount_collides"))]
+        for r in self.warps.dismounts.iter().filter(|r| self.ents.is_alive(r.id)) {
+            let dt = self.cfg.calib.tick_ms.max(1);
+            if let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Dismount(d), .. }) = self.cfg.cards.get(r.card).ability {
+                if self.tick < r.made + (d.no_collide_ms / dt) as u32 {
+                    drill_off[r.id.index as usize] = true;
+                }
             }
         }
         let mut freed_hold = vec![false; self.ents.capacity()];
@@ -20230,6 +20265,83 @@ impl BattleState {
         }
     }
 
+    /// THE HERO DARK PRINCES' MOUNTS (card.rs `DismountDef`, `DismountRun`), in the Status phase: from the tick after the
+    /// trigger the run takes its mount (the mount of its side made on the trigger's tick nearest its point); from
+    /// DISMOUNT_MOUNT_HOLD_FROM_TICKS after the mount's first frame it is held (the stun timer) for its NO_MOVE's time and
+    /// DISMOUNT_MOUNT_HOLD_EXTRA_TICKS more; `blow_ms` after its first frame its spawn blow (its deploy projectile, at its
+    /// level) is put down on its point. The run ends once its hops, its no-collide window, the hold and the blow are
+    /// done.
+    fn dismount_pass(&mut self) {
+        let dt = self.cfg.calib.tick_ms.max(1);
+        let runs = std::mem::take(&mut self.warps.dismounts);
+        let mut keep = Vec::new();
+        for mut r in runs {
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Dismount(d), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            let age = self.tick.saturating_sub(r.made);
+            if r.mount.is_none() && age >= 1 {
+                let e = &self.ents;
+                let found = (0..e.capacity()).filter(|&j| e.alive[j] && e.card[j] == d.mount && e.team[j] == r.team && e.spawn_tick[j] == r.made).min_by_key(|&j| (e.pos[j].dist2(r.at), j));
+                r.mount = found.map(|j| e.id_of(j));
+            }
+            let from = crate::card::DISMOUNT_MOUNT_HOLD_FROM_TICKS;
+            let hold_end = from + (d.mount_hold_ms / dt) as u32 + crate::card::DISMOUNT_MOUNT_HOLD_EXTRA_TICKS - 1;
+            let blow_at = (d.blow_ms / dt) as u32;
+            if let Some(m) = r.mount.filter(|m| self.ents.is_alive(*m)) {
+                let mi = m.index as usize;
+                #[cfg(not(clash_plant = "mount_never_held"))]
+                if age >= from && age <= hold_end {
+                    self.ents.stun_ms[mi] = self.ents.stun_ms[mi].max(dt);
+                }
+                #[cfg(not(clash_plant = "mount_blow_never"))]
+                if age == blow_at {
+                    let (team, card, level, at) = (self.ents.team[mi], self.ents.card[mi], self.ents.level[mi], self.ents.pos[mi]);
+                    if let Some(SpellShape::Projectile { hit: Some(h), .. }) = self.cfg.cards.get(card).deploy_projectile.as_ref().map(|x| &x.shape) {
+                        let damage = self.cfg.cards.scaled(card, level, h.damage).expect("the mount's level is validated at try_new");
+                        self.spells.push(Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: 0 }, depth: 0 });
+                    }
+                }
+            }
+            let hops_end = ((d.hop_ms / dt).max(1) * d.hops) as u32;
+            let last = hold_end.max(blow_at).max(hops_end).max((d.no_collide_ms / dt) as u32);
+            if age <= last {
+                keep.push(r);
+            }
+        }
+        self.warps.dismounts = keep;
+    }
+
+    /// THE HERO DARK PRINCES' HOPS (card.rs `DismountDef::hop_y`), after the move pass: on the trigger's tick and every
+    /// `hop_ms` after, `hops` in all, the hero moves `hop_y` along its side's forward (negative: back), clamped as a
+    /// scheduled spawn's point is (`scheduled_point`), and drops its target (each hop's ResetTarget).
+    fn dismount_hops(&mut self) {
+        let dt = self.cfg.calib.tick_ms.max(1);
+        let mut moved = false;
+        for k in 0..self.warps.dismounts.len() {
+            let r = self.warps.dismounts[k].clone();
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Dismount(d), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            let every = (d.hop_ms / dt).max(1) as u32;
+            let age = self.tick.saturating_sub(r.made);
+            if !self.ents.is_alive(r.id) || age % every != 0 || age / every >= d.hops as u32 {
+                continue;
+            }
+            let i = r.id.index as usize;
+            let p = self.ents.pos[i];
+            let to = Vec2::new(p.x, p.y + d.hop_y * spell::forward_dy(r.team) * crate::fixed::SUBTILE_PER_MILLITILE);
+            let flying = self.ents.flying[i];
+            #[cfg(not(clash_plant = "dismount_never_hops"))]
+            {
+                self.ents.pos[i] = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying);
+                self.ents.target[i] = None;
+                self.ents.target_locked[i] = false;
+                moved = true;
+            }
+            let _ = (to, flying);
+        }
+        if moved {
+            self.hash.rebuild(&self.ents);
+        }
+    }
+
     /// GOBLINSTEIN'S TETHERS (card.rs `TetherDef`, `TetherRun`), at the start of Resolve on this tick's positions: every
     /// `every_ms` from its first hit for `duration_ms`, while its Doctor and its Monster both stand, every enemy whose
     /// centre is within `width` and its radius of the segment from the Doctor to the Monster takes the tether's damage at
@@ -22597,7 +22709,7 @@ impl BattleState {
         }
         // A DECOY WARP (the Hero Magic Archer's) and a SIEGE (the Hero Bowler's) land EARLY_TRIGGER_TICKS before that too.
         #[cfg(not(clash_plant = "early_trigger_late"))]
-        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_) | crate::card::AbilityEffect::ReRoll(_)) {
+        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_) | crate::card::AbilityEffect::ReRoll(_) | crate::card::AbilityEffect::Dismount(_)) {
             ms -= EARLY_TRIGGER_TICKS * self.cfg.calib.tick_ms;
         }
         self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
@@ -22913,6 +23025,21 @@ impl BattleState {
                     self.warps.magic.push(MagicRun { id: hero, team, card, made: self.tick });
                 }
                 let _ = (level, pos, w);
+            }
+            // THE DISMOUNT (the Hero Dark Prince's; `DismountRun`): the hero is its walking row now, its mount queued beside
+            // it (made in this tick's Spawn phase, no deploy); its hops after this tick's move pass on (`dismount_hops`),
+            // its mount's hold and blow on the mount's clock (`dismount_pass`).
+            crate::card::AbilityEffect::Dismount(d) => {
+                #[cfg(not(clash_plant = "dismount_never"))]
+                {
+                    let lvl = self.cfg.cards.unit_level(card, d.mount, None, level).expect("the ability unit's level is validated at try_new");
+                    let at = guard_point(team, pos, crate::card::DISMOUNT_MOUNT_OFFSET[team as usize]);
+                    self.spawn_queue.push(PendingSpawn { team, card: d.mount, level: lvl, pos: at, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
+                    self.rebind_unit(i, d.walker, false);
+                    self.warps.dismounts.retain(|r| r.id != hero);
+                    self.warps.dismounts.push(DismountRun { id: hero, team, card, made: self.tick, at, mount: None });
+                }
+                let _ = (team, level, pos, d);
             }
             // THE LEVEL SET (the Hero Mini PEKKA's; `level_up`): its quest's stack picks the gain.
             crate::card::AbilityEffect::LevelUp { levels, heal_missing_pct, .. } => {
@@ -24714,6 +24841,19 @@ impl BattleState {
                     h.id(r.id);
                     h.u32(u32::from(r.form));
                     h.u32(r.made);
+                }
+            }
+            if !self.warps.dismounts.is_empty() {
+                h.u32(0x444d_4e54);
+                h.u32(self.warps.dismounts.len() as u32);
+                for r in &self.warps.dismounts {
+                    h.id(r.id);
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.card));
+                    h.u32(r.made);
+                    h.i32(r.at.x);
+                    h.i32(r.at.y);
+                    h.opt_id(r.mount);
                 }
             }
         }

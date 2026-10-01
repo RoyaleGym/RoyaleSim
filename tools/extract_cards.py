@@ -6584,6 +6584,7 @@ HERO_FORMS = {
     "Bowler_hero": ("Bowler", "bowler_hero"),
     "Goblins_hero": ("Goblins", "goblins_hero"),
     "BarbLog_hero": ("BarbLog", "barb_log_hero"),
+    "DarkPrince_hero": ("DarkPrince", "dark_prince_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -7751,6 +7752,25 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "is_champion": a.get("IsChampion") is True,
             "effect": warp_effect(h, name, a["OnActivationAction"]),
         }
+    # THE HERO DARK PRINCE'S DISMOUNT: a group whose sub-group hops the hero (an ActionWarpCharacter), read whole by
+    # `dismount_effect`.
+    if first is not None and first["ClassType"] == "ActionGroup" and any(
+        acts.get(x) is not None and acts.get(x)["ClassType"] == "ActionWarpCharacter"
+        for s_ in col_list(acts, a["OnActivationAction"], "SubActions")
+        if acts.get(s_) is not None and acts.get(s_)["ClassType"] == "ActionGroup"
+        for x in col_list(acts, s_, "SubActions")
+    ):
+        return {
+            "name": name,
+            "mana_cost": a["ManaCost"],
+            "max_charges": a.get("MaxCharges"),
+            "cooldown_ms": a.get("Cooldown"),
+            "cast_ms": a.get("CastTime") or 0,
+            "trigger_delay_ms": a.get("TriggerDelay") or 0,
+            "keep_current_target": a.get("KeepCurrentTarget") is True,
+            "is_champion": a.get("IsChampion") is True,
+            "effect": dismount_effect(h, name, a["OnActivationAction"], units, hero_unit or ""),
+        }
     got = _group_leaves(acts, a["OnActivationAction"])
     if got is None:
         raise SystemExit(f"hero ability {name}: OnActivationAction is not an ActionGroup")
@@ -7846,6 +7866,125 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
         "is_champion": a.get("IsChampion") is True,
         "effect": effect,
     }
+
+
+# THE HERO DARK PRINCE (`dismount_effect`): the classes its group may run beside its mechanics (the button's display,
+# the listener that shows it again on a play of its card group, effects), the keys each of its actions may set.
+DISMOUNT_UI = {"ActionOverrideAbilityButtonState", "ActionActivateOnCardDeploy", "ActionPlayEffect"}
+DISMOUNT_GROUP_KEYS = {"ClassType", "SubActions", "SubActionsDelay", "AbortIfInstigatorDies"}
+DISMOUNT_SPAWN_KEYS = {"ClassType", "SpawnType", "SpawnData", "TargetExprX", "TargetExprY", "ParentGOAsSource",
+                       "ActionPausedIfTrue"}
+
+
+def dismount_effect(h: Tables, name: str, group: str, units: dict, hero_unit: str) -> dict:
+    """THE HERO DARK PRINCE'S BUTTON ([ABILITY] OnActivationAction an ActionGroup), read whole or the build stops. At
+    the trigger, together (its mechanical sub-actions all at delay 0; a SubActionsDelay entry past its last sub-action
+    is read as unused, as an effect's delay is):
+      - the hero becomes `unit` (ActionChangeGameObjectData, its target kept; the row must hold the same button), and
+        for `no_collide_ms` nothing meets its body (the change's NextAction: an ActionWithDuration of
+        DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS);
+      - it hops `hop_y_milli` (ActionWarpCharacter RelativeWarp, its target dropped) `hops` times, one each `hop_ms` (a
+        sub-group that warps, then adds `hop_ms` to a [VARIABLE] from 0 and runs itself again while the variable is
+        under its bound: the add's SubActionsDelay and ActionDelay, both `hop_ms`, are one wait, as measured);
+      - `mount` is put down on its point (ActionSpawnToLocation at x, y), with no deploy (no UseDeploy); the mount's own
+        start holds it `mount_hold_ms` (NO_MOVE_ALLOW_ATTRACT) and `blow_ms` on puts its spawn blow down on it (an
+        ActionSpawn of a projectile, the mount's `deploy_projectile`; not on a Clone's copy), beside an effect.
+    ActionPausedIfTrue CAPTURED (the mount's spawn waits while the hero is caged) is read and not run. The button's
+    display (its one charge shown spent; a play of its card group shows it again: a new hero, with its own charge)
+    and the effects are read and not run."""
+    import re
+
+    acts = h["actions"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    subs = col_list(acts, group, "SubActions")
+    delays = col_list(acts, group, "SubActionsDelay")
+    need(bool(subs) and len(delays) >= len(subs) and _present(acts.get(group)) <= DISMOUNT_GROUP_KEYS, "its group")
+    by: dict[str, list[tuple[str, int]]] = {}
+    for sub_, d in zip(subs, delays[: len(subs)], strict=True):
+        need(acts.get(sub_) is not None, f"{sub_} names no action row")
+        by.setdefault(acts.get(sub_)["ClassType"], []).append((sub_, d))
+    need(set(by) - DISMOUNT_UI == {"ActionChangeGameObjectData", "ActionGroup", "ActionSpawnToLocation"},
+         f"its group runs {sorted(by)}")
+    need(all(d == 0 for k, v in by.items() if k != "ActionPlayEffect" for _, d in v), "a delayed sub-action")
+    # The change and its no-collide window.
+    [(csub, _)] = by["ActionChangeGameObjectData"]
+    ch = _one_action(acts, csub, "ActionChangeGameObjectData", {"ClassType", "ResetTarget", "NewCharacterData",
+                                                                "NextAction"})
+    need(ch["ResetTarget"] is False, "its change drops the target")
+    walker = ch["NewCharacterData"]
+    nc = _one_action(acts, ch["NextAction"], "ActionWithDuration", {"ClassType", "ActionDuration", "GameTagsToSet"})
+    need(nc["GameTagsToSet"] == "DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS" and isinstance(nc["ActionDuration"], int)
+         and nc["ActionDuration"] > 0, "its change's next action")
+    _, wrow = unit_record(h, walker)
+    need(wrow["Ability"] == name, f"its walking row {walker} does not hold the button")
+    wrec = norm_unit(h, walker, with_raw=True)
+    wg = wrec.get("action_graph")
+    need(not wg or (not wg["class_types"] and not wg["spawns"]), f"its walking row {walker} runs actions")
+    wrec["action_graph"] = None
+    units[walker] = wrec
+    # The hops.
+    [(gsub, _)] = by["ActionGroup"]
+    g = acts.get(gsub)
+    need(_present(g) <= {"ClassType", "SubActions", "SubActionsDelay", "ExecuteIfTrue"}, "its hop group's keys")
+    m = re.fullmatch(r"(\w+) < (\d+)", str(g["ExecuteIfTrue"]))
+    need(m is not None, f"its hop group's bound {g['ExecuteIfTrue']!r}")
+    var, bound = m.group(1), int(m.group(2))
+    need(var in h.variables and not (h.variables.get(var) or {}).get("DefaultValue"), f"its hop variable {var}")
+    hop = group_subactions(h, gsub, f"hero ability {name} hop")
+    need([acts.get(x)["ClassType"] for x, _ in hop] == ["ActionWarpCharacter", "ActionSetVariable"], f"its hops {hop}")
+    (wsub, wdelay), (isub, idelay) = hop
+    w = _one_action(acts, wsub, "ActionWarpCharacter", {"ClassType", "WarpMode", "WarpY", "ResetTarget",
+                                                         "ExecuteIfTrue"})
+    need(w["WarpMode"] == "RelativeWarp" and isinstance(w["WarpY"], int) and w["WarpY"] != 0
+         and w["ResetTarget"] is True and wdelay == 0 and w["ExecuteIfTrue"] == g["ExecuteIfTrue"], "its hop")
+    inc = _one_action(acts, isub, "ActionSetVariable", {"ClassType", "Variable", "Value", "ExecuteIfTrue", "NextAction",
+                                                         "NextActionWait", "ActionDelay"})
+    mi = re.fullmatch(rf"{var} \+ (\d+)", str(inc["Value"]))
+    need(inc["Variable"] == var and mi is not None and inc["NextAction"] == gsub
+         and inc["ExecuteIfTrue"] == g["ExecuteIfTrue"], "its hop's count")
+    step = int(mi.group(1))
+    need(step > 0 and bound % step == 0 and idelay == step and inc["ActionDelay"] == step, "its hop's clock")
+    # The mount and its start.
+    [(msub, _)] = by["ActionSpawnToLocation"]
+    ms = _one_action(acts, msub, "ActionSpawnToLocation", DISMOUNT_SPAWN_KEYS)
+    need(ms["SpawnType"] == "CharacterType" and ms["TargetExprX"] == "x" and ms["TargetExprY"] == "y"
+         and ms["ParentGOAsSource"] is True and ms["ActionPausedIfTrue"] in (None, "CAPTURED"), "its mount's spawn")
+    mount = ms["SpawnData"]
+    _, mrow = unit_record(h, mount)
+    start = mrow["OnStartingAction"]
+    msubs, mdelays = col_list(acts, start, "SubActions"), col_list(acts, start, "SubActionsDelay")
+    need(acts.get(start) is not None and acts.get(start)["ClassType"] == "ActionGroup" and bool(msubs)
+         and len(mdelays) >= len(msubs), f"its mount's start {start}")
+    mb: dict[str, list[tuple[str, int]]] = {}
+    for sub_, d in zip(msubs, mdelays[: len(msubs)], strict=True):
+        need(acts.get(sub_) is not None, f"{sub_} names no action row")
+        mb.setdefault(acts.get(sub_)["ClassType"], []).append((sub_, d))
+    need(set(mb) == {"ActionWithDuration", "ActionSpawn", "ActionPlayEffect"}, f"its mount's start runs {sorted(mb)}")
+    [(nsub, ndelay)] = mb["ActionWithDuration"]
+    nm = _one_action(acts, nsub, "ActionWithDuration", {"ClassType", "GameTagsToSet", "ActionDuration"})
+    need(nm["GameTagsToSet"] == "NO_MOVE_ALLOW_ATTRACT" and ndelay == 0 and isinstance(nm["ActionDuration"], int),
+         "its mount's hold")
+    [(psub, pdelay)] = mb["ActionSpawn"]
+    pj = _one_action(acts, psub, "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "ExecuteIfTrue"})
+    need(pj["SpawnType"] == "ProjectileType" and str(pj["ExecuteIfTrue"]) == "!is_clone" and pdelay > 0,
+         "its mount's blow")
+    for x, _ in mb["ActionPlayEffect"]:
+        _one_action(acts, x, "ActionPlayEffect", {"ClassType", "Effect", "ExecuteIfTrue"})
+    mrec = norm_unit(h, mount, with_raw=True)
+    blow = norm_projectile(h, pj["SpawnData"])
+    need(blow is not None and blow["damage"] and blow["radius_milli"] and not blow["spawn_projectile"]
+         and not blow["target_buff"] and not blow["spawn_character"], f"its mount's blow {pj['SpawnData']}")
+    blow["action_graph"] = None
+    mrec["deploy_projectile"] = blow
+    mrec["action_graph"] = None
+    units[mount] = mrec
+    return {"kind": "dismount", "unit": walker, "no_collide_ms": nc["ActionDuration"], "hop_y_milli": w["WarpY"],
+            "hop_ms": step, "hops": bound // step, "mount": mount, "mount_hold_ms": nm["ActionDuration"],
+            "blow_ms": pdelay}
 
 
 def throw_effect(h: Tables, name: str, seeker: str, units: dict) -> dict:
@@ -8316,6 +8455,12 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
             continue
         if key is None:
             raise SystemExit(f"hero form {form}: base card {base} is not a troop or building card")
+        # A ROW THAT NAMES ONLY WHAT DIFFERS FROM ITS BASE'S (the Hero Dark Prince's: its unit, no Rarity, no ManaCost):
+        # the base card's row with its columns over it, as a spell's hero form's is (`spell_hero_card`).
+        if s["Rarity"] is None:
+            brow = h[key].get(base)
+            s = Row(set(brow.columns) | set(s.columns), {**brow, **{k: v for k, v in s.items() if v is not None},
+                                                          "Name": form})
         card = summon_card(h, rarities, "troop" if key == "spells_characters" else "building", "spells_hero", s)
         card["display_name"] = f"Hero {display_name(base)}"
         card["form_of"] = base
