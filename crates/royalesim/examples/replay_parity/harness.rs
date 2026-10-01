@@ -1337,7 +1337,14 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   scenes (the killer created before and after the mover) exact to their end under it and departing at the first kill
 ///   under whole_tick; sp-f4-furnace-s0 t267, sp-hogs-cannon-s0 t285, sp-ram-kill-s0 t309 exact. The 16.402 corpus keeps
 ///   whole_tick (20260918-122757.b2 t1067; 31 of 31 first effects of the arm on 9 battles nearer under whole_tick).
-pub const CLIENT15535_ARMS: &[(&str, &str)] = &[("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\"")];
+///   match.TICK_ORDER = client_sequential_strike: the Target and Attack phases one pass in creation order, a direct strike
+///   landing at once, so a walker created after a melee striker turns for its next goal on the kill frame. Measured on
+///   client 15.535.29 over every death with one landed blow: walkers created after the striker 114 of 124 (unit deaths)
+///   and 8 of 8 (towers near) on the kill frame, before it 72 of 75 and 2 of 2 a frame later; an attacker's post-kill
+///   wait ends on the sixth frame either way (187 and 376). The 16.402 corpus keeps client16402 (the ledger's
+///   measured_16402_2026_09_26: 104 of 112 a frame later where the arm puts all 112 on the kill frame).
+pub const CLIENT15535_ARMS: &[(&str, &str)] =
+    &[("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""), ("match.TICK_ORDER", "\"client_sequential_strike\"")];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
 fn capture_client15535(f: &Fixture) -> bool {

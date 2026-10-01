@@ -52,6 +52,8 @@ fn a_troop_on_a_building_that_falls_this_tick_is_not_pushed_by_it() {
     let (met, standing) = fall(DyingUnitVisibility::ClientDoomedStatic, TickOrder::ClientSequentialStrike);
     assert!(standing >= 3, "the scene drifted under the sequential order: the Cannon pushed the Knight on {standing} ticks");
     assert_eq!(met, 0, "client 15.535.29's arm under the sequential order: the Knight's blow felled the Cannon in its turn, and the Knight met it");
+    let (met, _) = fall(DyingUnitVisibility::WholeTick, TickOrder::ClientSequentialStrike);
+    assert!(met >= 1, "the control: whole_tick under the sequential order still meets the Cannon on its fall tick ({met})");
     let (met, _) = fall(DyingUnitVisibility::WholeTick, TickOrder::Client16402);
     assert!(met >= 1, "the shipped whole_tick (16.402's): the Cannon still meets the Knight on the tick it falls");
 }
