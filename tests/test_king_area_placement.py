@@ -17,7 +17,8 @@ THE TEST. Each cast is played through the engine's own play path; the play must 
 was on client 15.535.29, and every member's first-frame position must match within 20 native. The recorded
 positions include waiting members holding still, so formation.STAGGER_WAIT rides at its measured arm too. Where a
 moved tap lands on a tie is placement.TOWER_TAP_PUSH's, so every cast runs under both of its values: all 48 must land
-under client16402_axis_push, and under ring_nearest the six side-1 ties are strict xfail (side 0's tie at own (7500, 1499) lands as the client's since r20).
+under client16402_axis_push, and under ring_nearest the six side-1 ties are strict xfail
+(side 0's tie at own (7500, 1499) lands as the client's since r20).
 """
 
 from __future__ import annotations
@@ -134,7 +135,7 @@ def play(side: int, card: str, tile: tuple, arm: str, push: str | None = None) -
 
 
 def cases():
-    """Every cast under both TOWER_TAP_PUSH values; the six side-1 tie casts are strict xfail under ring_nearest only."""
+    """Every cast under both TOWER_TAP_PUSH values; the six side-1 tie casts are strict xfail, under ring_nearest."""
     for push in (PUSH_NEW, PUSH_OLD):
         for side, card, tile, accepted, members in CASTS_15535:
             marks = [TIE_ORDER] if push == PUSH_OLD and (side, tile) in TIE_CASTS else []
