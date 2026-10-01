@@ -16077,8 +16077,7 @@ impl BattleState {
             }
         }
         // A HERO TOMBSTONE'S MONSTER WAITING (card.rs `TombMonsterDef`): DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS; no unit
-        // meets its body.
-        #[cfg(not(clash_plant = "tomb_monster_collides"))]
+        // meets its body (no plant: its tomb's body covers it while it stands, and nothing measured it after).
         for r in self.warps.tombs.iter().filter(|r| r.pressed.is_none() && self.ents.is_alive(r.monster)) {
             drill_off[r.monster.index as usize] = true;
         }

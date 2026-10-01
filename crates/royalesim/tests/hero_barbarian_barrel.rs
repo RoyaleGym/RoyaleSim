@@ -6,7 +6,7 @@
 //! of the tick before from t325 (200 a tick), 2800 on from t339, deploying t339..t358.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! hero_barbarian_barrel`): reroll_never, reroll_never_lands, early_trigger_late.
+//! hero_barbarian_barrel`): reroll_never, reroll_never_lands, reroll_log_never, early_trigger_late.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -60,12 +60,18 @@ fn its_press_slides_it_back_heals_it_and_rides_it_2800_on() {
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
     let p = s.tick_count();
     s.press_ability_button(Team::Blue, 0).expect("the press, on the Barbarian");
+    let log = s.cards().index("BarbLog_hero_reroll").expect("the re-roll's log record");
     let mut rows: Vec<(u32, i32, i32, bool)> = Vec::new();
+    let mut logs: Vec<u32> = Vec::new();
     for _ in 0..30 {
         s.tick();
         let e = s.entity(b).expect("the Barbarian");
         rows.push((s.tick_count() - 1 - p, e.pos.y / K, e.hp, e.deploying));
+        if s.spells().iter().any(|x| x.card == log) {
+            logs.push(s.tick_count() - 1 - p);
+        }
     }
+    assert_eq!(logs.first(), Some(&8), "the log put down on P + 8, rolling from P + 9: {logs:?}");
     let y = |k: u32| rows.iter().find(|r| r.0 == k).expect("a row").1;
     let y0 = at.y / K;
     // The trigger P + 1 (its cast's start, TriggerDelay 50 less a tick); the slide P + 2 .. P + 7.

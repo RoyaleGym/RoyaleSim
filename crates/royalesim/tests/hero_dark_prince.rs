@@ -9,7 +9,8 @@
 //! (249, 224, ... 25); one 4000 off untouched.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! hero_dark_prince`): dismount_never, dismount_never_hops, mount_never_held, mount_blow_never, early_trigger_late.
+//! hero_dark_prince`): dismount_never, dismount_never_hops, mount_never_held, mount_blow_never, dismount_collides,
+//! early_trigger_late.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -91,6 +92,30 @@ fn its_press_hops_it_2000_back_in_ten_ticks_and_holds_it_to_the_press_plus_40() 
     }
     assert_ne!(row(&rows, 41).1, row(&rows, 40).1, "walking on P + 41: {rows:?}");
     assert!(rows.iter().all(|r| r.2 == hp), "its hitpoints kept: {rows:?}");
+}
+
+/// DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS for the dismount's first 1000 ms (its table's; not measured apart): the
+/// hero hops through a Knight of its own side standing in its way, and neither pushes the other.
+#[test]
+fn it_hops_through_a_knight_in_its_way_for_its_first_second() {
+    let at = n(14500, 11500);
+    let (mut s, h) = hero(Team::Blue, at);
+    let k_at = n(14500, 10500);
+    let k = s.scenario_spawn_now(Team::Blue, "Knight", k_at, None).expect("a Knight");
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let p = s.tick_count();
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut rows = Vec::new();
+    for _ in 0..16 {
+        assert!(s.debug_set_pos(k, k_at));
+        s.tick();
+        let e = s.entity(h).expect("the hero");
+        rows.push((s.tick_count() - 1 - p, e.pos.x / K, e.pos.y / K));
+    }
+    for (kk, x, y) in &rows {
+        let want = 11500 - 200 * (*kk).clamp(0, 10) as i32;
+        assert_eq!((*x, *y), (14500, want), "the hero on P + {kk}, the Knight met nowhere: {rows:?}");
+    }
 }
 
 #[test]
