@@ -1715,6 +1715,7 @@
     },
     "HIT_BEYOND_CANCEL_RANGE": {
       "value": "no_damage",
+      "measured_2026_10_01": "MEASURED on client 15.535.29 (sp-sk-souls-ignore-s0 t405): a direct AREA hit centred on its target obeys this key too. A Skeleton King's swing, started with a Battle Ram in reach, completes with the Ram 2,391 past reach (Range plus both radii, start-of-tick positions); the Ram keeps its 137 hp, and the engine's splash killed it. Over every 15.535.29 scenario record the target-centred area hits past reach are this one and two Dark Prince hits 20 and 25 past (both dealt damage, inside the cancel range). Since r21 the whole splash is void (combat.rs, the splash branch). A splash centred on the attacker (the Valkyrie) is left as it was: no record has a unit inside her splash on a far hit.",
       "candidates": ["damage", "no_damage"],
       "status": "measured",
       "confidence": "LOW for the old arm damage, the engine before this flip. MEDIUM for no_damage on client 15.535.29: 83 of 83 completed direct hits on a target beyond reach fit it, but only three stood beyond the cancel range (see provenance)",

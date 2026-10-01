@@ -1477,10 +1477,23 @@ pub fn fire(
         let centre = if card.self_as_aoe_center { ents.pos[a] } else { ents.pos[ti] };
         #[cfg(clash_plant = "aoe_centre_on_target")]
         let centre = ents.pos[ti];
-        let from = dmg.hits.len();
-        splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
-        add_splash_bonus(ents, calib, &mut dmg.hits[from..], direct, target);
-        apply_attack_buff(ents, calib, atk_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
+        // combat.HIT_BEYOND_CANCEL_RANGE = no_damage, for a splash centred on the TARGET: when the target stands more
+        // than targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE past the attacker's reach (start-of-tick positions),
+        // the whole splash is void, as the single-target hit below is. Measured on client 15.535.29
+        // (sp-sk-souls-ignore-s0 t405): a Skeleton King's swing completes with a Battle Ram 2,391 past reach, and
+        // the Ram keeps its hp. A splash centred on the attacker (the Valkyrie) is unmeasured and left as it was.
+        #[cfg(not(clash_plant = "area_hit_beyond_cancel_deals_damage"))]
+        let void = !card.self_as_aoe_center
+            && calib.hit_beyond_cancel_range == HitBeyondCancelRange::NoDamage
+            && !in_attack_range(calib, ents.pos[a], card.range + calib.cancel_hit_from_long_distance_range, ents.radius[a], ents.pos[ti], ents.radius[ti]);
+        #[cfg(clash_plant = "area_hit_beyond_cancel_deals_damage")]
+        let void = false; // PLANT (regression): the far area hit deals its damage, as before r21.
+        if !void {
+            let from = dmg.hits.len();
+            splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
+            add_splash_bonus(ents, calib, &mut dmg.hits[from..], direct, target);
+            apply_attack_buff(ents, calib, atk_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
+        }
     } else {
         // combat.HIT_BEYOND_CANCEL_RANGE = no_damage: a single-target direct hit whose target stands more than
         // targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE past the attacker's reach (Range + both collision radii
