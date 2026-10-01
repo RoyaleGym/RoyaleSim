@@ -13759,8 +13759,18 @@ impl BattleState {
                 e.retarget_on_resume[i] = false;
             }
             // status.RESUME_RETARGET_WINDUP = carry: a paused windup follows the unit to
-            // the target its resume rescan picked, instead of being cancelled.
-            let carried = d.resumed && carry && !d.cancel_attack;
+            // the target its resume rescan picked, instead of being cancelled -- when that target stands in attack range
+            // this tick, as a corpse's successor must (combat.CORPSE_SWITCH_REACH); out of reach it is dropped and the
+            // unit walks. Measured on client 15.535.29 (sp-il-8e134db4 t545: a Hog Rider frozen mid-swing took the far
+            // tower at progress 0 and walked; sp-m4-towerhit-s0's tower carried onto a Skeleton in reach).
+            #[cfg(not(clash_plant = "resume_carry_out_of_reach"))]
+            let carry_reach = d.target.filter(|t| e.standing(*t, struck)).is_some_and(|t| {
+                let ti = t.index as usize;
+                target::in_attack_range(calib, e.pos[i], cards.get(e.card[i]).range, e.radius[i], e.pos[ti], e.radius[ti])
+            });
+            #[cfg(clash_plant = "resume_carry_out_of_reach")]
+            let carry_reach = true; // PLANT (regression): the paused windup carries onto any target.
+            let carried = d.resumed && carry && !d.cancel_attack && carry_reach;
             // combat.RETARGET_PROGRESS = keep_when_dead: REPLACING A CORPSE IS NOT A SWITCH,
             // the same distinction the charge rule above already draws, applied to the attack
             // cycle. Under `reset_always` a unit whose victim died threw away the time since
@@ -16563,6 +16573,27 @@ impl BattleState {
         // his `stay`), and every other unit's avoidance meets him as a static obstacle, as a building. Read off the 16.402
         // code by Oracle; measured on client 15.535.29 (sp-champ-Monk-recharge-q20-s0 t229..t246): a Giant slides round
         // him at about 1,207 centre to centre, inside both radii, and is never pushed.
+        // A BUILDING WHOSE DEATH IS SETTLED BEFORE THE MOVE PASS (the hits buffered by now take its hp to 0, no shield
+        // standing) takes part in no scan this tick. Read off client 15.535.29 by Oracle (sp-hogs-musk-s0 t641: a Royal
+        // Hog pressed between its fellow and the falling princess tower is pushed by the fellow alone, (-12, +150) against
+        // the client's (-11, +150)).
+        let mut fallen = vec![false; self.ents.capacity()];
+        #[cfg(not(clash_plant = "doomed_building_collides"))]
+        if !self.dmg.hits.is_empty() {
+            let mut sums: Vec<(usize, i64)> = Vec::new();
+            for h in &self.dmg.hits {
+                let t = h.target.index as usize;
+                if self.ents.is_alive(h.target) && self.ents.kind[t] != EntityKind::Troop {
+                    match sums.iter_mut().find(|(j, _)| *j == t) {
+                        Some(s) => s.1 += i64::from(h.amount),
+                        None => sums.push((t, i64::from(h.amount))),
+                    }
+                }
+            }
+            for (t, sum) in sums {
+                fallen[t] = self.ents.shield[t] <= 0 && sum >= i64::from(self.ents.hp[t]);
+            }
+        }
         let mut deflect_off = vec![false; self.ents.capacity()];
         #[cfg(not(clash_plant = "deflect_contact_kept"))]
         for (id, until) in &self.deflects {
@@ -16670,6 +16701,7 @@ impl BattleState {
                         // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK), and an
                         // attached rider, which pushes nothing (`carry_riders`)
                         collidable: alive
+                            && !fallen[i]
                             && !drill_off[i]
                             && !held
                             && !jumping[i]
