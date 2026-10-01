@@ -845,18 +845,18 @@ fn a_truth_entity_with_no_hitpoints_takes_no_pair() {
     };
     let base = play(&sample());
     let mut f = sample();
-    let k = f
-        .truth
+    let truth = f.truth.as_mut().expect("the sample carries its truth");
+    let k = truth
         .entities
         .iter()
         .position(|e| e.role == "troop" && e.max_hp > 0 && e.t0 > 0)
         .expect("a troop row after the first frame");
-    let mut dummy = f.truth.entities[k].clone();
-    dummy.key = f.truth.entities.iter().map(|e| e.key).max().unwrap_or(0) + 1;
+    let mut dummy = truth.entities[k].clone();
+    dummy.key = truth.entities.iter().map(|e| e.key).max().unwrap_or(0) + 1;
     dummy.max_hp = -1;
     dummy.t0 -= 1;
     let key = dummy.key;
-    f.truth.entities.push(dummy);
+    truth.entities.push(dummy);
     let r = play(&f);
     assert!(!r.pairs.iter().any(|p| p.truth_key == key), "the dummy took a pair");
     assert_eq!(pairs(&r), pairs(&base), "the dummy moved a pair");
