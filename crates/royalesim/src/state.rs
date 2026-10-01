@@ -7064,6 +7064,10 @@ pub struct WarpBoard {
     /// The Hero Bowler's sieges under way (`SiegeRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sieges: Vec<SiegeRun>,
+    /// The Hero Barbarian Barrel's re-rolls under way (`RerollRun`). Absent in older snapshots, and hashed only when not
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rerolls: Vec<RerollRun>,
     /// Goblinstein's tethers under way (`TetherRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tethers: Vec<TetherRun>,
@@ -7080,6 +7084,17 @@ pub struct WarpBoard {
     /// snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flag_plays: Vec<(Team, u16, u32)>,
+}
+
+/// A HERO BARBARIAN BARREL RE-ROLL UNDER WAY (card.rs `ReRollDef`; `reroll_pass`, `reroll_logs`): the Barbarian, its
+/// card and level, the trigger's tick, and its log's first point once it rolls.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RerollRun {
+    pub id: EntityId,
+    pub card: u16,
+    pub level: i32,
+    pub made: u32,
+    pub start: Option<Vec2>,
 }
 
 /// A GOBLINSTEIN TETHER UNDER WAY (card.rs `TetherDef`; `tether_pass`): its Doctor and Monster, the card, the level and
@@ -7130,7 +7145,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -8855,6 +8870,8 @@ impl BattleState {
             Some(crate::card::AbilityEffect::FlagSpawns(f)) => f.flag == card,
             // GOBLINSTEIN: the Doctor holds the charge, not the Monster.
             Some(crate::card::AbilityEffect::Tether(t)) => t.unit == card,
+            // THE HERO BARBARIAN BARREL: its Barbarian holds the charge (the spell form puts no unit of its own down).
+            Some(crate::card::AbilityEffect::ReRoll(r)) => r.unit == card,
             other => other.is_some(),
         };
         if let Some(crate::card::AbilityEffect::FlagSpawns(f)) = c.ability.as_ref().map(|a| &a.effect).filter(|_| holds) {
@@ -12496,6 +12513,10 @@ impl BattleState {
         // The Little Princes' ramps (`ramp_pass`).
         if !self.warps.ramps.is_empty() {
             self.ramp_pass();
+        }
+        // The Hero Barbarian Barrels' re-rolls (`reroll_pass`).
+        if !self.warps.rerolls.is_empty() {
+            self.reroll_pass();
         }
         if !self.hero_units.is_empty() {
             let ents = &self.ents;
@@ -20129,6 +20150,86 @@ impl BattleState {
         }
     }
 
+    /// THE HERO BARBARIAN BARRELS' RE-ROLLS (card.rs `ReRollDef`, `RerollRun`), in the Status phase: the Barbarian, held
+    /// (the stun timer), steps `offset` / (`spawn_delay_ms` in ticks) toward its offset each tick before its log (its side's
+    /// frame); on the log's tick it heals `heal_missing_pct` of its missing hitpoints and notes its point (the log's);
+    /// after it, it stands where the log stood the tick before, and when the log's roll is done it stands up there with
+    /// a deploy of `deploy_ms`, its hide off and its target dropped. A Barbarian gone ends the run (its log rolls on).
+    fn reroll_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let runs = std::mem::take(&mut self.warps.rerolls);
+        let mut keep = Vec::new();
+        let mut moved = false;
+        for mut r in runs {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::ReRoll(rr), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            let i = r.id.index as usize;
+            let team = self.ents.team[i];
+            let fwd = spell::forward_dy(team);
+            let steps = (rr.spawn_delay_ms / tick_ms).max(1) as u32;
+            let age = self.tick.saturating_sub(r.made);
+            self.ents.stun_ms[i] = self.ents.stun_ms[i].max(tick_ms);
+            let k = crate::fixed::SUBTILE_PER_MILLITILE;
+            if age >= 1 && age < steps {
+                let p = self.ents.pos[i];
+                self.ents.pos[i] = Vec2::new(p.x, p.y + (rr.offset / steps as i32) * fwd * k);
+                moved = true;
+            } else if age == steps {
+                let (hp, max) = (self.ents.hp[i], self.ents.max_hp[i]);
+                self.ents.hp[i] = hp + (max - hp).max(0) * rr.heal_missing_pct / 100;
+                r.start = Some(self.ents.pos[i]);
+            } else if let Some(start) = r.start {
+                let Some(crate::card::SpellDef { shape: crate::card::SpellShape::Rolling { speed, range, .. }, .. }) = self.cfg.cards.get(rr.log).spell else { continue };
+                let step = speed * self.cfg.calib.projectile_speed_to_subtiles_per_tick;
+                let len = (range - crate::card::REROLL_ROLL_SHORT_STEPS * step).max(0);
+                let rode = ((age - steps - 1) as i32 * step).min(len);
+                self.ents.pos[i] = Vec2::new(start.x, start.y + rode * fwd);
+                moved = true;
+                #[cfg(not(clash_plant = "reroll_never_lands"))]
+                if rode >= len {
+                    self.ents.deploy_ms[i] = rr.deploy_ms;
+                    self.ents.target[i] = None;
+                    self.ents.target_locked[i] = false;
+                    self.ents.stun_ms[i] = 0;
+                    for slot in self.ents.buff_slots_mut(i) {
+                        if slot.id == rr.hide.buff + 1 {
+                            *slot = BuffSlot::default();
+                        }
+                    }
+                    continue;
+                }
+            }
+            keep.push(r);
+        }
+        self.warps.rerolls = keep;
+        if moved {
+            self.hash.rebuild(&self.ents);
+        }
+    }
+
+    /// THE HERO BARBARIAN BARRELS' RE-ROLL LOGS DUE (card.rs `ReRollDef::log`), in Reap: each run whose log's tick this
+    /// is puts the log down on the Barbarian's point, rolling its row's range less REROLL_ROLL_SHORT_STEPS steps from the
+    /// next tick (a spell made after this tick's spells stepped), at the Barbarian's level.
+    fn reroll_logs(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        for r in self.warps.rerolls.clone() {
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::ReRoll(rr), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+            if self.tick != r.made + (rr.spawn_delay_ms / tick_ms).max(1) as u32 {
+                continue;
+            }
+            let (Some(start), Some(crate::card::SpellDef { shape: crate::card::SpellShape::Rolling { speed, range, hit, .. }, .. })) = (r.start, self.cfg.cards.get(rr.log).spell.clone()) else { continue };
+            let step = speed * self.cfg.calib.projectile_speed_to_subtiles_per_tick;
+            let len = (range - crate::card::REROLL_ROLL_SHORT_STEPS * step).max(0);
+            let team = self.ents.team[r.id.index as usize];
+            let damage = self.cfg.cards.scaled(rr.log, r.level, hit.damage).expect("the Barbarian's level is validated at try_new");
+            #[cfg(not(clash_plant = "reroll_log_never"))]
+            self.spells.push(Spell { team, card: rr.log, level: r.level, damage, pulse: 0, motion: spell::SpellMotion::Rolling { pos: start, travelled: 0, len, hit: Vec::new() }, depth: 0 });
+            let _ = (team, damage, len, start);
+        }
+    }
+
     /// GOBLINSTEIN'S TETHERS (card.rs `TetherDef`, `TetherRun`), at the start of Resolve on this tick's positions: every
     /// `every_ms` from its first hit for `duration_ms`, while its Doctor and its Monster both stand, every enemy whose
     /// centre is within `width` and its radius of the segment from the Doctor to the Monster takes the tether's damage at
@@ -20943,6 +21044,10 @@ impl BattleState {
         // an original this tick killed is not copied, and before the released units, so a copy's creation order follows
         // its original's cast and not the tick's deaths.
         self.materialise_clones();
+        // The Hero Barbarian Barrels' re-roll logs due this tick start rolling next tick (`reroll_logs`).
+        if !self.warps.rerolls.is_empty() {
+            self.reroll_logs();
+        }
         // The Little Princes' guards due this tick join the released units (`guard_release`).
         if !self.warps.guards.is_empty() {
             self.guard_release();
@@ -22492,7 +22597,7 @@ impl BattleState {
         }
         // A DECOY WARP (the Hero Magic Archer's) and a SIEGE (the Hero Bowler's) land EARLY_TRIGGER_TICKS before that too.
         #[cfg(not(clash_plant = "early_trigger_late"))]
-        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_)) {
+        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_) | crate::card::AbilityEffect::ReRoll(_)) {
             ms -= EARLY_TRIGGER_TICKS * self.cfg.calib.tick_ms;
         }
         self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
@@ -22753,6 +22858,18 @@ impl BattleState {
                     self.warps.sieges.push(SiegeRun { id: hero, form: card, made: self.tick });
                 }
                 let _ = (team, level, pos, sg);
+            }
+            // THE RE-ROLL (the Hero Barbarian Barrel's; `RerollRun`): the Barbarian hidden now; its slide, its log and its
+            // ride from here (`reroll_pass`, `reroll_logs`).
+            crate::card::AbilityEffect::ReRoll(rr) => {
+                #[cfg(not(clash_plant = "reroll_never"))]
+                {
+                    let h = crate::status::BuffHit::plain(hero, rr.hide.buff, rr.hide.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    self.warps.rerolls.retain(|r| r.id != hero);
+                    self.warps.rerolls.push(RerollRun { id: hero, card, level, made: self.tick, start: None });
+                }
+                let _ = (team, pos, rr);
             }
             // THE TETHER (Goblinstein's; `TetherRun`): the Doctor's Monster (the live unit of the card of its side made
             // nearest its own creation), hit from TETHER_FIRST_HIT_TICKS on (`tether_pass`).
@@ -24516,6 +24633,21 @@ impl BattleState {
                     h.u32(r.team as u32);
                     h.u32(u32::from(r.card));
                     h.u32(r.made);
+                }
+            }
+            if !self.warps.rerolls.is_empty() {
+                h.u32(0x5245_524c);
+                h.u32(self.warps.rerolls.len() as u32);
+                for r in &self.warps.rerolls {
+                    h.id(r.id);
+                    h.u32(u32::from(r.card));
+                    h.i32(r.level);
+                    h.u32(r.made);
+                    h.u32(u32::from(r.start.is_some()));
+                    if let Some(p) = r.start {
+                        h.i32(p.x);
+                        h.i32(p.y);
+                    }
                 }
             }
             if !self.warps.tethers.is_empty() {

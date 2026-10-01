@@ -6583,6 +6583,7 @@ HERO_FORMS = {
     "Giant_hero": ("Giant", "giant_hero"),
     "Bowler_hero": ("Bowler", "bowler_hero"),
     "Goblins_hero": ("Goblins", "goblins_hero"),
+    "BarbLog_hero": ("BarbLog", "barb_log_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -7349,6 +7350,108 @@ def flag_button(h: Tables, form: str, unit: str, urow: dict, flag: str, units: d
         "is_champion": True,
         "effect": {"kind": "flag_spawns", "unit": flag, "window_ms": ivs[0], "fade_ms": fade_kill[0][1],
                    "kill_ms": kill, "card_group": playable, "spawns": waves},
+    }
+
+
+# THE HERO BARBARIAN BARREL (`spell_hero_card`, `reroll_button`): the keys its re-roll may set (read, or display
+# only), the classes its projectiles' and its Barbarian's own starts may run (the button's display, a display
+# variable, an animation), and the one heal expression.
+REROLL_READ = {"ClassType", "OffsetY", "DeployDuration", "SpawnDelay", "ReRollProjectile", "OnReRollStartAction",
+               "OnReRollEndAction", "GameTagsToSetWhileOnReRolling", "OnDeflectedAction"}
+REROLL_DISPLAY = {"ReSpawnDeployBaseAnim", "HideHealthbarWhileRolling", "TargetIndicatorUsesBarrelVersion",
+                  "TargetIndicatorOffsetX", "TargetIndicatorOffsetY", "TargetIndicatorFileName",
+                  "TargetIndicatorEffectName", "TargetIndicatorBarrelScale"}
+REROLL_TAGS = {"NO_GIANTBUFFER_CHEF_ENCHANTMENT", "NO_CLONE", "NO_ATTACK", "UNTARGETABLE",
+               "DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS", "NO_DAMAGE"}
+REROLL_UI = {"ActionOverrideAbilityButtonState", "ActionSetVariable", "ActionActivateOnCardDeploy", "ActionInterval",
+             "ActionFilter", "ActionSetAnimationModifier", "ActionGroup", "ActionRunForcedAnimationOnce"}
+REROLL_HEAL = "(max_hp - hp) * {v} / 100"
+
+
+def spell_hero_card(h: Tables, rarities: dict, form: str, base: str, s: dict) -> dict:
+    """A SPELL'S HERO FORM (the Hero Barbarian Barrel; its [SPELL_HERO] row names only what differs from its base
+    spell's row: its Projectile and LinkedChampionCharacter, the unit that holds the button), read whole or the build
+    stops: the base row with the hero row's columns over it (`spell_card`); its projectiles' own starts only keep the
+    button shown while the barrel flies (their graphs go); the linked unit, the Barbarian its roll releases, carries
+    the button (`reroll_button`)."""
+    brow = h["spells_other"].get(base)
+    row = Row(set(brow.columns) | set(s.columns),
+              {**brow, **{k: v for k, v in s.items() if v is not None}, "Name": form})
+    card = spell_card(h, rarities, row)
+    card["display_name"] = f"Hero {display_name(base)}"
+    card["form_of"] = base
+    linked = row["LinkedChampionCharacter"]
+    proj = card["projectile"]
+    roll = proj["spawn_projectile"] if proj else None
+    if roll is None or roll.get("spawn_character") != linked:
+        raise SystemExit(f"hero form {form}: its roll does not release {linked}")
+    for pr in (proj, roll):
+        g = pr.get("action_graph")
+        if g and (g["spawns"] or set(g["class_types"]) - REROLL_UI):
+            raise SystemExit(f"hero form {form}: its projectile {pr['name']} runs {g['class_types']}")
+        pr["action_graph"] = None
+    units = {linked: norm_unit(h, linked, with_raw=True)}
+    card["ability"] = reroll_button(h, form, linked, units)
+    card["tables"] = {"units": units, "area_effect_objects": {}}
+    return card
+
+
+def reroll_button(h: Tables, form: str, unit: str, units: dict) -> dict:
+    """THE HERO BARBARIAN BARREL'S BUTTON (its Barbarian's [ABILITY]), read whole or the build stops. Its
+    OnActivationAction is an ActionBarbBarrelHeroReRoll: the Barbarian, hidden (GameTagsToSetWhileOnReRolling: no
+    attack, untargetable, no damage, no collisions), slides OffsetY (`offset_y_milli`, the owner's frame) over
+    SpawnDelay (`spawn_delay_ms`); then a new roll (`roll`: ReRollProjectile, a rolling projectile that releases
+    nothing) leaves its point, it heals `heal_missing_pct` of its missing hitpoints (OnReRollStartAction's ActionHeal),
+    and it rides the roll, standing up where it stops with a deploy of DeployDuration (`deploy_ms`), its path and target
+    dropped (OnReRollEndAction). A deflected barrel's naked Barbarian (OnDeflectedAction) is read and not run. The
+    Barbarian's own start only feeds the button's display and its animation; its graph goes."""
+    import re
+
+    acts = h["actions"]
+    _, urow = unit_record(h, unit)
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero form {form}: {what}")
+
+    ab = h.abilities.get(urow["Ability"])
+    need(ab is not None and not set(ab) - ABILITY_READ_KEYS - ABILITY_UI_KEYS - {"CanBePreCasted"}, "its button")
+    need(ab.get("MaxCharges") == 1 and not ab.get("Cooldown"), "its button's charges")
+    rr = acts.get(ab["OnActivationAction"])
+    need(rr is not None and rr["ClassType"] == "ActionBarbBarrelHeroReRoll", "its button is not a re-roll")
+    extra = acts.set_fields.get(ab["OnActivationAction"], set()) - REROLL_READ - REROLL_DISPLAY
+    need(not extra, f"its re-roll sets {sorted(extra)}")
+    need({x.strip() for x in str(rr["GameTagsToSetWhileOnReRolling"]).split(",")} == REROLL_TAGS, "its re-roll's tags")
+    start = group_subactions(h, rr["OnReRollStartAction"], f"hero form {form} re-roll start")
+    heals = [acts.get(n) for n, _ in start if acts.get(n)["ClassType"] == "ActionHeal"]
+    need(len(heals) == 1 and all(d == 0 for _, d in start)
+         and {acts.get(n)["ClassType"] for n, _ in start} <= {"ActionHeal"} | REROLL_UI, "its re-roll's start")
+    m = re.fullmatch(r"\(max_hp - hp\) \* (\w+) / 100", str(heals[0]["Value"]))
+    need(m is not None, f"its heal {heals[0]['Value']!r}")
+    pct = h.variables.get(m.group(1), {}).get("DefaultValue")
+    need(isinstance(pct, int) and 0 < pct <= 100, f"its heal's share {m.group(1)}")
+    end = group_subactions(h, rr["OnReRollEndAction"], f"hero form {form} re-roll end")
+    need({acts.get(n)["ClassType"] for n, _ in end} <= {"ActionResetPath", "ActionResetTarget",
+                                                        "ActionRunForcedAnimationOnce"}
+         and all(d == 0 for _, d in end), "its re-roll's end")
+    roll = norm_projectile(h, rr["ReRollProjectile"])
+    need(roll is not None and roll["projectile_range_milli"] and not roll["spawn_character"], "its re-roll's roll")
+    roll["action_graph"] = None
+    # The Barbarian's own start: the button's display and an animation modifier, nothing else.
+    g = units[unit].get("action_graph")
+    need(not g or (not g["spawns"] and set(g["class_types"]) <= REROLL_UI), f"its Barbarian's start {g}")
+    units[unit]["action_graph"] = None
+    return {
+        "name": urow["Ability"],
+        "mana_cost": ab["ManaCost"],
+        "max_charges": 1,
+        "cooldown_ms": None,
+        "cast_ms": ab["CastTime"],
+        "trigger_delay_ms": ab["TriggerDelay"],
+        "keep_current_target": bool(ab.get("KeepCurrentTarget")),
+        "is_champion": True,
+        "effect": {"kind": "reroll", "unit": unit, "offset_y_milli": rr["OffsetY"], "spawn_delay_ms": rr["SpawnDelay"],
+                   "deploy_ms": rr["DeployDuration"], "heal_missing_pct": pct, "roll": roll},
     }
 
 
@@ -8207,6 +8310,10 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         if form not in h.hero_links.get(base, []):
             raise SystemExit(f"hero form {form}: {base}'s EvolvedSpells does not list it")
         key = next((k for k in ("spells_characters", "spells_buildings") if h[k].get(base) is not None), None)
+        # A SPELL'S HERO FORM (the Hero Barbarian Barrel): its own card (`spell_hero_card`), built apart.
+        if key is None and h["spells_other"].get(base) is not None:
+            out.append(spell_hero_card(h, rarities, form, base, s))
+            continue
         if key is None:
             raise SystemExit(f"hero form {form}: base card {base} is not a troop or building card")
         card = summon_card(h, rarities, "troop" if key == "spells_characters" else "building", "spells_hero", s)

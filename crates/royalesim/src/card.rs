@@ -1269,7 +1269,36 @@ pub enum AbilityEffect {
     Guard(GuardDef),
     /// THE TETHER (Goblinstein's; `TetherDef`).
     Tether(TetherDef),
+    /// THE RE-ROLL (the Hero Barbarian Barrel's; `ReRollDef`).
+    ReRoll(ReRollDef),
 }
+
+/// THE RE-ROLL (the Hero Barbarian Barrel's; tools/extract_cards.py `spell_hero_card`, `reroll_button`; state.rs
+/// `RerollRun`, `reroll_pass`, `reroll_logs`). The form is a spell whose roll releases `unit`, which holds the button. At
+/// the trigger the Barbarian, hidden (`hide`: invisible, no damage taken) and held, slides `offset` (native, its side's
+/// frame) over `spawn_delay_ms` in equal steps; at `spawn_delay_ms` it heals `heal_missing_pct` of its missing hitpoints
+/// and `log` (a summon-only spell record: the re-roll's roll, which releases nothing) rolls from its point, and it
+/// rides one step behind the log (REROLL_RIDE_BEHIND_TICKS), standing up where the log stops with a deploy of
+/// `deploy_ms`, its target dropped.
+///
+/// Measured on client 15.535.29 (sp-form-BarbLog-hero-s0, level 11, the press issued t316, the cast from t317): the
+/// Barbarian 142 back a tick on t318..t323 (852), healed 607 -> 661 on t324 as the log's first frame shows on its
+/// point; the log 200 a tick to t338 (2800 of its row's 3000: REROLL_ROLL_SHORT_STEPS); the Barbarian on the log's
+/// point of the tick before, t325..t339, deploying t339..t358, walking on t359. Unmeasured: the log's hits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ReRollDef {
+    pub unit: u16,
+    pub log: u16,
+    pub hide: BuffApply,
+    pub offset: i32,
+    pub spawn_delay_ms: i32,
+    pub deploy_ms: i32,
+    pub heal_missing_pct: i32,
+}
+
+/// The re-roll's roll is its row's ProjectileRange less this many steps: FITTED on one scene (sp-form-BarbLog-hero-s0:
+/// 2800 of 3000, 14 steps of 200).
+pub const REROLL_ROLL_SHORT_STEPS: i32 = 1;
 
 /// THE TETHER (Goblinstein's; tools/extract_cards.py `champion_tether`; state.rs `TetherRun`, `tether_pass`). The card
 /// puts down the Monster (its own unit, `monster`) and the Doctor (its second summon, `unit`), which holds the button.
@@ -5792,13 +5821,16 @@ struct RawAbilityEffect {
     decoy_life_ms: Option<i32>,
     power_ms: Option<i32>,
     power: Option<RawPowerShot>,
+    /// `reroll` (tools/extract_cards.py `reroll_button`; `unit` and `deploy_ms` of the effect, `spawn_delay_ms` above).
+    offset_y_milli: Option<i32>,
+    deploy_ms: Option<i32>,
+    roll: Option<serde_json::Value>,
     /// `tether` (tools/extract_cards.py `champion_tether`; `damage` above).
     duration_ms: Option<i32>,
     width_milli: Option<i32>,
     crown_damage: Option<i32>,
-    /// `guard` (tools/extract_cards.py `champion_guard`; `unit` above: the guard).
-    hold_ms: Option<i32>,
-    spawn_delay_ms: Option<i32>,
+    /// `guard` (tools/extract_cards.py `champion_guard`; `unit`, `hold_ms`, `spawn_delay_ms` and `push_milli` above: the
+    /// guard, its hold, its spawn's delay, its push).
     push_radius_milli: Option<i32>,
     push_damage: Option<i32>,
     /// `flag_spawns` (tools/extract_cards.py `flag_button`; `unit` above: the flag).
@@ -11848,14 +11880,35 @@ impl CardDb {
         // `ability_block`), so it lands where the unit appears as every deploy blow does (state.rs `deploy_blow`).
         let (mut c, _, needs) = convert(raw, buffs, &fctx)?;
         let b = self.get(base);
-        if c.kind != b.kind || c.elixir != b.elixir || c.rarity != b.rarity || c.spell.is_some() {
+        // A SPELL'S HERO FORM (the Hero Barbarian Barrel) is a spell as its base is.
+        if c.kind != b.kind || c.elixir != b.elixir || c.rarity != b.rarity || (c.spell.is_some() && b.kind != CardKind::Spell) {
             return Err(format!("its kind, elixir or rarity is not its base card's ({:?} {} {})", c.kind, c.elixir, c.rarity));
         }
         // ITS DEATH SPAWN, when its row names one (the Hero Balloon's BalloonHero_Bomb): its own units record in the
         // form's tables, a death bomb (a hitpoint-less building: `hitpointless_building`) and nothing else, loaded as a
         // summon-only record right after the form's other rows.
         let mut death: Option<CardDef> = None;
+        // A RE-ROLL FORM'S BARBARIAN (the Hero Barbarian Barrel's): the unit its roll releases, which holds the button.
+        let mut rider: Option<CardDef> = None;
         for (which, name) in needs {
+            if which == UnitUse::Spell && extra.ability.effect.kind == "reroll" && extra.ability.effect.unit.as_deref() == Some(name.as_str()) && rider.is_none() {
+                let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("its roll's unit {name}: no units record"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("its roll's unit {name}: not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let mut ur: RawCard = serde_json::from_value(uv).map_err(|e| format!("its roll's unit {name}: {e}"))?;
+                ur.ability = None;
+                let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|e| format!("its roll's unit {name}: {e}"))?;
+                if let Some((w, n)) = uneeds.first() {
+                    return Err(format!("its roll's unit {name} needs {n} ({w:?}); not simulated"));
+                }
+                if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                    return Err(format!("its roll's unit {name}: rarity {} not in rarities.csv", u.rarity));
+                }
+                u.summon_only = true;
+                rider = Some(u);
+                continue;
+            }
             if which == UnitUse::DeathSpawn && death.is_none() {
                 let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("death spawn {name}: no units record"))?;
                 let obj = uv.as_object_mut().ok_or_else(|| format!("death spawn {name}: not an object"))?;
@@ -12230,6 +12283,62 @@ impl CardDb {
                     power,
                 })
             }
+            // THE RE-ROLL (the Hero Barbarian Barrel's): its Barbarian (the roll's unit, above) and its log's record load
+            // after the form.
+            "reroll" => {
+                let e = &a.effect;
+                let rp: RawProjectileObj = serde_json::from_value(e.roll.clone().ok_or_else(|| format!("{what}: a re-roll with no roll"))?).map_err(|x| format!("{what}: its roll: {x}"))?;
+                let range = rp.projectile_range_milli.filter(|r| *r > 0).ok_or_else(|| format!("{what}: a roll with no range"))?;
+                let speed = rp.speed.filter(|s| *s > 0).ok_or_else(|| format!("{what}: a roll with no speed"))?;
+                if rp.homing == Some(true) || rp.target_buff.is_some() || rp.spawn_projectile.as_ref().is_some_and(|x| !x.is_null()) || rp.spawn_area_effect_object.is_some() {
+                    return Err(format!("{what}: a roll with a mechanic the re-roll does not run"));
+                }
+                let hit = SpellHit {
+                    damage: rp.damage.ok_or_else(|| format!("{what}: a roll without damage"))?,
+                    crown_pct: crown(e.roll.as_ref().and_then(|v| v.get("crown_tower_damage_percent")).and_then(serde_json::Value::as_i64).and_then(|x| i32::try_from(x).ok())),
+                    radius: 0,
+                    hits_air: rp.aoe_to_air.unwrap_or(false),
+                    hits_ground: rp.aoe_to_ground.unwrap_or(false),
+                    only_enemies: rp.only_enemies.unwrap_or(false),
+                    only_own_troops: false,
+                    ignore_buildings: false,
+                    no_effect_to_crown_towers: false,
+                    knockback: knockback(rp.pushback_milli, rp.pushback_all),
+                    buff: None,
+                    buff2: None,
+                    caps_buff_time: false,
+                    controls_buff: false,
+                };
+                let mut log = c.clone();
+                log.name = format!("{}_reroll", c.name);
+                log.summon_only = true;
+                log.ability = None;
+                log.spell = Some(SpellDef {
+                    shape: SpellShape::Rolling {
+                        airborne_speed: 0,
+                        airborne_min_distance: 0,
+                        speed,
+                        range: milli(range),
+                        half_width: milli(rp.projectile_radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("{what}: a roll without ProjectileRadius"))?),
+                        half_depth: milli(rp.projectile_radius_y_milli.unwrap_or(0)),
+                        hit,
+                        spawn: None,
+                    },
+                    placement: SpellPlacement::Anywhere,
+                });
+                flag_units.push(log);
+                let hide = buffs.push_own(crate::status::BuffDef { invisible: true, no_damage: true, ..Default::default() }, &format!("{} re-roll", a.name))?;
+                let pct = e.heal_missing_pct.filter(|p| (0..=100).contains(p)).ok_or_else(|| format!("{what}: a re-roll's heal"))?;
+                AbilityEffect::ReRoll(ReRollDef {
+                    unit: u16::MAX,
+                    log: u16::MAX,
+                    hide: BuffApply { buff: hide, time_ms: i32::MAX / 4 },
+                    offset: e.offset_y_milli.ok_or_else(|| format!("{what}: a re-roll with no offset"))?,
+                    spawn_delay_ms: e.spawn_delay_ms.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a re-roll with no delay"))?,
+                    deploy_ms: e.deploy_ms.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a re-roll with no deploy"))?,
+                    heal_missing_pct: pct,
+                })
+            }
             // THE FLAG'S SPAWNS (the Hero Goblins'): the flag and its spawns' units load after the form; the group's cards
             // are loaded cards (the base cards load before every hero form).
             "flag_spawns" => {
@@ -12379,6 +12488,25 @@ impl CardDb {
                 sg.unit = ui;
             }
         }
+        // THE RE-ROLL'S BARBARIAN AND LOG (the Hero Barbarian Barrel's): the Barbarian after the form, carrying the
+        // form's button (it holds the charge), then the log's record; the form's roll releases the Barbarian.
+        if let Some(AbilityDef { effect: AbilityEffect::ReRoll(_), .. }) = self.cards[form as usize].ability.as_ref() {
+            let r = rider.ok_or("a re-roll form whose roll releases no unit")?;
+            self.push(r, None)?;
+            let bi = (self.cards.len() - 1) as u16;
+            let log = flag_units.pop().ok_or("a re-roll form with no log")?;
+            self.push(log, None)?;
+            let li = (self.cards.len() - 1) as u16;
+            if let Some(AbilityDef { effect: AbilityEffect::ReRoll(rr), .. }) = self.cards[form as usize].ability.as_mut() {
+                rr.unit = bi;
+                rr.log = li;
+            }
+            if let Some(slot) = self.cards[form as usize].spell.as_mut().and_then(|d| d.shape.release_slot()).and_then(|s| s.as_mut()) {
+                slot.unit = bi;
+            }
+            let fixed = self.cards[form as usize].ability.clone();
+            self.cards[bi as usize].ability = fixed;
+        }
         // The flag and its spawns' units after the form (their indices, relative until now, made absolute); the flag
         // carries the form's button, so it is the unit that holds the charge (state.rs `spawn_now`).
         if !flag_units.is_empty() {
@@ -12429,6 +12557,7 @@ impl CardDb {
         match self.get(form).ability.as_ref().map(|a| &a.effect) {
             Some(AbilityEffect::FlagSpawns(f)) => Some(f.flag),
             Some(AbilityEffect::Tether(t)) => Some(t.unit),
+            Some(AbilityEffect::ReRoll(r)) => Some(r.unit),
             _ => None,
         }
     }
