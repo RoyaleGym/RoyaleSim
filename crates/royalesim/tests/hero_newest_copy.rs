@@ -71,15 +71,13 @@ fn the_newest_copy_holds_the_button_and_its_death_leaves_none() {
     // (1)
     assert!(s.entity(first).is_some(), "the first copy lives");
     assert_eq!(s.ability_buttons(Team::Blue)[0].hero, Some(second), "the newest copy holds the button");
-    // (2) Two Rockets on the second copy.
-    let at = s.entity(second).unwrap().pos;
-    s.spawn_unit(Team::Red, "Rocket", at, None).expect("a Rocket");
-    s.spawn_unit(Team::Red, "Rocket", at, None).expect("a Rocket");
-    for _ in 0..80 {
-        s.tick();
-        if s.entity(second).is_none() {
-            break;
+    // (2) Red Rockets on the second copy, one every 10 ticks where it stands, until it dies.
+    for k in 0..300 {
+        let Some(e) = s.entity(second) else { break };
+        if k % 10 == 0 {
+            s.spawn_unit(Team::Red, "Rocket", e.pos, None).expect("a Rocket");
         }
+        s.tick();
     }
     assert!(s.entity(second).is_none(), "the second copy died");
     assert!(s.entity(first).is_some(), "the first copy still lives");
