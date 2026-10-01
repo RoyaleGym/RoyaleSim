@@ -1629,7 +1629,15 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                     let spells = roots.spell_release_of.get(&e.card_idx);
                     let cast = spells.and_then(|sp| spell_casts.iter().rev().find(|(t, team, cidx)| *team == e.team && tick.saturating_sub(*t) <= SPELL_RELEASE_LOOKBACK && sp.contains(cidx)));
                     match cast {
-                        Some((_, _, cidx)) => (db.get(*cidx).name.clone(), "spell-release"),
+                        Some((_, _, cidx)) => {
+                            // A form's decoy (card.rs `EvoDef::mirror`, the Evo Goblin Barrel's) roots to that form, whose
+                            // base the recording names; the decoy card is in no form table, so `base_of_form` keeps it.
+                            #[cfg(not(clash_plant = "replay_decoy_unrooted"))]
+                            let c = db.cards.iter().position(|c| c.evo.as_ref().and_then(|v| v.mirror) == Some(*cidx)).map_or(*cidx, |f| f as u16);
+                            #[cfg(clash_plant = "replay_decoy_unrooted")]
+                            let c = *cidx;
+                            (db.get(c).name.clone(), "spell-release")
+                        }
                         None => (e.card.to_string(), "unrooted"),
                     }
                 }
