@@ -16607,9 +16607,9 @@ impl BattleState {
         // sp-hogs-musk-s0 t641 under the arm: the princess tower a Royal Hog felled pushed the striker 198 and its fellow 88.
         #[cfg(not(any(clash_plant = "doomed_building_collides", clash_plant = "struck_building_collides")))]
         if self.cfg.calib.dying_unit_visibility == DyingUnitVisibility::ClientDoomedStatic && self.tick_order() == TickOrder::ClientSequentialStrike {
-            for t in 0..self.ents.capacity() {
+            for (t, f) in fallen.iter_mut().enumerate() {
                 if self.ents.alive[t] && self.ents.kind[t] != EntityKind::Troop && self.ents.hp[t] <= 0 {
-                    fallen[t] = true;
+                    *f = true;
                 }
             }
         }
