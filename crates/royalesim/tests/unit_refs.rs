@@ -274,8 +274,8 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
         }
     }
     // the unit a hero's button puts down (the Hero Musketeer's turret, the Hero Magic Archer's decoy, the Hero Bowler's
-    // siege form), then the guard, the flag and its spawns, the walking row and the mount, the tomb's two monsters, and
-    // the tether's and the re-roll's units, read field by field
+    // siege form), then the guard, the flag and its spawns, the walking row and the mount, the tomb's two monsters, the
+    // lane switch's bomb, the soul summon's copy, and the tether's and the re-roll's units, read field by field
     use royalesim::card::AbilityEffect as E;
     if let Some(royalesim::card::AbilityDef { effect: E::SpawnAhead { unit, .. } | E::Throw { unit, .. } | E::GroundToAir { unit, .. } | E::DecoyWarp(royalesim::card::DecoyWarpDef { decoy: unit, .. }) | E::Siege(royalesim::card::SiegeDef { unit, .. }), .. }) = &c.ability {
         out.push((UnitRef::AbilityUnit, *unit, None));
@@ -288,6 +288,8 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
         }
         Some(E::Dismount(d)) => out.extend([(UnitRef::AbilityUnit, d.walker, None), (UnitRef::AbilityUnit, d.mount, None)]),
         Some(E::TombMonster(t)) => out.extend([(UnitRef::AbilityUnit, t.passive, None), (UnitRef::AbilityUnit, t.active, None)]),
+        Some(E::LaneSwitch(l)) => out.push((UnitRef::AbilityUnit, l.bomb, None)),
+        Some(E::SoulSummon(sd)) => out.push((UnitRef::AbilityUnit, sd.unit, None)),
         _ => {}
     }
     if let Some(royalesim::card::AbilityDef { effect: E::Tether(royalesim::card::TetherDef { unit, .. }) | E::ReRoll(royalesim::card::ReRollDef { unit, .. }), .. }) = &c.ability {
@@ -335,7 +337,7 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
 /// (DecoyWarpDef's `decoy`, FlagSpawnsDef's `flag`, DismountDef's `walker` and `mount`, TombMonsterDef's `passive` and
 /// `active`). `unit_name:` does not match.
 fn unit_fields_in(text: &str) -> usize {
-    ["{ unit: ", ", unit: ", "morph: Some(", ", card: ", ", decoy: ", "{ flag: ", "{ walker: ", ", mount: ", "{ passive: ", ", active: "]
+    ["{ unit: ", ", unit: ", "morph: Some(", ", card: ", ", decoy: ", "{ flag: ", "{ walker: ", ", mount: ", "{ passive: ", ", active: ", "{ bomb: "]
         .into_iter()
         .map(|sep| text.match_indices(sep).filter(|&(at, _)| text[at + sep.len()..].starts_with(|ch: char| ch.is_ascii_digit())).count())
         .sum()
@@ -344,7 +346,7 @@ fn unit_fields_in(text: &str) -> usize {
 /// The unit indices a record carries, counted off Debug text: every `unit: <n>` field of
 /// any block of the record, whether or not a list names the block (today SpawnDef,
 /// SpawnerDef, DeathSpawnDef, SecondSummonDef, LifeStateDef, SummonMemberDef and AttachDef, with
-/// SpawnPathfindDef's morph and VariantOption's card, `unit_fields_in`), and of every buff row the
+/// SpawnPathfindDef's morph, VariantOption's card and LaneSwitchDef's bomb, `unit_fields_in`), and of every buff row the
 /// record names (`BuffApply { buff: <n>`, each row once: a buff's death spawn holds its unit
 /// on the shared row, BuffDeathSpawn).
 fn unit_fields_in_debug(db: &CardDb, c: &CardDef) -> usize {

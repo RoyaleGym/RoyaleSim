@@ -15227,8 +15227,9 @@ impl BattleState {
     /// update (the trigger + 1) it shuffles its n = count - 1 directions: max(1, 50 n) pairs of draws i = rnd(n), j =
     /// rnd(n), swapped when they differ. Copy k is put down on the trigger + `first_ms` + k `every_ms` (released at the end
     /// of the tick, so its first frame is that tick's), a copy (`make_copy`: 1 hitpoint) deploying `deploy_ms`, at theta =
-    /// perm[(k + n - 2) mod n] x 360 / n degrees from +y toward +x and r = `min_radius` + rnd(`area_radius` - `min_radius`
-    /// - its collision radius) (x += sin(theta) r >> 10, y += sin(theta + 90) r >> 10, the 1024 table, `formation::sin1024`),
+    /// perm[(k + n - 2) mod n] x 360 / n degrees from +y toward +x and r = `min_radius` + rnd(`area_radius` minus
+    /// `min_radius` minus its collision radius) (x += sin(theta) r >> 10, y += sin(theta + 90) r >> 10, the 1024 table,
+    /// `formation::sin1024`),
     /// set onto land and into the arena as a scheduled spawn is (`scheduled_point`). The draws are the client's generator's
     /// (`client_rnd`). Read off the client by Oracle and checked draw for draw on client 15.535.29's frames (sp-champ-
     /// SkeletonKing-s0: 500 draws from t205 to t206, perm [3, 2, 1, 0, 4], one draw per copy; the phase k + n - 2 is read

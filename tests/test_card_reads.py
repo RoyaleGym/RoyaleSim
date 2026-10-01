@@ -459,7 +459,12 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # flag is projectile.only_enemies (its shot's OnlyEnemies, unread).
     # 95 -> 98 when the Boss Bandit, the Little Prince and Goblinstein began to load (r19): the three new flags,
     # each for columns of its row the engine does not read (its Ability among them, read by the champion builders).
-    outside_by_vintage = {"2018": 40, "15.535": 98}
+    # 98 -> 97 when the loader reads IgnoreResurrect (card.rs `CardDef::ignore_resurrect`, the Skeleton King's souls):
+    # THE ELIXIR GOLEM leaves, its only flag. The Battle Ram, the Goblin Giant, the Golem, the Lava Hound, the Cannon
+    # Cart, the Ram Rider, the Skeleton Barrel and the Suspicious Bush lose the key and stay for others. The WHOLE
+    # delta, measured with one installed module on the parent's tree and on this one: the Elixir Golem alone, and the
+    # 2018 table's set unchanged.
+    outside_by_vintage = {"2018": 40, "15.535": 97}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

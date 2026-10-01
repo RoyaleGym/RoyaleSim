@@ -233,6 +233,9 @@ PROLOGUE = {
     # The Clone never copies this unit (the Goblin Drill's dig, the chess Recruits), written after the literal on
     # the 15.535 rows that set it.
     "IgnoreClone": "ignore_clone",
+    # The Skeleton King's souls pass over this unit's death (the Golem, the Battle Ram), written after the literal on
+    # the 15.535 rows that set it.
+    "IgnoreResurrect": "ignore_resurrect",
 }
 
 # Not a card-table column: `base_ops` is the extractor's own record of how a row was
