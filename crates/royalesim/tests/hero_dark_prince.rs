@@ -92,21 +92,29 @@ fn a_press_while_it_leaps_the_river_waits_for_its_landing() {
         k += 1;
         assert!(k < 300, "the hero never leapt");
     }
-    s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    s.press_ability_button(Team::Blue, 0).expect("the press, mid-leap");
-    let (mut landed, mut mount) = (None, None);
+    // The leap's end with no press, on a twin: its first tick off the leap.
+    let mut twin = s.clone();
+    let mut landed = None;
     for _ in 0..80 {
-        s.tick();
-        let now = s.tick_count() - 1;
-        if landed.is_none() && !s.entity(h).expect("the hero").jumping {
-            landed = Some(now);
-        }
-        if mount.is_none() && !find_live(&s, Team::Blue, MOUNT).is_empty() {
-            mount = Some(now);
+        twin.tick();
+        if !twin.entity(h).expect("the hero").jumping {
+            landed = Some(twin.tick_count() - 1);
+            break;
         }
     }
     let landed = landed.expect("the leap's end");
-    assert_eq!(mount, Some(landed), "the dismount on the first tick off the leap, {landed}");
+    let p = s.tick_count() - 1;
+    assert!(landed > p + 2, "a press mid-leap: pressed on {p}, landing on {landed}");
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.press_ability_button(Team::Blue, 0).expect("the press, mid-leap");
+    let mut mount = None;
+    for _ in 0..80 {
+        s.tick();
+        if mount.is_none() && !find_live(&s, Team::Blue, MOUNT).is_empty() {
+            mount = Some(s.tick_count() - 1);
+        }
+    }
+    assert_eq!(mount, Some(landed), "the dismount on the leap's first tick off it, {landed} (pressed on {p})");
 }
 
 #[test]
