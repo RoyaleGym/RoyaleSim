@@ -16577,9 +16577,12 @@ impl BattleState {
         // standing) takes part in no scan this tick. Read off client 15.535.29 by Oracle (sp-hogs-musk-s0 t641: a Royal
         // Hog pressed between its fellow and the falling princess tower is pushed by the fellow alone, (-12, +150) against
         // the client's (-11, +150)).
+        // Client 15.535.29's: it runs under movement.DYING_UNIT_VISIBILITY = client_doomed_static, that client's arm for a
+        // dying troop. The 16.402 corpus counts a dying building on its death tick under the shipped whole_tick
+        // (20260919-144043-A t1205: the Goblins against the falling tower exact with it counted, 9..26 off without).
         let mut fallen = vec![false; self.ents.capacity()];
         #[cfg(not(clash_plant = "doomed_building_collides"))]
-        if !self.dmg.hits.is_empty() {
+        if self.cfg.calib.dying_unit_visibility == DyingUnitVisibility::ClientDoomedStatic && !self.dmg.hits.is_empty() {
             let mut sums: Vec<(usize, i64)> = Vec::new();
             for h in &self.dmg.hits {
                 let t = h.target.index as usize;

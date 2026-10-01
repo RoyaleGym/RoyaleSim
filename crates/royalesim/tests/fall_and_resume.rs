@@ -1,7 +1,9 @@
 //! TWO LAWS ON A TICK'S EDGE (state.rs `phase_path16402_for`'s `fallen`, `phase_target`'s carry).
 //!
 //! (1) A BUILDING WHOSE DEATH IS SETTLED BEFORE THE MOVE PASS takes part in no scan that tick: a troop overlapping it is
-//! not pushed by it on the tick it falls. Read off client 15.535.29 by Oracle (sp-hogs-musk-s0 t641).
+//! not pushed by it on the tick it falls. Read off client 15.535.29 by Oracle (sp-hogs-musk-s0 t641). Client 15.535.29's
+//! only: it runs under movement.DYING_UNIT_VISIBILITY = client_doomed_static, and the 16.402 corpus counts the building
+//! under the shipped whole_tick (the test pins both).
 //! The scene: a blue Knight held 900 from a red Cannon at 150 hitpoints, one blow (out of every tower's reach), attacking it. While the Cannon stands, its body
 //! pushes the Knight every tick; on the tick the Knight's blow kills it, the Knight meets no one.
 //!
@@ -42,7 +44,22 @@ fn battle() -> BattleState {
 
 #[test]
 fn a_troop_on_a_building_that_falls_this_tick_is_not_pushed_by_it() {
-    let mut s = battle();
+    let (met, standing) = fall(royalesim::state::DyingUnitVisibility::ClientDoomedStatic);
+    assert!(standing >= 3, "the scene drifted: the Cannon pushed the Knight on {standing} ticks before it fell");
+    assert_eq!(met, 0, "client 15.535.29's arm: the tick the Cannon falls, the Knight met it");
+    let (met, _) = fall(royalesim::state::DyingUnitVisibility::WholeTick);
+    assert!(met >= 1, "the shipped whole_tick (16.402's): the Cannon still meets the Knight on the tick it falls");
+}
+
+/// The fall scene under `arm`: (bodies the Knight met on the tick the Cannon fell, ticks the Cannon pushed it before).
+fn fall(arm: royalesim::state::DyingUnitVisibility) -> (i32, i32) {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), RED.iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.dying_unit_visibility = arm;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
     let cannon = s.scenario_spawn_now(Team::Red, "Cannon", n((9000, 14200)), None).expect("the Cannon");
     let knight_at = n((9000, 13300));
     let knight = s.scenario_spawn_now(Team::Blue, "Knight", knight_at, None).expect("the Knight");
@@ -55,9 +72,7 @@ fn a_troop_on_a_building_that_falls_this_tick_is_not_pushed_by_it() {
         s.tick();
         let k = s.entity(knight).expect("the Knight lives");
         if s.entity(cannon).is_none() {
-            assert!(met_while_standing >= 3, "the scene drifted: the Cannon pushed the Knight on {met_while_standing} ticks before it fell");
-            assert_eq!(k.push_neighbours, 0, "the tick the Cannon falls: the Knight met {} bodies, pushed {:?}", k.push_neighbours, k.push_applied);
-            return;
+            return (k.push_neighbours, met_while_standing);
         }
         if k.push_neighbours >= 1 {
             met_while_standing += 1;
