@@ -8,8 +8,9 @@
 //! losing 256 once.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, guard_collides, early_trigger_late,
-//! guard_lands_loaded.
+//! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, guard_collides,
+//! early_trigger_late, guard_lands_loaded, guard_push_once (`his_guards_charge_pushes_by_a_ladder_rearmed_every_tick`
+//! red).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -189,4 +190,61 @@ fn his_guards_charge_hits_a_knight_near_its_path_once() {
     let (hits, shots): (Vec<i32>, Vec<i32>) = losses.iter().partition(|l| **l >= 256);
     assert_eq!(hits.len(), 1, "one charge hit: {losses:?}");
     assert!(hits[0] == 256 || shots.contains(&(hits[0] - 256)), "a charge hit of 256: {losses:?}");
+}
+
+/// THE GUARD'S PUSH (state.rs `guard_moves`, `rearm_ladder`): the knockback ladder, re-armed from the guard's point on
+/// every tick of its charge for a troop whose centre is within 2500 of it, m = 2500 - d, the new ladder replacing the
+/// running one unless its start is the smaller; after the charge the last ladder runs out. Read off the client code by
+/// Oracle and checked tick for tick on client 15.535.29 (sp-lp-live-s0: 25 on t213, then 125, 150, 174, 199, 224 ...).
+/// Here a red Knight beside the guard's path is held until the guard is first within 2500 of it, then each of its steps
+/// is the ladder's from the frame before, to 3.
+#[test]
+fn his_guards_charge_pushes_by_a_ladder_rearmed_every_tick() {
+    let (mut s, lp, reds) = scene(&[("Knight", (AT.0 + 800, AT.1 + 1500))]);
+    let knight = reds[0].0;
+    let dist = |a: Vec2, b: Vec2| -> i64 {
+        let (dx, dy) = (((a.x - b.x) / K) as i64, ((a.y - b.y) / K) as i64);
+        royalesim::fixed::isqrt(dx * dx + dy * dy)
+    };
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    // (the Knight, the guard) at the end of each tick from the one the guard first stands within 2500 of it.
+    let mut rows: Vec<(Vec2, Vec2)> = Vec::new();
+    let mut held = true;
+    for _ in 0..70 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        if held {
+            assert!(s.debug_set_pos(knight, reds[0].1));
+        }
+        s.tick();
+        let Some(g) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos) else { continue };
+        let k = s.entity(knight).expect("the Knight").pos;
+        if held && dist(g, k) < 2500 {
+            held = false;
+        }
+        if !held {
+            rows.push((k, g));
+        }
+    }
+    assert!(rows.len() > 20, "the scene drifted: the guard never came within 2500 of the Knight");
+    let mut cur = 0;
+    let mut checked = Vec::new();
+    for i in 1..rows.len() {
+        let (k0, g0) = rows[i - 1];
+        // The guard charged on frame i - 1 when it moved on it (the first row's frame it moved into reach).
+        let charging = i == 1 || rows[i - 2].1 != g0;
+        if charging && dist(g0, k0) < 2500 {
+            let start = royalesim::move16402::ladder_speed(2500 - dist(g0, k0) as i32);
+            if start >= cur {
+                cur = start;
+            }
+        }
+        cur -= 25;
+        if cur < 0 {
+            break;
+        }
+        let step = dist(rows[i].0, k0) as i32;
+        assert!((step - cur).abs() <= 3, "row {i}: a step of {step}, the ladder's {cur}; checked {checked:?}");
+        checked.push(step);
+    }
+    assert!(checked.len() >= 8, "the scene drifted: {} ladder steps checked: {checked:?}", checked.len());
 }

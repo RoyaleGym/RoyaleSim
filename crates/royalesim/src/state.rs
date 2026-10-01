@@ -15123,27 +15123,56 @@ impl BattleState {
             if self.ents.pos[gi] == end {
                 r.arrived = Some(tick);
             }
-            // The push: once each, ground troops of the other side within the reach of the guard's centre.
+            // The hit: once each, ground troops of the other side within the reach of the guard's centre (its push
+            // radius and their own). THE PUSH: on every tick of the charge, each of them whose CENTRE lies within the
+            // push radius, by the knockback ladder from the guard's point, m = push - d (ContinuosPushBack,
+            // DistanceProportinalPush), the new ladder replacing the running one unless its start is the smaller
+            // (`rearm_ladder`). Read off the client code by Oracle and checked tick for tick on client 15.535.29
+            // (sp-lp-live-s0: a Knight 2470 from the guard on t212 moves 25 on t213, then 125, 150, 174, 199, 224 ...
+            // with each step aimed from the guard; once the charge ends its last ladder runs out).
             let at = self.ents.pos[gi];
             let dmg = self.cfg.cards.scaled(r.card, r.level, g.push_damage).expect("the Little Prince's level is validated at try_new");
+            let mut pushes: Vec<(usize, i32)> = Vec::new();
+            #[cfg(clash_plant = "guard_push_once")]
+            let mut slides: Vec<(usize, Vec2)> = Vec::new();
             for j in 0..self.ents.capacity() {
                 let e = &self.ents;
-                if !e.alive[j] || e.team[j] == r.team || e.flying[j] || e.kind[j] != EntityKind::Troop || r.hit.contains(&e.id_of(j)) {
+                if !e.alive[j] || e.team[j] == r.team || e.flying[j] || e.kind[j] != EntityKind::Troop {
                     continue;
                 }
-                let reach = (g.push_radius + e.radius[j]) as i64;
                 let d2 = e.pos[j].dist2(at);
-                if d2 > reach * reach {
-                    continue;
-                }
                 let id = e.id_of(j);
-                r.hit.push(id);
-                self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false });
-                let d = crate::fixed::isqrt(d2).max(1);
-                let push = (g.push as i64) * (reach - d).max(0) / reach;
-                let q = self.ents.pos[j];
-                let (ux, uy) = ((q.x - at.x) as i64, (q.y - at.y) as i64);
-                self.ents.pos[j] = Vec2::new(q.x + (ux * push / d) as i32, q.y + (uy * push / d) as i32);
+                let reach = (g.push_radius + e.radius[j]) as i64;
+                #[cfg(clash_plant = "guard_push_once")]
+                if d2 <= reach * reach && !r.hit.contains(&id) {
+                    // PLANT (regression): the earlier push, once at the hit, push x (1 - d / reach) at once.
+                    let d = crate::fixed::isqrt(d2).max(1);
+                    let push = (g.push as i64) * (reach - d).max(0) / reach;
+                    let q = e.pos[j];
+                    let (ux, uy) = ((q.x - at.x) as i64, (q.y - at.y) as i64);
+                    slides.push((j, Vec2::new(q.x + (ux * push / d) as i32, q.y + (uy * push / d) as i32)));
+                }
+                if d2 <= reach * reach && !r.hit.contains(&id) {
+                    r.hit.push(id);
+                    self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false });
+                }
+                #[cfg(not(clash_plant = "guard_push_once"))]
+                {
+                    let k = crate::fixed::SUBTILE_PER_MILLITILE as i64;
+                    let d = crate::fixed::isqrt(d2);
+                    if d < g.push_radius as i64 {
+                        pushes.push((j, ((g.push as i64 - d) / k) as i32));
+                    }
+                }
+            }
+            for (j, m) in pushes {
+                if m > 0 && self.rearm_ladder(j, at, m, r.team) {
+                    moved = true;
+                }
+            }
+            #[cfg(clash_plant = "guard_push_once")]
+            for (j, p) in slides {
+                self.ents.pos[j] = p;
                 moved = true;
             }
             keep.push(r);
@@ -20574,6 +20603,33 @@ impl BattleState {
             e.push_active[i] = true;
             true
         }
+    }
+
+    /// A CONTINUOUS PUSH (the Little Prince's guard's ContinuosPushBack): unit `i` pushed `m` native from `src`
+    /// (subtiles) by the knockback ladder (`move16402::start_pushback`), the new ladder replacing a running one unless
+    /// its start is the smaller, as the client's pushback setup does for an action that pushes again every tick
+    /// (Oracle's reading of the 16.402 code). True when it armed.
+    fn rearm_ladder(&mut self, i: usize, src: Vec2, m: i32, caster: Team) -> bool {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let c = &self.cfg.calib;
+        let e = &mut self.ents;
+        let zero_dir = match c.knock_zero_vector {
+            KnockZeroVector::CasterForward => Some((0, spell::forward_dy(caster))),
+            KnockZeroVector::Client16402XByIdParity => Some((if e.team_seq[i] & 1 == 1 { -1 } else { 1 }, 0)),
+            KnockZeroVector::NoPush => None,
+        };
+        let pos = (e.pos[i].x / K, e.pos[i].y / K);
+        let from = (src.x / K, src.y / K);
+        let Some(start) = move16402::start_pushback(pos, from, m, c.max_pushback_length, zero_dir) else {
+            return false;
+        };
+        if e.push_active[i] && start.speed < e.push_speed[i] {
+            return false;
+        }
+        e.push_target[i] = Vec2::new(start.target.0, start.target.1);
+        e.push_speed[i] = start.speed;
+        e.push_active[i] = true;
+        true
     }
 
     /// movement.SPAWN_PATHFIND_BODY = untouchable: no hit lands on a unit under ground (combat.rs

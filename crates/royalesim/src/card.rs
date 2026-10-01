@@ -1429,8 +1429,9 @@ pub struct RampLevel {
 /// `guard_release`, `guard_bind`, `guard_moves`). At the trigger `hold` (NO_MOVE, speed -100) lands on him for its time;
 /// `spawn_delay_ms` on, `unit` is put down deploying at his point + GUARD_SPAWN_OFFSET (his side's frame), and from
 /// GUARD_DASH_START_TICKS after its first frame it charges GUARD_STEP a tick to his point + GUARD_END_OFFSET, hitting
-/// each ground troop whose centre comes within `push_radius` + its radius once, `push_damage` (level-scaled) and a push
-/// of `push` x (1 - its distance / that reach) away from it; GUARD_LANDING_TICKS after it arrives it is free.
+/// each ground troop whose centre comes within `push_radius` + its radius once, `push_damage` (level-scaled), and on
+/// every tick of the charge pushing each whose centre is within `push_radius` by the knockback ladder from its point,
+/// `push` less that distance (state.rs `rearm_ladder`); GUARD_LANDING_TICKS after it arrives it is free.
 ///
 /// Measured on client 15.535.29 (sp-champ-LittlePrince-s0 and Oracle's five sp-lp-* dash runs, the press P): the
 /// guard's first frame P + 18, 1944 behind him (and 18 across), deploying 6 frames; its first step P + 25, 398 a tick
