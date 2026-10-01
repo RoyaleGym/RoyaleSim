@@ -63,7 +63,8 @@ fn killed(unit: &str) -> (BattleState, EntityId, u32) {
         assert!(s.debug_set_hp(lj, 1));
         s.tick();
         if s.entity(lj).is_none() {
-            return (s, knight, s.tick_count() - 1);
+            let died = s.tick_count() - 1;
+            return (s, knight, died);
         }
     }
     panic!("{unit}: not killed in 200 ticks");

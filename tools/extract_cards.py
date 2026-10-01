@@ -3447,12 +3447,12 @@ def champion_tether(t, unit: str, second: str | None) -> dict | None:
     on a play of its card group and shows the champion's health bar, which only the display reads."""
     if not second:
         return None
-    acts = t["actions"]
     drow = t["characters"].get(second)
     name = drow["Ability"] if isinstance(drow, Row) and "Ability" in drow.columns else None
     a = t.abilities.get(name) if isinstance(name, str) else None
     if a is None or set(a) - TETHER_ABILITY_READ - DEFLECT_ABILITY_COSMETIC or a.get("MaxCharges") != 1:
         return None
+    acts = t["actions"]
     aura = acts.get(a.get("OnActivationAction"))
     if aura is None or aura["ClassType"] != "ActionSpawn" or aura["SpawnType"] != "BuffType":
         return None

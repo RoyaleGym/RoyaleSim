@@ -43,10 +43,10 @@ fn hero(team: Team, at: Vec2) -> (BattleState, EntityId) {
     s.deploy(team, "DarkPrince", at).expect("the play");
     for _ in 0..120 {
         s.tick();
-        if let Some(e) = find_live(&s, team, HERO).first() {
-            let id = e.id;
+        let found = find_live(&s, team, HERO).first().map(|e| (e.id, e.deploying));
+        if let Some((id, deploying)) = found {
             assert!(s.debug_set_pos(id, at));
-            if !e.deploying {
+            if !deploying {
                 return (s, id);
             }
         }

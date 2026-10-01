@@ -20568,7 +20568,8 @@ impl BattleState {
             let (team, level, at) = (self.ents.team[i], self.ents.level[i], self.ents.pos[i]);
             let dies = match r.trigger {
                 Some(t) => {
-                    for sp in f.spawns.iter().filter(|sp| t + sp.delay_ms as u32 / tick_ms == self.tick) {
+                    let now = self.tick;
+                    for sp in f.spawns.iter().filter(|sp| t + sp.delay_ms as u32 / tick_ms == now) {
                         let lvl = self.cfg.cards.unit_level(r.form, sp.unit, None, level).expect("the flag's spawn's level is validated at try_new");
                         let pos = self.scheduled_point(team, at, crate::card::SpawnOffset::MirroredToWall { dx: sp.dx, dy: sp.dy }, false);
                         self.release(PendingSpawn { team, card: sp.unit, level: lvl, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true });
