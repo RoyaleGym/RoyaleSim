@@ -248,9 +248,10 @@ fn the_pass_takes_the_taunt_on_the_tick_the_target_phase_does() {
     assert_eq!(taunted(TickOrder::ClientSequentialStrike), old, "the taunt's tick under the sequential order");
 }
 
-/// The Evo Wizard's blast scene (tests/evo_wizard.rs) under `order`: its shield set to 1, a red Knight held 1,500 off, in
-/// its reach and the blast's; the Knight's hitpoints on each of 60 ticks (0 once gone), and the tick the shield read 0.
-fn blast_scene(order: TickOrder) -> (Vec<i32>, Option<usize>) {
+/// The Evo Wizard's blast scene (tests/evo_wizard.rs) under `order`: its shield set to `shield`, a red Knight held 1,500
+/// off, in its reach and the blast's; the Knight's hitpoints on each of 60 ticks (0 once gone), and the tick the shield
+/// read 0.
+fn blast_scene(order: TickOrder, shield: i32) -> (Vec<i32>, Option<usize>) {
     const AT: (i32, i32) = (9000, 14500);
     let mut cfg = config();
     cfg.decks = [vec!["Wizard".into(), "Knight".into()], vec!["Knight".into()]];
@@ -264,7 +265,7 @@ fn blast_scene(order: TickOrder) -> (Vec<i32>, Option<usize>) {
     let red = s.scenario_spawn_now(Team::Red, "Knight", at(AT.0 + 1500, AT.1), None).expect("the red Knight");
     s.tick();
     let wiz = find_live(&s, Team::Blue, "Wizard_EV1")[0].id;
-    assert!(s.debug_set_shield(wiz, 1));
+    assert!(s.debug_set_shield(wiz, shield));
     let (mut hp, mut broke) = (Vec::new(), None);
     for k in 0..60 {
         if s.entity(red).is_some() {
@@ -281,10 +282,12 @@ fn blast_scene(order: TickOrder) -> (Vec<i32>, Option<usize>) {
 
 #[test]
 fn a_strike_that_breaks_an_evo_shield_sets_off_its_blast_as_a_buffered_hit_does() {
-    let (old, at) = blast_scene(TickOrder::Client16402);
-    let k = at.expect("the scene drifted: the Knight never broke the shield");
-    assert!(k > 0 && old[k] < old[k - 1], "the scene drifted: under client16402 the Knight lost nothing on the break tick");
-    let (seq, at_seq) = blast_scene(TickOrder::ClientSequentialStrike);
+    let (old, at) = blast_scene(TickOrder::Client16402, 1);
+    assert!(at.is_some(), "the scene drifted: the Knight never broke the shield");
+    let (unbroken, never) = blast_scene(TickOrder::Client16402, 1_000_000);
+    assert_eq!(never, None, "the scene drifted: the big shield broke");
+    assert_ne!(old, unbroken, "the scene drifted: under client16402 the break changed nothing on the Knight");
+    let (seq, at_seq) = blast_scene(TickOrder::ClientSequentialStrike, 1);
     assert_eq!(at_seq, at, "the shield's break tick under the sequential order");
     assert_eq!(seq, old, "the red Knight's hitpoints tick by tick: the blast under the sequential order");
 }
