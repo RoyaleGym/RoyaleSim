@@ -181,8 +181,7 @@ them at HIGH; each entry's `confidence` names the ones that are not. They are `t
 `time.SPEED_TO_SUBTILES_PER_TICK`, `time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK`,
 `pathfinding.PATH_SEARCH`, `collision.CONTACT_LAW`, the `movement.*` section except
 `BUFF_SPEED_COMPOSITION`, `SPAWN_PATHFIND_STATES`, `SPAWN_PATHFIND_START` and `JUMP_LANDING_CONTACT` (hypotheses), and the cost, goal and replan
-keys except `pathfinding.SAMEPATH_SEGMENT` (a hypothesis: the engine ships the old arm while the
-measured one waits for its flip). Their evidence is in `pathfinding.md` and `movement-measurements.md`.
+keys. Their evidence is in `pathfinding.md` and `movement-measurements.md`.
 
 These keys were measured later, on the 16.402 corpus or client 15.535.29, and are `measured` too:
 
@@ -208,6 +207,6 @@ community, hypothesis and guess (13 of its 26 keys). `hide.RISE_LAW`,
 `status.APPLY_BUFF_BEFORE_DAMAGE`, `status.BUFF_DEATH_SPAWN_DEPLOY_TIME`,
 `status.CROWN_TOWER_DAMAGE_PER_HIT_SCALING`, `status.DAMAGE_REDUCTION`, `status.IDLE_BUFF`,
 `status.STUN_CLEARS_TARGET`, `status.RESUME_RETARGET_WINDUP` and `status.WAITED_PRESS_CAST` are measured.
-`status.DAMAGE_REDUCTION` is measured at a reduction of 100 on client 15.535.29 and at 15 and 60 on
-16.402; what it gives at 65 is not measured.
+`status.DAMAGE_REDUCTION` is measured at reductions of 100 and 65 on client 15.535.29 and at 15 and 60
+on 16.402.
 Each open key carries the observation that would settle it.
