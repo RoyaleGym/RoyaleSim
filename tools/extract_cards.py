@@ -3292,9 +3292,9 @@ LANE_SWITCH_ABILITY_READ = {
 def champion_lane_switch(t, unit: str) -> dict | None:
     """THE BUTTON OF A CHAMPION THAT SWITCHES LANES (15.535: the Mighty Miner's MightyMinerLaneSwitch), or None. Its row
     sets SwitchLanes TRUE and an ActivationSpawnCharacter (`unit`: the bomb it drops, a units row) put down with
-    ActivationSpawnDeployTime 0 (`unit_deploy_ms`); the champion's own IngamePathfindSpeed (`speed`, native a tick) is its
-    pace under ground to the other lane. One charge, no Cooldown column. Any other column, or any other shape, gives
-    None."""
+    ActivationSpawnDeployTime 0 (`unit_deploy_ms`); the champion's own IngamePathfindSpeed (`speed`, native a tick) is
+    its pace under ground to the other lane. One charge, no Cooldown column. Any other column, or any other shape,
+    gives None."""
     row = t["characters"].get(unit)
     name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
     a = t.abilities.get(name) if isinstance(name, str) else None
@@ -3304,7 +3304,7 @@ def champion_lane_switch(t, unit: str) -> dict | None:
         return None
     speed = row["IngamePathfindSpeed"] if "IngamePathfindSpeed" in row.columns else None
     ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "ActivationSpawnDeployTime")]
-    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints + [speed]):
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in [*ints, speed]):
         return None
     cast_ms, trigger_ms, mana, charges, deploy_ms = ints
     return {
@@ -3344,7 +3344,8 @@ def champion_soul_summon(t, unit: str) -> dict | None:
     StayAfterParentDies), puts down that many copies (SpawnClones) of its SpawnCharacter (`unit`), the first
     SpawnInitialDelay on (`spawn_delay_ms`), then one every SpawnInterval (`every_ms`), each deploying SpawnTime
     (`unit_deploy_ms`), in the ring SpawnMinRadius .. SpawnMaxRadius (`min_radius_milli`, `max_radius_milli`) in a
-    randomized sequence, for LifeDuration (`duration_ms`). One charge. Any other column, or any other shape, gives None."""
+    randomized sequence, for LifeDuration (`duration_ms`). One charge. Any other column, or any other shape, gives
+    None."""
     row = t["characters"].get(unit)
     name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
     a = t.abilities.get(name) if isinstance(name, str) else None
@@ -3360,7 +3361,8 @@ def champion_soul_summon(t, unit: str) -> dict | None:
     if aeo["FollowBehaviour"] != "FollowParent" or not aeo["SpawnClones"] or not aeo["SpawnRandomizeSequence"] \
             or not aeo["StayAfterParentDies"] or not isinstance(aeo["SpawnCharacter"], str):
         return None
-    ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "ResurrectBaseCount", "SpawnLimit")]
+    ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "ResurrectBaseCount",
+                               "SpawnLimit")]
     aints = [aeo[k] for k in ("SpawnInitialDelay", "SpawnInterval", "SpawnTime", "SpawnMinRadius", "SpawnMaxRadius",
                               "LifeDuration", "Radius")]
     if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints + aints):
