@@ -85,7 +85,9 @@
 //!     RoyaleGym decodes; the row runs on to `level` and `mount_uid`)
 //!     (ticks remaining, rounded up; under the shipped knockback ladder the ticks the
 //!     ladder still runs, `knock_ticks_left`); and a top-level "spells" array of rows
-//!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits]
+//!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits, ticks_flown]
+//!     ticks_flown: for a FLIGHT spell, the ticks it has moved (0 while it waits out delay_ticks); 0 for every other
+//!     motion. The column is last, so a reader of the first eleven keeps working.
 //!     motion 0 flight / 1 airborne (the Log before it lands) / 2 rolling / 3 area
 //!     effect; (x, y) the current centre; aim the landing point (flight, airborne) or
 //!     the roll's end point (rolling) or the centre (area); distances in subtiles.
@@ -316,7 +318,7 @@ pub const PROJECTILE_FIELDS: [&str; 8] = ["team", "x", "y", "aim_x", "aim_y", "t
 /// THE SPELL ROW'S FIELDS, in `state_json`'s order (its `spells` key), named as protocol.py
 /// `SpellState` names them. Same reason as ENTITY_FIELDS: a spell column added here and not
 /// there would otherwise be dropped without a word. Pinned to the serializer by a test here.
-pub const SPELL_FIELDS: [&str; 11] = ["team", "card_id", "motion", "x", "y", "aim_x", "aim_y", "delay_ticks", "travelled", "length", "hits"];
+pub const SPELL_FIELDS: [&str; 12] = ["team", "card_id", "motion", "x", "y", "aim_x", "aim_y", "delay_ticks", "travelled", "length", "hits", "ticks_flown"];
 
 /// THE SPELL MOTIONS BY NAME, index = the `motion` code a spell row carries, named as
 /// protocol.py `SpellMotion` names them, so a decoder refuses a code it has no name for at
@@ -1109,13 +1111,14 @@ pub fn state_json_text(
         };
         let _ = write!(
             o,
-            "[{},{card_id},{motion},{},{},{},{},{},{travelled},{len},{hits}]",
+            "[{},{card_id},{motion},{},{},{},{},{},{travelled},{len},{hits},{}]",
             sp.team as u8,
             pos.x,
             pos.y,
             aim.x,
             aim.y,
             ceil_div(delay_ms.max(0) as i64, tick_ms),
+            if motion == MOTION_FLIGHT { sp.flown } else { 0 },
         );
     }
     // PROJECTILE_FIELDS, one row per projectile in flight.

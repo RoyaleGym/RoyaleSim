@@ -10113,7 +10113,7 @@ impl BattleState {
             let damage = self.cfg.cards.scaled(card, level, h.damage).expect("level validated at spawn");
             let delay_ms = g.strike_delay_ms + GHOST_STRIKE_EXTRA_TICKS * self.cfg.calib.tick_ms;
             let motion = spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms };
-            self.spells.push(Spell { team, card, level, damage, pulse: 0, motion, depth: 0 });
+            self.spells.push(Spell { team, card, level, damage, pulse: 0, motion, depth: 0, flown: 0 });
         }
     }
 
@@ -13516,6 +13516,7 @@ impl BattleState {
             pulse: 0,
             motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: ticks * self.cfg.calib.tick_ms },
             depth: 0,
+            flown: 0,
         });
     }
 
@@ -22326,6 +22327,7 @@ impl BattleState {
                     pulse: 0,
                     motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms },
                     depth: 0,
+                    flown: 0,
                 });
                 continue;
             }

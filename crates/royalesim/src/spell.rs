@@ -135,6 +135,12 @@ pub struct Spell {
     /// depth 1, the damage area depth 2.
     #[serde(default)]
     pub depth: u8,
+    /// THE TICKS A FLIGHT HAS MOVED (`SpellMotion::Flight` only): 0 while it waits out its delay, then one more for
+    /// each tick it travels. `state_json`'s spell rows carry it (`ticks_flown`), so an observer can date how long an
+    /// arc has been in the air. `default` 0 for a spell saved before the field; not hashed (it follows from the
+    /// motion the hash already carries).
+    #[serde(default)]
+    pub flown: u16,
 }
 
 /// A unit a scheduled area releases (`SpellMotion::Scheduled`): unit `unit` at unified `level` for `team`, at the
@@ -455,7 +461,7 @@ pub fn attached_area(cards: &CardDb, calib: &Calib, team: Team, card: u16, level
         Some(b) => cards.buffs[b.buff as usize].pulse_amount(calib.buff_pulse_amount, |m| cards.scaled(card, level, m))?,
     };
     let motion = SpellMotion::Attached { parent, pos, part, life_ms: a.life_ms, next_ms: a.first_ms - calib.tick_ms };
-    Ok(Spell { team, card, level, damage, pulse, motion, depth: 0 })
+    Ok(Spell { team, card, level, damage, pulse, motion, depth: 0, flown: 0 })
 }
 
 /// Turn one accepted cast -- or one death that releases an area effect -- into its
@@ -573,6 +579,7 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
                 pulse: pulse_of(hit)?,
                 motion: SpellMotion::Pulsing(Pulse { pos: tap, life_ms: *life_ms, next_ms }),
                 depth,
+                flown: 0,
             });
             // spells.CHILD_AREA_BIRTH = with_parent: the child is made with its parent, so it acts
             // on the parent's first update. The measured arm makes it ON that update (`step_spells`).
@@ -614,7 +621,7 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
                 },
                 LaunchModel::InstantRollAtTap => SpellMotion::Rolling { pos: tap, travelled: 0, len: *range, hit: Vec::new() },
             };
-            out.push(Spell { team, card, level, damage, pulse, motion, depth });
+            out.push(Spell { team, card, level, damage, pulse, motion, depth, flown: 0 });
         }
         // A bottle: it deals nothing itself and releases `then` when its fuse runs out. A ZERO fuse is an area whose
         // action makes another area (card.rs `area_spawns_area`, the Goblin Curse): spells.AREA_SPAWNED_AREA_START =
@@ -647,7 +654,7 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         // A striking area: its damage is the strike's, scaled once here; nothing happens on the cast tick.
         SpellShape::Strikes(d) => {
             let motion = SpellMotion::Strikes { pos: tap, life_ms: d.life_ms, next_ms: d.gaps_ms[0], k: 0, struck: Vec::new() };
-            out.push(Spell { team, card, level, damage: scaled(&d.hit)?, pulse: 0, motion, depth });
+            out.push(Spell { team, card, level, damage: scaled(&d.hit)?, pulse: 0, motion, depth, flown: 0 });
         }
         // A scheduled area: it deals nothing; its clock is its creation tick (`step_spells`).
         SpellShape::ScheduledArea { .. } => {
@@ -1789,6 +1796,8 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 // client's truncated native step (combat.rs `projectile_advance`).
                 let np = crate::combat::projectile_advance(ctx.calib.projectile_step, *pos, *aim, speed * mult, frac, s.team);
                 *pos = np;
+                // One more tick in the air (`Spell::flown`).
+                s.flown = s.flown.saturating_add(1);
                 if np != *aim {
                     return true;
                 }
@@ -2041,6 +2050,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                             pulse: 0,
                             motion: SpellMotion::Flight { pos: *pos, aim: *pos, frac: Vec2::default(), delay_ms: 0 },
                             depth: s.depth + 1,
+                            flown: 0,
                         }),
                         (StrikePick::RankedCatches, Some(sel)) => catch(ctx, s.team, s.card, s.level, def, sel, *pos, *k, *life_ms, struck, fx, nb),
                         (StrikePick::CountTiers, Some(sel)) => laser(ctx, s.team, s.card, s.level, s.damage, def, sel, *pos, dmg, fx, nb),
