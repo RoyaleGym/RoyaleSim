@@ -45,7 +45,7 @@ use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, ChaseDropWalkingAway, DeprioritizedTargetBuff, EqualDistanceTie, LeapingUnitTargetability, MinimumRange,
+    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, LeapingUnitTargetability, MinimumRange,
     PreserveTargetScope, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
@@ -984,9 +984,10 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             // sight 7,000; sp-champ-LittlePrince-s0 t190: a Skeleton holding the Little Prince at 6,508 round, 6,019
             // square against a limit of 5,500, never inside). A target still in round sight is not held: the rescan
             // passes over one on purpose (a doomed one: sweep-Minions t336, a Knight whose death the Minion's shot in
-            // flight has settled, left for the tower on both clients). Past the limit only a troop holds: the
-            // measurements are walkers, and a building (a crown tower) still lets go there
-            // (tests/reach_loss_switch.rs `a_crown_tower_drops_a_started_shot_500_past_its_reach`).
+            // flight has settled, left for the tower on both clients). Past the limit the hold is the client's
+            // (targeting.CHASE_HOLD_PAST_LIMIT): inside_only lets it go there (the 16.402 corpus, 3 of 4);
+            // client15535_troops_kept keeps it for a troop (client 15.535.29, 135 of 139), and a building (a crown tower)
+            // still lets go (tests/reach_loss_switch.rs `a_crown_tower_drops_a_started_shot_500_past_its_reach`).
             #[cfg(not(clash_plant = "chase_lost_past_round_sight"))]
             if ctx.calib.chase_drop_range == ChaseDropRange::ClientSightMinus1000
                 && !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, ti), e.radius[a], e.pos[ti], e.radius[ti])
@@ -995,7 +996,8 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 #[cfg(clash_plant = "chase_held_only_inside_limit")]
                 let holds = !past_chase_limit(ctx.cards, e, a, ti);
                 #[cfg(not(clash_plant = "chase_held_only_inside_limit"))]
-                let holds = !e.kind[a].is_building() || !past_chase_limit(ctx.cards, e, a, ti);
+                let holds = !past_chase_limit(ctx.cards, e, a, ti)
+                    || (ctx.calib.chase_hold_past_limit == ChaseHoldPastLimit::Client15535TroopsKept && !e.kind[a].is_building());
                 if holds {
                     held_past_sight = Some(t);
                 }

@@ -443,6 +443,11 @@ pub struct Calib {
     /// saved before it actually ran.
     #[serde(default = "chase_drop_range_default")]
     pub chase_drop_range: ChaseDropRange,
+    /// targeting.CHASE_HOLD_PAST_LIMIT: whether a troop keeps a target past its round sight past the chase-drop limit too
+    /// (target.rs `decide`, `held_past_sight`). Read only under chase_drop_range = client_sight_minus_1000. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "chase_hold_past_limit_default")]
+    pub chase_hold_past_limit: ChaseHoldPastLimit,
     /// targeting.CHASE_DROP_KNOCKED_TARGET: whether a troop holds a troop target that is sliding under a knockback
     /// through the slide, where the chase drop and the rescan would let it go (target.rs `decide`). Read only under
     /// chase_drop_range = client_sight_minus_1000. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
@@ -1406,6 +1411,10 @@ fn doomed_lane_tower_default() -> DoomedLaneTower {
 
 fn chase_drop_range_default() -> ChaseDropRange {
     ChaseDropRange::SightPlusRadii
+}
+
+fn chase_hold_past_limit_default() -> ChaseHoldPastLimit {
+    ChaseHoldPastLimit::InsideOnly
 }
 
 fn chase_drop_knocked_default() -> ChaseDropKnocked {
@@ -2795,6 +2804,17 @@ calib_enum!(
         /// of 31 such ticks in the chase scenarios kept it). Its later scans take that troop again only within the
         /// same limit, measured the same way; every other enemy is a candidate at plain sight.
         ClientSightMinus1000 = "client_sight_minus_1000",
+    }
+);
+calib_enum!(
+    /// targeting.CHASE_HOLD_PAST_LIMIT -- see `Calib::chase_hold_past_limit`.
+    ChaseHoldPastLimit {
+        /// A target held past round sight is kept only inside the chase-drop limit (the 16.402 corpus: 3 of 4 never-inside
+        /// holds let go past it).
+        InsideOnly = "inside_only",
+        /// A troop keeps it past the limit too when the pair has never been inside (the chase drop lets go of one that
+        /// has); a building still lets go there. Client 15.535.29: 135 of 139 such holds kept.
+        Client15535TroopsKept = "client15535_troops_kept",
     }
 );
 calib_enum!(
@@ -5950,6 +5970,7 @@ impl Calib {
             doomed_drop_swing: pick(&v, &["targeting", "DOOMED_DROP_SWING", "value"], DoomedDropSwing::from_calibration_name)?,
             doomed_lane_tower: pick(&v, &["targeting", "DOOMED_LANE_TOWER", "value"], DoomedLaneTower::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
+            chase_hold_past_limit: pick(&v, &["targeting", "CHASE_HOLD_PAST_LIMIT", "value"], ChaseHoldPastLimit::from_calibration_name)?,
             chase_drop_knocked: pick(&v, &["targeting", "CHASE_DROP_KNOCKED_TARGET", "value"], ChaseDropKnocked::from_calibration_name)?,
             chase_drop_walking_away: pick(&v, &["targeting", "CHASE_DROP_WALKING_AWAY", "value"], ChaseDropWalkingAway::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
@@ -27085,6 +27106,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.CHASE_HOLD_PAST_LIMIT: Calib gained chase_hold_past_limit (serde default the old arm,
+///    inside_only), no new state (the new arm changes a decision inside the Target phase), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.KAMIKAZE_DEATH_CONTACT: Calib gained kamikaze_death_contact (serde default the old arm,
 ///    as_doomed), no new state (the new arm changes a body's separation flag inside the pass), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27669,6 +27693,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // pick, the tower's cancel range and the far hit: a format-3 battle ran none of them; it keeps
     // that whatever the ledger ships (the same rule).
     sh.insert("chase_drop_range".into(), serde_json::to_value(ChaseDropRange::SightPlusRadii).map_err(|e| e.to_string())?);
+    // targeting.CHASE_HOLD_PAST_LIMIT: read only under client_sight_minus_1000, which a format-3 battle never ran (the same
+    // rule).
+    sh.insert("chase_hold_past_limit".into(), serde_json::to_value(ChaseHoldPastLimit::InsideOnly).map_err(|e| e.to_string())?);
     // targeting.CHASE_DROP_KNOCKED_TARGET: read only under client_sight_minus_1000, which a format-3 battle never ran;
     // it keeps the old arm whatever the ledger ships (the same rule).
     sh.insert("chase_drop_knocked".into(), serde_json::to_value(ChaseDropKnocked::DropsKnocked).map_err(|e| e.to_string())?);

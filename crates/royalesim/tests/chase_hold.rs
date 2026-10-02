@@ -9,8 +9,9 @@
 //!
 //! A target taken past the limit while still in round sight (the limit is a square, the sight a circle: straight
 //! along x, 5,800 is past the 5,500 limit and inside the 6,500 sight) has never been inside it, so the chase drop never
-//! lets it go; past round sight it is held too (client 15.535.29: 135 of 139 such holds kept; sp-champ-LittlePrince-s0
-//! t190).
+//! lets it go; past round sight a troop holds it too under targeting.CHASE_HOLD_PAST_LIMIT = client15535_troops_kept
+//! (client 15.535.29: 135 of 139 such holds kept; sp-champ-LittlePrince-s0 t190), and lets it go under the shipped
+//! inside_only (the 16.402 corpus: 3 of 4 let go).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! chase_hold`): chase_lost_past_round_sight -> `a_target_past_round_sight_inside_the_chase_limit_is_kept` red;
@@ -60,7 +61,21 @@ fn a_target_past_round_sight_inside_the_chase_limit_is_kept() {
 
 #[test]
 fn a_target_never_inside_the_limit_is_kept_past_round_sight() {
+    past_limit_scene(royalesim::state::ChaseHoldPastLimit::Client15535TroopsKept, true);
+}
+
+/// The shipped arm, inside_only, lets the same target go past the limit (the 16.402 corpus).
+#[test]
+fn the_shipped_arm_lets_a_never_inside_target_go_past_the_limit() {
+    assert_eq!(royalesim::state::Calib::shipped().chase_hold_past_limit, royalesim::state::ChaseHoldPastLimit::InsideOnly);
+    past_limit_scene(royalesim::state::ChaseHoldPastLimit::InsideOnly, false);
+}
+
+/// A blue Knight takes a red Knight 5,800 off along x (past the square limit, in the round sight), which then stands
+/// 6,700 off (past both) for 5 ticks: is it kept every tick (`kept`) or let go on the first?
+fn past_limit_scene(arm: royalesim::state::ChaseHoldPastLimit, kept: bool) {
     let mut cfg = config();
+    cfg.calib.chase_hold_past_limit = arm;
     let deck: Vec<String> = ["Knight", "Archers", "Giant", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.card_level = [11, 11];
@@ -86,6 +101,12 @@ fn a_target_never_inside_the_limit_is_kept_past_round_sight() {
         assert!(s.debug_set_pos(blue, at(me.0, me.1)));
         assert!(s.debug_set_pos(red, at(far.0, far.1)));
         s.tick();
-        assert_eq!(s.entity(blue).expect("the blue Knight").target, Some(red), "tick {k} past round sight and the limit, never inside: the blue Knight let the red one go");
+        let held = s.entity(blue).expect("the blue Knight").target == Some(red);
+        if kept {
+            assert!(held, "{arm:?}: tick {k} past round sight and the limit, never inside: the blue Knight let the red one go");
+        } else {
+            assert!(!held, "{arm:?}: tick {k} past round sight and the limit: the blue Knight kept the red one");
+            return;
+        }
     }
 }

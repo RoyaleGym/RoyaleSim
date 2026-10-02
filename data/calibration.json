@@ -322,6 +322,17 @@
       "promotion_rules": "The test file passes. The flip moves every scene where a walking unit chases a faster one away from it; register the prediction before the flip.",
       "engine": "target.rs decide: for a walking unit whose live target is a unit out of its attack reach, drop it when the start-of-tick measure exceeds SightRange + both radii - 1000 and the previous Target phase held it within that limit (entity.rs chase_inside), before the move"
     },
+    "CHASE_HOLD_PAST_LIMIT": {
+      "value": "inside_only",
+      "status": "measured",
+      "candidates": ["inside_only", "client15535_troops_kept"],
+      "confidence": "HIGH for client15535_troops_kept on client 15.535.29 (135 of 139 never-inside holds past the limit kept); LOW-MEDIUM for inside_only on the 16.402 corpus (3 of 4 such holds let go, all Goblin rows)",
+      "provenance": "MEASURED by parity (2026-10-02): walkers (state 1) holding a troop target that stands past their round sight (SightRange + both radii) and past the chase-drop limit (max(|dx|, |dy|) > that less 1000) at a tick's start, the pair never inside the limit during the hold. On client 15.535.29's scenario and IL records 135 of 139 kept the target on the next tick (sp-champ-LittlePrince-s0 t190: a Skeleton holding the Little Prince 6,508 round and 6,019 square against 5,500, which the engine let go for a tick and rerouted, the first divergence of the Musketeer drift in that scene). On the 16.402 corpus 1 of 4 kept it: 20260918-112751 t3075, a Spear Goblin let an Archer go, and 20260918-134739-A and -B t474, a Goblin let a Goblin go. Run on both clients, the 15.535.29 arm put sp-champ-LittlePrince-s0 and -nopress-s0 back on the bar (+409 and +232 within) and cost those three 16.402 battles 2,016 within (20260918-112751 off the bar; its first engine split, t1965, is a hut Goblin keeping a Valkyrie the client let go); this key gives each client its own.",
+      "meaning": "Read only under targeting.CHASE_DROP_RANGE = client_sight_minus_1000. inside_only: a target held past round sight while the rescan finds nothing is kept only while it stands inside the chase-drop limit (the round-24 hold). client15535_troops_kept: a troop keeps it past the limit too, when the pair has never been inside it (the chase drop lets go of one that has); a building still lets go there.",
+      "open": "Whether the 16.402 corpus's let-go holds are the client's or the Goblin rows' (all three are Goblins); a building attacker past the limit is unmeasured on either client.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_troops_kept (examples/replay_parity/harness.rs CLIENT15535_ARMS). More 16.402 never-inside holds past the limit, of other rows, would settle the shipped arm.",
+      "engine": "target.rs decide (`held_past_sight`, `holds`), selected by Calib::chase_hold_past_limit; tests/chase_hold.rs."
+    },
     "CHASE_DROP_KNOCKED_TARGET": {
       "value": "client_holds_knocked",
       "candidates": ["drops_knocked", "client_holds_knocked"],
