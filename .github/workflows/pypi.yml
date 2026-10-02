@@ -22,9 +22,13 @@ on:
 
 jobs:
   publish:
+    # OFF until the owner turns it on. A job naming an environment that does not exist yet would make GitHub create it
+    # UNPROTECTED, so nothing runs until the repository variable PYPI_PUBLISH is "true", which the owner sets as the
+    # last setup step, after the protected `pypi` environment and PyPI's trusted publisher exist.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v'))
+      vars.PYPI_PUBLISH == 'true' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')))
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
