@@ -36,11 +36,10 @@ fn ram_death(arm: DoomedOwnUpdate) -> ((i32, i32), (i32, i32)) {
     past_deploy_lockout(&mut s);
     let ram = s.scenario_spawn_now(Team::Blue, "BattleRam", at(14800, 21000), None).expect("the Battle Ram");
     let skel = s.scenario_spawn_now(Team::Blue, "Skeleton", at(15200, 21000), None).expect("the Skeleton");
-    let mut last = None;
     for _ in 0..200 {
         let Some(r) = s.entity(ram) else { break };
         let rp = r.pos;
-        last = Some((rp.x / K, rp.y / K));
+        let last = (rp.x / K, rp.y / K);
         // the push: the Skeleton held against the Ram's side, clear of where its Barbarians will stand
         if s.entity(skel).is_some() {
             assert!(s.debug_set_pos(skel, Vec2::new(rp.x + 1150 * K, rp.y)));
@@ -54,7 +53,7 @@ fn ram_death(arm: DoomedOwnUpdate) -> ((i32, i32), (i32, i32)) {
                 .collect();
             assert_eq!(born.len(), 2, "the scene drifted: the Ram left {} Barbarians", born.len());
             let c = ((born[0].0 + born[1].0) / 2, (born[0].1 + born[1].1) / 2);
-            return (last.expect("the Ram lived a tick"), c);
+            return (last, c);
         }
     }
     panic!("the scene drifted: the Ram never died");

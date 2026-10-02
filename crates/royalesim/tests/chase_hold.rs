@@ -1,7 +1,7 @@
 //! THE CHASE LIMIT HOLDS A TARGET PAST ROUND SIGHT (targeting.CHASE_DROP_RANGE = client_sight_minus_1000; target.rs
 //! `decide`, `held_past_sight`). Measured on client 15.535.29: a walker holding a target that stands past its round sight
-//! (centre distance > SightRange + both radii) but inside the chase-drop limit (max |dx|, |dy| <= SightRange + both radii
-//! - 1000) kept it 158 of 159 times for a troop target and 25 of 25 for a building; the engine's rescan, which finds
+//! (centre distance > SightRange + both radii) but inside the chase-drop limit (max |dx|, |dy| <= SightRange + both
+//! radii, less 1000) kept it 158 of 159 times for a troop target and 25 of 25 for a building; the engine's rescan, which finds
 //! nothing past round sight, lost it (sp-champ-SkeletonKing-s0 t177).
 //!
 //! The scene: a blue Knight held on (5000, 10000) takes a red Knight held 3,000 off on the diagonal; the red Knight is
