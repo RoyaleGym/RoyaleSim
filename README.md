@@ -1,6 +1,6 @@
 <p align="center"><img src="docs/media/logo.png" width="128" alt="The RoyaleSim logo: a red crown shield with a white gear on it, outlined in gold"></p><h1 align="center">RoyaleSim</h1>
 
-<p align="center"><a href="https://github.com/RoyaleGym/RoyaleSim/actions/workflows/suite.yml"><img alt="CI" src="https://github.com/RoyaleGym/RoyaleSim/actions/workflows/suite.yml/badge.svg"></a> <img alt="License" src="https://img.shields.io/github/license/RoyaleGym/RoyaleSim?style=flat-square&color=555"> <img alt="Python" src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white"> <a href="https://royalegym.github.io/RoyaleGym/"><img alt="Docs" src="https://img.shields.io/badge/docs-royalegym.github.io-8957e5?style=flat-square&logo=readthedocs&logoColor=white"></a> <a href="https://discord.gg/4D2BS5JBHP"><img alt="Discord" src="https://img.shields.io/discord/1551699576304705647?style=flat-square&logo=discord&logoColor=white&label=discord&color=5865F2"></a> <img alt="Last commit" src="https://img.shields.io/github/last-commit/RoyaleGym/RoyaleSim?style=flat-square&color=555"></p>
+<p align="center"><a href="https://github.com/RoyaleGym/RoyaleSim/actions/workflows/suite.yml"><img alt="CI" src="https://github.com/RoyaleGym/RoyaleSim/actions/workflows/suite.yml/badge.svg"></a> <img alt="License" src="https://img.shields.io/github/license/RoyaleGym/RoyaleSim?style=flat-square&color=555"> <img alt="Python" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB?style=flat-square&logo=python&logoColor=white"> <a href="https://royalegym.github.io/RoyaleGym/"><img alt="Docs" src="https://img.shields.io/badge/docs-royalegym.github.io-8957e5?style=flat-square&logo=readthedocs&logoColor=white"></a> <a href="https://discord.gg/4D2BS5JBHP"><img alt="Discord" src="https://img.shields.io/discord/1551699576304705647?style=flat-square&logo=discord&logoColor=white&label=discord&color=5865F2"></a> <img alt="Last commit" src="https://img.shields.io/github/last-commit/RoyaleGym/RoyaleSim?style=flat-square&color=555"></p>
 
 <p align="center"><img alt="Engine: Rust, whole numbers only" src="https://img.shields.io/badge/engine-Rust%2C%20whole%20numbers%20only-DEA584?style=flat-square&logo=rust&logoColor=white"> <img alt="Tick: 50 ms, 20 per second" src="https://img.shields.io/badge/tick-50%20ms%2C%2020%20per%20second-555?style=flat-square"> <img alt="Coordinates: 18,000 units to one tile" src="https://img.shields.io/badge/coordinates-18%2C000%20per%20tile-555?style=flat-square"></p>
 
@@ -15,7 +15,7 @@ Most people use it through [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) a
 pip install "royalegym[all]" --find-links https://github.com/RoyaleGym/RoyaleGym/releases/expanded_assets/v0.1.1
 ```
 
-That installs this engine and everything else, on 3.12 or 3.13 (the engine alone runs on 3.10 and newer). [Install](https://royalegym.github.io/RoyaleGym/install/) has more.
+That installs this engine and everything else, on 3.12, 3.13 or 3.14 (the engine alone runs on 3.10 to 3.14). [Install](https://royalegym.github.io/RoyaleGym/install/) has more.
 
 ## Try it
 
