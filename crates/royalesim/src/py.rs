@@ -95,9 +95,12 @@
 //!     card, 1 its evolution, 2 its hero form; None plays every card as itself. The catalogue lists base cards only: a
 //!     form is never a card of its own (`card_names` naming one raises), and its units, spells and shots report under
 //!     the base card's id.
-//!     An evolved entry puts its evolution down on every third play of the card. `state_json` gives each player an
-//!     "evo" list, one row per evolved deck card in deck order:
-//!         [card_id, plays since its last evolved play, 1 when its next play from the hand is evolved else 0]
+//!     An evolved entry puts its evolution down once its basic plays reach the form's cycles (two for most forms, so
+//!     every third play; the card data can name another count). `state_json` gives each player an "evo" list, one row
+//!     per evolved deck card in deck order:
+//!         [card_id, plays since its last evolved play, 1 when its next play from the hand is evolved else 0, cycles]
+//!     where cycles is the basic plays the form needs before an evolved one (state.rs `EvoCounter::cycles`), so
+//!     plays / cycles is the progress towards the next evolved play. A reader of three columns keeps working.
 //!     and each evolved unit's `status_flags` bit 3 (8).
 //!     A hero entry puts its hero form down on every play and is one of its side's ability buttons (ABILITY
 //!     BUTTONS). `state_json` gives each player an "abilities" list, one row per button, and each hero unit's
@@ -974,7 +977,7 @@ pub fn state_json_text(
             let _ = write!(o, "{}[{kind},{what},{x},{y},{left},{}]", if k > 0 { "," } else { "" }, c.cost);
         }
         o.push(']');
-        // THE EVOLVED DECK CARDS (module doc, EVOLVED AND HERO FORMS): [card id, plays, next play evolved], keyed like the
+        // THE EVOLVED DECK CARDS (module doc, EVOLVED AND HERO FORMS): [card id, plays, next play evolved, cycles], keyed like the
         // two above.
         o.push_str(",\"evo\":[");
         for (k, c) in s.evo_counters(team).iter().enumerate() {
@@ -982,7 +985,7 @@ pub fn state_json_text(
                 o.push(',');
             }
             let id = id_of_idx.get(c.card as usize).copied().unwrap_or(-1);
-            let _ = write!(o, "[{id},{},{}]", c.plays, u8::from(c.next_evolved()));
+            let _ = write!(o, "[{id},{},{},{}]", c.plays, u8::from(c.next_evolved()), c.cycles);
         }
         o.push(']');
         // THE SIDE'S ABILITY BUTTONS (state.rs `ability_buttons`), one row per button in button order (the form-2 deck
@@ -2766,7 +2769,7 @@ mod tests {
     }
 
     /// AN EVOLVED CARD IN THE BINDING: the default catalogue lists base cards only and a named form is refused; the
-    /// counter reaches `state_json` ("evo": [card id, plays, next play evolved]); the form's unit and its bombs report
+    /// counter reaches `state_json` ("evo": [card id, plays, next play evolved, cycles]); the form's unit and its bombs report
     /// under the base card's id, the unit with status bit 3.
     #[test]
     fn an_evolved_cannon_reports_under_its_base_card() {
@@ -2789,13 +2792,13 @@ mod tests {
         }
         let json = |s: &BattleState| -> serde_json::Value { serde_json::from_str(&state_json_text(s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap() };
         for (k, x) in [6, 9, 12].into_iter().enumerate() {
-            assert_eq!(json(&s)["players"][0]["evo"], serde_json::json!([[id, k, u8::from(k == 2)]]), "before play {}", k + 1);
+            assert_eq!(json(&s)["players"][0]["evo"], serde_json::json!([[id, k, u8::from(k == 2), 2]]), "before play {}", k + 1);
             s.scenario_set_elixir_milli(Team::Blue, 10000);
             s.deploy_slot(Team::Blue, 0, Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(10))).unwrap();
             s.tick();
         }
         let v = json(&s);
-        assert_eq!(v["players"][0]["evo"], serde_json::json!([[id, 0, 0]]));
+        assert_eq!(v["players"][0]["evo"], serde_json::json!([[id, 0, 0, 2]]));
         assert_eq!(v["players"][1]["evo"], serde_json::json!([]));
         let flags = ENTITY_FIELDS.iter().position(|f| *f == "status_flags").unwrap();
         let evolved: Vec<_> = v["entities"].as_array().unwrap().iter().filter(|r| r[flags].as_i64().unwrap() & 8 != 0).collect();
