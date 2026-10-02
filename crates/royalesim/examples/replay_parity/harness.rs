@@ -1348,11 +1348,17 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   frame, 122 of 122. The 16.402 corpus keeps next_tick (9 of 10 on the frame after).
 ///   knockback.LADDER_END_ROUTE = client15535_kept: a knockback ladder's end leaves the unit's route as it was (135 of 154
 ///   ladders on client 15.535.29). The 16.402 corpus's one ladder with a route does not separate the arms.
+///   movement.HELD_FACING = client15535_toward_waypoint: a held unit with a route turns its facing toward its next
+///   waypoint (143 of 163 held facing turns on client 15.535.29). The 16.402 corpus is not measured for it.
+///   collision.HELD_UNIT_AVOIDANCE = scanned: a held unit starts avoidance offsets at the walking rate on client 15.535.29
+///   (41 of 5,442 held ticks against 0.90% walking); the 16.402 corpus keeps masked (0 of 2,024).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
     ("combat.DEATH_DAMAGE_TICK", "\"client15535_death_tick\""),
     ("knockback.LADDER_END_ROUTE", "\"client15535_kept\""),
+    ("movement.HELD_FACING", "\"client15535_toward_waypoint\""),
+    ("collision.HELD_UNIT_AVOIDANCE", "\"scanned\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
