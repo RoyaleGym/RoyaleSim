@@ -3109,6 +3109,11 @@ pub struct CardDef {
     pub chain_hit: Option<ChainHitDef>,
     /// The Little Prince's attack-speed ramp (`RampDef`).
     pub ramp: Option<RampDef>,
+    /// The row's GameTagsToSet carries AVOIDANCE_AS_OBSTACLE (cards.json `avoidance_as_obstacle`; the Evo Skeleton
+    /// Army's General, the Phoenix's egg, the Elite Archer hero's dummy): under movement.AVOIDANCE_OBSTACLE_TAG =
+    /// client15535_unpushed_obstacle contact never moves it, it still pushes its neighbours, and it is a static obstacle
+    /// to every avoidance scan.
+    pub avoidance_as_obstacle: bool,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -3440,6 +3445,8 @@ struct RawCard {
     projectile_y_offset_milli: Option<i32>,
     /// `CardDef::override_attack_finish`. Written on the 15.535 rows that set it true only.
     override_attack_finish: Option<bool>,
+    /// `CardDef::avoidance_as_obstacle`. Written on the 15.535 rows whose GameTagsToSet carries the tag only.
+    avoidance_as_obstacle: Option<bool>,
     /// characters.csv Kamikaze / KamikazeTime.
     kamikaze: Option<bool>,
     kamikaze_time_ms: Option<i32>,
@@ -7321,6 +7328,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         idle_area: None,
         deploy_spawn_area: None,
         combo: None,
+        avoidance_as_obstacle: false,
     }
 }
 
@@ -9769,6 +9777,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         // Resolved the same way (`convert_deploy_spawn_area`).
         deploy_spawn_area: None,
         combo,
+        avoidance_as_obstacle: raw.avoidance_as_obstacle.unwrap_or(false),
     }, display, units))
 }
 

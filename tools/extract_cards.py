@@ -2608,6 +2608,15 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # (calibration combat.POST_KILL_RETARGET_WAIT's clause (a)). Read by name so an [EXT] row that inherits it (the
         # Hero Valkyrie's) carries it; 15.535 rows that set it true only, so every other row is unchanged.
         "override_attack_finish": c.get("OverrideAttackFinishTime"),
+        # GameTagsToSet AVOIDANCE_AS_OBSTACLE (game_tags.csv: the unit behaves in avoidance checks as if it had no
+        # movement component, but unchecked pushbacks still move it): the Evo Skeleton Army's General (through its
+        # Base), the Phoenix's egg, the Elite Archer hero's dummy. 15.535 rows that set it only, so every other row is
+        # unchanged.
+        "avoidance_as_obstacle": (
+            "AVOIDANCE_AS_OBSTACLE" in [x.strip() for x in str(c.get("GameTagsToSet") or "").split(",")]
+        )
+        if isinstance(c, Row)
+        else None,
         # THE SPECIAL (SpecialRange / SpecialMinRange / SpecialLoadTime / ProjectileSpecial): the
         # Fisherman's hook, under calibration combat.SPECIAL_HOOK. `projectile` is the
         # ProjectileSpecial row in the shape of every projectile object, and `drag_margin_milli`
@@ -2671,6 +2680,8 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         del u["projectile_y_offset_milli"]
     if u["override_attack_finish"] is not True or not isinstance(c, Row):
         del u["override_attack_finish"]
+    if u["avoidance_as_obstacle"] is not True or not isinstance(c, Row):
+        del u["avoidance_as_obstacle"]
     if not isinstance(c, Row):
         # The 2018 file stays byte-identical: it does not grow the keys written for the 15.535
         # rows alone (UNIT_FIELDS_15535).
@@ -3722,6 +3733,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # Only on a row whose OverrideAttackFinishTime is true (norm_unit).
     if "override_attack_finish" in u:
         card["override_attack_finish"] = u["override_attack_finish"]
+    # Only on a row that sets the AVOIDANCE_AS_OBSTACLE tag (norm_unit).
+    if "avoidance_as_obstacle" in u:
+        card["avoidance_as_obstacle"] = u["avoidance_as_obstacle"]
     if "attack_select" in u:
         card["attack_select"] = u["attack_select"]
     if "enchant_friends" in u:

@@ -227,6 +227,10 @@ pub struct Calib {
     /// `default` is the old arm.
     #[serde(default = "kamikaze_death_contact_default")]
     pub kamikaze_death_contact: KamikazeDeathContact,
+    /// movement.AVOIDANCE_OBSTACLE_TAG: whether a row's AVOIDANCE_AS_OBSTACLE tag is read (`CardDef::avoidance_as_obstacle`;
+    /// the move pass's `tag_off`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "avoidance_obstacle_tag_default")]
+    pub avoidance_obstacle_tag: AvoidanceObstacleTag,
     pub mana_regen_ms_1x: i32,
     pub mana_regen_ms_2x: i32,
     /// match.MANA_REGEN_MS_OVERTIME: the late-overtime regen, ms for a full bar (0: no third rate, the engine before
@@ -1908,6 +1912,10 @@ fn doomed_own_update_default() -> DoomedOwnUpdate {
 
 fn kamikaze_death_contact_default() -> KamikazeDeathContact {
     KamikazeDeathContact::AsDoomed
+}
+
+fn avoidance_obstacle_tag_default() -> AvoidanceObstacleTag {
+    AvoidanceObstacleTag::NotRead
 }
 
 fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
@@ -5134,6 +5142,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.AVOIDANCE_OBSTACLE_TAG -- see `Calib::avoidance_obstacle_tag`.
+    AvoidanceObstacleTag {
+        /// The tag is not read: its carrier is a mover like any other (the engine's).
+        NotRead = "not_read",
+        /// Its carrier is pushed by nothing (it runs no separation of its own), still pushes its neighbours (a body to
+        /// their separation), and is a static obstacle to every avoidance scan. Client 15.535.29: the Evo Skeleton
+        /// Army's General never moved by contact (93 of 93 overlapped deploy ticks, 106 walking ones); the soldiers
+        /// inside both radii stood where its push puts them.
+        Client15535UnpushedObstacle = "client15535_unpushed_obstacle",
+    }
+);
+calib_enum!(
     /// movement.KAMIKAZE_DEATH_CONTACT -- see `Calib::kamikaze_death_contact`.
     KamikazeDeathContact {
         /// A doomed kamikaze is a static body to every scan, as any doomed troop (the engine's).
@@ -6047,6 +6067,7 @@ impl Calib {
             held_facing: pick(&v, &["movement", "HELD_FACING", "value"], HeldFacing::from_calibration_name)?,
             doomed_own_update: pick(&v, &["movement", "DOOMED_OWN_UPDATE", "value"], DoomedOwnUpdate::from_calibration_name)?,
             kamikaze_death_contact: pick(&v, &["movement", "KAMIKAZE_DEATH_CONTACT", "value"], KamikazeDeathContact::from_calibration_name)?,
+            avoidance_obstacle_tag: pick(&v, &["movement", "AVOIDANCE_OBSTACLE_TAG", "value"], AvoidanceObstacleTag::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
             mana_regen_ms_3x: int(&v, &["match", "MANA_REGEN_MS_OVERTIME", "value"])?,
@@ -17042,6 +17063,25 @@ impl BattleState {
                 deflect_off[id.index as usize] = true;
             }
         }
+        // movement.AVOIDANCE_OBSTACLE_TAG = client15535_unpushed_obstacle: a unit whose row sets the AVOIDANCE_AS_OBSTACLE
+        // tag (`CardDef::avoidance_as_obstacle`: the Evo Skeleton Army's General, the Phoenix's egg, the Elite Archer
+        // hero's dummy) runs none of its own separation scans, so contact never moves it, and is a static obstacle to
+        // every avoidance scan; it is still a body to its neighbours' separation, so it pushes them. Measured on client
+        // 15.535.29: the General stood on its point through 93 of 93 overlapped deploy ticks and took a clean speed step
+        // on 106 walking ticks with an overlap (sp-form-SkeletonArmy-evo-s0 t920, sp-esa-spectrals-s0,
+        // sp-ec-SkeletonArmy, sp-il-b5e2); on t920 the soldiers inside both radii stood where its push puts them (a
+        // soldier 176 off with the General out of its scan).
+        let mut tag_off = vec![false; self.ents.capacity()];
+        #[cfg(not(clash_plant = "obstacle_tag_unread"))]
+        if self.cfg.calib.avoidance_obstacle_tag == AvoidanceObstacleTag::Client15535UnpushedObstacle {
+            for i in self.ents.live_indices() {
+                tag_off[i] = self.cfg.cards.get(self.ents.card[i]).avoidance_as_obstacle;
+            }
+        }
+        #[cfg(not(clash_plant = "obstacle_tag_pushes_nothing"))]
+        let tag_hidden = vec![false; self.ents.capacity()];
+        #[cfg(clash_plant = "obstacle_tag_pushes_nothing")]
+        let tag_hidden = tag_off.clone(); // PLANT (regression): the carrier is met by no neighbour's separation either.
         let mut freed_hold = vec![false; self.ents.capacity()];
         if !self.evo.freed.is_empty() {
             let (tick, ents) = (self.tick, &self.ents);
@@ -17162,7 +17202,7 @@ impl BattleState {
                         mover: e.kind[i] == EntityKind::Troop,
                         // a deflecting Monk (`deflect_off`) is met by no unit's separation, his body kept for avoidance,
                         // and so is a dying kamikaze under movement.KAMIKAZE_DEATH_CONTACT's new arm (`kamikaze_unpushing`)
-                        alive: alive && !deflect_off[i] && !kamikaze_unpushing(i),
+                        alive: alive && !deflect_off[i] && !kamikaze_unpushing(i) && !tag_hidden[i],
                         // a unit mid river-jump is skipped by every neighbour's scans
                         // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK), and an
                         // attached rider, which pushes nothing (`carry_riders`)
@@ -17201,8 +17241,10 @@ impl BattleState {
                             // movement.DYING_UNIT_VISIBILITY = client_doomed_static: a troop whose death is
                             // settled before the pass (`doomed_mask`) is static to the avoidance scan too.
                             || (doomed_static && self.scratch.doomed.get(i).copied().unwrap_or(false))
-                            // a deflecting Monk is a static obstacle to every avoidance scan (`deflect_off`)
-                            || deflect_off[i],
+                            // a deflecting Monk is a static obstacle to every avoidance scan (`deflect_off`), and so
+                            // is a carrier of the AVOIDANCE_AS_OBSTACLE tag (`tag_off`)
+                            || deflect_off[i]
+                            || tag_off[i],
                         // creation order breaks a tie inside one group (`move16402::Index::query`): a slot is
                         // reused, a creation order is not
                         seq: e.creation_seq[i],
@@ -17322,7 +17364,9 @@ impl BattleState {
                     if rem > 0 {
                         // the separation scan while the speed is still positive (the
                         // NO_CHECKCOLLISIONS tag is not modelled: no card here carries it)
-                        move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
+                        if !tag_off[i] {
+                            move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
+                        }
                         // a GROUND unit standing on a blocked or water cell is put on
                         // the nearest land first (knockback.WATER_RESOLUTION =
                         // eject_to_nearest_land)
@@ -17401,7 +17445,9 @@ impl BattleState {
                 let sliding = false; // PLANT (regression): the member walks from where it was born.
                 if sliding {
                     let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
-                    move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
+                    if !tag_off[i] {
+                        move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
+                    }
                     let c = slide_c[i];
                     // spawner.DEATH_SLIDE_AIM: the shipped fixed_end_point steps toward the end point fixed at birth
                     // (entity.rs `death_slide_end`); current_ray, the arm before the 2026-09-28 round 9 flip, along the
@@ -18067,7 +18113,9 @@ impl BattleState {
                     }
                 }
                 move16402::decay_offset(&mut con);
-                move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
+                if !tag_off[i] {
+                    move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
+                }
                 // ---- 4. the step (move16402::move_towards)
                 let paused = if !deploying && !attacking && !held_walk && !routes[i].is_empty() {
                     // THE STOMP CLOCK (movement.STOMP_PAUSE_SCHEDULE). Both arms run
@@ -27454,6 +27502,10 @@ impl BattleState {
 /// 20, unchanged, targeting.CHASE_HOLD_PAST_LIMIT: Calib gained chase_hold_past_limit (serde default the old arm,
 ///    inside_only), no new state (the new arm changes a decision inside the Target phase), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.AVOIDANCE_OBSTACLE_TAG: Calib gained avoidance_obstacle_tag (serde default the old arm,
+///    not_read), no new state (the new arm reads a card flag inside the move pass), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm. CardDef gained
+///    avoidance_as_obstacle at the end of its Debug text (the format-3 fingerprint strips it with the tail).
 /// 20, unchanged, movement.KAMIKAZE_DEATH_CONTACT: Calib gained kamikaze_death_contact (serde default the old arm,
 ///    as_doomed), no new state (the new arm changes a body's separation flag inside the pass), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27855,7 +27907,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?}, override_attack_finish: {}, chain_hit: {:?}, ramp: {:?} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?}, override_attack_finish: {}, chain_hit: {:?}, ramp: {:?}, avoidance_as_obstacle: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -27921,7 +27973,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.combo,
                     c.override_attack_finish,
                     c.chain_hit,
-                    c.ramp
+                    c.ramp,
+                    c.avoidance_as_obstacle
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -28128,6 +28181,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("doomed_own_update".into(), serde_json::to_value(DoomedOwnUpdate::Walks).map_err(|e| e.to_string())?);
     // movement.KAMIKAZE_DEATH_CONTACT: a format-3 battle's doomed kamikazes pushed as any doomed troop (the same rule).
     sh.insert("kamikaze_death_contact".into(), serde_json::to_value(KamikazeDeathContact::AsDoomed).map_err(|e| e.to_string())?);
+    // movement.AVOIDANCE_OBSTACLE_TAG: a format-3 battle read no game tag (the same rule).
+    sh.insert("avoidance_obstacle_tag".into(), serde_json::to_value(AvoidanceObstacleTag::NotRead).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
     sh.insert("death_slide_aim".into(), serde_json::to_value(DeathSlideAim::CurrentRay).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_BIRTH and DEATH_SLIDE_STOP: the same (a format-3 battle laid no slide at all).

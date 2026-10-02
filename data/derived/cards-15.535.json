@@ -33990,6 +33990,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "avoidance_as_obstacle": true,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43888,6 +43889,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "avoidance_as_obstacle": true,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43983,6 +43985,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "avoidance_as_obstacle": true,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -89676,6 +89679,7 @@
       "variable_damage": null,
       "attack_pushback_milli": null,
       "death_pushback_milli": null,
+      "avoidance_as_obstacle": true,
       "special": null,
       "attached_character": null,
       "defaults_applied": [

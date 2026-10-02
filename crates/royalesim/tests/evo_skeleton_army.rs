@@ -16,13 +16,15 @@
 //!   - army_spectral_never -> `a_soldier_dying_while_the_general_lives_leaves_a_spectral` red;
 //!   - army_spectrals_outlive_general -> `the_generals_death_takes_its_spectrals_and_ends_them` red;
 //!   - spectral_takes_damage -> `a_spectral_takes_no_damage` red;
-//!   - spectral_visible -> `nothing_targets_a_spectral` red.
+//!   - spectral_visible -> `nothing_targets_a_spectral` red;
+//!   - obstacle_tag_unread -> `the_general_stands_on_its_point_through_its_deploy` red;
+//!   - obstacle_tag_pushes_nothing -> `the_general_still_pushes_a_unit_off_it` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{AvoidanceObstacleTag, BattleConfig, BattleState};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -170,4 +172,73 @@ fn nothing_targets_a_spectral() {
         let t = s.entity(k).and_then(|e| e.target);
         assert!(!t.is_some_and(|t| ids.contains(&t)), "the Knight never targets a Spectral: {t:?}");
     }
+}
+
+/// movement.AVOIDANCE_OBSTACLE_TAG: the General's row sets AVOIDANCE_AS_OBSTACLE. Client 15.535.29 held it on its point,
+/// 1000 behind the tap, through every overlapped tick of its deploy (93 of 93 over four scenes), where the soldiers'
+/// contact pushes the engine's under the old arm. Plant: obstacle_tag_unread.
+#[test]
+fn the_general_stands_on_its_point_through_its_deploy() {
+    for (arm, still) in [(AvoidanceObstacleTag::Client15535UnpushedObstacle, true), (AvoidanceObstacleTag::NotRead, false)] {
+        let mut cfg: BattleConfig = config();
+        cfg.calib.avoidance_obstacle_tag = arm;
+        cfg.decks = [vec!["SkeletonArmy".into(), "Knight".into()], vec!["Knight".into(), "Zap".into()]];
+        cfg.forms = [vec![1, 0], Vec::new()];
+        cfg.card_level = [11, 11];
+        cfg.tower_level = [11, 11];
+        let mut s = BattleState::new(7, cfg);
+        past_deploy_lockout(&mut s);
+        assert!(s.config().cards.get(s.cards().index("SkeletonArmy_EV1_General").expect("the General loads")).avoidance_as_obstacle, "the General's row carries the tag");
+        s.spawn_unit(Team::Blue, "SkeletonArmy_EV1", n(TAP.0, TAP.1), None).expect("the play");
+        s.tick();
+        let g = find_live(&s, Team::Blue, "SkeletonArmy_EV1_General")[0].id;
+        let start = s.entity(g).expect("the General").pos;
+        let mut moved = false;
+        for _ in 0..18 {
+            s.tick();
+            let e = s.entity(g).expect("the General");
+            if !e.deploying {
+                break;
+            }
+            moved |= e.pos != start;
+        }
+        assert_eq!(!moved, still, "{arm:?}: the General moved while deploying: {moved}");
+    }
+}
+
+/// movement.AVOIDANCE_OBSTACLE_TAG: the General still pushes its neighbours. Client 15.535.29,
+/// sp-form-SkeletonArmy-evo-s0 t920: the soldiers inside both radii stood where its push puts them (one 176 off with the
+/// General out of its scan). A soldier made 450 behind the deploying General counts it among the units that push it, the
+/// push pointing away from it, against the same scene with the General removed first. Plant: obstacle_tag_pushes_nothing.
+#[test]
+fn the_general_still_pushes_a_unit_off_it() {
+    let mut pushes = Vec::new();
+    for general in [true, false] {
+        let mut cfg: BattleConfig = config();
+        cfg.calib.avoidance_obstacle_tag = AvoidanceObstacleTag::Client15535UnpushedObstacle;
+        cfg.decks = [vec!["SkeletonArmy".into(), "Knight".into()], vec!["Knight".into(), "Zap".into()]];
+        cfg.forms = [vec![1, 0], Vec::new()];
+        cfg.card_level = [11, 11];
+        cfg.tower_level = [11, 11];
+        let mut s = BattleState::new(7, cfg);
+        past_deploy_lockout(&mut s);
+        s.spawn_unit(Team::Blue, "SkeletonArmy_EV1", n(TAP.0, TAP.1), None).expect("the play");
+        s.tick();
+        let g = find_live(&s, Team::Blue, "SkeletonArmy_EV1_General")[0].id;
+        let gp = s.entity(g).expect("the General").pos;
+        if !general {
+            assert!(s.debug_set_hp(g, 0), "the General removed");
+            s.tick();
+            assert!(s.entity(g).is_none(), "the General is gone");
+        }
+        let p = s.scenario_spawn_now(Team::Blue, "SkeletonArmy_EV1", gp.add(n(0, -450)), None).expect("the probe soldier");
+        s.tick();
+        let e = s.entity(p).expect("the probe");
+        pushes.push((e.push_neighbours, e.push_applied));
+        if general {
+            assert_eq!(s.entity(g).expect("the General").pos, gp, "the General was moved by contact");
+        }
+    }
+    assert_eq!(pushes[0].0, pushes[1].0 + 1, "the General is not among the probe's pushers (with, without): {pushes:?}");
+    assert!(pushes[0].1.y < pushes[1].1.y, "the General's push does not point away from it (with, without): {pushes:?}");
 }

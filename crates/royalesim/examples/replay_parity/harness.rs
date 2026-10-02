@@ -1371,6 +1371,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   tick's deaths (6 of 6 hits on a group of 8 with a member dying that tick made none on client 15.535.29).
 ///   spawner.CONTAINER_BURST_PUSH = client15535_contact_push: a container's members are laid around the point the contact
 ///   law pushes it to (a Skeleton 217 off, (-130, +73), exact on client 15.535.29); their slides end around its own.
+///   movement.AVOIDANCE_OBSTACLE_TAG = client15535_unpushed_obstacle: a row's AVOIDANCE_AS_OBSTACLE tag (the Evo Skeleton
+///   Army's General) makes its carrier unpushed, still pushing, and a static avoidance obstacle (93 of 93 deploy ticks
+///   unmoved).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1387,6 +1390,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.SLAP_FLIGHT_TARGETABILITY", "\"client15535_airborne\""),
     ("spawner.EVO_COPY_COUNT", "\"client15535_at_hit\""),
     ("spawner.CONTAINER_BURST_PUSH", "\"client15535_contact_push\""),
+    ("movement.AVOIDANCE_OBSTACLE_TAG", "\"client15535_unpushed_obstacle\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
