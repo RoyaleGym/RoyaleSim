@@ -20,7 +20,7 @@ on:
 # run it verbatim found a non-zero line on the thirteenth.
 #
 # TWO RUNNERS IS LOAD-BEARING FOR THIS REPO IN PARTICULAR. Every build in this crate's life has
-# run on one Windows machine. It compiles FOUR data files into the extension with `include_str!`
+# run on one Windows machine. It compiles FIVE data files into the extension with `include_str!`
 # and stamps an absolute build path into the binary, and three other repos read those back out.
 # `..` normalises LEXICALLY on Windows and is walked component by component on POSIX, so a path
 # built with `..` and then stat-ed answers a different question per platform -- which is not

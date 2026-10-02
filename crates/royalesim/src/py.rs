@@ -192,8 +192,9 @@ pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.
 /// THE OTHER TWO FILES THIS CRATE COMPILES IN, exposed for the same reason as the two
 /// above and only after they had gone unwatched for months.
 ///
-/// Four files are `include_str!`ed: calibration.json (state.rs), arena.json (arena.rs),
-/// rarities.csv (card.rs) and globals.csv (state.rs). Only the first two were ever
+/// Five files are `include_str!`ed: calibration.json (state.rs), arena.json (arena.rs),
+/// rarities.csv (card.rs), globals.csv (state.rs) and, since the wheels, cards-15.535.json
+/// (card.rs `EMBEDDED_CARDS_JSON`, the table a wheel runs). Of the first four, only the first two were ever
 /// compared with the disk. Each of the other two has exactly the property that took the
 /// whole workspace's engine down twice on 2026-09-22 -- compiled into the binary, editable
 /// without a rebuild, and nothing notices -- and theirs is the WORSE failure, because a
@@ -2191,6 +2192,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("EMBEDDED_ARENA_JSON", EMBEDDED_ARENA_JSON)?;
     m.add("EMBEDDED_RARITIES_CSV", EMBEDDED_RARITIES_CSV)?;
     m.add("EMBEDDED_GLOBALS_CSV", EMBEDDED_GLOBALS_CSV)?;
+    m.add("EMBEDDED_CARDS_JSON", crate::card::EMBEDDED_CARDS_JSON)?;
     #[cfg(feature = "checkout-data")]
     m.add("BUILD_DATA_DIR", BUILD_DATA_DIR)?;
     m.add_function(wrap_pyfunction!(card_table_source, m)?)?;

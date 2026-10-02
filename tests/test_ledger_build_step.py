@@ -127,8 +127,9 @@ def test_the_real_gate_fires_when_the_two_actually_differ(monkeypatch):
 
 # --- the other three files this crate compiles in ------------------------------------
 
-#: (module constant, path on disk, what a stale copy costs). FOUR files are `include_str!`ed
-#: into the extension and only calibration.json and arena.json were ever compared with the
+#: (module constant, path on disk, what a stale copy costs). FIVE files are `include_str!`ed
+#: (the fifth, the card table a wheel runs, since the wheels). Of the first four, which went
+#: into the extension first, only calibration.json and arena.json were ever compared with the
 #: disk. The other two had the same property that took the workspace's engine down twice on
 #: 2026-09-22, unarmed, and theirs is the worse failure: calibration's mismatch REFUSES
 #: loudly, while a stale arena or rarity table is a silently different battle.
@@ -148,6 +149,10 @@ EMBEDDED = [
      "every card's level scaling, silently"),
     ("EMBEDDED_GLOBALS_CSV", ("data", "raw", "retroroyale-2018", "csv_logic", "globals.csv"), "bytes",
      "the shipped globals the engine reads, silently"),
+    # The card table a WHEEL runs (card.rs EMBEDDED_CARDS_JSON). A checkout build reads cards.json from disk instead,
+    # so a stale copy here never shows on a developer's machine and is exactly what every installed user would get.
+    ("EMBEDDED_CARDS_JSON", ("data", "derived", "cards-15.535.json"), "json",
+     "card table in every wheel built from it, silently"),
 ]
 
 
@@ -181,7 +186,7 @@ def test_every_compiled_in_file_matches_the_one_on_disk(const, parts, how, cost)
     )
 
 
-def test_all_four_compiled_in_files_are_listed_here():
+def test_every_compiled_in_file_is_listed_here():
     """The list is what rots. If the crate gains a fifth `include_str!` this must gain a row,
     and nothing else in the repo would notice.
 
