@@ -1382,6 +1382,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   first legal tile back along its column (4 of 4 bridge taps, 3 of 3 enemy-half singles on client 15.535.29).
 ///   spawner.DEATH_RING_AXIS = client15535_unit_heading: a death ring's degree is read off its members' heading, the
 ///   direction normalized to 256 (7 of 7 Battle Ram deaths where it rounds apart from the raw direction).
+///   combat.PASS_KILL_CHASE = client15535_chaser_reads_pass: an attacker chasing its target out of reach reads a kill
+///   earlier in the sequential pass and takes its next target at once (19 of 25 created after the striker).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1403,6 +1405,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.LOAD_FIRST_HIT_LEAVE", "\"client15535_windup_refunded\""),
     ("combat.RANDOM_DELAY_STREAM", "\"client15535_battle_stream\""),
     ("spawner.DEATH_RING_AXIS", "\"client15535_unit_heading\""),
+    ("combat.PASS_KILL_CHASE", "\"client15535_chaser_reads_pass\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

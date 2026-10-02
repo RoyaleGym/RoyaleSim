@@ -338,6 +338,11 @@ pub struct Calib {
     /// the attacker's reach. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "retarget_wait_reach_loss_default")]
     pub retarget_wait_reach_loss: RetargetWaitReachLoss,
+    /// combat.PASS_KILL_CHASE (`phase_target_attack_sequential`, `phase_target`): what an attacker out of its attack reach
+    /// reads of a target a strike felled earlier in the sequential pass. Added after SNAPSHOT_FORMAT 20; the `default` is
+    /// the old arm, `StartOfPass`.
+    #[serde(default = "pass_kill_chase_default")]
+    pub pass_kill_chase: PassKillChase,
     /// spells.CLONE_COPY_DEPLOY (`materialise_clones`): the deploy a Clone's copy is born with. Added after SNAPSHOT_FORMAT
     /// 20; the `default` is the old arm.
     #[serde(default = "clone_copy_deploy_default")]
@@ -1375,6 +1380,10 @@ fn retarget_wait_while_held_default() -> RetargetWaitWhileHeld {
 
 fn retarget_wait_reach_loss_default() -> RetargetWaitReachLoss {
     RetargetWaitReachLoss::KillOnly
+}
+
+fn pass_kill_chase_default() -> PassKillChase {
+    PassKillChase::StartOfPass
 }
 
 fn clone_copy_deploy_default() -> CloneCopyDeploy {
@@ -3680,6 +3689,22 @@ calib_enum!(
         /// Spear Goblin and a Skeleton whose targets left their reach), and a new target in reach is taken at once
         /// (client 15.535.29's reach-loss scenarios: a Knight switches to a Cannon in its reach on the next tick).
         ClientAfterReachLoss = "client_after_reach_loss",
+    }
+);
+calib_enum!(
+    /// combat.PASS_KILL_CHASE -- what an attacker OUT of its attack reach of its target (chasing it in its attack) reads
+    /// of that target when a strike earlier in the sequential pass has felled it (match.TICK_ORDER =
+    /// client_sequential_strike; `phase_target_attack_sequential`).
+    PassKillChase {
+        /// The engine's: every attacker reads the hitpoints as the pass found them, so it finds the kill on the next
+        /// tick and starts combat.POST_KILL_RETARGET_WAIT's wait there.
+        StartOfPass = "start_of_pass",
+        /// An attacker out of reach reads the pass's kills, as a walker out of reach does, and takes the decision's next
+        /// target at once with no wait; one in reach still reads the pass's start and waits. Client 15.535.29: of the
+        /// attackers out of reach whose target a strike felled, 19 of 25 created after the striker took their next
+        /// target on the kill frame and 17 of 19 created before it waited (sp-esk-bank-1500-s0 t999, sp-il-b5e2 t3578);
+        /// in reach, 131 of 131 after the striker waited.
+        Client15535ChaserReadsPass = "client15535_chaser_reads_pass",
     }
 );
 calib_enum!(
@@ -6193,6 +6218,7 @@ impl Calib {
             attract_onset: pick(&v, &["status", "ATTRACT_ONSET", "value"], AttractOnset::from_calibration_name)?,
             retarget_wait_while_held: pick(&v, &["combat", "RETARGET_WAIT_WHILE_HELD", "value"], RetargetWaitWhileHeld::from_calibration_name)?,
             retarget_wait_reach_loss: pick(&v, &["combat", "RETARGET_WAIT_REACH_LOSS", "value"], RetargetWaitReachLoss::from_calibration_name)?,
+            pass_kill_chase: pick(&v, &["combat", "PASS_KILL_CHASE", "value"], PassKillChase::from_calibration_name)?,
             clone_copy_deploy: pick(&v, &["spells", "CLONE_COPY_DEPLOY", "value"], CloneCopyDeploy::from_calibration_name)?,
             scheduled_unit_first_update: pick(&v, &["spawner", "SCHEDULED_UNIT_FIRST_UPDATE", "value"], ScheduledUnitFirstUpdate::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
@@ -14236,6 +14262,19 @@ impl BattleState {
                         }
                     }
                 }
+                // combat.PASS_KILL_CHASE = client15535_chaser_reads_pass: an attacker whose target still lies on the board
+                // at 0 hp (felled earlier in the sequential pass, which a chaser reads) and out of its attack reach takes
+                // the decision's next target at once; the wait below is for one in reach.
+                #[cfg(not(clash_plant = "chaser_waits"))]
+                let spared = calib.pass_kill_chase == PassKillChase::Client15535ChaserReadsPass
+                    && struck
+                    && e.target[i].is_some_and(|t| {
+                        let (ti, c) = (t.index as usize, cards.get(e.card[i]));
+                        let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
+                        e.is_alive(t) && !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti])
+                    });
+                #[cfg(clash_plant = "chaser_waits")]
+                let spared = false; // PLANT: the chaser that read the kill starts the wait under the new arm too.
                 if e.retarget_wait[i] > 0 {
                     e.retarget_wait[i] -= 1;
                     if e.retarget_wait[i] > 0 {
@@ -14247,6 +14286,7 @@ impl BattleState {
                         continue;
                     }
                 } else if e.target[i].is_some_and(|t| !e.standing(t, struck))
+                    && !spared
                     && match wait_mode {
                         PostKillWait::MeasuredList => wait_units.iter().any(|u| *u == cards.get(e.card[i]).unit_name),
                         // (a) an OverrideAttackFinishTime card, or a hero wearing such a form for its buff
@@ -20553,11 +20593,19 @@ impl BattleState {
             });
             #[cfg(clash_plant = "reach_walker_reads_pass_kills")]
             let in_reach = false; // PLANT (regression): a walker in reach of its target reads the kills earlier in the pass.
+            // combat.PASS_KILL_CHASE = client15535_chaser_reads_pass: an attacker chasing a target out of its attack reach
+            // reads the pass's kills as a walker out of reach does (`phase_target`'s wait spares it below).
+            #[cfg(not(clash_plant = "chaser_reads_pass_start"))]
+            let chasing = self.cfg.calib.pass_kill_chase == PassKillChase::Client15535ChaserReadsPass
+                && !in_reach
+                && self.ents.target[i].is_some_and(|t| self.ents.is_alive(t));
+            #[cfg(clash_plant = "chaser_reads_pass_start")]
+            let chasing = false; // PLANT: a chasing attacker reads the pass's start under the new arm too.
             #[cfg(not(clash_plant = "attacker_reads_pass_kills"))]
-            let reads_start = self.ents.attack_phase[i] != AttackPhase::Idle || self.ents.hp[i] <= 0 || in_reach;
+            let reads_start = (self.ents.attack_phase[i] != AttackPhase::Idle && !chasing) || self.ents.hp[i] <= 0 || in_reach;
             #[cfg(clash_plant = "attacker_reads_pass_kills")]
             let reads_start = {
-                let _ = in_reach;
+                let _ = (in_reach, chasing);
                 self.ents.hp[i] <= 0 // PLANT (regression): an attacker (in reach or under way) reads the kills earlier in the pass.
             };
             if reads_start {
@@ -27820,6 +27868,9 @@ impl BattleState {
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS: Calib gained retarget_wait_reach_loss (serde default the old arm,
 ///    kill_only), no new state (the new arm writes the saved and hashed retarget_wait on other ticks), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.PASS_KILL_CHASE: Calib gained pass_kill_chase (serde default the old arm, start_of_pass), no new
+///    state (the new arm changes what a chasing attacker reads inside the pass), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RETARGET_WAIT_WHILE_HELD: Calib gained retarget_wait_while_held (serde default the old arm,
 ///    runs_through), no new state (the new arm holds the saved and hashed retarget_wait on held ticks), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -28551,6 +28602,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // combat.RETARGET_WAIT_REACH_LOSS: a format-3 battle waited after a kill only; it keeps that whatever the ledger ships
     // (the same rule).
     sh.insert("retarget_wait_reach_loss".into(), serde_json::to_value(RetargetWaitReachLoss::KillOnly).map_err(|e| e.to_string())?);
+    // combat.PASS_KILL_CHASE: a format-3 battle ran no sequential pass (the same rule).
+    sh.insert("pass_kill_chase".into(), serde_json::to_value(PassKillChase::StartOfPass).map_err(|e| e.to_string())?);
     // spells.CLONE_COPY_DEPLOY: a format-3 battle's copies were born deployed; it keeps that whatever the ledger ships (the
     // same rule).
     sh.insert("clone_copy_deploy".into(), serde_json::to_value(CloneCopyDeploy::Deployed).map_err(|e| e.to_string())?);
