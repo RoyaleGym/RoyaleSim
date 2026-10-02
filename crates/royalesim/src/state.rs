@@ -14660,7 +14660,7 @@ impl BattleState {
             let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
             let fwd = spell::forward_dy(team);
             let at = Vec2::new(pos.x + fwd * b.extra_offset_x, pos.y + fwd * b.extra_offset_y);
-            made.push(Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick }, depth: 0 });
+            made.push(Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick }, depth: 0, flown: 0 });
             self.evo.barrel_drops.push(id);
         }
         self.spells.extend(made);
@@ -21794,7 +21794,7 @@ impl BattleState {
             let team = self.ents.team[r.id.index as usize];
             let damage = self.cfg.cards.scaled(rr.log, r.level, hit.damage).expect("the Barbarian's level is validated at try_new");
             #[cfg(not(clash_plant = "reroll_log_never"))]
-            self.spells.push(Spell { team, card: rr.log, level: r.level, damage, pulse: 0, motion: spell::SpellMotion::Rolling { pos: start, travelled: 0, len, hit: Vec::new() }, depth: 0 });
+            self.spells.push(Spell { team, card: rr.log, level: r.level, damage, pulse: 0, motion: spell::SpellMotion::Rolling { pos: start, travelled: 0, len, hit: Vec::new() }, depth: 0, flown: 0 });
             let _ = (team, damage, len, start);
         }
     }
@@ -21914,7 +21914,7 @@ impl BattleState {
                     if let Some(SpellShape::Projectile { hit: Some(h), .. }) = self.cfg.cards.get(card).deploy_projectile.as_ref().map(|x| &x.shape) {
                         let damage = self.cfg.cards.scaled(card, level, h.damage).expect("the mount's level is validated at try_new");
                         // Landing a tick on: measured, the Knight's loss on P + 12, the mount's first frame P + 1.
-                        self.spells.push(Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: dt }, depth: 0 });
+                        self.spells.push(Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: dt }, depth: 0, flown: 0 });
                     }
                 }
             }
@@ -24810,7 +24810,7 @@ impl BattleState {
                     let bomb = self.cfg.cards.get(l.bomb);
                     let fuse_ms = bomb.death_bomb_fuse_ms().expect("a lane switch's bomb is a death bomb (card.rs `UnitUse::LaneSwitchBomb`)");
                     let damage = self.cfg.cards.scaled(l.bomb, lvl, bomb.death_damage).expect("the bomb's level is validated at try_new");
-                    self.spells.push(Spell { team, card: l.bomb, level: lvl, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms }, depth: 0 });
+                    self.spells.push(Spell { team, card: l.bomb, level: lvl, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms }, depth: 0, flown: 0 });
                     self.warps.lanes.retain(|r| r.id != hero);
                     self.warps.lanes.push(LaneRun { id: hero, made: self.tick });
                 }
@@ -27941,7 +27941,7 @@ pub fn barrage_spells(cards: &CardDb, calib: &Calib, b: &crate::card::BarrageDef
         .map(|k| {
             let pos = Vec2::new(k.x, at.y + fwd * k.ahead);
             let ticks = k.life_ms / calib.tick_ms.max(1) + BARRAGE_LAND_EXTRA_TICKS;
-            Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: ticks * calib.tick_ms }, depth: 0 }
+            Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: ticks * calib.tick_ms }, depth: 0, flown: 0 }
         })
         .collect()
 }
