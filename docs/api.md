@@ -6,10 +6,11 @@ This page is for people who want the engine itself.
 ## Install
 
 ```bash
-pip install royalesim --find-links https://github.com/RoyaleGym/RoyaleSim/releases/latest
+pip install royalesim --find-links https://github.com/RoyaleGym/RoyaleSim/releases/expanded_assets/v0.1.1
 ```
 
-Until the packages are on PyPI, the wheels come from the project's GitHub Releases page. They need no Rust. They run
+Until the packages are on PyPI, the wheels come from the project's GitHub Releases page. The link names a release;
+for another one, change the tag at its end. They need no Rust. They run
 on CPython 3.10 and later, on Windows, Linux and macOS (RoyaleGym, which most people use, needs 3.12).
 
 ## A battle in a few lines
