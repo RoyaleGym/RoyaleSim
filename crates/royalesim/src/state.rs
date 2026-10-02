@@ -209,6 +209,10 @@ pub struct Calib {
     /// unit's route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "ladder_end_route_default")]
     pub ladder_end_route: LadderEndRoute,
+    /// movement.FLY_DIRECT_PATHS (`phase_path16402_for`, the step's aim): whether a FlyDirectPaths flyer aims at its
+    /// goal's position. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "fly_direct_paths_default")]
+    pub fly_direct_paths: FlyDirectPaths,
     pub mana_regen_ms_1x: i32,
     pub mana_regen_ms_2x: i32,
     /// match.MANA_REGEN_MS_OVERTIME: the late-overtime regen, ms for a full bar (0: no third rate, the engine before
@@ -1809,6 +1813,10 @@ fn death_damage_tick_default() -> DeathDamageTick {
 
 fn ladder_end_route_default() -> LadderEndRoute {
     LadderEndRoute::Client16402Dropped
+}
+
+fn fly_direct_paths_default() -> FlyDirectPaths {
+    FlyDirectPaths::NotRead
 }
 
 fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
@@ -4990,6 +4998,15 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.FLY_DIRECT_PATHS -- see `Calib::fly_direct_paths`.
+    FlyDirectPaths {
+        /// The column is not read: every flyer aims at its route's next cell (the engine before this key).
+        NotRead = "not_read",
+        /// A FlyDirectPaths flyer aims at its goal's position every tick (client 15.535.29: 482 of 484 ticks).
+        Read = "read",
+    }
+);
+calib_enum!(
     /// knockback.LADDER_END_ROUTE -- see `Calib::ladder_end_route`.
     LadderEndRoute {
         /// The route is dropped the tick the ladder ends; the replan gate finds it empty the next tick.
@@ -5814,6 +5831,7 @@ impl Calib {
             jump_landing_contact: pick(&v, &["movement", "JUMP_LANDING_CONTACT", "value"], JumpLandingContact::from_calibration_name)?,
             death_damage_tick: pick(&v, &["combat", "DEATH_DAMAGE_TICK", "value"], DeathDamageTick::from_calibration_name)?,
             ladder_end_route: pick(&v, &["knockback", "LADDER_END_ROUTE", "value"], LadderEndRoute::from_calibration_name)?,
+            fly_direct_paths: pick(&v, &["movement", "FLY_DIRECT_PATHS", "value"], FlyDirectPaths::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
             mana_regen_ms_3x: int(&v, &["match", "MANA_REGEN_MS_OVERTIME", "value"])?,
@@ -17701,8 +17719,16 @@ impl BattleState {
                 let still = held_walk;
                 #[cfg(clash_plant = "held_contact_walks")]
                 let (still, native_speed) = (false, if held_walk { e.speed[i] / K } else { native_speed }); // PLANT (regression): a held unit takes its walking step at its own speed.
+                // movement.FLY_DIRECT_PATHS = read: a FlyDirectPaths flyer (the Skeleton Barrel) aims at its goal's
+                // position (`target_abs`: its target, or the tower it heads for) every tick, not at its route's next cell;
+                // the cell stays its route. Client 15.535.29: 482 of 484 ticks where the two aims part
+                // (sp-form-SkeletonBalloon-evo-s0's three barrels); every other flyer took its route's cell.
+                #[cfg(not(clash_plant = "fly_direct_paths_ignored"))]
+                let fly_direct_aim = if card.fly_direct_paths && calib.fly_direct_paths == FlyDirectPaths::Read { target_abs } else { None };
+                #[cfg(clash_plant = "fly_direct_paths_ignored")]
+                let fly_direct_aim: Option<(i32, i32)> = None; // PLANT (regression): the column is read and ignored.
                 let (aim, speed) = match routes[i].last() {
-                    Some(&p) if !deploying && !attacking && !still => (node_centre(p), native_speed),
+                    Some(&p) if !deploying && !attacking && !still => (fly_direct_aim.unwrap_or(node_centre(p)), native_speed),
                     None if !deploying && !attacking && !still && feasible => match target_abs {
                         // THE DIRECT AIM: with an empty list and a target out of
                         // range the unit walks at the point `reach` away from the
@@ -26893,6 +26919,9 @@ impl BattleState {
 /// 20, unchanged, knockback.LADDER_END_ROUTE: Calib gained ladder_end_route (serde default the old arm,
 ///    client16402_dropped), no new state (the new arm keeps the saved route instead of clearing it), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.FLY_DIRECT_PATHS: Calib gained fly_direct_paths (serde default the old arm, not_read), no
+///    new state (the new arm changes the step's aim, not what is saved), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SLIDE_AIM: Calib gained death_slide_aim (serde default the old arm, current_ray),
 ///    Entities gained `death_slide_end` (serde default, sized on load) and PendingSpawn `slide_end` (serde default):
 ///    a sliding member's fixed end point, set at birth under fixed_end_point alone and hashed only while its slide
@@ -27538,6 +27567,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_damage_tick".into(), serde_json::to_value(DeathDamageTick::NextTick).map_err(|e| e.to_string())?);
     // knockback.LADDER_END_ROUTE: a format-3 battle's ladders dropped the route at their end (the same rule).
     sh.insert("ladder_end_route".into(), serde_json::to_value(LadderEndRoute::Client16402Dropped).map_err(|e| e.to_string())?);
+    // movement.FLY_DIRECT_PATHS: a format-3 battle's flyers aimed at their route's next cell (the same rule).
+    sh.insert("fly_direct_paths".into(), serde_json::to_value(FlyDirectPaths::NotRead).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
     sh.insert("death_slide_aim".into(), serde_json::to_value(DeathSlideAim::CurrentRay).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_BIRTH and DEATH_SLIDE_STOP: the same (a format-3 battle laid no slide at all).

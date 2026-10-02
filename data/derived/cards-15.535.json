@@ -8311,6 +8311,7 @@
     "mechanic": false
    },
    "ignore_resurrect": true,
+   "fly_direct_paths": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -27856,6 +27857,7 @@
     "mechanic": false
    },
    "ignore_resurrect": true,
+   "fly_direct_paths": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "SkeletonBalloon",
@@ -44329,6 +44331,7 @@
     "mechanic": true
    },
    "ignore_resurrect": true,
+   "fly_direct_paths": true,
    "death_spawn_pushback": false,
    "raw": {
     "Name": "SkeletonBalloon",
@@ -80018,6 +80021,7 @@
     "mechanic": true
    },
    "ignore_resurrect": true,
+   "fly_direct_paths": true,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,

@@ -3059,6 +3059,10 @@ pub struct CardDef {
     /// this unit's death is no soul for a Skeleton King (state.rs `count_souls`). False on a blank. Measured on client
     /// 15.535.29 (Oracle's sp-sk-souls-ignore-s0): a Battle Ram's death left his count at 6.
     pub ignore_resurrect: bool,
+    /// characters FlyDirectPaths (cards.json `fly_direct_paths`; the Skeleton Barrel and its evolution): the flyer aims
+    /// at its goal's position every tick, not at its route's next cell (state.rs `phase_path16402_for`, under
+    /// movement.FLY_DIRECT_PATHS). False on a blank.
+    pub fly_direct_paths: bool,
     /// ProjectileYOffset, SUBTILES (0 = blank): a projectile is born this much further along its attacker's OWN
     /// forward y (Blue +y, Red -y) than ProjectileStartRadius alone puts it (combat.rs `launch_point`). A record the
     /// hero pass loads (`CardDb::is_hero_record`: the Hero Musketeer 300, her turret 300; measured on client 16.402)
@@ -3352,6 +3356,8 @@ struct RawCard {
     ignore_clone: Option<bool>,
     /// cards.json `ignore_resurrect` (IgnoreResurrect; 15.535 only, written where set): `CardDef::ignore_resurrect`.
     ignore_resurrect: Option<bool>,
+    /// cards.json `fly_direct_paths` (FlyDirectPaths; 15.535 only, written where set): `CardDef::fly_direct_paths`.
+    fly_direct_paths: Option<bool>,
     /// cards.json `idle_invisibility` (15.535 only): the row's BuffWhenNotAttacking is an invisibility.
     idle_invisibility: Option<RawIdleInvisibility>,
     /// Not in cards.json: set by a loader whose block hangs Invisible on the unit for its whole life (the Evo Lumberjack's
@@ -7303,6 +7309,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         dropped_by_ability: false,
         ignore_clone: false,
         ignore_resurrect: false,
+        fly_direct_paths: false,
         projectile_y_offset: 0,
         override_attack_finish: false,
         chain_hit: None,
@@ -9735,6 +9742,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         dropped_by_ability: false,
         ignore_clone: raw.ignore_clone.unwrap_or(false),
         ignore_resurrect: raw.ignore_resurrect.unwrap_or(false),
+        fly_direct_paths: raw.fly_direct_paths.unwrap_or(false),
         // ProjectileYOffset: a blank (every row but the King Tower's among the loaded ones) is none. Signed: the
         // column may point backwards (an event row ships -800), so it is not `nonneg`.
         #[cfg(not(clash_plant = "projectile_y_offset_unread"))]

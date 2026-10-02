@@ -4598,6 +4598,17 @@
       "promotion_rules": "SHIPPED at the 2026-09-28 round 9 flip as a hypothesis (see provenance): it put both events on the client to the unit and no report lost. The test file (crates/royalesim/tests/jump_landing_contact.rs) passes. What would raise it to measured: a third landing with an overlapping neighbour, in another battle or scene, where the neighbour walks its plain step on L; what would overturn it: one where the neighbour is pushed on L.",
       "engine": "state.rs phase_path16402_for, the leap's landing (`bodies[i].collidable`), selected by Calib::jump_landing_contact; tests/jump_landing_contact.rs."
     },
+    "FLY_DIRECT_PATHS": {
+      "value": "read",
+      "status": "measured",
+      "candidates": ["not_read", "read"],
+      "confidence": "HIGH for read on the Skeleton Barrel on client 15.535.29 (482 of 484 ticks, three barrels in one scene); UNMEASURED on 16.402, whose corpus has no Skeleton Barrel (the column is in its 2018-vintage table too)",
+      "provenance": "MEASURED by parity (2026-10-01) over every flying unit in the client 15.535.29 sp and il records walking with a target and a route, on the ticks where a step at the target's centre and a step at the route's next cell differ under the engine's move_towards numerics (heading trunc(d*256/dist), step trunc(heading*Speed/256), Speed the row's): the Skeleton Barrels of sp-form-SkeletonBalloon-evo-s0 (three, the last an evolution) took the target's centre on 482 of 484 such ticks; every other flyer took its next cell (Baby Dragon 1,857 next, none target; Balloon 2,867 next, none target; Inferno Dragon 2,062 next, 2 target; Minions, Bats and the Minion Horde next, with a group's pushes and avoidance turns leaving a quarter to a half of their ticks on neither aim and 9 on the target's). The 16.402 corpus: every flyer next (Minion 10,285 next, 30 target). The barrel's row is the one flying row that sets FlyDirectPaths (its evolution inherits it through Base). The engine flew the barrel at its cell and was 189 off in x by t341.",
+      "meaning": "not_read: every flyer aims at its route's next cell (the engine before this key). read: a flyer whose row sets FlyDirectPaths aims at its goal's position every tick (its target, or the tower it heads for); the cell stays its route.",
+      "open": "Whether 16.402 reads the column (no Skeleton Barrel in its corpus). The aim on an empty route is move16402::direct_aim under both arms (it lies on the same line).",
+      "promotion_rules": "A 16.402 Skeleton Barrel flight off the line from its deploy to its goal cell would confirm the shipped arm there; one flown at the cell would split the key per client.",
+      "engine": "state.rs phase_path16402_for (the step's aim), selected by Calib::fly_direct_paths and CardDef::fly_direct_paths (cards.json `fly_direct_paths`, tools/extract_cards.py); tests/fly_direct_paths.rs."
+    },
     "DYING_UNIT_VISIBILITY": {
       "value": "whole_tick",
       "status": "measured",

@@ -2762,6 +2762,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # Hound, the Phoenix's egg, ...). Written only where set, so every other row is unchanged.
         if flag(c, "IgnoreResurrect"):
             u["ignore_resurrect"] = True
+        # FlyDirectPaths: a flyer that aims at its target's position every tick, not at its route's next cell (the
+        # Skeleton Barrel, and its evolution through the overlay's Base; calibration movement.FLY_DIRECT_PATHS).
+        # Written only where set, so every other row is unchanged.
+        if flag(c, "FlyDirectPaths"):
+            u["fly_direct_paths"] = True
         # DeathSpawnPushback, beside the death_spawn block it qualifies: whether this row's
         # death spawn starts on a small ring and slides out to DeathSpawnRadius (calibration
         # spawner.DEATH_SPAWN_PUSHBACK; measured on client 16.402 on the Golem and the Lava
@@ -3739,6 +3744,8 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["ignore_clone"] = u["ignore_clone"]
     if "ignore_resurrect" in u:
         card["ignore_resurrect"] = u["ignore_resurrect"]
+    if "fly_direct_paths" in u:
+        card["fly_direct_paths"] = u["fly_direct_paths"]
     # 15.535 only, like action_graph: the card row carries its unit's death_spawn block, so it
     # carries the flag that qualifies it (the loader reads both off the same row).
     if "death_spawn_pushback" in u:
