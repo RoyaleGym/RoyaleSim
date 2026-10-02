@@ -4,7 +4,8 @@
 //! 29, where the engine pushed it first (sp-ram-alone-s0 t309: (7, 3) by an own Skeleton's overlap).
 //!
 //! The scene: Blue's Battle Ram walks at the red right princess tower with an own Skeleton held against its side every
-//! tick (the push). On the tick its own hit kills it, its Barbarians' centroid is, under client15535_skipped, its last
+//! tick (the push): 1,150 to its right, inside the two radii (750 + 500) by 100, and about 1,300 from either of the
+//! Barbarians it leaves (500 + 500), so the Skeleton pushes the Ram and never a newborn Barbarian. On the tick its own hit kills it, its Barbarians' centroid is, under client15535_skipped, its last
 //! point; under walks it is pushed off it first.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
@@ -39,9 +40,9 @@ fn ram_death(arm: DoomedOwnUpdate) -> ((i32, i32), (i32, i32)) {
         let Some(r) = s.entity(ram) else { break };
         let rp = r.pos;
         last = Some((rp.x / K, rp.y / K));
-        // the push: the Skeleton held against the Ram's side
+        // the push: the Skeleton held against the Ram's side, clear of where its Barbarians will stand
         if s.entity(skel).is_some() {
-            assert!(s.debug_set_pos(skel, Vec2::new(rp.x + 300 * K, rp.y)));
+            assert!(s.debug_set_pos(skel, Vec2::new(rp.x + 1150 * K, rp.y)));
         }
         s.tick();
         if s.entity(ram).is_none() {
