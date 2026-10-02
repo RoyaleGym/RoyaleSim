@@ -1374,6 +1374,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   movement.AVOIDANCE_OBSTACLE_TAG = client15535_unpushed_obstacle: a row's AVOIDANCE_AS_OBSTACLE tag (the Evo Skeleton
 ///   Army's General) makes its carrier unpushed, still pushing, and a static avoidance obstacle (93 of 93 deploy ticks
 ///   unmoved).
+///   combat.RANDOM_DELAY_STREAM = client15535_battle_stream: a RandomDelay shot's delay draws from the client's battle
+///   generator, which the replay syncs (56 of 56 Hunter volleys on client 15.535.29).
 ///   combat.LOAD_FIRST_HIT_LEAVE = client15535_windup_refunded: a Sparky leaving its attack before it fires gets the
 ///   entry's windup back (its load timer LoadTime less its progress; every Sparky leave on client 15.535.29).
 ///   placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge: a troop tapped outside its territory goes down on the
@@ -1397,6 +1399,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.AVOIDANCE_OBSTACLE_TAG", "\"client15535_unpushed_obstacle\""),
     ("placement.ILLEGAL_TROOP_TAP", "\"client15535_clamp_to_legal_edge\""),
     ("combat.LOAD_FIRST_HIT_LEAVE", "\"client15535_windup_refunded\""),
+    ("combat.RANDOM_DELAY_STREAM", "\"client15535_battle_stream\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

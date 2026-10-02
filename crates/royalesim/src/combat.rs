@@ -45,7 +45,7 @@ use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE_PER_MILLITILE as K, TRIG_ONE};
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
-    AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
+    AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, RandomDelayStream, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
     ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
@@ -1081,6 +1081,7 @@ pub fn fire(
     projectiles: &mut Vec<Projectile>,
     scratch: &mut Vec<u32>,
     rng: &mut Rng,
+    client_rng: &mut Option<u32>,
     bolts: &[EntityId],
     tick: u32,
 ) {
@@ -1287,6 +1288,15 @@ pub fn fire(
                     let _ = rs.start_extra;
                     0 // PLANT (regression): the new arm's creation-tick test reaches ProjectileRadius alone.
                 };
+                // combat.RANDOM_DELAY_STREAM = client15535_battle_stream: a RandomDelay shot's delay is a draw of the client's
+                // battle generator (state.rs `client_draw`, which a replay syncs to the capture), one draw a shot in the fan's
+                // order and one more before the next shot. Measured on client 15.535.29: every complete Hunter volley, 56 of
+                // 56, 19 draws a volley of 10, the even ones the shots' delays (sp-f4-hunterG0 t444: from 4014919791 the
+                // first steps 5, 4, 2, 5, 5, 3, 4, 5, 2, 4 ticks after the volley's creation, and 3699668171 after).
+                #[cfg(not(clash_plant = "random_delay_engine_stream"))]
+                let stream = calib.random_delay_stream == RandomDelayStream::Client15535BattleStream;
+                #[cfg(clash_plant = "random_delay_engine_stream")]
+                let stream = false; // PLANT (regression): the delays still draw from the engine's own generator.
                 for k in 0..pellets {
                     // Each pellet of a fan is aimed at ProjectileRange on its own offset from
                     // the bearing to the target and released 2-5 ticks after its creation
@@ -1295,7 +1305,14 @@ pub fn fire(
                     // shot is released by its own draw instead (`release_hold`).
                     let aim = fan_aim(src, tgt, rs.range, fan_offset_deg(k), team);
                     #[cfg(not(clash_plant = "fan_pellets_unheld"))]
-                    let hold = if columns {
+                    let hold = if columns && stream && rs.random_delay_ms > 0 {
+                        let tk = calib.tick_ms.max(1);
+                        let u = crate::state::client_draw(client_rng, rng, rs.random_delay_ms as u32) as i32;
+                        if k + 1 < pellets {
+                            crate::state::client_draw(client_rng, rng, 0);
+                        }
+                        (u + tk - 1) / tk
+                    } else if columns {
                         release_hold(rng, rs.random_delay_ms, calib.tick_ms)
                     } else if pellets > 1 {
                         rng.range(FAN_RELEASE_TICKS.0, FAN_RELEASE_TICKS.1) - 1

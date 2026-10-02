@@ -1958,6 +1958,17 @@
       "promotion_rules": "The test file (tests/test_non_homing_aim.py) passes. Then score with this arm switched on alone, and on top of targeting.VARIABLE_DAMAGE_WALK_REACH's measured arm. The registered prediction: on 20260920-082459 A and B the Princess's volleys on 2520 and 2577 take the client's victims, Goblin 43 on 2520, the Bomber and Goblin 43 on 2577, and on top of round 4's eight flips and VARIABLE_DAMAGE_WALK_REACH the battle no longer loses within 500 and 1000 against the eight flips (a stand-in run, today's build with the two 2577 kills made by an added spell, gave +1,117 / +627 on A and +1,105 / +593 on B, towers left out). Other battles move only where a non-homing splash shooter's target moves in flight (the Bomber is in 36 fixtures; the Mortar and the Bomb Tower where theirs moves).",
       "engine": "combat.rs fire: under fixed_at_fire a splash shot of a card whose Projectile row is not Homing (CardDef::projectile_homing; the Princess's CustomFirstProjectile row is not Homing either) is created with Projectile::fixed. step_projectiles does not re-aim a fixed shot, so it lands and splashes at the aim it was fired with; ticks_to_land counts to that aim. The flag is hashed only when set. Plant non_homing_shot_follows."
     },
+    "RANDOM_DELAY_STREAM": {
+      "value": "engine_own",
+      "status": "measured",
+      "candidates": ["engine_own", "client15535_battle_stream"],
+      "confidence": "HIGH for client15535_battle_stream on client 15.535.29's Hunter (56 of 56 complete volleys exact, 6 scenes); other RandomDelay rows unmeasured; 16.402 unread",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's projectile tracks against the battle generator each capture records (fixture `rng`, the state after each tick it changed; pellet_rng_census.py). Every complete Hunter volley (sp-f4-hunterG0, -G40, -G80, -K, sp-form-Hunter-evo; 56 volleys of 10 pellets): the generator moves exactly 19 draws on the volley's tick (xorshift32, state.rs client_rnd), and in the fan's order (the projectile file's, the engine's fan_offset_deg order: 0, +, -, ...) each pellet's first step comes 1 + ceil((draw mod 200) / 50) ticks after the volley's creation for the 1st, 3rd, ..., 19th draw, exact on every pellet. sp-f4-hunterG0 t444: from 4014919791, first steps 5, 4, 2, 5, 5, 3, 4, 5, 2, 4 and 3699668171 after. The odd draws move nothing visible (the fan's directions are fixed). The delay law itself is combat.PROJECTILE_COLLISIONS's; this key is only where it draws.",
+      "meaning": "engine_own: the engine's; a RandomDelay shot's delay draws from the engine's own generator. client15535_battle_stream: from the client's battle generator (client_rnd), which the replay syncs to the capture: per shot in the fan's order one draw U = rnd(RandomDelay), first step 1 + ceil(U / TICK_MS) ticks after creation, then one more draw before the next shot.",
+      "open": "What the odd draws are; RandomDelay rows other than the Hunter's; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_battle_stream (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "combat.rs fire (`stream`), state.rs client_draw, selected by Calib::random_delay_stream; tests/random_delay_stream.rs."
+    },
     "PROJECTILE_COLLISIONS": {
       "value": "client_columns",
       "candidates": ["not_read", "client_columns"],

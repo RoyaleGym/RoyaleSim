@@ -414,6 +414,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "projectile_collisions_default")]
     pub projectile_collisions: ProjectileCollisions,
+    /// combat.RANDOM_DELAY_STREAM: which generator a RandomDelay shot's delay draws from (combat.rs `fire`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `EngineOwn`.
+    #[serde(default = "random_delay_stream_default")]
+    pub random_delay_stream: RandomDelayStream,
     /// combat.CUSTOM_FIRST_PROJECTILE: an attack fires the card's CustomFirstProjectile (combat.rs
     /// `fire`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "custom_first_projectile_default")]
@@ -1423,6 +1427,10 @@ fn projectile_y_offset_default() -> ProjectileYOffset {
 
 fn projectile_collisions_default() -> ProjectileCollisions {
     ProjectileCollisions::NotRead
+}
+
+fn random_delay_stream_default() -> RandomDelayStream {
+    RandomDelayStream::EngineOwn
 }
 
 fn custom_first_projectile_default() -> CustomFirstProjectile {
@@ -3228,6 +3236,17 @@ calib_enum!(
         /// test reaches ProjectileRadius + ProjectileStartExtraRadius; a RandomDelay shot first
         /// moves 1 + ceil(U / 50 ms) ticks after its creation, U uniform on 0..RandomDelay.
         ClientColumns = "client_columns",
+    }
+);
+calib_enum!(
+    /// combat.RANDOM_DELAY_STREAM -- the generator a RandomDelay shot's delay draws from.
+    RandomDelayStream {
+        /// The engine's own generator (the engine's).
+        EngineOwn = "engine_own",
+        /// The client's battle generator (`client_rnd`, synced to a capture by the replay): per shot of a volley in
+        /// creation order one draw U = rnd(RandomDelay), then one more before the next shot. Client 15.535.29: 56 of 56
+        /// complete Hunter volleys exact (19 draws a volley of 10).
+        Client15535BattleStream = "client15535_battle_stream",
     }
 );
 calib_enum!(
@@ -6171,6 +6190,7 @@ impl Calib {
             range_projectile: pick(&v, &["combat", "RANGE_PROJECTILE", "value"], RangeProjectile::from_calibration_name)?,
             projectile_y_offset: pick(&v, &["combat", "PROJECTILE_Y_OFFSET", "value"], ProjectileYOffset::from_calibration_name)?,
             projectile_collisions: pick(&v, &["combat", "PROJECTILE_COLLISIONS", "value"], ProjectileCollisions::from_calibration_name)?,
+            random_delay_stream: pick(&v, &["combat", "RANDOM_DELAY_STREAM", "value"], RandomDelayStream::from_calibration_name)?,
             custom_first_projectile: pick(&v, &["combat", "CUSTOM_FIRST_PROJECTILE", "value"], CustomFirstProjectile::from_calibration_name)?,
             multiple_projectiles: pick(&v, &["combat", "MULTIPLE_PROJECTILES", "value"], MultipleProjectiles::from_calibration_name)?,
             multiple_targets: pick(&v, &["combat", "MULTIPLE_TARGETS", "value"], MultipleTargets::from_calibration_name)?,
@@ -8735,6 +8755,30 @@ fn offset_on_mount(facing: Vec2, v: Vec2) -> Vec2 {
     let (fx, fy) = (facing.x as i64, facing.y as i64);
     let (x, y) = (v.x as i64, v.y as i64);
     Vec2::new(((x * fy + y * fx) / 256) as i32, ((y * fy - x * fx) / 256) as i32)
+}
+
+/// ONE DRAW OF THE CLIENT'S BATTLE GENERATOR, rnd(n), read off the client by Oracle and checked draw for draw on client
+/// 15.535.29's frames: a single xorshift32 -- s = -1 when s is 0; s ^= s << 13; s ^= s >> 17 (arithmetic, on the signed
+/// value); s ^= s << 5 -- and the draw |s| mod n, unsigned (|INT_MIN| stays 2^31); n = 0 advances the state and returns 0.
+/// Seeded on its first use from the engine's own generator unless a replay set it (`scenario_set_client_rng`). The
+/// Skeleton King's area draws from it (`soul_pass`), and under combat.RANDOM_DELAY_STREAM = client15535_battle_stream a
+/// RandomDelay shot (combat.rs `fire`).
+pub(crate) fn client_draw(client_rng: &mut Option<u32>, rng: &mut Rng, n: u32) -> u32 {
+    let mut s = match *client_rng {
+        Some(v) => v as i32,
+        None => (rng.next_u32() | 1) as i32,
+    };
+    if s == 0 {
+        s = -1;
+    }
+    s ^= s.wrapping_shl(13);
+    s ^= s >> 17;
+    s ^= s.wrapping_shl(5);
+    *client_rng = Some(s as u32);
+    if n == 0 {
+        return 0;
+    }
+    s.unsigned_abs() % n
 }
 
 pub fn deploy_rule(calib: &Calib, card: &CardDef) -> (Territory, bool) {
@@ -15933,21 +15977,7 @@ impl BattleState {
     /// from the engine's own generator unless a replay set it (`scenario_set_client_rng`). Only the Skeleton King's area
     /// draws from it (`soul_pass`).
     fn client_rnd(&mut self, n: u32) -> u32 {
-        let mut s = match self.client_rng {
-            Some(v) => v as i32,
-            None => (self.rng.next_u32() | 1) as i32,
-        };
-        if s == 0 {
-            s = -1;
-        }
-        s ^= s.wrapping_shl(13);
-        s ^= s >> 17;
-        s ^= s.wrapping_shl(5);
-        self.client_rng = Some(s as u32);
-        if n == 0 {
-            return 0;
-        }
-        s.unsigned_abs() % n
+        client_draw(&mut self.client_rng, &mut self.rng, n)
     }
 
     /// THE SKELETON KINGS' SOULS (card.rs `SoulSummonDef`), at the top of Reap: each troop's death this tick, either side,
@@ -19781,6 +19811,7 @@ impl BattleState {
                     &mut self.projectiles,
                     &mut self.scratch.nb,
                     &mut self.rng,
+                    &mut self.client_rng,
                     &bolts,
                     self.tick,
                 );
@@ -25333,6 +25364,11 @@ impl BattleState {
         self.client_rng = Some(state);
     }
 
+    /// The client battle generator's state (`client_rnd`), None until it is first drawn or set.
+    pub fn client_rng_state(&self) -> Option<u32> {
+        self.client_rng
+    }
+
     pub fn scenario_set_tick(&mut self, tick: u32) {
         self.tick = tick;
         let c = &self.cfg.calib;
@@ -27699,6 +27735,9 @@ impl BattleState {
 /// 20, unchanged, targeting.KNOCKED_TARGET_HOLD: Calib gained knocked_target_hold (serde default the old arm,
 ///    held_while_knocked), no new state (the new arm changes a decision inside the Target phase), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RANDOM_DELAY_STREAM: Calib gained random_delay_stream (serde default the old arm, engine_own), no
+///    new state (the client generator a replay syncs is state already, `client_rng`), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.LOAD_FIRST_HIT_LEAVE: Calib gained load_first_hit_leave (serde default the old arm, runs_on),
 ///    no new state (the new arm sets the load timer a unit already carries), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -28355,6 +28394,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // combat.PROJECTILE_COLLISIONS: a format-3 battle read none of a straight shot's three columns
     // (it had no straight shot); it keeps that whatever the ledger ships (the same rule).
     sh.insert("projectile_collisions".into(), serde_json::to_value(ProjectileCollisions::NotRead).map_err(|e| e.to_string())?);
+    // combat.RANDOM_DELAY_STREAM: a format-3 battle's delays drew from the engine's generator (the same rule).
+    sh.insert("random_delay_stream".into(), serde_json::to_value(RandomDelayStream::EngineOwn).map_err(|e| e.to_string())?);
     // combat.SPAWN_PROJECTILE: a format-3 battle released nothing where a shot landed; it keeps
     // that whatever the ledger ships (the same rule).
     sh.insert("spawn_projectile".into(), serde_json::to_value(SpawnProjectile::NotRead).map_err(|e| e.to_string())?);
