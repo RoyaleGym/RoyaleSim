@@ -45,7 +45,7 @@ use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE_PER_MILLITILE as K, TRIG_ONE};
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
-    AttackCombo, AttackCycle, Calib, ComboPushback, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
+    AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
     ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
@@ -886,7 +886,17 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     let mut load = (ents.attack_load_ms[a] - calib.tick_ms).max(0);
     let phase = ents.attack_phase[a];
     let mut progress = ents.attack_ms[a];
-    let idle = |load| AttackStep { phase: AttackPhase::Idle, ms: 0, load_ms: load, fired_at: None, charge_snapped: false };
+    // combat.LOAD_FIRST_HIT_LEAVE = client15535_windup_refunded: a LoadFirstHit unit leaving its attack before the attack
+    // fires (its progress short of HitSpeed) gets the entry's windup back: its load timer reads LoadTime less its
+    // progress, floored at 0, so a Sparky charged before the lock is charged again. Measured on client 15.535.29, every
+    // Sparky leave before a fire: sp-il-8b9b t880 (progress 3450, load -450 then 0; relocked on t891 with progress 3050),
+    // sp-il-04cb t1870 (progress 1500, load 1500). Every other unit's timer runs on.
+    #[cfg(not(clash_plant = "load_first_hit_leave_runs_on"))]
+    let refund = card.load_first_hit && calib.load_first_hit_leave == LoadFirstHitLeave::Client15535WindupRefunded && progress > 0 && progress < card.hit_speed_ms;
+    #[cfg(clash_plant = "load_first_hit_leave_runs_on")]
+    let refund = false; // PLANT (regression): the leaving Sparky's timer runs on from its entry's reset.
+    let refunded = if refund { Some((card.load_time_ms.max(0) - progress).max(0)) } else { None };
+    let idle = |load| AttackStep { phase: AttackPhase::Idle, ms: 0, load_ms: refunded.unwrap_or(load), fired_at: None, charge_snapped: false };
     if tick <= 0 {
         // The composed advance is 0: a -100 HitSpeedMultiplier (a freeze). The
         // PROGRESS holds, but the LOAD TIMER does NOT: its decrement, max(load - 50,

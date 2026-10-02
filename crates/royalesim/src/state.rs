@@ -543,6 +543,10 @@ pub struct Calib {
     /// `default` is `None`, what a battle saved before it actually ran.
     #[serde(default = "load_first_hit_default")]
     pub load_first_hit: LoadFirstHit,
+    /// combat.LOAD_FIRST_HIT_LEAVE: a LoadFirstHit unit's load timer when it leaves its attack before the attack fires
+    /// (combat.rs `attack_step_progress`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `RunsOn`.
+    #[serde(default = "load_first_hit_leave_default")]
+    pub load_first_hit_leave: LoadFirstHitLeave,
     /// knockback.ATTACK_PUSHBACK: whether a launch recoils a unit whose row sets
     /// AttackPushBack (`attack_recoil`). Added after SNAPSHOT_FORMAT 20; the `default` is
     /// `None`, what a battle saved before it actually ran.
@@ -1632,6 +1636,10 @@ fn variable_damage_default() -> VariableDamage {
 
 fn load_first_hit_default() -> LoadFirstHit {
     LoadFirstHit::None
+}
+
+fn load_first_hit_leave_default() -> LoadFirstHitLeave {
+    LoadFirstHitLeave::RunsOn
 }
 
 fn attack_pushback_default() -> AttackPushback {
@@ -3472,6 +3480,17 @@ calib_enum!(
         /// entering the attack its progress is LoadTime - (the timer on the tick before) + 100,
         /// so the first launch comes 79 ticks after the deploy end whether it walked first or not.
         LoadTimeFromDeployEnd = "load_time_from_deploy_end",
+    }
+);
+calib_enum!(
+    /// combat.LOAD_FIRST_HIT_LEAVE -- a LoadFirstHit unit leaving its attack before the attack fires.
+    LoadFirstHitLeave {
+        /// The engine's: its load timer runs on from its entry's reset to LoadTime.
+        RunsOn = "runs_on",
+        /// Its load timer reads LoadTime less its progress, floored at 0: the entry's windup is given back. Client
+        /// 15.535.29: every Sparky leave before a fire (sp-il-8b9b t880, sp-il-04cb t1870; t1761 a post-kill hold, 50
+        /// lower).
+        Client15535WindupRefunded = "client15535_windup_refunded",
     }
 );
 calib_enum!(
@@ -6181,6 +6200,7 @@ impl Calib {
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             variable_damage: pick(&v, &["combat", "VARIABLE_DAMAGE", "value"], VariableDamage::from_calibration_name)?,
             load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
+            load_first_hit_leave: pick(&v, &["combat", "LOAD_FIRST_HIT_LEAVE", "value"], LoadFirstHitLeave::from_calibration_name)?,
             attack_pushback: pick(&v, &["knockback", "ATTACK_PUSHBACK", "value"], AttackPushback::from_calibration_name)?,
             attack_combo: pick(&v, &["combat", "ATTACK_COMBO", "value"], AttackCombo::from_calibration_name)?,
             combo_pushback: pick(&v, &["knockback", "COMBO_PUSHBACK", "value"], ComboPushback::from_calibration_name)?,
@@ -14286,6 +14306,18 @@ impl BattleState {
                         && !carried
                         && !switched_in_reach))
             {
+                // combat.LOAD_FIRST_HIT_LEAVE = client15535_windup_refunded: a LoadFirstHit unit leaving its attack here,
+                // before the attack fires, gets its windup back as on the attack step's own leave (combat.rs
+                // `attack_step_progress`): its load timer reads LoadTime less its progress once this tick's attack step
+                // has taken its 50.
+                #[cfg(not(clash_plant = "load_first_hit_leave_runs_on"))]
+                {
+                    let c = cards.get(e.card[i]);
+                    let p = e.attack_ms[i];
+                    if c.load_first_hit && calib.load_first_hit_leave == LoadFirstHitLeave::Client15535WindupRefunded && p > 0 && p < c.hit_speed_ms {
+                        e.attack_load_ms[i] = (c.load_time_ms.max(0) - p).max(0) + calib.tick_ms;
+                    }
+                }
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;
                 e.target_locked[i] = false;
@@ -27667,6 +27699,9 @@ impl BattleState {
 /// 20, unchanged, targeting.KNOCKED_TARGET_HOLD: Calib gained knocked_target_hold (serde default the old arm,
 ///    held_while_knocked), no new state (the new arm changes a decision inside the Target phase), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.LOAD_FIRST_HIT_LEAVE: Calib gained load_first_hit_leave (serde default the old arm, runs_on),
+///    no new state (the new arm sets the load timer a unit already carries), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, placement.ILLEGAL_TROOP_TAP: Calib gained illegal_troop_tap (serde default the old arm, refuse), no new
 ///    state (the new arm decides where a troop tap goes down), so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
@@ -28244,6 +28279,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // and no hook; it keeps that whatever the ledger ships (the same rule).
     sh.insert("variable_damage".into(), serde_json::to_value(VariableDamage::NotModelled).map_err(|e| e.to_string())?);
     sh.insert("load_first_hit".into(), serde_json::to_value(LoadFirstHit::None).map_err(|e| e.to_string())?);
+    // combat.LOAD_FIRST_HIT_LEAVE: a format-3 battle's leaving Sparky kept its timer running (the same rule).
+    sh.insert("load_first_hit_leave".into(), serde_json::to_value(LoadFirstHitLeave::RunsOn).map_err(|e| e.to_string())?);
     sh.insert("attack_pushback".into(), serde_json::to_value(AttackPushback::None).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_END and DASH_CHAIN_PENDING: a format-3 battle ran no champion; the same rule.
     sh.insert("dash_chain_pending".into(), serde_json::to_value(DashChainPending::WaitForGroundCharacter).map_err(|e| e.to_string())?);

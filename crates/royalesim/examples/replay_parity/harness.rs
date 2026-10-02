@@ -1374,6 +1374,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   movement.AVOIDANCE_OBSTACLE_TAG = client15535_unpushed_obstacle: a row's AVOIDANCE_AS_OBSTACLE tag (the Evo Skeleton
 ///   Army's General) makes its carrier unpushed, still pushing, and a static avoidance obstacle (93 of 93 deploy ticks
 ///   unmoved).
+///   combat.LOAD_FIRST_HIT_LEAVE = client15535_windup_refunded: a Sparky leaving its attack before it fires gets the
+///   entry's windup back (its load timer LoadTime less its progress; every Sparky leave on client 15.535.29).
 ///   placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge: a troop tapped outside its territory goes down on the
 ///   first legal tile back along its column (4 of 4 bridge taps, 3 of 3 enemy-half singles on client 15.535.29).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1394,6 +1396,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.CONTAINER_BURST_PUSH", "\"client15535_contact_push\""),
     ("movement.AVOIDANCE_OBSTACLE_TAG", "\"client15535_unpushed_obstacle\""),
     ("placement.ILLEGAL_TROOP_TAP", "\"client15535_clamp_to_legal_edge\""),
+    ("combat.LOAD_FIRST_HIT_LEAVE", "\"client15535_windup_refunded\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
