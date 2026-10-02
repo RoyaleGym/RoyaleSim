@@ -2409,7 +2409,9 @@ mod tests {
             let ob = apply_commands(&mut b, &[red, blue], &ids).unwrap();
             assert_eq!((oa[0], oa[1]), (ob[1], ob[0]), "step {step}: per-command verdicts differ");
             accepted += oa.iter().filter(|o| o.1 == R_OK).count();
-            for _ in 0..8 {
+            // 21 ticks a step: a refill period (1000 ms) and one, so the hand refill timer has a card in every slot
+            // again by the next step's commands.
+            for _ in 0..21 {
                 a.tick();
                 b.tick();
                 assert_eq!(a.state_hash(), b.state_hash(), "step {step} tick {}: command list order changed the battle", a.tick_count());
@@ -2796,6 +2798,10 @@ mod tests {
             s.scenario_set_elixir_milli(Team::Blue, 10000);
             s.deploy_slot(Team::Blue, 0, Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(10))).unwrap();
             s.tick();
+            // The hand refill timer (`refill_hands`): slot 0 holds a card again before the next play.
+            while s.hand_card(Team::Blue, 0).is_err() {
+                s.tick();
+            }
         }
         let v = json(&s);
         assert_eq!(v["players"][0]["evo"], serde_json::json!([[id, 0, 0, 2]]));

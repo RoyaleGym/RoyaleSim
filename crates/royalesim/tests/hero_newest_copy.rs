@@ -46,6 +46,7 @@ fn play_golem(s: &mut BattleState, at: (i32, i32)) -> EntityId {
         let other = s.hand(Team::Blue).iter().find(|c| **c != "IceGolemite").map(|c| c.to_string()).expect("a card to cycle");
         s.deploy(Team::Blue, &other, n((3500, 9500))).expect("a cycling play");
         s.tick();
+        tick_until_refilled(s, Team::Blue);
     }
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
     let before: Vec<EntityId> = find_live(s, Team::Blue, "IceGolemite_hero").iter().map(|e| e.id).collect();

@@ -635,9 +635,9 @@ fn the_hero_card_cycles_and_replays_while_she_lives() {
         assert!(!s.hand(Team::Blue).contains(&"Musketeer"), "back in hand before {card}");
         s.scenario_set_elixir_milli(Team::Blue, 10_000);
         s.deploy(Team::Blue, card, t(300, 500)).unwrap_or_else(|e| panic!("{card}: {e:?}"));
-        for _ in 0..4 {
-            s.tick();
-        }
+        s.tick();
+        // The hand refill timer: wait for the slot to hold a card again.
+        tick_until_refilled(&mut s, Team::Blue);
     }
     assert!(s.hand(Team::Blue).contains(&"Musketeer"), "the hero card is back after four plays");
     assert!(s.entity(first).is_some(), "the first hero lives");
