@@ -218,7 +218,7 @@ pub struct Calib {
     #[serde(default = "held_facing_default")]
     pub held_facing: HeldFacing,
     /// movement.DOOMED_OWN_UPDATE (`phase_path16402_for`, under movement.DYING_UNIT_VISIBILITY = client_doomed_static):
-    /// whether a troop whose death is settled before the move pass takes an update of its own. Added after
+    /// whether a kamikaze whose death is settled before the move pass takes an update of its own. Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "doomed_own_update_default")]
     pub doomed_own_update: DoomedOwnUpdate,
@@ -5019,9 +5019,10 @@ calib_enum!(
     DoomedOwnUpdate {
         /// A doomed troop takes its update like any other: it walks and is pushed (the engine's).
         Walks = "walks",
-        /// A doomed troop takes no update of its own: it stays where the tick found it, a static body to the rest
-        /// (client 15.535.29: a Battle Ram killed by its own hit lays its Barbarians on its last point, 29 of 29).
-        Client15535Skipped = "client15535_skipped",
+        /// A doomed KAMIKAZE (CardDef::kamikaze: it dies on its own hit) takes no update of its own: it stays where the
+        /// tick found it, a static body to the rest (client 15.535.29: a Battle Ram killed by its own hit lays its
+        /// Barbarians on its last point, 29 of 29). Every other doomed troop takes its update as under walks.
+        Client15535KamikazeStays = "client15535_kamikaze_stays",
     }
 );
 calib_enum!(
@@ -16923,17 +16924,18 @@ impl BattleState {
             // Only the creation-order arm drops a doomed troop at its place in the pass; under
             // client_doomed_static it walks like any other, and only its `avoid_static` differs.
             let drops_doomed = calib.dying_unit_visibility == DyingUnitVisibility::CreationOrderBeforeVictim;
-            // movement.DOOMED_OWN_UPDATE = client15535_skipped (under client_doomed_static): a doomed troop takes no update
-            // of its own -- no walk, no push -- and stays where the tick found it, a static body to the rest. Client
-            // 15.535.29: a Battle Ram killed by its own hit lays its Barbarians on its last point, 29 of 29 (sp-ram-alone-s0
-            // t309, where the engine pushed it (7, 3) first).
+            // movement.DOOMED_OWN_UPDATE = client15535_kamikaze_stays (under client_doomed_static): a doomed kamikaze (it dies
+            // on its own hit) takes no update of its own -- no walk, no push -- and stays where the tick found it, a static
+            // body to the rest. Client 15.535.29: a Battle Ram killed by its own hit lays its Barbarians on its last point,
+            // 29 of 29 (sp-ram-alone-s0 t309, where the engine pushed it (7, 3) first). Other doomed troops walk as before:
+            // stopping them all lost the Tombstone, Skeleton and Hog scenes where a struck troop dies.
             #[cfg(not(clash_plant = "doomed_own_update_kept"))]
             let doomed_stays = calib.dying_unit_visibility == DyingUnitVisibility::ClientDoomedStatic
-                && calib.doomed_own_update == DoomedOwnUpdate::Client15535Skipped;
+                && calib.doomed_own_update == DoomedOwnUpdate::Client15535KamikazeStays;
             #[cfg(clash_plant = "doomed_own_update_kept")]
-            let doomed_stays = false; // PLANT (regression): the new arm still moves a doomed troop.
+            let doomed_stays = false; // PLANT (regression): the new arm still moves a doomed kamikaze.
             for i in order {
-                if doomed_stays && doomed.get(i).copied().unwrap_or(false) {
+                if doomed_stays && doomed.get(i).copied().unwrap_or(false) && self.cfg.cards.get(e.card[i]).kamikaze {
                     continue;
                 }
                 if drops_doomed && doomed.get(i).copied().unwrap_or(false) {
@@ -26986,7 +26988,7 @@ impl BattleState {
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.DOOMED_OWN_UPDATE: Calib gained doomed_own_update (serde default the old arm, walks), no new
-///    state (the new arm skips a doomed troop's update inside the pass), so a blob saved before it deserializes and
+///    state (the new arm skips a doomed kamikaze's update inside the pass), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SLIDE_AIM: Calib gained death_slide_aim (serde default the old arm, current_ray),
 ///    Entities gained `death_slide_end` (serde default, sized on load) and PendingSpawn `slide_end` (serde default):

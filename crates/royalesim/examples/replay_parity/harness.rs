@@ -1352,8 +1352,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   waypoint (143 of 163 held facing turns on client 15.535.29). The 16.402 corpus is not measured for it.
 ///   collision.HELD_UNIT_AVOIDANCE = scanned: a held unit starts avoidance offsets at the walking rate on client 15.535.29
 ///   (41 of 5,442 held ticks against 0.90% walking); the 16.402 corpus keeps masked (0 of 2,024).
-///   movement.DOOMED_OWN_UPDATE = client15535_skipped: a troop doomed before the move pass stays where the tick found it
-///   (a Battle Ram killed by its own hit lays its Barbarians on its last point, 29 of 29 on client 15.535.29).
+///   movement.DOOMED_OWN_UPDATE = client15535_kamikaze_stays: a kamikaze doomed before the move pass stays where the tick
+///   found it (a Battle Ram killed by its own hit lays its Barbarians on its last point, 29 of 29 on client 15.535.29).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1361,7 +1361,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("knockback.LADDER_END_ROUTE", "\"client15535_kept\""),
     ("movement.HELD_FACING", "\"client15535_toward_waypoint\""),
     ("collision.HELD_UNIT_AVOIDANCE", "\"scanned\""),
-    ("movement.DOOMED_OWN_UPDATE", "\"client15535_skipped\""),
+    ("movement.DOOMED_OWN_UPDATE", "\"client15535_kamikaze_stays\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

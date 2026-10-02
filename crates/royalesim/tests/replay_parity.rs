@@ -936,7 +936,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.ladder_end_route, LadderEndRoute::Client15535Kept, "a 15.535.29 capture keeps a route through a knockback ladder");
     assert_eq!(cfg.calib.held_facing, HeldFacing::Client15535TowardWaypoint, "a 15.535.29 capture turns a held unit toward its waypoint");
     assert_eq!(cfg.calib.held_unit_avoidance, HeldUnitAvoidance::Scanned, "a 15.535.29 capture scans a held unit");
-    assert_eq!(cfg.calib.doomed_own_update, DoomedOwnUpdate::Client15535Skipped, "a 15.535.29 capture leaves a doomed troop where it stood");
+    assert_eq!(cfg.calib.doomed_own_update, DoomedOwnUpdate::Client15535KamikazeStays, "a 15.535.29 capture leaves a doomed kamikaze where it stood");
     assert!(notes.iter().any(|n| n.contains("DYING_UNIT_VISIBILITY")), "the notes do not name the client's arm: {notes:?}");
     assert!(notes.iter().any(|n| n.contains("TICK_ORDER")), "the notes do not name the client's tick order: {notes:?}");
     let mut new = sample();

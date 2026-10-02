@@ -1,11 +1,12 @@
-//! A DOOMED TROOP STAYS WHERE THE TICK FOUND IT (calibration movement.DOOMED_OWN_UPDATE, under
+//! A DOOMED KAMIKAZE STAYS WHERE THE TICK FOUND IT (calibration movement.DOOMED_OWN_UPDATE, under
 //! movement.DYING_UNIT_VISIBILITY = client_doomed_static; state.rs `phase_path16402_for`, `doomed_stays`). Measured on
 //! client 15.535.29: a Battle Ram killed by its own hit lays its two Barbarians centred exactly on its last point, 29 of
 //! 29, where the engine pushed it first (sp-ram-alone-s0 t309: (7, 3) by an own Skeleton's overlap).
 //!
 //! The scene: Blue's Battle Ram walks at the red right princess tower with an own Skeleton held against its side every
 //! tick (the push): 1,150 to its right, inside the two radii (750 + 500) by 100, and about 1,300 from either of the
-//! Barbarians it leaves (500 + 500), so the Skeleton pushes the Ram and never a newborn Barbarian. On the tick its own hit kills it, its Barbarians' centroid is, under client15535_skipped, its last
+//! Barbarians it leaves (500 + 500), so the Skeleton pushes the Ram and never a newborn Barbarian.
+//! On the tick its own hit kills it, its Barbarians' centroid is, under client15535_kamikaze_stays, its last
 //! point; under walks it is pushed off it first.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
@@ -61,7 +62,7 @@ fn ram_death(arm: DoomedOwnUpdate) -> ((i32, i32), (i32, i32)) {
 
 #[test]
 fn a_ram_killed_by_its_own_hit_lays_its_barbarians_on_its_last_point() {
-    let (last, centre) = ram_death(DoomedOwnUpdate::Client15535Skipped);
+    let (last, centre) = ram_death(DoomedOwnUpdate::Client15535KamikazeStays);
     assert!((centre.0 - last.0).abs() <= 1 && (centre.1 - last.1).abs() <= 1, "the Barbarians' centre {centre:?}, the Ram's last point {last:?}");
 }
 
