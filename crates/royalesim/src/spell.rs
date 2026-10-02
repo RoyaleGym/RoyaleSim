@@ -419,7 +419,7 @@ pub fn death_projectile(cards: &CardDb, calib: &Calib, team: Team, card: u16, le
             (damage, pulse)
         }
     };
-    Ok(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: 0 }, depth: 0 })
+    Ok(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: 0 }, depth: 0, flown: 0 })
 }
 
 /// Area `part` of card `card`'s ability (card.rs `AbilityEffect::Areas`), or None.
@@ -515,21 +515,21 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
                     let _ = (w, wave_interval_ms); // PLANT: every wave released at once.
                     0
                 };
-                out.push(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms }, depth });
+                out.push(Spell { team, card, level, damage, pulse, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms }, depth, flown: 0 });
             }
         }
         SpellShape::AreaEffect { hit } => {
-            out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap }, depth });
+            out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap }, depth, flown: 0 });
         }
         // The Evo Giant Snowball's flight, as a projectile spell's (spells.LAUNCH_POINT), carrying its roll's hit.
         SpellShape::CaptureRoll(d) => {
             let launch = arena.ok_or("a capture roll down a spell chain has no launch point")?.king_tower_pos(team);
-            out.push(Spell { team, card, level, damage: scaled(&d.hit)?, pulse: 0, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms: 0 }, depth });
+            out.push(Spell { team, card, level, damage: scaled(&d.hit)?, pulse: 0, motion: SpellMotion::Flight { pos: launch, aim: tap, frac: Vec2::default(), delay_ms: 0 }, depth, flown: 0 });
         }
         // An echoing area (card.rs `SpellShape::Echo`, the Evo Zap): its own hit as an `AreaEffect`'s, and its second
         // strike's fuse, made with it at the same point.
         SpellShape::Echo { hit, then } => {
-            out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap }, depth });
+            out.push(Spell { team, card, level, damage: scaled(hit)?, pulse: pulse_of(hit)?, motion: SpellMotion::Area { pos: tap }, depth, flown: 0 });
             // The second area is made on the cast tick + floor(delay / TICK_MS) (actions.SUB_ACTIONS_DELAY, as a
             // scheduled area's entries are) and first acts the tick after, as an area another area makes does: one
             // tick past the fuse's own release (spells.SUMMON_FUSE_START). Measured on client 15.535.29
@@ -636,7 +636,7 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
             if *fuse_ms == 0 && with_parent {
                 out.extend(objects_for(cards, calib, arena, team, card, level, depth + 1, then, tap, now)?);
             } else {
-                out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Fuse { pos: tap, ms: *fuse_ms }, depth });
+                out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Fuse { pos: tap, ms: *fuse_ms }, depth, flown: 0 });
             }
         }
         // Never cast: state.rs `enqueue` puts the unit down as a troop deploy.
@@ -649,7 +649,7 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         SpellShape::Variant { .. } => return Err(format!("{} chooses a form at the play; it is never cast", cards.get(card).name)),
         // THE CLONE: a one-shot area at the tap, which copies on its first update (`step_spells`). It deals nothing.
         SpellShape::Clone { .. } => {
-            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Area { pos: tap }, depth });
+            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Area { pos: tap }, depth, flown: 0 });
         }
         // A striking area: its damage is the strike's, scaled once here; nothing happens on the cast tick.
         SpellShape::Strikes(d) => {
@@ -658,7 +658,7 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         }
         // A scheduled area: it deals nothing; its clock is its creation tick (`step_spells`).
         SpellShape::ScheduledArea { .. } => {
-            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Scheduled { pos: tap, born: now, fired: 0 }, depth });
+            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Scheduled { pos: tap, born: now, fired: 0 }, depth, flown: 0 });
         }
     }
     Ok(out)
