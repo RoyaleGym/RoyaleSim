@@ -1609,6 +1609,8 @@ fn spell_placement_follows_the_card_data() {
         // three cards that never leave slots 1..3 are covered every round.
         s.deploy_slot(Team::Blue, 0, t(900, 1000)).expect("the cycling deploy must be legal for every card in this deck");
         s.tick();
+        // The hand refill timer: slot 0 holds the next card again before the next round.
+        tick_until_refilled(&mut s, Team::Blue);
     }
     // Every deck card must have been probed, or the assertions below are vacuous
     // for the ones that were not.

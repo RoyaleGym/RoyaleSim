@@ -80,6 +80,8 @@ fn a_deck_card_marked_evolved_plays_its_form_every_third_play() {
         s.tick();
         let new: Vec<String> = s.entities().filter(|e| e.team == Team::Blue && !before.contains(&e.id)).map(|e| e.card.to_string()).collect();
         assert_eq!(new.len(), 1, "{card} put down {new:?}");
+        // The hand refill timer: the played card's slot holds a card again before the next play.
+        tick_until_refilled(s, Team::Blue);
         new[0].clone()
     };
     let counter = |s: &BattleState| s.evo_counters(Team::Blue)[0];

@@ -2268,7 +2268,7 @@
       "units": "ms",
       "status": "measured",
       "confidence": "HIGH on client 15.535.29: 36 refills in the 1x phase, all 1000, over several cards.",
-      "provenance": "MEASURED on client 15.535.29 (2026-10-02, the oracle's full kernel frames: the f4-furnace bench scene and a recorded Ladder match with players[].refill_timer). The timer counts down 50 a tick and restarts at this value on each refill; f4-furnace side 0 played at t106 (timer 750), t111 and t116 and refilled at 121, 141 and 161 to the lowest empty slot. Live read a 16-tick empty slot after back-to-back plays on client 16.402, which a running 1000 ms timer explains.",
+      "provenance": "MEASURED on client 15.535.29 (2026-10-02, the oracle's full kernel frames: the f4-furnace bench scene and a recorded Ladder match with players[].refill_timer). The timer counts down 50 a tick and restarts at this value on each refill; f4-furnace side 0 played at t106 (timer 750), t111 and t116 and refilled at 121, 141 and 161 to the lowest empty slot. CHECKED on client 16.402 (Live, 2026-10-02, RoyaleLive backups/live/refill_split2.py over every live capture with a readable hand): of the plays made g ticks after the seat's previous refill with g under the period, 5 of 5 left the slot empty for exactly period minus g ticks (1x: g 3/2/19/3 gave 17/18/1/17; 2x: g 4 gave 6), none refilled at once; plays with g at or past the period refilled on their own tick (1x 526 of 541, 2x 252 of 258), the exceptions a single frame reading -1 while the slot refills.",
       "meaning": "The hand refill timer's period in the 1x elixir phase: the time between one card entering the hand from the queue and the next, when slots are waiting. One timer per player (`refill_hands`).",
       "promotion_rules": "SETTLED on 15.535.29. Re-open against a new client build.",
       "engine": "state.rs Calib::hand_refill_ms, `refill_hands` (run after `run_due_commands`), `deploy_slot` empties the played slot (NO_CARD). Test: crates/royalesim/tests/hand_refill.rs; plant hand_refill_instant."
@@ -2277,20 +2277,20 @@
       "value": 500,
       "units": "ms",
       "status": "measured",
-      "confidence": "HIGH on client 15.535.29: 31 refills in the 2x phase, and one in overtime, all 500. The change lies between t2351 (last 1000) and t2531 (first 500), consistent with the 2x step into t2401; the exact tick is being pinned by a scene.",
-      "provenance": "MEASURED on client 15.535.29 (2026-10-02, the oracle's full kernel frames: the f4-furnace bench scene and a recorded Ladder match with players[].refill_timer). The timer counts down 50 a tick and restarts at this value on each refill; f4-furnace side 0 played at t106 (timer 750), t111 and t116 and refilled at 121, 141 and 161 to the lowest empty slot. Live read a 16-tick empty slot after back-to-back plays on client 16.402, which a running 1000 ms timer explains.",
+      "confidence": "HIGH on client 15.535.29: 31 refills in the 2x phase and one in overtime, all 500. The oracle's refill scene (sp-refill-s0) placed the switch: a running timer keeps its value across t2400 (300 at 2400, 250 at 2401, no jump) and the next RESTART takes the new period (2386 restarted at 1000, 2406 at 500). The engine reads the period at each restart from the elixir phase then (`refill_period`).",
+      "provenance": "MEASURED on client 15.535.29 (2026-10-02, the oracle's full kernel frames: the f4-furnace bench scene and a recorded Ladder match with players[].refill_timer). The timer counts down 50 a tick and restarts at this value on each refill; f4-furnace side 0 played at t106 (timer 750), t111 and t116 and refilled at 121, 141 and 161 to the lowest empty slot. CHECKED on client 16.402 (Live, 2026-10-02, RoyaleLive backups/live/refill_split2.py over every live capture with a readable hand): of the plays made g ticks after the seat's previous refill with g under the period, 5 of 5 left the slot empty for exactly period minus g ticks (1x: g 3/2/19/3 gave 17/18/1/17; 2x: g 4 gave 6), none refilled at once; plays with g at or past the period refilled on their own tick (1x 526 of 541, 2x 252 of 258), the exceptions a single frame reading -1 while the slot refills.",
       "meaning": "The hand refill timer's period in the 2x elixir phase (from MANA_SPEED_UP_WHEN_REMAINING_SECONDS before regulation's end, and overtime before the 3x step).",
-      "promotion_rules": "SETTLED on the value. The switch tick is read here as the 2x step itself; re-open if the oracle's switch scene places it at the next restart instead.",
+      "promotion_rules": "SETTLED on 15.535.29. A restart on exactly t2400 or t2401 is not observed; the engine takes the 2x period from the 2x step.",
       "engine": "state.rs Calib::hand_refill_ms, `refill_hands` (run after `run_due_commands`), `deploy_slot` empties the played slot (NO_CARD). Test: crates/royalesim/tests/hand_refill.rs; plant hand_refill_instant."
     },
     "HAND_REFILL_MS_3X": {
-      "value": 500,
+      "value": 350,
       "units": "ms",
-      "status": "guess",
-      "confidence": "LOW: no 3x refill measured yet (the measured match ended at t3881). The 2x value carried over.",
-      "provenance": "MEASURED on client 15.535.29 (2026-10-02, the oracle's full kernel frames: the f4-furnace bench scene and a recorded Ladder match with players[].refill_timer). The timer counts down 50 a tick and restarts at this value on each refill; f4-furnace side 0 played at t106 (timer 750), t111 and t116 and refilled at 121, 141 and 161 to the lowest empty slot. Live read a 16-tick empty slot after back-to-back plays on client 16.402, which a running 1000 ms timer explains.",
+      "status": "measured",
+      "confidence": "HIGH on client 15.535.29: the oracle's refill scene (2026-10-02, sp-refill-s0) restarted the timer at 350 from t4804, refills 7 ticks apart (4811, 4818); 350 is 1000/3 rounded up to a whole tick of 50.",
+      "provenance": "MEASURED on client 15.535.29 (2026-10-02, the oracle's full kernel frames: the f4-furnace bench scene and a recorded Ladder match with players[].refill_timer). The timer counts down 50 a tick and restarts at this value on each refill; f4-furnace side 0 played at t106 (timer 750), t111 and t116 and refilled at 121, 141 and 161 to the lowest empty slot. CHECKED on client 16.402 (Live, 2026-10-02, RoyaleLive backups/live/refill_split2.py over every live capture with a readable hand): of the plays made g ticks after the seat's previous refill with g under the period, 5 of 5 left the slot empty for exactly period minus g ticks (1x: g 3/2/19/3 gave 17/18/1/17; 2x: g 4 gave 6), none refilled at once; plays with g at or past the period refilled on their own tick (1x 526 of 541, 2x 252 of 258), the exceptions a single frame reading -1 while the slot refills.",
       "meaning": "The hand refill timer's period in the 3x elixir phase (MANA_TRIPLE_AFTER_OVERTIME_S into overtime).",
-      "promotion_rules": "PROMOTE from the oracle's 3x scene (requested 2026-10-02).",
+      "promotion_rules": "SETTLED on 15.535.29 (one scene). Re-open against a new client build.",
       "engine": "state.rs Calib::hand_refill_ms, `refill_hands` (run after `run_due_commands`), `deploy_slot` empties the played slot (NO_CARD). Test: crates/royalesim/tests/hand_refill.rs; plant hand_refill_instant."
     },
     "MANA_SPEED_UP_WHEN_REMAINING_SECONDS": {

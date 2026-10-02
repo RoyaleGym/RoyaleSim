@@ -1831,7 +1831,7 @@ fn mana_triple_after_overtime_s_default() -> i32 {
 }
 
 fn hand_refill_ms_default() -> [i32; 3] {
-    [1000, 500, 500]
+    [1000, 500, 350]
 }
 
 fn jump_landing_contact_default() -> JumpLandingContact {
@@ -8977,7 +8977,7 @@ impl BattleState {
             }
             let hand: Vec<u16> = deck.iter().take(HAND_SIZE).copied().collect();
             let queue: VecDeque<u16> = deck.iter().skip(HAND_SIZE).copied().collect();
-            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, last_played: None, evo, heroes, champions });
+            players.push(PlayerState { mana: (c.start_mana as i64) * mana_unit, hand, queue, refill_ms: 0, last_played: None, evo, heroes, champions });
         }
         let players: [PlayerState; 2] = [players.remove(0), players.remove(0)];
 
@@ -12197,11 +12197,11 @@ impl BattleState {
     /// 15.535.29 (Oracle, 2026-10-02, from full kernel frames of a bench scene and a recorded Ladder match): ONE timer per
     /// player. Each tick it counts down a tick's ms (never below 0); when it reads 0 and a slot is empty, the queue's
     /// front card fills the LOWEST-index empty slot and the timer restarts at the phase's period (1000 ms in 1x elixir,
-    /// 500 ms in 2x). A play while the timer reads 0 refills its slot on the same tick; a play while it runs leaves the
+    /// 500 ms in 2x, 350 ms in 3x), read at each restart: a running countdown keeps its value across a phase change. A play while the timer reads 0 refills its slot on the same tick; a play while it runs leaves the
     /// slot empty until it runs out, and back-to-back plays queue one card per period. Runs right after the due commands
     /// (`run_due_commands`), so a play this tick is refilled this tick when the timer allows.
     fn refill_hands(&mut self) {
-        let period = self.cfg.calib.hand_refill_ms[(self.elixir_multiplier() - 1).clamp(0, 2) as usize];
+        let period = self.refill_period();
         let tick_ms = self.cfg.calib.tick_ms;
         for p in self.players.iter_mut() {
             p.refill_ms = (p.refill_ms - tick_ms).max(0);
@@ -12216,6 +12216,11 @@ impl BattleState {
                 p.refill_ms = period;
             }
         }
+    }
+
+    /// The hand refill timer's period in the current elixir phase (match.HAND_REFILL_MS_1X/_2X/_3X).
+    fn refill_period(&self) -> i32 {
+        self.cfg.calib.hand_refill_ms[(self.elixir_multiplier() - 1).clamp(0, 2) as usize]
     }
 
     pub fn elixir_multiplier(&self) -> i32 {
@@ -24677,6 +24682,7 @@ impl BattleState {
         let need = (play.cost as i64) * self.mana_unit;
         let mirror = self.cfg.cards.get(play.in_slot).is_mirror();
         let evolved = play.card != play.in_slot && self.cfg.cards.is_form(play.card);
+        let (refill_period, tick_ms) = (self.refill_period(), self.cfg.calib.tick_ms);
         let p = &mut self.players[t];
         p.mana -= need;
         // THE HAND CARD'S EVOLUTION COUNTER: a basic play adds one, the evolved play starts the count again.
@@ -24690,6 +24696,16 @@ impl BattleState {
         #[cfg(not(clash_plant = "hand_refill_instant"))]
         {
             p.hand[slot] = NO_CARD;
+            // AN IDLE TIMER REFILLS ON THE PLAY'S OWN TICK: the queue's front card fills the lowest empty slot now, and
+            // the timer is set one tick's ms above the period, so that this tick's countdown (`refill_hands`, which
+            // runs once more in the tick the play belongs to) leaves it reading the period, as the client's does on
+            // the refill tick (1000, then 950 on the next).
+            if p.refill_ms == 0 {
+                if let (Some(empty), Some(next)) = (p.hand.iter().position(|c| *c == NO_CARD), p.queue.pop_front()) {
+                    p.hand[empty] = next;
+                    p.refill_ms = refill_period + tick_ms;
+                }
+            }
         }
         #[cfg(clash_plant = "hand_refill_instant")]
         match p.queue.pop_front() {

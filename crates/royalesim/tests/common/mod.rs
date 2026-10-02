@@ -975,3 +975,16 @@ pub fn run_scripted_with(cfg: BattleConfig, seed: u64, invariants: bool, perturb
     BattleRun { hashes, final_state: s, inv, max_live, plays: script.plays, spell_casts: script.spell_casts, spell_ticks }
 }
 
+
+/// Ticks until every one of `team`'s hand slots holds a card again (the hand refill timer, state.rs `refill_hands`),
+/// at most 40 ticks; returns the ticks taken. A scene that cycles cards faster than one per refill period calls this
+/// between plays, so its next play finds a card in the slot.
+pub fn tick_until_refilled(s: &mut BattleState, team: Team) -> u32 {
+    let mut k = 0;
+    // `hand` reads "" for a slot waiting on the timer; a deck too small to fill four slots has fewer entries.
+    while k < 40 && s.hand(team).contains(&"") {
+        s.tick();
+        k += 1;
+    }
+    k
+}
