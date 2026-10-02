@@ -1,8 +1,8 @@
 """A flight spell's row carries the ticks it has been moving (SPELL_FIELDS "ticks_flown", spell.rs `Spell::flown`).
 
 An observer that shows an enemy spell's landing point only after k ticks of flight needs the count from the spell's
-first moving tick, not from when it first saw it. Pinned: a Rocket's rows count 1, 2, 3 ... on consecutive ticks while it
-flies, and a non-flight spell's rows read 0.
+first moving tick, not from when it first saw it. Pinned: a Rocket's rows count up by one on each tick it flies,
+from its first moving tick.
 """
 
 import json
