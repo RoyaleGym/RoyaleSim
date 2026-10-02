@@ -236,6 +236,10 @@ pub struct Calib {
     /// match.MANA_TRIPLE_AFTER_OVERTIME_S: how far into overtime the third rate starts (`triple_elixir`).
     #[serde(default = "mana_triple_after_overtime_s_default")]
     pub mana_triple_after_overtime_s: i32,
+    /// match.HAND_REFILL_MS_1X / _2X / _3X: the hand refill timer's period, ms, in the 1x, 2x and 3x elixir phases
+    /// (`refill_hands`). `default` so a record written before the timer reads as the measured periods.
+    #[serde(default = "hand_refill_ms_default")]
+    pub hand_refill_ms: [i32; 3],
     pub start_mana: i32,
     pub max_mana: i32,
     pub king_activate_time_ms: i32,
@@ -1824,6 +1828,10 @@ fn life_state_aim_repick_default() -> LifeStateAimRepick {
 
 fn mana_triple_after_overtime_s_default() -> i32 {
     60
+}
+
+fn hand_refill_ms_default() -> [i32; 3] {
+    [1000, 500, 500]
 }
 
 fn jump_landing_contact_default() -> JumpLandingContact {
@@ -5916,6 +5924,11 @@ impl Calib {
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
             mana_regen_ms_3x: int(&v, &["match", "MANA_REGEN_MS_OVERTIME", "value"])?,
             mana_triple_after_overtime_s: int(&v, &["match", "MANA_TRIPLE_AFTER_OVERTIME_S", "value"])?,
+            hand_refill_ms: [
+                int(&v, &["match", "HAND_REFILL_MS_1X", "value"])?,
+                int(&v, &["match", "HAND_REFILL_MS_2X", "value"])?,
+                int(&v, &["match", "HAND_REFILL_MS_3X", "value"])?,
+            ],
             start_mana: int(&v, &["match", "START_MANA", "value"])?,
             max_mana: int(&v, &["match", "MAX_MANA", "value"])?,
             king_activate_time_ms: int(&v, &["match", "KING_ACTIVATE_TIME_MS", "value"])?,
@@ -7045,12 +7058,22 @@ pub const EVO_COPY_AHEAD_MILLI: i32 = 1000;
 /// I + 26 for the 1100 ms bombs, I + 28 for the 1200 ms and I + 30 for the 1300 ms.
 pub const BARRAGE_LAND_EXTRA_TICKS: i32 = 3;
 
+/// A HAND SLOT WAITING FOR THE REFILL TIMER (`PlayerState::hand`, `refill_hands`). Never a card index: `hand_card`
+/// reports it as `DeployError::EmptySlot`, and nothing looks it up in the card table.
+pub const NO_CARD: u16 = u16::MAX;
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PlayerState {
     /// Elixir in units of 1/mana_unit elixir.
     pub mana: i64,
+    /// The hand, one entry per slot; `NO_CARD` is a slot waiting for the refill timer (`refill_hands`).
     pub hand: Vec<u16>,
     pub queue: VecDeque<u16>,
+    /// THE HAND REFILL TIMER, ms left (match.HAND_REFILL_MS_1X/_2X/_3X): one per player, not one per slot. It counts
+    /// down a tick at a time; at 0 the queue's front card fills the lowest empty slot and the timer restarts at the
+    /// phase's period. `default` 0 (a battle saved before the timer refills at once). Hashed only when not 0.
+    #[serde(default)]
+    pub refill_ms: i32,
     /// THE CARD THIS SIDE LAST PUT DOWN, for a Mirror (match.MIRROR_RECORD = last_non_mirror_play): the card a
     /// play deployed -- a variant card's FORM, the card a Mirror copied -- written by every accepted play except a
     /// Mirror's, never by a refused one. None before any play. Added after SNAPSHOT_FORMAT 20; `default` None, so a
@@ -12063,6 +12086,7 @@ impl BattleState {
             return;
         }
         self.run_due_commands();
+        self.refill_hands();
         // rider.OFFSET_LAW: the mounts' facings as the last tick left them, before anything turns one.
         self.note_mount_facings();
         // spawner.LIFE_STATE_FIRST_LOOK_AIM: the positions a Goblin Hut's first look reads, before anything moves.
@@ -12169,6 +12193,31 @@ impl BattleState {
 
     /// THE REGEN'S MULTIPLE the next tick runs: 3 under `triple_elixir`, 2 under `double_elixir`, else 1. The one
     /// answer `state_json`'s `elixir_rate` reports.
+    /// THE HAND REFILL TIMERS (match.HAND_REFILL_MS_1X/_2X/_3X; `PlayerState::refill_ms`). Measured on client
+    /// 15.535.29 (Oracle, 2026-10-02, from full kernel frames of a bench scene and a recorded Ladder match): ONE timer per
+    /// player. Each tick it counts down a tick's ms (never below 0); when it reads 0 and a slot is empty, the queue's
+    /// front card fills the LOWEST-index empty slot and the timer restarts at the phase's period (1000 ms in 1x elixir,
+    /// 500 ms in 2x). A play while the timer reads 0 refills its slot on the same tick; a play while it runs leaves the
+    /// slot empty until it runs out, and back-to-back plays queue one card per period. Runs right after the due commands
+    /// (`run_due_commands`), so a play this tick is refilled this tick when the timer allows.
+    fn refill_hands(&mut self) {
+        let period = self.cfg.calib.hand_refill_ms[(self.elixir_multiplier() - 1).clamp(0, 2) as usize];
+        let tick_ms = self.cfg.calib.tick_ms;
+        for p in self.players.iter_mut() {
+            p.refill_ms = (p.refill_ms - tick_ms).max(0);
+            if p.refill_ms > 0 {
+                continue;
+            }
+            let Some(slot) = p.hand.iter().position(|c| *c == NO_CARD) else {
+                continue;
+            };
+            if let Some(next) = p.queue.pop_front() {
+                p.hand[slot] = next;
+                p.refill_ms = period;
+            }
+        }
+    }
+
     pub fn elixir_multiplier(&self) -> i32 {
         if self.triple_elixir() {
             3
@@ -24543,7 +24592,7 @@ impl BattleState {
         if slot >= HAND_SIZE {
             return Err(DeployError::BadSlot);
         }
-        self.players[team as usize].hand.get(slot).copied().ok_or(DeployError::EmptySlot)
+        self.players[team as usize].hand.get(slot).copied().filter(|c| *c != NO_CARD).ok_or(DeployError::EmptySlot)
     }
 
     /// PURE query by hand slot (the protocol's `DeployCommand` names a slot,
@@ -24636,7 +24685,15 @@ impl BattleState {
         }
         // THE HAND CARD cycles (a Mirror, a variant card), not the card it put down.
         p.queue.push_back(play.in_slot);
+        // THE SLOT WAITS FOR THE REFILL TIMER (match.HAND_REFILL_MS_*): it empties now, and `refill_hands` fills the
+        // lowest empty slot from the queue's front when the side's timer runs out -- this tick if it already has.
+        #[cfg(not(clash_plant = "hand_refill_instant"))]
+        {
+            p.hand[slot] = NO_CARD;
+        }
+        #[cfg(clash_plant = "hand_refill_instant")]
         match p.queue.pop_front() {
+            // PLANT: the played slot refills at once, as before the timer.
             Some(next) => p.hand[slot] = next,
             None => {
                 p.hand.remove(slot);
@@ -24979,7 +25036,8 @@ impl BattleState {
         (self.players[team as usize].mana, self.mana_unit)
     }
     pub fn hand(&self, team: Team) -> Vec<&str> {
-        self.players[team as usize].hand.iter().map(|i| self.cfg.cards.get(*i).name.as_str()).collect()
+        // An empty slot (`NO_CARD`, waiting for the refill timer) reads "": the list stays one entry per slot.
+        self.players[team as usize].hand.iter().map(|i| if *i == NO_CARD { "" } else { self.cfg.cards.get(*i).name.as_str() }).collect()
     }
     pub fn next_card(&self, team: Team) -> Option<&str> {
         self.players[team as usize].queue.front().map(|i| self.cfg.cards.get(*i).name.as_str())
@@ -25244,10 +25302,15 @@ impl BattleState {
             for c in &p.queue {
                 h.u32(*c as u32);
             }
+            // THE REFILL TIMER, only while it runs: a battle whose timers are all at 0 hashes as before the field.
+            if p.refill_ms != 0 {
+                h.u32(0x5246_4c4c);
+                h.i64(p.refill_ms as i64);
+            }
             // THE LAST PLAY a Mirror copies (`PlayerState::last_played`): state only for a side whose deck holds a
             // Mirror, so it is hashed only there, and a battle without one hashes as it did before the field.
             #[cfg(not(clash_plant = "hash_skips_last_play"))]
-            if !legacy_v3 && p.hand.iter().chain(p.queue.iter()).any(|c| self.cfg.cards.get(*c).is_mirror()) {
+            if !legacy_v3 && p.hand.iter().chain(p.queue.iter()).filter(|c| **c != NO_CARD).any(|c| self.cfg.cards.get(*c).is_mirror()) {
                 match p.last_played {
                     None => h.u32(0),
                     Some(c) => {
@@ -28318,7 +28381,11 @@ impl BattleState {
         let _ = got;
         if let Some(map) = remap {
             // The hash is proven; only now move the card indices to this CardDb's.
-            let m = |c: &mut u16| *c = map[*c as usize];
+            let m = |c: &mut u16| {
+                if *c != NO_CARD {
+                    *c = map[*c as usize];
+                }
+            };
             s.ents.card.iter_mut().for_each(m);
             for p in s.players.iter_mut() {
                 p.hand.iter_mut().for_each(m);
