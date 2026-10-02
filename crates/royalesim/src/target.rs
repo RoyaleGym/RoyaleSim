@@ -975,21 +975,30 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             if dropped {
                 return TargetDecision { target: scan_with(ctx, a, scratch, Some(t)), cancel_attack: cancel, resumed: false, chase_dropped: Some(t) };
             }
-            // THE CHASE LIMIT HOLDS A TARGET PAST ROUND SIGHT (targeting.CHASE_DROP_RANGE = client_sight_minus_1000): a
-            // target past the attacker's round sight but inside the limit is kept when the rescan finds nothing in sight; a
-            // unit the rescan finds is nearer and taken as before. The round sight passes before the square limit on a
-            // diagonal, so the rescan alone lost it there. Measured on client 15.535.29, walkers holding a target past
-            // round sight and inside the limit: kept 158 of 159 troop targets and 25 of 25 building targets
-            // (sp-champ-SkeletonKing-s0 t177: a Skeleton chasing the Skeleton King at 7,021, round sight 7,000, square
-            // 5,200 against 6,000). A target still in round sight is not held: the rescan passes over one on purpose (a
-            // doomed one: sweep-Minions t336, a Knight whose death the Minion's shot in flight has settled, left for the
-            // tower on both clients).
+            // THE CHASE HOLDS A TARGET PAST ROUND SIGHT (targeting.CHASE_DROP_RANGE = client_sight_minus_1000): a target
+            // past the attacker's round sight is kept when the rescan finds nothing in sight; a unit the rescan finds is
+            // nearer and taken as before. The chase drop above, which lets go of a target that has been inside the limit
+            // and walks past it, returns first. Measured on client 15.535.29, walkers holding a troop target past round
+            // sight: kept 158 of 159 inside the limit and 135 of 139 past it when the pair had never been inside, and 25
+            // of 25 building targets (sp-champ-SkeletonKing-s0 t177: a Skeleton chasing the Skeleton King at 7,021, round
+            // sight 7,000; sp-champ-LittlePrince-s0 t190: a Skeleton holding the Little Prince at 6,508 round, 6,019
+            // square against a limit of 5,500, never inside). A target still in round sight is not held: the rescan
+            // passes over one on purpose (a doomed one: sweep-Minions t336, a Knight whose death the Minion's shot in
+            // flight has settled, left for the tower on both clients). Past the limit only a troop holds: the
+            // measurements are walkers, and a building (a crown tower) still lets go there
+            // (tests/reach_loss_switch.rs `a_crown_tower_drops_a_started_shot_500_past_its_reach`).
             #[cfg(not(clash_plant = "chase_lost_past_round_sight"))]
             if ctx.calib.chase_drop_range == ChaseDropRange::ClientSightMinus1000
-                && !past_chase_limit(ctx.cards, e, a, ti)
                 && !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, ti), e.radius[a], e.pos[ti], e.radius[ti])
             {
-                held_past_sight = Some(t);
+                // PLANT (regression) chase_held_only_inside_limit: the hold stops at the chase-drop limit, as r24 had it.
+                #[cfg(clash_plant = "chase_held_only_inside_limit")]
+                let holds = !past_chase_limit(ctx.cards, e, a, ti);
+                #[cfg(not(clash_plant = "chase_held_only_inside_limit"))]
+                let holds = !e.kind[a].is_building() || !past_chase_limit(ctx.cards, e, a, ti);
+                if holds {
+                    held_past_sight = Some(t);
+                }
             }
         } else if (e.target_locked[a] && !dropped_for_doom(ctx, a, t)) || too_close {
             cancel = true;

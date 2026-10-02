@@ -14,8 +14,10 @@
 //!
 //! WHAT IS PINNED (X: the landing tick, the tick before the drag's first 510 step):
 //!   1. on_victim: the Knight's move on X is a walk (55 to 61), and the drag takes 10 steps;
-//!   2. client_hook_point: the Knight's move on X is the hook's shortfall, 572 toward the Fisherman, and the drag takes
-//!      9 steps, one fewer, as the client's near-s1 drag does against the engine's;
+//!   2. client_hook_point: the Knight's move on X is the hook's shortfall, 574 toward the Fisherman, and the drag takes
+//!      9 steps, one fewer, as the client's near-s1 drag does against the engine's (572 before the chase hold past the
+//!      limit, targeting.CHASE_DROP_RANGE's: the Knight keeps its target past round sight a tick longer, and the plant
+//!      chase_held_only_inside_limit gives 572 back);
 //!   3. the shipped value is client_hook_point (since the 2026-09-28 round 9 lanes flip).
 //!
 //! PLANT (regression):
@@ -71,7 +73,7 @@ fn the_old_arm_leaves_the_victim_where_it_walked() {
 /// Plant: hook_lands_on_victim.
 #[test]
 fn the_new_arm_sets_the_victim_onto_the_hook() {
-    assert_eq!(landing(HookLanding::ClientHookPoint), (572, 9), "client_hook_point: (the landing move, the drag steps)");
+    assert_eq!(landing(HookLanding::ClientHookPoint), (574, 9), "client_hook_point: (the landing move, the drag steps)");
 }
 
 #[test]
