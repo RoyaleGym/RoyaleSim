@@ -3680,6 +3680,17 @@
       "promotion_rules": "SETTLED 2026-09-25 for count-1 death spawns (see confidence). own_collision_radius is the old arm. A blank-radius death spawn of several units that is not on DEATH_SPAWN_AT_EMISSION_POINT's list needs its own measurement before this key speaks for it.",
       "engine": "state.rs Calib::death_spawn_radius_default, read by BattleState::phase_reap"
     },
+    "DEATH_SPAWN_RING_ORDER": {
+      "value": "client_one_step_on",
+      "status": "measured",
+      "candidates": ["member_zero_at_shift", "client_one_step_on"],
+      "confidence": "HIGH for client_one_step_on for a pair (46 of 46 deaths on client 15.535.29, 2 of 2 on the 16.402 corpus); a ring of three or more is the same reading, unmeasured (no record holds one)",
+      "provenance": "MEASURED by parity (2026-10-02). Client 15.535.29's raw frames: every troop that died and left exactly two units on the next frame around its point: the Battle Ram 31 times and the Evo Battle Ram 15, each pair on its facing ring at SpawnAngleShift 180, one ahead of the ram's last heading and one behind; the lower creation ordinal was the one AHEAD on all 46 (sp-ram-alone-s0 t309, ordinal 14 at (-83, 594) from the death point, the ram heading (-10, 256)). The 16.402 corpus: both Battle Ram deaths (20260920-002736 t5031 and 20260920-003751 t1152, each seen from both seats), the first key ahead. The engine laid member k at the facing + 180 + k x 180, so made the one behind first. The order breaks the avoidance scan's tie inside one group (move16402.rs Index::query): sp-ram-alone-s0 t378, a Skeleton whose look circle met both Barbarians (both attacking, offset 0 on both engines) took the side of the one made last: +200 in the client, -200 in the engine, the first divergence of the five ram scenes (sp-ram-alone, -kill, -side+, -side- and sp-form-BattleRam-evo, about 800 unit-ticks each on RoyaleSim 55bbc7d).",
+      "meaning": "member_zero_at_shift: a facing ring's member k (spawner.DEATH_SPAWN_LAYOUT's facing_ring and facing_ring_rounded) is made at the facing + SpawnAngleShift + k x 360 / n (the engine's). client_one_step_on: the same points made starting one step on, member k at the facing + SpawnAngleShift + (k + 1) x 360 / n, as spawner.DEATH_SPAWN_RING's fixed ring starts at -(k + 1) x 360 / n. Only the order the members are made in changes; where they stand does not.",
+      "open": "A facing ring of three or more (the direction of the turn for n >= 3; no record holds one).",
+      "promotion_rules": "Shipped: both clients agree on every recorded pair.",
+      "engine": "state.rs death_spawn_points (`ring_step_on`), selected by Calib::death_spawn_ring_order; tests/death_ring_order.rs."
+    },
     "DEATH_SPAWN_LAYOUT": {
       "value": "facing_ring_rounded",
       "status": "measured",

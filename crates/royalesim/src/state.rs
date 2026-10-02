@@ -1127,6 +1127,10 @@ pub struct Calib {
     pub launch_past_target: LaunchPastTarget,
     /// spawner.DEATH_SPAWN_LAYOUT: where a death spawn's units appear.
     pub death_spawn_layout: DeathSpawnLayout,
+    /// spawner.DEATH_SPAWN_RING_ORDER: which point of a facing ring is made first (`death_spawn_points`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "death_spawn_ring_order_default")]
+    pub death_spawn_ring_order: DeathSpawnRingOrder,
     /// spawner.DEATH_SPAWN_PUSHBACK: whether a dying unit whose row sets DeathSpawnPushback
     /// (card.rs `CardDef::death_spawn_pushback`) lays its death spawn on the small fixed ring
     /// and slides it out, instead of by DEATH_SPAWN_LAYOUT. Added after SNAPSHOT_FORMAT 20;
@@ -1439,6 +1443,10 @@ fn chase_drop_range_default() -> ChaseDropRange {
 
 fn chase_hold_past_limit_default() -> ChaseHoldPastLimit {
     ChaseHoldPastLimit::InsideOnly
+}
+
+fn death_spawn_ring_order_default() -> DeathSpawnRingOrder {
+    DeathSpawnRingOrder::MemberZeroAtShift
 }
 
 fn knocked_target_hold_default() -> KnockedTargetHold {
@@ -5326,6 +5334,17 @@ calib_enum!(
 );
 
 calib_enum!(
+    /// spawner.DEATH_SPAWN_RING_ORDER -- see `Calib::death_spawn_ring_order`.
+    DeathSpawnRingOrder {
+        /// Member k at the facing + SpawnAngleShift + k x 360 / n: with the Battle Ram's shift of 180 the Barbarian behind
+        /// is made first (the engine's).
+        MemberZeroAtShift = "member_zero_at_shift",
+        /// The same points made starting one step on, member k at the facing + SpawnAngleShift + (k + 1) x 360 / n: the
+        /// Barbarian ahead first. Client 15.535.29: 46 of 46 Battle Ram deaths; the 16.402 corpus: 2 of 2.
+        ClientOneStepOn = "client_one_step_on",
+    }
+);
+calib_enum!(
     /// spawner.DEATH_SPAWN_LAYOUT -- see `BattleState::death_spawn_points`.
     DeathSpawnLayout {
         /// The ring on the dying unit's FACING (measured on the live Battle Rams):
@@ -6317,6 +6336,7 @@ impl Calib {
             projectile_launch: pick(&v, &["combat", "PROJECTILE_LAUNCH", "value"], ProjectileLaunch::from_calibration_name)?,
             launch_past_target: pick(&v, &["combat", "LAUNCH_PAST_TARGET", "value"], LaunchPastTarget::from_calibration_name)?,
             death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
+            death_spawn_ring_order: pick(&v, &["spawner", "DEATH_SPAWN_RING_ORDER", "value"], DeathSpawnRingOrder::from_calibration_name)?,
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
             death_slide_aim: pick(&v, &["spawner", "DEATH_SLIDE_AIM", "value"], DeathSlideAim::from_calibration_name)?,
             death_slide_birth: pick(&v, &["spawner", "DEATH_SLIDE_BIRTH", "value"], DeathSlideBirth::from_calibration_name)?,
@@ -11968,6 +11988,21 @@ impl BattleState {
         self.hash.rebuild(&self.ents);
     }
 
+    /// spawner.DEATH_SPAWN_RING_ORDER: how many steps on from SpawnAngleShift a facing ring's first-made member stands (the
+    /// ring's points are the same under both arms; only the order the members are made in turns). client_one_step_on, 1:
+    /// measured on client 15.535.29, 46 of 46 Battle Ram and Evo Battle Ram deaths made the Barbarian AHEAD of the ram
+    /// first (its shift of 180 puts member 0 behind), and on the 16.402 corpus 2 of 2 (20260920-002736, -003751, both
+    /// seats), the start spawner.DEATH_SPAWN_RING's fixed ring measured, -(k + 1) x 360 / n. The order is the avoidance
+    /// scan's tie (move16402.rs `Index::query`): sp-ram-alone-s0 t378, a Skeleton steering round the two Barbarians
+    /// took the side of the one made last. member_zero_at_shift, 0: the engine's.
+    fn ring_step_on(&self) -> i32 {
+        #[cfg(not(clash_plant = "death_ring_member_zero_first"))]
+        let on = self.cfg.calib.death_spawn_ring_order == DeathSpawnRingOrder::ClientOneStepOn;
+        #[cfg(clash_plant = "death_ring_member_zero_first")]
+        let on = false; // PLANT (regression): the new arm still makes member 0 at the shift first.
+        i32::from(on)
+    }
+
     /// WHERE A DEATH SPAWN'S UNITS APPEAR (calibration spawner.DEATH_SPAWN_LAYOUT).
     ///
     /// facing_ring (shipped, MEASURED on the two live Battle Ram deaths of the
@@ -12021,9 +12056,10 @@ impl BattleState {
                     facing
                 };
                 let ulen = isqrt(u.len2()).max(1);
+                let on = self.ring_step_on();
                 (0..n)
                     .map(|k| {
-                        let deg = angle_shift_deg + k * 360 / n;
+                        let deg = angle_shift_deg + (k + on) * 360 / n;
                         let (sn, cs) = (crate::formation::sin1024(deg) as i64, crate::formation::sin1024(deg + 90) as i64);
                         // rotate the unit facing by deg, scale to r: (ux cos - uy sin, ux sin + uy cos)
                         let rx = ((u.x as i64) * cs - (u.y as i64) * sn) * r / (ulen * 1024);
@@ -12046,9 +12082,10 @@ impl BattleState {
                 let a = crate::formation::rounded_degree(u);
                 #[cfg(clash_plant = "death_ring_unrounded")]
                 let a = crate::formation::rounded_degree(u) + 1; // PLANT (regression): a degree off the rounding.
+                let on = self.ring_step_on();
                 (0..n)
                     .map(|k| {
-                        let deg = a + angle_shift_deg + k * 360 / n;
+                        let deg = a + angle_shift_deg + (k + on) * 360 / n;
                         // in whole native units (formation.rs `ring_offset_native`)
                         pos.add(crate::formation::ring_offset_native(r as i32, deg))
                     })
@@ -27303,6 +27340,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.DEATH_SPAWN_RING_ORDER: Calib gained death_spawn_ring_order (serde default the old arm,
+///    member_zero_at_shift), no new state (the new arm orders a death spawn's points as it lays them), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.EVO_COPY_COUNT: Calib gained evo_copy_count (serde default the old arm, after_reap), no new
 ///    state (the new arm's room is read at the hit into the tick's scratch copy list, empty between ticks), so a blob
 ///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27847,6 +27887,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // combat.LAUNCH_PAST_TARGET: a format-3 battle's shots started at the attacker's centre (the same rule).
     sh.insert("launch_past_target".into(), serde_json::to_value(LaunchPastTarget::Clamped).map_err(|e| e.to_string())?);
     sh.insert("death_spawn_layout".into(), serde_json::to_value(DeathSpawnLayout::EngineGridWithinRadius).map_err(|e| e.to_string())?);
+    // spawner.DEATH_SPAWN_RING_ORDER: read only on a facing ring, which a format-3 battle never laid (the same rule).
+    sh.insert("death_spawn_ring_order".into(), serde_json::to_value(DeathSpawnRingOrder::MemberZeroAtShift).map_err(|e| e.to_string())?);
     // The death-spawn slide: a format-3 battle laid every death spawn by the layout key and
     // slid none; it keeps that whatever the ledger ships (the same rule).
     sh.insert("death_spawn_pushback".into(), serde_json::to_value(DeathSpawnPushback::NotRead).map_err(|e| e.to_string())?);
