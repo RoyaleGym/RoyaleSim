@@ -1,8 +1,9 @@
 //! A DYING KAMIKAZE PUSHES NOBODY (calibration movement.KAMIKAZE_DEATH_CONTACT, under movement.DYING_UNIT_VISIBILITY =
-//! client_doomed_static; state.rs `phase_path16402_for`, `kamikaze_unpushing`). Measured on client 15.535.29: every troop
-//! within 900 of a kamikaze dying at its own attack shows no collision contact on the death tick, 65 of 65 own-side and 1
-//! of 1 enemy; its body stays in the avoidance scans (sp-rage-4000-s0 t257: a Skeleton steers round the dying Electro
-//! Spirit).
+//! client_doomed_static; state.rs `phase_path16402_for`, `kamikaze_unpushing`). Measured on client 15.535.29: every ground
+//! troop overlapping a kamikaze that dies at its own attack, its position exact on the tick before, stands where the
+//! engine with the dying kamikaze out of the separation puts it on the death tick, 18 of 18 (sp-esk-bank t306: a
+//! Skeleton 681 from a dying Fire Spirit moves (106, 57), into its place); its body stays in the avoidance scans
+//! (sp-rage-4000-s0 t257: a Skeleton steers round the dying Electro Spirit).
 //!
 //! The scene: Blue's Battle Ram walks at the red right princess tower with an own Skeleton held 900 to its right (inside
 //! the two radii, 750 + 500). On the tick its own hit kills it, the Skeleton takes no push under

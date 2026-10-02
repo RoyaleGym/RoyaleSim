@@ -1355,7 +1355,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   movement.DOOMED_OWN_UPDATE = client15535_kamikaze_stays: a kamikaze doomed before the move pass stays where the tick
 ///   found it (a Battle Ram killed by its own hit lays its Barbarians on its last point, 29 of 29 on client 15.535.29).
 ///   movement.KAMIKAZE_DEATH_CONTACT = client15535_avoided_not_pushed: a dying kamikaze pushes nobody on its death tick and
-///   is still steered round (65 of 65 own-side neighbours with no contact on client 15.535.29).
+///   is still steered round (18 of 18 overlapping neighbours exact on the death tick under it on client 15.535.29).
 ///   targeting.CHASE_HOLD_PAST_LIMIT = client15535_troops_kept: a troop keeps a target past its round sight past the
 ///   chase-drop limit when the pair was never inside it (135 of 139 on client 15.535.29; the 16.402 corpus let 3 of 4 go).
 ///   combat.LAUNCH_PAST_TARGET = client15535_homing_unclamped: a homing shot starts its whole ProjectileStartRadius out,

@@ -5274,7 +5274,8 @@ calib_enum!(
         /// A doomed kamikaze is a static body to every scan, as any doomed troop (the engine's).
         AsDoomed = "as_doomed",
         /// A doomed kamikaze pushes nobody on its death tick; its body stays in the avoidance scans (client 15.535.29:
-        /// 65 of 65 own-side neighbours and 1 of 1 enemy show no contact; a Skeleton steers round a dying Electro Spirit).
+        /// 18 of 18 overlapping neighbours exact on the death tick under this arm; a Skeleton steers round a dying
+        /// Electro Spirit).
         Client15535AvoidedNotPushed = "client15535_avoided_not_pushed",
     }
 );
@@ -17501,8 +17502,8 @@ impl BattleState {
             let doomed_static = false; // PLANT (regression): the new arm still meets a doomed troop as a mover.
             // movement.KAMIKAZE_DEATH_CONTACT = client15535_avoided_not_pushed (under client_doomed_static): a kamikaze whose
             // death is settled before the pass (it dies on its own hit) pushes nobody on its death tick, its body kept for
-            // the avoidance scans, as a deflecting Monk's is. Client 15.535.29: 65 of 65 own-side neighbours and 1 of 1
-            // enemy show no contact; sp-rage-4000-s0 t257, a Skeleton steers round the dying Electro Spirit (-190).
+            // the avoidance scans, as a deflecting Monk's is. Client 15.535.29: 18 of 18 overlapping neighbours exact on
+            // the death tick under the arm; sp-rage-4000-s0 t257, a Skeleton steers round the dying Electro Spirit (-190).
             #[cfg(not(clash_plant = "dying_kamikaze_pushes"))]
             let kamikaze_unpushing = |i: usize| {
                 doomed_static
