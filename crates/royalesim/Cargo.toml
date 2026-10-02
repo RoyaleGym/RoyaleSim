@@ -10,6 +10,14 @@ name = "royalesim"
 # cdylib: the Python extension. rlib: so benches/tests and other crates can link it.
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# CHECKOUT DATA: read data/derived/cards.json from the checkout this crate was built in, at run time, when it exists.
+# On for every build from a checkout (cargo test, maturin develop, the gate), so a regenerated card table is picked up
+# without a rebuild. OFF for a wheel (`maturin build --no-default-features`, .github/workflows/wheels.yml): a wheel
+# runs only its compiled-in table, and never a file at a path from the machine that built it.
+default = ["checkout-data"]
+checkout-data = []
+
 [dependencies]
 # abi3-py310: one wheel per platform runs on CPython 3.10 and every later version (the stable ABI).
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }

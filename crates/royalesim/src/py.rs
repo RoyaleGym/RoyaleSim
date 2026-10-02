@@ -2155,8 +2155,10 @@ fn pushback_step16402(bodies: Vec<Vec<i64>>, me: usize, target: (i32, i32), rema
     Ok((m.x, m.y, rem, rem >= 0, con.offset))
 }
 
-/// The data/ folder of the checkout this extension was built in. It exists on the machine that built it and nowhere
-/// else; `royalesim.data_dir()` uses it when it still holds derived/cards.json, else the wheel's own data/.
+/// The data/ folder of the checkout this extension was built in. Exported only by a `checkout-data` build (a build
+/// from a checkout): `royalesim.data_dir()` uses it when it still holds derived/cards.json. A wheel does not export it,
+/// so an installed wheel's `data_dir()` is always its own data/.
+#[cfg_attr(not(feature = "checkout-data"), allow(dead_code))]
 pub const BUILD_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data");
 
 /// Which card table a Battle constructed now would load: `"file:<path>"` (the build checkout's
@@ -2189,6 +2191,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("EMBEDDED_ARENA_JSON", EMBEDDED_ARENA_JSON)?;
     m.add("EMBEDDED_RARITIES_CSV", EMBEDDED_RARITIES_CSV)?;
     m.add("EMBEDDED_GLOBALS_CSV", EMBEDDED_GLOBALS_CSV)?;
+    #[cfg(feature = "checkout-data")]
     m.add("BUILD_DATA_DIR", BUILD_DATA_DIR)?;
     m.add_function(wrap_pyfunction!(card_table_source, m)?)?;
     m.add("SNAPSHOT_FORMAT", crate::state::SNAPSHOT_FORMAT)?;

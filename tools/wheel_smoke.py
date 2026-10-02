@@ -12,6 +12,10 @@ import royalesim
 
 def main() -> int:
     errors = []
+    if not getattr(royalesim, "__version__", "").strip() or royalesim.__version__.startswith("0+"):
+        errors.append(f"royalesim.__version__ is {getattr(royalesim, '__version__', None)!r}")
+    if hasattr(royalesim, "BUILD_DATA_DIR"):
+        errors.append("the wheel exports BUILD_DATA_DIR: it was built with checkout-data and reads the build machine")
     source = royalesim.card_table_source()
     if source != "embedded":
         errors.append(f"card table source is {source!r}, not the compiled-in table")
@@ -26,7 +30,8 @@ def main() -> int:
     b.reset(0, [list(range(8)), list(range(8, 16))], 1, 0, [5000, 5000], None, [])
     b.step([], 600)
     state = json.loads(b.state_json())
-    print(f"royalesim {royalesim.Battle.provenance()} cards={len(catalogue)} source={source} data={data}")
+    print(f"royalesim {royalesim.__version__} {royalesim.Battle.provenance()}")
+    print(f"cards={len(catalogue)} source={source} data={data}")
     print(f"after 600 ticks: tick={state.get('tick')}")
     for e in errors:
         print("FAIL:", e, file=sys.stderr)

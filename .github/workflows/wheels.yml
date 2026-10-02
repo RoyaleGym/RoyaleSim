@@ -60,7 +60,8 @@ jobs:
         with:
           target: ${{ matrix.target }}
           manylinux: '2_28'
-          args: --release --out dist
+          # No `checkout-data`: the wheel runs its compiled-in card table and never reads this runner's checkout.
+          args: --release --out dist --no-default-features
           # The manylinux container runs as another user; without this git refuses the checkout and the provenance
           # stamp reads "unknown".
           before-script-linux: git config --global --add safe.directory '*' || true

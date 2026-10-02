@@ -13481,7 +13481,10 @@ impl CardDb {
     /// Read data/derived/cards.json from the repository this crate was built in. When that file does not exist (an
     /// installed wheel, away from the checkout it was built in), the compiled-in table (`EMBEDDED_CARDS_JSON`). A
     /// file that exists but does not read or parse is still an error: only its absence selects the copy.
+    ///
+    /// A build without the `checkout-data` feature (a wheel) never looks for the file and always runs the copy.
     pub fn load_repo() -> Result<CardDb, String> {
+        #[cfg(feature = "checkout-data")]
         if std::path::Path::new(&CardDb::repo_file_path("cards.json")).exists() {
             return CardDb::load_repo_file("cards.json");
         }
