@@ -2574,6 +2574,17 @@
       "promotion_rules": "The test file (crates/royalesim/tests/building_spell_reach.rs) passes. Then score with this arm switched on alone; the registered prediction: sp-il-925effff's t411 Fireball kills the Cannon, and nothing else moves by more than a building on a spell's edge.",
       "engine": "spell.rs impact (in_square)"
     },
+    "BARRAGE_REACH": {
+      "value": "data_radius_edge",
+      "status": "measured",
+      "candidates": ["centre_2500", "data_radius_edge"],
+      "confidence": "HIGH for data_radius_edge on client 15.535.29's ground troops: radius-500 victims hit at edge distances up to 1979 and missed from 2001 (15 rows at the boundary, five scenes); the two victims of another radius at the boundary fit it and refute centre_2500 (an Ice Golem, radius 700, hit at 2516 from the centre; an Electro Spirit, radius 400, missed at 2456). Unmeasured: buildings and crown towers (no bomb landed near one); fliers (a Minion Horde member hit at 2471, which both arms read alike); 16.402 (no Evo Cannon in the corpus)",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's raw frames and projectile tracks, every Evo Cannon barrage (projectile card 13000096 standing still; a bomb acts two ticks after its last recorded frame, as the barrage's kills show): each enemy ground troop walked through its barrage's landing ticks until hit (a unit is hit once per barrage), its centre distance on the frame before to the nearest bomb landing that tick, and whether its hp fell by at least 100 or it died. Radius 500 (Skeleton Army members, Barbarians, Goblins, Evo Skeletons): hits at 2305, 2364, 2371, 2372, 2381, 2401, 2403, 2417, 2435, 2452 and 2479 from the centre; misses from 2501, 2545, 2555, 2557, 2558. sp-il-db5f t1878: an Ice Golem 2,516 from the 13000 bomb lost 449 and was pushed (the engine's bomb missed it at its 2,500 and the Golem walked on, the scene's first error). sp-il-925e t2496: an Ice Golem hit at 2,424. sp-m3-radius-s0 t2789: an Electro Spirit 2,456 from its bomb untouched, where 2,500 centre to centre would hit it. The earlier reading (card.rs BARRAGE_REACH_MILLI) fitted 2,500 centre to centre on radius-500 victims alone.",
+      "meaning": "centre_2500: the engine before this key; a bomb reaches a victim whose centre lies within 2500 of it, whatever the victim's radius. data_radius_edge: the bomb projectile's own Radius (2000) read by spells.AOE_HIT_TEST as any area's is (edge_inclusive: the centre within 2000 plus the victim's collision radius).",
+      "open": "Buildings, crown towers and the exact boundary (an edge distance of 2000 itself).",
+      "promotion_rules": "Shipped: the only discriminating cases refute centre_2500.",
+      "engine": "spell.rs impact (`data_edge`, `reach`), selected by Calib::barrage_reach; tests/barrage_reach.rs, tests/evolution.rs."
+    },
     "CROWN_TOWER_SPELL_REACH": {
       "value": "client_square_1000_strict",
       "candidates": ["aoe_hit_test", "client_square_1000_strict"],

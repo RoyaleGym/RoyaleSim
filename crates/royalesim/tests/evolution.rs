@@ -132,9 +132,17 @@ fn evo_cannon_drops_its_barrage() {
     //   (13000, 18000) under the 13000 bomb (I + 28);
     //   (17000, 18000) under the 17000 bomb (I + 30);
     //   (13000, 20400) 2400 behind the 13000 bomb: hit, on I + 28;
-    //   (9000, 20600) 2600 behind the 9000 bomb: missed, the reach being 2500 centre to centre, though its edge is 1850
-    //   from the bomb.
-    let golems = [(n(7000, 18000), Some(26)), (n(13000, 18000), Some(28)), (n(17000, 18000), Some(30)), (n(13000, 20400), Some(28)), (n(9000, 20600), None)];
+    //   (9000, 20600) 2600 behind the 9000 bomb: hit, on I + 26, its edge 1850 from the bomb (spells.BARRAGE_REACH =
+    //   data_radius_edge: the bomb's Radius 2000 plus the victim's radius; centre_2500 missed it);
+    //   (17000, 20800) 2800 behind the 17000 bomb: missed, its edge 2050 from the bomb.
+    let golems = [
+        (n(7000, 18000), Some(26)),
+        (n(13000, 18000), Some(28)),
+        (n(17000, 18000), Some(30)),
+        (n(13000, 20400), Some(28)),
+        (n(9000, 20600), Some(26)),
+        (n(17000, 20800), None),
+    ];
     let play = s.tick_count();
     s.spawn_unit(Team::Blue, "Cannon_EV1", n(9000, 9500), None).unwrap();
     for (at, _) in golems {
@@ -157,7 +165,7 @@ fn evo_cannon_drops_its_barrage() {
         _ => unreachable!(),
     }).collect();
     assert!(red.iter().all(|y| *y == 21000 || *y == 14000), "{red:?}");
-    // Each Golem in reach loses 281 once, on the tick measured for its bomb; the one past 2500 loses nothing.
+    // Each Golem in reach loses 281 once, on the tick measured for its bomb; the one past the reach loses nothing.
     let ids: Vec<_> = golems.iter().map(|(at, _)| s.entities().filter(|e| e.card == "Golem").min_by_key(|e| e.pos.dist2(*at)).expect("a Golem").id).collect();
     let full: Vec<i32> = ids.iter().map(|id| s.entity(*id).unwrap().hp).collect();
     let mut lost: Vec<Vec<(u32, i32)>> = vec![Vec::new(); golems.len()];

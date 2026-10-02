@@ -5754,8 +5754,10 @@ pub const BARRAGE_OFFSET_UNIT: i32 = 500;
 /// `impact`, whatever spells.AOE_HIT_TEST ships). Measured on client 15.535.29, walking units and units standing in
 /// deploy state around far-row bombs: hits at centre distances up to 2471 (a Minion Horde flier), 2452 (a Goblin),
 /// 2381 (a Skeleton Army skeleton) and 2224 (a Barbarian); misses from 2555 (a Barbarian) and 2558 (a skeleton). The
-/// small and the large victims' brackets overlap, so no victim radius is added; 2500 is the bracket's round value.
-/// Neither the bomb projectile's Radius (`BARRAGE_DATA_RADIUS_MILLI`) nor the area object's (1000) is it.
+/// victims' brackets overlap, so no victim radius was added; 2500 is the bracket's round value. Every victim in that
+/// bracket has radius 500, so it fits 2000 + 500 as well: spells.BARRAGE_REACH = data_radius_edge (the projectile's
+/// Radius, `BARRAGE_DATA_RADIUS_MILLI`, plus the victim's radius) reads the Ice Golem and the Electro Spirit that this
+/// constant gets wrong. This one is the old arm's, centre_2500.
 pub const BARRAGE_REACH_MILLI: i32 = 2500;
 
 /// The bomb projectile's Radius the reach above was measured beside; a table with another refuses the load.

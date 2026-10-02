@@ -63,7 +63,7 @@ use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
-    AirToGroundWindow, AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, Calib, ChildAreaBirth, CrownPerHitScaling,
+    AirToGroundWindow, AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, BarrageReach, Calib, ChildAreaBirth, CrownPerHitScaling,
     BuildingSpellReach, CrownTowerSpellReach,
     DeathBombSpawnTiming, DeathPushbackScope, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape,
     StaggerWait, StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SubTickDelayRounding, SummonFuseStart, TargetBuffScope,
@@ -1004,8 +1004,15 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
             let _ = edge; // PLANT: centre-in-radius whatever the registry says.
             0
         };
-        // A barrage bomb reaches centre to centre (card.rs `BARRAGE_REACH_MILLI`, measured).
-        let edge = if barrage.is_some() { 0 } else { edge };
+        // spells.BARRAGE_REACH = data_radius_edge: a barrage bomb reaches as any area does, its projectile's own Radius
+        // (card.rs `BARRAGE_DATA_RADIUS_MILLI`) read by spells.AOE_HIT_TEST; under centre_2500 it reaches 2500 centre to
+        // centre (`BARRAGE_REACH_MILLI`).
+        #[cfg(not(clash_plant = "barrage_reach_centre_2500"))]
+        let data_edge = barrage.is_some() && ctx.calib.barrage_reach == BarrageReach::DataRadiusEdge;
+        #[cfg(clash_plant = "barrage_reach_centre_2500")]
+        let data_edge = false; // PLANT: the bomb reaches 2500 centre to centre under the new arm too.
+        let edge = if barrage.is_some() && !data_edge { 0 } else { edge };
+        let reach = if data_edge { crate::fixed::milli(crate::card::BARRAGE_DATA_RADIUS_MILLI) } else { hit.radius };
         // spells.CROWN_TOWER_SPELL_REACH = client_square_1000_strict: a crown tower is a square, reached strictly.
         #[cfg(not(clash_plant = "crown_tower_spell_disc"))]
         let tower_square = square && barrage.is_none() && e.kind[v].is_crown_tower();
@@ -1024,7 +1031,7 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         } else if on_building_square {
             in_square(centre, e.pos[v], e.radius[v], hit.radius)
         } else {
-            in_range_edge(centre, e.pos[v], hit.radius, edge)
+            in_range_edge(centre, e.pos[v], reach, edge)
         };
         if !reached {
             continue;

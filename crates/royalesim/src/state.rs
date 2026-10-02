@@ -948,6 +948,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it ran.
     #[serde(default = "crown_tower_spell_reach_default")]
     pub crown_tower_spell_reach: CrownTowerSpellReach,
+    /// spells.BARRAGE_REACH (spell.rs `impact`): how far an Evo Cannon's barrage bomb reaches. Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm, `Centre2500`, what a battle saved before it ran.
+    #[serde(default = "barrage_reach_default")]
+    pub barrage_reach: BarrageReach,
     /// spells.BUILDING_SPELL_REACH (spell.rs `impact`): the shape a spell's impact reaches an ordinary building by.
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "building_spell_reach_default")]
@@ -2019,6 +2023,10 @@ fn crown_tower_spell_reach_default() -> CrownTowerSpellReach {
     CrownTowerSpellReach::AoeHitTest
 }
 
+fn barrage_reach_default() -> BarrageReach {
+    BarrageReach::Centre2500
+}
+
 fn building_spell_reach_default() -> BuildingSpellReach {
     BuildingSpellReach::AoeHitTest
 }
@@ -2357,6 +2365,19 @@ calib_enum!(
 calib_enum!(
     /// spells.AOE_HIT_TEST.
     AoeHitTest { EdgeInclusive = "edge_inclusive", CentreInRadius = "centre_in_radius" }
+);
+calib_enum!(
+    /// spells.BARRAGE_REACH -- how far an Evo Cannon's barrage bomb reaches (spell.rs `impact`).
+    BarrageReach {
+        /// 2500 native from the bomb to the victim's CENTRE, whatever the victim's radius (card.rs
+        /// `BARRAGE_REACH_MILLI`; the engine before this key, fitted on victims of radius 500 alone).
+        Centre2500 = "centre_2500",
+        /// The bomb projectile's own Radius (2000, card.rs `BARRAGE_DATA_RADIUS_MILLI`) read by spells.AOE_HIT_TEST as
+        /// any area's is: under edge_inclusive the centre within 2000 plus the victim's collision radius. Client 15.535.29:
+        /// radius-500 victims hit at edge distance 1979 and missed from 2001; an Ice Golem (radius 700) hit at 2516 from
+        /// the centre (sp-il-db5f t1878) and an Electro Spirit (radius 400) missed at 2456 (sp-m3-radius-s0 t2789).
+        DataRadiusEdge = "data_radius_edge",
+    }
 );
 calib_enum!(
     /// spells.CROWN_TOWER_SPELL_REACH -- the shape a spell's impact (spell.rs `impact`: a projectile spell's landing, a
@@ -6429,6 +6450,7 @@ impl Calib {
             crown_rounding: pick(&v, &["combat", "CROWN_TOWER_DAMAGE_ROUNDING", "value"], CrownRounding::from_calibration_name)?,
             aoe_hit_test: pick(&v, &["spells", "AOE_HIT_TEST", "value"], AoeHitTest::from_calibration_name)?,
             crown_tower_spell_reach: pick(&v, &["spells", "CROWN_TOWER_SPELL_REACH", "value"], CrownTowerSpellReach::from_calibration_name)?,
+            barrage_reach: pick(&v, &["spells", "BARRAGE_REACH", "value"], BarrageReach::from_calibration_name)?,
             building_spell_reach: pick(&v, &["spells", "BUILDING_SPELL_REACH", "value"], BuildingSpellReach::from_calibration_name)?,
             spell_as_deploy_launch: pick(&v, &["spells", "SPELL_AS_DEPLOY_LAUNCH_MODEL", "value"], LaunchModel::from_calibration_name)?,
             rolling_hit_shape: pick(&v, &["spells", "ROLLING_HIT_SHAPE", "value"], RollHitShape::from_calibration_name)?,
@@ -27935,6 +27957,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.BARRAGE_REACH: Calib gained barrage_reach (serde default the old arm, centre_2500), no new
+///    state (the new arm reads the saved positions and radii at a bomb's landing), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.WAITED_PRESS_CAST: Calib gained waited_press_cast (serde default the old arm, status_start)
 ///    and ScheduledAction::Ability gained waited (serde default false, set only under the new arm and hashed only when
 ///    set); the late starts (`Scratch::late_casts`) are pushed and read inside one tick, so a blob saved before it
@@ -28673,6 +28698,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // spells.CROWN_TOWER_SPELL_REACH: a format-3 battle's spells reached a crown tower as a disc; it keeps the old arm
     // whatever the ledger ships (the same rule).
     sh.insert("crown_tower_spell_reach".into(), serde_json::to_value(CrownTowerSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
+    // spells.BARRAGE_REACH: a format-3 battle ran no Evo Cannon (the same rule).
+    sh.insert("barrage_reach".into(), serde_json::to_value(BarrageReach::Centre2500).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
