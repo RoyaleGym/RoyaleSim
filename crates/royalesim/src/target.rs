@@ -891,6 +891,8 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     }
     let card = ctx.cards.get(e.card[a]);
     let mut cancel = false;
+    // The target the rescan below falls back to when it finds nothing in sight (`held_past_sight`).
+    let mut held_past_sight: Option<EntityId> = None;
     if let Some(t) = cur {
         // targeting.DOOMED_TARGET_DROP = projectile_attackers_walk_drop: a walking attacker beyond its keep reach no
         // longer keeps a doomed target through the fired-at exemption (`keeps_fired`); true under every other arm.
@@ -973,11 +975,27 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             if dropped {
                 return TargetDecision { target: scan_with(ctx, a, scratch, Some(t)), cancel_attack: cancel, resumed: false, chase_dropped: Some(t) };
             }
+            // THE CHASE LIMIT HOLDS A TARGET PAST ROUND SIGHT (targeting.CHASE_DROP_RANGE = client_sight_minus_1000): a
+            // target past the attacker's round sight but inside the limit is kept when the rescan finds nothing in sight; a
+            // unit the rescan finds is nearer and taken as before. The round sight passes before the square limit on a
+            // diagonal, so the rescan alone lost it there. Measured on client 15.535.29, walkers holding a target past
+            // round sight and inside the limit: kept 158 of 159 troop targets and 25 of 25 building targets
+            // (sp-champ-SkeletonKing-s0 t177: a Skeleton chasing the Skeleton King at 7,021, round sight 7,000, square
+            // 5,200 against 6,000). A target still in round sight is not held: the rescan passes over one on purpose (a
+            // doomed one: sweep-Minions t336, a Knight whose death the Minion's shot in flight has settled, left for the
+            // tower on both clients).
+            #[cfg(not(clash_plant = "chase_lost_past_round_sight"))]
+            if ctx.calib.chase_drop_range == ChaseDropRange::ClientSightMinus1000
+                && !past_chase_limit(ctx.cards, e, a, ti)
+                && !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, ti), e.radius[a], e.pos[ti], e.radius[ti])
+            {
+                held_past_sight = Some(t);
+            }
         } else if (e.target_locked[a] && !dropped_for_doom(ctx, a, t)) || too_close {
             cancel = true;
         }
     }
-    TargetDecision { target: scan(ctx, a, scratch), cancel_attack: cancel, resumed: false, chase_dropped: None }
+    TargetDecision { target: scan(ctx, a, scratch).or(held_past_sight), cancel_attack: cancel, resumed: false, chase_dropped: None }
 }
 
 /// Where a unit with no target walks: the enemy crown tower chosen by x
