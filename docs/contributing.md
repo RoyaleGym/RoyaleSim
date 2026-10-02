@@ -1,7 +1,7 @@
 # Working on the engine
 
 This page is for anyone changing the engine. It is the development loop: how to build, every gate
-and how to run it, how the test plants work, and the conventions the code follows. `README.md` has
+and how to run it, how the test plants work, and the conventions the code follows. [engine.md](engine.md#install) has
 the one-time workspace setup.
 
 The commands here are written for Windows PowerShell, which is the default shell on the platform
@@ -56,7 +56,7 @@ must exist **before** the build: the crate `include_str!`s `arena.json`, and `ro
 `tools/extract_cards.py` defaults to the 15.535.29 card table, which needs
 `data/raw/cr-15.535.29/`. That directory comes from `tools/decode_sc_assets.py` run on a verified
 asset pack (Supercell's files, not redistributed). A checkout does not need it: the table built
-from it, `data/derived/cards-15.535.json`, is committed. The README's stage 3 copies it into place
+from it, `data/derived/cards-15.535.json`, is committed. The build-from-source install's stage 3 ([engine.md](engine.md#install)) copies it into place
 and builds the 2018 table beside it:
 
 ```
@@ -270,7 +270,7 @@ Two rules go with them, and both were learned the hard way:
   change, not a local tidy-up.
 - `data/raw/cr-*` (the decoded modern asset pack) and `data/oracle-native/` (large traces) are
   gitignored and never committed. `data/derived/` is generated and gitignored too, with one
-  exception: a clone carries only `cards-15.535.json` there, and the README's stage 3 lines
+  exception: a clone carries only `cards-15.535.json` there, and the build-from-source install's stage 3 lines
   generate the rest. `data/raw/retroroyale-2018/` is tracked.
 
 ## Repository layout
