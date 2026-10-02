@@ -24,7 +24,10 @@
 //!      Furnace put down by a setup spawn, which skips its deploy, they part: the first spirit on k = 38 (k = 0 the
 //!      first tick after it is set down) under placement_counter_first_frame_counts and on k = 19 under
 //!      activation_after_own_deploy_time (engine reading);
-//!   8. the loader takes the interval block only with exactly its graph, and refuses every other shape.
+//!   8. the loader takes the interval block only with exactly its graph, and refuses every other shape;
+//!   9. the spirit is a target for enemies from its 8th frame (targeting.SPAWNED_UNIT_ACQUIRE_DELAY), as an action's
+//!      spawn is: client 15.535.29, sp-f4-furnace-s0 t633, an idle red princess tower left a deploying spirit alone
+//!      through its 7th frame; no base Furnace's spirit was first targeted before its 8th frame.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test furnace`):
 //!   * `card_table_kind` -- the loader takes the kind of the table the card is listed in: (1) red.
@@ -34,6 +37,7 @@
 //!   * `action_spawn_unit_deploy` -- the spirit deploys for its own 1000: (4) red.
 //!   * `interval_start_origin_unread` -- the first-unit timer starts as placement_counter_first_frame_counts whatever
 //!     the key says: (7)'s setup-spawn half red; its played half stays green, the arms agreeing there.
+//!   * `interval_spawn_acquired_at_once` -- the spirit is a target from its first frame: (9) red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -271,4 +275,20 @@ fn the_loader_takes_the_interval_block_only_with_exactly_its_graph() {
     ] {
         assert!(why(n).contains(text), "{n}: {}", why(n));
     }
+}
+
+/// 9. The spirit is a target for enemies from its 8th frame. Plant: interval_spawn_acquired_at_once.
+#[test]
+fn the_spirit_is_a_target_from_its_eighth_frame() {
+    let mut s = BattleState::new(0, cfg());
+    s.spawn_unit(Team::Blue, FURNACE, at(AT), None).unwrap();
+    for _ in 0..70 {
+        s.tick();
+        if let Some(v) = s.entities().find(|v| v.card == SPIRIT && v.team == Team::Blue) {
+            let born = s.tick_count() - 1;
+            assert_eq!(v.acquirable_from, born + 7, "an enemy may target the spirit from its 8th frame");
+            return;
+        }
+    }
+    panic!("no spirit in 70 ticks");
 }

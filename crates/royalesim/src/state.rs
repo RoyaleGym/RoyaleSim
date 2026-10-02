@@ -11143,7 +11143,17 @@ impl BattleState {
                     #[cfg(clash_plant = "action_spawn_unit_deploy")]
                     let action_deploy: Option<i32> = None; // PLANT (regression): the unit's own DeployTime (1000).
                     let deploy_ms = if action { action_deploy } else { deploy_ms };
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
+                    // targeting.SPAWNED_UNIT_ACQUIRE_DELAY: an interval ACTION's unit (the Furnace's ActionSpawnToLocation)
+                    // is a target for enemies from its 8th frame, as every action's spawn is (`SpawnVia::Action`); a
+                    // Spawn* spawner's (the Tombstone's Skeletons) from its first. Measured on client 15.535.29
+                    // (sp-f4-furnace-s0, t633): an idle red princess tower left a deploying Fire Spirit 6 tiles off alone
+                    // through its 7th frame and took the walking Furnace on it, where the engine took the spirit on its
+                    // 3rd; no base Furnace's spirit was first targeted before its 8th frame.
+                    #[cfg(not(clash_plant = "interval_spawn_acquired_at_once"))]
+                    let acquire_delay = action;
+                    #[cfg(clash_plant = "interval_spawn_acquired_at_once")]
+                    let acquire_delay = false; // PLANT (regression): the Furnace's spirit is a target from its first frame.
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false }));
                     k += 1;
                 }
                 left -= 1;
