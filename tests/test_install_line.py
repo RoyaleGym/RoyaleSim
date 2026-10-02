@@ -31,7 +31,7 @@ import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-README = ROOT / "README.md"
+README = ROOT / "docs" / "engine.md"  # the build-from-source install moved here from the README (2026-10-01)
 PYPROJECT = ROOT / "pyproject.toml"
 
 #: The install line in the README's stage 2, as a reader runs it.
