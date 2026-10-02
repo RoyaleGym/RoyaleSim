@@ -15473,11 +15473,20 @@ impl BattleState {
                 };
                 #[cfg(clash_plant = "souls_never_refused")]
                 let p = first; // PLANT (regression): the first draw stands wherever it falls.
+                // ITS FIRST UPDATE ON ITS CREATION TICK, as a scheduled area's units take it (spawner.SCHEDULED_UNIT_FIRST_UPDATE
+                // = client_creation_tick, `materialise_released`): deploying, it does not walk, but a neighbour's contact push
+                // moves it there. Measured on client 15.535.29: 20 of the 99 copies appear off their point on their first
+                // frame, by 30 to 151 (the contact law's push, capped at 150; sp-champ-SkeletonKing-late-s0 t275, a Knight
+                // 279 off: (145, 39)), where the next tick's update left every one on its point for a frame.
+                #[cfg(not(clash_plant = "souls_first_update_next_tick"))]
+                let first_update = self.cfg.calib.scheduled_unit_first_update == ScheduledUnitFirstUpdate::ClientCreationTick;
+                #[cfg(clash_plant = "souls_first_update_next_tick")]
+                let first_update = false; // PLANT (regression): the copy's first update is the next tick's.
                 #[cfg(not(clash_plant = "souls_not_copies"))]
                 let cloned = true;
                 #[cfg(clash_plant = "souls_not_copies")]
                 let cloned = false; // PLANT (regression): the souls come at their row's hitpoints.
-                self.release(PendingSpawn { team: r.team, card: sd.unit, level: r.level, pos: p, deploy_ms: Some(sd.deploy_ms), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned, action_made: true });
+                self.release(PendingSpawn { team: r.team, card: sd.unit, level: r.level, pos: p, deploy_ms: Some(sd.deploy_ms), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update, facing: None, summon_x: None, morph_birth: false, cloned, action_made: true });
                 r.done += 1;
             }
             if r.done < r.count && sd.first_ms + r.done * sd.every_ms < sd.life_ms {

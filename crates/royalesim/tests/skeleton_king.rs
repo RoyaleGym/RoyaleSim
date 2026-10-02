@@ -20,7 +20,8 @@
 //!   - souls_phase_n_minus_2 -> `with_one_soul_his_copies_take_the_clients_phase` red;
 //!   - souls_never_refused -> `a_copy_drawn_onto_a_building_is_drawn_anew` and
 //!     `a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew` red;
-//!   - souls_bomb_not_a_building -> `a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew` red.
+//!   - souls_bomb_not_a_building -> `a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew` red;
+//!   - souls_first_update_next_tick -> `a_copy_born_on_a_unit_is_pushed_on_its_first_frame` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -45,20 +46,28 @@ fn scene(victims: usize) -> (BattleState, EntityId, u32) {
 
 /// `scene` with the King held on `at`.
 fn scene_at(victims: usize, at: (i32, i32)) -> (BattleState, EntityId, u32) {
-    scene_with(victims, at, &[])
+    scene_with(victims, at, &[], false)
 }
 
-/// `scene_at` with `extra` units put down first (a red Cannon for the refusal).
-fn scene_with(victims: usize, at: (i32, i32), extra: &[(Team, &str, (i32, i32))]) -> (BattleState, EntityId, u32) {
+/// A unit put down before the scene: its side, card, point and hitpoints (None: its own).
+type Extra<'a> = (Team, &'a str, (i32, i32), Option<i32>);
+
+/// `scene_at` with `extra` units put down first (a red Cannon for the refusal), and, when `push_aside`, the copies'
+/// creation-tick update set aside (spawner.SCHEDULED_UNIT_FIRST_UPDATE = next_tick), so a copy's first frame is its
+/// draw even where it is born on a body.
+fn scene_with(victims: usize, at: (i32, i32), extra: &[Extra], push_aside: bool) -> (BattleState, EntityId, u32) {
     let mut cfg = config();
+    if push_aside {
+        cfg.calib.scheduled_unit_first_update = royalesim::state::ScheduledUnitFirstUpdate::NextTick;
+    }
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    for (team, card, p) in extra {
-        s.scenario_spawn_now(*team, card, n(*p), None).expect("an extra unit");
+    for (team, card, p, hp) in extra {
+        s.scenario_spawn_now(*team, card, n(*p), *hp).expect("an extra unit");
     }
     let king = s.scenario_spawn_now(Team::Blue, "SkeletonKing", n(at), None).expect("the Skeleton King");
     let mut doomed = Vec::new();
@@ -308,13 +317,15 @@ fn with_one_soul_his_copies_take_the_clients_phase() {
 }
 
 /// A POINT ON A BUILDING IS DRAWN ANEW (client 15.535.29: a Tombstone 1,182 off a copy's draw in
-/// sp-sk-souls-spawned-s0, a Cannon 452 off one in sp-il-b5e2): a red Cannon (radius 600) stands on his first copy's
-/// draw; that copy stands rnd(360) degrees and rnd(3500) from him, and the copies after it draw on from there.
+/// sp-sk-souls-spawned-s0, a Cannon 452 off one in sp-il-b5e2): a red Cannon (radius 600; hitpoints the blue towers
+/// cannot take in the scene) stands on his first copy's draw; that copy stands rnd(360) degrees and rnd(3500) from
+/// him, and the copies after it draw on from there (the creation-tick push set aside: the redraw may fall on him).
 #[test]
 fn a_copy_drawn_onto_a_building_is_drawn_anew() {
     let seed = 0x1234_5678u32;
     let first = reference_copies(seed, 6, &[])[0];
-    let (mut s, king, p) = scene_with(0, AT, &[(Team::Red, "Cannon", (AT.0 + first.0, AT.1 + first.1))]);
+    let cannon = (Team::Red, "Cannon", (AT.0 + first.0, AT.1 + first.1), Some(100_000));
+    let (mut s, king, p) = scene_with(0, AT, &[cannon], true);
     s.scenario_set_client_rng(seed);
     let got = copies(&mut s, king, p, 45);
     let want = reference_copies(seed, 6, &[(first, 600)]);
@@ -325,18 +336,49 @@ fn a_copy_drawn_onto_a_building_is_drawn_anew() {
 
 /// A DEATH BOMB ON ITS FUSE IS A BUILDING TO HIS DRAW (client 15.535.29, sp-il-323a: a Giant Skeleton's bomb 932 and
 /// 563 off two copies' draws, both drawn anew): a red Giant Skeleton killed on his first copy's draw just after the
-/// press, its bomb (radius 450) on a 3-second fuse there.
+/// press, its bomb (radius 450) on a 3-second fuse there. Its death before the trigger is a soul: 7 copies (the
+/// creation-tick push set aside, as above).
 #[test]
 fn a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew() {
     let seed = 0x1234_5678u32;
-    let first = reference_copies(seed, 6, &[])[0];
-    let (mut s, king, p) = scene(0);
+    let first = reference_copies(seed, 7, &[])[0];
+    let (mut s, king, p) = scene_with(0, AT, &[], true);
     s.scenario_set_client_rng(seed);
     let giant = s.scenario_spawn_now(Team::Red, "GiantSkeleton", n((AT.0 + first.0, AT.1 + first.1)), None).expect("the Giant Skeleton");
     assert!(s.debug_set_hp(giant, 0));
-    let got = copies(&mut s, king, p, 45);
+    let got = copies(&mut s, king, p, 50);
     assert!(s.entity(giant).is_none(), "the scene drifted: the Giant Skeleton lives");
-    let want = reference_copies(seed, 6, &[(first, 450)]);
+    let want = reference_copies(seed, 7, &[(first, 450)]);
     let have: Vec<(i32, i32)> = got.iter().map(|c| (c.1.x / K - AT.0, c.1.y / K - AT.1)).collect();
     assert_eq!(have, want, "the copy drawn onto the bomb drawn anew, the rest after it");
+}
+
+/// A COPY BORN OVERLAPPING A UNIT IS PUSHED ON ITS CREATION TICK (spawner.SCHEDULED_UNIT_FIRST_UPDATE = client_creation_tick,
+/// as a scheduled area's units are; client 15.535.29: 20 of 99 copies off their point on their first frame by 30 to 151):
+/// his first copy drawn 300 from a blue Knight held there stands off the draw on its first frame, away from the Knight,
+/// by at most the contact law's 150 (a troop refuses no point: the draw stands).
+#[test]
+fn a_copy_born_on_a_unit_is_pushed_on_its_first_frame() {
+    let seed = 0x1234_5678u32;
+    let first = reference_copies(seed, 6, &[])[0];
+    let spot = (AT.0 + first.0 + 300, AT.1 + first.1);
+    let (mut s, king, p) = scene(0);
+    s.scenario_set_client_rng(seed);
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", n(spot), None).expect("the Knight");
+    let mut born = None;
+    for _ in 0..20 {
+        assert!(s.debug_set_pos(king, n(AT)));
+        assert!(s.debug_set_pos(knight, n(spot)));
+        s.tick();
+        if let Some(c) = s.entities().find(|e| e.team == Team::Blue && e.cloned) {
+            born = Some((s.tick_count() - 1 - p, c.pos));
+            break;
+        }
+    }
+    let (k, pos) = born.expect("the scene drifted: no copy in 20 ticks");
+    assert_eq!(k, 15, "the scene drifted: the first copy on P + {k}");
+    let (dx, dy) = ((pos.x / K - AT.0 - first.0) as i64, (pos.y / K - AT.1 - first.1) as i64);
+    let off = isqrt(dx * dx + dy * dy);
+    assert!((1..=151).contains(&off), "its first frame {off} off the draw: no push on its creation tick");
+    assert!(dx < 0, "pushed away from the Knight on its +x side: {dx}");
 }
