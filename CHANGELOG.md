@@ -3,6 +3,15 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.3 (2026-10-02)
+
+- A played card's slot can now stay empty for a moment, as in the game. Each player has one refill timer: a new card
+  enters the hand once every 1 second (0.5 s in double elixir, 0.35 s in triple). Play two cards quickly and the
+  second slot is empty until the timer lets the next card in. An empty slot reads `-1` in `state_json()`'s `"hand"`,
+  and playing it is refused with `EMPTY_SLOT`.
+- Battle logic changes: shots, Skeleton King copies, placement ties, targets of knocked-back and slapped units, death
+  spawns, containers and building scans, as measured in the game.
+
 ## 0.1.2 (2026-10-02)
 
 - No change to installing or calling the engine. Battle logic changes only: the Skeleton King's copies are placed,
