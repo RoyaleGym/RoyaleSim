@@ -1203,6 +1203,10 @@ pub struct Calib {
     pub death_bomb_spawn_timing: DeathBombSpawnTiming,
     #[serde(default = "death_pushback_default")]
     pub death_pushback: DeathPushbackScope,
+    /// knockback.TROOP_DEATH_PUSHBACK (`phase_reap`): whether a dying TROOP whose row sets DeathPushBack pushes the units its
+    /// death blow hits. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NotRead`.
+    #[serde(default = "troop_death_pushback_default")]
+    pub troop_death_pushback: TroopDeathPushback,
     /// targeting.SPAWNED_UNIT_ACQUIRE_DELAY: whether a troop a death spawn creates waits out
     /// its first 7 ticks before an enemy may target it (`BattleState::delay_acquisition`;
     /// target.rs `can_target`). Added after SNAPSHOT_FORMAT 20; the `default` is `None`, what a
@@ -1798,6 +1802,10 @@ fn death_bomb_spawn_timing_default() -> DeathBombSpawnTiming {
 
 fn death_pushback_default() -> DeathPushbackScope {
     DeathPushbackScope::NotRead
+}
+
+fn troop_death_pushback_default() -> TroopDeathPushback {
+    TroopDeathPushback::NotRead
 }
 
 fn spawned_unit_acquire_delay_default() -> SpawnedUnitAcquireDelay {
@@ -5676,6 +5684,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.TROOP_DEATH_PUSHBACK -- see `BattleState::phase_reap`: whether a dying TROOP whose row sets DeathPushBack
+    /// (the Golem 1800, the Golemite 900) pushes the units its death blow hits.
+    TroopDeathPushback {
+        /// The engine's: the column is not read for a troop; its death blow only damages.
+        NotRead = "not_read",
+        /// Every unit the death blow hits that a spell's push could move (spell.rs `push_from`: troops, IgnorePushback
+        /// respected) takes the knockback ladder of DeathPushBack from the death point; its first step on the death
+        /// tick when the troop was struck down in the sequential pass (`Scratch::pass_struck`), else on the next.
+        /// Client 15.535.29: 43 of 43 enemies within reach of a dying Golem or Golemite pushed straight out (249, 249,
+        /// 225 ... for the Golem; 174, 149 ... for the Golemite); the first step on the death tick 27 of 29 times the
+        /// troop was struck in the pass, on the next tick 14 of 14 times a shot killed it.
+        Client15535Ladder = "client15535_ladder",
+    }
+);
+calib_enum!(
     /// spawner.DEATH_SPAWN_RING -- see `BattleState::phase_reap` (`fixed_ring_offset`): where a LISTED dying
     /// unit whose row leaves SpawnAngleShift blank and DeathSpawnPushback unset lays its death spawn.
     DeathRingArm {
@@ -6557,6 +6580,7 @@ impl Calib {
             kamikaze_time: pick(&v, &["combat", "KAMIKAZE_TIME", "value"], KamikazeTime::from_calibration_name)?,
             death_bomb_spawn_timing: pick(&v, &["spawner", "DEATH_BOMB_SPAWN_TIMING", "value"], DeathBombSpawnTiming::from_calibration_name)?,
             death_pushback: pick(&v, &["knockback", "DEATH_PUSHBACK", "value"], DeathPushbackScope::from_calibration_name)?,
+            troop_death_pushback: pick(&v, &["knockback", "TROOP_DEATH_PUSHBACK", "value"], TroopDeathPushback::from_calibration_name)?,
             spawned_unit_acquire_delay: pick(&v, &["targeting", "SPAWNED_UNIT_ACQUIRE_DELAY", "value"], SpawnedUnitAcquireDelay::from_calibration_name)?,
             spawned_first_step: pick(&v, &["spawner", "SPAWNED_FIRST_STEP", "value"], SpawnedFirstStep::from_calibration_name)?,
             first_step_dying: pick(&v, &["spawner", "FIRST_STEP_DYING_BODIES", "value"], FirstStepDying::from_calibration_name)?,
@@ -8576,6 +8600,10 @@ struct Scratch {
     /// (`phase_resolve`), so they never outlive their tick: not saved, not hashed.
     strike_hurt: Vec<EntityId>,
     strike_shield_broke: Vec<EntityId>,
+    /// THE UNITS AT 0 HP AS THE SEQUENTIAL PASS ENDS (`phase_target_attack_sequential`, a whole-tick pass): struck down in
+    /// it, so their death is settled before the move pass. Read by the same tick's Reap (knockback.TROOP_DEATH_PUSHBACK)
+    /// and rewritten by the next pass, so it is not state: not saved, not hashed.
+    pass_struck: Vec<EntityId>,
     /// rider.OFFSET_LAW: each mount whose riders stand off its centre, with its facing at the top of this tick
     /// (`note_mount_facings`). Filled at the top of every tick and read in its Move phase, so it is not state: not
     /// saved, not hashed.
@@ -20799,6 +20827,11 @@ impl BattleState {
             }
             self.phase_attack_for(Some(&[i]));
         }
+        // knockback.TROOP_DEATH_PUSHBACK: the units this whole-tick pass left at 0 hp (`Scratch::pass_struck`).
+        if only.is_none() {
+            let struck: Vec<EntityId> = (0..self.ents.capacity()).filter(|&i| self.ents.alive[i] && self.ents.hp[i] <= 0).map(|i| self.ents.id_of(i)).collect();
+            self.scratch.pass_struck = struck;
+        }
     }
 
     /// Land the hits `fire` buffered from `from` on at once (match.TICK_ORDER =
@@ -22940,6 +22973,8 @@ impl BattleState {
             }
         }
         self.spells.append(&mut released);
+        // knockback.TROOP_DEATH_PUSHBACK: the pushes this Reap's death blows arm, applied after the loop.
+        let mut death_pushes = EffectBuffer::default();
         for id in &deaths {
             let i = id.index as usize;
             // THE EVO GOBLIN CAGE'S CAPTIVE is let go when the cage dies (card.rs `CageDef`): on the cage's point, its hide
@@ -23004,6 +23039,21 @@ impl BattleState {
                     &mut self.dmg,
                     &mut self.scratch.nb,
                 );
+                // knockback.TROOP_DEATH_PUSHBACK = client15535_ladder: a dying TROOP whose row sets DeathPushBack pushes every
+                // unit its blow hits that a spell's push could move (spell.rs `push_from`), on the knockback ladder from its
+                // death point: the first step on this tick when it was struck down in the pass (its death settled before the
+                // move pass), else on the next. Client 15.535.29: 43 of 43 enemies in reach of a dying Golem or Golemite
+                // pushed (sp-f2-cagefb-s0 t928: a Goblin Brawler 1,342 from the Golem stepped 248, 249, 223 ... away).
+                #[cfg(not(clash_plant = "troop_death_pushback_unread"))]
+                if self.cfg.calib.troop_death_pushback == TroopDeathPushback::Client15535Ladder && card.death_pushback > 0 && self.ents.kind[i] == EntityKind::Troop {
+                    let now = self.scratch.pass_struck.contains(id);
+                    let victims: Vec<usize> = self.dmg.hits[blow_from..].iter().map(|h| h.target.index as usize).collect();
+                    let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[], tick: self.tick };
+                    let k = crate::card::KnockbackDef { distance: card.death_pushback, all: false };
+                    for v in victims {
+                        spell::push_from(&ctx, self.ents.team[i], v, self.ents.pos[i], &k, now, &mut death_pushes);
+                    }
+                }
                 // combat.DEATH_DAMAGE_TICK = client15535_death_tick: the blow lands here, on the death tick.
                 #[cfg(not(clash_plant = "death_blow_next_tick"))]
                 if self.cfg.calib.death_damage_tick == DeathDamageTick::Client15535DeathTick {
@@ -23019,6 +23069,12 @@ impl BattleState {
                     self.king_wake_ms[team] = Some(0);
                 }
             }
+        }
+        // knockback.TROOP_DEATH_PUSHBACK: arm the death blows' pushes (their first step now for a troop struck in the pass).
+        if !death_pushes.knocks.is_empty() {
+            let later = std::mem::replace(&mut self.effects, death_pushes);
+            self.apply_effects();
+            self.effects = later;
         }
         // movement.SPAWN_PATHFIND_STATES: a tunneller that came up as its building this tick (`surface`) leaves
         // WITHOUT a death -- no death spawn, no area, no damage, no crown -- and its building is created below
@@ -27957,6 +28013,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.TROOP_DEATH_PUSHBACK: Calib gained troop_death_pushback (serde default the old arm,
+///    not_read), no new state (the new arm arms the ladder a unit already carries, from the tick's Reap), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.BARRAGE_REACH: Calib gained barrage_reach (serde default the old arm, centre_2500), no new
 ///    state (the new arm reads the saved positions and radii at a bomb's landing), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -28700,6 +28759,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("crown_tower_spell_reach".into(), serde_json::to_value(CrownTowerSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // spells.BARRAGE_REACH: a format-3 battle ran no Evo Cannon (the same rule).
     sh.insert("barrage_reach".into(), serde_json::to_value(BarrageReach::Centre2500).map_err(|e| e.to_string())?);
+    // knockback.TROOP_DEATH_PUSHBACK: a format-3 battle's dying troops pushed nobody (the same rule).
+    sh.insert("troop_death_pushback".into(), serde_json::to_value(TroopDeathPushback::NotRead).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

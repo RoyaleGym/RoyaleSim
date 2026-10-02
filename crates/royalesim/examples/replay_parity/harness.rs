@@ -1386,6 +1386,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   earlier in the sequential pass and takes its next target at once (19 of 25 created after the striker).
 ///   movement.KNOCKED_DOOMED_AVOIDANCE = client15535_knocked_mover: a doomed troop mid-knockback (an Evo Cannon bomb's
 ///   victim) is no static obstacle to the avoidance scan (8 of 8 scanners kept their offset).
+///   knockback.TROOP_DEATH_PUSHBACK = client15535_ladder: a dying Golem or Golemite pushes the units its death blow hits
+///   on the knockback ladder of its DeathPushBack (43 of 43 enemies in reach).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1409,6 +1411,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.DEATH_RING_AXIS", "\"client15535_unit_heading\""),
     ("combat.PASS_KILL_CHASE", "\"client15535_chaser_reads_pass\""),
     ("movement.KNOCKED_DOOMED_AVOIDANCE", "\"client15535_knocked_mover\""),
+    ("knockback.TROOP_DEATH_PUSHBACK", "\"client15535_ladder\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
