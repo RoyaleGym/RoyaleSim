@@ -21,6 +21,7 @@ b = royalesim.Battle(card_names=None, slot_of_k=[[0, 1, 2], [0, 1, 2]])
 b.reset(seed=0, decks=[list(range(8)), list(range(8, 16))], shuffle=1,
         start_tick=0, elixir_milli=[5000, 5000], tower_hp=None, spawns=[])
 SUB = royalesim.SUBTILE_PER_MILLITILE
+b.step([], 100)                                  # nobody can play in the opening seconds
 b.step([(0, 0, 9000 * SUB, 10000 * SUB)], 20)   # blue plays hand slot 0, then 20 ticks pass
 state = json.loads(b.state_json())
 ```
@@ -37,7 +38,8 @@ sub-tiles. The arena is 18 tiles wide and 32 tiles long. Blue (team 0) plays fro
 position in that list. `catalogue_json()` lists each card with its cost, kind and deploy rule.
 
 **Commands.** A command is `(team, hand_slot, x, y)`. `step` returns one row per command:
-`(card_id, reason, ...)`, where `reason` indexes `DEPLOY_REASONS` (`0` is accepted). Ask first with
+`(card_id, reason, tick, x, y)`, where `reason` indexes `DEPLOY_REASONS` (`0` is accepted) and `x, y` is where
+the card actually went down. Ask first with
 `check_deploy(team, slot, x, y)`, which returns the same reason without playing.
 
 **State.** `state_json()` returns the whole battle as JSON bytes: towers, units, spells, hands, elixir and the tick.

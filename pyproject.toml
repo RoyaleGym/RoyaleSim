@@ -53,6 +53,9 @@ include = [
     { path = "data/raw/retroroyale-2018/README.md", format = "sdist" },
     { path = "data/raw/retroroyale-2018/csv_logic/globals.csv", format = "sdist" },
     { path = "data/raw/retroroyale-2018/csv_logic/rarities.csv", format = "sdist" },
+    # The staged data folder (tools/stage_wheel_data.py). It is git-ignored, and maturin leaves ignored files out of
+    # the package unless they are named here.
+    { path = "python/royalesim/data/**/*", format = "wheel" },
 ]
 
 [tool.pytest.ini_options]
