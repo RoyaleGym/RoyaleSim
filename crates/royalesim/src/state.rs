@@ -222,6 +222,11 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "doomed_own_update_default")]
     pub doomed_own_update: DoomedOwnUpdate,
+    /// movement.STRUCK_CONTACT_ORDER (`phase_path16402_for`, under match.TICK_ORDER = client_sequential_strike): which
+    /// movers a troop struck down in the pass still meets. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// `WholePass`.
+    #[serde(default = "struck_contact_order_default")]
+    pub struck_contact_order: StruckContactOrder,
     /// movement.KAMIKAZE_DEATH_CONTACT (`phase_path16402_for`, the bodies, under movement.DYING_UNIT_VISIBILITY =
     /// client_doomed_static): whether a doomed kamikaze pushes its neighbours. Added after SNAPSHOT_FORMAT 20; the
     /// `default` is the old arm.
@@ -1974,6 +1979,10 @@ fn held_facing_default() -> HeldFacing {
 
 fn doomed_own_update_default() -> DoomedOwnUpdate {
     DoomedOwnUpdate::Walks
+}
+
+fn struck_contact_order_default() -> StruckContactOrder {
+    StruckContactOrder::WholePass
 }
 
 fn kamikaze_death_contact_default() -> KamikazeDeathContact {
@@ -5332,6 +5341,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.STRUCK_CONTACT_ORDER -- see `Calib::struck_contact_order`: a troop another unit's direct strike takes to
+    /// 0 hp in the sequential pass, against the move pass in creation order.
+    StruckContactOrder {
+        /// The engine's: it is a body to every mover's separation for the whole pass and takes its own update.
+        WholePass = "whole_pass",
+        /// As if each unit ran its target, attack and move in one turn in creation order: the struck troop is a body to
+        /// the separation of the movers created BEFORE its striker only (it still stood at their turn) and takes no
+        /// update of its own when its striker was created before it (it was dead at its own turn). Its avoidance
+        /// reading is DYING_UNIT_VISIBILITY's, unchanged. Client 15.535.29: Golems struck by an earlier unit laid their
+        /// Golemites on their last point (ub-ds1, ub-ds2), an Elixir Golem struck by a later one one walk step on
+        /// (ub-b1-elg1, -elg3); Skeleton Army members created after the striker moved into a struck Musketeer's place
+        /// (sp-il-04cb t1221, the scene's first error).
+        Client15535AfterStriker = "client15535_after_striker",
+    }
+);
+calib_enum!(
     /// movement.HELD_FACING -- see `Calib::held_facing`.
     HeldFacing {
         /// A held unit aims at itself at speed 0: its facing stays (the engine's, 16.402's as shipped).
@@ -6249,6 +6274,7 @@ impl Calib {
             fly_direct_paths: pick(&v, &["movement", "FLY_DIRECT_PATHS", "value"], FlyDirectPaths::from_calibration_name)?,
             held_facing: pick(&v, &["movement", "HELD_FACING", "value"], HeldFacing::from_calibration_name)?,
             doomed_own_update: pick(&v, &["movement", "DOOMED_OWN_UPDATE", "value"], DoomedOwnUpdate::from_calibration_name)?,
+            struck_contact_order: pick(&v, &["movement", "STRUCK_CONTACT_ORDER", "value"], StruckContactOrder::from_calibration_name)?,
             kamikaze_death_contact: pick(&v, &["movement", "KAMIKAZE_DEATH_CONTACT", "value"], KamikazeDeathContact::from_calibration_name)?,
             knocked_doomed_avoidance: pick(&v, &["movement", "KNOCKED_DOOMED_AVOIDANCE", "value"], KnockedDoomedAvoidance::from_calibration_name)?,
             avoidance_obstacle_tag: pick(&v, &["movement", "AVOIDANCE_OBSTACLE_TAG", "value"], AvoidanceObstacleTag::from_calibration_name)?,
@@ -8604,6 +8630,10 @@ struct Scratch {
     /// it, so their death is settled before the move pass. Read by the same tick's Reap (knockback.TROOP_DEATH_PUSHBACK)
     /// and rewritten by the next pass, so it is not state: not saved, not hashed.
     pass_struck: Vec<EntityId>,
+    /// THE TICK'S LETHAL STRIKES (`phase_attack_for`, match.TICK_ORDER = client_sequential_strike): each troop a direct
+    /// strike took to 0 hp in this tick's whole-tick pass, with its first striker's creation order. Cleared at the top of
+    /// that pass and read by the same tick's move pass (movement.STRUCK_CONTACT_ORDER), so it is not state.
+    strike_lethal: Vec<(EntityId, u32)>,
     /// rider.OFFSET_LAW: each mount whose riders stand off its centre, with its facing at the top of this tick
     /// (`note_mount_facings`). Filled at the top of every tick and read in its Move phase, so it is not state: not
     /// saved, not hashed.
@@ -17679,6 +17709,21 @@ impl BattleState {
             order.sort_by_key(|&i| e.creation_seq[i]);
             #[cfg(clash_plant = "slot_order_move_pass")]
             order.sort_by_key(|&i| (e.spawn_tick[i], i)); // PLANT (regression): the pre-counter order, a reused slot jumps the queue.
+            // movement.STRUCK_CONTACT_ORDER = client15535_after_striker (the whole-tick pass only): each struck troop, by
+            // its striker's creation order (`Scratch::strike_lethal`), leaves the separation as the pass passes its striker.
+            #[cfg(not(clash_plant = "struck_contact_whole_pass"))]
+            let after_striker = only.is_none()
+                && calib.struck_contact_order == StruckContactOrder::Client15535AfterStriker
+                && calib.tick_order == TickOrder::ClientSequentialStrike;
+            #[cfg(clash_plant = "struck_contact_whole_pass")]
+            let after_striker = false; // PLANT: the struck troop is a body to every mover under the new arm too.
+            let mut struck_by: Vec<(u32, usize)> = if after_striker {
+                self.scratch.strike_lethal.iter().filter(|(v, _)| e.is_alive(*v)).map(|(v, s)| (*s, v.index as usize)).collect()
+            } else {
+                Vec::new()
+            };
+            struck_by.sort_unstable();
+            let mut struck_next = 0usize;
             let doomed = &self.scratch.doomed;
             if let Some(o) = only {
                 order.retain(|i| o.contains(i));
@@ -17734,6 +17779,15 @@ impl BattleState {
             #[cfg(clash_plant = "doomed_own_update_kept")]
             let doomed_stays = false; // PLANT (regression): the new arm still moves a doomed kamikaze.
             for i in order {
+                // movement.STRUCK_CONTACT_ORDER: the struck troops whose striker came before this mover are gone from its
+                // separation (and every later one's); a struck troop whose striker came before it takes no update.
+                while struck_next < struck_by.len() && struck_by[struck_next].0 < e.creation_seq[i] {
+                    bodies[struck_by[struck_next].1].alive = false;
+                    struck_next += 1;
+                }
+                if struck_by.iter().any(|&(sq, v)| v == i && sq < e.creation_seq[i]) {
+                    continue;
+                }
                 if doomed_stays && doomed.get(i).copied().unwrap_or(false) && self.cfg.cards.get(e.card[i]).kamikaze {
                     continue;
                 }
@@ -20128,7 +20182,19 @@ impl BattleState {
                 // below keep the buffers.
                 if self.tick_order() == TickOrder::ClientSequentialStrike && !shot {
                     #[cfg(not(clash_plant = "sequential_strike_buffered"))]
-                    self.land_strike(strike_from);
+                    {
+                        // movement.STRUCK_CONTACT_ORDER: whom this strike takes to 0 hp, with the striker's creation order.
+                        let before: Vec<(usize, i32)> = self.dmg.hits[strike_from..].iter().map(|h| (h.target.index as usize, self.ents.hp[h.target.index as usize])).collect();
+                        self.land_strike(strike_from);
+                        for (t, hp0) in before {
+                            if hp0 > 0 && self.ents.alive[t] && self.ents.hp[t] <= 0 && self.ents.kind[t] == EntityKind::Troop {
+                                let id = self.ents.id_of(t);
+                                if !self.scratch.strike_lethal.iter().any(|(v, _)| *v == id) {
+                                    self.scratch.strike_lethal.push((id, self.ents.creation_seq[i]));
+                                }
+                            }
+                        }
+                    }
                     // PLANT (regression): the pass runs in creation order but its strikes land at Resolve.
                     #[cfg(clash_plant = "sequential_strike_buffered")]
                     let _ = strike_from;
@@ -20746,6 +20812,7 @@ impl BattleState {
     /// tick's sum (combat.rs `land_at_once`).
     fn phase_target_attack_sequential(&mut self, only: Option<&[usize]>) {
         if only.is_none() {
+            self.scratch.strike_lethal.clear();
             self.hash.rebuild(&self.ents);
             let mut nb = std::mem::take(&mut self.scratch.nb);
             self.hide_pass(&mut nb);
@@ -28092,6 +28159,9 @@ impl BattleState {
 /// 20, unchanged, movement.KNOCKED_DOOMED_AVOIDANCE: Calib gained knocked_doomed_avoidance (serde default the old arm,
 ///    static), no new state (the new arm changes a body's avoidance flag inside the pass), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.STRUCK_CONTACT_ORDER: Calib gained struck_contact_order (serde default the old arm,
+///    whole_pass), no new state (the strikes' record lives in the tick's scratch), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.DOOMED_OWN_UPDATE: Calib gained doomed_own_update (serde default the old arm, walks), no new
 ///    state (the new arm skips a doomed kamikaze's update inside the pass), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -28777,6 +28847,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("held_facing".into(), serde_json::to_value(HeldFacing::Unchanged).map_err(|e| e.to_string())?);
     // movement.DOOMED_OWN_UPDATE: a format-3 battle's doomed troops took their update (the same rule).
     sh.insert("doomed_own_update".into(), serde_json::to_value(DoomedOwnUpdate::Walks).map_err(|e| e.to_string())?);
+    // movement.STRUCK_CONTACT_ORDER: a format-3 battle ran no sequential pass (the same rule).
+    sh.insert("struck_contact_order".into(), serde_json::to_value(StruckContactOrder::WholePass).map_err(|e| e.to_string())?);
     // movement.KAMIKAZE_DEATH_CONTACT: a format-3 battle's doomed kamikazes pushed as any doomed troop (the same rule).
     sh.insert("kamikaze_death_contact".into(), serde_json::to_value(KamikazeDeathContact::AsDoomed).map_err(|e| e.to_string())?);
     // movement.KNOCKED_DOOMED_AVOIDANCE: a format-3 battle's doomed troops were static to every scan (the same rule).

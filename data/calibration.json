@@ -4815,6 +4815,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_avoided_not_pushed (examples/replay_parity/harness.rs CLIENT15535_ARMS). It reads nothing on 16.402 while that client runs whole_tick.",
       "engine": "state.rs phase_path16402_for (the bodies, `kamikaze_unpushing`), selected by Calib::kamikaze_death_contact; tests/kamikaze_contact.rs."
     },
+    "STRUCK_CONTACT_ORDER": {
+      "value": "whole_pass",
+      "status": "hypothesis",
+      "candidates": ["whole_pass", "client15535_after_striker"],
+      "confidence": "LOW for client15535_after_striker: read on client 15.535.29 from a few layouts (struck Golems stayed, 4 rows from two scenes and their probes; a struck Elixir Golem walked on, 6 rows, one exception; Skeleton Army members moved into a struck Musketeer's place on sp-il-04cb t1221); the per-event positional count over every struck death does not separate it cleanly from whole_pass (neighbours created after the striker: the engine exact 13, off 5), so the batch's isolation score decides whether it ships per client",
+      "provenance": "READ by parity (2026-10-02) on client 15.535.29's raw frames. (1) Death spawns of troops struck by another unit's direct strike while walking: Golems struck by a unit created before them (ub-ds1-s0, ub-ds2-s1 and their probes) laid their Golemites on their last point (centroid 0 from it, 53 from one walk step on); an Elixir Golem struck by a unit created after it (ub-b1-elg1 s0/s1 and their probes, ub-b1-elg3) laid its halves one walk step on (1 to 69 from it). One exception: ub-b1-elg2-mirror (struck by an earlier unit, walked on). (2) sp-il-04cb t1221: a Musketeer struck down inside a Skeleton Army; members created after the striker moved into its place ((+67, -10), (+53, -55)), where the engine's doomed body pushed them (the scene's first error, 72 and 57 off). sp-il-2142 t1907 the same shape round a Hog Rider. Both fit a client that runs each unit's target, attack and move in one turn in creation order.",
+      "meaning": "whole_pass: the engine's; under match.TICK_ORDER = client_sequential_strike a troop struck down in the pass is a body to every mover's separation and takes its own update (DYING_UNIT_VISIBILITY decides its avoidance reading). client15535_after_striker: it is a body to the separation of the movers created before its first striker only, and takes no update of its own when that striker was created before it; its avoidance reading is unchanged.",
+      "open": "Its avoidance reading per mover (kept static for all, as client_doomed_static measured); a troop struck by several units; a kamikaze (movement.KAMIKAZE_DEATH_CONTACT / DOOMED_OWN_UPDATE keep theirs).",
+      "promotion_rules": "Ship per client when the batch's isolation run gains on the 15.535.29 scenes with no loss it cannot name.",
+      "engine": "state.rs phase_attack_for (`Scratch::strike_lethal`) and phase_path16402_for (`after_striker`, `struck_by`), selected by Calib::struck_contact_order; tests/struck_contact_order.rs."
+    },
     "DOOMED_OWN_UPDATE": {
       "value": "walks",
       "status": "measured",
