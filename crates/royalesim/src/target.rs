@@ -123,10 +123,17 @@ pub const CHASE_DROP_SHORT_OF_SIGHT: i32 = 1000;
 /// client 15.535.29 (Oracle's 18 building scenes: a Giant or an Ice Golem against a Cannon or a Bomb Tower, on the
 /// lanes and off them): with that building ignored, plain straight-line sight and centre ranking fit every switch.
 /// Taken at |dx| 2049, 3236, about 5000, 6212 to 6223 and 6231 (x4); never taken at 7231 (x4), 7232, and 7269 to 7984
-/// while it stood in sight and nearer than the tower. The cut-off lies between 6231 and 7231; 7000 is a value inside
-/// that band, not a measured one. On a lane (x 3268 or 14731) any value in the band plays alike, a building's x being a
-/// tile centre. Unmeasured: troops that target anything (no scene has one past 6600 of sight), and whether the
-/// cut-off is per card (the Giant's sight 7500 and the Ice Golem's 7000 both reject at 7231).
+/// while it stood in sight and nearer than the tower. A Hog Rider off the river narrows the band (sp-il-925e, client
+/// 15.535.29, its first divergence): landing from its jump with a Blue Cannon at (9500, 13500) in sight and nearer than
+/// its princess tower, it kept the tower at |dx| 6972 (where 7000 took the Cannon), then 6890 down to 6811 over eight
+/// ticks, and took the Cannon on t1455 at 6697. A second Hog Rider fits it (sp-il-db5f t1935 to t1942): kept its tower
+/// over a Blue Cannon at (8500, 10500) at a start-of-tick |dx| of 6972 down to 6832, took the Cannon at 6686. The cut-off
+/// lies in [6697, 6811); 6750 is a value inside that band, not a measured one. Off a lane the start-of-tick x decides it. Unmeasured: troops that target anything (no scene has one
+/// past 6600 of sight); the Giant (sight 7500), the Ice Golem (7000) and the Hog Rider (9500) all fit one value.
+#[cfg(not(clash_plant = "building_scan_dx_7000"))]
+pub const BUILDING_SCAN_DX: i32 = 6750;
+/// PLANT (regression) building_scan_dx_7000: the value before the Hog Rider's band, which took its Cannon at 6972.
+#[cfg(clash_plant = "building_scan_dx_7000")]
 pub const BUILDING_SCAN_DX: i32 = 7000;
 
 /// targeting.FIRST_TOWER_PICK = client_spawn_lane: how long after its deploy ends a troop's default tower still comes
