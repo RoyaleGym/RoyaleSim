@@ -4771,6 +4771,17 @@
       "promotion_rules": "SHIPPED at the 2026-09-28 round 9 flip as a hypothesis (see provenance): it put both events on the client to the unit and no report lost. The test file (crates/royalesim/tests/jump_landing_contact.rs) passes. What would raise it to measured: a third landing with an overlapping neighbour, in another battle or scene, where the neighbour walks its plain step on L; what would overturn it: one where the neighbour is pushed on L.",
       "engine": "state.rs phase_path16402_for, the leap's landing (`bodies[i].collidable`), selected by Calib::jump_landing_contact; tests/jump_landing_contact.rs."
     },
+    "KNOCKED_DOOMED_AVOIDANCE": {
+      "value": "static",
+      "status": "measured",
+      "candidates": ["static", "client15535_knocked_mover"],
+      "confidence": "MEDIUM for client15535_knocked_mover on client 15.535.29: 8 of 8 scanners beside troops an Evo Cannon barrage bomb killed, in one scene's two barrages; next to every other death 148 of 153 turned as the engine's static obstacle has them turn. No knockback but the barrage's is under way in the move pass of its victim's death tick among the measured deaths, so the reading cannot tell a knocked doomed troop from a barrage victim; 16.402 unread (whole_tick)",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's raw frames against the r29 cut's engine trace, every scene with raw frames: each tick a troop died (gone in both engines), each neighbour within 1500 of a dead one whose ENGINE avoidance offset started a turn on the death tick, and whether the client's offset did too, split by the cause of the deaths beside it (an Evo Cannon barrage bomb, projectile card 13000096 standing still, landing within 2 ticks of the death and within 3000 of the dead unit; or anything else). Beside barrage kills: 0 of 8 client turns (sp-m3-radius-s0 t986, members 26 and 31 deploying, turned -190 and +190 by the engine; t2787 to t2791, five deploying members and a walking one); one more scanner (sp-il-323a t3160) held an offset of 80 in both engines. Beside every other death: 148 of 153 walking and 4 of 4 deploying scanners turned in the client as in the engine. The barrage's victims are measured to step 199 on the landing frame and to push later movers by contact (state.rs `land_barrage_early`), so their bodies stay in the pass; only the avoidance scan meets them as movers.",
+      "meaning": "static: the engine's; under movement.DYING_UNIT_VISIBILITY = client_doomed_static a troop whose death is settled before the move pass is static to every avoidance scan. client15535_knocked_mover: such a troop whose knockback ladder is under way in the pass (an Evo Cannon bomb's push, armed before it) is met by the avoidance scan as any other body, its heading counted as its state has it; its contact is unchanged.",
+      "open": "A doomed troop knocked by anything but a barrage bomb on its death tick (none measured); whether the rule is the knockback or the barrage's damage.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_knocked_mover (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for, the bodies' `avoid_static` (`knocked_mover`), selected by Calib::knocked_doomed_avoidance; tests/knocked_doomed_avoidance.rs."
+    },
     "KAMIKAZE_DEATH_CONTACT": {
       "value": "as_doomed",
       "status": "measured",

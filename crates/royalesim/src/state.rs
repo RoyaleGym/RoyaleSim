@@ -227,6 +227,11 @@ pub struct Calib {
     /// `default` is the old arm.
     #[serde(default = "kamikaze_death_contact_default")]
     pub kamikaze_death_contact: KamikazeDeathContact,
+    /// movement.KNOCKED_DOOMED_AVOIDANCE (`phase_path16402_for`, the bodies, under movement.DYING_UNIT_VISIBILITY =
+    /// client_doomed_static): whether a doomed troop mid-knockback is static to the avoidance scan. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Static`.
+    #[serde(default = "knocked_doomed_avoidance_default")]
+    pub knocked_doomed_avoidance: KnockedDoomedAvoidance,
     /// movement.AVOIDANCE_OBSTACLE_TAG: whether a row's AVOIDANCE_AS_OBSTACLE tag is read (`CardDef::avoidance_as_obstacle`;
     /// the move pass's `tag_off`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "avoidance_obstacle_tag_default")]
@@ -1961,6 +1966,10 @@ fn doomed_own_update_default() -> DoomedOwnUpdate {
 
 fn kamikaze_death_contact_default() -> KamikazeDeathContact {
     KamikazeDeathContact::AsDoomed
+}
+
+fn knocked_doomed_avoidance_default() -> KnockedDoomedAvoidance {
+    KnockedDoomedAvoidance::Static
 }
 
 fn avoidance_obstacle_tag_default() -> AvoidanceObstacleTag {
@@ -5270,6 +5279,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.KNOCKED_DOOMED_AVOIDANCE -- see `Calib::knocked_doomed_avoidance`.
+    KnockedDoomedAvoidance {
+        /// A doomed troop is static to the avoidance scan whatever moves it (the engine's).
+        Static = "static",
+        /// A doomed troop whose knockback is under way in the move pass (an Evo Cannon bomb's push, armed before it)
+        /// meets the avoidance scan as any other body, not as a static obstacle; it still pushes and is pushed.
+        /// Client 15.535.29: next to troops a barrage bomb killed, 8 of 8 scanners kept their offset where the engine
+        /// turned them +-190 (sp-m3-radius-s0 t986, t2787 to t2791), where next to other deaths 148 of 153 turned.
+        Client15535KnockedMover = "client15535_knocked_mover",
+    }
+);
+calib_enum!(
     /// movement.DOOMED_OWN_UPDATE -- see `Calib::doomed_own_update`.
     DoomedOwnUpdate {
         /// A doomed troop takes its update like any other: it walks and is pushed (the engine's).
@@ -6184,6 +6205,7 @@ impl Calib {
             held_facing: pick(&v, &["movement", "HELD_FACING", "value"], HeldFacing::from_calibration_name)?,
             doomed_own_update: pick(&v, &["movement", "DOOMED_OWN_UPDATE", "value"], DoomedOwnUpdate::from_calibration_name)?,
             kamikaze_death_contact: pick(&v, &["movement", "KAMIKAZE_DEATH_CONTACT", "value"], KamikazeDeathContact::from_calibration_name)?,
+            knocked_doomed_avoidance: pick(&v, &["movement", "KNOCKED_DOOMED_AVOIDANCE", "value"], KnockedDoomedAvoidance::from_calibration_name)?,
             avoidance_obstacle_tag: pick(&v, &["movement", "AVOIDANCE_OBSTACLE_TAG", "value"], AvoidanceObstacleTag::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
@@ -17500,6 +17522,13 @@ impl BattleState {
             let copy_settling = |i: usize| e.cloned[i] && e.deploy_ms[i] > 0 && e.spawn_tick[i] < self.tick;
             #[cfg(clash_plant = "copies_pushed_while_deploying")]
             let copy_settling = |_: usize| false; // PLANT (regression): a deploying copy meets its neighbours as any unit.
+            // movement.KNOCKED_DOOMED_AVOIDANCE = client15535_knocked_mover: a doomed troop whose knockback is under way in
+            // this move pass (an Evo Cannon bomb's push, armed before it by `land_barrage_early`) meets the avoidance scan
+            // as any other body. Client 15.535.29: 8 of 8 scanners beside troops a barrage bomb killed kept their offset.
+            #[cfg(not(clash_plant = "knocked_doomed_static"))]
+            let knocked_mover = |i: usize| calib.knocked_doomed_avoidance == KnockedDoomedAvoidance::Client15535KnockedMover && push_active[i];
+            #[cfg(clash_plant = "knocked_doomed_static")]
+            let knocked_mover = |_: usize| false; // PLANT: the knocked doomed troop stays static under the new arm.
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
@@ -17566,7 +17595,7 @@ impl BattleState {
                             && e.stagger_ms[i] > 0)
                             // movement.DYING_UNIT_VISIBILITY = client_doomed_static: a troop whose death is
                             // settled before the pass (`doomed_mask`) is static to the avoidance scan too.
-                            || (doomed_static && self.scratch.doomed.get(i).copied().unwrap_or(false))
+                            || (doomed_static && self.scratch.doomed.get(i).copied().unwrap_or(false) && !knocked_mover(i))
                             // a deflecting Monk is a static obstacle to every avoidance scan (`deflect_off`), and so
                             // is a carrier of the AVOIDANCE_AS_OBSTACLE tag (`tag_off`)
                             || deflect_off[i]
@@ -27975,6 +28004,9 @@ impl BattleState {
 /// 20, unchanged, movement.KAMIKAZE_DEATH_CONTACT: Calib gained kamikaze_death_contact (serde default the old arm,
 ///    as_doomed), no new state (the new arm changes a body's separation flag inside the pass), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.KNOCKED_DOOMED_AVOIDANCE: Calib gained knocked_doomed_avoidance (serde default the old arm,
+///    static), no new state (the new arm changes a body's avoidance flag inside the pass), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.DOOMED_OWN_UPDATE: Calib gained doomed_own_update (serde default the old arm, walks), no new
 ///    state (the new arm skips a doomed kamikaze's update inside the pass), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -28658,6 +28690,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("doomed_own_update".into(), serde_json::to_value(DoomedOwnUpdate::Walks).map_err(|e| e.to_string())?);
     // movement.KAMIKAZE_DEATH_CONTACT: a format-3 battle's doomed kamikazes pushed as any doomed troop (the same rule).
     sh.insert("kamikaze_death_contact".into(), serde_json::to_value(KamikazeDeathContact::AsDoomed).map_err(|e| e.to_string())?);
+    // movement.KNOCKED_DOOMED_AVOIDANCE: a format-3 battle's doomed troops were static to every scan (the same rule).
+    sh.insert("knocked_doomed_avoidance".into(), serde_json::to_value(KnockedDoomedAvoidance::Static).map_err(|e| e.to_string())?);
     // movement.AVOIDANCE_OBSTACLE_TAG: a format-3 battle read no game tag (the same rule).
     sh.insert("avoidance_obstacle_tag".into(), serde_json::to_value(AvoidanceObstacleTag::NotRead).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
