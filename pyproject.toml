@@ -10,7 +10,7 @@ description = "RoyaleSim: deterministic, integer-only Clash Royale battle engine
 # readme specified in pyproject.toml", measured 2026-09-13); README.md exists since
 # the 2026-09-21 repo split.
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = []
 
@@ -38,7 +38,11 @@ oracle = [
 # The Rust core is the whole wheel: one extension module named `royalesim`.
 # Build into the active venv with `maturin develop --release` from this directory.
 manifest-path = "crates/royalesim/Cargo.toml"
-module-name = "royalesim"
+# A package, not a bare module: python/royalesim/__init__.py re-exports the compiled `royalesim.royalesim` and adds
+# `data_dir()`. The wheel's data/ folder is staged into python/royalesim/data/ by tools/stage_wheel_data.py (CI does
+# it before every build; the folder is git-ignored).
+python-source = "python"
+module-name = "royalesim.royalesim"
 bindings = "pyo3"
 # Only what the crate's `include_str!`s need at build time. The rest of data/raw/ (the
 # vendored Supercell tables and tilemaps) is deliberately not packaged: it is not covered

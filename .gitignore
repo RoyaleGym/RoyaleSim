@@ -54,3 +54,6 @@ data/oracle-native*/
 
 # Game-data bundles (not distributed)
 data/raw/cr-*/
+
+# The wheel's data/ folder, staged by tools/stage_wheel_data.py before a build.
+python/royalesim/data/

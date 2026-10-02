@@ -68,9 +68,19 @@ pub enum CardKind {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CardSource {
+    /// data/derived/cards.json read from the checkout this crate was built in.
     DerivedJson,
+    /// The copy of data/derived/cards-15.535.json compiled into the extension (`EMBEDDED_CARDS_JSON`): what an
+    /// installed wheel runs, where the build checkout does not exist.
+    Embedded,
     Fallback,
 }
+
+/// THE CARD TABLE AN INSTALLED WHEEL RUNS. data/derived/cards-15.535.json is the committed table this project is
+/// calibrated against, and `cards.json` is a copy of it (stage 3). A wheel built on one machine and installed on
+/// another has no checkout to read `cards.json` from, so the same file goes into the binary. The wheel also ships it
+/// as royalesim/data/derived/cards.json, so `royalesim.data_dir()` and the engine agree on one file.
+pub const EMBEDDED_CARDS_JSON: &str = include_str!("../../../data/derived/cards-15.535.json");
 
 /// A projectile an attack launches instead of hitting instantly.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -13468,16 +13478,26 @@ impl CardDb {
         Ok(())
     }
 
-    /// Read data/derived/cards.json from the repository this crate was built in.
+    /// Read data/derived/cards.json from the repository this crate was built in. When that file does not exist (an
+    /// installed wheel, away from the checkout it was built in), the compiled-in table (`EMBEDDED_CARDS_JSON`). A
+    /// file that exists but does not read or parse is still an error: only its absence selects the copy.
     pub fn load_repo() -> Result<CardDb, String> {
-        CardDb::load_repo_file("cards.json")
+        if std::path::Path::new(&CardDb::repo_file_path("cards.json")).exists() {
+            return CardDb::load_repo_file("cards.json");
+        }
+        CardDb::from_json_str(EMBEDDED_CARDS_JSON, CardSource::Embedded)
+    }
+
+    /// Where `load_repo_file(name)` reads: data/derived/<name> in the checkout this crate was built in.
+    pub fn repo_file_path(name: &str) -> String {
+        format!("{}/../../data/derived/{name}", env!("CARGO_MANIFEST_DIR"))
     }
 
     /// Read another vintage's file from data/derived/ (tools/extract_cards.py
     /// `--vintage 2018` writes cards-2018.json beside cards.json): what a fixture
     /// recorded against that vintage loads (tests/stacked_tie.rs).
     pub fn load_repo_file(name: &str) -> Result<CardDb, String> {
-        let path = format!("{}/../../data/derived/{name}", env!("CARGO_MANIFEST_DIR"));
+        let path = CardDb::repo_file_path(name);
         let s = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
         CardDb::from_json_str(&s, CardSource::DerivedJson)
     }

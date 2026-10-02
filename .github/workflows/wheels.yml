@@ -1,0 +1,145 @@
+name: wheels
+# Prebuilt wheels, so nobody installing royalesim needs a Rust toolchain.
+#
+# One abi3 wheel per platform (Cargo.toml: pyo3 abi3-py310) runs on CPython 3.10 and every later version. Each wheel
+# carries its card table compiled in and its data files in royalesim/data/ (tools/stage_wheel_data.py), so an
+# installed engine never reads the checkout it was built in.
+#
+# THE TEST JOB IS THE POINT. A wheel that builds is not a wheel that works: the engine used to read its card table
+# from the build machine's checkout, which every wheel built here would have lacked on a user's machine. Each wheel is
+# installed into a clean venv, in an empty folder, on its own OS and on the oldest and newest Python it claims, and
+# tools/wheel_smoke.py fails unless the full card table loads and a battle runs.
+#
+# A tag v* also publishes the wheels and the sdist to a GitHub Release. Nothing goes to PyPI from here.
+on:
+  push:
+    tags: ['v*']
+    branches: ['wheels/**']
+  pull_request:
+    paths:
+      - pyproject.toml
+      - crates/royalesim/Cargo.toml
+      - crates/royalesim/build.rs
+      - python/**
+      - tools/stage_wheel_data.py
+      - tools/wheel_smoke.py
+      - .github/workflows/wheels.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build ${{ matrix.os }} ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, target: x86_64 }
+          - { os: ubuntu-latest, target: x86_64 }
+          - { os: ubuntu-latest, target: aarch64 }
+          - { os: macos-14, target: x86_64 }
+          - { os: macos-14, target: aarch64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Full history: build.rs stamps the commit into the extension (Battle.provenance()).
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: stage 3, generate the data files, then stage them into the package
+        shell: bash
+        run: |
+          python -m pip install numpy msgspec
+          python tools/extract_arena.py
+          python tools/extract_cards.py --vintage 2018
+          cp data/derived/cards-15.535.json data/derived/cards.json
+          python tools/extract_globals.py
+          python tools/stage_wheel_data.py
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: '2_28'
+          args: --release --out dist
+          # The manylinux container runs as another user; without this git refuses the checkout and the provenance
+          # stamp reads "unknown".
+          before-script-linux: git config --global --add safe.directory '*' || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}-${{ matrix.target }}
+          path: dist/*.whl
+
+  sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: stage 3 and the package data
+        run: |
+          python -m pip install numpy msgspec
+          python tools/extract_arena.py
+          python tools/extract_cards.py --vintage 2018
+          cp data/derived/cards-15.535.json data/derived/cards.json
+          python tools/extract_globals.py
+          python tools/stage_wheel_data.py
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+
+  test:
+    name: test ${{ matrix.os }} py${{ matrix.python }}
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm, macos-13, macos-14]
+        python: ['3.10', '3.13']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/wheel_smoke.py
+          sparse-checkout-cone-mode: false
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: dist
+      # An empty folder and a fresh venv: nothing of the checkout is importable or on disk where the engine looks.
+      - name: install from the wheel, as a user would
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/user" && cd "$RUNNER_TEMP/user"
+          python -m venv venv
+          py=$( [ "$RUNNER_OS" = "Windows" ] && echo venv/Scripts/python || echo venv/bin/python )
+          "$py" -m pip install --no-index --find-links "$GITHUB_WORKSPACE/dist" royalesim
+          cp "$GITHUB_WORKSPACE/src/tools/wheel_smoke.py" .
+          "$py" wheel_smoke.py
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, sdist, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
