@@ -1369,6 +1369,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   attackers that attack air (5 of 5 ground-only holders let it go, 6 of 6 air ones kept it on client 15.535.29).
 ///   spawner.EVO_COPY_COUNT = client15535_at_hit: an Evo Skeletons group's room for a copy is read at the hit, before the
 ///   tick's deaths (6 of 6 hits on a group of 8 with a member dying that tick made none on client 15.535.29).
+///   spawner.CONTAINER_BURST_PUSH = client15535_contact_push: a container's members are laid around the point the contact
+///   law pushes it to (a Skeleton 217 off, (-130, +73), exact on client 15.535.29); their slides end around its own.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1384,6 +1386,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.KNOCKED_TARGET_HOLD", "\"client15535_sight_keep\""),
     ("targeting.SLAP_FLIGHT_TARGETABILITY", "\"client15535_airborne\""),
     ("spawner.EVO_COPY_COUNT", "\"client15535_at_hit\""),
+    ("spawner.CONTAINER_BURST_PUSH", "\"client15535_contact_push\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

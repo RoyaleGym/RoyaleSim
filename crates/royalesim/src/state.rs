@@ -1131,6 +1131,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "death_spawn_ring_order_default")]
     pub death_spawn_ring_order: DeathSpawnRingOrder,
+    /// spawner.CONTAINER_BURST_PUSH: whether a container's burst point takes the contact law's push (`container_burst_point`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "container_burst_push_default")]
+    pub container_burst_push: ContainerBurstPush,
     /// spawner.DEATH_SPAWN_PUSHBACK: whether a dying unit whose row sets DeathSpawnPushback
     /// (card.rs `CardDef::death_spawn_pushback`) lays its death spawn on the small fixed ring
     /// and slides it out, instead of by DEATH_SPAWN_LAYOUT. Added after SNAPSHOT_FORMAT 20;
@@ -1443,6 +1447,10 @@ fn chase_drop_range_default() -> ChaseDropRange {
 
 fn chase_hold_past_limit_default() -> ChaseHoldPastLimit {
     ChaseHoldPastLimit::InsideOnly
+}
+
+fn container_burst_push_default() -> ContainerBurstPush {
+    ContainerBurstPush::None
 }
 
 fn death_spawn_ring_order_default() -> DeathSpawnRingOrder {
@@ -5334,6 +5342,17 @@ calib_enum!(
 );
 
 calib_enum!(
+    /// spawner.CONTAINER_BURST_PUSH -- see `Calib::container_burst_push`.
+    ContainerBurstPush {
+        /// A container's members are laid around the point it fell on (the engine's: it has no body).
+        None = "none",
+        /// On its burst tick it is a body of no radius and no mass: every unit whose circle covers its point pushes it
+        /// as the separation scan pushes (the mean, capped at 150), and its members are laid around the pushed point.
+        /// Client 15.535.29: sp-form-SkeletonBalloon-evo-s0 t368, (-130, +73) off a Skeleton 217 away, exact.
+        Client15535ContactPush = "client15535_contact_push",
+    }
+);
+calib_enum!(
     /// spawner.DEATH_SPAWN_RING_ORDER -- see `Calib::death_spawn_ring_order`.
     DeathSpawnRingOrder {
         /// Member k at the facing + SpawnAngleShift + k x 360 / n: with the Battle Ram's shift of 180 the Barbarian behind
@@ -6337,6 +6356,7 @@ impl Calib {
             launch_past_target: pick(&v, &["combat", "LAUNCH_PAST_TARGET", "value"], LaunchPastTarget::from_calibration_name)?,
             death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
             death_spawn_ring_order: pick(&v, &["spawner", "DEATH_SPAWN_RING_ORDER", "value"], DeathSpawnRingOrder::from_calibration_name)?,
+            container_burst_push: pick(&v, &["spawner", "CONTAINER_BURST_PUSH", "value"], ContainerBurstPush::from_calibration_name)?,
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
             death_slide_aim: pick(&v, &["spawner", "DEATH_SLIDE_AIM", "value"], DeathSlideAim::from_calibration_name)?,
             death_slide_birth: pick(&v, &["spawner", "DEATH_SLIDE_BIRTH", "value"], DeathSlideBirth::from_calibration_name)?,
@@ -20587,6 +20607,67 @@ impl BattleState {
         self.scratch.clone_orders.extend(clones);
     }
 
+    /// spawner.CONTAINER_BURST_PUSH = client15535_contact_push: the point a container bursts on (`release_fuse_end`), `pos`
+    /// pushed once as the 16.402 separation scan pushes a body of no radius and no mass (move16402.rs
+    /// `separation_scan_with`, `collision_mean`): every ground unit whose circle covers it, where this tick's move pass
+    /// left it, adds (d x mag / |d|) with mag = (its radius - |d|, at most 300) x its mass / 1, at most 299, + 1; the mean
+    /// is capped at 150. Measured on client 15.535.29: sp-form-SkeletonBalloon-evo-s0 t368 (the scene's first divergence),
+    /// a Skeleton (radius 500) 217 from the container, (-189, +107) from it: the seven members' centre stood (-130, +73)
+    /// from the point, 150 straight away from the Skeleton, the push exact; the same balloon's next burst there (t600) and
+    /// sp-ec-SkeletonBalloon's two, with no unit within 1600, stood on their points. The container is pushed on its burst
+    /// tick alone: the Skeleton covered the point from t365 and four pushes would have carried it 600. A container's row
+    /// has no CollisionRadius and no Mass. `pos` under none. Only where the members are LAID moves: their slides end
+    /// around `pos` (`release_fuse_end`).
+    fn container_burst_point(&self, team: Team, pos: Vec2) -> Vec2 {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        #[cfg(not(clash_plant = "container_burst_unpushed"))]
+        let arm = self.cfg.calib.container_burst_push == ContainerBurstPush::Client15535ContactPush;
+        #[cfg(clash_plant = "container_burst_unpushed")]
+        let arm = false; // PLANT (regression): the new arm still lays the members around the point it fell on.
+        if !arm {
+            return pos;
+        }
+        let e = &self.ents;
+        let (x, y) = (pos.x / K, pos.y / K);
+        let own_mass = move16402::loaded_mass(0, 0);
+        let mut con = move16402::Contact::default();
+        for j in e.live_indices() {
+            if e.flying[j] || e.jumping[j] || e.attached(j) || e.hooked_by[j].is_some() {
+                continue;
+            }
+            let r = e.radius[j] / K;
+            let (mut dx, mut dy) = (x - e.pos[j].x / K, y - e.pos[j].y / K);
+            if r <= 0 || dx.abs() > r || dy.abs() > r {
+                continue;
+            }
+            let mut d2 = dx * dx + dy * dy;
+            if d2 == 0 {
+                dy = if team == Team::Blue { -1 } else { 1 };
+                dx = 0;
+                d2 = 1;
+            }
+            if d2 > r * r {
+                continue;
+            }
+            let dist = move16402::isqrt(d2).max(1);
+            let overlap = (r - dist).clamp(0, 300);
+            let mass = move16402::loaded_mass(e.mass[j].unwrap_or(0), r);
+            let mag = move16402::tdiv(overlap * mass, own_mass.max(1)).min(299) + 1;
+            con.acc.0 += move16402::tdiv(dx * mag, dist);
+            con.acc.1 += move16402::tdiv(dy * mag, dist);
+            con.count += 1;
+        }
+        if con.count == 0 {
+            return pos;
+        }
+        let mut t = (move16402::tdiv(con.acc.0, con.count), move16402::tdiv(con.acc.1, con.count));
+        if move16402::len_sq(t.0, t.1) >= 22501 {
+            move16402::normalize_to(&mut t, 150);
+        }
+        let arena = &self.cfg.arena;
+        Vec2::new(((x + t.0) * K).clamp(0, arena.width), ((y + t.1) * K).clamp(0, arena.height))
+    }
+
     /// A CONTAINER'S DEATH SPAWN (spell.rs `FuseEnd`; card.rs `Hitpointless::BombWithDeathSpawn`, the Skeleton
     /// Barrel's): the units of the container's own DeathSpawn block come out where it stood, at the container's level,
     /// through `release` (spawner.RELEASE_TIMING: they exist on this tick and are inert on it).
@@ -20632,8 +20713,17 @@ impl BattleState {
             slide,
             orientation: RingOrientation::Container,
         };
+        // spawner.CONTAINER_BURST_PUSH = client15535_contact_push: the point the members are laid around; their slides
+        // still end around the point the container fell on (client 15.535.29, sp-form-SkeletonBalloon-evo-s0 t372, the
+        // slide's last tick: 6 of 7 members nearer the ends around the unpushed point, one 186 past its end around the
+        // pushed one).
+        let at = self.container_burst_point(f.team, f.pos);
+        #[cfg(not(clash_plant = "container_slide_from_pushed"))]
+        let slide_from = f.pos;
+        #[cfg(clash_plant = "container_slide_from_pushed")]
+        let slide_from = at; // PLANT (regression): the slides end around the pushed point.
         let (slide_centre, slide_radius, slide_ticks) = if slide && radius > crate::fixed::milli(move16402::DEATH_SLIDE_START) {
-            (f.pos, radius, move16402::CONTAINER_SLIDE_TICKS)
+            (slide_from, radius, move16402::CONTAINER_SLIDE_TICKS)
         } else {
             (Vec2::default(), 0, 0)
         };
@@ -20646,8 +20736,8 @@ impl BattleState {
         #[cfg(clash_plant = "container_members_acquire_at_once")]
         let acquire_delay = false;
         let (team, card) = (f.team, ds.unit);
-        let points = self.death_spawn_points(team, f.pos, ring);
-        let ends = self.slide_ends(team, f.pos, ring, slide_radius);
+        let points = self.death_spawn_points(team, at, ring);
+        let ends = self.slide_ends(team, slide_from, ring, slide_radius);
         for (k, p) in points.into_iter().enumerate() {
             let slide_end = ends.get(k).copied().unwrap_or_default();
             self.release(PendingSpawn {
@@ -27340,6 +27430,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.CONTAINER_BURST_PUSH: Calib gained container_burst_push (serde default the old arm, none), no
+///    new state (the new arm moves a burst point when its members are laid), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SPAWN_RING_ORDER: Calib gained death_spawn_ring_order (serde default the old arm,
 ///    member_zero_at_shift), no new state (the new arm orders a death spawn's points as it lays them), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27889,6 +27982,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_spawn_layout".into(), serde_json::to_value(DeathSpawnLayout::EngineGridWithinRadius).map_err(|e| e.to_string())?);
     // spawner.DEATH_SPAWN_RING_ORDER: read only on a facing ring, which a format-3 battle never laid (the same rule).
     sh.insert("death_spawn_ring_order".into(), serde_json::to_value(DeathSpawnRingOrder::MemberZeroAtShift).map_err(|e| e.to_string())?);
+    // spawner.CONTAINER_BURST_PUSH: a format-3 battle's containers burst where they fell (the same rule).
+    sh.insert("container_burst_push".into(), serde_json::to_value(ContainerBurstPush::None).map_err(|e| e.to_string())?);
     // The death-spawn slide: a format-3 battle laid every death spawn by the layout key and
     // slid none; it keeps that whatever the ledger ships (the same rule).
     sh.insert("death_spawn_pushback".into(), serde_json::to_value(DeathSpawnPushback::NotRead).map_err(|e| e.to_string())?);

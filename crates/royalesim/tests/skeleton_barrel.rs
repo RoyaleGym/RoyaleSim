@@ -51,7 +51,10 @@
 //!  17. a river slot on the bank, x kept (client_ring_slide) -- container_water_unejected;
 //!  18. saved mid-fuse, mid-slide and mid-drain, a battle resumes hash for hash, and the slide's cap and the drain's
 //!      start are state (an edited save fails the load's hash self-check) -- hash_skips_slide_deadline,
-//!      save_drops_death_slide (the mid-slide one), hash_skips_kamikaze (the mid-drain one).
+//!      save_drops_death_slide (the mid-slide one), hash_skips_kamikaze (the mid-drain one);
+//!  19. a container a unit covers bursts where the contact law pushes it, its members' slides ending around its own
+//!      point (spawner.CONTAINER_BURST_PUSH = client15535_contact_push) -- container_burst_unpushed,
+//!      container_slide_from_pushed.
 //!
 //! THE SCENES. A barrel is put down with `scenario_spawn_now` and killed with `debug_set_hp` on the next tick (T); C is
 //! read off its container's spell, since a barrel with no building in reach moves on that tick. Victims are played
@@ -65,7 +68,7 @@ use common::*;
 use royalesim::card::{CardDb, CardKind};
 use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{AttackCycle, BattleConfig, BattleState, Calib, DeathBombSpawnTiming, DeathPushbackScope, DeathSlideBirth, DeathSpawnPushback, KamikazeTime};
+use royalesim::state::{ContainerBurstPush, AttackCycle, BattleConfig, BattleState, Calib, DeathBombSpawnTiming, DeathPushbackScope, DeathSlideBirth, DeathSpawnPushback, KamikazeTime};
 use royalesim::{EntityId, Team};
 
 const BARREL: &str = "SkeletonBalloon";
@@ -689,4 +692,48 @@ fn a_barrel_saved_mid_drain_resumes_and_its_drain_is_state() {
     );
     resumes(&mut s, 30, "mid-drain");
     assert!(s.entity(b).is_none(), "vacuous: the barrel outlived the resume");
+}
+
+/// spawner.CONTAINER_BURST_PUSH: client 15.535.29 (sp-form-SkeletonBalloon-evo-s0 t368) burst a container with a Skeleton
+/// 217 from it, at (189, -107) after its move, and laid its seven members around (-130, +73) from its point: the
+/// separation scan's push on a body of no radius and no mass. Here a Blue Skeleton is held at that offset from the
+/// container of a Blue barrel through its fuse; it takes its walk step on the burst tick, so the push is computed from where
+/// that step left it, with the scan's arithmetic. The slides still end around the point the container fell on: each
+/// member's end is the same under both arms (client 15.535.29, t372, the slide's last tick: 6 of 7 nearer the ends around
+/// the unpushed point). Plants: container_burst_unpushed, container_slide_from_pushed.
+#[test]
+fn a_container_bursts_where_a_covering_unit_pushes_it() {
+    let mut ends: Vec<Vec<Vec2>> = Vec::new();
+    for arm in [ContainerBurstPush::Client15535ContactPush, ContainerBurstPush::None] {
+        let mut s = BattleState::new(9, with(|c| c.container_burst_push = arm));
+        let (t, c) = kill_barrel(&mut s, Team::Blue, (6000, 10000));
+        let sk = s.scenario_spawn_now(Team::Blue, "Skeleton", c.add(at((189, -107))), None).expect("the Skeleton");
+        while s.tick_count() <= t + 12 {
+            assert!(s.debug_set_pos(sk, c.add(at((189, -107)))), "the held Skeleton died");
+            s.tick();
+        }
+        // The push the scan gives a body of no radius and no mass at C from the Skeleton (radius 500, mass 1).
+        let (dx, dy) = native(c.sub(s.entity(sk).expect("the held Skeleton").pos));
+        let dist = isqrt((dx * dx + dy * dy) as i64).max(1) as i32;
+        assert!(dist < 500, "the scene drifted: the Skeleton does not cover the point ({dist})");
+        let mag = (500 - dist).clamp(0, 300).min(299) + 1;
+        let (mut px, mut py) = (dx * mag / dist, dy * mag / dist);
+        let len = isqrt((px * px + py * py) as i64) as i32;
+        if px * px + py * py >= 22501 {
+            px = px * 150 / len;
+            py = py * 150 / len;
+        }
+        let shift = if arm == ContainerBurstPush::None { (0, 0) } else { (px, py) };
+        assert!(arm == ContainerBurstPush::None || shift.0.abs() + shift.1.abs() >= 100, "vacuous: no push ({shift:?})");
+        let m: Vec<EntityId> = members(&s, Team::Blue).into_iter().filter(|id| *id != sk).collect();
+        assert_eq!(m.len(), 7, "{arm:?}: the seven Skeletons on T + 12");
+        for (k, id) in m.iter().enumerate() {
+            let got = offset(&s, *id, c);
+            let want = (RING_SIDE0_LEFT[k].0 + shift.0, RING_SIDE0_LEFT[k].1 + shift.1);
+            assert!((got.0 - want.0).abs() <= 2 && (got.1 - want.1).abs() <= 2, "{arm:?}: member {k} at {got:?} from C, want {want:?}");
+        }
+        ends.push(m.iter().map(|id| s.entity(*id).expect("the member is alive").death_slide_end).collect());
+    }
+    assert!(ends[1].iter().all(|e| *e != Vec2::default()), "vacuous: the members have no slide end: {:?}", ends[1]);
+    assert_eq!(ends[0], ends[1], "the pushed burst's slides end elsewhere than the unpushed one's");
 }
