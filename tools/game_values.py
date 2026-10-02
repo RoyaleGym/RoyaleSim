@@ -93,8 +93,12 @@ def page() -> str:
         "| Card | Elixir | Type | Units | Flying | Hitpoints | Evolution | Hero |",
         "|---|---|---|---|---|---|---|---|",
     ]
+    col = {field: k for k, field in enumerate(royalesim.CATALOGUE_FIELDS)}
     for i, row in enumerate(cat):
-        name, _placement, elixir, count, _radius, flying, hp, _foot, kind, _variants, hero = row
+        # By name: the catalogue row may grow at its end.
+        name, elixir, count, flying, hp, kind, hero = (
+            row[col[f]] for f in ("name", "elixir", "count", "flying", "hitpoints", "card_kind", "hero")
+        )
         evo = "yes" if has_evolution(i, len(cat)) else ""
         lines.append(
             f"| {name} | {elixir} | {kind.lower()} | {count or ''} | {'yes' if flying else ''} | "
