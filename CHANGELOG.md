@@ -3,6 +3,11 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.1 (2026-10-02)
+
+- No change to installing or calling the engine. Battle logic changes only: a unit keeps chasing a target just past
+  its sight range, and the Skeleton Barrel flies straight at its target, as in the game.
+
 ## 0.1.0 (2026-10-01)
 
 - Prebuilt wheels for Windows, Linux and macOS. One wheel per platform runs on CPython 3.10 and later. You no longer
