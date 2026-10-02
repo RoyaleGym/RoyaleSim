@@ -666,6 +666,10 @@ pub struct Calib {
     /// arm, `AheadOnly`, what a battle saved before it ran.
     #[serde(default = "evo_copy_point_default")]
     pub evo_copy_point: EvoCopyPoint,
+    /// spawner.EVO_COPY_COUNT: when an Evo Skeletons group's room for a copy is read (`evo_after_fire`, `evo_copies`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "evo_copy_count_default")]
+    pub evo_copy_count: EvoCopyCount,
     /// spawner.RING_CREATION_ORDER (a SpawnRadius spawner's ring wave). Added after SNAPSHOT_FORMAT 20; the default is
     /// the old arm, `AscendingAngle`, what a battle saved before it ran.
     #[serde(default = "ring_creation_order_default")]
@@ -1816,6 +1820,10 @@ fn roll_first_step_default() -> RollFirstStep {
 
 fn evo_copy_point_default() -> EvoCopyPoint {
     EvoCopyPoint::AheadOnly
+}
+
+fn evo_copy_count_default() -> EvoCopyCount {
+    EvoCopyCount::AfterReap
 }
 
 fn ring_creation_order_default() -> RingCreationOrder {
@@ -5605,6 +5613,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.EVO_COPY_COUNT -- see `Calib::evo_copy_count`.
+    EvoCopyCount {
+        /// A copy is made while the group holds fewer than GroupMaxSize living members at the tick's Reap, after the
+        /// tick's deaths (the engine's).
+        AfterReap = "after_reap",
+        /// The room is read at the hit: the members alive then (the tick's dying ones among them) plus the copies the
+        /// group's earlier hits of the tick earned. Client 15.535.29: 6 of 6 hits on a group of 8 with a member dying on
+        /// the same tick made no copy.
+        Client15535AtHit = "client15535_at_hit",
+    }
+);
+calib_enum!(
     /// spawner.EVO_COPY_POINT -- where an Evo Skeletons copy is made, from where its hitter stands
     /// (`BattleState::evo_copy_point`).
     EvoCopyPoint {
@@ -6110,6 +6130,7 @@ impl Calib {
             strike_area_end: pick(&v, &["spells", "STRIKE_AREA_END", "value"], StrikeAreaEnd::from_calibration_name)?,
             roll_first_step: pick(&v, &["spells", "ROLL_FIRST_STEP", "value"], RollFirstStep::from_calibration_name)?,
             evo_copy_point: pick(&v, &["spawner", "EVO_COPY_POINT", "value"], EvoCopyPoint::from_calibration_name)?,
+            evo_copy_count: pick(&v, &["spawner", "EVO_COPY_COUNT", "value"], EvoCopyCount::from_calibration_name)?,
             ring_creation_order: pick(&v, &["spawner", "RING_CREATION_ORDER", "value"], RingCreationOrder::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
@@ -7109,6 +7130,8 @@ struct EvoCopy {
     card: u16,
     level: i32,
     pos: Vec2,
+    /// spawner.EVO_COPY_COUNT = client15535_at_hit: the group had room for it at the hit (`evo_after_fire`).
+    room: bool,
 }
 
 /// THE EVO ROYAL GHOST'S DAMAGE AREA lands this many ticks past its DamageAEOSpawnDelay after the hit (state.rs
@@ -9833,7 +9856,12 @@ impl BattleState {
                 if n % d.hits_per_copy == 0 {
                     let team = self.ents.team[i];
                     let pos = self.evo_copy_point(self.ents.pos[i], team);
-                    self.scratch.evo_copies.push(EvoCopy { hitter: id, group: g, team, card: self.ents.card[i], level: self.ents.level[i], pos });
+                    // spawner.EVO_COPY_COUNT = client15535_at_hit: the room as the hit finds it, the members alive now (a
+                    // member dying on this tick is reaped later) and the copies this tick's earlier hits earned the group.
+                    let alive = self.evo.members.iter().filter(|(m, k)| *k == g && self.ents.is_alive(*m)).count() as i32;
+                    let earned = self.scratch.evo_copies.iter().filter(|c| c.group == g && c.room).count() as i32;
+                    let room = alive + earned < d.group_max;
+                    self.scratch.evo_copies.push(EvoCopy { hitter: id, group: g, team, card: self.ents.card[i], level: self.ents.level[i], pos, room });
                 }
             }
         }
@@ -10034,7 +10062,15 @@ impl BattleState {
                 continue;
             }
             let alive = self.evo.members.iter().filter(|(m, g)| *g == c.group && self.ents.is_alive(*m)).count() as i32;
-            if alive >= d.group_max {
+            // spawner.EVO_COPY_COUNT = client15535_at_hit: the room was read at the hit (`EvoCopy::room`). Measured on client
+            // 15.535.29: a hit on a group of 8 on the tick one of its members died made no copy, 6 of 6 (sp-esk-bank-5500-s0
+            // t937, sp-il-8b9b t1521, t1615 and t1661, sp-m4-towerhit-s0 t1330 and t1390), where the count here, after the
+            // tick's deaths, makes one.
+            #[cfg(not(clash_plant = "evo_copy_counted_after_reap"))]
+            let full = if self.cfg.calib.evo_copy_count == EvoCopyCount::Client15535AtHit { !c.room } else { alive >= d.group_max };
+            #[cfg(clash_plant = "evo_copy_counted_after_reap")]
+            let full = alive >= d.group_max; // PLANT (regression): the new arm still counts the group after the tick's deaths.
+            if full {
                 continue;
             }
             let kind = if self.cfg.cards.get(c.card).kind == CardKind::Building { EntityKind::Building } else { EntityKind::Troop };
@@ -27267,6 +27303,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.EVO_COPY_COUNT: Calib gained evo_copy_count (serde default the old arm, after_reap), no new
+///    state (the new arm's room is read at the hit into the tick's scratch copy list, empty between ticks), so a blob
+///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.SLAP_FLIGHT_TARGETABILITY: Calib gained slap_flight_targetability (serde default the old
 ///    arm, ground), no new state (the new arm reads the slap runs a snapshot already carries), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27986,6 +28025,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // spawner.EVO_COPY_POINT: a format-3 battle made every Evo Skeletons copy straight ahead of its hitter; it keeps
     // that whatever the ledger ships (the same rule).
     sh.insert("evo_copy_point".into(), serde_json::to_value(EvoCopyPoint::AheadOnly).map_err(|e| e.to_string())?);
+    // spawner.EVO_COPY_COUNT: a format-3 battle had no Evo Skeletons (the same rule).
+    sh.insert("evo_copy_count".into(), serde_json::to_value(EvoCopyCount::AfterReap).map_err(|e| e.to_string())?);
     // spawner.RING_CREATION_ORDER: a format-3 battle created a ring wave in ascending angle; it keeps that whatever the
     // ledger ships (the same rule).
     sh.insert("ring_creation_order".into(), serde_json::to_value(RingCreationOrder::AscendingAngle).map_err(|e| e.to_string())?);

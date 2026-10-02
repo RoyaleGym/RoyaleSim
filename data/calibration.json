@@ -4022,6 +4022,17 @@
       "promotion_rules": "Settled for the Suspicious Bush.",
       "engine": "state.rs scheduled_point"
     },
+    "EVO_COPY_COUNT": {
+      "value": "after_reap",
+      "status": "measured",
+      "candidates": ["after_reap", "client15535_at_hit"],
+      "confidence": "HIGH for client15535_at_hit on client 15.535.29 (6 of 6 ticks that separate the arms; every other tick fits both); whether a member struck down earlier in the same Attack phase still counts is not separated",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's records with Evo Skeletons (Skeleton_EV1), per side and tick: A the members alive on the tick before, D those gone on the tick, H the damaging hits (the hp the members' targets lost, in the scene's skeleton damage), C the new members. The arms differ only where a group of 8 takes a hit on a tick one of its members dies: the Reap count (after the deaths, 7) makes a copy, the count at the hit (8) none. On all six such ticks the client made none: sp-esk-bank-5500-s0 t937 (the scene's first divergence: every skeleton's attack progress agrees tick for tick on both engines, skeleton 25 dies on t937, the engine's copy appears on t937 and the client's on t939, on the group's next hit), sp-il-8b9b t1521, t1615 and t1661 (A 8, D 1, H 1, C 0) and sp-m4-towerhit-s0 t1330 and t1390 (A 8, D 1, H 4 and 3, C 0). The measured incremental count stands under both arms: two hits on one tick with 7 alive make one copy (evolution.rs).",
+      "meaning": "after_reap: a copy an Evo Skeleton's hit earned is made at the tick's Reap while the group holds fewer than GroupMaxSize living members then, after the tick's deaths (the engine's). client15535_at_hit: the room is read at the hit, from the members alive then (the tick's dying ones among them, reaped later) plus the copies the group's earlier hits of the tick earned; the copy is made at the Reap as before.",
+      "open": "A member struck down earlier in the same Attack phase (alive until the Reap here); a group in a different scene with two plays.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_at_hit (examples/replay_parity/harness.rs CLIENT15535_ARMS). Evo Skeletons exist only in the 15.535 tables, so the arm could ship as is.",
+      "engine": "state.rs evo_after_fire (EvoCopy::room) and evo_copies, selected by Calib::evo_copy_count; tests/evo_copy_count.rs."
+    },
     "EVO_COPY_POINT": {
       "value": "client15535_ahead_outward_behind",
       "candidates": [
