@@ -5,6 +5,12 @@
 //! games reached that state, both with a decidable gap). Every scenario here
 //! starts at the last tick of overtime with hand-set tower hp, so the verdict is
 //! a pure function of the rule and the towers; nothing moves.
+//!
+//! THE SHIPPED RULE IS THE CLIENT'S DRAIN (client_hp_drain, measured on client 15.535.29): the match goes on past
+//! overtime's end, every crown tower drains, and the first fall decides it 1-0 (the last two tests).
+//!
+//! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test tiebreak`):
+//!   tiebreak_decided_at_overtime_end   the drain never runs: the drain tests go red.
 mod common;
 
 use common::*;
@@ -163,9 +169,69 @@ fn the_verdict_is_the_same_from_both_seats() {
 }
 
 #[test]
-fn shipped_calibration_selects_the_absolute_rule() {
+fn shipped_calibration_selects_the_clients_drain() {
     // The registry's value is what a training run plays under; pin it so a silent
     // edit of calibration.json is a test failure, not a surprise.
     let s = BattleState::new(1, config());
-    assert_eq!(s.config().calib.overtime_tiebreak, OvertimeTiebreak::LowestTowerHpAbsolute);
+    assert_eq!(s.config().calib.overtime_tiebreak, OvertimeTiebreak::ClientHpDrain);
+}
+
+/// A battle under the drain, parked on the last overtime tick with the given tower hp. Returns, per processed tick,
+/// (tick, the hp of `watch`'s tower `k`) until the match ends or `limit` ticks pass.
+fn drained(blue: [i32; 3], red: [i32; 3], watch: (Team, usize), limit: u32) -> (BattleState, Vec<(u32, i32)>) {
+    let mut cfg = config();
+    cfg.calib.overtime_tiebreak = OvertimeTiebreak::ClientHpDrain;
+    let mut s = BattleState::new(7, cfg);
+    for (team, hp) in [(Team::Blue, blue), (Team::Red, red)] {
+        for (k, h) in hp.iter().enumerate() {
+            s.scenario_set_tower_hp(team, k, *h).unwrap();
+        }
+    }
+    s.scenario_set_tick(last_overtime_tick(s.config()));
+    let mut seen = Vec::new();
+    for _ in 0..limit {
+        let t = s.tick_count();
+        s.tick();
+        let hp = s.tower_ids(watch.0)[watch.1].and_then(|id| s.entity(id)).map_or(0, |e| e.hp);
+        seen.push((t, hp));
+        if s.is_done() {
+            break;
+        }
+    }
+    (s, seen)
+}
+
+/// THE CLIENT'S DRAIN, tick for tick (the oracle's sp-tiebreak-dmg-s0, client 15.535.29): one princess at 2880, the
+/// rest untouched. Nothing moves until t6067; then 50 a tick (6067..6104), 40 (6105..6117), 20 (6118..6131), 10
+/// (6132..6147) and 1 (6148..6167), when the princess falls and her opponent wins 1-0.
+/// PLANT tiebreak_decided_at_overtime_end: the match ends at overtime's end with no crown; this goes red.
+#[test]
+fn the_drain_runs_as_the_client_and_the_first_fall_wins() {
+    let max = tower_max();
+    let red = [max[0], max[1], 2880];
+    let (s, seen) = drained(max, red, (Team::Red, 2), 400);
+    let first_loss = seen.windows(2).find(|w| w[1].1 < w[0].1).map(|w| w[1].0);
+    assert_eq!(first_loss, Some(6067), "the drain starts on t6067: {:?}", &seen[..seen.len().min(80)]);
+    let step_on = |t: u32| {
+        let i = seen.iter().position(|(x, _)| *x == t).unwrap();
+        seen[i - 1].1 - seen[i].1
+    };
+    for (t, step) in [(6067, 50), (6104, 50), (6105, 40), (6117, 40), (6118, 20), (6131, 20), (6132, 10), (6147, 10), (6148, 1), (6166, 1)] {
+        assert_eq!(step_on(t), step, "the step on t{t}");
+    }
+    assert_eq!(seen.last().map(|x| x.0), Some(6167), "the princess falls on t6167");
+    assert_eq!(s.crowns(), [1, 0], "the fall is a crown");
+    assert_eq!(s.outcome(), Some(Outcome::Winner(Team::Blue)));
+}
+
+/// THE EXACT TIE (sp-tiebreak-idle-s0): every tower level. One tick of drain on t6067, then a Draw on t6147.
+#[test]
+fn level_towers_drain_one_tick_and_draw() {
+    let max = tower_max();
+    let (s, seen) = drained(max, max, (Team::Blue, 1), 400);
+    let lost: Vec<u32> = seen.windows(2).filter(|w| w[1].1 < w[0].1).map(|w| w[1].0).collect();
+    assert_eq!(lost, vec![6067], "one tick of drain");
+    assert_eq!(seen.last().map(|x| x.0), Some(6147), "the draw on t6147");
+    assert_eq!(s.outcome(), Some(Outcome::Draw));
+    assert_eq!(s.crowns(), [0, 0]);
 }

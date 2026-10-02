@@ -2372,6 +2372,12 @@ calib_enum!(
         LowestTowerHpFraction = "lowest_tower_hp_fraction",
         /// The earlier engine: a level match past overtime is a Draw.
         NoneDraw = "none_draw",
+        /// THE CLIENT'S DRAIN (measured on client 15.535.29): a level match does not end when overtime does. From
+        /// `TIEBREAK_DRAIN_START_MS` past overtime's end every standing crown tower, kings too, loses the same absolute
+        /// amount each tick, chosen by the lowest crown tower's hp of all six before the tick (`tiebreak_drain_step`);
+        /// the first tower to fall gives its opponent the crown and the match (1-0). Sides whose weakest towers are
+        /// exactly level drain one tick and draw `TIEBREAK_EXACT_DRAW_AFTER_MS` later.
+        ClientHpDrain = "client_hp_drain",
     }
 );
 calib_enum!(
@@ -7226,6 +7232,28 @@ pub const BARRAGE_LAND_EXTRA_TICKS: i32 = 3;
 /// A HAND SLOT WAITING FOR THE REFILL TIMER (`PlayerState::hand`, `refill_hands`). Never a card index: `hand_card`
 /// reports it as `DeployError::EmptySlot`, and nothing looks it up in the card table.
 pub const NO_CARD: u16 = u16::MAX;
+
+/// THE TIEBREAK DRAIN'S START, ms past overtime's end (match.OVERTIME_TIEBREAK = client_hp_drain). Measured on client
+/// 15.535.29 (sp-tiebreak-{idle,dmg}-s0): overtime ends at t6000, nothing moves on t6000..6066, and the first loss is
+/// on t6067.
+pub const TIEBREAK_DRAIN_START_MS: i64 = 3350;
+
+/// THE EXACT TIE'S END, ms past the drain's start: sides whose weakest crown towers are level drain one tick and the
+/// match ends a Draw on this tick (sp-tiebreak-idle-s0: drained on t6067, ended t6147, native_tiebreak_exact_draw).
+pub const TIEBREAK_EXACT_DRAW_AFTER_MS: i64 = 4000;
+
+/// THE DRAIN'S STEP: the hp every standing crown tower loses this tick, from the lowest crown tower hp of all six read
+/// before it. Measured on client 15.535.29 (sp-tiebreak-dmg-s0, t6067..6167): 50 from 1000 up, 40 from 500, 20 from
+/// 200, 10 from 25, else 1. The 10/1 edge lies in 21..30 (30 drained 10, 20 drained 1); 25 is a guess inside it.
+pub fn tiebreak_drain_step(lowest: i32) -> i32 {
+    match lowest {
+        l if l >= 1000 => 50,
+        l if l >= 500 => 40,
+        l if l >= 200 => 20,
+        l if l >= 25 => 10,
+        _ => 1,
+    }
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PlayerState {
@@ -12448,7 +12476,39 @@ impl BattleState {
         }
     }
 
+    /// THE TIEBREAK DRAIN (match.OVERTIME_TIEBREAK = client_hp_drain; `TIEBREAK_DRAIN_START_MS`,
+    /// `tiebreak_drain_step`): past overtime's end with the crowns level, every standing crown tower loses the step
+    /// the lowest of them sets; a tower brought to 0 falls in this tick's death pass and the judge gives its opponent
+    /// the crown. Level weakest towers drain only the first tick. Runs at the head of the upkeep phase.
+    fn tiebreak_drain(&mut self) {
+        let c = &self.cfg.calib;
+        if c.overtime_tiebreak != OvertimeTiebreak::ClientHpDrain || !self.overtime || self.outcome.is_some() {
+            return;
+        }
+        let start = (c.regular_time_s as i64 + c.overtime_s as i64) * 1000 + TIEBREAK_DRAIN_START_MS;
+        let now = self.elapsed_ms(self.tick);
+        if now < start || (now > start && self.weakest_towers_level()) {
+            return;
+        }
+        let standing: Vec<usize> =
+            self.towers.iter().flatten().flatten().filter(|id| self.ents.is_alive(**id)).map(|id| id.index as usize).collect();
+        let Some(lowest) = standing.iter().map(|&i| self.ents.hp[i]).min() else {
+            return;
+        };
+        let step = tiebreak_drain_step(lowest);
+        for i in standing {
+            self.ents.hp[i] = (self.ents.hp[i] - step).max(0);
+        }
+    }
+
+    /// Whether both sides' weakest standing crown towers have the same hp (the drain's exact tie).
+    fn weakest_towers_level(&self) -> bool {
+        let weakest = |t: usize| self.towers[t].iter().flatten().filter(|id| self.ents.is_alive(**id)).map(|id| self.ents.hp[id.index as usize]).min();
+        weakest(0) == weakest(1)
+    }
+
     fn phase_upkeep(&mut self) {
+        self.tiebreak_drain();
         let double = self.double_elixir();
         let triple = self.triple_elixir();
         let c = &self.cfg.calib;
@@ -22867,7 +22927,19 @@ impl BattleState {
                 self.outcome = Some(o);
             } else if elapsed >= overtime_end {
                 // The tie-break past overtime: calibration match.OVERTIME_TIEBREAK.
-                self.outcome = Some(self.overtime_tiebreak());
+                #[cfg(not(clash_plant = "tiebreak_decided_at_overtime_end"))]
+                let drain = c.overtime_tiebreak == OvertimeTiebreak::ClientHpDrain;
+                #[cfg(clash_plant = "tiebreak_decided_at_overtime_end")]
+                let drain = false; // PLANT: overtime's end decides at once, as the absolute rule did.
+                if !drain {
+                    self.outcome = Some(self.overtime_tiebreak());
+                } else if self.elapsed_ms(self.tick) >= overtime_end + TIEBREAK_DRAIN_START_MS + TIEBREAK_EXACT_DRAW_AFTER_MS
+                    && self.weakest_towers_level()
+                {
+                    // The exact tie: the drain ran one tick, and the match is a Draw now.
+                    self.outcome = Some(Outcome::Draw);
+                }
+                // Otherwise the drain runs (`tiebreak_drain`) until a tower falls and the crowns decide above.
             }
         } else if elapsed >= regular {
             if let Some(o) = by_crowns(self.crowns) {
