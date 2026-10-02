@@ -322,6 +322,17 @@
       "promotion_rules": "The test file passes. The flip moves every scene where a walking unit chases a faster one away from it; register the prediction before the flip.",
       "engine": "target.rs decide: for a walking unit whose live target is a unit out of its attack reach, drop it when the start-of-tick measure exceeds SightRange + both radii - 1000 and the previous Target phase held it within that limit (entity.rs chase_inside), before the move"
     },
+    "SLAP_FLIGHT_TARGETABILITY": {
+      "value": "ground",
+      "status": "measured",
+      "candidates": ["ground", "client15535_airborne"],
+      "confidence": "HIGH for client15535_airborne on client 15.535.29 (5 of 5 ground-only holders let the thrown unit go on its first flight step, 6 of 6 holders that attack air kept it); the end of the window inferred from the river leap's (one take, after the landing)",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's scenario and IL records: a slap flight is a run of steps of exactly 250 along x with y unchanged (state.rs slap_pass: 33 of them, then the ladder's 225 down to 25, a stand and a step back). Holders of the thrown unit on the tick before its first flight step, on that step: a Sparky and a Mini P.E.K.K.A on an Ice Spirit thrown while deploying (sp-il-8b9b t880, the scene's first divergence: the engine's Sparky kept it and killed it on t895), a Sparky on an Ice Golemite (sp-il-04cb t1870) and a Sparky and a Mini P.E.K.K.A on another (sp-il-04cb t3350): all five attack ground only and all five let it go. Five Bats on the t1870 Golemite and a princess tower on Skeletons (sp-form-Giant-hero-s0 t213) attack air and kept it. Nobody took a thrown unit during its flight; a ground-only Sparky took the t3350 Golemite again on t3392, after its landing blow (t3381) and a tick before its step back.",
+      "meaning": "ground: a unit in a Hero Giant's slap flight stays a ground target for every attacker (the engine's). client15535_airborne: from the throw to its landing (slap_pass's land, flight_ms after its first step) it is a target only for an attacker that attacks air, read in the Target phase as targeting.LEAPING_UNIT_TARGETABILITY = airborne reads a river leap: a ground-only holder drops it on its first flight step (its swing cancelled, as for any target it can no longer target) and may take it again on the tick after the landing. Target selection only: collisions, area damage and spells are slap_pass's.",
+      "open": "The window's end (the landing, as for the river leap; one take after it seen, none during the ladder's tail before it); whether an air attacker may TAKE a thrown unit in flight (none did); 16.402 has no Hero Giant.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_airborne (examples/replay_parity/harness.rs CLIENT15535_ARMS). The Hero Giant exists only in the 15.535 tables, so the arm could ship as is.",
+      "engine": "state.rs slap_air_mask (TargetCtx::slap_air) and target.rs can_target, selected by Calib::slap_flight_targetability; tests/slap_flight_targets.rs."
+    },
     "KNOCKED_TARGET_HOLD": {
       "value": "held_while_knocked",
       "status": "measured",

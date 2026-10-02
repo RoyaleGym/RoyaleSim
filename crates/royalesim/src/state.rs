@@ -456,6 +456,10 @@ pub struct Calib {
     /// `decide`, `knocked_lets_go`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "knocked_target_hold_default")]
     pub knocked_target_hold: KnockedTargetHold,
+    /// targeting.SLAP_FLIGHT_TARGETABILITY: who may target a unit in a Hero Giant's slap flight (target.rs `can_target`,
+    /// `TargetCtx::slap_air`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "slap_flight_targetability_default")]
+    pub slap_flight_targetability: SlapFlightTargetability,
     /// targeting.CHASE_DROP_KNOCKED_TARGET: whether a troop holds a troop target that is sliding under a knockback
     /// through the slide, where the chase drop and the rescan would let it go (target.rs `decide`). Read only under
     /// chase_drop_range = client_sight_minus_1000. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
@@ -1435,6 +1439,10 @@ fn chase_hold_past_limit_default() -> ChaseHoldPastLimit {
 
 fn knocked_target_hold_default() -> KnockedTargetHold {
     KnockedTargetHold::HeldWhileKnocked
+}
+
+fn slap_flight_targetability_default() -> SlapFlightTargetability {
+    SlapFlightTargetability::Ground
 }
 
 fn launch_past_target_default() -> LaunchPastTarget {
@@ -2840,6 +2848,17 @@ calib_enum!(
         /// of 31 such ticks in the chase scenarios kept it). Its later scans take that troop again only within the
         /// same limit, measured the same way; every other enemy is a candidate at plain sight.
         ClientSightMinus1000 = "client_sight_minus_1000",
+    }
+);
+calib_enum!(
+    /// targeting.SLAP_FLIGHT_TARGETABILITY -- see `Calib::slap_flight_targetability`.
+    SlapFlightTargetability {
+        /// A unit in a slap's flight stays a ground target for every attacker (the engine's).
+        Ground = "ground",
+        /// From the throw to its landing it is a target only for an attacker that attacks air, as a river leap is under
+        /// targeting.LEAPING_UNIT_TARGETABILITY = airborne. Client 15.535.29: 5 of 5 ground-only holders let it go on the
+        /// first flight step, 6 of 6 that attack air kept it.
+        Client15535Airborne = "client15535_airborne",
     }
 );
 calib_enum!(
@@ -6031,6 +6050,7 @@ impl Calib {
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             chase_hold_past_limit: pick(&v, &["targeting", "CHASE_HOLD_PAST_LIMIT", "value"], ChaseHoldPastLimit::from_calibration_name)?,
             knocked_target_hold: pick(&v, &["targeting", "KNOCKED_TARGET_HOLD", "value"], KnockedTargetHold::from_calibration_name)?,
+            slap_flight_targetability: pick(&v, &["targeting", "SLAP_FLIGHT_TARGETABILITY", "value"], SlapFlightTargetability::from_calibration_name)?,
             chase_drop_knocked: pick(&v, &["targeting", "CHASE_DROP_KNOCKED_TARGET", "value"], ChaseDropKnocked::from_calibration_name)?,
             chase_drop_walking_away: pick(&v, &["targeting", "CHASE_DROP_WALKING_AWAY", "value"], ChaseDropWalkingAway::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
@@ -10377,6 +10397,7 @@ impl BattleState {
                 tick: self.tick,
                 doomed: &[],
                 lane_doomed: &[],
+                slap_air: &[],
             };
             let e = &self.ents;
             let fwd = spell::forward_dy(e.team[a]);
@@ -13572,6 +13593,7 @@ impl BattleState {
                 tick: self.tick,
                 doomed: &[],
                 lane_doomed: &[],
+                slap_air: &[],
             };
             let e = &self.ents;
             for i in 0..e.capacity() {
@@ -13759,6 +13781,7 @@ impl BattleState {
         for &(i, _) in &casting {
             self.ents.stun_ms[i] = 0;
         }
+        let slap_air = self.slap_air_mask();
         {
             let ctx = TargetCtx {
                 ents: &self.ents,
@@ -13772,6 +13795,7 @@ impl BattleState {
                 tick: self.tick,
                 doomed: &doomed_drop,
                 lane_doomed: &[],
+                slap_air: &slap_air,
             };
             // transform.ATTACK_STATE: a unit whose transformation reset its target on this tick makes no target
             // decision until the next (measured on client 15.535.29: no target on the Goblin Demolisher's switch tick,
@@ -14514,6 +14538,29 @@ impl BattleState {
             .map(|j| (-(e.hp[j] as i64 + e.shield[j].max(0) as i64), e.creation_seq[j], j))
             .min()
             .map(|(_, _, j)| e.id_of(j))
+    }
+
+    /// targeting.SLAP_FLIGHT_TARGETABILITY = client15535_airborne: per slot, whether the unit is in a slap's flight at the
+    /// Target phase: thrown on an earlier tick (`slap_pass` phase 2) and not yet landed (the landing is `slap_pass`'s
+    /// `land`, `flight_ms` after its first step), so a ground-only attacker drops it on its first flight step and may
+    /// take it again on the tick after the landing, as a river leap (`jumping`). Empty under ground.
+    fn slap_air_mask(&self) -> Vec<bool> {
+        if self.cfg.calib.slap_flight_targetability != SlapFlightTargetability::Client15535Airborne || self.slaps.runs.is_empty() {
+            return Vec::new();
+        }
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let mut v = vec![false; self.ents.capacity()];
+        for r in self.slaps.runs.iter().filter(|r| r.phase == 2) {
+            let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) else { continue };
+            let g = r.id.index as usize;
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Slap(d), .. }) = self.cfg.cards.get(self.ents.card[g]).ability.as_ref() else { continue };
+            #[cfg(not(clash_plant = "slap_flight_ground_target"))]
+            let flying = self.tick.saturating_sub(r.mark) <= (2 + d.flight_ms / tick_ms) as u32;
+            #[cfg(clash_plant = "slap_flight_ground_target")]
+            let flying = { let _ = d; false }; // PLANT (regression): the new arm still leaves the thrown unit a ground target.
+            v[t.index as usize] |= flying;
+        }
+        v
     }
 
     /// THE SLAPS (card.rs `SlapDef`), in the Projectile phase after the move, for each Giant alive:
@@ -16955,6 +17002,7 @@ impl BattleState {
                 tick: self.tick,
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
+                slap_air: &[],
             };
             // EVERY ENTITY AS THE CONTACT LAW SEES IT: every alive entity, troops and
             // buildings and towers, in native units. Positions are updated in place as
@@ -18316,6 +18364,7 @@ impl BattleState {
                 tick: self.tick,
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
+                slap_air: &[],
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -18508,6 +18557,7 @@ impl BattleState {
                 tick: self.tick,
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
+                slap_air: &[],
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -18739,6 +18789,7 @@ impl BattleState {
                 tick: self.tick,
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
+                slap_air: &[],
             };
             // None = the measured "no periodic replan" (calibration
             // pathfinding.REPATH_INTERVAL_TICKS). For these pre-2026 models that
@@ -19238,6 +19289,7 @@ impl BattleState {
             tick: self.tick,
             doomed: &[],
             lane_doomed: &[],
+            slap_air: &[],
         };
         let e = &self.ents;
         let ti = target.index as usize;
@@ -27215,6 +27267,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.SLAP_FLIGHT_TARGETABILITY: Calib gained slap_flight_targetability (serde default the old
+///    arm, ground), no new state (the new arm reads the slap runs a snapshot already carries), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.KNOCKED_TARGET_HOLD: Calib gained knocked_target_hold (serde default the old arm,
 ///    held_while_knocked), no new state (the new arm changes a decision inside the Target phase), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27820,6 +27875,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chase_hold_past_limit".into(), serde_json::to_value(ChaseHoldPastLimit::InsideOnly).map_err(|e| e.to_string())?);
     // targeting.KNOCKED_TARGET_HOLD: a format-3 battle's knocked units kept their targets (the same rule).
     sh.insert("knocked_target_hold".into(), serde_json::to_value(KnockedTargetHold::HeldWhileKnocked).map_err(|e| e.to_string())?);
+    // targeting.SLAP_FLIGHT_TARGETABILITY: a format-3 battle had no Hero Giant (the same rule).
+    sh.insert("slap_flight_targetability".into(), serde_json::to_value(SlapFlightTargetability::Ground).map_err(|e| e.to_string())?);
     // targeting.CHASE_DROP_KNOCKED_TARGET: read only under client_sight_minus_1000, which a format-3 battle never ran;
     // it keeps the old arm whatever the ledger ships (the same rule).
     sh.insert("chase_drop_knocked".into(), serde_json::to_value(ChaseDropKnocked::DropsKnocked).map_err(|e| e.to_string())?);

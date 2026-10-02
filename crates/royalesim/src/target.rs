@@ -46,7 +46,7 @@ use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
     AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
-    MinimumRange, PreserveTargetScope, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
+    MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
 
@@ -80,6 +80,10 @@ pub struct TargetCtx<'a> {
     /// `Scratch::lane_doomed`), handed to the Path phase for `default_tower` (`lane_fallen`). Empty under standing and
     /// in every other ctx.
     pub lane_doomed: &'a [bool],
+    /// targeting.SLAP_FLIGHT_TARGETABILITY = client15535_airborne: per slot, whether the unit is in a Hero Giant's slap
+    /// flight (state.rs `slap_air_mask`), which `can_target` reads as a river leap. Empty under ground and outside the
+    /// Target phase.
+    pub slap_air: &'a [bool],
 }
 
 /// targeting.DOOMED_TARGET_DROP: damage that lands later than this does not doom its target. The client
@@ -427,10 +431,14 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     // that attacks air. `jumping` is set and cleared by the Path phase, which runs after this one, so this reads the
     // leap state the previous tick left: a ground-only attacker drops the leaper one tick after the hop and may take
     // it again one tick after the landing, as measured on client 15.535.29.
+    // targeting.SLAP_FLIGHT_TARGETABILITY = client15535_airborne: a unit in a Hero Giant's slap flight, from the throw to
+    // its landing, the same (`TargetCtx::slap_air`; client 15.535.29: 5 of 5 ground-only holders let it go on the first
+    // flight step, 6 of 6 that attack air kept it).
+    let thrown = ctx.calib.slap_flight_targetability == SlapFlightTargetability::Client15535Airborne && ctx.slap_air.get(c).copied().unwrap_or(false);
     #[cfg(not(clash_plant = "leap_targetable_by_ground"))]
-    let airborne = ctx.calib.leaping_unit_targetability == LeapingUnitTargetability::Airborne && e.jumping[c];
+    let airborne = (ctx.calib.leaping_unit_targetability == LeapingUnitTargetability::Airborne && e.jumping[c]) || thrown;
     #[cfg(clash_plant = "leap_targetable_by_ground")]
-    let airborne = false; // PLANT (regression): a leaping troop stays a ground target under the new arm too.
+    let airborne = thrown; // PLANT (regression): a leaping troop stays a ground target under the new arm too.
     if e.in_air(c) || airborne {
         card.attacks_air
     } else {
