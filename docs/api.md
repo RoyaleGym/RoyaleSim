@@ -6,25 +6,36 @@ This page is for people who want the engine itself.
 ## Install
 
 ```bash
-pip install royalesim
+pip install royalesim --find-links https://github.com/RoyaleGym/RoyaleSim/releases/latest
 ```
 
-The wheel needs no Rust. It runs on CPython 3.10 and later, on Windows, Linux and macOS.
+Until the packages are on PyPI, the wheels come from the project's GitHub Releases page. They need no Rust. They run
+on CPython 3.10 and later, on Windows, Linux and macOS (RoyaleGym, which most people use, needs 3.12).
 
-## A battle in ten lines
+## A battle in a few lines
 
 ```python
 import json
 import royalesim
 
 b = royalesim.Battle(card_names=None, slot_of_k=[[0, 1, 2], [0, 1, 2]])
-b.reset(seed=0, decks=[list(range(8)), list(range(8, 16))], shuffle=1,
+ids = {row[0]: i for i, row in enumerate(json.loads(b.catalogue_json()))}   # card name -> id
+deck = ["Knight", "Archer", "Goblins", "Giant", "Musketeer", "Fireball", "Arrows", "Skeletons"]
+b.reset(seed=0, decks=[[ids[n] for n in deck], [ids[n] for n in deck]], shuffle=1,
         start_tick=0, elixir_milli=[5000, 5000], tower_hp=None, spawns=[])
 SUB = royalesim.SUBTILE_PER_MILLITILE
-b.step([], 100)                                  # nobody can play in the opening seconds
-b.step([(0, 0, 9000 * SUB, 10000 * SUB)], 20)   # blue plays hand slot 0, then 20 ticks pass
+b.step([], 100)                                        # nobody can play in the opening seconds
+r = b.step([(0, 0, 9000 * SUB, 10000 * SUB)], 20)     # blue plays hand slot 0, then 20 ticks pass
 state = json.loads(b.state_json())
+print(state["tick"], royalesim.DEPLOY_REASONS[r[0][1]])
 ```
+
+```text
+120 OK
+```
+
+Look card ids up by name, as above. An id is a card's position in the catalogue, and positions move when cards are
+added.
 
 ## The pieces
 
