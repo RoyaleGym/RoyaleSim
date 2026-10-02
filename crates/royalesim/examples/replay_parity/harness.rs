@@ -1358,6 +1358,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   is still steered round (65 of 65 own-side neighbours with no contact on client 15.535.29).
 ///   targeting.CHASE_HOLD_PAST_LIMIT = client15535_troops_kept: a troop keeps a target past its round sight past the
 ///   chase-drop limit when the pair was never inside it (135 of 139 on client 15.535.29; the 16.402 corpus let 3 of 4 go).
+///   combat.LAUNCH_PAST_TARGET = client15535_homing_unclamped: a homing shot starts its whole ProjectileStartRadius out,
+///   past a nearer target (the Hero Musketeer's near shots 6 of 6 on client 15.535.29).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1368,6 +1370,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DOOMED_OWN_UPDATE", "\"client15535_kamikaze_stays\""),
     ("movement.KAMIKAZE_DEATH_CONTACT", "\"client15535_avoided_not_pushed\""),
     ("targeting.CHASE_HOLD_PAST_LIMIT", "\"client15535_troops_kept\""),
+    ("combat.LAUNCH_PAST_TARGET", "\"client15535_homing_unclamped\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

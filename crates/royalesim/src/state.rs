@@ -1105,6 +1105,10 @@ pub struct Calib {
     pub charged_hit_timing: ChargedHitTiming,
     /// combat.PROJECTILE_LAUNCH: where a projectile is born and when it first steps.
     pub projectile_launch: ProjectileLaunch,
+    /// combat.LAUNCH_PAST_TARGET: whether a homing shot's start point may lie past a target nearer than its
+    /// ProjectileStartRadius (combat.rs `launch_point`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "launch_past_target_default")]
+    pub launch_past_target: LaunchPastTarget,
     /// spawner.DEATH_SPAWN_LAYOUT: where a death spawn's units appear.
     pub death_spawn_layout: DeathSpawnLayout,
     /// spawner.DEATH_SPAWN_PUSHBACK: whether a dying unit whose row sets DeathSpawnPushback
@@ -1415,6 +1419,10 @@ fn chase_drop_range_default() -> ChaseDropRange {
 
 fn chase_hold_past_limit_default() -> ChaseHoldPastLimit {
     ChaseHoldPastLimit::InsideOnly
+}
+
+fn launch_past_target_default() -> LaunchPastTarget {
+    LaunchPastTarget::Clamped
 }
 
 fn chase_drop_knocked_default() -> ChaseDropKnocked {
@@ -5604,6 +5612,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.LAUNCH_PAST_TARGET -- see `Calib::launch_past_target`.
+    LaunchPastTarget {
+        /// A shot starts at min(ProjectileStartRadius, the distance to its target) along the aim: never past the target
+        /// (the engine's).
+        Clamped = "clamped",
+        /// A homing shot starts its whole ProjectileStartRadius out along the aim, past a nearer target, and flies back.
+        /// Client 15.535.29: the Hero Musketeer's near shots 6 of 6, the Musketeer's 1 of 1, a Blowdart Goblin's 1 of 1.
+        Client15535HomingUnclamped = "client15535_homing_unclamped",
+    }
+);
+calib_enum!(
     /// combat.PROJECTILE_LAUNCH -- see combat.rs `fire` / `step_projectiles`.
     ProjectileLaunch {
         /// Born ProjectileStartRadius from the attacker toward the target, first step
@@ -6214,6 +6233,7 @@ impl Calib {
             attack_cycle: pick(&v, &["combat", "ATTACK_CYCLE", "value"], AttackCycle::from_calibration_name)?,
             charged_hit_timing: pick(&v, &["charge", "CHARGED_HIT_TIMING", "value"], ChargedHitTiming::from_calibration_name)?,
             projectile_launch: pick(&v, &["combat", "PROJECTILE_LAUNCH", "value"], ProjectileLaunch::from_calibration_name)?,
+            launch_past_target: pick(&v, &["combat", "LAUNCH_PAST_TARGET", "value"], LaunchPastTarget::from_calibration_name)?,
             death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
             death_slide_aim: pick(&v, &["spawner", "DEATH_SLIDE_AIM", "value"], DeathSlideAim::from_calibration_name)?,
@@ -27106,6 +27126,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.LAUNCH_PAST_TARGET: Calib gained launch_past_target (serde default the old arm, clamped), no new
+///    state (the new arm moves a shot's start point at its launch), so a blob saved before it deserializes and hashes
+///    as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.CHASE_HOLD_PAST_LIMIT: Calib gained chase_hold_past_limit (serde default the old arm,
 ///    inside_only), no new state (the new arm changes a decision inside the Target phase), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27630,6 +27653,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("attack_cycle".into(), serde_json::to_value(AttackCycle::WindupLoadTime).map_err(|e| e.to_string())?);
     sh.insert("charged_hit_timing".into(), serde_json::to_value(ChargedHitTiming::AfterLoadTimeWindup).map_err(|e| e.to_string())?);
     sh.insert("projectile_launch".into(), serde_json::to_value(ProjectileLaunch::AttackerCentreSameTick).map_err(|e| e.to_string())?);
+    // combat.LAUNCH_PAST_TARGET: a format-3 battle's shots started at the attacker's centre (the same rule).
+    sh.insert("launch_past_target".into(), serde_json::to_value(LaunchPastTarget::Clamped).map_err(|e| e.to_string())?);
     sh.insert("death_spawn_layout".into(), serde_json::to_value(DeathSpawnLayout::EngineGridWithinRadius).map_err(|e| e.to_string())?);
     // The death-spawn slide: a format-3 battle laid every death spawn by the layout key and
     // slid none; it keeps that whatever the ledger ships (the same rule).

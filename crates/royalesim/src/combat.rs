@@ -1140,7 +1140,7 @@ pub fn fire(
     #[cfg(clash_plant = "spear_never_thrown")]
     let throws: Option<crate::card::SpearDef> = None; // PLANT (regression): the member strikes in melee on every attack.
     if let Some(sp) = throws {
-        let (pos, fresh) = launch_point(ents, calib, sp.start_radius, 0, false, a, ti);
+        let (pos, fresh) = launch_point(ents, calib, sp.start_radius, 0, false, false, a, ti);
         projectiles.push(Projectile {
             team: ents.team[a],
             pos,
@@ -1391,7 +1391,7 @@ pub fn fire(
             Some(sg) if ents.attack_seq[a] == 2 => sg.near_start,
             _ => card.projectile_start_radius,
         };
-        let (pos, fresh) = launch_point(ents, calib, start_radius, card.projectile_y_offset, always, a, ti);
+        let (pos, fresh) = launch_point(ents, calib, start_radius, card.projectile_y_offset, always, card.projectile_homing, a, ti);
         // combat.SPAWN_PROJECTILE = client_spark_fan: a card whose shot releases sparks
         // (`CardDef::spark`, the Firecracker's rocket) fires a CARRIER, aimed at the target's
         // start-of-tick centre and flown there whatever the target does (measured on client
@@ -1638,12 +1638,24 @@ pub fn combo_counts(calib: &Calib) -> bool {
 /// point toward the enemy side, and it flies from there. Only this point moves: the bearing is
 /// still read from the attacker's centre, and the other launch paths (a straight shot's, a fan's)
 /// do not read the column, which no loaded row that sets it fires.
-fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, y_offset: i32, always: bool, a: usize, ti: usize) -> (Vec2, bool) {
+#[allow(clippy::too_many_arguments)]
+fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, y_offset: i32, always: bool, homing: bool, a: usize, ti: usize) -> (Vec2, bool) {
     match calib.projectile_launch {
         ProjectileLaunch::StartRadiusNextTick => {
             let d = ents.pos[ti].sub(ents.pos[a]);
             let len = crate::fixed::isqrt(d.len2()) as i32;
-            let r = start_radius.min(len.max(0));
+            // combat.LAUNCH_PAST_TARGET = client15535_homing_unclamped: a homing shot starts its whole radius out along the
+            // aim, past a nearer target, and flies back to it (client 15.535.29: the Hero Musketeer's near shots 6 of 6 at
+            // 1800 x the aim, none on the target; sp-il-04cb t1204, 952 from Skeleton 58, hers appears 1,070 past it and
+            // lands on t1206). clamped: never past the target (the engine's).
+            #[cfg(not(clash_plant = "launch_clamped_past_target"))]
+            let unclamped = homing && calib.launch_past_target == crate::state::LaunchPastTarget::Client15535HomingUnclamped;
+            #[cfg(clash_plant = "launch_clamped_past_target")]
+            let unclamped = {
+                let _ = homing;
+                false // PLANT (regression): the new arm's shot still starts no farther than its target.
+            };
+            let r = if unclamped { start_radius.max(0) } else { start_radius.min(len.max(0)) };
             // combat.PROJECTILE_STEP = client_native_truncated: the same point by the
             // client's arithmetic, src + trunc0(v * R / isqrt(v.v)) in NATIVE units
             // (measured on client 15.535.29: 6,695 of 6,813 launches), so the shot sits
@@ -1682,7 +1694,7 @@ fn launch_point(ents: &Entities, calib: &Calib, start_radius: i32, y_offset: i32
 pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, target: EntityId, speed_raw: i32, projectiles: &mut Vec<Projectile>) {
     let ti = target.index as usize;
     let thrower = cards.get(ents.card[a]);
-    let (pos, fresh) = launch_point(ents, calib, thrower.projectile_start_radius, thrower.projectile_y_offset, cards.is_hero_record(ents.card[a]), a, ti);
+    let (pos, fresh) = launch_point(ents, calib, thrower.projectile_start_radius, thrower.projectile_y_offset, cards.is_hero_record(ents.card[a]), false, a, ti);
     projectiles.push(Projectile {
         team: ents.team[a],
         pos,

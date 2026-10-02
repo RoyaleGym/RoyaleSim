@@ -1846,6 +1846,17 @@
       "promotion_rules": "The test files (crates/royalesim/tests/dash_pushback.rs, tests/test_dash_pushback.py) pass. Then score with this arm switched on alone. The registered prediction: the Knight of both Mega Knight jump batteries (from 347 and 353) and of both seats of 20260920-081819 (from 3536) gains within-250 ticks, and so does the Knight of the sweep's MegaKnight scene (from 272; fully only with combat.DASH_FIRST_SIGHT_TRIGGER, which puts the landing point, the push's centre, where the client's was); no report without a Mega Knight jump moves.",
       "engine": "state.rs land_dash_blows: under client_ladder_from_landing each victim of a DashRadius blow is pushed through spell.rs push_from (the ladder under knockback.DISPLACEMENT_LAW = client16402) from the blow's centre with DashPushBack."
     },
+    "LAUNCH_PAST_TARGET": {
+      "value": "clamped",
+      "status": "measured",
+      "candidates": ["clamped", "client15535_homing_unclamped"],
+      "confidence": "HIGH for client15535_homing_unclamped on client 15.535.29 for the Hero Musketeer (6 of 6 near shots), LOW-MEDIUM for the other homing rows (one near shot each: a Musketeer, a Blowdart Goblin); clamped is not measured on 16.402 near shots, which the 16.402 corpus has not been read for",
+      "provenance": "MEASURED by parity (2026-10-02) over client 15.535.29's projectile tracks (the scenario and IL captures' projectiles.json with their raw frames): each shot's first point against its source's and its target's positions at the launch tick's start, the shots whose target stood nearer than the source's ProjectileStartRadius (less 100). The Hero Musketeer: 6 of 6 appeared exactly at the source + 1800 x the aim + 300 x her side's forward, none on the target (sp-il-04cb t1184 and t1204, sp-il-2c29 t3184, ...); 7 more under her card id fit neither reading (400 off both points; not identified). The Musketeer 1 of 1 (sp-event-SuperLavaHound t359: 156 from its target, the shot 449 out), a Blowdart Goblin 1 of 1 (sp-f4-dart-s0 t246: 998 off, 1,199 out). sp-il-04cb t1204: the Hero Musketeer 952 from Skeleton 58; the client's shot appears 1,070 past it and lands on t1206, the engine's started on the target's distance and landed on t1205 (her attack progress agrees tick for tick: 2,000 on t1204 on both), the start of that scene's cascade (Skeleton 58's blocked Skeletons moved on a tick early).",
+      "meaning": "clamped: a shot starts at min(ProjectileStartRadius, the distance to its target) along the aim from its source (the engine's). client15535_homing_unclamped: a homing shot (the row's Homing) starts its whole ProjectileStartRadius out along the aim even past a nearer target, and flies back to it; a non-homing shot, a thrown spear and a hook keep the clamped point (unmeasured).",
+      "open": "16.402's near shots; a non-homing row's near shot (a Bowler's boulder, a Princess's arrows); whether the 7 unidentified Hero Musketeer-card shots are her turret's.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_homing_unclamped (examples/replay_parity/harness.rs CLIENT15535_ARMS). A read of the 16.402 corpus's near shots would settle the shipped arm.",
+      "engine": "combat.rs launch_point (`unclamped`), selected by Calib::launch_past_target; tests/launch_past_target.rs."
+    },
     "PROJECTILE_LAUNCH": {
       "value": "start_radius_next_tick",
       "status": "measured",
