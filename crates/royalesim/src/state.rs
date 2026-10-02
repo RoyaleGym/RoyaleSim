@@ -22516,7 +22516,7 @@ impl BattleState {
             }
             // THE EVO WITCH'S SOUL (card.rs `SoulDrainDef`): a unit of her ROW's own wave dying sends one, due its
             // flight and a tick on (the heal's pulse). A unit of her interval waves (`witch_wave_pass`, created from her
-            // creation + the interval's first delay on) sends none. Measured on client 15.535.29 (r4c's witch_souls
+            // creation + the interval's first delay on) sends none. Measured on client 15.535.29 (parity's witch_souls
             // reading): row-wave deaths healed her 8 of 8, interval-wave deaths 0 of 8 (sp-f2-witch-s0, none at her cap).
             #[cfg(not(clash_plant = "soul_drain_never"))]
             if let Some(w) = self.ents.spawned_by[i].filter(|w| self.ents.is_alive(*w) && self.ents.hp[w.index as usize] > 0) {
