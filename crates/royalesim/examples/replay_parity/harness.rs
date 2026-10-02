@@ -1363,6 +1363,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   placement.RELOCATION_TIE_ORDER = client15535_arena_clockwise: equally near relocations of a building tap go to the
 ///   first in the arena order -y, -x, +y, +x seen from the tap, for both seats (4 of 4 Elixir Collector taps and a
 ///   Cannon tapped on a tile edge, 10 of 10, on client 15.535.29).
+///   targeting.KNOCKED_TARGET_HOLD = client15535_sight_keep: a knocked unit keeps a target that is not a crown tower only
+///   within its sight + both radii + 25 (9 of 9 let go past it on client 15.535.29, none within it).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1375,6 +1377,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.CHASE_HOLD_PAST_LIMIT", "\"client15535_troops_kept\""),
     ("combat.LAUNCH_PAST_TARGET", "\"client15535_homing_unclamped\""),
     ("placement.RELOCATION_TIE_ORDER", "\"client15535_arena_clockwise\""),
+    ("targeting.KNOCKED_TARGET_HOLD", "\"client15535_sight_keep\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

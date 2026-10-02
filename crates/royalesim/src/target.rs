@@ -45,8 +45,8 @@ use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, LeapingUnitTargetability, MinimumRange,
-    PreserveTargetScope, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
+    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
+    MinimumRange, PreserveTargetScope, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
 
@@ -665,6 +665,28 @@ fn locked_hold_beyond(ctx: &TargetCtx, a: usize) -> i32 {
     }
 }
 
+/// targeting.KNOCKED_TARGET_HOLD = client15535_sight_keep: does unit `a`, in a knockback (the fixed-distance slide or the
+/// ladder, its own attack's recoil or a push; not a hook's drag), let its live target `t` go? It keeps a crown tower, and
+/// any other target while the centre distance is within its sight toward it (`sight_toward`) + both radii +
+/// LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET, on the start-of-tick positions (this is the Target phase). Measured on client
+/// 15.535.29, units in a knock ladder holding a target that is not a crown tower: kept on every tick within that reach
+/// (1,450 ticks, the largest +24 past round sight: a Musketeer pushed by a hero Bowler's boulder), let go on the first
+/// tick past it, 9 of 9, at +70 to +170 past round sight (a Sparky in its own recoil: sp-il-8b9b t512, t989, t1079 and
+/// sp-il-04cb t1926; an AxeMan pushed: sp-il-2c29 t1454; Musketeers pushed: sp-il-db5f t1700 and both
+/// sp-form-Bowler-hero scenes t228). Each took the princess tower on the tick it let go. The rescan's own edge is plain
+/// sight: the client's fresh acquisitions reach 0 past round sight and no further (1,153 troop and 261 building ones).
+/// Always false under held_while_knocked, the engine's: a knocked unit keeps whatever it had.
+fn knocked_lets_go(ctx: &TargetCtx, a: usize, ti: usize) -> bool {
+    let e = ctx.ents;
+    #[cfg(not(clash_plant = "knocked_target_held"))]
+    let arm = ctx.calib.knocked_target_hold == KnockedTargetHold::Client15535SightKeep;
+    #[cfg(clash_plant = "knocked_target_held")]
+    let arm = false; // PLANT (regression): the new arm still keeps a knocked unit's target at any distance.
+    arm && (e.knock_ms[a] > 0 || e.push_active[a])
+        && !e.kind[ti].is_crown_tower()
+        && !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, ti) + ctx.calib.range_extension_to_keep_target, e.radius[a], e.pos[ti], e.radius[ti])
+}
+
 /// Attacker a's sight radius toward candidate c.
 #[inline]
 fn sight_toward(ctx: &TargetCtx, a: usize, c: usize) -> i32 {
@@ -877,7 +899,12 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     #[cfg(clash_plant = "death_slide_targets")]
     let sliding = false; // PLANT: a sliding member scans and takes a target.
     if e.stun_ms[a] > 0 || e.knocked(a) || sliding {
-        return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: false, resumed: false, chase_dropped: None };
+        let held = cur.filter(|t| e.is_alive(*t));
+        // targeting.KNOCKED_TARGET_HOLD = client15535_sight_keep: past its keep test a knocked unit lets go and rescans.
+        if e.stun_ms[a] == 0 && !sliding && held.is_some_and(|t| knocked_lets_go(ctx, a, t.index as usize)) {
+            return TargetDecision { target: scan(ctx, a, scratch), cancel_attack: false, resumed: false, chase_dropped: None };
+        }
+        return TargetDecision { target: held, cancel_attack: false, resumed: false, chase_dropped: None };
     }
     if e.kind[a] == EntityKind::KingTower && !ctx.king_active[e.team[a] as usize] {
         return TargetDecision { target: None, cancel_attack: false, resumed: false, chase_dropped: None };

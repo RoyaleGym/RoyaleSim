@@ -322,6 +322,17 @@
       "promotion_rules": "The test file passes. The flip moves every scene where a walking unit chases a faster one away from it; register the prediction before the flip.",
       "engine": "target.rs decide: for a walking unit whose live target is a unit out of its attack reach, drop it when the start-of-tick measure exceeds SightRange + both radii - 1000 and the previous Target phase held it within that limit (entity.rs chase_inside), before the move"
     },
+    "KNOCKED_TARGET_HOLD": {
+      "value": "held_while_knocked",
+      "status": "measured",
+      "candidates": ["held_while_knocked", "client15535_sight_keep"],
+      "confidence": "HIGH for client15535_sight_keep on client 15.535.29 (9 of 9 let go past the reach, 1,450 ticks kept within it, the edge between +24 and +70 past round sight); 16.402 unread (no knocked holder near its sight in the corpus)",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's scenario and IL records. A knock ladder is a run of three or more ticks whose steps shrink by 15 to 35 a tick (the client's recoil and knockback ladders: 199, 174, 150, ... 24). Units moving on such a ladder and holding a target that is not a crown tower, on the start-of-tick positions: kept on every tick the centre distance was within SightRange + both radii + 25 (1,450 ticks; past round sight only at +21, +22 and +24), let go on the first tick past it, 9 of 9, at +70 to +170 past round sight: a Sparky in its own AttackPushBack recoil (sp-il-8b9b t512 a Hog Rider, t989 a Musketeer, t1079 a Cannon; sp-il-04cb t1926 a Cannon), an AxeMan pushed off a Musketeer it had just taken walking (sp-il-2c29 t1454), Musketeers pushed off a Hog Rider (sp-il-db5f t1700) and off a hero Bowler by its boulder (sp-form-Bowler-hero-s0 and -nopress-s0 t228). Each took the princess tower on that tick. The 25 is LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET added to the sight, as the keep reach adds it to the range: the rescan's own edge is plain sight (fresh acquisitions by walkers reach 0 past round sight and no further: 1,153 troop and 261 building ones), so a rescan alone would have let +21 to +24 go. The engine kept a knocked unit's target at any distance (target.rs: 'Stunned or mid-knockback').",
+      "meaning": "held_while_knocked: a unit in a knockback (the fixed-distance slide or the ladder) keeps whatever target it had and scans nothing (the engine's). client15535_sight_keep: it keeps a crown tower, and any other target while the centre distance is within its sight toward it + both radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET on the start-of-tick positions; past that it lets go and rescans, as a stunned unit does when its stun ends. A hook's drag and a stun keep the old rule under both.",
+      "open": "A knocked unit's switch to a nearer target within the reach (one seen, a Knight taking a Musketeer's turret on the tick it appeared, sp-h2-s0 t186; 8 of 8 others kept theirs); a crown tower held far past sight (kept, and a rescan would take a tower again); a hook's drag; 16.402's knocked holders.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_sight_keep (examples/replay_parity/harness.rs CLIENT15535_ARMS). A 16.402 knocked holder past its sight would settle the shipped arm.",
+      "engine": "target.rs decide (the knocked early return) and knocked_lets_go, selected by Calib::knocked_target_hold; tests/knocked_target_hold.rs."
+    },
     "CHASE_HOLD_PAST_LIMIT": {
       "value": "inside_only",
       "status": "measured",

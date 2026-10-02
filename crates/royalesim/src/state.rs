@@ -452,6 +452,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "chase_hold_past_limit_default")]
     pub chase_hold_past_limit: ChaseHoldPastLimit,
+    /// targeting.KNOCKED_TARGET_HOLD: how far a unit in a knockback (the slide or the ladder) keeps its target (target.rs
+    /// `decide`, `knocked_lets_go`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "knocked_target_hold_default")]
+    pub knocked_target_hold: KnockedTargetHold,
     /// targeting.CHASE_DROP_KNOCKED_TARGET: whether a troop holds a troop target that is sliding under a knockback
     /// through the slide, where the chase drop and the rescan would let it go (target.rs `decide`). Read only under
     /// chase_drop_range = client_sight_minus_1000. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
@@ -1427,6 +1431,10 @@ fn chase_drop_range_default() -> ChaseDropRange {
 
 fn chase_hold_past_limit_default() -> ChaseHoldPastLimit {
     ChaseHoldPastLimit::InsideOnly
+}
+
+fn knocked_target_hold_default() -> KnockedTargetHold {
+    KnockedTargetHold::HeldWhileKnocked
 }
 
 fn launch_past_target_default() -> LaunchPastTarget {
@@ -2832,6 +2840,17 @@ calib_enum!(
         /// of 31 such ticks in the chase scenarios kept it). Its later scans take that troop again only within the
         /// same limit, measured the same way; every other enemy is a candidate at plain sight.
         ClientSightMinus1000 = "client_sight_minus_1000",
+    }
+);
+calib_enum!(
+    /// targeting.KNOCKED_TARGET_HOLD -- see `Calib::knocked_target_hold`.
+    KnockedTargetHold {
+        /// A unit in a knockback keeps whatever target it had and scans nothing (the engine's).
+        HeldWhileKnocked = "held_while_knocked",
+        /// It keeps a target that is not a crown tower only within its SightRange + both radii +
+        /// LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET; past that it lets go and rescans. Client 15.535.29: 9 of 9 let go past
+        /// it, none within it.
+        Client15535SightKeep = "client15535_sight_keep",
     }
 );
 calib_enum!(
@@ -6011,6 +6030,7 @@ impl Calib {
             doomed_lane_tower: pick(&v, &["targeting", "DOOMED_LANE_TOWER", "value"], DoomedLaneTower::from_calibration_name)?,
             chase_drop_range: pick(&v, &["targeting", "CHASE_DROP_RANGE", "value"], ChaseDropRange::from_calibration_name)?,
             chase_hold_past_limit: pick(&v, &["targeting", "CHASE_HOLD_PAST_LIMIT", "value"], ChaseHoldPastLimit::from_calibration_name)?,
+            knocked_target_hold: pick(&v, &["targeting", "KNOCKED_TARGET_HOLD", "value"], KnockedTargetHold::from_calibration_name)?,
             chase_drop_knocked: pick(&v, &["targeting", "CHASE_DROP_KNOCKED_TARGET", "value"], ChaseDropKnocked::from_calibration_name)?,
             chase_drop_walking_away: pick(&v, &["targeting", "CHASE_DROP_WALKING_AWAY", "value"], ChaseDropWalkingAway::from_calibration_name)?,
             leaping_unit_targetability: pick(&v, &["targeting", "LEAPING_UNIT_TARGETABILITY", "value"], LeapingUnitTargetability::from_calibration_name)?,
@@ -27195,6 +27215,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.KNOCKED_TARGET_HOLD: Calib gained knocked_target_hold (serde default the old arm,
+///    held_while_knocked), no new state (the new arm changes a decision inside the Target phase), so a blob saved before
+///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, placement.RELOCATION_TIE_ORDER: Calib gained relocation_tie_order (serde default the old arm,
 ///    placer_frame_first_found), no new state (the new arm decides a building tap's landing), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27795,6 +27818,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // targeting.CHASE_HOLD_PAST_LIMIT: read only under client_sight_minus_1000, which a format-3 battle never ran (the same
     // rule).
     sh.insert("chase_hold_past_limit".into(), serde_json::to_value(ChaseHoldPastLimit::InsideOnly).map_err(|e| e.to_string())?);
+    // targeting.KNOCKED_TARGET_HOLD: a format-3 battle's knocked units kept their targets (the same rule).
+    sh.insert("knocked_target_hold".into(), serde_json::to_value(KnockedTargetHold::HeldWhileKnocked).map_err(|e| e.to_string())?);
     // targeting.CHASE_DROP_KNOCKED_TARGET: read only under client_sight_minus_1000, which a format-3 battle never ran;
     // it keeps the old arm whatever the ledger ships (the same rule).
     sh.insert("chase_drop_knocked".into(), serde_json::to_value(ChaseDropKnocked::DropsKnocked).map_err(|e| e.to_string())?);
