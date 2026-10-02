@@ -771,6 +771,17 @@
       "promotion_rules": "Pass the 15.535.29 checks (the seven Knights, raw against snapped Log casts), score by override, then flip.",
       "engine": "the deploy path before formation_members and spell::cast; arena.rs snap_placement with a one-tile box"
     },
+    "ILLEGAL_TROOP_TAP": {
+      "value": "refuse",
+      "status": "measured",
+      "candidates": ["refuse", "client15535_clamp_to_legal_edge"],
+      "confidence": "HIGH for client15535_clamp_to_legal_edge on client 15.535.29 (4 of 4 bridge taps with the lane closed played as the tap behind the river, 3 of 3 enemy-half singles on their column's own front row, the Mirror battery's Valkyrie); MEDIUM on the bridge into an open lane (one capture); 16.402 unread",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29. Oracle's tapedge scenes: Blue Skeletons tapped on the right bridge at (14500, 15000), (14500, 15001), (14499, 15000) and (14499, 15001), every tower up, have a truth identical over all 62 ticks to the taps at (14500, 14999) and (14499, 14999): the play went down on the own front row of its column, where the engine laid the formation around the river tile and the water ejection put all three on y 14500 (sp-sk-souls-own-s0 t256, the same tap, the scene's onset). sp-il-208a: an Ice Golemite, a Musketeer and a Hog Rider tapped by Blue at (8500, 20500) with every tower up were created on (8499, 14500), the tap moved back along its column and the single unit's deploy point taken. match.MIRROR_PLACEMENT's battery: a Valkyrie tapped at (9500, 20500) stood at (9500, 14500); a tap on river water was refused. sp-il-04cb t3211: Red Skeletons tapped on the left bridge (3500, 15500), Blue's left princess down since t1634, were created there (3499, 15499). The enemy-half taps of the IL captures inside an open pocket (sp-il-6321, -84c7, -9371, -a55c: 9 taps) stood where tapped, as the territory has them.",
+      "meaning": "refuse: the engine's; a troop tap outside its territory is refused OUT_OF_TERRITORY by the play path, and a scenario play (spawn_unit) goes down where it was tapped. client15535_clamp_to_legal_edge: such a tap is moved back along its tile column, in the placer's frame, to the first tile centre the troop may go down on (spells.ILLEGAL_SPELL_TAP's search), then snapped as any tap; a tap on a bridge (the river band, not water) whose column's first tile past the river is legal (the lane's enemy princess tower down) goes down where it was tapped; a tap on water is refused as before. A line card (lays_a_line) keeps its own placement law.",
+      "open": "Red's enemy-half taps (every measured one is Blue's, the bridge into an open lane aside); a line card's tap past its half; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_clamp_to_legal_edge (examples/replay_parity/harness.rs CLIENT15535_ARMS). Shipping it changes the play path's verdict (OUT_OF_TERRITORY becomes a legal tap), which a client's action mask reads.",
+      "engine": "state.rs resolve_point_judged and check_position (`clamps_troop_tap`, `troop_tap_out_of_territory`, `bridge_into_open_lane`, `clamp_to_legal_edge`), selected by Calib::illegal_troop_tap; tests/illegal_troop_tap.rs."
+    },
     "RELOCATION_TIE_ORDER": {
       "value": "placer_frame_first_found",
       "status": "measured",

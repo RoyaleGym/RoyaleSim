@@ -350,6 +350,10 @@ pub struct Calib {
     /// what a battle saved before it actually ran.
     #[serde(default = "illegal_spell_tap_default")]
     pub illegal_spell_tap: IllegalSpellTap,
+    /// placement.ILLEGAL_TROOP_TAP: what a troop tapped outside its territory does (`resolve_point_judged`,
+    /// `check_position`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Refuse`.
+    #[serde(default = "illegal_troop_tap_default")]
+    pub illegal_troop_tap: IllegalTroopTap,
     /// movement.ATTACKING_UNIT_MOVEMENT. Added after SNAPSHOT_FORMAT 20. The `default`
     /// is `Frozen`, which is what a battle saved before this key actually ran.
     #[serde(default = "attacking_unit_movement_default")]
@@ -1371,6 +1375,10 @@ fn scheduled_unit_first_update_default() -> ScheduledUnitFirstUpdate {
 
 fn illegal_spell_tap_default() -> IllegalSpellTap {
     IllegalSpellTap::Refuse
+}
+
+fn illegal_troop_tap_default() -> IllegalTroopTap {
+    IllegalTroopTap::Refuse
 }
 
 fn attacking_unit_movement_default() -> AttackingUnitMovement {
@@ -2512,6 +2520,19 @@ calib_enum!(
         /// Measured on client 15.535.29: clamped back along its tile column to the first legal
         /// tile (the own-half boundary row, or the pocket's edge with a princess down).
         ClampToLegalEdge = "client16402_clamp_to_legal_edge",
+    }
+);
+calib_enum!(
+    /// placement.ILLEGAL_TROOP_TAP -- a troop tapped outside its territory.
+    IllegalTroopTap {
+        /// The engine's: the play is refused OUT_OF_TERRITORY, and a scenario play (`spawn_unit`) goes down where it
+        /// was tapped.
+        Refuse = "refuse",
+        /// Moved back along its tile column to the first legal tile (the spell clamp's search), then snapped; on a
+        /// bridge into a lane whose enemy princess tower is down it stands; on water it is still refused. Client
+        /// 15.535.29: Blue Skeletons on the right bridge played as the tap a subtile behind the river, 4 of 4; three
+        /// singles at (8500, 20500) created on (8499, 14500); Red Skeletons on the left bridge into an open lane stood.
+        Client15535ClampToLegalEdge = "client15535_clamp_to_legal_edge",
     }
 );
 calib_enum!(
@@ -6118,6 +6139,7 @@ impl Calib {
             clone_copy_deploy: pick(&v, &["spells", "CLONE_COPY_DEPLOY", "value"], CloneCopyDeploy::from_calibration_name)?,
             scheduled_unit_first_update: pick(&v, &["spawner", "SCHEDULED_UNIT_FIRST_UPDATE", "value"], ScheduledUnitFirstUpdate::from_calibration_name)?,
             illegal_spell_tap: pick(&v, &["spells", "ILLEGAL_SPELL_TAP", "value"], IllegalSpellTap::from_calibration_name)?,
+            illegal_troop_tap: pick(&v, &["placement", "ILLEGAL_TROOP_TAP", "value"], IllegalTroopTap::from_calibration_name)?,
             attacking_unit_movement: pick(&v, &["movement", "ATTACKING_UNIT_MOVEMENT", "value"], AttackingUnitMovement::from_calibration_name)?,
             hovering_water_rule: pick(&v, &["pathfinding", "HOVERING_WATER_RULE", "value"], HoveringWaterRule::from_calibration_name)?,
             hide_rise_law: pick(&v, &["hide", "RISE_LAW", "value"], RiseLaw::from_calibration_name)?,
@@ -23601,6 +23623,10 @@ impl BattleState {
             // spells.ILLEGAL_SPELL_TAP = clamp: a spell outside its territory is clamped, not refused.
             Err(crate::arena::ZoneError::OutOfTerritory)
                 if card.kind == CardKind::Spell && self.cfg.calib.illegal_spell_tap == IllegalSpellTap::ClampToLegalEdge && self.clamp_spell_tap(team, idx, pos).is_some() => {}
+            // placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge: a troop outside its territory is moved back
+            // (`resolve_point_judged`), not refused; on a bridge into an open lane it stands.
+            Err(crate::arena::ZoneError::OutOfTerritory)
+                if self.clamps_troop_tap(card) && (self.bridge_into_open_lane(team, idx, pos) || self.clamp_spell_tap(team, idx, pos).is_some()) => {}
             other => other?,
         }
         // A BUILDING IS JUDGED BY ITS FOOTPRINT, NOT BY THE TAP POINT. The tap
@@ -23736,6 +23762,18 @@ impl BattleState {
                 }
             }
         }
+        // placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge: a troop tapped outside its territory is moved
+        // back along its tile column to the first legal tile (the spell clamp's search), then snapped as any tap; one
+        // on a bridge into an open lane stands (`bridge_into_open_lane`). Measured on client 15.535.29: Oracle's
+        // tapedge scenes, Blue Skeletons tapped on the right bridge at (14500 | 14499, 15000 | 15001), every tower up,
+        // played exactly as the tap at (.., 14999) (truth identical over 62 ticks, 4 of 4; sp-sk-souls-own-s0 t256,
+        // where the engine laid all three on y 14500); sp-il-208a, three Blue singles tapped at (8500, 20500) created on
+        // (8499, 14500); a Valkyrie tapped at (9500, 20500) stood at (9500, 14500) (match.MIRROR_PLACEMENT).
+        if self.clamps_troop_tap(card) && self.troop_tap_out_of_territory(team, idx, p) {
+            if let Some(c) = self.clamp_spell_tap(team, idx, p) {
+                p = c;
+            }
+        }
         if snap && calib.placement_tap_snap == TapSnap::TileCentre {
             let t = self.cfg.arena.cell * 2;
             p = Vec2::new(p.x.div_euclid(t) * t + t / 2, p.y.div_euclid(t) * t + t / 2);
@@ -23781,6 +23819,53 @@ impl BattleState {
     /// spells.ILLEGAL_SPELL_TAP = clamp: the first tile centre, stepping back along the tap's
     /// column toward the caster, that the spell's territory accepts; None if none does.
     fn clamp_spell_tap(&self, team: Team, idx: u16, tap: Vec2) -> Option<Vec2> {
+        self.clamp_to_legal_edge(team, idx, tap)
+    }
+
+    /// placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge selected for `card`, a troop (a line returns
+    /// before it is read: `lays_a_line`).
+    fn clamps_troop_tap(&self, card: &CardDef) -> bool {
+        #[cfg(not(clash_plant = "troop_tap_unclamped"))]
+        return card.kind == CardKind::Troop && self.cfg.calib.illegal_troop_tap == IllegalTroopTap::Client15535ClampToLegalEdge;
+        #[cfg(clash_plant = "troop_tap_unclamped")]
+        {
+            let _ = card;
+            false // PLANT (regression): the new arm still refuses, and a scenario play goes down where tapped.
+        }
+    }
+
+    /// A troop tap placement.ILLEGAL_TROOP_TAP moves: outside its territory (OUT_OF_TERRITORY: the river band, an
+    /// alive enemy crown tower's NoDeploySize rect), and not on a bridge into an open lane.
+    fn troop_tap_out_of_territory(&self, team: Team, idx: u16, p: Vec2) -> bool {
+        let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
+        let rects = self.enemy_no_deploy_rects(team);
+        matches!(self.cfg.arena.deploy_zone(p, team, territory, &rects), Err(crate::arena::ZoneError::OutOfTerritory))
+            && !self.bridge_into_open_lane(team, idx, p)
+    }
+
+    /// A TAP ON A BRIDGE INTO AN OPEN LANE (placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge): on the river
+    /// band, not water, with its column's first tile past the river legal for `idx` (the lane's enemy princess tower is
+    /// down). It goes down where it was tapped. Measured on client 15.535.29: sp-il-04cb t3211, Red Skeletons tapped on
+    /// the left bridge (3500, 15500) after Blue's left princess fell (t1634) were created there, (3499, 15499); every
+    /// bridge tap with the lane closed was moved back.
+    fn bridge_into_open_lane(&self, team: Team, idx: u16, p: Vec2) -> bool {
+        #[cfg(not(clash_plant = "bridge_tap_clamped"))]
+        let read = true;
+        #[cfg(clash_plant = "bridge_tap_clamped")]
+        let read = false; // PLANT (regression): a bridge tap into an open lane is moved back too.
+        let arena = &self.cfg.arena;
+        let own = arena.to_frame(team, p);
+        if !read || own.y < arena.water_y_min || own.y >= arena.water_y_max || !arena.is_passable_ground(p) {
+            return false;
+        }
+        let t = arena.cell * 2;
+        let past = arena.from_frame(team, Vec2::new(own.x.div_euclid(t) * t + t / 2, arena.water_y_max + t / 2));
+        let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
+        arena.deploy_zone(past, team, territory, &self.enemy_no_deploy_rects(team)).is_ok()
+    }
+
+    /// Back along `tap`'s tile column, in the placer's frame, to the first tile centre `idx` may go down on.
+    fn clamp_to_legal_edge(&self, team: Team, idx: u16, tap: Vec2) -> Option<Vec2> {
         let arena = &self.cfg.arena;
         let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
         let rects = self.enemy_no_deploy_rects(team);
@@ -27572,6 +27657,9 @@ impl BattleState {
 /// 20, unchanged, targeting.KNOCKED_TARGET_HOLD: Calib gained knocked_target_hold (serde default the old arm,
 ///    held_while_knocked), no new state (the new arm changes a decision inside the Target phase), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, placement.ILLEGAL_TROOP_TAP: Calib gained illegal_troop_tap (serde default the old arm, refuse), no new
+///    state (the new arm decides where a troop tap goes down), so a blob saved before it deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, placement.RELOCATION_TIE_ORDER: Calib gained relocation_tie_order (serde default the old arm,
 ///    placer_frame_first_found), no new state (the new arm decides a building tap's landing), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -28109,6 +28197,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("projectile_launch".into(), serde_json::to_value(ProjectileLaunch::AttackerCentreSameTick).map_err(|e| e.to_string())?);
     // placement.RELOCATION_TIE_ORDER: a format-3 battle refused an illegal building tap (the same rule).
     sh.insert("relocation_tie_order".into(), serde_json::to_value(RelocationTieOrder::PlacerFrameFirstFound).map_err(|e| e.to_string())?);
+    // placement.ILLEGAL_TROOP_TAP: a format-3 battle refused a troop tap outside its territory (the same rule).
+    sh.insert("illegal_troop_tap".into(), serde_json::to_value(IllegalTroopTap::Refuse).map_err(|e| e.to_string())?);
     // combat.LAUNCH_PAST_TARGET: a format-3 battle's shots started at the attacker's centre (the same rule).
     sh.insert("launch_past_target".into(), serde_json::to_value(LaunchPastTarget::Clamped).map_err(|e| e.to_string())?);
     sh.insert("death_spawn_layout".into(), serde_json::to_value(DeathSpawnLayout::EngineGridWithinRadius).map_err(|e| e.to_string())?);
