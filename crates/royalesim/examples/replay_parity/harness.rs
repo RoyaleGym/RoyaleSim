@@ -1380,6 +1380,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   entry's windup back (its load timer LoadTime less its progress; every Sparky leave on client 15.535.29).
 ///   placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge: a troop tapped outside its territory goes down on the
 ///   first legal tile back along its column (4 of 4 bridge taps, 3 of 3 enemy-half singles on client 15.535.29).
+///   spawner.DEATH_RING_AXIS = client15535_unit_heading: a death ring's degree is read off its members' heading, the
+///   direction normalized to 256 (7 of 7 Battle Ram deaths where it rounds apart from the raw direction).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1400,6 +1402,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("placement.ILLEGAL_TROOP_TAP", "\"client15535_clamp_to_legal_edge\""),
     ("combat.LOAD_FIRST_HIT_LEAVE", "\"client15535_windup_refunded\""),
     ("combat.RANDOM_DELAY_STREAM", "\"client15535_battle_stream\""),
+    ("spawner.DEATH_RING_AXIS", "\"client15535_unit_heading\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

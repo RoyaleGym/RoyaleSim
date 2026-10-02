@@ -1,0 +1,118 @@
+//! spawner.DEATH_RING_AXIS: the direction a facing ring's angle is read off (state.rs, the death path's `axis`).
+//!
+//! THE LAW, measured on client 15.535.29: a dying unit's facing ring (spawner.DEATH_SPAWN_LAYOUT = facing_ring_rounded)
+//! lies at the whole degree of its members' heading, the direction from the death point to the target normalized to
+//! 256 native units per axis and truncated, not at the degree of the raw direction. The two round apart now and then: a
+//! Ram killed 2165 from the right princess tower it was charging, the raw direction (-287, 2146) at 97.62 degrees, the
+//! heading (-33, 253) at 97.43; the client laid the ring at 97 (7 of 7 such deaths, the seven sp-ram-v and sp-ram-w
+//! scenes), the Barbarians at (-73, +595) and (+73, -595) from the death point, where the raw direction gives 98.
+//!
+//! WHAT IS PINNED, on a Blue Battle Ram heading for the red right princess tower from a row of start points, each killed
+//! once it has taken the tower:
+//!   1. the row holds deaths where the raw direction and the heading round to different degrees, and deaths where they
+//!      agree (or the scene separates nothing);
+//!   2. where they differ, client15535_unit_heading lays the two Barbarians at the heading's degree and raw_direction at
+//!      the raw direction's, each worked here from the sine table; both arms give the members that heading;
+//!   3. where they agree, both arms lay the same points.
+//!
+//! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test death_ring_axis`):
+//!   * `death_ring_axis_raw` -- the ring's angle off the raw direction under the new arm too: (2) goes red.
+mod common;
+
+use common::*;
+use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::formation::{rounded_degree, sin1024};
+use royalesim::move16402::normalize_to;
+use royalesim::state::{BattleState, DeathRingAxis, DeathSpawnLayout, SpawnedFirstStep};
+use royalesim::Team;
+
+/// Where the red right princess tower stands, native.
+const TOWER: (i32, i32) = (14500, 25500);
+
+/// A Blue Battle Ram started at `start` (native), killed on the tick after it has taken the red right princess tower:
+/// the death point, the raw direction it died on (tower - death point, subtiles), and its Barbarians (position, facing)
+/// on their first frame. The death point is read off the ring: two members 180 degrees apart stand on exactly opposite
+/// offsets, truncation included, so their midpoint is the death point.
+fn ram_death(axis: DeathRingAxis, start: (i32, i32)) -> (Vec2, Vec2, Vec<(Vec2, Vec2)>) {
+    let mut cfg = config();
+    cfg.calib.death_spawn_layout = DeathSpawnLayout::FacingRingRounded;
+    cfg.calib.death_ring_axis = axis;
+    // spawner.SPAWNED_FIRST_STEP at none: the scene reads where the Barbarians are CREATED.
+    cfg.calib.spawned_first_step = SpawnedFirstStep::None;
+    let mut s = BattleState::new(0, cfg);
+    let at = |p: (i32, i32)| Vec2::new(p.0 * K, p.1 * K);
+    let ram = s.scenario_spawn_now(Team::Blue, "BattleRam", at(start), None).unwrap();
+    let tower = s.entities().find(|e| e.team == Team::Red && e.pos == at(TOWER)).expect("the red right princess tower").id;
+    for _ in 0..20 {
+        s.tick();
+        if s.entity(ram).and_then(|e| e.target) == Some(tower) {
+            break;
+        }
+    }
+    let rv = s.entity(ram).expect("scene: the Ram died before it took the tower");
+    assert_eq!(rv.target, Some(tower), "scene: the Ram never took the tower from {start:?}");
+    let before: Vec<_> = s.entities().map(|e| e.id).collect();
+    assert!(s.debug_set_hp(ram, 0));
+    s.tick();
+    assert!(s.entity(ram).is_none(), "scene: the Ram did not die");
+    let kids: Vec<(Vec2, Vec2)> = s.entities().filter(|e| !before.contains(&e.id)).map(|e| (e.pos, e.facing)).collect();
+    assert_eq!(kids.len(), 2, "scene: the Ram's death released {} units", kids.len());
+    let death = Vec2::new((kids[0].0.x + kids[1].0.x) / 2, (kids[0].0.y + kids[1].0.y) / 2);
+    (death, at(TOWER).sub(death), kids)
+}
+
+/// The two points of a two-member ring at `deg` around `death`, worked from the sine table (each axis of the radius in
+/// whole native units x the table / 1024, truncated toward zero), sorted.
+fn ring(death: Vec2, deg: i32, r: i64, shift: i32) -> Vec<Vec2> {
+    let rn = r / K as i64;
+    let mut v: Vec<Vec2> = (0..2)
+        .map(|k| {
+            let d = deg + shift + k * 180;
+            let (x, y) = ((rn * sin1024(d + 90) as i64 / 1024) as i32, (rn * sin1024(d) as i64 / 1024) as i32);
+            death.add(Vec2::new(x * K, y * K))
+        })
+        .collect();
+    v.sort_by_key(|p| (p.x, p.y));
+    v
+}
+
+fn sorted(kids: &[(Vec2, Vec2)]) -> Vec<Vec2> {
+    let mut v: Vec<Vec2> = kids.iter().map(|k| k.0).collect();
+    v.sort_by_key(|p| (p.x, p.y));
+    v
+}
+
+#[test]
+fn a_death_ring_lies_at_its_members_heading_degree() {
+    let s = BattleState::new(0, config());
+    let ram = card_stat(&s, "BattleRam");
+    let ds = ram.death_spawn.as_ref().expect("data: the Battle Ram has a death spawn");
+    let r = ds.radius.expect("data: the Battle Ram's DeathSpawnRadius") as i64;
+    let shift = ram.formation.spawn_angle_shift_deg;
+    assert_eq!(ds.count, 2, "data: the Battle Ram releases two");
+
+    let (mut apart, mut agree) = (0, 0);
+    for k in 0..41 {
+        let start = (14200 + 20 * k, 22800);
+        let (death, raw, kids) = ram_death(DeathRingAxis::Client15535UnitHeading, start);
+        let mut h = (raw.x / K, raw.y / K);
+        normalize_to(&mut h, 256);
+        let heading = Vec2::new(h.0, h.1);
+        let (a_raw, a_head) = (rounded_degree(raw), rounded_degree(heading));
+        let (death_raw, raw_again, old) = ram_death(DeathRingAxis::RawDirection, start);
+        assert_eq!((death_raw, raw_again), (death, raw), "scene: the arms moved the Ram before its death from {start:?}");
+        for (_, f) in kids.iter().chain(old.iter()) {
+            assert_eq!(*f, heading, "a Barbarian from {start:?} does not start with the heading {heading:?}");
+        }
+        if a_raw == a_head {
+            agree += 1;
+            assert_eq!(sorted(&kids), sorted(&old), "the arms lay different rings from {start:?} where both directions round to {a_raw}");
+            continue;
+        }
+        apart += 1;
+        assert_eq!(sorted(&kids), ring(death, a_head, r, shift), "client15535_unit_heading from {start:?}: the ring is not at the heading {heading:?}'s degree {a_head} (the raw direction {raw:?} rounds to {a_raw})");
+        assert_eq!(sorted(&old), ring(death, a_raw, r, shift), "raw_direction from {start:?}: the ring is not at the raw direction {raw:?}'s degree {a_raw}");
+    }
+    assert!(apart > 0, "precondition: no start point puts the Ram's death where the raw direction and the heading round apart");
+    assert!(agree > 0, "precondition: every start point rounds apart");
+}

@@ -3765,6 +3765,17 @@
       "promotion_rules": "Shipped: both clients agree on every recorded pair.",
       "engine": "state.rs death_spawn_points (`ring_step_on`), selected by Calib::death_spawn_ring_order; tests/death_ring_order.rs."
     },
+    "DEATH_RING_AXIS": {
+      "value": "raw_direction",
+      "status": "measured",
+      "candidates": ["raw_direction", "client15535_unit_heading"],
+      "confidence": "HIGH for client15535_unit_heading on client 15.535.29's Battle Ram deaths (7 of 7 where the two directions round to different degrees, 26 of 26 where they agree); the 16.402 corpus cannot tell them apart (its two Battle Ram deaths round to the same degree either way)",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's raw frames: every troop death that left exactly two units of its card on the next frame, standing symmetric about the death point, with a target on the frame before (33 Battle Ram and Evo Battle Ram deaths). Both members' first heading is the direction from the death point to that target normalized to 256 per axis, truncated, 33 of 33. Where that heading and the raw direction round to the same whole degree (26 deaths), the ring lies there. Where they round apart (7 deaths, one geometry: the seven sp-ram-v and sp-ram-w scenes' t308, a Ram killed 2165 from the right princess tower it was charging, the raw direction (-287, 2146) at 97.62 degrees, the heading (-33, 253) at 97.43), the ring lies at 97, the heading's degree, 7 of 7: the Barbarians stand at (-73, +595) and (+73, -595) from the death point, where the engine's raw direction laid them at 98, (-83, +594) and (+83, -594), 10 off across the axis (sp-ram-w-Knight-3500-s0 t308, the first error in those scenes; the Barbarian behind then avoids the dying Ram on the other side).",
+      "meaning": "raw_direction: the engine's; a facing ring's angle (spawner.DEATH_SPAWN_LAYOUT's facing_ring and facing_ring_rounded) is read off the raw direction from the death point to the dying unit's target, else its facing. client15535_unit_heading: off that direction normalized to 256 native units per axis, truncated: the heading the members start with. Only the ring's angle changes; the members' heading does not.",
+      "open": "16.402 (no death in the corpus separates the arms); a facing ring of three or more.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_unit_heading (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs, the death path (`heading256`, `axis`) feeding death_spawn_points, selected by Calib::death_ring_axis; tests/death_ring_axis.rs."
+    },
     "DEATH_SPAWN_LAYOUT": {
       "value": "facing_ring_rounded",
       "status": "measured",

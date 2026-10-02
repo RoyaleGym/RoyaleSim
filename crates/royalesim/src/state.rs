@@ -1151,6 +1151,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "death_spawn_ring_order_default")]
     pub death_spawn_ring_order: DeathSpawnRingOrder,
+    /// spawner.DEATH_RING_AXIS: the direction a facing ring's angle is read off (`death_spawn_points`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `RawDirection`.
+    #[serde(default = "death_ring_axis_default")]
+    pub death_ring_axis: DeathRingAxis,
     /// spawner.CONTAINER_BURST_PUSH: whether a container's burst point takes the contact law's push (`container_burst_point`).
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "container_burst_push_default")]
@@ -1483,6 +1487,10 @@ fn container_burst_push_default() -> ContainerBurstPush {
 
 fn death_spawn_ring_order_default() -> DeathSpawnRingOrder {
     DeathSpawnRingOrder::MemberZeroAtShift
+}
+
+fn death_ring_axis_default() -> DeathRingAxis {
+    DeathRingAxis::RawDirection
 }
 
 fn knocked_target_hold_default() -> KnockedTargetHold {
@@ -5451,6 +5459,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.DEATH_RING_AXIS -- the direction a facing ring's angle is read off (`Calib::death_ring_axis`).
+    DeathRingAxis {
+        /// The engine's: the raw direction from the death point to the dying unit's target (else its facing).
+        RawDirection = "raw_direction",
+        /// That direction normalized to 256 native units per axis, truncated (the heading its members start with), and
+        /// the ring's degree read off that. Client 15.535.29: 7 of 7 Battle Ram deaths where the two round apart
+        /// (sp-ram-w-Knight-3500-s0 t308: (-287, 2146) at 97.62 degrees, (-33, 253) at 97.43, the ring at 97).
+        Client15535UnitHeading = "client15535_unit_heading",
+    }
+);
+calib_enum!(
     /// spawner.DEATH_SPAWN_LAYOUT -- see `BattleState::death_spawn_points`.
     DeathSpawnLayout {
         /// The ring on the dying unit's FACING (measured on the live Battle Rams):
@@ -6452,6 +6471,7 @@ impl Calib {
             launch_past_target: pick(&v, &["combat", "LAUNCH_PAST_TARGET", "value"], LaunchPastTarget::from_calibration_name)?,
             death_spawn_layout: pick(&v, &["spawner", "DEATH_SPAWN_LAYOUT", "value"], DeathSpawnLayout::from_calibration_name)?,
             death_spawn_ring_order: pick(&v, &["spawner", "DEATH_SPAWN_RING_ORDER", "value"], DeathSpawnRingOrder::from_calibration_name)?,
+            death_ring_axis: pick(&v, &["spawner", "DEATH_RING_AXIS", "value"], DeathRingAxis::from_calibration_name)?,
             container_burst_push: pick(&v, &["spawner", "CONTAINER_BURST_PUSH", "value"], ContainerBurstPush::from_calibration_name)?,
             death_spawn_pushback: pick(&v, &["spawner", "DEATH_SPAWN_PUSHBACK", "value"], DeathSpawnPushback::from_calibration_name)?,
             death_slide_aim: pick(&v, &["spawner", "DEATH_SLIDE_AIM", "value"], DeathSlideAim::from_calibration_name)?,
@@ -22396,6 +22416,25 @@ impl BattleState {
                 }
                 None => self.ents.facing[i],
             };
+            // That direction normalized to 256 native units per axis, truncated: the heading a facing ring's members start
+            // with (`member_facing` below). None for a zero direction.
+            let heading256 = if facing != Vec2::default() {
+                use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                let mut v = (facing.x / K, facing.y / K);
+                if crate::move16402::normalize_to(&mut v, 256) != 0 { Some(Vec2::new(v.0, v.1)) } else { None }
+            } else {
+                None
+            };
+            // spawner.DEATH_RING_AXIS = client15535_unit_heading: the ring's angle is read off that heading, not off the
+            // raw direction (client 15.535.29: a Ram dying 2165 from the tower it hit, the direction (-287, 2146) at 97.62
+            // degrees, its Barbarians' heading (-33, 253) at 97.43, the ring at 97, where the raw direction rounds to 98).
+            #[cfg(not(clash_plant = "death_ring_axis_raw"))]
+            let axis = match heading256 {
+                Some(h) if self.cfg.calib.death_ring_axis == DeathRingAxis::Client15535UnitHeading => h,
+                _ => facing,
+            };
+            #[cfg(clash_plant = "death_ring_axis_raw")]
+            let axis = facing; // PLANT: the ring's angle off the raw direction under the new arm too.
             let shift = card.formation.spawn_angle_shift_deg;
             // spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: a dying unit whose ROW sets
             // DeathSpawnPushback (card.rs `death_spawn_pushback`: the Golem and the Lava Hound
@@ -22418,7 +22457,7 @@ impl BattleState {
             // keeps DEATH_SPAWN_LAYOUT. Plant death_slide_on_a_building drops this line.
             #[cfg(not(clash_plant = "death_slide_on_a_building"))]
             let slide = slide && unit.kind == CardKind::Troop;
-            let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing, angle_shift_deg: shift, radius, slide, orientation: RingOrientation::Troop };
+            let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing: axis, angle_shift_deg: shift, radius, slide, orientation: RingOrientation::Troop };
             // spawner.DEATH_SPAWN_AT_EMISSION_POINT = client16402_measured_list: a LISTED unit
             // with a spawner puts every member on the point its periodic units come out at
             // (`spawn_point`, through the one-member formation its timed waves use), all
@@ -22499,13 +22538,7 @@ impl BattleState {
             let keeps_heading = self.cfg.calib.death_spawn_layout == DeathSpawnLayout::FacingRingRounded && !slide && emission.is_none() && !listed;
             #[cfg(clash_plant = "death_ring_members_face_forward")]
             let keeps_heading = false; // PLANT (regression): the members face their side's forward.
-            let member_facing = if keeps_heading && facing != Vec2::default() {
-                use crate::fixed::SUBTILE_PER_MILLITILE as K;
-                let mut v = (facing.x / K, facing.y / K);
-                if crate::move16402::normalize_to(&mut v, 256) != 0 { Some(Vec2::new(v.0, v.1)) } else { None }
-            } else {
-                None
-            };
+            let member_facing = if keeps_heading { heading256 } else { None };
             parents.push(i);
             // spawner.DEATH_SLIDE_STOP = move_count: a member with an end point (DEATH_SLIDE_AIM = fixed_end_point)
             // slides at most its move count (`slide_move_count`), from where it is born.
@@ -27726,6 +27759,9 @@ impl BattleState {
 /// 20, unchanged, spawner.DEATH_SPAWN_RING_ORDER: Calib gained death_spawn_ring_order (serde default the old arm,
 ///    member_zero_at_shift), no new state (the new arm orders a death spawn's points as it lays them), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.DEATH_RING_AXIS: Calib gained death_ring_axis (serde default the old arm, raw_direction), no
+///    new state (the new arm reads a death ring's angle as it lays it), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.EVO_COPY_COUNT: Calib gained evo_copy_count (serde default the old arm, after_reap), no new
 ///    state (the new arm's room is read at the hit into the tick's scratch copy list, empty between ticks), so a blob
 ///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -28288,6 +28324,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_spawn_layout".into(), serde_json::to_value(DeathSpawnLayout::EngineGridWithinRadius).map_err(|e| e.to_string())?);
     // spawner.DEATH_SPAWN_RING_ORDER: read only on a facing ring, which a format-3 battle never laid (the same rule).
     sh.insert("death_spawn_ring_order".into(), serde_json::to_value(DeathSpawnRingOrder::MemberZeroAtShift).map_err(|e| e.to_string())?);
+    // spawner.DEATH_RING_AXIS: read only on a facing ring, which a format-3 battle never laid (the same rule).
+    sh.insert("death_ring_axis".into(), serde_json::to_value(DeathRingAxis::RawDirection).map_err(|e| e.to_string())?);
     // spawner.CONTAINER_BURST_PUSH: a format-3 battle's containers burst where they fell (the same rule).
     sh.insert("container_burst_push".into(), serde_json::to_value(ContainerBurstPush::None).map_err(|e| e.to_string())?);
     // The death-spawn slide: a format-3 battle laid every death spawn by the layout key and
