@@ -282,6 +282,10 @@ pub struct Calib {
     /// `Refuse`, which is what a battle saved before this key actually ran.
     #[serde(default = "placement_illegal_tap_default")]
     pub placement_illegal_tap: PlacementIllegalTap,
+    /// placement.RELOCATION_TIE_ORDER: which of two equally near relocations a building tap takes (`building_placement`).
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "relocation_tie_order_default")]
+    pub relocation_tie_order: RelocationTieOrder,
     /// placement.TAP_SNAP. Added after SNAPSHOT_FORMAT 20; the `default` is `None`, what a
     /// battle saved before it actually ran.
     #[serde(default = "tap_snap_default")]
@@ -1279,6 +1283,10 @@ fn placement_snap_even_default() -> PlacementSnapEven {
 /// the behaviour it actually had rather than into the one that ships now.
 fn placement_illegal_tap_default() -> PlacementIllegalTap {
     PlacementIllegalTap::Refuse
+}
+
+fn relocation_tie_order_default() -> RelocationTieOrder {
+    RelocationTieOrder::PlacerFrameFirstFound
 }
 
 fn tap_snap_default() -> TapSnap {
@@ -2325,6 +2333,18 @@ calib_enum!(
         PlacerFrame = "placer_frame",
         /// The arena's own lower-left corner, whoever places it.
         Absolute = "absolute",
+    }
+);
+calib_enum!(
+    /// placement.RELOCATION_TIE_ORDER -- see `Calib::relocation_tie_order`.
+    RelocationTieOrder {
+        /// Equally near relocations go to the first found in the ring order built in the placer's frame (the seats
+        /// mirror; the engine's).
+        PlacerFrameFirstFound = "placer_frame_first_found",
+        /// They go to the first in the fixed arena order -y, -x, +y, +x seen from the tap (clockwise from -y for the
+        /// diagonals), for both seats. Client 15.535.29: four Elixir Collector taps over a river corner, 4 of 4; a
+        /// Cannon tapped on a tile edge, 10 of 10.
+        Client15535ArenaClockwise = "client15535_arena_clockwise",
     }
 );
 calib_enum!(
@@ -5953,6 +5973,7 @@ impl Calib {
             territory_model,
             placement_snap_even: pick(&v, &["placement", "SNAP_EVEN_CORNER", "value"], PlacementSnapEven::from_calibration_name)?,
             placement_illegal_tap: pick(&v, &["placement", "ILLEGAL_TAP", "value"], PlacementIllegalTap::from_calibration_name)?,
+            relocation_tie_order: pick(&v, &["placement", "RELOCATION_TIE_ORDER", "value"], RelocationTieOrder::from_calibration_name)?,
             placement_tap_snap: pick(&v, &["placement", "TAP_SNAP", "value"], TapSnap::from_calibration_name)?,
             placement_troop_tower_taps: pick(&v, &["placement", "TROOP_TOWER_TAPS", "value"], TroopTowerTaps::from_calibration_name)?,
             placement_tower_tap_push: pick(&v, &["placement", "TOWER_TAP_PUSH", "value"], TowerTapPush::from_calibration_name)?,
@@ -8418,6 +8439,25 @@ impl Grid16402 {
 /// any tile of it (18 x 32 tiles), so on this map the bound never decides
 /// anything; it exists so the search terminates on a map where it could.
 pub const PLACEMENT_SEARCH_RINGS: i32 = 30;
+
+/// Does the offset `a` come before `b` going clockwise from -y in the arena's frame (-y, -x, +y, +x, the diagonals between)?
+/// placement.RELOCATION_TIE_ORDER = client15535_arena_clockwise's order; integer, a quadrant then a slope.
+fn clockwise_before(a: Vec2, b: Vec2) -> bool {
+    fn key(v: Vec2) -> (u8, i64, i64) {
+        let (dx, dy) = (i64::from(v.x), i64::from(v.y));
+        if dx <= 0 && dy < 0 {
+            (0, -dx, -dx - dy)
+        } else if dx < 0 && dy >= 0 {
+            (1, dy, -dx + dy)
+        } else if dx >= 0 && dy > 0 {
+            (2, dx, dx + dy)
+        } else {
+            (3, -dy, (dx - dy).max(1))
+        }
+    }
+    let ((qa, na, da), (qb, nb, db)) = (key(a), key(b));
+    qa < qb || (qa == qb && na * db < nb * da)
+}
 
 /// The tile offsets of the square ring at Chebyshev distance `r`, in a fixed
 /// order. Only the ORDER is a choice: it breaks a tie between two fitting tiles
@@ -23656,9 +23696,27 @@ impl BattleState {
                     continue;
                 }
                 let dist = candidate.dist2(tap);
+                // placement.RELOCATION_TIE_ORDER = client15535_arena_clockwise: a tie between two equally near fits goes to
+                // the first in the fixed arena order -y, -x, +y, +x seen from the TAP (clockwise from -y), for both seats
+                // (client 15.535.29: four Elixir Collector taps over a river corner, 4 of 4; Red (16500, 18500) ->
+                // (15500, 18500), where the placer-frame ring takes (16500, 19500); a Blue Cannon tapped on a tile edge,
+                // (9000, 14500) -> (8500, 13500) in 10 of 10 captures, which the order seen from the snapped tile
+                // (9500, 14500) misses: it takes -y, (9500, 13500)).
+                #[cfg(not(clash_plant = "relocation_ties_mirrored"))]
+                let clockwise = !tunnels && self.cfg.calib.relocation_tie_order == RelocationTieOrder::Client15535ArenaClockwise;
+                #[cfg(clash_plant = "relocation_ties_mirrored")]
+                let clockwise = false; // PLANT (regression): the new arm's ties still mirror with the seat.
+                #[cfg(not(clash_plant = "relocation_ties_from_snapped"))]
+                let seen_from = tap;
+                #[cfg(clash_plant = "relocation_ties_from_snapped")]
+                let seen_from = snapped; // PLANT (regression): the order seen from the snapped tile.
                 let better = match best {
                     None => true,
-                    Some((b, c)) => dist < b || (tunnels && dist == b && arena.to_frame(team, candidate).y > arena.to_frame(team, c).y),
+                    Some((b, c)) => {
+                        dist < b
+                            || (tunnels && dist == b && arena.to_frame(team, candidate).y > arena.to_frame(team, c).y)
+                            || (clockwise && dist == b && clockwise_before(candidate.sub(seen_from), c.sub(seen_from)))
+                    }
                 };
                 if better {
                     best = Some((dist, candidate));
@@ -27137,6 +27195,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, placement.RELOCATION_TIE_ORDER: Calib gained relocation_tie_order (serde default the old arm,
+///    placer_frame_first_found), no new state (the new arm decides a building tap's landing), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.LAUNCH_PAST_TARGET: Calib gained launch_past_target (serde default the old arm, clamped), no new
 ///    state (the new arm moves a shot's start point at its launch), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -27664,6 +27725,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("attack_cycle".into(), serde_json::to_value(AttackCycle::WindupLoadTime).map_err(|e| e.to_string())?);
     sh.insert("charged_hit_timing".into(), serde_json::to_value(ChargedHitTiming::AfterLoadTimeWindup).map_err(|e| e.to_string())?);
     sh.insert("projectile_launch".into(), serde_json::to_value(ProjectileLaunch::AttackerCentreSameTick).map_err(|e| e.to_string())?);
+    // placement.RELOCATION_TIE_ORDER: a format-3 battle refused an illegal building tap (the same rule).
+    sh.insert("relocation_tie_order".into(), serde_json::to_value(RelocationTieOrder::PlacerFrameFirstFound).map_err(|e| e.to_string())?);
     // combat.LAUNCH_PAST_TARGET: a format-3 battle's shots started at the attacker's centre (the same rule).
     sh.insert("launch_past_target".into(), serde_json::to_value(LaunchPastTarget::Clamped).map_err(|e| e.to_string())?);
     sh.insert("death_spawn_layout".into(), serde_json::to_value(DeathSpawnLayout::EngineGridWithinRadius).map_err(|e| e.to_string())?);

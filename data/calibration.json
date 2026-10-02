@@ -749,6 +749,17 @@
       "promotion_rules": "Pass the 15.535.29 checks (the seven Knights, raw against snapped Log casts), score by override, then flip.",
       "engine": "the deploy path before formation_members and spell::cast; arena.rs snap_placement with a one-tile box"
     },
+    "RELOCATION_TIE_ORDER": {
+      "value": "placer_frame_first_found",
+      "status": "measured",
+      "candidates": ["placer_frame_first_found", "client15535_arena_clockwise"],
+      "confidence": "MEDIUM for client15535_arena_clockwise on client 15.535.29 (5 of 5 distinct ties, against 3 of 5 for the placer-frame order and 4 of 5 for the arena order seen from the snapped tile); 16.402's ties unread",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's sp-esk-bank scenes: an Elixir Collector (3x3) tapped at a tile beside a river corner, its box over the corner's NO_DEPLOY tile, each tap with two fits one tile away and equally near. Blue (1500, 13500) -> (1500, 12500) and (16500, 13500) -> (16500, 12500), -y over +x and over -x; Red (1500, 18500) -> (1500, 19500), +y over +x, and (16500, 18500) -> (15500, 18500), -x over +y (the engine took (16500, 19500): sp-esk-bank-16500-s1's first divergence, t788). One fixed arena order fits all four: -y, -x, +y, +x, the order placement.TOWER_TAP_PUSH measured for troop taps on a tower (42 of 42). The shipped ring, built in the placer's frame so the seats mirror, fits three. The order is seen from the tap: a Blue Cannon (3x3) tapped on a tile edge, (9000, 14500), its box over the river, has two fits one tile below, (8500, 13500) and (9500, 13500), at (-500, -1000) and (+500, -1000) from the tap; it took (8500, 13500) in all 10 captures (the oracle's bldtaps and bldtaps2 scenes, sp-m3-barrage2-s0), the first going clockwise from -y. Seen from the snapped tile (9500, 14500) the order takes -y, (9500, 13500) (the bldtaps scenes lose 381 within-250 unit-ticks that way); the placer-frame ring takes (8500, 13500) too. The Collector taps are tile centres, where tap and snapped tile coincide.",
+      "meaning": "placer_frame_first_found: equally near relocations of a building tap go to the first found in the ring order built in the placer's frame (the seats mirror; the engine's). client15535_arena_clockwise: they go to the first in the fixed arena order -y, -x, +y, +x seen from the tap, the directions between in turn (clockwise from -y), for both seats. A tunneller's tie keeps its own rule (further forward in the placer's frame).",
+      "open": "Ties off the axes are measured once (the Cannon's, between -y and -x against between +x and -y); Red's tile-edge ties; 16.402's building ties; the crown-tower and bottle relocations (`ring_nearest_fit`), which keep their own order.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_arena_clockwise (examples/replay_parity/harness.rs CLIENT15535_ARMS). A 16.402 building tie would settle the shipped arm.",
+      "engine": "state.rs building_placement (`clockwise`, `clockwise_before`), selected by Calib::relocation_tie_order; tests/relocation_ties.rs."
+    },
     "ILLEGAL_TAP": {
       "value": "relocate_first_fitting_ring",
       "status": "measured",
