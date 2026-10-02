@@ -12997,6 +12997,25 @@ impl CardDb {
         Ok(())
     }
 
+    /// IS CARD `idx` A CHAMPION: does its own row carry a champion's button (a dash chain, a deflect, a self buff, a warp
+    /// back, a lane switch, a soul summon, a guard or a tether)? The battle gives such a deck entry an ability button
+    /// with no form chosen (state.rs `champion_button`); the catalogue reports it (`catalogue_json`'s "champion").
+    pub fn is_champion(&self, idx: u16) -> bool {
+        matches!(
+            self.get(idx).ability.as_ref().map(|a| &a.effect),
+            Some(
+                AbilityEffect::DashChain { .. }
+                    | AbilityEffect::Deflect { .. }
+                    | AbilityEffect::SelfBuff { .. }
+                    | AbilityEffect::WarpBack(_)
+                    | AbilityEffect::LaneSwitch(_)
+                    | AbilityEffect::SoulSummon(_)
+                    | AbilityEffect::Guard(_)
+                    | AbilityEffect::Tether(_)
+            )
+        )
+    }
+
     /// THE CARD A DECK ENTRY OF `base` WITH FORM `form` PLAYS (`BattleConfig::forms`): the base itself for 0, its
     /// evolution for FORM_EVOLUTION (`forms`), its hero form for FORM_HERO (`hero_forms`); None when the table loads no
     /// such form.
