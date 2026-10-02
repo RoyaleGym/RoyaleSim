@@ -11,5 +11,7 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
   was built on.
 - New: `royalesim.data_dir()`, the folder holding the engine's data files.
 - New: `royalesim.card_table_source()`, which card table a battle loads.
+- `state_json()`: each row of a player's `"evo"` list gains a fourth value, the plays the evolution needs. Plays
+  divided by it is the progress to the next evolved play. Readers of the first three values are unaffected.
 - `royalesim` is now a package. The compiled module is still `royalesim.royalesim`, and everything in it is
   available as `royalesim.<name>`, as before.
