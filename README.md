@@ -12,17 +12,15 @@ Most people use it through [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) a
 ## Install
 
 ```bash
-pip install "royalegym[all]"
+pip install "royalegym[all]" --find-links https://github.com/RoyaleGym/RoyaleGym/releases/expanded_assets/v0.1.1
 ```
 
-That installs this engine and everything else. Until the packages are on PyPI, the install line
-needs one more part: see [Install](https://royalegym.github.io/RoyaleGym/install/).
+That installs this engine and everything else, on 3.12 or 3.13 (the engine alone runs on 3.10 and newer). [Install](https://royalegym.github.io/RoyaleGym/install/) has more.
 
 ## Try it
 
 ```python
-import json
-import royalesim
+import json, royalesim
 
 b = royalesim.Battle(card_names=None, slot_of_k=[[0, 1, 2], [0, 1, 2]])
 ids = {row[0]: i for i, row in enumerate(json.loads(b.catalogue_json()))}
@@ -35,7 +33,6 @@ print(json.loads(b.state_json())["tick"], royalesim.DEPLOY_REASONS[r[0][1]])   #
 
 ## Next
 
-- The docs: [royalegym.github.io/RoyaleGym](https://royalegym.github.io/RoyaleGym/)
 - The engine's Python API: [API](https://royalegym.github.io/RoyaleGym/repos/royalesim/api/)
 - How it works inside, how fast and how accurate it is, building from source: [Engine](https://royalegym.github.io/RoyaleGym/repos/royalesim/engine/)
 - Questions: [Discord](https://discord.gg/4D2BS5JBHP)
