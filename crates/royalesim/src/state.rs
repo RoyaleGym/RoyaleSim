@@ -217,6 +217,11 @@ pub struct Calib {
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "held_facing_default")]
     pub held_facing: HeldFacing,
+    /// movement.DOOMED_OWN_UPDATE (`phase_path16402_for`, under movement.DYING_UNIT_VISIBILITY = client_doomed_static):
+    /// whether a troop whose death is settled before the move pass takes an update of its own. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    #[serde(default = "doomed_own_update_default")]
+    pub doomed_own_update: DoomedOwnUpdate,
     pub mana_regen_ms_1x: i32,
     pub mana_regen_ms_2x: i32,
     /// match.MANA_REGEN_MS_OVERTIME: the late-overtime regen, ms for a full bar (0: no third rate, the engine before
@@ -1825,6 +1830,10 @@ fn fly_direct_paths_default() -> FlyDirectPaths {
 
 fn held_facing_default() -> HeldFacing {
     HeldFacing::Unchanged
+}
+
+fn doomed_own_update_default() -> DoomedOwnUpdate {
+    DoomedOwnUpdate::Walks
 }
 
 fn ability_unit_first_update_default() -> AbilityUnitFirstUpdate {
@@ -5006,6 +5015,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.DOOMED_OWN_UPDATE -- see `Calib::doomed_own_update`.
+    DoomedOwnUpdate {
+        /// A doomed troop takes its update like any other: it walks and is pushed (the engine's).
+        Walks = "walks",
+        /// A doomed troop takes no update of its own: it stays where the tick found it, a static body to the rest
+        /// (client 15.535.29: a Battle Ram killed by its own hit lays its Barbarians on its last point, 29 of 29).
+        Client15535Skipped = "client15535_skipped",
+    }
+);
+calib_enum!(
     /// movement.HELD_FACING -- see `Calib::held_facing`.
     HeldFacing {
         /// A held unit aims at itself at speed 0: its facing stays (the engine's, 16.402's as shipped).
@@ -5851,6 +5870,7 @@ impl Calib {
             ladder_end_route: pick(&v, &["knockback", "LADDER_END_ROUTE", "value"], LadderEndRoute::from_calibration_name)?,
             fly_direct_paths: pick(&v, &["movement", "FLY_DIRECT_PATHS", "value"], FlyDirectPaths::from_calibration_name)?,
             held_facing: pick(&v, &["movement", "HELD_FACING", "value"], HeldFacing::from_calibration_name)?,
+            doomed_own_update: pick(&v, &["movement", "DOOMED_OWN_UPDATE", "value"], DoomedOwnUpdate::from_calibration_name)?,
             mana_regen_ms_1x: int(&v, &["match", "MANA_REGEN_MS_1X", "value"])?,
             mana_regen_ms_2x: int(&v, &["match", "MANA_REGEN_MS_2X", "value"])?,
             mana_regen_ms_3x: int(&v, &["match", "MANA_REGEN_MS_OVERTIME", "value"])?,
@@ -16903,7 +16923,19 @@ impl BattleState {
             // Only the creation-order arm drops a doomed troop at its place in the pass; under
             // client_doomed_static it walks like any other, and only its `avoid_static` differs.
             let drops_doomed = calib.dying_unit_visibility == DyingUnitVisibility::CreationOrderBeforeVictim;
+            // movement.DOOMED_OWN_UPDATE = client15535_skipped (under client_doomed_static): a doomed troop takes no update
+            // of its own -- no walk, no push -- and stays where the tick found it, a static body to the rest. Client
+            // 15.535.29: a Battle Ram killed by its own hit lays its Barbarians on its last point, 29 of 29 (sp-ram-alone-s0
+            // t309, where the engine pushed it (7, 3) first).
+            #[cfg(not(clash_plant = "doomed_own_update_kept"))]
+            let doomed_stays = calib.dying_unit_visibility == DyingUnitVisibility::ClientDoomedStatic
+                && calib.doomed_own_update == DoomedOwnUpdate::Client15535Skipped;
+            #[cfg(clash_plant = "doomed_own_update_kept")]
+            let doomed_stays = false; // PLANT (regression): the new arm still moves a doomed troop.
             for i in order {
+                if doomed_stays && doomed.get(i).copied().unwrap_or(false) {
+                    continue;
+                }
                 if drops_doomed && doomed.get(i).copied().unwrap_or(false) {
                     // ---- A UNIT DYING THIS TICK (calibration movement.DYING_UNIT_VISIBILITY
                     // = creation_order_before_victim; `doomed_mask`): the movers before it
@@ -26953,6 +26985,9 @@ impl BattleState {
 /// 20, unchanged, movement.HELD_FACING: Calib gained held_facing (serde default the old arm, unchanged), no new state
 ///    (the new arm changes a held unit's aim, not what is saved), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.DOOMED_OWN_UPDATE: Calib gained doomed_own_update (serde default the old arm, walks), no new
+///    state (the new arm skips a doomed troop's update inside the pass), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SLIDE_AIM: Calib gained death_slide_aim (serde default the old arm, current_ray),
 ///    Entities gained `death_slide_end` (serde default, sized on load) and PendingSpawn `slide_end` (serde default):
 ///    a sliding member's fixed end point, set at birth under fixed_end_point alone and hashed only while its slide
@@ -27602,6 +27637,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("fly_direct_paths".into(), serde_json::to_value(FlyDirectPaths::NotRead).map_err(|e| e.to_string())?);
     // movement.HELD_FACING: a format-3 battle's held units kept their facing (the same rule).
     sh.insert("held_facing".into(), serde_json::to_value(HeldFacing::Unchanged).map_err(|e| e.to_string())?);
+    // movement.DOOMED_OWN_UPDATE: a format-3 battle's doomed troops took their update (the same rule).
+    sh.insert("doomed_own_update".into(), serde_json::to_value(DoomedOwnUpdate::Walks).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_AIM: the same (a format-3 battle laid no slide).
     sh.insert("death_slide_aim".into(), serde_json::to_value(DeathSlideAim::CurrentRay).map_err(|e| e.to_string())?);
     // spawner.DEATH_SLIDE_BIRTH and DEATH_SLIDE_STOP: the same (a format-3 battle laid no slide at all).
