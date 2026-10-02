@@ -12409,7 +12409,7 @@ impl BattleState {
     /// THE REGEN'S MULTIPLE the next tick runs: 3 under `triple_elixir`, 2 under `double_elixir`, else 1. The one
     /// answer `state_json`'s `elixir_rate` reports.
     /// THE HAND REFILL TIMERS (match.HAND_REFILL_MS_1X/_2X/_3X; `PlayerState::refill_ms`). Measured on client
-    /// 15.535.29 (Oracle, 2026-10-02, from full kernel frames of a bench scene and a recorded Ladder match): ONE timer per
+    /// 15.535.29 (the oracle, 2026-10-02, from the client's full per-tick state in a bench scene and a recorded Ladder match): ONE timer per
     /// player. Each tick it counts down a tick's ms (never below 0); when it reads 0 and a slot is empty, the queue's
     /// front card fills the LOWEST-index empty slot and the timer restarts at the phase's period (1000 ms in 1x elixir,
     /// 500 ms in 2x, 350 ms in 3x), read at each restart: a running countdown keeps its value across a phase change. A play while the timer reads 0 refills its slot on the same tick; a play while it runs leaves the

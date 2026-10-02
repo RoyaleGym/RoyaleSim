@@ -1,6 +1,6 @@
 //! THE HAND REFILL TIMER (state.rs `refill_hands`, `PlayerState::refill_ms`, match.HAND_REFILL_MS_1X/_2X/_3X).
 //!
-//! Measured on client 15.535.29 (the oracle's full kernel frames, 2026-10-02): one timer per player, counting down 50
+//! Measured on client 15.535.29 (the oracle's full per-tick client state, 2026-10-02): one timer per player, counting down 50
 //! a tick. At 0, the queue's front card fills the LOWEST empty slot and the timer restarts at 1000 ms (500 in 2x
 //! elixir, 350 in 3x), reading 1000 on the refill tick itself. A play while the timer reads 0 is refilled on the same tick; a
 //! play while it runs leaves its slot empty until it runs out; back-to-back plays queue one card per period.
