@@ -618,22 +618,29 @@ impl Arena {
     }
 
     /// A GROUND POINT LEFT ON WATER BY A DASH'S END OR A SKELETON KING'S COPY, put on land as client 15.535.29 puts it
-    /// (Oracle's fit off the frames, 5 of 5; the client's routine is not located). The candidates are `p` + (500 i -
-    /// 250, 500 j - 250) native: a 500 grid set half a step off `p` on both axes, so neither axis stays put. The
-    /// nearest one on passable ground by its offset's length wins; a tie goes to the offset toward `team`'s own left,
-    /// then toward its own side (for Blue the most negative, as measured; Red's ties are unmeasured and taken in its
-    /// own frame, so a unit and its rotated twin land on rotated points). Measured: the Boss Bandit's dash ending on
-    /// (11043, 15703) put on (10793, 14953); the Skeleton King's copies drawn onto (11212, 16174), (10006, 15623),
-    /// (11892, 16480) and (11438, 16328) put on (10962, 14924), (9756, 14873), (11642, 17230) and (11188, 17078). `p`
+    /// (Oracle's fit off the frames; the client's routine is not located). The candidates are `p` + (500 i - 250,
+    /// 500 j - 250) native: a 500 grid set half a step off `p` on both axes, so neither axis stays put. The nearest one
+    /// on passable ground by its offset's length wins; a tie goes to the most negative x offset, then the most
+    /// negative y, in the arena's frame whatever the team (`team` is read only under the plant land_ties_own_frame).
+    /// Measured: the Boss Bandit's dash ending on (11043, 15703) put on (10793, 14953); Blue Skeleton King copies
+    /// drawn onto (11212, 16174), (10006, 15623), (11892, 16480) and (11438, 16328) put on (10962, 14924), (9756,
+    /// 14873), (11642, 17230) and (11188, 17078); and 8 Red copies whose offsets tie (sp-il-b5e2 and sp-il-323a,
+    /// tests/water_landing.rs), each put toward -x, then -y, where Red's own frame would put it toward +x, +y. `p`
     /// itself when it is passable; None when no candidate within 4,250 of it is (never on the shipped map). Open:
-    /// whether land means the point's cell or the unit's footprint, and a tie between an x-only and a y-only candidate
-    /// beside a bridge.
+    /// whether land means the point's cell or the unit's footprint, a tie between an x-only and a y-only candidate
+    /// beside a bridge, and a Red dash's end (unmeasured; the one rule is taken).
     pub fn nearest_land_grid(&self, p: Vec2, team: Team) -> Option<Vec2> {
         if self.is_passable_ground(p) {
             return Some(p);
         }
         let k = SUBTILE / 1000;
-        let (left, side) = (Arena::own_left_dx(team), Arena::own_side_dy(team));
+        #[cfg(not(clash_plant = "land_ties_own_frame"))]
+        let (left, side) = {
+            let _ = team;
+            (Arena::own_left_dx(Team::Blue), Arena::own_side_dy(Team::Blue))
+        };
+        #[cfg(clash_plant = "land_ties_own_frame")]
+        let (left, side) = (Arena::own_left_dx(team), Arena::own_side_dy(team)); // PLANT (regression): Red's ties in its own frame.
         let mut best: Option<((i64, i32, i32), Vec2)> = None;
         for i in -8..=9 {
             for j in -8..=9 {

@@ -15414,14 +15414,17 @@ impl BattleState {
     /// its first update (the trigger + 1) it shuffles its n = count - 1 directions: max(1, 50 n) pairs of draws i =
     /// rnd(n), j = rnd(n), swapped when they differ. Copy k is put down on the trigger + `first_ms` + k `every_ms`
     /// (released at the end of the tick, so its first frame is that tick's), a copy (`make_copy`: 1 hitpoint) deploying
-    /// `deploy_ms`, at theta = perm[(k + n - 2) mod n] x 360 / n degrees from +y toward +x and r = `min_radius` +
+    /// `deploy_ms`, at theta = perm[(k + 38) mod n] x 360 / n degrees from +y toward +x and r = `min_radius` +
     /// rnd(`area_radius` minus `min_radius` minus its collision radius) (x += sin(theta) r >> 10, y += sin(theta + 90)
-    /// r >> 10, the 1024 table, `formation::sin1024`), set into the arena as a scheduled spawn is (`scheduled_point`)
-    /// and, a ground copy drawn onto the river, onto land by the grid rule (arena.rs `nearest_land_grid`; Oracle's fit,
-    /// 4 copies of 4). The draws are the client's generator's (`client_rnd`). Read off the client by Oracle and checked
-    /// draw for draw on client 15.535.29's frames (sp-champ-SkeletonKing-s0: 500 draws from t205 to t206, perm [3, 2,
-    /// 1, 0, 4], one draw per copy; the phase k + n - 2 is read off both scenes' copies, not the code). Not run: the
-    /// client's four retries of a point that fails its placement check (none in the measured scenes).
+    /// r >> 10, the 1024 table, `formation::sin1024`), put where `soul_landing` puts it. A point refused there
+    /// (`soul_point_refused`) is drawn anew, theta = rnd(360) and r = rnd(`area_radius`), and the copy put there
+    /// unchecked. The draws are the client's generator's (`client_rnd`). Read off the client by Oracle and checked draw
+    /// for draw on client 15.535.29's frames (sp-champ-SkeletonKing-s0: 500 draws from t205 to t206, perm [3, 2, 1, 0,
+    /// 4], one draw per copy). The phase k + 38 and the redraw are read off the copies, not the code: the seven sp
+    /// scenes' rng column (n = 5 to 8) and three sp-il runs (n = 15, the generator's state recovered from the copies'
+    /// radii), 99 copies, every one with a King frame put where this rule puts it, or within its first frame's push;
+    /// the 8 refused each took three draws on its tick. Not measured: n = 9 to 14 (k + 38 + 840 m fits every measured
+    /// n).
     fn soul_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let tick_ms = self.cfg.calib.tick_ms.max(1);
@@ -15446,7 +15449,10 @@ impl BattleState {
             }
             let due = r.made + ((sd.first_ms + r.done * sd.every_ms) / tick_ms) as u32;
             if self.tick == due && !r.order.is_empty() && sd.first_ms + r.done * sd.every_ms < sd.life_ms {
-                let idx = ((r.done as u32 + 2 * n - 2) % n) as usize;
+                #[cfg(not(clash_plant = "souls_phase_n_minus_2"))]
+                let idx = ((r.done as u32 + 38) % n) as usize;
+                #[cfg(clash_plant = "souls_phase_n_minus_2")]
+                let idx = ((r.done as u32 + 2 * n - 2) % n) as usize; // PLANT (regression): the phase read off n = 5 and 8 alone.
                 let theta = i32::from(r.order[idx]) * 360 / n as i32;
                 let unit_r = self.cfg.cards.get(sd.unit).collision_radius / K;
                 let span = (sd.area_radius / K - sd.min_radius / K - unit_r).max(1) as u32;
@@ -15454,21 +15460,19 @@ impl BattleState {
                 let dx = (crate::formation::sin1024(theta) * radius) >> 10;
                 let dy = (crate::formation::sin1024(theta + 90) * radius) >> 10;
                 let flying = self.cfg.cards.get(sd.unit).is_flying();
-                let to = Vec2::new(r.at.x + dx * K, r.at.y + dy * K);
-                // A copy drawn onto the river: the grid rule, not the scheduled spawn's one-axis eject. Measured on
-                // client 15.535.29 (sp-champ-SkeletonKing-s0): the draw (11212, 16174) stood on (10962, 14924).
-                let q = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, true);
-                // Whatever spells.SCHEDULED_SPAWN_INVALID_POINT says: its shipped clamp_keep_water is the Graveyard's
-                // (its Skeletons measured deploying on the water), his copies' landing is measured apart.
-                #[cfg(not(clash_plant = "souls_axis_eject"))]
-                let grid = !flying && !self.cfg.arena.is_passable_ground(q);
-                #[cfg(clash_plant = "souls_axis_eject")]
-                let grid = false; // PLANT (regression): the scheduled spawn rule (shipped: kept on the water).
-                let p = if grid {
-                    self.cfg.arena.nearest_land_grid(q, r.team).unwrap_or(q)
+                let first = self.soul_landing(r.team, Vec2::new(r.at.x + dx * K, r.at.y + dy * K), flying);
+                #[cfg(not(clash_plant = "souls_never_refused"))]
+                let p = if self.soul_point_refused(first, self.cfg.cards.get(sd.unit).collision_radius) {
+                    let theta = self.client_rnd(360) as i32;
+                    let radius = self.client_rnd((sd.area_radius / K).max(1) as u32) as i32;
+                    let dx = (crate::formation::sin1024(theta) * radius) >> 10;
+                    let dy = (crate::formation::sin1024(theta + 90) * radius) >> 10;
+                    self.soul_landing(r.team, Vec2::new(r.at.x + dx * K, r.at.y + dy * K), flying)
                 } else {
-                    self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying)
+                    first
                 };
+                #[cfg(clash_plant = "souls_never_refused")]
+                let p = first; // PLANT (regression): the first draw stands wherever it falls.
                 #[cfg(not(clash_plant = "souls_not_copies"))]
                 let cloned = true;
                 #[cfg(clash_plant = "souls_not_copies")]
@@ -15481,6 +15485,57 @@ impl BattleState {
             }
         }
         self.warps.soul_runs = keep;
+    }
+
+    /// WHERE A COPY'S DRAWN POINT IS PUT (`soul_pass`): into the arena as a scheduled spawn is (`scheduled_point`)
+    /// and, a ground copy's point on the river, onto land by the grid rule (arena.rs `nearest_land_grid`), not the
+    /// scheduled spawn's one-axis eject. Measured on client 15.535.29: 22 copies drawn onto the river, 19 put where
+    /// the rule puts them and 3 within their first frame's push (sp-champ-SkeletonKing-s0: the draw (11212, 16174)
+    /// stood on (10962, 14924)).
+    fn soul_landing(&self, team: Team, to: Vec2, flying: bool) -> Vec2 {
+        let q = self.scheduled_point(team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, true);
+        // Whatever spells.SCHEDULED_SPAWN_INVALID_POINT says: its shipped clamp_keep_water is the Graveyard's (its
+        // Skeletons measured deploying on the water), his copies' landing is measured apart.
+        #[cfg(not(clash_plant = "souls_axis_eject"))]
+        let grid = !flying && !self.cfg.arena.is_passable_ground(q);
+        #[cfg(clash_plant = "souls_axis_eject")]
+        let grid = false; // PLANT (regression): the scheduled spawn rule (shipped: kept on the water).
+        if grid {
+            self.cfg.arena.nearest_land_grid(q, team).unwrap_or(q)
+        } else {
+            self.scheduled_point(team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying)
+        }
+    }
+
+    /// A COPY'S POINT REFUSED (`soul_pass`), where `soul_landing` put it: its half-cell is NO_DEPLOY (the river's four
+    /// corner tiles; the King blocks are unmeasured), or a building of either side, a crown tower, or a death bomb on
+    /// its fuse (a building row on the client, a timed impact here: `phase_reap`) overlaps the copy there, centre to
+    /// centre closer than the two collision radii. Measured on client 15.535.29, 8 refusals among 99 copies: four drawn
+    /// into a corner (sp-sk-souls-own-s0, -spawned-s0 and -window-s0 twice; the spawned one from the river, refused
+    /// where the grid rule put it), a Tombstone 1,182 off (sp-sk-souls-spawned-s0), a Cannon 452 off (sp-il-b5e2), a
+    /// Giant Skeleton's bomb 932 and 563 off (sp-il-323a). A troop of either side overlapping the point refuses nothing
+    /// (a Knight 279 off in sp-champ-SkeletonKing-late-s0, a Musketeer 793 off in sp-il-b5e2).
+    fn soul_point_refused(&self, p: Vec2, unit_r: i32) -> bool {
+        let a = &self.cfg.arena;
+        if a.cell_bits(p.x.div_euclid(a.cell), p.y.div_euclid(a.cell)) & a.bit_no_deploy != 0 {
+            return true;
+        }
+        let overlaps = |q: Vec2, r: i32| {
+            let (dx, dy, s) = (i64::from(q.x - p.x), i64::from(q.y - p.y), i64::from(r + unit_r));
+            dx * dx + dy * dy < s * s
+        };
+        #[cfg(not(clash_plant = "souls_bomb_not_a_building"))]
+        let bomb = self.spells.iter().any(|s| match s.motion {
+            spell::SpellMotion::Flight { pos, delay_ms, .. } => {
+                let c = self.cfg.cards.get(s.card);
+                delay_ms > 0 && c.death_bomb_fuse_ms().is_some() && overlaps(pos, c.collision_radius)
+            }
+            _ => false,
+        });
+        #[cfg(clash_plant = "souls_bomb_not_a_building")]
+        let bomb = false; // PLANT (regression): a bomb on its fuse refuses nothing.
+        let e = &self.ents;
+        bomb || (0..e.capacity()).any(|i| e.alive[i] && e.kind[i].is_building() && overlaps(e.pos[i], e.radius[i]))
     }
 
     /// ONE DRAW OF THE CLIENT'S BATTLE GENERATOR, rnd(n), read off the client by Oracle and checked draw for draw on

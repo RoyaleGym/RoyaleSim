@@ -16,7 +16,11 @@
 //!   - souls_not_copies -> `his_press_puts_down_six_one_hitpoint_copies_every_five_ticks` red;
 //!   - souls_unshuffled -> `the_client_generator_shuffles_his_directions` and
 //!     `from_the_clients_state_his_copies_stand_where_the_clients_did` red;
-//!   - souls_axis_eject -> `a_copy_drawn_onto_the_river_stands_where_the_clients_did` red.
+//!   - souls_axis_eject -> `a_copy_drawn_onto_the_river_stands_where_the_clients_did` red;
+//!   - souls_phase_n_minus_2 -> `with_one_soul_his_copies_take_the_clients_phase` red;
+//!   - souls_never_refused -> `a_copy_drawn_onto_a_building_is_drawn_anew` and
+//!     `a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew` red;
+//!   - souls_bomb_not_a_building -> `a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -41,6 +45,11 @@ fn scene(victims: usize) -> (BattleState, EntityId, u32) {
 
 /// `scene` with the King held on `at`.
 fn scene_at(victims: usize, at: (i32, i32)) -> (BattleState, EntityId, u32) {
+    scene_with(victims, at, &[])
+}
+
+/// `scene_at` with `extra` units put down first (a red Cannon for the refusal).
+fn scene_with(victims: usize, at: (i32, i32), extra: &[(Team, &str, (i32, i32))]) -> (BattleState, EntityId, u32) {
     let mut cfg = config();
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
@@ -48,6 +57,9 @@ fn scene_at(victims: usize, at: (i32, i32)) -> (BattleState, EntityId, u32) {
     let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    for (team, card, p) in extra {
+        s.scenario_spawn_now(*team, card, n(*p), None).expect("an extra unit");
+    }
     let king = s.scenario_spawn_now(Team::Blue, "SkeletonKing", n(at), None).expect("the Skeleton King");
     let mut doomed = Vec::new();
     for k in 0..victims {
@@ -249,4 +261,82 @@ fn a_copy_drawn_onto_the_river_stands_where_the_clients_did() {
     for (k, c) in got.iter().enumerate() {
         assert!(s.arena().is_passable_ground(c.1), "copy {k} on water: {:?}", (c.1.x / K, c.1.y / K));
     }
+}
+
+/// THE CLIENT'S COPIES AS THE MEASUREMENTS HAVE THEM, written apart from the engine, as offsets from him: from `seed`,
+/// n = count - 1 directions shuffled by 50 n pairs of draws; copy k in slot perm[(k + 38) mod n] at 2500 + rnd(500); a
+/// point closer to a disc's centre (an offset from him) than its radius + 500 (his copy's) drawn anew at rnd(360)
+/// degrees and rnd(3500), unchecked.
+fn reference_copies(seed: u32, count: usize, discs: &[((i32, i32), i32)]) -> Vec<(i32, i32)> {
+    let n = count as u32 - 1;
+    let mut st = seed;
+    let mut perm: Vec<i32> = (0..n as i32).collect();
+    for _ in 0..50 * n {
+        let (i, j) = (reference_rnd(&mut st, n) as usize, reference_rnd(&mut st, n) as usize);
+        if i != j {
+            perm.swap(i, j);
+        }
+    }
+    let polar = |theta: i32, r: i32| ((royalesim::formation::sin1024(theta) * r) >> 10, (royalesim::formation::sin1024(theta + 90) * r) >> 10);
+    (0..count)
+        .map(|k| {
+            let pt = polar(perm[(k + 38) % n as usize] * 360 / n as i32, 2500 + reference_rnd(&mut st, 500) as i32);
+            let refused = discs.iter().any(|&((x, y), r)| {
+                let (dx, dy) = (i64::from(pt.0 - x), i64::from(pt.1 - y));
+                dx * dx + dy * dy < i64::from(r + 500).pow(2)
+            });
+            if refused {
+                let theta = reference_rnd(&mut st, 360) as i32;
+                polar(theta, reference_rnd(&mut st, 3500) as i32)
+            } else {
+                pt
+            }
+        })
+        .collect()
+}
+
+/// THE PHASE AT n = 6 (one soul before the press: 7 copies): copy k in slot perm[(k + 38) mod 6] = perm[(k + 2) mod 6],
+/// as client 15.535.29 put sp-sk-souls-own-s0's (the phase k + n - 2, read off n = 5 and 8, gives k + 4 here).
+#[test]
+fn with_one_soul_his_copies_take_the_clients_phase() {
+    let (mut s, king, p) = scene(1);
+    let seed = 0x0bad_5eed_u32;
+    s.scenario_set_client_rng(seed);
+    let got = copies(&mut s, king, p, 50);
+    let have: Vec<(i32, i32)> = got.iter().map(|c| (c.1.x / K - AT.0, c.1.y / K - AT.1)).collect();
+    assert_eq!(have, reference_copies(seed, 7, &[]), "each copy's offset from him, slot (k + 38) mod 6");
+}
+
+/// A POINT ON A BUILDING IS DRAWN ANEW (client 15.535.29: a Tombstone 1,182 off a copy's draw in
+/// sp-sk-souls-spawned-s0, a Cannon 452 off one in sp-il-b5e2): a red Cannon (radius 600) stands on his first copy's
+/// draw; that copy stands rnd(360) degrees and rnd(3500) from him, and the copies after it draw on from there.
+#[test]
+fn a_copy_drawn_onto_a_building_is_drawn_anew() {
+    let seed = 0x1234_5678u32;
+    let first = reference_copies(seed, 6, &[])[0];
+    let (mut s, king, p) = scene_with(0, AT, &[(Team::Red, "Cannon", (AT.0 + first.0, AT.1 + first.1))]);
+    s.scenario_set_client_rng(seed);
+    let got = copies(&mut s, king, p, 45);
+    let want = reference_copies(seed, 6, &[(first, 600)]);
+    assert_ne!(want[0], first, "the scene drifted: the first draw is not refused");
+    let have: Vec<(i32, i32)> = got.iter().map(|c| (c.1.x / K - AT.0, c.1.y / K - AT.1)).collect();
+    assert_eq!(have, want, "the refused copy drawn anew, the rest after it");
+}
+
+/// A DEATH BOMB ON ITS FUSE IS A BUILDING TO HIS DRAW (client 15.535.29, sp-il-323a: a Giant Skeleton's bomb 932 and
+/// 563 off two copies' draws, both drawn anew): a red Giant Skeleton killed on his first copy's draw just after the
+/// press, its bomb (radius 450) on a 3-second fuse there.
+#[test]
+fn a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew() {
+    let seed = 0x1234_5678u32;
+    let first = reference_copies(seed, 6, &[])[0];
+    let (mut s, king, p) = scene(0);
+    s.scenario_set_client_rng(seed);
+    let giant = s.scenario_spawn_now(Team::Red, "GiantSkeleton", n((AT.0 + first.0, AT.1 + first.1)), None).expect("the Giant Skeleton");
+    assert!(s.debug_set_hp(giant, 0));
+    let got = copies(&mut s, king, p, 45);
+    assert!(s.entity(giant).is_none(), "the scene drifted: the Giant Skeleton lives");
+    let want = reference_copies(seed, 6, &[(first, 450)]);
+    let have: Vec<(i32, i32)> = got.iter().map(|c| (c.1.x / K - AT.0, c.1.y / K - AT.1)).collect();
+    assert_eq!(have, want, "the copy drawn onto the bomb drawn anew, the rest after it");
 }

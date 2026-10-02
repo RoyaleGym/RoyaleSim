@@ -5,7 +5,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! water_landing`): dash_ends_on_water -> `a_bandits_dash_that_ends_over_the_river_ends_on_land` red;
-//! chain_hop_ends_on_water -> `a_golden_knights_hop_whose_blow_lands_over_the_river_ends_on_land` red.
+//! chain_hop_ends_on_water -> `a_golden_knights_hop_whose_blow_lands_over_the_river_ends_on_land` red;
+//! land_ties_own_frame -> `a_red_units_point_takes_the_arenas_ties` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -40,15 +41,29 @@ fn each_measured_point_lands_where_the_clients_did() {
     assert_eq!(a.nearest_land_grid(dry, Team::Blue), Some(dry), "a point on land stays");
 }
 
-/// Red's twin of each point lands on the twin of Blue's answer: the ties are taken in the unit's own frame.
+/// Eight Red Skeleton King copies drawn onto the water where the grid's offsets tie (client 15.535.29, sp-il-b5e2's two
+/// runs and sp-il-323a; each draw from the King's frame and the radius the client drew, each landing as the frame has
+/// it, within the sine table's rounding): (drawn, put).
+const RED_MEASURED: [((i32, i32), (i32, i32)); 8] = [
+    ((7741, 15156), (7491, 14906)),
+    ((8592, 15786), (8342, 14536)),
+    ((5144, 15107), (4894, 14857)),
+    ((6394, 15508), (6144, 14758)),
+    ((7831, 15813), (7581, 14563)),
+    ((7156, 16982), (6906, 17232)),
+    ((9926, 15458), (9676, 14708)),
+    ((6610, 15933), (6360, 14683)),
+];
+
+/// Red's ties are the arena's, as Blue's: toward -x, then -y (Red's own frame would take +x, +y in every one).
 #[test]
-fn a_rotated_point_lands_on_the_rotated_point() {
+fn a_red_units_point_takes_the_arenas_ties() {
     let s = BattleState::try_new(0, config()).expect("the battle");
     let a = s.arena();
-    let (w, h) = (a.width / K, a.height / K);
-    for (p, want) in MEASURED {
-        let got = a.nearest_land_grid(n((w - p.0, h - p.1)), Team::Red).map(|q| (q.x / K, q.y / K));
-        assert_eq!(got, Some((w - want.0, h - want.1)), "{p:?}");
+    for (w, want) in RED_MEASURED {
+        assert!(!a.is_passable_ground(n(w)), "{w:?} is on water");
+        let got = a.nearest_land_grid(n(w), Team::Red).map(|q| (q.x / K, q.y / K));
+        assert_eq!(got, Some(want), "{w:?}");
     }
 }
 

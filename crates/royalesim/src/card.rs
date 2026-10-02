@@ -8954,6 +8954,9 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
     // the unit is registered) is what keeps it out of every catalogue.
     c.kind = CardKind::Building;
     c.deploy_time_ms = fuse_ms;
+    // Its row's CollisionRadius: on its fuse it refuses a Skeleton King's copy drawn onto it as a building does
+    // (state.rs `soul_point_refused`; client 15.535.29, a Giant Skeleton's bomb). Nothing else reads it on a bomb.
+    c.collision_radius = raw.collision_radius_milli.map(milli).unwrap_or(0);
     c.death_damage = damage;
     c.death_damage_radius = radius;
     c.crown_tower_damage_percent = crown_pct;
