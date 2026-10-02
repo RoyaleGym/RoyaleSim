@@ -1,0 +1,53 @@
+name: pypi
+# Publishes a release's files to PyPI: exactly the wheels and sdist already on the GitHub Release, which the wheels
+# workflow built and tested in clean venvs. Nothing is rebuilt here.
+#
+# Two ways in:
+#   - after the wheels workflow succeeds for a v* tag (workflow_run). A release made with the workflow token does not
+#     start other workflows, so `on: release` would never fire for releases the wheels workflow creates;
+#   - by hand, with the tag to publish (workflow_dispatch): for a release made before this file existed.
+#
+# GATED. The job runs in the `pypi` environment, which needs the owner's approval for every run, and it publishes
+# through PyPI's trusted publishing (OIDC): no token is stored anywhere. PyPI's trusted publisher for royalesim names
+# this repository, this file (pypi.yml) and the environment `pypi`.
+on:
+  workflow_run:
+    workflows: [wheels]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to publish, for example v0.1.1
+        required: true
+
+jobs:
+  publish:
+    # OFF until the owner turns it on. A job naming an environment that does not exist yet would make GitHub create it
+    # UNPROTECTED, so nothing runs until the repository variable PYPI_PUBLISH is "true", which the owner sets as the
+    # last setup step, after the protected `pypi` environment and PyPI's trusted publisher exist.
+    if: >-
+      vars.PYPI_PUBLISH == 'true' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')))
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: download the release's files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.workflow_run.head_branch }}
+        run: |
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D dist --pattern '*.whl' --pattern '*.tar.gz'
+          ls -l dist
+          # Every file must carry the tag's version, so a stray file can never be uploaded under another release.
+          version="${TAG#v}"
+          for f in dist/*; do
+            case "$(basename "$f")" in
+              royalesim-"$version"-*.whl|royalesim-"$version".tar.gz) ;;
+              *) echo "refusing $f: not royalesim $version"; exit 1 ;;
+            esac
+          done
+      - uses: pypa/gh-action-pypi-publish@release/v1
