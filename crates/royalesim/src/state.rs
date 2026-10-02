@@ -16923,6 +16923,16 @@ impl BattleState {
             };
             #[cfg(clash_plant = "dying_kamikaze_pushes")]
             let kamikaze_unpushing = |_: usize| false; // PLANT (regression): the new arm still pushes with a dying kamikaze.
+            // A SKELETON KING'S COPY WHILE IT DEPLOYS, after its creation tick (whose first update pushes it, `soul_pass`):
+            // out of the contact law, neither pushed nor pushing nor steered round. Client 15.535.29: 99 of 99 copies stood
+            // still through their deploy, 26 of them on an attacking unit that did not move either
+            // (sp-champ-SkeletonKing-late-s0 t276 to t282: a Knight 429 off); a Graveyard Skeleton, no copy, is pushed
+            // through its deploy (sweep-Graveyard t318 to t321). Under the shipped spells.CLONE_COPY_DEPLOY = deployed only
+            // his copies deploy as copies.
+            #[cfg(not(clash_plant = "copies_pushed_while_deploying"))]
+            let copy_settling = |i: usize| e.cloned[i] && e.deploy_ms[i] > 0 && e.spawn_tick[i] < self.tick;
+            #[cfg(clash_plant = "copies_pushed_while_deploying")]
+            let copy_settling = |_: usize| false; // PLANT (regression): a deploying copy meets its neighbours as any unit.
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
@@ -16963,7 +16973,8 @@ impl BattleState {
                             && dash_state[i] != DashState::Dashing
                             && !matches!(chain_at[i], Some((ChainPhase::Dash, _, _)))
                             && warp_at[i].is_none()
-                            && !e.attached(i),
+                            && !e.attached(i)
+                            && !copy_settling(i),
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
                         // states 8/0/2/10 and a busy special attack zero the dot

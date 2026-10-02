@@ -21,7 +21,8 @@
 //!   - souls_never_refused -> `a_copy_drawn_onto_a_building_is_drawn_anew` and
 //!     `a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew` red;
 //!   - souls_bomb_not_a_building -> `a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew` red;
-//!   - souls_first_update_next_tick -> `a_copy_born_on_a_unit_is_pushed_on_its_first_frame` red.
+//!   - souls_first_update_next_tick -> `a_copy_born_on_a_unit_is_pushed_on_its_first_frame` red;
+//!   - copies_pushed_while_deploying -> `a_deploying_copy_is_out_of_the_contact_law` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -381,4 +382,36 @@ fn a_copy_born_on_a_unit_is_pushed_on_its_first_frame() {
     let off = isqrt(dx * dx + dy * dy);
     assert!((1..=151).contains(&off), "its first frame {off} off the draw: no push on its creation tick");
     assert!(dx < 0, "pushed away from the Knight on its +x side: {dx}");
+}
+
+/// A COPY STANDS STILL THROUGH ITS DEPLOY (client 15.535.29: 99 of 99 copies, 26 of them on an attacking unit that did not
+/// move either): his first copy, born 300 from a blue Knight held there and pushed once on its creation tick, keeps its
+/// first frame's point for every frame it deploys.
+#[test]
+fn a_deploying_copy_is_out_of_the_contact_law() {
+    let seed = 0x1234_5678u32;
+    let first = reference_copies(seed, 6, &[])[0];
+    let spot = (AT.0 + first.0 + 300, AT.1 + first.1);
+    let (mut s, king, _p) = scene(0);
+    s.scenario_set_client_rng(seed);
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", n(spot), None).expect("the Knight");
+    let mut track: Vec<(i32, i32)> = Vec::new();
+    let mut copy = None;
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(king, n(AT)));
+        assert!(s.debug_set_pos(knight, n(spot)));
+        s.tick();
+        if copy.is_none() {
+            copy = s.entities().find(|e| e.team == Team::Blue && e.cloned).map(|e| e.id);
+        }
+        if let Some(c) = copy {
+            let v = s.entity(c).expect("the copy lives");
+            if !v.deploying {
+                break;
+            }
+            track.push((v.pos.x / K, v.pos.y / K));
+        }
+    }
+    assert!(track.len() >= 7, "the scene drifted: the copy deployed {} frames", track.len());
+    assert!(track.iter().all(|q| *q == track[0]), "the copy moved while it deployed: {track:?}");
 }
