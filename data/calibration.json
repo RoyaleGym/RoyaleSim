@@ -2174,6 +2174,17 @@
       "promotion_rules": "The projectile arm: a live Ice Spirit or Wall Breakers capture with the per-frame projectile stream says whether the unit dies at the launch or at the landing. The delayed death is combat.KAMIKAZE_TIME's.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs CardDef::kamikaze from cards.json `kamikaze`, FALSE when kamikaze_time_ms > 0 (combat.KAMIKAZE_TIME); state.rs phase_attack pushes the self-hit after combat::fire. tests/charge.rs (11) pins the Battle Ram's one hit and that a delayed kamikaze is not this death."
     },
+    "KAMIKAZE_LAUNCH_PASS": {
+      "value": "buffered",
+      "candidates": ["buffered", "client15535_gone_at_launch"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_gone_at_launch on client 15.535.29, every kamikaze launch in the captures with an enemy deciding on it later in the pass (Ice Spirits, the Electro Spirit and a Skeleton Balloon among them): 10 of 10 pickers passed over it, 7 of 7 walking holders retook at once. A kamikaze created after the deciding unit (its launch after that unit's turn) is the same under both arms; 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames (tools kamikaze_launch_census.py: every enemy whose target changes on a kamikaze's launch frame, the kamikaze in its sight and nearer than the unit taken; kamikaze_holder_census.py: every enemy holding the kamikaze on the frame before). Created before the deciding unit: 10 of 10 pickers took another unit (sp-il-323a t1126 and t3320, Skeleton King soldiers over a launching Ice Spirit 3,179 to 5,343 off; sp-il-6a56 t873 and t3424; sp-f2-ice-s0 t271, a Valkyrie in its attack took a Skeleton at 3,749 over the Electro Spirit launching at 3,307); holders: 7 walkers took another target on the frame, attackers 1 another and 2 none. Created after: holders kept it through their turn, none on the frame 511, another 1. The engine (its self-hit buffered to Resolve) let sp-il-323a t1126's soldier hold the launched Ice Spirit a tick longer (22 off on the frame) and gave the Valkyrie the Electro Spirit (sp-f2-ice-s0's first divergence, t299).",
+      "meaning": "buffered: the engine's; a kamikaze's own death (combat.KAMIKAZE_DEATH = at_fire) waits in the tick's hit buffer for Resolve, so every unit of the pass finds it standing. client15535_gone_at_launch: under match.TICK_ORDER = client_sequential_strike its self-hit lands at its launch as a direct strike's does, and an attacker reading the pass's start hitpoints reads it at 0 too (state.rs Scratch::launched): every later unit of the pass finds it gone. Its death stays in Resolve and Reap.",
+      "open": "The other tick orders (the key reads only the sequential one); a kamikaze struck down before its turn and then launching (no capture); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_gone_at_launch (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_attack_for (the kamikaze's self-hit, `gone_now`) and phase_target_attack_sequential (`Scratch::launched`), selected by Calib::kamikaze_launch_pass; tests/kamikaze_launch_pass.rs."
+    },
     "KAMIKAZE_TIME": {
       "value": "flat_drain_to_zero",
       "candidates": ["flat_drain_to_zero", "flat_drain_then_expire", "not_taken"],

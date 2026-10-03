@@ -974,6 +974,11 @@ pub struct Calib {
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
     pub dash_chain_aim: DashChainAim,
+    /// combat.KAMIKAZE_LAUNCH_PASS (`phase_attack_for`, the kamikaze's self-hit; `phase_target_attack_sequential`): when a
+    /// kamikaze's own death reaches the later units of the sequential pass. Added after SNAPSHOT_FORMAT 20; the `default`
+    /// is the old arm, `Buffered`.
+    #[serde(default = "kamikaze_launch_pass_default")]
+    pub kamikaze_launch_pass: KamikazeLaunchPass,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2387,6 +2392,10 @@ fn dismount_hop_water_default() -> DismountHopWater {
 
 fn dash_chain_aim_default() -> DashChainAim {
     DashChainAim::TargetCentre
+}
+
+fn kamikaze_launch_pass_default() -> KamikazeLaunchPass {
+    KamikazeLaunchPass::Buffered
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5027,6 +5036,27 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.KAMIKAZE_LAUNCH_PASS -- see `phase_attack_for` (the kamikaze's self-hit) and `phase_target_attack_sequential`:
+    /// under match.TICK_ORDER = client_sequential_strike, when a kamikaze's own death (combat.KAMIKAZE_DEATH = at_fire)
+    /// reaches the units after it in the pass.
+    KamikazeLaunchPass {
+        /// The engine's: its self-hit waits in the tick's buffer for Resolve, so every unit of the pass finds it standing
+        /// at its hitpoints.
+        Buffered = "buffered",
+        /// Its self-hit lands at its launch, as a direct strike does, and it stays at 0 for an attacker reading the
+        /// pass's start too (`Scratch::launched`): every later unit of the pass finds it gone. Measured on client 15.535.29
+        /// (kamikaze_launch_census.py, kamikaze_holder_census.py; every kamikaze gone on the frame after its attack frame):
+        /// with the kamikaze created before them, 10 of 10 units taking a target on its launch frame passed over it where it
+        /// stood nearer than the unit they took, and its holders let it go on that frame, 7 of 7 walkers taking another
+        /// target at once (an attacker 1 another, 2 none); with it created after them, its holders kept it through their
+        /// turn (511 held none on the frame, once the launch had removed it). sp-il-323a t1126: a Skeleton King's soldier
+        /// holding the Ice Spirit that launched at it took Blue's tower on that frame, where the engine took it a tick
+        /// later; sp-f2-ice-s0 t271: a Valkyrie in its attack took a Skeleton 3,749 off over the Electro Spirit launching
+        /// 3,307 off, where the engine took the Spirit (the scene's first divergence, t299).
+        Client15535GoneAtLaunch = "client15535_gone_at_launch",
+    }
+);
+calib_enum!(
     /// combat.DASH_CHAIN_AIM -- see `phase_path16402_for` (the chain dash) and `ChainRun::aim`: the point a dash chain's
     /// dash (the Golden Knight's) steps toward, JumpSpeed a tick in CHAIN_SUB_STEP sub-steps (`dash_half_step`).
     DashChainAim {
@@ -7030,6 +7060,7 @@ impl Calib {
             dismount_leap_step: pick(&v, &["transform", "DISMOUNT_LEAP_STEP", "value"], DismountLeapStep::from_calibration_name)?,
             dismount_hop_water: pick(&v, &["transform", "DISMOUNT_HOP_WATER", "value"], DismountHopWater::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
+            kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -9238,6 +9269,10 @@ struct Scratch {
     /// strike took to 0 hp in this tick's whole-tick pass, with its first striker's creation order. Cleared at the top of
     /// that pass and read by the same tick's move pass (movement.STRUCK_CONTACT_ORDER), so it is not state.
     strike_lethal: Vec<(EntityId, u32)>,
+    /// combat.KAMIKAZE_LAUNCH_PASS = client15535_gone_at_launch: the kamikazes whose own death landed at their launch in
+    /// this tick's sequential pass (`phase_attack_for`), left out of the pass-start hitpoints an attacker decides on.
+    /// Cleared at the top of that pass, so it is not state.
+    launched: Vec<usize>,
     /// rider.OFFSET_LAW: each mount whose riders stand off its centre, with its facing at the top of this tick
     /// (`note_mount_facings`). Filled at the top of every tick and read in its Move phase, so it is not state: not
     /// saved, not hashed.
@@ -21142,6 +21177,19 @@ impl BattleState {
                         self.scratch.kamikazed.push(me);
                         self.ents.death_damage[i] = 0;
                     }
+                    // combat.KAMIKAZE_LAUNCH_PASS = client15535_gone_at_launch: under the sequential order the self-hit
+                    // lands now, as a direct strike does, so every later unit of the pass finds it gone (its death stays
+                    // in Resolve and Reap, as a strike's victim's does).
+                    // PLANT (regression) kamikaze_launch_buffered: the new arm still buffers it to Resolve.
+                    #[cfg(not(clash_plant = "kamikaze_launch_buffered"))]
+                    let gone_now = self.cfg.calib.kamikaze_launch_pass == KamikazeLaunchPass::Client15535GoneAtLaunch && self.tick_order() == TickOrder::ClientSequentialStrike;
+                    #[cfg(clash_plant = "kamikaze_launch_buffered")]
+                    let gone_now = false;
+                    if gone_now {
+                        let from = self.dmg.hits.len() - 1;
+                        self.land_strike(from);
+                        self.scratch.launched.push(i);
+                    }
                 }
                 // combat.KAMIKAZE_TIME: a DELAYED kamikaze (the Skeleton Barrel) starts to drain on its first fire, this
                 // tick's drain buffered to Resolve with the tick's other damage (`kamikaze_drain`).
@@ -21709,6 +21757,7 @@ impl BattleState {
     fn phase_target_attack_sequential(&mut self, only: Option<&[usize]>) {
         if only.is_none() {
             self.scratch.strike_lethal.clear();
+            self.scratch.launched.clear();
             self.hash.rebuild(&self.ents);
             let mut nb = std::mem::take(&mut self.scratch.nb);
             self.hide_pass(&mut nb);
@@ -21774,8 +21823,10 @@ impl BattleState {
                 // gets back the pass's value after it. The unit's own hitpoints stay as the pass left them while it
                 // stands (its health threshold is read in its own turn: transform.rs, the Cannon Cart's melee crossing),
                 // and read their starting value once it is struck down.
+                // combat.KAMIKAZE_LAUNCH_PASS = client15535_gone_at_launch: a kamikaze that launched earlier in the pass
+                // stays gone (`Scratch::launched`).
                 let changed: Vec<(usize, i32)> = (0..start_hp.len())
-                    .filter(|&j| self.ents.hp[j] != start_hp[j] && (j != i || self.ents.hp[i] <= 0))
+                    .filter(|&j| self.ents.hp[j] != start_hp[j] && (j != i || self.ents.hp[i] <= 0) && !self.scratch.launched.contains(&j))
                     .map(|j| (j, self.ents.hp[j]))
                     .collect();
                 for &(j, _) in &changed {
@@ -29168,6 +29219,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.KAMIKAZE_LAUNCH_PASS: Calib gained kamikaze_launch_pass (serde default the old arm, buffered),
+///    no new state (Scratch::launched lives inside one tick's pass), so a blob saved before it deserializes and hashes as
+///    it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_AIM: Calib gained dash_chain_aim (serde default the old arm, target_centre) and
 ///    ChainRun gained aim (serde default None, hashed only when set), which only the new arm sets, so a blob saved
 ///    before them deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30029,6 +30083,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dismount_hop_water".into(), serde_json::to_value(DismountHopWater::KeepWater).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
+    // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
+    sh.insert("kamikaze_launch_pass".into(), serde_json::to_value(KamikazeLaunchPass::Buffered).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

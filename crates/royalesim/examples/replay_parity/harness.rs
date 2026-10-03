@@ -1524,6 +1524,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   centre (5 of 5).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
 ///   45 steps exact).
+///   combat.KAMIKAZE_LAUNCH_PASS = client15535_gone_at_launch: a kamikaze's launch removes it for every later unit of the
+///   sequential pass (10 of 10 pickers, 7 of 7 walking holders).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1572,6 +1574,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.DISMOUNT_LEAP_STEP", "\"client15535_leap_lands_first\""),
     ("transform.DISMOUNT_HOP_WATER", "\"client15535_land_row_centre\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
+    ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_gone_at_launch\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
