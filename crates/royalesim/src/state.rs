@@ -983,6 +983,10 @@ pub struct Calib {
     /// pellet) runs on a building. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Circle`.
     #[serde(default = "straight_shot_building_reach_default")]
     pub straight_shot_building_reach: StraightShotBuildingReach,
+    /// pathfinding.PRESS_ROUTE (`start_ability`): whether a hero's button press drops its route. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
+    #[serde(default = "press_route_default")]
+    pub press_route: PressRoute,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2404,6 +2408,10 @@ fn kamikaze_launch_pass_default() -> KamikazeLaunchPass {
 
 fn straight_shot_building_reach_default() -> StraightShotBuildingReach {
     StraightShotBuildingReach::Circle
+}
+
+fn press_route_default() -> PressRoute {
+    PressRoute::Kept
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5044,6 +5052,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// pathfinding.PRESS_ROUTE -- see `start_ability`: what a hero's button press does to the route it walks.
+    PressRoute {
+        /// The engine's: the route is kept; the hero walks on to its next waypoint.
+        Kept = "kept",
+        /// A ground hero's button that holds it not at all (CastTime 0; not a dash chain: the Hero Ice Golem's, the Hero
+        /// Giant's, the Hero Valkyrie's) drops its route on the press, so the tick's Path phase plans afresh from where
+        /// it stands. Measured on client 15.535.29 (press_replan_census.py, every such hero's press frame on which it
+        /// walked): its face points from its pre-move point at the centre of a cell around it, the first node of a route
+        /// planned afresh, which it consumes on that frame, 22 of 22 (Hero Ice Golem 12, Hero Giant 9, Hero Valkyrie 1;
+        /// 2 of them on the old waypoint's own line); sp-h10k-s0 t379: the Hero Ice Golem's route grew 20 -> 21 nodes and
+        /// it stepped (-17, 48) at (3250, 13750), the engine (-4, 51) on at its old waypoint (3250, 14750). A Golden
+        /// Knight's dash, a flyer (the Hero Balloon) and a held champion (the Boss Bandit) do otherwise.
+        Client15535Replanned = "client15535_replanned",
+    }
+);
+calib_enum!(
     /// combat.STRAIGHT_SHOT_BUILDING_REACH -- see combat.rs `straight_hits`: which point a CheckCollisions shot (the Hunter's
     /// pellet, combat.PROJECTILE_COLLISIONS = client_columns) must reach to hit a building or a crown tower.
     StraightShotBuildingReach {
@@ -7087,6 +7111,7 @@ impl Calib {
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
+            press_route: pick(&v, &["pathfinding", "PRESS_ROUTE", "value"], PressRoute::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -26021,6 +26046,19 @@ impl BattleState {
                 }
             }
         }
+        // pathfinding.PRESS_ROUTE = client15535_replanned: a ground hero's press that holds it not at all (and is no dash
+        // chain) drops its route; this tick's Path phase (the press fires in the Status phase) plans afresh from where it
+        // stands.
+        // PLANT (regression) press_route_kept: the new arm keeps the route.
+        #[cfg(not(clash_plant = "press_route_kept"))]
+        let replan = self.cfg.calib.press_route == PressRoute::Client15535Replanned;
+        #[cfg(clash_plant = "press_route_kept")]
+        let replan = false;
+        if replan && a.cast_ms == 0 && !self.ents.flying[i] && !matches!(a.effect, crate::card::AbilityEffect::DashChain { .. }) {
+            if let Some(r) = self.ents.route.get_mut(i) {
+                r.clear();
+            }
+        }
         let mut hold = whole_ticks_ms(a.cast_ms, tick);
         #[cfg(not(clash_plant = "deflect_walks"))]
         if let crate::card::AbilityEffect::Deflect { active_ms, .. } = a.effect {
@@ -29263,6 +29301,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, pathfinding.PRESS_ROUTE: Calib gained press_route (serde default the old arm, kept), no new state (the
+///    press clears the route the snapshot already carries), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.STRAIGHT_SHOT_BUILDING_REACH: Calib gained straight_shot_building_reach (serde default the old
 ///    arm, circle), no new state (the test reads the saved shot and building), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30134,6 +30175,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("kamikaze_launch_pass".into(), serde_json::to_value(KamikazeLaunchPass::Buffered).map_err(|e| e.to_string())?);
     // combat.STRAIGHT_SHOT_BUILDING_REACH: a format-3 battle's pellet reached a building by the circle (the same rule).
     sh.insert("straight_shot_building_reach".into(), serde_json::to_value(StraightShotBuildingReach::Circle).map_err(|e| e.to_string())?);
+    // pathfinding.PRESS_ROUTE: a format-3 battle's press kept the route (the same rule).
+    sh.insert("press_route".into(), serde_json::to_value(PressRoute::Kept).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
