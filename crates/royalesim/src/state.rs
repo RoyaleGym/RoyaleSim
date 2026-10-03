@@ -4932,7 +4932,8 @@ calib_enum!(
     /// combat.HOOK_RELEASE -- see `step_hook_drags` and entity.rs `drag_idle`: the tick a hook's victim is free after its
     /// drag stops (the stop tick S: the Move phase's drag finds no room for another step).
     HookRelease {
-        /// The engine's: it is free from S + 1, walking or attacking on that tick.
+        /// The engine's before 2026-10-03 (and a snapshot's saved before the key): it is free from S + 1, walking or
+        /// attacking on that tick.
         FreeNextTick = "free_next_tick",
         /// It stays held on S + 1 (no walk, no attack, no drag step) and is free from S + 2. Measured on both clients:
         /// every drag in the captures (drag_end_census.py) shows S standing in the drag state, S + 1 idle (state 0, no
@@ -4940,7 +4941,8 @@ calib_enum!(
         /// and sweep-Fisherman, Knights attacking the Fisherman from S + 2; one dragged into the river was moved out of
         /// it while idle); the 16.402 corpus, 4 of 4 (20260920-081819: a Musketeer attacking and a Giant walking from
         /// S + 2, both seats). The engine's Knight attacked on S + 1 (sweep-Fisherman t273), its Giant walked on S + 1
-        /// (081819 t1301, the start of the battle's first divergence).
+        /// (081819 t1301, the start of the battle's first divergence). Shipped since 2026-10-03 on both clients (Sim's
+        /// ruling: the 16.402 corpus scored at it gained 388 and lost nothing).
         ClientIdleTick = "client_idle_tick",
     }
 );

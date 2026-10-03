@@ -67,6 +67,6 @@ fn the_old_arm_frees_it_the_tick_after_the_stop() {
 }
 
 #[test]
-fn the_shipped_arm_frees_it_the_next_tick() {
-    assert_eq!(Calib::shipped().hook_release, HookRelease::FreeNextTick);
+fn the_shipped_arm_idles_it_a_tick() {
+    assert_eq!(Calib::shipped().hook_release, HookRelease::ClientIdleTick);
 }

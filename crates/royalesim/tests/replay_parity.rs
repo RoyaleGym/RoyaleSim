@@ -1067,7 +1067,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     // combat.LOAD_TIMER_TARGET_LOSS stays at the engine's arm for 15.535.29 too: its walking test (attack idle) also holds
     // a unit between swings that the client has in its attack (sp-f2-cagefb-s0 t928's Brawler).
     assert_eq!(cfg.calib.load_timer_target_loss, LoadTimerTargetLoss::RunsOn, "a 15.535.29 capture runs the load timer on (the key's new arm is held out)");
-    assert_eq!(cfg.calib.hook_release, HookRelease::ClientIdleTick, "a 15.535.29 capture's hook victim idles a tick after its drag");
+    assert_eq!(cfg.calib.hook_release, HookRelease::ClientIdleTick, "a 15.535.29 capture's hook victim idles a tick after its drag (the shipped arm)");
     assert_eq!(cfg.calib.snipe_repick, SnipeRepick::Client15535LastTargetFirst, "a 15.535.29 capture's Evo Musketeer snipes her last target first");
     assert_eq!(cfg.calib.jump_landing_scope, JumpLandingScope::Client15535WholeTick, "a 15.535.29 capture's lander is out of its landing tick's first updates");
     assert!(notes.iter().any(|n| n.contains("DYING_UNIT_VISIBILITY")), "the notes do not name the client's arm: {notes:?}");
@@ -1114,7 +1114,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.chase_drop_measure, ChaseDropMeasure::MaxAbs, "a 16.402 capture");
     assert_eq!(cfg.calib.chase_drop_walking_away, ChaseDropWalkingAway::AnyTarget, "a 16.402 capture");
     assert_eq!(cfg.calib.load_timer_target_loss, LoadTimerTargetLoss::RunsOn, "a 16.402 capture");
-    assert_eq!(cfg.calib.hook_release, HookRelease::FreeNextTick, "a 16.402 capture");
+    assert_eq!(cfg.calib.hook_release, HookRelease::ClientIdleTick, "a 16.402 capture: the shipped arm (12 of 12 drags on both clients)");
     assert_eq!(cfg.calib.snipe_repick, SnipeRepick::NearestAhead, "a 16.402 capture");
     assert_eq!(cfg.calib.jump_landing_scope, JumpLandingScope::MovePass, "a 16.402 capture");
     let mut ov = std::collections::BTreeMap::new();
