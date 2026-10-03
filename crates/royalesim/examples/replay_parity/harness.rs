@@ -2084,7 +2084,15 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 recent_deaths.push((tick, c.0, c.1, c.2));
             }
         }
-        recent_deaths.retain(|(t, ..)| tick - *t <= DEATH_SPAWN_LOOKBACK);
+        // Kept as long as the longest lookback reads them (`Roots::death_parents`: a scheduled death area's units come up
+        // to SCHEDULED_DEATH_LOOKBACK after the death). Pruned at DEATH_SPAWN_LOOKBACK, the Suspicious Bush's goblins,
+        // 13 and 14 ticks after the bush's death, found no parent and were rooted to nothing (sweep-SuspiciousBush).
+        #[cfg(not(clash_plant = "replay_recent_deaths_pruned_short"))]
+        let kept = DEATH_SPAWN_LOOKBACK.max(SCHEDULED_DEATH_LOOKBACK);
+        // PLANT (regression): the deaths are pruned at the death spawn's lookback.
+        #[cfg(clash_plant = "replay_recent_deaths_pruned_short")]
+        let kept = DEATH_SPAWN_LOOKBACK;
+        recent_deaths.retain(|(t, ..)| tick - *t <= kept);
         register_new(&s, tick, &mut sim, &mut sim_index_of, &mut seen_alive, &recent_deaths, &spell_casts, &deploys_issued);
         if frame_ticks.contains(&tick) {
             snaps.insert(tick, snapshot(&s, &sim_index_of));

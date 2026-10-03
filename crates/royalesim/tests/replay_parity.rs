@@ -959,6 +959,30 @@ fn a_scheduled_death_areas_unit_is_looked_for_over_its_schedule() {
     assert_eq!(golemite, DEATH_SPAWN_LOOKBACK, "a death spawn proper");
 }
 
+/// THE BUSH'S GOBLINS ROOT TO THE BUSH ON THE BOARD (`register_new`): the deaths the rooting reads are kept as long as the
+/// longest lookback, so the goblins its death area puts down 13 and 14 ticks after it died find it. Pruned at
+/// DEATH_SPAWN_LOOKBACK they rooted to nothing (sweep-SuspiciousBush's two goblins, 210 unit-ticks, after the lookback
+/// above had been widened). Plant: replay_recent_deaths_pruned_short.
+#[test]
+fn a_suspicious_bushs_goblins_are_rooted_to_the_bush() {
+    let row: Deploy = serde_json::from_str(
+        r#"{"tick": 1000, "side": 0, "card": "SuspiciousBush", "card_id": 26000097, "kind": "troop", "level": 11, "count": 1,
+            "pos": [14500, 14500], "source": "tap_tile"}"#,
+    )
+    .expect("a deploy parses");
+    let mut f = sample();
+    f.decks.entry("0".to_string()).or_default().deploy_order.insert(0, "SuspiciousBush".to_string());
+    f.deploys.push(row);
+    f.deploys.sort_by_key(|d| d.tick);
+    let r = play(&f);
+    let play = r.deploys.iter().find(|d| d.tick == 1000 && d.card == "SuspiciousBush").expect("the play is issued");
+    assert!(play.result.is_ok(), "the play is taken: {play:?}");
+    let unrooted = r.unmatched_sim.iter().filter(|(_, _, root)| root == "BushGoblin").count();
+    let rooted = r.unmatched_sim.iter().filter(|(_, _, root)| root == "SuspiciousBush").count();
+    assert_eq!(unrooted, 0, "a goblin rooted as itself: {:?}", r.unmatched_sim);
+    assert!(rooted >= 3, "vacuous: the bush and its two goblins did not all stand ({rooted} rooted to it)");
+}
+
 /// A SKELETON KING'S SOUL IS ROOTED TO ITS KING (`register_new`): the units his button puts down are copies (state.rs
 /// `soul_pass`, 1 hitpoint), and the recording names them by the King's card, as it names any unit a button puts down;
 /// a Clone spell's copy stays "Clone" (`a_clones_copy_is_rooted_as_clone`). Plant: replay_roots_a_soul_as_clone.
