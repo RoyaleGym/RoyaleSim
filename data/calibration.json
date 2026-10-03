@@ -5301,6 +5301,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_unpushed_obstacle (examples/replay_parity/harness.rs CLIENT15535_ARMS). The tag exists in the 15.535 tables only.",
       "engine": "state.rs phase_path16402 (`tag_off`: the bodies' avoid_static, the carrier's three separation scans), selected by Calib::avoidance_obstacle_tag; card.rs CardDef::avoidance_as_obstacle; tools/extract_cards.py writes the field; tests/evo_skeleton_army.rs the_general_stands_on_its_point_through_its_deploy, the_general_still_pushes_a_unit_off_it."
     },
+    "DEFLECT_CONTACT": {
+      "value": "hidden",
+      "candidates": ["hidden", "client15535_pushes"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_pushes on client 15.535.29: 34 of 34 frames of a Giant inside both radii of a deflecting Monk took his push (its step less the push a plain speed step on 32 walking frames, the push exactly on 2 standing ones); one Giant, one window. 16.402 not measured.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames, every frame of a Monk in behaviour state 16 (his deflect active) with a ground unit inside both collision radii on the frame before (tool monk_contact_census.py over every scene with a Monk: sp-champ-Monk-s0, sp-champ-Monk-nopress-s0, sp-champ-Monk-recharge-q20-s0). The one window with contact, sp-champ-Monk-recharge-q20-s0 t229..t265: a Giant (mass 18, radius 750) slid round the Monk (mass 6, radius 500) standing on (3273, 12402), overlap 3..80. With the engine's separation push (overlap * 6 / 18 + 1, cap 300, along Monk -> Giant, truncated) taken off, every walking step was 51..53 (the Giant's speed step; its raw steps ran 45..59), and on t252 and t253, where it stood, its step was the push exactly ((-7, 6), (-5, 4)). The Monk stood on his point on all 34 frames. The engine's Giant, unpushed, cut in (-49, -17) a tick where the client's took (-49, -3), 1,108 nearer by t234: the scene's 1,399 lost. The earlier reading (be8f0e0a: 'a Giant slid round him inside both radii unpushed') took the slide for an unpushed one.",
+      "meaning": "hidden: the engine's; a Monk whose deflect is active is met by no unit's separation, his body kept for avoidance. client15535_pushes: he stays a body to his neighbours' separation, so he pushes them; under both arms no one pushes him (his stay) and every avoidance scan meets him as a static obstacle.",
+      "open": "16.402: Oracle's read of the ability's AVOIDANCE_AS_OBSTACLE tag; the tag's own law (movement.AVOIDANCE_OBSTACLE_TAG) pushes, so 16.402 likely pushes too. Air units: none in contact with a deflecting Monk in the corpus.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_pushes (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402 (`deflect_off`, `deflect_hides`: the bodies' alive), selected by Calib::deflect_contact; tests/deflect_contact.rs; tests/monk_deflect.rs pins the old arm."
+    },
     "DYING_UNIT_VISIBILITY": {
       "value": "whole_tick",
       "status": "measured",

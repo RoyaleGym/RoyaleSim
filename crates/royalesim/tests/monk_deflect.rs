@@ -211,10 +211,10 @@ fn a_giant_walking_into_him_does_not_move_him_while_it_is_active() {
     }
 }
 
-/// NOR DOES HE PUSH ANYONE WHILE IT IS ACTIVE (state.rs `deflect_off`, his ability's AVOIDANCE_AS_OBSTACLE): read off the
-/// 16.402 code by Oracle, measured on client 15.535.29 (sp-champ-Monk-recharge-q20-s0 t229..t246: a Giant slides round
-/// him at about 1,207, inside both radii, and is never pushed). The scene above: on every tick of the active window
-/// that starts with the Giant inside both radii and 20 of him (its only neighbour), the Giant takes no contact push.
+/// NOR DOES HE PUSH ANYONE WHILE IT IS ACTIVE under movement.DEFLECT_CONTACT's shipped arm, hidden (state.rs
+/// `deflect_off`, the engine's reading of his ability's AVOIDANCE_AS_OBSTACLE). Client 15.535.29 pushes
+/// (tests/deflect_contact.rs). The scene above: on every tick of the active window that starts with the Giant inside both
+/// radii and 20 of him (its only neighbour), the Giant takes no contact push.
 #[test]
 fn a_giant_on_him_is_not_pushed_by_him_while_it_is_active() {
     const RED: [&str; 8] = ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];

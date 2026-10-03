@@ -1058,6 +1058,10 @@ pub struct Calib {
     /// exactly its ChainedHitRadius. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Inclusive`.
     #[serde(default = "evo_chain_hop_reach_default")]
     pub evo_chain_hop_reach: EvoChainHopReach,
+    /// movement.DEFLECT_CONTACT (the move pass's `deflect_off`): whether a deflecting Monk is a body to his neighbours'
+    /// separation. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Hidden`.
+    #[serde(default = "deflect_contact_default")]
+    pub deflect_contact: DeflectContact,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2547,6 +2551,10 @@ fn action_group_spawn_order_default() -> ActionGroupSpawnOrder {
 
 fn evo_chain_hop_reach_default() -> EvoChainHopReach {
     EvoChainHopReach::Inclusive
+}
+
+fn deflect_contact_default() -> DeflectContact {
+    DeflectContact::Hidden
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5231,6 +5239,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.DEFLECT_CONTACT -- see the move pass's `deflect_off`: whether a Monk whose deflect is active is a body to
+    /// his neighbours' separation. Under both arms no one pushes him (his `stay`) and every avoidance scan meets him as a
+    /// static obstacle.
+    DeflectContact {
+        /// The engine's: he is met by no unit's separation, so he pushes no one.
+        Hidden = "hidden",
+        /// He stays a body to his neighbours' separation, so he pushes them, as a carrier of the AVOIDANCE_AS_OBSTACLE tag
+        /// does (movement.AVOIDANCE_OBSTACLE_TAG). Measured on client 15.535.29 (parity's monk_contact_census.py, every
+        /// frame of a deflecting Monk with a ground unit inside both radii): sp-champ-Monk-recharge-q20-s0 t229..t265, a
+        /// Giant sliding round him: on 32 of 32 walking frames its step less his push (overlap * 6 / 18 + 1 along him ->
+        /// it) was a plain 51..53 speed step, and on the 2 frames it stood (t252, t253) its step was his push exactly;
+        /// the Monk stood on his point, 34 of 34. The engine's Giant cut in, 1,108 nearer by t234.
+        Client15535Pushes = "client15535_pushes",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7529,6 +7553,7 @@ impl Calib {
             evo_chain_shot_launch: pick(&v, &["combat", "EVO_CHAIN_SHOT_LAUNCH", "value"], EvoChainShotLaunch::from_calibration_name)?,
             action_group_spawn_order: pick(&v, &["spawner", "ACTION_GROUP_SPAWN_ORDER", "value"], ActionGroupSpawnOrder::from_calibration_name)?,
             evo_chain_hop_reach: pick(&v, &["combat", "EVO_CHAIN_HOP_REACH", "value"], EvoChainHopReach::from_calibration_name)?,
+            deflect_contact: pick(&v, &["movement", "DEFLECT_CONTACT", "value"], DeflectContact::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -18877,6 +18902,13 @@ impl BattleState {
                 deflect_off[id.index as usize] = true;
             }
         }
+        // movement.DEFLECT_CONTACT = client15535_pushes: the deflecting Monk stays a body to his neighbours' separation, so
+        // he pushes them (his `stay` keeps him unpushed). Measured on client 15.535.29 (sp-champ-Monk-recharge-q20-s0
+        // t229..t265: a Giant sliding round him took his push on 34 of 34 frames inside both radii).
+        #[cfg(not(clash_plant = "deflect_pushes_nothing"))]
+        let deflect_hides = self.cfg.calib.deflect_contact == DeflectContact::Hidden;
+        #[cfg(clash_plant = "deflect_pushes_nothing")]
+        let deflect_hides = true; // PLANT (regression): the new arm still hides him from his neighbours' separation.
         // movement.AVOIDANCE_OBSTACLE_TAG = client15535_unpushed_obstacle: a unit whose row sets the AVOIDANCE_AS_OBSTACLE
         // tag (`CardDef::avoidance_as_obstacle`: the Evo Skeleton Army's General, the Phoenix's egg, the Elite Archer
         // hero's dummy) runs none of its own separation scans, so contact never moves it, and is a static obstacle to
@@ -19053,9 +19085,10 @@ impl BattleState {
                         mass: move16402::loaded_mass(e.mass[i].unwrap_or(0), e.radius[i] / K),
                         air: e.flying[i],
                         mover: e.kind[i] == EntityKind::Troop,
-                        // a deflecting Monk (`deflect_off`) is met by no unit's separation, his body kept for avoidance,
-                        // and so is a dying kamikaze under movement.KAMIKAZE_DEATH_CONTACT's new arm (`kamikaze_unpushing`)
-                        alive: alive && !deflect_off[i] && !kamikaze_unpushing(i) && !tag_hidden[i],
+                        // a deflecting Monk (`deflect_off`) is met by no unit's separation under movement.DEFLECT_CONTACT's
+                        // hidden arm (`deflect_hides`), his body kept for avoidance, and so is a dying kamikaze under
+                        // movement.KAMIKAZE_DEATH_CONTACT's new arm (`kamikaze_unpushing`)
+                        alive: alive && !(deflect_off[i] && deflect_hides) && !kamikaze_unpushing(i) && !tag_hidden[i],
                         // a unit mid river-jump is skipped by every neighbour's scans
                         // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK), and an
                         // attached rider, which pushes nothing (`carry_riders`)
@@ -29858,6 +29891,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.DEFLECT_CONTACT: Calib gained deflect_contact (serde default the old arm, hidden), no new
+///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
+///    arm.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_REACH: Calib gained evo_chain_hop_reach (serde default the old arm, inclusive), no
 ///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
 ///    old arm.
@@ -30818,6 +30854,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("action_group_spawn_order".into(), serde_json::to_value(ActionGroupSpawnOrder::Listed).map_err(|e| e.to_string())?);
     // combat.EVO_CHAIN_HOP_REACH: a format-3 battle ran no Evo Electro Dragon (the same rule).
     sh.insert("evo_chain_hop_reach".into(), serde_json::to_value(EvoChainHopReach::Inclusive).map_err(|e| e.to_string())?);
+    // movement.DEFLECT_CONTACT: a format-3 battle ran no Monk (the same rule).
+    sh.insert("deflect_contact".into(), serde_json::to_value(DeflectContact::Hidden).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
