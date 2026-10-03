@@ -1394,6 +1394,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   landing tick, after the Target phase, keeping its walk (ground-only enemies took it two ticks after, 4 of 4).
 ///   combat.CAGE_CAPTIVE_SHOTS = client15535_before_shots_hidden_after_snap: an Evo Goblin Cage drags its captive before
 ///   the tick's shots step and hides it the tick after the snap (a tower's arrow landed on every dragged captive).
+///   combat.LOAD_FIRST_HIT_KILL_WAIT = client15535_skipped: a Sparky whose target dies mid-swing takes its next target on
+///   the tick after (4 of 4), serving no post-kill wait.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1421,6 +1423,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.STRUCK_CONTACT_ORDER", "\"client15535_after_striker\""),
     ("transform.FALL_GROUNDING", "\"client15535_late_kept_walk\""),
     ("combat.CAGE_CAPTIVE_SHOTS", "\"client15535_before_shots_hidden_after_snap\""),
+    ("combat.LOAD_FIRST_HIT_KILL_WAIT", "\"client15535_skipped\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

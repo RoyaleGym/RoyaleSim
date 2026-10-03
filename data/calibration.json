@@ -1852,6 +1852,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_before_shots_hidden_after_snap (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_projectile (the cages' pass before or after combat::step_projectiles) and cage_pass (the hide's tick), selected by Calib::cage_captive_shots; tests/cage_captive_shots.rs."
     },
+    "LOAD_FIRST_HIT_KILL_WAIT": {
+      "value": "waits",
+      "status": "measured",
+      "candidates": ["waits", "client15535_skipped"],
+      "confidence": "HIGH for client15535_skipped on client 15.535.29: 4 of 4 Sparky kills mid-swing, the next target on the loss + 1. The Sparky is the only LoadFirstHit unit the captures have. 16.402 unread (per client).",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's raw frames (tools sparky_loss_census.py), every target loss of a LoadFirstHit unit in its attack (11, all Sparkies, in sp-il-8b9b and sp-il-04cb): the four whose target DIED while its swing ran (progress 3450, 2450, 2550, 1500: t880, t959, t1761, t1870, two of them its first swing, two after a fire) took their next target on the loss + 1 (the loss tick's target an unrecorded pointer on two) and stepped on the loss + 2; the losses at progress 0 and the two live targets lost mid-swing took theirs on the loss + 1 or + 2. Under combat.POST_KILL_RETARGET_WAIT = client16402_attack_finish the engine's Sparky held its target empty for 6 ticks on each of the four (none of the three clauses applies: the Sparky is not an OverrideAttackFinishTime unit, its progress was not 0, its victims were struck down, not doomed by its own shot). sp-il-8b9b t959: a Cannon the Sparky was winding up on (2450) was struck down by others; the client's Sparky walked on t960 and took the Musketeer on t969, the engine's on t974, and its shot killed that Musketeer on t992 in the client and later in the engine (the scene's first divergence).",
+      "meaning": "waits: the engine's; a LoadFirstHit unit serves the post-kill wait under its condition as any unit does. client15535_skipped: it serves none and takes the next target on the tick after the loss.",
+      "open": "Other LoadFirstHit rows (none in the captures); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_skipped (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_target (the post-kill wait's clause (d)), selected by Calib::load_first_hit_kill_wait; tests/load_first_hit_kill_wait.rs."
+    },
     "PASS_KILL_CHASE": {
       "value": "start_of_pass",
       "status": "measured",

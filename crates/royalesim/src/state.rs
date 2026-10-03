@@ -895,6 +895,10 @@ pub struct Calib {
     /// the `default` is the old arm, `AfterShotsHiddenOnSnap`.
     #[serde(default = "cage_captive_shots_default")]
     pub cage_captive_shots: CageCaptiveShots,
+    /// combat.LOAD_FIRST_HIT_KILL_WAIT (`phase_target`): whether a LoadFirstHit unit serves combat.POST_KILL_RETARGET_WAIT's
+    /// wait. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Waits`.
+    #[serde(default = "load_first_hit_kill_wait_default")]
+    pub load_first_hit_kill_wait: LoadFirstHitKillWait,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2232,6 +2236,10 @@ fn fall_grounding_default() -> FallGrounding {
 
 fn cage_captive_shots_default() -> CageCaptiveShots {
     CageCaptiveShots::AfterShotsHiddenOnSnap
+}
+
+fn load_first_hit_kill_wait_default() -> LoadFirstHitKillWait {
+    LoadFirstHitKillWait::Waits
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4648,6 +4656,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.LOAD_FIRST_HIT_KILL_WAIT -- see `BattleState::phase_target`: whether a LoadFirstHit unit (the Sparky) serves
+    /// combat.POST_KILL_RETARGET_WAIT's wait when its target dies.
+    LoadFirstHitKillWait {
+        /// The engine's: the wait's condition (client16402_attack_finish) as for any unit: a Sparky whose target dies
+        /// mid-swing stands its 6 ticks.
+        Waits = "waits",
+        /// It serves none: it takes the next target on the tick after the loss (its windup given back, combat.
+        /// LOAD_FIRST_HIT_LEAVE). Measured on client 15.535.29: every Sparky whose target died mid-swing, 4 of 4
+        /// (sp-il-8b9b t880 and t959, sp-il-04cb t1761 and t1870), took its next target on the loss + 1 and stepped on
+        /// the loss + 2; the engine's stood 6 ticks (sp-il-8b9b t959: the Sparky reached its next target 5 ticks late and
+        /// its shot killed the Musketeer late, the scene's first divergence on t992).
+        Client15535Skipped = "client15535_skipped",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6527,6 +6550,7 @@ impl Calib {
             transform_redeploy: pick(&v, &["transform", "REDEPLOY", "value"], TransformRedeploy::from_calibration_name)?,
             fall_grounding: pick(&v, &["transform", "FALL_GROUNDING", "value"], FallGrounding::from_calibration_name)?,
             cage_captive_shots: pick(&v, &["combat", "CAGE_CAPTIVE_SHOTS", "value"], CageCaptiveShots::from_calibration_name)?,
+            load_first_hit_kill_wait: pick(&v, &["combat", "LOAD_FIRST_HIT_KILL_WAIT", "value"], LoadFirstHitKillWait::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -14583,9 +14607,15 @@ impl BattleState {
                             let c = cards.get(e.card[i]);
                             // (a) also reads the row's own column (`CardDef::override_attack_finish`), which a form's row
                             // inherits under another unit name (the Hero Valkyrie's ValkyrieHero).
+                            // (d) under combat.LOAD_FIRST_HIT_KILL_WAIT = client15535_skipped, a LoadFirstHit card.
+                            #[cfg(not(clash_plant = "load_first_hit_kill_waits"))]
+                            let lf_skips = c.load_first_hit && calib.load_first_hit_kill_wait == LoadFirstHitKillWait::Client15535Skipped;
+                            #[cfg(clash_plant = "load_first_hit_kill_waits")]
+                            let lf_skips = false; // PLANT (regression): the new arm's Sparky serves the wait.
                             !(override_units.contains(&c.unit_name) || c.override_attack_finish || wears_finish_override(cards, e, i))
                                 && e.attack_ms[i] != 0
                                 && !(c.projectile.is_some() && e.target_doomed[i])
+                                && !lf_skips
                         }
                         PostKillWait::None => false,
                     }
@@ -28201,6 +28231,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.LOAD_FIRST_HIT_KILL_WAIT: Calib gained load_first_hit_kill_wait (serde default the old arm,
+///    waits), no new state (the new arm skips a wait the saved retarget_wait would have started), so a blob saved before
+///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.CAGE_CAPTIVE_SHOTS: Calib gained cage_captive_shots (serde default the old arm,
 ///    after_shots_hidden_on_snap), no new state (the new arm moves the saved cage runs' captives earlier in the tick and
 ///    hides them a tick later, from the saved grab tick), so a blob saved before it deserializes and hashes as it did.
@@ -28964,6 +28997,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("fall_grounding".into(), serde_json::to_value(FallGrounding::StatusRebind).map_err(|e| e.to_string())?);
     // combat.CAGE_CAPTIVE_SHOTS: a format-3 battle ran no Evo Goblin Cage (the same rule).
     sh.insert("cage_captive_shots".into(), serde_json::to_value(CageCaptiveShots::AfterShotsHiddenOnSnap).map_err(|e| e.to_string())?);
+    // combat.LOAD_FIRST_HIT_KILL_WAIT: a format-3 battle's Sparkies served the wait (the old arm).
+    sh.insert("load_first_hit_kill_wait".into(), serde_json::to_value(LoadFirstHitKillWait::Waits).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
