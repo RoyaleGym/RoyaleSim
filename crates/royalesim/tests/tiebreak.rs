@@ -14,7 +14,7 @@
 mod common;
 
 use common::*;
-use royalesim::state::{BattleConfig, BattleState, Outcome, OvertimeTiebreak};
+use royalesim::state::{tiebreak_drain_step, BattleConfig, BattleState, Outcome, OvertimeTiebreak};
 use royalesim::Team;
 
 /// The tick whose Judge phase ends overtime: elapsed_ms(tick + 1) >= overtime_end.
@@ -234,4 +234,14 @@ fn level_towers_drain_one_tick_and_draw() {
     assert_eq!(seen.last().map(|x| x.0), Some(6147), "the draw on t6147");
     assert_eq!(s.outcome(), Some(Outcome::Draw));
     assert_eq!(s.crowns(), [0, 0]);
+}
+
+/// THE DRAIN'S STEPS AT THEIR MEASURED EDGES (client 15.535.29: 500 drained 40, 460 drained 20, 200 drained 20, 180
+/// drained 10, 30 drained 10, 20 drained 1; client 16.402, six live level overtimes: 1018 drained 50, 968 drained 40,
+/// 516 drained 40, 488 drained 20, 208 drained 20, 196 drained 10, 21 drained 10, 18 drained 1).
+#[test]
+fn the_drain_steps_sit_where_both_clients_measured_them() {
+    for (lowest, step) in [(1018, 50), (968, 40), (516, 40), (500, 40), (488, 20), (460, 20), (208, 20), (200, 20), (196, 10), (180, 10), (30, 10), (21, 10), (20, 1), (18, 1), (1, 1)] {
+        assert_eq!(tiebreak_drain_step(lowest), step, "the step at a lowest tower of {lowest}");
+    }
 }
