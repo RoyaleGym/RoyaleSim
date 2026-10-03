@@ -5294,6 +5294,17 @@
       "promotion_rules": "SETTLED 2026-09-25 (see provenance). deploying, the earlier engine, is the old arm.",
       "engine": "entity.rs stagger_ms (the wait, set from PendingSpawn.stagger_ms in formation_members and counted down beside deploy_ms in deploy_countdown); target.rs can_target (the one definition of targetable); state.rs phase_path16402 (the 16.402 move pass skips a waiting member after the pushback branch and applies a pull alone, as the held branch does); hashed only under the measured arm. The pre-2026 path models do not read it."
     },
+    "LINE_FRAME": {
+      "value": "rotation",
+      "candidates": ["rotation", "client15535_y_reflection"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_y_reflection on client 15.535.29: both side 1 line taps in the captures (sp-rrtap-s1-*) lay as side 0's at the same arena x; one of them separates the frames (the king's zone's half-open edge). 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29, Oracle's sp-rrtap-* (Royal Recruits alone): side 1 (2500, 28500) laid on x 250, 2299, 5099, 7899, 10699, 13499 and (15500, 28500) on 17750, 15700, 12900, 10100, 7300, 4500, both on y 27249 / 27749 (own y 4500); side 0's (2500, 3500) and (15500, 3500) on the same xs and y 4750 / 4250: the side 1 line is side 0's reflected in y, x kept. The engine (formsR33d) laid (15500, 28500)'s on y 23249 / 23749, 4000 off (that scene's first divergence, t101): in the rotation its tap is own (2500, 3500), its place own (6500, 4500), and formation.rs line_centre refuses it, its ground point (6500, 4501) inside the king's zone x [6500, 11500); in the reflection the place is (11500, 4500), its ground point outside. (2500, 28500) stands at the bar under both.",
+      "meaning": "rotation: the engine's; side 1's line place (formation.rs line_centre) is looked for in the owner's frame, the 180-degree rotation. client15535_y_reflection: in the y-reflection, x kept (the tap, the members' offsets and the ground point mirrored in x from the rotation), the place mirrored back; side 0's is unchanged.",
+      "open": "The ring order's ties in the reflection (none met); the Royal Hogs (no side 1 tap read); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_y_reflection (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs formation_members_with (`reflect`), selected by Calib::line_frame; tests/line_frame.rs."
+    },
     "GROUND_DEPLOY_POINT": {
       "value": "client16402_one_unit",
       "status": "measured",

@@ -1528,6 +1528,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   sequential pass (10 of 10 pickers, 7 of 7 walking holders).
 ///   pathfinding.PRESS_ROUTE = client15535_replanned: a ground hero's press with CastTime 0 drops its route (22 of 22).
 ///   combat.SPIN_BEGIN = client15535_next_tick: a Hero Valkyrie's spin begins the tick after her button fires (1 press).
+///   formation.LINE_FRAME = client15535_y_reflection: side 1's line is placed as side 0's at the same arena x (2 of 2).
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1582,6 +1583,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.STRAIGHT_SHOT_BUILDING_REACH", "\"client15535_rounded_square\""),
     ("pathfinding.PRESS_ROUTE", "\"client15535_replanned\""),
     ("combat.SPIN_BEGIN", "\"client15535_next_tick\""),
+    ("formation.LINE_FRAME", "\"client15535_y_reflection\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

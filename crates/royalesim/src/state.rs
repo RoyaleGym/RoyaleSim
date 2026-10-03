@@ -991,6 +991,10 @@ pub struct Calib {
     /// the `default` is the old arm, `PressTick`.
     #[serde(default = "spin_begin_default")]
     pub spin_begin: SpinBegin,
+    /// formation.LINE_FRAME (`formation_members_with`, a line's place): the frame side 1's line place is looked for in.
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Rotation`.
+    #[serde(default = "line_frame_default")]
+    pub line_frame: LineFrame,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2420,6 +2424,10 @@ fn press_route_default() -> PressRoute {
 
 fn spin_begin_default() -> SpinBegin {
     SpinBegin::PressTick
+}
+
+fn line_frame_default() -> LineFrame {
+    LineFrame::Rotation
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5060,6 +5068,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// formation.LINE_FRAME -- see `formation_members_with` (formation.rs `line_centre`): the frame a SIDE 1 line's place
+    /// (the Royal Recruits', the Royal Hogs') is looked for in. Side 0's owner frame is the arena's under both.
+    LineFrame {
+        /// The engine's: the owner's frame, the 180-degree rotation (arena.rs `to_frame`).
+        Rotation = "rotation",
+        /// The y-reflection, x kept: side 1's line is placed as side 0's at the same arena x. Measured on client
+        /// 15.535.29 (Oracle's sp-rrtap-s1-*): a side 1 tap on (2500, 28500) lays its six members on x 250 .. 13499 and
+        /// one on (15500, 28500) on x 17750 .. 4500, as side 0's taps on (2500, 3500) and (15500, 3500) do, and both on
+        /// own y 4500 (27249 / 27749), as side 0's; the rotation puts (15500, 28500)'s line around own (6500, 4500), whose
+        /// ground point x 6500 the king's zone [6500, 11500) refuses, and the engine laid it on own y 8500 (23249 /
+        /// 23749), 4000 off. In the reflection its place is (11500, 4500), outside that zone.
+        Client15535YReflection = "client15535_y_reflection",
+    }
+);
+calib_enum!(
     /// combat.SPIN_BEGIN -- see `spin_seek`: the first tick a Hero Valkyrie's spin (card.rs `AbilityEffect::SpinChain`)
     /// may begin, its first 150 step and its first blow.
     SpinBegin {
@@ -7134,6 +7157,7 @@ impl Calib {
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
             press_route: pick(&v, &["pathfinding", "PRESS_ROUTE", "value"], PressRoute::from_calibration_name)?,
             spin_begin: pick(&v, &["combat", "SPIN_BEGIN", "value"], SpinBegin::from_calibration_name)?,
+            line_frame: pick(&v, &["formation", "LINE_FRAME", "value"], LineFrame::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -24959,7 +24983,23 @@ impl BattleState {
                 #[cfg(not(clash_plant = "line_centre_on_tap"))]
                 let tap = if line {
                     let offsets: Vec<Vec2> = (0..n).map(|k| crate::formation::member_offset(layout, k)).collect();
-                    crate::formation::line_centre(tap, &offsets, ground_delta, arena.width / K).unwrap_or(tap)
+                    // formation.LINE_FRAME = client15535_y_reflection: side 1's place is looked for in the y-reflection
+                    // (x kept): the tap, the members' offsets and the ground offset mirrored in x from the rotation, the
+                    // place mirrored back.
+                    // PLANT (regression) line_frame_rotation: the new arm still looks in the rotation.
+                    #[cfg(not(clash_plant = "line_frame_rotation"))]
+                    let reflect = team == Team::Red && calib.line_frame == LineFrame::Client15535YReflection;
+                    #[cfg(clash_plant = "line_frame_rotation")]
+                    let reflect = false;
+                    let w = arena.width / K;
+                    if reflect {
+                        let flip = |v: Vec2| Vec2::new(-v.x, v.y);
+                        let offsets: Vec<Vec2> = offsets.iter().map(|o| flip(*o)).collect();
+                        let at = Vec2::new(w - tap.x, tap.y);
+                        crate::formation::line_centre(at, &offsets, flip(ground_delta), w).map_or(tap, |c| Vec2::new(w - c.x, c.y))
+                    } else {
+                        crate::formation::line_centre(tap, &offsets, ground_delta, w).unwrap_or(tap)
+                    }
                 } else {
                     tap
                 };
@@ -29332,6 +29372,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, formation.LINE_FRAME: Calib gained line_frame (serde default the old arm, rotation), no new state (a
+///    line is placed at its play), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, combat.SPIN_BEGIN: Calib gained spin_begin (serde default the old arm, press_tick), no new state (the
 ///    test reads SpinRun::fired, saved), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
@@ -30213,6 +30256,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("press_route".into(), serde_json::to_value(PressRoute::Kept).map_err(|e| e.to_string())?);
     // combat.SPIN_BEGIN: a format-3 battle's spin began on its button's tick (the same rule).
     sh.insert("spin_begin".into(), serde_json::to_value(SpinBegin::PressTick).map_err(|e| e.to_string())?);
+    // formation.LINE_FRAME: a format-3 battle's side 1 line was placed in the rotation (the same rule).
+    sh.insert("line_frame".into(), serde_json::to_value(LineFrame::Rotation).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
