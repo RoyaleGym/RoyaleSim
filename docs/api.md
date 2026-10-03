@@ -49,6 +49,10 @@ sub-tiles. The arena is 18 tiles wide and 32 tiles long. Blue (team 0) plays fro
 **Cards.** `card_names=None` loads the default catalogue. Pass a list of names to choose your own. A card's id is its
 position in that list. `catalogue_json()` lists each card with its cost, kind and deploy rule.
 
+**Levels.** Both sides play at one card level and one tower level unless you say otherwise. To give each side its
+own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck card (or empty), and
+`tower_levels=[blue, red]`. A Mirror's copy is one level above the Mirror.
+
 **Commands.** A command is `(team, hand_slot, x, y)`. `step` returns one row per command:
 `(card_id, reason, tick, x, y)`, where `reason` indexes `DEPLOY_REASONS` (`0` is accepted) and `x, y` is where
 the card actually went down. Ask first with
