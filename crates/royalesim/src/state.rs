@@ -979,6 +979,10 @@ pub struct Calib {
     /// is the old arm, `Buffered`.
     #[serde(default = "kamikaze_launch_pass_default")]
     pub kamikaze_launch_pass: KamikazeLaunchPass,
+    /// combat.STRAIGHT_SHOT_BUILDING_REACH (combat.rs `straight_hits`): the reach test a CheckCollisions shot (the Hunter's
+    /// pellet) runs on a building. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Circle`.
+    #[serde(default = "straight_shot_building_reach_default")]
+    pub straight_shot_building_reach: StraightShotBuildingReach,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2396,6 +2400,10 @@ fn dash_chain_aim_default() -> DashChainAim {
 
 fn kamikaze_launch_pass_default() -> KamikazeLaunchPass {
     KamikazeLaunchPass::Buffered
+}
+
+fn straight_shot_building_reach_default() -> StraightShotBuildingReach {
+    StraightShotBuildingReach::Circle
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5036,6 +5044,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.STRAIGHT_SHOT_BUILDING_REACH -- see combat.rs `straight_hits`: which point a CheckCollisions shot (the Hunter's
+    /// pellet, combat.PROJECTILE_COLLISIONS = client_columns) must reach to hit a building or a crown tower.
+    StraightShotBuildingReach {
+        /// The engine's: its centre within ProjectileRadius plus the building's radius, as for a troop.
+        Circle = "circle",
+        /// The building's square, half-side its collision radius, within ProjectileRadius: the distance from the shot's
+        /// centre to that square below ProjectileRadius (spell.rs `in_square`, the area spells' building law). Measured on
+        /// client 15.535.29 (pellet_building_census.py, every Hunter pellet whose flight ended on a building: its point the
+        /// tick after its last frame, one step on, against the frames' buildings): 136 of 136 reach the square there and
+        /// none reached it on the last frame; the circle misses 97 of them (sp-f4-hunter-s0 t689: a pellet at (1001, 1277)
+        /// from Red's princess tower, 1,623 from its centre, took 84 the tick after; the engine's flew on and landed a
+        /// tick later, the scene's tower hits 1 to 2 ticks late). The borders: hits 294.7 from the square, misses 309 and
+        /// 313.6; a King tower's square is its own radius's (1,400), not the spells' 1,000.
+        Client15535RoundedSquare = "client15535_rounded_square",
+    }
+);
+calib_enum!(
     /// combat.KAMIKAZE_LAUNCH_PASS -- see `phase_attack_for` (the kamikaze's self-hit) and `phase_target_attack_sequential`:
     /// under match.TICK_ORDER = client_sequential_strike, when a kamikaze's own death (combat.KAMIKAZE_DEATH = at_fire)
     /// reaches the units after it in the pass.
@@ -7061,6 +7086,7 @@ impl Calib {
             dismount_hop_water: pick(&v, &["transform", "DISMOUNT_HOP_WATER", "value"], DismountHopWater::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
+            straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -29229,6 +29255,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.STRAIGHT_SHOT_BUILDING_REACH: Calib gained straight_shot_building_reach (serde default the old
+///    arm, circle), no new state (the test reads the saved shot and building), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.KAMIKAZE_LAUNCH_PASS: Calib gained kamikaze_launch_pass (serde default the old arm, buffered),
 ///    no new state (Scratch::launched lives inside one tick's pass), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30095,6 +30124,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
     sh.insert("kamikaze_launch_pass".into(), serde_json::to_value(KamikazeLaunchPass::Buffered).map_err(|e| e.to_string())?);
+    // combat.STRAIGHT_SHOT_BUILDING_REACH: a format-3 battle's pellet reached a building by the circle (the same rule).
+    sh.insert("straight_shot_building_reach".into(), serde_json::to_value(StraightShotBuildingReach::Circle).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

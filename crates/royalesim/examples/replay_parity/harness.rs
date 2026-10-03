@@ -1526,6 +1526,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   45 steps exact).
 ///   combat.KAMIKAZE_LAUNCH_PASS = client15535_gone_at_launch: a kamikaze's launch removes it for every later unit of the
 ///   sequential pass (10 of 10 pickers, 7 of 7 walking holders).
+///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
+///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1575,6 +1577,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.DISMOUNT_HOP_WATER", "\"client15535_land_row_centre\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_gone_at_launch\""),
+    ("combat.STRAIGHT_SHOT_BUILDING_REACH", "\"client15535_rounded_square\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

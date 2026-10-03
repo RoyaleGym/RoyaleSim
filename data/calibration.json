@@ -2103,6 +2103,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_battle_stream (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "combat.rs fire (`stream`), state.rs client_draw, selected by Calib::random_delay_stream; tests/random_delay_stream.rs."
     },
+    "STRAIGHT_SHOT_BUILDING_REACH": {
+      "value": "circle",
+      "candidates": ["circle", "client15535_rounded_square"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_rounded_square on client 15.535.29 for the Hunter's pellets (the CheckCollisions shots) on crown towers: 136 of 136 pellet ends; the borders read 294.7 (a hit) against 309 and 313.6 (misses) from the square, so the strict and the inclusive test at ProjectileRadius are not separated. Other straight shots (a Bowler's boulder, an Executioner's axe) on buildings not read; ordinary buildings not met by a pellet in the captures; 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's projectile tracks (tool pellet_building_census.py: every Hunter pellet, card 26000044, whose point one step past its last frame, the tick it is gone and its hit lands, reaches an enemy building on the frames of its last tick, by the circle test, centre distance <= radius + 300, and the rounded square, the distance to the square of half-side the radius < 300). sp-f4-hunter-s0, -hunterBD, -hunterG0/G40/G80, -hunterK and sp-form-Hunter-evo-s0: 136 of 136 reach the rounded square on that tick and none on the last frame; 97 of them are outside the circle (sp-f4-hunter-s0 t689: (1001, 1277) from Red's princess tower, 1,623 from its centre; t690: (1049, 855) at 1,353). The nearest misses: (1124, 1288), 313.6 from the princess tower's square (sp-f4-hunterBD t722 and t763), and (1177, 1709) from a King, 309; a King's pellet hits read its own radius (1,400): (1612, 1374) and (1667, 1161). Under the circle the engine's pellets flew on a tick or two and the scenes' tower hits came late (sp-f4-hunter-s0 t690/691/693 against t692/694; sp-form-Hunter-evo-s0 t691/692/693 against t692/693/694, Red's tower down a tick late).",
+      "meaning": "circle: the engine's; a CheckCollisions shot (combat.PROJECTILE_COLLISIONS = client_columns: the Hunter's pellet) hits a building when its centre is within ProjectileRadius plus the building's radius, as it hits a troop. client15535_rounded_square: on a building or a crown tower it hits when the distance from its centre to the building's square, half-side the building's collision radius, is below ProjectileRadius (spell.rs in_square); on a troop the circle as before.",
+      "open": "The other straight shots on buildings; an ordinary building (no pellet met one); strict or inclusive at ProjectileRadius; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_rounded_square (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "combat.rs straight_hits (`square`, `reached`), selected by Calib::straight_shot_building_reach; tests/pellet_building_reach.rs."
+    },
     "PROJECTILE_COLLISIONS": {
       "value": "client_columns",
       "candidates": ["not_read", "client_columns"],

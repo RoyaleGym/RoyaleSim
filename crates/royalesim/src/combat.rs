@@ -46,7 +46,7 @@ use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
     AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, RandomDelayStream, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
-    ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, TargetBuffScope, VariableDamage,
+    ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, StraightShotBuildingReach, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
@@ -1841,7 +1841,15 @@ fn straight_hits(
     let hidden_immune = calib.hide_hidden_immune;
     #[cfg(clash_plant = "straight_shot_meets_hidden")]
     let hidden_immune = false; // PLANT (regression): a straight shot stops on a hidden building.
-    hash.neighbours_within(ents, at, s.reach + hash.max_radius(), nb);
+    // combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a CheckCollisions shot reaches a building's square,
+    // whose corner stands its radius x 1.415 from the centre (the broad phase reaches it).
+    // PLANT (regression) pellet_building_circle: the new arm still tests a building's circle.
+    #[cfg(not(clash_plant = "pellet_building_circle"))]
+    let square = s.stop_on_hit && calib.straight_shot_building_reach == StraightShotBuildingReach::Client15535RoundedSquare;
+    #[cfg(clash_plant = "pellet_building_circle")]
+    let square = false;
+    let broad = if square { hash.max_radius() * 1415 / 1000 + 1 } else { hash.max_radius() };
+    hash.neighbours_within(ents, at, s.reach + broad, nb);
     let mut any = false;
     for &v in nb.iter() {
         let v = v as usize;
@@ -1861,7 +1869,12 @@ fn straight_hits(
         if untouchable_now(ents, v, hidden_immune, underground_immune, false) {
             continue;
         }
-        if !in_range_edge(at, ents.pos[v], s.reach, ents.radius[v]) {
+        let reached = if square && ents.kind[v].is_building() {
+            crate::spell::in_square(at, ents.pos[v], ents.radius[v], s.reach)
+        } else {
+            in_range_edge(at, ents.pos[v], s.reach, ents.radius[v])
+        };
+        if !reached {
             continue;
         }
         // combat.PROJECTILE_COLLISIONS = client_columns: a CheckCollisions shot does not collide
