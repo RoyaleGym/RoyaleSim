@@ -12149,7 +12149,17 @@ impl BattleState {
                     let at = self.ents.pos[i];
                     let point = Vec2::new(at.x + wx * crate::fixed::SUBTILE_PER_MILLITILE, at.y);
                     let pos = self.released_point(team, unit.is_flying(), point);
-                    emissions.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: d.goblin, level, pos, deploy_ms: Some(d.goblin_deploy_ms), owner: Some(r.id), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: self.ents.producer(r.id.index as usize) }));
+                    // targeting.SPAWNED_UNIT_ACQUIRE_DELAY: a hide's Goblins are an action's spawn, targets for enemies from
+                    // their 8th frame (`delay_acquisition`). Measured on client 15.535.29 (drill_goblin_first_target.py,
+                    // deploying_target_census.py): no hide Goblin was first targeted before its F + 7 (sp-form-GoblinDrill-
+                    // evo-s0's on F + 7, F + 7 and F + 26), and on t1146 a Knight, a Skeleton and a Musketeer passed over one
+                    // on its 2nd frame for Blue's tower, where the engine took it; the regular Goblins (a Spawn* spawner's)
+                    // were taken on F + 1 and F + 2.
+                    #[cfg(not(clash_plant = "drill_hide_acquired_at_once"))]
+                    let acquire_delay = true;
+                    #[cfg(clash_plant = "drill_hide_acquired_at_once")]
+                    let acquire_delay = false; // PLANT (regression): a hide's Goblins are targets from their first frame.
+                    emissions.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: d.goblin, level, pos, deploy_ms: Some(d.goblin_deploy_ms), owner: Some(r.id), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: self.ents.producer(r.id.index as usize) }));
                 }
                 r.wave_at = 0;
             }

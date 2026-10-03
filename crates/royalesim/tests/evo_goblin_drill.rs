@@ -11,7 +11,8 @@
 //!   - drill_hide_never -> `at_two_thirds_its_building_goes_under_39_ticks_unhurt_and_puts_down_two_goblins` red;
 //!   - drill_hide_drains -> the same red;
 //!   - drill_spawner_unheld -> the same red;
-//!   - drill_hide_collides -> the same red (its Goblins pushed off its footprint).
+//!   - drill_hide_collides -> the same red (its Goblins pushed off its footprint);
+//!   - drill_hide_acquired_at_once -> `a_hides_goblins_are_targets_from_their_8th_frame` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -82,4 +83,45 @@ fn at_two_thirds_its_building_goes_under_39_ticks_unhurt_and_puts_down_two_gobli
     assert!(goblins.len() == 3 && goblins[2].1 == (9500, 10000) && goblins[2].2, "its second hide's Goblin: {goblins:?}");
     let across: Vec<usize> = regular.windows(2).filter(|w| w[0] < t && w[1] > t).map(|w| w[1] - w[0]).collect();
     assert_eq!(across, [97], "its regular Goblins across the hide: {regular:?}");
+}
+
+
+/// targeting.SPAWNED_UNIT_ACQUIRE_DELAY: a hide's Goblins are an action's spawn, targets for enemies from their 8th frame
+/// (client 15.535.29: none first targeted before F + 7; sp-form-GoblinDrill-evo-s0 t1146, three enemies passed over one on
+/// its 2nd frame); the regular Goblins, a Spawn* spawner's, from their first. Plant: drill_hide_acquired_at_once.
+#[test]
+fn a_hides_goblins_are_targets_from_their_8th_frame() {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["GoblinDrill".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let d = s.scenario_spawn_now(Team::Blue, "units.GoblinDrill_EV1", n(9000, 10000), None).expect("the drill's building");
+    let mut seen: Vec<EntityId> = Vec::new();
+    let (mut hide, mut regular) = (Vec::new(), Vec::new());
+    let mut set = false;
+    for _ in 0..200 {
+        s.tick();
+        let born = s.tick_count() - 1;
+        let fresh: Vec<(EntityId, i32, u32)> =
+            s.entities().filter(|e| e.spawned_by == Some(d) && !seen.contains(&e.id)).map(|e| (e.id, e.pos.y / K, e.acquirable_from)).collect();
+        for (id, y, from) in fresh {
+            seen.push(id);
+            if y == 10000 {
+                hide.push((born, from));
+            } else {
+                regular.push((born, from));
+            }
+        }
+        if !set && !regular.is_empty() {
+            assert!(s.debug_set_hp(d, 880));
+            set = true;
+        }
+    }
+    assert!(hide.len() >= 2, "the scene drifted: no hide put its Goblins down ({hide:?})");
+    assert!(hide.iter().all(|(born, from)| *from == born + 7), "a hide's Goblins: an enemy may target them from their 8th frame: {hide:?}");
+    // NOT VACUOUS: the regular Goblins are targets at once.
+    assert!(!regular.is_empty() && regular.iter().all(|(_, from)| *from == 0), "the regular Goblins carry a delay: {regular:?}");
 }
