@@ -461,12 +461,20 @@ pub fn chain_next_remember(ents: &Entities, cards: &CardDb, calib: &Calib, tick:
     let r2 = (hop.radius as i64) * (hop.radius as i64);
     let recent = &hop.hit[hop.hit.len().saturating_sub(remember)..];
     let near = |j: usize| (ents.pos[j].dist2(ents.pos[from]), ents.creation_seq[j], j);
+    // combat.EVO_CHAIN_HOP_REACH = client15535_strict: a unit at exactly the radius is passed over (client 15.535.29,
+    // sp-f4-ed-s0 t1165: an Ice Golem 4,000 off).
+    // PLANT (regression) hop_reach_inclusive: the new arm still reaches a unit at exactly the radius.
+    #[cfg(not(clash_plant = "hop_reach_inclusive"))]
+    let strict = calib.evo_chain_hop_reach == crate::state::EvoChainHopReach::Client15535Strict;
+    #[cfg(clash_plant = "hop_reach_inclusive")]
+    let strict = false;
+    let within = |d2: i64| if strict { d2 < r2 } else { d2 <= r2 };
     let cands: Vec<usize> = (0..ents.capacity())
         .filter(|&j| j != from && ents.alive[j] && ents.hp[j] > 0 && ents.team[j] != team)
         .filter(|&j| if ents.in_air(j) { hits_air } else { hits_ground })
         .filter(|&j| !ents.underground(j) && (invisible || !crate::target::invisible_at(calib, cards, ents, tick, j)))
         .filter(|&j| towers || !matches!(ents.kind[j], EntityKind::KingTower | EntityKind::PrincessTower))
-        .filter(|&j| near(j).0 <= r2)
+        .filter(|&j| within(near(j).0))
         .collect();
     #[cfg(not(clash_plant = "evo_chain_no_repeat"))]
     let repeat = cands.iter().filter(|&&j| recent.contains(&ents.id_of(j))).map(|&j| near(j)).min();

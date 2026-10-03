@@ -1054,6 +1054,10 @@ pub struct Calib {
     /// spawns due on one tick are created in. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Listed`.
     #[serde(default = "action_group_spawn_order_default")]
     pub action_group_spawn_order: ActionGroupSpawnOrder,
+    /// combat.EVO_CHAIN_HOP_REACH (combat.rs `chain_next_remember`): whether an Evo Electro Dragon's hop reaches a unit at
+    /// exactly its ChainedHitRadius. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Inclusive`.
+    #[serde(default = "evo_chain_hop_reach_default")]
+    pub evo_chain_hop_reach: EvoChainHopReach,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2539,6 +2543,10 @@ fn evo_chain_shot_launch_default() -> EvoChainShotLaunch {
 
 fn action_group_spawn_order_default() -> ActionGroupSpawnOrder {
     ActionGroupSpawnOrder::Listed
+}
+
+fn evo_chain_hop_reach_default() -> EvoChainHopReach {
+    EvoChainHopReach::Inclusive
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5208,6 +5216,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.EVO_CHAIN_HOP_REACH -- see combat.rs `chain_next_remember`: which units an Evo Electro Dragon's hop reaches
+    /// from the unit it hit (its EvoChainDef range, ChainedHitRadius 4000, centre to centre).
+    EvoChainHopReach {
+        /// The engine's: every unit at or inside the radius.
+        Inclusive = "inclusive",
+        /// Strictly inside it: a unit at exactly the radius is passed over. Measured on client 15.535.29 (parity's
+        /// ed_hop_pick_census.py, every hop of the Evo Electro Dragon scenes, 115 segments: the engine's pick rule fits
+        /// every hop but new-shot boundaries and one): sp-f4-ed-s0 t1165, the chain at a Valkyrie (12500, 19499) passed
+        /// over an Ice Golem at (16500, 19499), exactly 4,000 off, and went back to the Knight it had hit before; the
+        /// engine took the Ice Golem (192 on t1169, the scene's first divergence). In sp-f4-ed3-s0 an Ice Golem 3,114 off
+        /// was taken. LOW: one unit at the boundary.
+        Client15535Strict = "client15535_strict",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7505,6 +7528,7 @@ impl Calib {
             lost_target_swing: pick(&v, &["combat", "LOST_TARGET_SWING", "value"], LostTargetSwing::from_calibration_name)?,
             evo_chain_shot_launch: pick(&v, &["combat", "EVO_CHAIN_SHOT_LAUNCH", "value"], EvoChainShotLaunch::from_calibration_name)?,
             action_group_spawn_order: pick(&v, &["spawner", "ACTION_GROUP_SPAWN_ORDER", "value"], ActionGroupSpawnOrder::from_calibration_name)?,
+            evo_chain_hop_reach: pick(&v, &["combat", "EVO_CHAIN_HOP_REACH", "value"], EvoChainHopReach::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -29834,6 +29858,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.EVO_CHAIN_HOP_REACH: Calib gained evo_chain_hop_reach (serde default the old arm, inclusive), no
+///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
 /// 20, unchanged, spawner.ACTION_GROUP_SPAWN_ORDER: Calib gained action_group_spawn_order (serde default the old arm,
 ///    listed), no new state (the order is the emissions'), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -30789,6 +30816,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_chain_shot_launch".into(), serde_json::to_value(EvoChainShotLaunch::FireTick).map_err(|e| e.to_string())?);
     // spawner.ACTION_GROUP_SPAWN_ORDER: a format-3 battle ran no Evo Goblin Drill (the same rule).
     sh.insert("action_group_spawn_order".into(), serde_json::to_value(ActionGroupSpawnOrder::Listed).map_err(|e| e.to_string())?);
+    // combat.EVO_CHAIN_HOP_REACH: a format-3 battle ran no Evo Electro Dragon (the same rule).
+    sh.insert("evo_chain_hop_reach".into(), serde_json::to_value(EvoChainHopReach::Inclusive).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

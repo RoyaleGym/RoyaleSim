@@ -2052,6 +2052,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_from_creation (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs evo_created (the Evo Hunter's NetRun ready_at), selected by Calib::net_initial_cooldown; tests/net_initial_cooldown.rs."
     },
+    "EVO_CHAIN_HOP_REACH": {
+      "value": "inclusive",
+      "candidates": ["inclusive", "client15535_strict"],
+      "status": "measured",
+      "confidence": "LOW for client15535_strict on client 15.535.29: one unit at exactly the radius, passed over (sp-f4-ed-s0 t1165); every other hop of the Evo Electro Dragon scenes falls the same under both arms. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's Evo Electro Dragon scenes (sp-f4-ed-s0, sp-f4-ed3-s0, sp-form-ElectroDragon-evo-s0; tool ed_hop_pick_census.py: every segment of the dragon's shot and hop tracks in the raw frames' projectiles, the next target predicted from the previous target's point by the engine's rule, ChainedHitRadius 4000 centre to centre, the last 2 hits passed over unless nothing else, nearest first, deploying units eligible). The rule fits 101 of 115 segments; 13 misses are new shots after a chain (not hops). The 14th: sp-f4-ed-s0 t1165, the chain on a Valkyrie at (12500, 19499) with the Knight (14500, 18499) and an Ice Golem (16500, 19499), all three deploying, the Ice Golem exactly 4,000 off: the client's hop went back to the Knight (the fallback to a recent hit), the engine took the Ice Golem (192 on t1169, the scene's first divergence, t1170). In sp-f4-ed3-s0 an Ice Golem 3,114 off was taken.",
+      "meaning": "inclusive: the engine's; an Evo Electro Dragon's hop reaches every unit at or inside ChainedHitRadius from the unit it hit. client15535_strict: strictly inside.",
+      "open": "Whether the base chain (combat.rs chain_next) and other radius tests share the strict edge; one boundary unit.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_strict (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "combat.rs chain_next_remember (the radius filter), selected by Calib::evo_chain_hop_reach; tests/evo_chain_hop_reach.rs."
+    },
     "EVO_CHAIN_HOP_WAIT": {
       "value": "at_once",
       "status": "measured",
