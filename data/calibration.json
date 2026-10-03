@@ -2008,6 +2008,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_whole_chain (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs fire_ability and chain_pass (entity.rs dash_immune_until), selected by Calib::dash_chain_immunity; tests/dash_chain_immunity.rs."
     },
+    "LOST_TARGET_SWING": {
+      "value": "cancelled",
+      "candidates": ["cancelled", "client15535_runs_on_in_reach"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_runs_on_in_reach on client 15.535.29: every unit in its attack on two frames whose target changed from one still alive ran its progress on, 198 of 199 (the other 4,150 -> 4,185, an Evo Skeleton's), 15 of them off an Evo Minion Horde minion turned ghost by the holder's hit; which of the 199 the engine reached through a cancelled lock is the engine's reading (target.rs decide's `cancel`), not the census's. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on every client 15.535.29 scenario capture (tools/attack_switch_census.py: a unit in state 2 on frames t-1 and t, its target on t another than on t-1, the old one alive on t; attack_progress_ms on t against t-1): ran on (+50) 198 of 199, restarted 0; off an Evo Minion Horde minion (13000022) 15 of 15 (sp-il-04cb t2200, t2217, t2318, ...; sp-form-MinionHorde-evo-s0). sp-form-MinionHorde-evo-s0 t688: Red's Musketeer, its 682 shot having turned minion 26 ghost (invisible, MinionHorde_EV1_GhostBuff), took minion 25 in reach on t688 at progress 1,250 -> 1,300 (load 0); the engine's lock broke on the ghost (decide's cancel), the reset dropped the swing and the fresh cycle credited its LoadTime, 350 (load 300), so its next shots left a tick early (t701 against t702, t720 against t722) and the minions they hit turned ghost and slowed a tick or two early (minion 27 hit on t724 against t726).",
+      "meaning": "cancelled: the engine's; a lock target.rs decide cancels (the target untargetable, or inside the MinimumRange) resets the swing (progress 0) whatever the unit takes next. client15535_runs_on_in_reach: when the unit takes another target standing in its attack range on that tick (state.rs switched_in_reach, combat.RETARGET_PROGRESS = keep_when_dead_or_in_reach), the swing runs on onto it; otherwise the cancel resets it as before.",
+      "open": "A cancel inside the MinimumRange followed by a switch in reach (a Mortar's; none separated in the census); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_runs_on_in_reach (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_target (the swing's reset, `lost_runs_on`), selected by Calib::lost_target_swing; tests/lost_target_swing.rs."
+    },
     "WARP_HIDING": {
       "value": "arrival",
       "candidates": ["arrival", "client15535_first_step"],

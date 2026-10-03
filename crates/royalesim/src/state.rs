@@ -1041,6 +1041,11 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Arrival`.
     #[serde(default = "warp_hiding_default")]
     pub warp_hiding: WarpHiding,
+    /// combat.LOST_TARGET_SWING (`phase_target`, the swing's reset): what a cancelled lock does to a swing whose unit takes
+    /// another target in attack range on the same tick. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// `Cancelled`.
+    #[serde(default = "lost_target_swing_default")]
+    pub lost_target_swing: LostTargetSwing,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2514,6 +2519,10 @@ fn chase_hold_scope_default() -> ChaseHoldScope {
 
 fn warp_hiding_default() -> WarpHiding {
     WarpHiding::Arrival
+}
+
+fn lost_target_swing_default() -> LostTargetSwing {
+    LostTargetSwing::Cancelled
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5170,6 +5179,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.LOST_TARGET_SWING -- see `phase_target` (the swing's reset): a unit whose lock target.rs `decide` cancels (its
+    /// target turned untargetable, an Evo Minion Horde minion's ghost, or came inside its MinimumRange) and that takes
+    /// another target standing in attack range on that tick (`switched_in_reach`, combat.RETARGET_PROGRESS).
+    LostTargetSwing {
+        /// The engine's: the cancel resets the swing (progress 0), and the fresh cycle starts on the new target.
+        Cancelled = "cancelled",
+        /// The swing runs on onto the new target, as a switch to a target in reach does (combat.RETARGET_PROGRESS =
+        /// keep_when_dead_or_in_reach). Measured on client 15.535.29 (attack_switch_census.py, every unit in its attack on
+        /// two frames whose target changed from one alive on the second): progress ran on 198 of 199, among them 15 of 15
+        /// switches off an Evo Minion Horde minion its hit had just turned ghost (sp-form-MinionHorde-evo-s0 t688, a
+        /// Musketeer at 1,250 -> 1,300; the engine restarted at 350 and every later shot came a tick early, the scene's
+        /// minion 27 hit on t724 against t726).
+        Client15535RunsOnInReach = "client15535_runs_on_in_reach",
+    }
+);
+calib_enum!(
     /// combat.WARP_HIDING -- see `warp_pass` and `land_warps`: the tick a warping hero (card.rs `WarpDef`, the Hero Mega
     /// Minion) takes its strike buff, the invisible one no enemy may target it under.
     WarpHiding {
@@ -7418,6 +7443,7 @@ impl Calib {
             net_initial_cooldown: pick(&v, &["combat", "NET_INITIAL_COOLDOWN", "value"], NetInitialCooldown::from_calibration_name)?,
             chase_hold_scope: pick(&v, &["targeting", "CHASE_HOLD_SCOPE", "value"], ChaseHoldScope::from_calibration_name)?,
             warp_hiding: pick(&v, &["combat", "WARP_HIDING", "value"], WarpHiding::from_calibration_name)?,
+            lost_target_swing: pick(&v, &["combat", "LOST_TARGET_SWING", "value"], LostTargetSwing::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -15758,8 +15784,16 @@ impl BattleState {
                 };
             #[cfg(clash_plant = "corpse_switch_keeps_cooldown")]
             let hit_tick_corpse = false; // PLANT (regression): the hit tick's cycle runs on at a corpse's out-of-reach successor.
+            // combat.LOST_TARGET_SWING = client15535_runs_on_in_reach: a cancelled lock whose unit takes a target in attack
+            // range on this tick runs its swing on as well (client 15.535.29: 198 of 199 in-attack switches away from a
+            // living target ran on, 15 of 15 off an Evo Minion Horde ghost).
+            // PLANT (regression) lost_target_swing_cancelled: the new arm's cancel still resets the swing.
+            #[cfg(not(clash_plant = "lost_target_swing_cancelled"))]
+            let lost_runs_on = calib.lost_target_swing == LostTargetSwing::Client15535RunsOnInReach && switched_in_reach;
+            #[cfg(clash_plant = "lost_target_swing_cancelled")]
+            let lost_runs_on = false;
             if !replaced_a_corpse
-                && (d.cancel_attack
+                && ((d.cancel_attack && !lost_runs_on)
                     || (changed
                         && (e.attack_phase[i] == AttackPhase::Windup || hit_tick_corpse)
                         && !carried
@@ -29725,6 +29759,9 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.LOST_TARGET_SWING: Calib gained lost_target_swing (serde default the old arm, cancelled), no new
+///    state (the reset reads the tick's decision), so a blob saved before it deserializes and hashes as it did. migrate_v3
+///    runs a migrated battle at the old arm.
 /// 20, unchanged, combat.WARP_HIDING: Calib gained warp_hiding (serde default the old arm, arrival), no new state (the new
 ///    arm lands a buff the status slots already save), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -30659,6 +30696,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chase_hold_scope".into(), serde_json::to_value(ChaseHoldScope::EveryHolder).map_err(|e| e.to_string())?);
     // combat.WARP_HIDING: a format-3 battle's warping heroes were hidden from their arrival (the same rule).
     sh.insert("warp_hiding".into(), serde_json::to_value(WarpHiding::Arrival).map_err(|e| e.to_string())?);
+    // combat.LOST_TARGET_SWING: a format-3 battle's cancelled locks reset the swing (the same rule).
+    sh.insert("lost_target_swing".into(), serde_json::to_value(LostTargetSwing::Cancelled).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
