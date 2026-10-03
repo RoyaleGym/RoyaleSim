@@ -23,10 +23,15 @@ def battle(royalesim):
     return royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]])
 
 
+def field(royalesim, name: str) -> int:
+    return list(royalesim.ENTITY_FIELDS).index(name)
+
+
 def levels_by_team(b, card_id: int) -> dict[int, set[int]]:
+    import royalesim
+
     v = json.loads(b.state_json())
-    f = {name: i for i, name in enumerate(v.get("entity_fields") or [])}
-    team, card, slot, level = f.get("team", 1), f.get("card_id", 3), f.get("tower_slot", 4), f.get("level", -2)
+    team, card, slot, level = (field(royalesim, n) for n in ("team", "card_id", "tower_slot", "level"))
     out: dict[int, set[int]] = {}
     for e in v["entities"]:
         if e[card] == card_id and e[slot] < 0:
@@ -35,11 +40,14 @@ def levels_by_team(b, card_id: int) -> dict[int, set[int]]:
 
 
 def tower_levels(b) -> dict[int, set[int]]:
+    import royalesim
+
     v = json.loads(b.state_json())
+    team, slot, level = (field(royalesim, n) for n in ("team", "tower_slot", "level"))
     out: dict[int, set[int]] = {}
     for e in v["entities"]:
-        if e[4] >= 0:
-            out.setdefault(e[1], set()).add(e[-2])
+        if e[slot] >= 0:
+            out.setdefault(e[team], set()).add(e[level])
     return out
 
 
