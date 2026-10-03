@@ -1028,6 +1028,10 @@ pub struct Calib {
     /// adds. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `OwnRadius`.
     #[serde(default = "walking_keep_reach_default")]
     pub walking_keep_reach: WalkingKeepReach,
+    /// combat.NET_INITIAL_COOLDOWN (`evo_created`, the Evo Hunter's net run): from when his net's InitialCooldown runs.
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AfterDeploy`.
+    #[serde(default = "net_initial_cooldown_default")]
+    pub net_initial_cooldown: NetInitialCooldown,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2489,6 +2493,10 @@ fn soul_point_base_default() -> SoulPointBase {
 
 fn walking_keep_reach_default() -> WalkingKeepReach {
     WalkingKeepReach::OwnRadius
+}
+
+fn net_initial_cooldown_default() -> NetInitialCooldown {
+    NetInitialCooldown::AfterDeploy
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5145,6 +5153,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.NET_INITIAL_COOLDOWN -- see `evo_created` (the Evo Hunter's `NetRun`): the tick his net is first ready.
+    NetInitialCooldown {
+        /// The engine's: InitialCooldown after his deploy, creation + DeployTime + InitialCooldown (40 ticks at
+        /// level 11's 1000 + 1000 ms).
+        AfterDeploy = "after_deploy",
+        /// InitialCooldown after his creation, the clock running through his deploy (20 ticks; `net_pass` casts nothing
+        /// while he deploys either way). Measured on client 15.535.29 (net_ready_census.py, every first net of the Evo
+        /// Hunter scenes): with a target in reach as his deploy ends the first net comes 29 ticks after his creation
+        /// (held 5, cast 4: sp-f4-hunter-s0, -hunterBD-s0, -hunterK-s0), and sp-form-Hunter-evo-s0's was cast on t1071, 38
+        /// ticks after it, the first tick its Knight stood in reach; the old arm puts each 15 ticks later or, in
+        /// sp-form-Hunter-evo-s0, past the Knight's walk out of reach (32 ticks, on t1107).
+        Client15535FromCreation = "client15535_from_creation",
+    }
+);
+calib_enum!(
     /// targeting.WALKING_KEEP_REACH -- see target.rs `keep_own_radius`: the attacker radius `decide`'s keep tests add for
     /// a holder that WALKS (`walking_now`: not in its attack).
     WalkingKeepReach {
@@ -7344,6 +7367,7 @@ impl Calib {
             direct_hit_buff_countdown: pick(&v, &["combat", "DIRECT_HIT_BUFF_COUNTDOWN", "value"], DirectHitBuffCountdown::from_calibration_name)?,
             soul_point_base: pick(&v, &["spawner", "SOUL_POINT_BASE", "value"], SoulPointBase::from_calibration_name)?,
             walking_keep_reach: pick(&v, &["targeting", "WALKING_KEEP_REACH", "value"], WalkingKeepReach::from_calibration_name)?,
+            net_initial_cooldown: pick(&v, &["combat", "NET_INITIAL_COOLDOWN", "value"], NetInitialCooldown::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -10987,10 +11011,17 @@ impl BattleState {
             let seq = self.ents.team_seq[i];
             self.evo.furnaces.push(FurnaceRun { id, team, card, level, seq, at: pos, attacking: false, moving: 0, quick: false, next: 0, first: false, right: true, hold_until: 0, launches: Vec::new(), landings: Vec::new() });
         }
-        // An Evo Hunter's net is ready its InitialCooldown after his deploy (`net_pass`).
+        // An Evo Hunter's net is ready its InitialCooldown after his deploy (`net_pass`); under combat.NET_INITIAL_COOLDOWN =
+        // client15535_from_creation its InitialCooldown after his creation, the clock running through the deploy.
         if let Some(n) = evo.net {
             let dt = self.cfg.calib.tick_ms.max(1);
-            let ready_at = self.tick + ((cards.get(card).deploy_time_ms + n.initial_ms) / dt) as u32;
+            // PLANT (regression) net_ready_after_deploy: the new arm's net still waits out the deploy first.
+            #[cfg(not(clash_plant = "net_ready_after_deploy"))]
+            let from_creation = self.cfg.calib.net_initial_cooldown == NetInitialCooldown::Client15535FromCreation;
+            #[cfg(clash_plant = "net_ready_after_deploy")]
+            let from_creation = false;
+            let wait = if from_creation { n.initial_ms } else { cards.get(card).deploy_time_ms + n.initial_ms };
+            let ready_at = self.tick + (wait / dt) as u32;
             self.evo.nets.push(NetRun { id, ready_at, target: None, since: 0, throw_at: None });
         }
         // An Evo Witch's interval clock starts at her creation, this tick her first 50 ms (`witch_wave_pass`).
@@ -29632,6 +29663,9 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.NET_INITIAL_COOLDOWN: Calib gained net_initial_cooldown (serde default the old arm, after_deploy),
+///    no new state (the arm sets a net run's ready tick at the Hunter's creation; a saved run keeps its own), so a blob
+///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.WALKING_KEEP_REACH: Calib gained walking_keep_reach (serde default the old arm, own_radius),
 ///    no new state (the keep test reads the saved attack phase), so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
@@ -30551,6 +30585,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("soul_point_base".into(), serde_json::to_value(SoulPointBase::PreMove).map_err(|e| e.to_string())?);
     // targeting.WALKING_KEEP_REACH: a format-3 battle's holders kept to both radii, walking or not (the same rule).
     sh.insert("walking_keep_reach".into(), serde_json::to_value(WalkingKeepReach::OwnRadius).map_err(|e| e.to_string())?);
+    // combat.NET_INITIAL_COOLDOWN: a format-3 battle's Evo Hunters readied their nets after the deploy (the same rule).
+    sh.insert("net_initial_cooldown".into(), serde_json::to_value(NetInitialCooldown::AfterDeploy).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

@@ -1997,6 +1997,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_whole_chain (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs fire_ability and chain_pass (entity.rs dash_immune_until), selected by Calib::dash_chain_immunity; tests/dash_chain_immunity.rs."
     },
+    "NET_INITIAL_COOLDOWN": {
+      "value": "after_deploy",
+      "candidates": ["after_deploy", "client15535_from_creation"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_from_creation on client 15.535.29: 4 of the 7 first nets in the Evo Hunter scenes were cast before the old arm's ready tick (creation + 40), and all 7 fit the new one (creation + 20); every later net (cooldown) is unchanged. Whether the clock is InitialCooldown from creation or the deploy's end (both 1000 ms at the tables read) is not separable. 16.402 not read (no Evo Hunter in the corpus).",
+      "provenance": "MEASURED by parity (2026-10-03) on every client 15.535.29 scenario capture with an Evo Hunter (tools/net_ready_census.py: each net, a homing no-damage projectile of card 13000044 with a target; its first frame F, the Hunter's creation C and deploy end U, the frame he took the target T and the first frame it stood in the net's reach R, Range 4000 + both radii). The first net: sp-f4-hunter-s0 (a Giant), sp-f4-hunterBD-s0 (a Baby Dragon) and sp-f4-hunterK-s0 (a Knight), the target in reach as his deploy ended: F = C + 29 = T + 9 (held 5, cast 4), where the old arm (ready at C + DeployTime 1000 + InitialCooldown 1000 = C + 40) throws at C + 44 (the engine's hunterK Knight netted on t1172 against the client's net out on t1150); sp-form-Hunter-evo-s0: cast on t1071 = C + 38, the first frame its Knight walking past stood in reach (5,085 against 5,100), F = 1075; the engine, not ready until t1073, missed the Knight's 1-tick pass and threw 32 ticks later (t1107), the Knight walking on unheld through t1116 (the scene's divergence from t1084). sp-f4-hunterG0/G40/G80-s0 (a Golem walking in): cast on its entering reach, C + 48 or later, both arms alike. Later nets: 105 ticks throw to throw (Cooldown 5000 + a tick + the cast), as the engine has them.",
+      "meaning": "after_deploy: the engine's; an Evo Hunter's net is first ready DeployTime + InitialCooldown after his creation (state.rs evo_created's NetRun ready_at). client15535_from_creation: InitialCooldown after his creation, the clock running through his deploy; net_pass still casts nothing while he deploys. Either way he must hold the target NET_TARGET_HOLD_TICKS with it in reach, and the net is thrown TrapCastTime later.",
+      "open": "From creation or from the deploy's end (equal at the tables read: DeployTime 1000, InitialCooldown 1000); a Hunter put down by a Mirror or a Clone; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_from_creation (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs evo_created (the Evo Hunter's NetRun ready_at), selected by Calib::net_initial_cooldown; tests/net_initial_cooldown.rs."
+    },
     "EVO_CHAIN_HOP_WAIT": {
       "value": "at_once",
       "status": "measured",
