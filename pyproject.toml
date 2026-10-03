@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "royalesim"
-version = "0.1.3"
+version = "0.1.4"
 description = "RoyaleSim: deterministic, integer-only Clash Royale battle engine (Rust, PyO3 binding)"
 # maturin 1.15 refuses to build when the named readme is missing ("Failed to read
 # readme specified in pyproject.toml", measured 2026-09-13); README.md exists since

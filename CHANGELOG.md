@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.4 (2026-10-02)
+
+- A level overtime now ends as in the game. From tick 6067 every crown tower loses the same hit points each tick, and
+  the first tower to fall decides the match (1-0, or 2-1 from 1-1). If both sides' weakest towers are exactly level,
+  the match is a draw at tick 6147.
+- `state_json()`: each spell row gains a 12th value, `ticks_flown`, the ticks a flying spell has moved.
+- `catalogue_json()`: each card row gains a 12th value, `champion`, true for a champion card.
+- Wheels are tested on CPython 3.10, 3.11, 3.12, 3.13 and 3.14.
+- Battle logic: illegal troop taps, Furnace spirits, first hits, random delays, death rings and chases after a kill,
+  as measured in the game.
+
 ## 0.1.3 (2026-10-02)
 
 - A played card's slot can now stay empty for a moment, as in the game. Each player has one refill timer: a new card
