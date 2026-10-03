@@ -21425,7 +21425,7 @@ impl BattleState {
             let acquire_delay = false; // PLANT: a target from its first frame.
             #[cfg(clash_plant = "deploy_spawn_area_acquire_delayed")]
             let acquire_delay = true; // PLANT: a deploy spawn area's units wait for their 8th frame, as the Graveyard's do.
-            let p = PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: NO_CARD };
+            let p = PendingSpawn { team: r.team, card: r.unit, level: r.level, pos, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: r.source };
             match r.via {
                 // spawner.SCHEDULED_UNIT_FIRST_UPDATE: a released unit's first update (a deploy area's unit is a play
                 // of its card, in the next Spawn phase)
