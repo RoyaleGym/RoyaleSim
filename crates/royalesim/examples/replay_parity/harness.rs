@@ -1223,6 +1223,12 @@ pub struct TraceRow {
     /// tick early from identical positions, which the trace could not place). Its own field, like `push`: absent is not
     /// zero.
     pub attack: Option<[i64; 2]>,
+    /// THE SIM'S ROUTE after this tick (`EntityView::route`, goal first): its next waypoint and its goal-most node (native
+    /// centres) and its node count, [0, 0, 0, 0, 0] with no route. The recording carries the client's (`path_nodes`,
+    /// goal first, as half-tile cell ids), so a reader can tell where each engine's walk turns and what a dash aims at
+    /// (sp-form-Tombstone-hero-s0 t194: the engine's red Skeleton turned on the bridge two ticks before the client's from
+    /// points 4 apart, which the trace could not place). Its own field, like `push`: absent is not zero.
+    pub route: Option<[i64; 5]>,
 }
 
 /// Which unit card (summon_only) each spawning card puts out, for rooting.
@@ -1939,6 +1945,13 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                             facing: e.facing,
                             avoid: e.avoid_offset,
                             attack: [e.attack_ms, e.attack_load_ms],
+                            route: match (e.route.last(), e.route.first()) {
+                                (Some(&n), Some(&g)) => {
+                                    let (n, g) = (to_native(n), to_native(g));
+                                    [n.0, n.1, g.0, g.1, e.route.len() as i32]
+                                }
+                                _ => [0; 5],
+                            },
                         },
                     )
                 })
@@ -2236,7 +2249,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let radius = sim_row.map(|r| r.radius);
                 let heading = sim_row.map(|r| [r.facing.x as i64, r.facing.y as i64, r.avoid as i64]);
                 let attack = sim_row.map(|r| [r.attack[0] as i64, r.attack[1] as i64]);
-                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist, heading, attack });
+                let route = sim_row.map(|r| r.route.map(i64::from));
+                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist, heading, attack, route });
             }
             match (truth_row, sim_row) {
                 (Some(tr), Some(sr)) => {
@@ -2447,6 +2461,8 @@ pub struct Snap {
     avoid: i32,
     /// The attack progress and the load timer after the tick (`EntityView::attack_ms`, `attack_load_ms`).
     attack: [i32; 2],
+    /// The next waypoint, the goal-most node (native) and the node count after the tick (`EntityView::route`).
+    route: [i32; 5],
 }
 
 // ---------------------------------------------------------------------------
