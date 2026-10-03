@@ -46,7 +46,7 @@ use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
     AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, ChaseRescanPassOver, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
-    MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
+    MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange, WalkingKeepReach,
 };
 use crate::{EntityId, Team};
 
@@ -994,6 +994,31 @@ fn holds_past_reach(ctx: &TargetCtx, a: usize) -> bool {
     !scoped || e.kind[a] != EntityKind::Troop || ctx.calib.attack_holds(e.attack_phase[a])
 }
 
+/// targeting.WALKING_KEEP_REACH: the attacker radius `decide`'s keep tests add for holder `a`. own_radius (the engine's):
+/// its CollisionRadius, walking or standing. client15535_walking_reach: a holder that WALKS (`walking_now`: not in its
+/// attack, not held) adds the radius it walks to (`walking_own_radius`: none for a VariableDamage2 or combo row under
+/// targeting.VARIABLE_DAMAGE_WALK_REACH), so it keeps its target within Range + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET + the
+/// target's radius and past that rescans; a standing holder adds its own radius under both arms (the standing Inferno
+/// Dragon's measured hold). Measured on client 15.535.29 (keep_band_truth.py: every walking holder whose target stood
+/// past Range + 25 + the target's radius and within that + its own radius, with another enemy it could take strictly
+/// nearer): sp-form-InfernoDragon-evo-s0 t1094, the one Inferno Dragon, let a Skeleton at 4,299 go for one at 4,283
+/// (band 4,025 .. 4,525), where the engine kept the first and walked on; every holder of another row kept, 258 of 258
+/// (68 of 68 on the 16.402 corpus), as `walking_own_radius` leaves their own radius in.
+fn keep_own_radius(ctx: &TargetCtx, a: usize, card: &CardDef) -> i32 {
+    let e = ctx.ents;
+    // PLANT (regression) walking_keep_reach_own_radius: the new arm's walking holder still keeps to both radii.
+    #[cfg(not(clash_plant = "walking_keep_reach_own_radius"))]
+    // walking: not in its attack and no swing under way (a standing attacker between swings reads attack_ms > 0)
+    let walking = ctx.calib.walking_keep_reach == WalkingKeepReach::Client15535WalkingReach && walking_now(e, a) && e.attack_ms[a] == 0;
+    #[cfg(clash_plant = "walking_keep_reach_own_radius")]
+    let walking = false;
+    if walking {
+        walking_own_radius(ctx.calib, card, e.radius[a])
+    } else {
+        e.radius[a]
+    }
+}
+
 /// Decide attacker a's target for this tick. Reads only; the caller applies.
 pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecision {
     let e = ctx.ents;
@@ -1070,7 +1095,7 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                     ctx.calib.range_extension_to_keep_target
                 };
                 let hold = card.range + reach_past;
-                if !e.launched_beyond[a] && in_attack_range(ctx.calib, e.pos[a], hold, e.radius[a], e.pos[ti], e.radius[ti]) {
+                if !e.launched_beyond[a] && in_attack_range(ctx.calib, e.pos[a], hold, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
             } else if locked && ctx.calib.locks_target(card) {
@@ -1081,8 +1106,9 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 }
                 cancel = true;
             } else {
+                // targeting.WALKING_KEEP_REACH: a walking holder's radius is the one it walks to (`keep_own_radius`).
                 let keep = card.range + ctx.calib.range_extension_to_keep_target;
-                if in_attack_range(ctx.calib, e.pos[a], keep, e.radius[a], e.pos[ti], e.radius[ti]) {
+                if in_attack_range(ctx.calib, e.pos[a], keep, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
             }

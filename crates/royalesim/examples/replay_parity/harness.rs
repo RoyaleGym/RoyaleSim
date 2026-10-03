@@ -1562,6 +1562,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.DIRECT_HIT_BUFF_COUNTDOWN = client15535_landing_tick: an instant hit's buff holds one tick fewer (17 of 17).
 ///   spawner.SOUL_POINT_BASE = client15535_post_move: a Skeleton King's copies are drawn around his post-move point (28 of
 ///   34).
+///   targeting.WALKING_KEEP_REACH = client15535_walking_reach: a walking Inferno Dragon keeps its target only within the
+///   reach it walks to (1 of 1; every other walking holder kept, 258 of 258).
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1622,6 +1624,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.CHASE_RESCAN_PASS_OVER", "\"client15535_receding_lane_walk\""),
     ("combat.DIRECT_HIT_BUFF_COUNTDOWN", "\"client15535_landing_tick\""),
     ("spawner.SOUL_POINT_BASE", "\"client15535_post_move\""),
+    ("targeting.WALKING_KEEP_REACH", "\"client15535_walking_reach\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

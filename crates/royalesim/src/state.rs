@@ -1024,6 +1024,10 @@ pub struct Calib {
     /// `PreMove`.
     #[serde(default = "soul_point_base_default")]
     pub soul_point_base: SoulPointBase,
+    /// targeting.WALKING_KEEP_REACH (target.rs `keep_own_radius`): the attacker radius the keep test of a WALKING holder
+    /// adds. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `OwnRadius`.
+    #[serde(default = "walking_keep_reach_default")]
+    pub walking_keep_reach: WalkingKeepReach,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2481,6 +2485,10 @@ fn direct_hit_buff_countdown_default() -> DirectHitBuffCountdown {
 
 fn soul_point_base_default() -> SoulPointBase {
     SoulPointBase::PreMove
+}
+
+fn walking_keep_reach_default() -> WalkingKeepReach {
+    WalkingKeepReach::OwnRadius
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5137,6 +5145,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.WALKING_KEEP_REACH -- see target.rs `keep_own_radius`: the attacker radius `decide`'s keep tests add for
+    /// a holder that WALKS (`walking_now`: not in its attack).
+    WalkingKeepReach {
+        /// The engine's: its own CollisionRadius, walking or standing: a holder keeps its target within Range +
+        /// LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET + both radii.
+        OwnRadius = "own_radius",
+        /// A walking holder adds the radius it walks to (target.rs `walking_own_radius`, targeting.VARIABLE_DAMAGE_WALK_REACH:
+        /// none for a VariableDamage2 or combo row), so a walking Inferno Dragon keeps its target within Range + 25 + the
+        /// target's radius and past it rescans; a standing holder its own radius, as before. Measured on client 15.535.29
+        /// (keep_band_truth.py, every walking holder whose target stood in the band between the two and another enemy it
+        /// could take strictly nearer): the one such Inferno Dragon took the nearer (sp-form-InfernoDragon-evo-s0 t1094),
+        /// and every holder of another row kept (258 of 258; 68 of 68 on the 16.402 corpus).
+        Client15535WalkingReach = "client15535_walking_reach",
+    }
+);
+calib_enum!(
     /// spawner.SOUL_POINT_BASE -- see `soul_pass`: the point a Skeleton King's area draws each copy around (his own,
     /// while he lives), read before or after the tick's move.
     SoulPointBase {
@@ -7319,6 +7343,7 @@ impl Calib {
             chase_rescan_pass_over: pick(&v, &["targeting", "CHASE_RESCAN_PASS_OVER", "value"], ChaseRescanPassOver::from_calibration_name)?,
             direct_hit_buff_countdown: pick(&v, &["combat", "DIRECT_HIT_BUFF_COUNTDOWN", "value"], DirectHitBuffCountdown::from_calibration_name)?,
             soul_point_base: pick(&v, &["spawner", "SOUL_POINT_BASE", "value"], SoulPointBase::from_calibration_name)?,
+            walking_keep_reach: pick(&v, &["targeting", "WALKING_KEEP_REACH", "value"], WalkingKeepReach::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -29607,6 +29632,9 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.WALKING_KEEP_REACH: Calib gained walking_keep_reach (serde default the old arm, own_radius),
+///    no new state (the keep test reads the saved attack phase), so a blob saved before it deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.SOUL_POINT_BASE: Calib gained soul_point_base (serde default the old arm, pre_move), no new
 ///    state (the pass reads the saved soul runs), so a blob saved before it deserializes and hashes as it did. migrate_v3
 ///    runs a migrated battle at the old arm.
@@ -30521,6 +30549,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("direct_hit_buff_countdown".into(), serde_json::to_value(DirectHitBuffCountdown::ResolveLanding).map_err(|e| e.to_string())?);
     // spawner.SOUL_POINT_BASE: a format-3 battle's Kings drew their copies in the Status phase (the same rule).
     sh.insert("soul_point_base".into(), serde_json::to_value(SoulPointBase::PreMove).map_err(|e| e.to_string())?);
+    // targeting.WALKING_KEEP_REACH: a format-3 battle's holders kept to both radii, walking or not (the same rule).
+    sh.insert("walking_keep_reach".into(), serde_json::to_value(WalkingKeepReach::OwnRadius).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
