@@ -2371,6 +2371,13 @@ mod tests {
         assert_eq!(ids[unit("Skeleton")], id("Witch") as i32, "the static table this test is about: a Skeleton is the Witch's");
         let mut s = battle(&db, &["Knight", "Archer", "Knight", "Archer", "Giant", "Knight", "Archer", "Knight"]);
         let at = |x: i32, y: i32| Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(y));
+        // Towers nothing here can take down: the run must last the Tombstone's whole life (a win at tick 575 ended
+        // the battle with it still standing).
+        for team in [Team::Blue, Team::Red] {
+            for k in 0..3 {
+                s.scenario_set_tower_hp(team, k, 1_000_000).unwrap();
+            }
+        }
         for (card, x, y) in [("Tombstone", 3, 5), ("BarbarianHut", 14, 7), ("TriWizards", 9, 3), ("FirespiritHut", 3, 9), ("GoblinDrill", 9, 22)] {
             s.spawn_unit(Team::Blue, card, at(x, y), None).unwrap_or_else(|e| panic!("{card}: {e:?}"));
         }
@@ -2383,6 +2390,7 @@ mod tests {
         let mut after_tomb = 0;
         for t in 0..2000 {
             s.tick();
+            assert_eq!(s.outcome(), None, "the battle ended at tick {t}");
             if t % 5 == 0 || tombstone_dead(&s) {
                 let v: serde_json::Value = serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
                 let rows = v["entities"].as_array().unwrap();
@@ -2399,7 +2407,14 @@ mod tests {
                 }
             }
         }
-        assert!(tombstone_dead(&s), "the Tombstone outlived the run");
+        assert!(
+            tombstone_dead(&s),
+            "the Tombstone outlived the run: tick {}, outcome {:?}, its hp {:?}, blue entities {:?}",
+            s.tick_count(),
+            s.outcome(),
+            s.entities().filter(|e| e.card == "Tombstone").map(|e| e.hp).collect::<Vec<_>>(),
+            s.entities().filter(|e| e.team == Team::Blue).map(|e| e.card.to_string()).collect::<Vec<_>>()
+        );
         let got = |n: &str| seen.get(&(Team::Blue as u8, n.to_string())).cloned().unwrap_or_default();
         let want = |ns: &[&str]| ns.iter().map(|n| id(n)).collect::<std::collections::BTreeSet<i64>>();
         assert_eq!(got("Skeleton"), want(&["Tombstone", "SkeletonBalloon"]), "the Tombstone's Skeletons, its death's among them, and the balloon's: {seen:?}");
