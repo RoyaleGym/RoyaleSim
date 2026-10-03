@@ -3206,6 +3206,14 @@ calib_enum!(
         /// Goblin created on x 9000 exactly (a Blue unit, both Red princess towers 6,519 away) holds the right tower on
         /// its first frame and steps toward it. One event, one seat; a Red unit on x 9000 is unmeasured.
         OwnFrameHighX = "own_frame_high_x",
+        /// The LATER CREATED first (the client's scan keeps the last of equals), whatever the frame. Measured on client
+        /// 15.535.29: every exact tie between two enemy troops at a target acquisition, 5 of 5 (sp-lp-walk-s0 and
+        /// -walk2 t133: a Blue Little Prince between two Skeletons mirrored about its x took the later, its first shot on
+        /// it; ub-m1-lane-zap t121, ub-m1-skeletons t133; a Red princess tower between two Ghost-scene units,
+        /// sp-ghost-ab-s0 t1094), where own_frame_high_x took the earlier on the four Blue ones. The 16.402 event
+        /// above fits it too if its towers were created as the 15.535.29 captures' are (Red's right princess tower the
+        /// later, key 5).
+        Client15535LaterCreated = "client15535_later_created",
     }
 );
 calib_enum!(

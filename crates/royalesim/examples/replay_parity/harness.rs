@@ -1420,6 +1420,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   the tick's shots step and hides it the tick after the snap (a tower's arrow landed on every dragged captive).
 ///   combat.LOAD_FIRST_HIT_KILL_WAIT = client15535_skipped: a Sparky whose target dies mid-swing takes its next target on
 ///   the tick after (4 of 4), serving no post-kill wait.
+///   targeting.EQUAL_DISTANCE_TIE = client15535_later_created: of two enemies at one distance the later created is taken
+///   (every exact troop tie, 5 of 5).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1448,6 +1450,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.FALL_GROUNDING", "\"client15535_late_kept_walk\""),
     ("combat.CAGE_CAPTIVE_SHOTS", "\"client15535_before_shots_hidden_after_snap\""),
     ("combat.LOAD_FIRST_HIT_KILL_WAIT", "\"client15535_skipped\""),
+    ("targeting.EQUAL_DISTANCE_TIE", "\"client15535_later_created\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

@@ -762,6 +762,11 @@ fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i64, i32, i32, u32) {
         // PLANT: tie-break on raw slot index -- a deploy-order asymmetry.
         return (edge, 0, 0, c as u32);
     }
+    // targeting.EQUAL_DISTANCE_TIE = client15535_later_created: at one distance, the later created first.
+    #[cfg(not(clash_plant = "tie_later_created_unread"))]
+    if ctx.calib.equal_distance_tie == EqualDistanceTie::Client15535LaterCreated {
+        return (edge, 0, 0, u32::MAX - e.team_seq[c]);
+    }
     // targeting.EQUAL_DISTANCE_TIE: at one distance, the lower own-frame x first, or under own_frame_high_x the higher.
     #[cfg(not(clash_plant = "equal_distance_tie_low_x"))]
     let fx = if ctx.calib.equal_distance_tie == EqualDistanceTie::OwnFrameHighX { -f.x } else { f.x };
