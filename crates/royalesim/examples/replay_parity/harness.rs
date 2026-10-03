@@ -1433,6 +1433,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   movement.CAST_HOLD_HEADING = client15535_not_counted: a unit in its own ability's cast steers no neighbour by its
 ///   heading (a walker passing the Skeleton King turned on his cast's first frame; read, LOW).
 ///   spawner.DEATH_BOMB_TIMING_SCOPE = client15535_every_bomb: a plain death bomb lands on its fuse's last tick (5 of 5).
+///   knockback.DEATH_PUSHBACK = every_death_bomb_ladder: a Giant Skeleton's bomb pushes the troops it hits (1 of 1).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1470,6 +1471,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("status.ATTRACT_ONSET", "\"client_next_tick\""),
     ("movement.CAST_HOLD_HEADING", "\"client15535_not_counted\""),
     ("spawner.DEATH_BOMB_TIMING_SCOPE", "\"client15535_every_bomb\""),
+    ("knockback.DEATH_PUSHBACK", "\"every_death_bomb_ladder\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

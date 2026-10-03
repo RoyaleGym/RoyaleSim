@@ -5960,7 +5960,10 @@ calib_enum!(
         ContainersLadder = "containers_ladder",
         /// No death bomb's hit pushes (the engine before the key).
         NotRead = "not_read",
-        /// Every death bomb whose row sets DeathPushBack pushes (the Giant Skeleton's bomb too).
+        /// Every death bomb whose row sets DeathPushBack pushes (the Giant Skeleton's bomb too). Measured on client
+        /// 15.535.29: a Giant Skeleton's bomb (DeathPushBack 1800) hit a Musketeer 1,220 from it, which stepped 249,
+        /// 249, 224, 199, 174, 149, 125, 100 straight out from the tick after (sp-il-323a t1078, 1 of 1 troop; the
+        /// Cannon another one hit, a building, stood).
         EveryDeathBombLadder = "every_death_bomb_ladder",
     }
 );
