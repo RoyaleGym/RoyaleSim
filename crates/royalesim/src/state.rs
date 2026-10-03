@@ -945,6 +945,11 @@ pub struct Calib {
     /// one has left. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NearestAhead`.
     #[serde(default = "snipe_repick_default")]
     pub snipe_repick: SnipeRepick,
+    /// movement.JUMP_LANDING_SCOPE (`phase_path16402_for`, entity.rs `landed_at`): which contact passes of its landing
+    /// tick a river jump's lander stays out of under movement.JUMP_LANDING_CONTACT = client_next_tick. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `MovePass`.
+    #[serde(default = "jump_landing_scope_default")]
+    pub jump_landing_scope: JumpLandingScope,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2330,6 +2335,10 @@ fn hook_release_default() -> HookRelease {
 
 fn snipe_repick_default() -> SnipeRepick {
     SnipeRepick::NearestAhead
+}
+
+fn jump_landing_scope_default() -> JumpLandingScope {
+    JumpLandingScope::MovePass
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4951,6 +4960,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.JUMP_LANDING_SCOPE -- see `phase_path16402_for` and entity.rs `landed_at`: under movement.
+    /// JUMP_LANDING_CONTACT = client_next_tick a lander is no contact body on its landing tick L; this names which of
+    /// L's contact passes that covers.
+    JumpLandingScope {
+        /// The engine's: the move pass alone. A unit taking its first update after the pass on L (a death spawn, an Evo
+        /// Skeleton's copy, `first_update`) meets the lander as any body.
+        MovePass = "move_pass",
+        /// Every contact pass of L: the lander is no body for the first updates after the move pass either. Measured on
+        /// client 15.535.29 (landing_first_update_census.py: every unit created on a landing tick within 1,500 of the
+        /// lander, 1 of 93 landings): sp-il-925e t3365, an Evo Skeleton's copy made 1000 ahead of its hitter beside a
+        /// Hog Rider landing on that tick stood (-148, -19) from its point on its first frame, half the push of the
+        /// enemy Hog Rider overlapping it, (-297, -40), and its hitter's touch (0, 1), averaged over those two; the
+        /// engine counted the lander too and moved it (-1, -33), the start of the scene's first divergence (t3687).
+        Client15535WholeTick = "client15535_whole_tick",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6845,6 +6871,7 @@ impl Calib {
             load_timer_target_loss: pick(&v, &["combat", "LOAD_TIMER_TARGET_LOSS", "value"], LoadTimerTargetLoss::from_calibration_name)?,
             hook_release: pick(&v, &["combat", "HOOK_RELEASE", "value"], HookRelease::from_calibration_name)?,
             snipe_repick: pick(&v, &["targeting", "SNIPE_REPICK", "value"], SnipeRepick::from_calibration_name)?,
+            jump_landing_scope: pick(&v, &["movement", "JUMP_LANDING_SCOPE", "value"], JumpLandingScope::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -17953,6 +17980,8 @@ impl BattleState {
         let mut push_speed = std::mem::take(&mut self.ents.push_speed);
         let mut push_active = std::mem::take(&mut self.ents.push_active);
         let mut jumping = std::mem::take(&mut self.ents.jumping);
+        // movement.JUMP_LANDING_SCOPE: the units whose leap ends in this pass (entity.rs `landed_at`, written after it).
+        let mut landed_ix: Vec<usize> = Vec::new();
         // spawner.DEATH_SPAWN_PUSHBACK: the death-spawn slide's state, zeroed here the tick
         // a member reaches its radius.
         let mut slide_c = std::mem::take(&mut self.ents.death_slide_centre);
@@ -18195,6 +18224,15 @@ impl BattleState {
                     }
                 }
             }
+            // movement.JUMP_LANDING_SCOPE = client15535_whole_tick: a unit whose leap ended earlier on this tick (this is a
+            // first update after the move pass) is no body either, as the move pass after its landing kept it.
+            // PLANT (regression) landing_scope_move_pass_only: the lander is a body for the first updates of its landing
+            // tick under the new arm too.
+            let stamp_now = self.tick + 1;
+            #[cfg(not(clash_plant = "landing_scope_move_pass_only"))]
+            let landed_this_tick = |i: usize| calib.jump_landing_scope == JumpLandingScope::Client15535WholeTick && e.landed_at[i] == stamp_now;
+            #[cfg(clash_plant = "landing_scope_move_pass_only")]
+            let landed_this_tick = |_: usize| false;
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
@@ -18236,7 +18274,8 @@ impl BattleState {
                             && !matches!(chain_at[i], Some((ChainPhase::Dash, _, _)))
                             && warp_at[i].is_none()
                             && !e.attached(i)
-                            && !copy_settling(i),
+                            && !copy_settling(i)
+                            && !landed_this_tick(i),
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
                         // states 8/0/2/10 and a busy special attack zero the dot
@@ -18976,6 +19015,7 @@ impl BattleState {
                         // phase here (one tick later than the capture's same-tick publish;
                         // the first walk step falls on the same tick either way)
                         jumping[i] = false;
+                        landed_ix.push(i);
                         routes[i].clear();
                         goals[i] = None;
                         segs[i] = Vec2::default();
@@ -19359,6 +19399,14 @@ impl BattleState {
         self.ents.push_speed = push_speed;
         self.ents.push_active = push_active;
         self.ents.jumping = jumping;
+        // movement.JUMP_LANDING_SCOPE = client15535_whole_tick: the tick each lander's leap ended, plus one, read by the
+        // later contact passes of this tick (the first updates); written under that arm alone.
+        if self.cfg.calib.jump_landing_scope == JumpLandingScope::Client15535WholeTick {
+            let stamp = self.tick + 1;
+            for i in landed_ix {
+                self.ents.landed_at[i] = stamp;
+            }
+        }
         self.ents.death_slide_centre = slide_c;
         self.ents.death_slide_radius = slide_r;
         // A slide that ended this pass drops its cap with it (a container's member carries one, and a dying troop's
@@ -27096,6 +27144,10 @@ impl BattleState {
                 if self.cfg.calib.load_timer_target_loss == LoadTimerTargetLoss::Client15535StandsAfterWalkLoss {
                     h.u32(e.load_hold[i] as u32);
                 }
+                // movement.JUMP_LANDING_SCOPE = client15535_whole_tick: the lander's stamp, written under that arm alone.
+                if self.cfg.calib.jump_landing_scope == JumpLandingScope::Client15535WholeTick {
+                    h.u32(e.landed_at[i]);
+                }
                 // THE COMBO'S COUNT (combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK), only when not 0: it moves only
                 // under either key's new arm, so a battle under the old arms hashes as it did before the column.
                 if e.combo_ix[i] != 0 {
@@ -28739,6 +28791,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.JUMP_LANDING_SCOPE: Calib gained jump_landing_scope (serde default the old arm, move_pass);
+///    Entities gained landed_at (`default`, sized on load at 0), written and hashed under the new arm alone, so a blob
+///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.SNIPE_REPICK: Calib gained snipe_repick (serde default the old arm, nearest_ahead); EvoBoard
 ///    gained snipe_last (`default`), written under the new arm alone and hashed only when not empty, so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -29564,6 +29619,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("hook_release".into(), serde_json::to_value(HookRelease::FreeNextTick).map_err(|e| e.to_string())?);
     // targeting.SNIPE_REPICK: a format-3 battle took the nearest snipe target ahead on every pick (the same rule).
     sh.insert("snipe_repick".into(), serde_json::to_value(SnipeRepick::NearestAhead).map_err(|e| e.to_string())?);
+    // movement.JUMP_LANDING_SCOPE: a format-3 battle met a lander in every pass but the move pass (the same rule).
+    sh.insert("jump_landing_scope".into(), serde_json::to_value(JumpLandingScope::MovePass).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
@@ -29998,6 +30055,7 @@ impl BattleState {
         snap.ents.chase_inside.resize(n, None);
         snap.ents.source.resize(n, NO_CARD);
         snap.ents.load_hold.resize(n, 0);
+        snap.ents.landed_at.resize(n, 0);
         // A blob saved before chase_last_pos reads each unit's last Target-phase position as where it stands.
         for i in snap.ents.chase_last_pos.len()..n {
             let p = snap.ents.pos[i];

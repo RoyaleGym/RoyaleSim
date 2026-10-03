@@ -4934,6 +4934,17 @@
       "units": "native millitiles; JumpSpeed is native units per tick, the Speed column's unit",
       "plant": "tests/jump16402.rs (8): jumper_pays_blocked (a jumper priced like a walker) red on 5, jump_never_hops (the cost-7 walk, no leap) red on 3, jump_never_lands (the reached flag decides, as for a walk) red on 4; goal_ignores_flying_target (the global passed unconditionally) red on the flying-target case and green on every oracle2026.rs gate"
     },
+    "JUMP_LANDING_SCOPE": {
+      "value": "move_pass",
+      "candidates": ["move_pass", "client15535_whole_tick"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_whole_tick on client 15.535.29: 1 of 1 unit created beside a lander on its landing tick (landing_first_update_census.py, 93 landings), its first point exact to the native under the new arm, 33 off under the engine's; the rule is what movement.JUMP_LANDING_CONTACT = client_next_tick's meaning says (on L the lander neither pushes nor is pushed), read through the end of the tick. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames (tool landing_first_update_census.py: every troop leaving behavior_state 5 on a frame L, beside every unit absent on L-1 and present on L within 1,500 of it; the one other row, sp-form-DarkPrince-hero-s0 t213, is a hero's dismount, no river leap). sp-il-925e t3365: Evo Skeleton 73 (hitter, (3050, 15422)) hit on t3365 and its copy 74 stood at (2902, 16403) on that frame, its point 1000 ahead (3050, 16422) less (148, 19); the contact law over the enemy Hog Rider 69 at (3512, 16484) (-297, -40) and the hitter touching at exactly 1000 (0, 1), mean of 2, is (-148, -19); Hog Rider 71, landing from its river leap on t3365 at (2610, 16517), 450 from the point, adds (293, -63) and makes the mean of 3 (-1, -34): the engine's copy stood at (3049, 16389). Downstream: the scene's first divergence on the r31 batch, t3687 (Skeleton 81 killed by a tower shot a tick-early attack exposed it to), through Hog Rider 71's 25-off walk.",
+      "meaning": "move_pass: the engine's; under movement.JUMP_LANDING_CONTACT = client_next_tick the lander is out of its landing tick's move pass, and a unit taking its first update after the pass on that tick (a death spawn, an Evo Skeleton's copy) meets it as any body. client15535_whole_tick: it is out of every contact pass of its landing tick, the first updates after the move pass included.",
+      "open": "A lander beside a unit created on its landing tick in the 16.402 corpus (none read); other contact passes than the first updates (none run on a landing tick in the captures).",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_whole_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (the landing record and the bodies' collidable) with entity.rs landed_at, selected by Calib::jump_landing_scope; tests/jump_landing_scope.rs."
+    },
     "JUMP_LANDING_CONTACT": {
       "value": "client_next_tick",
       "status": "hypothesis",
