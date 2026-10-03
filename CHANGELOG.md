@@ -10,6 +10,9 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
   Goblins the Drill, and the Tri-Wizards' Electro and Ice Wizards the Tri-Wizards. Before, a unit several cards can
   make reported the first such card in the catalogue (every Skeleton reported the Witch). A projectile's
   `firer_card_id` is unchanged: the unit that fired it.
+- Battle logic: knockback and death pushback, units that strike and move in the same tick, kamikaze contact, cage
+  shots, barrages, dash and chain-hop timing, ghost pairs, hidden buildings, equal-distance targets and pulls at the
+  water's edge, as measured in the game.
 
 ## 0.1.4 (2026-10-02)
 
