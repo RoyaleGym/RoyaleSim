@@ -1536,6 +1536,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: a unit walking for its tower passes over every
 ///   troop past the chase-drop limit whose |dy| grew (about 600 rescans).
 ///   combat.DIRECT_HIT_BUFF_COUNTDOWN = client15535_landing_tick: an instant hit's buff holds one tick fewer (17 of 17).
+///   spawner.SOUL_POINT_BASE = client15535_post_move: a Skeleton King's copies are drawn around his post-move point (28 of
+///   34).
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1595,6 +1597,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.CHAIN_LANDED_BODY", "\"client15535_no_body_to_end\""),
     ("targeting.CHASE_RESCAN_PASS_OVER", "\"client15535_receding_lane_walk\""),
     ("combat.DIRECT_HIT_BUFF_COUNTDOWN", "\"client15535_landing_tick\""),
+    ("spawner.SOUL_POINT_BASE", "\"client15535_post_move\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

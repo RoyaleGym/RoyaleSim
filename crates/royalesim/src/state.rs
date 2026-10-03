@@ -1019,6 +1019,11 @@ pub struct Calib {
     /// arm, `ResolveLanding`.
     #[serde(default = "direct_hit_buff_countdown_default")]
     pub direct_hit_buff_countdown: DirectHitBuffCountdown,
+    /// spawner.SOUL_POINT_BASE (`soul_pass`, `soul_after_move`): where in the tick the Skeleton Kings' areas draw their
+    /// copies, and so from which of the King's points. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// `PreMove`.
+    #[serde(default = "soul_point_base_default")]
+    pub soul_point_base: SoulPointBase,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2472,6 +2477,10 @@ fn chase_rescan_pass_over_default() -> ChaseRescanPassOver {
 
 fn direct_hit_buff_countdown_default() -> DirectHitBuffCountdown {
     DirectHitBuffCountdown::ResolveLanding
+}
+
+fn soul_point_base_default() -> SoulPointBase {
+    SoulPointBase::PreMove
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5128,6 +5137,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.SOUL_POINT_BASE -- see `soul_pass`: the point a Skeleton King's area draws each copy around (his own,
+    /// while he lives), read before or after the tick's move.
+    SoulPointBase {
+        /// The engine's: the area's pass runs in the Status phase, from where he stood as the tick began.
+        PreMove = "pre_move",
+        /// It runs at the top of Reap (`soul_after_move`), after the tick's move, from where he stands then; the client's
+        /// generator is drawn by these areas alone, so its draws keep their order. Measured on client 15.535.29 (every
+        /// copy's first frame in the Skeleton King scenes against the engine's offset from him): on a tick he walked, the
+        /// engine's offset is the client's from his post-move point in 28 of 34 and from his pre-move point in 0 (the
+        /// other 6 pushed or drawn anew on their first frame); sp-sk-souls-own-s0 t325, the copy (14693, 13417), (0, -2919)
+        /// from the King's t325 point, the engine's (14693, 13410), (0, -2919) from his t324 point, 7 short.
+        Client15535PostMove = "client15535_post_move",
+    }
+);
+calib_enum!(
     /// combat.DIRECT_HIT_BUFF_COUNTDOWN -- see combat.rs (`direct_buff`): how long the buff an INSTANT hit lands (an
     /// attack no projectile carries: the Electro Wizard's BuffOnDamage ZapFreeze, 500 ms) holds its victim.
     DirectHitBuffCountdown {
@@ -7294,6 +7318,7 @@ impl Calib {
             chain_landed_body: pick(&v, &["movement", "CHAIN_LANDED_BODY", "value"], ChainLandedBody::from_calibration_name)?,
             chase_rescan_pass_over: pick(&v, &["targeting", "CHASE_RESCAN_PASS_OVER", "value"], ChaseRescanPassOver::from_calibration_name)?,
             direct_hit_buff_countdown: pick(&v, &["combat", "DIRECT_HIT_BUFF_COUNTDOWN", "value"], DirectHitBuffCountdown::from_calibration_name)?,
+            soul_point_base: pick(&v, &["spawner", "SOUL_POINT_BASE", "value"], SoulPointBase::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -14436,8 +14461,8 @@ impl BattleState {
         if !self.warps.lanes.is_empty() {
             self.lane_pass();
         }
-        // The Skeleton Kings' areas (`soul_pass`).
-        if !self.warps.soul_runs.is_empty() {
+        // The Skeleton Kings' areas (`soul_pass`); under spawner.SOUL_POINT_BASE = client15535_post_move at the top of Reap.
+        if !self.warps.soul_runs.is_empty() && !self.soul_after_move() {
             self.soul_pass();
         }
         // The Little Princes' ramps (`ramp_pass`).
@@ -17139,6 +17164,18 @@ impl BattleState {
     /// radii), 99 copies, every one with a King frame put where this rule puts it, or within its first frame's push;
     /// the 8 refused each took three draws on its tick. Not measured: n = 9 to 14 (k + 38 + 840 m fits every measured
     /// n).
+    /// spawner.SOUL_POINT_BASE = client15535_post_move: do the Skeleton Kings' areas draw their copies at the top of Reap,
+    /// after the tick's move, from where each King stands then? Under pre_move `soul_pass` runs in the Status phase.
+    fn soul_after_move(&self) -> bool {
+        // PLANT (regression) soul_point_pre_move: the new arm's copies are still drawn in the Status phase.
+        #[cfg(clash_plant = "soul_point_pre_move")]
+        return false;
+        #[allow(unreachable_code)]
+        {
+            self.cfg.calib.soul_point_base == SoulPointBase::Client15535PostMove
+        }
+    }
+
     fn soul_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let tick_ms = self.cfg.calib.tick_ms.max(1);
@@ -23915,6 +23952,10 @@ impl BattleState {
     }
 
     fn phase_reap(&mut self) {
+        // spawner.SOUL_POINT_BASE = client15535_post_move: the Skeleton Kings' areas, after the tick's move (`soul_pass`).
+        if self.soul_after_move() && !self.warps.soul_runs.is_empty() {
+            self.soul_pass();
+        }
         let deaths = std::mem::take(&mut self.death_queue);
         // THE SKELETON KINGS' SOULS (`count_souls`).
         #[cfg(not(clash_plant = "souls_unread"))]
@@ -29566,6 +29607,9 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.SOUL_POINT_BASE: Calib gained soul_point_base (serde default the old arm, pre_move), no new
+///    state (the pass reads the saved soul runs), so a blob saved before it deserializes and hashes as it did. migrate_v3
+///    runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DIRECT_HIT_BUFF_COUNTDOWN: Calib gained direct_hit_buff_countdown (serde default the old arm,
 ///    resolve_landing), no new state (the new arm shortens a buff as it is queued), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30475,6 +30519,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chase_rescan_pass_over".into(), serde_json::to_value(ChaseRescanPassOver::DropTick).map_err(|e| e.to_string())?);
     // combat.DIRECT_HIT_BUFF_COUNTDOWN: a format-3 battle's instant hits landed their buffs in Resolve (the same rule).
     sh.insert("direct_hit_buff_countdown".into(), serde_json::to_value(DirectHitBuffCountdown::ResolveLanding).map_err(|e| e.to_string())?);
+    // spawner.SOUL_POINT_BASE: a format-3 battle's Kings drew their copies in the Status phase (the same rule).
+    sh.insert("soul_point_base".into(), serde_json::to_value(SoulPointBase::PreMove).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

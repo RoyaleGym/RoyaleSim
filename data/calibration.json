@@ -4275,6 +4275,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_avoidance_only (examples/replay_parity/harness.rs CLIENT15535_ARMS). A 15.535.29 death spawn beside a unit dying in its Reap would widen it.",
       "engine": "state.rs phase_path16402_for (the first update's pass, `dying_push`: the doomed bodies and the appended `dying` get Body::alive false), selected by Calib::first_step_dying_contact; tests/first_step_dying_contact.rs."
     },
+    "SOUL_POINT_BASE": {
+      "value": "pre_move",
+      "candidates": ["pre_move", "client15535_post_move"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_post_move on client 15.535.29: 28 of 34 copies drawn on a tick the King walked fit his post-move point to the native unit (2), none his pre-move point; 16.402 not read (no Skeleton King there).",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29, every copy of the Skeleton King scenes (sp-sk-souls-own, -window, -building, -ignore, -spawned, sp-champ-SkeletonKing-s0, -late-s0, -nopress-s0), the copy's first frame against the replay's engine (formsR33d traces), whose generator draws the client's own (state.rs client_rnd): the engine's offset of the copy from the King's point at the start of its tick (the Status phase it draws in) equals, within 2, the client's offset of the copy from the King's point at the END of that tick in 28 of the 34 copies drawn on a tick he walked, and the client's offset from his start-of-tick point in none; the other 6 were pushed or drawn anew on their first frame. On ticks he stood both readings agree (16). sp-sk-souls-own-s0 t325: the King stepped (0, 7) on t325; the client's copy stood on (14693, 13417), (0, -2919) from his t325 point; the engine's on (14693, 13410), (0, -2919) from his t324 point. t330: the copy (13052, 18239) is (-1653, 1773) from his t330 point in the client, the engine's (13042, 18173) the same offset from its t329 point. The copies a step behind him each set the scene's later contact (its first divergence, t431).",
+      "meaning": "pre_move: the engine's; a Skeleton King's area (`soul_pass`) runs in the Status phase, so each copy is drawn around the King as he stood when the tick began. client15535_post_move: it runs at the top of Reap, after the tick's move, so each copy is drawn around him as he stands then; the client's generator, which these areas alone draw from, keeps its draw order, and the copy is released on the same tick.",
+      "open": "A building or bomb that the tick's move or attacks bring onto the drawn point (the refusal reads the board at the draw); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_post_move (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs soul_pass, run by phase_status under pre_move and by phase_reap under client15535_post_move (`soul_after_move`), selected by Calib::soul_point_base; tests/soul_point_base.rs."
+    },
     "LIFE_STATE_WAKE_REACH": {
       "value": "range_plus_radii_buildings_plus_228",
       "status": "measured",
