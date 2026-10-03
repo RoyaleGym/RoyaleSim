@@ -3,6 +3,11 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.6 (2026-10-03)
+
+- No change to installing or calling the engine. Battle logic: crown-tower target ties, jump landings, Evo Musketeer
+  snipes, a hooked unit's release, chase limits, death bombs and headings while casting, as measured in the game.
+
 ## 0.1.5 (2026-10-03)
 
 - `state_json()`: an entity's `card_id` is now the card whose play put the unit on the board, all the way down its
