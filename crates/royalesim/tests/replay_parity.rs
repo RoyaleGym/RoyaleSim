@@ -864,6 +864,48 @@ fn a_truth_entity_with_no_hitpoints_takes_no_pair() {
     assert_eq!(pairs(&r), pairs(&base), "the dummy moved a pair");
 }
 
+/// A TRUTH ENTITY WITH NO HITPOINTS THAT NOTHING TARGETS IS NOT SCORED (`unscored_dummies`; Sim's ruling 2026-10-02):
+/// the Hero Tombstone's dummy scored its whole life as missing. Such a copy of a troop's row adds nothing to the score and
+/// is not unmatched, and the report lists it; made a target of another entity on one frame, it is scored as missing
+/// again. Plant: replay_scores_a_dummy.
+/// The sample with a no-hitpoint copy of a troop's row added (its key, its card); when `targeted`, another unit's
+/// target column names it on that unit's first frame.
+fn with_dummy(targeted: bool) -> (Fixture, i64, String) {
+    let mut f = sample();
+    let truth = f.truth.as_mut().expect("the sample carries its truth");
+    let k = truth
+        .entities
+        .iter()
+        .position(|e| e.role != "tower" && e.max_hp > 0 && e.t0 > 0)
+        .expect("a unit row after the first frame");
+    let mut dummy = truth.entities[k].clone();
+    dummy.key = truth.entities.iter().map(|e| e.key).max().unwrap_or(0) + 1;
+    dummy.max_hp = -1;
+    let (key, card) = (dummy.key, dummy.card.clone().unwrap_or_default());
+    truth.entities.push(dummy);
+    if targeted {
+        let other = truth.entities.iter().position(|e| e.role != "tower" && e.key != key && e.n > 1).expect("another unit row");
+        let n = truth.entities[other].n as u64;
+        truth.entities[other].target = vec![serde_json::json!(key), serde_json::json!(1), serde_json::Value::Null, serde_json::json!(n - 1)];
+    }
+    (f, key, card)
+}
+
+#[test]
+fn a_dummy_nothing_targets_is_not_scored() {
+    let base = play(&sample());
+    let (f, key, card) = with_dummy(false);
+    let r = play(&f);
+    assert_eq!(r.unscored_dummies, vec![(key, card)], "the report's list");
+    assert!(!r.unmatched_truth.iter().any(|(t, _)| *t == key), "the dummy is listed as unmatched");
+    assert_eq!((r.score.unit_ticks, r.score.missing_in_sim), (base.score.unit_ticks, base.score.missing_in_sim), "the dummy was scored");
+    // Targeted once (another entity's target column names it on its first frame), it is scored as missing.
+    let (g, _, _) = with_dummy(true);
+    let r = play(&g);
+    assert!(r.unscored_dummies.is_empty(), "a targeted entity was skipped");
+    assert!(r.score.missing_in_sim > base.score.missing_in_sim, "the targeted dummy was not scored as missing");
+}
+
 /// A SKELETON KING'S SOUL IS ROOTED TO ITS KING (`register_new`): the units his button puts down are copies (state.rs
 /// `soul_pass`, 1 hitpoint), and the recording names them by the King's card, as it names any unit a button puts down;
 /// a Clone spell's copy stays "Clone" (`a_clones_copy_is_rooted_as_clone`). Plant: replay_roots_a_soul_as_clone.

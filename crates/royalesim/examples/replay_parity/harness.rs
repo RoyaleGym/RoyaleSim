@@ -735,6 +735,26 @@ impl TruthTable {
     }
 }
 
+/// THE TRUTH ENTITIES NO SCORE COUNTS (by index): no hitpoints at all (max_hp below 0) and the target of no entity on
+/// any frame of the scene. The Hero Tombstone's deploy makes one on its point, NO_DAMAGE, UNTARGETABLE and
+/// NO_CHECKCOLLISIONS, from the deploy to some 36 ticks after its press (client 15.535.29, card 203000088); the engine
+/// runs it as code and carries no entity, so it took no pair (`a_truth_entity_with_no_hitpoints_takes_no_pair`) and
+/// scored its whole life as missing (6.9 % of the nine hero-Tombstone scenes' non-tower unit-ticks). Sim's ruling
+/// (2026-10-02): skip it in the harness, never in the engine, and print the count (`Report::unscored_dummies`). An entity
+/// with no hitpoints that something does target stays scored: then it is a game object the engine owes.
+pub fn unscored_dummies(truth: &TruthTable) -> BTreeSet<usize> {
+    #[cfg(clash_plant = "replay_scores_a_dummy")]
+    {
+        let _ = truth;
+        return BTreeSet::new(); // PLANT (regression): every dummy is scored as missing again.
+    }
+    #[cfg(not(clash_plant = "replay_scores_a_dummy"))]
+    {
+        let targeted: BTreeSet<i64> = truth.rows.iter().flat_map(|(_, r)| r.iter().flatten().filter_map(|w| w.target)).collect();
+        truth.entities.iter().enumerate().filter(|(_, e)| e.max_hp < 0 && !targeted.contains(&e.key)).map(|(k, _)| k).collect()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // playability
 
@@ -1081,6 +1101,10 @@ pub struct Report {
     pub sim_entities: usize,
     pub unmatched_truth: Vec<(i64, String)>,
     pub unmatched_sim: Vec<(u32, u32, String)>,
+    /// THE TRUTH ENTITIES NOT SCORED (`unscored_dummies`): no hitpoints (max_hp below 0) and the target of no entity on
+    /// any frame of the scene, so the engine carries no counterpart by design (the Hero Tombstone's visual dummy).
+    /// Listed (key, card) so the exclusion stays visible: they are in neither `unmatched_truth` nor any score.
+    pub unscored_dummies: Vec<(i64, String)>,
     pub score: Score,
     /// `score` without the six crown towers' rows (the towers stand still and are
     /// on every frame, so they carry most unit-ticks).
@@ -1532,6 +1556,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         sim_entities: 0,
         unmatched_truth: Vec::new(),
         unmatched_sim: Vec::new(),
+        unscored_dummies: Vec::new(),
         score: Score::default(),
         score_no_towers: Score::default(),
         per_card: BTreeMap::new(),
@@ -1565,6 +1590,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         report.prefix_until = Some(c);
         report.last_tick = truth.ticks.last().copied().unwrap_or(0);
     }
+    let dummies = unscored_dummies(&truth);
+    report.unscored_dummies = dummies.iter().map(|&k| (truth.entities[k].key, truth.entities[k].card.clone().unwrap_or_default())).collect();
     let (cfg, notes) = config_for_with(f, db.clone(), opts.attacking_movement, &opts.calibration_overrides)?;
     // config_for_with reports the level deviations and the applied overrides in one list; the
     // overrides are the run's ARM, not a level fact, so they go to `notes` and their own field.
@@ -2006,7 +2033,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     report.sim_entities = sim.len();
     let sim_to_truth: BTreeMap<usize, usize> = truth_to_sim.iter().map(|(t, s)| (*s, *t)).collect();
     for (k, e) in truth.entities.iter().enumerate() {
-        if !truth_to_sim.contains_key(&k) {
+        if !truth_to_sim.contains_key(&k) && !dummies.contains(&k) {
             report.unmatched_truth.push((e.key, e.card.clone().unwrap_or_default()));
         }
     }
@@ -2186,9 +2213,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 (None, None) => {}
             }
         }
-        // unmatched truth entities alive on this frame
+        // unmatched truth entities alive on this frame (a dummy, `unscored_dummies`, is not scored)
         for (tk, e) in truth.entities.iter().enumerate() {
-            if truth_to_sim.contains_key(&tk) || truth.row(tk, fi).is_none() {
+            if truth_to_sim.contains_key(&tk) || truth.row(tk, fi).is_none() || dummies.contains(&tk) {
                 continue;
             }
             let root = e.card.clone().unwrap_or_default();
@@ -2618,6 +2645,14 @@ pub fn render_fixture_markdown(r: &Report) -> String {
         r.last_tick,
         r.engine_end_tick
     ));
+    if !r.unscored_dummies.is_empty() {
+        let keys: Vec<String> = r.unscored_dummies.iter().map(|(k, c)| format!("{k} ({c})")).collect();
+        out.push_str(&format!(
+            "NOT SCORED: {} truth entities with no hitpoints that nothing targets (the engine carries none): {}\n\n",
+            r.unscored_dummies.len(),
+            keys.join(", ")
+        ));
+    }
     out.push_str(SCORE_HEADER);
     out.push('\n');
     out.push_str(&score_row("all", &r.score));
