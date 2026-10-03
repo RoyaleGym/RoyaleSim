@@ -950,6 +950,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `MovePass`.
     #[serde(default = "jump_landing_scope_default")]
     pub jump_landing_scope: JumpLandingScope,
+    /// movement.HELD_WAYPOINT_TEST (`phase_path16402_for`, the move pass's `bookkeeping`): whether a held unit runs its
+    /// waypoint's reached test. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NotRun`.
+    #[serde(default = "held_waypoint_test_default")]
+    pub held_waypoint_test: HeldWaypointTest,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2339,6 +2343,10 @@ fn snipe_repick_default() -> SnipeRepick {
 
 fn jump_landing_scope_default() -> JumpLandingScope {
     JumpLandingScope::MovePass
+}
+
+fn held_waypoint_test_default() -> HeldWaypointTest {
+    HeldWaypointTest::NotRun
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4979,6 +4987,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.HELD_WAYPOINT_TEST -- see `phase_path16402_for` (`bookkeeping`): whether a unit held by a freeze or a stun,
+    /// aiming at its next waypoint at speed 0 (movement.HELD_FACING = client15535_toward_waypoint), runs that waypoint's
+    /// reached test on the point the contact law moved it to.
+    HeldWaypointTest {
+        /// The engine's: no reached test while held; the waypoint waits for the hold to end.
+        NotRun = "not_run",
+        /// The reached test runs on every held tick, as on a walking one: a held unit pushed (or standing) within the
+        /// test's 1000 of its next waypoint pops it. Measured on client 15.535.29 (held_pop_census.py: every troop in
+        /// behaviour state 1 that stood the two ticks before, by whether it stood, was pushed or took a walk-sized step):
+        /// it popped its next waypoint exactly when the reached test passes, 120 of 120, and kept it exactly when it
+        /// fails, 3,111 of 3,111; 6 popped standing, 11 pushed. sp-il-208a t1561: an Ice Golem frozen by an Ice Spirit
+        /// and pushed 150 a tick by a newborn Musketeer overlapping it popped the waypoint the push carried it past; the
+        /// engine kept it and walked a node behind (the start of the drift to the scene's first divergence, t1894).
+        Client15535Run = "client15535_run",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6874,6 +6899,7 @@ impl Calib {
             hook_release: pick(&v, &["combat", "HOOK_RELEASE", "value"], HookRelease::from_calibration_name)?,
             snipe_repick: pick(&v, &["targeting", "SNIPE_REPICK", "value"], SnipeRepick::from_calibration_name)?,
             jump_landing_scope: pick(&v, &["movement", "JUMP_LANDING_SCOPE", "value"], JumpLandingScope::from_calibration_name)?,
+            held_waypoint_test: pick(&v, &["movement", "HELD_WAYPOINT_TEST", "value"], HeldWaypointTest::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -19336,7 +19362,14 @@ impl BattleState {
                 #[cfg(clash_plant = "zero_step_waypoint_skipped")]
                 let zero_step_runs = false; // PLANT (regression): a paused walker tests nothing.
                 let walks_route = routes[i].last().is_some() && !deploying && !attacking && !held_walk;
-                let bookkeeping = speed > 0 || (zero_step_runs && walks_route);
+                // movement.HELD_WAYPOINT_TEST = client15535_run: a held unit aiming at its next waypoint (`held_faces_waypoint`)
+                // keeps the bookkeeping too: the reached test runs on the point the contact law moved it to.
+                // PLANT (regression) held_waypoint_test_skipped: a held unit tests nothing under the new arm.
+                #[cfg(not(clash_plant = "held_waypoint_test_skipped"))]
+                let held_runs = calib.held_waypoint_test == HeldWaypointTest::Client15535Run && held_faces_waypoint && routes[i].last().is_some() && !deploying && !attacking;
+                #[cfg(clash_plant = "held_waypoint_test_skipped")]
+                let held_runs = false;
+                let bookkeeping = speed > 0 || (zero_step_runs && walks_route) || held_runs;
                 if segs[i] == Vec2::default() && routes[i].last().is_some() && bookkeeping {
                     // a new segment's direction is frozen from the position toward
                     // the last node when the segment starts
@@ -28910,6 +28943,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.HELD_WAYPOINT_TEST: Calib gained held_waypoint_test (serde default the old arm, not_run), no
+///    new state (the reached test pops the saved route), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.JUMP_LANDING_SCOPE: Calib gained jump_landing_scope (serde default the old arm, move_pass);
 ///    Entities gained landed_at (`default`, sized on load at 0), written and hashed under the new arm alone, so a blob
 ///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -29744,6 +29780,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("snipe_repick".into(), serde_json::to_value(SnipeRepick::NearestAhead).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_SCOPE: a format-3 battle met a lander in every pass but the move pass (the same rule).
     sh.insert("jump_landing_scope".into(), serde_json::to_value(JumpLandingScope::MovePass).map_err(|e| e.to_string())?);
+    // movement.HELD_WAYPOINT_TEST: a format-3 battle ran no reached test for a held unit (the same rule).
+    sh.insert("held_waypoint_test".into(), serde_json::to_value(HeldWaypointTest::NotRun).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

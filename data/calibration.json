@@ -5004,6 +5004,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_kamikaze_stays (examples/replay_parity/harness.rs CLIENT15535_ARMS). It reads nothing on 16.402 while that client runs whole_tick.",
       "engine": "state.rs phase_path16402_for (the pass over `order`, `doomed_stays`), selected by Calib::doomed_own_update; tests/doomed_own_update.rs."
     },
+    "HELD_WAYPOINT_TEST": {
+      "value": "not_run",
+      "candidates": ["not_run", "client15535_run"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_run on client 15.535.29: every troop in behaviour state 1 that stood the two ticks before, 3,231 ticks, popped its next waypoint exactly when the reached test (proj <= 1000 along its frozen segment) passed on its point, 120 of 120, and kept it exactly when it failed, 3,111 of 3,111; the census cannot tell a hold (a freeze, a stun) from a zero step (which the engine already tests, pathfinding.ZERO_STEP_WAYPOINT_TEST), and its one read hold is sp-il-208a's frozen Ice Golem. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames (tool held_pop_census.py: each troop in state 1 on three ticks running whose position stood the two ticks before, its step classed by its own modal walking step (stood, walk-sized, pushed), its route before and after, and the reached test on its point with the node and frozen segment it held). Pops: stood 6 of 6 within the test (the Hero Tombstone scenes' Skeletons), pushed 11 of 11, walk-sized 103 of 103; kept: 918, 168, 2,025, every one failing the test. sp-il-208a: Ice Golem 52 frozen by a red Ice Spirit from t1554 (175 damage, 7 ticks standing), pushed (-147, 31) a tick from t1561 by the Musketeer created overlapping it, popped its waypoint (7250, 14750) on t1561 (proj 918); the engine (no reached test for a held unit, `bookkeeping` off) kept it, walked a node behind from t1577, stood 6 off in y, pushed the Musketeer 3 where the client's pushed it 2 (t1604), and the Musketeer, a native off at x 4001, broke the goal-cell tie at x 4000 the other way on t1682: the scene's first divergence, t1894.",
+      "meaning": "not_run: the engine's; a unit held by a freeze or a stun runs no waypoint reached test, its route waiting out the hold. client15535_run: a held unit aiming at its next waypoint at speed 0 (movement.HELD_FACING = client15535_toward_waypoint) runs the reached test on every held tick, on the point the contact law moved it to, and pops the waypoint it passes, as a walking unit does.",
+      "open": "Whether the test runs for a held unit with no facing toward its waypoint (movement.HELD_FACING's other arm aims it at itself, where the test would pass every tick: not read there); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_run (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (`bookkeeping`, `held_runs`), selected by Calib::held_waypoint_test; tests/held_waypoint_test.rs."
+    },
     "HELD_FACING": {
       "value": "unchanged",
       "status": "measured",
