@@ -13,7 +13,11 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test equal_distance_tie`):
 //!   equal_distance_tie_low_x  the lower own-frame x first, whatever the arm: (1) goes red;
-//!   tie_later_created_unread  the new arm ranks by the own frame: (5) goes red.
+//!   tie_later_created_unread  the new arm ranks by the own frame: (5) goes red;
+//!   tie_tower_order_engine    the new arm ranks princess towers by the engine's own-left-first team_seq: (6) goes red.
+//!   6. client15535_later_created in the client's creation order: each side's princess towers the lower arena x
+//!      first, so a Goblin on x 9000 takes the enemy's right tower (x 14500) for either seat (sweep-GoblinDrill t328,
+//!      Blue; the engine creates Red's own-left tower first, and took the left one there).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -109,4 +113,14 @@ fn a_tie_between_two_troops_goes_to_the_later_created() {
     assert_eq!(musketeer_first_target_x(EqualDistanceTie::Client15535LaterCreated, Team::Blue), 8000, "client15535_later_created, Blue");
     assert_eq!(musketeer_first_target_x(EqualDistanceTie::Client15535LaterCreated, Team::Red), 8000, "client15535_later_created, Red");
     assert_eq!(musketeer_first_target_x(EqualDistanceTie::OwnFrameHighX, Team::Blue), 10000, "own_frame_high_x, Blue: vacuous otherwise");
+}
+
+/// Plant: tie_tower_order_engine.
+#[test]
+fn a_tower_tie_goes_to_the_clients_later_created_tower() {
+    let (at, blue) = first_goblin(EqualDistanceTie::Client15535LaterCreated, Team::Blue, BLUE_DRILL_Y);
+    assert!((at.x - 9000 * K).abs() <= 250 * K, "the scene drifted: the Goblin's first frame is at x {}", at.x / K);
+    assert_eq!(blue, n(14500, 25500), "client15535_later_created, Blue: Red's right princess tower, the client's later");
+    let (_, red) = first_goblin(EqualDistanceTie::Client15535LaterCreated, Team::Red, RED_DRILL_Y);
+    assert_eq!(red, n(14500, 6500), "client15535_later_created, Red: Blue's right princess tower, the client's later");
 }

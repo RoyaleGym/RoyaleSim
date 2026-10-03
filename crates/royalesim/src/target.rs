@@ -805,10 +805,11 @@ fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i64, i32, i32, u32) {
         // PLANT: tie-break on raw slot index -- a deploy-order asymmetry.
         return (edge, 0, 0, c as u32);
     }
-    // targeting.EQUAL_DISTANCE_TIE = client15535_later_created: at one distance, the later created first.
+    // targeting.EQUAL_DISTANCE_TIE = client15535_later_created: at one distance, the later created first, in the
+    // client's creation order (`client_creation_rank`).
     #[cfg(not(clash_plant = "tie_later_created_unread"))]
     if ctx.calib.equal_distance_tie == EqualDistanceTie::Client15535LaterCreated {
-        return (edge, 0, 0, u32::MAX - e.team_seq[c]);
+        return (edge, 0, 0, u32::MAX - client_creation_rank(ctx, c));
     }
     // targeting.EQUAL_DISTANCE_TIE: at one distance, the lower own-frame x first, or under own_frame_high_x the higher.
     #[cfg(not(clash_plant = "equal_distance_tie_low_x"))]
@@ -817,6 +818,24 @@ fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i64, i32, i32, u32) {
     let fx = f.x; // PLANT (regression): the lower own-frame x first, whatever the arm.
     #[allow(unreachable_code)]
     (edge, fx, f.y, e.team_seq[c])
+}
+
+/// A candidate's place in client 15.535.29's creation order (targeting.EQUAL_DISTANCE_TIE = client15535_later_created):
+/// its `team_seq`, except a side's princess towers, which the client creates the lower arena x first for both sides (the
+/// captures' keys 1 and 2 Blue's (3500, 6500) and (14500, 6500), 4 and 5 Red's (3500, 25500) and (14500, 25500)), where
+/// the engine creates each side's own-left one first so that team_seq is rotation-invariant (state.rs, the towers'
+/// spawn): Red's are the other way round. Each side's king is its first (0), its princess towers 1 and 2, every unit
+/// after them. sweep-GoblinDrill t328: a Blue Goblin made on x 9000 between Red's princess towers took the right one,
+/// the client's later created; by team_seq the engine took the left.
+#[inline]
+fn client_creation_rank(ctx: &TargetCtx, c: usize) -> u32 {
+    let e = ctx.ents;
+    // PLANT (regression) tie_tower_order_engine: the princess towers ranked by the engine's own-left-first team_seq.
+    #[cfg(not(clash_plant = "tie_tower_order_engine"))]
+    if e.kind[c] == EntityKind::PrincessTower {
+        return if e.pos[c].x < ctx.arena.width / 2 { 1 } else { 2 };
+    }
+    e.team_seq[c]
 }
 
 /// A candidate's rank in `scan_with`: (deprioritized, `key`), lowest first.
