@@ -92,6 +92,15 @@ pub const DIVERGENCE_NATIVE: i32 = 1000;
 pub const ONSET_NATIVE: i32 = 250;
 /// How many ticks back a death is looked for when a death spawn is rooted.
 pub const DEATH_SPAWN_LOOKBACK: u32 = 3;
+/// How many ticks back a death is looked for when a SCHEDULED DEATH AREA's unit is rooted (card.rs `scheduled_area`:
+/// the Suspicious Bush's SuspiciousBush_DummyAEO, LifeDuration 1000, its two BushGoblins at 625 and 675 ms): the area's
+/// longest life in the tables, 1,000 ms. At DEATH_SPAWN_LOOKBACK the goblins, 13 and 14 ticks after the bush's death,
+/// were rooted to no card and paired with nothing (sweep-SuspiciousBush: 210 unit-ticks).
+pub const SCHEDULED_DEATH_LOOKBACK: u32 = 20;
+/// THE ROOT OF A BUFF'S DEATH SPAWN (the Mother Witch's hog, the Goblin Curse's goblin; card.rs `UnitRef::BuffDeathSpawn`):
+/// the recording reports its card as -1, and the fixture maker names that "cardless_unit" (sweep-WitchMother,
+/// sweep-GoblinCurse). Rooted by the dying unit's card, it was paired with nothing (234 and 20 unit-ticks).
+pub const CARDLESS_ROOT: &str = "cardless_unit";
 /// How many ticks back a spell cast is looked for when a released unit is rooted.
 pub const SPELL_RELEASE_LOOKBACK: u32 = 200;
 /// How many ticks back a deploy is looked for when a unit its deploy spawn area puts down is rooted: the Tri Wizards'
@@ -1238,6 +1247,11 @@ struct Roots {
     /// Elixir Golem's ElixirGolem2) -> the playable card at the top of its chain, so a unit its death
     /// releases is rooted to that card and not to the summon-only record.
     card_of: BTreeMap<u16, u16>,
+    /// A buff's death spawn: rooted to CARDLESS_ROOT, as the recording names it (`buff_root`).
+    buff_death_spawn: BTreeSet<u16>,
+    /// A scheduled death area's unit (the Suspicious Bush's goblins) -> the cards whose death area puts it down: rooted to
+    /// the nearest recent death of one, looked for SCHEDULED_DEATH_LOOKBACK ticks back (`lookback`).
+    scheduled_death_of: BTreeMap<u16, Vec<u16>>,
 }
 
 impl Roots {
@@ -1248,6 +1262,8 @@ impl Roots {
         let mut ability_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut evo_unit_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         let mut deploy_area_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
+        let mut buff_death_spawn: BTreeSet<u16> = BTreeSet::new();
+        let mut scheduled_death_of: BTreeMap<u16, Vec<u16>> = BTreeMap::new();
         // Every block card.rs `CardDb::unit_refs` names, matched without a wildcard: a
         // block added there does not compile here until it is rooted.
         for i in 0..db.cards.len() as u16 {
@@ -1260,10 +1276,13 @@ impl Roots {
                     // A tunneller's building (the Goblin Drill's) appears on the tick its dig goes,
                     // where the dig came up: rooted to that disappearance, as a death spawn.
                     UnitRef::Morph => &mut death_spawn_of,
-                    // A buff's death spawn (the Mother Witch's hog, the Goblin Curse's goblin) comes out of a death too:
-                    // rooted to the nearest recent death, as a death spawn. It belongs to the side OPPOSITE the dying
-                    // unit's (the caster's), and the client reports its card as -1.
-                    UnitRef::BuffDeathSpawn => &mut death_spawn_of,
+                    // A buff's death spawn (the Mother Witch's hog, the Goblin Curse's goblin) comes out of a death too,
+                    // but belongs to the side OPPOSITE the dying unit's (the caster's), and the client reports its card
+                    // as -1: rooted to CARDLESS_ROOT (`buff_root`).
+                    UnitRef::BuffDeathSpawn => {
+                        buff_death_spawn.insert(unit);
+                        continue;
+                    }
                     // a spell summon's unit (the Heal Spirit) is put down by its spell, as a release is
                     UnitRef::SpellRelease | UnitRef::SpellSummon => &mut spell_release_of,
                     UnitRef::SecondSummon => &mut second_summon_of,
@@ -1284,7 +1303,7 @@ impl Roots {
                     // a scheduled area's units: a spell's (the Graveyard's Skeletons) are put down by its spell, as a
                     // release is; a death area's (the Suspicious Bush's goblins) come out of a death, as a death spawn
                     UnitRef::Scheduled(_) if db.get(i).spell.is_some() => &mut spell_release_of,
-                    UnitRef::Scheduled(_) => &mut death_spawn_of,
+                    UnitRef::Scheduled(_) => &mut scheduled_death_of,
                     // a hero button's unit (the Hero Musketeer's turret) comes from a press (a row of kind "ability"):
                     // rooted to its hero
                     UnitRef::AbilityUnit => &mut ability_of,
@@ -1315,13 +1334,47 @@ impl Roots {
             }
             frontier = next;
         }
-        Roots { death_spawn_of, spell_release_of, second_summon_of, ability_of, evo_unit_of, deploy_area_of, card_of }
+        Roots { death_spawn_of, spell_release_of, second_summon_of, ability_of, evo_unit_of, deploy_area_of, card_of, buff_death_spawn, scheduled_death_of }
+    }
+
+    /// CARDLESS_ROOT for a buff's death spawn, else None.
+    fn buff_root(&self, idx: u16) -> Option<&'static str> {
+        // PLANT (regression) replay_roots_buff_spawn_by_unit: a buff's death spawn is rooted as before, by its own card.
+        #[cfg(clash_plant = "replay_roots_buff_spawn_by_unit")]
+        return None;
+        #[allow(unreachable_code)]
+        {
+            self.buff_death_spawn.contains(&idx).then_some(CARDLESS_ROOT)
+        }
+    }
+
+    /// The cards whose death puts down unit `idx` and how many ticks back such a death is looked for: a death spawn's,
+    /// DEATH_SPAWN_LOOKBACK; a scheduled death area's, SCHEDULED_DEATH_LOOKBACK.
+    fn death_parents(&self, idx: u16) -> Option<(&Vec<u16>, u32)> {
+        // PLANT (regression) replay_scheduled_lookback_short: a scheduled death area's unit is looked for 3 ticks back.
+        #[cfg(not(clash_plant = "replay_scheduled_lookback_short"))]
+        let scheduled = SCHEDULED_DEATH_LOOKBACK;
+        #[cfg(clash_plant = "replay_scheduled_lookback_short")]
+        let scheduled = DEATH_SPAWN_LOOKBACK;
+        self.death_spawn_of.get(&idx).map(|p| (p, DEATH_SPAWN_LOOKBACK)).or_else(|| self.scheduled_death_of.get(&idx).map(|p| (p, scheduled)))
     }
 
     /// The playable card a record roots to: itself when it is one, else the top of its chain.
     fn card(&self, idx: u16) -> u16 {
         self.card_of.get(&idx).copied().unwrap_or(idx)
     }
+}
+
+/// `Roots::buff_root` for the unit named `unit` (tests).
+pub fn buff_death_spawn_root(db: &CardDb, unit: &str) -> Option<&'static str> {
+    db.index(unit).and_then(|i| Roots::new(db).buff_root(i))
+}
+
+/// `Roots::death_parents` for the unit named `unit` (tests): the parent cards' names and the lookback.
+pub fn death_spawn_parents(db: &CardDb, unit: &str) -> Option<(Vec<String>, u32)> {
+    let roots = Roots::new(db);
+    let i = db.index(unit)?;
+    roots.death_parents(i).map(|(p, lb)| (p.iter().map(|c| db.get(*c).name.clone()).collect(), lb))
 }
 
 /// The containers still holding their units (spell.rs `FuseEnd`): every live spell object of a death bomb that carries
@@ -1786,18 +1839,22 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 deploys_issued.iter().rev().find(|(t, team, c)| *t == tick && *team == e.team && parents.contains(c)).map(|(_, _, c)| *c)
             }) {
                 (db.get(cidx).name.clone(), "second-summon")
+            } else if let Some(root) = roots.buff_root(e.card_idx) {
+                // a buff's death spawn: named as the recording names it (CARDLESS_ROOT)
+                (root.to_string(), "buff-death-spawn")
             } else if let Some(owner) = e.spawned_by {
                 match sim_index_of.get(&(owner.index, owner.generation)) {
                     Some(&k) => (sim[k].root.clone(), "spawner"),
                     None => (e.card.to_string(), "spawner-unknown"),
                 }
             } else {
-                // a death spawn: the nearest recent death of a card that death-spawns this unit
-                let parents = roots.death_spawn_of.get(&e.card_idx);
+                // a death spawn: the nearest recent death of a card that death-spawns this unit (a scheduled death
+                // area's unit looked for over the area's schedule, `Roots::death_parents`)
+                let parents = roots.death_parents(e.card_idx);
                 let mut best: Option<(i64, u16)> = None;
-                if let Some(parents) = parents {
+                if let Some((parents, lookback)) = parents {
                     for (t, team, cidx, pos) in recent_deaths.iter().rev() {
-                        if *team != e.team || tick.saturating_sub(*t) > DEATH_SPAWN_LOOKBACK || !parents.contains(cidx) {
+                        if *team != e.team || tick.saturating_sub(*t) > lookback || !parents.contains(cidx) {
                             continue;
                         }
                         let d2 = pos.dist2(e.pos);

@@ -932,6 +932,33 @@ fn a_dummy_nothing_targets_is_not_scored() {
     assert!(r.score.missing_in_sim > base.score.missing_in_sim, "the targeted dummy was not scored as missing");
 }
 
+/// A BUFF'S DEATH SPAWN IS ROOTED AS THE RECORDING NAMES IT: the Mother Witch's hog and the Goblin Curse's goblin, whose
+/// card the client reports as -1, are CARDLESS_ROOT (sweep-WitchMother, sweep-GoblinCurse); a deployed card's unit is
+/// not. Plant: replay_roots_buff_spawn_by_unit.
+#[test]
+fn a_buff_death_spawn_is_rooted_cardless() {
+    let db = common::cards();
+    for unit in ["VoodooHog", "GoblinCurseGoblin"] {
+        assert!(db.index(unit).is_some(), "the scene drifted: no {unit} in the tables");
+        assert_eq!(buff_death_spawn_root(&db, unit), Some(CARDLESS_ROOT), "{unit}");
+    }
+    assert_eq!(buff_death_spawn_root(&db, "Knight"), None, "a deployed card's unit");
+}
+
+/// A SCHEDULED DEATH AREA'S UNIT IS LOOKED FOR OVER THE AREA'S SCHEDULE: the Suspicious Bush's goblins come 13 and 14 ticks
+/// after its death (sweep-SuspiciousBush), past DEATH_SPAWN_LOOKBACK; a death spawn proper keeps it. Plant:
+/// replay_scheduled_lookback_short.
+#[test]
+fn a_scheduled_death_areas_unit_is_looked_for_over_its_schedule() {
+    let db = common::cards();
+    let (parents, lookback) = death_spawn_parents(&db, "BushGoblin").expect("the Bush's goblin roots to a death");
+    assert!(parents.iter().any(|p| p == "SuspiciousBush"), "its parents: {parents:?}");
+    assert_eq!(lookback, SCHEDULED_DEATH_LOOKBACK, "the Bush's goblin");
+    assert!(lookback >= 14, "the lookback misses the second goblin");
+    let (_, golemite) = death_spawn_parents(&db, "Golemite").expect("the Golemite roots to a death");
+    assert_eq!(golemite, DEATH_SPAWN_LOOKBACK, "a death spawn proper");
+}
+
 /// A SKELETON KING'S SOUL IS ROOTED TO ITS KING (`register_new`): the units his button puts down are copies (state.rs
 /// `soul_pass`, 1 hitpoint), and the recording names them by the King's card, as it names any unit a button puts down;
 /// a Clone spell's copy stays "Clone" (`a_clones_copy_is_rooted_as_clone`). Plant: replay_roots_a_soul_as_clone.
