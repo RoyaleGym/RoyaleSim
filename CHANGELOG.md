@@ -13,6 +13,8 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
   Queen's cloak, the Golden Knight's dash chain, the Monk's deflect and the rest) and bit 8 (fully charged).
 - `catalogue_json()`: each card row gains a 13th value, `evo_cycle`, the plays before each evolved play of the card's
   evolution (0 for a card with none), so the opponent's evolution charge can be counted from the plays you see.
+- RoyaleGym reads the new values from commit e1fca68 on. An older RoyaleGym refuses this engine, because its rows are
+  longer than it knows.
 
 ## 0.1.7 (2026-10-03)
 
