@@ -7244,13 +7244,14 @@ pub const TIEBREAK_EXACT_DRAW_AFTER_MS: i64 = 4000;
 
 /// THE DRAIN'S STEP: the hp every standing crown tower loses this tick, from the lowest crown tower hp of all six read
 /// before it. Measured on client 15.535.29 (sp-tiebreak-dmg-s0, t6067..6167): 50 from 1000 up, 40 from 500, 20 from
-/// 200, 10 from 25, else 1. The 10/1 edge lies in 21..30 (30 drained 10, 20 drained 1); 25 is a guess inside it.
+/// 200, 10 from 21, else 1; checked on client 16.402 over six live level overtimes (21, 23 and 28 drained 10; 20, 18,
+/// 13 and 11 drained 1; 500 and 200 sit on their own step on 15.535.29). No sample sits exactly on 1000.
 pub fn tiebreak_drain_step(lowest: i32) -> i32 {
     match lowest {
         l if l >= 1000 => 50,
         l if l >= 500 => 40,
         l if l >= 200 => 20,
-        l if l >= 25 => 10,
+        l if l >= 21 => 10,
         _ => 1,
     }
 }
