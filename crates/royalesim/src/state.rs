@@ -18089,9 +18089,14 @@ impl BattleState {
             #[cfg(clash_plant = "doomed_own_update_kept")]
             let doomed_stays = false; // PLANT (regression): the new arm still moves a doomed kamikaze.
             for i in order {
-                // movement.STRUCK_CONTACT_ORDER: the struck troops whose striker came before this mover are gone from its
-                // separation (and every later one's); a struck troop whose striker came before it takes no update.
-                while struck_next < struck_by.len() && struck_by[struck_next].0 < e.creation_seq[i] {
+                // movement.STRUCK_CONTACT_ORDER: the struck troops whose striker is this mover or came before it are gone
+                // from its separation (and every later one's: the striker strikes, then moves); a struck troop whose
+                // striker came before it takes no update.
+                #[cfg(not(clash_plant = "struck_meets_its_striker"))]
+                let passed = |sq: u32| sq <= e.creation_seq[i];
+                #[cfg(clash_plant = "struck_meets_its_striker")]
+                let passed = |sq: u32| sq < e.creation_seq[i]; // PLANT (regression): the striker's own move still meets its victim.
+                while struck_next < struck_by.len() && passed(struck_by[struck_next].0) {
                     bodies[struck_by[struck_next].1].alive = false;
                     struck_next += 1;
                 }
