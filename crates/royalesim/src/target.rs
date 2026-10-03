@@ -45,7 +45,7 @@ use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
+    AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
     MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
@@ -857,7 +857,14 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
     let e = ctx.ents;
     let card = ctx.cards.get(e.card[a]);
     let extra = ctx.calib.extra_sight_range_to_crown_towers.max(0) + ctx.calib.extra_sight_range_to_building.max(0);
-    let query = card.sight_range + extra + ctx.hash.max_radius();
+    // targeting.SCAN_REACH = client15535_plus_own_radius: the broad phase reaches the scanner's own radius too, so every
+    // candidate the narrow test below admits is tested (the crown-tower band).
+    // PLANT (regression) scan_reach_without_own_radius: the new arm's query still leaves the scanner's radius out.
+    #[cfg(not(clash_plant = "scan_reach_without_own_radius"))]
+    let own = if ctx.calib.scan_reach == ScanReach::Client15535PlusOwnRadius { e.radius[a] } else { 0 };
+    #[cfg(clash_plant = "scan_reach_without_own_radius")]
+    let own = 0;
+    let query = card.sight_range + extra + ctx.hash.max_radius() + own;
     ctx.hash.neighbours_within(e, e.pos[a], query, scratch);
     // targeting.DEPRIORITIZED_TARGET_BUFF: a carrier of the buff the attacker deprioritizes ranks after every other
     // candidate (`deprioritized`: false for every attacker that deprioritizes nothing, so the key is today's).

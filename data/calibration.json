@@ -290,6 +290,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_untargetable (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_spawn (`ghost_pair_unit`), selected by Calib::ghost_pair_first_frame; tests/ghost_pair_first_frame.rs."
     },
+    "SCAN_REACH": {
+      "value": "sight_extra_max_radius",
+      "candidates": ["sight_extra_max_radius", "client15535_plus_own_radius"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_plus_own_radius on client 15.535.29: the crown-tower sight this ledger already states (SightRange + EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS + both radii, targeting.FALLEN_LANE_TOWER_PICK's provenance) decides the takes, and 120 of them fall in the band the engine's broad phase cuts off. The null (crown_band_null.py: walking troops on two ticks holding no target with an enemy crown tower within S): no troop but a Ram Rider, untargeted at every distance (1,520 ticks inside Q, 41 in the band), and 2 ticks of an Evo Angry Barbarians inside Q. 16.402 not read here (the same law is ledgered there; the arm stays per client until the corpus is scored at it).",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames (tool crown_band_census.py: every tick a troop's target changes to an enemy crown tower, its start-of-tick centre distance d against S = SightRange + 2000 + its radius + the tower's and the engine query's Q = SightRange + 2000 + the largest live radius; crown_band_null.py: walking troops holding no target with a crown tower within S). Takes: 120 in Q < d <= S (104 from none, 11 from a troop target, 5 from another tower), 1,324 at d <= Q, the rest past S (default picks). sp-form-RoyalHogs-evo-s0: Royal Hogs 30 and 29 (Sight 9500, radius 600), walking to the King after their lane's princess tower fell, took Red's left princess tower (radius 1000) on t1190 and t1194 at 13,007 and 13,011 (S 13,100; a tick before 13,114 and 13,116); the engine (Q 9500 + 2000 + 1400 = 12,900) took it at 12,796 and 12,807, two ticks later, and turned the hogs late: the scene's first divergence, t1276 (Musketeer 28 on their changed fight). Also sp-il-2142 t2291 a Hog Rider at 13,038, sp-il-6a56 t221 one at 12,999, sp-sk-souls-spawned-s0 t350 the Skeleton King at 9,492 (S 9,500).",
+      "meaning": "sight_extra_max_radius: the engine's; a sight scan (target.rs scan_with) asks the spatial hash for the centres within SightRange + the extra sight ranges + the largest live radius, which omits the scanner's own radius: a crown tower is seen from that reach, not from the crown-tower sight. client15535_plus_own_radius: the query adds the scanner's radius, so the narrow test (SightRange, + 2000 toward a crown tower, + both radii) alone decides.",
+      "open": "16.402 (the corpus at the new arm by override: the reach16 run); other broad phases built the same way (enemy_in_wake_range) not read.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_plus_own_radius (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "target.rs scan_with (`query`, `own`), selected by Calib::scan_reach; tests/scan_reach.rs."
+    },
     "EQUAL_DISTANCE_TIE": {
       "value": "own_frame_high_x",
       "candidates": ["own_frame_low_x", "own_frame_high_x", "client15535_later_created"],

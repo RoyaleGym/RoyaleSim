@@ -958,6 +958,10 @@ pub struct Calib {
     /// the tick it is made. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
     #[serde(default = "spectral_first_update_default")]
     pub spectral_first_update: SpectralFirstUpdate,
+    /// targeting.SCAN_REACH (target.rs `scan_with`): how far a sight scan's broad phase reaches. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `SightExtraMaxRadius`.
+    #[serde(default = "scan_reach_default")]
+    pub scan_reach: ScanReach,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2355,6 +2359,10 @@ fn held_waypoint_test_default() -> HeldWaypointTest {
 
 fn spectral_first_update_default() -> SpectralFirstUpdate {
     SpectralFirstUpdate::None
+}
+
+fn scan_reach_default() -> ScanReach {
+    ScanReach::SightExtraMaxRadius
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4995,6 +5003,27 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
+    /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
+    /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
+    ScanReach {
+        /// The engine's: SightRange + the extra sight ranges + the largest live radius. It leaves out the scanner's own
+        /// radius, so a candidate whose centre lies past it and within the narrow test is never tested: a crown tower
+        /// (the King's 1400 the largest radius) is seen only from Sight + 2000 + 1400, not from Sight + 2000 + both
+        /// radii, a band of (the scanner's radius + the tower's - 1400) native: 200 for a Hog Rider on a princess tower.
+        SightExtraMaxRadius = "sight_extra_max_radius",
+        /// The scanner's own radius added: every candidate the narrow test admits is tested. Measured on client 15.535.29
+        /// (crown_band_census.py): 120 takes of an enemy crown tower at a start-of-tick centre distance inside that band
+        /// (104 by a troop holding nothing, 11 from a troop target, 5 from another tower), one only 5 short of the
+        /// sight (a Skeleton at 8,995 of 9,000);sp-form-RoyalHogs-evo-s0 t1190 and t1194:
+        /// two Royal Hogs walking to the King (their lane's princess tower down) took the standing princess tower at
+        /// 13,007 and 13,011 (Sight 9500 + 2000 + 600 + 1000 = 13,100; at 13,114 and 13,116 a tick before they had
+        /// not), where the engine's query (12,900) took it two ticks later and the hogs turned late, the scene's first
+        /// divergence (t1276).
+        Client15535PlusOwnRadius = "client15535_plus_own_radius",
+    }
+);
+calib_enum!(
     /// spawner.SPECTRAL_FIRST_UPDATE -- see `army_spectrals`: whether an Evo Skeleton Army Spectral, made at the end of
     /// Reap where its soldier died, takes its first update on that tick (`first_update`, as an Evo Skeletons copy does).
     SpectralFirstUpdate {
@@ -6926,6 +6955,7 @@ impl Calib {
             jump_landing_scope: pick(&v, &["movement", "JUMP_LANDING_SCOPE", "value"], JumpLandingScope::from_calibration_name)?,
             held_waypoint_test: pick(&v, &["movement", "HELD_WAYPOINT_TEST", "value"], HeldWaypointTest::from_calibration_name)?,
             spectral_first_update: pick(&v, &["spawner", "SPECTRAL_FIRST_UPDATE", "value"], SpectralFirstUpdate::from_calibration_name)?,
+            scan_reach: pick(&v, &["targeting", "SCAN_REACH", "value"], ScanReach::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -28981,6 +29011,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.SCAN_REACH: Calib gained scan_reach (serde default the old arm, sight_extra_max_radius), no
+///    new state (the scan reads the saved board), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.SPECTRAL_FIRST_UPDATE: Calib gained spectral_first_update (serde default the old arm, none), no
 ///    new state (the first update moves the saved unit), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -29825,6 +29858,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("held_waypoint_test".into(), serde_json::to_value(HeldWaypointTest::NotRun).map_err(|e| e.to_string())?);
     // spawner.SPECTRAL_FIRST_UPDATE: a format-3 battle's Spectral stood on its first tick (the same rule).
     sh.insert("spectral_first_update".into(), serde_json::to_value(SpectralFirstUpdate::None).map_err(|e| e.to_string())?);
+    // targeting.SCAN_REACH: a format-3 battle's scan reached Sight + extra + the largest radius (the same rule).
+    sh.insert("scan_reach".into(), serde_json::to_value(ScanReach::SightExtraMaxRadius).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
