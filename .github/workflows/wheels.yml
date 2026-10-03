@@ -104,7 +104,8 @@ jobs:
       matrix:
         # macos-15-intel tests the x86_64 macOS wheel: v0.1.0's macos-13 jobs never got a runner and held the release.
         os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-14]
-        python: ['3.10', '3.13']
+        # Every CPython the abi3 wheel claims, so the README's version list is a list of measured versions.
+        python: ['3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

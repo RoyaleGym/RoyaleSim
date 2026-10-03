@@ -2413,6 +2413,12 @@ calib_enum!(
         LowestTowerHpFraction = "lowest_tower_hp_fraction",
         /// The earlier engine: a level match past overtime is a Draw.
         NoneDraw = "none_draw",
+        /// THE CLIENT'S DRAIN (measured on client 15.535.29): a level match does not end when overtime does. From
+        /// `TIEBREAK_DRAIN_START_MS` past overtime's end every standing crown tower, kings too, loses the same absolute
+        /// amount each tick, chosen by the lowest crown tower's hp of all six before the tick (`tiebreak_drain_step`);
+        /// the first tower to fall gives its opponent the crown and the match (1-0). Sides whose weakest towers are
+        /// exactly level drain one tick and draw `TIEBREAK_EXACT_DRAW_AFTER_MS` later.
+        ClientHpDrain = "client_hp_drain",
     }
 );
 calib_enum!(
@@ -7335,6 +7341,29 @@ pub const BARRAGE_LAND_EXTRA_TICKS: i32 = 3;
 /// reports it as `DeployError::EmptySlot`, and nothing looks it up in the card table.
 pub const NO_CARD: u16 = u16::MAX;
 
+/// THE TIEBREAK DRAIN'S START, ms past overtime's end (match.OVERTIME_TIEBREAK = client_hp_drain). Measured on client
+/// 15.535.29 (sp-tiebreak-{idle,dmg}-s0): overtime ends at t6000, nothing moves on t6000..6066, and the first loss is
+/// on t6067.
+pub const TIEBREAK_DRAIN_START_MS: i64 = 3350;
+
+/// THE EXACT TIE'S END, ms past the drain's start: sides whose weakest crown towers are level drain one tick and the
+/// match ends a Draw on this tick (sp-tiebreak-idle-s0: drained on t6067, ended t6147, native_tiebreak_exact_draw).
+pub const TIEBREAK_EXACT_DRAW_AFTER_MS: i64 = 4000;
+
+/// THE DRAIN'S STEP: the hp every standing crown tower loses this tick, from the lowest crown tower hp of all six read
+/// before it. Measured on client 15.535.29 (sp-tiebreak-dmg-s0, t6067..6167): 50 from 1000 up, 40 from 500, 20 from
+/// 200, 10 from 21, else 1; checked on client 16.402 over six live level overtimes (21, 23 and 28 drained 10; 20, 18,
+/// 13 and 11 drained 1; 500 and 200 sit on their own step on 15.535.29). No sample sits exactly on 1000.
+pub fn tiebreak_drain_step(lowest: i32) -> i32 {
+    match lowest {
+        l if l >= 1000 => 50,
+        l if l >= 500 => 40,
+        l if l >= 200 => 20,
+        l if l >= 21 => 10,
+        _ => 1,
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PlayerState {
     /// Elixir in units of 1/mana_unit elixir.
@@ -10217,7 +10246,7 @@ impl BattleState {
             let damage = self.cfg.cards.scaled(card, level, h.damage).expect("level validated at spawn");
             let delay_ms = g.strike_delay_ms + GHOST_STRIKE_EXTRA_TICKS * self.cfg.calib.tick_ms;
             let motion = spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms };
-            self.spells.push(Spell { team, card, level, damage, pulse: 0, motion, depth: 0 });
+            self.spells.push(Spell { team, card, level, damage, pulse: 0, motion, depth: 0, flown: 0 });
         }
     }
 
@@ -12590,7 +12619,39 @@ impl BattleState {
         }
     }
 
+    /// THE TIEBREAK DRAIN (match.OVERTIME_TIEBREAK = client_hp_drain; `TIEBREAK_DRAIN_START_MS`,
+    /// `tiebreak_drain_step`): past overtime's end with the crowns level, every standing crown tower loses the step
+    /// the lowest of them sets; a tower brought to 0 falls in this tick's death pass and the judge gives its opponent
+    /// the crown. Level weakest towers drain only the first tick. Runs at the head of the upkeep phase.
+    fn tiebreak_drain(&mut self) {
+        let c = &self.cfg.calib;
+        if c.overtime_tiebreak != OvertimeTiebreak::ClientHpDrain || !self.overtime || self.outcome.is_some() {
+            return;
+        }
+        let start = (c.regular_time_s as i64 + c.overtime_s as i64) * 1000 + TIEBREAK_DRAIN_START_MS;
+        let now = self.elapsed_ms(self.tick);
+        if now < start || (now > start && self.weakest_towers_level()) {
+            return;
+        }
+        let standing: Vec<usize> =
+            self.towers.iter().flatten().flatten().filter(|id| self.ents.is_alive(**id)).map(|id| id.index as usize).collect();
+        let Some(lowest) = standing.iter().map(|&i| self.ents.hp[i]).min() else {
+            return;
+        };
+        let step = tiebreak_drain_step(lowest);
+        for i in standing {
+            self.ents.hp[i] = (self.ents.hp[i] - step).max(0);
+        }
+    }
+
+    /// Whether both sides' weakest standing crown towers have the same hp (the drain's exact tie).
+    fn weakest_towers_level(&self) -> bool {
+        let weakest = |t: usize| self.towers[t].iter().flatten().filter(|id| self.ents.is_alive(**id)).map(|id| self.ents.hp[id.index as usize]).min();
+        weakest(0) == weakest(1)
+    }
+
     fn phase_upkeep(&mut self) {
+        self.tiebreak_drain();
         let double = self.double_elixir();
         let triple = self.triple_elixir();
         let c = &self.cfg.calib;
@@ -13598,6 +13659,7 @@ impl BattleState {
             pulse: 0,
             motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: ticks * self.cfg.calib.tick_ms },
             depth: 0,
+            flown: 0,
         });
     }
 
@@ -14767,7 +14829,7 @@ impl BattleState {
             let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
             let fwd = spell::forward_dy(team);
             let at = Vec2::new(pos.x + fwd * b.extra_offset_x, pos.y + fwd * b.extra_offset_y);
-            made.push(Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick }, depth: 0 });
+            made.push(Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick }, depth: 0, flown: 0 });
             self.evo.barrel_drops.push(id);
         }
         self.spells.extend(made);
@@ -21896,7 +21958,7 @@ impl BattleState {
             let team = self.ents.team[r.id.index as usize];
             let damage = self.cfg.cards.scaled(rr.log, r.level, hit.damage).expect("the Barbarian's level is validated at try_new");
             #[cfg(not(clash_plant = "reroll_log_never"))]
-            self.spells.push(Spell { team, card: rr.log, level: r.level, damage, pulse: 0, motion: spell::SpellMotion::Rolling { pos: start, travelled: 0, len, hit: Vec::new() }, depth: 0 });
+            self.spells.push(Spell { team, card: rr.log, level: r.level, damage, pulse: 0, motion: spell::SpellMotion::Rolling { pos: start, travelled: 0, len, hit: Vec::new() }, depth: 0, flown: 0 });
             let _ = (team, damage, len, start);
         }
     }
@@ -22016,7 +22078,7 @@ impl BattleState {
                     if let Some(SpellShape::Projectile { hit: Some(h), .. }) = self.cfg.cards.get(card).deploy_projectile.as_ref().map(|x| &x.shape) {
                         let damage = self.cfg.cards.scaled(card, level, h.damage).expect("the mount's level is validated at try_new");
                         // Landing a tick on: measured, the Knight's loss on P + 12, the mount's first frame P + 1.
-                        self.spells.push(Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: dt }, depth: 0 });
+                        self.spells.push(Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: dt }, depth: 0, flown: 0 });
                     }
                 }
             }
@@ -22429,6 +22491,7 @@ impl BattleState {
                     pulse: 0,
                     motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms },
                     depth: 0,
+                    flown: 0,
                 });
                 continue;
             }
@@ -23043,7 +23106,19 @@ impl BattleState {
                 self.outcome = Some(o);
             } else if elapsed >= overtime_end {
                 // The tie-break past overtime: calibration match.OVERTIME_TIEBREAK.
-                self.outcome = Some(self.overtime_tiebreak());
+                #[cfg(not(clash_plant = "tiebreak_decided_at_overtime_end"))]
+                let drain = c.overtime_tiebreak == OvertimeTiebreak::ClientHpDrain;
+                #[cfg(clash_plant = "tiebreak_decided_at_overtime_end")]
+                let drain = false; // PLANT: overtime's end decides at once, as the absolute rule did.
+                if !drain {
+                    self.outcome = Some(self.overtime_tiebreak());
+                } else if self.elapsed_ms(self.tick) >= overtime_end + TIEBREAK_DRAIN_START_MS + TIEBREAK_EXACT_DRAW_AFTER_MS
+                    && self.weakest_towers_level()
+                {
+                    // The exact tie: the drain ran one tick, and the match is a Draw now.
+                    self.outcome = Some(Outcome::Draw);
+                }
+                // Otherwise the drain runs (`tiebreak_drain`) until a tower falls and the crowns decide above.
             }
         } else if elapsed >= regular {
             if let Some(o) = by_crowns(self.crowns) {
@@ -24455,7 +24530,7 @@ impl BattleState {
 
     /// Is `form` a champion's (card.rs `AbilityEffect::DashChain`, `Deflect`) rather than a hero form's?
     fn champion_button(&self, form: u16) -> bool {
-        matches!(self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::DashChain { .. } | crate::card::AbilityEffect::Deflect { .. } | crate::card::AbilityEffect::SelfBuff { .. } | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::LaneSwitch(_) | crate::card::AbilityEffect::SoulSummon(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_)))
+        self.cfg.cards.is_champion(form)
     }
 
     /// Has hero unit `u` of `form` a charge left behind its cooldown (the Boss Bandit's: card.rs `WarpBackDef::charges`)?
@@ -24975,7 +25050,7 @@ impl BattleState {
                     let bomb = self.cfg.cards.get(l.bomb);
                     let fuse_ms = bomb.death_bomb_fuse_ms().expect("a lane switch's bomb is a death bomb (card.rs `UnitUse::LaneSwitchBomb`)");
                     let damage = self.cfg.cards.scaled(l.bomb, lvl, bomb.death_damage).expect("the bomb's level is validated at try_new");
-                    self.spells.push(Spell { team, card: l.bomb, level: lvl, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms }, depth: 0 });
+                    self.spells.push(Spell { team, card: l.bomb, level: lvl, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms }, depth: 0, flown: 0 });
                     self.warps.lanes.retain(|r| r.id != hero);
                     self.warps.lanes.push(LaneRun { id: hero, made: self.tick });
                 }
@@ -28126,7 +28201,7 @@ pub fn barrage_spells(cards: &CardDb, calib: &Calib, b: &crate::card::BarrageDef
         .map(|k| {
             let pos = Vec2::new(k.x, at.y + fwd * k.ahead);
             let ticks = k.life_ms / calib.tick_ms.max(1) + BARRAGE_LAND_EXTRA_TICKS;
-            Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: ticks * calib.tick_ms }, depth: 0 }
+            Spell { team, card, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: ticks * calib.tick_ms }, depth: 0, flown: 0 }
         })
         .collect()
 }
