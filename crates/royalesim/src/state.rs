@@ -962,6 +962,14 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `SightExtraMaxRadius`.
     #[serde(default = "scan_reach_default")]
     pub scan_reach: ScanReach,
+    /// transform.DISMOUNT_LEAP_STEP (the dismount's trigger, `dismount_hops`): when a hero freed on its river leap's last
+    /// tick becomes its walking row. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `RebindFirst`.
+    #[serde(default = "dismount_leap_step_default")]
+    pub dismount_leap_step: DismountLeapStep,
+    /// transform.DISMOUNT_HOP_WATER (`dismount_hops`): where a hero's hop onto the river lands. Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm, `KeepWater`.
+    #[serde(default = "dismount_hop_water_default")]
+    pub dismount_hop_water: DismountHopWater,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2363,6 +2371,14 @@ fn spectral_first_update_default() -> SpectralFirstUpdate {
 
 fn scan_reach_default() -> ScanReach {
     ScanReach::SightExtraMaxRadius
+}
+
+fn dismount_leap_step_default() -> DismountLeapStep {
+    DismountLeapStep::RebindFirst
+}
+
+fn dismount_hop_water_default() -> DismountHopWater {
+    DismountHopWater::KeepWater
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5003,6 +5019,35 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// transform.DISMOUNT_LEAP_STEP -- see the dismount's trigger (`AbilityEffect::Dismount`) and `dismount_hops`: a Hero
+    /// Dark Prince freed to press on its river leap's last tick (`hero_free`, `leap_ends_now`).
+    DismountLeapStep {
+        /// The engine's: the hero becomes its walking row at the trigger, before the tick's move pass; the walking row
+        /// has no leap block, so the leap is dropped and that move is a walk step.
+        RebindFirst = "rebind_first",
+        /// The hero takes that tick's leap step as its mounted row and becomes its walking row after the move pass,
+        /// before its first hop. Measured on client 15.535.29 (sp-form-DarkPrince-hero-s0, pressed mid-leap, freed on
+        /// t213): from (10630, 16859) the leap's step toward its landing node (10750, 17250) at JumpSpeed 160 gives x
+        /// 10677, and the hero stood at x 10676 after the hop (which moves y only); the engine walked it (50, 31).
+        Client15535LeapLandsFirst = "client15535_leap_lands_first",
+    }
+);
+calib_enum!(
+    /// transform.DISMOUNT_HOP_WATER -- see `dismount_hops`: where a Hero Dark Prince's hop lands when its point (the
+    /// hop's 200 back, clamped as a scheduled spawn's) lies on the river.
+    DismountHopWater {
+        /// The engine's: the point is kept, water included.
+        KeepWater = "keep_water",
+        /// A ground hero is put on the centre of the land half-tile row nearest the point along y, its x kept
+        /// (`land_row_centre`). Measured on client 15.535.29 (sp-form-DarkPrince-hero-s0 t213 to t222, a blue hero just
+        /// past the river): the five hops whose point lay on the river (y 16812 once, 16850 four times) landed on (10676,
+        /// 17250), the centre of the row [17000, 17500); the five onto land took their plain 200; the hero2 scenes' 20 dry
+        /// hops took their plain 200. Not the knockback's water ejection (move16402.rs `nearest_land`), which gives
+        /// (10426, 17062) there. The engine hopped the hero 200 a tick into the river.
+        Client15535LandRowCentre = "client15535_land_row_centre",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -6956,6 +7001,8 @@ impl Calib {
             held_waypoint_test: pick(&v, &["movement", "HELD_WAYPOINT_TEST", "value"], HeldWaypointTest::from_calibration_name)?,
             spectral_first_update: pick(&v, &["spawner", "SPECTRAL_FIRST_UPDATE", "value"], SpectralFirstUpdate::from_calibration_name)?,
             scan_reach: pick(&v, &["targeting", "SCAN_REACH", "value"], ScanReach::from_calibration_name)?,
+            dismount_leap_step: pick(&v, &["transform", "DISMOUNT_LEAP_STEP", "value"], DismountLeapStep::from_calibration_name)?,
+            dismount_hop_water: pick(&v, &["transform", "DISMOUNT_HOP_WATER", "value"], DismountHopWater::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -23109,12 +23156,24 @@ impl BattleState {
                 continue;
             }
             let i = r.id.index as usize;
+            let (walker, hop_y) = (d.walker, d.hop_y);
+            // transform.DISMOUNT_LEAP_STEP = client15535_leap_lands_first: a hero left on its mounted row through its
+            // trigger tick's leap step becomes its walking row now, before its first hop.
+            if age == 0 && self.ents.card[i] != walker {
+                self.rebind_unit(i, walker, false);
+            }
             let p = self.ents.pos[i];
-            let to = Vec2::new(p.x, p.y + d.hop_y * spell::forward_dy(r.team) * crate::fixed::SUBTILE_PER_MILLITILE);
+            let to = Vec2::new(p.x, p.y + hop_y * spell::forward_dy(r.team) * crate::fixed::SUBTILE_PER_MILLITILE);
             let flying = self.ents.flying[i];
             #[cfg(not(clash_plant = "dismount_never_hops"))]
             {
-                self.ents.pos[i] = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying);
+                let q = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying);
+                // transform.DISMOUNT_HOP_WATER = client15535_land_row_centre: a ground hero's hop onto the river lands on
+                // the centre of the nearest land row, its x kept (`land_row_centre`).
+                // PLANT (regression) hop_keeps_water: the new arm still keeps the point on the water.
+                #[cfg(not(clash_plant = "hop_keeps_water"))]
+                let q = if !flying && self.cfg.calib.dismount_hop_water == DismountHopWater::Client15535LandRowCentre && self.cfg.arena.is_water(q) { self.land_row_centre(q) } else { q };
+                self.ents.pos[i] = q;
                 self.ents.target[i] = None;
                 self.ents.target_locked[i] = false;
                 moved = true;
@@ -23124,6 +23183,25 @@ impl BattleState {
         if moved {
             self.hash.rebuild(&self.ents);
         }
+    }
+
+    /// transform.DISMOUNT_HOP_WATER = client15535_land_row_centre: the centre of the land half-tile row (`Arena::cell`)
+    /// nearest `p` along y, its x kept; between two rows at one distance the lower y (unmeasured: the one measured hop
+    /// had its nearest land 438 up and 2,062 down).
+    fn land_row_centre(&self, p: Vec2) -> Vec2 {
+        let a = &self.cfg.arena;
+        let mut best: Option<(i32, Vec2)> = None;
+        for r in 0..a.rows {
+            let q = Vec2::new(p.x, r * a.cell + a.cell / 2);
+            if a.is_water(q) {
+                continue;
+            }
+            let d = (q.y - p.y).abs();
+            if best.map_or(true, |(bd, _)| d < bd) {
+                best = Some((d, q));
+            }
+        }
+        best.map_or(p, |(_, q)| q)
     }
 
     /// GOBLINSTEIN'S TETHERS (card.rs `TetherDef`, `TetherRun`), at the start of Resolve on this tick's positions: every
@@ -26142,7 +26220,17 @@ impl BattleState {
                     // Made at the end of this Reap with no update (`release`): its first frame on its point, its one step
                     // on its second, as measured; and no play's deploy blow (its blow is `dismount_pass`'s).
                     self.release(PendingSpawn { team, card: d.mount, level: lvl, pos: at, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
-                    self.rebind_unit(i, d.walker, false);
+                    // transform.DISMOUNT_LEAP_STEP = client15535_leap_lands_first: a hero freed on its leap's last tick
+                    // takes that leap step as its mounted row; it becomes its walking row after the move pass
+                    // (`dismount_hops`, on the run's first tick).
+                    // PLANT (regression) dismount_rebinds_before_leap_step: the new arm still rebinds before the move.
+                    #[cfg(not(clash_plant = "dismount_rebinds_before_leap_step"))]
+                    let late = self.cfg.calib.dismount_leap_step == DismountLeapStep::Client15535LeapLandsFirst && self.ents.jumping[i];
+                    #[cfg(clash_plant = "dismount_rebinds_before_leap_step")]
+                    let late = false;
+                    if !late {
+                        self.rebind_unit(i, d.walker, false);
+                    }
                     self.warps.dismounts.retain(|r| r.id != hero);
                     self.warps.dismounts.push(DismountRun { id: hero, team, card, made: self.tick, at, mount: None });
                 }
@@ -29011,6 +29099,10 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, transform.DISMOUNT_LEAP_STEP and transform.DISMOUNT_HOP_WATER: Calib gained dismount_leap_step and
+///    dismount_hop_water (serde defaults the old arms, rebind_first and keep_water), no new state (the late rebind runs
+///    inside the trigger's tick, the hop moves the saved hero), so a blob saved before them deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arms.
 /// 20, unchanged, targeting.SCAN_REACH: Calib gained scan_reach (serde default the old arm, sight_extra_max_radius), no
 ///    new state (the scan reads the saved board), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -29860,6 +29952,9 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spectral_first_update".into(), serde_json::to_value(SpectralFirstUpdate::None).map_err(|e| e.to_string())?);
     // targeting.SCAN_REACH: a format-3 battle's scan reached Sight + extra + the largest radius (the same rule).
     sh.insert("scan_reach".into(), serde_json::to_value(ScanReach::SightExtraMaxRadius).map_err(|e| e.to_string())?);
+    // transform.DISMOUNT_LEAP_STEP and DISMOUNT_HOP_WATER: a format-3 battle rebound at the trigger and kept water.
+    sh.insert("dismount_leap_step".into(), serde_json::to_value(DismountLeapStep::RebindFirst).map_err(|e| e.to_string())?);
+    sh.insert("dismount_hop_water".into(), serde_json::to_value(DismountHopWater::KeepWater).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

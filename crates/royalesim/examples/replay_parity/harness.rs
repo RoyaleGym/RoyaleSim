@@ -1512,6 +1512,10 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   tick it is made (43 of 43 hold a target on their first frame).
 ///   targeting.SCAN_REACH = client15535_plus_own_radius: a sight scan's broad phase reaches the scanner's own radius
 ///   (120 crown-tower takes inside the band the engine's query cut off).
+///   transform.DISMOUNT_LEAP_STEP = client15535_leap_lands_first: a Hero Dark Prince freed on its leap's last tick takes
+///   that leap step before it dismounts (1 of 1).
+///   transform.DISMOUNT_HOP_WATER = client15535_land_row_centre: its hop onto the river lands on the nearest land row's
+///   centre (5 of 5).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1557,6 +1561,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.HELD_WAYPOINT_TEST", "\"client15535_run\""),
     ("spawner.SPECTRAL_FIRST_UPDATE", "\"client15535_same_tick\""),
     ("targeting.SCAN_REACH", "\"client15535_plus_own_radius\""),
+    ("transform.DISMOUNT_LEAP_STEP", "\"client15535_leap_lands_first\""),
+    ("transform.DISMOUNT_HOP_WATER", "\"client15535_land_row_centre\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

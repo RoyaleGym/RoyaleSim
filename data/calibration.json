@@ -4542,6 +4542,28 @@
       "promotion_rules": "Settled for these two rows.",
       "engine": "state.rs rebind_unit (the switched list, read by phase_target_with) and entity.rs Entities::reset_attack; tests/transform.rs"
     },
+    "DISMOUNT_LEAP_STEP": {
+      "value": "rebind_first",
+      "candidates": ["rebind_first", "client15535_leap_lands_first"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_leap_lands_first on client 15.535.29: one event (the only capture with a press freed by a leap's end), its x read to one native of the leap law's step.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames (tool hero_dp_hop_census.py; fpd.py on ship32's exe trace). sp-form-DarkPrince-hero-s0: the Hero Dark Prince pressed mid-leap (the press waits for the leap's end, hero_free/leap_ends_now); on t213, the leap's last tick, the client moved it from (10630, 16859) by the leap's step toward its landing node (10750, 17250) at JumpSpeed 160 (x 10677 by the law) and hopped it (y only) to (10676, 17250): state 5 on t212, 10 on t213. The engine rebound it to DarkPrinceHero_Walking (no jump block) at the trigger, before the move pass, so its leap was dropped: it walked (50, 31) and hopped to (10680, 16690), the scene's first error (t213, 560).",
+      "meaning": "rebind_first: the engine's; the hero becomes its walking row at the trigger, before the tick's move pass, and a leap ending in that move is dropped (the walking row has none: a walk step). client15535_leap_lands_first: a hero freed on its leap's last tick takes that tick's leap step as its mounted row and becomes its walking row after the move pass, before its first hop (state.rs dismount_hops on the run's first tick).",
+      "open": "The mount's first point on such a press (the client's mount stood (35, 46) from the hero's leap-step point, the engine's at the FITTED DISMOUNT_MOUNT_OFFSET from its pre-move point); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_leap_lands_first (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs the dismount's trigger (`late`) and dismount_hops (the age-0 rebind), selected by Calib::dismount_leap_step; tests/dismount_river.rs."
+    },
+    "DISMOUNT_HOP_WATER": {
+      "value": "keep_water",
+      "candidates": ["keep_water", "client15535_land_row_centre"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_land_row_centre on client 15.535.29: 5 of 5 hops onto the river in one scene, all to one row from points 438 and 400 below it; which row wins a tie, and the x rule where the nearest land is not straight along y, are not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames (tool hero_dp_hop_census.py: every Hero Dark Prince tick in behaviour state 10, its point before and after and the hop's plain point). sp-form-DarkPrince-hero-s0 t213 to t222, a blue hero just past the river at x 10676: hops of 200 back from 17250 landed on 17050 (land, 5 of 5) and from 17050 (and t213's 17012) onto the river at 16850 (16812) landed on 17250, the centre of the land half-tile row [17000, 17500), x kept (5 of 5); sp-hero2-DarkPrince-charge-s0 and -melee-s0: 20 hops on dry land, each its plain 200. The knockback's water ejection (move16402.rs nearest_land) gives (10426, 17062) there, not the client's point. The engine (scheduled_point, clamp_keep_water) hopped the hero 200 a tick into the river, to y 14890 by t222.",
+      "meaning": "keep_water: the engine's; a hop's point (200 back, clamped as a scheduled spawn's) is kept, water included. client15535_land_row_centre: a ground hero whose hop point lies on the river is put on the centre of the land half-tile row nearest it along y, its x kept (state.rs land_row_centre).",
+      "open": "A tie between two rows; a point whose nearest land is not along y; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_land_row_centre (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs dismount_hops and land_row_centre, selected by Calib::dismount_hop_water; tests/dismount_river.rs."
+    },
     "REDEPLOY": {
       "value": "none",
       "candidates": ["none", "new_row_deploy_time"],
