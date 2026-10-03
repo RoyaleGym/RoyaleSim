@@ -330,6 +330,12 @@ pub struct Entities {
     /// `default` and sized on load from each unit's position.
     #[serde(default)]
     pub chase_last_pos: Vec<Vec2>,
+    /// targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: whether this unit walked into its last Target
+    /// phase and left it holding no target, walking on for its tower (state.rs `chase_pass_end`); its rescans then pass
+    /// over every troop past the chase-drop limit whose distance grew since (target.rs `scan_with`). False at creation
+    /// and under every other arm. `default` and sized on load at false.
+    #[serde(default)]
+    pub chase_lane_walk: Vec<bool>,
     /// combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: 1 on the tick this unit lost, while walking, the
     /// target it held (state.rs, the Target phase), 2 from its attack step on that tick until it takes a target again,
     /// while its load timer stands (combat.rs `attack_step_progress`); 0 otherwise and on every unit under the old arm.
@@ -845,6 +851,7 @@ impl Entities {
             self.creation_seq[i] = created;
             self.pos[i] = s.pos;
             self.chase_last_pos[i] = s.pos;
+            self.chase_lane_walk[i] = false;
             self.hp[i] = s.hp;
             self.max_hp[i] = s.hp;
             self.shield[i] = s.shield;
@@ -947,6 +954,7 @@ impl Entities {
             self.creation_seq.push(created);
             self.pos.push(s.pos);
             self.chase_last_pos.push(s.pos);
+            self.chase_lane_walk.push(false);
             self.hp.push(s.hp);
             self.max_hp.push(s.hp);
             self.shield.push(s.shield);

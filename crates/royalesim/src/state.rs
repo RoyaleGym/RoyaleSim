@@ -1009,6 +1009,11 @@ pub struct Calib {
     /// old arm, `LandedBody`.
     #[serde(default = "chain_landed_body_default")]
     pub chain_landed_body: ChainLandedBody,
+    /// targeting.CHASE_RESCAN_PASS_OVER (target.rs `scan_with`, read under targeting.CHASE_DROP_WALKING_AWAY =
+    /// client15535_growing_away): which rescans pass over a troop past the chase-drop limit. Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm, `DropTick`.
+    #[serde(default = "chase_rescan_pass_over_default")]
+    pub chase_rescan_pass_over: ChaseRescanPassOver,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2454,6 +2459,10 @@ fn first_step_dying_contact_default() -> FirstStepDyingContact {
 
 fn chain_landed_body_default() -> ChainLandedBody {
     ChainLandedBody::LandedBody
+}
+
+fn chase_rescan_pass_over_default() -> ChaseRescanPassOver {
+    ChaseRescanPassOver::DropTick
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5110,6 +5119,26 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.CHASE_RESCAN_PASS_OVER -- see target.rs `scan_with`: under targeting.CHASE_DROP_WALKING_AWAY =
+    /// client15535_growing_away, which rescans pass over an enemy troop past the chase-drop limit that the unit did not
+    /// just let go (that one stays barred under every arm).
+    ChaseRescanPassOver {
+        /// The engine's: the drop tick's own rescan alone, over every troop past the limit that walks away
+        /// (`walks_away`); any other rescan takes such a troop at plain sight.
+        DropTick = "drop_tick",
+        /// Also every rescan of a unit that walked into its last Target phase and left it holding no target (it walks on
+        /// for its tower: entity.rs `chase_lane_walk`), over every troop past the limit whose measured distance grew
+        /// since that phase, whatever the troop does. A unit out of its deploy, in its attack or holding a troop at that
+        /// phase takes them. Measured on client 15.535.29 (receding_rescan_census.py, the nearest troop in round sight
+        /// past the limit by |dy|, the rescanner walking): passed over when |dy| grew, 197 of 197 walking away, 334 of
+        /// 336 not walking away, 37 of 38 with the rescanner standing; the four taken are first picks out of a deploy
+        /// (ub-sd14-a2 t307, sp-esa-spectrals-s0 t832) and picks after a post-kill wait (sp-il-04cb t2924, sp-il-b5e2
+        /// t3823). sweep-RoyalHogs t354: the Knight walking for its tower after letting Hog 7 go passes over Hog 8,
+        /// 6,071 -> 6,245, where the engine took it and turned back 4,000 off.
+        Client15535RecedingLaneWalk = "client15535_receding_lane_walk",
+    }
+);
+calib_enum!(
     /// spawner.FIRST_STEP_DYING_CONTACT -- see `phase_path16402_for`: under spawner.FIRST_STEP_DYING_BODIES =
     /// client16402_seen a unit's creation-tick first update meets the units dying on its tick (the doomed in the pass,
     /// the Reap's dead that released nothing); this says whether they push it. Read only under that arm.
@@ -7238,6 +7267,7 @@ impl Calib {
             troop_relocation_tie_order: pick(&v, &["placement", "TROOP_RELOCATION_TIE_ORDER", "value"], TroopRelocationTieOrder::from_calibration_name)?,
             first_step_dying_contact: pick(&v, &["spawner", "FIRST_STEP_DYING_CONTACT", "value"], FirstStepDyingContact::from_calibration_name)?,
             chain_landed_body: pick(&v, &["movement", "CHAIN_LANDED_BODY", "value"], ChainLandedBody::from_calibration_name)?,
+            chase_rescan_pass_over: pick(&v, &["targeting", "CHASE_RESCAN_PASS_OVER", "value"], ChaseRescanPassOver::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -15143,9 +15173,15 @@ impl BattleState {
     /// next Target phase's steps and growths are read against (a unit created during the phase keeps its creation point).
     fn chase_pass_end(&mut self) {
         if self.cfg.calib.chase_drop_walking_away == ChaseDropWalkingAway::Client15535GrowingAway {
+            // targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: the phase's lane-walk marks, each unit
+            // that walked into it (`chase_walked`) and leaves it holding no target.
+            let lane = self.cfg.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client15535RecedingLaneWalk;
             for (i, p) in self.scratch.chase_start_pos.iter().enumerate() {
                 if self.ents.alive[i] {
                     self.ents.chase_last_pos[i] = *p;
+                    if lane {
+                        self.ents.chase_lane_walk[i] = self.scratch.chase_walked.get(i).copied().unwrap_or(false) && self.ents.target[i].is_none();
+                    }
                 }
             }
         }
@@ -27838,6 +27874,11 @@ impl BattleState {
                 if self.cfg.calib.chase_drop_walking_away == ChaseDropWalkingAway::Client15535GrowingAway {
                     h.i32(e.chase_last_pos[i].x);
                     h.i32(e.chase_last_pos[i].y);
+                    // targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: the lane-walk mark, written under
+                    // that arm alone.
+                    if self.cfg.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client15535RecedingLaneWalk {
+                        h.bool(e.chase_lane_walk[i]);
+                    }
                 }
                 // combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: the load timer's hold, written under
                 // that arm alone.
@@ -29499,6 +29540,10 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.CHASE_RESCAN_PASS_OVER: Calib gained chase_rescan_pass_over (serde default the old arm,
+///    drop_tick); Entities gained chase_lane_walk (`default`, sized on load at false), written and hashed under the new
+///    arm alone, so a blob saved before them deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
 /// 20, unchanged, spawner.FIRST_STEP_DYING_CONTACT: Calib gained first_step_dying_contact (serde default the old arm,
 ///    pushed), no new state (the dying bodies are a pass's scratch), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30397,6 +30442,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("first_step_dying_contact".into(), serde_json::to_value(FirstStepDyingContact::Pushed).map_err(|e| e.to_string())?);
     // movement.CHAIN_LANDED_BODY: a format-3 battle's landed champions were bodies at once (the same rule).
     sh.insert("chain_landed_body".into(), serde_json::to_value(ChainLandedBody::LandedBody).map_err(|e| e.to_string())?);
+    // targeting.CHASE_RESCAN_PASS_OVER: a format-3 battle's chase drops were read at another arm altogether (the same rule).
+    sh.insert("chase_rescan_pass_over".into(), serde_json::to_value(ChaseRescanPassOver::DropTick).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
@@ -30838,6 +30885,7 @@ impl BattleState {
             let p = snap.ents.pos[i];
             snap.ents.chase_last_pos.push(p);
         }
+        snap.ents.chase_lane_walk.resize(n, false);
         snap.ents.combo_ix.resize(n, 0);
         snap.ents.spawn_lane.resize(n, 0);
         snap.ents.lane_window_end.resize(n, 0);

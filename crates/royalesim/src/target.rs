@@ -45,7 +45,7 @@ use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
+    AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, ChaseRescanPassOver, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
     MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
@@ -668,6 +668,24 @@ fn walks_away(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     }
 }
 
+/// targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk (read under targeting.CHASE_DROP_WALKING_AWAY =
+/// client15535_growing_away): does `a`'s rescan pass over troop `c` because `a` walked into its last Target phase and
+/// left it holding no target (entity.rs `chase_lane_walk`) and the measured distance (targeting.CHASE_DROP_MEASURE) grew
+/// since that phase (entity.rs `chase_last_pos`), whatever `c` does? The caller reads it past the limit alone.
+#[inline]
+fn recedes_from_lane_walk(ctx: &TargetCtx, a: usize, c: usize) -> bool {
+    // PLANT (regression) chase_rescan_drop_tick_only: the new arm still passes over on the drop tick alone.
+    #[cfg(clash_plant = "chase_rescan_drop_tick_only")]
+    return false;
+    #[allow(unreachable_code)]
+    {
+        let e = ctx.ents;
+        ctx.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client15535RecedingLaneWalk
+            && e.chase_lane_walk.get(a).copied().unwrap_or(false)
+            && chase_measure(ctx.calib, e.pos[c].sub(e.pos[a])) > chase_measure(ctx.calib, e.chase_last_pos[c].sub(e.chase_last_pos[a]))
+    }
+}
+
 /// targeting.CHASE_DROP_MEASURE: the measure of offset `d` (c - a) the chase-drop limit is compared with: max(|dx|,
 /// |dy|) under max_abs, |dy| under client15535_lane_dy.
 #[inline]
@@ -901,9 +919,9 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
             ChaseDropWalkingAway::ClientWalkingAway => walks_away(ctx, a, c),
             // PLANT (regression) chase_pass_over_every_rescan: every rescan passes over a troop walking away.
             #[cfg(not(clash_plant = "chase_pass_over_every_rescan"))]
-            ChaseDropWalkingAway::Client15535GrowingAway => dropped == Some(e.id_of(c)) || (after_drop && walks_away(ctx, a, c)),
+            ChaseDropWalkingAway::Client15535GrowingAway => dropped == Some(e.id_of(c)) || (after_drop && walks_away(ctx, a, c)) || recedes_from_lane_walk(ctx, a, c),
             #[cfg(clash_plant = "chase_pass_over_every_rescan")]
-            ChaseDropWalkingAway::Client15535GrowingAway => dropped == Some(e.id_of(c)) || walks_away(ctx, a, c),
+            ChaseDropWalkingAway::Client15535GrowingAway => dropped == Some(e.id_of(c)) || walks_away(ctx, a, c) || recedes_from_lane_walk(ctx, a, c),
         }) && chase_drop_applies(ctx, a, c)
             && beyond_chase_limit(ctx, a, c)
         {
