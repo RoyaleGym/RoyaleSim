@@ -2008,6 +2008,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_whole_chain (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs fire_ability and chain_pass (entity.rs dash_immune_until), selected by Calib::dash_chain_immunity; tests/dash_chain_immunity.rs."
     },
+    "EVO_CHAIN_SHOT_LAUNCH": {
+      "value": "fire_tick",
+      "candidates": ["fire_tick", "client15535_next_tick"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_next_tick on client 15.535.29: 21 of 21 evolved shots whose fire frame the census saw were first seen after it (16 a frame after, 5 two after with a one-frame track: seen on their landing frame only), none on it; the base Electro Dragon's 34 of 34 on it. 16.402 not read (no Evo Electro Dragon in the corpus).",
+      "provenance": "MEASURED by parity (2026-10-03) on every client 15.535.29 scenario capture (tools/ed_launch_census.py: every Electro Dragon projectile leaving the dragon itself, not a hop, against the dragon's fire frame, its attack_load_timer_ms rising to its LoadTime 1400). Base (26000063): first seen on the fire frame, 34 of 34 (sp-chain-ElectroDragon-line-s0 t180, t222, t264, t306, ...). Evolved (13000063, an AttackSequenceList DoAttackAction: ActionChainProjectileAttack): first seen a frame after it 16 times (sp-ec-ElectroDragon t669 -> 670, t711 -> 712, t753 -> 754; sp-f4-ed-s0 t1160 -> 1161), two after it 5 times (sp-f4-ed-s0 and -ed3-s0 t1244 -> 1246, t1286 -> 1288: one-frame tracks, seen on their landing). sp-f4-ed-s0: both clients fire on t1160 (the attack timers equal); the client's shot hits the Knight on t1163, the engine's on t1162 (the parked 'every evolved shot lands a tick early', r21_notes 10-02 18:5x), and its chain runs a tick early from there (the Ice Golemite's 192 on t1168 where the client's 64 lands on t1173, the scene's divergence).",
+      "meaning": "fire_tick: the engine's; an Evo Electro Dragon's shot leaves on his fire tick, its first step the next tick, as every projectile attacker's does. client15535_next_tick: it waits a tick before its first step (its chain's ChainHop::wait 1), so it lands a tick later; his hops are unchanged (combat.EVO_CHAIN_HOP_WAIT).",
+      "open": "The other card attacking through an AttackSequenceList DoAttackAction (the Three Musketeers' rework row) is not read; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_next_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs evo_after_fire (the Evo Electro Dragon's shot's ChainHop::wait), combat.rs step_projectiles (a chained shot's wait), selected by Calib::evo_chain_shot_launch; tests/evo_chain_shot_launch.rs."
+    },
     "LOST_TARGET_SWING": {
       "value": "cancelled",
       "candidates": ["cancelled", "client15535_runs_on_in_reach"],

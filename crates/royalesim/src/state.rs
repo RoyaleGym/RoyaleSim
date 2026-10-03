@@ -1046,6 +1046,10 @@ pub struct Calib {
     /// `Cancelled`.
     #[serde(default = "lost_target_swing_default")]
     pub lost_target_swing: LostTargetSwing,
+    /// combat.EVO_CHAIN_SHOT_LAUNCH (`evo_after_fire`, the Evo Electro Dragon's shot): the tick his shot leaves on. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `FireTick`.
+    #[serde(default = "evo_chain_shot_launch_default")]
+    pub evo_chain_shot_launch: EvoChainShotLaunch,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2523,6 +2527,10 @@ fn warp_hiding_default() -> WarpHiding {
 
 fn lost_target_swing_default() -> LostTargetSwing {
     LostTargetSwing::Cancelled
+}
+
+fn evo_chain_shot_launch_default() -> EvoChainShotLaunch {
+    EvoChainShotLaunch::FireTick
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5179,6 +5187,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.EVO_CHAIN_SHOT_LAUNCH -- see `evo_after_fire`: the tick an Evo Electro Dragon's shot (his chain's first
+    /// projectile, an AttackSequenceList DoAttackAction's ActionChainProjectileAttack) leaves on.
+    EvoChainShotLaunch {
+        /// The engine's: on his fire tick, as every projectile attacker's shot (the base Electro Dragon's included).
+        FireTick = "fire_tick",
+        /// A tick later: it waits a tick (`ChainHop::wait` 1) before its first step. Measured on client 15.535.29
+        /// (ed_launch_census.py, every Electro Dragon shot against the dragon's fire frame, its load timer rising to
+        /// LoadTime): the base dragon's shot is first seen on the fire frame, 34 of 34; the evolved one's a frame or two
+        /// after it, 21 of 21 (never on it); sp-f4-ed-s0 fired on t1160, the shot first seen on t1161, the Knight hit on
+        /// t1163, where the engine's shot landed on t1162 (and every evolved shot a tick early, with its chain).
+        Client15535NextTick = "client15535_next_tick",
+    }
+);
+calib_enum!(
     /// combat.LOST_TARGET_SWING -- see `phase_target` (the swing's reset): a unit whose lock target.rs `decide` cancels (its
     /// target turned untargetable, an Evo Minion Horde minion's ghost, or came inside its MinimumRange) and that takes
     /// another target standing in attack range on that tick (`switched_in_reach`, combat.RETARGET_PROGRESS).
@@ -7444,6 +7466,7 @@ impl Calib {
             chase_hold_scope: pick(&v, &["targeting", "CHASE_HOLD_SCOPE", "value"], ChaseHoldScope::from_calibration_name)?,
             warp_hiding: pick(&v, &["combat", "WARP_HIDING", "value"], WarpHiding::from_calibration_name)?,
             lost_target_swing: pick(&v, &["combat", "LOST_TARGET_SWING", "value"], LostTargetSwing::from_calibration_name)?,
+            evo_chain_shot_launch: pick(&v, &["combat", "EVO_CHAIN_SHOT_LAUNCH", "value"], EvoChainShotLaunch::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -11339,9 +11362,16 @@ impl BattleState {
         #[cfg(not(clash_plant = "evo_chain_never"))]
         if let Some(ch) = evo.chain {
             let (from, tick) = (shots_from.min(self.projectiles.len()), self.tick);
+            // combat.EVO_CHAIN_SHOT_LAUNCH = client15535_next_tick: his shot waits a tick before its first step (an
+            // attack-sequence action's projectile leaves a tick after the fire; client 15.535.29, 21 of 21 evolved shots).
+            // PLANT (regression) evo_shot_on_fire_tick: the new arm's shot still leaves on the fire tick.
+            #[cfg(not(clash_plant = "evo_shot_on_fire_tick"))]
+            let wait = u8::from(self.cfg.calib.evo_chain_shot_launch == EvoChainShotLaunch::Client15535NextTick);
+            #[cfg(clash_plant = "evo_shot_on_fire_tick")]
+            let wait = 0;
             for (k, p) in self.projectiles.iter_mut().enumerate().filter(|(_, p)| p.firer == Some(id)) {
                 if k >= from {
-                    p.chain = Some(combat::ChainHop { left: u8::MAX, radius: ch.range, hit: vec![p.target], wait: 0, evo: Some(combat::EvoHop { n: 0, shot: tick }) });
+                    p.chain = Some(combat::ChainHop { left: u8::MAX, radius: ch.range, hit: vec![p.target], wait, evo: Some(combat::EvoHop { n: 0, shot: tick }) });
                 } else if let Some(c) = p.chain.as_mut().filter(|c| c.evo.is_some_and(|e| e.shot < tick)) {
                     c.left = 0;
                 }
@@ -29759,6 +29789,9 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.EVO_CHAIN_SHOT_LAUNCH: Calib gained evo_chain_shot_launch (serde default the old arm, fire_tick),
+///    no new state (the shot's wait is the chain's saved `wait`), so a blob saved before it deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.LOST_TARGET_SWING: Calib gained lost_target_swing (serde default the old arm, cancelled), no new
 ///    state (the reset reads the tick's decision), so a blob saved before it deserializes and hashes as it did. migrate_v3
 ///    runs a migrated battle at the old arm.
@@ -30698,6 +30731,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("warp_hiding".into(), serde_json::to_value(WarpHiding::Arrival).map_err(|e| e.to_string())?);
     // combat.LOST_TARGET_SWING: a format-3 battle's cancelled locks reset the swing (the same rule).
     sh.insert("lost_target_swing".into(), serde_json::to_value(LostTargetSwing::Cancelled).map_err(|e| e.to_string())?);
+    // combat.EVO_CHAIN_SHOT_LAUNCH: a format-3 battle ran no Evo Electro Dragon (the same rule).
+    sh.insert("evo_chain_shot_launch".into(), serde_json::to_value(EvoChainShotLaunch::FireTick).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

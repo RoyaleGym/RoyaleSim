@@ -1571,6 +1571,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.WARP_HIDING = client15535_first_step: a warping Hero Mega Minion is hidden from its first warp step (1 holder).
 ///   combat.LOST_TARGET_SWING = client15535_runs_on_in_reach: a cancelled lock's swing runs on onto a target in reach (198 of
 ///   199 in-attack switches).
+///   combat.EVO_CHAIN_SHOT_LAUNCH = client15535_next_tick: an Evo Electro Dragon's shot leaves a tick after his fire (21 of
+///   21).
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1636,6 +1638,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.CHASE_HOLD_SCOPE", "\"client15535_walkers_only\""),
     ("combat.WARP_HIDING", "\"client15535_first_step\""),
     ("combat.LOST_TARGET_SWING", "\"client15535_runs_on_in_reach\""),
+    ("combat.EVO_CHAIN_SHOT_LAUNCH", "\"client15535_next_tick\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
