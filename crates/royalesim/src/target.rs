@@ -45,7 +45,7 @@ use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
+    AttackRangeRule, Calib, CentreLaneFrame, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
     MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange,
 };
 use crate::{EntityId, Team};
@@ -84,6 +84,10 @@ pub struct TargetCtx<'a> {
     /// flight (state.rs `slap_air_mask`), which `can_target` reads as a river leap. Empty under ground and outside the
     /// Target phase.
     pub slap_air: &'a [bool],
+    /// targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: per slot, whether the unit walked as the tick's Target
+    /// phase began (state.rs `Scratch::chase_walked`, `walking_now`). Empty under the other arms and outside the phase,
+    /// where `walks_away` reads the units as they stand.
+    pub chase_walked: &'a [bool],
 }
 
 /// targeting.DOOMED_TARGET_DROP: damage that lands later than this does not doom its target. The client
@@ -611,40 +615,79 @@ fn chase_drop_applies(ctx: &TargetCtx, a: usize, c: usize) -> bool {
 /// client 15.535.29 refutes the Euclidean distance.
 #[inline]
 fn beyond_chase_limit(ctx: &TargetCtx, a: usize, c: usize) -> bool {
-    past_chase_limit(ctx.cards, ctx.ents, a, c)
+    past_chase_limit(ctx.calib, ctx.cards, ctx.ents, a, c)
 }
 
-/// targeting.CHASE_DROP_WALKING_AWAY = client_walking_away: does troop `c` WALK AWAY from `a`? It walks (not in an
-/// attack, not deploying, not held, not sliding under a knockback) and its facing has a positive component along
-/// (c - a), on the start-of-tick positions. Always true under any_target, so the edge and the rescan read as before.
+/// Does unit `i` WALK as it stands: not in an attack, not deploying, not held, not sliding under a knockback?
+/// (targeting.CHASE_DROP_WALKING_AWAY; state.rs `chase_pass_start` reads it for every unit as the Target phase begins.)
+#[inline]
+pub fn walking_now(e: &Entities, i: usize) -> bool {
+    e.attack_phase[i] == crate::entity::AttackPhase::Idle && e.deploy_ms[i] <= 0 && e.stun_ms[i] <= 0 && e.knock_ms[i] <= 0 && !e.push_active[i]
+}
+
+/// targeting.CHASE_DROP_WALKING_AWAY: does troop `c` WALK AWAY from `a`? Always true under any_target, so the edge and
+/// the rescan read as before. client_walking_away: it walks (`walking_now`) and its facing has a positive component
+/// along (c - a), on the start-of-tick positions. client15535_growing_away: it walked as the Target phase began
+/// (`TargetCtx::chase_walked`), its own step since the last Target phase (entity.rs `chase_last_pos`) points away from
+/// `a` along the measure (targeting.CHASE_DROP_MEASURE: the component along (c - a), or along its y under
+/// client15535_lane_dy), and the measured distance grew since then (`chase_measure`).
 #[inline]
 fn walks_away(ctx: &TargetCtx, a: usize, c: usize) -> bool {
-    if ctx.calib.chase_drop_walking_away != ChaseDropWalkingAway::ClientWalkingAway {
-        return true;
-    }
     let e = ctx.ents;
+    match ctx.calib.chase_drop_walking_away {
+        ChaseDropWalkingAway::AnyTarget => return true,
+        ChaseDropWalkingAway::ClientWalkingAway => {}
+        ChaseDropWalkingAway::Client15535GrowingAway => {
+            // PLANT (regression) chase_walk_read_live: the walking mark read as the unit stands (a target whose own turn
+            // started its attack earlier in the sequential pass no longer walks away).
+            #[cfg(not(clash_plant = "chase_walk_read_live"))]
+            let walked = ctx.chase_walked.get(c).copied().unwrap_or_else(|| walking_now(e, c));
+            #[cfg(clash_plant = "chase_walk_read_live")]
+            let walked = walking_now(e, c);
+            let d = e.pos[c].sub(e.pos[a]);
+            let step = e.pos[c].sub(e.chase_last_pos[c]);
+            let away = match ctx.calib.chase_drop_measure {
+                ChaseDropMeasure::MaxAbs => (step.x as i64) * (d.x as i64) + (step.y as i64) * (d.y as i64) > 0,
+                ChaseDropMeasure::Client15535LaneDy => (step.y as i64) * (d.y as i64) > 0,
+            };
+            // PLANT (regression) chase_growth_unread: a troop walking away counts whether its distance grew or fell.
+            #[cfg(not(clash_plant = "chase_growth_unread"))]
+            let grew = chase_measure(ctx.calib, d) > chase_measure(ctx.calib, e.chase_last_pos[c].sub(e.chase_last_pos[a]));
+            #[cfg(clash_plant = "chase_growth_unread")]
+            let grew = true;
+            return walked && away && grew;
+        }
+    }
     #[cfg(clash_plant = "chase_drop_any_growth")]
     return true; // PLANT (regression): every troop past the limit counts as walking away, whatever it does.
     #[allow(unreachable_code)]
     {
-        let walking = e.attack_phase[c] == crate::entity::AttackPhase::Idle
-            && e.deploy_ms[c] <= 0
-            && e.stun_ms[c] <= 0
-            && e.knock_ms[c] <= 0
-            && !e.push_active[c];
         let d = e.pos[c].sub(e.pos[a]);
         let f = e.facing[c];
-        walking && (f.x as i64) * (d.x as i64) + (f.y as i64) * (d.y as i64) > 0
+        walking_now(e, c) && (f.x as i64) * (d.x as i64) + (f.y as i64) * (d.y as i64) > 0
+    }
+}
+
+/// targeting.CHASE_DROP_MEASURE: the measure of offset `d` (c - a) the chase-drop limit is compared with: max(|dx|,
+/// |dy|) under max_abs, |dy| under client15535_lane_dy.
+#[inline]
+pub fn chase_measure(calib: &Calib, d: Vec2) -> i64 {
+    match calib.chase_drop_measure {
+        ChaseDropMeasure::MaxAbs => (d.x as i64).abs().max((d.y as i64).abs()),
+        // PLANT (regression) chase_measure_max_abs: client15535_lane_dy still measures max(|dx|, |dy|).
+        #[cfg(not(clash_plant = "chase_measure_max_abs"))]
+        ChaseDropMeasure::Client15535LaneDy => (d.y as i64).abs(),
+        #[cfg(clash_plant = "chase_measure_max_abs")]
+        ChaseDropMeasure::Client15535LaneDy => (d.x as i64).abs().max((d.y as i64).abs()),
     }
 }
 
 /// `beyond_chase_limit` on the current positions, for a caller without a `TargetCtx`.
 #[inline]
-fn past_chase_limit(cards: &CardDb, e: &Entities, a: usize, c: usize) -> bool {
+fn past_chase_limit(calib: &Calib, cards: &CardDb, e: &Entities, a: usize, c: usize) -> bool {
     let limit = cards.get(e.card[a]).sight_range as i64 + e.radius[a] as i64 + e.radius[c] as i64
         - (CHASE_DROP_SHORT_OF_SIGHT as i64) * (crate::fixed::SUBTILE_PER_MILLITILE as i64);
-    let d = e.pos[c].sub(e.pos[a]);
-    (d.x as i64).abs().max((d.y as i64).abs()) > limit
+    chase_measure(calib, e.pos[c].sub(e.pos[a])) > limit
 }
 
 /// targeting.CHASE_DROP_RANGE = client_sight_minus_1000, THE EDGE: `target` when troop `a` holds it, a live troop,
@@ -661,7 +704,7 @@ pub fn chase_inside(calib: &Calib, cards: &CardDb, e: &Entities, a: usize, targe
             && e.is_alive(*t)
             && e.kind[a] == EntityKind::Troop
             && e.kind[c] == EntityKind::Troop
-            && !past_chase_limit(cards, e, a, c)
+            && !past_chase_limit(calib, cards, e, a, c)
     })
 }
 
@@ -781,7 +824,7 @@ type ScanKey = (bool, (i64, i32, i32, u32));
 
 /// Nearest valid enemy in sight, or None.
 pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityId> {
-    scan_with(ctx, a, scratch, ctx.ents.chase_dropped[a])
+    scan_with(ctx, a, scratch, ctx.ents.chase_dropped[a], false)
 }
 
 /// `scan`, with `dropped` the troop the chase drop let go of (targeting.CHASE_DROP_RANGE = client_sight_minus_1000):
@@ -789,7 +832,9 @@ pub fn scan(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> Option<EntityI
 /// one at plain sight. Measured on client 15.535.29: a Tornado dragging a dropped Hog Rider back gets it taken again
 /// on the first tick it is inside the drop limit, 3 of 3 runs, and not while it is back in plain sight only; a
 /// fresh enemy farther than the dropped runner is taken on the drop tick. A per-target range, not a timed exclusion.
-fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<EntityId>) -> Option<EntityId> {
+/// `after_drop`: this is the rescan of the drop's own tick (`decide`'s edge), where targeting.CHASE_DROP_WALKING_AWAY =
+/// client15535_growing_away also passes over every other troop past the limit that walks away.
+fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<EntityId>, after_drop: bool) -> Option<EntityId> {
     let e = ctx.ents;
     let card = ctx.cards.get(e.card[a]);
     let extra = ctx.calib.extra_sight_range_to_crown_towers.max(0) + ctx.calib.extra_sight_range_to_building.max(0);
@@ -820,10 +865,20 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
             continue;
         }
         // targeting.CHASE_DROP_WALKING_AWAY: under any_target the troop just let go; under client_walking_away every
-        // troop past the limit that walks away (`walks_away`), let go or never held.
+        // troop past the limit that walks away (`walks_away`), let go or never held; under client15535_growing_away
+        // the troop let go, whatever it does, and in the drop tick's own rescan every other that walks away (client
+        // 15.535.29: sweep-RoyalHogs t353, the Knight letting Hog 7 go passed over Hog 8, 6,071 -> 6,245 and walking
+        // away; ub-sd14-a2 t307, a Knight's first pick out of its deploy, took a Knight walking away 5,665 -> 5,725).
         #[cfg(not(clash_plant = "chase_drop_rescan_admits"))]
-        if (if ctx.calib.chase_drop_walking_away == ChaseDropWalkingAway::ClientWalkingAway { walks_away(ctx, a, c) } else { dropped == Some(e.id_of(c)) })
-            && chase_drop_applies(ctx, a, c)
+        if (match ctx.calib.chase_drop_walking_away {
+            ChaseDropWalkingAway::AnyTarget => dropped == Some(e.id_of(c)),
+            ChaseDropWalkingAway::ClientWalkingAway => walks_away(ctx, a, c),
+            // PLANT (regression) chase_pass_over_every_rescan: every rescan passes over a troop walking away.
+            #[cfg(not(clash_plant = "chase_pass_over_every_rescan"))]
+            ChaseDropWalkingAway::Client15535GrowingAway => dropped == Some(e.id_of(c)) || (after_drop && walks_away(ctx, a, c)),
+            #[cfg(clash_plant = "chase_pass_over_every_rescan")]
+            ChaseDropWalkingAway::Client15535GrowingAway => dropped == Some(e.id_of(c)) || walks_away(ctx, a, c),
+        }) && chase_drop_applies(ctx, a, c)
             && beyond_chase_limit(ctx, a, c)
         {
             continue;
@@ -1020,7 +1075,7 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             #[cfg(clash_plant = "chase_drop_ignored")]
             let dropped = false; // PLANT (regression): the chaser keeps the runner to its plain sight, as today.
             if dropped {
-                return TargetDecision { target: scan_with(ctx, a, scratch, Some(t)), cancel_attack: cancel, resumed: false, chase_dropped: Some(t) };
+                return TargetDecision { target: scan_with(ctx, a, scratch, Some(t), true), cancel_attack: cancel, resumed: false, chase_dropped: Some(t) };
             }
             // THE CHASE HOLDS A TARGET PAST ROUND SIGHT (targeting.CHASE_DROP_RANGE = client_sight_minus_1000): a target
             // past the attacker's round sight is kept when the rescan finds nothing in sight; a unit the rescan finds is
@@ -1041,9 +1096,9 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             {
                 // PLANT (regression) chase_held_only_inside_limit: the hold stops at the chase-drop limit, as r24 had it.
                 #[cfg(clash_plant = "chase_held_only_inside_limit")]
-                let holds = !past_chase_limit(ctx.cards, e, a, ti);
+                let holds = !past_chase_limit(ctx.calib, ctx.cards, e, a, ti);
                 #[cfg(not(clash_plant = "chase_held_only_inside_limit"))]
-                let holds = !past_chase_limit(ctx.cards, e, a, ti)
+                let holds = !past_chase_limit(ctx.calib, ctx.cards, e, a, ti)
                     || (ctx.calib.chase_hold_past_limit == ChaseHoldPastLimit::Client15535TroopsKept && !e.kind[a].is_building());
                 if holds {
                     held_past_sight = Some(t);

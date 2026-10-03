@@ -324,6 +324,12 @@ pub struct Entities {
     /// `chase_dropped`.
     #[serde(default)]
     pub chase_inside: Vec<Option<EntityId>>,
+    /// targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: where this unit stood as the last Target phase read
+    /// it (state.rs `chase_pass_end`), against which the next one reads its own step and the growth of its distances
+    /// (target.rs `walks_away`). Its creation point until a Target phase has read it; written under that arm alone.
+    /// `default` and sized on load from each unit's position.
+    #[serde(default)]
+    pub chase_last_pos: Vec<Vec2>,
     /// THE COMBO'S COUNT (card.rs `ComboDef`; combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK): the entry this unit's
     /// next hit deals, moved on after every hit (state.rs `phase_attack`) under either key's new arm, across
     /// targets. 0 on every unit without a combo and under both old arms. `default` and sized on load like
@@ -822,6 +828,7 @@ impl Entities {
             self.spawn_tick[i] = s.spawn_tick;
             self.creation_seq[i] = created;
             self.pos[i] = s.pos;
+            self.chase_last_pos[i] = s.pos;
             self.hp[i] = s.hp;
             self.max_hp[i] = s.hp;
             self.shield[i] = s.shield;
@@ -920,6 +927,7 @@ impl Entities {
             self.spawn_tick.push(s.spawn_tick);
             self.creation_seq.push(created);
             self.pos.push(s.pos);
+            self.chase_last_pos.push(s.pos);
             self.hp.push(s.hp);
             self.max_hp.push(s.hp);
             self.shield.push(s.shield);

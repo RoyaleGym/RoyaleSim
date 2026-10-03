@@ -928,6 +928,10 @@ pub struct Calib {
     /// times. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Containers`.
     #[serde(default = "death_bomb_timing_scope_default")]
     pub death_bomb_timing_scope: DeathBombTimingScope,
+    /// targeting.CHASE_DROP_MEASURE (target.rs `chase_measure`): what the chase-drop limit of targeting.CHASE_DROP_RANGE
+    /// is measured on. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `MaxAbs`.
+    #[serde(default = "chase_drop_measure_default")]
+    pub chase_drop_measure: ChaseDropMeasure,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2299,6 +2303,10 @@ fn death_bomb_timing_scope_default() -> DeathBombTimingScope {
     DeathBombTimingScope::Containers
 }
 
+fn chase_drop_measure_default() -> ChaseDropMeasure {
+    ChaseDropMeasure::MaxAbs
+}
+
 fn troop_lifetime_default() -> TroopLifetime {
     TroopLifetime::SameAsBuildings
 }
@@ -3146,6 +3154,17 @@ calib_enum!(
         /// away, and a rescan passes over every troop past the limit that walks away. A troop past the limit for any
         /// other reason (it stands attacking, it slides, the chaser's own step took it there) is kept, and taken.
         ClientWalkingAway = "client_walking_away",
+        /// The third reading, measured on client 15.535.29: a troop past the limit WALKS AWAY when it walked as the
+        /// tick's Target phase began (`Scratch::chase_walked`: not in an attack, deploying, held or sliding; under the
+        /// sequential pass, before any unit's turn), its own step since the last Target phase (entity.rs
+        /// `chase_last_pos`) points away from the chaser along the measure (targeting.CHASE_DROP_MEASURE), and the
+        /// measured distance grew since then. The edge lets a held troop go only when it walks away; a rescan passes over
+        /// the troop let go while it stands past the limit, as any_target, and the drop tick's own rescan every other
+        /// troop past the limit that walks away. In the captures, every walking troop a drop tick's rescan passed over
+        /// past the limit in |dy|, 43 of 43, walked away with |dy| growing: 41 the troop let go, and sweep-RoyalHogs t353's
+        /// Hog 8 (twice, in two captures of one layout). Outside a drop tick a rescan took them: ub-sd14-a2 t307, a
+        /// Knight's first pick, a Knight walking away 5,665 -> 5,725.
+        Client15535GrowingAway = "client15535_growing_away",
     }
 );
 calib_enum!(
@@ -4843,6 +4862,21 @@ calib_enum!(
         /// Mighty Miner's, `CardDef::dropped_by_ability`) keeps the tick after its fuse: sp-champ-MightyMiner-s0 t226, a
         /// Knight 3,486 from it took its 332 and its 1800 ladder on the tick the old arm gives.
         Client15535EveryBomb = "client15535_every_bomb",
+    }
+);
+calib_enum!(
+    /// targeting.CHASE_DROP_MEASURE -- see target.rs `chase_measure`: what the chase-drop limit (targeting.CHASE_DROP_RANGE
+    /// = client_sight_minus_1000, SightRange + both radii - 1000) is measured on, wherever it is read: the edge's
+    /// inside and past (`chase_inside`, `decide`), the rescan's pass-over (`scan_with`) and the hold past round sight.
+    ChaseDropMeasure {
+        /// The engine's: max(|dx|, |dy|) of the two start-of-tick centres.
+        MaxAbs = "max_abs",
+        /// |dy| alone, the lane's axis. Measured on client 15.535.29 (r4c/tools/chase_edge_census.py, every scenario and
+        /// IL truth): of the walking troop targets that crossed max(|dx|, |dy|) of the limit while their holder walked,
+        /// 41 of 42 whose |dy| crossed it were let go on that tick (the one kept stepped toward its holder), and 19 of
+        /// 19 whose |dx| alone crossed it were kept (9 walking, 4 attacking, 6 under a push; up to 106 past it across
+        /// walking, 160 under a push).
+        Client15535LaneDy = "client15535_lane_dy",
     }
 );
 calib_enum!(
@@ -6736,6 +6770,7 @@ impl Calib {
             attract_water_edge: pick(&v, &["status", "ATTRACT_WATER_EDGE", "value"], AttractWaterEdge::from_calibration_name)?,
             cast_hold_heading: pick(&v, &["movement", "CAST_HOLD_HEADING", "value"], CastHoldHeading::from_calibration_name)?,
             death_bomb_timing_scope: pick(&v, &["spawner", "DEATH_BOMB_TIMING_SCOPE", "value"], DeathBombTimingScope::from_calibration_name)?,
+            chase_drop_measure: pick(&v, &["targeting", "CHASE_DROP_MEASURE", "value"], ChaseDropMeasure::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -8863,6 +8898,12 @@ struct Scratch {
     /// tick (target.rs `TargetCtx::lane_doomed`). Written by every Target pass under those arms before anything reads it,
     /// so it never carries a reading into the next tick; empty under standing.
     lane_doomed: Vec<bool>,
+    /// targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: per slot, whether the unit walked as the tick's Target
+    /// phase began (`chase_pass_start`; target.rs `TargetCtx::chase_walked`), and the positions it read, which become
+    /// entity.rs `chase_last_pos` as the phase ends (`chase_pass_end`). Empty outside the phase and under the other arms,
+    /// so a first update's decision outside it reads the units as they stand.
+    chase_walked: Vec<bool>,
+    chase_start_pos: Vec<Vec2>,
     /// status.WAITED_PRESS_CAST = client_after_move: the heroes whose waited press started this tick (`fire_scheduled`),
     /// whose cast holds start after the move pass (`phase_move`). Pushed and emptied inside one tick.
     late_casts: Vec<EntityId>,
@@ -11082,6 +11123,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &[],
                 slap_air: &[],
+                chase_walked: &[],
             };
             let e = &self.ents;
             let fwd = spell::forward_dy(e.team[a]);
@@ -14435,6 +14477,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &[],
                 slap_air: &[],
+                chase_walked: &[],
             };
             let e = &self.ents;
             for i in 0..e.capacity() {
@@ -14532,11 +14575,43 @@ impl BattleState {
     }
 
     fn phase_target(&mut self) {
+        self.chase_pass_start();
         if self.tick_order() == TickOrder::ClientSequentialStrike {
             self.phase_target_attack_sequential(None);
         } else {
             self.phase_target_for(None);
         }
+        self.chase_pass_end();
+    }
+
+    /// targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: the walking marks and positions of every unit as the
+    /// tick's Target phase begins (`Scratch::chase_walked`), before any unit's turn under the sequential pass: a target
+    /// whose own turn starts its attack earlier in the pass still walked for the chasers after it (client 15.535.29,
+    /// acq-HogRider-away-5800 t202: a Hog Rider entering its attack on the tower in its turn was let go by the Knight
+    /// chasing it on that tick). Nothing under the other arms.
+    fn chase_pass_start(&mut self) {
+        self.scratch.chase_walked.clear();
+        self.scratch.chase_start_pos.clear();
+        if self.cfg.calib.chase_drop_walking_away != ChaseDropWalkingAway::Client15535GrowingAway {
+            return;
+        }
+        let e = &self.ents;
+        self.scratch.chase_walked.extend((0..e.capacity()).map(|i| target::walking_now(e, i)));
+        self.scratch.chase_start_pos.extend_from_slice(&e.pos);
+    }
+
+    /// The phase's end under client15535_growing_away: the positions it read become each unit's `chase_last_pos`, which the
+    /// next Target phase's steps and growths are read against (a unit created during the phase keeps its creation point).
+    fn chase_pass_end(&mut self) {
+        if self.cfg.calib.chase_drop_walking_away == ChaseDropWalkingAway::Client15535GrowingAway {
+            for (i, p) in self.scratch.chase_start_pos.iter().enumerate() {
+                if self.ents.alive[i] {
+                    self.ents.chase_last_pos[i] = *p;
+                }
+            }
+        }
+        self.scratch.chase_walked.clear();
+        self.scratch.chase_start_pos.clear();
     }
 
     /// The Target phase, for every unit (`only` None) or for a first update's fresh units alone
@@ -14637,6 +14712,7 @@ impl BattleState {
                 doomed: &doomed_drop,
                 lane_doomed: &[],
                 slap_air: &slap_air,
+                chase_walked: &self.scratch.chase_walked,
             };
             // transform.ATTACK_STATE: a unit whose transformation reset its target on this tick makes no target
             // decision until the next (measured on client 15.535.29: no target on the Goblin Demolisher's switch tick,
@@ -17952,6 +18028,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
                 slap_air: &[],
+                chase_walked: &[],
             };
             // EVERY ENTITY AS THE CONTACT LAW SEES IT: every alive entity, troops and
             // buildings and towers, in native units. Positions are updated in place as
@@ -19378,6 +19455,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
                 slap_air: &[],
+                chase_walked: &[],
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -19571,6 +19649,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
                 slap_air: &[],
+                chase_walked: &[],
             };
             for i in 0..cap {
                 if !e.alive[i] || e.kind[i] != EntityKind::Troop {
@@ -19803,6 +19882,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
                 slap_air: &[],
+                chase_walked: &[],
             };
             // None = the measured "no periodic replan" (calibration
             // pathfinding.REPATH_INTERVAL_TICKS). For these pre-2026 models that
@@ -20303,6 +20383,7 @@ impl BattleState {
             doomed: &[],
             lane_doomed: &[],
             slap_air: &[],
+            chase_walked: &[],
         };
         let e = &self.ents;
         let ti = target.index as usize;
@@ -26877,6 +26958,12 @@ impl BattleState {
                         h.u32(f.map_or(0, |t| t.generation));
                     }
                 }
+                // targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: the position the last Target phase read,
+                // written under that arm alone, so a battle under the others hashes as it did before the column.
+                if self.cfg.calib.chase_drop_walking_away == ChaseDropWalkingAway::Client15535GrowingAway {
+                    h.i32(e.chase_last_pos[i].x);
+                    h.i32(e.chase_last_pos[i].y);
+                }
                 // THE COMBO'S COUNT (combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK), only when not 0: it moves only
                 // under either key's new arm, so a battle under the old arms hashes as it did before the column.
                 if e.combo_ix[i] != 0 {
@@ -28507,6 +28594,10 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.CHASE_DROP_MEASURE and targeting.CHASE_DROP_WALKING_AWAY's client15535_growing_away:
+///    Calib gained chase_drop_measure (serde default the old arm, max_abs); Entities gained chase_last_pos (`default`,
+///    sized on load from each unit's position), written and hashed under client15535_growing_away alone, so a blob saved
+///    before them deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arms.
 /// 20, unchanged, spawner.DEATH_BOMB_TIMING_SCOPE: Calib gained death_bomb_timing_scope (serde default the old arm,
 ///    containers), no new state (the new arm reads a bomb's saved fuse), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -29310,6 +29401,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("cast_hold_heading".into(), serde_json::to_value(CastHoldHeading::Counted).map_err(|e| e.to_string())?);
     // spawner.DEATH_BOMB_TIMING_SCOPE: a format-3 battle timed its containers alone (the same rule).
     sh.insert("death_bomb_timing_scope".into(), serde_json::to_value(DeathBombTimingScope::Containers).map_err(|e| e.to_string())?);
+    // targeting.CHASE_DROP_MEASURE: a format-3 battle measured the limit on max(|dx|, |dy|) (the same rule).
+    sh.insert("chase_drop_measure".into(), serde_json::to_value(ChaseDropMeasure::MaxAbs).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
@@ -29743,6 +29836,11 @@ impl BattleState {
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.source.resize(n, NO_CARD);
+        // A blob saved before chase_last_pos reads each unit's last Target-phase position as where it stands.
+        for i in snap.ents.chase_last_pos.len()..n {
+            let p = snap.ents.pos[i];
+            snap.ents.chase_last_pos.push(p);
+        }
         snap.ents.combo_ix.resize(n, 0);
         snap.ents.spawn_lane.resize(n, 0);
         snap.ents.lane_window_end.resize(n, 0);
