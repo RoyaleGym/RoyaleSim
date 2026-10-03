@@ -280,7 +280,7 @@ pub const DEPLOY_REASONS: [&str; 19] = [
 /// ints, and a swap would decode without error and be drawn with confidence. The length
 /// is pinned to the serializer by a test in this file, so this is the half that cannot
 /// fall behind -- DEPLOY_REASONS showed what the unpinned half does.
-pub const ENTITY_FIELDS: [&str; 23] = [
+pub const ENTITY_FIELDS: [&str; 27] = [
     "uid",
     "team",
     "kind",
@@ -304,7 +304,8 @@ pub const ENTITY_FIELDS: [&str; 23] = [
     "buffs",
     // added 2026-09-25: the engine's own status bits (entity.rs `Entities::status_flags`):
     // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide; bit 3 an evolved unit;
-    // bit 4 a hero unit
+    // bit 4 a hero unit; added 2026-10-03 (what a human sees): bit 5 a Clone's copy, bit 6 its ability winding up,
+    // bit 7 its ability active, bit 8 fully charged (state.rs `BattleState::ability_state`)
     "status_flags",
     // added 2026-09-28: the unified level the entity plays at (state.rs `EntityView::level`): a played unit's card
     // level, a Mirror's copy that plus one, a Clone's copy the Clone's (spells.CLONE_LEVEL), a unit another puts down
@@ -313,6 +314,17 @@ pub const ENTITY_FIELDS: [&str; 23] = [
     // added 2026-09-28: the uid of the unit this one rides (a rider on its mount, entity.rs `attached_to`, the pairs
     // `rider_states` gives), -1 for an entity that rides nothing.
     "mount_uid",
+    // added 2026-10-03, what a player watches (agreed with RoyaleGym; after mount_uid, so old readers decode by position):
+    // the build-up in permille, 0 when none (a charging card's run-up, the Sparky's load, an Inferno's ramp; state.rs
+    // `BattleState::charge_permille`);
+    "charge",
+    // a unit under ground's landing point, engine subtiles like x and y, -1 when it is not tunnelling (fixed for each
+    // dig: a tunnelling play's destination, a Mighty Miner's lane switch);
+    "dest_x",
+    "dest_y",
+    // ticks left in its ability's winding-up or active phase where the engine holds the end, else 0 (status bits 6
+    // and 7 say whether one is under way).
+    "ability_ticks",
 ];
 
 /// THE PROJECTILE ROW'S FIELDS, in `state_json`'s order (its `projectiles` key). Same
@@ -1107,7 +1119,7 @@ pub fn state_json_text(
         buffs.push(']');
         let _ = write!(
             o,
-            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{},{},{mount_uid}]",
+            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{},{},{mount_uid},{},{},{},{}]",
             e.kind as u8,
             e.pos.x,
             e.pos.y,
@@ -1124,6 +1136,10 @@ pub fn state_json_text(
             e.shield,
             e.status_flags,
             e.level,
+            e.charge_permille,
+            e.tunnel_dest.map_or(-1, |d| d.x),
+            e.tunnel_dest.map_or(-1, |d| d.y),
+            e.ability_ticks,
         );
     }
     o.push_str("],\"spells\":[");

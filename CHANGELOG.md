@@ -3,6 +3,15 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.8 (2026-10-03)
+
+- `state_json()`: each entity row gains four values after `mount_uid` (27 in all): `charge`, the build-up a player
+  watches in permille (a Prince's run-up, an Inferno's ramp; 0 when none); `dest_x` and `dest_y`, where a unit under
+  ground will come up (-1 when it is not tunnelling); and `ability_ticks`, the ticks left in a hero's or champion's
+  ability where that has a fixed end (0 otherwise).
+- `status_flags` gains bit 5 (a Clone's copy), bit 6 (an ability winding up), bit 7 (an ability active: the Archer
+  Queen's cloak, the Golden Knight's dash chain, the Monk's deflect and the rest) and bit 8 (fully charged).
+
 ## 0.1.7 (2026-10-03)
 
 - Each side, and each card in a deck, can have its own level, as in a real match. `Battle.reset` takes

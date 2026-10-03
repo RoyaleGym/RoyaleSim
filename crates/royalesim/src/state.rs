@@ -8902,8 +8902,15 @@ pub struct EntityView<'a> {
     pub hidden: bool,
     /// The protocol's status bits (entity.rs `Entities::status_flags`; py.rs ENTITY_FIELDS
     /// `status_flags`): bit 0 underground, bit 1 invisible to enemies, bit 2 hidden, bit 3 an evolved unit, bit 4 a hero
-    /// unit.
+    /// unit, bit 5 a Clone's copy, bit 6 its ability winding up, bit 7 its ability active, bit 8 fully charged
+    /// (`BattleState::ability_state`, `charge_permille`).
     pub status_flags: i32,
+    /// THE BUILD-UP A PLAYER WATCHES, permille, 0 when none (`BattleState::charge_permille`): a charging unit's run-up,
+    /// a load-first-hit unit's load (the Sparky), an Inferno's ramp toward its last stage.
+    pub charge_permille: i32,
+    /// Ticks left in its ability's winding-up or active phase where the engine holds the end, else 0
+    /// (`BattleState::ability_state`).
+    pub ability_ticks: i32,
     /// Periodic spawner (card.rs `SpawnerDef`; 0 / 0 on every other entity): ms until
     /// its next emission (entity.rs `spawn_ms`) and the units of the current wave
     /// still to come (`spawn_wave_left`, 0 between waves).
@@ -26758,6 +26765,7 @@ impl BattleState {
         &self.ents.enchant_picks[id.index as usize]
     }
     fn view(&self, i: usize) -> EntityView<'_> {
+        let ability = self.ability_state(i);
         let e = &self.ents;
         EntityView {
             id: e.id_of(i),
@@ -26807,7 +26815,16 @@ impl BattleState {
                 // Bit 3: an evolved unit (its card is an evolved form).
                 | if self.cfg.cards.get(e.card[i]).evo.is_some() { 8 } else { 0 }
                 // Bit 4: a hero form's unit (card.rs `CardDef::form_of` with an ability).
-                | if self.cfg.cards.get(e.card[i]).ability.is_some() { 16 } else { 0 },
+                | if self.cfg.cards.get(e.card[i]).ability.is_some() { 16 } else { 0 }
+                // Bit 5: a copy the Clone made.
+                | if e.cloned[i] { 32 } else { 0 }
+                // Bits 6 and 7: its ability winding up, its ability active.
+                | if ability.0 { 64 } else { 0 }
+                | if ability.1 { 128 } else { 0 }
+                // Bit 8: fully charged (a Prince's run-up complete).
+                | if e.charged[i] { 256 } else { 0 },
+            charge_permille: self.charge_permille(i),
+            ability_ticks: ability.2 as i32,
             spawn_ms: e.spawn_ms[i],
             spawn_wave_left: e.spawn_wave_left[i],
             spawned_by: e.spawned_by[i],
@@ -26832,6 +26849,75 @@ impl BattleState {
         }
     }
     /// Live entities in slot order.
+    /// THE ABILITY STATE A PLAYER SEES on entity `i`: (winding up, active, ticks left where known). Winding up: a hero
+    /// held by its own cast (`HeroUnit::casting`). Active: any ability run under way with it as its user -- a dash chain,
+    /// a spin, a lift, a throw, a slap, a taunt, a warp, a strike, a magic archer's decoy warp, a siege, a re-roll, a
+    /// dismount, a lane switch, a Skeleton King's souls, a Monk's deflect, or a self buff its button lands (the Archer
+    /// Queen's cloak) still on it. The ticks are the deflect's, the strike's or the self buff's end where it runs, 0
+    /// otherwise (the other runs end on an event, not a clock).
+    pub fn ability_state(&self, i: usize) -> (bool, bool, u32) {
+        let id = self.ents.id_of(i);
+        let now = self.tick;
+        let tick_ms = self.cfg.calib.tick_ms.max(1) as u32;
+        let windup = self.hero_units.iter().any(|u| u.id == id && u.casting);
+        let mut ticks = 0u32;
+        let mut active = false;
+        if let Some((_, until)) = self.deflects.iter().find(|(d, _)| *d == id) {
+            active = true;
+            ticks = ticks.max(until.saturating_sub(now));
+        }
+        if let Some(r) = self.warps.strikes.iter().find(|r| r.id == id) {
+            active = true;
+            ticks = ticks.max(r.until.saturating_sub(now));
+        }
+        if let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::SelfBuff { buff }, .. }) = self.cfg.cards.get(self.ents.card[i]).ability.as_ref() {
+            if let Some(slot) = self.ents.buff_slots(i).iter().find(|b| b.id as usize == buff.buff as usize + 1 && b.ms > 0) {
+                active = true;
+                ticks = ticks.max(slot.ms as u32 / tick_ms);
+            }
+        }
+        active = active
+            || self.chains.iter().any(|r| r.id == id)
+            || self.spins.iter().any(|r| r.id == id)
+            || self.lifts.iter().any(|r| r.id == id)
+            || self.throws.iter().any(|r| r.hero == id)
+            || self.slaps.runs.iter().any(|r| r.id == id)
+            || self.taunts.areas.iter().any(|r| r.by == id)
+            || self.warps.runs.iter().any(|r| r.id == id)
+            || self.warps.magic.iter().any(|r| r.id == id)
+            || self.warps.sieges.iter().any(|r| r.id == id)
+            || self.warps.rerolls.iter().any(|r| r.id == id)
+            || self.warps.dismounts.iter().any(|r| r.id == id)
+            || self.warps.lanes.iter().any(|r| r.id == id)
+            || self.warps.soul_runs.iter().any(|r| r.id == id);
+        (windup, active, if active || windup { ticks } else { 0 })
+    }
+
+    /// THE BUILD-UP ON ENTITY `i`, permille of its whole (0 when none): a charging card's run-up toward its charge
+    /// (`charge_need`; 1000 once charged), a load-first-hit unit's load toward its LoadTime (the Sparky), an Inferno's
+    /// attack progress on its target toward its last damage stage (card.rs `VariableDamageDef`).
+    pub fn charge_permille(&self, i: usize) -> i32 {
+        let e = &self.ents;
+        let c = self.cfg.cards.get(e.card[i]);
+        if let Some(ch) = c.charge {
+            if e.charged[i] {
+                return 1000;
+            }
+            let need = self.charge_need(i, ch).max(1) as i64;
+            return ((e.charge_progress[i].max(0) as i64 * 1000) / need).min(1000) as i32;
+        }
+        if c.load_first_hit && c.load_time_ms > 0 {
+            return ((e.attack_load_ms[i].max(0) as i64 * 1000) / c.load_time_ms as i64).min(1000) as i32;
+        }
+        if let Some(vd) = c.variable_damage {
+            let whole = (vd.time1_ms + vd.time2_ms).max(1) as i64;
+            if e.target[i].is_some() {
+                return ((e.attack_ms[i].max(0) as i64 * 1000) / whole).min(1000) as i32;
+            }
+        }
+        0
+    }
+
     pub fn entities(&self) -> impl Iterator<Item = EntityView<'_>> + '_ {
         self.ents.live_indices().map(move |i| self.view(i))
     }

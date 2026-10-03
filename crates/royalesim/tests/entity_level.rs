@@ -60,7 +60,11 @@ fn first_of(s: &BattleState, team: Team, card: &str) -> EntityId {
 
 #[test]
 fn a_played_unit_reads_its_card_level_and_a_tower_its_tower_level() {
-    assert_eq!(ENTITY_FIELDS[ENTITY_FIELDS.len() - 2..], ["level", "mount_uid"], "the level, then the mount, end the row (the Gym's EntityState ends in them)");
+    assert_eq!(
+        ENTITY_FIELDS[ENTITY_FIELDS.len() - 6..],
+        ["level", "mount_uid", "charge", "dest_x", "dest_y", "ability_ticks"],
+        "the level and the mount, then what a player watches, end the row, in the Gym's EntityState's order"
+    );
     let mut cfg = config();
     cfg.card_level = [12, 12];
     cfg.tower_level = [13, 13];
