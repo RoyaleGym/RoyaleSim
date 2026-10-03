@@ -245,3 +245,39 @@ fn the_drain_steps_sit_where_both_clients_measured_them() {
         assert_eq!(tiebreak_drain_step(lowest), step, "the step at a lowest tower of {lowest}");
     }
 }
+
+/// THE CLIENT'S FREEZE AT A LEVEL OVERTIME'S END (client 16.402, six live level overtimes): units still act on t6000
+/// and t6001, every unit, building and spell is gone at the head of t6002 with only the crown towers left, and no play
+/// is accepted from t6000. Nothing but the drain touches a tower after that.
+/// PLANT tiebreak_board_kept: play goes on past overtime's end; this goes red.
+#[test]
+fn a_level_overtime_freezes_and_clears_the_board() {
+    use royalesim::fixed::Vec2;
+    use royalesim::state::DeployError;
+    let mut cfg = config();
+    cfg.calib.overtime_tiebreak = OvertimeTiebreak::ClientHpDrain;
+    let mut s = BattleState::new(7, cfg);
+    s.scenario_set_tick(last_overtime_tick(s.config()) - 5);
+    let t = |x: i32, y: i32| Vec2::new(x * 18_000, y * 18_000);
+    s.spawn_unit(Team::Blue, "Knight", t(4, 10), None).expect("a Blue Knight");
+    s.spawn_unit(Team::Red, "Knight", t(14, 22), None).expect("a Red Knight");
+    s.spawn_unit(Team::Blue, "Cannon", t(9, 6), None).expect("a Blue Cannon");
+    let towers = |s: &BattleState| [Team::Blue, Team::Red].iter().flat_map(|tm| s.tower_ids(*tm)).flatten().count();
+    let others = |s: &BattleState| s.entities().count() - towers(s);
+    while s.tick_count() < 6000 {
+        s.tick();
+    }
+    assert!(!s.is_done(), "a level overtime does not end at t6000");
+    assert_eq!(s.check_deploy_slot(Team::Blue, 0, t(9, 8)), Err(DeployError::GameOver), "no play from t6000");
+    s.tick(); // t6000
+    s.tick(); // t6001
+    assert!(others(&s) >= 3, "units still stand through t6001: {}", others(&s));
+    s.tick(); // t6002: the clear at its head
+    assert_eq!(others(&s), 0, "only the crown towers stand from t6002");
+    let hp = |s: &BattleState| [Team::Blue, Team::Red].iter().flat_map(|tm| s.tower_ids(*tm)).flatten().map(|id| s.entity(id).unwrap().hp).collect::<Vec<_>>();
+    let before = hp(&s);
+    while s.tick_count() < 6067 {
+        s.tick();
+    }
+    assert_eq!(hp(&s), before, "nothing touches a tower from t6002 until the drain");
+}

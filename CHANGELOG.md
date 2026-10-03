@@ -7,7 +7,8 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
 
 - A level overtime now ends as in the game. From tick 6067 every crown tower loses the same hit points each tick, and
   the first tower to fall decides the match (1-0, or 2-1 from 1-1). If both sides' weakest towers are exactly level,
-  the match is a draw at tick 6147.
+  the match is a draw at tick 6147. At the end of a level overtime no more cards can be played, and every troop, building
+  and spell leaves the board, so only the towers and the drain remain.
 - `state_json()`: each spell row gains a 12th value, `ticks_flown`, the ticks a flying spell has moved.
 - `catalogue_json()`: each card row gains a 12th value, `champion`, true for a champion card.
 - Wheels are tested on CPython 3.10, 3.11, 3.12, 3.13 and 3.14.
