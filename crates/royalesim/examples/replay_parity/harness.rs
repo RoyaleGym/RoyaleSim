@@ -1105,6 +1105,11 @@ pub struct Report {
     /// any frame of the scene, so the engine carries no counterpart by design (the Hero Tombstone's visual dummy).
     /// Listed (key, card) so the exclusion stays visible: they are in neither `unmatched_truth` nor any score.
     pub unscored_dummies: Vec<(i64, String)>,
+    /// THE FRAMES NOT SCORED AS TICKS: frames whose tick is the frame's before it, skipped by the scoring loop, so each
+    /// truth tick is scored once. The client's recording repeats its last tick after the match ends (sp-hogs-musk-s0:
+    /// tick 931, the king tower's fall, on 5,170 frames); scored per frame, each copy counted the fallen tower, which
+    /// the engine removes, as a unit-tick lost. Counted here so the skip stays visible.
+    pub repeated_frames: u64,
     pub score: Score,
     /// `score` without the six crown towers' rows (the towers stand still and are
     /// on every frame, so they carry most unit-ticks).
@@ -1593,6 +1598,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         unmatched_truth: Vec::new(),
         unmatched_sim: Vec::new(),
         unscored_dummies: Vec::new(),
+        repeated_frames: 0,
         score: Score::default(),
         score_no_towers: Score::default(),
         per_card: BTreeMap::new(),
@@ -2091,7 +2097,16 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     let mut missing_run: BTreeMap<usize, (u32, u32)> = BTreeMap::new();
     let mut extra_run: BTreeMap<usize, (u32, u32)> = BTreeMap::new();
     let is_tower_key = |key: i64| f.towers.iter().any(|t| truth_tower_key(f, &truth, t) == Some(key));
+    // ONE TICK, SCORED ONCE (`Report::repeated_frames`): a frame repeating the tick just scored is skipped.
+    let mut scored_tick: Option<u32> = None;
     for (fi, &t) in truth.ticks.iter().enumerate().step_by(opts.stride.max(1)) {
+        // PLANT (regression) replay_scores_repeated_frames: every frame is scored, a repeated tick as often as it repeats.
+        #[cfg(not(clash_plant = "replay_scores_repeated_frames"))]
+        if scored_tick == Some(t) {
+            report.repeated_frames += 1;
+            continue;
+        }
+        scored_tick = Some(t);
         let Some(snap) = snaps.get(&t) else { continue };
         if report.score_until.is_some_and(|u| t > u) {
             break;
@@ -2685,6 +2700,12 @@ pub fn render_fixture_markdown(r: &Report) -> String {
         r.last_tick,
         r.engine_end_tick
     ));
+    if r.repeated_frames > 0 {
+        out.push_str(&format!(
+            "NOT SCORED AGAIN: {} truth frames repeat the tick before them (the client's frozen frames after the match ends); each tick is scored once\n\n",
+            r.repeated_frames
+        ));
+    }
     if !r.unscored_dummies.is_empty() {
         let keys: Vec<String> = r.unscored_dummies.iter().map(|(k, c)| format!("{k} ({c})")).collect();
         out.push_str(&format!(

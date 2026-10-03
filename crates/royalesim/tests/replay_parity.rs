@@ -891,6 +891,32 @@ fn with_dummy(targeted: bool) -> (Fixture, i64, String) {
     (f, key, card)
 }
 
+/// ONE TICK, SCORED ONCE: the sample with its last frame repeated 50 times, as the client's recording repeats its last
+/// tick after the match ends (sp-hogs-musk-s0: tick 931 on 5,170 frames). Scored as the sample is, the 50 copies
+/// counted. Plant: replay_scores_repeated_frames.
+#[test]
+fn a_repeated_tick_is_scored_once() {
+    let base = play(&sample());
+    let mut f = sample();
+    let truth = f.truth.as_mut().expect("the sample carries its truth");
+    let frames = truth.ticks.len();
+    let last = *truth.ticks.last().expect("a frame");
+    truth.ticks.extend(std::iter::repeat(last).take(50));
+    let mut alive = 0;
+    for e in truth.entities.iter_mut().filter(|e| e.t0 + e.n == frames) {
+        e.n += 50;
+        for col in [&mut e.x, &mut e.y, &mut e.hp, &mut e.target, &mut e.path_n, &mut e.state] {
+            let run = col.last_mut().expect("an RLE column");
+            *run = serde_json::json!(run.as_u64().expect("a run length") + 50);
+        }
+        alive += 1;
+    }
+    assert!(alive > 6, "vacuous: only {alive} entities stand on the last frame");
+    let r = play(&f);
+    assert_eq!((base.repeated_frames, r.repeated_frames), (0, 50), "the frames skipped");
+    assert_eq!(r.score.unit_ticks, base.score.unit_ticks, "a repeated tick was scored again");
+}
+
 #[test]
 fn a_dummy_nothing_targets_is_not_scored() {
     let base = play(&sample());
