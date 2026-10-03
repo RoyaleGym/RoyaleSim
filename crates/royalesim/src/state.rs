@@ -1037,6 +1037,10 @@ pub struct Calib {
     /// arm, `EveryHolder`.
     #[serde(default = "chase_hold_scope_default")]
     pub chase_hold_scope: ChaseHoldScope,
+    /// combat.WARP_HIDING (`warp_pass`, `land_warps`): from when a warping hero (the Hero Mega Minion) is hidden. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Arrival`.
+    #[serde(default = "warp_hiding_default")]
+    pub warp_hiding: WarpHiding,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2506,6 +2510,10 @@ fn net_initial_cooldown_default() -> NetInitialCooldown {
 
 fn chase_hold_scope_default() -> ChaseHoldScope {
     ChaseHoldScope::EveryHolder
+}
+
+fn warp_hiding_default() -> WarpHiding {
+    WarpHiding::Arrival
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5162,6 +5170,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.WARP_HIDING -- see `warp_pass` and `land_warps`: the tick a warping hero (card.rs `WarpDef`, the Hero Mega
+    /// Minion) takes its strike buff, the invisible one no enemy may target it under.
+    WarpHiding {
+        /// The engine's, the table's reading (its OnWarpEndAction spawns the buff): on its arrival.
+        Arrival = "arrival",
+        /// On its first warp step too, the arrival landing it again: hidden through the warp. Measured on client
+        /// 15.535.29 (sp-form-MegaMinion-hero-s0, LOW: one warp, one holder): Red's Musketeer, which fired at the hero on
+        /// t206 (its first step, 343) from 5,581 inside its reach, let it go on t207 and took Blue's tower, the hero in its
+        /// reach and sight; holders of the Golden Knight's and the Boss Bandit's dashes kept them through every dash (126
+        /// frames).
+        Client15535FirstStep = "client15535_first_step",
+    }
+);
+calib_enum!(
     /// targeting.CHASE_HOLD_SCOPE -- see target.rs `decide` (`held_past_sight`): which holders the hold past round sight
     /// (targeting.CHASE_DROP_RANGE = client_sight_minus_1000) reaches.
     ChaseHoldScope {
@@ -7395,6 +7417,7 @@ impl Calib {
             walking_keep_reach: pick(&v, &["targeting", "WALKING_KEEP_REACH", "value"], WalkingKeepReach::from_calibration_name)?,
             net_initial_cooldown: pick(&v, &["combat", "NET_INITIAL_COOLDOWN", "value"], NetInitialCooldown::from_calibration_name)?,
             chase_hold_scope: pick(&v, &["targeting", "CHASE_HOLD_SCOPE", "value"], ChaseHoldScope::from_calibration_name)?,
+            warp_hiding: pick(&v, &["combat", "WARP_HIDING", "value"], WarpHiding::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -16869,6 +16892,18 @@ impl BattleState {
                 r.step = w.speed; // PLANT: the warp runs at its Speed from its first step.
             }
             r.moves += 1;
+            // combat.WARP_HIDING = client15535_first_step: the hero takes its strike buff (invisible) on the warp's first
+            // step, so no enemy keeps or takes it while it warps (`land_warps` lands it again on the arrival, its time from
+            // there). Client 15.535.29, sp-form-MegaMinion-hero-s0: the Musketeer holding it let go on the next tick.
+            // PLANT (regression) warp_hidden_on_arrival: the new arm still hides it on the arrival alone.
+            #[cfg(not(clash_plant = "warp_hidden_on_arrival"))]
+            let early = self.cfg.calib.warp_hiding == WarpHiding::Client15535FirstStep;
+            #[cfg(clash_plant = "warp_hidden_on_arrival")]
+            let early = false;
+            if early && r.moves == 1 {
+                let h = crate::status::BuffHit::plain(r.id, w.strike.buff, w.strike.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, r.id.index as usize, &h);
+            }
         }
         self.warps.runs = runs;
     }
@@ -29690,6 +29725,9 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.WARP_HIDING: Calib gained warp_hiding (serde default the old arm, arrival), no new state (the new
+///    arm lands a buff the status slots already save), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.CHASE_HOLD_SCOPE: Calib gained chase_hold_scope (serde default the old arm, every_holder), no
 ///    new state (the hold reads the saved attack phase), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -30619,6 +30657,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("net_initial_cooldown".into(), serde_json::to_value(NetInitialCooldown::AfterDeploy).map_err(|e| e.to_string())?);
     // targeting.CHASE_HOLD_SCOPE: a format-3 battle's holders kept a target past round sight in their attack too (the same rule).
     sh.insert("chase_hold_scope".into(), serde_json::to_value(ChaseHoldScope::EveryHolder).map_err(|e| e.to_string())?);
+    // combat.WARP_HIDING: a format-3 battle's warping heroes were hidden from their arrival (the same rule).
+    sh.insert("warp_hiding".into(), serde_json::to_value(WarpHiding::Arrival).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

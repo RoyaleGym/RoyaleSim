@@ -1568,6 +1568,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   creation (7 of 7 first nets; the old arm refuted by 4).
 ///   targeting.CHASE_HOLD_SCOPE = client15535_walkers_only: a holder still in its attack lets a target past round sight go
 ///   (16 of 19).
+///   combat.WARP_HIDING = client15535_first_step: a warping Hero Mega Minion is hidden from its first warp step (1 holder).
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1631,6 +1632,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.WALKING_KEEP_REACH", "\"client15535_walking_reach\""),
     ("combat.NET_INITIAL_COOLDOWN", "\"client15535_from_creation\""),
     ("targeting.CHASE_HOLD_SCOPE", "\"client15535_walkers_only\""),
+    ("combat.WARP_HIDING", "\"client15535_first_step\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

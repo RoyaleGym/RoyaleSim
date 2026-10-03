@@ -2008,6 +2008,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_whole_chain (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs fire_ability and chain_pass (entity.rs dash_immune_until), selected by Calib::dash_chain_immunity; tests/dash_chain_immunity.rs."
     },
+    "WARP_HIDING": {
+      "value": "arrival",
+      "candidates": ["arrival", "client15535_first_step"],
+      "status": "measured",
+      "confidence": "LOW for client15535_first_step on client 15.535.29: one warp (the Hero Mega Minion's, sp-form-MegaMinion-hero-s0) and one holder, which let the hero go on the tick after its first warp step with it inside its reach and sight; the table spawns the invisible strike buff on the warp's end (OnWarpEndAction), so the client's own reason may be the warp itself (its WARP tag), not the buff. Holders of the Golden Knight's and the Boss Bandit's dashes, 126 frames, kept them.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames: every frame a champion moved over 250 between fast moves (the Golden Knight's dash chain, the Boss Bandit's dash, the Hero Mega Minion's warp) and each unit holding it on the frame before: kept or not on the frame after. The Golden Knight's and Boss Bandit's holders kept them, 126 of 126 (sp-champ-GK-*, -GoldenKnight-*, -BossBandit-*). sp-form-MegaMinion-hero-s0: the hero cast t201-t204, stood t205, warped t206-t212 (343, 742, 1144, ...); Red's Musketeer, attacking it since before the cast, fired at it on t206 (its shot homed on it and landed on t216, 217) and on t207 took Blue's right princess tower, the hero 5,563 off (reach 7,000, round sight 7,000), and walked for it; the engine's Musketeer kept the hero, so its hits on the tower came 6 ticks late (t410 and t430 against t404 and t424) and the tower stood 3 frames past its fall (t444, the scene's first divergence).",
+      "meaning": "arrival: the engine's and the table's reading; a warping hero (card.rs WarpDef) takes its strike buff, the invisible MegaMinion_hero_Damage_Buff no enemy keeps or takes it under (target.rs invisible_at), on its arrival (state.rs land_warps). client15535_first_step: it takes it on its first warp step too (state.rs warp_pass), the arrival landing it again with its time from there: hidden through the warp. A shot already flying still lands under both.",
+      "open": "Whether the client hides the warping hero by its strike buff or by its warp (ActionWarpCharacter, the WARP tag): the two part only on a warp longer than the buff's time; one warp measured; 16.402 not read.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_first_step (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs warp_pass (the warp's first step) and land_warps, selected by Calib::warp_hiding; tests/warp_hiding.rs."
+    },
     "NET_INITIAL_COOLDOWN": {
       "value": "after_deploy",
       "candidates": ["after_deploy", "client15535_from_creation"],
