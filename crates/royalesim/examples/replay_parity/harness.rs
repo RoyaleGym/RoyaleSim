@@ -1503,6 +1503,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: the edge lets go of a troop that walked away as the
 ///   Target phase began with |dy| growing; only the drop tick's rescan passes over another one walking away.
 ///   combat.HOOK_RELEASE = client_idle_tick: a hook's victim idles the tick after its drag stops (8 of 8; 4 of 4 on 16.402).
+///   targeting.SNIPE_REPICK = client15535_last_target_first: an Evo Musketeer's next snipe takes her last snipe's target
+///   first (1 decisive re-pick).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1544,6 +1546,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.CHASE_DROP_MEASURE", "\"client15535_lane_dy\""),
     ("targeting.CHASE_DROP_WALKING_AWAY", "\"client15535_growing_away\""),
     ("combat.HOOK_RELEASE", "\"client_idle_tick\""),
+    ("targeting.SNIPE_REPICK", "\"client15535_last_target_first\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

@@ -941,6 +941,10 @@ pub struct Calib {
     /// stops. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `FreeNextTick`.
     #[serde(default = "hook_release_default")]
     pub hook_release: HookRelease,
+    /// targeting.SNIPE_REPICK (`snipe_pass`, EvoBoard `snipe_last`): which target an Evo Musketeer's next snipe takes after
+    /// one has left. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NearestAhead`.
+    #[serde(default = "snipe_repick_default")]
+    pub snipe_repick: SnipeRepick,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2322,6 +2326,10 @@ fn load_timer_target_loss_default() -> LoadTimerTargetLoss {
 
 fn hook_release_default() -> HookRelease {
     HookRelease::FreeNextTick
+}
+
+fn snipe_repick_default() -> SnipeRepick {
+    SnipeRepick::NearestAhead
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4928,6 +4936,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.SNIPE_REPICK -- see `snipe_pass` and EvoBoard `snipe_last`: the target an Evo Musketeer's next snipe
+    /// takes once she has let the last one's target go (the tick after it left).
+    SnipeRepick {
+        /// The engine's: the nearest snipe target ahead of her, as her first (SnipeSideClip).
+        NearestAhead = "nearest_ahead",
+        /// Her last snipe's target first, while it lives, fits her reach within LockedTargetSnipeSideClip plus its
+        /// radius and the shots in flight do not doom it (IgnorePendingDamageTargets); else the nearest ahead. Measured
+        /// on client 15.535.29 (snipe_repick_census.py): sp-il-2142 t2386, her second snipe's target a Cannon 11,916
+        /// ahead of her, she took it again over two Skeletons 10,331 and 11,271 ahead inside the side clip, where the
+        /// engine took the nearer Skeleton (the scene's first divergence, t2407); on t2367 the Skeleton her first snipe
+        /// was killing was not taken again. Every other re-pick in the captures took her last target or the only one.
+        Client15535LastTargetFirst = "client15535_last_target_first",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6821,6 +6844,7 @@ impl Calib {
             chase_drop_measure: pick(&v, &["targeting", "CHASE_DROP_MEASURE", "value"], ChaseDropMeasure::from_calibration_name)?,
             load_timer_target_loss: pick(&v, &["combat", "LOAD_TIMER_TARGET_LOSS", "value"], LoadTimerTargetLoss::from_calibration_name)?,
             hook_release: pick(&v, &["combat", "HOOK_RELEASE", "value"], HookRelease::from_calibration_name)?,
+            snipe_repick: pick(&v, &["targeting", "SNIPE_REPICK", "value"], SnipeRepick::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -7534,6 +7558,11 @@ pub struct EvoBoard {
     /// hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rage_ghosts: Vec<RageGhostRun>,
+    /// targeting.SNIPE_REPICK = client15535_last_target_first: each Evo Musketeer and the target of her last snipe to
+    /// leave (`snipe_pass`), written under that arm alone. `default` so a battle saved before it still loads; hashed
+    /// only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snipe_last: Vec<(EntityId, EntityId)>,
 }
 
 /// AN EVO LUMBERJACK'S GHOST (card.rs `RageGhostDef`): his side, his card and level, his death point (the Rage's) and
@@ -7743,6 +7772,7 @@ impl EvoBoard {
             && self.first_hits.is_empty()
             && self.rings.is_empty()
             && self.rage_ghosts.is_empty()
+            && self.snipe_last.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -10849,6 +10879,7 @@ impl BattleState {
         let live: Vec<u32> = self.evo.members.iter().map(|(_, g)| *g).collect();
         self.evo.hits.retain(|(g, _)| live.contains(g));
         self.evo.snipers.retain(|(m, _, _)| ents.is_alive(*m));
+        self.evo.snipe_last.retain(|(m, _)| ents.is_alive(*m));
         self.evo.spears.retain(|(m, _)| ents.is_alive(*m));
     }
 
@@ -11146,6 +11177,13 @@ impl BattleState {
             // snipe's windup starts over on what is left of the load timer.
             if kept.is_some() && self.ents.target[a] == kept && card.hit_speed_ms > 0 && self.ents.attack_ms[a] >= card.hit_speed_ms {
                 if self.ents.attack_phase[a] != AttackPhase::Cooldown {
+                    // targeting.SNIPE_REPICK = client15535_last_target_first: the target she lets go is her last snipe's.
+                    if self.cfg.calib.snipe_repick == SnipeRepick::Client15535LastTargetFirst {
+                        if let Some(t) = kept {
+                            self.evo.snipe_last.retain(|(m, _)| *m != id);
+                            self.evo.snipe_last.push((id, t));
+                        }
+                    }
                     s.2 = None;
                     self.ents.attack_seq[a] = 0;
                     self.ents.target[a] = None;
@@ -11193,7 +11231,18 @@ impl BattleState {
                 target::in_attack_range(&self.cfg.calib, e.pos[a], card.range, e.radius[a], e.pos[ti], e.radius[ti])
             });
             let keep = kept.filter(|t| !ordinary && e.is_alive(*t) && fits(t.index as usize, sn.locked_clip));
-            let pick = keep.or_else(|| {
+            // targeting.SNIPE_REPICK = client15535_last_target_first: with no target kept, her last snipe's target comes
+            // first while it lives, fits within LockedTargetSnipeSideClip and the shots in flight do not doom it.
+            // PLANT (regression) snipe_last_target_unread: the last target is not consulted; the nearest ahead is taken.
+            #[cfg(not(clash_plant = "snipe_last_target_unread"))]
+            let last = self.evo.snipe_last.iter().find(|(m, _)| *m == id).map(|(_, t)| *t);
+            #[cfg(clash_plant = "snipe_last_target_unread")]
+            let last: Option<EntityId> = None;
+            let last = last.filter(|t| {
+                let c = t.index as usize;
+                !ordinary && e.is_alive(*t) && fits(c, sn.locked_clip) && !(sn.skip_pending && doomed.get(c).copied().unwrap_or(false))
+            });
+            let pick = keep.or(last).or_else(|| {
                 if ordinary {
                     return None;
                 }
@@ -28049,6 +28098,15 @@ impl BattleState {
                     }
                 }
             }
+            // The Evo Musketeers' last snipe targets (targeting.SNIPE_REPICK), only when there are some.
+            if !b.snipe_last.is_empty() {
+                h.u32(0x534e_4c54);
+                h.u32(b.snipe_last.len() as u32);
+                for (m, t) in &b.snipe_last {
+                    h.id(*m);
+                    h.id(*t);
+                }
+            }
             // The Evo Lumberjacks' ghosts, only when there are some.
             if !b.rage_ghosts.is_empty() {
                 h.u32(0x4748_5354);
@@ -28681,6 +28739,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.SNIPE_REPICK: Calib gained snipe_repick (serde default the old arm, nearest_ahead); EvoBoard
+///    gained snipe_last (`default`), written under the new arm alone and hashed only when not empty, so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.HOOK_RELEASE: Calib gained hook_release (serde default the old arm, free_next_tick); Entities
 ///    gained drag_idle (`default`, sized on load false), written and hashed under the new arm alone (its hooked_by held
 ///    a tick longer is hashed as before), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
@@ -29501,6 +29562,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("load_timer_target_loss".into(), serde_json::to_value(LoadTimerTargetLoss::RunsOn).map_err(|e| e.to_string())?);
     // combat.HOOK_RELEASE: a format-3 battle freed a hook's victim on the tick after its drag stopped (the same rule).
     sh.insert("hook_release".into(), serde_json::to_value(HookRelease::FreeNextTick).map_err(|e| e.to_string())?);
+    // targeting.SNIPE_REPICK: a format-3 battle took the nearest snipe target ahead on every pick (the same rule).
+    sh.insert("snipe_repick".into(), serde_json::to_value(SnipeRepick::NearestAhead).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
