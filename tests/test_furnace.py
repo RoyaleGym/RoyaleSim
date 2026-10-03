@@ -135,19 +135,25 @@ def test_spirits_on_f_plus_38_then_every_100_at_1500_forward(royalesim):
     assert played[0][0] == 0, f"another card resolved: {played}"
     first: dict = {}
     furnace_at: dict = {}
+    furnace = None  # the play's own unit: the first of the side's units on the board
     for t in range(260):
         for e in json.loads(b.state_json())["entities"]:
             # ENTITY_FIELDS: 0 uid, 1 team, 3 card_id, 4 tower_slot, 5 x, 6 y
             if e[1] != 0 or e[4] >= 0:
                 continue
-            if e[3] == 0:
+            if furnace is None:
+                furnace = e[0]
+            if e[0] == furnace:
                 furnace_at[t] = (e[5], e[6])
             if e[0] not in first:
                 first[e[0]] = (t, e[3], e[5], e[6])
         b.step([], 1)
-    furnaces = [v for v in first.values() if v[1] == 0]
-    spirits = sorted(v for v in first.values() if v[1] == 1)
+    furnaces = [v for u, v in first.items() if u == furnace]
+    spirits = sorted(v for u, v in first.items() if u != furnace)
     assert len(furnaces) == 1, first
+    assert furnaces[0][1] == 0, first
+    # Each spirit reports the card whose play put it down, the Furnace (0), not the Fire Spirits card (1).
+    assert {s[1] for s in spirits} == {0}, first
     f0 = furnaces[0][0]
     assert [s[0] - f0 for s in spirits] == [38, 138, 238], f"spirit ticks after the Furnace's first frame: {spirits}"
     t, _, x, y = spirits[0]
