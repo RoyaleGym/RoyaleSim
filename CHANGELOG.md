@@ -3,6 +3,14 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.5 (2026-10-03)
+
+- `state_json()`: an entity's `card_id` is now the card whose play put the unit on the board, all the way down its
+  chain. A Tombstone's Skeletons report the Tombstone, a Barbarian Hut's Barbarians the hut, the Goblin Drill's
+  Goblins the Drill, and the Tri-Wizards' Electro and Ice Wizards the Tri-Wizards. Before, a unit several cards can
+  make reported the first such card in the catalogue (every Skeleton reported the Witch). A projectile's
+  `firer_card_id` is unchanged: the unit that fired it.
+
 ## 0.1.4 (2026-10-02)
 
 - A level overtime now ends as in the game. From tick 6067 every crown tower loses the same hit points each tick, and
