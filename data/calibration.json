@@ -3648,6 +3648,17 @@
       "promotion_rules": "Kill a Tesla's only target in the middle of its hit cycle: under idle_time_without_target it goes under HideTimeMs after the kill whatever the cycle phase; under time_since_last_shot HideTimeMs after its last shot, i.e. earlier by the time since that shot. For the unimplemented transition reading, a capture of a Tesla whose target dies: does it become untargetable (a Fireball / a locked attacker's retarget) immediately or only ~800 ms later?",
       "engine": "state.rs Calib::hide_delay_meaning, read by state.rs hide_pass (and phase_attack for the reset under time_since_last_shot)"
     },
+    "SHOT_AT_HIDING_BUILDING": {
+      "value": "dropped",
+      "status": "measured",
+      "candidates": ["dropped", "client15535_lands"],
+      "confidence": "MEDIUM for client15535_lands on client 15.535.29: 2 of 2 shots fired at a Tesla while it was up that landed after it went under (one bomb, one spear). 16.402 unread (per client). A spell cast at a hidden Tesla is not this key (hide.HIDDEN_IMMUNE_TO_DAMAGE).",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's raw frames and projectile tracks (tools tesla_hit_census.py: every scene with a Tesla, its hp drops against the engine's): Oracle's sp-tesla-hide-10, -12 and -60 (one event): a Bomber's bomb fired at the Tesla on t166; the Tesla killed the Bomber on t171, spent its post-kill wait (t171 .. t176) and went under on t177 (hide.RISE_LAW's fit: a Knight arriving on t178 found it under); the bomb landed on t179 and took 225 off it (1046 -> 818 with the drain), where the engine dropped the hit (each scene's first divergence). ub-gh7-tesla-7382: a Spear Goblin's spear in flight (the Tesla's pending damage 81 from t151) when the Tesla killed it on t156; the spear's 81 landed on t162, the tick hide.RISE_LAW's fit puts the Tesla under, dropped by the engine. No shot in the captures hit a Tesla that was already under when it was fired: none can (a hidden building is no one's target).",
+      "meaning": "dropped: the engine's; every hit on a hidden building is dropped (hide.HIDDEN_IMMUNE_TO_DAMAGE), a shot's at it included. client15535_lands: a shot's hit on the building it was fired at lands although that building went under during the flight; a splash's hits on other hidden buildings are dropped.",
+      "open": "A splash shot's hit on a hidden building it was not fired at; a spell cast at a hidden Tesla (hide.HIDDEN_IMMUNE_TO_DAMAGE, community); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_lands (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "combat.rs step_projectiles (the landing's hit on its own target, `shot_passes_hide`), selected by Calib::shot_at_hiding_building; tests/shot_at_hiding_building.rs."
+    },
     "HIDDEN_OCCLUDES_PATH": {
       "value": true,
       "status": "community",

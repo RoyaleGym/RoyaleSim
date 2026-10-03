@@ -899,6 +899,10 @@ pub struct Calib {
     /// wait. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Waits`.
     #[serde(default = "load_first_hit_kill_wait_default")]
     pub load_first_hit_kill_wait: LoadFirstHitKillWait,
+    /// hide.SHOT_AT_HIDING_BUILDING (combat.rs `step_projectiles`): whether a shot's hit on the building it was fired at
+    /// lands once that building has gone under. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Dropped`.
+    #[serde(default = "shot_at_hiding_building_default")]
+    pub shot_at_hiding_building: ShotAtHidingBuilding,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2240,6 +2244,10 @@ fn cage_captive_shots_default() -> CageCaptiveShots {
 
 fn load_first_hit_kill_wait_default() -> LoadFirstHitKillWait {
     LoadFirstHitKillWait::Waits
+}
+
+fn shot_at_hiding_building_default() -> ShotAtHidingBuilding {
+    ShotAtHidingBuilding::Dropped
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4679,6 +4687,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// hide.SHOT_AT_HIDING_BUILDING -- see combat.rs `step_projectiles`: whether a shot already flying at a hiding building
+    /// (the Tesla) lands on it once it has gone under (hide.HIDDEN_IMMUNE_TO_DAMAGE drops every other hit there).
+    ShotAtHidingBuilding {
+        /// The engine's: every hit on a hidden building is dropped, the shot's at it too.
+        Dropped = "dropped",
+        /// The landing's hit on the building the shot was fired at lands (a single target's, and a splash's on that
+        /// building); the splash's hits on any other hidden building are dropped. Measured on client 15.535.29, every
+        /// shot fired at a Tesla while it was up that landed after it went under, 2 of 2: a Bomber's bomb fired on t166,
+        /// the Tesla under on t177 (its post-kill wait spent), the bomb's 225 on it on t179 (Oracle's sp-tesla-hide-10,
+        /// -12 and -60, each one's first divergence); a Spear Goblin's spear in flight when the Tesla killed it on t156,
+        /// its 81 on the Tesla on t162, the tick the fitted hide law puts it under (ub-gh7-tesla-7382).
+        Client15535Lands = "client15535_lands",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6559,6 +6582,7 @@ impl Calib {
             fall_grounding: pick(&v, &["transform", "FALL_GROUNDING", "value"], FallGrounding::from_calibration_name)?,
             cage_captive_shots: pick(&v, &["combat", "CAGE_CAPTIVE_SHOTS", "value"], CageCaptiveShots::from_calibration_name)?,
             load_first_hit_kill_wait: pick(&v, &["combat", "LOAD_FIRST_HIT_KILL_WAIT", "value"], LoadFirstHitKillWait::from_calibration_name)?,
+            shot_at_hiding_building: pick(&v, &["hide", "SHOT_AT_HIDING_BUILDING", "value"], ShotAtHidingBuilding::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -28239,6 +28263,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, hide.SHOT_AT_HIDING_BUILDING: Calib gained shot_at_hiding_building (serde default the old arm, dropped),
+///    no new state (the new arm reads the saved projectiles' targets at their landing), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.LOAD_FIRST_HIT_KILL_WAIT: Calib gained load_first_hit_kill_wait (serde default the old arm,
 ///    waits), no new state (the new arm skips a wait the saved retarget_wait would have started), so a blob saved before
 ///    it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -29007,6 +29034,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("cage_captive_shots".into(), serde_json::to_value(CageCaptiveShots::AfterShotsHiddenOnSnap).map_err(|e| e.to_string())?);
     // combat.LOAD_FIRST_HIT_KILL_WAIT: a format-3 battle's Sparkies served the wait (the old arm).
     sh.insert("load_first_hit_kill_wait".into(), serde_json::to_value(LoadFirstHitKillWait::Waits).map_err(|e| e.to_string())?);
+    // hide.SHOT_AT_HIDING_BUILDING: a format-3 battle's hidden buildings took no hit (the old arm).
+    sh.insert("shot_at_hiding_building".into(), serde_json::to_value(ShotAtHidingBuilding::Dropped).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

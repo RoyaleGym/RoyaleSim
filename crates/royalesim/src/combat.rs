@@ -2217,6 +2217,13 @@ pub fn step_projectiles(
                 }
             }
             add_splash_bonus(ents, calib, &mut dmg.hits[from..], bonus, p.target);
+            // hide.SHOT_AT_HIDING_BUILDING = client15535_lands: the splash's hit on the building the shot was fired at
+            // passes its hide (`shot_passes_hide`).
+            if shot_passes_hide(calib) {
+                for h in dmg.hits[from..].iter_mut().filter(|h| h.target == p.target) {
+                    h.ignores_hide = true;
+                }
+            }
             apply_attack_buff(ents, calib, p.buff, p.pulse, (p.src_level, p.buff_first), p.target, scratch, fx);
             // AN EVO BOMBER'S BOUNCE (`Projectile::bounce`, card.rs `BounceDef`): a new bomb on the landing point, aimed
             // `range` on along the line this flight came (from `BounceHop::from`), one bounce fewer; it first steps next
@@ -2241,7 +2248,7 @@ pub fn step_projectiles(
             }
         } else if alive {
             let ti = p.target.index as usize;
-            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: false, own: false });
+            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: shot_passes_hide(calib), own: false });
             // A DEFLECT (card.rs `AbilityEffect::Deflect`, the Monk's): an enemy shot landing on a champion whose deflect
             // is active also goes back at its firer, for its full damage, from where he stands; the hit on him stands
             // (his buff's DamageReduction cuts it, combat.rs `reduce_hit`). Measured on client 15.535.29: a level-11
@@ -2670,6 +2677,20 @@ fn unkillable_floor(ents: &mut Entities, cards: &CardDb, i: usize) {
     }
     #[cfg(clash_plant = "unkillable_not_read")]
     let _ = (ents, cards, i); // PLANT (regression): the tag is not read; the carrier dies as any unit.
+}
+
+/// hide.SHOT_AT_HIDING_BUILDING = client15535_lands: a shot's hit on the building it was fired at passes that building's
+/// hide (it was up when the shot left: a hidden building is no one's target). Measured on client 15.535.29: 2 of 2 shots
+/// fired at a Tesla while it was up landed after it went under (state.rs `ShotAtHidingBuilding`).
+#[inline]
+fn shot_passes_hide(calib: &Calib) -> bool {
+    #[cfg(not(clash_plant = "hiding_shot_dropped"))]
+    return calib.shot_at_hiding_building == crate::state::ShotAtHidingBuilding::Client15535Lands;
+    #[cfg(clash_plant = "hiding_shot_dropped")]
+    {
+        let _ = calib;
+        false // PLANT (regression): the new arm drops the shot on the hidden building, as the old one does.
+    }
 }
 
 /// A BODY NO HIT LANDS ON, now: unit `v` is under ground under movement.SPAWN_PATHFIND_BODY =
