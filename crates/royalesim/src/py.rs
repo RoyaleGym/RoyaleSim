@@ -2375,6 +2375,9 @@ mod tests {
             s.spawn_unit(Team::Blue, card, at(x, y), None).unwrap_or_else(|e| panic!("{card}: {e:?}"));
         }
         s.spawn_unit(Team::Red, "Witch", at(14, 28), None).unwrap();
+        // A Skeleton Balloon on one hitpoint over a red princess tower: its death's container (a spell, not a unit)
+        // lets out Skeletons that report the balloon.
+        s.scenario_spawn_now(Team::Blue, "SkeletonBalloon", at(4, 24), Some(1)).unwrap();
         let mut seen: BTreeMap<(u8, String), std::collections::BTreeSet<i64>> = BTreeMap::new();
         let tombstone_dead = |s: &BattleState| !s.entities().any(|e| e.card == "Tombstone");
         let mut after_tomb = 0;
@@ -2399,7 +2402,7 @@ mod tests {
         assert!(tombstone_dead(&s), "the Tombstone outlived the run");
         let got = |n: &str| seen.get(&(Team::Blue as u8, n.to_string())).cloned().unwrap_or_default();
         let want = |ns: &[&str]| ns.iter().map(|n| id(n)).collect::<std::collections::BTreeSet<i64>>();
-        assert_eq!(got("Skeleton"), want(&["Tombstone"]), "the Tombstone's Skeletons, its death's among them: {seen:?}");
+        assert_eq!(got("Skeleton"), want(&["Tombstone", "SkeletonBalloon"]), "the Tombstone's Skeletons, its death's among them, and the balloon's: {seen:?}");
         assert_eq!(seen.get(&(Team::Red as u8, "Skeleton".to_string())), Some(&want(&["Witch"])), "the red Witch's: {seen:?}");
         assert_eq!(got("Barbarian"), want(&["BarbarianHut"]), "{seen:?}");
         assert_eq!(got("ElectroWizard"), want(&["TriWizards"]), "{seen:?}");

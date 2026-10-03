@@ -21650,7 +21650,7 @@ impl BattleState {
                 morph_birth: false,
                 // A cloned barrel's container is not modelled (a copy's death bomb is unmeasured), so its units are not copies.
                 cloned: false,
-                action_made: false, source: NO_CARD,
+                action_made: false, source: f.card,
             });
         }
     }
