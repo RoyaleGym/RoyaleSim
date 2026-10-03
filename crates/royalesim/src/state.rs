@@ -915,6 +915,10 @@ pub struct Calib {
     /// on the unit they hit before they fly. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AtOnce`.
     #[serde(default = "evo_chain_hop_wait_default")]
     pub evo_chain_hop_wait: EvoChainHopWait,
+    /// status.ATTRACT_WATER_EDGE (state.rs `phase_path16402`'s move pass): whether a ground unit's step with a pull in
+    /// it stops at a water cell's edge. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `WalkRule`.
+    #[serde(default = "attract_water_edge_default")]
+    pub attract_water_edge: AttractWaterEdge,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2272,6 +2276,10 @@ fn ghost_pair_first_frame_default() -> GhostPairFirstFrame {
 
 fn evo_chain_hop_wait_default() -> EvoChainHopWait {
     EvoChainHopWait::AtOnce
+}
+
+fn attract_water_edge_default() -> AttractWaterEdge {
+    AttractWaterEdge::WalkRule
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4773,6 +4781,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.ATTRACT_WATER_EDGE -- see `phase_path16402`'s move pass: whether a ground unit's step with a pull in it
+    /// (status.ATTRACT_LAW) stops at a water cell's edge.
+    AttractWaterEdge {
+        /// The engine's: a pulled step takes the walk's water rule, so only a deploying ground unit stops at a water
+        /// cell's edge (move16402.rs `grid_move`'s flag); a pull carries any other into the river.
+        WalkRule = "walk_rule",
+        /// A ground unit whose step has a pull in it stops at a water cell's edge, per axis, as a deploying one does
+        /// (`grid_move` with its flag on, the walk and the pull one write). Measured on client 15.535.29
+        /// (sp-form-Valkyrie-evo-s0, the Evo Valkyrie's riding tornado): three red units pulled toward the river stood
+        /// on a water cell's edge every tick the pull carried them at it, 31 unit-ticks (a Skeleton and the Musketeer
+        /// at y 17,000, the Knight on the bridge at x 13,500), while their steps along the edge went on; no unit with a
+        /// push or a pull in its step entered a water cell from land in the 15.535 captures, where 1,823 walking
+        /// steps did.
+        Client15535PullStops = "client15535_pull_stops",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6657,6 +6682,7 @@ impl Calib {
             dash_chain_immunity: pick(&v, &["combat", "DASH_CHAIN_IMMUNITY", "value"], DashChainImmunity::from_calibration_name)?,
             ghost_pair_first_frame: pick(&v, &["targeting", "GHOST_PAIR_FIRST_FRAME", "value"], GhostPairFirstFrame::from_calibration_name)?,
             evo_chain_hop_wait: pick(&v, &["combat", "EVO_CHAIN_HOP_WAIT", "value"], EvoChainHopWait::from_calibration_name)?,
+            attract_water_edge: pick(&v, &["status", "ATTRACT_WATER_EDGE", "value"], AttractWaterEdge::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -18088,6 +18114,12 @@ impl BattleState {
                 }
                 let deploying = e.deploy_ms[i] > 0;
                 let flying = e.flying[i];
+                // status.ATTRACT_WATER_EDGE = client15535_pull_stops: a ground unit whose step has a pull in it stops at a
+                // water cell's edge, as a deploying one does (`grid_move`'s flag on each write below that carries the pull).
+                #[cfg(not(clash_plant = "pull_water_edge_ignored"))]
+                let pull_edge = !flying && attract[i] != (0, 0) && calib.attract_water_edge == AttractWaterEdge::Client15535PullStops;
+                #[cfg(clash_plant = "pull_water_edge_ignored")]
+                let pull_edge = false; // PLANT (regression): the new arm's pulled step crosses the edge, as the old one's does.
                 if push_active[i] {
                     // a push ends a dash where it stands (unmeasured: combat.DASH_ATTACK's open list)
                     if dash_state[i] != DashState::None {
@@ -18127,7 +18159,7 @@ impl BattleState {
                     // and the post-decrement speed (no lower clamp: the back-step tick
                     // hands it -25)
                     let d_pre = move16402::distance(bodies[i].x, bodies[i].y, tgt.0, tgt.1).max(1);
-                    let m = move16402::pushback_step_extra((bodies[i].x, bodies[i].y), tgt, &mut rem, &mut con, (segs[i].x, segs[i].y), deploying && !flying, is_water, arena.cols, arena.rows, attract[i]);
+                    let m = move16402::pushback_step_extra((bodies[i].x, bodies[i].y), tgt, &mut rem, &mut con, (segs[i].x, segs[i].y), (deploying || pull_edge) && !flying, is_water, arena.cols, arena.rows, attract[i]);
                     walk_step[i] = rem.min(d_pre).min(250);
                     // the DIAGNOSTIC contact push this ladder step took, as a walk step writes it: a ladder tick's row
                     // otherwise read (0, 0) whatever the separation did
@@ -18206,7 +18238,7 @@ impl BattleState {
                         slide_r[i] / K,
                         end,
                         &mut con,
-                        deploying && !flying,
+                        (deploying || pull_edge) && !flying,
                         is_water,
                         arena.cols,
                         arena.rows,
@@ -18244,7 +18276,7 @@ impl BattleState {
                 }
                 if calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0 {
                     if attract[i] != (0, 0) {
-                        let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, deploying && !flying, &is_water, arena.cols, arena.rows);
+                        let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, (deploying || pull_edge) && !flying, &is_water, arena.cols, arena.rows);
                         bodies[i].x = nx;
                         bodies[i].y = ny;
                         deltas[i] = Vec2::new(nx * K, ny * K).sub(e.pos[i]);
@@ -18305,7 +18337,7 @@ impl BattleState {
                         // collidable under collision.HELD_UNIT_CONTACT = out_of_the_pass), through
                         // the same grid clamp as any other displacement.
                         if calib.attract_while_held == AttractWhileHeld::Pulled && attract[i] != (0, 0) {
-                            let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, false, &is_water, arena.cols, arena.rows);
+                            let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, pull_edge, &is_water, arena.cols, arena.rows);
                             bodies[i].x = nx;
                             bodies[i].y = ny;
                             deltas[i] = Vec2::new(nx * K, ny * K).sub(e.pos[i]);
@@ -18963,6 +18995,8 @@ impl BattleState {
                     segs[i] = Vec2::new(s.0, s.1);
                 }
                 let set_dir = speed > 0 || (aim != actor);
+                // a held unit is pulled only under status.ATTRACT_WHILE_HELD = pulled, as in the held branch
+                let pull = if held_walk && calib.attract_while_held != AttractWhileHeld::Pulled { (0, 0) } else { attract[i] };
                 let m = move16402::move_towards_extra(
                     actor,
                     aim.0,
@@ -18971,12 +19005,11 @@ impl BattleState {
                     set_dir,
                     &mut con,
                     (segs[i].x, segs[i].y),
-                    deploying,
+                    deploying || (pull_edge && pull != (0, 0)),
                     is_water,
                     arena.cols,
                     arena.rows,
-                    // a held unit is pulled only under status.ATTRACT_WHILE_HELD = pulled, as in the held branch
-                    if held_walk && calib.attract_while_held != AttractWhileHeld::Pulled { (0, 0) } else { attract[i] },
+                    pull,
                 );
                 offsets[i] = con.offset;
                 push_applied[i] = Vec2::new(m.push.0, m.push.1);
@@ -28378,6 +28411,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.ATTRACT_WATER_EDGE: Calib gained attract_water_edge (serde default the old arm, walk_rule), no
+///    new state (the new arm reads the tick's pull), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_WAIT: Calib gained evo_chain_hop_wait (serde default the old arm, at_once), no new
 ///    state (the new arm writes the hop's saved ChainHop::wait), so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
@@ -29166,6 +29202,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ghost_pair_first_frame".into(), serde_json::to_value(GhostPairFirstFrame::Targetable).map_err(|e| e.to_string())?);
     // combat.EVO_CHAIN_HOP_WAIT: a format-3 battle ran no Evo Electro Dragon (the same rule).
     sh.insert("evo_chain_hop_wait".into(), serde_json::to_value(EvoChainHopWait::AtOnce).map_err(|e| e.to_string())?);
+    // status.ATTRACT_WATER_EDGE: a format-3 battle ran its pulls at the walk's water rule (the same rule).
+    sh.insert("attract_water_edge".into(), serde_json::to_value(AttractWaterEdge::WalkRule).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

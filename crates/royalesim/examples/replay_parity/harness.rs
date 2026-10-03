@@ -1427,6 +1427,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.DASH_CHAIN_IMMUNITY = client15535_whole_chain: a Golden Knight in his chain takes no hit (7 of 7 dropped).
 ///   targeting.GHOST_PAIR_FIRST_FRAME = client15535_untargetable: an Evo Ghost's pair is no one's target on its first frame.
 ///   combat.EVO_CHAIN_HOP_WAIT = client15535_two_ticks: an Evo Electro Dragon's hops after the first wait 2 ticks (67 of 77).
+///   status.ATTRACT_WATER_EDGE = client15535_pull_stops: a ground unit's pulled step stops at a water cell's edge.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1460,6 +1461,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.DASH_CHAIN_IMMUNITY", "\"client15535_whole_chain\""),
     ("targeting.GHOST_PAIR_FIRST_FRAME", "\"client15535_untargetable\""),
     ("combat.EVO_CHAIN_HOP_WAIT", "\"client15535_two_ticks\""),
+    ("status.ATTRACT_WATER_EDGE", "\"client15535_pull_stops\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
