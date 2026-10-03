@@ -46,7 +46,7 @@ use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
     AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, ChaseRescanPassOver, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
-    MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange, WalkingKeepReach,
+    MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange, WalkingKeepReach, ChaseHoldScope,
 };
 use crate::{EntityId, Team};
 
@@ -1170,7 +1170,16 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 #[cfg(not(clash_plant = "chase_held_only_inside_limit"))]
                 let holds = !past_chase_limit(ctx.calib, ctx.cards, e, a, ti)
                     || (ctx.calib.chase_hold_past_limit == ChaseHoldPastLimit::Client15535TroopsKept && !e.kind[a].is_building());
-                if holds {
+                // targeting.CHASE_HOLD_SCOPE = client15535_walkers_only: a holder still in its attack (its projectile hold
+                // just ended by a launch from beyond reach) lets the target go: client 15.535.29, 16 of 19 such holders
+                // took a tower (sp-form-RoyalHogs-evo-s0 t1268: a Musketeer's shot at an Evo Royal Hog 7,263 away).
+                // PLANT (regression) chase_hold_while_attacking: the new arm still holds for a holder in its attack.
+                #[cfg(not(clash_plant = "chase_hold_while_attacking"))]
+                // in its attack: not walking, or a swing under way (between swings the phase is idle, attack_ms > 0)
+                let attacking = ctx.calib.chase_hold_scope == ChaseHoldScope::Client15535WalkersOnly && (!walking_now(e, a) || e.attack_ms[a] > 0);
+                #[cfg(clash_plant = "chase_hold_while_attacking")]
+                let attacking = false;
+                if holds && !attacking {
                     held_past_sight = Some(t);
                 }
             }

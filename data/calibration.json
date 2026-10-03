@@ -368,6 +368,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_sight_keep (examples/replay_parity/harness.rs CLIENT15535_ARMS). A 16.402 knocked holder past its sight would settle the shipped arm.",
       "engine": "target.rs decide (the knocked early return) and knocked_lets_go, selected by Calib::knocked_target_hold; tests/knocked_target_hold.rs."
     },
+    "CHASE_HOLD_SCOPE": {
+      "value": "every_holder",
+      "candidates": ["every_holder", "client15535_walkers_only"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_walkers_only on client 15.535.29: 16 of 19 holders leaving their attack with a troop past round sight and nothing else in sight let it go (the 16.402 corpus 1 of 1); the three kept stood 2 and 4 past round sight (the boundary's own measure unread) and one a Ram Rider's. Walkers holding past round sight keep it under both arms (targeting.CHASE_HOLD_PAST_LIMIT's 158 of 159 and 135 of 139).",
+      "provenance": "MEASURED by parity (2026-10-03) on every fixture truth of client 15.535.29 (scenarios and IL runs) and the 16.402 corpus replays (tools/attack_leave_census.py): a troop in its attack (state 2) on frame t-1 holding a troop c and out of it on frame t, c alive on both, split by where c stood on frame t-1 (in round sight, SightRange + both radii; past it inside the chase-drop limit; past the limit) and whether any other enemy the holder could take stood in round sight. Past round sight with nothing else in sight, 15.535.29: 16 let c go for a crown tower (7 inside the limit: cannon-vs-knight t202, sp-champ-LittlePrince-nopress-s0 t232, sp-il-04cb t1926, sp-il-8b9b t1079, ...; 9 past it: sp-il-b924 t1923 and t1964, sp-il-8b9b t989, sp-il-04cb t3350, ...), 3 kept it (sp-il-2c29 t2649 4 past round sight, sp-form-IceWizard-hero-s0 t200 2 past, sweep-RamRider t356); the 16.402 corpus 1 let go (20260918-112751 t1965). In round sight: 446 kept with nothing else in sight. sp-form-RoyalHogs-evo-s0 t1268 (its first divergence): Red's Musketeer launched at an Evo Royal Hog 7,263 away on t1267 (reach 7,000, round sight 7,000); on t1268 both clients left the attack, the client took Blue's right princess tower and walked for it, the engine held the Hog past round sight (the projectile hold ended by the launch, launched_beyond) and walked after it, 1,027 off by t1277.",
+      "meaning": "every_holder: the engine's; whatever the holder is doing, a troop target its keep tests let go past round sight is kept when the rescan finds nothing in sight (targeting.CHASE_HOLD_PAST_LIMIT decides past the chase-drop limit). client15535_walkers_only: only a holder that walks as the Target phase begins (target.rs walking_now, no swing under way) keeps it; one still in its attack (or between swings, attack_ms > 0) lets it go and takes what the rescan finds, else its crown tower.",
+      "open": "The three kept (two within 4 of round sight: the client's sight measure at the boundary); a melee holder in its attack whose target leaves round sight (none measured); 16.402 (1 event, consistent).",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_walkers_only (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "target.rs decide (the hold past round sight, held_past_sight), selected by Calib::chase_hold_scope; tests/chase_hold_scope.rs."
+    },
     "CHASE_HOLD_PAST_LIMIT": {
       "value": "inside_only",
       "status": "measured",

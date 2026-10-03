@@ -1032,6 +1032,11 @@ pub struct Calib {
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AfterDeploy`.
     #[serde(default = "net_initial_cooldown_default")]
     pub net_initial_cooldown: NetInitialCooldown,
+    /// targeting.CHASE_HOLD_SCOPE (target.rs `decide`, the hold past round sight): which holders keep a troop target
+    /// past round sight when the rescan finds nothing in sight. Added after SNAPSHOT_FORMAT 20; the `default` is the old
+    /// arm, `EveryHolder`.
+    #[serde(default = "chase_hold_scope_default")]
+    pub chase_hold_scope: ChaseHoldScope,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2497,6 +2502,10 @@ fn walking_keep_reach_default() -> WalkingKeepReach {
 
 fn net_initial_cooldown_default() -> NetInitialCooldown {
     NetInitialCooldown::AfterDeploy
+}
+
+fn chase_hold_scope_default() -> ChaseHoldScope {
+    ChaseHoldScope::EveryHolder
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5153,6 +5162,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.CHASE_HOLD_SCOPE -- see target.rs `decide` (`held_past_sight`): which holders the hold past round sight
+    /// (targeting.CHASE_DROP_RANGE = client_sight_minus_1000) reaches.
+    ChaseHoldScope {
+        /// The engine's: every holder whose keep tests let its target go with the target past its round sight keeps it
+        /// when the rescan finds nothing in sight (a building past the chase-drop limit aside).
+        EveryHolder = "every_holder",
+        /// A holder still in its attack as the Target phase begins (`walking_now` false: its projectile hold ended by a
+        /// launch from beyond reach, `launched_beyond`) does not: it lets the target go and takes what the rescan finds,
+        /// or its crown tower. A walker keeps it, as before. Measured on client 15.535.29 (attack_leave_census.py,
+        /// every troop leaving its attack holding a troop past round sight with no other enemy in round sight): 16 of 19
+        /// let it go for a tower (9 past the chase-drop limit, 7 inside it), the three kept 2 and 4 past round sight and
+        /// a Ram Rider's; sp-form-RoyalHogs-evo-s0 t1268, a Musketeer that shot at an Evo Royal Hog from 7,263 (round
+        /// sight 7,000) took Blue's tower, where the engine chased the Hog.
+        Client15535WalkersOnly = "client15535_walkers_only",
+    }
+);
+calib_enum!(
     /// combat.NET_INITIAL_COOLDOWN -- see `evo_created` (the Evo Hunter's `NetRun`): the tick his net is first ready.
     NetInitialCooldown {
         /// The engine's: InitialCooldown after his deploy, creation + DeployTime + InitialCooldown (40 ticks at
@@ -7368,6 +7394,7 @@ impl Calib {
             soul_point_base: pick(&v, &["spawner", "SOUL_POINT_BASE", "value"], SoulPointBase::from_calibration_name)?,
             walking_keep_reach: pick(&v, &["targeting", "WALKING_KEEP_REACH", "value"], WalkingKeepReach::from_calibration_name)?,
             net_initial_cooldown: pick(&v, &["combat", "NET_INITIAL_COOLDOWN", "value"], NetInitialCooldown::from_calibration_name)?,
+            chase_hold_scope: pick(&v, &["targeting", "CHASE_HOLD_SCOPE", "value"], ChaseHoldScope::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -29663,6 +29690,9 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.CHASE_HOLD_SCOPE: Calib gained chase_hold_scope (serde default the old arm, every_holder), no
+///    new state (the hold reads the saved attack phase), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.NET_INITIAL_COOLDOWN: Calib gained net_initial_cooldown (serde default the old arm, after_deploy),
 ///    no new state (the arm sets a net run's ready tick at the Hunter's creation; a saved run keeps its own), so a blob
 ///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30587,6 +30617,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("walking_keep_reach".into(), serde_json::to_value(WalkingKeepReach::OwnRadius).map_err(|e| e.to_string())?);
     // combat.NET_INITIAL_COOLDOWN: a format-3 battle's Evo Hunters readied their nets after the deploy (the same rule).
     sh.insert("net_initial_cooldown".into(), serde_json::to_value(NetInitialCooldown::AfterDeploy).map_err(|e| e.to_string())?);
+    // targeting.CHASE_HOLD_SCOPE: a format-3 battle's holders kept a target past round sight in their attack too (the same rule).
+    sh.insert("chase_hold_scope".into(), serde_json::to_value(ChaseHoldScope::EveryHolder).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
