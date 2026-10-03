@@ -431,6 +431,11 @@ pub struct EvoHop {
 /// 1000): each next hit came 3 + ceil(hop / speed) ticks after the last, 16 hops of 420 to 3000.
 pub const CHAIN_HOP_WAIT_TICKS: u8 = 3;
 
+/// AN EVO ELECTRO DRAGON'S HOP after the first waits this many ticks on the unit it hit before its first step, under
+/// combat.EVO_CHAIN_HOP_WAIT = client15535_two_ticks (state.rs `EvoChainHopWait`). Measured on client 15.535.29: its track
+/// starts 2 ticks after the last one's landing, 67 of 77.
+pub const EVO_CHAIN_HOP_WAIT_TICKS: u8 = 2;
+
 /// THE NEXT TARGET OF A CHAINED SHOT (card.rs `ChainHitDef`): the closest enemy of `team` to unit `from`, centre to
 /// centre and within the chain's radius, that the shot has not hit: alive, visible, above the ground, in the air or on
 /// it as the shot hits (a crown tower included, as the default targets are). Ties by creation order.
@@ -2315,7 +2320,12 @@ pub fn step_projectiles(
                     let mut hit = c.hit[keep..].to_vec();
                     hit.push(next);
                     let n = e.n.saturating_add(1);
-                    let hop = ChainHop { left: c.left, radius: c.radius, hit, wait: 0, evo: Some(EvoHop { n, shot: e.shot }) };
+                    // combat.EVO_CHAIN_HOP_WAIT = client15535_two_ticks: every hop after the first waits on the unit hit.
+                    #[cfg(not(clash_plant = "evo_hop_at_once"))]
+                    let wait = if n >= 2 && calib.evo_chain_hop_wait == crate::state::EvoChainHopWait::Client15535TwoTicks { EVO_CHAIN_HOP_WAIT_TICKS } else { 0 };
+                    #[cfg(clash_plant = "evo_hop_at_once")]
+                    let wait = 0; // PLANT (regression): the new arm's hops fly at once, as the old one's do.
+                    let hop = ChainHop { left: c.left, radius: c.radius, hit, wait, evo: Some(EvoHop { n, shot: e.shot }) };
                     let mut q = Projectile { pos: ents.pos[ti], target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() };
                     if n >= u16::from(d.strong) {
                         q.speed = d.weak_speed * calib.projectile_speed_to_subtiles_per_tick;

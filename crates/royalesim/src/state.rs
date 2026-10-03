@@ -911,6 +911,10 @@ pub struct Calib {
     /// frame. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Targetable`.
     #[serde(default = "ghost_pair_first_frame_default")]
     pub ghost_pair_first_frame: GhostPairFirstFrame,
+    /// combat.EVO_CHAIN_HOP_WAIT (combat.rs `step_projectiles`): whether an Evo Electro Dragon's hops after the first wait
+    /// on the unit they hit before they fly. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AtOnce`.
+    #[serde(default = "evo_chain_hop_wait_default")]
+    pub evo_chain_hop_wait: EvoChainHopWait,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2264,6 +2268,10 @@ fn dash_chain_immunity_default() -> DashChainImmunity {
 
 fn ghost_pair_first_frame_default() -> GhostPairFirstFrame {
     GhostPairFirstFrame::Targetable
+}
+
+fn evo_chain_hop_wait_default() -> EvoChainHopWait {
+    EvoChainHopWait::AtOnce
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4751,6 +4759,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.EVO_CHAIN_HOP_WAIT -- see combat.rs `step_projectiles`: whether an Evo Electro Dragon's chain hops (card.rs
+    /// `EvoChainDef`) after the first wait on the unit they hit before they fly.
+    EvoChainHopWait {
+        /// The engine's: every hop flies from the unit hit on the tick after the hit.
+        AtOnce = "at_once",
+        /// The first hop flies at once; every later one waits EVO_CHAIN_HOP_WAIT_TICKS (2) on the unit its shot hit, then
+        /// flies (combat.rs `ChainHop::wait`, as a base chain's hop waits CHAIN_HOP_WAIT_TICKS). Measured on client
+        /// 15.535.29, every Evo Electro Dragon hop's track (Oracle's sp-f4-ed-s0, sp-f4-ed3-s0, sp-form-ElectroDragon-evo-
+        /// s0): 67 of the 77 tracks that followed a hop started 2 ticks after its landing (the rest are new shots and
+        /// their first hops, which start on the landing tick); the engine's hits came 2, 3, then 5 ticks early.
+        Client15535TwoTicks = "client15535_two_ticks",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6634,6 +6656,7 @@ impl Calib {
             shot_at_hiding_building: pick(&v, &["hide", "SHOT_AT_HIDING_BUILDING", "value"], ShotAtHidingBuilding::from_calibration_name)?,
             dash_chain_immunity: pick(&v, &["combat", "DASH_CHAIN_IMMUNITY", "value"], DashChainImmunity::from_calibration_name)?,
             ghost_pair_first_frame: pick(&v, &["targeting", "GHOST_PAIR_FIRST_FRAME", "value"], GhostPairFirstFrame::from_calibration_name)?,
+            evo_chain_hop_wait: pick(&v, &["combat", "EVO_CHAIN_HOP_WAIT", "value"], EvoChainHopWait::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -28355,6 +28378,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.EVO_CHAIN_HOP_WAIT: Calib gained evo_chain_hop_wait (serde default the old arm, at_once), no new
+///    state (the new arm writes the hop's saved ChainHop::wait), so a blob saved before it deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.GHOST_PAIR_FIRST_FRAME: Calib gained ghost_pair_first_frame (serde default the old arm,
 ///    targetable), no new state (the new arm writes the saved acquirable_from at the pair's spawn), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -29138,6 +29164,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_chain_immunity".into(), serde_json::to_value(DashChainImmunity::None).map_err(|e| e.to_string())?);
     // targeting.GHOST_PAIR_FIRST_FRAME: a format-3 battle ran no Evo Ghost (the same rule).
     sh.insert("ghost_pair_first_frame".into(), serde_json::to_value(GhostPairFirstFrame::Targetable).map_err(|e| e.to_string())?);
+    // combat.EVO_CHAIN_HOP_WAIT: a format-3 battle ran no Evo Electro Dragon (the same rule).
+    sh.insert("evo_chain_hop_wait".into(), serde_json::to_value(EvoChainHopWait::AtOnce).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

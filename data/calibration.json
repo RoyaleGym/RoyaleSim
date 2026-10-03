@@ -1887,6 +1887,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_whole_chain (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs fire_ability and chain_pass (entity.rs dash_immune_until), selected by Calib::dash_chain_immunity; tests/dash_chain_immunity.rs."
     },
+    "EVO_CHAIN_HOP_WAIT": {
+      "value": "at_once",
+      "status": "measured",
+      "candidates": ["at_once", "client15535_two_ticks"],
+      "confidence": "HIGH for client15535_two_ticks on client 15.535.29: 67 of 77 Evo Electro Dragon tracks that followed a hop started 2 ticks after its landing; the other 10 are new shots and their first hops (a chain's first hop starts on its shot's landing tick, which the engine already does). 16.402 unread (per client).",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's projectile tracks (Oracle's sp-f4-ed-s0, sp-f4-ed3-s0, sp-form-ElectroDragon-evo-s0; tools ed_hit_census.py and a gap count over the evolved dragon's tracks): a chain's first hop starts on its shot's landing tick, every later hop's track 2 ticks after the last one's landing (sp-f4-ed-s0: 1163 -> 1165, 1166 -> 1168, 1172 -> 1174, 1182 -> 1184 ...; sp-form-ElectroDragon-evo-s0: 716 -> 718, 725 -> 727), then flying at its speed. The engine's hops flew on the tick after the landing, so its hits came early by 2, 3 and 5 ticks over three hops in sp-form-ElectroDragon-evo-s0 (715 for 717, 723 for 726, 733 for 738). The base Electro Dragon's chain (combat.rs CHAIN_HOP_WAIT_TICKS, 3) matches already.",
+      "meaning": "at_once: the engine's; every evolved hop flies from the unit hit on the tick after the hit. client15535_two_ticks: the first hop flies at once; every later one waits EVO_CHAIN_HOP_WAIT_TICKS (2) on the unit hit, then flies (combat.rs ChainHop::wait).",
+      "open": "Why the first hop does not wait; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_two_ticks (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "combat.rs step_projectiles (the evolved hop's ChainHop::wait, EVO_CHAIN_HOP_WAIT_TICKS), selected by Calib::evo_chain_hop_wait; tests/evo_chain_hop_wait.rs."
+    },
     "PASS_KILL_CHASE": {
       "value": "start_of_pass",
       "status": "measured",
