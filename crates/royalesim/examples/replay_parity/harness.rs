@@ -1424,6 +1424,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   (every exact troop tie, 5 of 5).
 ///   hide.SHOT_AT_HIDING_BUILDING = client15535_lands: a shot fired at a Tesla while it was up lands on it after it goes
 ///   under (2 of 2).
+///   combat.DASH_CHAIN_IMMUNITY = client15535_whole_chain: a Golden Knight in his chain takes no hit (7 of 7 dropped).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1454,6 +1455,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.LOAD_FIRST_HIT_KILL_WAIT", "\"client15535_skipped\""),
     ("targeting.EQUAL_DISTANCE_TIE", "\"client15535_later_created\""),
     ("hide.SHOT_AT_HIDING_BUILDING", "\"client15535_lands\""),
+    ("combat.DASH_CHAIN_IMMUNITY", "\"client15535_whole_chain\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

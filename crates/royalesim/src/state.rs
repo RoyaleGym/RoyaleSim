@@ -903,6 +903,10 @@ pub struct Calib {
     /// lands once that building has gone under. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Dropped`.
     #[serde(default = "shot_at_hiding_building_default")]
     pub shot_at_hiding_building: ShotAtHidingBuilding,
+    /// combat.DASH_CHAIN_IMMUNITY (`fire_ability`, `chain_pass`): whether a dash chain (the Golden Knight's) makes its
+    /// champion immune to damage. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
+    #[serde(default = "dash_chain_immunity_default")]
+    pub dash_chain_immunity: DashChainImmunity,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2248,6 +2252,10 @@ fn load_first_hit_kill_wait_default() -> LoadFirstHitKillWait {
 
 fn shot_at_hiding_building_default() -> ShotAtHidingBuilding {
     ShotAtHidingBuilding::Dropped
+}
+
+fn dash_chain_immunity_default() -> DashChainImmunity {
+    DashChainImmunity::None
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4702,6 +4710,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_CHAIN_IMMUNITY -- see `BattleState::chain_pass`: whether a dash chain (card.rs `AbilityEffect::DashChain`,
+    /// the Golden Knight's) makes its champion immune to damage, as a dash does (combat.rs `resolve`, entity.rs
+    /// `dash_immune`).
+    DashChainImmunity {
+        /// The engine's: none; the chain's DashImmuneToDamageTime is not read.
+        None = "none",
+        /// From the press while the chain runs (every phase but the wait for a first target, Seek), and its
+        /// DashImmuneToDamageTime after its end, every hit on him is dropped. Measured on client 15.535.29, every shot
+        /// at a Golden Knight landing in his chain, 7 of 7 dropped (his pending damage gone, no hp lost: sp-champ-GK-empty
+        /// and -empty-knight t262, sp-champ-GoldenKnight-s0 t208, -delay20 t221, -delay40 t218, -delay60 t224), mid-dash
+        /// and in the pauses between dashes alike, and one landing on the tick after the chain's end (-delay60 t241);
+        /// no hit landed on him in it. The engine's took each (the four GoldenKnight scenes' first divergence: 217 off
+        /// him early, his death early).
+        Client15535WholeChain = "client15535_whole_chain",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6583,6 +6608,7 @@ impl Calib {
             cage_captive_shots: pick(&v, &["combat", "CAGE_CAPTIVE_SHOTS", "value"], CageCaptiveShots::from_calibration_name)?,
             load_first_hit_kill_wait: pick(&v, &["combat", "LOAD_FIRST_HIT_KILL_WAIT", "value"], LoadFirstHitKillWait::from_calibration_name)?,
             shot_at_hiding_building: pick(&v, &["hide", "SHOT_AT_HIDING_BUILDING", "value"], ShotAtHidingBuilding::from_calibration_name)?,
+            dash_chain_immunity: pick(&v, &["combat", "DASH_CHAIN_IMMUNITY", "value"], DashChainImmunity::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -17203,6 +17229,23 @@ impl BattleState {
                 self.ents.target[c.id.index as usize] = Some(t).filter(|t| self.ents.is_alive(*t));
             }
         }
+        // combat.DASH_CHAIN_IMMUNITY = client15535_whole_chain: immune while the chain runs past its wait for a first
+        // target, and DashImmuneToDamageTime after its end, as a dash's end leaves it (`end_dashes`).
+        if self.chain_immune() {
+            let tk = self.cfg.calib.tick_ms.max(1);
+            for c in &runs {
+                let i = c.id.index as usize;
+                if ended.contains(&c.id) {
+                    let ms = match self.cfg.cards.get(self.ents.card[i]).ability.as_ref().map(|a| &a.effect) {
+                        Some(crate::card::AbilityEffect::DashChain { immune_ms, .. }) => immune_ms.unwrap_or(0),
+                        _ => 0,
+                    };
+                    self.ents.dash_immune_until[i] = if c.phase == ChainPhase::Seek { 0 } else { tick + (ms / tk) as u32 };
+                } else if c.phase != ChainPhase::Seek {
+                    self.ents.dash_immune_until[i] = u32::MAX;
+                }
+            }
+        }
         runs.retain(|c| !ended.contains(&c.id));
         // combat.DASH_CHAIN_END = client15535_no_target_two_ticks: the chain's end drops the target, and the post-kill
         // wait's counter holds the champion with none through the next Target phase (H + 3); the one after (H + 4)
@@ -17251,6 +17294,14 @@ impl BattleState {
             }
         }
         self.chains = runs;
+    }
+
+    /// combat.DASH_CHAIN_IMMUNITY = client15535_whole_chain (`DashChainImmunity`).
+    fn chain_immune(&self) -> bool {
+        #[cfg(not(clash_plant = "chain_not_immune"))]
+        return self.cfg.calib.dash_chain_immunity == DashChainImmunity::Client15535WholeChain;
+        #[cfg(clash_plant = "chain_not_immune")]
+        false // PLANT (regression): the new arm's chain leaves him open to every hit.
     }
 
     fn land_dash_blows(&mut self, blows: Vec<(usize, Option<EntityId>, Vec2)>) {
@@ -25225,6 +25276,10 @@ impl BattleState {
                 self.chains.push(ChainRun { id: hero, phase, mark: self.tick, target, hit: Vec::new(), left: count });
                 if target.is_some() {
                     self.ents.target[i] = target;
+                    // combat.DASH_CHAIN_IMMUNITY = client15535_whole_chain: immune from the press row (`chain_immune`).
+                    if self.chain_immune() {
+                        self.ents.dash_immune_until[i] = u32::MAX;
+                    }
                 }
                 let _ = (team, level, pos);
             }
@@ -28263,6 +28318,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_CHAIN_IMMUNITY: Calib gained dash_chain_immunity (serde default the old arm, none), no new
+///    state (the new arm writes the saved dash_immune_until a dash already writes), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, hide.SHOT_AT_HIDING_BUILDING: Calib gained shot_at_hiding_building (serde default the old arm, dropped),
 ///    no new state (the new arm reads the saved projectiles' targets at their landing), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -29036,6 +29094,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("load_first_hit_kill_wait".into(), serde_json::to_value(LoadFirstHitKillWait::Waits).map_err(|e| e.to_string())?);
     // hide.SHOT_AT_HIDING_BUILDING: a format-3 battle's hidden buildings took no hit (the old arm).
     sh.insert("shot_at_hiding_building".into(), serde_json::to_value(ShotAtHidingBuilding::Dropped).map_err(|e| e.to_string())?);
+    // combat.DASH_CHAIN_IMMUNITY: a format-3 battle's chains made no one immune (the old arm).
+    sh.insert("dash_chain_immunity".into(), serde_json::to_value(DashChainImmunity::None).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

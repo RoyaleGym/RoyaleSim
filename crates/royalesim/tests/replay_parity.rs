@@ -960,7 +960,7 @@ fn an_evo_goblin_barrels_decoy_dummies_are_rooted_to_the_goblin_barrel() {
 /// 16.402 runs the ledger's whole_tick; a run that overrides the key runs its override. Plant: replay_client_arms_unread.
 #[test]
 fn a_capture_runs_its_clients_own_mechanics() {
-    use royalesim::state::{Calib, ChaseHoldPastLimit, DeathDamageTick, DoomedOwnUpdate, DyingUnitVisibility, EvoCopyCount, ContainerBurstPush, AvoidanceObstacleTag, HeldFacing, HeldUnitAvoidance, IllegalTroopTap, KamikazeDeathContact, LoadFirstHitLeave, RandomDelayStream, DeathRingAxis, PassKillChase, KnockedDoomedAvoidance, TroopDeathPushback, StruckContactOrder, FallGrounding, CageCaptiveShots, LoadFirstHitKillWait, EqualDistanceTie, ShotAtHidingBuilding, KnockedTargetHold, LadderEndRoute, LaunchPastTarget, RelocationTieOrder, SlapFlightTargetability, TickOrder};
+    use royalesim::state::{Calib, ChaseHoldPastLimit, DeathDamageTick, DoomedOwnUpdate, DyingUnitVisibility, EvoCopyCount, ContainerBurstPush, AvoidanceObstacleTag, HeldFacing, HeldUnitAvoidance, IllegalTroopTap, KamikazeDeathContact, LoadFirstHitLeave, RandomDelayStream, DeathRingAxis, PassKillChase, KnockedDoomedAvoidance, TroopDeathPushback, StruckContactOrder, FallGrounding, CageCaptiveShots, LoadFirstHitKillWait, EqualDistanceTie, ShotAtHidingBuilding, DashChainImmunity, KnockedTargetHold, LadderEndRoute, LaunchPastTarget, RelocationTieOrder, SlapFlightTargetability, TickOrder};
     let none = std::collections::BTreeMap::new();
     assert_eq!(Calib::shipped().dying_unit_visibility, DyingUnitVisibility::WholeTick, "the ledger ships whole_tick; this test reads a client that differs");
     assert_eq!(Calib::shipped().tick_order, TickOrder::Client16402, "the ledger ships client16402; this test reads a client that differs");
@@ -1001,6 +1001,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.load_first_hit_kill_wait, LoadFirstHitKillWait::Client15535Skipped, "a 15.535.29 capture's Sparky serves no post-kill wait");
     assert_eq!(cfg.calib.equal_distance_tie, EqualDistanceTie::Client15535LaterCreated, "a 15.535.29 capture's tie goes to the later created");
     assert_eq!(cfg.calib.shot_at_hiding_building, ShotAtHidingBuilding::Client15535Lands, "a 15.535.29 capture's shot lands on a Tesla gone under");
+    assert_eq!(cfg.calib.dash_chain_immunity, DashChainImmunity::Client15535WholeChain, "a 15.535.29 capture's Golden Knight is immune in his chain");
     assert!(notes.iter().any(|n| n.contains("DYING_UNIT_VISIBILITY")), "the notes do not name the client's arm: {notes:?}");
     assert!(notes.iter().any(|n| n.contains("TICK_ORDER")), "the notes do not name the client's tick order: {notes:?}");
     let mut new = sample();
@@ -1034,6 +1035,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.load_first_hit_kill_wait, LoadFirstHitKillWait::Waits, "a 16.402 capture");
     assert_eq!(cfg.calib.equal_distance_tie, EqualDistanceTie::OwnFrameHighX, "a 16.402 capture");
     assert_eq!(cfg.calib.shot_at_hiding_building, ShotAtHidingBuilding::Dropped, "a 16.402 capture");
+    assert_eq!(cfg.calib.dash_chain_immunity, DashChainImmunity::None, "a 16.402 capture");
     let mut ov = std::collections::BTreeMap::new();
     ov.insert("match.TICK_ORDER".to_string(), "\"client16402\"".to_string());
     let cfg = config_for_with(&old, common::cards(), None, &ov).unwrap().0;

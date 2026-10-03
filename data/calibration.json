@@ -1865,6 +1865,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_skipped (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_target (the post-kill wait's clause (d)), selected by Calib::load_first_hit_kill_wait; tests/load_first_hit_kill_wait.rs."
     },
+    "DASH_CHAIN_IMMUNITY": {
+      "value": "none",
+      "status": "measured",
+      "candidates": ["none", "client15535_whole_chain"],
+      "confidence": "HIGH for client15535_whole_chain on client 15.535.29: 7 of 7 shots landing on a Golden Knight in his chain dropped, no hit landed in it, one after its end dropped. The end's DashImmuneToDamageTime (100) read from the table, its last tick unmeasured. 16.402 unread (per client).",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's raw frames (every Golden Knight press scene, Oracle's sp-champ-GK-* and sp-champ-GoldenKnight-*): in his chain (behaviour state 3, from the press row to its end: dashes, landings, the pauses before the next dash) every shot due on him came to nothing, his pending damage gone and no hp lost: sp-champ-GK-empty-s0 and -empty-knight-s0 t262 (109), sp-champ-GoldenKnight-s0 t208 (a Musketeer's 217, in a pause between dashes), -delay20 t221 and -delay40 t218 (217 each, mid-dash), -delay60 t224 (217, in a pause), and -delay60 t241, the first tick after the chain (state 1); no hit landed on him in state 3. The engine took each (the four GoldenKnight scenes' first divergence: 217 off him early, then his death early); its chain read no immunity, the table's DashImmuneToDamageTime 100 (card.rs DashChain::immune_ms) unread.",
+      "meaning": "none: the engine's; the chain makes him immune to nothing. client15535_whole_chain: every hit on him is dropped from the press row while the chain runs past its wait for a first target (Seek), and for DashImmuneToDamageTime after its end (entity.rs dash_immune, as a dash's).",
+      "open": "The wait for a first target (Seek: no hit measured there); the immunity's last tick after the end (100 ms read from the table); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_whole_chain (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs fire_ability and chain_pass (entity.rs dash_immune_until), selected by Calib::dash_chain_immunity; tests/dash_chain_immunity.rs."
+    },
     "PASS_KILL_CHASE": {
       "value": "start_of_pass",
       "status": "measured",
