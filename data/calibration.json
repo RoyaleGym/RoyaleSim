@@ -2147,6 +2147,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_rounded_square (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "combat.rs straight_hits (`square`, `reached`), selected by Calib::straight_shot_building_reach; tests/pellet_building_reach.rs."
     },
+    "DIRECT_HIT_BUFF_COUNTDOWN": {
+      "value": "resolve_landing",
+      "candidates": ["resolve_landing", "client15535_landing_tick"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_landing_tick on client 15.535.29: 17 of 17 Electro Wizard zaps on crown towers in three scenes, against the projectile's 10 measured beside them; the Electro Wizard is the only instant hit carrying a buff in the tables read; 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on every client 15.535.29 scenario truth (tools/stun_freeze_census.py): a crown tower's attack_progress_ms that advanced into the tick its hp dropped and then stood still. After an Electro Wizard's zap (an instant hit: no projectile; its BuffOnDamage ZapFreeze, 500 ms) it stood 9 ticks, 17 of 17 (mech-inferno-ewiz-s0 and -s1, 6 each; sweep-TriWizards' Electro Wizard on Red's left princess tower). After the Electro Dragon's projectile (the same 500 ms) it stood 10 (sp-form-ElectroDragon-evo-s0, sp-chain-ElectroDragon-tower-s0, which the engine scores at the bar), and a Zap's 10, as status.BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick has them: a hold landing in Resolve after the tick's countdown. sweep-TriWizards: Red's tower, zapped on t389, retook the Electro Wizard and advanced its counter on t399 in the client, on t400 in the engine; at each zap the engine's counter fell 50 further behind (150 by t436), so its shot that killed the Tri Wizard on t463 came 3 ticks late (that scene's first divergence, t463). A hold landing during the attacker's turn and counted down in that tick's Resolve holds one tick fewer, as the engine already lands the Electro Giant's reflected stun (reflect_melee_hit). Overridden to status.BUFF_EXPIRY_TICK_ALIGNMENT = one_tick_short (every hold a tick shorter) the scene is exact, but the projectile's and the Zap's 10 refute that arm for 15.535.29.",
+      "meaning": "resolve_landing: the engine's; the buff an instant hit lands (the melee entry, the single-target hit, its extra bolts, an instant splash) is queued with its whole BuffTime and lands in Resolve after the tick's countdown, as a projectile's buff does on its arrival tick: a D-ms hold on tick N holds N+1 .. N+ceil(D / 50). client15535_landing_tick: it is counted down on its landing tick (queued with BuffTime less one tick), as a hold landing in the attacker's turn is: N+1 .. N+ceil(D / 50) - 1. A projectile's buff is unchanged under both.",
+      "open": "A troop victim's freeze (the census reads crown towers); other instant hits carrying a buff (none in the tables read); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_landing_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "combat.rs (`direct_buff`, beside `atk_buff`), selected by Calib::direct_hit_buff_countdown; tests/direct_hit_buff_countdown.rs."
+    },
     "SPIN_BEGIN": {
       "value": "press_tick",
       "candidates": ["press_tick", "client15535_next_tick"],

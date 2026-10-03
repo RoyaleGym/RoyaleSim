@@ -1014,6 +1014,11 @@ pub struct Calib {
     /// 20; the `default` is the old arm, `DropTick`.
     #[serde(default = "chase_rescan_pass_over_default")]
     pub chase_rescan_pass_over: ChaseRescanPassOver,
+    /// combat.DIRECT_HIT_BUFF_COUNTDOWN (combat.rs, an instant hit's buff): whether the buff an instant hit lands (no
+    /// projectile carries it) is counted down on its landing tick. Added after SNAPSHOT_FORMAT 20; the `default` is the old
+    /// arm, `ResolveLanding`.
+    #[serde(default = "direct_hit_buff_countdown_default")]
+    pub direct_hit_buff_countdown: DirectHitBuffCountdown,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2463,6 +2468,10 @@ fn chain_landed_body_default() -> ChainLandedBody {
 
 fn chase_rescan_pass_over_default() -> ChaseRescanPassOver {
     ChaseRescanPassOver::DropTick
+}
+
+fn direct_hit_buff_countdown_default() -> DirectHitBuffCountdown {
+    DirectHitBuffCountdown::ResolveLanding
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5119,6 +5128,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DIRECT_HIT_BUFF_COUNTDOWN -- see combat.rs (`direct_buff`): how long the buff an INSTANT hit lands (an
+    /// attack no projectile carries: the Electro Wizard's BuffOnDamage ZapFreeze, 500 ms) holds its victim.
+    DirectHitBuffCountdown {
+        /// The engine's: it lands in Resolve after the tick's countdown (status.BUFF_EXPIRY_TICK_ALIGNMENT =
+        /// ceil_from_next_tick), as a projectile's does: a D-ms hold on tick N holds N+1 .. N+ceil(D / 50).
+        ResolveLanding = "resolve_landing",
+        /// It lands in the attacker's turn and is counted down on that tick, as the Electro Giant's reflected stun is:
+        /// one tick fewer, N+1 .. N+ceil(D / 50) - 1. Measured on client 15.535.29 (stun_freeze_census.py, a crown
+        /// tower's attack counter after a hit): the Electro Wizard's zaps freeze it 9 ticks, 17 of 17 (mech-inferno-
+        /// ewiz-s0 and -s1, sweep-TriWizards), where the Electro Dragon's projectile freezes it 10 (sp-chain-
+        /// ElectroDragon-tower-s0, at the bar under either arm); sweep-TriWizards' Electro Wizard: Red's tower retook it
+        /// on t399 after a zap on t389, the engine on t400, and its shots fell 50 further behind at each zap.
+        Client15535LandingTick = "client15535_landing_tick",
+    }
+);
+calib_enum!(
     /// targeting.CHASE_RESCAN_PASS_OVER -- see target.rs `scan_with`: under targeting.CHASE_DROP_WALKING_AWAY =
     /// client15535_growing_away, which rescans pass over an enemy troop past the chase-drop limit that the unit did not
     /// just let go (that one stays barred under every arm).
@@ -7268,6 +7293,7 @@ impl Calib {
             first_step_dying_contact: pick(&v, &["spawner", "FIRST_STEP_DYING_CONTACT", "value"], FirstStepDyingContact::from_calibration_name)?,
             chain_landed_body: pick(&v, &["movement", "CHAIN_LANDED_BODY", "value"], ChainLandedBody::from_calibration_name)?,
             chase_rescan_pass_over: pick(&v, &["targeting", "CHASE_RESCAN_PASS_OVER", "value"], ChaseRescanPassOver::from_calibration_name)?,
+            direct_hit_buff_countdown: pick(&v, &["combat", "DIRECT_HIT_BUFF_COUNTDOWN", "value"], DirectHitBuffCountdown::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -29540,6 +29566,9 @@ impl BattleState {
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DIRECT_HIT_BUFF_COUNTDOWN: Calib gained direct_hit_buff_countdown (serde default the old arm,
+///    resolve_landing), no new state (the new arm shortens a buff as it is queued), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.CHASE_RESCAN_PASS_OVER: Calib gained chase_rescan_pass_over (serde default the old arm,
 ///    drop_tick); Entities gained chase_lane_walk (`default`, sized on load at false), written and hashed under the new
 ///    arm alone, so a blob saved before them deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
@@ -30444,6 +30473,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chain_landed_body".into(), serde_json::to_value(ChainLandedBody::LandedBody).map_err(|e| e.to_string())?);
     // targeting.CHASE_RESCAN_PASS_OVER: a format-3 battle's chase drops were read at another arm altogether (the same rule).
     sh.insert("chase_rescan_pass_over".into(), serde_json::to_value(ChaseRescanPassOver::DropTick).map_err(|e| e.to_string())?);
+    // combat.DIRECT_HIT_BUFF_COUNTDOWN: a format-3 battle's instant hits landed their buffs in Resolve (the same rule).
+    sh.insert("direct_hit_buff_countdown".into(), serde_json::to_value(DirectHitBuffCountdown::ResolveLanding).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

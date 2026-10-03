@@ -46,7 +46,7 @@ use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
     AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, RandomDelayStream, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
-    ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, StraightShotBuildingReach, TargetBuffScope, VariableDamage,
+    ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, StraightShotBuildingReach, DirectHitBuffCountdown, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
@@ -1107,6 +1107,15 @@ pub fn fire(
     // ATTACKER's level-scaled figure, computed once, because the victim does not know
     // the attacker's level.
     let atk_buff = card.attack_buff;
+    // combat.DIRECT_HIT_BUFF_COUNTDOWN = client15535_landing_tick: the buff an INSTANT hit lands (below: the melee entry,
+    // the single-target hit, its extra bolts, the instant splash) is counted down on its landing tick, as one landing in
+    // the attacker's turn is; a projectile carries `atk_buff` whole to its arrival.
+    // PLANT (regression) direct_hit_buff_full_time: the new arm's instant hit still lands its whole time.
+    #[cfg(not(clash_plant = "direct_hit_buff_full_time"))]
+    let landing_tick = calib.direct_hit_buff_countdown == DirectHitBuffCountdown::Client15535LandingTick;
+    #[cfg(clash_plant = "direct_hit_buff_full_time")]
+    let landing_tick = false;
+    let direct_buff = atk_buff.map(|b| if landing_tick { BuffApply { time_ms: (b.time_ms - calib.tick_ms).max(0), ..b } } else { b });
     let atk_pulse = match atk_buff {
         None => 0,
         // An unscalable level falls back to the level-1 figure, as before
@@ -1214,7 +1223,7 @@ pub fn fire(
         if melee_chosen(ents, a, ti, sel) {
             let amount = cards.scaled(ents.card[a], ents.level[a], sel.melee_damage).expect("level validated at spawn");
             dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false });
-            if let Some(b) = atk_buff {
+            if let Some(b) = direct_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
             return;
@@ -1531,7 +1540,7 @@ pub fn fire(
             let from = dmg.hits.len();
             splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
             add_splash_bonus(ents, calib, &mut dmg.hits[from..], direct, target);
-            apply_attack_buff(ents, calib, atk_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
+            apply_attack_buff(ents, calib, direct_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
         }
     } else {
         // combat.HIT_BEYOND_CANCEL_RANGE = no_damage: a single-target direct hit whose target stands more than
@@ -1547,7 +1556,7 @@ pub fn fire(
         let void = false; // PLANT (regression): the far hit deals its full damage under the new arm too.
         if !void {
             dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false });
-            if let Some(b) = atk_buff {
+            if let Some(b) = direct_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
             // knockback.COMBO_PUSHBACK = client15535_ladder_from_attacker_hit_tick: a combo hit whose entry carries a
@@ -1580,7 +1589,7 @@ pub fn fire(
             }
             let bi = b.index as usize;
             dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding) + direct.on(ents.kind[bi]), ignores_hide: false, own: false });
-            if let Some(bf) = atk_buff {
+            if let Some(bf) = direct_buff {
                 fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
             }
         }
