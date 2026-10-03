@@ -1203,6 +1203,12 @@ pub struct TraceRow {
     /// turn the other way from identical positions, and the trace could not say why. Its own field, like `push`: absent
     /// is not zero.
     pub heading: Option<[i64; 3]>,
+    /// THE SIM'S ATTACK CLOCKS after this tick: its attack progress and its load timer (`EntityView::attack_ms`,
+    /// `attack_load_ms`). The recording carries the client's (`attack_progress_ms`, `attack_load_timer_ms`), so a reader
+    /// can tell on which tick each engine's swing started and fired (sp-f4-ed-s0: the evolved Electro Dragon's shots one
+    /// tick early from identical positions, which the trace could not place). Its own field, like `push`: absent is not
+    /// zero.
+    pub attack: Option<[i64; 2]>,
 }
 
 /// Which unit card (summon_only) each spawning card puts out, for rooting.
@@ -1839,6 +1845,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                             push_neighbours: e.push_neighbours,
                             facing: e.facing,
                             avoid: e.avoid_offset,
+                            attack: [e.attack_ms, e.attack_load_ms],
                         },
                     )
                 })
@@ -2126,7 +2133,8 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let push = sim_row.map(|r| [r.push.x as i64, r.push.y as i64, r.push_neighbours as i64]);
                 let radius = sim_row.map(|r| r.radius);
                 let heading = sim_row.map(|r| [r.facing.x as i64, r.facing.y as i64, r.avoid as i64]);
-                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist, heading });
+                let attack = sim_row.map(|r| [r.attack[0] as i64, r.attack[1] as i64]);
+                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist, heading, attack });
             }
             match (truth_row, sim_row) {
                 (Some(tr), Some(sr)) => {
@@ -2335,6 +2343,8 @@ pub struct Snap {
     /// The heading and the avoidance offset after the tick (`EntityView::facing`, `avoid_offset`).
     facing: Vec2,
     avoid: i32,
+    /// The attack progress and the load timer after the tick (`EntityView::attack_ms`, `attack_load_ms`).
+    attack: [i32; 2],
 }
 
 // ---------------------------------------------------------------------------
