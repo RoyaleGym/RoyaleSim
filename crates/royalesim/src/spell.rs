@@ -166,6 +166,8 @@ pub struct Release {
     pub pos: Vec2,
     pub deploy_ms: Option<i32>,
     pub count: i32,
+    /// The spell's card, the released units' producer (entity.rs `source`).
+    pub source: u16,
 }
 
 /// An area effect a landing object leaves where it lands: cast at `pos` under `card`'s
@@ -1594,7 +1596,7 @@ fn release_units(ctx: &SpellCtx, team: Team, card: u16, level: i32, sp: &SpawnDe
         let count = sp.count;
         #[cfg(clash_plant = "spawn_count_one")]
         let count = 1; // PLANT: SpawnCharacterCount ignored.
-        released.push(Release { team, unit: sp.unit, level, pos: at, deploy_ms, count });
+        released.push(Release { team, unit: sp.unit, level, pos: at, deploy_ms, count, source: card });
     }
 }
 

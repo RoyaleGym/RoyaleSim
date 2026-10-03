@@ -115,7 +115,11 @@
 //!     level, a Mirror's copy that plus one, a Clone's copy the level spells.CLONE_LEVEL gives it (the Clone's), a
 //!     unit another puts down its parent's, a crown tower its tower level. `unit_hitpoints(card_id, level)` lists
 //!     every unit a card puts on the board as (role, unit name, hitpoints) at the level each takes, the card's own
-//!     row first; the roles are UNIT_ROLES (`unit_hitpoint_rows` says which block is which).
+//!     row first; the roles are UNIT_ROLES (`unit_hitpoint_rows` says which block is which). An entity row's `card_id`
+//!     is the card whose play put the unit down, all the way down its chain: a Tombstone's Skeletons report the
+//!     Tombstone and a Witch's the Witch, the Tri-Wizards' Electro and Ice Wizards the Tri-Wizards. A unit whose
+//!     producer has no id in this catalogue reports the first catalogue card that can make it (`ids_of_indices`).
+//!     A projectile's `firer_card_id` stays the firing unit's own card.
 //!
 //! WHAT IT CANNOT DO (raises instead of guessing)
 //!     `crowns_from_destroyed_towers = false` (crowns are derived from destroyed
@@ -1032,7 +1036,13 @@ pub fn state_json_text(
         let tower_k = ids[ti].iter().position(|t| *t == Some(e.id));
         let (card_id, slot) = match tower_k {
             Some(k) => (-1, slot_of_k[ti][k]),
-            None => (id_of_idx[e.card_idx as usize], -1),
+            // THE PRODUCING CARD (entity.rs `source`): a unit reports the card whose play put it down, so a
+            // Tombstone's Skeletons report the Tombstone, not the first card that can make a Skeleton. The static
+            // first-producer id (`ids_of_indices`) where the producer has no id in this catalogue.
+            None => match id_of_idx.get(e.source as usize).copied() {
+                Some(by) if by >= 0 => (by, -1),
+                _ => (id_of_idx[e.card_idx as usize], -1),
+            },
         };
         // uid: the entity's spawn ordinal within its team, interleaved by team.
         // Never reused (team counters only grow) and equal for mirror twins up
@@ -2343,6 +2353,64 @@ mod tests {
         let spells = v["spells"].as_array().unwrap();
         assert!(spells.iter().any(|r| r[1] == catalogue.iter().position(|i| db.get(*i).name == "Fireball").unwrap() as i64 && r[2] == 0), "the Fireball in flight is not reported: {spells:?}");
         assert_eq!(catalogue_violation(&reload(&db, &s), &ids), Ok(()), "a Goblin on the board is covered by its barrel's id");
+    }
+
+    #[test]
+    fn a_unit_reports_the_card_whose_play_put_it_down() {
+        // THE PRODUCING CARD (entity.rs `source`): one unit type several cards make reports the card that made it, not
+        // the first catalogue card that can (`ids_of_indices`, which gives every Skeleton the Witch's id and every
+        // Barbarian the Battle Ram's). A Tombstone's Skeletons, through its waves and its death, against a red
+        // Witch's;
+        // a Barbarian Hut's Barbarians; the Tri-Wizards' Electro and Ice Wizards, which are cards of their own; a
+        // Firespirit Hut's spirits; the Goblin Drill's Goblins (the Goblin Barrel's by the static table).
+        let db = cards();
+        let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).name != KING_TOWER && db.get(*i).name != PRINCESS_TOWER && !db.get(*i).summon_only).collect();
+        let ids = ids_of_indices(&db, &catalogue);
+        let id = |n: &str| catalogue.iter().position(|i| db.get(*i).name == n).unwrap_or_else(|| panic!("{n} not in the catalogue")) as i64;
+        let unit = |n: &str| db.cards.iter().position(|c| c.name == n).unwrap_or_else(|| panic!("no {n} row"));
+        assert_eq!(ids[unit("Skeleton")], id("Witch") as i32, "the static table this test is about: a Skeleton is the Witch's");
+        let mut s = battle(&db, &["Knight", "Archer", "Knight", "Archer", "Giant", "Knight", "Archer", "Knight"]);
+        let at = |x: i32, y: i32| Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(y));
+        for (card, x, y) in [("Tombstone", 3, 5), ("BarbarianHut", 14, 7), ("TriWizards", 9, 3), ("FirespiritHut", 3, 9), ("GoblinDrill", 9, 22)] {
+            s.spawn_unit(Team::Blue, card, at(x, y), None).unwrap_or_else(|e| panic!("{card}: {e:?}"));
+        }
+        s.spawn_unit(Team::Red, "Witch", at(14, 28), None).unwrap();
+        let mut seen: BTreeMap<(u8, String), std::collections::BTreeSet<i64>> = BTreeMap::new();
+        let tombstone_dead = |s: &BattleState| !s.entities().any(|e| e.card == "Tombstone");
+        let mut after_tomb = 0;
+        for t in 0..2000 {
+            s.tick();
+            if t % 5 == 0 || tombstone_dead(&s) {
+                let v: serde_json::Value = serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
+                let rows = v["entities"].as_array().unwrap();
+                let views: Vec<_> = s.entities().collect();
+                assert_eq!(rows.len(), views.len());
+                for (r, e) in rows.iter().zip(&views) {
+                    seen.entry((e.team as u8, e.card.to_string())).or_default().insert(r[3].as_i64().unwrap());
+                }
+            }
+            if tombstone_dead(&s) {
+                after_tomb += 1;
+                if after_tomb > 20 {
+                    break;
+                }
+            }
+        }
+        assert!(tombstone_dead(&s), "the Tombstone outlived the run");
+        let got = |n: &str| seen.get(&(Team::Blue as u8, n.to_string())).cloned().unwrap_or_default();
+        let want = |ns: &[&str]| ns.iter().map(|n| id(n)).collect::<std::collections::BTreeSet<i64>>();
+        assert_eq!(got("Skeleton"), want(&["Tombstone"]), "the Tombstone's Skeletons, its death's among them: {seen:?}");
+        assert_eq!(seen.get(&(Team::Red as u8, "Skeleton".to_string())), Some(&want(&["Witch"])), "the red Witch's: {seen:?}");
+        assert_eq!(got("Barbarian"), want(&["BarbarianHut"]), "{seen:?}");
+        assert_eq!(got("ElectroWizard"), want(&["TriWizards"]), "{seen:?}");
+        assert_eq!(got("IceWizard"), want(&["TriWizards"]), "{seen:?}");
+        assert_eq!(got("FireSpirits"), want(&["FirespiritHut"]), "{seen:?}");
+        assert_eq!(got("Goblin"), want(&["GoblinDrill"]), "{seen:?}");
+        // A snapshot keeps the producer.
+        let v: serde_json::Value = serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
+        let back = reload(&db, &s);
+        let again: serde_json::Value = serde_json::from_str(&state_json_text(&back, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
+        assert_eq!(again["entities"], v["entities"], "a reloaded battle reports the same cards");
     }
 
     fn battle(db: &Arc<CardDb>, deck: &[&str]) -> BattleState {

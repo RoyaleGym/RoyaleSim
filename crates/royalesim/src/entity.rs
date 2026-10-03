@@ -505,6 +505,15 @@ pub struct Entities {
     /// The spawner that emitted this unit, for SpawnLimit (count of live units it
     /// owns). None for a deploy, a spell release and a death spawn.
     pub spawned_by: Vec<Option<EntityId>>,
+    /// THE PRODUCING CARD (a `CardDb` index), for DISPLAY: the card whose play put this entity on the board, down
+    /// its whole chain -- a Tombstone's Skeletons and its death Skeletons, a Barbarian Hut's Barbarians, the Goblin
+    /// Drill's Goblins, the Tri-Wizards' Electro and Ice Wizards, the Barbarian Barrel's Barbarian (state.rs
+    /// `spawn_with`, which takes it from `BattleState::spawn_source`). Its own card on a deployed unit and on
+    /// anything nothing passed a producer to. Read by the bindings' card label alone (py.rs `state_json_text`):
+    /// not hashed, and no rule reads it. `default` and sized on load with NO_CARD, which reads as its own card
+    /// (`producer`).
+    #[serde(default)]
+    pub source: Vec<u16>,
     /// CHARGE (card.rs `ChargeDef`; state.rs `charge_pass`, Move phase, after
     /// separation): the run-up accumulated so far, in the unit calibration
     /// charge.ACCUMULATOR selects (subtiles of locomotion, or ms of moving ticks).
@@ -887,6 +896,7 @@ impl Entities {
             self.spawn_ms[i] = 0;
             self.spawn_wave_left[i] = 0;
             self.spawned_by[i] = None;
+            self.source[i] = s.card;
             self.charge_progress[i] = 0;
             self.charged[i] = false;
             self.move_frac[i] = Vec2::default();
@@ -986,6 +996,7 @@ impl Entities {
             self.spawn_ms.push(0);
             self.spawn_wave_left.push(0);
             self.spawned_by.push(None);
+            self.source.push(s.card);
             self.charge_progress.push(0);
             self.charged.push(false);
             self.move_frac.push(Vec2::default());
@@ -1018,7 +1029,7 @@ impl Entities {
     /// THE IN-PLACE TRANSFORMATION (state.rs `rebind_unit`): entity `i` takes the new row's columns (`RebindInit`) and
     /// stays the same entity. Every column is on one of three lists, and a column added to `Entities` must join one:
     ///   KEPT, what makes it the same entity: generation, alive, team, level, team_seq, spawn_tick, creation_seq, pos,
-    ///     hp, max_hp, shield, buffs, stun_ms, retarget_on_resume, spawned_by, spawn_lane, lane_window_end, facing,
+    ///     hp, max_hp, shield, buffs, stun_ms, retarget_on_resume, spawned_by, source, spawn_lane, lane_window_end, facing,
     ///     acquirable_from, reveal_from, parry_ms (0 on both rows: the loader refuses a transformation into a row with
     ///     a counter, and a row with a counter carries no other action block), idle_back (0 on both rows: the loader
     ///     refuses a transformation into a row with an idle buff, and the Super Knight transforms into nothing), tunnel_dest (None: a units row that
@@ -1108,6 +1119,14 @@ impl Entities {
         self.chase_dropped[i] = None;
         self.chase_inside[i] = None;
         self.attack_seq[i] = 0;
+    }
+
+    /// The card whose play put entity `i` on the board (`source`), its own card where none was recorded.
+    pub fn producer(&self, i: usize) -> u16 {
+        match self.source.get(i).copied() {
+            Some(c) if c != u16::MAX => c,
+            _ => self.card[i],
+        }
     }
 
     /// Largest collision radius among live entities (bounds neighbour queries).

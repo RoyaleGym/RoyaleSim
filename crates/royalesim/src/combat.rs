@@ -2363,7 +2363,7 @@ pub fn step_projectiles(
         if let Some((card, level)) = p.release {
             if let Some(ss) = cards.get(card).evo.as_ref().and_then(|v| v.shot_spawn) {
                 let lvl = cards.unit_level(card, ss.unit.unit, None, level).expect("the shot's unit's level validated at deploy");
-                units.push(crate::spell::Release { team: p.team, unit: ss.unit.unit, level: lvl, pos: p.aim, deploy_ms: Some(ss.deploy_ms), count: 1 });
+                units.push(crate::spell::Release { team: p.team, unit: ss.unit.unit, level: lvl, pos: p.aim, deploy_ms: Some(ss.deploy_ms), count: 1, source: card });
             }
         }
         // THE EVO PRINCESS'S FREEZING ARROW (card.rs `FreezeVolleyDef`): its area where it landed, standing there (a plain
