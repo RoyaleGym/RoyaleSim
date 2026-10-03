@@ -907,6 +907,10 @@ pub struct Calib {
     /// champion immune to damage. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
     #[serde(default = "dash_chain_immunity_default")]
     pub dash_chain_immunity: DashChainImmunity,
+    /// targeting.GHOST_PAIR_FIRST_FRAME (`phase_spawn`): whether an Evo Ghost's pair may be an enemy's target on its first
+    /// frame. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Targetable`.
+    #[serde(default = "ghost_pair_first_frame_default")]
+    pub ghost_pair_first_frame: GhostPairFirstFrame,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2256,6 +2260,10 @@ fn shot_at_hiding_building_default() -> ShotAtHidingBuilding {
 
 fn dash_chain_immunity_default() -> DashChainImmunity {
     DashChainImmunity::None
+}
+
+fn ghost_pair_first_frame_default() -> GhostPairFirstFrame {
+    GhostPairFirstFrame::Targetable
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4727,6 +4735,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.GHOST_PAIR_FIRST_FRAME -- see `BattleState::phase_spawn`: whether an Evo Ghost's pair (card.rs `GhostDef`,
+    /// put down on the tick after the ghost's hit) may be taken as a target on its first frame.
+    GhostPairFirstFrame {
+        /// The engine's: it is made in the Spawn phase, before the Target phase, and may be taken on that tick.
+        Targetable = "targetable",
+        /// It is no one's target on its first frame (entity.rs `acquirable_from` = its spawn tick + 1), and may be from
+        /// its second, as a unit made by any other path is. Measured on client 15.535.29: sp-ghost-ab-s0 t1057, a pair
+        /// put down on that tick, its members 1,999 from Red's left princess tower, which took the Ghost 2,770 away and held
+        /// it, as did Red's other tower that took one, where the engine's towers took the pair members and killed them on t1071 (the scene's first divergence;
+        /// sp-ghost-summons-s0 and sp-form-Ghost-evo-s0 the same); towers took the earlier pairs from their 2nd frame
+        /// (sp-ghost-summons-s0 t830, sp-ghost-ab-s0 t832). Of the 1,013 units made other than by a deploy that an enemy
+        /// ever took, 1 was taken on its first frame (tools first_frame_target_census.py).
+        Client15535Untargetable = "client15535_untargetable",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6609,6 +6633,7 @@ impl Calib {
             load_first_hit_kill_wait: pick(&v, &["combat", "LOAD_FIRST_HIT_KILL_WAIT", "value"], LoadFirstHitKillWait::from_calibration_name)?,
             shot_at_hiding_building: pick(&v, &["hide", "SHOT_AT_HIDING_BUILDING", "value"], ShotAtHidingBuilding::from_calibration_name)?,
             dash_chain_immunity: pick(&v, &["combat", "DASH_CHAIN_IMMUNITY", "value"], DashChainImmunity::from_calibration_name)?,
+            ghost_pair_first_frame: pick(&v, &["targeting", "GHOST_PAIR_FIRST_FRAME", "value"], GhostPairFirstFrame::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -10462,6 +10487,11 @@ impl BattleState {
     /// hit 35 or 36 ticks after the last made none; hits 82 and 83 ticks after it did. Unmeasured: a pair from a ghost
     /// its hit's tick killed, a unit on a point off the board, and which of the two rows stands on which side (they
     /// are one row's copies).
+    /// Whether `card` is one of an Evo Ghost's pair (card.rs `GhostDef::pair`), for targeting.GHOST_PAIR_FIRST_FRAME.
+    fn ghost_pair_unit(&self, card: u16) -> bool {
+        self.cfg.cards.cards.iter().any(|c| c.evo.as_ref().and_then(|v| v.ghost.as_ref()).is_some_and(|g| g.pair.iter().any(|u| u.unit == card)))
+    }
+
     fn ghost_pair(&mut self, i: usize, hit: EntityId, g: &crate::card::GhostDef) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let (team, card, level) = (self.ents.team[i], self.ents.card[i], self.ents.level[i]);
@@ -13846,6 +13876,13 @@ impl BattleState {
             #[cfg(not(clash_plant = "acquire_delay_dropped_in_queue"))]
             if p.acquire_delay {
                 self.delay_acquisition(id.index as usize, p.action_made);
+            }
+            // targeting.GHOST_PAIR_FIRST_FRAME = client15535_untargetable: an Evo Ghost's pair is no one's target on this,
+            // its first frame (`ghost_pair_unit`).
+            #[cfg(not(clash_plant = "ghost_pair_first_frame_targetable"))]
+            if !p.acquire_delay && self.cfg.calib.ghost_pair_first_frame == GhostPairFirstFrame::Client15535Untargetable && self.ghost_pair_unit(p.card) {
+                let i = id.index as usize;
+                self.ents.acquirable_from[i] = self.ents.spawn_tick[i] + 1;
             }
             // A copy's death spawn (spells.CLONE_DEATH_SPAWNS): a copy too.
             if p.cloned {
@@ -28318,6 +28355,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.GHOST_PAIR_FIRST_FRAME: Calib gained ghost_pair_first_frame (serde default the old arm,
+///    targetable), no new state (the new arm writes the saved acquirable_from at the pair's spawn), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_IMMUNITY: Calib gained dash_chain_immunity (serde default the old arm, none), no new
 ///    state (the new arm writes the saved dash_immune_until a dash already writes), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -29096,6 +29136,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("shot_at_hiding_building".into(), serde_json::to_value(ShotAtHidingBuilding::Dropped).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_IMMUNITY: a format-3 battle's chains made no one immune (the old arm).
     sh.insert("dash_chain_immunity".into(), serde_json::to_value(DashChainImmunity::None).map_err(|e| e.to_string())?);
+    // targeting.GHOST_PAIR_FIRST_FRAME: a format-3 battle ran no Evo Ghost (the same rule).
+    sh.insert("ghost_pair_first_frame".into(), serde_json::to_value(GhostPairFirstFrame::Targetable).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

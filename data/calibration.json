@@ -279,6 +279,17 @@
       "promotion_rules": "The test file (crates/royalesim/tests/target_rank_distance.rs) passes. Then score the corpus with this arm switched on alone; the registered prediction: the reports that move are among those of 112751, 115249.b1, 121158, 122757, 124946, 181741, 010218, 072148, 072831, 082459 and 083112 (both seats where both exist), where the two rankings part on the recorded positions, and 124946 gains.",
       "engine": "target.rs key: the first component of the preference key is the centre distance under client16402_centre, and centre minus the candidate's radius otherwise. It is read by scan (every Target phase rescan) and by the nearest-tower fallback of default_tower."
     },
+    "GHOST_PAIR_FIRST_FRAME": {
+      "value": "targetable",
+      "status": "measured",
+      "candidates": ["targetable", "client15535_untargetable"],
+      "confidence": "HIGH for client15535_untargetable on client 15.535.29: the one pair whose first frame a tower could have taken it on was not taken (both towers, a nearer target than the one they took), the earlier pairs taken from their 2nd frame, and 1 of the 1,013 units made other than by a deploy that an enemy ever took was taken on its first frame. 16.402 unread (per client).",
+      "provenance": "MEASURED by parity (2026-10-02) on client 15.535.29's raw frames: sp-ghost-ab-s0 t1057, an Evo Ghost's pair put down on the tick after its hit, its members 1,999 from Red's left princess tower; on that tick that tower took the Ghost itself, 2,770 away, and held it, as did Red's other tower that the engine had take a member (a tower keeps its target), where the engine's towers took the pair members, nearer, and killed them on t1071 (the scene's first divergence; sp-ghost-summons-s0 t1039 and sp-form-Ghost-evo-s0 t1026 the same). The earlier pairs were taken by a tower from their 2nd frame (sp-ghost-summons-s0 t830, sp-ghost-ab-s0 t832, as card.rs GhostDef notes). tools first_frame_target_census.py: of every unit made other than by a deploy, the frame of its first enemy target pointer, 1,013 units: 1 on frame 1 (ub-b1-mir5-acquire), 71 on frame 2, 268 on frame 8 (targeting.SPAWNED_UNIT_ACQUIRE_DELAY), the rest later; the engine's other made units (a Skeleton King's souls) already wait their first frame out (sp-champ-SkeletonKing-late-s0: frame 2 in both). The pair alone is made in the Spawn phase, before the Target phase.",
+      "meaning": "targetable: the engine's; the pair, made in the Spawn phase, may be taken in that tick's Target phase. client15535_untargetable: it is no one's target on its first frame (entity.rs acquirable_from = its spawn tick + 1), and may be from its second.",
+      "open": "Whether another unit made in the Spawn phase from the queue without the acquire delay is taken on its first frame (the census found none: 1 of 1,025); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_untargetable (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_spawn (`ghost_pair_unit`), selected by Calib::ghost_pair_first_frame; tests/ghost_pair_first_frame.rs."
+    },
     "EQUAL_DISTANCE_TIE": {
       "value": "own_frame_high_x",
       "candidates": ["own_frame_low_x", "own_frame_high_x", "client15535_later_created"],
