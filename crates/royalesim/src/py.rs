@@ -1608,7 +1608,10 @@ impl Battle {
     /// `forms`: [blue, red], each empty or parallel to its deck: 0 the base card, 1 its evolution, 2 its hero form
     /// (module doc, EVOLVED AND HERO FORMS; state.rs `BattleConfig::forms`, which checks them). None plays every card
     /// as itself.
-    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None))]
+    /// `levels`: [blue, red], each empty or parallel to its deck: the unified level of each deck card (a real deck's
+    /// cards each have their own). `tower_levels`: [blue, red], each side's crown towers' level. None plays both sides
+    /// at the object's `card_level()` and `tower_level()`, as before.
+    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None))]
     #[allow(clippy::too_many_arguments)]
     fn reset(
         &mut self,
@@ -1620,6 +1623,8 @@ impl Battle {
         tower_hp: Option<Vec<Vec<i32>>>,
         spawns: Vec<(i64, i64, i32, i32, i32)>,
         forms: Option<Vec<Vec<u8>>>,
+        levels: Option<Vec<Vec<i32>>>,
+        tower_levels: Option<Vec<i32>>,
     ) -> PyResult<()> {
         if decks.len() != 2 {
             return Err(PyValueError::new_err("decks must be [blue, red]"));
@@ -1644,6 +1649,27 @@ impl Battle {
         cfg.cards = self.cards.clone();
         cfg.card_level = [self.level(); 2];
         cfg.tower_level = [self.tower_lvl(); 2];
+        match levels {
+            None => {}
+            Some(l) if l.len() == 2 => {
+                for (t, side) in l.into_iter().enumerate() {
+                    if !side.is_empty() && side.len() != decks[t].len() {
+                        return Err(PyValueError::new_err(format!(
+                            "levels[{t}] has {} entries for a deck of {}: one level per deck card, or none",
+                            side.len(),
+                            decks[t].len()
+                        )));
+                    }
+                    cfg.deck_levels[t] = side;
+                }
+            }
+            Some(_) => return Err(PyValueError::new_err("levels must be [blue, red]")),
+        }
+        match tower_levels {
+            None => {}
+            Some(l) if l.len() == 2 => cfg.tower_level = [l[0], l[1]],
+            Some(_) => return Err(PyValueError::new_err("tower_levels must be [blue, red]")),
+        }
         // THE EXPERIMENT'S CALIBRATION with the keywords' arms on top (set_calib carries the model fields with it).
         cfg.set_calib(self.battle_calib().map_err(PyValueError::new_err)?);
         match shuffle {

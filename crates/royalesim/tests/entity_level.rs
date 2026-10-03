@@ -182,3 +182,78 @@ fn a_rider_reads_its_mounts_uid_and_every_other_entity_minus_one() {
     let others: Vec<i64> = col.iter().filter(|(u, _)| !riders.iter().any(|(r, _)| r == *u)).map(|(_, m)| *m).collect();
     assert!(!others.is_empty() && others.iter().all(|m| *m == -1), "an entity that rides nothing reads -1: {others:?}");
 }
+
+// ---------------------------------------------------------------------------
+// 5. a level per deck card (BattleConfig::deck_levels)
+
+fn deck() -> Vec<String> {
+    ["Knight", "Archer", "Giant", "Musketeer", "Mirror", "Valkyrie", "HogRider", "Minions"].iter().map(|s| s.to_string()).collect()
+}
+
+/// A deck whose cards each have their own level, on both sides, unequal between them: each side's Knight plays at its
+/// own entry's level and has that level's hitpoints, whatever the side's `card_level`.
+#[test]
+fn each_deck_card_plays_at_its_own_level_on_each_side() {
+    let mut cfg = config();
+    cfg.card_level = [11, 11];
+    cfg.decks = [deck(), deck()];
+    cfg.deck_levels = [vec![9, 11, 11, 11, 11, 11, 11, 11], vec![13, 11, 11, 11, 11, 11, 11, 11]];
+    let mut s = BattleState::new(0, cfg);
+    past_deploy_lockout(&mut s);
+    for team in [Team::Blue, Team::Red] {
+        s.scenario_set_elixir_milli(team, 10000);
+    }
+    s.deploy_slot(Team::Blue, 0, at((9500, 9500))).expect("Blue's Knight");
+    s.deploy_slot(Team::Red, 0, at((8500, 22500))).expect("Red's Knight");
+    run_until(&mut s, 10, |s| !find_live(s, Team::Blue, "Knight").is_empty() && !find_live(s, Team::Red, "Knight").is_empty());
+    let (b, r) = (first_of(&s, Team::Blue, "Knight"), first_of(&s, Team::Red, "Knight"));
+    assert_eq!((level_of(&s, b), level_of(&s, r)), (9, 13), "each Knight at its own deck entry's level");
+    let hp = |id| s.entity(id).expect("the Knight").max_hp;
+    // The same card's hitpoints at the two levels, from a battle that spawns each at it.
+    let mut lone = BattleState::new(0, config());
+    lone.spawn_unit(Team::Blue, "Knight", at((9500, 9500)), Some(9)).unwrap();
+    lone.spawn_unit(Team::Red, "Knight", at((8500, 22500)), Some(13)).unwrap();
+    lone.tick();
+    let lone_hp = |t| lone.entity(first_of(&lone, t, "Knight")).unwrap().max_hp;
+    assert_eq!((hp(b), hp(r)), (lone_hp(Team::Blue), lone_hp(Team::Red)), "each at its level's hitpoints");
+    assert!(hp(b) < hp(r), "scene: the levels differ in hitpoints");
+}
+
+/// The measured Mirror (client 15.535.29): a Knight 11 copied by a Mirror 9 stands at level 10, the MIRROR's level plus
+/// MIRROR_LEVEL_OFFSET, not the copied card's.
+#[test]
+fn a_mirror_raises_its_own_level_not_the_copied_cards() {
+    let mut cfg = config();
+    cfg.card_level = [11, 11];
+    cfg.decks = [deck(), deck()];
+    cfg.deck_levels = [vec![11, 11, 11, 11, 9, 11, 11, 11], Vec::new()];
+    let mut s = BattleState::new(0, cfg);
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10000);
+    s.deploy_slot(Team::Blue, 0, at((9500, 9500))).expect("play the Knight");
+    s.scenario_set_elixir_milli(Team::Blue, 10000);
+    assert_eq!(s.hand(Team::Blue)[0], "Mirror", "scene: the Mirror came up into slot 0");
+    s.deploy_slot(Team::Blue, 0, at((5500, 10500))).expect("the Mirror of the Knight");
+    run_until(&mut s, 10, |s| find_live(s, Team::Blue, "Knight").len() == 2);
+    let mut knights = find_live(&s, Team::Blue, "Knight");
+    knights.sort_by_key(|e| e.team_seq);
+    assert_eq!((level_of(&s, knights[0].id), level_of(&s, knights[1].id)), (11, 10), "the Knight at 11, the Mirror 9's copy at 10");
+}
+
+#[test]
+fn a_deck_level_list_of_the_wrong_length_is_refused_and_one_kept_through_a_snapshot() {
+    let mut cfg = config();
+    cfg.decks = [deck(), deck()];
+    cfg.deck_levels = [vec![9, 10], Vec::new()];
+    let Err(e) = BattleState::try_new(0, cfg.clone()) else { panic!("a two-entry level list for an eight-card deck was accepted") };
+    assert!(e.contains("deck_levels[0]"), "{e}");
+    cfg.deck_levels = [vec![9; 8], vec![13; 8]];
+    let s = BattleState::try_new(0, cfg).expect("one level per card");
+    // A setup spawn of a deck card takes its entry's level.
+    let mut s2 = s.clone();
+    s2.scenario_spawn_now(Team::Red, "Giant", at((8500, 22500)), None).unwrap();
+    s2.tick();
+    assert_eq!(level_of(&s2, first_of(&s2, Team::Red, "Giant")), 13, "a setup spawn of a deck card at its entry's level");
+    let back = BattleState::load_with(&s.save(), s.config().cards.clone(), s.config().arena.clone()).expect("round trip");
+    assert_eq!(back.config().deck_levels, [vec![9; 8], vec![13; 8]], "the levels survive a snapshot");
+}

@@ -7221,9 +7221,15 @@ pub struct BattleConfig {
     pub tower_sight_reading: TowerSightReading,
     /// Card names per team (Blue, Red). Up to 8; the first 4 start in hand.
     pub decks: [Vec<String>; 2],
-    /// Unified card level per team.
+    /// Unified card level per team: every card of the side, unless `deck_levels` names the card's own.
     pub card_level: [i32; 2],
     pub tower_level: [i32; 2],
+    /// THE LEVEL OF EACH DECK ENTRY per team, parallel to `decks`, unified levels: a real deck's cards each have their
+    /// own (a climb capture's own 7-8 against the opponent's 8-10). Empty (the default) plays every card at the side's
+    /// `card_level`. A play is at its hand card's entry's level (`resolve_play`): an evolution and a hero form at their
+    /// base card's, a Mirror at its own plus MIRROR_LEVEL_OFFSET, as measured (a Knight 11 copied by a Mirror 9 stood at
+    /// level 10). `try_new` checks each entry and every unit it can put down at its level.
+    pub deck_levels: [Vec<i32>; 2],
     /// Shuffle decks from the battle Rng at start.
     pub shuffle_decks: bool,
     /// Spatial hash bucket, subtiles.
@@ -7284,6 +7290,7 @@ impl BattleConfig {
             decks: [Vec::new(), Vec::new()],
             card_level: [level, level],
             tower_level: [level, level],
+            deck_levels: [Vec::new(), Vec::new()],
             shuffle_decks: false,
             bucket_subtiles: SUBTILE,
             forms: [Vec::new(), Vec::new()],
@@ -9764,15 +9771,23 @@ impl BattleState {
             }
             let mut evo: Vec<EvoCounter> = Vec::new();
             let mut heroes: Vec<u16> = Vec::new();
+            if !config.deck_levels[t].is_empty() && config.deck_levels[t].len() != config.decks[t].len() {
+                return Err(format!(
+                    "deck_levels[{t}] has {} entries for a deck of {}: give one level per deck card, or none",
+                    config.deck_levels[t].len(),
+                    config.decks[t].len()
+                ));
+            }
             for (k, name) in config.decks[t].iter().enumerate() {
                 let idx = cards.index(name).ok_or_else(|| format!("deck card {name} unknown"))?;
+                let entry_level = config.deck_levels[t].get(k).copied().unwrap_or(config.card_level[t]);
                 // AN EVOLVED FORM IS NEVER DEALT: its base card is, marked in `forms`.
                 if cards.is_form(idx) {
                     return Err(format!("{name} is an evolved form: put its base card in the deck and mark it in forms"));
                 }
                 // The card's own level and every unit it can release, spawn or leave
                 // behind: nothing on the tick path may fail on a level.
-                cards.check_levels(idx, config.card_level[t])?;
+                cards.check_levels(idx, entry_level)?;
                 if cards.get(idx).form_of.is_some() {
                     return Err(format!("{name} is a hero form: name its base card, with form {FORM_HERO}"));
                 }
@@ -9786,7 +9801,7 @@ impl BattleState {
                             let why: Vec<String> = cards.rejected_evolutions.iter().map(|(n, w)| format!("{n}: {w}")).collect();
                             format!("{name} has no evolution that loads{}", if why.is_empty() { String::new() } else { format!(" (refused: {})", why.join("; ")) })
                         })?;
-                        cards.check_levels(form, config.card_level[t])?;
+                        cards.check_levels(form, entry_level)?;
                         if !evo.iter().any(|e| e.card == idx) {
                             let cycles = cards.get(form).evo.as_ref().map_or(EVO_BASIC_PLAYS, |e| e.cycles);
                             evo.push(EvoCounter { card: idx, form, plays: 0, cycles });
@@ -9798,7 +9813,7 @@ impl BattleState {
                             return Err(format!("{name} has no loadable hero form: {why}"));
                         };
                         // The form and every unit its button can put down, at the entry's level.
-                        cards.check_levels(form, config.card_level[t])?;
+                        cards.check_levels(form, entry_level)?;
                         if heroes.contains(&idx) {
                             return Err(format!("{name} is marked a hero twice in one deck"));
                         }
@@ -24664,7 +24679,7 @@ impl BattleState {
     pub fn formation_preview(&self, team: Team, card_name: &str, pos: Vec2) -> Result<Vec<(String, Vec2, i32)>, DeployError> {
         let idx = self.simulable(card_name)?;
         self.refuse_unplaced_play(idx)?;
-        let level = self.cfg.card_level[team as usize];
+        let level = self.card_level_of(team, idx);
         self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
         // A spell summon previews its unit's members (the same expansion as `enqueue`).
         let (idx, level) = match &self.cfg.cards.get(idx).spell {
@@ -25340,7 +25355,7 @@ impl BattleState {
         let t = team as usize;
         let cards = &self.cfg.cards;
         let c = cards.get(idx);
-        let level = self.cfg.card_level[t];
+        let level = self.card_level_of(team, idx);
         if let Some(opts) = c.variant() {
             let have = (self.players[t].mana as i128) * 1000;
             #[cfg(not(clash_plant = "variant_trigger_strict"))]
@@ -25396,6 +25411,17 @@ impl BattleState {
             return Ok(Play { in_slot: idx, card: last, level: lvl, cost });
         }
         Ok(Play { in_slot: idx, card: idx, level, cost: c.elixir })
+    }
+
+    /// THE LEVEL CARD `idx` PLAYS AT FOR `team`: its deck entry's (`BattleConfig::deck_levels`), else the side's
+    /// `card_level`. A card twice in a deck takes its first entry's.
+    pub fn card_level_of(&self, team: Team, idx: u16) -> i32 {
+        let t = team as usize;
+        self.cfg.decks[t]
+            .iter()
+            .position(|n| self.cfg.cards.index(n) == Some(idx))
+            .and_then(|k| self.cfg.deck_levels[t].get(k).copied())
+            .unwrap_or(self.cfg.card_level[t])
     }
 
     /// THE ELIXIR EACH HAND SLOT'S PLAY COSTS NOW (`resolve_play`'s cost), -1 where no play resolves from the slot
@@ -26389,7 +26415,7 @@ impl BattleState {
         }
         let idx = self.simulable(card_name)?;
         self.refuse_unplaced_play(idx)?;
-        let level = level.unwrap_or(self.cfg.card_level[team as usize]);
+        let level = level.unwrap_or(self.card_level_of(team, idx));
         self.cfg.cards.check_levels(idx, level).map_err(DeployError::InvalidLevel)?;
         let card = self.cfg.cards.get(idx);
         if !self.cfg.arena.in_bounds(pos) {
@@ -26501,7 +26527,7 @@ impl BattleState {
     /// Validate one setup spawn: (card index, the hp it would start with).
     fn setup_spawn_check(&self, team: Team, card_name: &str, pos: Vec2) -> Result<(u16, i32), DeployError> {
         let idx = self.simulable(card_name)?;
-        let level = self.cfg.card_level[team as usize];
+        let level = self.card_level_of(team, idx);
         let card = self.cfg.cards.get(idx);
         if card.kind == CardKind::Spell {
             return Err(DeployError::UnsupportedCard(card.name.clone(), "a spell is not a board unit; it cannot be a setup spawn".into()));
@@ -26535,7 +26561,7 @@ impl BattleState {
     /// object down as every creation does (spawner.SPAWN_AREA_OBJECT_SCOPE, `spawn_now`), and its card's deploy effects,
     /// the deploy projectile and the deploy area effect, are not cast (`deploy_blow`, `phase_spawn`).
     fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>) -> Result<EntityId, DeployError> {
-        let (idx, level) = self.setup_record(idx, self.cfg.card_level[team as usize]).map_err(DeployError::InvalidLevel)?;
+        let (idx, level) = self.setup_record(idx, self.card_level_of(team, idx)).map_err(DeployError::InvalidLevel)?;
         let kind = if self.cfg.cards.get(idx).kind == CardKind::Building { EntityKind::Building } else { EntityKind::Troop };
         #[cfg(not(clash_plant = "setup_spawn_skips_spawn_area"))]
         let id = self.spawn_now(team, idx, level, pos, kind).map_err(DeployError::InvalidLevel)?;
@@ -29074,6 +29100,10 @@ struct Snapshot {
     decks: [Vec<String>; 2],
     card_level: [i32; 2],
     tower_level: [i32; 2],
+    /// `BattleConfig::deck_levels`. Added after 0.1.6; `default` (empty: every card at `card_level`), what a battle
+    /// saved before it played.
+    #[serde(default)]
+    deck_levels: [Vec<i32>; 2],
     shuffle_decks: bool,
     bucket_subtiles: i32,
     ents: Entities,
@@ -29873,6 +29903,7 @@ impl BattleState {
             decks: c.decks.clone(),
             card_level: c.card_level,
             tower_level: c.tower_level,
+            deck_levels: c.deck_levels.clone(),
             shuffle_decks: c.shuffle_decks,
             bucket_subtiles: c.bucket_subtiles,
             ents: self.ents.clone(),
@@ -30146,6 +30177,7 @@ impl BattleState {
             decks: snap.decks,
             card_level: snap.card_level,
             tower_level: snap.tower_level,
+            deck_levels: snap.deck_levels,
             shuffle_decks: snap.shuffle_decks,
             bucket_subtiles: snap.bucket_subtiles,
             forms: snap.forms,

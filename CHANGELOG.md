@@ -3,6 +3,13 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.7 (2026-10-03)
+
+- Each side, and each card in a deck, can have its own level, as in a real match. `Battle.reset` takes
+  `levels=[blue, red]`, each empty or one unified level per deck card, and `tower_levels=[blue, red]`. A play is at its
+  card's level: an evolution or a hero form at its base card's, and a Mirror's copy at the Mirror's level plus one.
+  Leaving both out plays both sides at the battle's single level, as before.
+
 ## 0.1.6 (2026-10-03)
 
 - No change to installing or calling the engine. Battle logic: crown-tower target ties, jump landings, Evo Musketeer
