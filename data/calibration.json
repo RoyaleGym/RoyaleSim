@@ -2125,6 +2125,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_rounded_square (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "combat.rs straight_hits (`square`, `reached`), selected by Calib::straight_shot_building_reach; tests/pellet_building_reach.rs."
     },
+    "SPIN_BEGIN": {
+      "value": "press_tick",
+      "candidates": ["press_tick", "client15535_next_tick"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_next_tick on client 15.535.29: one press (sp-form-Valkyrie-hero-s0), every observable of it one tick later than the engine's (the first 150 step, the 14 blows' ticks); 16.402 not read (no Hero Valkyrie in its corpus).",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29, sp-form-Valkyrie-hero-s0 (the press's first frame P = t197, the frame her ability state changes): on P she walks her own 60 (step (58, 14) along her facing (249, 60)), from P + 1 150 a tick ((123, 83) on t198); her blows fall on P + 1 + 5k (the Knight within her 2500 loses 97 on t208). The replay's engine (ship32b and the r33 cut alike) fires the button on P and begins the spin on it: 150 on P ((125, 81) on t197) and the blows on t197, t202, t207 (the Knight's 97 on t207), one tick early throughout; the scene stays at the bar (positions within 160). spin_seek's own doc reads the same measurement as P + 1 + 5k.",
+      "meaning": "press_tick: the engine's; a Hero Valkyrie's spin begins on the tick her button fires, when a target stands in its circle: its first 150 step and its first blow on that tick. client15535_next_tick: it begins no earlier than the tick after; on the press tick she walks at her own speed.",
+      "open": "A press with no target in the circle (the spin waits); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_next_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs spin_seek (`wait`), selected by Calib::spin_begin; tests/spin_begin.rs."
+    },
     "PROJECTILE_COLLISIONS": {
       "value": "client_columns",
       "candidates": ["not_read", "client_columns"],

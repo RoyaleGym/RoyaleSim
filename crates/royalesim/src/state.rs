@@ -987,6 +987,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
     #[serde(default = "press_route_default")]
     pub press_route: PressRoute,
+    /// combat.SPIN_BEGIN (`spin_seek`): the first tick a Hero Valkyrie's spin may begin. Added after SNAPSHOT_FORMAT 20;
+    /// the `default` is the old arm, `PressTick`.
+    #[serde(default = "spin_begin_default")]
+    pub spin_begin: SpinBegin,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2412,6 +2416,10 @@ fn straight_shot_building_reach_default() -> StraightShotBuildingReach {
 
 fn press_route_default() -> PressRoute {
     PressRoute::Kept
+}
+
+fn spin_begin_default() -> SpinBegin {
+    SpinBegin::PressTick
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5052,6 +5060,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.SPIN_BEGIN -- see `spin_seek`: the first tick a Hero Valkyrie's spin (card.rs `AbilityEffect::SpinChain`)
+    /// may begin, its first 150 step and its first blow.
+    SpinBegin {
+        /// The engine's: on the tick its button fires (`SpinRun::fired`), when a target stands in its circle.
+        PressTick = "press_tick",
+        /// The tick after. Measured on client 15.535.29 (sp-form-Valkyrie-hero-s0, the press's first frame P = t197,
+        /// whose ability state changes on P): she walks her own 60 on P (step (58, 14)) and 150 from P + 1; her blows fall
+        /// on P + 1 + 5k (the Knight's 97 on t208); the engine's, the button firing on P, walked 150 and struck on P, its
+        /// blows on t197, t202, t207 (its own doc's measurement reads P + 1 + 5k).
+        Client15535NextTick = "client15535_next_tick",
+    }
+);
+calib_enum!(
     /// pathfinding.PRESS_ROUTE -- see `start_ability`: what a hero's button press does to the route it walks.
     PressRoute {
         /// The engine's: the route is kept; the hero walks on to its next waypoint.
@@ -7112,6 +7133,7 @@ impl Calib {
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
             press_route: pick(&v, &["pathfinding", "PRESS_ROUTE", "value"], PressRoute::from_calibration_name)?,
+            spin_begin: pick(&v, &["combat", "SPIN_BEGIN", "value"], SpinBegin::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -17669,6 +17691,15 @@ impl BattleState {
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
             }
             if r.began.is_none() {
+                // combat.SPIN_BEGIN = client15535_next_tick: not on the tick the button fired.
+                // PLANT (regression) spin_begins_on_press: the new arm still begins on the press tick.
+                #[cfg(not(clash_plant = "spin_begins_on_press"))]
+                let wait = self.cfg.calib.spin_begin == SpinBegin::Client15535NextTick && self.tick <= r.fired;
+                #[cfg(clash_plant = "spin_begins_on_press")]
+                let wait = false;
+                if wait {
+                    continue;
+                }
                 let Some(t) = self.spin_pick(i, radius, &[]) else { continue };
                 r.began = Some(self.tick);
                 r.chaining = true;
@@ -29301,6 +29332,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.SPIN_BEGIN: Calib gained spin_begin (serde default the old arm, press_tick), no new state (the
+///    test reads SpinRun::fired, saved), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, pathfinding.PRESS_ROUTE: Calib gained press_route (serde default the old arm, kept), no new state (the
 ///    press clears the route the snapshot already carries), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -30177,6 +30211,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("straight_shot_building_reach".into(), serde_json::to_value(StraightShotBuildingReach::Circle).map_err(|e| e.to_string())?);
     // pathfinding.PRESS_ROUTE: a format-3 battle's press kept the route (the same rule).
     sh.insert("press_route".into(), serde_json::to_value(PressRoute::Kept).map_err(|e| e.to_string())?);
+    // combat.SPIN_BEGIN: a format-3 battle's spin began on its button's tick (the same rule).
+    sh.insert("spin_begin".into(), serde_json::to_value(SpinBegin::PressTick).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
