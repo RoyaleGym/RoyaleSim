@@ -995,6 +995,10 @@ pub struct Calib {
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Rotation`.
     #[serde(default = "line_frame_default")]
     pub line_frame: LineFrame,
+    /// placement.TROOP_RELOCATION_TIE_ORDER (`ring_nearest_fit`): which of two equally near fits a relocated troop tap
+    /// goes to. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `PlacerFrameFirstFound`.
+    #[serde(default = "troop_relocation_tie_order_default")]
+    pub troop_relocation_tie_order: TroopRelocationTieOrder,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2428,6 +2432,10 @@ fn spin_begin_default() -> SpinBegin {
 
 fn line_frame_default() -> LineFrame {
     LineFrame::Rotation
+}
+
+fn troop_relocation_tie_order_default() -> TroopRelocationTieOrder {
+    TroopRelocationTieOrder::PlacerFrameFirstFound
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5068,6 +5076,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// placement.TROOP_RELOCATION_TIE_ORDER -- see `ring_nearest_fit`: which of two equally near fitting tiles a relocated
+    /// TROOP tap goes to (off an own crown tower or building when placement.TOWER_TAP_PUSH falls to the ring search, off
+    /// an own live bottle). A building tap's ties are placement.RELOCATION_TIE_ORDER's.
+    TroopRelocationTieOrder {
+        /// The engine's: the first found in the ring walk built in the placer's frame (column-major from its low x), so
+        /// the seats mirror.
+        PlacerFrameFirstFound = "placer_frame_first_found",
+        /// The first in the fixed arena order -y, -x, +y, +x seen from the tap (clockwise from -y for the diagonals), for
+        /// both seats, as placement.RELOCATION_TIE_ORDER's client arm orders a building's. Measured on client 15.535.29
+        /// (Oracle's sp-bt2-* scenes): Knights tapped on an own Cannon's or Elixir Collector's box by the river, the axis
+        /// push into the water, took arena -x in 10 of 10 ring ties, both seats: side 1's (14500, 17500) by a Cannon on
+        /// (14500, 18500) stood on (12500, 17499), where the placer-frame walk takes (16500, 17500), and (3500, 18500), a
+        /// Collector's centre, on (1499, 18499) over +y and +x.
+        Client15535ArenaClockwise = "client15535_arena_clockwise",
+    }
+);
+calib_enum!(
     /// formation.LINE_FRAME -- see `formation_members_with` (formation.rs `line_centre`): the frame a SIDE 1 line's place
     /// (the Royal Recruits', the Royal Hogs') is looked for in. Side 0's owner frame is the arena's under both.
     LineFrame {
@@ -7158,6 +7183,7 @@ impl Calib {
             press_route: pick(&v, &["pathfinding", "PRESS_ROUTE", "value"], PressRoute::from_calibration_name)?,
             spin_begin: pick(&v, &["combat", "SPIN_BEGIN", "value"], SpinBegin::from_calibration_name)?,
             line_frame: pick(&v, &["formation", "LINE_FRAME", "value"], LineFrame::from_calibration_name)?,
+            troop_relocation_tie_order: pick(&v, &["placement", "TROOP_RELOCATION_TIE_ORDER", "value"], TroopRelocationTieOrder::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -25616,7 +25642,9 @@ impl BattleState {
     /// THE RING SEARCH a relocated troop tap takes (placement.TOWER_TAP_PUSH = ring_nearest, placement.LIVE_BOTTLE_TAPS):
     /// `building_placement`'s rings around the snapped tile `snapped`, the tile centre nearest `tap` that `fits`
     /// accepts, and a TIE between two equally near tiles to the first in COLUMN-MAJOR order in the placer's frame
-    /// (columns from its low x, each from its low y). Under placement.ILLEGAL_TAP = relocate_first_fitting_ring the
+    /// (columns from its low x, each from its low y); under placement.TROOP_RELOCATION_TIE_ORDER =
+    /// client15535_arena_clockwise to the first in the arena order -y, -x, +y, +x seen from `tap`, for both seats
+    /// (`clockwise_before`). Under placement.ILLEGAL_TAP = relocate_first_fitting_ring the
     /// first ring holding a fit ends the search. None when nothing within PLACEMENT_SEARCH_RINGS fits.
     /// A RELOCATION RING'S CANDIDATE: `step` taken in the PLACER's frame from `snapped`, whatever
     /// placement.SNAP_EVEN_CORNER says. That key selects the frame of the snap's floor (an even box's corner, a tap on a
@@ -25636,6 +25664,12 @@ impl BattleState {
 
     fn ring_nearest_fit(&self, team: Team, snapped: Vec2, tap: Vec2, fits: impl Fn(Vec2) -> bool) -> Option<Vec2> {
         let tile = crate::fixed::tiles(1);
+        // placement.TROOP_RELOCATION_TIE_ORDER = client15535_arena_clockwise: a tie goes to the arena order seen from the tap.
+        // PLANT (regression) troop_relocation_ties_walked: the new arm's ties keep the placer-frame walk's first.
+        #[cfg(not(clash_plant = "troop_relocation_ties_walked"))]
+        let clockwise = self.cfg.calib.troop_relocation_tie_order == TroopRelocationTieOrder::Client15535ArenaClockwise;
+        #[cfg(clash_plant = "troop_relocation_ties_walked")]
+        let clockwise = false;
         let mut best: Option<(i64, Vec2)> = None;
         for r in 1..=PLACEMENT_SEARCH_RINGS {
             let ring = (-r..=r).flat_map(|dx| (-r..=r).map(move |dy| (dx, dy))).filter(|&(dx, dy)| dx.abs().max(dy.abs()) == r);
@@ -25646,7 +25680,7 @@ impl BattleState {
                     continue;
                 }
                 let d = c.dist2(tap);
-                if best.map_or(true, |(b, _)| d < b) {
+                if best.map_or(true, |(b, bc)| d < b || (clockwise && d == b && clockwise_before(c.sub(tap), bc.sub(tap)))) {
                     best = Some((d, c));
                 }
             }
@@ -29372,6 +29406,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, placement.TROOP_RELOCATION_TIE_ORDER: Calib gained troop_relocation_tie_order (serde default the old
+///    arm, placer_frame_first_found), no new state (a tap is resolved at its play), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, formation.LINE_FRAME: Calib gained line_frame (serde default the old arm, rotation), no new state (a
 ///    line is placed at its play), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
@@ -30258,6 +30295,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spin_begin".into(), serde_json::to_value(SpinBegin::PressTick).map_err(|e| e.to_string())?);
     // formation.LINE_FRAME: a format-3 battle's side 1 line was placed in the rotation (the same rule).
     sh.insert("line_frame".into(), serde_json::to_value(LineFrame::Rotation).map_err(|e| e.to_string())?);
+    // placement.TROOP_RELOCATION_TIE_ORDER: a format-3 battle's troop ties went to the placer-frame walk's first.
+    sh.insert("troop_relocation_tie_order".into(), serde_json::to_value(TroopRelocationTieOrder::PlacerFrameFirstFound).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
