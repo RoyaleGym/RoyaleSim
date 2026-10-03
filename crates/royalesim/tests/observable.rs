@@ -6,7 +6,7 @@
 //! PINNED, each on a scene that shows it from both sides of the change:
 //!   1. a Prince's run-up climbs from 0 and reads 1000 with bit 8 once charged; a Knight reads 0 throughout;
 //!   2. an Inferno Tower's ramp climbs on its target, 0 with no target;
-//!   3. a Miner under ground carries its landing point, the point it comes up on, and -1 once up;
+//!   3. a Miner under ground carries its landing point, where it comes up (one step on), and -1 once up;
 //!   4. a Clone's copy carries bit 5, its original not;
 //!   5. a Monk's button: bit 7 and ticks left that count down while his deflect runs, none before the press;
 //!   6. the JSON row carries the four columns after `mount_uid`.
@@ -89,7 +89,10 @@ fn a_miner_under_ground_carries_its_landing_point() {
     let dest = under[0].expect("a tunnelling Miner carries its destination");
     assert!(under.iter().all(|d| *d == Some(dest)), "one fixed destination for the dig");
     let (pos, after) = up.expect("scene: the Miner came up");
-    assert_eq!(pos, dest, "it comes up on the point it carried");
+    // It comes up at the point it carried and walks on that same tick, so its first frame above ground is one step from
+    // it (measured: 1,908 subtiles on each axis, toward Red's tower).
+    let off = pos.sub(dest);
+    assert!(off.x.abs() <= 2500 && off.y.abs() <= 2500, "it comes up one step from the point it carried: {off:?}");
     assert_eq!(after, None, "and carries none once up (the row reads -1)");
 }
 
