@@ -713,7 +713,16 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
     while !frontier.is_empty() {
         let mut next: Vec<(i32, u16)> = Vec::new();
         for (cid, idx) in frontier {
-            for (_, u, _) in cards.unit_refs(idx) {
+            // Beside the blocks `unit_refs` names, the two SPELLS a form casts of its own: the Evo Goblin Barrel's decoy
+            // (`EvoDef::mirror`, whose release is its GoblinDummies) and the Hero Barbarian Barrel's re-roll log
+            // (`ReRollDef::log`). A spell row reports its id in the spells list.
+            let c = cards.get(idx);
+            let decoy = c.evo.as_ref().and_then(|v| v.mirror);
+            let log = match c.ability.as_ref().map(|a| &a.effect) {
+                Some(crate::card::AbilityEffect::ReRoll(r)) => Some(r.log),
+                _ => None,
+            };
+            for u in cards.unit_refs(idx).into_iter().map(|(_, u, _)| u).chain(decoy).chain(log) {
                 // A card whose unit could not be loaded is rejected (unregistered, its
                 // unit index unresolved) and never in a catalogue that came from names;
                 // the by-index default catalogue below skips it too.
@@ -2382,11 +2391,16 @@ mod tests {
         let pinned: Vec<u16> = CATALOGUE_ORDER.iter().filter_map(|n| loadable.iter().copied().find(|i| db.get(*i).name == *n)).collect();
         let catalogue: Vec<u16> = pinned.iter().copied().chain(loadable.iter().copied().filter(|i| !pinned.contains(i))).collect();
         let ids = ids_of_indices(&db, &catalogue);
+        // A card the loader rejected after its push stays in `cards` but never in a catalogue, so nothing plays it.
+        let rejected = |i: usize, c: &crate::card::CardDef| !c.summon_only && c.evo.is_none() && db.index(&c.name) != Some(i as u16);
+        for (i, c) in db.cards.iter().enumerate().filter(|(i, c)| rejected(*i, c)) {
+            assert!(db.rejected.iter().any(|(n, _)| *n == c.name), "{} is out of the catalogue and not rejected (row {i})", c.name);
+        }
         let missing: Vec<&str> = db
             .cards
             .iter()
             .enumerate()
-            .filter(|(i, c)| ids[*i] == -1 && c.name != KING_TOWER && c.name != PRINCESS_TOWER)
+            .filter(|(i, c)| ids[*i] == -1 && c.name != KING_TOWER && c.name != PRINCESS_TOWER && !rejected(*i, c))
             .map(|(_, c)| c.name.as_str())
             .collect();
         assert_eq!(missing, Vec::<&str>::new(), "{} rows report -1", missing.len());
