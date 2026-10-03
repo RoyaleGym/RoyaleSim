@@ -1004,6 +1004,11 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Pushed`.
     #[serde(default = "first_step_dying_contact_default")]
     pub first_step_dying_contact: FirstStepDyingContact,
+    /// movement.CHAIN_LANDED_BODY (`chain_pass`, the move pass's `collidable`): whether a dash chain's champion is a contact
+    /// body between a landing and his next dash or his chain's end. Added after SNAPSHOT_FORMAT 20; the `default` is the
+    /// old arm, `LandedBody`.
+    #[serde(default = "chain_landed_body_default")]
+    pub chain_landed_body: ChainLandedBody,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2445,6 +2450,10 @@ fn troop_relocation_tie_order_default() -> TroopRelocationTieOrder {
 
 fn first_step_dying_contact_default() -> FirstStepDyingContact {
     FirstStepDyingContact::Pushed
+}
+
+fn chain_landed_body_default() -> ChainLandedBody {
+    ChainLandedBody::LandedBody
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5085,6 +5094,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
+    /// Knight) after a blow lands.
+    ChainLandedBody {
+        /// The engine's: no body while he dashes; a body again from the tick after the landing (his chain's Landed
+        /// phase), so a unit he landed on pushes him, and he it, at once.
+        LandedBody = "landed_body",
+        /// No body in the Landed phase either, nor on the tick his chain ends (`Scratch::chain_ended`): a body again from
+        /// the tick after. Measured on client 15.535.29 (every Golden Knight landing with a unit overlapping him): after
+        /// his chain's last landing on L he moved by no contact on L + 1 and L + 2 and was pushed from L + 3, 3 of 3
+        /// (sp-champ-GK-recharge2-s0 t484, a Golem 1,165 off, (92, -118) on t487 and (96, -115) on t488, the engine's same
+        /// pushes on t485 and t486; sp-champ-GoldenKnight-delay60-s0 t239, a Knight 1,047 off, (-51, -35) on t242;
+        /// sp-champ-GK-gk2-s0 t189 from L + 4); the unit he landed on was not pushed on those ticks either.
+        Client15535NoBodyToEnd = "client15535_no_body_to_end",
+    }
+);
+calib_enum!(
     /// spawner.FIRST_STEP_DYING_CONTACT -- see `phase_path16402_for`: under spawner.FIRST_STEP_DYING_BODIES =
     /// client16402_seen a unit's creation-tick first update meets the units dying on its tick (the doomed in the pass,
     /// the Reap's dead that released nothing); this says whether they push it. Read only under that arm.
@@ -7210,6 +7235,7 @@ impl Calib {
             line_frame: pick(&v, &["formation", "LINE_FRAME", "value"], LineFrame::from_calibration_name)?,
             troop_relocation_tie_order: pick(&v, &["placement", "TROOP_RELOCATION_TIE_ORDER", "value"], TroopRelocationTieOrder::from_calibration_name)?,
             first_step_dying_contact: pick(&v, &["spawner", "FIRST_STEP_DYING_CONTACT", "value"], FirstStepDyingContact::from_calibration_name)?,
+            chain_landed_body: pick(&v, &["movement", "CHAIN_LANDED_BODY", "value"], ChainLandedBody::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -9324,6 +9350,9 @@ pub const SCHEDULED_EDGE_MARGIN: i32 = 250;
 
 #[derive(Default, Clone, Debug)]
 struct Scratch {
+    /// movement.CHAIN_LANDED_BODY: the champions whose dash chain `chain_pass` ended on this tick, read by this tick's move
+    /// pass (`collidable`). Rebuilt every tick.
+    chain_ended: Vec<EntityId>,
     nb: Vec<u32>,
     sums: Vec<i64>,
     decisions: Vec<(usize, TargetDecision)>,
@@ -17920,6 +17949,11 @@ impl BattleState {
     /// At the chain's end his charge's recharge starts: combat.DASH_CHAIN_COOLDOWN from that tick (the length and its
     /// start unmeasured). A champion gone ends his chain.
     fn chain_pass(&mut self) {
+        // movement.CHAIN_LANDED_BODY: this tick's ended chains, none until the pass below ends one (cleared before the
+        // early return: left set, an ended chain's champion would stay no body for good).
+        // PLANT (regression) chain_ended_stale: the list is left as the last chain_pass that ran set it.
+        #[cfg(not(clash_plant = "chain_ended_stale"))]
+        self.scratch.chain_ended.clear();
         if self.chains.is_empty() {
             return;
         }
@@ -18013,6 +18047,8 @@ impl BattleState {
             }
         }
         runs.retain(|c| !ended.contains(&c.id));
+        // movement.CHAIN_LANDED_BODY: the chains ended on this tick, for this tick's move pass.
+        self.scratch.chain_ended.clone_from(&ended);
         // combat.DASH_CHAIN_END = client15535_no_target_two_ticks: the chain's end drops the target, and the post-kill
         // wait's counter holds the champion with none through the next Target phase (H + 3); the one after (H + 4)
         // takes the ordinary decision. Under keep_last_target he keeps the last dash target and attacks it.
@@ -18627,6 +18663,15 @@ impl BattleState {
             let landed_this_tick = |i: usize| calib.jump_landing_scope == JumpLandingScope::Client15535WholeTick && e.landed_at[i] == stamp_now;
             #[cfg(clash_plant = "landing_scope_move_pass_only")]
             let landed_this_tick = |_: usize| false;
+            // movement.CHAIN_LANDED_BODY = client15535_no_body_to_end: a champion whose chain is in its Landed phase, or ended
+            // on this tick, is no contact body (client 15.535.29: pushed from his last landing + 3, 3 of 3).
+            // PLANT (regression) chain_landed_is_body: the new arm's landed champion is a body at once.
+            #[cfg(not(clash_plant = "chain_landed_is_body"))]
+            let landed_off = calib.chain_landed_body == ChainLandedBody::Client15535NoBodyToEnd;
+            #[cfg(clash_plant = "chain_landed_is_body")]
+            let landed_off = false;
+            let chain_ended = &self.scratch.chain_ended;
+            let chain_landed = |i: usize| landed_off && (matches!(chain_at[i], Some((ChainPhase::Landed, _, _))) || chain_ended.contains(&e.id_of(i)));
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
@@ -18666,6 +18711,7 @@ impl BattleState {
                             && !jumping[i]
                             && dash_state[i] != DashState::Dashing
                             && !matches!(chain_at[i], Some((ChainPhase::Dash, _, _)))
+                            && !chain_landed(i)
                             && warp_at[i].is_none()
                             && !e.attached(i)
                             && !copy_settling(i)
@@ -29448,6 +29494,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
+///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.FIRST_STEP_DYING_CONTACT: Calib gained first_step_dying_contact (serde default the old arm,
 ///    pushed), no new state (the dying bodies are a pass's scratch), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30344,6 +30393,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("troop_relocation_tie_order".into(), serde_json::to_value(TroopRelocationTieOrder::PlacerFrameFirstFound).map_err(|e| e.to_string())?);
     // spawner.FIRST_STEP_DYING_CONTACT: a format-3 battle's first updates met no dying unit at all (the same rule).
     sh.insert("first_step_dying_contact".into(), serde_json::to_value(FirstStepDyingContact::Pushed).map_err(|e| e.to_string())?);
+    // movement.CHAIN_LANDED_BODY: a format-3 battle's landed champions were bodies at once (the same rule).
+    sh.insert("chain_landed_body".into(), serde_json::to_value(ChainLandedBody::LandedBody).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

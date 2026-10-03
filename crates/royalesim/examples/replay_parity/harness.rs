@@ -1533,6 +1533,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   arena order -y, -x, +y, +x seen from the tap, both seats (10 of 10).
 ///   spawner.FIRST_STEP_DYING_CONTACT = client15535_avoidance_only: a first update meets the units dying on its tick in
 ///   the avoidance scan alone (1 emission).
+///   movement.CHAIN_LANDED_BODY = client15535_no_body_to_end: a dash chain's champion is no contact body from a landing to
+///   his chain's end (3 of 3 last landings).
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1590,6 +1592,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("formation.LINE_FRAME", "\"client15535_y_reflection\""),
     ("placement.TROOP_RELOCATION_TIE_ORDER", "\"client15535_arena_clockwise\""),
     ("spawner.FIRST_STEP_DYING_CONTACT", "\"client15535_avoidance_only\""),
+    ("movement.CHAIN_LANDED_BODY", "\"client15535_no_body_to_end\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

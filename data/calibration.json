@@ -5055,6 +5055,17 @@
       "units": "native millitiles; JumpSpeed is native units per tick, the Speed column's unit",
       "plant": "tests/jump16402.rs (8): jumper_pays_blocked (a jumper priced like a walker) red on 5, jump_never_hops (the cost-7 walk, no leap) red on 3, jump_never_lands (the reached flag decides, as for a walk) red on 4; goal_ignores_flying_target (the global passed unconditionally) red on the flying-target case and green on every oracle2026.rs gate"
     },
+    "CHAIN_LANDED_BODY": {
+      "value": "landed_body",
+      "candidates": ["landed_body", "client15535_no_body_to_end"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_no_body_to_end on client 15.535.29: 3 of 3 Golden Knight last landings with a unit overlapping him (or walking into him) moved by no contact on L + 1 and L + 2; the landings between hops (the Landed phase before a Poise) met no overlapping unit. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames: every Golden Knight dash landing L (a step over 200 followed by one under it), his moves on L + 1 .. L + 5 and the units within 1,700 of him on L. After a chain's last landing (state 3 on L + 1, 1 on L + 2, 2 on L + 3): sp-champ-GK-recharge2-s0 t484, a Golem 1,165 off (radii 1,550): no move on 485 and 486, (92, -118) on 487, (96, -115) on 488, and the Golem not pushed by him on 485-486; the engine pushed both on 485 (86, -122) and 486 (68, -89), the scene's divergence once combat.DASH_CHAIN_AIM's dash cell put him on the client's landing point (the iso on the r35 re-cut: the aim alone lost 463 here). sp-champ-GoldenKnight-delay60-s0 t239, a Knight 1,047 off (radii 1,300): no move on 240-241, (-51, -35) on 242. sp-champ-GK-gk2-s0 and -gk3-s0 t189: first moved on L + 4. Every landing between hops (the next dash on L + 3) stood on L + 1 and L + 2 with no unit overlapping.",
+      "meaning": "landed_body: the engine's; a dash chain's champion is no contact body while he dashes (the Dash phase) and a body again from the tick after a landing. client15535_no_body_to_end: no body in the Landed phase either, nor on the tick his chain ends (state.rs Scratch::chain_ended): a body again from the tick after that, or from his Poise when another hop follows.",
+      "open": "A landing between hops with a unit overlapping him (none measured); whether the end tick's exemption is the chain's or the post-kill hold's (combat.DASH_CHAIN_END holds him with no target through it); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_no_body_to_end (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs chain_pass (Scratch::chain_ended) and the move pass's collidable (`chain_landed`), selected by Calib::chain_landed_body; tests/chain_landed_body.rs."
+    },
     "JUMP_LANDING_SCOPE": {
       "value": "move_pass",
       "candidates": ["move_pass", "client15535_whole_tick"],
