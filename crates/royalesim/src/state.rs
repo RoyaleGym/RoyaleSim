@@ -1050,6 +1050,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `FireTick`.
     #[serde(default = "evo_chain_shot_launch_default")]
     pub evo_chain_shot_launch: EvoChainShotLaunch,
+    /// spawner.ACTION_GROUP_SPAWN_ORDER (`drill_pass`, an action group's same-tick spawns): the order an action group's
+    /// spawns due on one tick are created in. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Listed`.
+    #[serde(default = "action_group_spawn_order_default")]
+    pub action_group_spawn_order: ActionGroupSpawnOrder,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2531,6 +2535,10 @@ fn lost_target_swing_default() -> LostTargetSwing {
 
 fn evo_chain_shot_launch_default() -> EvoChainShotLaunch {
     EvoChainShotLaunch::FireTick
+}
+
+fn action_group_spawn_order_default() -> ActionGroupSpawnOrder {
+    ActionGroupSpawnOrder::Listed
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5171,6 +5179,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.ACTION_GROUP_SPAWN_ORDER -- see `drill_pass`: the order of an action group's spawns due on one tick (the
+    /// Evo Goblin Drill's hide: GoblinDrill_EV1_Hide_Group's Spawn_Goblin1, RelativeX -1, and Spawn_Goblin2, RelativeX 1,
+    /// both at SubActionsDelay 50).
+    ActionGroupSpawnOrder {
+        /// The engine's: in the group's listed order (Goblin1, at the owner's x + 500, created first).
+        Listed = "listed",
+        /// In reverse (Goblin2, at x - 500, created first). Measured on client 15.535.29 (every hide pair of the Evo
+        /// Goblin Drill scenes): the Goblin at x - 500 has the lower creation ordinal, 6 of 6 (sp-ec-GoblinDrill t957 and
+        /// t1168, sp-f4-drill-s0 t1012 and t1205, sp-form-GoblinDrill-evo-s0 t1145 and t1275); the lone Goblin of the
+        /// second hide (Spawn_Goblin3, RelativeX -1) stands at x + 500, 3 of 3, so the offsets' sign is the engine's. The
+        /// pair is born touching (1,000 apart): on its first tick the one created first takes the touch (the client's x -
+        /// 500 one moved -1, sp-f4-drill-s0 t1013; the engine's x + 500 one +1).
+        Client15535Reversed = "client15535_reversed",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7467,6 +7491,7 @@ impl Calib {
             warp_hiding: pick(&v, &["combat", "WARP_HIDING", "value"], WarpHiding::from_calibration_name)?,
             lost_target_swing: pick(&v, &["combat", "LOST_TARGET_SWING", "value"], LostTargetSwing::from_calibration_name)?,
             evo_chain_shot_launch: pick(&v, &["combat", "EVO_CHAIN_SHOT_LAUNCH", "value"], EvoChainShotLaunch::from_calibration_name)?,
+            action_group_spawn_order: pick(&v, &["spawner", "ACTION_GROUP_SPAWN_ORDER", "value"], ActionGroupSpawnOrder::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -12563,7 +12588,17 @@ impl BattleState {
                 let team = self.ents.team[i];
                 let unit = cards.get(d.goblin);
                 let level = cards.spawner_level(self.ents.card[i], self.ents.level[i]).expect("spawner level validated at deploy");
-                for (k, x) in d.waves[r.wave as usize].iter().copied().filter(|x| *x != 0).enumerate() {
+                // spawner.ACTION_GROUP_SPAWN_ORDER = client15535_reversed: the group's same-tick spawns are created last listed
+                // first (client 15.535.29: the hide pair's x - 500 Goblin first, 6 of 6).
+                // PLANT (regression) action_spawns_listed: the new arm still creates them in the listed order.
+                let xs: Vec<i8> = d.waves[r.wave as usize].iter().copied().filter(|x| *x != 0).collect();
+                #[cfg(not(clash_plant = "action_spawns_listed"))]
+                let xs: Vec<i8> = if self.cfg.calib.action_group_spawn_order == ActionGroupSpawnOrder::Client15535Reversed {
+                    xs.into_iter().rev().collect()
+                } else {
+                    xs
+                };
+                for (k, x) in xs.into_iter().enumerate() {
                     let ox = match self.cfg.calib.relative_spawn_offset {
                         RelativeSpawnOffset::HalfTileOwnerLeft => -500 * i32::from(x),
                         RelativeSpawnOffset::TilesOwnerFrame => 1000 * i32::from(x),
@@ -29786,6 +29821,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.ACTION_GROUP_SPAWN_ORDER: Calib gained action_group_spawn_order (serde default the old arm,
+///    listed), no new state (the order is the emissions'), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.CHAIN_LANDED_BODY: Calib gained chain_landed_body (serde default the old arm, landed_body), no
 ///    new state (the chain's phase is saved; its end tick is the tick's own scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30733,6 +30771,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("lost_target_swing".into(), serde_json::to_value(LostTargetSwing::Cancelled).map_err(|e| e.to_string())?);
     // combat.EVO_CHAIN_SHOT_LAUNCH: a format-3 battle ran no Evo Electro Dragon (the same rule).
     sh.insert("evo_chain_shot_launch".into(), serde_json::to_value(EvoChainShotLaunch::FireTick).map_err(|e| e.to_string())?);
+    // spawner.ACTION_GROUP_SPAWN_ORDER: a format-3 battle ran no Evo Goblin Drill (the same rule).
+    sh.insert("action_group_spawn_order".into(), serde_json::to_value(ActionGroupSpawnOrder::Listed).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

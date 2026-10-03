@@ -4341,6 +4341,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_avoidance_only (examples/replay_parity/harness.rs CLIENT15535_ARMS). A 15.535.29 death spawn beside a unit dying in its Reap would widen it.",
       "engine": "state.rs phase_path16402_for (the first update's pass, `dying_push`: the doomed bodies and the appended `dying` get Body::alive false), selected by Calib::first_step_dying_contact; tests/first_step_dying_contact.rs."
     },
+    "ACTION_GROUP_SPAWN_ORDER": {
+      "value": "listed",
+      "candidates": ["listed", "client15535_reversed"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_reversed on client 15.535.29 for the Evo Goblin Drill's hide pair (6 of 6); no other action group with same-tick spawns measured. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on every Evo Goblin Drill scene of client 15.535.29 (inline census, r21_notes 10-03 11:4x): each hide's Goblins, their creation ordinals and points against the drill's. GoblinDrill_EV1_Hide_Group lists Spawn_Goblin1 (RelativeX -1) then Spawn_Goblin2 (RelativeX 1), both at SubActionsDelay 50; Hide_Group2 Spawn_Goblin3 alone (RelativeX -1). The lone Goblin stands at the drill's x + 500, 3 of 3 (sp-ec-GoblinDrill t1062, sp-f4-drill-s0 t1117, sp-form-GoblinDrill-evo-s0 t1217): RelativeX -1 is x + 500 for Blue, the engine's reading. In each pair the x - 500 Goblin (Goblin2) has the lower creation ordinal, 6 of 6 (sp-ec t957: 36 at 2500, 37 at 3500 by a drill at 3000; t1168: 44, 45; sp-f4-drill-s0 t1012: 34 at 13500 (13499 a tick on), 35 at 14500 by 14000; t1205: 39, 40; sp-form-GoblinDrill-evo-s0 t1145: 41 at 8500, 42 at 9500; t1275: 45, 46). Born 1,000 apart (radii 500 + 500: touching), the one the move pass reaches first takes the touch on the next tick: the client's x - 500 Goblin moved -1 (sp-f4-drill-s0 t1013), the engine's x + 500 one +1.",
+      "meaning": "listed: the engine's; an action group's spawns due on one tick (the Evo Goblin Drill's hide pair, state.rs drill_pass) are created in the group's listed order. client15535_reversed: last listed first.",
+      "open": "Other action groups with same-tick spawns (none measured: the Suspicious Bush's two Goblins are 50 ms apart); the hide pair's first walking step, where the client's x + 500 Goblin takes an extra (+29, -4) on the first hide (3 of 3) and both are pushed on a later one, is not explained by the order alone.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_reversed (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs drill_pass (the hide Goblins' emission order), selected by Calib::action_group_spawn_order; tests/action_group_spawn_order.rs."
+    },
     "SOUL_POINT_BASE": {
       "value": "pre_move",
       "candidates": ["pre_move", "client15535_post_move"],

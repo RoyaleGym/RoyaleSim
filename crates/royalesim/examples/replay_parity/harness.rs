@@ -1573,6 +1573,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   199 in-attack switches).
 ///   combat.EVO_CHAIN_SHOT_LAUNCH = client15535_next_tick: an Evo Electro Dragon's shot leaves a tick after his fire (21 of
 ///   21).
+///   spawner.ACTION_GROUP_SPAWN_ORDER = client15535_reversed: an action group's same-tick spawns are created last listed
+///   first (the Evo Goblin Drill's hide pair, 6 of 6).
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1639,6 +1641,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.WARP_HIDING", "\"client15535_first_step\""),
     ("combat.LOST_TARGET_SWING", "\"client15535_runs_on_in_reach\""),
     ("combat.EVO_CHAIN_SHOT_LAUNCH", "\"client15535_next_tick\""),
+    ("spawner.ACTION_GROUP_SPAWN_ORDER", "\"client15535_reversed\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
