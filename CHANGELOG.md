@@ -11,6 +11,8 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
   ability where that has a fixed end (0 otherwise).
 - `status_flags` gains bit 5 (a Clone's copy), bit 6 (an ability winding up), bit 7 (an ability active: the Archer
   Queen's cloak, the Golden Knight's dash chain, the Monk's deflect and the rest) and bit 8 (fully charged).
+- `catalogue_json()`: each card row gains a 13th value, `evo_cycle`, the plays before each evolved play of the card's
+  evolution (0 for a card with none), so the opponent's evolution charge can be counted from the plays you see.
 
 ## 0.1.7 (2026-10-03)
 

@@ -357,7 +357,7 @@ const MOTION_SCHEDULED: u8 = 7;
 /// hero form's button costs, null on a card without a loaded hero form. `champion`: true when a deck entry of the card
 /// gets a champion's ability button (card.rs `CardDb::is_champion`). A catalogue row may grow at its end; a decoder
 /// takes the columns it knows by position.
-pub const CATALOGUE_FIELDS: [&str; 12] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind", "variants", "hero", "champion"];
+pub const CATALOGUE_FIELDS: [&str; 13] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind", "variants", "hero", "champion", "evo_cycle"];
 
 /// WHAT A CARD IS, by name (card.rs `CardKind`), the catalogue's `card_kind` column. The
 /// `placement` code says where a card may be played; it does not say what the card is, and
@@ -833,7 +833,11 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
         let hero = cards.form_card(*idx, crate::card::FORM_HERO).and_then(|f| cards.get(f).ability.as_ref()).map_or("null".to_string(), |a| a.cost.to_string());
         // The 12th: whether the card is a champion (`CardDb::is_champion`).
         let champion = cards.is_champion(*idx);
-        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\",{variants},{hero},{champion}]", c.elixir);
+        // The 13th: the card's evolution's cycle (card.rs `EvoDef::cycles`, the basic plays before each evolved one, as a
+        // side's own `evo` rows give it in their 4th value), 0 for a card with no evolution that loads; so an enemy's
+        // evolution charge can be counted from its plays.
+        let evo_cycle = cards.form_card(*idx, crate::card::FORM_EVOLUTION).and_then(|f| cards.get(f).evo.as_ref().map(|e| e.cycles)).unwrap_or(0);
+        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\",{variants},{hero},{champion},{evo_cycle}]", c.elixir);
     }
     out.push(']');
     Ok(out)

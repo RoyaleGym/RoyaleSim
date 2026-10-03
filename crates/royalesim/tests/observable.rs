@@ -166,3 +166,19 @@ fn the_row_carries_the_four_columns_after_the_mount() {
     let tower = rows.iter().find(|r| r[col("tower_slot")].as_i64().unwrap() >= 0).unwrap();
     assert_eq!((tower[col("dest_x")].as_i64(), tower[col("ability_ticks")].as_i64(), tower[col("charge")].as_i64()), (Some(-1), Some(0), Some(0)));
 }
+
+/// THE CATALOGUE'S `evo_cycle` (13th value): the basic plays before each evolved play of the card's evolution, 0 for a
+/// card with none, so an enemy's evolution charge can be counted from the plays a player sees: the Evo Barbarians 1,
+/// the Evo Skeletons 2, the Giant (no evolution) 0.
+#[test]
+fn the_catalogue_names_each_cards_evolution_cycle() {
+    use royalesim::py::{catalogue_rows, CATALOGUE_FIELDS};
+    let db = cards();
+    let calib = royalesim::state::Calib::shipped();
+    let catalogue: Vec<u16> = ["Barbarians", "Skeletons", "Giant"].iter().map(|n| db.index(n).unwrap()).collect();
+    let rows: serde_json::Value = serde_json::from_str(&catalogue_rows(&db, &calib, &catalogue, 11).unwrap()).unwrap();
+    let col = CATALOGUE_FIELDS.iter().position(|f| *f == "evo_cycle").expect("the column");
+    assert_eq!(col, CATALOGUE_FIELDS.len() - 1, "the last column");
+    let got: Vec<i64> = rows.as_array().unwrap().iter().map(|r| r[col].as_i64().unwrap()).collect();
+    assert_eq!(got, vec![1, 2, 0]);
+}
