@@ -2406,10 +2406,10 @@ mod tests {
         assert_eq!(missing, Vec::<&str>::new(), "{} rows report -1", missing.len());
         // An evolved form and its units report the base card: the Evo Barbarians' Barbarian_EV1 the Barbarians.
         let barbarians = catalogue.iter().position(|i| db.get(*i).name == "Barbarians").unwrap() as i32;
-        for n in ["Barbarians_EV1", "Barbarian_EV1"] {
-            let i = db.cards.iter().position(|c| c.name == n).unwrap_or_else(|| panic!("no {n} row"));
-            assert_eq!(ids[i], barbarians, "{n}");
-        }
+        // (Its unit Barbarian_EV1 is the Evo Battle Ram's death spawn as well, so the table, first producer first, gives
+        // it the Battle Ram's; a battle labels each by its producer, the form, whose id is the base card's.)
+        let form = db.cards.iter().position(|c| c.name == "Barbarians_EV1").expect("no Barbarians_EV1 row");
+        assert_eq!(ids[form], barbarians);
     }
 
     #[test]
