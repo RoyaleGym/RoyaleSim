@@ -919,6 +919,11 @@ pub struct Calib {
     /// it stops at a water cell's edge. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `WalkRule`.
     #[serde(default = "attract_water_edge_default")]
     pub attract_water_edge: AttractWaterEdge,
+    /// movement.CAST_HOLD_HEADING (state.rs `phase_path16402_for`'s bodies): whether a unit held by its own ability's
+    /// cast steers its neighbours' avoidance by its heading. Added after SNAPSHOT_FORMAT 20; the `default` is the old
+    /// arm, `Counted`.
+    #[serde(default = "cast_hold_heading_default")]
+    pub cast_hold_heading: CastHoldHeading,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2280,6 +2285,10 @@ fn evo_chain_hop_wait_default() -> EvoChainHopWait {
 
 fn attract_water_edge_default() -> AttractWaterEdge {
     AttractWaterEdge::WalkRule
+}
+
+fn cast_hold_heading_default() -> CastHoldHeading {
+    CastHoldHeading::Counted
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4798,6 +4807,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.CAST_HOLD_HEADING -- see `phase_path16402_for`: whether a unit held by its own ability's cast
+    /// (`start_ability`: its button's entry casting, its hold running) counts its heading in its neighbours' avoidance
+    /// scans (move16402.rs `avoidance_scan`: a moving neighbour heading the scanner's way is passed by).
+    CastHoldHeading {
+        /// The engine's: the cast hold is a stun, the unit's attack phase idle, so its heading counts as a walker's.
+        Counted = "counted",
+        /// Its heading does not count, as an attacking unit's does not: a walker whose scan finds it turns (a dynamic
+        /// blocker: the offset set once, then decaying). Read on client 15.535.29: sp-sk-souls-own-s0 t311, a Skeleton
+        /// walking past the Skeleton King, exact on t310, turned the full 190 on his cast's first frame (behaviour state
+        /// 10), the offset then decaying 10 a tick through the cast; the Dark Prince the Hero Dark Prince's cast puts
+        /// down beside him turned 190 on its first frame, 5 of 5 (Oracle's sp-hero2-DarkPrince-charge, -melee, -mount,
+        /// -still s0 and s1). The engine's stayed 0 in all six.
+        Client15535NotCounted = "client15535_not_counted",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6683,6 +6708,7 @@ impl Calib {
             ghost_pair_first_frame: pick(&v, &["targeting", "GHOST_PAIR_FIRST_FRAME", "value"], GhostPairFirstFrame::from_calibration_name)?,
             evo_chain_hop_wait: pick(&v, &["combat", "EVO_CHAIN_HOP_WAIT", "value"], EvoChainHopWait::from_calibration_name)?,
             attract_water_edge: pick(&v, &["status", "ATTRACT_WATER_EDGE", "value"], AttractWaterEdge::from_calibration_name)?,
+            cast_hold_heading: pick(&v, &["movement", "CAST_HOLD_HEADING", "value"], CastHoldHeading::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -17944,6 +17970,18 @@ impl BattleState {
             let knocked_mover = |i: usize| calib.knocked_doomed_avoidance == KnockedDoomedAvoidance::Client15535KnockedMover && push_active[i];
             #[cfg(clash_plant = "knocked_doomed_static")]
             let knocked_mover = |_: usize| false; // PLANT: the knocked doomed troop stays static under the new arm.
+            // movement.CAST_HOLD_HEADING = client15535_not_counted: a unit held by its own ability's cast (its button's
+            // entry casting, its hold running: `casting_heroes`) steers no neighbour by its heading.
+            let mut cast_heading_off = vec![false; cap];
+            #[cfg(not(clash_plant = "cast_heading_counted"))]
+            if calib.cast_hold_heading == CastHoldHeading::Client15535NotCounted {
+                for u in self.hero_units.iter().filter(|u| u.casting && e.is_alive(u.id)) {
+                    let i = u.id.index as usize;
+                    if e.stun_ms[i] > 0 {
+                        cast_heading_off[i] = true;
+                    }
+                }
+            }
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
@@ -18001,7 +18039,8 @@ impl BattleState {
                         heading_counts: e.attack_phase[i] == AttackPhase::Idle
                             && serves_no_wait(e, i)
                             && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
-                            && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
+                            && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0)
+                            && !cast_heading_off[i],
                         // movement.WAITING_HEADING = static_obstacle: a member still waiting out its
                         // stagger is static to the avoidance scan and the grouping, and a troop to
                         // separation.
@@ -28441,6 +28480,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.CAST_HOLD_HEADING: Calib gained cast_hold_heading (serde default the old arm, counted), no new
+///    state (the new arm reads the cast holds), so a blob saved before it deserializes and hashes as it did. migrate_v3
+///    runs a migrated battle at the old arm.
 /// 20, unchanged, status.ATTRACT_WATER_EDGE: Calib gained attract_water_edge (serde default the old arm, walk_rule), no
 ///    new state (the new arm reads the tick's pull), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -29234,6 +29276,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_chain_hop_wait".into(), serde_json::to_value(EvoChainHopWait::AtOnce).map_err(|e| e.to_string())?);
     // status.ATTRACT_WATER_EDGE: a format-3 battle ran its pulls at the walk's water rule (the same rule).
     sh.insert("attract_water_edge".into(), serde_json::to_value(AttractWaterEdge::WalkRule).map_err(|e| e.to_string())?);
+    // movement.CAST_HOLD_HEADING: a format-3 battle counted a casting unit's heading (the same rule).
+    sh.insert("cast_hold_heading".into(), serde_json::to_value(CastHoldHeading::Counted).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

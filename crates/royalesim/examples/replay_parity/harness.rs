@@ -1430,6 +1430,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   status.ATTRACT_WATER_EDGE = client15535_pull_stops: a ground unit's pulled step stops at a water cell's edge.
 ///   status.ATTRACT_ONSET = client_next_tick: a pulling area moves its victims on the tick after each of its own ticks
 ///   (the Tornado's D + 1..D + 21, the Evo Valkyrie's tornado H + 2..H + 11, every tick of both).
+///   movement.CAST_HOLD_HEADING = client15535_not_counted: a unit in its own ability's cast steers no neighbour by its
+///   heading (a walker passing the Skeleton King turned on his cast's first frame; read, LOW).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1465,6 +1467,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.EVO_CHAIN_HOP_WAIT", "\"client15535_two_ticks\""),
     ("status.ATTRACT_WATER_EDGE", "\"client15535_pull_stops\""),
     ("status.ATTRACT_ONSET", "\"client_next_tick\""),
+    ("movement.CAST_HOLD_HEADING", "\"client15535_not_counted\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

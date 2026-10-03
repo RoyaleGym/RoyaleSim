@@ -960,7 +960,7 @@ fn an_evo_goblin_barrels_decoy_dummies_are_rooted_to_the_goblin_barrel() {
 /// 16.402 runs the ledger's whole_tick; a run that overrides the key runs its override. Plant: replay_client_arms_unread.
 #[test]
 fn a_capture_runs_its_clients_own_mechanics() {
-    use royalesim::state::{Calib, ChaseHoldPastLimit, DeathDamageTick, DoomedOwnUpdate, DyingUnitVisibility, EvoCopyCount, ContainerBurstPush, AvoidanceObstacleTag, HeldFacing, HeldUnitAvoidance, IllegalTroopTap, KamikazeDeathContact, LoadFirstHitLeave, RandomDelayStream, DeathRingAxis, PassKillChase, KnockedDoomedAvoidance, TroopDeathPushback, StruckContactOrder, FallGrounding, CageCaptiveShots, LoadFirstHitKillWait, EqualDistanceTie, ShotAtHidingBuilding, DashChainImmunity, GhostPairFirstFrame, EvoChainHopWait, AttractWaterEdge, AttractOnset, KnockedTargetHold, LadderEndRoute, LaunchPastTarget, RelocationTieOrder, SlapFlightTargetability, TickOrder};
+    use royalesim::state::{Calib, ChaseHoldPastLimit, DeathDamageTick, DoomedOwnUpdate, DyingUnitVisibility, EvoCopyCount, ContainerBurstPush, AvoidanceObstacleTag, HeldFacing, HeldUnitAvoidance, IllegalTroopTap, KamikazeDeathContact, LoadFirstHitLeave, RandomDelayStream, DeathRingAxis, PassKillChase, KnockedDoomedAvoidance, TroopDeathPushback, StruckContactOrder, FallGrounding, CageCaptiveShots, LoadFirstHitKillWait, EqualDistanceTie, ShotAtHidingBuilding, DashChainImmunity, GhostPairFirstFrame, EvoChainHopWait, AttractWaterEdge, AttractOnset, CastHoldHeading, KnockedTargetHold, LadderEndRoute, LaunchPastTarget, RelocationTieOrder, SlapFlightTargetability, TickOrder};
     let none = std::collections::BTreeMap::new();
     assert_eq!(Calib::shipped().dying_unit_visibility, DyingUnitVisibility::WholeTick, "the ledger ships whole_tick; this test reads a client that differs");
     assert_eq!(Calib::shipped().tick_order, TickOrder::Client16402, "the ledger ships client16402; this test reads a client that differs");
@@ -1006,6 +1006,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.evo_chain_hop_wait, EvoChainHopWait::Client15535TwoTicks, "a 15.535.29 capture's evo hops wait two ticks");
     assert_eq!(cfg.calib.attract_water_edge, AttractWaterEdge::Client15535PullStops, "a 15.535.29 capture's pulled step stops at the water");
     assert_eq!(cfg.calib.attract_onset, AttractOnset::ClientNextTick, "a 15.535.29 capture's pull lands the tick after the area's");
+    assert_eq!(cfg.calib.cast_hold_heading, CastHoldHeading::Client15535NotCounted, "a 15.535.29 capture's caster steers no one by heading");
     assert!(notes.iter().any(|n| n.contains("DYING_UNIT_VISIBILITY")), "the notes do not name the client's arm: {notes:?}");
     assert!(notes.iter().any(|n| n.contains("TICK_ORDER")), "the notes do not name the client's tick order: {notes:?}");
     let mut new = sample();
@@ -1044,6 +1045,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.evo_chain_hop_wait, EvoChainHopWait::AtOnce, "a 16.402 capture");
     assert_eq!(cfg.calib.attract_water_edge, AttractWaterEdge::WalkRule, "a 16.402 capture");
     assert_eq!(cfg.calib.attract_onset, AttractOnset::AreaFirstTick, "a 16.402 capture");
+    assert_eq!(cfg.calib.cast_hold_heading, CastHoldHeading::Counted, "a 16.402 capture");
     let mut ov = std::collections::BTreeMap::new();
     ov.insert("match.TICK_ORDER".to_string(), "\"client16402\"".to_string());
     let cfg = config_for_with(&old, common::cards(), None, &ov).unwrap().0;
