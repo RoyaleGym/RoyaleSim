@@ -888,7 +888,14 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     };
     let hs = card.hit_speed_ms;
     let lt = card.load_time_ms.max(0);
-    let mut load = (ents.attack_load_ms[a] - calib.tick_ms).max(0);
+    // combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: a unit holding after a walking loss keeps its
+    // load timer (entity.rs `load_hold` 2; 2 is written under that arm alone).
+    // PLANT (regression) load_hold_unread: the hold is not read; the timer runs on.
+    #[cfg(not(clash_plant = "load_hold_unread"))]
+    let held = ents.load_hold[a] == 2;
+    #[cfg(clash_plant = "load_hold_unread")]
+    let held = false;
+    let mut load = if held { ents.attack_load_ms[a] } else { (ents.attack_load_ms[a] - calib.tick_ms).max(0) };
     let phase = ents.attack_phase[a];
     let mut progress = ents.attack_ms[a];
     // combat.LOAD_FIRST_HIT_LEAVE = client15535_windup_refunded: a LoadFirstHit unit leaving its attack before the attack

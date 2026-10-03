@@ -330,6 +330,12 @@ pub struct Entities {
     /// `default` and sized on load from each unit's position.
     #[serde(default)]
     pub chase_last_pos: Vec<Vec2>,
+    /// combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: 1 on the tick this unit lost, while walking, the
+    /// target it held (state.rs, the Target phase), 2 from its attack step on that tick until it takes a target again,
+    /// while its load timer stands (combat.rs `attack_step_progress`); 0 otherwise and on every unit under the old arm.
+    /// `default` and sized on load at 0.
+    #[serde(default)]
+    pub load_hold: Vec<u8>,
     /// THE COMBO'S COUNT (card.rs `ComboDef`; combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK): the entry this unit's
     /// next hit deals, moved on after every hit (state.rs `phase_attack`) under either key's new arm, across
     /// targets. 0 on every unit without a combo and under both old arms. `default` and sized on load like
@@ -868,6 +874,7 @@ impl Entities {
             self.idle_back[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
+            self.load_hold[i] = 0;
             self.combo_ix[i] = 0;
             self.spawn_lane[i] = 0;
             self.lane_window_end[i] = 0;
@@ -969,6 +976,7 @@ impl Entities {
             self.idle_back.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
+            self.load_hold.push(0);
             self.combo_ix.push(0);
             self.spawn_lane.push(0);
             self.lane_window_end.push(0);
@@ -1126,6 +1134,7 @@ impl Entities {
         self.launched_beyond[i] = false;
         self.chase_dropped[i] = None;
         self.chase_inside[i] = None;
+        self.load_hold[i] = 0;
         self.attack_seq[i] = 0;
     }
 

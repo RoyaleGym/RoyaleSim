@@ -932,6 +932,11 @@ pub struct Calib {
     /// is measured on. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `MaxAbs`.
     #[serde(default = "chase_drop_measure_default")]
     pub chase_drop_measure: ChaseDropMeasure,
+    /// combat.LOAD_TIMER_TARGET_LOSS (combat.rs `attack_step_progress`, entity.rs `load_hold`): whether a unit's load timer
+    /// runs on after it loses a target it was walking to. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// `RunsOn`.
+    #[serde(default = "load_timer_target_loss_default")]
+    pub load_timer_target_loss: LoadTimerTargetLoss,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2305,6 +2310,10 @@ fn death_bomb_timing_scope_default() -> DeathBombTimingScope {
 
 fn chase_drop_measure_default() -> ChaseDropMeasure {
     ChaseDropMeasure::MaxAbs
+}
+
+fn load_timer_target_loss_default() -> LoadTimerTargetLoss {
+    LoadTimerTargetLoss::RunsOn
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4880,6 +4889,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.LOAD_TIMER_TARGET_LOSS -- see combat.rs `attack_step_progress` and entity.rs `load_hold`: what a unit's load
+    /// timer (combat.ATTACK_CYCLE = progress_credit's) does after the unit loses, while walking, the target it walked to.
+    LoadTimerTargetLoss {
+        /// The engine's: it runs down 50 a tick in every state.
+        RunsOn = "runs_on",
+        /// It runs down on the loss tick and then stands until the unit takes a target again; a target lost while
+        /// attacking (a kill), or never held, leaves it running. Measured on client 15.535.29 (load_idle_census.py):
+        /// every walking loss followed by ticks with no target, 4 of 4 (three Valkyries, a Hog Rider; 64 ticks standing),
+        /// where losses out of an attack and fresh units ran on; sp-f2-ice-s0 t275: a Valkyrie's timer stood at 1,150
+        /// for 11 ticks, so its swing on t288 started at progress 450 and landed on t309, where the engine's (550 left)
+        /// landed on t299 and killed a Skeleton the client's did not. An attached rider ran on (sweep-RamRider, one).
+        Client15535StandsAfterWalkLoss = "client15535_stands_after_walk_loss",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6771,6 +6795,7 @@ impl Calib {
             cast_hold_heading: pick(&v, &["movement", "CAST_HOLD_HEADING", "value"], CastHoldHeading::from_calibration_name)?,
             death_bomb_timing_scope: pick(&v, &["spawner", "DEATH_BOMB_TIMING_SCOPE", "value"], DeathBombTimingScope::from_calibration_name)?,
             chase_drop_measure: pick(&v, &["targeting", "CHASE_DROP_MEASURE", "value"], ChaseDropMeasure::from_calibration_name)?,
+            load_timer_target_loss: pick(&v, &["combat", "LOAD_TIMER_TARGET_LOSS", "value"], LoadTimerTargetLoss::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -14929,6 +14954,16 @@ impl BattleState {
             // the target this unit had AND STILL HAS: `None` once it is dead, which is the
             // distinction both rules below turn on.
             let was = e.target[i].filter(|t| e.standing(*t, struck));
+            // combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: a unit losing, while it walks (its attack
+            // idle), the target it held, dead or alive, holds its load timer from the next tick (entity.rs `load_hold` 1,
+            // made 2 by its attack step on this tick); taking any target ends the hold.
+            if calib.load_timer_target_loss == LoadTimerTargetLoss::Client15535StandsAfterWalkLoss {
+                if d.target.is_some() {
+                    e.load_hold[i] = 0;
+                } else if e.target[i].is_some() && e.attack_phase[i] == AttackPhase::Idle && e.load_hold[i] == 0 {
+                    e.load_hold[i] = 1;
+                }
+            }
             // CHARGE (calibration charge.RESET_ON_RETARGET, shipped false): switching
             // from one LIVE target to a DIFFERENT one clears the charge and the run-up.
             // Acquiring a first target, or replacing a dead one, is not a switch: a
@@ -20506,6 +20541,10 @@ impl BattleState {
                 continue;
             }
             let step = combat::attack_step(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act);
+            // combat.LOAD_TIMER_TARGET_LOSS: the loss tick's step ran the timer down; the hold starts with the next.
+            if self.ents.load_hold[i] == 1 {
+                self.ents.load_hold[i] = 2;
+            }
             // combat.ATTACK_SELECT_MOMENT (card.rs `AttackSelectDef`; the Three Musketeers): the selector picks the
             // swing's entry when the swing starts -- a fresh cycle's first tick here, and the hit that ends a swing for
             // the next one (below, after `fire`) -- or, under at_fire, at the hit itself. Written only for a card that
@@ -26964,6 +27003,11 @@ impl BattleState {
                     h.i32(e.chase_last_pos[i].x);
                     h.i32(e.chase_last_pos[i].y);
                 }
+                // combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: the load timer's hold, written under
+                // that arm alone.
+                if self.cfg.calib.load_timer_target_loss == LoadTimerTargetLoss::Client15535StandsAfterWalkLoss {
+                    h.u32(e.load_hold[i] as u32);
+                }
                 // THE COMBO'S COUNT (combat.ATTACK_COMBO, knockback.COMBO_PUSHBACK), only when not 0: it moves only
                 // under either key's new arm, so a battle under the old arms hashes as it did before the column.
                 if e.combo_ix[i] != 0 {
@@ -28594,6 +28638,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.LOAD_TIMER_TARGET_LOSS: Calib gained load_timer_target_loss (serde default the old arm, runs_on);
+///    Entities gained load_hold (`default`, sized on load at 0), written and hashed under the new arm alone, so a blob
+///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.CHASE_DROP_MEASURE and targeting.CHASE_DROP_WALKING_AWAY's client15535_growing_away:
 ///    Calib gained chase_drop_measure (serde default the old arm, max_abs); Entities gained chase_last_pos (`default`,
 ///    sized on load from each unit's position), written and hashed under client15535_growing_away alone, so a blob saved
@@ -29403,6 +29450,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_bomb_timing_scope".into(), serde_json::to_value(DeathBombTimingScope::Containers).map_err(|e| e.to_string())?);
     // targeting.CHASE_DROP_MEASURE: a format-3 battle measured the limit on max(|dx|, |dy|) (the same rule).
     sh.insert("chase_drop_measure".into(), serde_json::to_value(ChaseDropMeasure::MaxAbs).map_err(|e| e.to_string())?);
+    // combat.LOAD_TIMER_TARGET_LOSS: a format-3 battle ran every load timer on (the same rule).
+    sh.insert("load_timer_target_loss".into(), serde_json::to_value(LoadTimerTargetLoss::RunsOn).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
@@ -29836,6 +29885,7 @@ impl BattleState {
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
         snap.ents.source.resize(n, NO_CARD);
+        snap.ents.load_hold.resize(n, 0);
         // A blob saved before chase_last_pos reads each unit's last Target-phase position as where it stands.
         for i in snap.ents.chase_last_pos.len()..n {
             let p = snap.ents.pos[i];
