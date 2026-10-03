@@ -5126,6 +5126,19 @@ calib_enum!(
         /// for 11 ticks, so its swing on t288 started at progress 450 and landed on t309, where the engine's (550 left)
         /// landed on t299 and killed a Skeleton the client's did not. An attached rider ran on (sweep-RamRider, one).
         Client15535StandsAfterWalkLoss = "client15535_stands_after_walk_loss",
+        /// It stands on every tick its unit is stunned, frozen (`Entities::held`) or slid or dragged (`Entities::knocked`, not a
+        /// knockback ladder: the timer runs on through one, 108 of 112 ladders),
+        /// the hold's landing tick running as before; it runs on through every other state, a post-kill wait and a lost
+        /// or dead target included. Measured on client 15.535.29 (loss_progress_census.py: every unit holding a target on
+        /// one frame and none on the next, its load timer above 0): a stun or a freeze clears the target as it lands
+        /// (status.STUN_CLEARS_TARGET), and those losses held the timer for the hold's span, 10 ticks 33 times (an
+        /// Electro Spirit's, a Zap's), 22 ticks 39 times (an Ice Spirit's freeze), 40 four times, 80 once (a Freeze),
+        /// 32 of them crown towers; slapped units held it too (a Hero Giant's slap, a stun: 11 moving holds); every
+        /// loss with no hold ran on: 2 crown towers losing a target past range, 15 Musketeer drops of a doomed target, 13
+        /// swings reset by the loss, and 1,185 of 1,188 dead targets (the other 3 a hero's cast hold). sp-f2-cagefb-s0
+        /// t928, a Brawler losing its kill, ran on (the walking arm above held it). sp-f2-ice-s0 t275: an Electro
+        /// Spirit's stun took a walking Valkyrie's target and her timer stood at 1,150 through t285.
+        Client15535StandsWhileHeld = "client15535_stands_while_held",
     }
 );
 calib_enum!(
@@ -28165,7 +28178,7 @@ impl BattleState {
                     }
                 }
                 // combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: the load timer's hold, written under
-                // that arm alone.
+                // that arm alone (client15535_stands_while_held reads the unit's hold, nothing of its own).
                 if self.cfg.calib.load_timer_target_loss == LoadTimerTargetLoss::Client15535StandsAfterWalkLoss {
                     h.u32(e.load_hold[i] as u32);
                 }
@@ -29902,6 +29915,9 @@ impl BattleState {
 ///    gained drag_idle (`default`, sized on load false), written and hashed under the new arm alone (its hooked_by held
 ///    a tick longer is hashed as before), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
 ///    a migrated battle at the old arm.
+/// 20, unchanged, combat.LOAD_TIMER_TARGET_LOSS's client15535_stands_while_held: a new arm of an existing key, no new
+///    state (it reads the unit's stun, freeze and knockback), so a blob saved before it deserializes and hashes as it
+///    did.
 /// 20, unchanged, combat.LOAD_TIMER_TARGET_LOSS: Calib gained load_timer_target_loss (serde default the old arm, runs_on);
 ///    Entities gained load_hold (`default`, sized on load at 0), written and hashed under the new arm alone, so a blob
 ///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.

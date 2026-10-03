@@ -895,6 +895,24 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     let held = ents.load_hold[a] == 2;
     #[cfg(clash_plant = "load_hold_unread")]
     let held = false;
+    // combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back keeps its load
+    // timer on every tick of the hold (client 15.535.29: 10-tick stuns 33 of 33, 22-tick freezes 39 of 39; every loss
+    // with no hold ran on).
+    // PLANT (regression) held_load_runs_on: the new arm's held unit still runs its timer down.
+    // A knockback LADDER (`push_active`) is not a hold: the timer runs on through it (client 15.535.29,
+    // ladder_load_census.py: 108 of 112 ladders over a running timer ran on; the 4 that stood were the Hero Giant's slap,
+    // whose flight is a stun, `held`).
+    // PLANT (regression) ladder_load_stands: the new arm still holds the timer through a ladder.
+    #[cfg(not(clash_plant = "ladder_load_stands"))]
+    let knock_holds = ents.knocked(a) && !ents.push_active[a];
+    #[cfg(clash_plant = "ladder_load_stands")]
+    let knock_holds = ents.knocked(a);
+    #[cfg(not(clash_plant = "held_load_runs_on"))]
+    let stands = calib.load_timer_target_loss == crate::state::LoadTimerTargetLoss::Client15535StandsWhileHeld
+        && (ents.held(&cards.buffs, a, calib.full_stop_buff_is_stun) || knock_holds);
+    #[cfg(clash_plant = "held_load_runs_on")]
+    let stands = false;
+    let held = held || stands;
     let mut load = if held { ents.attack_load_ms[a] } else { (ents.attack_load_ms[a] - calib.tick_ms).max(0) };
     let phase = ents.attack_phase[a];
     let mut progress = ents.attack_ms[a];

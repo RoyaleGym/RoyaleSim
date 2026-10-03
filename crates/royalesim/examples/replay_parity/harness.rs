@@ -1575,6 +1575,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   21).
 ///   spawner.ACTION_GROUP_SPAWN_ORDER = client15535_reversed: an action group's same-tick spawns are created last listed
 ///   first (the Evo Goblin Drill's hide pair, 6 of 6).
+///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
+///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1642,6 +1644,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.LOST_TARGET_SWING", "\"client15535_runs_on_in_reach\""),
     ("combat.EVO_CHAIN_SHOT_LAUNCH", "\"client15535_next_tick\""),
     ("spawner.ACTION_GROUP_SPAWN_ORDER", "\"client15535_reversed\""),
+    ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
