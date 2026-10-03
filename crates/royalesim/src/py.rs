@@ -699,6 +699,16 @@ pub fn ids_of_indices(cards: &CardDb, catalogue: &[u16]) -> Vec<i32> {
             frontier.push((cid as i32, form));
         }
     }
+    // AN EVOLVED FORM, the same way: its base card's id (a deck marks the base evolved, and every few plays of it put
+    // the form down), and its units with it (the Evo Barbarians' Barbarian_EV1, the Evo Skeleton Army's General).
+    for &(base, _, form) in &cards.forms {
+        if let Some(cid) = catalogue.iter().position(|i| *i == base) {
+            if id_of_idx[form as usize] == -1 {
+                id_of_idx[form as usize] = cid as i32;
+            }
+            frontier.push((cid as i32, form));
+        }
+    }
     let mut walked: Vec<bool> = vec![false; cards.cards.len()];
     while !frontier.is_empty() {
         let mut next: Vec<(i32, u16)> = Vec::new();
@@ -2353,6 +2363,39 @@ mod tests {
         let spells = v["spells"].as_array().unwrap();
         assert!(spells.iter().any(|r| r[1] == catalogue.iter().position(|i| db.get(*i).name == "Fireball").unwrap() as i64 && r[2] == 0), "the Fireball in flight is not reported: {spells:?}");
         assert_eq!(catalogue_violation(&reload(&db, &s), &ids), Ok(()), "a Goblin on the board is covered by its barrel's id");
+    }
+
+    #[test]
+    fn every_row_but_a_crown_tower_has_a_card_id_in_the_default_catalogue() {
+        // NO UNIT REPORTS -1: every row a battle can put on the board (an evolved form and the units it makes, a hero
+        // form and its ability's units, every summon down a chain) has the id of a catalogue card that can put it down
+        // (`ids_of_indices`), so a reader that refuses -1 (RoyaleGym's card_ids) reads every entity. Train lost half of
+        // a conversion's matches to the evolutions' units reporting -1. The catalogue is the one `Battle::new` builds
+        // by default.
+        let db = cards();
+        let loadable: Vec<u16> = (0..db.cards.len() as u16)
+            .filter(|i| {
+                let c = db.get(*i);
+                c.name != KING_TOWER && c.name != PRINCESS_TOWER && !c.summon_only && c.evo.is_none() && db.index(&c.name) == Some(*i)
+            })
+            .collect();
+        let pinned: Vec<u16> = CATALOGUE_ORDER.iter().filter_map(|n| loadable.iter().copied().find(|i| db.get(*i).name == *n)).collect();
+        let catalogue: Vec<u16> = pinned.iter().copied().chain(loadable.iter().copied().filter(|i| !pinned.contains(i))).collect();
+        let ids = ids_of_indices(&db, &catalogue);
+        let missing: Vec<&str> = db
+            .cards
+            .iter()
+            .enumerate()
+            .filter(|(i, c)| ids[*i] == -1 && c.name != KING_TOWER && c.name != PRINCESS_TOWER)
+            .map(|(_, c)| c.name.as_str())
+            .collect();
+        assert_eq!(missing, Vec::<&str>::new(), "{} rows report -1", missing.len());
+        // An evolved form and its units report the base card: the Evo Barbarians' Barbarian_EV1 the Barbarians.
+        let barbarians = catalogue.iter().position(|i| db.get(*i).name == "Barbarians").unwrap() as i32;
+        for n in ["Barbarians_EV1", "Barbarian_EV1"] {
+            let i = db.cards.iter().position(|c| c.name == n).unwrap_or_else(|| panic!("no {n} row"));
+            assert_eq!(ids[i], barbarians, "{n}");
+        }
     }
 
     #[test]
