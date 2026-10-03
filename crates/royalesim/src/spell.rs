@@ -1775,10 +1775,24 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 // the arrival on the tick after the delay runs out.
                 let container = def.death_bomb_fuse_ms().is_some() && def.death_spawn.is_some();
                 // PLANT bomb_timing_reaches_plain_bombs (tests/death_bomb.rs): the container's timing on every bomb.
-                #[cfg(not(clash_plant = "bomb_timing_reaches_plain_bombs"))]
-                let timed = container;
+                // spawner.DEATH_BOMB_TIMING_SCOPE = client15535_every_bomb: a plain bomb is timed as a container is; a bomb a
+                // button drops (the Mighty Miner's, `CardDef::dropped_by_ability`) keeps the tick after its fuse.
+                // PLANT (regression) ability_bomb_timed: the new arm times the Mighty Miner's bomb too.
+                #[cfg(not(clash_plant = "ability_bomb_timed"))]
+                let dropped = def.dropped_by_ability;
+                #[cfg(clash_plant = "ability_bomb_timed")]
+                let dropped = false;
+                #[cfg(not(any(clash_plant = "bomb_timing_reaches_plain_bombs", clash_plant = "plain_bomb_lands_late")))]
+                let timed = container
+                    || (def.death_bomb_fuse_ms().is_some()
+                        && !dropped
+                        && ctx.calib.death_bomb_timing_scope == crate::state::DeathBombTimingScope::Client15535EveryBomb);
+                #[cfg(any(clash_plant = "bomb_timing_reaches_plain_bombs", clash_plant = "plain_bomb_lands_late"))]
+                let _ = dropped;
                 #[cfg(clash_plant = "bomb_timing_reaches_plain_bombs")]
                 let timed = def.death_bomb_fuse_ms().is_some();
+                #[cfg(clash_plant = "plain_bomb_lands_late")]
+                let timed = container; // PLANT (regression): the new arm's plain bomb lands on the tick after its fuse.
                 #[cfg(not(clash_plant = "container_release_with_hit"))]
                 let timing = ctx.calib.death_bomb_spawn_timing;
                 // PLANT container_release_with_hit (tests/skeleton_barrel.rs): the old arm whatever the key says.

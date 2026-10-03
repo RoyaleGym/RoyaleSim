@@ -924,6 +924,10 @@ pub struct Calib {
     /// arm, `Counted`.
     #[serde(default = "cast_hold_heading_default")]
     pub cast_hold_heading: CastHoldHeading,
+    /// spawner.DEATH_BOMB_TIMING_SCOPE (spell.rs `step_spells`): which death bombs spawner.DEATH_BOMB_SPAWN_TIMING
+    /// times. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Containers`.
+    #[serde(default = "death_bomb_timing_scope_default")]
+    pub death_bomb_timing_scope: DeathBombTimingScope,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2289,6 +2293,10 @@ fn attract_water_edge_default() -> AttractWaterEdge {
 
 fn cast_hold_heading_default() -> CastHoldHeading {
     CastHoldHeading::Counted
+}
+
+fn death_bomb_timing_scope_default() -> DeathBombTimingScope {
+    DeathBombTimingScope::Containers
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4823,6 +4831,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.DEATH_BOMB_TIMING_SCOPE -- see spell.rs `step_spells`: which death bombs spawner.DEATH_BOMB_SPAWN_TIMING
+    /// times (its at_fuse_end: the hit on the tick the fuse runs out).
+    DeathBombTimingScope {
+        /// The engine's: a container (a bomb carrying a death spawn, the Skeleton Barrel's) alone; a plain bomb (the
+        /// Balloon's, the Giant Skeleton's, the Bomb Tower's) lands on the tick after its fuse (16.402: a Balloon's).
+        Containers = "containers",
+        /// Every death bomb: a plain bomb lands on its fuse's last tick too. Measured on client 15.535.29: every plain
+        /// bomb that hit a unit, 5 of 5 (three Balloons', two Giant Skeletons'), landed 61 ticks after its parent's
+        /// last frame (the fuse, 60 ticks, from the death frame), the engine's on the 62nd. A bomb a button drops (the
+        /// Mighty Miner's, `CardDef::dropped_by_ability`) keeps the tick after its fuse: sp-champ-MightyMiner-s0 t226, a
+        /// Knight 3,486 from it took its 332 and its 1800 ladder on the tick the old arm gives.
+        Client15535EveryBomb = "client15535_every_bomb",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6709,6 +6732,7 @@ impl Calib {
             evo_chain_hop_wait: pick(&v, &["combat", "EVO_CHAIN_HOP_WAIT", "value"], EvoChainHopWait::from_calibration_name)?,
             attract_water_edge: pick(&v, &["status", "ATTRACT_WATER_EDGE", "value"], AttractWaterEdge::from_calibration_name)?,
             cast_hold_heading: pick(&v, &["movement", "CAST_HOLD_HEADING", "value"], CastHoldHeading::from_calibration_name)?,
+            death_bomb_timing_scope: pick(&v, &["spawner", "DEATH_BOMB_TIMING_SCOPE", "value"], DeathBombTimingScope::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -28480,6 +28504,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.DEATH_BOMB_TIMING_SCOPE: Calib gained death_bomb_timing_scope (serde default the old arm,
+///    containers), no new state (the new arm reads a bomb's saved fuse), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.CAST_HOLD_HEADING: Calib gained cast_hold_heading (serde default the old arm, counted), no new
 ///    state (the new arm reads the cast holds), so a blob saved before it deserializes and hashes as it did. migrate_v3
 ///    runs a migrated battle at the old arm.
@@ -29278,6 +29305,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("attract_water_edge".into(), serde_json::to_value(AttractWaterEdge::WalkRule).map_err(|e| e.to_string())?);
     // movement.CAST_HOLD_HEADING: a format-3 battle counted a casting unit's heading (the same rule).
     sh.insert("cast_hold_heading".into(), serde_json::to_value(CastHoldHeading::Counted).map_err(|e| e.to_string())?);
+    // spawner.DEATH_BOMB_TIMING_SCOPE: a format-3 battle timed its containers alone (the same rule).
+    sh.insert("death_bomb_timing_scope".into(), serde_json::to_value(DeathBombTimingScope::Containers).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
