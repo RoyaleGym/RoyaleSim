@@ -954,6 +954,10 @@ pub struct Calib {
     /// waypoint's reached test. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NotRun`.
     #[serde(default = "held_waypoint_test_default")]
     pub held_waypoint_test: HeldWaypointTest,
+    /// spawner.SPECTRAL_FIRST_UPDATE (`army_spectrals`): whether an Evo Skeleton Army Spectral takes its first update on
+    /// the tick it is made. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
+    #[serde(default = "spectral_first_update_default")]
+    pub spectral_first_update: SpectralFirstUpdate,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2347,6 +2351,10 @@ fn jump_landing_scope_default() -> JumpLandingScope {
 
 fn held_waypoint_test_default() -> HeldWaypointTest {
     HeldWaypointTest::NotRun
+}
+
+fn spectral_first_update_default() -> SpectralFirstUpdate {
+    SpectralFirstUpdate::None
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4987,6 +4995,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.SPECTRAL_FIRST_UPDATE -- see `army_spectrals`: whether an Evo Skeleton Army Spectral, made at the end of
+    /// Reap where its soldier died, takes its first update on that tick (`first_update`, as an Evo Skeletons copy does).
+    SpectralFirstUpdate {
+        /// The engine's: it stands where it was made, with no target, until the next tick's passes.
+        None = "none",
+        /// Its whole first update on the tick it is made, the tick's Spectrals together, meeting no dying body: it
+        /// acquires, enters its attack on a target in reach or else takes one walk step (avoidance and contact law
+        /// included). Measured on client 15.535.29 (spectral_birth_census.py, the 43 Spectrals of sp-form-SkeletonArmy-
+        /// evo-s0, sp-esa-spectrals-s0 and sp-il-b5e2): every one holds a target on its first frame (state 1 walking or
+        /// 2 attacking), and every walking one already carries an avoidance offset of +-190 (a turn begun that tick, 10
+        /// decayed); where the scene still agrees, it stands one Spectral step (speed 60) from the point the engine
+        /// makes it: sp-esa-spectrals-s0 t829 (-16, -58), its next step (-22, -56); sp-form-SkeletonArmy-evo-s0 t947
+        /// (-10, 60). The engine's Spectral took that facing a tick late, with no turn.
+        Client15535SameTick = "client15535_same_tick",
+    }
+);
+calib_enum!(
     /// movement.HELD_WAYPOINT_TEST -- see `phase_path16402_for` (`bookkeeping`): whether a unit held by a freeze or a stun,
     /// aiming at its next waypoint at speed 0 (movement.HELD_FACING = client15535_toward_waypoint), runs that waypoint's
     /// reached test on the point the contact law moved it to.
@@ -6900,6 +6925,7 @@ impl Calib {
             snipe_repick: pick(&v, &["targeting", "SNIPE_REPICK", "value"], SnipeRepick::from_calibration_name)?,
             jump_landing_scope: pick(&v, &["movement", "JUMP_LANDING_SCOPE", "value"], JumpLandingScope::from_calibration_name)?,
             held_waypoint_test: pick(&v, &["movement", "HELD_WAYPOINT_TEST", "value"], HeldWaypointTest::from_calibration_name)?,
+            spectral_first_update: pick(&v, &["spawner", "SPECTRAL_FIRST_UPDATE", "value"], SpectralFirstUpdate::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -24031,8 +24057,10 @@ impl BattleState {
 
     /// THE SPECTRALS `army_deaths` decided, made at the end of Reap where their soldiers died, deployed (the row's
     /// ActionSpawnToLocation puts the unit down with no deploy: measured, a Spectral walks on its first frame), each in
-    /// its soldier's group.
+    /// its soldier's group. Under spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick they then take their first
+    /// update (`first_update`), the tick's Spectrals together, meeting none of the tick's dead (their own soldiers).
     fn army_spectrals(&mut self, make: Vec<SpectralToMake>) {
+        let mut fresh: Vec<usize> = Vec::new();
         for (team, card, level, pos, group) in make {
             let Ok(id) = self.spawn_now(team, card, level, pos, EntityKind::Troop) else { continue };
             let j = id.index as usize;
@@ -24045,8 +24073,18 @@ impl BattleState {
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, j, &h);
             }
             self.evo.armies.push(ArmyMember { id, group, role: ArmyRole::Spectral });
+            fresh.push(j);
         }
         self.hash.rebuild(&self.ents);
+        // spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick: their whole first update now.
+        // PLANT (regression) spectral_stands_first_tick: the new arm still stands them on their first tick.
+        #[cfg(not(clash_plant = "spectral_stands_first_tick"))]
+        let steps = self.cfg.calib.spectral_first_update == SpectralFirstUpdate::Client15535SameTick;
+        #[cfg(clash_plant = "spectral_stands_first_tick")]
+        let steps = false;
+        if steps && !fresh.is_empty() {
+            self.first_update(&fresh, false, &[], &[]);
+        }
         let ents = &self.ents;
         self.evo.armies.retain(|m| ents.is_alive(m.id));
     }
@@ -28943,6 +28981,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.SPECTRAL_FIRST_UPDATE: Calib gained spectral_first_update (serde default the old arm, none), no
+///    new state (the first update moves the saved unit), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.HELD_WAYPOINT_TEST: Calib gained held_waypoint_test (serde default the old arm, not_run), no
 ///    new state (the reached test pops the saved route), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -29782,6 +29823,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("jump_landing_scope".into(), serde_json::to_value(JumpLandingScope::MovePass).map_err(|e| e.to_string())?);
     // movement.HELD_WAYPOINT_TEST: a format-3 battle ran no reached test for a held unit (the same rule).
     sh.insert("held_waypoint_test".into(), serde_json::to_value(HeldWaypointTest::NotRun).map_err(|e| e.to_string())?);
+    // spawner.SPECTRAL_FIRST_UPDATE: a format-3 battle's Spectral stood on its first tick (the same rule).
+    sh.insert("spectral_first_update".into(), serde_json::to_value(SpectralFirstUpdate::None).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

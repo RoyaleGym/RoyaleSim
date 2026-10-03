@@ -1508,6 +1508,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   updates either (1 of 1).
 ///   movement.HELD_WAYPOINT_TEST = client15535_run: a held unit runs its waypoint's reached test (120 of 120 pops, 3,111
 ///   of 3,111 keeps).
+///   spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick: an Evo Skeleton Army Spectral takes its first update on the
+///   tick it is made (43 of 43 hold a target on their first frame).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1551,6 +1553,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.SNIPE_REPICK", "\"client15535_last_target_first\""),
     ("movement.JUMP_LANDING_SCOPE", "\"client15535_whole_tick\""),
     ("movement.HELD_WAYPOINT_TEST", "\"client15535_run\""),
+    ("spawner.SPECTRAL_FIRST_UPDATE", "\"client15535_same_tick\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
