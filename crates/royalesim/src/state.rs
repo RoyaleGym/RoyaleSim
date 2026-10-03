@@ -890,6 +890,11 @@ pub struct Calib {
     /// arm, `StatusRebind`.
     #[serde(default = "fall_grounding_default")]
     pub fall_grounding: FallGrounding,
+    /// combat.CAGE_CAPTIVE_SHOTS (`cage_pass`, `phase_projectile`): whether an Evo Goblin Cage's drag moves its captive
+    /// before or after the tick's projectiles step, and on which tick its hide lands. Added after SNAPSHOT_FORMAT 20;
+    /// the `default` is the old arm, `AfterShotsHiddenOnSnap`.
+    #[serde(default = "cage_captive_shots_default")]
+    pub cage_captive_shots: CageCaptiveShots,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2223,6 +2228,10 @@ fn transform_redeploy_default() -> TransformRedeploy {
 
 fn fall_grounding_default() -> FallGrounding {
     FallGrounding::StatusRebind
+}
+
+fn cage_captive_shots_default() -> CageCaptiveShots {
+    CageCaptiveShots::AfterShotsHiddenOnSnap
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4622,6 +4631,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.CAGE_CAPTIVE_SHOTS -- see `BattleState::cage_pass` and `phase_projectile`: when an Evo Goblin Cage's drag
+    /// moves its captive against the tick's projectiles, and when the hide (invisible, no hit lands) takes it.
+    CageCaptiveShots {
+        /// The engine's: the cages' pass runs after the projectiles step, so a homing shot flies at the captive's point
+        /// before this tick's drag step; the hide lands on the tick the captive is set on the cage's point.
+        AfterShotsHiddenOnSnap = "after_shots_hidden_on_snap",
+        /// The cages' pass runs before the projectiles step (a homing shot flies at the captive's dragged point, and at
+        /// the cage's point on the snap tick), and the hide lands on the tick after the snap. Measured on client
+        /// 15.535.29, every captive a princess tower shot during its drag (Oracle's sp-grab-* at the cage (14500,
+        /// 11500)): a Knight and a Giant hit on the drag's fifth and fourth steps, a Mini P.E.K.K.A. on the snap tick
+        /// and four Skeleton probes killed there (109 on 81 hitpoints; each scene's first divergence, the engine's
+        /// Skeleton living on hidden in the cage); the tower held the captive as its target through the tick after the
+        /// snap; a shot arriving later landed on nothing (sp-grab-Knight-12500-12500-s0).
+        Client15535BeforeShotsHiddenAfterSnap = "client15535_before_shots_hidden_after_snap",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6500,6 +6526,7 @@ impl Calib {
             transform_attack_state: pick(&v, &["transform", "ATTACK_STATE", "value"], TransformAttackState::from_calibration_name)?,
             transform_redeploy: pick(&v, &["transform", "REDEPLOY", "value"], TransformRedeploy::from_calibration_name)?,
             fall_grounding: pick(&v, &["transform", "FALL_GROUNDING", "value"], FallGrounding::from_calibration_name)?,
+            cage_captive_shots: pick(&v, &["combat", "CAGE_CAPTIVE_SHOTS", "value"], CageCaptiveShots::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -15374,8 +15401,14 @@ impl BattleState {
             } else {
                 at
             };
-            // Set on the point, hidden there (the hide lasts until the release takes it off).
-            if k == pause + steps + 1 {
+            // Set on the point, hidden there (the hide lasts until the release takes it off): on the snap tick, or under
+            // combat.CAGE_CAPTIVE_SHOTS = client15535_before_shots_hidden_after_snap on the tick after it (a shot landing
+            // on the snap tick still hits; the enemies that hold it as their target keep it through the next tick).
+            #[cfg(not(clash_plant = "cage_hide_on_snap"))]
+            let hide_late = i32::from(self.cfg.calib.cage_captive_shots == CageCaptiveShots::Client15535BeforeShotsHiddenAfterSnap);
+            #[cfg(clash_plant = "cage_hide_on_snap")]
+            let hide_late = 0; // PLANT (regression): the new arm hides the captive on the snap tick, as the old one does.
+            if k == pause + steps + 1 + hide_late {
                 let h = crate::status::BuffHit::plain(c, cd.hide, i32::MAX / 4, 0);
                 land_buff(&mut self.ents, &cards, &self.cfg.calib, ti, &h);
             }
@@ -21049,6 +21082,15 @@ impl BattleState {
                 (*id, r)
             })
             .collect();
+        // combat.CAGE_CAPTIVE_SHOTS = client15535_before_shots_hidden_after_snap: the Evo Goblin Cages' drags and snaps
+        // move their captives before the shots step (`cage_pass`), so a homing shot flies at the moved point.
+        #[cfg(not(clash_plant = "cage_drag_after_shots"))]
+        let cages_first = self.cfg.calib.cage_captive_shots == CageCaptiveShots::Client15535BeforeShotsHiddenAfterSnap;
+        #[cfg(clash_plant = "cage_drag_after_shots")]
+        let cages_first = false; // PLANT (regression): the new arm drags after the shots step, as the old one does.
+        if cages_first && !self.evo.cages.is_empty() {
+            self.cage_pass();
+        }
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut out.released, &mut self.scratch.nb, self.tick, &deflecting);
         // The Hero Balloon's throws, before the spells step, so a landing's blow strikes on its own tick (`throw_pass`).
         if !self.throws.is_empty() {
@@ -21062,8 +21104,9 @@ impl BattleState {
         if !self.evo.uppercuts.is_empty() || !self.evo.uppercut_counts.is_empty() {
             self.uppercut_pass();
         }
-        // The Evo Goblin Cages' captures, on this tick's moved points (`cage_pass`).
-        if !self.evo.cages.is_empty() {
+        // The Evo Goblin Cages' captures, on this tick's moved points (`cage_pass`; before the shots step under
+        // combat.CAGE_CAPTIVE_SHOTS = client15535_before_shots_hidden_after_snap, above).
+        if !cages_first && !self.evo.cages.is_empty() {
             self.cage_pass();
         }
         // The Evo Hunters' nets, on this tick's targets and moved points (`net_pass`).
@@ -28158,6 +28201,10 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.CAGE_CAPTIVE_SHOTS: Calib gained cage_captive_shots (serde default the old arm,
+///    after_shots_hidden_on_snap), no new state (the new arm moves the saved cage runs' captives earlier in the tick and
+///    hides them a tick later, from the saved grab tick), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, transform.FALL_GROUNDING: Calib gained fall_grounding (serde default the old arm, status_rebind), no
 ///    new state (the new arm grounds a saved fall run one tick later, from its saved landing tick, and keeps the walk
 ///    columns already saved), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
@@ -28915,6 +28962,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("troop_death_pushback".into(), serde_json::to_value(TroopDeathPushback::NotRead).map_err(|e| e.to_string())?);
     // transform.FALL_GROUNDING: a format-3 battle ran no evolved flier that falls (the same rule).
     sh.insert("fall_grounding".into(), serde_json::to_value(FallGrounding::StatusRebind).map_err(|e| e.to_string())?);
+    // combat.CAGE_CAPTIVE_SHOTS: a format-3 battle ran no Evo Goblin Cage (the same rule).
+    sh.insert("cage_captive_shots".into(), serde_json::to_value(CageCaptiveShots::AfterShotsHiddenOnSnap).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
