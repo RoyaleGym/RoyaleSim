@@ -9,7 +9,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_goblins`): flag_never, flag_spawns_never, flag_play_ignored, flag_never_dies, flag_birth_full_hp,
-//! no_damage_blocks_drain.
+//! no_damage_blocks_drain, flag_spawn_acquired_at_once (targeting.SPAWNED_UNIT_ACQUIRE_DELAY: the dummies are targets
+//! from their 8th frame; client 15.535.29, sp-form-Goblins-hero-s0's first dummy taken by an idle tower on F + 7).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -144,6 +145,32 @@ fn its_press_puts_two_dummies_down_toward_the_centre_and_takes_the_flag() {
     assert_eq!(firsts[0], (10, Vec2::new(at.x + 1000 * K, at.y - 500 * K)), "the first at the trigger (P + 10): {dummies:?}");
     assert_eq!(firsts[1], (14, Vec2::new(at.x - 1000 * K, at.y - 500 * K)), "the second 200 ms on: {dummies:?}");
     assert_eq!(gone, Some(19), "the flag gone 450 ms after the trigger");
+}
+
+/// targeting.SPAWNED_UNIT_ACQUIRE_DELAY: a flag's dummies are an action's spawns, targets for enemies from their 8th frame
+/// (client 15.535.29: sp-form-Goblins-hero-s0's first dummy, in an idle princess tower's range from its first frame, taken
+/// on F + 7). Plant: flag_spawn_acquired_at_once.
+#[test]
+fn the_flags_dummies_are_targets_from_their_8th_frame() {
+    let mut s = battle();
+    goblins_killed(&mut s);
+    for _ in 0..5 {
+        s.tick();
+    }
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut seen: Vec<(EntityId, u32, u32)> = Vec::new();
+    for _ in 0..20 {
+        s.tick();
+        let born = s.tick_count() - 1;
+        for e in find_live(&s, Team::Blue, "Goblin_dummy") {
+            if !seen.iter().any(|(id, _, _)| *id == e.id) {
+                seen.push((e.id, born, e.acquirable_from));
+            }
+        }
+    }
+    assert_eq!(seen.len(), 2, "the scene drifted: two dummies ({seen:?})");
+    assert!(seen.iter().all(|(_, born, from)| *from == born + 7), "a flag's dummies: an enemy may target them from their 8th frame: {seen:?}");
 }
 
 #[test]

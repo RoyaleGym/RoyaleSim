@@ -23462,7 +23462,15 @@ impl BattleState {
                     for sp in f.spawns.iter().filter(|sp| t + sp.delay_ms as u32 / tick_ms == now) {
                         let lvl = self.cfg.cards.unit_level(r.form, sp.unit, None, level).expect("the flag's spawn's level is validated at try_new");
                         let pos = self.scheduled_point(team, at, crate::card::SpawnOffset::MirroredToWall { dx: sp.dx, dy: sp.dy }, false);
-                        self.release(PendingSpawn { team, card: sp.unit, level: lvl, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+                        // targeting.SPAWNED_UNIT_ACQUIRE_DELAY: a flag's spawns are an action's spawns, targets for
+                        // enemies from their 8th frame (`delay_acquisition`). Measured on client 15.535.29
+                        // (flag_spawn_target_census.py): sp-form-Goblins-hero-s0's first dummy, in Red's princess tower's
+                        // range from its first frame (t376) with the tower idle, was taken on F + 7 (t383).
+                        #[cfg(not(clash_plant = "flag_spawn_acquired_at_once"))]
+                        let acquire_delay = true;
+                        #[cfg(clash_plant = "flag_spawn_acquired_at_once")]
+                        let acquire_delay = false; // PLANT (regression): a flag's spawns are targets from their first frame.
+                        self.release(PendingSpawn { team, card: sp.unit, level: lvl, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
                     }
                     self.tick >= t + f.kill_ms as u32 / tick_ms
                 }
