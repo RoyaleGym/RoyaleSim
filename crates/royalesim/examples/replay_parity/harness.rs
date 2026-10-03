@@ -1354,15 +1354,33 @@ impl Roots {
         }
     }
 
-    /// The cards whose death puts down unit `idx` and how many ticks back such a death is looked for: a death spawn's,
-    /// DEATH_SPAWN_LOOKBACK; a scheduled death area's, SCHEDULED_DEATH_LOOKBACK.
-    fn death_parents(&self, idx: u16) -> Option<(&Vec<u16>, u32)> {
+    /// The cards whose death puts down unit `idx`, each with how many ticks back its death is looked for: a death
+    /// spawn's parent, DEATH_SPAWN_LOOKBACK; a scheduled death area's card, SCHEDULED_DEATH_LOOKBACK. None when no card's
+    /// death puts it down.
+    fn death_parents(&self, idx: u16) -> Option<Vec<(u16, u32)>> {
         // PLANT (regression) replay_scheduled_lookback_short: a scheduled death area's unit is looked for 3 ticks back.
         #[cfg(not(clash_plant = "replay_scheduled_lookback_short"))]
         let scheduled = SCHEDULED_DEATH_LOOKBACK;
         #[cfg(clash_plant = "replay_scheduled_lookback_short")]
         let scheduled = DEATH_SPAWN_LOOKBACK;
-        self.death_spawn_of.get(&idx).map(|p| (p, DEATH_SPAWN_LOOKBACK)).or_else(|| self.scheduled_death_of.get(&idx).map(|p| (p, scheduled)))
+        let mut out: Vec<(u16, u32)> = self.death_spawn_of.get(&idx).into_iter().flatten().map(|&p| (p, DEATH_SPAWN_LOOKBACK)).collect();
+        // BOTH MAPS: a unit that is one card's death spawn and another's scheduled death area's unit (the Skeleton: the
+        // Tombstone's death spawn, the Hero Tombstone's monster's death area's four) is looked for among both. Read from
+        // the death spawn map alone whenever it named the unit, the monster's Skeletons rooted to nothing
+        // (sp-hero2-Tombstone-death-s0: four unmatched pairs from t390, its first divergence).
+        // PLANT (regression) replay_scheduled_parents_shadowed: the scheduled map read only for a unit no death spawns.
+        #[cfg(not(clash_plant = "replay_scheduled_parents_shadowed"))]
+        let shadowed = false;
+        #[cfg(clash_plant = "replay_scheduled_parents_shadowed")]
+        let shadowed = !out.is_empty();
+        if !shadowed {
+            out.extend(self.scheduled_death_of.get(&idx).into_iter().flatten().map(|&p| (p, scheduled)));
+        }
+        if out.is_empty() {
+            None
+        } else {
+            Some(out)
+        }
     }
 
     /// The playable card a record roots to: itself when it is one, else the top of its chain.
@@ -1376,11 +1394,17 @@ pub fn buff_death_spawn_root(db: &CardDb, unit: &str) -> Option<&'static str> {
     db.index(unit).and_then(|i| Roots::new(db).buff_root(i))
 }
 
-/// `Roots::death_parents` for the unit named `unit` (tests): the parent cards' names and the lookback.
+/// `Roots::death_parents` for the unit named `unit` (tests): the parent cards' names and the longest lookback.
 pub fn death_spawn_parents(db: &CardDb, unit: &str) -> Option<(Vec<String>, u32)> {
     let roots = Roots::new(db);
     let i = db.index(unit)?;
-    roots.death_parents(i).map(|(p, lb)| (p.iter().map(|c| db.get(*c).name.clone()).collect(), lb))
+    roots.death_parents(i).map(|p| (p.iter().map(|(c, _)| db.get(*c).name.clone()).collect(), p.iter().map(|(_, l)| *l).max().unwrap_or(0)))
+}
+
+/// `Roots::death_parents` for the unit named `unit` (tests): each parent card's name with its own lookback.
+pub fn death_parent_lookbacks(db: &CardDb, unit: &str) -> Vec<(String, u32)> {
+    let roots = Roots::new(db);
+    db.index(unit).and_then(|i| roots.death_parents(i)).map_or(Vec::new(), |p| p.iter().map(|(c, l)| (db.get(*c).name.clone(), *l)).collect())
 }
 
 /// The containers still holding their units (spell.rs `FuseEnd`): every live spell object of a death bomb that carries
@@ -1906,9 +1930,11 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 // area's unit looked for over the area's schedule, `Roots::death_parents`)
                 let parents = roots.death_parents(e.card_idx);
                 let mut best: Option<(i64, u16)> = None;
-                if let Some((parents, lookback)) = parents {
+                if let Some(parents) = parents {
                     for (t, team, cidx, pos) in recent_deaths.iter().rev() {
-                        if *team != e.team || tick.saturating_sub(*t) > lookback || !parents.contains(cidx) {
+                        // each parent over its own lookback, the longer where a card is in both maps
+                        let lookback = parents.iter().filter(|(p, _)| p == cidx).map(|(_, l)| *l).max();
+                        if *team != e.team || lookback.map_or(true, |l| tick.saturating_sub(*t) > l) {
                             continue;
                         }
                         let d2 = pos.dist2(e.pos);

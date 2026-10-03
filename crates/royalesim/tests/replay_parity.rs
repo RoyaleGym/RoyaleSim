@@ -959,6 +959,21 @@ fn a_scheduled_death_areas_unit_is_looked_for_over_its_schedule() {
     assert_eq!(golemite, DEATH_SPAWN_LOOKBACK, "a death spawn proper");
 }
 
+/// A UNIT THAT IS BOTH A DEATH SPAWN AND A SCHEDULED DEATH AREA'S IS LOOKED FOR AMONG BOTH (`Roots::death_parents`): the
+/// Skeleton is the Tombstone's death spawn (DEATH_SPAWN_LOOKBACK) and the Hero Tombstone's monster's death area's four
+/// (SCHEDULED_DEATH_LOOKBACK). Read from the death spawn map alone, the monster's Skeletons rooted to nothing
+/// (sp-hero2-Tombstone-death-s0, t390). Plant: replay_scheduled_parents_shadowed.
+#[test]
+fn a_skeleton_is_looked_for_among_both_its_death_parents() {
+    let db = common::cards();
+    let parents = death_parent_lookbacks(&db, "Skeleton");
+    assert!(parents.iter().any(|(p, l)| p == "Tombstone" && *l == DEATH_SPAWN_LOOKBACK), "the Tombstone's death spawn: {parents:?}");
+    assert!(
+        parents.iter().any(|(p, l)| p.starts_with("TombstoneHero_Monster") && *l == SCHEDULED_DEATH_LOOKBACK),
+        "the Hero Tombstone's monster's death area: {parents:?}"
+    );
+}
+
 /// THE BUSH'S GOBLINS ROOT TO THE BUSH ON THE BOARD (`register_new`): the deaths the rooting reads are kept as long as the
 /// longest lookback, so the goblins its death area puts down 13 and 14 ticks after it died find it. Pruned at
 /// DEATH_SPAWN_LOOKBACK they rooted to nothing (sweep-SuspiciousBush's two goblins, 210 unit-ticks, after the lookback
