@@ -885,6 +885,11 @@ pub struct Calib {
     pub transform_attack_state: TransformAttackState,
     #[serde(default = "transform_redeploy_default")]
     pub transform_redeploy: TransformRedeploy,
+    /// transform.FALL_GROUNDING (`fall_pass`, `fall_ground_late`): when an evolved flier that falls (the Evo Royal
+    /// Hogs) leaves the air, and what it keeps of its walk. Added after SNAPSHOT_FORMAT 20; the `default` is the old
+    /// arm, `StatusRebind`.
+    #[serde(default = "fall_grounding_default")]
+    pub fall_grounding: FallGrounding,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2214,6 +2219,10 @@ fn transform_attack_state_default() -> TransformAttackState {
 
 fn transform_redeploy_default() -> TransformRedeploy {
     TransformRedeploy::None
+}
+
+fn fall_grounding_default() -> FallGrounding {
+    FallGrounding::StatusRebind
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4590,6 +4599,29 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// transform.FALL_GROUNDING -- see `BattleState::fall_pass` and `fall_ground_late`: when an evolved flier that falls
+    /// (card.rs `FallDef`, the Evo Royal Hogs) becomes its grounded row and leaves the air, and what it keeps of its walk.
+    FallGrounding {
+        /// The engine's: on the landing tick (`transition_ms` and a tick after the trigger), in the Status phase, before
+        /// the Target phase and the move pass read it; the in-place transformation drops its walk (route, segment,
+        /// avoidance offset), as every transformation's does.
+        StatusRebind = "status_rebind",
+        /// On the tick after the landing tick, after the Target phase and before the move pass (`fall_ground_late`),
+        /// keeping its walk: route, segment, carry, plan clock and avoidance offset run on (its path is still dropped
+        /// `reset_path_ms` after the landing tick). Measured on client 15.535.29, the Evo Royal Hogs' scenes: through
+        /// the landing tick a hog still meets the fliers' contact (sp-hogs-cannon-s0 t1162: two hogs frozen in the river
+        /// took a fourth push 27 and 28 from a flying neighbour, and from t1163 none; the hogs that pushed them landed and
+        /// first pushed on t1168, the engine's on t1167; sp-hogs-knight-s0 t1138: a step of 102 with the push in it, the
+        /// engine's 119 clear); ground-only enemies took
+        /// a landed hog two ticks after the landing tick, 4 of 4 (sp-form-RoyalHogs-evo-s0 t1206, a Knight and three
+        /// Skeletons; sp-hogs-cannon-s0 t1164, three Skeletons and a Cannon on two hogs; sp-hogs-knight-s0 t1140, a Cannon), where the engine's
+        /// took it on the landing tick; the avoidance offset ran on through the landing 2 of 2 (110, 100 ... where the
+        /// engine's went to 0; 100, 90, 80 ...); a hog landed over the river walked its new path out of it (t1206, 15 nodes,
+        /// at Speed), where the engine's, its walk dropped, replanned at once and leapt.
+        Client15535LateKeptWalk = "client15535_late_kept_walk",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6467,6 +6499,7 @@ impl Calib {
             transform_timing: pick(&v, &["transform", "HEALTH_TRIGGER_TIMING", "value"], TransformTiming::from_calibration_name)?,
             transform_attack_state: pick(&v, &["transform", "ATTACK_STATE", "value"], TransformAttackState::from_calibration_name)?,
             transform_redeploy: pick(&v, &["transform", "REDEPLOY", "value"], TransformRedeploy::from_calibration_name)?,
+            fall_grounding: pick(&v, &["transform", "FALL_GROUNDING", "value"], FallGrounding::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -12617,6 +12650,11 @@ impl BattleState {
                     }
                     // An Evo Cannon bomb due this tick lands before anything moves (`land_barrage_early`).
                     self.land_barrage_early();
+                    // An evolved flier whose landing tick was the last one leaves the air before the move pass
+                    // (transform.FALL_GROUNDING = client15535_late_kept_walk, `fall_ground_late`).
+                    if !self.falls.is_empty() {
+                        self.fall_ground_late();
+                    }
                     match self.cfg.path_model {
                         // The measured 2026 model has its own per-tick loop: a
                         // goal-first route, event-driven replans and a locomotion law
@@ -16591,7 +16629,13 @@ impl BattleState {
                 let _ = land;
                 u32::MAX // PLANT: a triggered hog never lands.
             };
-            if self.tick == land {
+            // transform.FALL_GROUNDING = client15535_late_kept_walk: not here; on the next tick, after the Target phase
+            // (`fall_ground_late`).
+            #[cfg(not(clash_plant = "fall_lands_in_status"))]
+            let late = self.cfg.calib.fall_grounding == FallGrounding::Client15535LateKeptWalk;
+            #[cfg(clash_plant = "fall_lands_in_status")]
+            let late = false; // PLANT (regression): the new arm lands the hog here, as the old one does.
+            if self.tick == land && !late {
                 self.rebind_unit(i, f.grounded.unit, false);
                 self.ents.flying[i] = false;
             }
@@ -16605,11 +16649,45 @@ impl BattleState {
                 self.ents.route[i].clear();
                 self.ents.route_goal[i] = None;
                 self.ents.seg_dir[i] = Vec2::default();
-                continue;
+                // the late arm's run is kept until `fall_ground_late` has grounded it (a ResetPath under two ticks)
+                if !late || self.tick > land.saturating_add(1) {
+                    continue;
+                }
             }
             keep.push(r);
         }
         self.falls = keep;
+    }
+
+    /// transform.FALL_GROUNDING = client15535_late_kept_walk, in the Path phase (after the Target phase, before the move
+    /// pass): a falling flier whose landing tick was the last one becomes its grounded row now and leaves the air, its
+    /// walk kept (route, route goal, segment, carry, step count, plan clock, avoidance offset, stomp clock: the columns
+    /// the in-place transformation drops). So the Target phase of its landing tick and of this one still sees a flier,
+    /// and this tick's move pass a ground unit. Measured on client 15.535.29 (`FallGrounding::Client15535LateKeptWalk`).
+    fn fall_ground_late(&mut self) {
+        if self.cfg.calib.fall_grounding != FallGrounding::Client15535LateKeptWalk {
+            return;
+        }
+        let cards = self.cfg.cards.clone();
+        let due: Vec<(usize, u16)> = self
+            .falls
+            .iter()
+            .filter(|r| self.ents.is_alive(r.id) && r.land_at.is_some_and(|l| self.tick == l.saturating_add(1)))
+            .filter_map(|r| cards.get(r.card).evo.as_ref().and_then(|v| v.fall.as_ref()).map(|f| (r.id.index as usize, f.grounded.unit)))
+            .collect();
+        for (i, unit) in due {
+            let e = &self.ents;
+            let walk = (e.route[i].clone(), e.route_goal[i], e.seg_dir[i], e.move_frac[i], e.move_ticks[i], e.last_plan_tick[i], e.avoid_offset[i], e.stomp_clock[i]);
+            self.rebind_unit(i, unit, false);
+            self.ents.flying[i] = false;
+            #[cfg(not(clash_plant = "fall_landing_resets_walk"))]
+            {
+                let e = &mut self.ents;
+                (e.route[i], e.route_goal[i], e.seg_dir[i], e.move_frac[i], e.move_ticks[i], e.last_plan_tick[i], e.avoid_offset[i], e.stomp_clock[i]) = walk;
+            }
+            #[cfg(clash_plant = "fall_landing_resets_walk")]
+            let _ = walk; // PLANT (regression): the late landing drops the walk, as the transformation does.
+        }
     }
 
     /// A HERO'S LEVEL SET (card.rs `AbilityEffect::LevelUp`): entity `i` goes `gain` levels up (to the highest its
@@ -28080,6 +28158,10 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, transform.FALL_GROUNDING: Calib gained fall_grounding (serde default the old arm, status_rebind), no
+///    new state (the new arm grounds a saved fall run one tick later, from its saved landing tick, and keeps the walk
+///    columns already saved), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
 /// 20, unchanged, knockback.TROOP_DEATH_PUSHBACK: Calib gained troop_death_pushback (serde default the old arm,
 ///    not_read), no new state (the new arm arms the ladder a unit already carries, from the tick's Reap), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -28831,6 +28913,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("barrage_reach".into(), serde_json::to_value(BarrageReach::Centre2500).map_err(|e| e.to_string())?);
     // knockback.TROOP_DEATH_PUSHBACK: a format-3 battle's dying troops pushed nobody (the same rule).
     sh.insert("troop_death_pushback".into(), serde_json::to_value(TroopDeathPushback::NotRead).map_err(|e| e.to_string())?);
+    // transform.FALL_GROUNDING: a format-3 battle ran no evolved flier that falls (the same rule).
+    sh.insert("fall_grounding".into(), serde_json::to_value(FallGrounding::StatusRebind).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

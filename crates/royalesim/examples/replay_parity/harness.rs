@@ -1390,6 +1390,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   on the knockback ladder of its DeathPushBack (43 of 43 enemies in reach).
 ///   movement.STRUCK_CONTACT_ORDER = client15535_after_striker: a troop struck down in the sequential pass is a body to
 ///   the movers created before its striker only, and stays when its striker came before it.
+///   transform.FALL_GROUNDING = client15535_late_kept_walk: a falling Evo Royal Hog leaves the air on the tick after its
+///   landing tick, after the Target phase, keeping its walk (ground-only enemies took it two ticks after, 4 of 4).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1415,6 +1417,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.KNOCKED_DOOMED_AVOIDANCE", "\"client15535_knocked_mover\""),
     ("knockback.TROOP_DEATH_PUSHBACK", "\"client15535_ladder\""),
     ("movement.STRUCK_CONTACT_ORDER", "\"client15535_after_striker\""),
+    ("transform.FALL_GROUNDING", "\"client15535_late_kept_walk\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
