@@ -970,6 +970,10 @@ pub struct Calib {
     /// 20; the `default` is the old arm, `KeepWater`.
     #[serde(default = "dismount_hop_water_default")]
     pub dismount_hop_water: DismountHopWater,
+    /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
+    /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
+    #[serde(default = "dash_chain_aim_default")]
+    pub dash_chain_aim: DashChainAim,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2379,6 +2383,10 @@ fn dismount_leap_step_default() -> DismountLeapStep {
 
 fn dismount_hop_water_default() -> DismountHopWater {
     DismountHopWater::KeepWater
+}
+
+fn dash_chain_aim_default() -> DashChainAim {
+    DashChainAim::TargetCentre
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5019,6 +5027,24 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_CHAIN_AIM -- see `phase_path16402_for` (the chain dash) and `ChainRun::aim`: the point a dash chain's
+    /// dash (the Golden Knight's) steps toward, JumpSpeed a tick in CHAIN_SUB_STEP sub-steps (`dash_half_step`).
+    DashChainAim {
+        /// The engine's: the target's centre where the pass has it, on every sub-step.
+        TargetCentre = "target_centre",
+        /// The centre of the dash's 500-cell (`dash_goal_native`, a dash entry's cell): the one holding the point own radius
+        /// plus the target's radius short of the target's centre on the line to him on a chain's first dash (its press row,
+        /// or a pending press's run on its first dash tick), his own radius alone on a later one (its Poise), on the
+        /// positions of the tick the chain aims, held for the dash; the range test still reads the target. Measured on
+        /// client 15.535.29 (gk_dash_aim_census.py, gk_dash_node_check.py, gk_dash_sim.py, gk_aim_goal_census.py): the
+        /// Golden Knight's path on the aiming tick is that one cell, held to the landing; it is that cell on 13 of 15
+        /// first dashes (the 2 others at a crown tower) and 15 of 15 later ones; the engine's own dash arithmetic toward its
+        /// centre gives the client's per-tick dash steps exactly, 43 of 45 over 11 dashes in 9 scenes (the 2 others the
+        /// closing partial steps); toward the target's centre the dashes miss by up to 4 degrees.
+        Client15535GoalCell = "client15535_goal_cell",
+    }
+);
+calib_enum!(
     /// transform.DISMOUNT_LEAP_STEP -- see the dismount's trigger (`AbilityEffect::Dismount`) and `dismount_hops`: a Hero
     /// Dark Prince freed to press on its river leap's last tick (`hero_free`, `leap_ends_now`).
     DismountLeapStep {
@@ -7003,6 +7029,7 @@ impl Calib {
             scan_reach: pick(&v, &["targeting", "SCAN_REACH", "value"], ScanReach::from_calibration_name)?,
             dismount_leap_step: pick(&v, &["transform", "DISMOUNT_LEAP_STEP", "value"], DismountLeapStep::from_calibration_name)?,
             dismount_hop_water: pick(&v, &["transform", "DISMOUNT_HOP_WATER", "value"], DismountHopWater::from_calibration_name)?,
+            dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -8125,6 +8152,10 @@ pub struct ChainRun {
     pub target: Option<EntityId>,
     pub hit: Vec<EntityId>,
     pub left: i32,
+    /// combat.DASH_CHAIN_AIM = client15535_goal_cell: the point (subtiles) the dash steps toward, taken on the tick the
+    /// chain aims and cleared when it lands. None under the old arm. Absent in older snapshots; hashed only when set.
+    #[serde(default)]
+    pub aim: Option<Vec2>,
 }
 
 /// Where a dash chain stands (`ChainRun`). Measured on client 15.535.29 (parity, round 10 item 53; Oracle's GK battery
@@ -18155,6 +18186,8 @@ impl BattleState {
         let mut dash_ended: Vec<usize> = Vec::new();
         // THE DASH CHAINS this tick (`chain_pass` set their phases): per entity, (phase, target, JumpSpeed).
         let mut chain_at: Vec<Option<(ChainPhase, Option<EntityId>, i32)>> = vec![None; self.ents.capacity()];
+        // combat.DASH_CHAIN_AIM: each chain's held dash point (`ChainRun::aim`), written back after the pass.
+        let mut chain_aim: Vec<Option<Vec2>> = vec![None; self.ents.capacity()];
         // A unit its own side does not push (a carried NO_PUSHED_BY_ALLY buff), and one the other side does not
         // (NO_PUSHED_BY_ENEMY): move16402.rs `separation_scan_with`.
         let no_ally: Vec<(bool, bool)> = (0..self.ents.capacity())
@@ -18285,6 +18318,7 @@ impl BattleState {
             if let Some(crate::card::AbilityEffect::DashChain { speed, .. }) = self.cfg.cards.get(self.ents.card[ci]).ability.as_ref().map(|a| a.effect.clone()) {
                 chain_at[ci] = Some((c.phase, c.target, speed));
             }
+            chain_aim[ci] = c.aim;
             chain_fresh[ci] = matches!(c.phase, ChainPhase::Seek) && c.mark == self.tick && c.hit.is_empty();
         }
         let mut chain_hits: Vec<(usize, EntityId)> = Vec::new();
@@ -18892,6 +18926,24 @@ impl BattleState {
                 // tick's motion. No scan: a dashing champion is no body. LANDED and POISE: he stands, as a stand does
                 // (speed 0, the scans run: the champion scene's 225 and 557 moves after landings are contact pushes).
                 // SEEK and AIM (the press row): he walks.
+                // combat.DASH_CHAIN_AIM = client15535_goal_cell: the dash's point is the centre of its 500-cell, the one
+                // holding the point own radius + the target's radius short of the target's centre on the line to him on a
+                // chain's first dash (its press row, or a pending press's run on its first dash tick), his own radius alone
+                // on a later one (its Poise) (`dash_goal_native`, the dash entry's cell), on this pass's positions, held to
+                // the landing. Client 15.535.29 (gk_aim_goal_census.py): 13 of 15 first dashes and 15 of 15 later ones;
+                // the walk's goal search (`choose_goal_cell`) names 10 of 30, whatever its reach or water rule.
+                if calib.dash_chain_aim == DashChainAim::Client15535GoalCell {
+                    match chain_at[i] {
+                        Some((ph, Some(t), _)) if e.is_alive(t) && (matches!(ph, ChainPhase::Aim | ChainPhase::Poise) || (ph == ChainPhase::Dash && chain_aim[i].is_none())) => {
+                            let ti = t.index as usize;
+                            let rr = if ph == ChainPhase::Poise { e.radius[i] } else { e.radius[i] + e.radius[ti] };
+                            let (gx, gy) = dash_goal_native(actor, Vec2::new(bodies[ti].x * K, bodies[ti].y * K), (rr / K) as i64);
+                            chain_aim[i] = Some(Vec2::new(gx * K, gy * K));
+                        }
+                        Some((ChainPhase::Landed | ChainPhase::Seek, _, _)) => chain_aim[i] = None,
+                        _ => {}
+                    }
+                }
                 match chain_at[i] {
                     Some((ChainPhase::Dash, Some(t), speed)) if e.is_alive(t) => {
                         let ti = t.index as usize;
@@ -18901,7 +18953,13 @@ impl BattleState {
                         while left > 0 {
                             let len = left.min(CHAIN_SUB_STEP);
                             let tp = (bodies[ti].x, bodies[ti].y);
-                            let (q, _) = move16402::dash_half_step(p, tp, len);
+                            // combat.DASH_CHAIN_AIM = client15535_goal_cell: the step heads for the held goal cell's centre.
+                            // PLANT (regression) dash_aims_target_centre: the new arm still steps at the target's centre.
+                            #[cfg(not(clash_plant = "dash_aims_target_centre"))]
+                            let aim = chain_aim[i].map_or(tp, |a| (a.x / K, a.y / K));
+                            #[cfg(clash_plant = "dash_aims_target_centre")]
+                            let aim = tp;
+                            let (q, _) = move16402::dash_half_step(p, aim, len);
                             p = q;
                             left -= len;
                             #[cfg(not(clash_plant = "chain_whole_step"))]
@@ -19593,6 +19651,12 @@ impl BattleState {
         self.ents.dash_blocked = dash_blocked;
         self.ents.dash_immune_until = dash_immune;
         self.land_dash_blows(dash_blows);
+        // combat.DASH_CHAIN_AIM: the held dash points back on their runs (None under the old arm).
+        for c in self.chains.iter_mut() {
+            if let Some(a) = chain_aim.get(c.id.index as usize) {
+                c.aim = *a;
+            }
+        }
         self.land_chain_hits(chain_hits);
         if !warp_arrivals.is_empty() {
             self.land_warps(warp_arrivals);
@@ -25935,7 +25999,7 @@ impl BattleState {
                 let target = self.chain_pick(i, radius, &[]);
                 self.chains.retain(|c| c.id != hero);
                 let phase = if target.is_some() { ChainPhase::Aim } else { ChainPhase::Seek };
-                self.chains.push(ChainRun { id: hero, phase, mark: self.tick, target, hit: Vec::new(), left: count });
+                self.chains.push(ChainRun { id: hero, phase, mark: self.tick, target, hit: Vec::new(), left: count, aim: None });
                 if target.is_some() {
                     self.ents.target[i] = target;
                     // combat.DASH_CHAIN_IMMUNITY = client15535_whole_chain: immune from the press row (`chain_immune`).
@@ -28024,6 +28088,11 @@ impl BattleState {
                     h.id(*t);
                 }
                 h.i32(c.left);
+                if let Some(a) = c.aim {
+                    h.u32(0x4149_4d31);
+                    h.i32(a.x);
+                    h.i32(a.y);
+                }
             }
         }
         // The throws under way, only when there are some.
@@ -29099,6 +29168,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_CHAIN_AIM: Calib gained dash_chain_aim (serde default the old arm, target_centre) and
+///    ChainRun gained aim (serde default None, hashed only when set), which only the new arm sets, so a blob saved
+///    before them deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, transform.DISMOUNT_LEAP_STEP and transform.DISMOUNT_HOP_WATER: Calib gained dismount_leap_step and
 ///    dismount_hop_water (serde defaults the old arms, rebind_first and keep_water), no new state (the late rebind runs
 ///    inside the trigger's tick, the hop moves the saved hero), so a blob saved before them deserializes and hashes as it
@@ -29955,6 +30027,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // transform.DISMOUNT_LEAP_STEP and DISMOUNT_HOP_WATER: a format-3 battle rebound at the trigger and kept water.
     sh.insert("dismount_leap_step".into(), serde_json::to_value(DismountLeapStep::RebindFirst).map_err(|e| e.to_string())?);
     sh.insert("dismount_hop_water".into(), serde_json::to_value(DismountHopWater::KeepWater).map_err(|e| e.to_string())?);
+    // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
+    sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
