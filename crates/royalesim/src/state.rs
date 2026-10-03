@@ -999,6 +999,11 @@ pub struct Calib {
     /// goes to. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `PlacerFrameFirstFound`.
     #[serde(default = "troop_relocation_tie_order_default")]
     pub troop_relocation_tie_order: TroopRelocationTieOrder,
+    /// spawner.FIRST_STEP_DYING_CONTACT (`phase_path16402_for`, a first update's pass): whether the units dying on the
+    /// tick that spawner.FIRST_STEP_DYING_BODIES = client16402_seen puts in a first update's scans push it. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Pushed`.
+    #[serde(default = "first_step_dying_contact_default")]
+    pub first_step_dying_contact: FirstStepDyingContact,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2436,6 +2441,10 @@ fn line_frame_default() -> LineFrame {
 
 fn troop_relocation_tie_order_default() -> TroopRelocationTieOrder {
     TroopRelocationTieOrder::PlacerFrameFirstFound
+}
+
+fn first_step_dying_contact_default() -> FirstStepDyingContact {
+    FirstStepDyingContact::Pushed
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5076,6 +5085,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.FIRST_STEP_DYING_CONTACT -- see `phase_path16402_for`: under spawner.FIRST_STEP_DYING_BODIES =
+    /// client16402_seen a unit's creation-tick first update meets the units dying on its tick (the doomed in the pass,
+    /// the Reap's dead that released nothing); this says whether they push it. Read only under that arm.
+    FirstStepDyingContact {
+        /// The engine's: both scans meet them, the avoidance scan and the separation scan (the 16.402 measurement).
+        Pushed = "pushed",
+        /// The avoidance scan alone (`Body::alive` false, as a deflecting Monk is met): they turn the newborn and drop its
+        /// waypoint, and push it nowhere. Measured on client 15.535.29 (sp-hero2-Tombstone-nopress-s0, t222): the Hero
+        /// Tombstone's Skeleton emitted at (14500, 13000) on the tick a Red Knight's hit kills Skeleton 12, attacking at
+        /// (14640, 13608), 624 off, faces (50, 251) at offset -190 as the engine's seen arm has it (no turn without the
+        /// dying Skeleton), and stands on its turned step from the emission point with no push off Skeleton 12: (14422,
+        /// 13044), where the engine's 300 off it put the newborn on (14388, 12898).
+        Client15535AvoidanceOnly = "client15535_avoidance_only",
+    }
+);
+calib_enum!(
     /// placement.TROOP_RELOCATION_TIE_ORDER -- see `ring_nearest_fit`: which of two equally near fitting tiles a relocated
     /// TROOP tap goes to (off an own crown tower or building when placement.TOWER_TAP_PUSH falls to the ring search, off
     /// an own live bottle). A building tap's ties are placement.RELOCATION_TIE_ORDER's.
@@ -7184,6 +7209,7 @@ impl Calib {
             spin_begin: pick(&v, &["combat", "SPIN_BEGIN", "value"], SpinBegin::from_calibration_name)?,
             line_frame: pick(&v, &["formation", "LINE_FRAME", "value"], LineFrame::from_calibration_name)?,
             troop_relocation_tie_order: pick(&v, &["placement", "TROOP_RELOCATION_TIE_ORDER", "value"], TroopRelocationTieOrder::from_calibration_name)?,
+            first_step_dying_contact: pick(&v, &["spawner", "FIRST_STEP_DYING_CONTACT", "value"], FirstStepDyingContact::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -18727,13 +18753,29 @@ impl BattleState {
                 let sees_dying = calib.first_step_dying == FirstStepDying::Seen;
                 #[cfg(clash_plant = "first_step_dying_hidden")]
                 let sees_dying = false; // PLANT (regression): the new arm still hides the tick's dying units from a first update.
+                // spawner.FIRST_STEP_DYING_CONTACT = client15535_avoidance_only: those units are met by the avoidance scan
+                // alone (`Body::alive` false, collidable kept), not the separation scan.
+                // PLANT (regression) first_step_dying_pushes: the new arm's dying units still push.
+                #[cfg(not(clash_plant = "first_step_dying_pushes"))]
+                let dying_push = calib.first_step_dying_contact == FirstStepDyingContact::Pushed;
+                #[cfg(clash_plant = "first_step_dying_pushes")]
+                let dying_push = true;
                 for (j, b) in bodies.iter_mut().enumerate() {
-                    if unseen.contains(&j) || (!sees_dying && doomed.get(j).copied().unwrap_or(false)) {
+                    let dying_here = doomed.get(j).copied().unwrap_or(false);
+                    if unseen.contains(&j) || (!sees_dying && dying_here) {
                         b.collidable = false;
+                    } else if dying_here && !dying_push {
+                        b.alive = false;
                     }
                 }
                 if sees_dying {
+                    let from = bodies.len();
                     bodies.extend_from_slice(dying);
+                    if !dying_push {
+                        for b in &mut bodies[from..] {
+                            b.alive = false;
+                        }
+                    }
                 }
                 for &(x, y, r, side, air) in blockers {
                     bodies.push(move16402::Body {
@@ -29406,6 +29448,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.FIRST_STEP_DYING_CONTACT: Calib gained first_step_dying_contact (serde default the old arm,
+///    pushed), no new state (the dying bodies are a pass's scratch), so a blob saved before it deserializes and hashes as
+///    it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, placement.TROOP_RELOCATION_TIE_ORDER: Calib gained troop_relocation_tie_order (serde default the old
 ///    arm, placer_frame_first_found), no new state (a tap is resolved at its play), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -30297,6 +30342,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("line_frame".into(), serde_json::to_value(LineFrame::Rotation).map_err(|e| e.to_string())?);
     // placement.TROOP_RELOCATION_TIE_ORDER: a format-3 battle's troop ties went to the placer-frame walk's first.
     sh.insert("troop_relocation_tie_order".into(), serde_json::to_value(TroopRelocationTieOrder::PlacerFrameFirstFound).map_err(|e| e.to_string())?);
+    // spawner.FIRST_STEP_DYING_CONTACT: a format-3 battle's first updates met no dying unit at all (the same rule).
+    sh.insert("first_step_dying_contact".into(), serde_json::to_value(FirstStepDyingContact::Pushed).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

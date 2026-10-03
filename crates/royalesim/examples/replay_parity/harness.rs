@@ -1531,6 +1531,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   formation.LINE_FRAME = client15535_y_reflection: side 1's line is placed as side 0's at the same arena x (2 of 2).
 ///   placement.TROOP_RELOCATION_TIE_ORDER = client15535_arena_clockwise: a troop tap's equally near relocations go to the
 ///   arena order -y, -x, +y, +x seen from the tap, both seats (10 of 10).
+///   spawner.FIRST_STEP_DYING_CONTACT = client15535_avoidance_only: a first update meets the units dying on its tick in
+///   the avoidance scan alone (1 emission).
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
 ///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1587,6 +1589,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.SPIN_BEGIN", "\"client15535_next_tick\""),
     ("formation.LINE_FRAME", "\"client15535_y_reflection\""),
     ("placement.TROOP_RELOCATION_TIE_ORDER", "\"client15535_arena_clockwise\""),
+    ("spawner.FIRST_STEP_DYING_CONTACT", "\"client15535_avoidance_only\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
