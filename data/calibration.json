@@ -1678,6 +1678,17 @@
       "promotion_rules": "The test file (tests/test_hook_drag_route.py) passes. Then score this arm alone. The registered prediction: on the 16.402 corpus only 20260920-081819 A and B can move (the only battle with a hook drag of a unit that walks on), and there the Giant (fixture key 17) walks south after the first drag, on the client's route, where today it walks north. The sweep's Fisherman scenes do not move: their victims attack after the drag.",
       "engine": "state.rs step_hook_drags: under client16402_dropped, the drag's end on its margin clears the victim's route, its goal cell and its frozen segment, as the knockback ladder's end does (phase_path16402_for); the replan gate then finds the route empty. Plant hook_drag_route_kept."
     },
+    "HOOK_RELEASE": {
+      "value": "free_next_tick",
+      "candidates": ["free_next_tick", "client_idle_tick"],
+      "status": "measured",
+      "confidence": "HIGH for client_idle_tick on both clients: every drag in the captures, 12 of 12 (client 15.535.29 8, the 16.402 corpus 4), stands in the drag state on its stop tick S, idles on S + 1 (state 0, no step, no target) and acts from S + 2; the engine frees the victim on S + 1. Per client here (CLIENT15535_ARMS) until the 16.402 corpus is scored at the new arm by override.",
+      "provenance": "MEASURED by parity (2026-10-02, tool drag_end_census.py: every run of behaviour state 12 in the scenario truths and the 16.402 corpus replays, and the victim's states and steps on the four frames after it). Client 15.535.29: Oracle's mech-fisherman-far, -knight and -near (s0 and s1) and sweep-Fisherman, a Knight dragged to the Fisherman: S + 1 idle with no step, attacking from S + 2, 8 of 8 (sweep-Fisherman 268-272: S = 272, idle 273, attacking 274; mech-fisherman-near-s0 was dragged into the river, (10066, 15004), and moved out of it by (-250, -250) on its idle tick). The 16.402 corpus 20260920-081819, both seats: a Musketeer (1098-1110) idle then attacking, and a Giant twice (1289-1300 and 1357-1360) idle then walking from S + 2. The engine's Knight attacked on S + 1 (sweep-Fisherman t273); its Giant walked on S + 1 (081819-A t1301: the 51 by which it then led the client's put it in the Fisherman's next hook two ticks early, t1355 against t1357, the battle's first divergence).",
+      "meaning": "free_next_tick: the engine's; a hook's victim is free (walks, attacks) from the tick after its drag stops. client_idle_tick: it stays held on that tick and is free from the one after.",
+      "open": "The water exit on the idle tick (mech-fisherman-near-s0: the client moved the river-dragged Knight out of the water while it idled; under this arm the engine's walk does so a tick later). The thrower's own pull to a building (combat.HOOK_BUILDINGS) is not read here.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client_idle_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS). Flip the shipped value when the 16.402 corpus scored at client_idle_tick by override agrees.",
+      "engine": "state.rs step_hook_drags (the stop branch keeps hooked_by one tick, entity.rs drag_idle), selected by Calib::hook_release; tests/hook_release.rs."
+    },
     "LOAD_TIMER_TARGET_LOSS": {
       "value": "runs_on",
       "candidates": ["runs_on", "client15535_stands_after_walk_loss"],

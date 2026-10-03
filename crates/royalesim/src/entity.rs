@@ -442,6 +442,11 @@ pub struct Entities {
     /// steps it toward that unit. None otherwise. `default` and sized on load.
     #[serde(default)]
     pub hooked_by: Vec<Option<EntityId>>,
+    /// combat.HOOK_RELEASE = client_idle_tick: this unit's drag stopped on the last Move phase and it stays held
+    /// (`hooked_by` kept) for the tick after (state.rs `step_hook_drags`). False otherwise and on every unit under the old
+    /// arm. `default` and sized on load.
+    #[serde(default)]
+    pub drag_idle: Vec<bool>,
     /// THE UNDERGROUND WALK (movement.SPAWN_PATHFIND_STATES; state.rs `phase_tunnel`): the DESTINATION of a
     /// unit still under ground, WORLD subtiles, from its birth at its owner's King until the tick it comes up
     /// (the Miner, the Goblin Drill's dig). While Some its deploy timer is frozen, it moves only in
@@ -894,6 +899,7 @@ impl Entities {
             self.special_ms[i] = 0;
             self.special_on[i] = None;
             self.hooked_by[i] = None;
+            self.drag_idle[i] = false;
             self.tunnel_dest[i] = None;
             self.grounded_ms[i] = 0;
             self.cloned[i] = false;
@@ -996,6 +1002,7 @@ impl Entities {
             self.special_ms.push(0);
             self.special_on.push(None);
             self.hooked_by.push(None);
+            self.drag_idle.push(false);
             self.tunnel_dest.push(None);
             self.grounded_ms.push(0);
             self.cloned.push(false);
@@ -1117,6 +1124,7 @@ impl Entities {
             self.push_applied[i] = Vec2::default();
             self.push_neighbours[i] = 0;
             self.hooked_by[i] = None;
+            self.drag_idle[i] = false;
         }
     }
 

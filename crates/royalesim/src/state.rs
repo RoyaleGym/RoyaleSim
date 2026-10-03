@@ -937,6 +937,10 @@ pub struct Calib {
     /// `RunsOn`.
     #[serde(default = "load_timer_target_loss_default")]
     pub load_timer_target_loss: LoadTimerTargetLoss,
+    /// combat.HOOK_RELEASE (`step_hook_drags`, entity.rs `drag_idle`): the tick a hook's victim is free after its drag
+    /// stops. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `FreeNextTick`.
+    #[serde(default = "hook_release_default")]
+    pub hook_release: HookRelease,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2314,6 +2318,10 @@ fn chase_drop_measure_default() -> ChaseDropMeasure {
 
 fn load_timer_target_loss_default() -> LoadTimerTargetLoss {
     LoadTimerTargetLoss::RunsOn
+}
+
+fn hook_release_default() -> HookRelease {
+    HookRelease::FreeNextTick
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -4904,6 +4912,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.HOOK_RELEASE -- see `step_hook_drags` and entity.rs `drag_idle`: the tick a hook's victim is free after its
+    /// drag stops (the stop tick S: the Move phase's drag finds no room for another step).
+    HookRelease {
+        /// The engine's: it is free from S + 1, walking or attacking on that tick.
+        FreeNextTick = "free_next_tick",
+        /// It stays held on S + 1 (no walk, no attack, no drag step) and is free from S + 2. Measured on both clients:
+        /// every drag in the captures (drag_end_census.py) shows S standing in the drag state, S + 1 idle (state 0, no
+        /// step, no target) and the victim acting from S + 2: client 15.535.29, 8 of 8 (Oracle's mech-fisherman runs
+        /// and sweep-Fisherman, Knights attacking the Fisherman from S + 2; one dragged into the river was moved out of
+        /// it while idle); the 16.402 corpus, 4 of 4 (20260920-081819: a Musketeer attacking and a Giant walking from
+        /// S + 2, both seats). The engine's Knight attacked on S + 1 (sweep-Fisherman t273), its Giant walked on S + 1
+        /// (081819 t1301, the start of the battle's first divergence).
+        ClientIdleTick = "client_idle_tick",
+    }
+);
+calib_enum!(
     /// transform.REDEPLOY -- whether a transformed unit deploys again (`rebind_unit`).
     TransformRedeploy {
         /// It does not: its deploy timer is kept. Measured on client 15.535.29 (no deploy frames after either
@@ -6796,6 +6820,7 @@ impl Calib {
             death_bomb_timing_scope: pick(&v, &["spawner", "DEATH_BOMB_TIMING_SCOPE", "value"], DeathBombTimingScope::from_calibration_name)?,
             chase_drop_measure: pick(&v, &["targeting", "CHASE_DROP_MEASURE", "value"], ChaseDropMeasure::from_calibration_name)?,
             load_timer_target_loss: pick(&v, &["combat", "LOAD_TIMER_TARGET_LOSS", "value"], LoadTimerTargetLoss::from_calibration_name)?,
+            hook_release: pick(&v, &["combat", "HOOK_RELEASE", "value"], HookRelease::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -21254,6 +21279,13 @@ impl BattleState {
                 moved = true;
                 continue;
             }
+            // combat.HOOK_RELEASE = client_idle_tick: the tick after the stop the victim stays held where the drag left it
+            // (`drag_idle`), and is free from the next.
+            if self.ents.drag_idle[i] {
+                self.ents.drag_idle[i] = false;
+                self.ents.hooked_by[i] = None;
+                continue;
+            }
             let special = if self.ents.is_alive(by) { self.cfg.cards.get(self.ents.card[bi]).special } else { None };
             let Some(sp) = special else {
                 self.ents.hooked_by[i] = None;
@@ -21278,6 +21310,13 @@ impl BattleState {
                 self.end_drag(i, by);
                 if releases {
                     self.prime_after_release(bi);
+                }
+                // combat.HOOK_RELEASE = client_idle_tick: the victim stays held one tick more (`hooked_by` kept, so it is
+                // `knocked`), idle on S + 1; the thrower's release is as before.
+                #[cfg(not(clash_plant = "hook_release_next_tick"))]
+                if self.cfg.calib.hook_release == HookRelease::ClientIdleTick {
+                    self.ents.hooked_by[i] = Some(by);
+                    self.ents.drag_idle[i] = true;
                 }
                 // combat.HOOK_DRAG_ROUTE = client16402_dropped: the drag left the unit off the route it was walking,
                 // and its next waypoint can lie behind it. The route is dropped here, as the knockback ladder's end
@@ -27080,6 +27119,10 @@ impl BattleState {
                 if let Some(by) = e.hooked_by[i] {
                     h.id(by);
                 }
+                // combat.HOOK_RELEASE = client_idle_tick: the victim's idle tick, only while it is marked.
+                if e.drag_idle[i] {
+                    h.u32(0x4944_4c45);
+                }
                 // movement.SPAWN_PATHFIND_STATES: a unit under ground's destination, only while it is under ground,
                 // so a battle with no tunneller hashes as it did before the column.
                 #[cfg(not(clash_plant = "hash_skips_tunnel"))]
@@ -28638,6 +28681,10 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HOOK_RELEASE: Calib gained hook_release (serde default the old arm, free_next_tick); Entities
+///    gained drag_idle (`default`, sized on load false), written and hashed under the new arm alone (its hooked_by held
+///    a tick longer is hashed as before), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
+///    a migrated battle at the old arm.
 /// 20, unchanged, combat.LOAD_TIMER_TARGET_LOSS: Calib gained load_timer_target_loss (serde default the old arm, runs_on);
 ///    Entities gained load_hold (`default`, sized on load at 0), written and hashed under the new arm alone, so a blob
 ///    saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -29452,6 +29499,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chase_drop_measure".into(), serde_json::to_value(ChaseDropMeasure::MaxAbs).map_err(|e| e.to_string())?);
     // combat.LOAD_TIMER_TARGET_LOSS: a format-3 battle ran every load timer on (the same rule).
     sh.insert("load_timer_target_loss".into(), serde_json::to_value(LoadTimerTargetLoss::RunsOn).map_err(|e| e.to_string())?);
+    // combat.HOOK_RELEASE: a format-3 battle freed a hook's victim on the tick after its drag stopped (the same rule).
+    sh.insert("hook_release".into(), serde_json::to_value(HookRelease::FreeNextTick).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
@@ -29910,6 +29959,7 @@ impl BattleState {
         snap.ents.special_ms.resize(n, 0);
         snap.ents.special_on.resize(n, None);
         snap.ents.hooked_by.resize(n, None);
+        snap.ents.drag_idle.resize(n, false);
         snap.ents.tunnel_dest.resize(n, None);
         snap.ents.grounded_ms.resize(n, 0);
         snap.ents.cloned.resize(n, false);
