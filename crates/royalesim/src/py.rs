@@ -85,7 +85,9 @@
 //!     RoyaleGym decodes; the row runs on to `level` and `mount_uid`)
 //!     (ticks remaining, rounded up; under the shipped knockback ladder the ticks the
 //!     ladder still runs, `knock_ticks_left`); and a top-level "spells" array of rows
-//!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits]
+//!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits, ticks_flown]
+//!     ticks_flown: for a FLIGHT spell, the ticks it has moved (0 while it waits out delay_ticks); 0 for every other
+//!     motion. The column is last, so a reader of the first eleven keeps working.
 //!     motion 0 flight / 1 airborne (the Log before it lands) / 2 rolling / 3 area
 //!     effect; (x, y) the current centre; aim the landing point (flight, airborne) or
 //!     the roll's end point (rolling) or the centre (area); distances in subtiles.
@@ -316,7 +318,7 @@ pub const PROJECTILE_FIELDS: [&str; 8] = ["team", "x", "y", "aim_x", "aim_y", "t
 /// THE SPELL ROW'S FIELDS, in `state_json`'s order (its `spells` key), named as protocol.py
 /// `SpellState` names them. Same reason as ENTITY_FIELDS: a spell column added here and not
 /// there would otherwise be dropped without a word. Pinned to the serializer by a test here.
-pub const SPELL_FIELDS: [&str; 11] = ["team", "card_id", "motion", "x", "y", "aim_x", "aim_y", "delay_ticks", "travelled", "length", "hits"];
+pub const SPELL_FIELDS: [&str; 12] = ["team", "card_id", "motion", "x", "y", "aim_x", "aim_y", "delay_ticks", "travelled", "length", "hits", "ticks_flown"];
 
 /// THE SPELL MOTIONS BY NAME, index = the `motion` code a spell row carries, named as
 /// protocol.py `SpellMotion` names them, so a decoder refuses a code it has no name for at
@@ -336,9 +338,10 @@ const MOTION_SCHEDULED: u8 = 7;
 /// names them where it has the field (`placement` is the kind code, the card's deploy rule;
 /// `card_kind` is a name from CARD_KINDS; `variants` a variant card's forms, null on every other
 /// card). A variant card (the Spirit Empress) shows its first form's row with its own elixir. `hero`: the elixir its
-/// hero form's button costs, null on a card without a loaded hero form. A catalogue row may grow at its end; a decoder
+/// hero form's button costs, null on a card without a loaded hero form. `champion`: true when a deck entry of the card
+/// gets a champion's ability button (card.rs `CardDb::is_champion`). A catalogue row may grow at its end; a decoder
 /// takes the columns it knows by position.
-pub const CATALOGUE_FIELDS: [&str; 11] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind", "variants", "hero"];
+pub const CATALOGUE_FIELDS: [&str; 12] = ["name", "placement", "elixir", "count", "radius", "flying", "hitpoints", "footprint_tiles", "card_kind", "variants", "hero", "champion"];
 
 /// WHAT A CARD IS, by name (card.rs `CardKind`), the catalogue's `card_kind` column. The
 /// `placement` code says where a card may be played; it does not say what the card is, and
@@ -782,7 +785,9 @@ pub fn catalogue_rows(cards: &CardDb, calib: &Calib, catalogue: &[u16], level: i
         // The 11th element: the elixir the card's hero form's button costs (a form-2 deck entry plays that form), null
         // on every card without one.
         let hero = cards.form_card(*idx, crate::card::FORM_HERO).and_then(|f| cards.get(f).ability.as_ref()).map_or("null".to_string(), |a| a.cost.to_string());
-        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\",{variants},{hero}]", c.elixir);
+        // The 12th: whether the card is a champion (`CardDb::is_champion`).
+        let champion = cards.is_champion(*idx);
+        let _ = write!(out, "[{name},{kind},{},{count},{radius},{flying},{hp},{footprint},\"{card_kind}\",{variants},{hero},{champion}]", c.elixir);
     }
     out.push(']');
     Ok(out)
@@ -1109,13 +1114,14 @@ pub fn state_json_text(
         };
         let _ = write!(
             o,
-            "[{},{card_id},{motion},{},{},{},{},{},{travelled},{len},{hits}]",
+            "[{},{card_id},{motion},{},{},{},{},{},{travelled},{len},{hits},{}]",
             sp.team as u8,
             pos.x,
             pos.y,
             aim.x,
             aim.y,
             ceil_div(delay_ms.max(0) as i64, tick_ms),
+            if motion == MOTION_FLIGHT { sp.flown } else { 0 },
         );
     }
     // PROJECTILE_FIELDS, one row per projectile in flight.
