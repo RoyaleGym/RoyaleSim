@@ -5276,7 +5276,8 @@ calib_enum!(
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
     ScanReach {
-        /// The engine's: SightRange + the extra sight ranges + the largest live radius. It leaves out the scanner's own
+        /// The engine's before 2026-10-03 (and a snapshot's saved before the key): SightRange + the extra sight ranges +
+        /// the largest live radius. It leaves out the scanner's own
         /// radius, so a candidate whose centre lies past it and within the narrow test is never tested: a crown tower
         /// (the King's 1400 the largest radius) is seen only from Sight + 2000 + 1400, not from Sight + 2000 + both
         /// radii, a band of (the scanner's radius + the tower's - 1400) native: 200 for a Hog Rider on a princess tower.
@@ -5288,7 +5289,8 @@ calib_enum!(
         /// two Royal Hogs walking to the King (their lane's princess tower down) took the standing princess tower at
         /// 13,007 and 13,011 (Sight 9500 + 2000 + 600 + 1000 = 13,100; at 13,114 and 13,116 a tick before they had
         /// not), where the engine's query (12,900) took it two ticks later and the hogs turned late, the scene's first
-        /// divergence (t1276).
+        /// divergence (t1276). Shipped since 2026-10-03 on both clients (Sim's ruling: a broad-phase omission, not a client
+        /// difference; the 16.402 corpus scored at it gained 431 and lost nothing).
         Client15535PlusOwnRadius = "client15535_plus_own_radius",
     }
 );

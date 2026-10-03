@@ -1072,7 +1072,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.jump_landing_scope, JumpLandingScope::Client15535WholeTick, "a 15.535.29 capture's lander is out of its landing tick's first updates");
     assert_eq!(cfg.calib.held_waypoint_test, HeldWaypointTest::Client15535Run, "a 15.535.29 capture's held unit runs its waypoint test");
     assert_eq!(cfg.calib.spectral_first_update, SpectralFirstUpdate::Client15535SameTick, "a 15.535.29 capture's Spectral takes its first update at birth");
-    assert_eq!(cfg.calib.scan_reach, ScanReach::Client15535PlusOwnRadius, "a 15.535.29 capture's scan reaches its own radius");
+    assert_eq!(cfg.calib.scan_reach, ScanReach::Client15535PlusOwnRadius, "a 15.535.29 capture's scan reaches its own radius (the shipped arm)");
     assert_eq!(cfg.calib.dismount_leap_step, DismountLeapStep::Client15535LeapLandsFirst, "a 15.535.29 capture's hero lands its leap first");
     assert_eq!(cfg.calib.dismount_hop_water, DismountHopWater::Client15535LandRowCentre, "a 15.535.29 capture's hop leaves the river");
     assert_eq!(cfg.calib.dash_chain_aim, DashChainAim::Client15535GoalCell, "a 15.535.29 capture's dash heads for its goal cell");
@@ -1133,7 +1133,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.jump_landing_scope, JumpLandingScope::MovePass, "a 16.402 capture");
     assert_eq!(cfg.calib.held_waypoint_test, HeldWaypointTest::NotRun, "a 16.402 capture");
     assert_eq!(cfg.calib.spectral_first_update, SpectralFirstUpdate::None, "a 16.402 capture");
-    assert_eq!(cfg.calib.scan_reach, ScanReach::SightExtraMaxRadius, "a 16.402 capture");
+    assert_eq!(cfg.calib.scan_reach, ScanReach::Client15535PlusOwnRadius, "a 16.402 capture: the shipped arm (a broad-phase omission, not a client difference)");
     assert_eq!(cfg.calib.dismount_leap_step, DismountLeapStep::RebindFirst, "a 16.402 capture");
     assert_eq!(cfg.calib.dismount_hop_water, DismountHopWater::KeepWater, "a 16.402 capture");
     assert_eq!(cfg.calib.dash_chain_aim, DashChainAim::TargetCentre, "a 16.402 capture");

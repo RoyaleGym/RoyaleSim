@@ -18,7 +18,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, ScanReach};
+use royalesim::state::{BattleState, Calib, ScanReach};
 use royalesim::Team;
 
 fn at(x: i32, y: i32) -> Vec2 {
@@ -54,4 +54,10 @@ fn a_scan_sees_a_crown_tower_from_its_crown_sight_under_client15535_plus_own_rad
     let (tp, d) = first_take(ScanReach::SightExtraMaxRadius);
     assert_eq!(tp, at(3500, 25500), "the scene drifted (sight_extra_max_radius)");
     assert!(d <= 8900, "sight_extra_max_radius: the Knight took the tower at {d}, past the engine's query");
+}
+
+/// The shipped arm since 2026-10-03 (Sim's ruling on form patch 180): the own-radius reach on both clients.
+#[test]
+fn the_shipped_arm_reaches_its_own_radius() {
+    assert_eq!(Calib::shipped().scan_reach, ScanReach::Client15535PlusOwnRadius);
 }

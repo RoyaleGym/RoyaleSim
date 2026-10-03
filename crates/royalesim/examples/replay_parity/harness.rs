@@ -1516,8 +1516,6 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   of 3,111 keeps).
 ///   spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick: an Evo Skeleton Army Spectral takes its first update on the
 ///   tick it is made (43 of 43 hold a target on their first frame).
-///   targeting.SCAN_REACH = client15535_plus_own_radius: a sight scan's broad phase reaches the scanner's own radius
-///   (120 crown-tower takes inside the band the engine's query cut off).
 ///   transform.DISMOUNT_LEAP_STEP = client15535_leap_lands_first: a Hero Dark Prince freed on its leap's last tick takes
 ///   that leap step before it dismounts (1 of 1).
 ///   transform.DISMOUNT_HOP_WATER = client15535_land_row_centre: its hop onto the river lands on the nearest land row's
@@ -1581,7 +1579,6 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.JUMP_LANDING_SCOPE", "\"client15535_whole_tick\""),
     ("movement.HELD_WAYPOINT_TEST", "\"client15535_run\""),
     ("spawner.SPECTRAL_FIRST_UPDATE", "\"client15535_same_tick\""),
-    ("targeting.SCAN_REACH", "\"client15535_plus_own_radius\""),
     ("transform.DISMOUNT_LEAP_STEP", "\"client15535_leap_lands_first\""),
     ("transform.DISMOUNT_HOP_WATER", "\"client15535_land_row_centre\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
