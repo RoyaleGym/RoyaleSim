@@ -7350,6 +7350,12 @@ pub const TIEBREAK_DRAIN_START_MS: i64 = 3350;
 /// match ends a Draw on this tick (sp-tiebreak-idle-s0: drained on t6067, ended t6147, native_tiebreak_exact_draw).
 pub const TIEBREAK_EXACT_DRAW_AFTER_MS: i64 = 4000;
 
+/// THE TIEBREAK'S CLEAR, ms past overtime's end: the head of the tick on which every unit, building, spell and projectile
+/// leaves the board, with no death effects, and only the crown towers stay. Measured on client 16.402 (six live level
+/// overtimes): units still move and take hits on t6001, and none is left on t6002. From overtime's end no play is
+/// accepted (`tiebreak_frozen`).
+pub const TIEBREAK_CLEAR_MS: i64 = 100;
+
 /// THE DRAIN'S STEP: the hp every standing crown tower loses this tick, from the lowest crown tower hp of all six read
 /// before it. Measured on client 15.535.29 (sp-tiebreak-dmg-s0, t6067..6167): 50 from 1000 up, 40 from 500, 20 from
 /// 200, 10 from 21, else 1; checked on client 16.402 over six live level overtimes (21, 23 and 28 drained 10; 20, 18,
@@ -12628,8 +12634,13 @@ impl BattleState {
         if c.overtime_tiebreak != OvertimeTiebreak::ClientHpDrain || !self.overtime || self.outcome.is_some() {
             return;
         }
-        let start = (c.regular_time_s as i64 + c.overtime_s as i64) * 1000 + TIEBREAK_DRAIN_START_MS;
+        let end = (c.regular_time_s as i64 + c.overtime_s as i64) * 1000;
+        let start = end + TIEBREAK_DRAIN_START_MS;
         let now = self.elapsed_ms(self.tick);
+        #[cfg(not(clash_plant = "tiebreak_board_kept"))]
+        if now == end + TIEBREAK_CLEAR_MS {
+            self.tiebreak_clear();
+        }
         if now < start || (now > start && self.weakest_towers_level()) {
             return;
         }
@@ -12641,6 +12652,51 @@ impl BattleState {
         let step = tiebreak_drain_step(lowest);
         for i in standing {
             self.ents.hp[i] = (self.ents.hp[i] - step).max(0);
+        }
+    }
+
+    /// THE TIEBREAK'S CLEAR (`TIEBREAK_CLEAR_MS`): every entity but the crown towers leaves the board, with no death
+    /// effects, and every spell, projectile, pending spawn, waiting command and running ability goes with it.
+    fn tiebreak_clear(&mut self) {
+        let towers: Vec<EntityId> = self.towers.iter().flatten().flatten().copied().collect();
+        let gone: Vec<EntityId> = self.ents.live_indices().map(|i| self.ents.id_of(i)).filter(|id| !towers.contains(id)).collect();
+        for id in gone {
+            self.ents.despawn(id);
+        }
+        self.projectiles.clear();
+        self.spells.clear();
+        self.spawn_queue.clear();
+        self.released.clear();
+        self.death_queue.clear();
+        self.scheduled.clear();
+        self.hero_units.clear();
+        self.chains.clear();
+        self.throws.clear();
+        self.spins.clear();
+        self.lifts.clear();
+        self.quests.clear();
+        self.falls.clear();
+        self.deflects.clear();
+        self.commands.clear();
+        self.evo = EvoBoard::default();
+        self.taunts = TauntBoard::default();
+        self.warps = WarpBoard::default();
+        self.slaps = SlapBoard::default();
+        self.hash.rebuild(&self.ents);
+    }
+
+    /// THE TIEBREAK'S FREEZE: past a level overtime's end under the client's drain, no play is accepted (measured on
+    /// client 16.402: the last play to land did so on t5994, and no play lands on t6000 or later).
+    pub fn tiebreak_frozen(&self) -> bool {
+        let c = &self.cfg.calib;
+        #[cfg(clash_plant = "tiebreak_board_kept")]
+        return false; // PLANT: play goes on past overtime's end, as before the freeze.
+        #[allow(unreachable_code)]
+        {
+            c.overtime_tiebreak == OvertimeTiebreak::ClientHpDrain
+                && self.overtime
+                && self.outcome.is_none()
+                && self.elapsed_ms(self.tick) >= (c.regular_time_s as i64 + c.overtime_s as i64) * 1000
         }
     }
 
@@ -24588,7 +24644,7 @@ impl BattleState {
         if self.tick < until {
             return Err(DeployError::TooEarly { tick: self.tick, until });
         }
-        if self.outcome.is_some() {
+        if self.outcome.is_some() || self.tiebreak_frozen() {
             return Err(DeployError::GameOver);
         }
         let (_, form) = self.button_form(team, k).ok_or(DeployError::NoHero)?;
@@ -25270,7 +25326,7 @@ impl BattleState {
     /// with no mutation (the Python protocol's `check_deploy`). `deploy` calls
     /// this first, so the two cannot drift apart.
     pub fn check_deploy(&self, team: Team, card_name: &str, pos: Vec2) -> Result<(), DeployError> {
-        if self.outcome.is_some() {
+        if self.outcome.is_some() || self.tiebreak_frozen() {
             return Err(DeployError::GameOver);
         }
         let idx = self.simulable(card_name)?;
@@ -25300,7 +25356,7 @@ impl BattleState {
         if self.tick < until {
             return Err(DeployError::TooEarly { tick: self.tick, until });
         }
-        if self.outcome.is_some() {
+        if self.outcome.is_some() || self.tiebreak_frozen() {
             return Err(DeployError::GameOver);
         }
         // The PLAY is judged, not the hand card (`resolve_play`): its cost, and the tap by the placement of the card it
@@ -25469,7 +25525,7 @@ impl BattleState {
     }
 
     fn spawn_unit_with(&mut self, team: Team, card_name: &str, pos: Vec2, level: Option<i32>, observed: bool) -> Result<(), DeployError> {
-        if self.outcome.is_some() {
+        if self.outcome.is_some() || self.tiebreak_frozen() {
             return Err(DeployError::GameOver);
         }
         let idx = self.simulable(card_name)?;
