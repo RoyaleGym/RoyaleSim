@@ -281,3 +281,32 @@ fn a_level_overtime_freezes_and_clears_the_board() {
     }
     assert_eq!(hp(&s), before, "nothing touches a tower from t6002 until the drain");
 }
+
+/// A DELAYED COMMAND STILL WAITING AT THE CLEAR is dropped and reported (`commands_run`, refused GameOver), so a
+/// caller that charged it when it was accepted can give it back: a play accepted on t5990 with a 20-tick delay is due
+/// on t6010, after the clear at the head of t6002.
+#[test]
+fn a_command_waiting_at_the_clear_is_reported_dropped() {
+    use royalesim::fixed::Vec2;
+    use royalesim::state::DeployError;
+    let mut cfg = config();
+    cfg.calib.overtime_tiebreak = OvertimeTiebreak::ClientHpDrain;
+    cfg.command_delay_ticks = [20, 0];
+    let deck: Vec<String> = ["Knight", "Archer", "Giant", "Musketeer", "Fireball", "Valkyrie", "HogRider", "Minions"].iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    let mut s = BattleState::new(7, cfg);
+    s.scenario_set_tick(5990);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let at = Vec2::new(9 * 18_000, 8 * 18_000);
+    s.deploy_slot(Team::Blue, 0, at).expect("the play is accepted, to run in 20 ticks");
+    assert_eq!(s.pending_commands(Team::Blue).len(), 1, "scene: the play waits");
+    while s.tick_count() < 6002 {
+        s.tick();
+        assert!(s.commands_run().is_empty(), "nothing ran or dropped before the clear (t{})", s.tick_count() - 1);
+    }
+    s.tick(); // t6002: the clear at its head
+    let run = s.commands_run();
+    assert_eq!(run.len(), 1, "the waiting play is reported on the clear's tick: {run:?}");
+    assert_eq!((run[0].command.team, run[0].result.clone().map(|_| ())), (Team::Blue, Err(DeployError::GameOver)));
+    assert!(s.pending_commands(Team::Blue).is_empty(), "and no longer waits");
+}

@@ -9,6 +9,9 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
   `levels=[blue, red]`, each empty or one unified level per deck card, and `tower_levels=[blue, red]`. A play is at its
   card's level: an evolution or a hero form at its base card's, and a Mirror's copy at the Mirror's level plus one.
   Leaving both out plays both sides at the battle's single level, as before.
+- `Battle.step_commands_run()` lists every delayed command that ran or was dropped during the last `step`, over all
+  its ticks: `(tick, team, kind, what, reason)`, where `what` is the card id of a play or the command slot of an
+  ability press. A command still waiting when a level overtime ends is now reported dropped, with reason `GAME_OVER`.
 
 ## 0.1.6 (2026-10-03)
 

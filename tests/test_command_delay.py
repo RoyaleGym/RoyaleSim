@@ -54,3 +54,21 @@ def test_a_play_waits_then_runs():
     b.step([], 1)
     assert b.pending_commands(0) == []
     assert b.commands_run() == [(0, "deploy", 0)], "it ran, accepted"
+
+
+def test_step_commands_run_lists_every_delayed_command_of_the_step():
+    """``step_commands_run()`` covers every tick of the last ``step``, not only its last one: (tick, team, kind, what,
+    reason), ``what`` the card id of a play."""
+    b = battle(20, 0)
+    play = b.step([(0, 0, 9500 * SUB, 8500 * SUB)], 0)
+    assert play[0][1] == 0, f"scene: the play is accepted: {play}"
+    due = b.pending_commands(0)[0]
+    b.step([], 40)
+    assert b.commands_run() == [], "the last tick of the step ran nothing"
+    rows = b.step_commands_run()
+    assert len(rows) == 1, rows
+    tick, team, kind, what, reason = rows[0]
+    assert (team, kind, what, reason) == (0, "deploy", due[1], 0), rows
+    assert tick > 0
+    b.step([], 1)
+    assert b.step_commands_run() == [], "a step that ran nothing reports nothing"

@@ -13266,7 +13266,11 @@ impl BattleState {
         self.quests.clear();
         self.falls.clear();
         self.deflects.clear();
-        self.commands.clear();
+        // The delayed commands still waiting are dropped, each reported refused GAME_OVER in this tick's
+        // `commands_run` (a caller that charged a press when it was accepted can give it back).
+        for c in std::mem::take(&mut self.commands) {
+            self.commands_run.push(CommandRun { command: c, result: Err(DeployError::GameOver) });
+        }
         self.evo = EvoBoard::default();
         self.taunts = TauntBoard::default();
         self.warps = WarpBoard::default();
@@ -26202,7 +26206,8 @@ impl BattleState {
         self.commands.iter().copied().filter(|c| c.team == team).collect()
     }
 
-    /// The delayed commands that ran at the top of the last tick, and what came of each.
+    /// The delayed commands that ran at the top of the last tick, and what came of each; and those a level
+    /// overtime's end dropped on it (`tiebreak_clear`), refused GameOver.
     pub fn commands_run(&self) -> &[CommandRun] {
         &self.commands_run
     }

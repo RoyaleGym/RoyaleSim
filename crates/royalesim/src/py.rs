@@ -481,6 +481,17 @@ pub struct Battle {
     /// `set_command_delay_ticks`). [0, 0], the default, runs every command at once.
     command_delay_ticks: [u32; 2],
     state: Option<BattleState>,
+    /// Every delayed command that ran or was dropped during the last `step` (`step_commands_run`).
+    step_commands: Vec<(u32, i64, String, i64, u8)>,
+}
+
+/// One `step_commands_run` row: (tick, team, kind, what, reason).
+fn command_row(tick: u32, r: &crate::state::CommandRun, id_of_idx: &[i32]) -> (u32, i64, String, i64, u8) {
+    let (kind, what) = match r.command.kind {
+        crate::state::CommandKind::Deploy { card, .. } => ("deploy", id_of_idx.get(card as usize).copied().unwrap_or(-1) as i64),
+        crate::state::CommandKind::Ability { button } => ("ability", (HAND_SIZE + button) as i64),
+    };
+    (tick, r.command.team as i64, kind.to_string(), what, reason_of(&r.result.clone().map(|_| ())))
 }
 
 /// Why a restored battle cannot run behind this catalogue, or Ok. Every card the
@@ -1308,7 +1319,7 @@ impl Battle {
             db.check_levels(idx, tower_lvl).map_err(|e| BuildError::Value(format!("tower_level {tower_lvl}: {e}")))?;
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, calib_overrides, command_delay_ticks: [0, 0], state: None })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, calib_overrides, command_delay_ticks: [0, 0], state: None, step_commands: Vec::new() })
     }
 
     /// `catalogue_json`'s body, with no Python type in it (`build` says why).
@@ -1740,6 +1751,7 @@ impl Battle {
             PyValueError::new_err(format!("spawn {name} at ({}, {}): {e:?}", p.x, p.y))
         })?;
         self.state = Some(s);
+        self.step_commands.clear();
         Ok(())
     }
 
@@ -1847,15 +1859,29 @@ impl Battle {
         let id_of_idx = self.id_of_idx.clone();
         let s = self.s_mut()?;
         let out = apply_commands(s, &commands, &id_of_idx).map_err(PyRuntimeError::new_err)?;
+        let mut ran: Vec<(u32, i64, String, i64, u8)> = Vec::new();
         py.allow_threads(|| {
             for _ in 0..ticks {
                 if s.is_done() {
                     break;
                 }
+                let t = s.tick_count();
                 s.tick();
+                ran.extend(s.commands_run().iter().map(|r| command_row(t, r, &id_of_idx)));
             }
         });
+        self.step_commands = ran;
         Ok(out)
+    }
+
+    /// EVERY DELAYED COMMAND THAT RAN OR WAS DROPPED DURING THE LAST `step`, over all its ticks, in the order they
+    /// ran: (tick, team, kind, what, reason). `kind` is "deploy" or "ability"; `what` the card id of a play, or the
+    /// command slot of a press (HAND_SIZE + its button, as `pending_commands` gives it); `reason` 0 for a command that
+    /// ran and a DEPLOY_REASONS code for one refused when it ran (a hero dead by then: NO_HERO), and GAME_OVER for one a
+    /// level overtime's end dropped. A command runs in public, so a caller can charge exactly what ran. Empty before the
+    /// first step, and after a step with no delay.
+    fn step_commands_run(&self) -> Vec<(u32, i64, String, i64, u8)> {
+        self.step_commands.clone()
     }
 
     /// protocol.py `BattleState` as JSON bytes (EntityState rows are arrays), with the
@@ -1890,6 +1916,7 @@ impl Battle {
             return Err(PyValueError::new_err("snapshot territory model differs from this build's"));
         }
         self.state = Some(s);
+        self.step_commands.clear();
         Ok(())
     }
 
