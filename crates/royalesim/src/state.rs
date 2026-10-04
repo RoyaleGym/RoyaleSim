@@ -1086,6 +1086,10 @@ pub struct Calib {
     /// route asks for one. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `LadderEnd`.
     #[serde(default = "ladder_path_request_default")]
     pub ladder_path_request: LadderPathRequest,
+    /// spawner.SOUL_OFFSET_ROUNDING (`soul_pass`): how a Skeleton King copy's drawn offset is divided down to native
+    /// units. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Floor`.
+    #[serde(default = "soul_offset_rounding_default")]
+    pub soul_offset_rounding: SoulOffsetRounding,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2603,6 +2607,10 @@ fn recoil_route_default() -> RecoilRoute {
 
 fn ladder_path_request_default() -> LadderPathRequest {
     LadderPathRequest::LadderEnd
+}
+
+fn soul_offset_rounding_default() -> SoulOffsetRounding {
+    SoulOffsetRounding::Floor
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5417,6 +5425,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.SOUL_OFFSET_ROUNDING -- see `soul_pass`: how a Skeleton King copy's offset from his point, sin x radius in
+    /// 1024ths, comes down to native units.
+    SoulOffsetRounding {
+        /// The engine's: an arithmetic shift (>> 10), so a negative offset rounds down (away from zero).
+        Floor = "floor",
+        /// A division (/ 1024), rounding toward zero, so a negative offset that does not divide whole stands 1 nearer
+        /// the King. Measured on client 15.535.29 (parity, the seven Skeleton King scenes' copies on their first frame
+        /// against the engine's): on an axis whose offset from the King is negative the client's copy stood 1 above the
+        /// engine's 26 times, level where the offset divides whole (an axis draw, 0 / -2,912) or the grid put it (-250),
+        /// and every other gap is the King's own 1 (sp-sk-souls-building-s0, -window-s0); on a positive axis level 43
+        /// times. sp-sk-souls-spawned-s0: five of its first six copies stood 1 off on their negative axes, every one of
+        /// them to the scene's end (185 lost).
+        Client15535TowardZero = "client15535_toward_zero",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7732,6 +7756,7 @@ impl Calib {
             heal_pulse_landing: pick(&v, &["status", "HEAL_PULSE_LANDING", "value"], HealPulseLanding::from_calibration_name)?,
             recoil_route: pick(&v, &["knockback", "RECOIL_ROUTE", "value"], RecoilRoute::from_calibration_name)?,
             ladder_path_request: pick(&v, &["knockback", "LADDER_PATH_REQUEST", "value"], LadderPathRequest::from_calibration_name)?,
+            soul_offset_rounding: pick(&v, &["spawner", "SOUL_OFFSET_ROUNDING", "value"], SoulOffsetRounding::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -17642,6 +17667,13 @@ impl BattleState {
     fn soul_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let tick_ms = self.cfg.calib.tick_ms.max(1);
+        // spawner.SOUL_OFFSET_ROUNDING = client15535_toward_zero: the offset divided (toward zero), not shifted (down).
+        // PLANT (regression) soul_offset_floor: the new arm still shifts.
+        #[cfg(not(clash_plant = "soul_offset_floor"))]
+        let toward_zero = self.cfg.calib.soul_offset_rounding == SoulOffsetRounding::Client15535TowardZero;
+        #[cfg(clash_plant = "soul_offset_floor")]
+        let toward_zero = false;
+        let down = move |v: i32| if toward_zero { v / 1024 } else { v >> 10 };
         let runs = std::mem::take(&mut self.warps.soul_runs);
         let mut keep = Vec::new();
         for mut r in runs {
@@ -17671,16 +17703,16 @@ impl BattleState {
                 let unit_r = self.cfg.cards.get(sd.unit).collision_radius / K;
                 let span = (sd.area_radius / K - sd.min_radius / K - unit_r).max(1) as u32;
                 let radius = sd.min_radius / K + self.client_rnd(span) as i32;
-                let dx = (crate::formation::sin1024(theta) * radius) >> 10;
-                let dy = (crate::formation::sin1024(theta + 90) * radius) >> 10;
+                let dx = down(crate::formation::sin1024(theta) * radius);
+                let dy = down(crate::formation::sin1024(theta + 90) * radius);
                 let flying = self.cfg.cards.get(sd.unit).is_flying();
                 let first = self.soul_landing(r.team, Vec2::new(r.at.x + dx * K, r.at.y + dy * K), flying);
                 #[cfg(not(clash_plant = "souls_never_refused"))]
                 let p = if self.soul_point_refused(first, self.cfg.cards.get(sd.unit).collision_radius) {
                     let theta = self.client_rnd(360) as i32;
                     let radius = self.client_rnd((sd.area_radius / K).max(1) as u32) as i32;
-                    let dx = (crate::formation::sin1024(theta) * radius) >> 10;
-                    let dy = (crate::formation::sin1024(theta + 90) * radius) >> 10;
+                    let dx = down(crate::formation::sin1024(theta) * radius);
+                    let dy = down(crate::formation::sin1024(theta + 90) * radius);
                     self.soul_landing(r.team, Vec2::new(r.at.x + dx * K, r.at.y + dy * K), flying)
                 } else {
                     first
@@ -30218,6 +30250,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.SOUL_OFFSET_ROUNDING: Calib gained soul_offset_rounding (serde default the old arm, floor),
+///    no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at
+///    the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST: Calib gained ladder_path_request (serde default the old arm,
 ///    ladder_end), no new state (the plan is the entity's route, already saved), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31214,6 +31249,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("recoil_route".into(), serde_json::to_value(RecoilRoute::Kept).map_err(|e| e.to_string())?);
     // knockback.LADDER_PATH_REQUEST: a format-3 battle planned at its ladders' ends (the same rule).
     sh.insert("ladder_path_request".into(), serde_json::to_value(LadderPathRequest::LadderEnd).map_err(|e| e.to_string())?);
+    // spawner.SOUL_OFFSET_ROUNDING: a format-3 battle ran no Skeleton King (the same rule).
+    sh.insert("soul_offset_rounding".into(), serde_json::to_value(SoulOffsetRounding::Floor).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

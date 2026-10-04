@@ -4429,6 +4429,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_reversed (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs drill_pass (the hide Goblins' emission order), selected by Calib::action_group_spawn_order; tests/action_group_spawn_order.rs."
     },
+    "SOUL_OFFSET_ROUNDING": {
+      "value": "floor",
+      "candidates": ["floor", "client15535_toward_zero"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_toward_zero on client 15.535.29: every copy's 1-native gap on a negative axis and none on a positive one, the exceptions all explained (whole divisions, grid points, the King's own gap). 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03, the seven Skeleton King scenes on the r37 trial exe: sp-sk-souls-spawned, -own, -building, -window, -ignore, sp-champ-SkeletonKing and -late; each copy's first-frame point against the engine's, and its offset from the King): on an axis whose offset was negative the client's copy stood 1 above the engine's 26 times and level 11 times, the level ones an axis draw dividing whole (0 / -2,912, -2,948, -2,946) or a grid point (-250, the river rule) or the King himself 1 high in the engine (sp-sk-souls-spawned-s0 t335); on a positive axis level 43 times, the 3 others the King's own 1 (sp-sk-souls-building-s0, -window-s0). sp-sk-souls-spawned-s0 t310..t330: five of the first six copies 1 off on their negative axes, carried to the scene's end (185 lost, every unit-tick of them).",
+      "meaning": "floor: the engine's; soul_pass shifts sin1024 x radius right by 10, so a negative offset rounds away from zero. client15535_toward_zero: it divides by 1024, rounding toward zero, so a negative offset that does not divide whole stands 1 nearer the King.",
+      "open": "Whether the other sin1024 offsets (rings, formations) divide too: only the copies are measured here. 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_toward_zero (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs soul_pass (`down`), selected by Calib::soul_offset_rounding; tests/soul_offset_rounding.rs."
+    },
     "SOUL_POINT_BASE": {
       "value": "pre_move",
       "candidates": ["pre_move", "client15535_post_move"],
