@@ -552,6 +552,10 @@ pub struct Calib {
     /// (combat.rs `fire`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Launched`.
     #[serde(default = "launch_beyond_cancel_range_default")]
     pub launch_beyond_cancel_range: LaunchBeyondCancelRange,
+    /// targeting.DOOMED_SET_SHOTS: which shots in flight the doomed set counts (combat.rs `shots_in_flight_at`). Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `EveryShot`.
+    #[serde(default = "doomed_set_shots_default")]
+    pub doomed_set_shots: DoomedSetShots,
     /// movement.DEPLOYING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
@@ -1889,6 +1893,10 @@ fn hit_beyond_cancel_range_default() -> HitBeyondCancelRange {
 
 fn launch_beyond_cancel_range_default() -> LaunchBeyondCancelRange {
     LaunchBeyondCancelRange::Launched
+}
+
+fn doomed_set_shots_default() -> DoomedSetShots {
+    DoomedSetShots::EveryShot
 }
 
 /// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE's value: the string "global", or a non-negative number of
@@ -3724,6 +3732,21 @@ calib_enum!(
         /// Goblin 2,393 past reach ended with its load timer reset and no projectile, where 1,259 due launches stood
         /// within 633 past; on client 15.535.29 launches stood up to 1,191 past.
         NotLaunched = "not_launched",
+    }
+);
+calib_enum!(
+    /// targeting.DOOMED_SET_SHOTS -- see combat.rs `shots_in_flight_at`: which shots in flight the doomed set
+    /// (targeting.DOOMED_TARGET_DROP, DOOMED_LANE_TOWER, the Evo Musketeer's snipe) sums against a unit's hitpoints.
+    DoomedSetShots {
+        /// The engine's: every shot flying at the unit that deals damage.
+        EveryShot = "every_shot",
+        /// Only shots whose firer's card fires a HOMING projectile (`CardDef::projectile_homing`), as
+        /// combat.POST_KILL_RETARGET_WAIT's doomed test already reads: a Bomber's bomb, a Princess's arrows and the other
+        /// non-homing shots doom nothing. Measured on both clients' raw frames (the client's own pending_damage):
+        /// homing shots alone show in it on 5,550 of 5,551 16.402 corpus frames and 14,611 of 14,827 15.535.29 ones;
+        /// non-homing shots alone leave it 0 on 2,590 of 2,689 and 2,309 of 2,532 (the rest other shots the records
+        /// file under another card).
+        ClientHomingOnly = "client_homing_only",
     }
 );
 
@@ -7776,6 +7799,7 @@ impl Calib {
             tower_cancel_range: tower_cancel_value(&v)?,
             hit_beyond_cancel_range: pick(&v, &["combat", "HIT_BEYOND_CANCEL_RANGE", "value"], HitBeyondCancelRange::from_calibration_name)?,
             launch_beyond_cancel_range: pick(&v, &["combat", "LAUNCH_BEYOND_CANCEL_RANGE", "value"], LaunchBeyondCancelRange::from_calibration_name)?,
+            doomed_set_shots: pick(&v, &["targeting", "DOOMED_SET_SHOTS", "value"], DoomedSetShots::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             variable_damage: pick(&v, &["combat", "VARIABLE_DAMAGE", "value"], VariableDamage::from_calibration_name)?,
             load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
@@ -12295,7 +12319,7 @@ impl BattleState {
 
     fn snipe_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
-        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step);
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only());
         let mut snipers = std::mem::take(&mut self.evo.snipers);
         for s in snipers.iter_mut() {
             let (id, ammo, kept) = *s;
@@ -15956,7 +15980,7 @@ impl BattleState {
         // and in the Path phase (`Scratch::lane_doomed`, target.rs `lane_fallen`).
         let lane = self.cfg.calib.doomed_lane_tower != DoomedLaneTower::Standing;
         let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() || lane {
-            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step)
+            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only())
         } else {
             Vec::new()
         };
@@ -28297,6 +28321,17 @@ impl BattleState {
     pub fn projectiles(&self) -> &[Projectile] {
         &self.projectiles
     }
+    /// targeting.DOOMED_SET_SHOTS = client_homing_only: the card table the doomed set reads each shot's firer in, to count
+    /// only the homing ones (combat.rs `shots_in_flight_at`); None (every shot) under every_shot.
+    fn homing_only(&self) -> Option<&CardDb> {
+        // PLANT (regression) doomed_set_counts_every_shot: the new arm's doomed set still counts every shot.
+        #[cfg(not(clash_plant = "doomed_set_counts_every_shot"))]
+        let on = self.cfg.calib.doomed_set_shots == DoomedSetShots::ClientHomingOnly;
+        #[cfg(clash_plant = "doomed_set_counts_every_shot")]
+        let on = false;
+        on.then_some(&self.cfg.cards)
+    }
+
     /// THE DOOMED SET'S READING of unit `id` on the state as it stands between ticks, which the next tick's Target phase
     /// reads (targeting.DOOMED_TARGET_DROP; combat.rs `doomed_by_shots_in_flight`): the damage the shots in flight at it
     /// deal, the ETA in ms of the one that lands last, its hitpoints plus shield, and whether it is doomed (the damage
@@ -28308,8 +28343,8 @@ impl BattleState {
         }
         let c = &self.cfg.calib;
         let i = id.index as usize;
-        let (pending, last_ms) = combat::shots_in_flight_at(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, c.projectile_step);
-        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step);
+        let (pending, last_ms) = combat::shots_in_flight_at(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, c.projectile_step, self.homing_only());
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step, self.homing_only());
         Some(DoomReading { pending: pending[i], last_ms: last_ms[i], hp: self.ents.hp[i].max(0) + self.ents.shield[i].max(0), doomed: doomed[i] })
     }
     /// Live spell objects (in flight, rolling, or an area effect about to apply).
@@ -30486,6 +30521,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.DOOMED_SET_SHOTS: Calib gained doomed_set_shots (serde default the old arm, every_shot), no
+///    new state (the doomed set is read off the saved projectiles each tick), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.LAUNCH_BEYOND_CANCEL_RANGE: Calib gained launch_beyond_cancel_range (serde default the old arm,
 ///    launched), no new state (it decides one launch, on the fire tick), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31521,6 +31559,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_bomb_obstacle".into(), serde_json::to_value(DeathBombObstacle::None).map_err(|e| e.to_string())?);
     // combat.LAUNCH_BEYOND_CANCEL_RANGE: a format-3 battle launched every due shot (the same rule).
     sh.insert("launch_beyond_cancel_range".into(), serde_json::to_value(LaunchBeyondCancelRange::Launched).map_err(|e| e.to_string())?);
+    // targeting.DOOMED_SET_SHOTS: a format-3 battle's doomed set counted every shot (the same rule).
+    sh.insert("doomed_set_shots".into(), serde_json::to_value(DoomedSetShots::EveryShot).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
