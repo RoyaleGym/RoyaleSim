@@ -12,7 +12,7 @@ Most people use it through [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) a
 ## Install
 
 ```bash
-pip install "royalegym[all]" --find-links https://github.com/RoyaleGym/RoyaleGym/releases/expanded_assets/v0.1.1
+pip install "royalegym[all]"
 ```
 
 That installs this engine and everything else, on 3.12, 3.13 or 3.14 (the engine alone runs on 3.10 to 3.14). [Install](https://royalegym.github.io/RoyaleGym/install/) has more.
