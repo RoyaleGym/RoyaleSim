@@ -3760,11 +3760,12 @@ calib_enum!(
 calib_enum!(
     /// combat.RANDOM_DELAY_STREAM -- the generator a RandomDelay shot's delay draws from.
     RandomDelayStream {
-        /// The engine's own generator (the engine's).
+        /// The engine's own generator (the engine's before 2026-10-04, and a snapshot's saved before the key).
         EngineOwn = "engine_own",
         /// The client's battle generator (`client_rnd`, synced to a capture by the replay): per shot of a volley in
         /// creation order one draw U = rnd(RandomDelay), then one more before the next shot. Client 15.535.29: 56 of 56
-        /// complete Hunter volleys exact (19 draws a volley of 10).
+        /// complete Hunter volleys exact (19 draws a volley of 10). Client 16.402 the same: one generator chain, recovered
+        /// from the pellets, fits all 9 volleys of 20260920-082459. Shipped since 2026-10-04 on both clients (Sim's ruling).
         Client15535BattleStream = "client15535_battle_stream",
     }
 );

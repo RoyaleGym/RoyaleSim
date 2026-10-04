@@ -1082,7 +1082,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.avoidance_obstacle_tag, AvoidanceObstacleTag::Client15535UnpushedObstacle, "a 15.535.29 capture reads the obstacle tag");
     assert_eq!(cfg.calib.illegal_troop_tap, IllegalTroopTap::Client15535ClampToLegalEdge, "a 15.535.29 capture's troop tap past its half is moved back");
     assert_eq!(cfg.calib.load_first_hit_leave, LoadFirstHitLeave::Client15535WindupRefunded, "a 15.535.29 capture's leaving Sparky gets its windup back");
-    assert_eq!(cfg.calib.random_delay_stream, RandomDelayStream::Client15535BattleStream, "a 15.535.29 capture's pellet delays draw from its stream");
+    assert_eq!(cfg.calib.random_delay_stream, RandomDelayStream::Client15535BattleStream, "a 15.535.29 capture's pellet delays draw from its stream (the shipped arm)");
     assert_eq!(cfg.calib.death_ring_axis, DeathRingAxis::Client15535UnitHeading, "a 15.535.29 capture reads its death ring off the members' heading");
     assert_eq!(cfg.calib.pass_kill_chase, PassKillChase::Client15535ChaserReadsPass, "a 15.535.29 capture's chaser reads a kill in the pass");
     assert_eq!(cfg.calib.knocked_doomed_avoidance, KnockedDoomedAvoidance::Client15535KnockedMover, "a 15.535.29 capture's knocked doomed troop is no static obstacle");
@@ -1169,7 +1169,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.avoidance_obstacle_tag, AvoidanceObstacleTag::NotRead, "a 16.402 capture");
     assert_eq!(cfg.calib.illegal_troop_tap, IllegalTroopTap::Refuse, "a 16.402 capture");
     assert_eq!(cfg.calib.load_first_hit_leave, LoadFirstHitLeave::RunsOn, "a 16.402 capture");
-    assert_eq!(cfg.calib.random_delay_stream, RandomDelayStream::EngineOwn, "a 16.402 capture");
+    assert_eq!(cfg.calib.random_delay_stream, RandomDelayStream::Client15535BattleStream, "a 16.402 capture: the shipped arm (9 of 9 volleys on client 16.402)");
     assert_eq!(cfg.calib.death_ring_axis, DeathRingAxis::RawDirection, "a 16.402 capture");
     assert_eq!(cfg.calib.pass_kill_chase, PassKillChase::StartOfPass, "a 16.402 capture");
     assert_eq!(cfg.calib.knocked_doomed_avoidance, KnockedDoomedAvoidance::Static, "a 16.402 capture");

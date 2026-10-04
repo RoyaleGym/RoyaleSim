@@ -50,9 +50,15 @@ fn a_volley_draws_its_delays_from_the_battle_stream() {
     assert_eq!(after, Some(3699668171), "the generator after the volley's 19 draws");
 }
 
+/// Both clients draw a volley's delays from the battle stream (client 15.535.29: 56 of 56 volleys; client 16.402: 9 of 9).
 #[test]
-fn the_shipped_arm_draws_from_the_engine() {
-    assert_eq!(Calib::shipped().random_delay_stream, RandomDelayStream::EngineOwn);
+fn the_shipped_arm_draws_from_the_battle_stream() {
+    assert_eq!(Calib::shipped().random_delay_stream, RandomDelayStream::Client15535BattleStream);
+}
+
+/// The old arm (the vacuity check): the volley leaves the battle generator where it was.
+#[test]
+fn the_old_arm_leaves_the_battle_stream() {
     let (_, after) = volley(RandomDelayStream::EngineOwn);
     assert_eq!(after, Some(4014919791), "the old arm drew from the battle generator");
 }
