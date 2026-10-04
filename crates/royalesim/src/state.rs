@@ -3745,7 +3745,7 @@ calib_enum!(
         /// non-homing shots doom nothing. Measured on both clients' raw frames (the client's own pending_damage):
         /// homing shots alone show in it on 5,550 of 5,551 16.402 corpus frames and 14,611 of 14,827 15.535.29 ones;
         /// non-homing shots alone leave it 0 on 2,590 of 2,689 and 2,309 of 2,532 (the rest other shots the records
-        /// file under another card).
+        /// file under another card). Shipped on both clients (Sim's ruling on parity's r41 proposal, 2026-10-04).
         ClientHomingOnly = "client_homing_only",
     }
 );

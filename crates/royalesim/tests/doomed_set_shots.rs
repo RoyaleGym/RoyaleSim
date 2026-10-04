@@ -12,7 +12,7 @@
 //! takes the Knight in the 5 ticks after, the bomb still flying):
 //!   1. client_homing_only: it takes it (the bomb dooms nothing);
 //!   2. every_shot (the old arm, the vacuity check): it does not (a projectile attacker passes over a doomed unit);
-//!   3. the shipped value is every_shot (a 15.535.29 replay runs the new arm: tests/replay_parity.rs pins it).
+//!   3. the shipped value is client_homing_only, on both clients (Sim's ruling, 2026-10-04).
 //!
 //! PLANT (`RUSTFLAGS='--cfg clash_plant="doomed_set_counts_every_shot"' CARGO_TARGET_DIR=target/plant cargo test --test
 //! doomed_set_shots`):
@@ -81,6 +81,6 @@ fn the_old_value_counts_the_bomb() {
 }
 
 #[test]
-fn the_shipped_value_is_every_shot() {
-    assert_eq!(Calib::shipped().doomed_set_shots, DoomedSetShots::EveryShot);
+fn the_shipped_value_is_client_homing_only() {
+    assert_eq!(Calib::shipped().doomed_set_shots, DoomedSetShots::ClientHomingOnly);
 }
