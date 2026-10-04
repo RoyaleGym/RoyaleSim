@@ -83,3 +83,32 @@ def test_a_malformed_level_list_is_refused(royalesim, levels, tower, says):
     ids = list(range(len(DECK)))
     with pytest.raises(ValueError, match=says.replace("[", r"\[")):
         b.reset(0, [ids, ids], 0, 200, [10_000, 10_000], None, [], None, levels, tower)
+
+
+def test_under_a_mirrored_shuffle_each_card_keeps_its_own_level(royalesim):
+    """A MIRRORED shuffle permutes both decks before the battle starts; each card's level must go with it, so a card
+    plays at the level set for IT, wherever the shuffle put it (players[t]["deck"] reports the dealt order)."""
+    sub = royalesim.SUBTILE_PER_MILLITILE
+    b = battle(royalesim)
+    ids = list(range(len(DECK)))
+    level_of = {cid: lv for cid, lv in zip(ids, [9, 10, 11, 12, 13, 10, 11, 12], strict=True)}
+    levels = [[level_of[c] for c in ids], [level_of[c] for c in ids]]
+    b.reset(5, [ids, ids], 2, 200, [10_000, 10_000], None, [], None, levels, None)
+    import royalesim as rs
+
+    card, team_f, slot_f, lvl_f = (field(rs, n) for n in ("card_id", "team", "tower_slot", "level"))
+    player = json.loads(b.state_json())["players"][0]
+    assert sorted(player["deck"]) == ids, player["deck"]
+    assert player["deck"] != ids, "scene: this seed's shuffle moves the deck (else the test checks nothing)"
+    played = []
+    for _ in range(4):
+        hand = json.loads(b.state_json())["players"][0]["hand"]
+        slot = next((k for k, c in enumerate(hand) if DECK[c] != "Fireball" and c not in played), None)
+        if slot is None:
+            break
+        played.append(hand[slot])
+        b.step([(0, slot, 9000 * sub, (6000 + 1500 * len(played)) * sub)], 1)
+        b.step([], 40)
+    v = json.loads(b.state_json())
+    seen = {e[card]: e[lvl_f] for e in v["entities"] if e[team_f] == 0 and e[slot_f] < 0}
+    assert played and all(seen.get(c) == level_of[c] for c in played), (played, seen, level_of)

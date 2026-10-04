@@ -3,6 +3,13 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.11 (unreleased)
+
+- A MIRRORED shuffle with per-card `levels` now keeps each card at its own level. Before, the levels stayed in the
+  setup's order while the shuffle moved the cards, so a card could play at another card's level.
+- `state_json()` players' `deck` and `forms` are the order the battle deals from: the setup's order, except under a
+  MIRRORED shuffle, which permutes both decks the same way (each card's form and level go with it).
+
 ## 0.1.10 (2026-10-03)
 
 - No change to installing or calling the engine. Battle logic: the Golden Knight's ability is one use per deploy, like

@@ -1015,9 +1015,11 @@ pub fn state_json_text(
         let hc = s.hand_costs(team);
         let mirror_target = s.mirror_target(team).map_or(-1, |i| id_of_idx.get(i as usize).copied().unwrap_or(-1));
         let _ = write!(o, "],\"hand_costs\":[{},{},{},{}],\"mirror_target\":{mirror_target}", hc[0], hc[1], hc[2], hc[3]);
-        // THE SIDE'S DECK AS SET UP (state.rs `BattleConfig::decks`, `forms`): `deck` its card ids in slot order, -1 for a
-        // card outside this catalogue; `forms` parallel to it, 0 the base card, 1 its evolution, 2 its hero form (0 where
-        // none was given). From the battle's own config, so a restored battle reports them too. Keyed like the two above.
+        // THE SIDE'S DECK AS DEALT FROM (state.rs `BattleConfig::decks`, `forms`): `deck` its card ids, -1 for a card
+        // outside this catalogue; `forms` parallel to it, 0 the base card, 1 its evolution, 2 its hero form (0 where none
+        // was given). The setup's order, except under a MIRRORED shuffle, which permutes both decks the same way before
+        // the battle starts (each card's form and level go with it). From the battle's own config, so a restored battle
+        // reports them too. Keyed like the two above.
         let cfg = s.config();
         let t = team as usize;
         let deck: Vec<String> = cfg.decks[t]
@@ -1737,9 +1739,12 @@ impl Battle {
                 for d in named.iter_mut() {
                     *d = perm.iter().map(|k| d[*k].clone()).collect();
                 }
-                // Each entry's form travels with its card.
+                // Each entry's form and level travel with its card (`levels` was set in the setup's order above).
                 for f in forms.iter_mut().filter(|f| f.len() == n) {
                     *f = perm.iter().map(|k| f[*k]).collect();
+                }
+                for l in cfg.deck_levels.iter_mut().filter(|l| l.len() == n) {
+                    *l = perm.iter().map(|k| l[*k]).collect();
                 }
                 cfg.shuffle_decks = false;
             }
