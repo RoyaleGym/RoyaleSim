@@ -1582,6 +1582,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   took his push on 34 of 34 frames inside both radii).
 ///   pathfinding.HELD_PRESS_ROUTE = client15535_replanned: a ground hero's press that holds it drops its route too; it
 ///   plans afresh when it walks again (56 of 61 held presses).
+///   spawner.THROWN_UNIT_DEATH_BLOW = client15535_unreached: no death blow of a throw's landing tick reaches the unit it
+///   puts down (the Hero Balloon's trooper on the golem its blow killed, 2 of 2).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
@@ -1654,6 +1656,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.EVO_CHAIN_HOP_REACH", "\"client15535_strict\""),
     ("movement.DEFLECT_CONTACT", "\"client15535_pushes\""),
     ("pathfinding.HELD_PRESS_ROUTE", "\"client15535_replanned\""),
+    ("spawner.THROWN_UNIT_DEATH_BLOW", "\"client15535_unreached\""),
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
 ];
 

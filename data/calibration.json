@@ -4363,6 +4363,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_avoidance_only (examples/replay_parity/harness.rs CLIENT15535_ARMS). A 15.535.29 death spawn beside a unit dying in its Reap would widen it.",
       "engine": "state.rs phase_path16402_for (the first update's pass, `dying_push`: the doomed bodies and the appended `dying` get Body::alive false), selected by Calib::first_step_dying_contact; tests/first_step_dying_contact.rs."
     },
+    "THROWN_UNIT_DEATH_BLOW": {
+      "value": "reached",
+      "candidates": ["reached", "client15535_unreached"],
+      "status": "measured",
+      "confidence": "LOW for client15535_unreached on client 15.535.29: two troopers (the only units new on a death frame inside a death blow in the captures), both unreached; whether any unit born on a death tick escapes the blow, or only a thrown one, is not separated. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's raw frames (tool newborn_death_blow_census.py: every death of a unit whose row has death damage and a radius, each enemy inside the radius plus its collision radius of the dying unit's last point, split by whether it is new on the death frame, and whether its hp fell on that frame or the next). New on the death frame: 2, both unhit: sp-balloon-g4500-s0 t781 and sp-balloon-g6000-s0 t760, the Hero Balloon's Skeletrooper landing on an Ice Golemite whose hp its landing blow (263 at level 11) took to 0, 473 of 473 on that frame and the next, where the engine's lost 84 to the golem's death blow (389; the scenes' first divergences at t897 and t876, 256 and 249 lost). Standing on the frame before: 111 hit, 1 not (sp-f2-cagefb-s0 t928, a Goblin Brawler at the edge).",
+      "meaning": "reached: the engine's; the unit a throw puts down (throw_pass, the Projectile phase) stands when that tick's Reap lays its death blows, so a blow of the unit its landing killed reaches it. client15535_unreached: no death blow of the throw's landing tick reaches the unit it put down (it is put down after them; its landing blow still strikes that tick).",
+      "open": "Whether other units born on a death tick (a deploy, a death spawn of another unit) escape that tick's death blows; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_unreached (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs throw_pass (`Scratch::thrown`) and phase_reap (the death blow's hits on a thrown unit dropped), selected by Calib::thrown_unit_death_blow; tests/thrown_unit_death_blow.rs."
+    },
     "ACTION_GROUP_SPAWN_ORDER": {
       "value": "listed",
       "candidates": ["listed", "client15535_reversed"],

@@ -1066,6 +1066,10 @@ pub struct Calib {
     /// (CastTime > 0) drops its route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
     #[serde(default = "held_press_route_default")]
     pub held_press_route: HeldPressRoute,
+    /// spawner.THROWN_UNIT_DEATH_BLOW (`throw_pass`, `phase_reap`): whether the death blows of the tick a throw lands reach
+    /// the unit it puts down. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Reached`.
+    #[serde(default = "thrown_unit_death_blow_default")]
+    pub thrown_unit_death_blow: ThrownUnitDeathBlow,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2563,6 +2567,10 @@ fn deflect_contact_default() -> DeflectContact {
 
 fn held_press_route_default() -> HeldPressRoute {
     HeldPressRoute::Kept
+}
+
+fn thrown_unit_death_blow_default() -> ThrownUnitDeathBlow {
+    ThrownUnitDeathBlow::Reached
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5283,6 +5291,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.THROWN_UNIT_DEATH_BLOW -- see `throw_pass` and `phase_reap`: the unit a throw puts down (the Hero Balloon's
+    /// Skeletrooper) and the death blows of its landing tick.
+    ThrownUnitDeathBlow {
+        /// The engine's: the unit stands from its landing in the Projectile phase, so a death blow of that tick's Reap (the
+        /// unit its landing killed) reaches it.
+        Reached = "reached",
+        /// No death blow of its landing tick reaches it: it is put down after them. Measured on client 15.535.29 (parity's
+        /// newborn_death_blow_census.py: every death blow with an enemy inside its radius on the death frame): the two
+        /// troopers whose landing blow killed an Ice Golemite on their point (sp-balloon-g4500-s0 t781, sp-balloon-g6000-s0
+        /// t760) kept 473 of 473 through the golem's death blow, where the engine's lost 84; the units standing before the
+        /// death frame took the blow, 111 of 112. They are the only units new on a death frame inside a death blow.
+        Client15535Unreached = "client15535_unreached",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7593,6 +7616,7 @@ impl Calib {
             evo_chain_hop_reach: pick(&v, &["combat", "EVO_CHAIN_HOP_REACH", "value"], EvoChainHopReach::from_calibration_name)?,
             deflect_contact: pick(&v, &["movement", "DEFLECT_CONTACT", "value"], DeflectContact::from_calibration_name)?,
             held_press_route: pick(&v, &["pathfinding", "HELD_PRESS_ROUTE", "value"], HeldPressRoute::from_calibration_name)?,
+            thrown_unit_death_blow: pick(&v, &["spawner", "THROWN_UNIT_DEATH_BLOW", "value"], ThrownUnitDeathBlow::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -9808,6 +9832,10 @@ struct Scratch {
     /// this tick's sequential pass (`phase_attack_for`), left out of the pass-start hitpoints an attacker decides on.
     /// Cleared at the top of that pass, so it is not state.
     launched: Vec<usize>,
+    /// spawner.THROWN_UNIT_DEATH_BLOW = client15535_unreached: the units a throw put down this tick (`throw_pass`), left out
+    /// of the same tick's death blows (`phase_reap`). Emptied in the Projectile phase before the throws step, so it never
+    /// outlives its tick: not saved, not hashed.
+    thrown: Vec<EntityId>,
     /// rider.OFFSET_LAW: each mount whose riders stand off its centre, with its facing at the top of this tick
     /// (`note_mount_facings`). Filled at the top of every tick and read in its Move phase, so it is not state: not
     /// saved, not hashed.
@@ -16257,6 +16285,7 @@ impl BattleState {
             let lvl = self.cfg.cards.unit_level(r.card, unit, None, r.level).expect("the throw's unit level is validated at try_new");
             if let Ok(id) = self.spawn_now(r.team, unit, lvl, r.aim, EntityKind::Troop) {
                 self.ents.deploy_ms[id.index as usize] = unit_deploy_ms;
+                self.scratch.thrown.push(id);
                 landed = true;
             }
             false
@@ -22597,6 +22626,7 @@ impl BattleState {
         }
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut out.released, &mut self.scratch.nb, self.tick, &deflecting);
         // The Hero Balloon's throws, before the spells step, so a landing's blow strikes on its own tick (`throw_pass`).
+        self.scratch.thrown.clear();
         if !self.throws.is_empty() {
             self.throw_pass();
         }
@@ -24774,6 +24804,23 @@ impl BattleState {
                     &mut self.dmg,
                     &mut self.scratch.nb,
                 );
+                // spawner.THROWN_UNIT_DEATH_BLOW = client15535_unreached: a unit a throw put down this tick is put down after
+                // the tick's death blows, so none reaches it (client 15.535.29: the Hero Balloon's trooper landing on the Ice
+                // Golemite its blow killed kept 473 of 473, twice).
+                // PLANT (regression) thrown_unit_blown: the new arm's blow still reaches it.
+                #[cfg(not(clash_plant = "thrown_unit_blown"))]
+                if self.cfg.calib.thrown_unit_death_blow == ThrownUnitDeathBlow::Client15535Unreached && !self.scratch.thrown.is_empty() {
+                    let thrown = std::mem::take(&mut self.scratch.thrown);
+                    let mut k = blow_from;
+                    while k < self.dmg.hits.len() {
+                        if thrown.contains(&self.dmg.hits[k].target) {
+                            self.dmg.hits.remove(k);
+                        } else {
+                            k += 1;
+                        }
+                    }
+                    self.scratch.thrown = thrown;
+                }
                 // knockback.TROOP_DEATH_PUSHBACK = client15535_ladder: a dying TROOP whose row sets DeathPushBack pushes every
                 // unit its blow hits that a spell's push could move (spell.rs `push_from`), on the knockback ladder from its
                 // death point: the first step on this tick when it was struck down in the pass (its death settled before the
@@ -29949,6 +29996,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.THROWN_UNIT_DEATH_BLOW: Calib gained thrown_unit_death_blow (serde default the old arm, reached),
+///    no new state (Scratch::thrown lives inside one tick), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, pathfinding.HELD_PRESS_ROUTE: Calib gained held_press_route (serde default the old arm, kept), no
 ///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
 ///    old arm.
@@ -30920,6 +30970,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("deflect_contact".into(), serde_json::to_value(DeflectContact::Hidden).map_err(|e| e.to_string())?);
     // pathfinding.HELD_PRESS_ROUTE: a format-3 battle ran no hero (the same rule).
     sh.insert("held_press_route".into(), serde_json::to_value(HeldPressRoute::Kept).map_err(|e| e.to_string())?);
+    // spawner.THROWN_UNIT_DEATH_BLOW: a format-3 battle ran no hero (the same rule).
+    sh.insert("thrown_unit_death_blow".into(), serde_json::to_value(ThrownUnitDeathBlow::Reached).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
