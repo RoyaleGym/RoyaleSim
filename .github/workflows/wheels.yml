@@ -91,6 +91,18 @@ jobs:
         with:
           command: sdist
           args: --out dist
+      # PyPI refuses an sdist whose metadata names a License-File the archive does not hold (0.1.10's was refused so):
+      # every one PKG-INFO names must be in the archive.
+      - name: the sdist holds every licence file its metadata names
+        run: |
+          sd=$(ls dist/*.tar.gz)
+          top=$(tar -tzf "$sd" | head -1 | cut -d/ -f1)
+          names=$(tar -xzOf "$sd" "$top/PKG-INFO" | sed -n 's/^License-File: //p')
+          [ -n "$names" ] || { echo "PKG-INFO names no License-File"; exit 1; }
+          for n in $names; do
+            tar -tzf "$sd" | grep -qx "$top/$n" || { echo "missing from the sdist: $n"; exit 1; }
+            echo "ok: $n"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: sdist
