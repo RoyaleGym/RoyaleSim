@@ -7,9 +7,11 @@ name: pypi
 #     start other workflows, so `on: release` would never fire for releases the wheels workflow creates;
 #   - by hand, with the tag to publish (workflow_dispatch): for a release made before this file existed.
 #
-# GATED. The job runs in the `pypi` environment, which needs the owner's approval for every run, and it publishes
-# through PyPI's trusted publishing (OIDC): no token is stored anywhere. PyPI's trusted publisher for royalesim names
-# this repository, this file (pypi.yml) and the environment `pypi`.
+# AUTOMATIC (owner's ruling, 2026-10-04: "automate"). A v* tag publishes once the wheels workflow has passed for it:
+# that success, every wheel tested in a clean venv and the sdist checked, is the gate. The job runs in the `pypi`
+# environment without a per-run approval and publishes through PyPI's trusted publishing (OIDC): no token is stored
+# anywhere. PyPI's trusted publisher for royalesim names this repository, this file (pypi.yml) and the environment
+# `pypi`. A release PyPI already holds is never overwritten: PyPI refuses a file name it has seen.
 on:
   workflow_run:
     workflows: [wheels]
@@ -22,9 +24,9 @@ on:
 
 jobs:
   publish:
-    # OFF until the owner turns it on. A job naming an environment that does not exist yet would make GitHub create it
-    # UNPROTECTED, so nothing runs until the repository variable PYPI_PUBLISH is "true", which the owner sets as the
-    # last setup step, after the protected `pypi` environment and PyPI's trusted publisher exist.
+    # The owner's switch: nothing runs unless the repository variable PYPI_PUBLISH is "true" (set 2026-10-04). A job
+    # naming an environment that does not exist yet would make GitHub create it unconfigured, so the switch stays as
+    # the one place to turn publishing off.
     if: >-
       vars.PYPI_PUBLISH == 'true' && (
         github.event_name == 'workflow_dispatch' ||
