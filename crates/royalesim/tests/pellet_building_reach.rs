@@ -17,7 +17,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, StraightShotBuildingReach};
+use royalesim::state::{BattleState, Calib, StraightShotBuildingReach};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -52,4 +52,10 @@ fn a_pellet_reaches_a_buildings_square_under_client15535_rounded_square() {
         square.iter().zip(&circle).any(|(a, b)| a < b),
         "client15535_rounded_square: the tower never stood lower than under circle\nsquare {square:?}\ncircle {circle:?}"
     );
+}
+
+/// Both clients reach a building's square (client 15.535.29: 136 of 136 pellet ends; client 16.402: 35 of 35).
+#[test]
+fn the_shipped_arm_reaches_the_square() {
+    assert_eq!(Calib::shipped().straight_shot_building_reach, StraightShotBuildingReach::Client15535RoundedSquare);
 }

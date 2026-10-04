@@ -5780,7 +5780,8 @@ calib_enum!(
     /// combat.STRAIGHT_SHOT_BUILDING_REACH -- see combat.rs `straight_hits`: which point a CheckCollisions shot (the Hunter's
     /// pellet, combat.PROJECTILE_COLLISIONS = client_columns) must reach to hit a building or a crown tower.
     StraightShotBuildingReach {
-        /// The engine's: its centre within ProjectileRadius plus the building's radius, as for a troop.
+        /// The engine's before 2026-10-04 (and a snapshot's saved before the key): its centre within ProjectileRadius plus
+        /// the building's radius, as for a troop.
         Circle = "circle",
         /// The building's square, half-side its collision radius, within ProjectileRadius: the distance from the shot's
         /// centre to that square below ProjectileRadius (spell.rs `in_square`, the area spells' building law). Measured on
@@ -5789,7 +5790,9 @@ calib_enum!(
         /// none reached it on the last frame; the circle misses 97 of them (sp-f4-hunter-s0 t689: a pellet at (1001, 1277)
         /// from Red's princess tower, 1,623 from its centre, took 84 the tick after; the engine's flew on and landed a
         /// tick later, the scene's tower hits 1 to 2 ticks late). The borders: hits 294.7 from the square, misses 309 and
-        /// 313.6; a King tower's square is its own radius's (1,400), not the spells' 1,000.
+        /// 313.6; a King tower's square is its own radius's (1,400), not the spells' 1,000. Client 16.402 the same: 35 of 35
+        /// pellet ends of 20260920-082459 on the King's square, 11 of its 23 events outside the circle. Shipped since
+        /// 2026-10-04 on both clients (Sim's ruling).
         Client15535RoundedSquare = "client15535_rounded_square",
     }
 );

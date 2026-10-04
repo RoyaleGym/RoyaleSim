@@ -1604,8 +1604,6 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   extra (800) and first steps on the next tick (three nets' tracks).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
-///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
-///   its circle (136 of 136 pellet ends).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1654,7 +1652,6 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.DISMOUNT_HOP_WATER", "\"client15535_land_row_centre\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),
-    ("combat.STRAIGHT_SHOT_BUILDING_REACH", "\"client15535_rounded_square\""),
     ("pathfinding.PRESS_ROUTE", "\"client15535_replanned\""),
     ("combat.SPIN_BEGIN", "\"client15535_next_tick\""),
     ("formation.LINE_FRAME", "\"client15535_y_reflection\""),
