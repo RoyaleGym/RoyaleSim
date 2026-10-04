@@ -2157,9 +2157,10 @@ pub fn step_projectiles(
 ) {
     let rounding = calib.crown_rounding;
     // combat.SPAWN_PROJECTILE = client_spark_fan: the sparks the carriers landing this tick release,
-    // appended after every projectile has stepped, so each first steps next tick.
-    let mut released: Vec<Projectile> = Vec::new();
-    projectiles.retain_mut(|p| {
+    // appended after every projectile has stepped, so each first steps next tick. In a cell so that the pass's step
+    // can be run again on the tick's Evo hops (combat.EVO_CHAIN_HOP_FIRST_STEP, below).
+    let released: std::cell::RefCell<Vec<Projectile>> = std::cell::RefCell::new(Vec::new());
+    let mut step = |p: &mut Projectile| -> bool {
         if p.fresh {
             // born this tick: its first step is next tick's (combat.PROJECTILE_LAUNCH)
             p.fresh = false;
@@ -2251,7 +2252,7 @@ pub fn step_projectiles(
         }
         if let Some(c) = p.carrier {
             // It lands: it deals nothing itself (the rocket's row has no Damage) and releases its sparks.
-            release_sparks(ents, hash, cards, calib, p, c, dmg, fx, scratch, &mut released, tick);
+            release_sparks(ents, hash, cards, calib, p, c, dmg, fx, scratch, &mut released.borrow_mut(), tick);
             // THE EVO FIRECRACKER'S ROCKET leaves its big fireworks where it lands (card.rs `FireworksDef`).
             #[cfg(not(clash_plant = "fireworks_never"))]
             if cards.get(c.card).evo.as_ref().is_some_and(|v| v.fireworks.is_some()) {
@@ -2303,7 +2304,7 @@ pub fn step_projectiles(
                         }
                     }
                     let hop = BounceHop { left: b.left - 1, range: b.range, from: p.aim, hit };
-                    released.push(Projectile { pos: p.aim, aim: next, fixed: true, frac: Vec2::default(), fresh: false, bounce: Some(hop), ..p.clone() });
+                    released.borrow_mut().push(Projectile { pos: p.aim, aim: next, fixed: true, frac: Vec2::default(), fresh: false, bounce: Some(hop), ..p.clone() });
                 }
             }
         } else if alive {
@@ -2324,7 +2325,7 @@ pub fn step_projectiles(
             };
             if let (true, Some(f)) = (returns, p.firer.filter(|f| ents.is_alive(*f))) {
                 let fi = f.index as usize;
-                released.push(Projectile {
+                released.borrow_mut().push(Projectile {
                     team: ents.team[ti],
                     pos: ents.pos[ti],
                     target: f,
@@ -2388,7 +2389,7 @@ pub fn step_projectiles(
                         q.buff = None;
                         q.pulse = 0;
                     }
-                    released.push(q);
+                    released.borrow_mut().push(q);
                 }
             } else if let Some(c) = p.chain.as_ref().filter(|c| c.left > 0) {
                 if let Some(next) = chain_next(ents, cards, calib, tick, p.team, ti, c, p.hits_air, p.hits_ground) {
@@ -2399,7 +2400,7 @@ pub fn step_projectiles(
                     #[cfg(clash_plant = "chain_hop_no_wait")]
                     let wait = 0; // PLANT: the hop steps on the tick after the hit.
                     let hop = ChainHop { left: c.left - 1, radius: c.radius, hit, wait, evo: None };
-                    released.push(Projectile { pos: ents.pos[ti], target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() });
+                    released.borrow_mut().push(Projectile { pos: ents.pos[ti], target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() });
                 }
             }
         }
@@ -2430,8 +2431,32 @@ pub fn step_projectiles(
         #[cfg(clash_plant = "projectile_area_dropped")]
         let _ = &areas; // PLANT: the shot's area is dropped.
         false
-    });
-    projectiles.append(&mut released);
+    };
+    projectiles.retain_mut(&mut step);
+    // combat.EVO_CHAIN_HOP_FIRST_STEP = client15535_creation_tick: an Evo Electro Dragon's hop released this tick takes
+    // its first step in this same pass -- a first hop within a step of its target lands on its shot's tick, and a later
+    // hop's wait counts this tick -- and so does every hop those steps release.
+    // PLANT (regression) evo_hop_steps_next_tick: the new arm's hops still first step next tick.
+    #[cfg(not(clash_plant = "evo_hop_steps_next_tick"))]
+    let same_tick = calib.evo_chain_hop_first_step == crate::state::EvoChainHopFirstStep::Client15535CreationTick;
+    #[cfg(clash_plant = "evo_hop_steps_next_tick")]
+    let same_tick = false;
+    if same_tick {
+        loop {
+            let mut hops: Vec<Projectile> = {
+                let mut r = released.borrow_mut();
+                let (hops, rest): (Vec<Projectile>, Vec<Projectile>) = r.drain(..).partition(|q| q.chain.as_ref().is_some_and(|c| c.evo.is_some()));
+                *r = rest;
+                hops
+            };
+            if hops.is_empty() {
+                break;
+            }
+            hops.retain_mut(&mut step);
+            projectiles.append(&mut hops);
+        }
+    }
+    projectiles.append(&mut released.borrow_mut());
 }
 
 /// combat.SPAWN_PROJECTILE = client_spark_fan: the sparks the carrier `p` releases on the tick it

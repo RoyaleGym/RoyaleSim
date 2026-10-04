@@ -1596,6 +1596,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   1 nearer on their negative axes).
 ///   combat.FAR_SHOT_SELECT_MOMENT = client15535_at_load_start: the Evo Archer picks her arrow when her swing's load
 ///   starts (14 of 14 arrows).
+///   combat.EVO_CHAIN_HOP_FIRST_STEP = client15535_creation_tick: an Evo Electro Dragon's hop first steps in the pass that
+///   released it (a first hop within a step lands on its shot's tick).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
@@ -1675,6 +1677,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("knockback.LADDER_PATH_REQUEST", "\"client15535_on_ladder\""),
     ("spawner.SOUL_OFFSET_ROUNDING", "\"client15535_toward_zero\""),
     ("combat.FAR_SHOT_SELECT_MOMENT", "\"client15535_at_load_start\""),
+    ("combat.EVO_CHAIN_HOP_FIRST_STEP", "\"client15535_creation_tick\""),
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
 ];
 

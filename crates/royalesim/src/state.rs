@@ -1094,6 +1094,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `AsAttackSelect`.
     #[serde(default = "far_shot_select_moment_default")]
     pub far_shot_select_moment: FarShotSelectMoment,
+    /// combat.EVO_CHAIN_HOP_FIRST_STEP (combat.rs `step_projectiles`): on which tick an Evo Electro Dragon's hop takes
+    /// its first step. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
+    #[serde(default = "evo_chain_hop_first_step_default")]
+    pub evo_chain_hop_first_step: EvoChainHopFirstStep,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2619,6 +2623,10 @@ fn soul_offset_rounding_default() -> SoulOffsetRounding {
 
 fn far_shot_select_moment_default() -> FarShotSelectMoment {
     FarShotSelectMoment::AsAttackSelect
+}
+
+fn evo_chain_hop_first_step_default() -> EvoChainHopFirstStep {
+    EvoChainHopFirstStep::NextTick
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5467,6 +5475,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.EVO_CHAIN_HOP_FIRST_STEP -- see combat.rs `step_projectiles`: on which tick an Evo Electro Dragon's hop,
+    /// released where the shot or hop before it landed, takes its first step.
+    EvoChainHopFirstStep {
+        /// The engine's: the tick after the landing, as every released shot.
+        NextTick = "next_tick",
+        /// The landing tick itself, in the same Projectile pass: a first hop within one step of its target lands on the
+        /// tick the shot did, and a later hop's wait (combat.EVO_CHAIN_HOP_WAIT) counts that tick. Measured on client
+        /// 15.535.29 (parity's debug exe on sp-f4-ed3-s0 and sp-f4-ed-s0, every evolved chain's hits against the client's
+        /// hitpoint drops): sp-f4-ed3-s0 t1163, the shot on the Knight and the first hop on an Ice Golem 1,201 off (a
+        /// step is 2,000) both landed on t1163, the engine's hop on t1164; the second hop on the Valkyrie landed t1166
+        /// (its 2 waits on t1163 and t1164, then two steps), the engine's t1168; sp-f4-ed-s0 t1163, a first hop more than
+        /// one step off landed t1164, the engine's t1165. The base dragon's chains (4 ticks a hop) are exact either way.
+        Client15535CreationTick = "client15535_creation_tick",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7784,6 +7808,7 @@ impl Calib {
             ladder_path_request: pick(&v, &["knockback", "LADDER_PATH_REQUEST", "value"], LadderPathRequest::from_calibration_name)?,
             soul_offset_rounding: pick(&v, &["spawner", "SOUL_OFFSET_ROUNDING", "value"], SoulOffsetRounding::from_calibration_name)?,
             far_shot_select_moment: pick(&v, &["combat", "FAR_SHOT_SELECT_MOMENT", "value"], FarShotSelectMoment::from_calibration_name)?,
+            evo_chain_hop_first_step: pick(&v, &["combat", "EVO_CHAIN_HOP_FIRST_STEP", "value"], EvoChainHopFirstStep::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -30293,6 +30318,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP: Calib gained evo_chain_hop_first_step (serde default the old arm,
+///    next_tick), no new state (a hop stepped on its landing tick is an ordinary projectile after it), so a blob saved
+///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.FAR_SHOT_SELECT_MOMENT: Calib gained far_shot_select_moment (serde default the old arm,
 ///    as_attack_select), no new state (the entry is the entity's attack_seq, already saved), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31299,6 +31327,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("soul_offset_rounding".into(), serde_json::to_value(SoulOffsetRounding::Floor).map_err(|e| e.to_string())?);
     // combat.FAR_SHOT_SELECT_MOMENT: a format-3 battle ran no Evo Archer (the same rule).
     sh.insert("far_shot_select_moment".into(), serde_json::to_value(FarShotSelectMoment::AsAttackSelect).map_err(|e| e.to_string())?);
+    // combat.EVO_CHAIN_HOP_FIRST_STEP: a format-3 battle ran no Evo Electro Dragon (the same rule).
+    sh.insert("evo_chain_hop_first_step".into(), serde_json::to_value(EvoChainHopFirstStep::NextTick).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
