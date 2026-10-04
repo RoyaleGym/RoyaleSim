@@ -1600,6 +1600,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   released it (a first hop within a step lands on its shot's tick).
 ///   targeting.LAUNCH_BEYOND_POSITION = client15535_after_move: a crown tower's launch is judged on its target's point after
 ///   the launch tick's move (59 of 59 let-gos).
+///   combat.NET_LAUNCH = client15535_edge_next_tick: an Evo Hunter's net starts at his collision radius plus its
+///   extra (800) and first steps on the next tick (three nets' tracks).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
@@ -1681,6 +1683,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.FAR_SHOT_SELECT_MOMENT", "\"client15535_at_load_start\""),
     ("combat.EVO_CHAIN_HOP_FIRST_STEP", "\"client15535_creation_tick\""),
     ("targeting.LAUNCH_BEYOND_POSITION", "\"client15535_after_move\""),
+    ("combat.NET_LAUNCH", "\"client15535_edge_next_tick\""),
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
 ];
 

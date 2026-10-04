@@ -2063,6 +2063,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_first_step (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs warp_pass (the warp's first step) and land_warps, selected by Calib::warp_hiding; tests/warp_hiding.rs."
     },
+    "NET_LAUNCH": {
+      "value": "extra_and_wait",
+      "candidates": ["extra_and_wait", "client15535_edge_next_tick"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_edge_next_tick on client 15.535.29: three nets' tracks (the start point 800 out on all three, the first step on the next frame on all three); the landings agree with it in G40 and G80; G0's throw tick differs for another reason. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03; the raw frames' projectiles of sp-f4-hunterG0-s0, sp-f4-hunterG40-s0 and sp-f4-hunterG80-s0 beside parity's debug exe's projectile dump): the client's net first seen 800 from the Hunter, his collision radius 600 + the net action's ProjectileStartExtraRadius 200 (hunter_ev1.toml; his ProjectileStartRadius is 1,000) (G0 t1003 (14687, 13002) with him at (14687, 12202); G40 t1018 (14702, 13654), him at y 12854; G80 t1058 (14777, 15080), 800 from him) and 600 on along its line on the next frame (G40 13654, 14254, 14854, 15454, landed t1022; G0 13002, 13602, 14202, 14802, landed t1007 on the Golem walking at it). The engine's net starts 1,200 out (ProjectileStartRadius 800 + the net's extra 400) and, thrown in the Projectile phase after the tick's shots stepped, waits a tick before its first step: G40 lands on the client's tick (t1022, the extra 400 making up for the wait), G80 a tick after it (thrown 450 short of the Golem: the client's landed t1059 and its Golem stood from t1060, the engine's t1060 with its Golem stepping on t1060). G0's throw came on t1003 in the client and t1001 in the engine (another rule: the cast's timing).",
+      "meaning": "extra_and_wait: the engine's; an Evo Hunter's net starts ProjectileStartRadius plus its ProjectileStartExtraRadius from him and waits a tick before its first step. client15535_edge_next_tick: it starts his collision radius plus its ProjectileStartExtraRadius from him (600 + 200 = 800, not his ProjectileStartRadius 1,000) and first steps on the next tick.",
+      "open": "G0's throw tick (2 ticks later in the client); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_edge_next_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs throw_net (`client`), selected by Calib::net_launch; tests/net_launch.rs."
+    },
     "NET_INITIAL_COOLDOWN": {
       "value": "after_deploy",
       "candidates": ["after_deploy", "client15535_from_creation"],

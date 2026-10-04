@@ -1103,6 +1103,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `StartOfTick`.
     #[serde(default = "launch_beyond_position_default")]
     pub launch_beyond_position: LaunchBeyondPosition,
+    /// combat.NET_LAUNCH (`throw_net`): where an Evo Hunter's net starts and when it first steps. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `ExtraAndWait`.
+    #[serde(default = "net_launch_default")]
+    pub net_launch: NetLaunch,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2636,6 +2640,10 @@ fn evo_chain_hop_first_step_default() -> EvoChainHopFirstStep {
 
 fn launch_beyond_position_default() -> LaunchBeyondPosition {
     LaunchBeyondPosition::StartOfTick
+}
+
+fn net_launch_default() -> NetLaunch {
+    NetLaunch::ExtraAndWait
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5517,6 +5525,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.NET_LAUNCH -- see `throw_net`: where an Evo Hunter's net starts and on which tick it first steps.
+    NetLaunch {
+        /// The engine's: ProjectileStartRadius plus the net's ProjectileStartExtraRadius from him, and (thrown in the
+        /// Projectile phase after the tick's shots stepped) a tick's wait before its first step.
+        ExtraAndWait = "extra_and_wait",
+        /// His collision radius plus the net's ProjectileStartExtraRadius from him (600 + 200), its first step the next
+        /// tick. Measured on client 15.535.29 (the raw frames' projectiles of sp-f4-hunterG0-s0, -G40-s0 and -G80-s0 beside
+        /// parity's debug exe): the client's net was first seen 800 from him (the engine's 1,200: his ProjectileStartRadius
+        /// 1,000 + 200) and moved 600 on the next frame, so
+        /// it landed where the engine's did in G40 (t1022, the extra 400 making up the engine's wait) and a tick before
+        /// it in G80 (t1059: thrown 450 short of the Golem; the engine's t1060, its Golem stepping on t1060 where the
+        /// client's stood). G0's throw itself came 2 ticks later in the client.
+        Client15535EdgeNextTick = "client15535_edge_next_tick",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7836,6 +7860,7 @@ impl Calib {
             far_shot_select_moment: pick(&v, &["combat", "FAR_SHOT_SELECT_MOMENT", "value"], FarShotSelectMoment::from_calibration_name)?,
             evo_chain_hop_first_step: pick(&v, &["combat", "EVO_CHAIN_HOP_FIRST_STEP", "value"], EvoChainHopFirstStep::from_calibration_name)?,
             launch_beyond_position: pick(&v, &["targeting", "LAUNCH_BEYOND_POSITION", "value"], LaunchBeyondPosition::from_calibration_name)?,
+            net_launch: pick(&v, &["combat", "NET_LAUNCH", "value"], NetLaunch::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -17092,7 +17117,15 @@ impl BattleState {
     fn throw_net(&mut self, i: usize, t: EntityId, nd: &crate::card::NetDef) {
         let ti = t.index as usize;
         let (src, tgt) = (self.ents.pos[i], self.ents.pos[ti]);
-        let reach = i64::from(self.cfg.cards.get(self.ents.card[i]).projectile_start_radius + nd.start_extra);
+        // combat.NET_LAUNCH = client15535_edge_next_tick: from his collision radius plus the net's
+        // ProjectileStartExtraRadius (not his ProjectileStartRadius), its first step the next tick (it is thrown after this
+        // tick's shots stepped, so it is not fresh).
+        // PLANT (regression) net_launch_extra_and_wait: the new arm's net still starts the extra out and waits a tick.
+        #[cfg(not(clash_plant = "net_launch_extra_and_wait"))]
+        let client = self.cfg.calib.net_launch == NetLaunch::Client15535EdgeNextTick;
+        #[cfg(clash_plant = "net_launch_extra_and_wait")]
+        let client = false;
+        let reach = i64::from(if client { self.ents.radius[i] } else { self.cfg.cards.get(self.ents.card[i]).projectile_start_radius } + nd.start_extra);
         let (dx, dy) = (i64::from(tgt.x - src.x), i64::from(tgt.y - src.y));
         let len = crate::fixed::isqrt(dx * dx + dy * dy).max(1);
         let pos = Vec2::new(src.x + (dx * reach / len) as i32, src.y + (dy * reach / len) as i32);
@@ -17112,7 +17145,7 @@ impl BattleState {
             hits_air: true,
             hits_ground: true,
             frac: Vec2::default(),
-            fresh: true,
+            fresh: !client,
             buff,
             pulse: 0,
             firer_card: Some(self.ents.card[i]),
@@ -30348,6 +30381,8 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.NET_LAUNCH: Calib gained net_launch (serde default the old arm, extra_and_wait), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.LAUNCH_BEYOND_POSITION: Calib gained launch_beyond_position (serde default the old arm,
 ///    start_of_tick), no new state (the flag is the entity's launched_beyond, already saved), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31364,6 +31399,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_chain_hop_first_step".into(), serde_json::to_value(EvoChainHopFirstStep::NextTick).map_err(|e| e.to_string())?);
     // targeting.LAUNCH_BEYOND_POSITION: a format-3 battle judged its towers' launches on the launch tick (the same rule).
     sh.insert("launch_beyond_position".into(), serde_json::to_value(LaunchBeyondPosition::StartOfTick).map_err(|e| e.to_string())?);
+    // combat.NET_LAUNCH: a format-3 battle ran no Evo Hunter (the same rule).
+    sh.insert("net_launch".into(), serde_json::to_value(NetLaunch::ExtraAndWait).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
