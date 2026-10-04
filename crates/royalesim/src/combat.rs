@@ -45,7 +45,7 @@ use crate::entity::{AttackPhase, EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{cos_pi_frac, in_range_edge, isqrt, sin_pi_frac, Vec2, SUBTILE_PER_MILLITILE as K, TRIG_ONE};
 use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
-    AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, RandomDelayStream, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, MultipleProjectiles, ProjectileLaunch,
+    AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, RandomDelayStream, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, LaunchBeyondCancelRange, MultipleProjectiles, ProjectileLaunch,
     ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, StraightShotBuildingReach, DirectHitBuffCountdown, TargetBuffScope, VariableDamage,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
@@ -1125,6 +1125,28 @@ pub fn fire(
 ) {
     let card = cards.get(ents.card[a]);
     let ti = target.index as usize;
+    // combat.LAUNCH_BEYOND_CANCEL_RANGE = not_launched, the projectile half of combat.HIT_BEYOND_CANCEL_RANGE: a projectile
+    // attacker's due launch whose target stands more than targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE past its
+    // reach (Range + both radii; start-of-tick positions, Attack runs before Move) is not made: no projectile, no extra
+    // bolt, nothing it would carry. The cycle (the load timer reset as on a launch) and the target are the caller's and
+    // are kept. Measured on client 16.402 (20260920-071744 t1983): a Lava Pup's swing at a Goblin 2,393 past reach ended
+    // with no projectile, where 1,259 due launches (seats apart) stood within 633 past. Crown towers
+    // (targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE), kamikazes, selector cards (their melee entry) and evolved
+    // forms launch as before.
+    // PLANT (regression) launch_beyond_cancel_launched: the new arm still launches past the cancel range.
+    #[cfg(not(clash_plant = "launch_beyond_cancel_launched"))]
+    let cancelled = calib.launch_beyond_cancel_range == LaunchBeyondCancelRange::NotLaunched
+        && card.projectile.is_some()
+        && !card.kamikaze
+        && card.attack_select.is_none()
+        && card.evo.is_none()
+        && !ents.kind[a].is_crown_tower()
+        && !in_attack_range(calib, ents.pos[a], card.range + calib.cancel_hit_from_long_distance_range, ents.radius[a], ents.pos[ti], ents.radius[ti]);
+    #[cfg(clash_plant = "launch_beyond_cancel_launched")]
+    let cancelled = false;
+    if cancelled {
+        return;
+    }
     // THE ENCHANT BONUS of this attack (`enchant_bonus`): zero for every attacker that carries no enchant and on every
     // attack of one that is not its bonus attack. It rides every hit the attack deals, one Hit per victim.
     let (direct, spark) = enchant_bonus(ents, cards, calib, a);

@@ -548,6 +548,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "hit_beyond_cancel_range_default")]
     pub hit_beyond_cancel_range: HitBeyondCancelRange,
+    /// combat.LAUNCH_BEYOND_CANCEL_RANGE: whether a projectile attacker launches at a target far past its reach
+    /// (combat.rs `fire`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Launched`.
+    #[serde(default = "launch_beyond_cancel_range_default")]
+    pub launch_beyond_cancel_range: LaunchBeyondCancelRange,
     /// movement.DEPLOYING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
@@ -1881,6 +1885,10 @@ fn tower_cancel_range_default() -> TowerCancelRange {
 
 fn hit_beyond_cancel_range_default() -> HitBeyondCancelRange {
     HitBeyondCancelRange::Damage
+}
+
+fn launch_beyond_cancel_range_default() -> LaunchBeyondCancelRange {
+    LaunchBeyondCancelRange::Launched
 }
 
 /// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE's value: the string "global", or a non-negative number of
@@ -3700,6 +3708,22 @@ calib_enum!(
         /// attacker's reach (Range + both collision radii) at the start of the hit tick deals no damage and applies
         /// no buff; the attack cycle runs on and the target is kept.
         NoDamage = "no_damage",
+    }
+);
+calib_enum!(
+    /// combat.LAUNCH_BEYOND_CANCEL_RANGE -- whether a projectile attacker's due launch is made when its target stands far
+    /// past its reach (combat.rs `fire`): the projectile half of combat.HIT_BEYOND_CANCEL_RANGE.
+    LaunchBeyondCancelRange {
+        /// The engine's: every due launch is made, wherever the target stands.
+        Launched = "launched",
+        /// A launch whose target stands more than targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE past the attacker's
+        /// reach (Range + both collision radii) at the start of the fire tick is not made: no projectile and nothing it
+        /// would carry; the attack cycle runs on (the load timer resets as on a launch) and the target is kept. Crown
+        /// towers (targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE), kamikazes, selector cards and evolved forms
+        /// launch as before. Measured on client 16.402 (20260920-071744 t1983, both seats): a Lava Pup's swing at a
+        /// Goblin 2,393 past reach ended with its load timer reset and no projectile, where 1,259 due launches stood
+        /// within 633 past; on client 15.535.29 launches stood up to 1,191 past.
+        NotLaunched = "not_launched",
     }
 );
 
@@ -7751,6 +7775,7 @@ impl Calib {
             fallen_lane_tower_pick: pick(&v, &["targeting", "FALLEN_LANE_TOWER_PICK", "value"], FallenLaneTowerPick::from_calibration_name)?,
             tower_cancel_range: tower_cancel_value(&v)?,
             hit_beyond_cancel_range: pick(&v, &["combat", "HIT_BEYOND_CANCEL_RANGE", "value"], HitBeyondCancelRange::from_calibration_name)?,
+            launch_beyond_cancel_range: pick(&v, &["combat", "LAUNCH_BEYOND_CANCEL_RANGE", "value"], LaunchBeyondCancelRange::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             variable_damage: pick(&v, &["combat", "VARIABLE_DAMAGE", "value"], VariableDamage::from_calibration_name)?,
             load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
@@ -30461,6 +30486,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.LAUNCH_BEYOND_CANCEL_RANGE: Calib gained launch_beyond_cancel_range (serde default the old arm,
+///    launched), no new state (it decides one launch, on the fire tick), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, pathfinding.DEATH_BOMB_OBSTACLE: Calib gained death_bomb_obstacle (serde default the old arm, none), no
 ///    new state (the obstacle list is rebuilt from the saved spells each tick), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31491,6 +31519,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("line_lane".into(), serde_json::to_value(LineLane::Tap).map_err(|e| e.to_string())?);
     // pathfinding.DEATH_BOMB_OBSTACLE: a format-3 battle planned through its bombs (the same rule).
     sh.insert("death_bomb_obstacle".into(), serde_json::to_value(DeathBombObstacle::None).map_err(|e| e.to_string())?);
+    // combat.LAUNCH_BEYOND_CANCEL_RANGE: a format-3 battle launched every due shot (the same rule).
+    sh.insert("launch_beyond_cancel_range".into(), serde_json::to_value(LaunchBeyondCancelRange::Launched).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
