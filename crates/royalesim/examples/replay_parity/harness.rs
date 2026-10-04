@@ -1600,6 +1600,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   the launch tick's move (59 of 59 let-gos).
 ///   combat.NET_LAUNCH = client15535_edge_next_tick: an Evo Hunter's net starts at his collision radius plus its
 ///   extra (800) and first steps on the next tick (three nets' tracks).
+///   formation.LINE_LANE = client15535_line_centre: a line's members take the lane of its centre, not the tap's (2 of 2
+///   lines moved across the middle).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1678,6 +1680,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.EVO_CHAIN_HOP_FIRST_STEP", "\"client15535_creation_tick\""),
     ("targeting.LAUNCH_BEYOND_POSITION", "\"client15535_after_move\""),
     ("combat.NET_LAUNCH", "\"client15535_edge_next_tick\""),
+    ("formation.LINE_LANE", "\"client15535_line_centre\""),
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
 ];
 

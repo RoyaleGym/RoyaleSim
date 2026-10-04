@@ -1107,6 +1107,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `ExtraAndWait`.
     #[serde(default = "net_launch_default")]
     pub net_launch: NetLaunch,
+    /// formation.LINE_LANE (`formation_members_with`): which lane a line's members are laid on, the tap's or that of
+    /// the place `line_centre` found. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Tap`.
+    #[serde(default = "line_lane_default")]
+    pub line_lane: LineLane,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2644,6 +2648,10 @@ fn launch_beyond_position_default() -> LaunchBeyondPosition {
 
 fn net_launch_default() -> NetLaunch {
     NetLaunch::ExtraAndWait
+}
+
+fn line_lane_default() -> LineLane {
+    LineLane::Tap
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5542,6 +5550,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// formation.LINE_LANE -- see `formation_members_with`: the lane a line's members (formation.rs `member_offset`) are
+    /// laid on, which decides which end of the line's zigzag stands high (`mirror`).
+    LineLane {
+        /// The engine's: the lane of the tap the player made, before `line_centre` moves the line.
+        Tap = "tap",
+        /// The lane of the place `line_centre` found (the line's centre); the place itself is found as before. Measured
+        /// on client 15.535.29 (Oracle's sp-rrtap-*): the two Royal Recruits taps the place search moves across the arena's
+        /// middle (sp-rrtap-s0-9000-7000 and -9000-7500: the tap's tile x 9500, the line on (8500, 8500)) lay the left
+        /// lane's zigzag, the left end high (y 8750); the engine laid the tap's, every member 500 off in y.
+        Client15535LineCentre = "client15535_line_centre",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7865,6 +7886,7 @@ impl Calib {
             evo_chain_hop_first_step: pick(&v, &["combat", "EVO_CHAIN_HOP_FIRST_STEP", "value"], EvoChainHopFirstStep::from_calibration_name)?,
             launch_beyond_position: pick(&v, &["targeting", "LAUNCH_BEYOND_POSITION", "value"], LaunchBeyondPosition::from_calibration_name)?,
             net_launch: pick(&v, &["combat", "NET_LAUNCH", "value"], NetLaunch::from_calibration_name)?,
+            line_lane: pick(&v, &["formation", "LINE_LANE", "value"], LineLane::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -25945,7 +25967,7 @@ impl BattleState {
                 } else {
                     card.collision_radius
                 };
-                let layout = crate::formation::Layout {
+                let mut layout = crate::formation::Layout {
                     primaries: n,
                     seconds: s,
                     radius: radius / K,
@@ -25997,6 +26019,15 @@ impl BattleState {
                 };
                 #[cfg(clash_plant = "line_centre_on_tap")]
                 let _ = line; // PLANT: the line stands on the tap.
+                // formation.LINE_LANE = client15535_line_centre: the members are laid on the lane of the place found, not the
+                // tap's (formation.rs member_offset's `mirror`: which end of the line's zigzag stands high). Measured on client
+                // 15.535.29: the two Royal Recruits taps line_centre moves across the arena's middle (sp-rrtap-s0-9000-7000 and
+                // -9000-7500, placed on (8500, 8500) from the tile x 9500) lay the left lane's zigzag.
+                // PLANT (regression) line_lane_from_tap: the new arm still lays the line on the tap's lane.
+                #[cfg(not(clash_plant = "line_lane_from_tap"))]
+                if line && calib.line_lane == LineLane::Client15535LineCentre {
+                    layout.lane = crate::formation::nearest_lane(arena, Vec2::new(tap.x * K, tap.y * K));
+                }
                 let ground_tap = tap.add(ground_delta);
                 let y_range = match calib.formation_ground_y_clamp {
                     GroundYClamp::Client16402DeployColumnRange | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
@@ -30385,6 +30416,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, formation.LINE_LANE: Calib gained line_lane (serde default the old arm, tap), no new state (it
+///    decides where members are laid, once), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
+///    a migrated battle at the old arm.
 /// 20, unchanged, combat.NET_LAUNCH: Calib gained net_launch (serde default the old arm, extra_and_wait), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.LAUNCH_BEYOND_POSITION: Calib gained launch_beyond_position (serde default the old arm,
@@ -31405,6 +31439,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("launch_beyond_position".into(), serde_json::to_value(LaunchBeyondPosition::StartOfTick).map_err(|e| e.to_string())?);
     // combat.NET_LAUNCH: a format-3 battle ran no Evo Hunter (the same rule).
     sh.insert("net_launch".into(), serde_json::to_value(NetLaunch::ExtraAndWait).map_err(|e| e.to_string())?);
+    // formation.LINE_LANE: a format-3 battle laid its lines on the tap's lane (the same rule).
+    sh.insert("line_lane".into(), serde_json::to_value(LineLane::Tap).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

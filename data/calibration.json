@@ -5580,6 +5580,17 @@
       "promotion_rules": "SETTLED 2026-09-25 (see provenance). deploying, the earlier engine, is the old arm.",
       "engine": "entity.rs stagger_ms (the wait, set from PendingSpawn.stagger_ms in formation_members and counted down beside deploy_ms in deploy_countdown); target.rs can_target (the one definition of targetable); state.rs phase_path16402 (the 16.402 move pass skips a waiting member after the pushback branch and applies a pull alone, as the held branch does); hashed only under the measured arm. The pre-2026 path models do not read it."
     },
+    "LINE_LANE": {
+      "value": "tap",
+      "candidates": ["tap", "client15535_line_centre"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_line_centre on client 15.535.29: the 2 Royal Recruits taps whose line the place search moves across the arena's middle lay the zigzag of the centre's lane, against the tap's; the other 61 line taps read (sp-rrtap-*, sweep-RoyalRecruits) keep their lane and separate nothing. 16.402 not read; the Royal Hogs not met.",
+      "provenance": "MEASURED by parity (2026-10-04) on client 15.535.29, Oracle's sp-rrtap-* and sweep-RoyalRecruits: each line's six members on the play's first frame, ordered by x. The members alternate 250 either side of the line's y, and which end starts high is the lane's (formation.rs member_offset `mirror`): Blue's lines centred on x 6624 or 8500 start high at their left end (y 8750 of a line on 8500), those on 9500 or 11375 low (Red's the mirror). The two taps the place search moves over the middle, sp-rrtap-s0-9000-7000 and -9000-7500 (the tile x 9500, the line placed on (8500, 8500)), start high: the centre's lane. The engine lays them from the tap's lane, low: every member 500 off in y from t101 and each scene's 126 unit-ticks outside 250 (formsR37d).",
+      "meaning": "tap: the engine's; a line's members (formation.rs member_offset) take the lane of the tap the player made, before formation.rs line_centre moves the line. client15535_line_centre: the lane of the place line_centre found (the line's centre); the place itself is found as before.",
+      "open": "The Royal Hogs' line (no relocated tap read); whether line_centre's own search reads the tap's lane or the centre's (the two scenes give the same place under both); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_line_centre (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs formation_members_with (`layout.lane` after line_centre), selected by Calib::line_lane; tests/line_lane.rs."
+    },
     "LINE_FRAME": {
       "value": "rotation",
       "candidates": ["rotation", "client15535_y_reflection"],
