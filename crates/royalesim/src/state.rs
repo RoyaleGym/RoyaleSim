@@ -1074,6 +1074,10 @@ pub struct Calib {
     /// tick's dying soldiers as static blockers. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
     #[serde(default = "spectral_parent_blocker_default")]
     pub spectral_parent_blocker: SpectralParentBlocker,
+    /// status.HEAL_PULSE_LANDING (`phase_resolve`): whether the tick's buff heals land after the hits Resolve takes from
+    /// the damage buffer or before them. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AfterHits`.
+    #[serde(default = "heal_pulse_landing_default")]
+    pub heal_pulse_landing: HealPulseLanding,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2579,6 +2583,10 @@ fn thrown_unit_death_blow_default() -> ThrownUnitDeathBlow {
 
 fn spectral_parent_blocker_default() -> SpectralParentBlocker {
     SpectralParentBlocker::None
+}
+
+fn heal_pulse_landing_default() -> HealPulseLanding {
+    HealPulseLanding::AfterHits
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5333,6 +5341,25 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.HEAL_PULSE_LANDING -- see `phase_resolve`: where the tick's buff heals (`buff_pulse_pass`, the Heal
+    /// Spirit's area) land against the hits Resolve takes from the damage buffer (a shot's landing, an area's pulse).
+    HealPulseLanding {
+        /// The engine's: after every hit of the tick, so a hit and a heal on one tick leave a full unit short by the hit
+        /// less the heal (`land_buff_heals`).
+        AfterHits = "after_hits",
+        /// Before the buffered hits: a full unit's pulse is lost to the cap and the shot takes its whole damage. The
+        /// strikes match.TICK_ORDER = client_sequential_strike lands at once (`land_strike`) are in before it, so a melee
+        /// strike and a heal on one tick still leave the unit short by the strike less the heal. Measured on client
+        /// 15.535.29 (parity's heal_hit_order_census.py, every Heal Spirit pulse tick on which a unit of its side inside
+        /// its area, full or within a pulse of full, lost hitpoints): sp-form-RoyalRecruits-evo-s0 t506, a full Recruit
+        /// (547) took Blue's princess tower's arrow (109) on the area's fourth pulse and ended on 438, the heal lost
+        /// (the engine's 538), where sweep-Heal t296's full Knight struck by a Knight (202) on a pulse ended on 1664,
+        /// the heal kept. LOW: one shot event; whether the client orders by the unit's own update (a buff's pulse in
+        /// its turn, a shot in the projectile's) is not separated from 'every shot after the heals'.
+        Client15535BeforeBufferedHits = "client15535_before_buffered_hits",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7645,6 +7672,7 @@ impl Calib {
             held_press_route: pick(&v, &["pathfinding", "HELD_PRESS_ROUTE", "value"], HeldPressRoute::from_calibration_name)?,
             thrown_unit_death_blow: pick(&v, &["spawner", "THROWN_UNIT_DEATH_BLOW", "value"], ThrownUnitDeathBlow::from_calibration_name)?,
             spectral_parent_blocker: pick(&v, &["spawner", "SPECTRAL_PARENT_BLOCKER", "value"], SpectralParentBlocker::from_calibration_name)?,
+            heal_pulse_landing: pick(&v, &["status", "HEAL_PULSE_LANDING", "value"], HealPulseLanding::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -23621,6 +23649,17 @@ impl BattleState {
         }
         let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
+        // status.HEAL_PULSE_LANDING = client15535_before_buffered_hits: the pulses' heals land here, before the hits the
+        // buffer holds (a full unit's is lost to the cap) and after the strikes the sequential pass landed at once. The
+        // Evo Witch's souls (`soul_heals`, below) land after the hits as before.
+        // PLANT (regression) heal_after_buffered_hits: the new arm's heals still land after the buffered hits.
+        #[cfg(not(clash_plant = "heal_after_buffered_hits"))]
+        let heals_first = self.cfg.calib.heal_pulse_landing == HealPulseLanding::Client15535BeforeBufferedHits;
+        #[cfg(clash_plant = "heal_after_buffered_hits")]
+        let heals_first = false;
+        if heals_first {
+            self.land_buff_heals();
+        }
         let mut out = combat::resolve(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &mut self.dmg, &mut self.scratch.sums, self.cfg.calib.hide_hidden_immune, underground_immune, riders_immune, self.tick);
         // The reports of the strikes the sequential pass landed at once (`land_strike`) join this Resolve's: a unit hurt
         // that still stands, a shield broken; ascending slot order as `resolve` gives them.
@@ -30038,6 +30077,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.HEAL_PULSE_LANDING: Calib gained heal_pulse_landing (serde default the old arm, after_hits), no
+///    new state (the heals live inside one tick), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.SPECTRAL_PARENT_BLOCKER: Calib gained spectral_parent_blocker (serde default the old arm, none),
 ///    no new state (the blockers live inside one Reap), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -31019,6 +31061,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("thrown_unit_death_blow".into(), serde_json::to_value(ThrownUnitDeathBlow::Reached).map_err(|e| e.to_string())?);
     // spawner.SPECTRAL_PARENT_BLOCKER: a format-3 battle ran no Evo Skeleton Army (the same rule).
     sh.insert("spectral_parent_blocker".into(), serde_json::to_value(SpectralParentBlocker::None).map_err(|e| e.to_string())?);
+    // status.HEAL_PULSE_LANDING: a format-3 battle landed its heals after the hits (the same rule).
+    sh.insert("heal_pulse_landing".into(), serde_json::to_value(HealPulseLanding::AfterHits).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
