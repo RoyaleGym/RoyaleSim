@@ -111,4 +111,5 @@ def test_under_a_mirrored_shuffle_each_card_keeps_its_own_level(royalesim):
         b.step([], 40)
     v = json.loads(b.state_json())
     seen = {e[card]: e[lvl_f] for e in v["entities"] if e[team_f] == 0 and e[slot_f] < 0}
-    assert played and all(seen.get(c) == level_of[c] for c in played), (played, seen, level_of)
+    assert played, "scene: no troop card was played"
+    assert all(seen.get(c) == level_of[c] for c in played), (played, seen, level_of)
