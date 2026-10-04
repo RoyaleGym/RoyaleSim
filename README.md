@@ -15,7 +15,7 @@ Most people use it through [RoyaleGym](https://github.com/RoyaleGym/RoyaleGym) a
 pip install "royalegym[all]"
 ```
 
-That installs this engine and everything else, on 3.12, 3.13 or 3.14 (the engine alone runs on 3.10 to 3.14). [Install](https://royalegym.github.io/RoyaleGym/install/) has more.
+That installs this engine and everything else. Use Python 3.12. [Install](https://royalegym.github.io/RoyaleGym/install/) has more.
 
 ## Try it
 

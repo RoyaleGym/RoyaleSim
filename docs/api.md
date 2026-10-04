@@ -9,8 +9,8 @@ This page is for people who want the engine itself.
 pip install royalesim
 ```
 
-The wheels need no Rust. They run on CPython 3.10 and later, on Windows, Linux and macOS (RoyaleGym, which most
-people use, needs 3.12). Each release's wheels are also on the project's GitHub Releases page.
+Use Python 3.12. The wheels need no Rust, and there are wheels for Windows, Linux and macOS. Each release's wheels
+are also on the project's GitHub Releases page.
 
 ## A battle in a few lines
 

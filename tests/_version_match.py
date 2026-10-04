@@ -128,6 +128,17 @@ def check_repo(name: str, readme: str, declared: dict[str, tuple[str, str]]) -> 
                 f"{where} can only agree with one of them."
             )
             continue
+        # PYTHON: the page may name a NEWER Python than the build's minimum (the owner's 10-04 ruling: the docs name the
+        # one version readers should use, 3.12, while requires-python keeps the oldest supported). A newer one installs;
+        # only an OLDER one sends a reader to an install that fails, so only that is refused.
+        if tool == "python":
+            low = [v for v in versions if tuple(map(int, v.split("."))) < tuple(map(int, want.split(".")))]
+            if low:
+                out.append(
+                    f"{name}: the README says {tool} {', '.join(sorted(low))} and {where} needs {want} or newer. "
+                    f"A reader installs the older one and the install fails late."
+                )
+            continue
         if want not in versions:
             out.append(
                 f"{name}: the README says {tool} {', '.join(sorted(versions))} and {where} says "
@@ -139,6 +150,8 @@ def check_repo(name: str, readme: str, declared: dict[str, tuple[str, str]]) -> 
 SELFTEST = [
     ("python agrees", "You need Python 3.12.", {"python": ("3.12", "pyproject.toml")}, False),
     ("python disagrees", "You need Python 3.11.", {"python": ("3.12", "pyproject.toml")}, True),
+    ("python names a newer version than the minimum", "Use Python 3.12.",
+     {"python": ("3.10", "pyproject.toml")}, False),
     ("a badge agrees", "![py](https://x/badge/python-3.12+-blue)",
      {"python": ("3.12", "pyproject.toml")}, False),
     ("a badge disagrees", "![py](https://x/badge/python-3.11+-blue)",

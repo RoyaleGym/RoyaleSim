@@ -78,7 +78,8 @@ layer bots train in. Install steps are below, under "Install".
 
 ## Install
 
-You need Python 3.12 and Rust 1.80 or newer with cargo.
+You need Python 3.12 and Rust 1.80 or newer with cargo. For Windows and macOS, 3.12.10 is the last 3.12 with an
+installer on python.org.
 
 The commands below are for Windows PowerShell, the shell that opens by default on Windows 10 and
 11. There is no separate recipe for the other platforms. On macOS and Linux run the same commands
@@ -107,11 +108,11 @@ You are now in the `Royale` folder. Stages 2 to 5 all start from here.
 
 ### Stage 2. Make the virtual environment
 
-The venv has to be Python 3.12 or newer. The first line asks for 3.12 by name. On macOS and Linux
-it is `python3.12 -m venv .venv`. If `python --version` already prints 3.12 or newer,
+The venv has to be Python 3.12. The first line asks for 3.12 by name. On macOS and Linux
+it is `python3.12 -m venv .venv`. If `python --version` already prints 3.12,
 `python -m venv .venv` works too.
 
-The second line must print 3.12 or newer. Check it before you go on. An older Python compiles the
+The second line must print 3.12. Check it before you go on. An older Python compiles the
 engine for several minutes and is only refused at the install step.
 
 Every later command names the venv's own `python` by path, so you never have to activate the
