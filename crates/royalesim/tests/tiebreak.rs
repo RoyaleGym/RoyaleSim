@@ -236,6 +236,19 @@ fn level_towers_drain_one_tick_and_draw() {
     assert_eq!(s.crowns(), [0, 0]);
 }
 
+/// THE SIDES' LOWEST TOWERS LEVEL, THE OTHERS NOT (client 15.535.29, Oracle's sp-tiebreak-eqlow-s0: both right
+/// princesses on 2880, the left ones on 3052 and 3004): the rule compares each side's lowest standing tower, so this is
+/// the exact tie too, one drain tick on t6067 (-50 on all six) and a draw on t6147, not a drain to a simultaneous fall.
+#[test]
+fn lowest_towers_level_with_the_others_unequal_is_the_exact_draw() {
+    let king = tower_max()[0];
+    let (s, seen) = drained([king, 3052, 2880], [king, 3004, 2880], (Team::Red, 1), 400);
+    let lost: Vec<u32> = seen.windows(2).filter(|w| w[1].1 < w[0].1).map(|w| w[1].0).collect();
+    assert_eq!(lost, vec![6067], "one tick of drain on Red's 3004 tower");
+    assert_eq!(seen.last().map(|x| x.0), Some(6147), "the draw on t6147");
+    assert_eq!(s.outcome(), Some(Outcome::Draw));
+}
+
 /// THE DRAIN'S STEPS AT THEIR MEASURED EDGES (client 15.535.29: 500 drained 40, 460 drained 20, 200 drained 20, 180
 /// drained 10, 30 drained 10, 20 drained 1; client 16.402, six live level overtimes: 1018 drained 50, 968 drained 40,
 /// 516 drained 40, 488 drained 20, 208 drained 20, 196 drained 10, 21 drained 10, 18 drained 1).
