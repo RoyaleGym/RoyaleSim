@@ -5,6 +5,7 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
 
 ## 0.1.11 (unreleased)
 
+- The source package (sdist) now carries LICENSE, so PyPI accepts it.
 - A MIRRORED shuffle with per-card `levels` now keeps each card at its own level. Before, the levels stayed in the
   setup's order while the shuffle moved the cards, so a card could play at another card's level.
 - `state_json()` players' `deck` and `forms` are the order the battle deals from: the setup's order, except under a

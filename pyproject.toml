@@ -48,6 +48,8 @@ bindings = "pyo3"
 # vendored Supercell tables and tilemaps) is deliberately not packaged: it is not covered
 # by this repository's licence (LICENSE, data/raw/retroroyale-2018/README.md).
 include = [
+    # The licence the sdist's metadata names (License-File: LICENSE): PyPI refuses an sdist without it.
+    { path = "LICENSE", format = "sdist" },
     { path = "data/calibration.json", format = "sdist" },
     { path = "data/derived/**/*", format = "sdist" },
     { path = "data/raw/retroroyale-2018/README.md", format = "sdist" },
