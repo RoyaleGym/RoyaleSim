@@ -3,9 +3,12 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
-## 0.1.11 (unreleased)
+## 0.1.11 (2026-10-04)
 
 - The source package (sdist) now carries LICENSE, so PyPI accepts it.
+- Battle logic: no change to how a battle plays by default. New per-client rules for replays of the 15.535.29 client
+  (chases, target keeping, load timers, Evo Electro Dragon and Evo Hunter timings, warps, Skeleton King souls, freeze
+  lengths), as measured in that client.
 - A MIRRORED shuffle with per-card `levels` now keeps each card at its own level. Before, the levels stayed in the
   setup's order while the shuffle moved the cards, so a card could play at another card's level.
 - `state_json()` players' `deck` and `forms` are the order the battle deals from: the setup's order, except under a
