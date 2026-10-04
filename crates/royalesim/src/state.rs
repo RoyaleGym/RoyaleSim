@@ -1062,6 +1062,10 @@ pub struct Calib {
     /// separation. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Hidden`.
     #[serde(default = "deflect_contact_default")]
     pub deflect_contact: DeflectContact,
+    /// pathfinding.HELD_PRESS_ROUTE (`start_ability`): whether the press of a ground hero's button that holds it
+    /// (CastTime > 0) drops its route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
+    #[serde(default = "held_press_route_default")]
+    pub held_press_route: HeldPressRoute,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2555,6 +2559,10 @@ fn evo_chain_hop_reach_default() -> EvoChainHopReach {
 
 fn deflect_contact_default() -> DeflectContact {
     DeflectContact::Hidden
+}
+
+fn held_press_route_default() -> HeldPressRoute {
+    HeldPressRoute::Kept
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5255,6 +5263,26 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// pathfinding.HELD_PRESS_ROUTE -- see `start_ability`: the route of a ground hero whose button holds it (CastTime >
+    /// 0; not a dash chain), the counterpart of pathfinding.PRESS_ROUTE for the heroes that key leaves out.
+    HeldPressRoute {
+        /// The engine's: the press leaves its route; after the hold it walks on to its next waypoint.
+        Kept = "kept",
+        /// The press drops its route. A held unit requests no path (collision.HELD_UNIT_CONTACT), so the first tick it
+        /// walks again plans afresh from where it stands, and it steps at that route's first node. Measured on client
+        /// 15.535.29 (parity's held_press_route_census.py, every press after which the hero stood: its route through the
+        /// hold, and its face on its first walking frame after it): the route read empty from the press frame on, and the
+        /// face pointed at the centre of a cell around the hero (a fresh route's first node, consumed on that frame) on
+        /// 56 of 61, eleven heroes and champions (the Hero Musketeer 32, Mini PEKKA 8, the Skeleton King 8, Knight 7,
+        /// the Little Prince 5); the 5 others are the two flyers (Hero Balloon, Hero Mega Minion), the Hero Barbarian
+        /// Log and one Hero Musketeer whose old waypoint lies on the same diagonal. sp-sk-souls-own-s0 t329: the
+        /// Skeleton King, his route empty through his cast, stepped (8, 63) at (14750, 16750), the cell ahead of his
+        /// own; the engine walked on to its kept waypoint (14750, 17750), (2, 63), and every soul he then summoned was
+        /// laid 3 to 21 off.
+        Client15535Replanned = "client15535_replanned",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7554,6 +7582,7 @@ impl Calib {
             action_group_spawn_order: pick(&v, &["spawner", "ACTION_GROUP_SPAWN_ORDER", "value"], ActionGroupSpawnOrder::from_calibration_name)?,
             evo_chain_hop_reach: pick(&v, &["combat", "EVO_CHAIN_HOP_REACH", "value"], EvoChainHopReach::from_calibration_name)?,
             deflect_contact: pick(&v, &["movement", "DEFLECT_CONTACT", "value"], DeflectContact::from_calibration_name)?,
+            held_press_route: pick(&v, &["pathfinding", "HELD_PRESS_ROUTE", "value"], HeldPressRoute::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -26639,7 +26668,15 @@ impl BattleState {
         let replan = self.cfg.calib.press_route == PressRoute::Client15535Replanned;
         #[cfg(clash_plant = "press_route_kept")]
         let replan = false;
-        if replan && a.cast_ms == 0 && !self.ents.flying[i] && !matches!(a.effect, crate::card::AbilityEffect::DashChain { .. }) {
+        // pathfinding.HELD_PRESS_ROUTE = client15535_replanned: so does a press that holds it (CastTime > 0); the hold
+        // requests no path, so the first tick it walks again plans afresh from where it stands. Measured on client
+        // 15.535.29: 56 of 61 held presses (sp-sk-souls-own-s0 t329, the Skeleton King after his cast).
+        // PLANT (regression) held_press_route_kept: the new arm keeps a held hero's route.
+        #[cfg(not(clash_plant = "held_press_route_kept"))]
+        let held_replan = self.cfg.calib.held_press_route == HeldPressRoute::Client15535Replanned && a.cast_ms > 0;
+        #[cfg(clash_plant = "held_press_route_kept")]
+        let held_replan = false;
+        if ((replan && a.cast_ms == 0) || held_replan) && !self.ents.flying[i] && !matches!(a.effect, crate::card::AbilityEffect::DashChain { .. }) {
             if let Some(r) = self.ents.route.get_mut(i) {
                 r.clear();
             }
@@ -29891,6 +29928,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, pathfinding.HELD_PRESS_ROUTE: Calib gained held_press_route (serde default the old arm, kept), no
+///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
 /// 20, unchanged, movement.DEFLECT_CONTACT: Calib gained deflect_contact (serde default the old arm, hidden), no new
 ///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
 ///    arm.
@@ -30856,6 +30896,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_chain_hop_reach".into(), serde_json::to_value(EvoChainHopReach::Inclusive).map_err(|e| e.to_string())?);
     // movement.DEFLECT_CONTACT: a format-3 battle ran no Monk (the same rule).
     sh.insert("deflect_contact".into(), serde_json::to_value(DeflectContact::Hidden).map_err(|e| e.to_string())?);
+    // pathfinding.HELD_PRESS_ROUTE: a format-3 battle ran no hero (the same rule).
+    sh.insert("held_press_route".into(), serde_json::to_value(HeldPressRoute::Kept).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

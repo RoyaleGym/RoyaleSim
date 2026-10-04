@@ -1008,6 +1008,17 @@
     }
   },
   "pathfinding": {
+    "HELD_PRESS_ROUTE": {
+      "value": "kept",
+      "candidates": ["kept", "client15535_replanned"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_replanned on client 15.535.29: 56 of 61 held presses stepped at a fresh route's first node on their first walking frame, eleven heroes and champions; the 5 others two flyers (not covered: a flyer keeps its route under both arms), the Hero Barbarian Log and one ambiguous diagonal. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03) on client 15.535.29's scenario and IL truths (tool held_press_route_census.py: every fixture press whose hero stood on the press frame (its button holds it), its route length (path_nodes) through the hold, and its face on its first walking frame after it against the engine's heading arithmetic from its pre-move point toward (a) its next waypoint from before the press, (b) the next waypoint of the frame before, (c) the centre of its own 500-unit cell or one of the 8 around it, the first node of a route planned afresh). The route read empty from the press frame through the hold; (c) on 56 of 61, the node consumed on that frame: the Hero Musketeer 32, Hero Mini PEKKA 8, the Skeleton King 8, Hero Knight 7, the Little Prince 5, the Hero Elite Archers 3, the Monk 2, the Archer Queen, Hero Berserker, Bowler, Goblinstein, Hero Ice Golem and the Mighty Miner 1 each. Not (c): Hero Balloon and Hero Mega Minion (flyers), the Hero Barbarian Log ((0, 256), neither), and sp-h2d-s0 t242, a Hero Musketeer whose old waypoint (6750, 11250) lies on the diagonal through the fresh cell (7250, 10750) (both give (-181, 181)). sp-sk-souls-own-s0: the Skeleton King pressed on t311, cast to t328 with his route empty, and on t329 a 14-node route, face (35, 254) at (14750, 16750), step (8, 63); the engine walked on to its kept waypoint (14750, 17750), (10, 255), step (2, 63), and every soul he summoned from t330 was laid 3 to 21 off (the scene's 701 lost). On the r37 exe the engine already matched in sp-champ-SkeletonKing-s0, sp-form-Knight-hero-s0, sp-form-MiniPekka-hero-s0 and sp-champ-Goblinstein-s0 (the fresh first node and the kept waypoint in line); sp-taunt-late8500-s0 t210 differed as souls-own did ((0, 60) where the client stepped (2, 60)).",
+      "meaning": "kept: the engine's; the press of a ground hero's button that holds it (CastTime > 0) leaves its route, and after the hold it walks on to its next waypoint. client15535_replanned: that press drops its route too, so the first tick the hero walks again plans afresh from where it stands (a held unit requests no path). pathfinding.PRESS_ROUTE covers the presses with CastTime 0.",
+      "open": "The Hero Barbarian Log's face after its hold; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_replanned (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs start_ability (`held_replan`), selected by Calib::held_press_route; tests/held_press_route.rs."
+    },
     "PRESS_ROUTE": {
       "value": "kept",
       "candidates": ["kept", "client15535_replanned"],
