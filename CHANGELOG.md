@@ -3,6 +3,12 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.10 (2026-10-03)
+
+- No change to installing or calling the engine. Battle logic: the Golden Knight's ability is one use per deploy, like
+  every champion's except the Boss Bandit's. It used to come back 11 seconds after his dash chain, which was never
+  measured; the game gives it no recharge.
+
 ## 0.1.9 (2026-10-03)
 
 - `state_json()`: each player gains `deck`, the side's eight card ids as set up, and `forms`, parallel to it (0 the

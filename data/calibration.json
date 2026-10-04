@@ -1699,15 +1699,15 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json, calib_enum DashChainAttackCycle); state.rs chain_pass at the chain's end; tests/golden_knight.rs under_the_measured_cycle_his_first_ordinary_hit_lands_on_h_plus_19 (plant chain_end_keeps_cycle)."
     },
     "DASH_CHAIN_COOLDOWN": {
-      "value": 11000,
-      "candidates": [11000],
-      "status": "hypothesis",
-      "confidence": "LOW: the 15.535.29 tables give the Golden Knight's ability Cooldown only as a stats tag, with no number, and the oracle does not run a champion's recharge (see provenance); 11000 is the Cooldown of the unused (NOTINUSEABILITY) Golden Knight rows of character_abilities.csv, and its start (the chain's end) is a choice",
-      "provenance": "NOT MEASURED. Read on client 15.535.29 (parity, round 10, Oracle's recorded frames): the button is available and charged from his first frame; the press takes the one charge; it reads not available through the chain and after it. In the GK battery's gk2 the chain ends on t191 and he lives to t401, 10.5 s, with no charge back, so the cooldown is at least that from the chain's end, or at least 11.0 s from the press. The tables' only numbers are the NOTINUSEABILITY rows of character_abilities.csv (CastTime 766, TriggerDelay 200, Cooldown 11000, DashRange 6000: an older Golden Knight, not the one that runs). Oracle's sp-champ-GK-recharge1-s0 and -recharge2-s0 (parity, round 10): chains of one hit and of two, no charge back for 33.6 s and 57.6 s, to his death, every press after the first refused as no_charges; and the controls show the oracle does not run a champion's recharge at all (the Monk's 20000 csv Cooldown never came back in 39.5 s; the Golden Knight with no retries for 800 ticks never in 54 s), so its reading says nothing about the client. Only a live game settles it (the owner's go).",
-      "meaning": "Milliseconds from the end of a champion's dash chain (state.rs chain_pass) until its button's charge is back (HeroUnit::recharge_at). The engine also reads \"none\" (the charge never comes back), which no reading supports. The button reads cooldown_ticks meanwhile and refuses a press as AbilityNotReady.",
-      "open": "Its length, and whether it counts from the press or from the chain's end (both unmeasured): only a live game can read it.",
-      "promotion_rules": "Oracle's battery: two presses, chains of different lengths, the tick the second press is first taken.",
-      "engine": "state.rs chain_pass (sets HeroUnit::recharge_at), phase_status (gives the charge back), ability_buttons (cooldown_ticks)"
+      "value": "none",
+      "candidates": ["none", 11000],
+      "status": "measured",
+      "confidence": "HIGH: three independent readings agree, one of them with a working control. The 11000 this entry held before was a hypothesis (the Cooldown of an unused, older Golden Knight row of character_abilities.csv) and is refuted.",
+      "provenance": "Client 15.535.29, Oracle (10-03): sp-champ-GoldenKnight-recharge-q800-s0, 15 re-presses over 54 s after the chain, every one refused as no charges left (code 1014, ability state 6, charges 0, cooldown counter 0), beside the Boss Bandit control in the same battery, whose second charge comes back 63 ticks after its press (code 1005 while cooling down, then accepted): the client runs a champion's recharge where its data gives one, and gives the Golden Knight none. Human replays (RoyaleTraining probe champion_repress.py over IL_Replay, mostly Path of Legends): 25 Golden Knight re-presses in 73,514 presses with no redeploy between, the scale of a Mirror or Clone copy, beside 4,487 Boss Bandit recharges (floor 79-80 ticks), so the method sees recharges. Client 16.402 (Live's climb and reel captures, 09-29..10-03): no second press in any of 58 Golden Knight lives, 15 of them alive 200+ ticks past the press.",
+      "meaning": "Milliseconds from the end of a champion's dash chain (state.rs chain_pass) until its button's charge is back (HeroUnit::recharge_at), or none: the charge never comes back, one use per deploy, as every champion but the Boss Bandit (whose data gives charges and a cooldown).",
+      "open": "None for the Golden Knight. A future client that gave champions a recharge would show it in the same battery.",
+      "promotion_rules": "Oracle's recharge battery (a re-press every 20 ticks until the champion dies), with the Boss Bandit as the control.",
+      "engine": "state.rs chain_pass (sets HeroUnit::recharge_at only under a number), phase_status (gives the charge back), ability_buttons (cooldown_ticks)"
     },
     "HOOK_BUILDINGS": {
       "value": "client_pull_self",
