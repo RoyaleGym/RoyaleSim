@@ -726,6 +726,21 @@ pub fn chase_inside(calib: &Calib, cards: &CardDb, e: &Entities, a: usize, targe
     })
 }
 
+/// targeting.LAUNCH_BEYOND_POSITION = client15535_after_move: is unit `a` a crown tower whose launch is judged on the next
+/// tick's start positions (its flag set at every launch, `launched_out` reading it)?
+#[inline]
+pub fn launch_judged_after_move(calib: &Calib, e: &Entities, a: usize) -> bool {
+    #[cfg(not(clash_plant = "launch_judged_on_launch_tick"))]
+    let on = calib.launch_beyond_position == crate::state::LaunchBeyondPosition::Client15535AfterMove && e.kind[a].is_crown_tower();
+    // PLANT (regression) launch_judged_on_launch_tick: the new arm still judges the launch on the launch tick's start.
+    #[cfg(clash_plant = "launch_judged_on_launch_tick")]
+    let on = {
+        let _ = (calib, e, a);
+        false
+    };
+    on
+}
+
 /// How far past its reach a LOCKED attacker holds its target (the locked branch of `decide`): for a crown tower,
 /// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE when it names a number; for everything else, and for a tower
 /// under "global", targeting.LOGIC_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE.
@@ -1095,7 +1110,12 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                     ctx.calib.range_extension_to_keep_target
                 };
                 let hold = card.range + reach_past;
-                if !e.launched_beyond[a] && in_attack_range(ctx.calib, e.pos[a], hold, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
+                // targeting.LAUNCH_BEYOND_POSITION = client15535_after_move: a crown tower's launch flag (set at every
+                // launch) is judged here, on this tick's start positions -- the target where the launch tick's move left
+                // it -- against the tower's reach; beyond it, the hold ends.
+                let launched_out = e.launched_beyond[a]
+                    && (!launch_judged_after_move(ctx.calib, e, a) || !in_attack_range(ctx.calib, e.pos[a], card.range, e.radius[a], e.pos[ti], e.radius[ti]));
+                if !launched_out && in_attack_range(ctx.calib, e.pos[a], hold, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
             } else if locked && ctx.calib.locks_target(card) {

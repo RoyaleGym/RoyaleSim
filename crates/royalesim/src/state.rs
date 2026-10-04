@@ -1098,6 +1098,11 @@ pub struct Calib {
     /// its first step. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
     #[serde(default = "evo_chain_hop_first_step_default")]
     pub evo_chain_hop_first_step: EvoChainHopFirstStep,
+    /// targeting.LAUNCH_BEYOND_POSITION (`phase_attack_for`, target.rs `decide`): which of its target's points a crown
+    /// tower's launch is judged on for LOGIC_PRESERVE_TARGET_IF_HIT_STARTED's launch-beyond rule. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `StartOfTick`.
+    #[serde(default = "launch_beyond_position_default")]
+    pub launch_beyond_position: LaunchBeyondPosition,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2627,6 +2632,10 @@ fn far_shot_select_moment_default() -> FarShotSelectMoment {
 
 fn evo_chain_hop_first_step_default() -> EvoChainHopFirstStep {
     EvoChainHopFirstStep::NextTick
+}
+
+fn launch_beyond_position_default() -> LaunchBeyondPosition {
+    LaunchBeyondPosition::StartOfTick
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5491,6 +5500,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.LAUNCH_BEYOND_POSITION -- see target.rs `decide`: where a crown tower's target stands when its launch is
+    /// judged against the tower's reach (a launch beyond it ends the hold past reach on the next tick).
+    LaunchBeyondPosition {
+        /// The engine's: on the launch tick's start positions (Attack runs before Move).
+        StartOfTick = "start_of_tick",
+        /// On the next tick's start positions: the target as the launch tick's move left it. Measured on client
+        /// 15.535.29 (parity's tower_band_census.py, every crown tower fire tick whose target stood past the tower's
+        /// reach, Range + both radii, by at most 500 at the tick's end): the tower let go on the next tick 59 of 59,
+        /// the 8 whose target was inside reach at the tick's start among them (the engine kept those, holding to reach
+        /// + 500); none beyond at the start came back inside. sp-esk-bank-16500-s1 t953: Blue's right tower shot a
+        /// Skeleton 8,971 off (reach 9,000) that stepped to 9,003; the client's tower took an Evo Skeleton on t954 with
+        /// its progress running on, the engine's kept the Skeleton, idled 3 ticks and loosed its next arrow 3 ticks late
+        /// (the scene's 514 lost).
+        Client15535AfterMove = "client15535_after_move",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7809,6 +7835,7 @@ impl Calib {
             soul_offset_rounding: pick(&v, &["spawner", "SOUL_OFFSET_ROUNDING", "value"], SoulOffsetRounding::from_calibration_name)?,
             far_shot_select_moment: pick(&v, &["combat", "FAR_SHOT_SELECT_MOMENT", "value"], FarShotSelectMoment::from_calibration_name)?,
             evo_chain_hop_first_step: pick(&v, &["combat", "EVO_CHAIN_HOP_FIRST_STEP", "value"], EvoChainHopFirstStep::from_calibration_name)?,
+            launch_beyond_position: pick(&v, &["targeting", "LAUNCH_BEYOND_POSITION", "value"], LaunchBeyondPosition::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -22102,9 +22129,12 @@ impl BattleState {
                 let card = self.cfg.cards.get(self.ents.card[i]);
                 if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly && shot {
                     let ti = t.index as usize;
+                    // targeting.LAUNCH_BEYOND_POSITION = client15535_after_move: a crown tower's launch is flagged here and
+                    // judged by `decide` on the next tick's start positions (target.rs `launched_out`).
                     #[cfg(not(clash_plant = "launch_beyond_ignored"))]
                     let beyond = self.ents.is_alive(t)
-                        && !target::in_attack_range(&self.cfg.calib, self.ents.pos[i], card.range, self.ents.radius[i], self.ents.pos[ti], self.ents.radius[ti]);
+                        && (target::launch_judged_after_move(&self.cfg.calib, &self.ents, i)
+                            || !target::in_attack_range(&self.cfg.calib, self.ents.pos[i], card.range, self.ents.radius[i], self.ents.pos[ti], self.ents.radius[ti]));
                     #[cfg(clash_plant = "launch_beyond_ignored")]
                     let beyond = false; // PLANT (regression): a launch beyond reach does not end the hold.
                     self.ents.launched_beyond[i] = beyond;
@@ -30318,6 +30348,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.LAUNCH_BEYOND_POSITION: Calib gained launch_beyond_position (serde default the old arm,
+///    start_of_tick), no new state (the flag is the entity's launched_beyond, already saved), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP: Calib gained evo_chain_hop_first_step (serde default the old arm,
 ///    next_tick), no new state (a hop stepped on its landing tick is an ordinary projectile after it), so a blob saved
 ///    before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31329,6 +31362,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("far_shot_select_moment".into(), serde_json::to_value(FarShotSelectMoment::AsAttackSelect).map_err(|e| e.to_string())?);
     // combat.EVO_CHAIN_HOP_FIRST_STEP: a format-3 battle ran no Evo Electro Dragon (the same rule).
     sh.insert("evo_chain_hop_first_step".into(), serde_json::to_value(EvoChainHopFirstStep::NextTick).map_err(|e| e.to_string())?);
+    // targeting.LAUNCH_BEYOND_POSITION: a format-3 battle judged its towers' launches on the launch tick (the same rule).
+    sh.insert("launch_beyond_position".into(), serde_json::to_value(LaunchBeyondPosition::StartOfTick).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

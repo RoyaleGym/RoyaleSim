@@ -547,6 +547,17 @@
       "history": [{"value": true, "status": "datamined", "confidence": "medium", "provenance": "globals.csv", "date": "2026-09-22", "overturned_by": "confidence only, the value stands until a rebuild: in the replay corpus eight ground melee swings drop an out-of-range target for a nearer enemy mid-swing, and two Lava Pup swings keep theirs"}],
       "supersedes_globals": {"key": "LOGIC_PRESERVE_TARGET_IF_HIT_STARTED", "value": true, "why": "globals.csv's switch is on, for every attacker; measured on client 15.535.29 the hold covers projectile attackers only, so the value names that scope (see the provenance)"}
     },
+    "LAUNCH_BEYOND_POSITION": {
+      "value": "start_of_tick",
+      "candidates": ["start_of_tick", "client15535_after_move"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_after_move on client 15.535.29 crown towers: 59 of 59 fire ticks whose target stood past reach (by at most 500) at the tick's end let it go on the next tick, 8 of them inside at the tick's start; no counter-case. Troop shooters not read (the arm reads crown towers only). 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03; tower_band_census.py over every client 15.535.29 truth: each crown tower fire tick F, its progress a positive multiple of HitSpeed 800, its target's distance from it at F's start and end against Range 7,500 + the tower's radius + the target's (unit radii by unit or card name; 790 rows of spell-born units of unknown radius left out), and whether the tower held the target on F + 1): past reach at both ends, let go 51 of 51 (the engine's rule already); inside at the start and past at the end, let go 8 of 8 (sp-esk-bank-16500-s1 t953, sp-il-6a56 t355, sp-il-2c29 t3325, sp-axe-Golem-2000-s0 t762, sp-edge-Giant-8500-21500-s0 t455, ...), which the engine kept (its launch inside reach; the hold past reach to + 500); past at the start and inside at the end, none. sp-esk-bank-16500-s1 t953-t972: the engine's tower, holding the Skeleton it shot 3 past reach, idled t954-t956 and restarted its cycle, its next arrow 3 ticks late, which let an Evo Skeleton live (514 lost).",
+      "meaning": "start_of_tick: the engine's; a projectile attacker's launch at its target is judged against its reach on the launch tick's start positions, and one from beyond ends the hold past reach (PROJECTILE_HOLD_BEYOND_REACH) on the next tick. client15535_after_move: for a crown tower the launch is judged on the next tick's start positions (its target where the launch tick's move left it), against its plain reach; beyond it, the hold ends and the tower rescans. Other shooters as start_of_tick.",
+      "open": "Troop shooters (the same flag, judged on the launch tick under both arms); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_after_move (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_attack_for (the flag at the launch), target.rs decide (`launched_out`, `launch_judged_after_move`), selected by Calib::launch_beyond_position; tests/launch_beyond_position.rs."
+    },
     "PROJECTILE_HOLD_SCOPE": {
       "value": "client_troop_in_attack",
       "candidates": ["every_tick", "client_troop_in_attack"],
