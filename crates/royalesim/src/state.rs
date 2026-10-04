@@ -3730,7 +3730,8 @@ calib_enum!(
         /// towers (targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE), kamikazes, selector cards and evolved forms
         /// launch as before. Measured on client 16.402 (20260920-071744 t1983, both seats): a Lava Pup's swing at a
         /// Goblin 2,393 past reach ended with its load timer reset and no projectile, where 1,259 due launches stood
-        /// within 633 past; on client 15.535.29 launches stood up to 1,191 past.
+        /// within 633 past; on client 15.535.29 launches stood up to 1,191 past. Shipped on both clients (Sim's ruling,
+        /// 2026-10-04): the threshold is HIT_BEYOND_CANCEL_RANGE's, this key bracketing it only to (633, 2,393] past reach.
         NotLaunched = "not_launched",
     }
 );

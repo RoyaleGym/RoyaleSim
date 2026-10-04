@@ -14,7 +14,8 @@
 //!      (Cooldown again) and no shot of its leaves;
 //!   2. not_launched, d = 4,500 (1,000 past reach): its shot leaves (the cancel line is reach + 1,500, not reach);
 //!   3. launched (the old arm, the vacuity check), d = 5,300: its shot leaves;
-//!   4. the shipped value is launched.
+//!   4. the shipped value is not_launched, on both clients (Sim's ruling, 2026-10-04; the threshold borrowed from
+//!      combat.HIT_BEYOND_CANCEL_RANGE: this key brackets it only to (633, 2,393] past reach).
 //!
 //! PLANT (`RUSTFLAGS='--cfg clash_plant="launch_beyond_cancel_launched"' CARGO_TARGET_DIR=target/plant cargo test --test
 //! launch_beyond_cancel`):
@@ -101,6 +102,6 @@ fn the_old_value_launches() {
 }
 
 #[test]
-fn the_shipped_value_is_launched() {
-    assert_eq!(Calib::shipped().launch_beyond_cancel_range, LaunchBeyondCancelRange::Launched);
+fn the_shipped_value_is_not_launched() {
+    assert_eq!(Calib::shipped().launch_beyond_cancel_range, LaunchBeyondCancelRange::NotLaunched);
 }
