@@ -3,6 +3,11 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.9 (2026-10-03)
+
+- `state_json()`: each player gains `deck`, the side's eight card ids as set up, and `forms`, parallel to it (0 the
+  card itself, 1 its evolution, 2 its hero form). A battle restored with `load` reports them too.
+
 ## 0.1.8 (2026-10-03)
 
 - `state_json()`: each entity row gains four values after `mount_uid` (27 in all): `charge`, the build-up a player

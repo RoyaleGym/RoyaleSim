@@ -1015,6 +1015,17 @@ pub fn state_json_text(
         let hc = s.hand_costs(team);
         let mirror_target = s.mirror_target(team).map_or(-1, |i| id_of_idx.get(i as usize).copied().unwrap_or(-1));
         let _ = write!(o, "],\"hand_costs\":[{},{},{},{}],\"mirror_target\":{mirror_target}", hc[0], hc[1], hc[2], hc[3]);
+        // THE SIDE'S DECK AS SET UP (state.rs `BattleConfig::decks`, `forms`): `deck` its card ids in slot order, -1 for a
+        // card outside this catalogue; `forms` parallel to it, 0 the base card, 1 its evolution, 2 its hero form (0 where
+        // none was given). From the battle's own config, so a restored battle reports them too. Keyed like the two above.
+        let cfg = s.config();
+        let t = team as usize;
+        let deck: Vec<String> = cfg.decks[t]
+            .iter()
+            .map(|n| cards.index(n).and_then(|i| id_of_idx.get(i as usize).copied()).unwrap_or(-1).to_string())
+            .collect();
+        let forms: Vec<String> = (0..cfg.decks[t].len()).map(|k| cfg.forms[t].get(k).copied().unwrap_or(0).to_string()).collect();
+        let _ = write!(o, ",\"deck\":[{}],\"forms\":[{}]", deck.join(","), forms.join(","));
         // THE SIDE'S WAITING COMMANDS (state.rs `pending_commands`, `BattleConfig::command_delay_ticks`), keyed like the
         // two above: [kind, what, x, y, ticks left, cost] each, kind 0 a play (what: the catalogue card id, x y the tap)
         // and 1 a press (what: the button's action slot). The elixir above is the bar's state, which a waiting command
@@ -2445,6 +2456,31 @@ mod tests {
         let spells = v["spells"].as_array().unwrap();
         assert!(spells.iter().any(|r| r[1] == catalogue.iter().position(|i| db.get(*i).name == "Fireball").unwrap() as i64 && r[2] == 0), "the Fireball in flight is not reported: {spells:?}");
         assert_eq!(catalogue_violation(&reload(&db, &s), &ids), Ok(()), "a Goblin on the board is covered by its barrel's id");
+    }
+
+    #[test]
+    fn each_player_reports_its_deck_and_forms_and_a_restored_battle_too() {
+        // `deck` (the setup's card ids, slot order) and `forms` (0 base, 1 evolution, 2 hero) per player, from the
+        // battle's own config, so a battle restored from a snapshot reports them as well (RoyaleGym's PlayerState).
+        let db = cards();
+        let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).name != KING_TOWER && db.get(*i).name != PRINCESS_TOWER && !db.get(*i).summon_only).collect();
+        let ids = ids_of_indices(&db, &catalogue);
+        let id = |n: &str| catalogue.iter().position(|i| db.get(*i).name == n).unwrap() as i64;
+        let deck = ["Knight", "Archer", "Giant", "Musketeer", "Fireball", "Valkyrie", "HogRider", "Minions"];
+        let mut cfg = battle_config(&db, &deck);
+        cfg.forms = [vec![1, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
+        let s = BattleState::new(7, cfg);
+        let players = |s: &BattleState| -> serde_json::Value {
+            let v: serde_json::Value = serde_json::from_str(&state_json_text(s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
+            v["players"].clone()
+        };
+        let want: Vec<i64> = deck.iter().map(|n| id(n)).collect();
+        let p = players(&s);
+        assert_eq!(p[0]["deck"], serde_json::json!(want));
+        assert_eq!(p[1]["deck"], serde_json::json!(want));
+        assert_eq!(p[0]["forms"], serde_json::json!([1, 0, 0, 0, 0, 0, 0, 0]), "Blue's Knight evolved");
+        assert_eq!(p[1]["forms"], serde_json::json!([0, 0, 0, 0, 0, 0, 0, 0]), "no forms given: every card its base");
+        assert_eq!(players(&reload(&db, &s)), p, "a restored battle reports the same");
     }
 
     #[test]
