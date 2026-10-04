@@ -537,9 +537,10 @@ pub struct Entities {
     /// its whole chain -- a Tombstone's Skeletons and its death Skeletons, a Barbarian Hut's Barbarians, the Goblin
     /// Drill's Goblins, the Tri-Wizards' Electro and Ice Wizards, the Barbarian Barrel's Barbarian (state.rs
     /// `spawn_with`, which takes it from `BattleState::spawn_source`). Its own card on a deployed unit and on
-    /// anything nothing passed a producer to. Read by the bindings' card label alone (py.rs `state_json_text`):
-    /// not hashed, and no rule reads it. `default` and sized on load with NO_CARD, which reads as its own card
-    /// (`producer`).
+    /// anything nothing passed a producer to. Read by the bindings' card label (py.rs `state_json_text`) and by
+    /// one rule, spawner.DEATH_SPAWN_ROUTE's container test (state.rs phase_path16402: a building's or a flyer's
+    /// release keeps the engine's route); not hashed (fixed at creation, as the card is). `default` and sized on
+    /// load with NO_CARD, which reads as its own card (`producer`).
     #[serde(default)]
     pub source: Vec<u16>,
     /// CHARGE (card.rs `ChargeDef`; state.rs `charge_pass`, Move phase, after

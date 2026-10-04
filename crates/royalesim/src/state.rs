@@ -556,6 +556,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `EveryShot`.
     #[serde(default = "doomed_set_shots_default")]
     pub doomed_set_shots: DoomedSetShots,
+    /// spawner.DEATH_SPAWN_ROUTE: when a sliding death-spawn member plans its first route (`phase_path16402`, its slide
+    /// branch). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `SlideEnd`.
+    #[serde(default = "death_spawn_route_default")]
+    pub death_spawn_route: DeathSpawnRoute,
     /// movement.DEPLOYING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
@@ -1897,6 +1901,10 @@ fn launch_beyond_cancel_range_default() -> LaunchBeyondCancelRange {
 
 fn doomed_set_shots_default() -> DoomedSetShots {
     DoomedSetShots::EveryShot
+}
+
+fn death_spawn_route_default() -> DeathSpawnRoute {
+    DeathSpawnRoute::SlideEnd
 }
 
 /// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE's value: the string "global", or a non-negative number of
@@ -3748,6 +3756,25 @@ calib_enum!(
         /// non-homing shots alone leave it 0 on 2,590 of 2,689 and 2,309 of 2,532 (the rest other shots the records
         /// file under another card). Shipped on both clients (Sim's ruling on parity's r41 proposal, 2026-10-04).
         ClientHomingOnly = "client_homing_only",
+    }
+);
+calib_enum!(
+    /// spawner.DEATH_SPAWN_ROUTE -- see `phase_path16402`'s slide branch: when a sliding death-spawn member (a
+    /// DeathSpawnPushback row's, spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: the Golem's Golemites, the Lava Hound's
+    /// pups) plans its first route.
+    DeathSpawnRoute {
+        /// The engine's: the slide takes no path request; the member plans on its first ordinary update, from where the
+        /// slide left it.
+        SlideEnd = "slide_end",
+        /// It plans on its first slide tick, before the step, from the death point (the slide's centre, the same for every
+        /// member of one death; as a ladder's unit does under knockback.LADDER_PATH_REQUEST = client15535_on_ladder: the
+        /// replan gate's goal cell and its search), keeps the route through the slide and walks it from where the slide
+        /// leaves it. Measured on both clients' raw frames
+        /// (death_spawn_route_census16402.py, death_spawn_route_census15535.py): a Golem's Golemites carry one route from
+        /// their first frame, the same for the pair (16.402: 6 of 6, the parent's own a different list; 15.535.29: 50 of
+        /// 50), and walk to its next cell after the slide (20260919-143305 t3089: from (12884, 26567) toward (10750,
+        /// 27250), where the engine's, planned there, headed for (11750, 27750)).
+        ClientAtBirth = "client_at_birth",
     }
 );
 
@@ -7801,6 +7828,7 @@ impl Calib {
             hit_beyond_cancel_range: pick(&v, &["combat", "HIT_BEYOND_CANCEL_RANGE", "value"], HitBeyondCancelRange::from_calibration_name)?,
             launch_beyond_cancel_range: pick(&v, &["combat", "LAUNCH_BEYOND_CANCEL_RANGE", "value"], LaunchBeyondCancelRange::from_calibration_name)?,
             doomed_set_shots: pick(&v, &["targeting", "DOOMED_SET_SHOTS", "value"], DoomedSetShots::from_calibration_name)?,
+            death_spawn_route: pick(&v, &["spawner", "DEATH_SPAWN_ROUTE", "value"], DeathSpawnRoute::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             variable_damage: pick(&v, &["combat", "VARIABLE_DAMAGE", "value"], VariableDamage::from_calibration_name)?,
             load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
@@ -19905,6 +19933,59 @@ impl BattleState {
                 #[cfg(clash_plant = "death_slide_never")]
                 let sliding = false; // PLANT (regression): the member walks from where it was born.
                 if sliding {
+                    // spawner.DEATH_SPAWN_ROUTE = client_at_birth: a member holding no route plans on its slide tick,
+                    // before the step, from the DEATH POINT (the slide's centre, the same for every member of one death:
+                    // the client's pair carries one route), as a ladder's unit does above: the replan gate's goal cell
+                    // (its target, else its default tower, out of its reach) and its search. The slide keeps the route;
+                    // the member walks it from where the slide leaves it.
+                    // PLANT (regression) death_spawn_route_at_slide_end: the new arm still plans when the slide ends.
+                    #[cfg(not(clash_plant = "death_spawn_route_at_slide_end"))]
+                    let at_birth = calib.death_spawn_route == DeathSpawnRoute::ClientAtBirth;
+                    #[cfg(clash_plant = "death_spawn_route_at_slide_end")]
+                    let at_birth = false;
+                    // A CONTAINER'S RELEASE keeps the engine's: the census measured a ground troop's death spawn (the
+                    // Golem's Golemites), and under the arm sp-form-SkeletonBalloon-evo-s0 lost 610, sp-f2-cagegolem-s0
+                    // 255 and sp-f2-cagefb-s0 144. Told apart by the member's root card (entity.rs `source`, the play
+                    // that put it on the board): a building's release (the Evo Goblin Cage's Brawler) or a flyer's (the
+                    // Evo Skeleton Balloon's Skeletons). The slide's cap does not tell them: a Golemite's is capped too.
+                    let root: &CardDef = self.cfg.cards.get(e.producer(i));
+                    let container = root.kind == CardKind::Building || root.is_flying();
+                    if at_birth && routes[i].is_empty() && !flying && !container {
+                        let card: &CardDef = self.cfg.cards.get(e.card[i]);
+                        if let Some(gid) = e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i)) {
+                            let gi = gid.index as usize;
+                            let walk_own = target::walking_own_radius(calib, card, e.radius[i]);
+                            if !target::in_attack_range(calib, e.pos[i], card.range, walk_own, e.pos[gi], e.radius[gi]) {
+                                let actor = if slide_c[i] != Vec2::default() { (slide_c[i].x / K, slide_c[i].y / K) } else { (bodies[i].x, bodies[i].y) };
+                                let target = if calib.goal_target_position == GoalTargetPosition::CreationOrder { (bodies[gi].x, bodies[gi].y) } else { (e.pos[gi].x / K, e.pos[gi].y / K) };
+                                let goal_cell = path16402::choose_goal_cell(
+                                    &g.terrain,
+                                    &g.occ_cur,
+                                    actor,
+                                    target,
+                                    (card.range + walk_own) / K,
+                                    path2026::avoid_buildings16402(e.flying[gi]),
+                                    g.costs.building,
+                                    true,
+                                );
+                                if let Some((gc, gr)) = goal_cell {
+                                    let (sc, sr) = (actor.0 / path16402::CELL, actor.1 / path16402::CELL);
+                                    segs[i] = Vec2::default();
+                                    if (sc, sr) != (gc, gr) {
+                                        let terrain = &g.terrain;
+                                        let occ = &g.occ_cur;
+                                        let jumper = prices_water(calib, card);
+                                        let cost = |c: i32, r: i32| path16402::cell_cost_for(terrain, occ, c, r, jumper);
+                                        let chain: Vec<i32> = g.pf.find_path(sc, sr, gc, gr, true, &cost).to_vec();
+                                        let cols = arena.cols;
+                                        routes[i] = chain.iter().map(|&n| arena.half_to_subtile_center(n % cols, n / cols)).collect();
+                                    }
+                                    goals[i] = Some(Vec2::new(gc, gr));
+                                    planned[i] = self.scratch.occluder_epoch[e.team[i] as usize];
+                                }
+                            }
+                        }
+                    }
                     let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
                     if !tag_off[i] {
                         move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
@@ -30522,6 +30603,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.DEATH_SPAWN_ROUTE: Calib gained death_spawn_route (serde default the old arm, slide_end), no new
+///    state (the route it plans is the saved route field), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.DOOMED_SET_SHOTS: Calib gained doomed_set_shots (serde default the old arm, every_shot), no
 ///    new state (the doomed set is read off the saved projectiles each tick), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31562,6 +31646,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("launch_beyond_cancel_range".into(), serde_json::to_value(LaunchBeyondCancelRange::Launched).map_err(|e| e.to_string())?);
     // targeting.DOOMED_SET_SHOTS: a format-3 battle's doomed set counted every shot (the same rule).
     sh.insert("doomed_set_shots".into(), serde_json::to_value(DoomedSetShots::EveryShot).map_err(|e| e.to_string())?);
+    // spawner.DEATH_SPAWN_ROUTE: a format-3 battle's sliding members planned when the slide ended (the same rule).
+    sh.insert("death_spawn_route".into(), serde_json::to_value(DeathSpawnRoute::SlideEnd).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
