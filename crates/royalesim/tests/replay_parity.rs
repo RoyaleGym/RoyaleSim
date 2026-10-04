@@ -1111,7 +1111,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.ladder_end_route, LadderEndRoute::Client15535Kept, "a 15.535.29 capture keeps a route through a knockback ladder");
     assert_eq!(cfg.calib.held_facing, HeldFacing::Client15535TowardWaypoint, "a 15.535.29 capture turns a held unit toward its waypoint");
     assert_eq!(cfg.calib.held_unit_avoidance, HeldUnitAvoidance::Scanned, "a 15.535.29 capture scans a held unit");
-    assert_eq!(cfg.calib.doomed_own_update, DoomedOwnUpdate::Client15535KamikazeStays, "a 15.535.29 capture leaves a doomed kamikaze where it stood");
+    assert_eq!(cfg.calib.doomed_own_update, DoomedOwnUpdate::Client15535StruckStays, "a 15.535.29 capture leaves a doomed kamikaze and a struck troop where they stood");
     assert_eq!(cfg.calib.kamikaze_death_contact, KamikazeDeathContact::Client15535AvoidedNotPushed, "a 15.535.29 capture's dying kamikaze pushes nobody");
     assert_eq!(cfg.calib.chase_hold_past_limit, ChaseHoldPastLimit::Client15535TroopsKept, "a 15.535.29 capture's troop holds past the limit");
     assert_eq!(cfg.calib.launch_past_target, LaunchPastTarget::Client15535HomingUnclamped, "a 15.535.29 capture's homing shot starts past a near target");

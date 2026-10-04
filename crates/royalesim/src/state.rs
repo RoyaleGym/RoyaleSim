@@ -8101,6 +8101,22 @@ calib_enum!(
         /// tick found it, a static body to the rest (client 15.535.29: a Battle Ram killed by its own hit lays its
         /// Barbarians on its last point, 29 of 29). Every other doomed troop takes its update as under walks.
         Client15535KamikazeStays = "client15535_kamikaze_stays",
+        /// As client15535_kamikaze_stays, and under match.TICK_ORDER = client_sequential_strike a troop struck down in the
+        /// tick's pass also takes no update of its own when a troop's SINGLE-TARGET strike felled it, or its striker came
+        /// before it in the pass; one felled by a later building's strike (an Inferno Tower's beam) or a later troop's
+        /// SPLASH strike (the striker's row sets AreaDamageRadius) has walked in its own turn. The splash half: Oracle's
+        /// sp-splashkill-Valkyrie-ElixirGolem-v0/v1-s0, the walking Elixir Golem felled by a newer Valkyrie's swing moved
+        /// on its death tick (its halves born 52 and 76 off its last point, a step and its push), where the Mini PEKKA
+        /// control's Golem stayed (2 of 2); sp-hogs-cannon-s0 t440, a Royal Hog felled by a newer Valkyrie, is exact only
+        /// when it walks. Measured
+        /// on client 15.535.29 (parity's struck_step_census.py: every death-spawner due to walk on its death tick, its
+        /// children's centroid against its last point, its killer named): felled by a troop's melee strike it stayed 9 of
+        /// 9 whatever the striker's age (Golems: sp-mph-hits-1..4 t435, a newer Hero Mini PEKKA; sp-f2-cagefb-s0 t928, a
+        /// newer Goblin Brawler; sp-f2-cagegolem-s0 t2350, a newer Evo Goblin Cage; ub-ds1 and ub-ds2 t375, a newer
+        /// Knight; Battle Rams: a newer Knight, an older Mini PEKKA and Prince); felled by an Inferno Tower it stayed when
+        /// the tower was older (ub-ds1/ds2 probes t383, 2 of 2) and stepped when newer (the ub-b1 Elixir Golem probes
+        /// t307, 4 of 4); felled by a landing shot (after the move pass) it stepped (Golems 3 of 3).
+        Client15535StruckStays = "client15535_struck_stays",
     }
 );
 calib_enum!(
@@ -11627,6 +11643,9 @@ struct Scratch {
     /// strike took to 0 hp in this tick's whole-tick pass, with its first striker's creation order. Cleared at the top of
     /// that pass and read by the same tick's move pass (movement.STRUCK_CONTACT_ORDER), so it is not state.
     strike_lethal: Vec<(EntityId, u32)>,
+    /// movement.DOOMED_OWN_UPDATE = client15535_struck_stays: the victims of `strike_lethal` whose first lethal striker was
+    /// a troop striking a single target (no AreaDamageRadius). Cleared and filled with it, so it is not state.
+    strike_lethal_by_troop: Vec<EntityId>,
     /// combat.KAMIKAZE_LAUNCH_PASS = client15535_gone_at_launch: the kamikazes whose own death landed at their launch in
     /// this tick's sequential pass (`phase_attack_for`), left out of the pass-start hitpoints an attacker decides on.
     /// Cleared at the top of that pass, so it is not state.
@@ -22065,7 +22084,17 @@ impl BattleState {
             // stopping them all lost the Tombstone, Skeleton and Hog scenes where a struck troop dies.
             #[cfg(not(clash_plant = "doomed_own_update_kept"))]
             let doomed_stays = calib.dying_unit_visibility == DyingUnitVisibility::ClientDoomedStatic
-                && calib.doomed_own_update == DoomedOwnUpdate::Client15535KamikazeStays;
+                && matches!(calib.doomed_own_update, DoomedOwnUpdate::Client15535KamikazeStays | DoomedOwnUpdate::Client15535StruckStays);
+            // movement.DOOMED_OWN_UPDATE = client15535_struck_stays: a troop struck down in this whole-tick pass also stays
+            // when a troop's strike felled it or its striker came before it (`Scratch::strike_lethal`, `strike_lethal_by_troop`).
+            // PLANT (regression) struck_troop_walks: the new arm still walks a troop a troop struck down.
+            #[cfg(not(clash_plant = "struck_troop_walks"))]
+            let struck_stays = doomed_stays
+                && only.is_none()
+                && calib.doomed_own_update == DoomedOwnUpdate::Client15535StruckStays
+                && calib.tick_order == TickOrder::ClientSequentialStrike;
+            #[cfg(clash_plant = "struck_troop_walks")]
+            let struck_stays = false;
             #[cfg(clash_plant = "doomed_own_update_kept")]
             let doomed_stays = false; // PLANT (regression): the new arm still moves a doomed kamikaze.
             for i in order {
@@ -22085,6 +22114,14 @@ impl BattleState {
                 }
                 if doomed_stays && doomed.get(i).copied().unwrap_or(false) && self.cfg.cards.get(e.card[i]).kamikaze {
                     continue;
+                }
+                if struck_stays {
+                    let id = e.id_of(i);
+                    if let Some(&(_, sq)) = self.scratch.strike_lethal.iter().find(|(v, _)| *v == id) {
+                        if sq < e.creation_seq[i] || self.scratch.strike_lethal_by_troop.contains(&id) {
+                            continue;
+                        }
+                    }
                 }
                 if drops_doomed && doomed.get(i).copied().unwrap_or(false) {
                     // ---- A UNIT DYING THIS TICK (calibration movement.DYING_UNIT_VISIBILITY
@@ -24838,6 +24875,16 @@ impl BattleState {
                                 let id = self.ents.id_of(t);
                                 if !self.scratch.strike_lethal.iter().any(|(v, _)| *v == id) {
                                     self.scratch.strike_lethal.push((id, self.ents.creation_seq[i]));
+                                    // A SPLASH strike (the striker's row sets AreaDamageRadius: a Valkyrie's, a Dark Prince's)
+                                    // is not one of them: its victim stays only by the striker's turn, as a beam's does.
+                                    // PLANT (regression) struck_splash_stays: a splash strike still stops its victim.
+                                    #[cfg(not(clash_plant = "struck_splash_stays"))]
+                                    let single = self.cfg.cards.get(self.ents.card[i]).area_damage_radius == 0;
+                                    #[cfg(clash_plant = "struck_splash_stays")]
+                                    let single = true;
+                                    if self.ents.kind[i] == EntityKind::Troop && single {
+                                        self.scratch.strike_lethal_by_troop.push(id);
+                                    }
                                 }
                             }
                         }
@@ -25509,6 +25556,7 @@ impl BattleState {
     fn phase_target_attack_sequential(&mut self, only: Option<&[usize]>) {
         if only.is_none() {
             self.scratch.strike_lethal.clear();
+            self.scratch.strike_lethal_by_troop.clear();
             self.scratch.launched.clear();
             self.hash.rebuild(&self.ents);
             let mut nb = std::mem::take(&mut self.scratch.nb);
@@ -33808,6 +33856,7 @@ impl BattleState {
 /// 20, unchanged, spawner.SPECTRAL_PARENT_BLOCKER: Calib gained spectral_parent_blocker (serde default the old arm, none),
 ///    no new state (the blockers live inside one Reap), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.DOOMED_OWN_UPDATE gained client15535_struck_stays (a third arm, no new state).
 /// 20, unchanged, spawner.THROWN_UNIT_DEATH_BLOW: Calib gained thrown_unit_death_blow (serde default the old arm, reached),
 ///    no new state (Scratch::thrown lives inside one tick), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
