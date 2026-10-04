@@ -3323,6 +3323,17 @@
       "PushbackAll / IgnorePushback are card data. Everything below is in NO column and in no",
       "globals.csv key of the 2018 or 2023 data sets (docs/spell-spec.md, shared mechanics)."
     ],
+    "RECOIL_ROUTE": {
+      "value": "kept",
+      "candidates": ["kept", "client15535_replanned"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_replanned on client 15.535.29 (16 of 16 Evo Battle Ram impacts: the route dropped on the impact frame, a fresh plan from the recoil's first point on the next); it shows only where the recoil leaves the ram off its line (one scored scene). 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03; ram_impact_route_census.py over every Evo Battle Ram impact in the client 15.535.29 records, a single attack-state frame between walking ones with its recoil ladder after: its path cells on the frame before, the impact frame and the frame after). 16 impacts in 11 scenes (sp-ram-alone, -bldg, -kill, -side+, -side-, the five sp-ram-v-* and sp-ram-w-Knight-3500): the route read empty on the impact frame 16 of 16, and on the next frame a fresh route to the same goal cell from the cell the recoil's first step left the ram in, its next cell never the old route's (3 cells where 1 was left: (3250, 24750) -> (3250, 23750) ... (3250, 24750)). sp-ram-w-Knight-3500-s0 t993: the ram knocked back on a diagonal (-86, -233) held a fresh 3-cell route from (2750, 23250) through the ladder, and at its end (t1007) stepped (37, 113) toward (2750, 23750), where the engine's, its 1-cell route to (2750, 24750) kept, stepped (25, 117): the scene's first divergence (225 lost: the ram's death point and its two Barbarians). In the other ten scenes the recoil runs back down the ram's line and both routes lie on it.",
+      "meaning": "kept: the engine's; an Evo Battle Ram's recoil (knockback.ATTACK_PUSHBACK) leaves its route as it is, the route rides out the ladder (knockback.LADDER_END_ROUTE) and is walked on from where the ladder leaves it. client15535_replanned: the launch drops the route, and the ladder's first step plans a fresh one from where that step leaves the ram to the goal cell it held; that route rides out the ladder and is walked on.",
+      "open": "Whether the plan reads the next tick's occupancy (the client planned on the next frame; the engine plans in the first step's tick); other AttackPushBack rows (none but the Evo Battle Ram's in the records); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_replanned (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs (the launch, after attack_recoil: the route cleared; phase_path16402_for's pushback tick: the fresh plan), selected by Calib::recoil_route; tests/recoil_route.rs."
+    },
     "LADDER_END_ROUTE": {
       "value": "client16402_dropped",
       "status": "measured",

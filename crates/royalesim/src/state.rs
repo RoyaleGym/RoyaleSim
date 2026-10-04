@@ -1078,6 +1078,10 @@ pub struct Calib {
     /// the damage buffer or before them. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AfterHits`.
     #[serde(default = "heal_pulse_landing_default")]
     pub heal_pulse_landing: HealPulseLanding,
+    /// knockback.RECOIL_ROUTE (`attack_recoil`'s caller, `phase_path16402_for`): whether an Evo Battle Ram's recoil
+    /// launch drops its route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
+    #[serde(default = "recoil_route_default")]
+    pub recoil_route: RecoilRoute,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2587,6 +2591,10 @@ fn spectral_parent_blocker_default() -> SpectralParentBlocker {
 
 fn heal_pulse_landing_default() -> HealPulseLanding {
     HealPulseLanding::AfterHits
+}
+
+fn recoil_route_default() -> RecoilRoute {
+    RecoilRoute::Kept
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5360,6 +5368,24 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.RECOIL_ROUTE -- see `phase_path16402_for`: what an Evo Battle Ram's recoil (knockback.ATTACK_PUSHBACK)
+    /// does to the route it charged on.
+    RecoilRoute {
+        /// The engine's: the route rides the recoil's ladder as it is (knockback.LADDER_END_ROUTE), and the ram walks it
+        /// on from where the ladder leaves it.
+        Kept = "kept",
+        /// The launch drops it, and the ladder's first step plans a fresh one from where that step leaves the ram to the
+        /// goal cell it held; that route rides out the ladder and is walked on. Measured on client 15.535.29 (parity's
+        /// ram_impact_route_census.py, every Evo Battle Ram impact in the records, 16 in 11 scenes): the route read
+        /// empty on the impact frame and a fresh one from the recoil's first point on the next, 16 of 16, its next cell
+        /// never the old one's. sp-ram-w-Knight-3500-s0 t993: a 1-cell route to (2750, 24750) gave way to a 3-cell one
+        /// from (2750, 23250), and at the ladder's end (t1007) the ram stepped (37, 113) toward (2750, 23750) where the
+        /// engine's stepped (25, 117) toward its kept cell (the scene's first divergence, 225 lost). Where the recoil
+        /// runs straight back down the ram's line both routes lie on it, and the arms agree.
+        Client15535Replanned = "client15535_replanned",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7673,6 +7699,7 @@ impl Calib {
             thrown_unit_death_blow: pick(&v, &["spawner", "THROWN_UNIT_DEATH_BLOW", "value"], ThrownUnitDeathBlow::from_calibration_name)?,
             spectral_parent_blocker: pick(&v, &["spawner", "SPECTRAL_PARENT_BLOCKER", "value"], SpectralParentBlocker::from_calibration_name)?,
             heal_pulse_landing: pick(&v, &["status", "HEAL_PULSE_LANDING", "value"], HealPulseLanding::from_calibration_name)?,
+            recoil_route: pick(&v, &["knockback", "RECOIL_ROUTE", "value"], RecoilRoute::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -19463,6 +19490,27 @@ impl BattleState {
                     pushed[i] = true;
                     push_speed[i] = rem;
                     push_active[i] = rem >= 0;
+                    // knockback.RECOIL_ROUTE = client15535_replanned: an Evo Battle Ram whose recoil launch dropped its
+                    // route plans afresh here, on its ladder's first step, from where the step leaves it to the goal cell
+                    // it held (the client's route read empty on the impact frame and fresh from that point on the next).
+                    if calib.recoil_route == RecoilRoute::Client15535Replanned && !flying && routes[i].is_empty() && self.evo.ram_recoiling(e.id_of(i)) {
+                        if let Some(gv) = goals[i] {
+                            let (gc, gr) = (gv.x, gv.y);
+                            let (sc, sr) = (bodies[i].x / path16402::CELL, bodies[i].y / path16402::CELL);
+                            if (sc, sr) != (gc, gr) {
+                                let card: &CardDef = self.cfg.cards.get(e.card[i]);
+                                let terrain = &g.terrain;
+                                let occ = &g.occ_cur;
+                                let jumper = prices_water(calib, card);
+                                let cost = |c: i32, r: i32| path16402::cell_cost_for(terrain, occ, c, r, jumper);
+                                let chain: Vec<i32> = g.pf.find_path(sc, sr, gc, gr, true, &cost).to_vec();
+                                let cols = arena.cols;
+                                routes[i] = chain.iter().map(|&n| arena.half_to_subtile_center(n % cols, n / cols)).collect();
+                                segs[i] = Vec2::default();
+                                planned[i] = self.scratch.occluder_epoch[e.team[i] as usize];
+                            }
+                        }
+                    }
                     // knockback.LADDER_END_ROUTE = client15535_kept: the route waits out the ladder as it is and the unit
                     // walks it on (client 15.535.29: 135 of 154 ladders); client16402_dropped: the path is dropped the tick
                     // the ladder ends, and the replan gate finds it empty next tick.
@@ -21946,6 +21994,16 @@ impl BattleState {
                     let (me, pushed) = (self.ents.id_of(i), self.ents.push_active[i]);
                     if let Some(r) = self.evo.rams.iter_mut().find(|r| r.id == me) {
                         r.recoil = pushed;
+                    }
+                    // knockback.RECOIL_ROUTE = client15535_replanned: the launch drops the ram's route; its ladder's first
+                    // step plans a fresh one (`phase_path16402_for`).
+                    // PLANT (regression) recoil_route_kept: the new arm's launch still keeps it.
+                    #[cfg(not(clash_plant = "recoil_route_kept"))]
+                    let drops = self.cfg.calib.recoil_route == RecoilRoute::Client15535Replanned;
+                    #[cfg(clash_plant = "recoil_route_kept")]
+                    let drops = false;
+                    if drops && pushed && self.evo.ram_recoiling(me) {
+                        self.ents.route[i].clear();
                     }
                 }
                 // combat.ATTACK_SELECT_MOMENT = at_swing_start: the hit ends this swing and starts the next, whose entry is
@@ -30077,6 +30135,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.RECOIL_ROUTE: Calib gained recoil_route (serde default the old arm, kept), no new state
+///    (the dropped route and the fresh one are the entity's route, already saved), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.HEAL_PULSE_LANDING: Calib gained heal_pulse_landing (serde default the old arm, after_hits), no
 ///    new state (the heals live inside one tick), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -31063,6 +31124,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spectral_parent_blocker".into(), serde_json::to_value(SpectralParentBlocker::None).map_err(|e| e.to_string())?);
     // status.HEAL_PULSE_LANDING: a format-3 battle landed its heals after the hits (the same rule).
     sh.insert("heal_pulse_landing".into(), serde_json::to_value(HealPulseLanding::AfterHits).map_err(|e| e.to_string())?);
+    // knockback.RECOIL_ROUTE: a format-3 battle ran no Evo Battle Ram (the same rule).
+    sh.insert("recoil_route".into(), serde_json::to_value(RecoilRoute::Kept).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

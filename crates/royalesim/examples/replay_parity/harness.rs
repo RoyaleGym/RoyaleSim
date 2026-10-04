@@ -1588,6 +1588,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   dying soldiers as static blockers (the client's first frames turn where the engine's walked straight).
 ///   status.HEAL_PULSE_LANDING = client15535_before_buffered_hits: a buff's heal pulse lands before the tick's buffered
 ///   hits (a full Recruit's Heal Spirit pulse lost before a tower's arrow; a melee strike, landed at once, still before it).
+///   knockback.RECOIL_ROUTE = client15535_replanned: an Evo Battle Ram's recoil drops its route and its ladder's first
+///   step plans a fresh one (16 of 16 impacts).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
@@ -1663,6 +1665,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.THROWN_UNIT_DEATH_BLOW", "\"client15535_unreached\""),
     ("spawner.SPECTRAL_PARENT_BLOCKER", "\"client15535_static\""),
     ("status.HEAL_PULSE_LANDING", "\"client15535_before_buffered_hits\""),
+    ("knockback.RECOIL_ROUTE", "\"client15535_replanned\""),
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
 ];
 
