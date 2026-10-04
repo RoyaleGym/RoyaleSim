@@ -7,6 +7,10 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
 
 - `state_json()`: each player gains `deck`, the side's eight card ids as set up, and `forms`, parallel to it (0 the
   card itself, 1 its evolution, 2 its hero form). A battle restored with `load` reports them too.
+- Battle logic: troops now see a crown tower from their full sight range (their own size was left out before), and
+  units made by the Evo Goblin Drill and the Hero Goblins' flag wait before they can be targeted. Also champion
+  dashes, hero buttons, Hunter pellets on buildings, kamikaze launches, line formations, troop placement ties and Evo
+  Skeleton Army spectrals, as measured in the game.
 
 ## 0.1.8 (2026-10-03)
 
