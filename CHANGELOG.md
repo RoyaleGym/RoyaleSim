@@ -3,6 +3,15 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.12 (2026-10-04)
+
+- No change to installing or calling the engine.
+- Battle logic: a Hunter's pellets now reach a building's square, not only the circle inside it, and the engine
+  draws its random delays (the Hunter's pellets) the way the game does, as measured in both clients.
+- New per-client rules for replays of the 15.535.29 client: death bombs and paths, line formations, Evo Hunter nets,
+  Evo Electro Dragon hops, the Evo Archer's far shot, Skeleton King souls, knockback ladders and recoil, heal pulses,
+  Evo Skeleton Army spectrals, thrown units, kamikaze launches, held presses and the Monk's deflect.
+
 ## 0.1.11 (2026-10-04)
 
 - The source package (sdist) now carries LICENSE, so PyPI accepts it.
