@@ -1082,6 +1082,10 @@ pub struct Calib {
     /// launch drops its route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
     #[serde(default = "recoil_route_default")]
     pub recoil_route: RecoilRoute,
+    /// knockback.LADDER_PATH_REQUEST (`phase_path16402_for`'s pushback tick): whether a unit on a knockback ladder with no
+    /// route asks for one. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `LadderEnd`.
+    #[serde(default = "ladder_path_request_default")]
+    pub ladder_path_request: LadderPathRequest,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2595,6 +2599,10 @@ fn heal_pulse_landing_default() -> HealPulseLanding {
 
 fn recoil_route_default() -> RecoilRoute {
     RecoilRoute::Kept
+}
+
+fn ladder_path_request_default() -> LadderPathRequest {
+    LadderPathRequest::LadderEnd
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5386,6 +5394,29 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.LADDER_PATH_REQUEST -- see `phase_path16402_for`: when a unit a knockback ladder carries, and that holds
+    /// no route, asks for one.
+    LadderPathRequest {
+        /// The engine's: the pushback tick asks for no path, so a unit with none plans when its ladder ends, from where
+        /// the ladder leaves it.
+        LadderEnd = "ladder_end",
+        /// On every ladder tick, as a walking unit would: its target (or its default tower) out of its reach, not
+        /// deploying, not held by its attack, a stun or a freeze, it takes the replan gate's goal cell from where it stands
+        /// before the tick's step and plans when it holds no route or that cell moved (a new target); a route whose goal
+        /// cell holds rides out the ladder as it is (knockback.LADDER_END_ROUTE). The ladder still takes the step. Measured on client 15.535.29 (parity's
+        /// ladder_plan_census.py, every knockback ladder in the records): of the ladders whose unit held no route going
+        /// in and planned while in walk state, 87 of 111 planned on their first walking frame (24 later: Sparky recoils
+        /// and Ice Golemites); 25 walked with no route (no plan due) and 29 never walked (deploying, attacking through
+        /// it). sp-champ-Monk-nopress-s0 t252: a Knight attacking the Monk (no route) knocked back by his hit held a
+        /// 1-cell route from t253 and at the ladder's end (t265) stepped (-32, -50) along it, where the engine's, no
+        /// route through the ladder, planned 2 cells there and stepped (15, -57) (the scene's first divergence).
+        /// sp-form-Bowler-hero-nopress-s0 t223-t234: a Musketeer knocked out of its attack on the Hero Bowler read a
+        /// 1-cell route on t224 and, its target switched to a tower on t228, a 14-cell one from there, walked on at the
+        /// ladder's end; the engine's planned 13 cells at the end and stepped (39, -45) where the client's took (48, -35).
+        Client15535OnLadder = "client15535_on_ladder",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7700,6 +7731,7 @@ impl Calib {
             spectral_parent_blocker: pick(&v, &["spawner", "SPECTRAL_PARENT_BLOCKER", "value"], SpectralParentBlocker::from_calibration_name)?,
             heal_pulse_landing: pick(&v, &["status", "HEAL_PULSE_LANDING", "value"], HealPulseLanding::from_calibration_name)?,
             recoil_route: pick(&v, &["knockback", "RECOIL_ROUTE", "value"], RecoilRoute::from_calibration_name)?,
+            ladder_path_request: pick(&v, &["knockback", "LADDER_PATH_REQUEST", "value"], LadderPathRequest::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -19444,6 +19476,57 @@ impl BattleState {
                         }
                         dash_state[i] = DashState::None;
                     }
+                    // knockback.LADDER_PATH_REQUEST = client15535_on_ladder: a unit on its ladder asks for a path as a walking
+                    // unit would -- its target (or its default tower) out of its reach, not deploying, not held by its
+                    // attack, a stun or a freeze -- from where it stands before this tick's step: the replan gate's goal
+                    // cell, and its search when the unit holds no route or its goal cell moved (a new target). A route whose
+                    // goal cell holds rides the ladder as it is (knockback.LADDER_END_ROUTE). The ladder still takes the step.
+                    // PLANT (regression) ladder_plans_at_end: the new arm still plans only when the ladder ends.
+                    #[cfg(not(clash_plant = "ladder_plans_at_end"))]
+                    let asks = calib.ladder_path_request == LadderPathRequest::Client15535OnLadder;
+                    #[cfg(clash_plant = "ladder_plans_at_end")]
+                    let asks = false;
+                    let still = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 || e.held(&self.cfg.cards.buffs, i, calib.full_stop_buff_is_stun);
+                    if asks && !flying && !deploying && !still {
+                        let card: &CardDef = self.cfg.cards.get(e.card[i]);
+                        if let Some(gid) = e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i)) {
+                            let gi = gid.index as usize;
+                            let walk_own = target::walking_own_radius(calib, card, e.radius[i]);
+                            let own = if goals[i].is_some() { walk_own } else { e.radius[i] };
+                            if !target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]) {
+                                let actor = (bodies[i].x, bodies[i].y);
+                                let target = if calib.goal_target_position == GoalTargetPosition::CreationOrder { (bodies[gi].x, bodies[gi].y) } else { (e.pos[gi].x / K, e.pos[gi].y / K) };
+                                let goal_cell = path16402::choose_goal_cell(
+                                    &g.terrain,
+                                    &g.occ_cur,
+                                    actor,
+                                    target,
+                                    (card.range + walk_own) / K,
+                                    path2026::avoid_buildings16402(e.flying[gi]),
+                                    g.costs.building,
+                                    true,
+                                );
+                                let due = routes[i].is_empty() || goals[i] != goal_cell.map(|(c, r)| Vec2::new(c, r));
+                                if let Some((gc, gr)) = goal_cell.filter(|_| due) {
+                                    let (sc, sr) = (actor.0 / path16402::CELL, actor.1 / path16402::CELL);
+                                    routes[i].clear();
+                                    segs[i] = Vec2::default();
+                                    if (sc, sr) != (gc, gr) {
+                                        let terrain = &g.terrain;
+                                        let occ = &g.occ_cur;
+                                        let jumper = prices_water(calib, card);
+                                        let cost = |c: i32, r: i32| path16402::cell_cost_for(terrain, occ, c, r, jumper);
+                                        let chain: Vec<i32> = g.pf.find_path(sc, sr, gc, gr, true, &cost).to_vec();
+                                        let cols = arena.cols;
+                                        routes[i] = chain.iter().map(|&n| arena.half_to_subtile_center(n % cols, n / cols)).collect();
+                                        segs[i] = Vec2::default();
+                                    }
+                                    goals[i] = Some(Vec2::new(gc, gr));
+                                    planned[i] = self.scratch.occluder_epoch[e.team[i] as usize];
+                                }
+                            }
+                        }
+                    }
                     // ---- 0. THE PUSHBACK TICK (taken before any path request or walk
                     // while the ladder is armed -- and before the stun / freeze hold
                     // below: the ladder tests no hold and no state, so a stunned unit
@@ -30135,6 +30218,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.LADDER_PATH_REQUEST: Calib gained ladder_path_request (serde default the old arm,
+///    ladder_end), no new state (the plan is the entity's route, already saved), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.RECOIL_ROUTE: Calib gained recoil_route (serde default the old arm, kept), no new state
 ///    (the dropped route and the fresh one are the entity's route, already saved), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31126,6 +31212,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("heal_pulse_landing".into(), serde_json::to_value(HealPulseLanding::AfterHits).map_err(|e| e.to_string())?);
     // knockback.RECOIL_ROUTE: a format-3 battle ran no Evo Battle Ram (the same rule).
     sh.insert("recoil_route".into(), serde_json::to_value(RecoilRoute::Kept).map_err(|e| e.to_string())?);
+    // knockback.LADDER_PATH_REQUEST: a format-3 battle planned at its ladders' ends (the same rule).
+    sh.insert("ladder_path_request".into(), serde_json::to_value(LadderPathRequest::LadderEnd).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

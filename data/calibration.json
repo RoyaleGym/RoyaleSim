@@ -3334,6 +3334,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_replanned (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs (the launch, after attack_recoil: the route cleared; phase_path16402_for's pushback tick: the fresh plan), selected by Calib::recoil_route; tests/recoil_route.rs."
     },
+    "LADDER_PATH_REQUEST": {
+      "value": "ladder_end",
+      "candidates": ["ladder_end", "client15535_on_ladder"],
+      "status": "measured",
+      "confidence": "MEDIUM-LOW for client15535_on_ladder on client 15.535.29: 87 of 111 ladders whose unit held no route and walked planned on their first walking frame; the 24 later ones are not explained; the engine plans with the ladder tick's own position and occupancy. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03; ladder_plan_census.py over every knockback ladder in the client 15.535.29 records, a unit's steps shrinking by 15..35 a tick for four or more ticks from 100 or more: its path length on the frame before, through the ladder and after it, and its state). Units holding a route going in: kept or its suffix 178, dropped 4, grew 3 (knockback.LADDER_END_ROUTE). Units holding none: planned on the first frame they read walking 87, later 24 (Sparky recoils planning 2 to 4 frames on, Ice Golemites at the ladder's end), walking with no plan 25, never walking 29 (deploying Skeleton Army, units attacking through it). sp-champ-Monk-nopress-s0 t252: a Knight attacking the Monk (no route) took his knockback hit; it read walking with a 1-cell route from t253 and at the ladder's end (t265) stepped (-32, -50) along it, where the engine's, no route through the ladder, planned 2 cells at its end and stepped (15, -57): the scene's first divergence (176 lost). sp-form-Bowler-hero-nopress-s0 t223-t234: a Musketeer knocked out of its attack on the Hero Bowler read a 1-cell route on t224 and, its target switched to a tower on t228, a 14-cell one from there, walked on at the ladder's end; the engine's planned 13 cells at the end and stepped (39, -45) where the client's took (48, -35).",
+      "meaning": "ladder_end: the engine's; a pushback tick asks for no path, so a unit holding none plans when its ladder ends, from where the ladder leaves it. client15535_on_ladder: on each ladder tick a unit whose target (or default tower) is out of its reach, not deploying and not held by its attack, a stun or a freeze, takes the replan gate's goal cell from where it stands before the tick's step and plans (the gate's search) when it holds no route or that cell moved (a new target); a route whose goal cell holds rides out the ladder as it is (knockback.LADDER_END_ROUTE); the ladder still takes the step.",
+      "open": "The 24 later plans (a Sparky's own recoil plans 2 to 4 frames on); flyers (not planned here); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_on_ladder (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (the pushback tick's `asks` block), selected by Calib::ladder_path_request; tests/ladder_path_request.rs."
+    },
     "LADDER_END_ROUTE": {
       "value": "client16402_dropped",
       "status": "measured",
