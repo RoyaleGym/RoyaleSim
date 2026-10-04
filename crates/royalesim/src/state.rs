@@ -1111,6 +1111,10 @@ pub struct Calib {
     /// the place `line_centre` found. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Tap`.
     #[serde(default = "line_lane_default")]
     pub line_lane: LineLane,
+    /// pathfinding.DEATH_BOMB_OBSTACLE (`build_obstacles`): whether a death bomb on its fuse is an obstacle to route
+    /// planning. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
+    #[serde(default = "death_bomb_obstacle_default")]
+    pub death_bomb_obstacle: DeathBombObstacle,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2652,6 +2656,10 @@ fn net_launch_default() -> NetLaunch {
 
 fn line_lane_default() -> LineLane {
     LineLane::Tap
+}
+
+fn death_bomb_obstacle_default() -> DeathBombObstacle {
+    DeathBombObstacle::None
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5563,6 +5571,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// pathfinding.DEATH_BOMB_OBSTACLE -- see `build_obstacles`: what a death bomb on its fuse (a dying Bomb Tower's, Giant
+    /// Skeleton's or Balloon's: card.rs `convert_death_bomb`, a timed impact with no entity) is to route planning.
+    DeathBombObstacle {
+        /// The engine's: nothing; routes are planned through it.
+        None = "none",
+        /// A building of its row's CollisionRadius (450) where it lies, for every plan made while its fuse burns (the
+        /// rows are BUILDING rows, IsBuilding; the Skeleton King's souls already read a fused bomb as one, `soul_point_refused`).
+        /// Measured on client 15.535.29 (bomb_obstacle_census.py): every route planned in a fuse that a straight line would
+        /// have taken through the bomb's cells went round them, 3 of 3 (sp-bridge-Giant-split-s0's Giant t432 around a Bomb
+        /// Tower's, il-b5e2's Skeletons t3388 around a Giant Skeleton's, il-323a's Skeleton King t3359 around a Balloon's);
+        /// after the blast routes cross the cells.
+        Client15535FusedBuilding = "client15535_fused_building",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7887,6 +7910,7 @@ impl Calib {
             launch_beyond_position: pick(&v, &["targeting", "LAUNCH_BEYOND_POSITION", "value"], LaunchBeyondPosition::from_calibration_name)?,
             net_launch: pick(&v, &["combat", "NET_LAUNCH", "value"], NetLaunch::from_calibration_name)?,
             line_lane: pick(&v, &["formation", "LINE_LANE", "value"], LineLane::from_calibration_name)?,
+            death_bomb_obstacle: pick(&v, &["pathfinding", "DEATH_BOMB_OBSTACLE", "value"], DeathBombObstacle::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -16362,6 +16386,27 @@ impl BattleState {
                 h.i32(o.radius);
             }
             self.scratch.occluder_epoch[t as usize] = h.finish() as u32;
+        }
+        // pathfinding.DEATH_BOMB_OBSTACLE = client15535_fused_building: each death bomb on its fuse is a building obstacle
+        // of its row's CollisionRadius where it lies, seen by every plan made while it burns. Added after the epoch: a
+        // bomb is no friendly building entering the world (replan trigger 2 is measured on entities), so it arms no replan
+        // by itself. Its id names no entity (u32::MAX less its place in the spell list), so no mover ignores it as a target.
+        // PLANT (regression) death_bomb_never_blocks: the new arm still plans through a fused bomb.
+        #[cfg(not(clash_plant = "death_bomb_never_blocks"))]
+        if self.cfg.calib.death_bomb_obstacle == DeathBombObstacle::Client15535FusedBuilding {
+            let [blue, red] = &mut self.scratch.obstacles;
+            for (k, sp) in self.spells.iter().enumerate() {
+                let spell::SpellMotion::Flight { pos, delay_ms, .. } = sp.motion else { continue };
+                let c = self.cfg.cards.get(sp.card);
+                if delay_ms <= 0 || c.death_bomb_fuse_ms().is_none() || c.collision_radius <= 0 {
+                    continue;
+                }
+                let shape = arena.building_shape(model, pos, c.collision_radius, None);
+                let id = EntityId { index: u32::MAX - k as u32, generation: 0 };
+                let key: path::YieldKey = (u32::MAX, sp.card, sp.level, 0, k as u32);
+                blue.push(Obstacle { id, shape, radius: c.collision_radius, key, ally: sp.team == Team::Blue });
+                red.push(Obstacle { id, shape: shape.rotated(arena.width, arena.height), radius: c.collision_radius, key, ally: sp.team == Team::Red });
+            }
         }
     }
 
@@ -30416,6 +30461,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, pathfinding.DEATH_BOMB_OBSTACLE: Calib gained death_bomb_obstacle (serde default the old arm, none), no
+///    new state (the obstacle list is rebuilt from the saved spells each tick), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, formation.LINE_LANE: Calib gained line_lane (serde default the old arm, tap), no new state (it
 ///    decides where members are laid, once), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
 ///    a migrated battle at the old arm.
@@ -31441,6 +31489,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("net_launch".into(), serde_json::to_value(NetLaunch::ExtraAndWait).map_err(|e| e.to_string())?);
     // formation.LINE_LANE: a format-3 battle laid its lines on the tap's lane (the same rule).
     sh.insert("line_lane".into(), serde_json::to_value(LineLane::Tap).map_err(|e| e.to_string())?);
+    // pathfinding.DEATH_BOMB_OBSTACLE: a format-3 battle planned through its bombs (the same rule).
+    sh.insert("death_bomb_obstacle".into(), serde_json::to_value(DeathBombObstacle::None).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm

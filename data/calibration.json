@@ -1019,6 +1019,17 @@
     }
   },
   "pathfinding": {
+    "DEATH_BOMB_OBSTACLE": {
+      "value": "none",
+      "candidates": ["none", "client15535_fused_building"],
+      "status": "measured",
+      "confidence": "LOW for client15535_fused_building on client 15.535.29: 3 of 3 routes planned during a fuse that a straight line would have taken through the bomb's cells went round them, one of each bomb (Bomb Tower, Giant Skeleton, Balloon); no route planned in a fuse crossed a bomb. Three events. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-04) on client 15.535.29's raw frames (bomb_obstacle_census.py: each Bomb Tower, Giant Skeleton or Balloon that leaves the frames on tick D, the bomb lying where it was last seen; each ground troop whose route is new on a tick in [D, D + 120], its route the path_nodes the frame records, half-tile cells of the 36-column grid; the bomb's cells those whose centre lies within 450 of it). Inside the fuse (P - D < 60), every route whose straight line to its end crosses the cells went round them: sp-bridge-Giant-split-s0 (the Bomb Tower dead on t426, the Giant's t432 route (3250, 21750) -> (2750, 22250) -> (2750, 22750) -> (2750, 23250) -> (3250, 23750), one column left of the bomb's cells x 3000-4000, y 22000-23000; the engine's went straight up x 3250 and parted from t449, the scene's 145 lost unit-ticks), sp-il-b5e2a9dd (Skeletons t3388, a Giant Skeleton's bomb from t3382) and sp-il-323a3e1a (the Skeleton King t3359, a Balloon's from t3302). Not the dead building's footprint: dead_footprint_census.py, routes cross a dead building's cells from the tick after (41 the next tick, 88 six ticks on). The bomb rows are BUILDING rows (IsBuilding, CollisionRadius 450, DeployTime 3000 the fuse) the frames do not list; the engine loads them as a timed impact with no entity (card.rs convert_death_bomb). The census's four 'hero Balloon' crossings are the Hero Balloon's thrown Skeletrooper (its card id), not a bomb.",
+      "meaning": "none: the engine's; a death bomb (card.rs convert_death_bomb) is a timed impact and route planning does not see it. client15535_fused_building: while its fuse burns it is a building obstacle of its row's CollisionRadius where it lies (state.rs build_obstacles), for every plan made in that time; it arms no replan by itself.",
+      "open": "Whether a fused bomb also stops movement (a static body to the move pass), and whether it arms a replan when it lands; the Skeleton Barrel's container; the Hero Balloon's own bomb (none met); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_fused_building (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs build_obstacles, selected by Calib::death_bomb_obstacle; tests/death_bomb_obstacle.rs."
+    },
     "HELD_PRESS_ROUTE": {
       "value": "kept",
       "candidates": ["kept", "client15535_replanned"],
