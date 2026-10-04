@@ -106,10 +106,12 @@ def test_under_a_mirrored_shuffle_each_card_keeps_its_own_level(royalesim):
         slot = next((k for k, c in enumerate(hand) if DECK[c] != "Fireball" and c not in played), None)
         if slot is None:
             break
-        played.append(hand[slot])
-        b.step([(0, slot, 9000 * sub, (6000 + 1500 * len(played)) * sub)], 1)
+        card_id = hand[slot]
+        r = b.step([(0, slot, 9000 * sub, (6000 + 1500 * len(played)) * sub)], 1)
+        if r[0][1] == 0:  # only plays the engine took (a play past the elixir held is refused)
+            played.append(card_id)
         b.step([], 40)
     v = json.loads(b.state_json())
     seen = {e[card]: e[lvl_f] for e in v["entities"] if e[team_f] == 0 and e[slot_f] < 0}
-    assert played, "scene: no troop card was played"
+    assert len(played) >= 3, f"scene: only {played} were played; the check needs several cards"
     assert all(seen.get(c) == level_of[c] for c in played), (played, seen, level_of)
