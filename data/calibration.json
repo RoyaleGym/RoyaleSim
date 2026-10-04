@@ -4305,6 +4305,17 @@
       "promotion_rules": "Settled by the measurement above.",
       "engine": "state.rs Calib::spawner_spawned_deploy_time, read by BattleState::spawner_pass"
     },
+    "SPECTRAL_PARENT_BLOCKER": {
+      "value": "none",
+      "candidates": ["none", "client15535_static"],
+      "status": "measured",
+      "confidence": "LOW-MEDIUM for client15535_static on client 15.535.29: the client's Spectrals born walking turn on their first frame where the engine's walk straight (14 of 16 in two scenes); the emulated scan with the dying soldier static gives the client's sign on 30 of 37 when run at the first-frame point, and the engine runs it at the birth point; the batch's isolation decides. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03; spectral_turn_census.py over the 37 Spectrals born walking in sp-form-SkeletonArmy-evo-s0, sp-esa-spectrals-s0 and sp-il-b5e2: the engine's avoidance scan emulated on the client's bodies under each variant of where the Spectral stands, which frame's bodies it meets and whether its dying soldier is one of them; best: at the first-frame point, the frame before's bodies, its dying soldier static: 30 of 37, 29 with the tick's other dead static too). On the r37 stack the engine's first frames: sp-esa-spectrals-s0 11 turned in the client where the engine went straight, 2 straight in both, 3 the same turn; sp-form-SkeletonArmy-evo-s0 3 of 3 turned in the client, straight in the engine. sp-esa-spectrals-s0 t829: the Spectral 63 on the dying soldier 56's point stepped (-16, -58) with offset -190 where the engine's stepped (-58, -12); the next tick its push moved the soldiers 57 and 58 (that scene's t830 contact onset).",
+      "meaning": "none: the engine's; a Spectral's first update (spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick) meets none of the tick's dead, so it walks straight. client15535_static: every soldier dying on that tick is a static blocker of its first avoidance scan, on the soldier's point and layer, as a death spawn's dying parent is.",
+      "open": "The 7 of 37 the census misses (the parent carrying its own offset); the scan's point (birth or first frame); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_static (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs army_deaths (SpectralToMake's soldier radius and layer) and army_spectrals (`blockers` to `first_update`), selected by Calib::spectral_parent_blocker; tests/spectral_parent_blocker.rs."
+    },
     "SPECTRAL_FIRST_UPDATE": {
       "value": "none",
       "candidates": ["none", "client15535_same_tick"],

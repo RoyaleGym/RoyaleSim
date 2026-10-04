@@ -1070,6 +1070,10 @@ pub struct Calib {
     /// the unit it puts down. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Reached`.
     #[serde(default = "thrown_unit_death_blow_default")]
     pub thrown_unit_death_blow: ThrownUnitDeathBlow,
+    /// spawner.SPECTRAL_PARENT_BLOCKER (`army_spectrals`): whether an Evo Skeleton Army Spectral's first update meets the
+    /// tick's dying soldiers as static blockers. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
+    #[serde(default = "spectral_parent_blocker_default")]
+    pub spectral_parent_blocker: SpectralParentBlocker,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2571,6 +2575,10 @@ fn held_press_route_default() -> HeldPressRoute {
 
 fn thrown_unit_death_blow_default() -> ThrownUnitDeathBlow {
     ThrownUnitDeathBlow::Reached
+}
+
+fn spectral_parent_blocker_default() -> SpectralParentBlocker {
+    SpectralParentBlocker::None
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5306,6 +5314,25 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.SPECTRAL_PARENT_BLOCKER -- see `army_spectrals`: what an Evo Skeleton Army Spectral's first update (under
+    /// spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick) meets of the soldiers that died on its tick.
+    SpectralParentBlocker {
+        /// The engine's: none of them (they are gone before it steps), so it walks straight on its first frame.
+        None = "none",
+        /// Every soldier dying on the tick, a static blocker of its first avoidance scan on the soldier's own point and
+        /// layer, as a death spawn's dying parent is (`dying_blockers`). Measured on client 15.535.29 (parity's
+        /// spectral_turn_census.py over the 37 Spectrals born walking in sp-form-SkeletonArmy-evo-s0, sp-esa-spectrals-s0
+        /// and sp-il-b5e2: the avoidance scan emulated on the client's bodies): their first frames turn (offset +-190)
+        /// where the engine's walk straight (sp-esa-spectrals-s0 11 of 13 births, sp-form-SkeletonArmy-evo-s0 3 of 3),
+        /// and the scan meeting its dying soldier as a static body gives the client's sign on 30 of 37 (29 with the
+        /// tick's other dead static too). sp-esa-spectrals-s0 t829: the Spectral 63, the soldier 56 dying on its point,
+        /// stepped (-16, -58) with offset -190 where the engine's walked (-58, -12); its push then moved two soldiers
+        /// (the scene's t830 contact onset). LOW-MEDIUM: the census ran the scan at the first-frame point; the engine's
+        /// runs it at the birth point, on the soldier.
+        Client15535Static = "client15535_static",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7617,6 +7644,7 @@ impl Calib {
             deflect_contact: pick(&v, &["movement", "DEFLECT_CONTACT", "value"], DeflectContact::from_calibration_name)?,
             held_press_route: pick(&v, &["pathfinding", "HELD_PRESS_ROUTE", "value"], HeldPressRoute::from_calibration_name)?,
             thrown_unit_death_blow: pick(&v, &["spawner", "THROWN_UNIT_DEATH_BLOW", "value"], ThrownUnitDeathBlow::from_calibration_name)?,
+            spectral_parent_blocker: pick(&v, &["spawner", "SPECTRAL_PARENT_BLOCKER", "value"], SpectralParentBlocker::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -8769,7 +8797,8 @@ pub const CHAIN_SUB_STEP: i32 = 250;
 
 /// A Spectral the Evo Skeleton Army's deaths leave (`army_deaths`, `army_spectrals`): its side, its card, its level, its
 /// point and its group.
-type SpectralToMake = (Team, u16, i32, Vec2, u32);
+/// (team, the Spectral's unit, level, the soldier's point, its group, the soldier's radius, whether it flies).
+type SpectralToMake = (Team, u16, i32, Vec2, u32, i32, bool);
 
 /// AN EVO ROYAL HOG'S FALL (card.rs `FallDef`; `fall_pass`): the hog, its flying row, and the tick it lands (None
 /// while it flies untriggered). Saved and hashed (`BattleState::falls`, only when not empty).
@@ -24986,7 +25015,7 @@ impl BattleState {
                     continue;
                 }
                 if let Some(a) = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.army) {
-                    make.push((self.ents.team[i], a.spectral.unit, self.ents.level[i], self.ents.pos[i], m.group));
+                    make.push((self.ents.team[i], a.spectral.unit, self.ents.level[i], self.ents.pos[i], m.group, self.ents.radius[i], self.ents.flying[i]));
                 }
             }
         }
@@ -25011,7 +25040,20 @@ impl BattleState {
     /// update (`first_update`), the tick's Spectrals together, meeting none of the tick's dead (their own soldiers).
     fn army_spectrals(&mut self, make: Vec<SpectralToMake>) {
         let mut fresh: Vec<usize> = Vec::new();
-        for (team, card, level, pos, group) in make {
+        // spawner.SPECTRAL_PARENT_BLOCKER = client15535_static: the tick's dying soldiers, static blockers of the first
+        // avoidance scan on their own points and layers (`first_update`, as a death spawn's parent is).
+        // PLANT (regression) spectral_parent_unseen: the new arm's first update still meets none of them.
+        #[cfg(not(clash_plant = "spectral_parent_unseen"))]
+        let blocks = self.cfg.calib.spectral_parent_blocker == SpectralParentBlocker::Client15535Static;
+        #[cfg(clash_plant = "spectral_parent_unseen")]
+        let blocks = false;
+        let blockers: Vec<(i32, i32, i32, u8, bool)> = if blocks {
+            use crate::fixed::SUBTILE_PER_MILLITILE as K;
+            make.iter().map(|&(team, _, _, pos, _, r, air)| (pos.x / K, pos.y / K, r / K, team as u8, air)).collect()
+        } else {
+            Vec::new()
+        };
+        for (team, card, level, pos, group, _, _) in make {
             let Ok(id) = self.spawn_now(team, card, level, pos, EntityKind::Troop) else { continue };
             let j = id.index as usize;
             self.ents.deploy_ms[j] = 0;
@@ -25033,7 +25075,7 @@ impl BattleState {
         #[cfg(clash_plant = "spectral_stands_first_tick")]
         let steps = false;
         if steps && !fresh.is_empty() {
-            self.first_update(&fresh, false, &[], &[]);
+            self.first_update(&fresh, false, &blockers, &[]);
         }
         let ents = &self.ents;
         self.evo.armies.retain(|m| ents.is_alive(m.id));
@@ -29996,6 +30038,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.SPECTRAL_PARENT_BLOCKER: Calib gained spectral_parent_blocker (serde default the old arm, none),
+///    no new state (the blockers live inside one Reap), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.THROWN_UNIT_DEATH_BLOW: Calib gained thrown_unit_death_blow (serde default the old arm, reached),
 ///    no new state (Scratch::thrown lives inside one tick), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -30972,6 +31017,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("held_press_route".into(), serde_json::to_value(HeldPressRoute::Kept).map_err(|e| e.to_string())?);
     // spawner.THROWN_UNIT_DEATH_BLOW: a format-3 battle ran no hero (the same rule).
     sh.insert("thrown_unit_death_blow".into(), serde_json::to_value(ThrownUnitDeathBlow::Reached).map_err(|e| e.to_string())?);
+    // spawner.SPECTRAL_PARENT_BLOCKER: a format-3 battle ran no Evo Skeleton Army (the same rule).
+    sh.insert("spectral_parent_blocker".into(), serde_json::to_value(SpectralParentBlocker::None).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
