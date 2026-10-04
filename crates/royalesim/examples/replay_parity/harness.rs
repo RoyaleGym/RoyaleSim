@@ -1594,6 +1594,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   ladder's ticks when its target is out of reach (87 of 111 on their first walking frame).
 ///   spawner.SOUL_OFFSET_ROUNDING = client15535_toward_zero: a Skeleton King copy's offset divides toward zero (26 copies
 ///   1 nearer on their negative axes).
+///   combat.FAR_SHOT_SELECT_MOMENT = client15535_at_load_start: the Evo Archer picks her arrow when her swing's load
+///   starts (14 of 14 arrows).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a Hunter's pellet reaches a building's square, not
@@ -1672,6 +1674,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("knockback.RECOIL_ROUTE", "\"client15535_replanned\""),
     ("knockback.LADDER_PATH_REQUEST", "\"client15535_on_ladder\""),
     ("spawner.SOUL_OFFSET_ROUNDING", "\"client15535_toward_zero\""),
+    ("combat.FAR_SHOT_SELECT_MOMENT", "\"client15535_at_load_start\""),
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
 ];
 

@@ -2350,6 +2350,17 @@
       "promotion_rules": "A pre-damaged Skeleton Barrel's last frames say whether the step is taken from the max hp; a healed one separates the two drain arms. The arm those keep is then measured.",
       "engine": "state.rs start_kamikaze_drain (the fire's tick, in the attack pass), kamikaze_drain (the Status phase); entity.rs kamikaze_from, hashed only on a card with a KamikazeTime; card.rs CardDef::kamikaze_time_ms; tests/skeleton_barrel.rs"
     },
+    "FAR_SHOT_SELECT_MOMENT": {
+      "value": "as_attack_select",
+      "candidates": ["as_attack_select", "client15535_at_load_start"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_at_load_start on client 15.535.29: 14 of 14 arrows in the one Evo Archer scene, against 12 for the hit before (the engine's) and 13 for the launch tick; the moments part only for a target walking across the reach or a target switched between hits. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-03; the debug exe's projectile dump of sp-form-Archer-evo-s0: each arrow's archer and launch tick, the client's damage where it landed, the target's distance on the start positions of the candidate ticks against her reach 4,500 + both radii = 5,500): at her swing's load start (LoadTime 400 = 8 ticks before the launch) 14 of 14 (140 beyond, 112 within); at the launch 13 (archer 25's t1021 arrow took 140 though its launch saw 5,250; 5,735 at t1013); at the hit before 12. Archer 26's arrow of t1023 took 112 (4,955 at t1015) where the engine's took 140 (5,553 at the hit before, t1005); archer 25's of t1075 took 140 at a Musketeer 6,983 off, her target since t1067, where the engine's took 112 (the Knight 2,925 off at the hit before): the scene's 150 lost, all hitpoints.",
+      "meaning": "as_attack_select: the engine's; the Evo Archer's entry is chosen as combat.ATTACK_SELECT_MOMENT says (at_swing_start: a fresh cycle's first tick and the hit that ends a swing, for the next one). client15535_at_load_start: on the tick her swing's load starts (her progress reaching HitSpeed - LoadTime in its cycle), against her target on that tick's start positions, and at no other moment.",
+      "open": "Whether the Three Musketeers' selector (combat.ATTACK_SELECT_MOMENT) is read at its load start too: its measured swings fit both; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_at_load_start (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_attack_for (`far_at_load`), selected by Calib::far_shot_select_moment; tests/far_shot_select.rs."
+    },
     "ATTACK_SELECT_MOMENT": {
       "value": "at_swing_start",
       "status": "measured",

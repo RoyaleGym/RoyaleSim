@@ -1090,6 +1090,10 @@ pub struct Calib {
     /// units. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Floor`.
     #[serde(default = "soul_offset_rounding_default")]
     pub soul_offset_rounding: SoulOffsetRounding,
+    /// combat.FAR_SHOT_SELECT_MOMENT (`phase_attack_for`): when the Evo Archer's power shot picks her entry. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `AsAttackSelect`.
+    #[serde(default = "far_shot_select_moment_default")]
+    pub far_shot_select_moment: FarShotSelectMoment,
     /// lifetime.TROOP_LIFETIME (`lifetime_of`, `phase_status`): what a LifeTime does to a TROOP (a transformation
     /// target, the Goblin Demolisher's kamikaze form). Added after SNAPSHOT_FORMAT 20; no battle saved before it
     /// held a troop with a LifeTime.
@@ -2611,6 +2615,10 @@ fn ladder_path_request_default() -> LadderPathRequest {
 
 fn soul_offset_rounding_default() -> SoulOffsetRounding {
     SoulOffsetRounding::Floor
+}
+
+fn far_shot_select_moment_default() -> FarShotSelectMoment {
+    FarShotSelectMoment::AsAttackSelect
 }
 
 fn troop_lifetime_default() -> TroopLifetime {
@@ -5441,6 +5449,24 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.FAR_SHOT_SELECT_MOMENT -- see `phase_attack_for`: when the Evo Archer's power shot (card.rs `FarShotDef`)
+    /// picks the entry of the arrow she is about to loose.
+    FarShotSelectMoment {
+        /// The engine's: as combat.ATTACK_SELECT_MOMENT has it (under at_swing_start, at a fresh cycle's first tick and
+        /// at the hit that ends a swing, for the next one).
+        AsAttackSelect = "as_attack_select",
+        /// On the tick her swing's load starts (her progress reaching HitSpeed - LoadTime in its cycle: LoadTime before
+        /// the arrow leaves), against her target on that tick's start positions. Measured on client 15.535.29 (parity's
+        /// debug exe: each arrow's archer and launch tick in sp-form-Archer-evo-s0, the client's damage where it landed):
+        /// 14 of 14 arrows (140 beyond her reach of 4,500 + both radii, 112 within), where the hit before (the engine's)
+        /// gives 12 and the launch tick 13. Archer 26's arrow launched t1023 took 112 (4,955 at its load start, t1015)
+        /// where the engine's took 140 (5,553 at the hit before); archer 25's of t1075 took 140 at a Musketeer 6,983 off
+        /// (her target since t1067) where the engine's took 112 (the Knight 2,925 off at the hit before); archer 25's of
+        /// t1021 took 140 (5,735 at t1013) though its launch saw 5,250.
+        Client15535AtLoadStart = "client15535_at_load_start",
+    }
+);
+calib_enum!(
     /// movement.CHAIN_LANDED_BODY -- see the move pass's `collidable` and `chain_pass`: a dash chain's champion (the Golden
     /// Knight) after a blow lands.
     ChainLandedBody {
@@ -7757,6 +7783,7 @@ impl Calib {
             recoil_route: pick(&v, &["knockback", "RECOIL_ROUTE", "value"], RecoilRoute::from_calibration_name)?,
             ladder_path_request: pick(&v, &["knockback", "LADDER_PATH_REQUEST", "value"], LadderPathRequest::from_calibration_name)?,
             soul_offset_rounding: pick(&v, &["spawner", "SOUL_OFFSET_ROUNDING", "value"], SoulOffsetRounding::from_calibration_name)?,
+            far_shot_select_moment: pick(&v, &["combat", "FAR_SHOT_SELECT_MOMENT", "value"], FarShotSelectMoment::from_calibration_name)?,
             troop_lifetime: pick(&v, &["lifetime", "TROOP_LIFETIME", "value"], TroopLifetime::from_calibration_name)?,
             // THE COUNTER (card.rs `ParryDef`). entity_attacks (COUNTERED_HITS) and hold_move_and_attack_paused
             // (SELF_LOCK) are listed in the ledger with no code: `pick` refuses them by name.
@@ -21843,11 +21870,27 @@ impl BattleState {
             // The Evo Archer's power shot picks its entry the same way (card.rs `FarShotDef`).
             let card_i = self.cfg.cards.get(self.ents.card[i]);
             let select = card_i.attack_select.is_some() || card_i.evo.as_ref().is_some_and(|v| v.far_shot.is_some());
+            // combat.FAR_SHOT_SELECT_MOMENT = client15535_at_load_start: the Evo Archer's entry is chosen on the tick her
+            // swing's load starts -- her progress reaching HitSpeed - LoadTime in its cycle -- on the start-of-tick
+            // positions, and at no other moment.
+            // PLANT (regression) far_shot_at_swing_start: the new arm still picks as ATTACK_SELECT_MOMENT does.
+            #[cfg(not(clash_plant = "far_shot_at_swing_start"))]
+            let far_at_load = card_i.evo.as_ref().is_some_and(|v| v.far_shot.is_some())
+                && self.cfg.calib.far_shot_select_moment == FarShotSelectMoment::Client15535AtLoadStart;
+            #[cfg(clash_plant = "far_shot_at_swing_start")]
+            let far_at_load = false;
             if select {
                 let fresh = self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle;
-                let now = match self.cfg.calib.attack_select_moment {
-                    AttackSelectMoment::AtSwingStart => fresh,
-                    AttackSelectMoment::AtFire => step.fired_at.is_some(),
+                let now = if far_at_load {
+                    let hs = card_i.hit_speed_ms.max(1);
+                    let mark = hs - card_i.load_time_ms.clamp(0, hs);
+                    let (was, is) = (if fresh { 0 } else { self.ents.attack_ms[i] % hs }, step.ms % hs);
+                    step.phase != AttackPhase::Idle && is >= mark && was < mark
+                } else {
+                    match self.cfg.calib.attack_select_moment {
+                        AttackSelectMoment::AtSwingStart => fresh,
+                        AttackSelectMoment::AtFire => step.fired_at.is_some(),
+                    }
                 };
                 if now {
                     self.ents.attack_seq[i] = self.select_attack(i);
@@ -22123,7 +22166,7 @@ impl BattleState {
                 }
                 // combat.ATTACK_SELECT_MOMENT = at_swing_start: the hit ends this swing and starts the next, whose entry is
                 // chosen now, on the start-of-tick positions.
-                if select && self.cfg.calib.attack_select_moment == AttackSelectMoment::AtSwingStart {
+                if select && !far_at_load && self.cfg.calib.attack_select_moment == AttackSelectMoment::AtSwingStart {
                     self.ents.attack_seq[i] = self.select_attack(i);
                 }
                 #[cfg(clash_plant = "inline_damage")]
@@ -30250,6 +30293,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.FAR_SHOT_SELECT_MOMENT: Calib gained far_shot_select_moment (serde default the old arm,
+///    as_attack_select), no new state (the entry is the entity's attack_seq, already saved), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.SOUL_OFFSET_ROUNDING: Calib gained soul_offset_rounding (serde default the old arm, floor),
 ///    no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at
 ///    the old arm.
@@ -31251,6 +31297,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ladder_path_request".into(), serde_json::to_value(LadderPathRequest::LadderEnd).map_err(|e| e.to_string())?);
     // spawner.SOUL_OFFSET_ROUNDING: a format-3 battle ran no Skeleton King (the same rule).
     sh.insert("soul_offset_rounding".into(), serde_json::to_value(SoulOffsetRounding::Floor).map_err(|e| e.to_string())?);
+    // combat.FAR_SHOT_SELECT_MOMENT: a format-3 battle ran no Evo Archer (the same rule).
+    sh.insert("far_shot_select_moment".into(), serde_json::to_value(FarShotSelectMoment::AsAttackSelect).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
