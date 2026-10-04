@@ -5554,6 +5554,16 @@ calib_enum!(
         /// later; sp-f2-ice-s0 t271: a Valkyrie in its attack took a Skeleton 3,749 off over the Electro Spirit launching
         /// 3,307 off, where the engine took the Spirit (the scene's first divergence, t299).
         Client15535GoneAtLaunch = "client15535_gone_at_launch",
+        /// As client15535_gone_at_launch, but a kamikaze whose own launch is due in its turn (in its attack, its progress
+        /// reaching its HitSpeed this tick) reads one that launched earlier in the pass at its start hitpoints, so it keeps
+        /// it and launches at it too. Measured on client 15.535.29 (parity's mutual_launch_census.py: every kamikaze
+        /// launching with a later-created holder in its attack): two enemy spirits holding each other with both launches
+        /// due on one tick launched both, 3 of 3 scored (sp-il-2142 t1850, Ice Spirits 34 and 35; sp-ghost-ab-s0 and
+        /// sp-ghost-summons-s0 t792, a Fire Spirit and an Electro or Ice Spirit), where the engine's later one found its
+        /// target gone and stood (each scene's first divergence); one unscored IL record (sp-il-6a56 t873) has the later
+        /// one walk off. Every holder that is not a launching kamikaze lets it go as under client15535_gone_at_launch (5 of
+        /// 5 in the same census: an Inferno Dragon whose blow was due, a Musketeer, Skeleton Kings).
+        Client15535LauncherReadsStart = "client15535_launcher_reads_start",
     }
 );
 calib_enum!(
@@ -21829,7 +21839,8 @@ impl BattleState {
                     // in Resolve and Reap, as a strike's victim's does).
                     // PLANT (regression) kamikaze_launch_buffered: the new arm still buffers it to Resolve.
                     #[cfg(not(clash_plant = "kamikaze_launch_buffered"))]
-                    let gone_now = self.cfg.calib.kamikaze_launch_pass == KamikazeLaunchPass::Client15535GoneAtLaunch && self.tick_order() == TickOrder::ClientSequentialStrike;
+                    let gone_now = matches!(self.cfg.calib.kamikaze_launch_pass, KamikazeLaunchPass::Client15535GoneAtLaunch | KamikazeLaunchPass::Client15535LauncherReadsStart)
+                        && self.tick_order() == TickOrder::ClientSequentialStrike;
                     #[cfg(clash_plant = "kamikaze_launch_buffered")]
                     let gone_now = false;
                     if gone_now {
@@ -22471,9 +22482,19 @@ impl BattleState {
                 // stands (its health threshold is read in its own turn: transform.rs, the Cannon Cart's melee crossing),
                 // and read their starting value once it is struck down.
                 // combat.KAMIKAZE_LAUNCH_PASS = client15535_gone_at_launch: a kamikaze that launched earlier in the pass
-                // stays gone (`Scratch::launched`).
+                // stays gone (`Scratch::launched`). Under client15535_launcher_reads_start a kamikaze whose own launch is
+                // due in this turn reads it at its start hitpoints, so it keeps it and launches at it too (client
+                // 15.535.29: two enemy spirits launching at each other on one tick, 3 of 3; sp-il-2142 t1850).
+                // PLANT (regression) launcher_finds_launched_gone: the new arm's launcher still finds it gone.
+                #[cfg(not(clash_plant = "launcher_finds_launched_gone"))]
+                let launcher = self.cfg.calib.kamikaze_launch_pass == KamikazeLaunchPass::Client15535LauncherReadsStart && {
+                    let c = self.cfg.cards.get(self.ents.card[i]);
+                    c.kamikaze && self.ents.attack_phase[i] != AttackPhase::Idle && self.ents.attack_ms[i] + self.cfg.calib.tick_ms >= c.hit_speed_ms
+                };
+                #[cfg(clash_plant = "launcher_finds_launched_gone")]
+                let launcher = false;
                 let changed: Vec<(usize, i32)> = (0..start_hp.len())
-                    .filter(|&j| self.ents.hp[j] != start_hp[j] && (j != i || self.ents.hp[i] <= 0) && !self.scratch.launched.contains(&j))
+                    .filter(|&j| self.ents.hp[j] != start_hp[j] && (j != i || self.ents.hp[i] <= 0) && (launcher || !self.scratch.launched.contains(&j)))
                     .map(|j| (j, self.ents.hp[j]))
                     .collect();
                 for &(j, _) in &changed {
@@ -29989,6 +30010,7 @@ impl BattleState {
 /// 20, unchanged, combat.STRAIGHT_SHOT_BUILDING_REACH: Calib gained straight_shot_building_reach (serde default the old
 ///    arm, circle), no new state (the test reads the saved shot and building), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.KAMIKAZE_LAUNCH_PASS gained client15535_launcher_reads_start (a third arm, no new state).
 /// 20, unchanged, combat.KAMIKAZE_LAUNCH_PASS: Calib gained kamikaze_launch_pass (serde default the old arm, buffered),
 ///    no new state (Scratch::launched lives inside one tick's pass), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
