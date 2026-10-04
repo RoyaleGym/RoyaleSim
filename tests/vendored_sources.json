@@ -10,7 +10,9 @@
     "So each row records the source path, the source repo's commit at the time of copying, and",
     "the sha256 of the bytes. The hash is checked by tests/test_vendored_sources.py, which",
     "detects LOCAL drift; the source and commit are what let anyone holding both trees detect",
-    "the other direction, which no test inside a clone can do."
+    "the other direction, which no test inside a clone can do.",
+    "",
+    "A row re-vendored later than the rest carries its own source_commit, which overrides the top-level one for that row."
   ],
   "source_repo": "RoyaleLive (private), docs/2026-09-22-integration-harness/",
   "source_commit": "e74728222aefbd6c0a950a731de95437d0dca889",
@@ -32,8 +34,9 @@
     },
     "tests/_version_match.py": {
       "source": "version_match_check.py",
-      "sha256": "ba10c1aeb981c0f491f0c0b8c9d40077601cf86b655b5504a069f333bf4abb47",
-      "lines": 199
+      "sha256": "6779df89703b050defcfbe2ea967e48216880534934894da89acb2394d8b1a7e",
+      "source_commit": "3cf193724688a10a0bb1420dc3185c3edf619f0a",
+      "lines": 212
     }
   }
 }
