@@ -1027,6 +1027,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
     #[serde(default = "siege_reset_hold_default")]
     pub siege_reset_hold: SiegeResetHold,
+    /// spawner.DEATH_RING_DIRECTION (`phase_reap`, the death ring's direction): what a dying unit's facing ring is laid
+    /// along. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetFirst`.
+    #[serde(default = "death_ring_direction_default")]
+    pub death_ring_direction: DeathRingDirection,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2645,6 +2649,10 @@ fn guard_charge_step_default() -> GuardChargeStep {
 
 fn siege_reset_hold_default() -> SiegeResetHold {
     SiegeResetHold::NextTick
+}
+
+fn death_ring_direction_default() -> DeathRingDirection {
+    DeathRingDirection::TargetFirst
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6375,6 +6383,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.DEATH_RING_DIRECTION -- see `phase_reap`'s death ring (spawner.DEATH_SPAWN_LAYOUT's facing rings,
+    /// spawner.DEATH_RING_AXIS reads the angle off it): the direction a dying unit's ring is laid along.
+    DeathRingDirection {
+        /// The engine's: toward the dying unit's target (from the death point), else its facing.
+        TargetFirst = "target_first",
+        /// A unit that walked on its death tick lays it along that step (its point less its point before the tick's walk,
+        /// `scratch.pre`); one that stood (a Ram hitting its tower) keeps the target's direction. Measured on client
+        /// 15.535.29 (the Evo Battle Ram's deaths in sp-form-BattleRam-evo-s0 and the sp-ram-* scenes): 9 of 9 deaths while
+        /// walking laid their Evo Barbarians at the whole degree of the death tick's step (sp-ram-alone-s0: the step
+        /// (-10, 119), -5 degrees, where the tower lay at +10; sp-ram-v-Giant-3500-s0: 16 against 29), and the deaths
+        /// standing (4 Evo Rams, 27 plain Rams hitting their towers) at the target's.
+        Client15535WalkStep = "client15535_walk_step",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8359,6 +8382,7 @@ impl Calib {
             cage_release_scan: pick(&v, &["combat", "CAGE_RELEASE_SCAN", "value"], CageReleaseScan::from_calibration_name)?,
             guard_charge_step: pick(&v, &["combat", "GUARD_CHARGE_STEP", "value"], GuardChargeStep::from_calibration_name)?,
             siege_reset_hold: pick(&v, &["combat", "SIEGE_RESET_HOLD", "value"], SiegeResetHold::from_calibration_name)?,
+            death_ring_direction: pick(&v, &["spawner", "DEATH_RING_DIRECTION", "value"], DeathRingDirection::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -25672,12 +25696,24 @@ impl BattleState {
             // against 26.5 / 83.7 to the tower they were hitting, where the last
             // movement direction was 20.8 / 89.6), else the unit's facing, else the
             // seat's forward.
-            let facing = match self.ents.target[i].filter(|t| self.ents.is_alive(*t)) {
-                Some(t) => {
+            // spawner.DEATH_RING_DIRECTION = client15535_walk_step: a unit that walked on its death tick lays its ring along
+            // that step (its point less its point before the tick's walk, `scratch.pre`); one that stood keeps its target's.
+            // PLANT (regression) death_ring_step_unread: the new arm still lays a walker's ring toward its target.
+            #[cfg(not(clash_plant = "death_ring_step_unread"))]
+            let walk_step = if self.cfg.calib.death_ring_direction == DeathRingDirection::Client15535WalkStep {
+                self.scratch.pre.get(i).map(|p| self.ents.pos[i].sub(*p)).filter(|d| *d != Vec2::default())
+            } else {
+                None
+            };
+            #[cfg(clash_plant = "death_ring_step_unread")]
+            let walk_step: Option<Vec2> = None;
+            let facing = match (walk_step, self.ents.target[i].filter(|t| self.ents.is_alive(*t))) {
+                (Some(d), _) => d,
+                (None, Some(t)) => {
                     let d = self.ents.pos[t.index as usize].sub(self.ents.pos[i]);
                     if d == Vec2::default() { self.ents.facing[i] } else { d }
                 }
-                None => self.ents.facing[i],
+                (None, None) => self.ents.facing[i],
             };
             // That direction normalized to 256 native units per axis, truncated: the heading a facing ring's members start
             // with (`member_facing` below). None for a zero direction.
@@ -31407,6 +31443,9 @@ impl BattleState {
 /// 20, unchanged, combat.SIEGE_RESET_HOLD: Calib gained siege_reset_hold (serde default the old arm, next_tick), no new
 ///    state (the hold is the hero's stun, saved already), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.DEATH_RING_DIRECTION: Calib gained death_ring_direction (serde default the old arm,
+///    target_first), no new state (the step is read off the tick's own walk), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32412,6 +32451,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_charge_step".into(), serde_json::to_value(GuardChargeStep::Rescaled).map_err(|e| e.to_string())?);
     // combat.SIEGE_RESET_HOLD: a format-3 battle's siege swung on the tick after its reset (the same rule).
     sh.insert("siege_reset_hold".into(), serde_json::to_value(SiegeResetHold::NextTick).map_err(|e| e.to_string())?);
+    // spawner.DEATH_RING_DIRECTION: a format-3 battle's death rings lay toward the target (the same rule).
+    sh.insert("death_ring_direction".into(), serde_json::to_value(DeathRingDirection::TargetFirst).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

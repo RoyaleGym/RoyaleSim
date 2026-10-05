@@ -4306,6 +4306,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_unit_heading (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs, the death path (`heading256`, `axis`) feeding death_spawn_points, selected by Calib::death_ring_axis; tests/death_ring_axis.rs."
     },
+    "DEATH_RING_DIRECTION": {
+      "value": "target_first",
+      "candidates": ["target_first", "client15535_walk_step"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_walk_step on client 15.535.29's Evo Battle Rams (9 of 9 walking deaths, 4 of 4 standing ones unchanged, 27 of 27 plain Rams unchanged); other facing rings dying on their walk unread; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-05) on client 15.535.29's Evo Battle Ram deaths (sp-form-BattleRam-evo-s0 and the twelve sp-ram-* scenes; each death point read as its two Evo Barbarians' midpoint, the step as that point less the Ram's last recorded point): the nine Rams that walked on their death tick laid the pair at the whole degree of that step normalized to 256 and truncated (sp-ram-alone-s0 and sp-ram-kill-s0: (-10, 119), -5 degrees; sp-ram-bldg-s0 (32, 115), 15; sp-ram-v-Giant-3500-s0 (33, 114), 16; the three sp-ram-v-*-3500 and -v-Musketeer-2500 (10, 119), 5; sp-ram-w-Knight-3500-s0 (37, 113), 18; sp-ram-w-Musketeer-3500-s0 (0, 120), 0), where the engine laid them toward the tower it held (+10, 19.5, 29, 7, 21, 3.9 degrees); the four that stood on it (sp-ram-side+/-, sp-ram-v-Knight-2500) and the 27 plain Battle Ram deaths of the same scenes, every one hitting its tower, laid them toward the target as the engine does. sp-form-BattleRam-evo-s0's t1147 death (-25 against the step's -12 and the heading's -24) is unexplained.",
+      "meaning": "target_first: the engine's; a facing ring lies toward the dying unit's target from the death point, else along its facing. client15535_walk_step: a unit that walked on its death tick lays it along that step (its point less its point before the tick's walk); one that stood keeps the target's direction.",
+      "open": "Facing rings other than the Battle Rams' dying on their walk; sp-form-BattleRam-evo-s0 t1147; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_walk_step (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_reap (the death ring's `walk_step`), selected by Calib::death_ring_direction; tests/death_ring_axis.rs."
+    },
     "DEATH_SPAWN_LAYOUT": {
       "value": "facing_ring_rounded",
       "status": "measured",

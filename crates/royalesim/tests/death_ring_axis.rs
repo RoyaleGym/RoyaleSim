@@ -17,13 +17,18 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test death_ring_axis`):
 //!   * `death_ring_axis_raw` -- the ring's angle off the raw direction under the new arm too: (2) goes red.
+//!   * `death_ring_step_unread` -- spawner.DEATH_RING_DIRECTION's new arm still lays a walker's ring toward its target:
+//!     `a_ram_dying_on_its_walk_lays_its_ring_on_its_step_under_client15535_walk_step` goes red.
+//!
+//! spawner.DEATH_RING_DIRECTION = client15535_walk_step (client 15.535.29, 9 of 9 Evo Battle Rams dying on their walk):
+//! a ring dying on the walk lies at the degree of the death tick's step; target_first lays it toward the target.
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::formation::{rounded_degree, sin1024};
 use royalesim::move16402::normalize_to;
-use royalesim::state::{BattleState, DeathRingAxis, DeathSpawnLayout, SpawnedFirstStep};
+use royalesim::state::{BattleState, DeathRingAxis, DeathRingDirection, DeathSpawnLayout, SpawnedFirstStep};
 use royalesim::Team;
 
 /// Where the red right princess tower stands, native.
@@ -115,4 +120,80 @@ fn a_death_ring_lies_at_its_members_heading_degree() {
     }
     assert!(apart > 0, "precondition: no start point puts the Ram's death where the raw direction and the heading round apart");
     assert!(agree > 0, "precondition: every start point rounds apart");
+}
+
+/// A Blue Battle Ram started at `start`, a Blue Knight held on `knight` in its way, killed `walk` ticks after it has
+/// taken the red right princess tower, under spawner.DEATH_RING_DIRECTION = `dir`: the death point, its death tick's
+/// step (the death point less its point the tick before), the direction to the tower and its two Barbarians.
+fn walking_death(dir: DeathRingDirection, start: (i32, i32), knight: (i32, i32), walk: u32) -> (Vec2, Vec2, Vec2, Vec<(Vec2, Vec2)>) {
+    let mut cfg = config();
+    cfg.calib.death_spawn_layout = DeathSpawnLayout::FacingRingRounded;
+    cfg.calib.death_ring_axis = DeathRingAxis::Client15535UnitHeading;
+    cfg.calib.death_ring_direction = dir;
+    cfg.calib.spawned_first_step = SpawnedFirstStep::None;
+    let mut s = BattleState::new(0, cfg);
+    let at = |p: (i32, i32)| Vec2::new(p.0 * K, p.1 * K);
+    let ram = s.scenario_spawn_now(Team::Blue, "BattleRam", at(start), None).unwrap();
+    let kn = s.scenario_spawn_now(Team::Blue, "Knight", at(knight), None).unwrap();
+    let tower = s.entities().find(|e| e.team == Team::Red && e.pos == at(TOWER)).expect("the red right princess tower").id;
+    let mut taken = None;
+    for k in 0..40 {
+        if s.entity(kn).is_some() {
+            assert!(s.debug_set_pos(kn, at(knight)));
+        }
+        s.tick();
+        if taken.is_none() && s.entity(ram).and_then(|e| e.target) == Some(tower) {
+            taken = Some(k);
+        }
+        if taken.is_some_and(|t| k >= t + walk) {
+            break;
+        }
+    }
+    assert!(taken.is_some(), "scene: the Ram never took the tower from {start:?}");
+    let before: Vec<_> = s.entities().map(|e| e.id).collect();
+    let p0 = s.entity(ram).expect("scene: the Ram died early").pos;
+    assert!(s.debug_set_hp(ram, 0));
+    s.tick();
+    assert!(s.entity(ram).is_none(), "scene: the Ram did not die");
+    let kids: Vec<(Vec2, Vec2)> = s.entities().filter(|e| !before.contains(&e.id)).map(|e| (e.pos, e.facing)).collect();
+    assert_eq!(kids.len(), 2, "scene: the Ram's death released {} units", kids.len());
+    let death = Vec2::new((kids[0].0.x + kids[1].0.x) / 2, (kids[0].0.y + kids[1].0.y) / 2);
+    (death, death.sub(p0), at(TOWER).sub(death), kids)
+}
+
+/// The whole degree of `v`'s heading (normalized to 256 native units per axis, truncated).
+fn heading_degree(v: Vec2) -> i32 {
+    let mut h = (v.x / K, v.y / K);
+    normalize_to(&mut h, 256);
+    rounded_degree(Vec2::new(h.0, h.1))
+}
+
+/// Plant: death_ring_step_unread.
+#[test]
+fn a_ram_dying_on_its_walk_lays_its_ring_on_its_step_under_client15535_walk_step() {
+    let s = BattleState::new(0, config());
+    let ram = card_stat(&s, "BattleRam");
+    let ds = ram.death_spawn.as_ref().expect("data: the Battle Ram has a death spawn");
+    let r = ds.radius.expect("data: the Battle Ram's DeathSpawnRadius") as i64;
+    let shift = ram.formation.spawn_angle_shift_deg;
+    let mut apart = 0;
+    for k in 0..12 {
+        let start = (13600 + 100 * k, 21800);
+        let knight = (start.0 + 200, 23200);
+        let (death, step, raw, kids) = walking_death(DeathRingDirection::Client15535WalkStep, start, knight, 6);
+        let (death_old, step_old, raw_old, old) = walking_death(DeathRingDirection::TargetFirst, start, knight, 6);
+        assert_eq!((death_old, step_old, raw_old), (death, step, raw), "scene: the arms moved the Ram before its death from {start:?}");
+        if step == Vec2::default() {
+            continue;
+        }
+        let (a_step, a_raw) = (heading_degree(step), heading_degree(raw));
+        if a_step == a_raw {
+            continue;
+        }
+        apart += 1;
+        assert_eq!(sorted(&kids), ring(death, a_step, r, shift), "client15535_walk_step from {start:?}: the ring is not at its step {step:?}'s degree {a_step}");
+        // NOT VACUOUS: target_first lays it toward the tower.
+        assert_eq!(sorted(&old), ring(death, a_raw, r, shift), "target_first from {start:?}: the ring is not at the tower's degree {a_raw}");
+    }
+    assert!(apart > 0, "precondition: no start point kills the Ram on a step whose degree differs from the tower's");
 }
