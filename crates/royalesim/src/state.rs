@@ -3773,7 +3773,8 @@ calib_enum!(
         /// (death_spawn_route_census16402.py, death_spawn_route_census15535.py): a Golem's Golemites carry one route from
         /// their first frame, the same for the pair (16.402: 6 of 6, the parent's own a different list; 15.535.29: 50 of
         /// 50), and walk to its next cell after the slide (20260919-143305 t3089: from (12884, 26567) toward (10750,
-        /// 27250), where the engine's, planned there, headed for (11750, 27750)).
+        /// 27250), where the engine's, planned there, headed for (11750, 27750)). Shipped on both clients (Sim's ruling on
+        /// parity's r42 proposal, 2026-10-04).
         ClientAtBirth = "client_at_birth",
     }
 );

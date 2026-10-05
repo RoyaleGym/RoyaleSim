@@ -1150,7 +1150,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.line_lane, LineLane::Client15535LineCentre, "a 15.535.29 capture's line takes its centre's lane");
     assert_eq!(cfg.calib.death_bomb_obstacle, DeathBombObstacle::Client15535FusedBuilding, "a 15.535.29 capture's plans go round a fused bomb");
     assert_eq!(cfg.calib.doomed_set_shots, DoomedSetShots::ClientHomingOnly, "a 15.535.29 capture's doomed set counts homing shots (the shipped arm)");
-    assert_eq!(cfg.calib.death_spawn_route, DeathSpawnRoute::ClientAtBirth, "a 15.535.29 capture's sliding members plan where born");
+    assert_eq!(cfg.calib.death_spawn_route, DeathSpawnRoute::ClientAtBirth, "a 15.535.29 capture's sliding members plan where born (the shipped arm)");
     assert!(notes.iter().any(|n| n.contains("DYING_UNIT_VISIBILITY")), "the notes do not name the client's arm: {notes:?}");
     assert!(notes.iter().any(|n| n.contains("TICK_ORDER")), "the notes do not name the client's tick order: {notes:?}");
     let mut new = sample();
@@ -1238,7 +1238,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.line_lane, LineLane::Tap, "a 16.402 capture");
     assert_eq!(cfg.calib.death_bomb_obstacle, DeathBombObstacle::None, "a 16.402 capture");
     assert_eq!(cfg.calib.doomed_set_shots, DoomedSetShots::ClientHomingOnly, "a 16.402 capture: the shipped arm (2,590 of 2,689 corpus frames)");
-    assert_eq!(cfg.calib.death_spawn_route, DeathSpawnRoute::SlideEnd, "a 16.402 capture");
+    assert_eq!(cfg.calib.death_spawn_route, DeathSpawnRoute::ClientAtBirth, "a 16.402 capture: the shipped arm (6 of 6 corpus Golemites)");
     let mut ov = std::collections::BTreeMap::new();
     ov.insert("match.TICK_ORDER".to_string(), "\"client16402\"".to_string());
     let cfg = config_for_with(&old, common::cards(), None, &ov).unwrap().0;

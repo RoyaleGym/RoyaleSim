@@ -10,7 +10,7 @@
 //!      inert) it holds a route, the pair's routes are one list (planned from the death point), and each still holds it
 //!      (or what is left of it) on the tick its slide ends;
 //!   2. slide_end (the old arm, the vacuity check): no Golemite holds a route while it slides;
-//!   3. the shipped value is slide_end (a 15.535.29 replay runs the new arm: tests/replay_parity.rs pins it).
+//!   3. the shipped value is client_at_birth, on both clients (Sim's ruling, 2026-10-04).
 //!
 //! PLANT (`RUSTFLAGS='--cfg clash_plant="death_spawn_route_at_slide_end"' CARGO_TARGET_DIR=target/plant cargo test --test
 //! death_spawn_route`):
@@ -81,6 +81,6 @@ fn the_old_value_plans_nothing_while_sliding() {
 }
 
 #[test]
-fn the_shipped_value_is_slide_end() {
-    assert_eq!(Calib::shipped().death_spawn_route, DeathSpawnRoute::SlideEnd);
+fn the_shipped_value_is_client_at_birth() {
+    assert_eq!(Calib::shipped().death_spawn_route, DeathSpawnRoute::ClientAtBirth);
 }
