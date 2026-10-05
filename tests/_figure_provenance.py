@@ -28,6 +28,18 @@ heading and reads down from it; they do not scroll up past a heading to find a c
 learn session's freshness-banner defect stated as a rule: per-claim beats per-page, and a section
 is the coarsest unit that still holds.
 
+ITS PRECISION CEILING, stated because a gate oversold is worse than none: IT CANNOT TELL A RESULT
+FROM A SPECIFICATION. A published measurement and a configured proportion look identical in prose.
+RoyaleLearn's ladder is "50% mirror, 35% pool, 15% scripted", which is a designed mix that never
+goes stale; RoyaleGym writes "a learner that is 80% right", which is rhetoric. Neither has a run to
+name and this check asks both for one. Confidence levels are exempted by name because they are an
+idiom, and the rest are not solvable by pattern.
+
+So its refusals are CANDIDATES on a page it has not been tuned for. The honest response to a false
+one is to widen this file, never to add a citation to a number that has no source, and never to
+reword a correct sentence so it matches. A check that gets obeyed rather than corrected has stopped
+measuring anything and started editing.
+
 WHAT IT DOES NOT CHECK: whether the figure is right, whether the provenance is real, whether the
 run it names is the latest, or whether a digest belongs to the number beside it. A gate oversold is
 worse than none. It also cannot see the failure it most wants to: a fabricated digest satisfies
@@ -72,6 +84,13 @@ PROVENANCE = [
     # readable and the check still learns nothing. Accept the ways people actually say it.
     re.compile(r"\b(measure[ds]?|counted|sampled|observed|taken|scored|derived)\s+"
                r"(at|on|over|across|from|in)\b", re.I),
+    # The preposition was doing damage of its own. RoyaleGym's background ledger writes
+    # "Measured: one Speed unit is one milli-tile per tick" and grades every row `confirmed`,
+    # `inferred` or `refuted` in a column of its own. That page is the most provenance-rich in the
+    # project -- its whole subject is how each number is known -- and this check refused it because
+    # a colon is not a preposition. Demanding a specific sentence shape is the same defect as
+    # demanding a specific verb, one grammatical level down.
+    re.compile(r"\b(measured|confirmed|refuted|inferred|calibrated|verified)\b", re.I),
     re.compile(r"\b(build digest|build_digest|from the run|at build|the run at|re-measured)\b",
                re.I),
     re.compile(r"\bcorpus\b", re.I),
@@ -84,7 +103,19 @@ PROVENANCE = [
 # tag every table row `DATA`, `COMMUNITY` or `INFERENCE`, and a crown-tower percentage read out of
 # the card tables has no run behind it to name. Matched only as a fenced or tabled token, never as
 # the bare word, so a sentence mentioning data cannot exempt a real figure beside it.
-NOT_A_MEASUREMENT = re.compile(r"`(DATA|COMMUNITY)`|\|\s*(DATA|COMMUNITY)\s*\|")
+NOT_A_MEASUREMENT = re.compile(
+    r"`(DATA|COMMUNITY)`|\|\s*(DATA|COMMUNITY)\s*\|"
+    # A confidence level is a parameter of the method, not a result of it. "The 95% interval around
+    # win rate" names how the interval was built; it is not a figure that can go stale.
+    r"|\b\d{1,3}\s?%\s+(interval|confidence|CI)\b"
+    r"|\b(at|to)\s+\d{1,3}\s?%\s*\)"
+    # RoyaleLearn tags every number in `harness-spec.md`: [M] measured with its source named, or
+    # [A] derived by arithmetic. That is a STRONGER provenance statement than anything this file
+    # accepts as prose, and it is per-number rather than per-section, so a tagged line is exempt.
+    # It also encodes the lesson that repo taught this check: for a derived figure, provenance is
+    # the operands, and [A] says the operands are the claim.
+    r"|\[\s*[MA]\s*\]"
+)
 
 
 def expand(args: list[str]) -> list[str]:
@@ -206,6 +237,17 @@ SELFTEST = [
      '# H\n\nA `width="100%"` attribute is not a measurement.\n', False),
     ("a real figure beside a quoted one",
      '# H\n\nA `width="100%"` attribute is not one. It agrees 56.5% of the time.\n', True),
+    # A ledger grading how each row is known is the most provenance-rich page there is, and this
+    # check refused one because a colon is not a preposition.
+    ("measured with a colon",
+     "# H\n\nA 20% error either way. Measured: one unit is one tile per tick.\n", False),
+    ("a ledger grading a row", "# H\n\n| the field divides by 60 | refuted | a 20% error |\n", False),
+    ("still refused when nothing says how it is known", "# H\n\nA 20% error either way.\n", True),
+    # A repo that tags every number's provenance per row has answered this more precisely than
+    # any prose pattern here can.
+    ("a row tagged derived-by-arithmetic", "# H\n\n| cost | 20% throughput **[A]** |\n", False),
+    ("an untagged row beside a tagged one",
+     "# H\n\n| cost | 20% throughput **[A]** |\n| other | 35% of the time |\n", True),
 ]
 
 
@@ -226,16 +268,36 @@ def main(argv: list[str]) -> int:
         return selftest()
     if len(argv) < 2:
         raise SystemExit("usage: figure_provenance_check.py <path-or-repo> [more...] | --selftest")
-    bad = total = 0
+    bad = total = missing = 0
     for path in expand(argv[1:]):
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            problems = check_page(path, fh.read())
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError as err:
+            print(f"UNREAD {path}: {err.strerror}")
+            missing += 1
+            continue
+        problems = check_page(path, text)
         for p in problems:
             print(f"REFUSE {p}")
         bad += bool(problems)
         total += 1
+
+    # A scan that read nothing must not look like a clean repo. Run from the wrong directory this
+    # printed "0 of 0 files passed" and exited 0, which is the failure it exists to catch wearing
+    # the result it exists to produce. The gym session found it, having left the same hole in its
+    # own scanner an hour earlier; the integrator put a floor under that one for the same reason.
+    if total == 0:
+        print("\nSKIP: read no pages at all. This is not a pass. Check the paths and the working "
+              "directory; a scan of nothing cannot tell you a repo is clean.")
+        return 2
     print(f"\n{total - bad} of {total} files passed")
-    return 1 if bad else 0
+    if missing:
+        # Last, so it is the line a reader ends on. A pass count printed after a warning reads as
+        # the verdict, and the verdict here is that the run is not clean.
+        print(f"{missing} named page(s) could not be read and are in neither number above. "
+              f"This run did not check what it was asked to check.")
+    return 1 if (bad or missing) else 0
 
 
 if __name__ == "__main__":

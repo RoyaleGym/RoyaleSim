@@ -24,13 +24,15 @@
     },
     "tests/_doc_links.py": {
       "source": "doc_links_check.py",
-      "sha256": "da36adf11155572b8057a7bbb8c5016b47308f18c4b8e4657b58ac02041bda48",
-      "lines": 208
+      "sha256": "712b7f10ecf93db76ee526a7c194c885aad291c0b0494ed2500c1b20202320b9",
+      "lines": 262,
+      "source_commit": "d534b60d9d7937be7caba2510352d2f34af6b051"
     },
     "tests/_figure_provenance.py": {
       "source": "figure_provenance_check.py",
-      "sha256": "9f4d6f8e43ddcce695fb904fa2cc5ac9ec471ea1b8924dd50e15079b3cbe02ef",
-      "lines": 242
+      "sha256": "6352136f6803b2e102fd1719dc9bbca35627eb7b5b88fe494e7d7cc54499de28",
+      "lines": 304,
+      "source_commit": "d534b60d9d7937be7caba2510352d2f34af6b051"
     },
     "tests/_version_match.py": {
       "source": "version_match_check.py",

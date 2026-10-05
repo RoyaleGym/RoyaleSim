@@ -49,15 +49,16 @@ def test_every_link_on_every_tracked_page_resolves() -> None:
 
 
 def test_the_checkers_own_self_test_passes() -> None:
-    """15 cases, and the one that matters is the last: a real broken img sitting beside prose
-    ABOUT img tags, which is what proves the code-blanking did not blind it. Run it, do not
-    assume it."""
+    """20 cases. The one that matters most is a real broken img sitting beside prose ABOUT img
+    tags, which proves the code-blanking did not blind it; the later ones check that indented
+    code is read as code only under plain prose, not inside an admonition, a list item or a
+    content tab. Run it, do not assume it."""
     done = subprocess.run(
         [sys.executable, str(CHECKER), "--selftest"],
         capture_output=True, text=True, timeout=300, cwd=REPO,
     )
     assert done.returncode == 0, (done.stdout + done.stderr)[-2000:]
-    assert "15 of 15" in done.stdout, done.stdout[-800:]
+    assert "20 of 20" in done.stdout, done.stdout[-800:]
 
 
 def test_the_checker_is_the_vendored_copy_and_not_a_local_rewrite() -> None:

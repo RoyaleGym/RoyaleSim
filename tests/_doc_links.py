@@ -97,7 +97,41 @@ def without_code(text: str) -> str:
     def blank(m: "re.Match[str]") -> str:
         return "\n" * m.group(0).count("\n")
 
-    return INLINE_CODE.sub(blank, FENCE.sub(blank, text))
+    return INLINE_CODE.sub(blank, blank_indented_code(FENCE.sub(blank, text)))
+
+
+#: A column-0 line that opens a container whose body is indented 4 spaces: an admonition, a
+#: collapsible, a content tab, a list item, a quote, a table, HTML. Indented text under one of
+#: these is PROSE with real links in it, and blanking it would be a silent false pass.
+CONTAINER = re.compile(r"^(!!!|\?\?\?|===|[-*+] |\d+[.)] |>|\||<)")
+
+
+def blank_indented_code(text: str) -> str:
+    """Blank CommonMark indented code: 4-space lines after a blank line whose nearest non-blank
+    line above is plain column-0 prose. Conservative on purpose. doc-gates.md quotes a bad link
+    inside such a block as an example, and this check refused it (2026-09-25); but the site's
+    admonitions, tabs and list items are indented the same way and hold links that must still be
+    read, so any container opener above the blank line keeps the block as prose."""
+    lines = text.split("\n")
+    # block_start is the FIRST line of the latest column-0 block, so a list item's lazy
+    # continuation line (column 0, no marker) still counts as inside the list.
+    out, in_code, block_start = [], False, ""
+    for i, line in enumerate(lines):
+        if not line.strip():
+            out.append(line)
+            continue
+        indented = line.startswith(("    ", "\t"))
+        after_blank = i > 0 and not lines[i - 1].strip()
+        if indented and (in_code or (after_blank and block_start
+                                     and not CONTAINER.match(block_start))):
+            in_code = True
+            out.append("")
+            continue
+        in_code = False
+        if not indented and (i == 0 or after_blank):
+            block_start = line
+        out.append(line)
+    return "\n".join(out)
 
 
 def check_page(repo: str, page: str, text: str, files: set[str]) -> list[str]:
@@ -170,6 +204,17 @@ SELFTEST = [
      "Run:\n\n```\nsee [x](nope.md)\n```\n", False),
     ("a real <img> beside prose about one", set(), "README.md",
      'An `<img>` tag.\n\n<img src="gone.png" alt="a thing">', True),
+    # Indented code is code only under plain prose; under a container it is prose with links.
+    ("a link quoted in an indented code block", set(), "README.md",
+     "The bad link was:\n\n    [x](../../../gone.md)\n\nThree levels up.", False),
+    ("a link in an admonition's second paragraph", set(), "README.md",
+     '!!! note "n"\n    First.\n\n    See [x](gone.md).', True),
+    ("a link in a list item's continuation", set(), "README.md",
+     "- item\n\n    See [x](gone.md).", True),
+    ("a link after a list item's lazy continuation line", set(), "README.md",
+     "- item\nlazy line\n\n    See [x](gone.md).", True),
+    ("a link in a content tab", set(), "README.md",
+     '=== "Windows"\n\n    See [x](gone.md).', True),
 ]
 
 
@@ -200,6 +245,15 @@ def main(argv: list[str]) -> int:
             for p in problems:
                 print(f"REFUSE {repo}/{p}")
             bad += bool(problems)
+
+    # A scan that read nothing must not look like a clean repo. Pointed at a repo with no tracked
+    # pages this printed "0 of 0 pages passed" and exited 0, which is the failure this whole folder
+    # exists to catch wearing the result it exists to produce. Found in the sibling check by the gym
+    # session, who had left the same hole in its own scanner; this one had it too.
+    if pages == 0:
+        print("\nSKIP: found no tracked pages at all. This is not a pass. Check the paths and the "
+              "working directory; a scan of nothing cannot tell you a repo is clean.")
+        return 2
     print(f"\n{pages - bad} of {pages} pages passed")
     return 1 if bad else 0
 
