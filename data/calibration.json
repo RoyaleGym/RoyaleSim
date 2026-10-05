@@ -2209,6 +2209,17 @@
       "promotion_rules": "The test file passes. The flip moves every scene with a Bandit or a Mega Knight chasing a target, so replay reports can move; register the prediction before the flip.",
       "engine": "a dash state beside the walk (the stand with a one-cell goal, the half-steps with the Range test for the Bandit, the timed landing for the Mega Knight, the damage immunity), entered from the attack decision when the trigger holds; the card's dash block is already in cards.json"
     },
+    "TIMED_JUMP_BLOW_STOP": {
+      "value": "flies_to_goal",
+      "candidates": ["flies_to_goal", "client15535_stops_at_blow"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_stops_at_blow on client 15.535.29: 6 of 6 Mega Knight jumps never move past their blow, and the one whose goal lay beyond the blow's reach (4,591 against 17 x 250) is the one that separates the arms; 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-05; mk_jump_census.py over client 15.535.29's captures with frames: every Mega Knight and Evo Mega Knight jump, the entry E its first move over 150 in state 3, the blow an enemy's hp falling the jump's DashDamage, 537 at level 11). 6 jumps (sp-form-MegaKnight-evo-s0 4, ub-sd13-jump-d5231 and -d6061): steps of 250 (JumpSpeed), the blow on E + 16 in all 5 that struck, and no move after it in any; 5 reached their goal cell on or before the blow (17 moves, the last the arrival). sp-form-MegaKnight-evo-s0 E = t1025 from (10004, 12004), the goal cell (11750, 16250) 4,591 off: 16 steps of (94, 230) to (11513, 15684) on t1040; on t1041 the Knight lost the 537 and the jumper stood on (11358, 14664), its t1041 step's point (11608, 15914) put on land by the grid rule ((-250, -1250), arena.rs nearest_land_grid); state 3 standing to t1044, state 1 on t1045. The engine (flies_to_goal): on to (11749, 16249) on t1043 and put on land on (11499, 14999) on t1045 (the jump's end), 1,274 off the client on t1041 (the scene's first divergence, 661 lost).",
+      "meaning": "flies_to_goal: the engine's; a timed jump (DashConstantTime) moves JumpSpeed a tick on to its goal after its blow, and a ground jumper over water is put on land on the jump's end. client15535_stops_at_blow: the blow (the entry + DashConstantTime / 50) ends the motion where it struck, after that tick's step; a ground jumper over water is put on land on that tick, and it holds there to the jump's end.",
+      "open": "One jump separates the arms (over water, so the stop and the landing are seen together); a long jump over land is not measured; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_stops_at_blow (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (the dash's DashConstantTime arm, `blow_stop`), selected by Calib::timed_jump_blow_stop; tests/timed_jump_blow.rs."
+    },
     "DASH_FIRST_SIGHT_TRIGGER": {
       "value": "first_sight_tick",
       "candidates": ["next_tick", "first_sight_tick"],

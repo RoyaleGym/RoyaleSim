@@ -1003,6 +1003,10 @@ pub struct Calib {
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `HoldTime`.
     #[serde(default = "clone_hold_deploy_default")]
     pub clone_hold_deploy: CloneHoldDeploy,
+    /// combat.TIMED_JUMP_BLOW_STOP (`phase_path16402_for`, a dash with DashConstantTime): whether a timed jump moves on
+    /// past its blow. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `FliesToGoal`.
+    #[serde(default = "timed_jump_blow_stop_default")]
+    pub timed_jump_blow_stop: TimedJumpBlowStop,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2597,6 +2601,10 @@ fn spectral_birth_point_default() -> SpectralBirthPoint {
 
 fn clone_hold_deploy_default() -> CloneHoldDeploy {
     CloneHoldDeploy::HoldTime
+}
+
+fn timed_jump_blow_stop_default() -> TimedJumpBlowStop {
+    TimedJumpBlowStop::FliesToGoal
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6195,6 +6203,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.TIMED_JUMP_BLOW_STOP -- see `phase_path16402_for` (the dash's DashConstantTime arm): whether a timed jump
+    /// (the Mega Knight's) moves on past its blow, the entry + DashConstantTime / 50.
+    TimedJumpBlowStop {
+        /// The engine's: JumpSpeed a tick on to the goal after the blow; a ground jumper over water put on land on the
+        /// jump's end (the blow + DASH_BLOW_TO_END_TICKS).
+        FliesToGoal = "flies_to_goal",
+        /// The blow ends the motion where it struck (after the blow tick's step): a ground jumper over water is put on
+        /// land on that tick (arena.rs `nearest_land_grid`, the blow struck from over the water), and it holds there to
+        /// the jump's end. Measured on client 15.535.29 (mk_jump_census.py, every Mega Knight jump in the captures, 6):
+        /// the blow on the entry + 16 in 5 of 5 with one, and no move after it in any; 5 reached their goal on or before
+        /// the blow, where the arms agree; sp-form-MegaKnight-evo-s0 t1025, a goal 4,591 off (17 steps of 250 reach
+        /// 4,250): the blow on t1041 at (11608, 15914) over the river, the jumper on (11358, 14664) that tick and
+        /// standing to t1044; the engine flew on to (11749, 16249) and landed on (11499, 14999) on t1045.
+        Client15535StopsAtBlow = "client15535_stops_at_blow",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8173,6 +8198,7 @@ impl Calib {
             clone_offset: pick(&v, &["spells", "CLONE_OFFSET", "value"], CloneOffset::from_calibration_name)?,
             spectral_birth_point: pick(&v, &["spawner", "SPECTRAL_BIRTH_POINT", "value"], SpectralBirthPoint::from_calibration_name)?,
             clone_hold_deploy: pick(&v, &["spells", "CLONE_HOLD_DEPLOY", "value"], CloneHoldDeploy::from_calibration_name)?,
+            timed_jump_blow_stop: pick(&v, &["combat", "TIMED_JUMP_BLOW_STOP", "value"], TimedJumpBlowStop::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -20687,6 +20713,13 @@ impl BattleState {
                         let goal = (dash_goal[i].x / K, dash_goal[i].y / K);
                         let mut p = actor;
                         let mut ended = false;
+                        // combat.TIMED_JUMP_BLOW_STOP = client15535_stops_at_blow: a timed jump's blow ends its motion.
+                        // PLANT (regression) timed_jump_flies_past_blow: the new arm flies on to the goal.
+                        #[cfg(not(clash_plant = "timed_jump_flies_past_blow"))]
+                        let stops_at_blow = calib.timed_jump_blow_stop == TimedJumpBlowStop::Client15535StopsAtBlow;
+                        #[cfg(clash_plant = "timed_jump_flies_past_blow")]
+                        let stops_at_blow = false;
+                        let mut blow_stop = false;
                         match d.constant_time_ms {
                             None => match live(dash_target[i]) {
                                 None => ended = true,
@@ -20723,6 +20756,11 @@ impl BattleState {
                                 let blow = dash_mark[i] + (ct / tk) as u32;
                                 if self.tick == blow {
                                     dash_blows.push((i, live(dash_target[i]), Vec2::new(p.0 * K, p.1 * K)));
+                                    // the blow's point is the goal from here to the end (put on land below first)
+                                    if stops_at_blow {
+                                        blow_stop = true;
+                                        dash_goal[i] = Vec2::new(p.0 * K, p.1 * K);
+                                    }
                                 }
                                 ended = self.tick >= blow + DASH_BLOW_TO_END_TICKS;
                             }
@@ -20732,11 +20770,16 @@ impl BattleState {
                         // Measured on client 15.535.29 (sp-champ-BossBandit-nopress-s0): the Boss Bandit's blow on the
                         // Knight on t178 from (11043, 15703), and the Boss Bandit on (10793, 14953) on t178, walking
                         // from there.
+                        // Under combat.TIMED_JUMP_BLOW_STOP = client15535_stops_at_blow the blow's tick ends the motion, and
+                        // puts it on land then (sp-form-MegaKnight-evo-s0 t1041).
                         #[cfg(not(clash_plant = "dash_ends_on_water"))]
-                        if ended && !flying {
+                        if (ended || blow_stop) && !flying {
                             let at = Vec2::new(p.0 * K, p.1 * K);
                             if let Some(q) = self.cfg.arena.nearest_land_grid(at, e.team[i]) {
                                 p = (q.x / K, q.y / K);
+                                if blow_stop {
+                                    dash_goal[i] = q;
+                                }
                             }
                         }
                         let mut v = (p.0 - actor.0, p.1 - actor.1);
@@ -31049,6 +31092,9 @@ impl BattleState {
 /// 20, unchanged, spells.CLONE_HOLD_DEPLOY: Calib gained clone_hold_deploy (serde default the old arm, hold_time), no new
 ///    state (the hold is the saved stun_ms), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
 ///    a migrated battle at the old arm.
+/// 20, unchanged, combat.TIMED_JUMP_BLOW_STOP: Calib gained timed_jump_blow_stop (serde default the old arm,
+///    flies_to_goal), no new state (the stop writes the saved dash_goal), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32042,6 +32088,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spectral_birth_point".into(), serde_json::to_value(SpectralBirthPoint::SoldierPoint).map_err(|e| e.to_string())?);
     // spells.CLONE_HOLD_DEPLOY: a format-3 battle's Clone held its pair the hold's time (the same rule).
     sh.insert("clone_hold_deploy".into(), serde_json::to_value(CloneHoldDeploy::HoldTime).map_err(|e| e.to_string())?);
+    // combat.TIMED_JUMP_BLOW_STOP: a format-3 battle's timed jump flew on to its goal (the same rule).
+    sh.insert("timed_jump_blow_stop".into(), serde_json::to_value(TimedJumpBlowStop::FliesToGoal).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

@@ -1552,6 +1552,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   edge cell (692 of 692 slide steps).
 ///   spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy: a Clone holds a pair whose original is still deploying for its
 ///   deploy left when longer than the hold (5 of 5 units of the one such cast).
+///   combat.TIMED_JUMP_BLOW_STOP = client15535_stops_at_blow: a Mega Knight's jump stops at its blow, put on land then
+///   when over water (6 of 6 jumps never move past the blow).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
 ///   45 steps exact).
 ///   combat.KAMIKAZE_LAUNCH_PASS = client15535_launcher_reads_start: a kamikaze's launch removes it for every later unit of
@@ -1670,6 +1672,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.DISMOUNT_MOUNT_BIRTH", "\"client15535_hero_point\""),
     ("spells.CLONE_OFFSET", "\"client15535_column_edge_slide\""),
     ("spells.CLONE_HOLD_DEPLOY", "\"client15535_covers_deploy\""),
+    ("combat.TIMED_JUMP_BLOW_STOP", "\"client15535_stops_at_blow\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),
     ("pathfinding.PRESS_ROUTE", "\"client15535_replanned_with_dash\""),
