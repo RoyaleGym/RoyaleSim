@@ -3769,6 +3769,17 @@
       "promotion_rules": "None by video (50 ms vs 16.7 ms frames under client interpolation); pinned by crates/royalesim/tests/spells.rs. NOTE: timing a 500 ms Zap to settle TICK_MS is far weaker than it reads -- a 500 ms buff lasts 500 ms under every tick hypothesis.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted"
     },
+    "FIRST_HIT_BUFF_COUNTDOWN": {
+      "value": "landing_tick",
+      "candidates": ["landing_tick", "client15535_from_next_tick"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_from_next_tick on client 15.535.29: 6 of 6 Evo Minion Horde ghosts slow their minion through H + 60 (the engine's through H + 59 in the 4 of them still in step); 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-05; ghost_census.py over client 15.535.29's captures with an Evo Minion Horde: sp-form-MinionHorde-evo-s0's six evolved minions, each one's first damage H (hp 230 -> 13, one 230 -> 121), then per tick its attack progress rate (33 a tick slowed, 50 not) or its step (60 slowed, 90 not)): slowed through H + 60 and normal from H + 61, 6 of 6 (minion 26 H = t687: +33 through t747, +50 from t748). The engine's trace (formsR43c, landing_tick): slowed through H + 59 for minions 25, 26, 27, 28; minion 26 thus fired on t762 (progress 1216) where the client fired on t763 (1249), and was gone on t786, the scene's first divergence. The engine's first_hit lands the ghost in Resolve before the tick's countdown (status.BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick), so its 3000 ms lose their first 50 on the landing tick.",
+      "meaning": "landing_tick: the engine's; the Evo Minion Horde ghost (card.rs EvoDef::first_hit) is landed before the tick's own countdown, so a D-ms ghost on tick H holds H + 1 .. H + D / 50 - 1. client15535_from_next_tick: it is counted down from the next tick, H + 1 .. H + D / 50, as a projectile's buff landing in Resolve is.",
+      "open": "The ghost's no-damage window is taken with its slow (one buff, one timer); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_from_next_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs first_hit (`next`), selected by Calib::first_hit_buff_countdown; tests/evo_minion_horde.rs."
+    },
     "BUFF_STACKING": {
       "value": "one_slot_per_buff_row",
       "status": "hypothesis",

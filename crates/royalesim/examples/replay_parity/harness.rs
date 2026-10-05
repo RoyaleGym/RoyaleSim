@@ -1554,6 +1554,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   deploy left when longer than the hold (5 of 5 units of the one such cast).
 ///   combat.TIMED_JUMP_BLOW_STOP = client15535_stops_at_blow: a Mega Knight's jump stops at its blow, put on land then
 ///   when over water (6 of 6 jumps never move past the blow).
+///   status.FIRST_HIT_BUFF_COUNTDOWN = client15535_from_next_tick: an Evo Minion Horde minion's ghost is counted down from
+///   the tick after its first damage (slowed through H + 60, 6 of 6).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
 ///   45 steps exact).
 ///   combat.KAMIKAZE_LAUNCH_PASS = client15535_launcher_reads_start: a kamikaze's launch removes it for every later unit of
@@ -1673,6 +1675,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.CLONE_OFFSET", "\"client15535_column_edge_slide\""),
     ("spells.CLONE_HOLD_DEPLOY", "\"client15535_covers_deploy\""),
     ("combat.TIMED_JUMP_BLOW_STOP", "\"client15535_stops_at_blow\""),
+    ("status.FIRST_HIT_BUFF_COUNTDOWN", "\"client15535_from_next_tick\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),
     ("pathfinding.PRESS_ROUTE", "\"client15535_replanned_with_dash\""),

@@ -6,19 +6,22 @@
 //! its life: invisible, NO_DAMAGE, -33 % speed and hit speed.
 //!
 //! THE MEASUREMENT (sp-form-MinionHorde-evo-s0): every evolved minion a Musketeer's shot took from 230 to 13 took no
-//! other damage for a stretch and died later. The ghost's length and its first tick are the table's, not measured.
+//! other damage for a stretch and died later; its ghost slowed it through H + 60, H its first damage, 6 of 6
+//! (status.FIRST_HIT_BUFF_COUNTDOWN = client15535_from_next_tick; the engine's landing_tick through H + 59). Its first
+//! tick is the table's, not measured.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_minion_horde`):
 //!   - ghost_never -> `a_zapped_minion_takes_nothing_from_the_next_zap` and `the_ghost_ends_3000_ms_on_and_comes_once`
 //!     red;
-//!   - ghost_takes_damage -> the same two red.
+//!   - ghost_takes_damage -> the same two red;
+//!   - ghost_counted_on_landing -> `the_ghost_holds_through_h_plus_60_under_client15535_from_next_tick` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, FirstHitBuffCountdown};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -29,7 +32,13 @@ fn n(x: i32, y: i32) -> Vec2 {
 const AT: (i32, i32) = (9000, 10000);
 
 fn battle() -> BattleState {
+    battle_at(FirstHitBuffCountdown::LandingTick)
+}
+
+/// `battle` under status.FIRST_HIT_BUFF_COUNTDOWN = `arm`.
+fn battle_at(arm: FirstHitBuffCountdown) -> BattleState {
     let mut cfg: BattleConfig = config();
+    cfg.calib.first_hit_buff_countdown = arm;
     cfg.decks = [vec!["MinionHorde".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -44,7 +53,12 @@ fn battle() -> BattleState {
 /// the first minion's point before the tick of each frame in `zaps` (it lands on that tick). Returns, per frame, what
 /// each minion lost on it and what the Knight lost.
 fn scene(zaps: &[usize], frames: usize) -> Vec<(Vec<i32>, i32)> {
-    let mut s = battle();
+    scene_at(FirstHitBuffCountdown::LandingTick, zaps, frames)
+}
+
+/// `scene` under status.FIRST_HIT_BUFF_COUNTDOWN = `arm`.
+fn scene_at(arm: FirstHitBuffCountdown, zaps: &[usize], frames: usize) -> Vec<(Vec<i32>, i32)> {
+    let mut s = battle_at(arm);
     s.spawn_unit(Team::Blue, "MinionHorde_EV1", n(AT.0, AT.1), None).expect("the horde");
     s.tick();
     let minions: Vec<(EntityId, Vec2, i32)> = find_live(&s, Team::Blue, "MinionHorde_EV1").iter().map(|e| (e.id, e.pos, e.max_hp)).collect();
@@ -124,5 +138,26 @@ fn the_ghost_ends_3000_ms_on_and_comes_once() {
         assert_eq!(f[55].0[*m], 0, "minion {m} inside its ghost on frame 55");
         assert_eq!(f[65].0[*m], z, "minion {m} after its ghost on frame 65");
         assert_eq!(f[75].0[*m], z, "minion {m} with no second ghost on frame 75");
+    }
+}
+
+/// Plant: ghost_counted_on_landing. The ghost landed on frame 0 by the first Zap: a Zap on frame 60 (H + 60) lands under
+/// landing_tick (the ghost held H + 1 .. H + 59) and is stopped under client15535_from_next_tick (H + 1 .. H + 60), and
+/// one on frame 61 lands under both.
+#[test]
+fn the_ghost_holds_through_h_plus_60_under_client15535_from_next_tick() {
+    for (arm, held_60) in [(FirstHitBuffCountdown::LandingTick, false), (FirstHitBuffCountdown::Client15535FromNextTick, true)] {
+        let f = scene_at(arm, &[0, 60], 62);
+        let hit: Vec<usize> = (0..6).filter(|m| f[0].0[*m] > 0).collect();
+        assert!(hit.len() >= 2, "{arm:?}: the first Zap took two minions or more: {:?}", f[0].0);
+        let z = f[0].0[hit[0]];
+        assert!(f[60].1 > 0, "{arm:?}: the Zap on frame 60 on the Knight");
+        for m in &hit {
+            assert_eq!(f[60].0[*m], if held_60 { 0 } else { z }, "{arm:?}: minion {m} on frame 60 (H + 60)");
+        }
+        let g = scene_at(arm, &[0, 61], 62);
+        for m in &hit {
+            assert_eq!(g[61].0[*m], z, "{arm:?}: minion {m} on frame 61 (H + 61), after its ghost");
+        }
     }
 }

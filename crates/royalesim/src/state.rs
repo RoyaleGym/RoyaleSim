@@ -1007,6 +1007,10 @@ pub struct Calib {
     /// past its blow. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `FliesToGoal`.
     #[serde(default = "timed_jump_blow_stop_default")]
     pub timed_jump_blow_stop: TimedJumpBlowStop,
+    /// status.FIRST_HIT_BUFF_COUNTDOWN (`first_hit`): which tick the Evo Minion Horde ghost's countdown starts on. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `LandingTick`.
+    #[serde(default = "first_hit_buff_countdown_default")]
+    pub first_hit_buff_countdown: FirstHitBuffCountdown,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2605,6 +2609,10 @@ fn clone_hold_deploy_default() -> CloneHoldDeploy {
 
 fn timed_jump_blow_stop_default() -> TimedJumpBlowStop {
     TimedJumpBlowStop::FliesToGoal
+}
+
+fn first_hit_buff_countdown_default() -> FirstHitBuffCountdown {
+    FirstHitBuffCountdown::LandingTick
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6220,6 +6228,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.FIRST_HIT_BUFF_COUNTDOWN -- see `first_hit`: which tick the buff a unit's first damage lands (card.rs
+    /// `EvoDef::first_hit`, the Evo Minion Horde's ghost: invisible, no damage, -33 % speed and hit speed) starts its
+    /// countdown on, under status.BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick (the countdown in Resolve).
+    FirstHitBuffCountdown {
+        /// The engine's: `first_hit` lands it before the tick's own countdown in Resolve, so a D-ms ghost on tick H holds
+        /// H + 1 .. H + D / 50 - 1.
+        LandingTick = "landing_tick",
+        /// From the next tick, as a projectile's buff landing in Resolve: H + 1 .. H + D / 50. Measured on client
+        /// 15.535.29 (ghost_census.py, sp-form-MinionHorde-evo-s0, every evolved minion's first damage H): its attack
+        /// progress rising 33 a tick (or its step 60) through H + 60 and 50 (or 90) from H + 61, 6 of 6; the engine's
+        /// through H + 59 (minion 26: H = t687, its shot one tick early on t762, the minion gone on t786, the scene's first
+        /// error).
+        Client15535FromNextTick = "client15535_from_next_tick",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8199,6 +8223,7 @@ impl Calib {
             spectral_birth_point: pick(&v, &["spawner", "SPECTRAL_BIRTH_POINT", "value"], SpectralBirthPoint::from_calibration_name)?,
             clone_hold_deploy: pick(&v, &["spells", "CLONE_HOLD_DEPLOY", "value"], CloneHoldDeploy::from_calibration_name)?,
             timed_jump_blow_stop: pick(&v, &["combat", "TIMED_JUMP_BLOW_STOP", "value"], TimedJumpBlowStop::from_calibration_name)?,
+            first_hit_buff_countdown: pick(&v, &["status", "FIRST_HIT_BUFF_COUNTDOWN", "value"], FirstHitBuffCountdown::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -17104,8 +17129,9 @@ impl BattleState {
     /// life (the table's OnDamageTakenAction under its once-only flag). The hit that triggers it lands in full.
     ///
     /// Measured on client 15.535.29 (sp-form-MinionHorde-evo-s0, level 11): every evolved minion a Musketeer's shot took
-    /// from 230 to 13 took no other damage for a stretch and died later, one of them hit again 78 ticks on. Read off the
-    /// table, not measured: the ghost's 3000 ms, its tick against the hit's, and its slow (-33 %).
+    /// from 230 to 13 took no other damage for a stretch and died later, one of them hit again 78 ticks on. Its length
+    /// is status.FIRST_HIT_BUFF_COUNTDOWN's (client15535_from_next_tick: slowed through H + 60, 6 of 6). Read off the
+    /// table, not measured: its tick against the hit's, and its slow (-33 %).
     fn first_hit(&mut self, hurt: Vec<EntityId>) {
         let cards = self.cfg.cards.clone();
         for id in hurt {
@@ -17116,7 +17142,16 @@ impl BattleState {
             let Some(b) = cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.first_hit) else { continue };
             #[cfg(not(clash_plant = "ghost_never"))]
             {
-                let h = crate::status::BuffHit::plain(id, b.buff, b.time_ms, 0);
+                // status.FIRST_HIT_BUFF_COUNTDOWN = client15535_from_next_tick: this tick's countdown (Resolve, under
+                // BUFF_EXPIRY_TICK_ALIGNMENT = ceil_from_next_tick) is still to run, so the ghost takes one tick more.
+                // PLANT (regression) ghost_counted_on_landing: the new arm counts it down on its landing tick.
+                #[cfg(not(clash_plant = "ghost_counted_on_landing"))]
+                let next = self.cfg.calib.first_hit_buff_countdown == FirstHitBuffCountdown::Client15535FromNextTick
+                    && self.cfg.calib.buff_expiry == BuffExpiry::CeilFromNextTick;
+                #[cfg(clash_plant = "ghost_counted_on_landing")]
+                let next = false;
+                let ms = if next { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
+                let h = crate::status::BuffHit::plain(id, b.buff, ms, 0);
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
             }
             #[cfg(clash_plant = "ghost_never")]
@@ -31095,6 +31130,9 @@ impl BattleState {
 /// 20, unchanged, combat.TIMED_JUMP_BLOW_STOP: Calib gained timed_jump_blow_stop (serde default the old arm,
 ///    flies_to_goal), no new state (the stop writes the saved dash_goal), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.FIRST_HIT_BUFF_COUNTDOWN: Calib gained first_hit_buff_countdown (serde default the old arm,
+///    landing_tick), no new state (the ghost's time is the saved buff slot), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32090,6 +32128,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("clone_hold_deploy".into(), serde_json::to_value(CloneHoldDeploy::HoldTime).map_err(|e| e.to_string())?);
     // combat.TIMED_JUMP_BLOW_STOP: a format-3 battle's timed jump flew on to its goal (the same rule).
     sh.insert("timed_jump_blow_stop".into(), serde_json::to_value(TimedJumpBlowStop::FliesToGoal).map_err(|e| e.to_string())?);
+    // status.FIRST_HIT_BUFF_COUNTDOWN: a format-3 battle's ghost was counted down on its landing tick (the same rule).
+    sh.insert("first_hit_buff_countdown".into(), serde_json::to_value(FirstHitBuffCountdown::LandingTick).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
