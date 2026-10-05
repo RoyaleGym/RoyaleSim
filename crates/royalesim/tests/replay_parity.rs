@@ -1074,7 +1074,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.kamikaze_death_contact, KamikazeDeathContact::Client15535AvoidedNotPushed, "a 15.535.29 capture's dying kamikaze pushes nobody");
     assert_eq!(cfg.calib.chase_hold_past_limit, ChaseHoldPastLimit::Client15535TroopsKept, "a 15.535.29 capture's troop holds past the limit");
     assert_eq!(cfg.calib.launch_past_target, LaunchPastTarget::Client15535HomingUnclamped, "a 15.535.29 capture's homing shot starts past a near target");
-    assert_eq!(cfg.calib.relocation_tie_order, RelocationTieOrder::Client15535ArenaClockwise, "a 15.535.29 capture's building ties in the arena order");
+    assert_eq!(cfg.calib.relocation_tie_order, RelocationTieOrder::Client15535InterleavedRing, "a 15.535.29 capture's building ties in the client's ring order");
     assert_eq!(cfg.calib.knocked_target_hold, KnockedTargetHold::Client15535SightKeep, "a 15.535.29 capture's knocked units keep a target only in sight");
     assert_eq!(cfg.calib.slap_flight_targetability, SlapFlightTargetability::Client15535Airborne, "a 15.535.29 capture's thrown unit is airborne");
     assert_eq!(cfg.calib.evo_copy_count, EvoCopyCount::Client15535AtHit, "a 15.535.29 capture's Evo Skeletons count their room at the hit");

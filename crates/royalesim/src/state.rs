@@ -3046,6 +3046,14 @@ calib_enum!(
         /// diagonals), for both seats. Client 15.535.29: four Elixir Collector taps over a river corner, 4 of 4; a
         /// Cannon tapped on a tile edge, 10 of 10.
         Client15535ArenaClockwise = "client15535_arena_clockwise",
+        /// The ring visited in the client's order, in arena coordinates (`client_ring_offsets`: for i in 0..2r the four
+        /// sides in turn, the order formation.LINE_CENTRE_SEARCH's client arm walks), the first of equals kept. Read by
+        /// Oracle on client 15.535.29 (2026-10-05: every relocated tap takes the one search) and measured there: it keeps
+        /// client15535_arena_clockwise's 5 ties and takes the one that arm misses, sp-form-Tesla-evo-s0's second Tesla,
+        /// tapped on the first's (15500, 2500) with the first standing on (15000, 2000): four fits tie at 2,500,000 from
+        /// the tap ((15000, 4000), (16000, 4000), (17000, 2000), (17000, 3000)); it stood on (16000, 4000), where the arena
+        /// order takes (15000, 4000).
+        Client15535InterleavedRing = "client15535_interleaved_ring",
     }
 );
 calib_enum!(
@@ -10751,6 +10759,14 @@ fn clockwise_before(a: Vec2, b: Vec2) -> bool {
     }
     let ((qa, na, da), (qb, nb, db)) = (key(a), key(b));
     qa < qb || (qa == qb && na * db < nb * da)
+}
+
+/// placement.RELOCATION_TIE_ORDER = client15535_interleaved_ring: the tile offsets of the square ring at Chebyshev distance
+/// `r` in client 15.535.29's order (formation.rs `line_centre_client` walks the same), in arena coordinates: for i in 0..2r
+/// the four sides in turn, (i - r, -r), (-r, r - i), (r - i, r), (r, i - r), so ring 1 is its corners from (-1, -1)
+/// round to (1, -1), then -y, -x, +y, +x.
+fn client_ring_offsets(r: i32) -> Vec<(i32, i32)> {
+    (0..2 * r).flat_map(|i| [(i - r, -r), (-r, r - i), (r - i, r), (r, i - r)]).collect()
 }
 
 /// The tile offsets of the square ring at Chebyshev distance `r`, in a fixed
@@ -27492,11 +27508,22 @@ impl BattleState {
         // mirror. `RelocateFirstFittingRing` stops at the end of the first ring
         // that held a fit; `RelocateNearestOverall` keeps looking to the bound.
         let tile = crate::fixed::tiles(1);
+        // placement.RELOCATION_TIE_ORDER = client15535_interleaved_ring: the client's ring order in arena coordinates
+        // (`client_ring_offsets`), the first of equals kept.
+        // PLANT (regression) relocation_ties_clockwise: the new arm breaks its ties in the arena order -y, -x, +y, +x.
+        #[cfg(not(clash_plant = "relocation_ties_clockwise"))]
+        let tie_order = self.cfg.calib.relocation_tie_order;
+        #[cfg(clash_plant = "relocation_ties_clockwise")]
+        let tie_order = match self.cfg.calib.relocation_tie_order {
+            RelocationTieOrder::Client15535InterleavedRing => RelocationTieOrder::Client15535ArenaClockwise,
+            o => o,
+        };
+        let interleaved = !tunnels && tie_order == RelocationTieOrder::Client15535InterleavedRing;
         let mut best: Option<(i64, Vec2)> = None;
         for r in 1..=PLACEMENT_SEARCH_RINGS {
-            for (dx, dy) in ring_offsets(r) {
+            for (dx, dy) in if interleaved { client_ring_offsets(r) } else { ring_offsets(r) } {
                 let step = Vec2::new(dx * tile, dy * tile);
-                let candidate = self.ring_candidate(team, snapped, step);
+                let candidate = if interleaved { snapped.add(step) } else { self.ring_candidate(team, snapped, step) };
                 if !fits(candidate) {
                     continue;
                 }
@@ -27508,7 +27535,7 @@ impl BattleState {
                 // (9000, 14500) -> (8500, 13500) in 10 of 10 captures, which the order seen from the snapped tile
                 // (9500, 14500) misses: it takes -y, (9500, 13500)).
                 #[cfg(not(clash_plant = "relocation_ties_mirrored"))]
-                let clockwise = !tunnels && self.cfg.calib.relocation_tie_order == RelocationTieOrder::Client15535ArenaClockwise;
+                let clockwise = !tunnels && tie_order == RelocationTieOrder::Client15535ArenaClockwise;
                 #[cfg(clash_plant = "relocation_ties_mirrored")]
                 let clockwise = false; // PLANT (regression): the new arm's ties still mirror with the seat.
                 #[cfg(not(clash_plant = "relocation_ties_from_snapped"))]

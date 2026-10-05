@@ -1478,9 +1478,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   chase-drop limit when the pair was never inside it (135 of 139 on client 15.535.29; the 16.402 corpus let 3 of 4 go).
 ///   combat.LAUNCH_PAST_TARGET = client15535_homing_unclamped: a homing shot starts its whole ProjectileStartRadius out,
 ///   past a nearer target (the Hero Musketeer's near shots 6 of 6 on client 15.535.29).
-///   placement.RELOCATION_TIE_ORDER = client15535_arena_clockwise: equally near relocations of a building tap go to the
-///   first in the arena order -y, -x, +y, +x seen from the tap, for both seats (4 of 4 Elixir Collector taps and a
-///   Cannon tapped on a tile edge, 10 of 10, on client 15.535.29).
+///   placement.RELOCATION_TIE_ORDER = client15535_interleaved_ring: equally near relocations of a building tap go to the
+///   first in the client's ring order, in arena coordinates, for both seats (4 of 4 Elixir Collector taps, a Cannon
+///   tapped on a tile edge, 10 of 10, and a Tesla tapped on a Tesla, on client 15.535.29).
 ///   targeting.KNOCKED_TARGET_HOLD = client15535_sight_keep: a knocked unit keeps a target that is not a crown tower only
 ///   within its sight + both radii + 25 (9 of 9 let go past it on client 15.535.29, none within it).
 ///   targeting.SLAP_FLIGHT_TARGETABILITY = client15535_airborne: a unit in a Hero Giant's slap flight is a target only for
@@ -1643,7 +1643,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.KAMIKAZE_DEATH_CONTACT", "\"client15535_avoided_not_pushed\""),
     ("targeting.CHASE_HOLD_PAST_LIMIT", "\"client15535_troops_kept\""),
     ("combat.LAUNCH_PAST_TARGET", "\"client15535_homing_unclamped\""),
-    ("placement.RELOCATION_TIE_ORDER", "\"client15535_arena_clockwise\""),
+    ("placement.RELOCATION_TIE_ORDER", "\"client15535_interleaved_ring\""),
     ("targeting.KNOCKED_TARGET_HOLD", "\"client15535_sight_keep\""),
     ("targeting.SLAP_FLIGHT_TARGETABILITY", "\"client15535_airborne\""),
     ("spawner.EVO_COPY_COUNT", "\"client15535_at_hit\""),
