@@ -10,7 +10,7 @@
 //!   1. client_birth_frozen: on each Golemite's slide ticks after its first it holds a frozen segment, the same for the
 //!      pair (both planned from the death point toward one route's next node), unchanged through the slide;
 //!   2. refrozen (the old arm, the vacuity check): no Golemite holds a segment while it slides;
-//!   3. the shipped value is refrozen (a 15.535.29 replay runs the new arm: tests/replay_parity.rs pins it).
+//!   3. the shipped value is client_birth_frozen, on both clients (Sim's ruling, 2026-10-05).
 //!
 //! PLANT (`RUSTFLAGS='--cfg clash_plant="death_spawn_segment_refrozen"' CARGO_TARGET_DIR=target/plant cargo test --test
 //! death_spawn_segment`):
@@ -77,6 +77,6 @@ fn the_old_value_freezes_nothing_while_sliding() {
 }
 
 #[test]
-fn the_shipped_value_is_refrozen() {
-    assert_eq!(Calib::shipped().death_spawn_segment, DeathSpawnSegment::Refrozen);
+fn the_shipped_value_is_client_birth_frozen() {
+    assert_eq!(Calib::shipped().death_spawn_segment, DeathSpawnSegment::ClientBirthFrozen);
 }

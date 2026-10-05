@@ -1606,8 +1606,6 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   lines moved across the middle).
 ///   pathfinding.DEATH_BOMB_OBSTACLE = client15535_fused_building: a death bomb on its fuse is a building to route
 ///   planning (3 of 3 routes round it).
-///   spawner.DEATH_SPAWN_SEGMENT = client_birth_frozen: a sliding death-spawn member's birth route keeps the segment
-///   frozen from the death point, and its first walking tick pops a next node it slid across (25 of 25 Golemites).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -1689,7 +1687,6 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.NET_LAUNCH", "\"client15535_edge_next_tick\""),
     ("formation.LINE_LANE", "\"client15535_line_centre\""),
     ("pathfinding.DEATH_BOMB_OBSTACLE", "\"client15535_fused_building\""),
-    ("spawner.DEATH_SPAWN_SEGMENT", "\"client_birth_frozen\""),
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
 ];
 

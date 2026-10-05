@@ -3806,7 +3806,8 @@ calib_enum!(
         /// first walking tick a member that slid across it finds the node reached and pops it. Both clients' frames carry
         /// it (path_segment_direction on the birth frame: 20260919-143305 t3083 (-174, 187), sp-f2-cagegolem-s0 t1255 (6,
         /// -256)), and on client 15.535.29 every sliding Golemite whose goal cell held popped its next node one tick after
-        /// its slide where that node projected within 1,000 along it (25 of 25), and kept it where it did not.
+        /// its slide where that node projected within 1,000 along it (25 of 25), and kept it where it did not. Shipped on
+        /// both clients (Sim's ruling on parity's r43 proposal, 2026-10-05).
         ClientBirthFrozen = "client_birth_frozen",
     }
 );
