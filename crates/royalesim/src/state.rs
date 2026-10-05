@@ -1019,6 +1019,10 @@ pub struct Calib {
     /// is stunned through its hold. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Stunned`.
     #[serde(default = "cage_release_scan_default")]
     pub cage_release_scan: CageReleaseScan,
+    /// combat.GUARD_CHARGE_STEP (`guard_moves`): how the Little Prince's guard steps its charge. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Rescaled`.
+    #[serde(default = "guard_charge_step_default")]
+    pub guard_charge_step: GuardChargeStep,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2629,6 +2633,10 @@ fn line_centre_search_default() -> LineCentreSearch {
 
 fn cage_release_scan_default() -> CageReleaseScan {
     CageReleaseScan::Stunned
+}
+
+fn guard_charge_step_default() -> GuardChargeStep {
+    GuardChargeStep::Rescaled
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6329,6 +6337,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_CHARGE_STEP -- see `guard_moves` (card.rs `GuardDef`): the Little Prince's guard's charge.
+    GuardChargeStep {
+        /// The engine's: GUARD_STEP a tick along the line to his point + GUARD_END_OFFSET, the vector rescaled to it, the
+        /// last step snapped onto that point.
+        Rescaled = "rescaled",
+        /// Each tick its JumpSpeed (GUARD_SPEED 400) in pieces of 250 and 150 (move16402::TUNNEL_SUBSTEP), each re-aimed at
+        /// his point + GUARD_AIM_OFFSET (250, 3250) through the walk's 1/256 direction and truncation
+        /// (move16402::tunnel_step), the charge ending before a piece that starts within GUARD_STOP (250) of that point.
+        /// Measured on client 15.535.29 (sp-champ-LittlePrince-s0 and Oracle's sp-lp-none, -far, -live, -side+ and
+        /// -side-): 78 of 78 steps of the six charges exact, (16, 398) four times, (17, 398), (18, 398) six times,
+        /// (19, 399), (13, 250), ending on his point + (239, 3083) as measured; the rescaled line steps (17, 397) and
+        /// drifts up to 4 across and 13 along.
+        Client15535SubstepsToAim = "client15535_substeps_to_aim",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8311,6 +8335,7 @@ impl Calib {
             first_hit_buff_countdown: pick(&v, &["status", "FIRST_HIT_BUFF_COUNTDOWN", "value"], FirstHitBuffCountdown::from_calibration_name)?,
             line_centre_search: pick(&v, &["formation", "LINE_CENTRE_SEARCH", "value"], LineCentreSearch::from_calibration_name)?,
             cage_release_scan: pick(&v, &["combat", "CAGE_RELEASE_SCAN", "value"], CageReleaseScan::from_calibration_name)?,
+            guard_charge_step: pick(&v, &["combat", "GUARD_CHARGE_STEP", "value"], GuardChargeStep::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -18186,16 +18211,47 @@ impl BattleState {
             }
             let end = guard_point(r.team, r.from, crate::card::GUARD_END_OFFSET);
             let p = self.ents.pos[gi];
-            let (dx, dy) = ((end.x - p.x) as i64, (end.y - p.y) as i64);
-            let d = crate::fixed::isqrt(dx * dx + dy * dy);
-            let step = (crate::card::GUARD_STEP * crate::fixed::SUBTILE_PER_MILLITILE) as i64;
-            #[cfg(not(clash_plant = "guard_never_charges"))]
-            {
-                self.ents.pos[gi] = if d <= step { end } else { Vec2::new(p.x + (dx * step / d) as i32, p.y + (dy * step / d) as i32) };
-                moved = true;
-            }
-            if self.ents.pos[gi] == end {
-                r.arrived = Some(tick);
+            // combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim: its JumpSpeed in pieces of 250 and 150, each re-aimed at
+            // his point + GUARD_AIM_OFFSET through the walk's 1/256 direction, ending before a piece that starts within
+            // GUARD_STOP of it (native units, as the walk's).
+            // PLANT (regression) guard_charge_rescaled: the new arm still steps the rescaled line to its end.
+            #[cfg(not(clash_plant = "guard_charge_rescaled"))]
+            let substeps = self.cfg.calib.guard_charge_step == GuardChargeStep::Client15535SubstepsToAim;
+            #[cfg(clash_plant = "guard_charge_rescaled")]
+            let substeps = false;
+            if substeps {
+                let k = crate::fixed::SUBTILE_PER_MILLITILE;
+                let aim = guard_point(r.team, r.from, crate::card::GUARD_AIM_OFFSET);
+                let a = (aim.x / k, aim.y / k);
+                let mut q = (p.x / k, p.y / k);
+                let mut done = false;
+                for piece in [crate::move16402::TUNNEL_SUBSTEP, crate::card::GUARD_SPEED - crate::move16402::TUNNEL_SUBSTEP] {
+                    if crate::move16402::distance(q.0, q.1, a.0, a.1) <= crate::card::GUARD_STOP {
+                        done = true;
+                        break;
+                    }
+                    q = crate::move16402::tunnel_step(q, a, piece).0;
+                }
+                #[cfg(not(clash_plant = "guard_never_charges"))]
+                {
+                    self.ents.pos[gi] = Vec2::new(q.0 * k, q.1 * k);
+                    moved = true;
+                }
+                if done {
+                    r.arrived = Some(tick);
+                }
+            } else {
+                let (dx, dy) = ((end.x - p.x) as i64, (end.y - p.y) as i64);
+                let d = crate::fixed::isqrt(dx * dx + dy * dy);
+                let step = (crate::card::GUARD_STEP * crate::fixed::SUBTILE_PER_MILLITILE) as i64;
+                #[cfg(not(clash_plant = "guard_never_charges"))]
+                {
+                    self.ents.pos[gi] = if d <= step { end } else { Vec2::new(p.x + (dx * step / d) as i32, p.y + (dy * step / d) as i32) };
+                    moved = true;
+                }
+                if self.ents.pos[gi] == end {
+                    r.arrived = Some(tick);
+                }
             }
             // The hit: once each, ground troops of the other side within the reach of the guard's centre (its push
             // radius and their own). THE PUSH: on every tick of the charge, each of them whose CENTRE lies within the
@@ -31312,6 +31368,9 @@ impl BattleState {
 /// 20, unchanged, combat.CAGE_RELEASE_SCAN: Calib gained cage_release_scan (serde default the old arm, stunned), no new
 ///    state (the captive's stun and EvoBoard `freed` are saved already), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_CHARGE_STEP: Calib gained guard_charge_step (serde default the old arm, rescaled), no new
+///    state (the guard's run and point are saved already), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32313,6 +32372,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("line_centre_search".into(), serde_json::to_value(LineCentreSearch::RingCornerWalk).map_err(|e| e.to_string())?);
     // combat.CAGE_RELEASE_SCAN: a format-3 battle's freed captive was stunned through its hold (the same rule).
     sh.insert("cage_release_scan".into(), serde_json::to_value(CageReleaseScan::Stunned).map_err(|e| e.to_string())?);
+    // combat.GUARD_CHARGE_STEP: a format-3 battle's guard stepped its rescaled line (the same rule).
+    sh.insert("guard_charge_step".into(), serde_json::to_value(GuardChargeStep::Rescaled).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

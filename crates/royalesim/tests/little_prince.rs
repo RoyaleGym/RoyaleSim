@@ -10,13 +10,16 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, guard_collides,
 //! early_trigger_late, guard_lands_loaded, guard_push_once (`his_guards_charge_pushes_by_a_ladder_rearmed_every_tick`
-//! red).
+//! red), guard_charge_rescaled (`his_guards_charge_steps_as_the_client_steps_it_under_client15535_substeps_to_aim` red).
+//!
+//! combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim (client 15.535.29, the six charges, 78 of 78 steps): the charge
+//! in pieces of 250 and 150 re-aimed at his point + (250, 3250); the engine's rescaled line steps (17, 397).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::BattleState;
+use royalesim::state::{BattleState, GuardChargeStep};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -28,7 +31,13 @@ fn n(p: (i32, i32)) -> Vec2 {
 
 /// The Little Prince put at AT and held there 30 ticks, red `reds` put and held: the battle, his id and theirs.
 fn scene(reds: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
+    scene_with(GuardChargeStep::Rescaled, reds)
+}
+
+/// `scene` under combat.GUARD_CHARGE_STEP = `arm`.
+fn scene_with(arm: GuardChargeStep, reds: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
     let mut cfg = config();
+    cfg.calib.guard_charge_step = arm;
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -249,4 +258,42 @@ fn his_guards_charge_pushes_by_a_ladder_rearmed_every_tick() {
         checked.push(step);
     }
     assert!(checked.len() >= 8, "the scene drifted: {} ladder steps checked: {checked:?}", checked.len());
+}
+
+/// The client's charge steps (client 15.535.29: the same on all six charges), native.
+const CLIENT_CHARGE: [(i32, i32); 13] = [(16, 398), (16, 398), (16, 398), (16, 398), (17, 398), (18, 398), (18, 398), (18, 398), (18, 398), (18, 398), (18, 398), (19, 399), (13, 250)];
+
+/// The guard's first 13 moving steps after the press under `arm`, and its point after them.
+fn charge_steps(arm: GuardChargeStep) -> (Vec<(i32, i32)>, (i32, i32)) {
+    let (mut s, lp, _) = scene_with(arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut pts: Vec<(i32, i32)> = Vec::new();
+    for _ in 0..45 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        s.tick();
+        if let Some(e) = find_live(&s, Team::Blue, "ChampionGuard").first() {
+            pts.push((e.pos.x / K, e.pos.y / K));
+        }
+    }
+    let mut steps = Vec::new();
+    let mut at = *pts.first().expect("a guard");
+    for w in pts.windows(2) {
+        let d = (w[1].0 - w[0].0, w[1].1 - w[0].1);
+        if d != (0, 0) && steps.len() < 13 {
+            steps.push(d);
+            at = w[1];
+        }
+    }
+    (steps, at)
+}
+
+/// Plant: guard_charge_rescaled.
+#[test]
+fn his_guards_charge_steps_as_the_client_steps_it_under_client15535_substeps_to_aim() {
+    // NOT VACUOUS: the rescaled line steps (17, 397).
+    let (old, _) = charge_steps(GuardChargeStep::Rescaled);
+    assert_eq!(old.first(), Some(&(17, 397)), "rescaled: {old:?}");
+    let (new, end) = charge_steps(GuardChargeStep::Client15535SubstepsToAim);
+    assert_eq!(new, CLIENT_CHARGE.to_vec(), "client15535_substeps_to_aim: the steps");
+    assert_eq!(end, (AT.0 + 239, AT.1 + 3083), "client15535_substeps_to_aim: its end");
 }

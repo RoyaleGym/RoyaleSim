@@ -1468,6 +1468,15 @@ pub const GUARD_END_OFFSET: (i32, i32) = (239, 3083);
 pub const GUARD_DASH_START_TICKS: u32 = 7;
 /// The guard's charge's step, native a tick: measured, 398 along its line (its JumpSpeed 400).
 pub const GUARD_STEP: i32 = 398;
+/// combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim: the point the guard's charge aims at, from the Little Prince's
+/// (native, his side's frame); it stops within GUARD_STOP of it, at GUARD_END_OFFSET on the measured runs.
+pub const GUARD_AIM_OFFSET: (i32, i32) = (250, 3250);
+/// combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim: the guard's charge speed, native a tick (its JumpSpeed), taken
+/// in pieces of move16402::TUNNEL_SUBSTEP.
+pub const GUARD_SPEED: i32 = 400;
+/// combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim: the charge ends before a piece that starts within this of its
+/// aim, native (measured: it stopped 167 short; 250 is the piece's cap).
+pub const GUARD_STOP: i32 = 250;
 /// Ticks after the guard's arrival before it is free: measured, 2 (DashLandingTime 200 less a tick... in its dash state
 /// the arrival's frame and the next, walking on the one after).
 pub const GUARD_LANDING_TICKS: u32 = 2;

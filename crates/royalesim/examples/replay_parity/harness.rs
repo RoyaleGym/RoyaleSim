@@ -1562,6 +1562,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   it (245 of 246 Royal Recruits taps).
 ///   combat.CAGE_RELEASE_SCAN = client15535_scans_while_held: an Evo Goblin Cage's freed captive takes its target on the
 ///   tick after the cage's death and walks the tick after (4 of 4 captives).
+///   combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim: the Little Prince's guard charges in pieces of 250 and 150
+///   re-aimed at his point + (250, 3250) (78 of 78 steps).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
@@ -1689,6 +1691,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.RETARGET_WAIT_REACH_LOSS", "\"client15535_after_reach_loss_combo\""),
     ("formation.LINE_CENTRE_SEARCH", "\"client15535_interleaved_first_ring\""),
     ("combat.CAGE_RELEASE_SCAN", "\"client15535_scans_while_held\""),
+    ("combat.GUARD_CHARGE_STEP", "\"client15535_substeps_to_aim\""),
     ("knockback.COMBO_PUSHBACK", "\"client15535_ladder_armed_at_hit\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),
