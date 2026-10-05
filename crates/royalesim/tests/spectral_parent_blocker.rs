@@ -13,11 +13,13 @@
 //!   2. none (the old arm, the vacuity check): it is 0;
 //!   3. the shipped value is none (a 15.535.29 replay runs the new arm: tests/replay_parity.rs pins it);
 //!   4. client15535_static_walker_group (client 15.535.29: the first-frame sign 36 of 37 with the dying soldiers grouped
-//!      as the walkers they were, 35 of 37 by their radius): two soldiers moved to (5000, y) and (5745, y + 856), 1,135
-//!      apart (no push between them on their death tick), and killed on one tick, a Blue Cannon at (4700, y + 1100).
-//!      The first's Spectral looks from (5000, y) along (0, 256); the second soldier's blocker, 745 to its right, spans
-//!      column 5 by its radius and column 4 as a walker; the Cannon, to its left, is sighted in column 4 a row up. Under
-//!      client15535_static the right blocker is met last (-190); under the new arm the Cannon (+190).
+//!      as the walkers they were, 35 of 37 by their radius): two soldiers moved to (5000, y) and the second up and to
+//!      the right of it, killed on one tick, a Blue Cannon at (4700, y + 1100), a red Knight 3,000 above. The first's
+//!      Spectral looks along (0, 256) from its birth point; the second soldier's blocker, to its right, and the Cannon,
+//!      to its left, decide its sign by which is met last. With the second at (5850, y + 600) and (5900, y + 500) its
+//!      walker span reaches an earlier index group than its radius span: client15535_static meets it last (-190), the
+//!      new arm the Cannon (+190); at (5750, y + 800) both meet the Cannon last (+190, the control). Read off the engine
+//!      on a placement sweep (dx 650 to 900, dy 500 to 900): 6 of 22 placements part the arms, all this way.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test spectral_parent_blocker`):
 //!   * `spectral_parent_unseen` -- the new arm's first update still meets none of them: (1) and (4) go red.
@@ -81,7 +83,7 @@ fn the_shipped_value_is_none() {
 
 /// The first-frame avoidance offset of the Spectral made at (5000, y) under `arm`: two soldiers moved to (5000, y) and
 /// (5745, y + 856), a Blue Cannon at (4700, y + 1100), a red Knight 3,000 above, both soldiers set to 0 hp.
-fn pair_offset(arm: SpectralParentBlocker) -> i32 {
+fn pair_offset(arm: SpectralParentBlocker, b_at: (i32, i32)) -> Option<i32> {
     let mut cfg: BattleConfig = config();
     cfg.calib.spectral_first_update = SpectralFirstUpdate::Client15535SameTick;
     cfg.calib.spectral_parent_blocker = arm;
@@ -101,7 +103,7 @@ fn pair_offset(arm: SpectralParentBlocker) -> i32 {
         (v[0].id, v[1].id)
     };
     assert!(s.debug_set_pos(a, n(5000, y)));
-    assert!(s.debug_set_pos(b, n(5745, y + 856)));
+    assert!(s.debug_set_pos(b, n(b_at.0, y + b_at.1)));
     s.scenario_spawn_now(Team::Blue, "Cannon", n(4700, y + 1100), None).expect("a Blue Cannon left of the look circle");
     s.scenario_spawn_now(Team::Red, "Knight", n(5000, y + 3000), None).expect("a red Knight in the Spectrals' sight");
     assert!(s.debug_set_hp(a, 0) && s.debug_set_hp(b, 0));
@@ -110,14 +112,19 @@ fn pair_offset(arm: SpectralParentBlocker) -> i32 {
     let sp = find_live(&s, Team::Blue, "SkeletonArmy_EV1_Spectral");
     assert_eq!(sp.len(), 2, "{arm:?}: the scene drifted: two Spectrals on the frame the soldiers are first gone");
     let first = sp.iter().min_by_key(|e| (e.pos.x / K - 5000).abs()).expect("the first soldier's Spectral");
-    assert!((first.pos.x / K - 5000).abs() < 100, "{arm:?}: the scene drifted: no Spectral near (5000, {y}) ({:?})", first.pos);
-    first.avoid_offset
+    // a point where the two soldiers' pushes moved the first off its point is no reading
+    ((first.pos.x / K - 5000).abs() < 100).then_some(first.avoid_offset)
 }
 
 /// Plant: spectral_blocker_static_span.
 #[test]
 fn a_spectral_meets_its_dying_neighbour_grouped_as_a_walker_under_client15535_static_walker_group() {
-    // NOT VACUOUS: grouped by its radius the right blocker is met last.
-    assert_eq!(pair_offset(SpectralParentBlocker::Client15535Static), -190, "client15535_static: the right blocker met last");
-    assert_eq!(pair_offset(SpectralParentBlocker::Client15535StaticWalkerGroup), 190, "client15535_static_walker_group: the Cannon met last");
+    let read = |arm, b_at| pair_offset(arm, b_at).unwrap_or_else(|| panic!("{arm:?}: the scene drifted at {b_at:?}: the first Spectral off its soldier's point"));
+    for b_at in [(5850, 600), (5900, 500)] {
+        // NOT VACUOUS: grouped by its radius the second soldier's blocker is met last.
+        assert_eq!(read(SpectralParentBlocker::Client15535Static, b_at), -190, "client15535_static at {b_at:?}: the right blocker met last");
+        assert_eq!(read(SpectralParentBlocker::Client15535StaticWalkerGroup, b_at), 190, "client15535_static_walker_group at {b_at:?}: the Cannon met last");
+    }
+    // the control: a placement whose spans group alike
+    assert_eq!(read(SpectralParentBlocker::Client15535Static, (5750, 800)), 190, "the control: the Cannon met last");
 }
