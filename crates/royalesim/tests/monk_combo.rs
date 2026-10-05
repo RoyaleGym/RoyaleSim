@@ -19,12 +19,18 @@
 //!      not_read the Knight stands;
 //!   3. the every-row arm: a walking Monk's attack starts within Range + the Knight's radius and a walking Mighty
 //!      Miner's too, and neither does under the shipped arm; a Knight's starts where it did;
-//!   4. the shipped values are the measured arms, since the round-12 flip.
+//!   4. the shipped values are the measured arms, since the round-12 flip;
+//!   5. knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: a Red Giant walking past the Monk (to Blue's left
+//!      princess tower, which stands in this scene) takes the third hit's first step, about 250, straight away from the
+//!      Monk out of its point before the tick, and no walk; client15535_ladder_from_attacker_hit_tick (the vacuity check)
+//!      moves it otherwise on that tick (its walk and a step off its walked point). Measured on client 15.535.29
+//!      (sp-champ-Monk-recharge-q20-s0 t302 and t831: 2 of 2 walking victims).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test monk_combo`):
 //!   combo_unread                       every hit deals Damage under the new arm: (1) goes red.
 //!   combo_push_next_tick               the push's first step is the next tick's: (2) goes red.
 //!   walk_reach_every_row_flyers_only   the every-row arm reads flyers alone: (3) goes red.
+//!   combo_push_after_walk              the new arm pushes from the walked point: (5) goes red.
 mod common;
 
 use common::*;
@@ -199,4 +205,38 @@ fn the_shipped_values_are_the_measured_arms_since_the_round_12_flip() {
     assert_eq!(c.attack_combo, AttackCombo::SequenceAcrossTargets);
     assert_eq!(c.combo_pushback, ComboPushback::LadderFromAttackerHitTick);
     assert_eq!(c.variable_damage_walk_reach, EVERY_ROW);
+}
+
+/// The Giant's points per tick under `push`: Blue's Monk at (3586, 12375), towers standing, a Red Giant put down at
+/// (2200, 12800) walking to Blue's left princess tower past him; and the tick rows of the Monk's hits on it.
+fn giant_walking_past(push: ComboPushback) -> (Vec<Vec2>, Vec<Vec2>) {
+    let mut cfg = cfg_with(AttackCombo::SequenceAcrossTargets, push, DRAGON_ONLY_REACH);
+    let mut s = BattleState::try_new(0, cfg).expect("the battle");
+    past_deploy_lockout(&mut s);
+    let monk = s.scenario_spawn_now(Team::Blue, "Monk", n((3586, 12375)), None).expect("the Monk");
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", n((2200, 12800)), None).expect("the Giant");
+    let (mut g, mut m) = (Vec::new(), Vec::new());
+    for _ in 0..140 {
+        g.push(s.entity(giant).expect("the Giant lives").pos);
+        m.push(s.entity(monk).expect("the Monk lives").pos);
+        s.tick();
+    }
+    (g, m)
+}
+
+/// Plant: combo_push_after_walk.
+#[test]
+fn a_walking_victim_takes_the_combo_push_from_its_point_before_the_tick_under_client15535_ladder_armed_at_hit() {
+    let (old, _) = giant_walking_past(ComboPushback::LadderFromAttackerHitTick);
+    let (new, monk) = giant_walking_past(ComboPushback::Client15535LadderArmedAtHit);
+    // the first tick the arms part: the third hit's (row t moves from new[t] to new[t + 1])
+    let t = (0..new.len() - 1).find(|&t| new[t + 1] != old[t + 1]).expect("NOT VACUOUS: the arms never part (no third hit on a walking Giant)");
+    assert_eq!(new[t], old[t], "the arms part before the hit's tick");
+    // the Giant walked into the hit (a walk step on the tick before)
+    let walk = dist(new[t - 1], new[t]);
+    assert!((20..=80).contains(&walk), "the scene drifted: the Giant was not walking into the hit ({walk})");
+    let step = dist(new[t], new[t + 1]);
+    assert!((240..=255).contains(&step), "client15535_ladder_armed_at_hit: the hit tick's move is not a first ladder step alone ({step})");
+    let away = dist(monk[t], new[t + 1]) - dist(monk[t], new[t]);
+    assert!((step - 2..=step).contains(&away), "client15535_ladder_armed_at_hit: the step is not straight away from the Monk ({away} of {step})");
 }

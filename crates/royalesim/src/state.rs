@@ -4297,6 +4297,14 @@ calib_enum!(
         /// ladder (knockback.DISPLACEMENT_LAW) on the target for the entry's melee pushback, straight away from the
         /// attacker's start-of-tick centre, its first step on the hit's own tick.
         LadderFromAttackerHitTick = "client15535_ladder_from_attacker_hit_tick",
+        /// client15535_ladder_from_attacker_hit_tick, the hit landing in the attack pass before the move: a victim
+        /// walking on the hit's tick takes no walk there, its ladder armed from its start-of-move point and its first
+        /// step the tick's only move (the engine lands the push in Resolve, after the walk: `apply_effects` undoes the
+        /// walk). Measured on client 15.535.29 (monk_knock_census.py, every Monk third-hit knock in the captures): the 2
+        /// walking victims moved a pure first step of 249 straight away from the Monk out of their start-of-tick point,
+        /// with no walk (sp-champ-Monk-recharge-q20-s0 t302, a Giant walking (10, -50): (-164, -187), the engine (-153,
+        /// -242), its walk and a step off its walked point; t831 the same); the 6 standing ones fit both arms.
+        Client15535LadderArmedAtHit = "client15535_ladder_armed_at_hit",
     }
 );
 calib_enum!(
@@ -24286,6 +24294,19 @@ impl BattleState {
                     }
                 }
                 spell::Knock::Push { src, strength, caster, now, .. } => {
+                    // knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: a combo hit (the only push landing with
+                    // `now`) landed in the attack pass, before the move: the victim's walk of this tick is undone, and the
+                    // ladder is armed and stepped from its start-of-move point (`Scratch::pre`).
+                    // PLANT (regression) combo_push_after_walk: the new arm pushes from the walked point.
+                    #[cfg(not(clash_plant = "combo_push_after_walk"))]
+                    let at_hit = now && c.combo_pushback == ComboPushback::Client15535LadderArmedAtHit;
+                    #[cfg(clash_plant = "combo_push_after_walk")]
+                    let at_hit = false;
+                    if at_hit {
+                        if let Some(p) = self.scratch.pre.get(i).copied() {
+                            self.ents.pos[i] = p;
+                        }
+                    }
                     if self.arm_ladder(i, src, strength, caster, sum[i].is_some()) {
                         sum[i] = Some(None);
                         if now {
