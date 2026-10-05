@@ -3,6 +3,12 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.13 (2026-10-04)
+
+- No change to installing or calling the engine.
+- Battle logic, as measured in both clients: a unit that is already dead to the shots in flight is judged by homing
+  shots only, and a ranged unit does not launch a shot at a target that has moved well beyond its reach.
+
 ## 0.1.12 (2026-10-04)
 
 - No change to installing or calling the engine.
