@@ -216,6 +216,67 @@ pub fn line_centre(tap: Vec2, offsets: &[Vec2], ground: Vec2, width: i32) -> Opt
     best.map(|(_, c)| c)
 }
 
+/// A LINE'S PLACE AS CLIENT 15.535.29 SEARCHES IT (formation.LINE_CENTRE_SEARCH = client15535_interleaved_first_ring),
+/// in ABSOLUTE arena coordinates, native: the tap clamped to the arena ([0, width - 1] x [0, height - 1]); ring 0 its
+/// tile alone; ring r >= 1 visited for i in 0..2r, the four sides in turn, (i - r, -r), (-r, r - i), (r - i, r),
+/// (r, i - r) (tile offsets, -y toward side 0's king); the squared distance to the clamped tap, the best replaced only on
+/// a strictly smaller one; the ring that found a place finished and the search stopped (up to LINE_SEARCH_RINGS_CLIENT
+/// rings, 0 included). A tile is judged as `line_centre` judges one, in the owner's frame (`mirror_y`: side 1's
+/// y-reflection, x kept; `offsets` and `ground` given in that frame), but the king's zone on the centre TILE (columns
+/// LINE_KING_TILE_COLS, rows below LINE_KING_TILE_ROWS), not on the ground point. Returns the tile centre, absolute.
+/// Read by Oracle on client 15.535.29 (2026-10-05; it reads the same rule in 16.402) and checked on its Royal Recruits
+/// tap sweep (client 15.535.29, 246 runs): 245 reproduced, where `line_centre`'s order misses the 13 exact ties
+/// ((4500, 6500) up to (6499, 8500), (13500, 6500) down to (11500, 4500), (10000, 6250) to (10500, 8500)); the one miss,
+/// (9000, 4000), the client refused before any search.
+pub fn line_centre_client(tap_abs: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, height: i32, mirror_y: bool) -> Option<Vec2> {
+    let cell = LINE_CELL;
+    let half = offsets.iter().map(|o| o.x.abs()).max().unwrap_or(0);
+    let frame = |c: Vec2| if mirror_y { Vec2::new(c.x, height - c.y) } else { c };
+    let valid = |c_abs: Vec2| {
+        let c = frame(c_abs);
+        let e = c.add(ground);
+        if c.x - half < -cell / 2 || c.x + half > width + cell / 2 || e.y >= LINE_OWN_HALF_Y {
+            return false;
+        }
+        let (col, row) = (c.x.div_euclid(cell), c.y.div_euclid(cell));
+        if (LINE_KING_TILE_COLS.0..LINE_KING_TILE_COLS.1).contains(&col) && row < LINE_KING_TILE_ROWS {
+            return false;
+        }
+        offsets.iter().all(|o| {
+            let m = e.add(*o);
+            let princess = (LINE_PRINCESS_Y.0..LINE_PRINCESS_Y.1).contains(&m.y) && LINE_PRINCESS_X.iter().any(|(a, b)| (*a..*b).contains(&m.x));
+            let king = (LINE_KING_COLUMNS.0..LINE_KING_COLUMNS.1).contains(&m.x) && m.y < LINE_KING_BACK_Y;
+            !princess && !king
+        })
+    };
+    let tap = Vec2::new(tap_abs.x.clamp(0, width - 1), tap_abs.y.clamp(0, height - 1));
+    let (tx, ty) = (tap.x.div_euclid(cell), tap.y.div_euclid(cell));
+    let centre = |dx: i32, dy: i32| Vec2::new((tx + dx) * cell + cell / 2, (ty + dy) * cell + cell / 2);
+    let mut best: Option<(i64, Vec2)> = None;
+    for r in 0..LINE_SEARCH_RINGS_CLIENT {
+        let ring: Vec<(i32, i32)> = if r == 0 { vec![(0, 0)] } else { (0..2 * r).flat_map(|i| [(i - r, -r), (-r, r - i), (r - i, r), (r, i - r)]).collect() };
+        for (dx, dy) in ring {
+            let c = centre(dx, dy);
+            if valid(c) {
+                let d = c.dist2(tap);
+                if best.map_or(true, |(b, _)| d < b) {
+                    best = Some((d, c));
+                }
+            }
+        }
+        if best.is_some() {
+            break;
+        }
+    }
+    best.map(|(_, c)| c)
+}
+
+/// `line_centre_client`: the king's zone, in centre-tile columns [a, b) and rows below this, owner's frame.
+pub const LINE_KING_TILE_COLS: (i32, i32) = (7, 11);
+pub const LINE_KING_TILE_ROWS: i32 = 5;
+/// `line_centre_client`: rings 0 to 30.
+pub const LINE_SEARCH_RINGS_CLIENT: i32 = 31;
+
 /// `line_centre`'s tile, native.
 pub const LINE_CELL: i32 = 1000;
 /// `line_centre`: the king's zone a line's ground point may not stand in (x, then below this y), native, owner's frame.

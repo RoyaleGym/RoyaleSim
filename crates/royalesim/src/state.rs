@@ -1011,6 +1011,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `LandingTick`.
     #[serde(default = "first_hit_buff_countdown_default")]
     pub first_hit_buff_countdown: FirstHitBuffCountdown,
+    /// formation.LINE_CENTRE_SEARCH (`formation_members_with`): how a line's place is looked for. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `RingCornerWalk`.
+    #[serde(default = "line_centre_search_default")]
+    pub line_centre_search: LineCentreSearch,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2613,6 +2617,10 @@ fn timed_jump_blow_stop_default() -> TimedJumpBlowStop {
 
 fn first_hit_buff_countdown_default() -> FirstHitBuffCountdown {
     FirstHitBuffCountdown::LandingTick
+}
+
+fn line_centre_search_default() -> LineCentreSearch {
+    LineCentreSearch::RingCornerWalk
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6264,6 +6272,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// formation.LINE_CENTRE_SEARCH -- see `formation_members_with` and formation.rs `line_centre`: how the place of a
+    /// line (the Royal Recruits', the Royal Hogs') is looked for when the tap's tile may not take it.
+    LineCentreSearch {
+        /// The engine's (formation.rs `line_centre`): in the owner's frame, each ring from its top-left corner down its
+        /// left edge, along its bottom, up its right edge and back along its top, the nearest over every ring, the king's
+        /// zone judged on the ground point.
+        RingCornerWalk = "ring_corner_walk",
+        /// Client 15.535.29's search (formation.rs `line_centre_client`): absolute arena coordinates, the four sides of
+        /// each ring interleaved, the first of equals kept, the first ring holding a place finished and the search
+        /// stopped, the king's zone judged on the centre tile. Read by Oracle on client 15.535.29 (2026-10-05; it reads
+        /// the same rule in 16.402) and checked on the Royal Recruits tap sweep (client 15.535.29, 246 runs): 245 reproduced,
+        /// where ring_corner_walk misses the 13 exact ties (sp-rrtap-s0-4500-6500: up to (6499, 8500), where the engine
+        /// put it on (6499, 4500)).
+        Client15535InterleavedFirstRing = "client15535_interleaved_first_ring",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8244,6 +8269,7 @@ impl Calib {
             clone_hold_deploy: pick(&v, &["spells", "CLONE_HOLD_DEPLOY", "value"], CloneHoldDeploy::from_calibration_name)?,
             timed_jump_blow_stop: pick(&v, &["combat", "TIMED_JUMP_BLOW_STOP", "value"], TimedJumpBlowStop::from_calibration_name)?,
             first_hit_buff_countdown: pick(&v, &["status", "FIRST_HIT_BUFF_COUNTDOWN", "value"], FirstHitBuffCountdown::from_calibration_name)?,
+            line_centre_search: pick(&v, &["formation", "LINE_CENTRE_SEARCH", "value"], LineCentreSearch::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -26715,7 +26741,24 @@ impl BattleState {
                     #[cfg(clash_plant = "line_frame_rotation")]
                     let reflect = false;
                     let w = arena.width / K;
-                    if reflect {
+                    // formation.LINE_CENTRE_SEARCH = client15535_interleaved_first_ring: the client's search, in absolute
+                    // coordinates (formation.rs `line_centre_client`), the place mapped back to the owner's frame.
+                    // PLANT (regression) line_centre_ring_walk: the new arm still walks each ring from its corner.
+                    #[cfg(not(clash_plant = "line_centre_ring_walk"))]
+                    let client_search = calib.line_centre_search == LineCentreSearch::Client15535InterleavedFirstRing && (team == Team::Blue || reflect);
+                    #[cfg(clash_plant = "line_centre_ring_walk")]
+                    let client_search = false;
+                    if client_search {
+                        let h = arena.height / K;
+                        let abs = Vec2::new(pos.x / K, pos.y / K);
+                        if reflect {
+                            let flip = |v: Vec2| Vec2::new(-v.x, v.y);
+                            let offsets: Vec<Vec2> = offsets.iter().map(|o| flip(*o)).collect();
+                            crate::formation::line_centre_client(abs, &offsets, flip(ground_delta), w, h, true).map_or(tap, |c| Vec2::new(w - c.x, h - c.y))
+                        } else {
+                            crate::formation::line_centre_client(abs, &offsets, ground_delta, w, h, false).unwrap_or(tap)
+                        }
+                    } else if reflect {
                         let flip = |v: Vec2| Vec2::new(-v.x, v.y);
                         let offsets: Vec<Vec2> = offsets.iter().map(|o| flip(*o)).collect();
                         let at = Vec2::new(w - tap.x, tap.y);
@@ -31196,6 +31239,9 @@ impl BattleState {
 /// 20, unchanged, status.FIRST_HIT_BUFF_COUNTDOWN: Calib gained first_hit_buff_countdown (serde default the old arm,
 ///    landing_tick), no new state (the ghost's time is the saved buff slot), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, formation.LINE_CENTRE_SEARCH: Calib gained line_centre_search (serde default the old arm,
+///    ring_corner_walk), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32193,6 +32239,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("timed_jump_blow_stop".into(), serde_json::to_value(TimedJumpBlowStop::FliesToGoal).map_err(|e| e.to_string())?);
     // status.FIRST_HIT_BUFF_COUNTDOWN: a format-3 battle's ghost was counted down on its landing tick (the same rule).
     sh.insert("first_hit_buff_countdown".into(), serde_json::to_value(FirstHitBuffCountdown::LandingTick).map_err(|e| e.to_string())?);
+    // formation.LINE_CENTRE_SEARCH: a format-3 battle walked each ring from its corner (the same rule).
+    sh.insert("line_centre_search".into(), serde_json::to_value(LineCentreSearch::RingCornerWalk).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

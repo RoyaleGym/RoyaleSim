@@ -5723,6 +5723,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_line_centre (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs formation_members_with (`layout.lane` after line_centre), selected by Calib::line_lane; tests/line_lane.rs."
     },
+    "LINE_CENTRE_SEARCH": {
+      "value": "ring_corner_walk",
+      "candidates": ["ring_corner_walk", "client15535_interleaved_first_ring"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_interleaved_first_ring on client 15.535.29: read by Oracle on client 15.535.29 (2026-10-05) and checked on the Royal Recruits tap sweep, 245 of 246 runs (the miss refused before any search); Oracle reads the same rule in 16.402 but is not scored here.",
+      "provenance": "READ by Oracle on client 15.535.29 (2026-10-05) and MEASURED on client 15.535.29's Royal Recruits tap sweep (sp-rrtap-*, 246 runs, both sides): the deploy point's search runs in absolute arena coordinates on the tap clamped to the arena; ring 0 is the tap's tile; ring r is visited for i in 0..2r, the four sides in turn ((i - r, -r), (-r, r - i), (r - i, r), (r, i - r)); a place is scored by the squared distance to the clamped tap, the first of equals kept; the ring that found one is finished and the search stops (rings 0 to 30); the end takes 1 off x for a tap left of 9000 and 1 off y on side 1 (formation.GROUND_DEPLOY_POINT). A tile's validity is the engine's member rule (formation.rs line_centre), the king's zone judged on the centre tile (columns 7 to 10, rows below 5): it reproduces the client's verdict on every sweep tap. 245 of 246 runs reproduced, both side-1 taps included; ring_corner_walk's order reproduces 232 (the 13 exact ties: (4000 to 5750, 6500) placed up on (6499, 8500), where the engine took (6499, 4500); (13000 to 13750, 6500) down on (11500, 4500), where it took (11500, 8500); (10000, 6250) on (10500, 8500), where it took (11500, 4500)). The miss, (9000, 4000), the client refused before any search (the tap on the king's tower).",
+      "meaning": "ring_corner_walk: the engine's formation.rs line_centre, in the owner's frame: each ring walked from its top-left corner down its left edge, along its bottom, up its right edge and back along its top, the nearest over every ring, the king's zone judged on the ground point. client15535_interleaved_first_ring: the client's search (formation.rs line_centre_client): absolute coordinates, the four sides of each ring interleaved, the first of equals kept, the search stopped at the end of the first ring holding a place, the king's zone judged on the centre tile.",
+      "open": "Other cards' relocated taps take the same search by Oracle's read (an ordinary troop's tile is valid at ring 0); only the line's validity is modelled here; 16.402 not scored.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_interleaved_first_ring (examples/replay_parity/harness.rs CLIENT15535_ARMS). Proposed for both clients once the 16.402 corpus is scored at it (Oracle reads the same rule there).",
+      "engine": "formation.rs line_centre_client, state.rs formation_members_with (`client_search`), selected by Calib::line_centre_search; tests/line_placement.rs."
+    },
     "LINE_FRAME": {
       "value": "rotation",
       "candidates": ["rotation", "client15535_y_reflection"],

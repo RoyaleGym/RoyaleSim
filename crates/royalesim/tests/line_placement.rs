@@ -11,13 +11,19 @@
 //!   - line_centre_on_tap -> `the_royal_recruits_line_stands_where_the_client_put_it` red;
 //!   - line_tap_relocated -> `a_line_put_down_stands_where_the_client_put_it` red (a tap on a princess box relocated
 //!     first);
-//!   - line_footprint_unjudged -> `a_line_is_taken_on_its_own_princess_box_and_refused_on_an_enemy_building` red.
+//!   - line_footprint_unjudged -> `a_line_is_taken_on_its_own_princess_box_and_refused_on_an_enemy_building` red;
+//!   - line_centre_ring_walk -> `the_exact_ties_go_where_the_client_put_them_under_client15535_interleaved_first_ring`
+//!     red.
+//!
+//! formation.LINE_CENTRE_SEARCH = client15535_interleaved_first_ring (the client's search, read by Oracle on client
+//! 15.535.29 and checked on the whole sweep, 245 of 246 runs) places the 13 exact ties where the client put them, which
+//! the engine's ring_corner_walk does not.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::BattleState;
+use royalesim::state::{BattleConfig, BattleState, LineCentreSearch};
 use royalesim::Team;
 
 /// (tap, the centre the client put the line on), native.
@@ -146,4 +152,76 @@ fn a_line_is_taken_on_its_own_princess_box_and_refused_on_an_enemy_building() {
     }
     let own_box = Vec2::new(3500 * K, 6500 * K);
     assert_eq!(s.check_deploy(Team::Blue, "RoyalRecruits", own_box), Ok(()), "a line on its own princess box");
+}
+
+/// The 13 exact ties of the sweep (tap, the centre the client put the line on), native: the two candidates equally near
+/// the tap, the client's order taking one, ring_corner_walk the other.
+const TIES: [((i32, i32), (i32, i32)); 13] = [
+    ((4000, 6500), (6499, 8500)),
+    ((4250, 6500), (6499, 8500)),
+    ((4500, 6500), (6499, 8500)),
+    ((4750, 6500), (6499, 8500)),
+    ((5000, 6500), (6499, 8500)),
+    ((5250, 6500), (6499, 8500)),
+    ((5500, 6500), (6499, 8500)),
+    ((5750, 6500), (6499, 8500)),
+    ((10000, 6250), (10500, 8500)),
+    ((13000, 6500), (11500, 4500)),
+    ((13250, 6500), (11500, 4500)),
+    ((13500, 6500), (11500, 4500)),
+    ((13750, 6500), (11500, 4500)),
+];
+
+/// The line's centre for each of `taps` under `arm` (formation_preview), as the measurements read it.
+fn centres(arm: LineCentreSearch, taps: &[((i32, i32), (i32, i32))]) -> Vec<((i32, i32), (i32, i32), (i32, i32))> {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.line_centre_search = arm;
+    let s = BattleState::new(7, cfg);
+    taps.iter()
+        .map(|&((x, y), want)| {
+            let members = s.formation_preview(Team::Blue, "RoyalRecruits", Vec2::new(x * K, y * K)).expect("the line");
+            let mut xs: Vec<i32> = members.iter().map(|m| m.1.x / K).collect();
+            xs.sort();
+            let cy = members.iter().map(|m| m.1.y / K).sum::<i32>() / 6;
+            ((x, y), want, ((xs[2] + xs[3]) / 2, cy))
+        })
+        .collect()
+}
+
+/// Plant: line_centre_ring_walk.
+#[test]
+fn the_exact_ties_go_where_the_client_put_them_under_client15535_interleaved_first_ring() {
+    // NOT VACUOUS: the engine's walk takes the other of each tie.
+    let old = centres(LineCentreSearch::RingCornerWalk, &TIES);
+    assert!(old.iter().all(|(_, want, got)| got != want), "ring_corner_walk: a tie went where the client put it: {old:?}");
+    let new = centres(LineCentreSearch::Client15535InterleavedFirstRing, &TIES);
+    let wrong: Vec<_> = new.iter().filter(|(_, want, got)| got != want).collect();
+    assert!(wrong.is_empty(), "client15535_interleaved_first_ring: ties placed elsewhere (tap, client, here): {wrong:?}");
+    // and every other measured tap stays where it was
+    let rest = centres(LineCentreSearch::Client15535InterleavedFirstRing, &TAPS);
+    let moved: Vec<_> = rest.iter().filter(|(_, want, got)| got != want).collect();
+    assert!(moved.is_empty(), "client15535_interleaved_first_ring: measured taps placed elsewhere: {moved:?}");
+}
+
+/// Side 1 under formation.LINE_FRAME = client15535_y_reflection (sp-rrtap-s1-*, client 15.535.29): the client's search
+/// runs in absolute coordinates, so a side 1 tap goes through `line_centre_client`'s y-mirror and back. Both orders agree
+/// on these two taps: the pin guards that round trip (a wrong map back lays the line on the other half), not the order.
+#[test]
+fn a_side_1_line_goes_where_the_client_put_it_under_client15535_interleaved_first_ring() {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.line_centre_search = LineCentreSearch::Client15535InterleavedFirstRing;
+    cfg.calib.line_frame = royalesim::state::LineFrame::Client15535YReflection;
+    let s = BattleState::new(7, cfg);
+    let mut wrong = Vec::new();
+    for ((x, y), want) in [((15500, 28500), (11500, 27499)), ((2500, 28500), (6499, 27499))] {
+        let members = s.formation_preview(Team::Red, "RoyalRecruits", Vec2::new(x * K, y * K)).expect("the line");
+        assert_eq!(members.len(), 6, "six recruits");
+        let mut xs: Vec<i32> = members.iter().map(|m| m.1.x / K).collect();
+        xs.sort();
+        let got = ((xs[2] + xs[3]) / 2, members.iter().map(|m| m.1.y / K).sum::<i32>() / 6);
+        if got != want {
+            wrong.push(((x, y), want, got));
+        }
+    }
+    assert!(wrong.is_empty(), "side 1 taps whose line stands elsewhere (tap, client, here): {wrong:?}");
 }
