@@ -12860,6 +12860,10 @@ impl BattleState {
             if covers && original_deploy > hold.time_ms {
                 self.ents.stun_ms[i] = self.ents.stun_ms[i].max(original_deploy);
                 self.ents.stun_ms[j] = self.ents.stun_ms[j].max(original_deploy);
+                // the hold's slot too, which keeps the pair out of the contact law (the move pass's `clone_held`)
+                for (u, uid) in [(i, o.src), (j, id)] {
+                    land_buff(&mut self.ents, &self.cfg.cards, &c, u, &crate::status::BuffHit::plain(uid, hold.buff, original_deploy, 0));
+                }
             }
             // THE SLIDE: CLONE_DISTANCE_Y shared by the two, CLONE_DISTANCE_Y / 2 a tick each over the hold, the original
             // toward the enemy along its owner's y axis and the copy the other way.
@@ -20465,7 +20469,12 @@ impl BattleState {
                 // troop moved on 52 of 52 held unit-ticks with a ground neighbour overlapping it (6 Goblins frozen by
                 // Ice Spirits, 3 battles) and stood still on 353 of 353 with none; a nonzero avoidance offset shrank
                 // by 10 on 28 of 28, walking (21) and attacking (7).
+                // spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy: a unit the Clone holds (its hold's slot live) takes no
+                // contact update: the client's state 8, unpushed to the hold's end (sp-m5-clone-s0 t823 to t826).
+                let clone_held = calib.clone_hold_deploy == CloneHoldDeploy::Client15535CoversDeploy
+                    && e.buff_slots(i).iter().any(|s| !s.is_empty() && self.cfg.cards.buffs.get(s.id as usize - 1).is_some_and(|d| d.clone_hold));
                 let held_walk = calib.held_unit_contact == HeldUnitContact::Client16402SpeedZeroUpdate
+                    && !clone_held
                     && e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun)
                     && e.knock_ms[i] == 0
                     && !slap_flight[i]
