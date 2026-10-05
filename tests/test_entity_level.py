@@ -24,7 +24,9 @@ CARDS = ["Knight", "Giant"]
 
 def test_level_then_the_mount_end_the_entity_fields():
     fields = list(royalesim.ENTITY_FIELDS)
-    assert fields[-7:] == ["status_flags", "level", "mount_uid", "charge", "dest_x", "dest_y", "ability_ticks"]
+    assert fields[-8:] == [
+        "status_flags", "level", "mount_uid", "charge", "dest_x", "dest_y", "ability_ticks", "unit_type",
+    ]
 
 
 def test_a_units_row_reads_its_card_level_and_a_towers_its_tower_level():

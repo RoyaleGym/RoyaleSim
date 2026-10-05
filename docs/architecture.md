@@ -169,10 +169,15 @@ The crate itself has no Python dependency and builds alone.
   selects the frame-planned arm and `ground_y_clamp="deploy_column_range_own_frame"` the own-frame
   summon clamp (see "Selectable model arms"); each defaults to the ledger's value,
   `pathfinding.PATH_SEARCH` and `formation.GROUND_Y_CLAMP`.
-- **Units and their levels.** Each entity row of `state_json()` carries `level` second to last,
-  before `mount_uid` (the unit a rider rides, -1 for any other entity). `level` is the unified level
+- **Units and their levels.** Each entity row of `state_json()` ends with `level`, `mount_uid` (the
+  unit a rider rides, -1 for any other entity), `charge`, `dest_x`, `dest_y`, `ability_ticks` and
+  `unit_type` (`ENTITY_FIELDS` names them all). `level` is the unified level
   the entity plays at: a played unit's card level, a Mirror's copy one above it, a Clone's copy the
-  Clone's, a unit another unit puts down its parent's, a crown tower its tower level.
+  Clone's, a unit another unit puts down its parent's, a crown tower its tower level. `card_id` is the
+  card that put the unit down; `unit_type` is the unit's own record, an index into
+  `unit_types_json()`. That list holds every troop and building unit name in the loaded card table,
+  towers included, sorted, so one unit type has one id whichever card made it, and
+  `unit_types_digest()` (FNV-1a 64 of the list's JSON) tells two tables' numberings apart.
   `unit_hitpoints(card_id, level)` lists every unit a card puts on the board, as (role, unit name,
   hitpoints) at the level each one takes. The card's own row comes first; the other roles are
   `second_summon`, `spawn`, `death_spawn` and `release` (`royalesim.UNIT_ROLES`). So a unit that

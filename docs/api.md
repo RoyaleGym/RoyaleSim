@@ -60,6 +60,12 @@ the card actually went down. Ask first with
 **State.** `state_json()` returns the whole battle as JSON bytes: towers, units, spells, hands, elixir and the tick.
 `state_hash()` is one number for the whole state. Two runs with the same seed and commands give the same hash.
 
+**Units.** Each unit is a list of values in `ENTITY_FIELDS` order. `card_id` is the card that put the unit down, so a
+Witch's Skeletons report the Witch. `unit_type` is the unit itself: an index into `unit_types_json()`, a sorted list of
+unit names. Every Skeleton has the same `unit_type`, whichever card made it. The list is the same for every Battle
+built on one card table. `unit_types_digest()` is a short hash of it, so you can tell when a new table changes the
+numbering.
+
 **Saving.** `save()` returns bytes, and `load(blob)` restores them into a Battle with the same cards.
 
 **Play delay.** `set_command_delay_ticks(blue, red)` makes a play land that many ticks after it is sent, like the
@@ -73,6 +79,7 @@ real client. `pending_commands()` lists what is waiting.
 | `royalesim.card_table_source()` | `"embedded"` for an installed wheel, or `"file:<path>"` in a source checkout. |
 | `Battle.provenance()` | The commit the engine was built from, and whether that tree was clean. |
 | `DEPLOY_REASONS` | Names for the reason codes a command returns. |
+| `ENTITY_FIELDS` | Names for the values in each unit's row of `state_json()`, in order. |
 | `HAND_SIZE`, `ABILITY_BUTTONS` | Hand slots per player, and champion/hero ability buttons per player. |
 
 Methods whose names start with `debug_`, and the `*_states` readers, are for testing the engine. They may change

@@ -280,7 +280,7 @@ pub const DEPLOY_REASONS: [&str; 19] = [
 /// ints, and a swap would decode without error and be drawn with confidence. The length
 /// is pinned to the serializer by a test in this file, so this is the half that cannot
 /// fall behind -- DEPLOY_REASONS showed what the unpinned half does.
-pub const ENTITY_FIELDS: [&str; 27] = [
+pub const ENTITY_FIELDS: [&str; 28] = [
     "uid",
     "team",
     "kind",
@@ -325,6 +325,11 @@ pub const ENTITY_FIELDS: [&str; 27] = [
     // ticks left in its ability's winding-up or active phase where the engine holds the end, else 0 (status bits 6
     // and 7 say whether one is under way).
     "ability_ticks",
+    // added 2026-10-05 (agreed with RoyaleGym and RoyaleTraining; last, so old readers decode by position): what the
+    // unit IS, its own record's unit name (`CardDef::unit_name`, the game's characters row) as an index into
+    // `unit_types_of`'s list (`Battle.unit_types_json`). `card_id` is the producer, so the Witch's, a Tombstone's and
+    // a Skeleton Army's Skeletons report three card ids and one unit_type. Never -1 for an entity on the board.
+    "unit_type",
 ];
 
 /// THE PROJECTILE ROW'S FIELDS, in `state_json`'s order (its `projectiles` key). Same
@@ -466,6 +471,9 @@ pub struct Battle {
     catalogue: Vec<u16>,
     /// CardDb index -> catalogue card id, -1 when not in the catalogue.
     id_of_idx: Vec<i32>,
+    /// THE UNIT-TYPE VOCABULARY and, per CardDb index, its id (`unit_types_of`): built once, read by every frame.
+    unit_types: Vec<String>,
+    unit_type_of_idx: Vec<i32>,
     /// [team][engine tower k] -> protocol TowerSlot. Supplied by the adapter.
     slot_of_k: [[i32; 3]; 2],
     /// An override of calibration pathfinding.PATH_SEARCH for every battle this
@@ -686,6 +694,40 @@ pub const KIND_MIRROR: u8 = 6;
 
 /// The catalogue kind code of a card that travels under ground to its tap (module doc, SPELLS).
 pub const KIND_TUNNEL: u8 = 5;
+
+/// THE UNIT-TYPE VOCABULARY (ENTITY_FIELDS `unit_type`, `Battle.unit_types_json`): every distinct unit name
+/// (`CardDef::unit_name`, the game's characters row) of the loaded card table's troop and building records, the crown
+/// towers' included, sorted by name; and per CardDb index the position of its record's name in that list, -1 for a
+/// spell record (never an entity on the board). A card and the unit it summons share a name (the Skeletons card's row
+/// is "Skeleton", as is the record the Witch, a Tombstone and a Graveyard put down), so one unit type has one id.
+/// THE WHOLE TABLE, NOT THE CATALOGUE: one list per data build, the same whatever `card_names` a battle lists, and
+/// no entity can fall outside it, which a walk from the catalogue could not promise. Ids are positions in a sorted
+/// list, so a data build that adds a unit renumbers the names after it: `unit_types_digest` names the list.
+pub fn unit_types_of(cards: &CardDb) -> (Vec<String>, Vec<i32>) {
+    let on_board = |c: &&crate::card::CardDef| c.kind != CardKind::Spell;
+    let names: std::collections::BTreeSet<&str> = cards.cards.iter().filter(on_board).map(|c| c.unit_name.as_str()).collect();
+    let list: Vec<String> = names.into_iter().map(str::to_string).collect();
+    let of_idx = cards
+        .cards
+        .iter()
+        .map(|c| match c.kind {
+            CardKind::Spell => -1,
+            _ => list.binary_search_by(|n| n.as_str().cmp(c.unit_name.as_str())).map_or(-1, |k| k as i32),
+        })
+        .collect();
+    (list, of_idx)
+}
+
+/// FNV-1a 64 of `bytes` as 16 lowercase hex digits: RoyaleGym's `protocol.fnv1a64`, the hash its card-table stamps
+/// use, so a digest taken here compares with one taken there as a plain string.
+pub fn fnv1a64_hex(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
 
 /// Catalogue id per CardDb index: the catalogue position, or for a unit a catalogue
 /// card puts on the board the id of the FIRST such card, or -1.
@@ -939,11 +981,24 @@ fn unit_rows_below(cards: &CardDb, calib: &Calib, idx: u16, level: i32, walked: 
     Ok(())
 }
 
-/// `Battle.state_json` without Python (protocol.py `BattleState` as JSON text).
+/// `Battle.state_json` without Python (protocol.py `BattleState` as JSON text). Builds the unit-type table on every
+/// call; `Battle` keeps its own and calls `state_json_text_with`.
 pub fn state_json_text(
     s: &BattleState,
     cards: &CardDb,
     id_of_idx: &[i32],
+    slot_of_k: &[[i32; 3]; 2],
+    overrides: &BTreeMap<String, serde_json::Value>,
+) -> Result<String, String> {
+    state_json_text_with(s, cards, id_of_idx, &unit_types_of(cards).1, slot_of_k, overrides)
+}
+
+/// `state_json_text` with the unit-type index per CardDb index (`unit_types_of`) given.
+pub fn state_json_text_with(
+    s: &BattleState,
+    cards: &CardDb,
+    id_of_idx: &[i32],
+    unit_type_of_idx: &[i32],
     slot_of_k: &[[i32; 3]; 2],
     overrides: &BTreeMap<String, serde_json::Value>,
 ) -> Result<String, String> {
@@ -1125,6 +1180,11 @@ pub fn state_json_text(
         // `CardDb::buff_names`), with the milliseconds left.
         let target_uid = e.target.and_then(|t| s.entity(t)).map(|t| (t.team_seq as i64) * 2 + t.team as i64).unwrap_or(-1);
         let mount_uid = e.attached_to.and_then(|m| s.entity(m)).map(|m| (m.team_seq as i64) * 2 + m.team as i64).unwrap_or(-1);
+        // ENTITY_FIELDS `unit_type`: the entity's OWN record, not the producer `card_id` reports.
+        #[cfg(not(clash_plant = "unit_type_is_producer"))]
+        let unit_type = unit_type_of_idx.get(e.card_idx as usize).copied().unwrap_or(-1);
+        #[cfg(clash_plant = "unit_type_is_producer")]
+        let unit_type = unit_type_of_idx.get(e.source as usize).copied().filter(|t| *t >= 0).unwrap_or_else(|| unit_type_of_idx.get(e.card_idx as usize).copied().unwrap_or(-1)); // PLANT (regression): the producer's type.
         let mut buffs = String::from("[");
         for b in e.buffs.iter().filter(|b| b.id > 0) {
             if buffs.len() > 1 {
@@ -1136,7 +1196,7 @@ pub fn state_json_text(
         buffs.push(']');
         let _ = write!(
             o,
-            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{},{},{mount_uid},{},{},{},{}]",
+            "[{uid},{ti},{},{card_id},{slot},{},{},{},{},{},{},{},{},{},{footprint},{target_uid},{},[{},{}],{},{buffs},{},{},{mount_uid},{},{},{},{},{unit_type}]",
             e.kind as u8,
             e.pos.x,
             e.pos.y,
@@ -1352,7 +1412,8 @@ impl Battle {
             db.check_levels(idx, tower_lvl).map_err(|e| BuildError::Value(format!("tower_level {tower_lvl}: {e}")))?;
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, calib_overrides, command_delay_ticks: [0, 0], state: None, step_commands: Vec::new() })
+        let (unit_types, unit_type_of_idx) = unit_types_of(&db);
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, unit_types, unit_type_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, calib_overrides, command_delay_ticks: [0, 0], state: None, step_commands: Vec::new() })
     }
 
     /// `catalogue_json`'s body, with no Python type in it (`build` says why).
@@ -1924,8 +1985,23 @@ impl Battle {
     /// spell extensions of the module doc (SPELLS).
     fn state_json<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         let s = self.s()?;
-        let o = state_json_text(s, &self.cards, &self.id_of_idx, &self.slot_of_k, &self.calib_overrides).map_err(PyValueError::new_err)?;
+        let o = state_json_text_with(s, &self.cards, &self.id_of_idx, &self.unit_type_of_idx, &self.slot_of_k, &self.calib_overrides)
+            .map_err(PyValueError::new_err)?;
         Ok(PyBytes::new_bound(py, o.as_bytes()))
+    }
+
+    /// THE UNIT-TYPE VOCABULARY as JSON text: a list of unit names (the game's characters rows) in id order, which an
+    /// entity row's `unit_type` indexes. Every troop and building record of the loaded card table, crown towers
+    /// included, sorted by name: one list per data build, the same for any `card_names`. Needs no `reset`.
+    fn unit_types_json(&self) -> String {
+        serde_json::to_string(&self.unit_types).expect("a list of strings serializes")
+    }
+
+    /// FNV-1a 64 (16 lowercase hex digits) of exactly the bytes `unit_types_json()` returns, UTF-8: RoyaleGym's
+    /// `protocol.fnv1a64` gives the same string. A pin or a recording made under one list refuses rows made under
+    /// another, since ids are positions and a data build that adds a unit renumbers the names after it.
+    fn unit_types_digest(&self) -> String {
+        fnv1a64_hex(self.unit_types_json().as_bytes())
     }
 
     /// The calibration overrides this object applies to every battle it starts, as
@@ -2601,6 +2677,85 @@ mod tests {
         let back = reload(&db, &s);
         let again: serde_json::Value = serde_json::from_str(&state_json_text(&back, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
         assert_eq!(again["entities"], v["entities"], "a reloaded battle reports the same cards");
+    }
+
+    #[test]
+    fn a_unit_reports_its_own_type_beside_the_card_that_made_it() {
+        // ENTITY_FIELDS `unit_type` (the owner, 2026-10-05: one unit type sat under up to six card ids in a learner's
+        // identity input). The test above holds `card_id` to the PRODUCER; this one holds `unit_type` to the unit's
+        // OWN record: Skeletons put down by the Skeletons card, a Skeleton Army, a Witch, a Tombstone, a Graveyard and
+        // a Skeleton Balloon's death read one unit_type under five or six card ids, while the Witch herself, a Knight
+        // and the crown towers read their own names, and no row on the board reads -1. Plant unit_type_is_producer
+        // reports the producer's type, so the Witch's Skeletons read "Witch" and this fails.
+        let db = cards();
+        let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).name != KING_TOWER && db.get(*i).name != PRINCESS_TOWER && !db.get(*i).summon_only).collect();
+        let ids = ids_of_indices(&db, &catalogue);
+        let id = |n: &str| catalogue.iter().position(|i| db.get(*i).name == n).unwrap_or_else(|| panic!("{n} not in the catalogue")) as i64;
+        let (names, of_idx) = unit_types_of(&db);
+        // The list: sorted and unique, the towers and the units in it, no spell.
+        assert!(names.windows(2).all(|w| w[0] < w[1]), "the vocabulary is not sorted and unique: {names:?}");
+        for n in ["Skeleton", "Witch", "Knight", KING_TOWER, PRINCESS_TOWER] {
+            assert!(names.iter().any(|m| m == n), "{n} is missing from the vocabulary {names:?}");
+        }
+        for n in ["Fireball", "Graveyard", "Zap"] {
+            assert!(!names.iter().any(|m| m == n), "the spell {n} is in the vocabulary");
+        }
+        assert_eq!(of_idx.len(), db.cards.len());
+        let ut_col = ENTITY_FIELDS.iter().position(|f| *f == "unit_type").unwrap();
+        let mut s = battle(&db, &["Knight", "Archer", "Knight", "Archer", "Giant", "Knight", "Archer", "Knight"]);
+        let at = |x: i32, y: i32| Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(y));
+        for team in [Team::Blue, Team::Red] {
+            for k in 0..3 {
+                s.scenario_set_tower_hp(team, k, 1_000_000).unwrap();
+            }
+        }
+        for (card, x, y) in [("Skeletons", 3, 3), ("SkeletonArmy", 14, 3), ("Witch", 9, 4), ("Tombstone", 3, 7), ("Graveyard", 9, 12), ("Knight", 15, 8)] {
+            s.spawn_unit(Team::Blue, card, at(x, y), None).unwrap_or_else(|e| panic!("{card}: {e:?}"));
+        }
+        // On one hitpoint over a red princess tower: its death lets out Skeletons that report the balloon.
+        s.scenario_spawn_now(Team::Blue, "SkeletonBalloon", at(4, 24), Some(1)).unwrap();
+        let skeleton = names.iter().position(|n| n == "Skeleton").unwrap() as i64;
+        let mut producers_of_skeletons = std::collections::BTreeSet::new();
+        let mut own_names_checked = 0usize;
+        let want: std::collections::BTreeSet<i64> = ["Skeletons", "SkeletonArmy", "Witch", "Tombstone", "Graveyard", "SkeletonBalloon"].iter().map(|n| id(n)).collect();
+        for t in 0..1500 {
+            s.tick();
+            assert_eq!(s.outcome(), None, "the battle ended at tick {t}");
+            if t % 5 != 0 {
+                continue;
+            }
+            let v: serde_json::Value = serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
+            let rows = v["entities"].as_array().unwrap();
+            let views: Vec<_> = s.entities().collect();
+            assert_eq!(rows.len(), views.len());
+            for (r, e) in rows.iter().zip(&views) {
+                let ut = r[ut_col].as_i64().unwrap();
+                assert!(ut >= 0 && (ut as usize) < names.len(), "{} reads unit_type {ut}: {r:?}", e.card);
+                let tower = r[4].as_i64().unwrap() >= 0;
+                let own = names[ut as usize].as_str();
+                if tower {
+                    assert!(own == KING_TOWER || own == PRINCESS_TOWER, "a crown tower reads {own}");
+                    own_names_checked += 1;
+                } else if matches!(e.card, "Witch" | "Knight") {
+                    assert_eq!(own, e.card, "a deployed {} reads unit_type {own}", e.card);
+                    own_names_checked += 1;
+                } else if e.card == "Skeleton" || e.card == "Skeletons" || e.card == "SkeletonArmy" {
+                    assert_eq!(ut, skeleton, "a Skeleton under card {} reads {own}", r[3]);
+                    producers_of_skeletons.insert(r[3].as_i64().unwrap());
+                }
+            }
+            if producers_of_skeletons.is_superset(&want) {
+                break;
+            }
+        }
+        assert!(own_names_checked > 0);
+        assert_eq!(producers_of_skeletons, want, "one Skeleton unit_type under every producer's card id");
+        // The digest Gym and Train pin the list by: FNV-1a 64, RoyaleGym's protocol.fnv1a64 (its published vectors).
+        assert_eq!(fnv1a64_hex(b""), "cbf29ce484222325");
+        assert_eq!(fnv1a64_hex(b"a"), "af63dc4c8601ec8c");
+        // The table the Battle keeps is the one this builds, so its frames agree with these.
+        let again = unit_types_of(&db);
+        assert_eq!(again.0, names, "the vocabulary is not deterministic");
     }
 
     fn battle(db: &Arc<CardDb>, deck: &[&str]) -> BattleState {
