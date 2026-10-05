@@ -1957,6 +1957,17 @@
       "promotion_rules": "The test files pass (crates/royalesim/tests/corpse_switch_reach.rs, tests/test_corpse_switch_reach.py). The registered prediction for the arm alone: the reports that move hold an Archer, Minions, a Valkyrie or a Bowler killing mid-swing with the next enemy out of reach (20260918-112751, 20260918-115249.b1, 20260920-072148, 20260920-081819, and the client 15.535.29 Minions scenes); a princess tower's cadence against a swarm does not move.",
       "engine": "state.rs phase_target: `replaced_a_corpse` also requires, under client_in_reach_only, that the new target stands in attack range this tick. Nothing else reads it."
     },
+    "HELD_SHOT_TEST": {
+      "value": "tested",
+      "candidates": ["tested", "client15535_untested"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_untested on client 15.535.29: the rule predicts the end (hit tick or range end) of every Hunter and evolved Hunter pellet in the captures, 647 of 647 (305 evolved, 342 plain, 83 volleys), where the engine's rule predicts 638; the 9 that separate them are 2 volleys of the evolved Hunter on a Golem's death (a newborn Golemite within reach of the standing pellets). The plain Hunter has no separating instance (its projectile columns are the evolved one's). 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-05) on client 15.535.29's raw frames (each frame's projectiles: position, x2/y2, source; stand_rule_census.py, pellet_stand_census.py, volley_census.py). A volley is made the tick the Hunter's attack_load_timer_ms goes 0 -> 1500, 10 pellets at its start-of-tick point plus 1,000 toward its target; each stands 1 + ceil(U/50) ticks (the synced RandomDelay draw) and then flies. sp-f4-hunterG40-s0 t1181: the evolved Hunter's volley killed the Golem (7 x 84 on creation) and 3 pellets stood at (14858, 13247) to t1184-85 while the newborn Golemites 22 and 23 slid within 193 and 258 of their edge; they hit nothing and flew to range end, where the engine's hit both on t1182 (1,039 -> 787). sp-f4-hunterG80-s0 t1177: Golemite 22 lost 84 on t1179 to a pellet released that tick (its stepped point 269 from it) while three standing ones, nearer, did not hit it; the engine's took 6 x 84 on t1178. The pellets that passed the Golem's kill still hit once released.",
+      "meaning": "tested: the engine's; a pellet held by its row's RandomDelay tests for hits at its launch point on each stand tick, and a hit consumes it. client15535_untested: it tests nothing while it stands; it is tested on its creation tick (the creation reach, as before) and from its first step on, at the stepped point against post-move positions. A power shot's one-tick side copies (no stop on hit) are not affected.",
+      "open": "Whether a standing pellet tests again from its third stand tick on (no enemy was ever in reach then); the plain Hunter (no separating instance); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_untested (examples/replay_parity/harness.rs CLIENT15535_ARMS). Promote on a plain Hunter's standing pellet with an enemy in reach, or on 16.402 frames.",
+      "engine": "combat.rs step_straight (the `hold` branch), selected by Calib::held_shot_test; tests/held_shot_test.rs."
+    },
     "LAUNCH_BEYOND_CANCEL_RANGE": {
       "value": "not_launched",
       "candidates": ["launched", "not_launched"],

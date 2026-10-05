@@ -1578,6 +1578,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   radius (one unit at the boundary).
 ///   movement.DEFLECT_CONTACT = client15535_pushes: a deflecting Monk pushes his neighbours (a Giant sliding round him
 ///   took his push on 34 of 34 frames inside both radii).
+///   combat.HELD_SHOT_TEST = client15535_untested: a Hunter's held pellet tests nothing while it stands (647 of 647
+///   pellets; the engine's tested rule hit newborn Golemites the client's never touched).
 ///   movement.DEFLECT_STAY_TIME = client15535_tick_short: the Deflect keeps the Monk unpushed a tick less than its active
 ///   time (a Giant on him moved him on P + 97, the tick after his deflect state ended).
 ///   pathfinding.HELD_PRESS_ROUTE = client15535_replanned: a ground hero's press that holds it drops its route too; it
@@ -1674,6 +1676,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.EVO_CHAIN_HOP_REACH", "\"client15535_strict\""),
     ("movement.DEFLECT_CONTACT", "\"client15535_pushes\""),
     ("movement.DEFLECT_STAY_TIME", "\"client15535_tick_short\""),
+    ("combat.HELD_SHOT_TEST", "\"client15535_untested\""),
     ("pathfinding.HELD_PRESS_ROUTE", "\"client15535_replanned\""),
     ("spawner.THROWN_UNIT_DEATH_BLOW", "\"client15535_unreached\""),
     ("spawner.SPECTRAL_PARENT_BLOCKER", "\"client15535_static\""),

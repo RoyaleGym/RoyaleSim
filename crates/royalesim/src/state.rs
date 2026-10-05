@@ -1082,6 +1082,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `ActiveTime`.
     #[serde(default = "deflect_stay_time_default")]
     pub deflect_stay_time: DeflectStayTime,
+    /// combat.HELD_SHOT_TEST (combat.rs `step_straight`): whether a held RandomDelay pellet tests for hits while it
+    /// stands. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Tested`.
+    #[serde(default = "held_shot_test_default")]
+    pub held_shot_test: HeldShotTest,
     /// pathfinding.HELD_PRESS_ROUTE (`start_ability`): whether the press of a ground hero's button that holds it
     /// (CastTime > 0) drops its route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
     #[serde(default = "held_press_route_default")]
@@ -2648,6 +2652,10 @@ fn deflect_contact_default() -> DeflectContact {
 
 fn deflect_stay_time_default() -> DeflectStayTime {
     DeflectStayTime::ActiveTime
+}
+
+fn held_shot_test_default() -> HeldShotTest {
+    HeldShotTest::Tested
 }
 
 fn held_press_route_default() -> HeldPressRoute {
@@ -5484,6 +5492,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.HELD_SHOT_TEST -- see combat.rs `step_straight`: whether a pellet held at its launch point by its row's
+    /// RandomDelay (the Hunter's and the evolved Hunter's, CheckCollisions rows: `Straight::stop_on_hit`) tests for hits
+    /// on its stand ticks. A power shot's side copies (their one-tick stand, no stop on hit) are not these.
+    HeldShotTest {
+        /// The engine's: each stand tick it tests at its launch point, and a hit consumes it.
+        Tested = "tested",
+        /// It tests nothing while it stands: tested on its creation tick (as before) and from its first step on, at the
+        /// stepped point. Measured on client 15.535.29 (stand_rule_census.py, 647 pellets of 83 Hunter and evolved Hunter
+        /// volleys): this predicts every pellet's end (647 of 647), the engine's 638; the 9 it misses are standing pellets
+        /// with a newborn Golemite in reach (sp-f4-hunterG40-s0 t1181: 3 stood at (14858, 13247), released t1184-85 and hit
+        /// nothing, where the engine's took 3 x 84 off each Golemite on t1182; sp-f4-hunterG80-s0 t1177).
+        Client15535Untested = "client15535_untested",
+    }
+);
+calib_enum!(
     /// pathfinding.HELD_PRESS_ROUTE -- see `start_ability`: the route of a ground hero whose button holds it (CastTime >
     /// 0; not a dash chain), the counterpart of pathfinding.PRESS_ROUTE for the heroes that key leaves out.
     HeldPressRoute {
@@ -8026,6 +8049,7 @@ impl Calib {
             evo_chain_hop_reach: pick(&v, &["combat", "EVO_CHAIN_HOP_REACH", "value"], EvoChainHopReach::from_calibration_name)?,
             deflect_contact: pick(&v, &["movement", "DEFLECT_CONTACT", "value"], DeflectContact::from_calibration_name)?,
             deflect_stay_time: pick(&v, &["movement", "DEFLECT_STAY_TIME", "value"], DeflectStayTime::from_calibration_name)?,
+            held_shot_test: pick(&v, &["combat", "HELD_SHOT_TEST", "value"], HeldShotTest::from_calibration_name)?,
             held_press_route: pick(&v, &["pathfinding", "HELD_PRESS_ROUTE", "value"], HeldPressRoute::from_calibration_name)?,
             thrown_unit_death_blow: pick(&v, &["spawner", "THROWN_UNIT_DEATH_BLOW", "value"], ThrownUnitDeathBlow::from_calibration_name)?,
             spectral_parent_blocker: pick(&v, &["spawner", "SPECTRAL_PARENT_BLOCKER", "value"], SpectralParentBlocker::from_calibration_name)?,
@@ -30673,6 +30697,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
+///    (the stand is the saved `Straight::hold`), so a blob saved before it deserializes and hashes as it did. migrate_v3
+///    runs a migrated battle at the old arm.
 /// 20, unchanged, movement.DEFLECT_STAY_TIME: Calib gained deflect_stay_time (serde default the old arm, active_time), no
 ///    new state (the stay is a buff the slots already save), so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
@@ -31694,6 +31721,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("deflect_contact".into(), serde_json::to_value(DeflectContact::Hidden).map_err(|e| e.to_string())?);
     // movement.DEFLECT_STAY_TIME: a format-3 battle ran no Monk (the same rule).
     sh.insert("deflect_stay_time".into(), serde_json::to_value(DeflectStayTime::ActiveTime).map_err(|e| e.to_string())?);
+    // combat.HELD_SHOT_TEST: a format-3 battle's held pellets tested where they stood (the same rule).
+    sh.insert("held_shot_test".into(), serde_json::to_value(HeldShotTest::Tested).map_err(|e| e.to_string())?);
     // pathfinding.HELD_PRESS_ROUTE: a format-3 battle ran no hero (the same rule).
     sh.insert("held_press_route".into(), serde_json::to_value(HeldPressRoute::Kept).map_err(|e| e.to_string())?);
     // spawner.THROWN_UNIT_DEATH_BLOW: a format-3 battle ran no hero (the same rule).

@@ -2090,7 +2090,8 @@ fn landed(h: &Hit, r: i32, law: DamageReductionLaw) -> i32 {
 ///     5 hits, the tightest miss 1519 against 1500), then moves to `pingpong_pos`. Its hit
 ///     set is cleared as the return leg starts, so it hits a unit once a leg, and it is gone
 ///     after `t = period`.
-///   * A held pellet (`hold` > 0) stands at its launch point and tests there.
+///   * A held pellet (`hold` > 0) stands at its launch point and tests there; under combat.HELD_SHOT_TEST =
+///     client15535_untested a RandomDelay pellet (`stop_on_hit`) tests nothing while it stands.
 ///   * A one-way shot steps toward `aim`, the point ProjectileRange out, by
 ///     combat.PROJECTILE_STEP's law, and is GONE instead of taking the step that would reach
 ///     it: it is last seen at the last point within ProjectileRange (measured on client
@@ -2132,6 +2133,13 @@ fn step_straight(
     }
     if s.hold > 0 {
         s.hold -= 1;
+        // combat.HELD_SHOT_TEST = client15535_untested: a RandomDelay pellet (a CheckCollisions row's, `stop_on_hit`)
+        // stands untested; it is tested again from its first step. A power shot's side copies test as before.
+        // PLANT (regression) held_shot_tested: the new arm still tests the standing pellet.
+        #[cfg(not(clash_plant = "held_shot_tested"))]
+        if stop && calib.held_shot_test == crate::state::HeldShotTest::Client15535Untested {
+            return true;
+        }
         let here = p.pos;
         let hit = straight_hits(ents, hash, cards, calib, p, here, dmg, fx, nb, tick);
         return !(hit && stop);
