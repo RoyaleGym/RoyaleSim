@@ -19,14 +19,20 @@
 //!   - cage_takes_on_free -> `after_its_captives_death_the_next_troop_in_reach_is_grabbed_10_ticks_on` red;
 //!   - cage_release_at_once -> `the_cages_death_lets_its_captive_go_on_its_point_standing_a_tick` and
 //!     `the_cages_death_lets_a_knight_go_on_its_point_unpushed_by_its_brawler` red;
-//!   - cage_release_pushed -> the same two red.
+//!   - cage_release_pushed -> the same two red;
+//!   - cage_release_stunned -> `a_captive_let_go_takes_its_target_on_the_next_tick_under_client15535_scans_while_held`
+//!     red.
+//!
+//! combat.CAGE_RELEASE_SCAN = client15535_scans_while_held (client 15.535.29, 4 of 4 captives let go): the captive takes
+//! its target on K + 1, standing, and walks on K + 2; the engine's stun scanned nothing until K + 3, and on K + 2 only the
+//! Brawler's push moved it (which the two release tests above read as its walk).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, CageReleaseScan};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -48,7 +54,13 @@ const GRAB2: i64 = 3500 * 3500;
 /// Blue's princess towers down (no crown tower reaches the scene) and the form put down on CAGE: the battle and the
 /// cage.
 fn battle() -> (BattleState, EntityId) {
+    battle_arm(CageReleaseScan::Stunned)
+}
+
+/// `battle` under combat.CAGE_RELEASE_SCAN = `arm`.
+fn battle_arm(arm: CageReleaseScan) -> (BattleState, EntityId) {
     let mut cfg: BattleConfig = config();
+    cfg.calib.cage_release_scan = arm;
     cfg.decks = [vec!["GoblinCage".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -78,7 +90,12 @@ type Grab = (BattleState, EntityId, EntityId, Vec<(i32, i32)>, Vec<i32>, usize);
 /// ticks (its fifth hit would kill it): (the battle, the cage, the Knight, its points and hitpoints from the tick before
 /// it walks, the index of the grab's tick G, the first whose point the next tick keeps).
 fn grabbed() -> Grab {
-    let (mut s, cage) = battle();
+    grabbed_arm(CageReleaseScan::Stunned)
+}
+
+/// `grabbed` under combat.CAGE_RELEASE_SCAN = `arm`.
+fn grabbed_arm(arm: CageReleaseScan) -> Grab {
+    let (mut s, cage) = battle_arm(arm);
     let far = n(CAGE.0 + 3700, CAGE.1);
     let knight = s.scenario_spawn_now(Team::Red, "Knight", far, None).expect("a red Knight");
     for _ in 0..40 {
@@ -204,4 +221,32 @@ fn after_its_captives_death_the_next_troop_in_reach_is_grabbed_10_ticks_on() {
     let first = (dk + 1..pts.len()).find(|&k| pts[k] != pts[k - 1]).expect("the second Skeleton moved");
     assert_eq!(first - dk, 21, "its drag's first step, from D: {:?}", &pts[dk - 1..(dk + 24).min(pts.len())]);
     assert!(d(pts[first]) < d(pts[first - 1]), "dragged toward the cage: {:?}", &pts[first - 1..=first]);
+}
+
+/// The Knight of `grabbed_arm(arm)` let go when the cage dies on K: its point and whether it holds a target on K, K + 1,
+/// K + 2 and K + 3.
+fn let_go(arm: CageReleaseScan) -> Vec<((i32, i32), bool)> {
+    let (mut s, cage, knight, pts, _, _) = grabbed_arm(arm);
+    assert_eq!(*pts.last().expect("points"), CAGE, "caged");
+    assert!(s.debug_set_hp(cage, 0));
+    let mut out = Vec::new();
+    for _ in 0..4 {
+        s.tick();
+        let e = s.entity(knight).expect("the Knight");
+        out.push(((e.pos.x / K, e.pos.y / K), e.target.is_some()));
+    }
+    assert!(s.entity(cage).is_none(), "the cage died");
+    out
+}
+
+/// Plant: cage_release_stunned.
+#[test]
+fn a_captive_let_go_takes_its_target_on_the_next_tick_under_client15535_scans_while_held() {
+    // NOT VACUOUS: the stun scans nothing through K + 2.
+    let old = let_go(CageReleaseScan::Stunned);
+    assert!(!old[1].1 && !old[2].1, "stunned: the Knight held a target before K + 3: {old:?}");
+    let new = let_go(CageReleaseScan::Client15535ScansWhileHeld);
+    assert!(new[1].1, "client15535_scans_while_held: no target on K + 1: {new:?}");
+    assert_eq!((new[0].0, new[1].0), (CAGE, CAGE), "client15535_scans_while_held: not standing on K and K + 1: {new:?}");
+    assert!(new[2].1 && new[2].0 != CAGE, "client15535_scans_while_held: not walking on K + 2: {new:?}");
 }

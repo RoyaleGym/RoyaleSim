@@ -1015,6 +1015,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `RingCornerWalk`.
     #[serde(default = "line_centre_search_default")]
     pub line_centre_search: LineCentreSearch,
+    /// combat.CAGE_RELEASE_SCAN (`phase_reap`, the Evo Goblin Cage's release): whether the captive a dying cage lets go
+    /// is stunned through its hold. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Stunned`.
+    #[serde(default = "cage_release_scan_default")]
+    pub cage_release_scan: CageReleaseScan,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2621,6 +2625,10 @@ fn first_hit_buff_countdown_default() -> FirstHitBuffCountdown {
 
 fn line_centre_search_default() -> LineCentreSearch {
     LineCentreSearch::RingCornerWalk
+}
+
+fn cage_release_scan_default() -> CageReleaseScan {
+    CageReleaseScan::Stunned
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6305,6 +6313,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.CAGE_RELEASE_SCAN -- see `phase_reap`'s release of an Evo Goblin Cage's captive (card.rs `CageDef`,
+    /// CAGE_RELEASE_HOLD_TICKS; EvoBoard `freed`): what the hold after the cage's death stops.
+    CageReleaseScan {
+        /// The engine's: the captive is stunned through the hold (CAGE_RELEASE_HOLD_TICKS + 1 ticks), so it scans
+        /// nothing until the stun runs out and walks a tick after the measured one.
+        Stunned = "stunned",
+        /// The hold stops the captive's move alone (the move pass skips it, EvoBoard `freed`): it takes its target on the
+        /// tick after the cage's death, standing on the cage's point, and walks the tick after. Measured on client
+        /// 15.535.29 (loss_wait_census.py over every scenario truth): 4 of 4 captives let go (sp-form-GoblinCage-evo-s0
+        /// t1325, a Knight; sp-f2-cageknfb-s0 t1568, a Knight; sp-f2-cagefb-s0 t1795 and sp-f2-cagegolem-s0 t2270,
+        /// Golems) took the princess tower on K + 1 and walked from K + 2; the engine's took it on K + 3 and walked a
+        /// tick late.
+        Client15535ScansWhileHeld = "client15535_scans_while_held",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8286,6 +8310,7 @@ impl Calib {
             timed_jump_blow_stop: pick(&v, &["combat", "TIMED_JUMP_BLOW_STOP", "value"], TimedJumpBlowStop::from_calibration_name)?,
             first_hit_buff_countdown: pick(&v, &["status", "FIRST_HIT_BUFF_COUNTDOWN", "value"], FirstHitBuffCountdown::from_calibration_name)?,
             line_centre_search: pick(&v, &["formation", "LINE_CENTRE_SEARCH", "value"], LineCentreSearch::from_calibration_name)?,
+            cage_release_scan: pick(&v, &["combat", "CAGE_RELEASE_SCAN", "value"], CageReleaseScan::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -25889,7 +25914,14 @@ impl BattleState {
                     let hold = (crate::card::CAGE_RELEASE_HOLD_TICKS + 1) * self.cfg.calib.tick_ms;
                     #[cfg(clash_plant = "cage_release_at_once")]
                     let hold = 0; // PLANT: the captive walks on the tick after the cage's death.
-                    self.ents.stun_ms[ci] = hold;
+                    // combat.CAGE_RELEASE_SCAN = client15535_scans_while_held: the hold stops its move alone (`freed`, below),
+                    // so it takes its target on the next tick, standing, and walks the tick after.
+                    // PLANT (regression) cage_release_stunned: the new arm still stuns it through the hold.
+                    #[cfg(not(clash_plant = "cage_release_stunned"))]
+                    let scans = self.cfg.calib.cage_release_scan == CageReleaseScan::Client15535ScansWhileHeld;
+                    #[cfg(clash_plant = "cage_release_stunned")]
+                    let scans = false;
+                    self.ents.stun_ms[ci] = if scans { 0 } else { hold };
                     // Through the hold it is not pushed either (EvoBoard `freed`; the move pass skips it).
                     #[cfg(not(any(clash_plant = "cage_release_at_once", clash_plant = "cage_release_pushed")))]
                     self.evo.freed.push((c, self.tick + crate::card::CAGE_RELEASE_HOLD_TICKS as u32));
@@ -31277,6 +31309,9 @@ impl BattleState {
 /// 20, unchanged, formation.LINE_CENTRE_SEARCH: Calib gained line_centre_search (serde default the old arm,
 ///    ring_corner_walk), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, combat.CAGE_RELEASE_SCAN: Calib gained cage_release_scan (serde default the old arm, stunned), no new
+///    state (the captive's stun and EvoBoard `freed` are saved already), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32276,6 +32311,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("first_hit_buff_countdown".into(), serde_json::to_value(FirstHitBuffCountdown::LandingTick).map_err(|e| e.to_string())?);
     // formation.LINE_CENTRE_SEARCH: a format-3 battle walked each ring from its corner (the same rule).
     sh.insert("line_centre_search".into(), serde_json::to_value(LineCentreSearch::RingCornerWalk).map_err(|e| e.to_string())?);
+    // combat.CAGE_RELEASE_SCAN: a format-3 battle's freed captive was stunned through its hold (the same rule).
+    sh.insert("cage_release_scan".into(), serde_json::to_value(CageReleaseScan::Stunned).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

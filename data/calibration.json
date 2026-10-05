@@ -2052,6 +2052,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_before_shots_hidden_after_snap (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_projectile (the cages' pass before or after combat::step_projectiles) and cage_pass (the hide's tick), selected by Calib::cage_captive_shots; tests/cage_captive_shots.rs."
     },
+    "CAGE_RELEASE_SCAN": {
+      "value": "stunned",
+      "candidates": ["stunned", "client15535_scans_while_held"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_scans_while_held on client 15.535.29: 4 of 4 captives let go; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-05) on every client 15.535.29 scenario truth (loss_wait_census.py: each unit whose target is gone on a tick in both the truth and the engine, the ticks until it moves or takes another target): an Evo Goblin Cage's captive, let go on the cage's point when the cage dies on K, took the princess tower on K + 1, still standing there, and walked from K + 2, 4 of 4 (sp-form-GoblinCage-evo-s0 t1325, a Knight: (11506, 14053) on K and K + 1, (11561, 14031) on K + 2; sp-f2-cageknfb-s0 t1568, a Knight, (12536, 13649) on K + 2; sp-f2-cagefb-s0 t1795 and sp-f2-cagegolem-s0 t2270, Golems, (12533, 13574) on K + 2). The engine stunned it through the hold, so it scanned nothing until K + 3 and walked from there, a tick late (on K + 2 only the Brawler's push moved it, which tests/evo_goblin_cage.rs read as the walk).",
+      "meaning": "stunned: the engine's; the captive is stunned through its hold (CAGE_RELEASE_HOLD_TICKS + 1 ticks), scanning nothing until the stun runs out. client15535_scans_while_held: the hold stops its move alone (the move pass skips it, EvoBoard freed): it takes its target on the tick after the cage's death, standing, and walks the tick after.",
+      "open": "A captive with an enemy in its reach on K + 1 (would it start its attack in the hold?) is not in the captures; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_scans_while_held (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_reap (the cage's release: `scans`), selected by Calib::cage_release_scan; tests/evo_goblin_cage.rs."
+    },
     "LOAD_FIRST_HIT_KILL_WAIT": {
       "value": "waits",
       "status": "measured",
