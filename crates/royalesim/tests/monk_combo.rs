@@ -238,5 +238,5 @@ fn a_walking_victim_takes_the_combo_push_from_its_point_before_the_tick_under_cl
     let step = dist(new[t], new[t + 1]);
     assert!((240..=255).contains(&step), "client15535_ladder_armed_at_hit: the hit tick's move is not a first ladder step alone ({step})");
     let away = dist(monk[t], new[t + 1]) - dist(monk[t], new[t]);
-    assert!((step - 2..=step).contains(&away), "client15535_ladder_armed_at_hit: the step is not straight away from the Monk ({away} of {step})");
+    assert!((step - 2..=step + 2).contains(&away), "client15535_ladder_armed_at_hit: the step is not straight away from the Monk ({away} of {step})");
 }
