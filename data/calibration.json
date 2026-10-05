@@ -3273,6 +3273,17 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json, Calib::clone_offset); state.rs materialise_clones (the slide, through step_knock_slides); tests/clone.rs (15).",
       "globals_role": "context"
     },
+    "CLONE_HOLD_DEPLOY": {
+      "value": "hold_time",
+      "candidates": ["hold_time", "client15535_covers_deploy"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_covers_deploy on client 15.535.29: one cast on deploying originals (3 Skeletons and 2 copies, 5 of 5 units); 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-05; client 15.535.29's sp-m5-clone-s0 frames, diag2 clone_census.py and the scene's engine trace on the r43b stack): Blue's Skeletons put down on t807 (first frame in deploy state 4; a Skeleton's deploy ends on its 20th frame, state 1 on t826 as played alone) and a Clone cast over them on C = t812, 700 ms of their deploy left. All three and the two copies read the Clone's state 8 from C to t826 = C + 14 and state 1 together on t827 = C + 15, a target on t828 and their first steps on t829; the slide C + 1 to C + 10 as for any pair, then each stood on its slide's last point through C + 14. The engine held them the hold's 500 ms: from C + 11 the original, still deploying and unheld, was pushed off an enemy Giant 130 to 145 a tick (539 off on t826, the scene's first error). max(500, deploy left) = 700 ms reproduces the release (C + 1 + 14 ticks), and the hold's 500 the release of every pair whose original was deployed (C + 11).",
+      "meaning": "hold_time: the engine's; the Clone holds its pair the hold's time (500 ms) whatever the original's deploy, after which a pair still deploying is an unheld body the contact law pushes. client15535_covers_deploy: the pair is held max(the hold's time, the original's deploy left on the cast tick), both of them, so neither is pushed nor released before then.",
+      "open": "Only one cast on deploying originals is measured (3 Skeletons); the copy's own deploy left is its original's (spells.CLONE_COPY_DEPLOY); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_covers_deploy (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs materialise_clones (`covers`, the hold timer stun_ms), selected by Calib::clone_hold_deploy; tests/clone.rs (16)."
+    },
     "CLONE_HOLD_TARGETS": {
       "value": "both",
       "candidates": ["both"],

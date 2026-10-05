@@ -40,7 +40,11 @@
 //!  15. spells.CLONE_OFFSET = client15535_column_edge_slide: each of the pair walks 125 a tick toward the centre of the
 //!      edge cell of its own 500 column (the original the enemy's edge row, the copy its own side's), the step fixed on
 //!      C (the law read from the original's point on C, the copy stepping off the axis), for Blue; Red the y-reflection
-//!      (measured on client 15.535.29, 35 pairs, all side 0: 692 of 692 slide steps; ub-cl2-band C125 the copy (3, -124)).
+//!      (measured on client 15.535.29, 35 pairs, all side 0: 692 of 692 slide steps; ub-cl2-band C125 the copy (3, -124));
+//!  16. spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy: a Knight put down (deploying) 2 ticks before the cast, a
+//!      Red Giant held 1,900 north of it: under hold_time the original, still deploying and no longer held, is pushed off
+//!      the Giant from C + 11; under the new arm it stands on its slide's last point through C + 14, held for its deploy
+//!      left (measured on client 15.535.29, sp-m5-clone-s0: three deploying Skeletons and their copies held to C + 14).
 //!
 //! THE SCENE. Blue's own half, the tap at (9000, 9000), where the slide stays on open ground and no crown tower is on
 //! the pair's line. Units are put down already deployed unless said, so they walk from tick 0.
@@ -66,13 +70,14 @@
 //!   * `clone_buffs_not_copied` -- no buff copied under either arm: (13) goes red.
 //!   * `clone_slide_hidden` -- the sliding pair is out of its neighbours' scans: (14) goes red.
 //!   * `clone_slide_on_axis` -- the new CLONE_OFFSET arm slides along the owner's y axis: (15) goes red.
+//!   * `clone_hold_ends_in_deploy` -- the new CLONE_HOLD_DEPLOY arm holds the pair the hold's time alone: (16) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::{CardDb, CardSource, SpellPlacement, SpellShape};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CloneCopyBuffs, CloneDeathSpawns, CloneLevel, CloneOffset, EntityView};
+use royalesim::state::{BattleConfig, BattleState, CloneCopyBuffs, CloneDeathSpawns, CloneHoldDeploy, CloneLevel, CloneOffset, EntityView};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -308,6 +313,47 @@ fn under_client15535_column_edge_slide_each_of_the_pair_walks_toward_its_columns
             assert_eq!(o, Vec2::new(o0.x + so.0 * k * K, o0.y + so.1 * k * K), "{team:?}: the original on C + {k}");
             assert_eq!(c, Vec2::new(o0.x + sc.0 * k * K, o0.y + sc.1 * k * K), "{team:?}: the copy on C + {k}");
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// (16)
+
+/// The original's points on C to C + 15 under `arm`: a Blue Knight put down deploying at the tap 2 ticks before the cast,
+/// a Red Giant held 1,900 north of the tap (the slide brings the original into it from C + 6, as in (14)).
+fn deploying_original(arm: CloneHoldDeploy) -> Vec<Vec2> {
+    let giant_at = at((TAP.0, TAP.1 + 1900));
+    let mut cfg = shipped();
+    cfg.calib.clone_hold_deploy = arm;
+    let mut s = BattleState::new(0, cfg);
+    let g = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("spawn Giant");
+    s.spawn_unit(Team::Blue, "Knight", at(TAP), None).expect("put down the Knight");
+    for _ in 0..2 {
+        s.debug_set_pos(g, giant_at);
+        s.tick();
+    }
+    let k = s.entities().find(|e| e.team == Team::Blue && e.card == "Knight").map(|e| e.id).expect("the Knight");
+    assert!(s.entity(k).expect("the Knight").deploy_ms > 750, "{arm:?}: the scene drifted: the Knight's deploy left is not past the hold and C + 14");
+    s.spawn_unit(Team::Blue, "Clone", at(TAP), None).expect("cast Clone");
+    (0..16)
+        .map(|_| {
+            s.debug_set_pos(g, giant_at);
+            s.tick();
+            s.entity(k).expect("the original lives").pos
+        })
+        .collect()
+}
+
+/// Plant: clone_hold_ends_in_deploy.
+#[test]
+fn under_client15535_covers_deploy_a_deploying_pair_is_held_through_its_deploy() {
+    let old = deploying_original(CloneHoldDeploy::HoldTime);
+    // NOT VACUOUS: the engine's arm lets the deploying original be pushed off the Giant once the hold is over.
+    assert_ne!(old[11], old[10], "hold_time: the deploying original was not pushed on C + 11 ({:?} on C + 10)", old[10]);
+    let new = deploying_original(CloneHoldDeploy::Client15535CoversDeploy);
+    assert_eq!(&new[..=10], &old[..=10], "client15535_covers_deploy: the slide itself moved");
+    for (k, p) in new.iter().enumerate().take(15).skip(11) {
+        assert_eq!(*p, new[10], "client15535_covers_deploy: the original moved on C + {k} while its deploy holds it");
     }
 }
 

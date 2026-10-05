@@ -999,6 +999,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `SoldierPoint`.
     #[serde(default = "spectral_birth_point_default")]
     pub spectral_birth_point: SpectralBirthPoint,
+    /// spells.CLONE_HOLD_DEPLOY (`materialise_clones`): how long a Clone holds a pair whose original is still deploying.
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `HoldTime`.
+    #[serde(default = "clone_hold_deploy_default")]
+    pub clone_hold_deploy: CloneHoldDeploy,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2589,6 +2593,10 @@ fn clone_offset_default() -> CloneOffset {
 
 fn spectral_birth_point_default() -> SpectralBirthPoint {
     SpectralBirthPoint::SoldierPoint
+}
+
+fn clone_hold_deploy_default() -> CloneHoldDeploy {
+    CloneHoldDeploy::HoldTime
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6171,6 +6179,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.CLONE_HOLD_DEPLOY -- see `materialise_clones`: how long a Clone holds a pair whose original is still
+    /// deploying on the cast tick C.
+    CloneHoldDeploy {
+        /// The engine's: the hold's time (500 ms), whatever the deploy; the pair then deploys out unheld, a body the
+        /// contact law pushes.
+        HoldTime = "hold_time",
+        /// max(the hold's time, the original's deploy left on C), on both: the pair is held (no update, no push) until
+        /// C + 1 + that many ticks. Measured on client 15.535.29 (sp-m5-clone-s0, one cast on three Skeletons 5 ticks
+        /// into their deploy, 700 ms left, and their two copies): all five in the Clone's state (8) from C to C + 14
+        /// and released together on C + 15 (state 1; a Skeleton's deploy ends on its 20th frame, here its 21st); the
+        /// slide over C + 1 to C + 10 as ever, then standing on its point through C + 14 beside an enemy Giant the
+        /// engine's pushed them off (the original 539 off by C + 14, the scene's first error).
+        Client15535CoversDeploy = "client15535_covers_deploy",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8148,6 +8172,7 @@ impl Calib {
             dismount_mount_birth: pick(&v, &["transform", "DISMOUNT_MOUNT_BIRTH", "value"], DismountMountBirth::from_calibration_name)?,
             clone_offset: pick(&v, &["spells", "CLONE_OFFSET", "value"], CloneOffset::from_calibration_name)?,
             spectral_birth_point: pick(&v, &["spawner", "SPECTRAL_BIRTH_POINT", "value"], SpectralBirthPoint::from_calibration_name)?,
+            clone_hold_deploy: pick(&v, &["spells", "CLONE_HOLD_DEPLOY", "value"], CloneHoldDeploy::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -12728,6 +12753,8 @@ impl BattleState {
             };
             #[cfg(clash_plant = "clone_copy_born_deployed")]
             let deploy_left = 0; // PLANT (regression): the new arm's copy is born deployed.
+            // spells.CLONE_HOLD_DEPLOY reads the original's own deploy left, whatever CLONE_COPY_DEPLOY gives the copy.
+            let original_deploy = self.ents.deploy_ms[i].max(0);
             self.spawn_source = self.ents.producer(i);
             let Ok(id) = self.spawn_with(team, card, level, pos, kind, false) else { continue };
             let j = id.index as usize;
@@ -12769,6 +12796,17 @@ impl BattleState {
             let c = self.cfg.calib.clone();
             land_buff(&mut self.ents, &self.cfg.cards, &c, j, &crate::status::BuffHit::plain(id, hold.buff, hold.time_ms, 0));
             self.ents.stun_ms[j] = self.ents.stun_ms[j].max(hold.time_ms);
+            // spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy: an original still deploying holds the pair for its
+            // deploy left when that is longer than the hold, both of them (the hold timer, as the hold's own).
+            // PLANT (regression) clone_hold_ends_in_deploy: the new arm holds the pair the hold's time alone.
+            #[cfg(not(clash_plant = "clone_hold_ends_in_deploy"))]
+            let covers = self.cfg.calib.clone_hold_deploy == CloneHoldDeploy::Client15535CoversDeploy;
+            #[cfg(clash_plant = "clone_hold_ends_in_deploy")]
+            let covers = false;
+            if covers && original_deploy > hold.time_ms {
+                self.ents.stun_ms[i] = self.ents.stun_ms[i].max(original_deploy);
+                self.ents.stun_ms[j] = self.ents.stun_ms[j].max(original_deploy);
+            }
             // THE SLIDE: CLONE_DISTANCE_Y shared by the two, CLONE_DISTANCE_Y / 2 a tick each over the hold, the original
             // toward the enemy along its owner's y axis and the copy the other way.
             #[cfg(not(clash_plant = "clone_no_separation"))]
@@ -31008,6 +31046,9 @@ impl BattleState {
 ///    migrated battle at the old arm. spawner.SPECTRAL_PARENT_BLOCKER gained client15535_static_walker_group and
 ///    SPECTRAL_FIRST_UPDATE client15535_same_tick_apart (arms read inside one Reap; move16402 Body::group_walker is
 ///    scratch).
+/// 20, unchanged, spells.CLONE_HOLD_DEPLOY: Calib gained clone_hold_deploy (serde default the old arm, hold_time), no new
+///    state (the hold is the saved stun_ms), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
+///    a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -31999,6 +32040,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("clone_offset".into(), serde_json::to_value(CloneOffset::OwnerAxisSlideOverHold).map_err(|e| e.to_string())?);
     // spawner.SPECTRAL_BIRTH_POINT: a format-3 battle ran no Evo Skeleton Army (the same rule).
     sh.insert("spectral_birth_point".into(), serde_json::to_value(SpectralBirthPoint::SoldierPoint).map_err(|e| e.to_string())?);
+    // spells.CLONE_HOLD_DEPLOY: a format-3 battle's Clone held its pair the hold's time (the same rule).
+    sh.insert("clone_hold_deploy".into(), serde_json::to_value(CloneHoldDeploy::HoldTime).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
