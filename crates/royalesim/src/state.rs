@@ -986,6 +986,11 @@ pub struct Calib {
     /// 20; the `default` is the old arm, `KeepWater`.
     #[serde(default = "dismount_hop_water_default")]
     pub dismount_hop_water: DismountHopWater,
+    /// transform.DISMOUNT_MOUNT_BIRTH (the Dismount effect and `dismount_hops`): where the Hero Dark Prince's mount is
+    /// born and whether it takes a creation-tick update. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// `FittedOffset`.
+    #[serde(default = "dismount_mount_birth_default")]
+    pub dismount_mount_birth: DismountMountBirth,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2564,6 +2569,10 @@ fn dismount_leap_step_default() -> DismountLeapStep {
 
 fn dismount_hop_water_default() -> DismountHopWater {
     DismountHopWater::KeepWater
+}
+
+fn dismount_mount_birth_default() -> DismountMountBirth {
+    DismountMountBirth::FittedOffset
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6078,6 +6087,24 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// transform.DISMOUNT_MOUNT_BIRTH -- see the Dismount effect (`AbilityEffect::Dismount`) and `dismount_hops`: where
+    /// the Hero Dark Prince's mount is born and whether it takes a creation-tick update.
+    DismountMountBirth {
+        /// The engine's: put down on the trigger at the hero's start-of-tick point + card.rs DISMOUNT_MOUNT_OFFSET (fitted
+        /// on first-frame points), with no update until its second frame.
+        FittedOffset = "fitted_offset",
+        /// Born on the hero's point after the hero's own move on the trigger tick and before its first hop (its first
+        /// frame's x2/y2), and takes its first full update that tick (`first_update`): its scans meet the hero's body
+        /// standing there (a mover of the walking row, its heading not counted; the side fallback of the d2 == 0
+        /// separation and an avoidance turn of -200 off it), unless the hero was airborne (its trigger tick carried its
+        /// leap's last step). Measured on client 15.535.29 (dp_mount_law.py, the 6 mounts of the captures): every first
+        /// frame exact to the native unit (-49, -86) x2, (-57, -101), (-45, -82), (60, 119) red, (36, 47) the leaping
+        /// hero's; the second frames exact too (a plain step on the -180 turn, the hero no longer met). The fitted offset
+        /// fits the 3 it was fitted on.
+        Client15535HeroPoint = "client15535_hero_point",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8039,6 +8066,7 @@ impl Calib {
             scan_reach: pick(&v, &["targeting", "SCAN_REACH", "value"], ScanReach::from_calibration_name)?,
             dismount_leap_step: pick(&v, &["transform", "DISMOUNT_LEAP_STEP", "value"], DismountLeapStep::from_calibration_name)?,
             dismount_hop_water: pick(&v, &["transform", "DISMOUNT_HOP_WATER", "value"], DismountHopWater::from_calibration_name)?,
+            dismount_mount_birth: pick(&v, &["transform", "DISMOUNT_MOUNT_BIRTH", "value"], DismountMountBirth::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -9387,6 +9415,11 @@ pub struct DismountRun {
     pub made: u32,
     pub at: Vec2,
     pub mount: Option<EntityId>,
+    /// transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: the mount is still to be born at the first hop
+    /// (`dismount_hops`), and whether its first update meets the hero's body (false: the hero leapt on the trigger tick).
+    /// Set and spent inside the trigger's tick.
+    #[serde(default)]
+    pub mount_due: Option<bool>,
 }
 
 /// A HERO BARBARIAN BARREL RE-ROLL UNDER WAY (card.rs `ReRollDef`; `reroll_pass`, `reroll_logs`): the Barbarian, its
@@ -10247,6 +10280,10 @@ struct Scratch {
     /// as bodies of the contact law (`dying_body`), taken before they are despawned: the death spawns' first update
     /// meets them. Filled and drained inside one `phase_reap`, so it never outlives the phase: not saved, not hashed.
     dying_bodies: Vec<move16402::Body>,
+    /// transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: the heroes' pre-hop bodies (`dismount_hops`) the mounts
+    /// born this tick meet on their first update (`phase_path16402_for`, both scans, whatever FIRST_STEP_DYING_CONTACT
+    /// says of the tick's dead). Filled in Move and cleared after this tick's Reap's first update: not saved, not hashed.
+    mount_bodies: Vec<move16402::Body>,
     /// movement.SPAWN_PATHFIND_STATES: the tunnellers that came up this tick as the building they leave
     /// (`surface`), removed in this tick's Reap without a death (`phase_reap`). Filled in the Path phase and
     /// drained in the Reap of the same tick, so it is empty between ticks: not saved, not hashed.
@@ -11632,6 +11669,8 @@ impl BattleState {
         // under hidden).
         let dying = std::mem::take(&mut self.scratch.dying_bodies);
         self.first_update(&fresh, apart, &blockers, &dying);
+        // transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: the heroes' pre-hop bodies served this first update only.
+        self.scratch.mount_bodies.clear();
     }
 
     /// spawner.FIRST_STEP_DYING_BODIES = client16402_seen: entity `i`, dying in this Reap, as the contact law of a first
@@ -19782,6 +19821,9 @@ impl BattleState {
                         }
                     }
                 }
+                // transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: a Hero Dark Prince's body on the point where its
+                // mount is born (`dismount_hops`), met by both scans of the mount's first update.
+                bodies.extend_from_slice(&self.scratch.mount_bodies);
                 for &(x, y, r, side, air) in blockers {
                     bodies.push(move16402::Body {
                         x,
@@ -24689,13 +24731,34 @@ impl BattleState {
                 continue;
             }
             let i = r.id.index as usize;
-            let (walker, hop_y) = (d.walker, d.hop_y);
+            let (walker, hop_y, mount_card) = (d.walker, d.hop_y, d.mount);
             // transform.DISMOUNT_LEAP_STEP = client15535_leap_lands_first: a hero left on its mounted row through its
             // trigger tick's leap step becomes its walking row now, before its first hop.
             if age == 0 && self.ents.card[i] != walker {
                 self.rebind_unit(i, walker, false);
             }
             let p = self.ents.pos[i];
+            // transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: the mount is born here, on the hero's point before its
+            // first hop, and takes its first update this tick (`materialise_released`), meeting the hero's body as it
+            // stands now unless the hero leapt on the trigger tick.
+            if let Some(meets) = self.warps.dismounts[k].mount_due.take() {
+                let team = r.team;
+                let level = self.ents.level[i];
+                let lvl = self.cfg.cards.unit_level(r.card, mount_card, None, level).expect("the ability unit's level is validated at try_new");
+                self.release(PendingSpawn { team, card: mount_card, level: lvl, pos: p, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: true, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+                self.warps.dismounts[k].at = p;
+                // PLANT (regression) mount_meets_no_hero: the new arm's mount meets no hero on its first update.
+                #[cfg(not(clash_plant = "mount_meets_no_hero"))]
+                if meets {
+                    let mut b = self.dying_body(i);
+                    b.collidable = true;
+                    b.heading_counts = false;
+                    b.offset = 0;
+                    self.scratch.mount_bodies.push(b);
+                }
+                #[cfg(clash_plant = "mount_meets_no_hero")]
+                let _ = meets;
+            }
             let to = Vec2::new(p.x, p.y + hop_y * spell::forward_dy(r.team) * crate::fixed::SUBTILE_PER_MILLITILE);
             let flying = self.ents.flying[i];
             #[cfg(not(clash_plant = "dismount_never_hops"))]
@@ -27853,10 +27916,20 @@ impl BattleState {
                 #[cfg(not(clash_plant = "dismount_never"))]
                 {
                     let lvl = self.cfg.cards.unit_level(card, d.mount, None, level).expect("the ability unit's level is validated at try_new");
+                    // transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: the mount is born at the first hop
+                    // (`dismount_hops`), on the hero's point after its own move; meeting its body unless it leapt.
+                    // PLANT (regression) mount_born_on_trigger: the new arm still puts the mount down here.
+                    #[cfg(not(clash_plant = "mount_born_on_trigger"))]
+                    let at_hop = self.cfg.calib.dismount_mount_birth == DismountMountBirth::Client15535HeroPoint;
+                    #[cfg(clash_plant = "mount_born_on_trigger")]
+                    let at_hop = false;
                     let at = guard_point(team, pos, crate::card::DISMOUNT_MOUNT_OFFSET[team as usize]);
                     // Made at the end of this Reap with no update (`release`): its first frame on its point, its one step
                     // on its second, as measured; and no play's deploy blow (its blow is `dismount_pass`'s).
-                    self.release(PendingSpawn { team, card: d.mount, level: lvl, pos: at, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+                    if !at_hop {
+                        self.release(PendingSpawn { team, card: d.mount, level: lvl, pos: at, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+                    }
+                    let leapt = self.ents.jumping[i];
                     // transform.DISMOUNT_LEAP_STEP = client15535_leap_lands_first: a hero freed on its leap's last tick
                     // takes that leap step as its mounted row; it becomes its walking row after the move pass
                     // (`dismount_hops`, on the run's first tick).
@@ -27869,7 +27942,7 @@ impl BattleState {
                         self.rebind_unit(i, d.walker, false);
                     }
                     self.warps.dismounts.retain(|r| r.id != hero);
-                    self.warps.dismounts.push(DismountRun { id: hero, team, card, made: self.tick, at, mount: None });
+                    self.warps.dismounts.push(DismountRun { id: hero, team, card, made: self.tick, at, mount: None, mount_due: at_hop.then_some(!leapt) });
                 }
                 let _ = (team, level, pos, d);
             }
@@ -30773,6 +30846,10 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, transform.DISMOUNT_MOUNT_BIRTH: Calib gained dismount_mount_birth (serde default the old arm,
+///    fitted_offset) and DismountRun gained mount_due (serde default none; set and spent inside the trigger's tick, so
+///    never saved or hashed with a value), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -31758,6 +31835,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // transform.DISMOUNT_LEAP_STEP and DISMOUNT_HOP_WATER: a format-3 battle rebound at the trigger and kept water.
     sh.insert("dismount_leap_step".into(), serde_json::to_value(DismountLeapStep::RebindFirst).map_err(|e| e.to_string())?);
     sh.insert("dismount_hop_water".into(), serde_json::to_value(DismountHopWater::KeepWater).map_err(|e| e.to_string())?);
+    // transform.DISMOUNT_MOUNT_BIRTH: a format-3 battle ran no hero (the same rule).
+    sh.insert("dismount_mount_birth".into(), serde_json::to_value(DismountMountBirth::FittedOffset).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

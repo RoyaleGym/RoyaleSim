@@ -1542,6 +1542,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   that leap step before it dismounts (1 of 1).
 ///   transform.DISMOUNT_HOP_WATER = client15535_land_row_centre: its hop onto the river lands on the nearest land row's
 ///   centre (5 of 5).
+///   transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: its mount is born on its point before its first hop and
+///   takes its first update that tick, meeting its body (6 of 6 mounts exact).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
 ///   45 steps exact).
 ///   combat.KAMIKAZE_LAUNCH_PASS = client15535_launcher_reads_start: a kamikaze's launch removes it for every later unit of
@@ -1655,6 +1657,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.SPECTRAL_FIRST_UPDATE", "\"client15535_same_tick\""),
     ("transform.DISMOUNT_LEAP_STEP", "\"client15535_leap_lands_first\""),
     ("transform.DISMOUNT_HOP_WATER", "\"client15535_land_row_centre\""),
+    ("transform.DISMOUNT_MOUNT_BIRTH", "\"client15535_hero_point\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),
     ("pathfinding.PRESS_ROUTE", "\"client15535_replanned\""),

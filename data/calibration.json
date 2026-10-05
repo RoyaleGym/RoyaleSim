@@ -4938,6 +4938,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_leap_lands_first (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs the dismount's trigger (`late`) and dismount_hops (the age-0 rebind), selected by Calib::dismount_leap_step; tests/dismount_river.rs."
     },
+    "DISMOUNT_MOUNT_BIRTH": {
+      "value": "fitted_offset",
+      "candidates": ["fitted_offset", "client15535_hero_point"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_hero_point on client 15.535.29: the law reproduces all 6 mounts of the captures to the native unit on their first frames ((-49, -86) twice, (-57, -101), (-45, -82), (60, 119) red, (36, 47) after a leap) and on their second frames, with no fitted parameter (the walking row's mass 6 and radius 600, the mount's 15 and speed 60, the avoidance turn of 200 decaying by 10 and the d2 == 0 side fallback all from the tables and the existing code); the fitted offset fits the 3 runs it was fitted on. The leap branch (an airborne hero not met) rests on one instance. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-05; dismount_birth_census.py, dp_mount_law.py, dp_mount_frame2.py over the 6 mounts of client 15.535.29's captures). Every mount's first frame's x2/y2 (its birth point) is the hero's point after the hero's own move on the trigger tick and before its first hop: its start-of-tick point for a standing, attacking or charging hero (5), that point + its leap step (46, 152) for the one freed on its leap's last tick (sp-form-DarkPrince-hero-s0 t213). Its first-frame displacement is one full update meeting the hero's body standing on that point: the separation push off a coincident mover of mass 6 ((0, -121) blue, (0, +121) red, the side fallback), the avoidance turn of -200 off it (-190 after the decay, both sides), and a 60 step toward its first node rotated by it; the leaping hero's body is not met ((36, 47), a plain step, no turn). Its second frame is a plain step on the -180 turn with the hero no longer met. The engine put it at the hero's start-of-tick point + (-49, -86) / (-60, -119) with no update: 313 off on sp-form-DarkPrince-hero-s0 t213 and 47-92 off through the hold elsewhere.",
+      "meaning": "fitted_offset: the engine's; the mount is put down on the trigger at the hero's start-of-tick point + card.rs DISMOUNT_MOUNT_OFFSET, with no update until its second frame. client15535_hero_point: born on the hero's point after the hero's own move on the trigger tick and before its first hop, taking its first full update that tick (first_update), whose scans meet the hero's body standing there (a mover of its walking row, its heading not counted) unless the hero leapt on the trigger tick.",
+      "open": "Whether other units meet the hero's body on the trigger tick (no neighbour stood in reach in the captures); the leap branch rests on one instance; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_hero_point (examples/replay_parity/harness.rs CLIENT15535_ARMS). Proposed to ship it on both clients when 16.402 frames of a Hero Dark Prince are read.",
+      "engine": "state.rs the Dismount effect (AbilityEffect::Dismount) and dismount_hops, materialise_released's first update (Scratch::mount_bodies), selected by Calib::dismount_mount_birth; tests/dismount_mount_birth.rs."
+    },
     "DISMOUNT_HOP_WATER": {
       "value": "keep_water",
       "candidates": ["keep_water", "client15535_land_row_centre"],
