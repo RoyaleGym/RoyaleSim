@@ -1087,7 +1087,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.pass_kill_chase, PassKillChase::Client15535ChaserReadsPass, "a 15.535.29 capture's chaser reads a kill in the pass");
     assert_eq!(cfg.calib.knocked_doomed_avoidance, KnockedDoomedAvoidance::Client15535KnockedMover, "a 15.535.29 capture's knocked doomed troop is no static obstacle");
     assert_eq!(cfg.calib.troop_death_pushback, TroopDeathPushback::Client15535Ladder, "a 15.535.29 capture's dying Golem pushes");
-    assert_eq!(cfg.calib.struck_contact_order, StruckContactOrder::Client15535AfterStriker, "a 15.535.29 capture's struck troop leaves the pass at its striker");
+    assert_eq!(cfg.calib.struck_contact_order, StruckContactOrder::Client15535BeforePass, "a 15.535.29 capture's struck troop leaves the pass as it begins");
     assert_eq!(cfg.calib.fall_grounding, FallGrounding::Client15535LateKeptWalk, "a 15.535.29 capture's falling hog lands a tick late");
     assert_eq!(cfg.calib.cage_captive_shots, CageCaptiveShots::Client15535BeforeShotsHiddenAfterSnap, "a 15.535.29 capture's cage drags before the shots");
     assert_eq!(cfg.calib.load_first_hit_kill_wait, LoadFirstHitKillWait::Client15535Skipped, "a 15.535.29 capture's Sparky serves no post-kill wait");

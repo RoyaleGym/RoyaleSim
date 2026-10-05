@@ -1504,8 +1504,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   victim) is no static obstacle to the avoidance scan (8 of 8 scanners kept their offset).
 ///   knockback.TROOP_DEATH_PUSHBACK = client15535_ladder: a dying Golem or Golemite pushes the units its death blow hits
 ///   on the knockback ladder of its DeathPushBack (43 of 43 enemies in reach).
-///   movement.STRUCK_CONTACT_ORDER = client15535_after_striker: a troop struck down in the sequential pass is a body to
-///   the movers created before its striker only, and stays when its striker came before it.
+///   movement.STRUCK_CONTACT_ORDER = client15535_before_pass: a troop struck down in the sequential pass is a body to no
+///   mover's separation in the move pass (102 of 102 overlapping movers took no push from it), and stays when its striker
+///   came before it.
 ///   transform.FALL_GROUNDING = client15535_late_kept_walk: a falling Evo Royal Hog leaves the air on the tick after its
 ///   landing tick, after the Target phase, keeping its walk (ground-only enemies took it two ticks after, 4 of 4).
 ///   combat.CAGE_CAPTIVE_SHOTS = client15535_before_shots_hidden_after_snap: an Evo Goblin Cage drags its captive before
@@ -1635,7 +1636,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.PASS_KILL_CHASE", "\"client15535_chaser_reads_pass\""),
     ("movement.KNOCKED_DOOMED_AVOIDANCE", "\"client15535_knocked_mover\""),
     ("knockback.TROOP_DEATH_PUSHBACK", "\"client15535_ladder\""),
-    ("movement.STRUCK_CONTACT_ORDER", "\"client15535_after_striker\""),
+    ("movement.STRUCK_CONTACT_ORDER", "\"client15535_before_pass\""),
     ("transform.FALL_GROUNDING", "\"client15535_late_kept_walk\""),
     ("combat.CAGE_CAPTIVE_SHOTS", "\"client15535_before_shots_hidden_after_snap\""),
     ("combat.LOAD_FIRST_HIT_KILL_WAIT", "\"client15535_skipped\""),

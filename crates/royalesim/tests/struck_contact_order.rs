@@ -16,8 +16,14 @@
 //!      client15535_after_striker (it strikes, then moves). Client 15.535.29 sweep-SkeletonArmy t275: the Knight that
 //!      struck a Skeleton overlapping it by 61 stood still on the kill tick.
 //!
+//!   4. client15535_before_pass: a third Blue Knight created BEFORE the striker, set 700 beside the victim on the tick before
+//!      the kill, takes no push from it either, where client15535_after_striker pushes it (client 15.535.29: 102 movers
+//!      overlapping a struck troop took no push from it, 0 did; sp-il-04cb t1221, the scene's first error).
+//!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! struck_contact_order`):
+//!   * `struck_met_before_striker` -- the new arm still keeps the struck troop for the movers before its striker: (4) goes
+//!     red.
 //!   * `struck_contact_whole_pass` -- the struck troop is a body to every mover under the new arm too: (2) and (3) go red.
 //!   * `struck_meets_its_striker` -- the striker's own move still meets its victim: (3) goes red.
 #![allow(unexpected_cfgs)]
@@ -53,8 +59,21 @@ fn knight(s: &mut BattleState, team: Team, p: (i32, i32), hp: Option<i32>) -> En
 /// The second Knight's move (or, `striker`, the striker's) on the kill tick, projected on the line out of the victim's
 /// point (native, outward positive). The kill tick is found on a dry run (`ticks` None), which the scene repeats.
 fn push_out(arm: StruckContactOrder, striker: bool) -> i32 {
-    let run = |ticks: Option<u32>| -> (BattleState, EntityId, EntityId, EntityId, u32) {
+    push_of(arm, if striker { Who::Striker } else { Who::After })
+}
+
+/// Whose move `push_of` reads: the striker's, the Knight created after it, or the Knight created before it.
+#[derive(Clone, Copy)]
+enum Who {
+    Striker,
+    After,
+    Before,
+}
+
+fn push_of(arm: StruckContactOrder, who_moves: Who) -> i32 {
+    let run = |ticks: Option<u32>| -> (BattleState, EntityId, EntityId, EntityId, EntityId, u32) {
         let mut s = battle(arm);
+        let k0 = knight(&mut s, Team::Blue, (2500, 5500), None);
         let k1 = knight(&mut s, Team::Blue, (8300, 12200), None);
         let v = knight(&mut s, Team::Red, (9000, 13300), Some(100));
         for _ in 0..8 {
@@ -75,12 +94,16 @@ fn push_out(arm: StruckContactOrder, striker: bool) -> i32 {
                 })
                 .expect("the scene drifted: the victim stood 80 ticks"),
         };
-        (s, k1, k2, v, n)
+        (s, k0, k1, k2, v, n)
     };
-    let (_, _, _, _, n) = run(None);
-    let (mut s, k1, k2, v, _) = run(Some(n));
+    let (_, _, _, _, _, n) = run(None);
+    let (mut s, k0, k1, k2, v, _) = run(Some(n));
     let vp = s.entity(v).expect("the victim before the kill").pos;
-    let (who, side) = if striker { (k1, -1) } else { (k2, 1) };
+    let (who, side) = match who_moves {
+        Who::Striker => (k1, -1),
+        Who::After => (k2, 1),
+        Who::Before => (k0, 1),
+    };
     assert!(s.debug_set_pos(who, Vec2::new(vp.x + side * 700 * K, vp.y)));
     let p0 = s.entity(who).expect("the Knight").pos;
     s.tick();
@@ -104,4 +127,15 @@ fn a_struck_troop_does_not_push_its_striker() {
     assert!(old > 0, "whole_pass: the dying Knight did not push its striker ({old}): the scene separates nothing");
     let new = push_out(StruckContactOrder::Client15535AfterStriker, true);
     assert!(new <= 0, "client15535_after_striker: the dying Knight pushed its own striker ({new})");
+}
+
+/// Plant: struck_met_before_striker.
+#[test]
+fn a_struck_troop_pushes_no_mover_under_client15535_before_pass() {
+    let old = push_of(StruckContactOrder::Client15535AfterStriker, Who::Before);
+    assert!(old > 0, "after_striker: the dying Knight did not push a mover created before its striker ({old}): vacuous otherwise");
+    let new = push_of(StruckContactOrder::Client15535BeforePass, Who::Before);
+    assert!(new <= 0, "client15535_before_pass: the dying Knight pushed a mover created before its striker ({new})");
+    assert!(push_of(StruckContactOrder::Client15535BeforePass, Who::After) <= 0, "before_pass: it pushed a mover created after its striker");
+    assert!(push_of(StruckContactOrder::Client15535BeforePass, Who::Striker) <= 0, "before_pass: it pushed its striker");
 }

@@ -6923,9 +6923,16 @@ calib_enum!(
         /// update of its own when its striker was created before it (it was dead at its own turn). Its avoidance
         /// reading is DYING_UNIT_VISIBILITY's, unchanged. Client 15.535.29: Golems struck by an earlier unit laid their
         /// Golemites on their last point (ub-ds1, ub-ds2), an Elixir Golem struck by a later one one walk step on
-        /// (ub-b1-elg1, -elg3); Skeleton Army members created after the striker moved into a struck Musketeer's place
-        /// (sp-il-04cb t1221, the scene's first error).
+        /// (ub-b1-elg1, -elg3).
         Client15535AfterStriker = "client15535_after_striker",
+        /// The struck troop is a body to NO mover's separation in the move pass (every direct strike of the sequential
+        /// pass has landed before the move pass, which reads the troop as dead), whatever the mover's creation order; its
+        /// own update and its avoidance reading as client15535_after_striker's. Measured on client 15.535.29 (the
+        /// separation law emulated on client bodies over every capture): of the movers overlapping a troop struck to 0 hp
+        /// on its tick, 102 took no push from it and 0 did, 14 of them created before the striker, which
+        /// client15535_after_striker pushes (sp-il-04cb t1221: Skeleton Army member 46 71 off, the scene's first error;
+        /// sp-il-2142 t1907 80 off; sp-rage-4000-s0 / -5000-s0 t304 3 off, those scenes' first errors).
+        Client15535BeforePass = "client15535_before_pass",
     }
 );
 calib_enum!(
@@ -19776,10 +19783,17 @@ impl BattleState {
             // its striker's creation order (`Scratch::strike_lethal`), leaves the separation as the pass passes its striker.
             #[cfg(not(clash_plant = "struck_contact_whole_pass"))]
             let after_striker = only.is_none()
-                && calib.struck_contact_order == StruckContactOrder::Client15535AfterStriker
+                && matches!(calib.struck_contact_order, StruckContactOrder::Client15535AfterStriker | StruckContactOrder::Client15535BeforePass)
                 && calib.tick_order == TickOrder::ClientSequentialStrike;
             #[cfg(clash_plant = "struck_contact_whole_pass")]
             let after_striker = false; // PLANT: the struck troop is a body to every mover under the new arm too.
+            // movement.STRUCK_CONTACT_ORDER = client15535_before_pass: every struck troop leaves the separation as the pass
+            // begins, before the first mover.
+            // PLANT (regression) struck_met_before_striker: the new arm still keeps it for the movers before its striker.
+            #[cfg(not(clash_plant = "struck_met_before_striker"))]
+            let before_pass = after_striker && calib.struck_contact_order == StruckContactOrder::Client15535BeforePass;
+            #[cfg(clash_plant = "struck_met_before_striker")]
+            let before_pass = false;
             let mut struck_by: Vec<(u32, usize)> = if after_striker {
                 self.scratch.strike_lethal.iter().filter(|(v, _)| e.is_alive(*v)).map(|(v, s)| (*s, v.index as usize)).collect()
             } else {
@@ -19865,9 +19879,9 @@ impl BattleState {
                 // from its separation (and every later one's: the striker strikes, then moves); a struck troop whose
                 // striker came before it takes no update.
                 #[cfg(not(clash_plant = "struck_meets_its_striker"))]
-                let passed = |sq: u32| sq <= e.creation_seq[i];
+                let passed = |sq: u32| before_pass || sq <= e.creation_seq[i];
                 #[cfg(clash_plant = "struck_meets_its_striker")]
-                let passed = |sq: u32| sq < e.creation_seq[i]; // PLANT (regression): the striker's own move still meets its victim.
+                let passed = |sq: u32| before_pass || sq < e.creation_seq[i]; // PLANT (regression): the striker's own move still meets its victim.
                 while struck_next < struck_by.len() && passed(struck_by[struck_next].0) {
                     bodies[struck_by[struck_next].1].alive = false;
                     struck_next += 1;
