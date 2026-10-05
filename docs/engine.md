@@ -6,7 +6,7 @@ status. The short version is the [README](../README.md).
 <p align="center">
   <img alt="Python" src="https://img.shields.io/badge/python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white">
   <a href="./"><img alt="Docs" src="https://img.shields.io/badge/docs-in--repo-8957e5?style=flat-square&logo=readthedocs&logoColor=white"></a>
-  <a href="https://discord.gg/4D2BS5JBHP"><img alt="Discord" src="https://img.shields.io/discord/1551699576304705647?style=flat-square&logo=discord&logoColor=white&label=discord&color=5865F2"></a>
+  <a href="https://discord.gg/cvRu4nEGXY"><img alt="Discord" src="https://img.shields.io/discord/1551699576304705647?style=flat-square&logo=discord&logoColor=white&label=discord&color=5865F2"></a>
   <img alt="Last commit" src="https://img.shields.io/github/last-commit/RoyaleGym/RoyaleSim?style=flat-square&color=555">
 </p>
 
@@ -660,6 +660,6 @@ evidence), [`docs/mechanics.md`](mechanics.md) (what is modelled, what is not, t
 ## Community
 
 Engine questions, calibration evidence and pathfinding work happen in the project's Discord:
-[**https://discord.gg/4D2BS5JBHP**](https://discord.gg/4D2BS5JBHP)
+[**https://discord.gg/cvRu4nEGXY**](https://discord.gg/cvRu4nEGXY)
 
 Issues and pull requests on this repo are welcome too.
