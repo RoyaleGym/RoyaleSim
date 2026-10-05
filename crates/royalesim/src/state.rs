@@ -1078,6 +1078,10 @@ pub struct Calib {
     /// separation. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Hidden`.
     #[serde(default = "deflect_contact_default")]
     pub deflect_contact: DeflectContact,
+    /// movement.DEFLECT_STAY_TIME (the Deflect effect's `stay`): how long the Monk's Deflect keeps him unpushed. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `ActiveTime`.
+    #[serde(default = "deflect_stay_time_default")]
+    pub deflect_stay_time: DeflectStayTime,
     /// pathfinding.HELD_PRESS_ROUTE (`start_ability`): whether the press of a ground hero's button that holds it
     /// (CastTime > 0) drops its route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
     #[serde(default = "held_press_route_default")]
@@ -2640,6 +2644,10 @@ fn evo_chain_hop_reach_default() -> EvoChainHopReach {
 
 fn deflect_contact_default() -> DeflectContact {
     DeflectContact::Hidden
+}
+
+fn deflect_stay_time_default() -> DeflectStayTime {
+    DeflectStayTime::ActiveTime
 }
 
 fn held_press_route_default() -> HeldPressRoute {
@@ -5461,6 +5469,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.DEFLECT_STAY_TIME -- see the Deflect effect (`AbilityEffect::Deflect`'s `stay`, his ability's
+    /// NO_MOVE_ALLOW_ATTRACT): how long the Monk's Deflect keeps him unpushed by his own separation.
+    DeflectStayTime {
+        /// The engine's: the stay lasts the Deflect's active time from its trigger (P + 18): his own separation first
+        /// moves him on P + 98.
+        ActiveTime = "active_time",
+        /// One tick less: his own separation first moves him on P + 97, the tick after his deflect state ends. Measured on
+        /// client 15.535.29 (sp-champ-Monk-recharge-q20-s0, press t170): a Giant 85 inside both radii of him through the
+        /// end of his active window; his deflect state (16) read to t265 (P + 95), 0 on t266, and the Giant's push moved
+        /// him (+147, -32) on t267 (P + 97), where the engine's moved him on t268.
+        Client15535TickShort = "client15535_tick_short",
+    }
+);
+calib_enum!(
     /// pathfinding.HELD_PRESS_ROUTE -- see `start_ability`: the route of a ground hero whose button holds it (CastTime >
     /// 0; not a dash chain), the counterpart of pathfinding.PRESS_ROUTE for the heroes that key leaves out.
     HeldPressRoute {
@@ -8002,6 +8024,7 @@ impl Calib {
             action_group_spawn_order: pick(&v, &["spawner", "ACTION_GROUP_SPAWN_ORDER", "value"], ActionGroupSpawnOrder::from_calibration_name)?,
             evo_chain_hop_reach: pick(&v, &["combat", "EVO_CHAIN_HOP_REACH", "value"], EvoChainHopReach::from_calibration_name)?,
             deflect_contact: pick(&v, &["movement", "DEFLECT_CONTACT", "value"], DeflectContact::from_calibration_name)?,
+            deflect_stay_time: pick(&v, &["movement", "DEFLECT_STAY_TIME", "value"], DeflectStayTime::from_calibration_name)?,
             held_press_route: pick(&v, &["pathfinding", "HELD_PRESS_ROUTE", "value"], HeldPressRoute::from_calibration_name)?,
             thrown_unit_death_blow: pick(&v, &["spawner", "THROWN_UNIT_DEATH_BLOW", "value"], ThrownUnitDeathBlow::from_calibration_name)?,
             spectral_parent_blocker: pick(&v, &["spawner", "SPECTRAL_PARENT_BLOCKER", "value"], SpectralParentBlocker::from_calibration_name)?,
@@ -27522,9 +27545,17 @@ impl BattleState {
                 // AND NO ONE PUSHES HIM while it is active (`stay`, his ability's NO_MOVE_ALLOW_ATTRACT). Measured on
                 // client 15.535.29 (sp-champ-Monk-recharge-q20-s0): a Giant walking into him from t228 left him on
                 // (3273, 12402) to the end of his deflect, where the engine's moved him 1,108 back.
+                // movement.DEFLECT_STAY_TIME = client15535_tick_short: the stay ends a tick before the active time does,
+                // so his own separation first moves him the tick after his deflect state ends (P + 97, not P + 98).
+                // PLANT (regression) deflect_stay_full_time: the new arm still keeps him unpushed the whole active time.
                 #[cfg(not(clash_plant = "deflect_pushed"))]
                 {
-                    let h = crate::status::BuffHit::plain(hero, stay, active_ms, 0);
+                    #[cfg(not(clash_plant = "deflect_stay_full_time"))]
+                    let short = self.cfg.calib.deflect_stay_time == DeflectStayTime::Client15535TickShort;
+                    #[cfg(clash_plant = "deflect_stay_full_time")]
+                    let short = false;
+                    let stay_ms = if short { (active_ms - self.cfg.calib.tick_ms).max(0) } else { active_ms };
+                    let h = crate::status::BuffHit::plain(hero, stay, stay_ms, 0);
                     land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
                 }
                 let ticks = (active_ms / self.cfg.calib.tick_ms.max(1)).max(1) as u32;
@@ -30641,6 +30672,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.DEFLECT_STAY_TIME: Calib gained deflect_stay_time (serde default the old arm, active_time), no
+///    new state (the stay is a buff the slots already save), so a blob saved before it deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SPAWN_SEGMENT: Calib gained death_spawn_segment (serde default the old arm, refrozen), no
 ///    new state (the segment it freezes is the saved seg_dir field), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
@@ -31657,6 +31691,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_chain_hop_reach".into(), serde_json::to_value(EvoChainHopReach::Inclusive).map_err(|e| e.to_string())?);
     // movement.DEFLECT_CONTACT: a format-3 battle ran no Monk (the same rule).
     sh.insert("deflect_contact".into(), serde_json::to_value(DeflectContact::Hidden).map_err(|e| e.to_string())?);
+    // movement.DEFLECT_STAY_TIME: a format-3 battle ran no Monk (the same rule).
+    sh.insert("deflect_stay_time".into(), serde_json::to_value(DeflectStayTime::ActiveTime).map_err(|e| e.to_string())?);
     // pathfinding.HELD_PRESS_ROUTE: a format-3 battle ran no hero (the same rule).
     sh.insert("held_press_route".into(), serde_json::to_value(HeldPressRoute::Kept).map_err(|e| e.to_string())?);
     // spawner.THROWN_UNIT_DEATH_BLOW: a format-3 battle ran no hero (the same rule).

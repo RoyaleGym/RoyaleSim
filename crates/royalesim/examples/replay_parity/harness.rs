@@ -1578,6 +1578,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   radius (one unit at the boundary).
 ///   movement.DEFLECT_CONTACT = client15535_pushes: a deflecting Monk pushes his neighbours (a Giant sliding round him
 ///   took his push on 34 of 34 frames inside both radii).
+///   movement.DEFLECT_STAY_TIME = client15535_tick_short: the Deflect keeps the Monk unpushed a tick less than its active
+///   time (a Giant on him moved him on P + 97, the tick after his deflect state ended).
 ///   pathfinding.HELD_PRESS_ROUTE = client15535_replanned: a ground hero's press that holds it drops its route too; it
 ///   plans afresh when it walks again (56 of 61 held presses).
 ///   spawner.THROWN_UNIT_DEATH_BLOW = client15535_unreached: no death blow of a throw's landing tick reaches the unit it
@@ -1673,6 +1675,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.ACTION_GROUP_SPAWN_ORDER", "\"client15535_reversed\""),
     ("combat.EVO_CHAIN_HOP_REACH", "\"client15535_strict\""),
     ("movement.DEFLECT_CONTACT", "\"client15535_pushes\""),
+    ("movement.DEFLECT_STAY_TIME", "\"client15535_tick_short\""),
     ("pathfinding.HELD_PRESS_ROUTE", "\"client15535_replanned\""),
     ("spawner.THROWN_UNIT_DEATH_BLOW", "\"client15535_unreached\""),
     ("spawner.SPECTRAL_PARENT_BLOCKER", "\"client15535_static\""),

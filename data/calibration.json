@@ -5477,6 +5477,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_unpushed_obstacle (examples/replay_parity/harness.rs CLIENT15535_ARMS). The tag exists in the 15.535 tables only.",
       "engine": "state.rs phase_path16402 (`tag_off`: the bodies' avoid_static, the carrier's three separation scans), selected by Calib::avoidance_obstacle_tag; card.rs CardDef::avoidance_as_obstacle; tools/extract_cards.py writes the field; tests/evo_skeleton_army.rs the_general_stands_on_its_point_through_its_deploy, the_general_still_pushes_a_unit_off_it."
     },
+    "DEFLECT_STAY_TIME": {
+      "value": "active_time",
+      "candidates": ["active_time", "client15535_tick_short"],
+      "status": "measured",
+      "confidence": "LOW for client15535_tick_short on client 15.535.29: one deflect ending with a unit inside both radii of the Monk (sp-champ-Monk-recharge-q20-s0), its push landing one tick before the engine's. 16.402 not read.",
+      "provenance": "MEASURED by parity (2026-10-05) on client 15.535.29's raw frames and the ship41 replay trace of sp-champ-Monk-recharge-q20-s0 (the press t170, P): the Monk's deflect state (behavior_state 16) read to t265 (P + 95) and 0 on t266; the Giant, 1,165 from him (85 inside both radii, 1,250), had stood on him through the window (movement.DEFLECT_CONTACT); the Monk moved (+147, -32) on t267 (P + 97), his separation off the Giant, where the engine's stood on t267 and took (+147, -27) on t268. The scene's first divergence follows from it (the Monk 150 off on t267, the Giant's path after; 756 unit-ticks lost).",
+      "meaning": "active_time: the engine's; the Deflect's stay (his ability's NO_MOVE_ALLOW_ATTRACT, the buff that holds his own separation) lasts the Deflect's active time from its trigger. client15535_tick_short: it lasts one tick less, so his own separation first moves him the tick after his deflect state ends.",
+      "open": "One event. Whether the client's stay is the active time less a tick, or ends with the deflect state at a different phase of the tick, is not separated; the active window's own end (movement.DEFLECT_CONTACT's) is unchanged. 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_tick_short (examples/replay_parity/harness.rs CLIENT15535_ARMS). Promote on a second deflect ending with a unit on the Monk, on either client.",
+      "engine": "state.rs the Deflect effect (`AbilityEffect::Deflect`'s `stay`), selected by Calib::deflect_stay_time; tests/deflect_stay_time.rs."
+    },
     "DEFLECT_CONTACT": {
       "value": "hidden",
       "candidates": ["hidden", "client15535_pushes"],
