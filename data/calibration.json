@@ -2074,6 +2074,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_substeps_to_aim (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs guard_moves (`substeps`), card.rs GUARD_AIM_OFFSET, GUARD_SPEED, GUARD_STOP; selected by Calib::guard_charge_step; tests/little_prince.rs."
     },
+    "SIEGE_RESET_HOLD": {
+      "value": "next_tick",
+      "candidates": ["next_tick", "client15535_two_tick_hold"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_two_tick_hold on client 15.535.29: 2 of 2 sieges, every later shell following; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-05) on client 15.535.29's two Hero Bowler sieges (sp-bowler-siege-s0, the press P = t120; sp-form-Bowler-hero-s0, P = t214; their truths and shell records): the cast's state 10 ends on P + 50, the siege's target reset (the trigger P + 4 + reset_target_ms 2300); the hero stands in state 1 on P + 51 and P + 52 holding its Knight, enters its attack on P + 53 (its progress 2065 there, as card.rs SiegeDef's own measurement of the first swing, t267) and its first shell is first seen on P + 60 (t180 and t274), the later ones 39 and 38 ticks on (t219, t257), the Knight losing 384 on t197, t230 and t263. The engine took its target back and swung on P + 51, so every shell came 2 ticks early (the Knight hit t195, t228, t261).",
+      "meaning": "next_tick: the engine's; at the reset the hero takes its target back and swings on the next tick. client15535_two_tick_hold: it is held SIEGE_RESET_HOLD_TICKS (2) more, its scan and its swing waiting as a stun's do, and swings on the reset + 3.",
+      "open": "Whether the hold is the reset's own (a re-acquisition's wait, which another reset would show) or the siege's; the near entry's first swing measured once (t267); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_two_tick_hold (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs siege_pass (`held`), card.rs SIEGE_RESET_HOLD_TICKS; selected by Calib::siege_reset_hold; tests/hero_bowler.rs."
+    },
     "LOAD_FIRST_HIT_KILL_WAIT": {
       "value": "waits",
       "status": "measured",

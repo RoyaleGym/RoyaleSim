@@ -1674,6 +1674,10 @@ pub struct SiegeDef {
     pub near_start: i32,
 }
 
+/// combat.SIEGE_RESET_HOLD = client15535_two_tick_hold: the ticks the Hero Bowler is held after its siege's target
+/// reset (its scan and swing wait): measured, its first swing on the reset + 3 (state.rs `siege_pass`).
+pub const SIEGE_RESET_HOLD_TICKS: i32 = 2;
+
 /// THE POWER SHOT (the Hero Magic Archer's AttackSequenceList entry 1; combat.rs `fire`, `power_copies`): `middle` is
 /// fired as the hero's straight shot is (its range from the hero's centre), and `count` copies of `side` stand `distance`
 /// (subtiles) apart across its line through its first point (750 to each side for two 1,500 apart), each flying its own

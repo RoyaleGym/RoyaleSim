@@ -8,14 +8,18 @@
 //! TriggerDelay 200 less a tick, EARLY_TRIGGER_TICKS) + 146. Read off the table: the reach (11500).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! hero_bowler`): siege_never, siege_never_ends, siege_always_far, early_trigger_late.
+//! hero_bowler`): siege_never, siege_never_ends, siege_always_far, early_trigger_late, siege_reset_unheld
+//! (`its_first_shell_comes_on_the_press_plus_60_under_client15535_two_tick_hold` red).
+//!
+//! combat.SIEGE_RESET_HOLD = client15535_two_tick_hold (client 15.535.29, 2 of 2 sieges): held two ticks after the
+//! siege's target reset, the hero swings on P + 53 and makes its first shell on P + 60; the engine's on P + 58.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::BattleState;
+use royalesim::state::{BattleState, SiegeResetHold};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -35,7 +39,13 @@ fn dist(a: Vec2, b: Vec2) -> i64 {
 /// Blue's princess towers down, red `units` put and held on their points, and the hero form put at AT and held there for
 /// 40 ticks: the battle, the hero and the reds.
 fn start(units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
+    start_with(SiegeResetHold::NextTick, units)
+}
+
+/// `start` under combat.SIEGE_RESET_HOLD = `arm`.
+fn start_with(arm: SiegeResetHold, units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
     let mut cfg = config();
+    cfg.calib.siege_reset_hold = arm;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
@@ -148,4 +158,21 @@ fn its_siege_form_lasts_its_buffs_7300_ms() {
     assert_eq!(on, p + 4, "the siege's trigger, from the press");
     let off = rows.iter().find(|r| r.0 > on && r.1 == "Bowler_hero").map(|r| r.0);
     assert_eq!(off, Some(on + 146), "its own row again 7300 ms on");
+}
+
+/// The far Knight's first shell, in ticks from the press (P, the tick the press is issued on), under `arm`.
+fn first_shell(arm: SiegeResetHold) -> u32 {
+    let (mut s, hero, reds) = start_with(arm, &[("Knight", (AT.0, AT.1 + 9000))]);
+    let p = s.tick_count() - 1;
+    let conv = s.config().calib.projectile_speed_to_subtiles_per_tick;
+    let shots = siege_shots(&mut s, hero, &reds, 80);
+    shots.iter().find(|q| q.1 == 400 * conv).map(|q| q.0 - p).unwrap_or_else(|| panic!("a shell: {shots:?}"))
+}
+
+/// Plant: siege_reset_unheld.
+#[test]
+fn its_first_shell_comes_on_the_press_plus_60_under_client15535_two_tick_hold() {
+    // NOT VACUOUS: the next-tick swing makes it two ticks early (the engine's P + 58).
+    assert_eq!(first_shell(SiegeResetHold::NextTick), 58, "next_tick");
+    assert_eq!(first_shell(SiegeResetHold::Client15535TwoTickHold), 60, "client15535_two_tick_hold");
 }

@@ -1023,6 +1023,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Rescaled`.
     #[serde(default = "guard_charge_step_default")]
     pub guard_charge_step: GuardChargeStep,
+    /// combat.SIEGE_RESET_HOLD (`siege_pass`): whether the Hero Bowler is held after its siege's target reset. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
+    #[serde(default = "siege_reset_hold_default")]
+    pub siege_reset_hold: SiegeResetHold,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2637,6 +2641,10 @@ fn cage_release_scan_default() -> CageReleaseScan {
 
 fn guard_charge_step_default() -> GuardChargeStep {
     GuardChargeStep::Rescaled
+}
+
+fn siege_reset_hold_default() -> SiegeResetHold {
+    SiegeResetHold::NextTick
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6353,6 +6361,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.SIEGE_RESET_HOLD -- see `siege_pass` (card.rs `SiegeDef`): the Hero Bowler at its siege's target reset.
+    SiegeResetHold {
+        /// The engine's: it takes its target back on the reset's tick and swings on the next (the reset + 1).
+        NextTick = "next_tick",
+        /// It is held SIEGE_RESET_HOLD_TICKS (2) more, its scan and its swing waiting as a stun's do, and swings on the
+        /// reset + 3. Measured on client 15.535.29, 2 of 2 sieges: the cast's state ends on the press P + 50 (the reset),
+        /// the hero stands two ticks (state 1) holding its Knight, swings on P + 53 (progress 2065, card.rs SiegeDef's
+        /// measured first swing, sp-form-Bowler-hero-s0 t267) and makes its first shell on P + 60
+        /// (sp-bowler-siege-s0: t180, t219, t257, the Knight losing 384 on t197, t230, t263); the engine swung on P + 51
+        /// and made every shell 2 ticks early.
+        Client15535TwoTickHold = "client15535_two_tick_hold",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8336,6 +8358,7 @@ impl Calib {
             line_centre_search: pick(&v, &["formation", "LINE_CENTRE_SEARCH", "value"], LineCentreSearch::from_calibration_name)?,
             cage_release_scan: pick(&v, &["combat", "CAGE_RELEASE_SCAN", "value"], CageReleaseScan::from_calibration_name)?,
             guard_charge_step: pick(&v, &["combat", "GUARD_CHARGE_STEP", "value"], GuardChargeStep::from_calibration_name)?,
+            siege_reset_hold: pick(&v, &["combat", "SIEGE_RESET_HOLD", "value"], SiegeResetHold::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -18333,6 +18356,16 @@ impl BattleState {
             if self.tick == at(sg.reset_target_ms) || self.tick >= at(sg.buff.time_ms) {
                 self.ents.target[i] = None;
                 self.ents.target_locked[i] = false;
+            }
+            // combat.SIEGE_RESET_HOLD = client15535_two_tick_hold: at the reset the hero is held SIEGE_RESET_HOLD_TICKS more
+            // (the stun's hold: no scan, no swing; it runs down in Resolve), so it takes its target back and swings later.
+            // PLANT (regression) siege_reset_unheld: the new arm swings on the tick after the reset, as the old one does.
+            #[cfg(not(clash_plant = "siege_reset_unheld"))]
+            let held = self.cfg.calib.siege_reset_hold == SiegeResetHold::Client15535TwoTickHold;
+            #[cfg(clash_plant = "siege_reset_unheld")]
+            let held = false;
+            if held && self.tick == at(sg.reset_target_ms) {
+                self.ents.stun_ms[i] = self.ents.stun_ms[i].max(crate::card::SIEGE_RESET_HOLD_TICKS * tick_ms);
             }
             if self.tick >= at(sg.buff.time_ms) {
                 #[cfg(not(clash_plant = "siege_never_ends"))]
@@ -31371,6 +31404,9 @@ impl BattleState {
 /// 20, unchanged, combat.GUARD_CHARGE_STEP: Calib gained guard_charge_step (serde default the old arm, rescaled), no new
 ///    state (the guard's run and point are saved already), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.SIEGE_RESET_HOLD: Calib gained siege_reset_hold (serde default the old arm, next_tick), no new
+///    state (the hold is the hero's stun, saved already), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32374,6 +32410,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("cage_release_scan".into(), serde_json::to_value(CageReleaseScan::Stunned).map_err(|e| e.to_string())?);
     // combat.GUARD_CHARGE_STEP: a format-3 battle's guard stepped its rescaled line (the same rule).
     sh.insert("guard_charge_step".into(), serde_json::to_value(GuardChargeStep::Rescaled).map_err(|e| e.to_string())?);
+    // combat.SIEGE_RESET_HOLD: a format-3 battle's siege swung on the tick after its reset (the same rule).
+    sh.insert("siege_reset_hold".into(), serde_json::to_value(SiegeResetHold::NextTick).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
