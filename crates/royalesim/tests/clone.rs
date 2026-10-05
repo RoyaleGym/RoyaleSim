@@ -36,7 +36,11 @@
 //!      measured: the one staging was confounded; the key is a hypothesis);
 //!  14. the sliding pair is a body in its neighbours' contact scans: an enemy the original slides into is pushed off it,
 //!      and the original stays on its slide's points (measured on client 15.535.29, sp-m5-clone-s0: an enemy Giant whose
-//!      look circle met a sliding Skeleton on t818 turned and was pushed off it, the Skeleton on its points).
+//!      look circle met a sliding Skeleton on t818 turned and was pushed off it, the Skeleton on its points);
+//!  15. spells.CLONE_OFFSET = client15535_column_edge_slide: each of the pair walks 125 a tick toward the centre of the
+//!      edge cell of its own 500 column (the original the enemy's edge row, the copy its own side's), the step fixed on
+//!      C (the law read from the original's point on C, the copy stepping off the axis), for Blue; Red the y-reflection
+//!      (measured on client 15.535.29, 35 pairs, all side 0: 692 of 692 slide steps; ub-cl2-band C125 the copy (3, -124)).
 //!
 //! THE SCENE. Blue's own half, the tap at (9000, 9000), where the slide stays on open ground and no crown tower is on
 //! the pair's line. Units are put down already deployed unless said, so they walk from tick 0.
@@ -61,13 +65,14 @@
 //!   * `clone_hash_skips_flag` -- the copy's flag not hashed: (12) goes red.
 //!   * `clone_buffs_not_copied` -- no buff copied under either arm: (13) goes red.
 //!   * `clone_slide_hidden` -- the sliding pair is out of its neighbours' scans: (14) goes red.
+//!   * `clone_slide_on_axis` -- the new CLONE_OFFSET arm slides along the owner's y axis: (15) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::{CardDb, CardSource, SpellPlacement, SpellShape};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CloneCopyBuffs, CloneDeathSpawns, CloneLevel, EntityView};
+use royalesim::state::{BattleConfig, BattleState, CloneCopyBuffs, CloneDeathSpawns, CloneLevel, CloneOffset, EntityView};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -235,7 +240,12 @@ fn each_own_troop_inside_is_copied_once_on_the_cast_tick() {
 
 /// The original and its copy's positions after each of ticks 0 to 11, a Clone cast on a lone Knight of `team` at `p`.
 fn slide(team: Team, p: Vec2) -> Vec<(Vec2, Vec2)> {
-    let mut s = BattleState::new(0, shipped());
+    slide_in(shipped(), team, p)
+}
+
+/// `slide` under the config `cfg`.
+fn slide_in(cfg: BattleConfig, team: Team, p: Vec2) -> Vec<(Vec2, Vec2)> {
+    let mut s = BattleState::new(0, cfg);
     let k = s.scenario_spawn_now(team, "Knight", p, None).expect("spawn Knight");
     s.spawn_unit(team, "Clone", p, None).expect("cast Clone");
     let mut out = Vec::new();
@@ -263,6 +273,41 @@ fn the_pair_slides_125_a_tick_apart_for_ten_ticks_along_the_owner_axis() {
         }
         let (o, c) = got[10];
         assert_eq!(centre_distance(o, c), 2500, "{team:?}: 2500 apart on C + 10");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// (15)
+
+/// The client's slide step (client15535_column_edge_slide) from `p` (native) toward the centre of the cell at `edge_y` in
+/// p's own 500 column: the heading d * 256 / isqrt(|d|^2) per axis, truncated, times 125 / 256, truncated.
+fn edge_step(p: (i32, i32), edge_y: i32) -> (i32, i32) {
+    let (dx, dy) = ((p.0 / 500 * 500 + 250 - p.0) as i64, (edge_y - p.1) as i64);
+    let l = isqrt(dx * dx + dy * dy);
+    let h = (dx * 256 / l, dy * 256 / l);
+    ((h.0 * 125 / 256) as i32, (h.1 * 125 / 256) as i32)
+}
+
+/// Plant: clone_slide_on_axis.
+#[test]
+fn under_client15535_column_edge_slide_each_of_the_pair_walks_toward_its_columns_edge_cell() {
+    for (team, fwd) in [(Team::Blue, 1), (Team::Red, -1)] {
+        let p = if team == Team::Blue { at(TAP) } else { at((18000 - TAP.0, 32000 - TAP.1)) };
+        let mut cfg = shipped();
+        cfg.calib.clone_offset = CloneOffset::Client15535ColumnEdgeSlide;
+        let got = slide_in(cfg, team, p);
+        let (o0, c0) = got[0];
+        assert_eq!(o0, c0, "{team:?}: the copy appears on its original's spot on C");
+        let n = (o0.x / K, o0.y / K);
+        let (ahead, behind) = if fwd > 0 { (31750, 250) } else { (250, 31750) };
+        let (so, sc) = (edge_step(n, ahead), edge_step(n, behind));
+        // NOT VACUOUS: the copy's step is not the axis slide's.
+        assert_ne!(sc, (0, -125 * fwd), "{team:?}: the scene drifted: the copy's edge step is the axis slide's");
+        for (k, &(o, c)) in got.iter().enumerate().take(11).skip(1) {
+            let k = k as i32;
+            assert_eq!(o, Vec2::new(o0.x + so.0 * k * K, o0.y + so.1 * k * K), "{team:?}: the original on C + {k}");
+            assert_eq!(c, Vec2::new(o0.x + sc.0 * k * K, o0.y + sc.1 * k * K), "{team:?}: the copy on C + {k}");
+        }
     }
 }
 

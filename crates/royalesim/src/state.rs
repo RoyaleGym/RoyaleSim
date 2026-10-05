@@ -991,6 +991,10 @@ pub struct Calib {
     /// `FittedOffset`.
     #[serde(default = "dismount_mount_birth_default")]
     pub dismount_mount_birth: DismountMountBirth,
+    /// spells.CLONE_OFFSET (`materialise_clones`): how a Clone's pair separates over its hold. Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm, `OwnerAxisSlideOverHold`.
+    #[serde(default = "clone_offset_default")]
+    pub clone_offset: CloneOffset,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2573,6 +2577,10 @@ fn dismount_hop_water_default() -> DismountHopWater {
 
 fn dismount_mount_birth_default() -> DismountMountBirth {
     DismountMountBirth::FittedOffset
+}
+
+fn clone_offset_default() -> CloneOffset {
+    CloneOffset::OwnerAxisSlideOverHold
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6113,6 +6121,24 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.CLONE_OFFSET -- see `materialise_clones`: how a Clone's pair (the original and its copy, both on the
+    /// original's spot on the cast tick C) separates over the Clone's hold, C + 1 to C + 10.
+    CloneOffset {
+        /// The engine's (the 16.402 reading, and a snapshot's saved before the key): CLONE_DISTANCE_Y / 2 a tick each
+        /// along the owner's y axis, the original toward the enemy and the copy the other way, whatever its heading.
+        OwnerAxisSlideOverHold = "owner_axis_slide_over_hold",
+        /// Each of the two walks CLONE_DISTANCE_Y / 2 a tick toward the centre of the edge cell of its own 500 path-grid
+        /// column (the original the enemy's edge row, the copy its own side's), the step fixed on C in the walk
+        /// arithmetic: the heading (goal - p) * 256 / isqrt(|goal - p|^2) per axis, truncated, times 125 / 256,
+        /// truncated. Measured on client 15.535.29 (diag2 slide_law.py, every Clone pair in the captures, 35 pairs, 70
+        /// units, all side 0): each unit's path node on C is that edge cell (70 of 70) and its segment direction that
+        /// heading (70 of 70); its 692 slide steps are all that step, where the axis slide's (0, +-125) places 542
+        /// (ub-cl2-band C125: the copy at (7502, 8429) stepped (3, -124) a tick; sp-m5-clone-s0 C812: the original at
+        /// (3499, 11307) stepped (-1, 124)). Side 1: the y-reflection (its original toward row 0), not measured.
+        Client15535ColumnEdgeSlide = "client15535_column_edge_slide",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -7784,7 +7810,6 @@ impl Calib {
         // THE CLONE, THE VINES AND THE VOID'S ONE-ARM KEYS: each names the one law the engine runs, and its other
         // candidates are listed as refuted (spell.rs `step_spells`, `selector_candidates`, `catch`, `laser`; state.rs
         // `apply_effects`, `materialise_clones`).
-        only(&v, &["spells", "CLONE_OFFSET", "value"], "owner_axis_slide_over_hold")?;
         only(&v, &["spells", "CLONE_HOLD_TARGETS", "value"], "both")?;
         only(&v, &["spells", "CLONE_COPY_STATE", "value"], "fresh")?;
         only(&v, &["spells", "MULTI_CATCH_RANKING", "value"], "repick_each_catch")?;
@@ -8082,6 +8107,7 @@ impl Calib {
             dismount_leap_step: pick(&v, &["transform", "DISMOUNT_LEAP_STEP", "value"], DismountLeapStep::from_calibration_name)?,
             dismount_hop_water: pick(&v, &["transform", "DISMOUNT_HOP_WATER", "value"], DismountHopWater::from_calibration_name)?,
             dismount_mount_birth: pick(&v, &["transform", "DISMOUNT_MOUNT_BIRTH", "value"], DismountMountBirth::from_calibration_name)?,
+            clone_offset: pick(&v, &["spells", "CLONE_OFFSET", "value"], CloneOffset::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -12625,7 +12651,8 @@ impl BattleState {
     /// - over those ten ticks the pair slides apart along its owner's y axis, the original toward the enemy and the
     ///   copy away, CLONE_DISTANCE_Y / 2 a tick each (125 native, 2500 apart on C + 10), whatever the unit's speed or
     ///   buffs (spells.CLONE_OFFSET = owner_axis_slide_over_hold): the knockback slide (`step_knock_slides`), through
-    ///   `spell::settle` against water and buildings (not measured);
+    ///   `spell::settle` against water and buildings (not measured); under client15535_column_edge_slide each walks
+    ///   that 125 toward the edge cell of its own path-grid column instead, its step fixed on C;
     /// - it does not appear as a deploy does: no deploy projectile, no spawn area object (`spawn_with`; not measured).
     ///
     /// An original the tick's damage killed is gone by now and is not copied.
@@ -12705,11 +12732,37 @@ impl BattleState {
             // toward the enemy along its owner's y axis and the copy the other way.
             #[cfg(not(clash_plant = "clone_no_separation"))]
             {
-                let d = rules.distance_y / 2 * (hold.time_ms / dt);
+                let n = hold.time_ms / dt;
+                let d = rules.distance_y / 2 * n;
                 let push = Vec2::new(0, spell::forward_dy(team) * d * K);
-                self.ents.knock_rem[i] = self.ents.knock_rem[i].add(push);
+                // spells.CLONE_OFFSET = client15535_column_edge_slide: each of the two walks CLONE_DISTANCE_Y / 2 a tick
+                // toward the centre of the edge cell of its own path-grid column (the original the enemy's edge row, the
+                // copy its own side's), the step fixed here in the walk arithmetic (move16402 `normalize_to` to 256, then
+                // the speed's 256ths, truncated), the n of them spread by the knockback slide one step a tick.
+                // PLANT (regression) clone_slide_on_axis: the new arm slides along the owner's y axis.
+                #[cfg(not(clash_plant = "clone_slide_on_axis"))]
+                let edge = self.cfg.calib.clone_offset == CloneOffset::Client15535ColumnEdgeSlide;
+                #[cfg(clash_plant = "clone_slide_on_axis")]
+                let edge = false;
+                let (to_i, to_j) = if edge {
+                    let cell = self.cfg.arena.cell / K;
+                    let (x, y) = (pos.x / K, pos.y / K);
+                    let gx = x.div_euclid(cell) * cell + cell / 2;
+                    let (near, far) = (cell / 2, self.cfg.arena.height / K - cell / 2);
+                    let (ahead, behind) = if spell::forward_dy(team) > 0 { (far, near) } else { (near, far) };
+                    let per = rules.distance_y / 2;
+                    let slide = |gy: i32| {
+                        let mut v = (gx - x, gy - y);
+                        move16402::normalize_to(&mut v, 256);
+                        Vec2::new(move16402::tdiv(v.0 * per, 256) * n * K, move16402::tdiv(v.1 * per, 256) * n * K)
+                    };
+                    (slide(ahead), slide(behind))
+                } else {
+                    (push, Vec2::new(-push.x, -push.y))
+                };
+                self.ents.knock_rem[i] = self.ents.knock_rem[i].add(to_i);
                 self.ents.knock_ms[i] = self.ents.knock_ms[i].max(hold.time_ms);
-                self.ents.knock_rem[j] = self.ents.knock_rem[j].sub(push);
+                self.ents.knock_rem[j] = self.ents.knock_rem[j].add(to_j);
                 self.ents.knock_ms[j] = self.ents.knock_ms[j].max(hold.time_ms);
             }
             #[cfg(clash_plant = "clone_no_separation")]
@@ -30877,6 +30930,9 @@ impl BattleState {
 ///    fitted_offset) and DismountRun gained mount_due (serde default none; set and spent inside the trigger's tick, so
 ///    never saved or hashed with a value), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, spells.CLONE_OFFSET: Calib gained clone_offset (serde default the old arm, owner_axis_slide_over_hold),
+///    no new state (the slide is the saved knock_rem / knock_ms), so a blob saved before it deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -31864,6 +31920,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dismount_hop_water".into(), serde_json::to_value(DismountHopWater::KeepWater).map_err(|e| e.to_string())?);
     // transform.DISMOUNT_MOUNT_BIRTH: a format-3 battle ran no hero (the same rule).
     sh.insert("dismount_mount_birth".into(), serde_json::to_value(DismountMountBirth::FittedOffset).map_err(|e| e.to_string())?);
+    // spells.CLONE_OFFSET: a format-3 battle's pair slid along its owner's y axis (the same rule).
+    sh.insert("clone_offset".into(), serde_json::to_value(CloneOffset::OwnerAxisSlideOverHold).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
