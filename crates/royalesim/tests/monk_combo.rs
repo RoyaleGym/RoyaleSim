@@ -210,7 +210,7 @@ fn the_shipped_values_are_the_measured_arms_since_the_round_12_flip() {
 /// The Giant's points per tick under `push`: Blue's Monk at (3586, 12375), towers standing, a Red Giant put down at
 /// (2200, 12800) walking to Blue's left princess tower past him; and the tick rows of the Monk's hits on it.
 fn giant_walking_past(push: ComboPushback) -> (Vec<Vec2>, Vec<Vec2>) {
-    let mut cfg = cfg_with(AttackCombo::SequenceAcrossTargets, push, DRAGON_ONLY_REACH);
+    let cfg = cfg_with(AttackCombo::SequenceAcrossTargets, push, DRAGON_ONLY_REACH);
     let mut s = BattleState::try_new(0, cfg).expect("the battle");
     past_deploy_lockout(&mut s);
     let monk = s.scenario_spawn_now(Team::Blue, "Monk", n((3586, 12375)), None).expect("the Monk");

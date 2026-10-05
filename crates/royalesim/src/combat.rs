@@ -1618,7 +1618,9 @@ pub fn fire(
             let now = true;
             #[cfg(clash_plant = "combo_push_next_tick")]
             let now = false; // PLANT (regression): the push's first step is the next tick's, as a Fireball's.
-            if let (ComboPushback::LadderFromAttackerHitTick, Some(c)) = (calib.combo_pushback, card.combo) {
+            // client15535_ladder_armed_at_hit pushes as the measured arm does; Resolve (state.rs `apply_effects`) undoes the
+            // victim's walk of the hit's tick.
+            if let (ComboPushback::LadderFromAttackerHitTick | ComboPushback::Client15535LadderArmedAtHit, Some(c)) = (calib.combo_pushback, card.combo) {
                 let stage = c.entry(ents.combo_ix[a]).1;
                 if stage.pushback > 0 {
                     let ctx = SpellCtx { ents, hash, cards, calib, steps: &[], tick };
