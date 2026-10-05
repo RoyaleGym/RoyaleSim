@@ -5994,6 +5994,14 @@ calib_enum!(
         /// t3823). sweep-RoyalHogs t354: the Knight walking for its tower after letting Hog 7 go passes over Hog 8,
         /// 6,071 -> 6,245, where the engine took it and turned back 4,000 off.
         Client15535RecedingLaneWalk = "client15535_receding_lane_walk",
+        /// client15535_receding_lane_walk, and also every rescan that is not a chase drop's own passes over every troop
+        /// past the limit that stands BEHIND the unit (toward its own side, along y), whatever either does
+        /// (target.rs `behind_on_rescan`). Measured on client 15.535.29 (receding_behind_census.py): a troop behind
+        /// past the limit was taken in 0 of 1,326 rescans, 497 of them where its |dy| fell or held (sp-il-04cb t1222:
+        /// Skeleton Army skeletons whose target died passed over the Ice Golem behind them at |dy| 5,865, limit 5,700,
+        /// and took it at 5,693; t2931, skeletons out of their deploy, took a Hog Rider behind at 5,160 to 5,492, limit
+        /// 5,600, and passed over it at 5,660 to 6,164).
+        Client15535RecedingOrBehind = "client15535_receding_or_behind",
     }
 );
 calib_enum!(
@@ -16320,7 +16328,7 @@ impl BattleState {
         if self.cfg.calib.chase_drop_walking_away == ChaseDropWalkingAway::Client15535GrowingAway {
             // targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: the phase's lane-walk marks, each unit
             // that walked into it (`chase_walked`) and leaves it holding no target.
-            let lane = self.cfg.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client15535RecedingLaneWalk;
+            let lane = matches!(self.cfg.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind);
             for (i, p) in self.scratch.chase_start_pos.iter().enumerate() {
                 if self.ents.alive[i] {
                     self.ents.chase_last_pos[i] = *p;
@@ -29568,7 +29576,7 @@ impl BattleState {
                     h.i32(e.chase_last_pos[i].y);
                     // targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: the lane-walk mark, written under
                     // that arm alone.
-                    if self.cfg.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client15535RecedingLaneWalk {
+                    if matches!(self.cfg.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind) {
                         h.bool(e.chase_lane_walk[i]);
                     }
                 }

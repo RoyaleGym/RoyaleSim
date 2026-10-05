@@ -680,9 +680,27 @@ fn recedes_from_lane_walk(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     #[allow(unreachable_code)]
     {
         let e = ctx.ents;
-        ctx.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client15535RecedingLaneWalk
+        matches!(ctx.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind)
             && e.chase_lane_walk.get(a).copied().unwrap_or(false)
             && chase_measure(ctx.calib, e.pos[c].sub(e.pos[a])) > chase_measure(ctx.calib, e.chase_last_pos[c].sub(e.chase_last_pos[a]))
+    }
+}
+
+/// targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_or_behind: does `a`'s rescan pass over troop `c` because `c`
+/// stands BEHIND `a`, toward `a`'s own side along y on the start-of-tick positions, whatever either does, on a rescan
+/// that is not a chase drop's own (`dropped`, `after_drop`: the drop tick's rescan keeps its own rules)? The caller reads
+/// it past the limit alone. Measured on client 15.535.29: a troop behind past the limit was taken in 0 of 1,326 rescans.
+#[inline]
+fn behind_on_rescan(ctx: &TargetCtx, a: usize, c: usize, dropped: Option<EntityId>, after_drop: bool) -> bool {
+    // PLANT (regression) rescan_behind_taken: the new arm takes a troop behind past the limit as the receding arm does.
+    #[cfg(clash_plant = "rescan_behind_taken")]
+    return false;
+    #[allow(unreachable_code)]
+    {
+        let e = ctx.ents;
+        let dy = e.pos[c].y as i64 - e.pos[a].y as i64;
+        let behind = if e.team[a] == Team::Blue { dy < 0 } else { dy > 0 };
+        ctx.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client15535RecedingOrBehind && dropped.is_none() && !after_drop && behind
     }
 }
 
@@ -934,9 +952,13 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
             ChaseDropWalkingAway::ClientWalkingAway => walks_away(ctx, a, c),
             // PLANT (regression) chase_pass_over_every_rescan: every rescan passes over a troop walking away.
             #[cfg(not(clash_plant = "chase_pass_over_every_rescan"))]
-            ChaseDropWalkingAway::Client15535GrowingAway => dropped == Some(e.id_of(c)) || (after_drop && walks_away(ctx, a, c)) || recedes_from_lane_walk(ctx, a, c),
+            ChaseDropWalkingAway::Client15535GrowingAway => {
+                dropped == Some(e.id_of(c)) || (after_drop && walks_away(ctx, a, c)) || recedes_from_lane_walk(ctx, a, c) || behind_on_rescan(ctx, a, c, dropped, after_drop)
+            }
             #[cfg(clash_plant = "chase_pass_over_every_rescan")]
-            ChaseDropWalkingAway::Client15535GrowingAway => dropped == Some(e.id_of(c)) || walks_away(ctx, a, c) || recedes_from_lane_walk(ctx, a, c),
+            ChaseDropWalkingAway::Client15535GrowingAway => {
+                dropped == Some(e.id_of(c)) || walks_away(ctx, a, c) || recedes_from_lane_walk(ctx, a, c) || behind_on_rescan(ctx, a, c, dropped, after_drop)
+            }
         }) && chase_drop_applies(ctx, a, c)
             && beyond_chase_limit(ctx, a, c)
         {

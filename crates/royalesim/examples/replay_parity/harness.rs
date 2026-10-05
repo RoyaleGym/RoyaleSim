@@ -1577,8 +1577,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   the avoidance scan alone (1 emission).
 ///   movement.CHAIN_LANDED_BODY = client15535_no_body_to_end: a dash chain's champion is no contact body from a landing to
 ///   his chain's end (3 of 3 last landings).
-///   targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: a unit walking for its tower passes over every
-///   troop past the chase-drop limit whose |dy| grew (about 600 rescans).
+///   targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_or_behind: a unit walking for its tower passes over every
+///   troop past the chase-drop limit whose |dy| grew (about 600 rescans), and every rescan passes over a troop past it
+///   behind the unit (0 of 1,326 taken).
 ///   combat.DIRECT_HIT_BUFF_COUNTDOWN = client15535_landing_tick: an instant hit's buff holds one tick fewer (17 of 17).
 ///   spawner.SOUL_POINT_BASE = client15535_post_move: a Skeleton King's copies are drawn around his post-move point (28 of
 ///   34).
@@ -1694,7 +1695,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("placement.TROOP_RELOCATION_TIE_ORDER", "\"client15535_arena_clockwise\""),
     ("spawner.FIRST_STEP_DYING_CONTACT", "\"client15535_avoidance_only\""),
     ("movement.CHAIN_LANDED_BODY", "\"client15535_no_body_to_end\""),
-    ("targeting.CHASE_RESCAN_PASS_OVER", "\"client15535_receding_lane_walk\""),
+    ("targeting.CHASE_RESCAN_PASS_OVER", "\"client15535_receding_or_behind\""),
     ("combat.DIRECT_HIT_BUFF_COUNTDOWN", "\"client15535_landing_tick\""),
     ("spawner.SOUL_POINT_BASE", "\"client15535_post_move\""),
     ("targeting.WALKING_KEEP_REACH", "\"client15535_walking_reach\""),

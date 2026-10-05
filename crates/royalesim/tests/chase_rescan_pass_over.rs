@@ -13,6 +13,12 @@
 //!   1. drop_tick (the engine's, the vacuity check): the Knight takes the Giant; client15535_receding_lane_walk: it holds
 //!      no target;
 //!   2. under client15535_receding_lane_walk a fresh Knight on the same point (its first pick) takes the Giant.
+//!
+//! client15535_receding_or_behind (receding_behind_census.py: a troop behind past the limit taken in 0 of 1,326 rescans,
+//! sp-il-04cb t1222 and t2931) -- plant rescan_behind_taken:
+//!   3. the Giant held BEHIND the walking Knight past its limit, |dy| as the tick before: client15535_receding_lane_walk
+//!      (the vacuity check) takes it, client15535_receding_or_behind holds no target;
+//!   4. the same Giant AHEAD of the Knight: both take it.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -85,4 +91,44 @@ fn a_first_pick_takes_a_receding_troop_under_client15535_receding_lane_walk() {
 #[test]
 fn the_shipped_value_is_drop_tick() {
     assert_eq!(Calib::shipped().chase_rescan_pass_over, ChaseRescanPassOver::DropTick);
+}
+
+/// The walking Red Knight's target after the decisive tick, the Blue Giant held `dy` (native, arena y; Red walks to -y,
+/// so +dy is behind it) from the Knight past its limit, |dy| unchanged from the tick before.
+fn held_at(arm: ChaseRescanPassOver, behind: bool) -> (Option<EntityId>, EntityId) {
+    let mut s = BattleState::new(0, with_arm(arm));
+    past_deploy_lockout(&mut s);
+    let lim = limit_on(&s, "Giant");
+    let dy = if behind { lim + 300 } else { -(lim + 300) };
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", n(KNIGHT.0, KNIGHT.1), None).expect("the Knight");
+    let far = n(KNIGHT.0 + 9000, KNIGHT.1 + dy);
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", far, None).expect("the Giant");
+    for _ in 0..4 {
+        assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && s.debug_set_pos(giant, far));
+        s.tick();
+        assert_eq!(s.entity(knight).expect("the Knight").target, None, "the scene drifted: the Knight holds a target before the Giant comes near");
+    }
+    assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)));
+    // In round sight (|dx| 400) and past the limit by 300, |dy| as the tick before.
+    assert!(s.debug_set_pos(giant, n(KNIGHT.0 + 400, KNIGHT.1 + dy)));
+    s.tick();
+    (s.entity(knight).expect("the Knight").target, giant)
+}
+
+/// Plant: rescan_behind_taken.
+#[test]
+fn a_rescan_passes_over_a_troop_behind_past_the_limit_under_client15535_receding_or_behind() {
+    let (old, giant) = held_at(ChaseRescanPassOver::Client15535RecedingLaneWalk, true);
+    // NOT VACUOUS: the receding arm takes a troop behind whose |dy| did not grow.
+    assert_eq!(old, Some(giant), "client15535_receding_lane_walk: the Knight does not take the Giant behind it");
+    let (new, _) = held_at(ChaseRescanPassOver::Client15535RecedingOrBehind, true);
+    assert_eq!(new, None, "client15535_receding_or_behind: the Knight took the Giant behind it");
+    let (ahead, giant) = held_at(ChaseRescanPassOver::Client15535RecedingOrBehind, false);
+    assert_eq!(ahead, Some(giant), "client15535_receding_or_behind: the Knight passed over the Giant ahead of it");
+}
+
+#[test]
+fn the_receding_cases_hold_under_client15535_receding_or_behind() {
+    let (new, _, _) = rescan(ChaseRescanPassOver::Client15535RecedingOrBehind, false);
+    assert_eq!(new, None, "client15535_receding_or_behind: the Knight took the receding Giant");
 }

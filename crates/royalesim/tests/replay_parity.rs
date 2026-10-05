@@ -1133,7 +1133,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.troop_relocation_tie_order, TroopRelocationTieOrder::Client15535ArenaClockwise, "a 15.535.29 capture's troop ties go to the arena order");
     assert_eq!(cfg.calib.first_step_dying_contact, FirstStepDyingContact::Client15535AvoidanceOnly, "a 15.535.29 capture's first update is not pushed off a dying unit");
     assert_eq!(cfg.calib.chain_landed_body, ChainLandedBody::Client15535NoBodyToEnd, "a 15.535.29 capture's landed champion is no body to his chain's end");
-    assert_eq!(cfg.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingLaneWalk, "a 15.535.29 capture's rescans pass over a receding troop");
+    assert_eq!(cfg.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingOrBehind, "a 15.535.29 capture's rescans pass over a receding troop and one behind");
     assert_eq!(cfg.calib.direct_hit_buff_countdown, DirectHitBuffCountdown::Client15535LandingTick, "a 15.535.29 capture's instant hit's buff holds a tick fewer");
     assert_eq!(cfg.calib.soul_point_base, SoulPointBase::Client15535PostMove, "a 15.535.29 capture's King draws his copies after the move");
     assert_eq!(cfg.calib.walking_keep_reach, WalkingKeepReach::Client15535WalkingReach, "a 15.535.29 capture's walking holder keeps to the reach it walks to");
