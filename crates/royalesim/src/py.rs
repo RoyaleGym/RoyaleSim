@@ -2683,10 +2683,13 @@ mod tests {
     fn a_unit_reports_its_own_type_beside_the_card_that_made_it() {
         // ENTITY_FIELDS `unit_type` (the owner, 2026-10-05: one unit type sat under up to six card ids in a learner's
         // identity input). The test above holds `card_id` to the PRODUCER; this one holds `unit_type` to the unit's
-        // OWN record: Skeletons put down by the Skeletons card, a Skeleton Army, a Witch, a Tombstone, a Graveyard and
-        // a Skeleton Balloon's death read one unit_type under five or six card ids, while the Witch herself, a Knight
-        // and the crown towers read their own names, and no row on the board reads -1. Plant unit_type_is_producer
-        // reports the producer's type, so the Witch's Skeletons read "Witch" and this fails.
+        // OWN record: Skeletons put down by the Skeletons card, a Skeleton Army, a Witch, a Tombstone and a Skeleton
+        // Balloon's death read one unit_type under five card ids, while the Witch herself, a Knight and the crown
+        // towers read their own names, and no row on the board reads -1. The Graveyard's are ANOTHER characters row,
+        // Graveyard_rework_Skeleton (the data's own: Skeleton's stats under its own name), so they read that: the
+        // export is the data's row, and merging look-alike rows is the reader's choice (PhoenixNoRespawn shares the
+        // Phoenix's stats and does not rise again). Plant unit_type_is_producer reports the producer's type, so the
+        // Witch's Skeletons read "Witch" and this fails.
         let db = cards();
         let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).name != KING_TOWER && db.get(*i).name != PRINCESS_TOWER && !db.get(*i).summon_only).collect();
         let ids = ids_of_indices(&db, &catalogue);
@@ -2715,9 +2718,11 @@ mod tests {
         // On one hitpoint over a red princess tower: its death lets out Skeletons that report the balloon.
         s.scenario_spawn_now(Team::Blue, "SkeletonBalloon", at(4, 24), Some(1)).unwrap();
         let skeleton = names.iter().position(|n| n == "Skeleton").unwrap() as i64;
+        let graveyard_skeleton = names.iter().position(|n| n == "Graveyard_rework_Skeleton").expect("the Graveyard's row") as i64;
         let mut producers_of_skeletons = std::collections::BTreeSet::new();
+        let mut graveyard_rows = 0usize;
         let mut own_names_checked = 0usize;
-        let want: std::collections::BTreeSet<i64> = ["Skeletons", "SkeletonArmy", "Witch", "Tombstone", "Graveyard", "SkeletonBalloon"].iter().map(|n| id(n)).collect();
+        let want: std::collections::BTreeSet<i64> = ["Skeletons", "SkeletonArmy", "Witch", "Tombstone", "SkeletonBalloon"].iter().map(|n| id(n)).collect();
         for t in 0..1500 {
             s.tick();
             assert_eq!(s.outcome(), None, "the battle ended at tick {t}");
@@ -2742,13 +2747,17 @@ mod tests {
                 } else if e.card == "Skeleton" || e.card == "Skeletons" || e.card == "SkeletonArmy" {
                     assert_eq!(ut, skeleton, "a Skeleton under card {} reads {own}", r[3]);
                     producers_of_skeletons.insert(r[3].as_i64().unwrap());
+                } else if own == "Graveyard_rework_Skeleton" {
+                    assert_eq!((ut, r[3].as_i64().unwrap()), (graveyard_skeleton, id("Graveyard")), "a Graveyard Skeleton reads {own}");
+                    graveyard_rows += 1;
                 }
             }
-            if producers_of_skeletons.is_superset(&want) {
+            if producers_of_skeletons.is_superset(&want) && graveyard_rows > 0 {
                 break;
             }
         }
         assert!(own_names_checked > 0);
+        assert!(graveyard_rows > 0, "the Graveyard put down none of its own Skeletons in the run");
         assert_eq!(producers_of_skeletons, want, "one Skeleton unit_type under every producer's card id");
         // The digest Gym and Train pin the list by: FNV-1a 64, RoyaleGym's protocol.fnv1a64 (its published vectors).
         assert_eq!(fnv1a64_hex(b""), "cbf29ce484222325");
