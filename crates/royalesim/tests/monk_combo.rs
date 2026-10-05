@@ -32,6 +32,7 @@
 //!   walk_reach_every_row_flyers_only   the every-row arm reads flyers alone: (3) goes red.
 //!   combo_push_after_walk              the new arm pushes from the walked point: (5) goes red.
 //!   reach_loss_combo_unread            combat.RETARGET_WAIT_REACH_LOSS's new arm reads the inferno's ramp alone: (6) goes red.
+//!   reach_loss_combo_kept              the new arm counts a re-picked or held knocked target as kept: (6) goes red.
 mod common;
 
 use common::*;

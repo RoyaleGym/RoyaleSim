@@ -16516,7 +16516,16 @@ impl BattleState {
                 #[cfg(clash_plant = "reach_loss_no_wait")]
                 let reach_wait = false; // PLANT (regression): the new arm retargets at once after a reach loss.
                 if reach_wait && e.retarget_wait[i] == 0 && !d.resumed && e.attack_phase[i] != AttackPhase::Idle {
-                    if let Some(t) = e.target[i].filter(|t| e.standing(*t, struck) && d.target != Some(*t)) {
+                    // client15535_after_reach_loss_combo: a Monk loses his knocked target past his reach though the
+                    // decision would keep it (a sliding target is held through its slide, targeting.CHASE_DROP_KNOCKED_TARGET)
+                    // or re-pick it (the only enemy in sight): measured, he lets it go and waits (7 of 7 knocks).
+                    // PLANT (regression) reach_loss_combo_kept: the new arm counts a re-picked target as kept.
+                    #[cfg(not(clash_plant = "reach_loss_combo_kept"))]
+                    let repick_lost = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::Client15535AfterReachLossCombo
+                        && cards.get(e.card[i]).combo.is_some();
+                    #[cfg(clash_plant = "reach_loss_combo_kept")]
+                    let repick_lost = false;
+                    if let Some(t) = e.target[i].filter(|t| e.standing(*t, struck) && (d.target != Some(*t) || repick_lost)) {
                         let (ti, c) = (t.index as usize, cards.get(e.card[i]));
                         let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
                         let left = !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti]);
