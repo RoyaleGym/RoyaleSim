@@ -4382,6 +4382,15 @@ calib_enum!(
         /// Spear Goblin and a Skeleton whose targets left their reach), and a new target in reach is taken at once
         /// (client 15.535.29's reach-loss scenarios: a Knight switches to a Cannon in its reach on the next tick).
         ClientAfterReachLoss = "client_after_reach_loss",
+        /// client_after_reach_loss, its scope read on a row whose VariableDamage columns the engine loads as a combo
+        /// (card.rs ComboDef: the Monk's VariableDamage2 / 3) as well as on the inferno's ramp. Measured on client
+        /// 15.535.29 (monk_drop.py, every Monk third-hit knock in the captures, 7): the Monk lets his knocked target go
+        /// on the first tick its start-of-tick centre distance passes his reach (Range 1,200 + both radii: a Knight
+        /// kept at 2,192 and let go at 2,355; a Giant kept at 2,422 and let go at 2,478; an Ice Golemite kept at 2,295
+        /// and let go at 2,444), his attack progress 0 at once, holds no target for five ticks and takes his next on the
+        /// sixth, 7 of 7 (sp-champ-Monk-recharge-q20-s0 t306 to t310, the Giant again on t311, walking); the engine's
+        /// Monk kept the Giant and stood in his attack.
+        Client15535AfterReachLossCombo = "client15535_after_reach_loss_combo",
     }
 );
 calib_enum!(
@@ -16503,7 +16512,7 @@ impl BattleState {
                 // target), with its attack progress 0 at once. Other units retarget at once: the 16.402 corpus shows it
                 // (a Spear Goblin, a Skeleton), and the arm read on every unit lost 3,207 within 250 there.
                 #[cfg(not(clash_plant = "reach_loss_no_wait"))]
-                let reach_wait = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::ClientAfterReachLoss;
+                let reach_wait = matches!(calib.retarget_wait_reach_loss, RetargetWaitReachLoss::ClientAfterReachLoss | RetargetWaitReachLoss::Client15535AfterReachLossCombo);
                 #[cfg(clash_plant = "reach_loss_no_wait")]
                 let reach_wait = false; // PLANT (regression): the new arm retargets at once after a reach loss.
                 if reach_wait && e.retarget_wait[i] == 0 && !d.resumed && e.attack_phase[i] != AttackPhase::Idle {
@@ -16517,8 +16526,15 @@ impl BattleState {
                             let ni = n.index as usize;
                             target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ni], e.radius[ni])
                         });
+                        // combat.RETARGET_WAIT_REACH_LOSS = client15535_after_reach_loss_combo: the Monk's row (its VariableDamage
+                        // columns loaded as a combo) is in the scope too.
+                        // PLANT (regression) reach_loss_combo_unread: the new arm reads the inferno's ramp alone.
+                        #[cfg(not(clash_plant = "reach_loss_combo_unread"))]
+                        let combo_scope = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::Client15535AfterReachLossCombo && c.combo.is_some();
+                        #[cfg(clash_plant = "reach_loss_combo_unread")]
+                        let combo_scope = false;
                         #[cfg(not(clash_plant = "reach_loss_any_unit"))]
-                        let inferno = c.variable_damage.is_some();
+                        let inferno = c.variable_damage.is_some() || combo_scope;
                         #[cfg(clash_plant = "reach_loss_any_unit")]
                         let inferno = true; // PLANT (regression): every unit waits after a reach loss, not the inferno's alone.
                         let waits = match wait_mode {

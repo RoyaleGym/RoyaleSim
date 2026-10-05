@@ -31,12 +31,13 @@
 //!   combo_push_next_tick               the push's first step is the next tick's: (2) goes red.
 //!   walk_reach_every_row_flyers_only   the every-row arm reads flyers alone: (3) goes red.
 //!   combo_push_after_walk              the new arm pushes from the walked point: (5) goes red.
+//!   reach_loss_combo_unread            combat.RETARGET_WAIT_REACH_LOSS's new arm reads the inferno's ramp alone: (6) goes red.
 mod common;
 
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AttackCombo, BattleConfig, BattleState, Calib, ComboPushback, VariableDamageWalkReach};
+use royalesim::state::{AttackCombo, BattleConfig, BattleState, Calib, ComboPushback, RetargetWaitReachLoss, VariableDamageWalkReach};
 use royalesim::{EntityId, Team};
 
 const ME_AT: (i32, i32) = (3500, 9000);
@@ -239,4 +240,43 @@ fn a_walking_victim_takes_the_combo_push_from_its_point_before_the_tick_under_cl
     assert!((240..=255).contains(&step), "client15535_ladder_armed_at_hit: the hit tick's move is not a first ladder step alone ({step})");
     let away = dist(monk[t], new[t + 1]) - dist(monk[t], new[t]);
     assert!((step - 2..=step + 2).contains(&away), "client15535_ladder_armed_at_hit: the step is not straight away from the Monk ({away} of {step})");
+}
+
+/// (6) combat.RETARGET_WAIT_REACH_LOSS = client15535_after_reach_loss_combo (client 15.535.29: 7 of 7 Monk knocks): the
+/// Knight scene's third hit pushes the Knight out of his reach; under the new arm he holds no target for five ticks and
+/// takes the Knight again on the sixth; under client_after_reach_loss (the inferno's scope alone) he never lets it go.
+/// Returns the tick rows after the third hit on which he held no target.
+fn untargeted_after_push(arm: RetargetWaitReachLoss) -> Vec<usize> {
+    let mut cfg = cfg_with(AttackCombo::SequenceAcrossTargets, ComboPushback::LadderFromAttackerHitTick, DRAGON_ONLY_REACH);
+    cfg.calib.retarget_wait_reach_loss = arm;
+    let (mut s, monk, reds) = scene(cfg, "Monk", &[("Knight", (3500, 11000))]);
+    let mut hp = s.entity(reds[0]).expect("the Knight").hp;
+    let (mut hits, mut gaps) = (0, Vec::new());
+    for t in 0..160 {
+        s.tick();
+        let now = s.entity(reds[0]).expect("the Knight lives").hp;
+        if now < hp {
+            hits += 1;
+        }
+        hp = now;
+        if hits >= 3 && s.entity(monk).expect("the Monk").target.is_none() {
+            gaps.push(t);
+        }
+        if hits >= 4 {
+            break;
+        }
+    }
+    assert!(hits >= 3, "{arm:?}: the scene drifted: fewer than three blows");
+    gaps
+}
+
+/// Plant: reach_loss_combo_unread.
+#[test]
+fn the_monk_waits_five_ticks_after_his_knocked_target_leaves_his_reach_under_client15535_after_reach_loss_combo() {
+    // NOT VACUOUS: the inferno's scope alone keeps the Knight.
+    let old = untargeted_after_push(RetargetWaitReachLoss::ClientAfterReachLoss);
+    assert!(old.is_empty(), "client_after_reach_loss: the Monk let the Knight go ({old:?})");
+    let new = untargeted_after_push(RetargetWaitReachLoss::Client15535AfterReachLossCombo);
+    assert_eq!(new.len(), 5, "client15535_after_reach_loss_combo: not five ticks without a target ({new:?})");
+    assert!(new.windows(2).all(|w| w[1] == w[0] + 1), "client15535_after_reach_loss_combo: the five ticks are not one run ({new:?})");
 }
