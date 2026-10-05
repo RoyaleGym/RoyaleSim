@@ -1550,7 +1550,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.KAMIKAZE_LAUNCH_PASS = client15535_launcher_reads_start: a kamikaze's launch removes it for every later unit of
 ///   the sequential pass (10 of 10 pickers, 7 of 7 walking holders) but a kamikaze whose own launch is due, which launches
 ///   at it too (3 of 3 pairs of spirits launching at each other).
-///   pathfinding.PRESS_ROUTE = client15535_replanned: a ground hero's press with CastTime 0 drops its route (22 of 22).
+///   pathfinding.PRESS_ROUTE = client15535_replanned_with_dash: a ground hero's press with CastTime 0 drops its route (22 of
+///   22), a Golden Knight's too (15 of 15).
 ///   combat.SPIN_BEGIN = client15535_next_tick: a Hero Valkyrie's spin begins the tick after her button fires (1 press).
 ///   formation.LINE_FRAME = client15535_y_reflection: side 1's line is placed as side 0's at the same arena x (2 of 2).
 ///   placement.TROOP_RELOCATION_TIE_ORDER = client15535_arena_clockwise: a troop tap's equally near relocations go to the
@@ -1661,7 +1662,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.DISMOUNT_MOUNT_BIRTH", "\"client15535_hero_point\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),
-    ("pathfinding.PRESS_ROUTE", "\"client15535_replanned\""),
+    ("pathfinding.PRESS_ROUTE", "\"client15535_replanned_with_dash\""),
     ("combat.SPIN_BEGIN", "\"client15535_next_tick\""),
     ("formation.LINE_FRAME", "\"client15535_y_reflection\""),
     ("placement.TROOP_RELOCATION_TIE_ORDER", "\"client15535_arena_clockwise\""),

@@ -5986,6 +5986,14 @@ calib_enum!(
         /// it stepped (-17, 48) at (3250, 13750), the engine (-4, 51) on at its old waypoint (3250, 14750). A Golden
         /// Knight's dash, a flyer (the Hero Balloon) and a held champion (the Boss Bandit) do otherwise.
         Client15535Replanned = "client15535_replanned",
+        /// client15535_replanned with no dash-chain exemption: a Golden Knight's press drops his route too, so the press
+        /// tick's Path phase plans afresh from where he stands (the goal cell around his target on that tick) and his
+        /// walk step on the press tick heads at the fresh route's first node. Measured on client 15.535.29 (diag2
+        /// press_census.py, every Golden Knight press in the captures, his step on the press tick walked in the engine's
+        /// arithmetic): the fresh route's first node 15 of 15 (12 of them off the kept route's, which the engine walks:
+        /// sp-champ-GoldenKnight-recharge-q800-s0 t170 from (3277, 12399) the step (-4, 59), the engine (-1, 60) at
+        /// its kept waypoint (3250, 14750); the dash that follows, 46 of 46 ticks and 12 of 12 landings, from that point).
+        Client15535ReplannedWithDash = "client15535_replanned_with_dash",
     }
 );
 calib_enum!(
@@ -27549,12 +27557,17 @@ impl BattleState {
         }
         // pathfinding.PRESS_ROUTE = client15535_replanned: a ground hero's press that holds it not at all (and is no dash
         // chain) drops its route; this tick's Path phase (the press fires in the Status phase) plans afresh from where it
-        // stands.
+        // stands. client15535_replanned_with_dash: a dash chain's press (the Golden Knight's) too.
         // PLANT (regression) press_route_kept: the new arm keeps the route.
         #[cfg(not(clash_plant = "press_route_kept"))]
-        let replan = self.cfg.calib.press_route == PressRoute::Client15535Replanned;
+        let replan = matches!(self.cfg.calib.press_route, PressRoute::Client15535Replanned | PressRoute::Client15535ReplannedWithDash);
         #[cfg(clash_plant = "press_route_kept")]
         let replan = false;
+        // PLANT (regression) press_route_dash_exempt: the new arm still exempts a dash chain.
+        #[cfg(not(clash_plant = "press_route_dash_exempt"))]
+        let dash_too = self.cfg.calib.press_route == PressRoute::Client15535ReplannedWithDash;
+        #[cfg(clash_plant = "press_route_dash_exempt")]
+        let dash_too = false;
         // pathfinding.HELD_PRESS_ROUTE = client15535_replanned: so does a press that holds it (CastTime > 0); the hold
         // requests no path, so the first tick it walks again plans afresh from where it stands. Measured on client
         // 15.535.29: 56 of 61 held presses (sp-sk-souls-own-s0 t329, the Skeleton King after his cast).
@@ -27563,7 +27576,7 @@ impl BattleState {
         let held_replan = self.cfg.calib.held_press_route == HeldPressRoute::Client15535Replanned && a.cast_ms > 0;
         #[cfg(clash_plant = "held_press_route_kept")]
         let held_replan = false;
-        if ((replan && a.cast_ms == 0) || held_replan) && !self.ents.flying[i] && !matches!(a.effect, crate::card::AbilityEffect::DashChain { .. }) {
+        if ((replan && a.cast_ms == 0) || held_replan) && !self.ents.flying[i] && (dash_too || !matches!(a.effect, crate::card::AbilityEffect::DashChain { .. })) {
             if let Some(r) = self.ents.route.get_mut(i) {
                 r.clear();
             }

@@ -12,6 +12,15 @@
 //!   1. client15535_replanned: the press tick's facing points from the hero's previous point at the centre of a cell
 //!      around it (500-unit cells), and differs from kept's; kept (the engine's, the vacuity check): the facing the tick
 //!      before the press, its route's.
+//!
+//! THE GOLDEN KNIGHT (client15535_replanned_with_dash; client 15.535.29, every Golden Knight press in the captures, 15 of
+//! 15: his walk step on the press tick heads at the first node of a route planned afresh; sp-champ-GoldenKnight-
+//! recharge-q800-s0 t170 from (3277, 12399) the step (-4, 59), the engine (-1, 60) at its kept waypoint (3250, 14750)):
+//! the same scene with a Golden Knight put down in the hero's place, walked GK_WALK ticks, then pressed (nothing in his
+//! dash's reach: he walks on the press tick, then runs at his target).
+//!   2. client15535_replanned_with_dash: the press tick's facing points at the centre of a cell around his previous point
+//!      and differs from client15535_replanned's, which keeps his route (the vacuity check: the facing the tick before).
+//!      Plant press_route_dash_exempt (the new arm still exempts a dash chain) turns it red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -52,6 +61,48 @@ fn press(arm: PressRoute) -> ((i64, i64), (i64, i64), (i64, i64)) {
     s.tick();
     let f = s.entity(g).expect("the hero").facing;
     ((f.x as i64, f.y as i64), (before.x as i64, before.y as i64), ((at.x / K) as i64, (at.y / K) as i64))
+}
+
+/// The Golden Knight's press tick's facing, the facing the tick before and his point before the press tick (native).
+fn gk_press(arm: PressRoute) -> ((i64, i64), (i64, i64), (i64, i64)) {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.press_route = arm;
+    let deck: Vec<String> = ["GoldenKnight", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|s| s.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(15, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let g = s.scenario_spawn_now(Team::Blue, "GoldenKnight", Vec2::new(3500 * K, 12500 * K), None).expect("the Golden Knight");
+    for _ in 0..GK_WALK {
+        s.tick();
+    }
+    let before = s.entity(g).expect("him").facing;
+    let at = s.entity(g).expect("him").pos;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    let f = s.entity(g).expect("him").facing;
+    ((f.x as i64, f.y as i64), (before.x as i64, before.y as i64), ((at.x / K) as i64, (at.y / K) as i64))
+}
+
+/// The Golden Knight's walk before his press: 10 ticks, 600 up the left lane from (3500, 12500), short of the bridge.
+const GK_WALK: u32 = 10;
+
+/// Plant: press_route_dash_exempt.
+#[test]
+fn a_golden_knights_press_plans_his_route_afresh_under_client15535_replanned_with_dash() {
+    let (exempt, exempt_before, _) = gk_press(PressRoute::Client15535Replanned);
+    // NOT VACUOUS: the dash chain's exemption walks on along his route.
+    assert_eq!(exempt, exempt_before, "client15535_replanned: the press tick's facing is not his route's");
+    let (fresh, _, at) = gk_press(PressRoute::Client15535ReplannedWithDash);
+    assert_ne!(fresh, exempt, "client15535_replanned_with_dash: the press tick's facing is the exempt arm's ({exempt:?})");
+    let (col, row) = (at.0 / 500, at.1 / 500);
+    let around: Vec<(i64, i64)> = (-1..=1).flat_map(|dr| (-1..=1).map(move |dc| ((col + dc) * 500 + 250, (row + dr) * 500 + 250))).collect();
+    assert!(
+        around.iter().any(|c| heading(at, *c) == fresh),
+        "client15535_replanned_with_dash: the press tick's facing {fresh:?} points at no cell around {at:?}"
+    );
 }
 
 /// Plant: press_route_kept.
