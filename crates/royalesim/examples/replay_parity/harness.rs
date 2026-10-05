@@ -1537,8 +1537,11 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   updates either (1 of 1).
 ///   movement.HELD_WAYPOINT_TEST = client15535_run: a held unit runs its waypoint's reached test (120 of 120 pops, 3,111
 ///   of 3,111 keeps).
-///   spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick: an Evo Skeleton Army Spectral takes its first update on the
-///   tick it is made (43 of 43 hold a target on their first frame).
+///   spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick_apart: an Evo Skeleton Army Spectral takes its first update on
+///   the tick it is made (43 of 43 hold a target on their first frame), the tick's other Spectrals unseen (16 of 17
+///   first-frame displacements beside another).
+///   spawner.SPECTRAL_BIRTH_POINT = client15535_water_nudge: a Spectral whose soldier died over water is made 1 to its
+///   right (8 of 8; 33 of 33 over land on the point).
 ///   transform.DISMOUNT_LEAP_STEP = client15535_leap_lands_first: a Hero Dark Prince freed on its leap's last tick takes
 ///   that leap step before it dismounts (1 of 1).
 ///   transform.DISMOUNT_HOP_WATER = client15535_land_row_centre: its hop onto the river lands on the nearest land row's
@@ -1592,8 +1595,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   plans afresh when it walks again (56 of 61 held presses).
 ///   spawner.THROWN_UNIT_DEATH_BLOW = client15535_unreached: no death blow of a throw's landing tick reaches the unit it
 ///   puts down (the Hero Balloon's trooper on the golem its blow killed, 2 of 2).
-///   spawner.SPECTRAL_PARENT_BLOCKER = client15535_static: an Evo Skeleton Army Spectral's first update meets its tick's
-///   dying soldiers as static blockers (the client's first frames turn where the engine's walked straight).
+///   spawner.SPECTRAL_PARENT_BLOCKER = client15535_static_walker_group: an Evo Skeleton Army Spectral's first update
+///   meets its tick's dying soldiers as static blockers grouped as the walkers they were (36 of 37 first-frame signs).
 ///   status.HEAL_PULSE_LANDING = client15535_before_buffered_hits: a buff's heal pulse lands before the tick's buffered
 ///   hits (a full Recruit's Heal Spirit pulse lost before a tower's arrow; a melee strike, landed at once, still before it).
 ///   knockback.RECOIL_ROUTE = client15535_replanned: an Evo Battle Ram's recoil drops its route and its ladder's first
@@ -1658,7 +1661,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.SNIPE_REPICK", "\"client15535_last_target_first\""),
     ("movement.JUMP_LANDING_SCOPE", "\"client15535_whole_tick\""),
     ("movement.HELD_WAYPOINT_TEST", "\"client15535_run\""),
-    ("spawner.SPECTRAL_FIRST_UPDATE", "\"client15535_same_tick\""),
+    ("spawner.SPECTRAL_FIRST_UPDATE", "\"client15535_same_tick_apart\""),
+    ("spawner.SPECTRAL_BIRTH_POINT", "\"client15535_water_nudge\""),
     ("transform.DISMOUNT_LEAP_STEP", "\"client15535_leap_lands_first\""),
     ("transform.DISMOUNT_HOP_WATER", "\"client15535_land_row_centre\""),
     ("transform.DISMOUNT_MOUNT_BIRTH", "\"client15535_hero_point\""),
@@ -1687,7 +1691,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.HELD_SHOT_TEST", "\"client15535_untested\""),
     ("pathfinding.HELD_PRESS_ROUTE", "\"client15535_replanned\""),
     ("spawner.THROWN_UNIT_DEATH_BLOW", "\"client15535_unreached\""),
-    ("spawner.SPECTRAL_PARENT_BLOCKER", "\"client15535_static\""),
+    ("spawner.SPECTRAL_PARENT_BLOCKER", "\"client15535_static_walker_group\""),
     ("status.HEAL_PULSE_LANDING", "\"client15535_before_buffered_hits\""),
     ("knockback.RECOIL_ROUTE", "\"client15535_replanned\""),
     ("knockback.LADDER_PATH_REQUEST", "\"client15535_on_release\""),

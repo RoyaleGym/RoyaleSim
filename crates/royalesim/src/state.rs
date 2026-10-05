@@ -995,6 +995,10 @@ pub struct Calib {
     /// 20; the `default` is the old arm, `OwnerAxisSlideOverHold`.
     #[serde(default = "clone_offset_default")]
     pub clone_offset: CloneOffset,
+    /// spawner.SPECTRAL_BIRTH_POINT (`army_spectrals`): where an Evo Skeleton Army Spectral is made. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `SoldierPoint`.
+    #[serde(default = "spectral_birth_point_default")]
+    pub spectral_birth_point: SpectralBirthPoint,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2581,6 +2585,10 @@ fn dismount_mount_birth_default() -> DismountMountBirth {
 
 fn clone_offset_default() -> CloneOffset {
     CloneOffset::OwnerAxisSlideOverHold
+}
+
+fn spectral_birth_point_default() -> SpectralBirthPoint {
+    SpectralBirthPoint::SoldierPoint
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -5575,6 +5583,15 @@ calib_enum!(
         /// (the scene's t830 contact onset). LOW-MEDIUM: the census ran the scan at the first-frame point; the engine's
         /// runs it at the birth point, on the soldier.
         Client15535Static = "client15535_static",
+        /// client15535_static, with each dying soldier grouped in the avoidance index (move16402 `Index::span`) as the
+        /// walker it was, its circle grown by 250 (`Body::group_walker`), while the vote still reads it as static.
+        /// Measured on client 15.535.29 (diag2 spectral_sign law2.py / span.py / seqmax.py: the engine's avoidance scan
+        /// emulated on client bodies for the 37 Spectrals born walking, each looking from its birth point along its
+        /// side's initial facing (0, +-256), its tick's dying soldiers static on their death points, the General static,
+        /// the survivors on their frame-F points): the first-frame offset's sign 36 of 37 grouped as walkers, 35 of 37
+        /// grouped by their radius (sp-il-b5e2: Spectral 125 turns only with the walker grouping); the dying soldier as
+        /// a mover of offset 0 instead, 32 of 37. The one miss (sp-form-SkeletonArmy-evo-s0 69) has no death point.
+        Client15535StaticWalkerGroup = "client15535_static_walker_group",
     }
 );
 calib_enum!(
@@ -6139,6 +6156,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.SPECTRAL_BIRTH_POINT -- see `army_spectrals`: where an Evo Skeleton Army Spectral is made, against its
+    /// soldier's death point Q (the soldier's point after its own move on the tick it died).
+    SpectralBirthPoint {
+        /// The engine's: on Q.
+        SoldierPoint = "soldier_point",
+        /// On Q, except when Q's half-tile cell is WATER: then on (Q.x + 1, Q.y); the soldier's own blocker (spawner.
+        /// SPECTRAL_PARENT_BLOCKER) stays on Q. Measured on client 15.535.29 (diag2 spectral_sign water.py over the 43
+        /// Spectrals of sp-form-SkeletonArmy-evo-s0, sp-esa-spectrals-s0 and sp-il-b5e2: a Spectral's first frame's
+        /// x2/y2 is its birth point): the 8 born over water, birth - Q = (1, 0) all 8 (sp-esa-spectrals-s0 64, 65, 67,
+        /// 73; sp-form-SkeletonArmy-evo-s0 70, 72, 74; sp-il-b5e2 129), the 33 over land (0, 0) all 33; walking on water
+        /// adds nothing (242 soldier ticks and 308 Spectral ticks on water cells, none 1 off).
+        Client15535WaterNudge = "client15535_water_nudge",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -6176,6 +6208,13 @@ calib_enum!(
         /// makes it: sp-esa-spectrals-s0 t829 (-16, -58), its next step (-22, -56); sp-form-SkeletonArmy-evo-s0 t947
         /// (-10, 60). The engine's Spectral took that facing a tick late, with no turn.
         Client15535SameTick = "client15535_same_tick",
+        /// client15535_same_tick, each Spectral's first update hiding the tick's other new Spectrals from both its scans
+        /// (`first_update` apart): its separation meets the survivors alone. Measured on client 15.535.29 (diag2
+        /// spectral_sign newborn.py: the first-frame step and push emulated on client bodies for the 17 Spectrals born
+        /// beside another born on the same tick): the first-frame displacement exact 16 of 17 with the newborns unseen by
+        /// the separation, 6 of 17 with them seen (the engine's: the earlier-made on their frame-F points, the later on
+        /// their birth points); the avoidance sign the same either way.
+        Client15535SameTickApart = "client15535_same_tick_apart",
     }
 );
 calib_enum!(
@@ -8108,6 +8147,7 @@ impl Calib {
             dismount_hop_water: pick(&v, &["transform", "DISMOUNT_HOP_WATER", "value"], DismountHopWater::from_calibration_name)?,
             dismount_mount_birth: pick(&v, &["transform", "DISMOUNT_MOUNT_BIRTH", "value"], DismountMountBirth::from_calibration_name)?,
             clone_offset: pick(&v, &["spells", "CLONE_OFFSET", "value"], CloneOffset::from_calibration_name)?,
+            spectral_birth_point: pick(&v, &["spawner", "SPECTRAL_BIRTH_POINT", "value"], SpectralBirthPoint::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -10314,9 +10354,9 @@ struct Scratch {
     /// whose cast holds start after the move pass (`phase_move`). Pushed and emptied inside one tick.
     late_casts: Vec<EntityId>,
     /// spawner.SPAWNED_FIRST_STEP: the units (buildings and troops) that died in this Reap and left a death spawn
-    /// that takes its first update, native (x, y, radius, side, flying): `first_update`'s avoidance-only blockers.
-    /// Filled and drained inside one `phase_reap`, so it never outlives the phase.
-    dying_blockers: Vec<(i32, i32, i32, u8, bool)>,
+    /// that takes its first update, native (x, y, radius, side, flying, grouped as a walker): `first_update`'s
+    /// avoidance-only blockers. Filled and drained inside one `phase_reap`, so it never outlives the phase.
+    dying_blockers: Vec<(i32, i32, i32, u8, bool, bool)>,
     /// spawner.FIRST_STEP_DYING_BODIES = client16402_seen: the units that died in this Reap without releasing a unit,
     /// as bodies of the contact law (`dying_body`), taken before they are despawned: the death spawns' first update
     /// meets them. Filled and drained inside one `phase_reap`, so it never outlives the phase: not saved, not hashed.
@@ -11747,6 +11787,7 @@ impl BattleState {
                 && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
                 && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
             avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0,
+            group_walker: false,
             seq: e.creation_seq[i],
         }
     }
@@ -14125,7 +14166,7 @@ impl BattleState {
     /// or client_sequential_strike, whose Target and Attack are one pass): the step is that
     /// model's move pass, and under the legacy tick order the Attack phase runs after Move
     /// anyway. Troops only: a building takes no step.
-    fn first_update(&mut self, fresh: &[usize], apart: bool, blockers: &[(i32, i32, i32, u8, bool)], dying: &[move16402::Body]) {
+    fn first_update(&mut self, fresh: &[usize], apart: bool, blockers: &[(i32, i32, i32, u8, bool, bool)], dying: &[move16402::Body]) {
         #[cfg(not(clash_plant = "first_step_unread"))]
         let on = self.cfg.calib.spawned_first_step == SpawnedFirstStep::SameTick;
         #[cfg(clash_plant = "first_step_unread")]
@@ -19279,7 +19320,7 @@ impl BattleState {
     /// skips them. `dying` (client16402_seen only: the units that died in this Reap, `dying_body`) join it
     /// as ordinary bodies, which both scans meet. The per-tick diagnostics of every other unit stay as the
     /// pass wrote them.
-    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize], blockers: &[(i32, i32, i32, u8, bool)], dying: &[move16402::Body]) {
+    fn phase_path16402_for(&mut self, only: Option<&[usize]>, unseen: &[usize], blockers: &[(i32, i32, i32, u8, bool, bool)], dying: &[move16402::Body]) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         if only.is_none() {
             self.build_obstacles();
@@ -19812,6 +19853,7 @@ impl BattleState {
                             // is a carrier of the AVOIDANCE_AS_OBSTACLE tag (`tag_off`)
                             || deflect_off[i]
                             || tag_off[i],
+                        group_walker: false,
                         // creation order breaks a tie inside one group (`move16402::Index::query`): a slot is
                         // reused, a creation order is not
                         seq: e.creation_seq[i],
@@ -19899,7 +19941,7 @@ impl BattleState {
                 // transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: a Hero Dark Prince's body on the point where its
                 // mount is born (`dismount_hops`), met by both scans of the mount's first update.
                 bodies.extend_from_slice(&self.scratch.mount_bodies);
-                for &(x, y, r, side, air) in blockers {
+                for &(x, y, r, side, air, walker) in blockers {
                     bodies.push(move16402::Body {
                         x,
                         y,
@@ -19916,6 +19958,9 @@ impl BattleState {
                         dir: (0, 0),
                         heading_counts: false,
                         avoid_static: false,
+                        // spawner.SPECTRAL_PARENT_BLOCKER = client15535_static_walker_group: a dying soldier is grouped as
+                        // the walker it was
+                        group_walker: walker,
                         // after every entity in a tie, where their place after the slots put them before the tie
                         // went by creation order
                         seq: u32::MAX,
@@ -25404,7 +25449,7 @@ impl BattleState {
             if blocks {
                 use crate::fixed::SUBTILE_PER_MILLITILE as K;
                 let p = self.ents.pos[i];
-                self.scratch.dying_blockers.push((p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8, air));
+                self.scratch.dying_blockers.push((p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8, air, false));
             }
             // spawner.DEATH_SPAWN_LAYOUT = facing_ring_rounded: the members start with the dying unit's heading, the
             // ring's axis normalized to 256 in native units (measured on client 15.535.29: (28, -254) for a Ram dying
@@ -25866,23 +25911,42 @@ impl BattleState {
     /// THE SPECTRALS `army_deaths` decided, made at the end of Reap where their soldiers died, deployed (the row's
     /// ActionSpawnToLocation puts the unit down with no deploy: measured, a Spectral walks on its first frame), each in
     /// its soldier's group. Under spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick they then take their first
-    /// update (`first_update`), the tick's Spectrals together, meeting none of the tick's dead (their own soldiers).
+    /// update (`first_update`), the tick's Spectrals together, meeting none of the tick's dead (their own soldiers);
+    /// under client15535_same_tick_apart each alone, the others hidden from its scans. spawner.SPECTRAL_BIRTH_POINT
+    /// moves one made over water 1 to its soldier's right.
     fn army_spectrals(&mut self, make: Vec<SpectralToMake>) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let mut fresh: Vec<usize> = Vec::new();
         // spawner.SPECTRAL_PARENT_BLOCKER = client15535_static: the tick's dying soldiers, static blockers of the first
         // avoidance scan on their own points and layers (`first_update`, as a death spawn's parent is).
         // PLANT (regression) spectral_parent_unseen: the new arm's first update still meets none of them.
         #[cfg(not(clash_plant = "spectral_parent_unseen"))]
-        let blocks = self.cfg.calib.spectral_parent_blocker == SpectralParentBlocker::Client15535Static;
+        let blocks = matches!(self.cfg.calib.spectral_parent_blocker, SpectralParentBlocker::Client15535Static | SpectralParentBlocker::Client15535StaticWalkerGroup);
         #[cfg(clash_plant = "spectral_parent_unseen")]
         let blocks = false;
-        let blockers: Vec<(i32, i32, i32, u8, bool)> = if blocks {
-            use crate::fixed::SUBTILE_PER_MILLITILE as K;
-            make.iter().map(|&(team, _, _, pos, _, r, air)| (pos.x / K, pos.y / K, r / K, team as u8, air)).collect()
+        // spawner.SPECTRAL_PARENT_BLOCKER = client15535_static_walker_group: each grouped in the index as the walker it
+        // was (span r + 250), static to the vote all the same.
+        // PLANT (regression) spectral_blocker_static_span: the new arm groups them by their radius, as statics.
+        #[cfg(not(clash_plant = "spectral_blocker_static_span"))]
+        let walker = self.cfg.calib.spectral_parent_blocker == SpectralParentBlocker::Client15535StaticWalkerGroup;
+        #[cfg(clash_plant = "spectral_blocker_static_span")]
+        let walker = false;
+        let blockers: Vec<(i32, i32, i32, u8, bool, bool)> = if blocks {
+            make.iter().map(|&(team, _, _, pos, _, r, air)| (pos.x / K, pos.y / K, r / K, team as u8, air, walker)).collect()
         } else {
             Vec::new()
         };
+        // spawner.SPECTRAL_BIRTH_POINT = client15535_water_nudge: one whose soldier died on a WATER half-tile cell is made
+        // 1 to its right; its soldier's blocker stays on the death point.
+        // PLANT (regression) spectral_born_on_water_point: the new arm makes it on the death point.
+        #[cfg(not(clash_plant = "spectral_born_on_water_point"))]
+        let nudge = self.cfg.calib.spectral_birth_point == SpectralBirthPoint::Client15535WaterNudge;
+        #[cfg(clash_plant = "spectral_born_on_water_point")]
+        let nudge = false;
         for (team, card, level, pos, group, _, _) in make {
+            let a = &self.cfg.arena;
+            let wet = a.cell_bits(pos.x.div_euclid(a.cell), pos.y.div_euclid(a.cell)) & a.bit_water != 0;
+            let pos = if nudge && wet { pos.add(Vec2::new(K, 0)) } else { pos };
             let Ok(id) = self.spawn_now(team, card, level, pos, EntityKind::Troop) else { continue };
             let j = id.index as usize;
             self.ents.deploy_ms[j] = 0;
@@ -25900,11 +25964,17 @@ impl BattleState {
         // spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick: their whole first update now.
         // PLANT (regression) spectral_stands_first_tick: the new arm still stands them on their first tick.
         #[cfg(not(clash_plant = "spectral_stands_first_tick"))]
-        let steps = self.cfg.calib.spectral_first_update == SpectralFirstUpdate::Client15535SameTick;
+        let steps = matches!(self.cfg.calib.spectral_first_update, SpectralFirstUpdate::Client15535SameTick | SpectralFirstUpdate::Client15535SameTickApart);
         #[cfg(clash_plant = "spectral_stands_first_tick")]
         let steps = false;
+        // spawner.SPECTRAL_FIRST_UPDATE = client15535_same_tick_apart: each steps with the tick's other Spectrals hidden.
+        // PLANT (regression) spectral_newborns_seen: the new arm's Spectrals meet each other, as client15535_same_tick's.
+        #[cfg(not(clash_plant = "spectral_newborns_seen"))]
+        let apart = self.cfg.calib.spectral_first_update == SpectralFirstUpdate::Client15535SameTickApart;
+        #[cfg(clash_plant = "spectral_newborns_seen")]
+        let apart = false;
         if steps && !fresh.is_empty() {
-            self.first_update(&fresh, false, &blockers, &[]);
+            self.first_update(&fresh, apart, &blockers, &[]);
         }
         let ents = &self.ents;
         self.evo.armies.retain(|m| ents.is_alive(m.id));
@@ -30933,6 +31003,11 @@ impl BattleState {
 /// 20, unchanged, spells.CLONE_OFFSET: Calib gained clone_offset (serde default the old arm, owner_axis_slide_over_hold),
 ///    no new state (the slide is the saved knock_rem / knock_ms), so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.SPECTRAL_BIRTH_POINT: Calib gained spectral_birth_point (serde default the old arm,
+///    soldier_point), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm. spawner.SPECTRAL_PARENT_BLOCKER gained client15535_static_walker_group and
+///    SPECTRAL_FIRST_UPDATE client15535_same_tick_apart (arms read inside one Reap; move16402 Body::group_walker is
+///    scratch).
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -31922,6 +31997,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dismount_mount_birth".into(), serde_json::to_value(DismountMountBirth::FittedOffset).map_err(|e| e.to_string())?);
     // spells.CLONE_OFFSET: a format-3 battle's pair slid along its owner's y axis (the same rule).
     sh.insert("clone_offset".into(), serde_json::to_value(CloneOffset::OwnerAxisSlideOverHold).map_err(|e| e.to_string())?);
+    // spawner.SPECTRAL_BIRTH_POINT: a format-3 battle ran no Evo Skeleton Army (the same rule).
+    sh.insert("spectral_birth_point".into(), serde_json::to_value(SpectralBirthPoint::SoldierPoint).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

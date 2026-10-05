@@ -2184,6 +2184,7 @@ fn bodies16402(bodies: &[Vec<i64>], me: usize) -> PyResult<Vec<crate::move16402:
             dir: (b[12] as i32, b[13] as i32),
             heading_counts: b[14] != 0,
             avoid_static: b.get(15).is_some_and(|v| *v != 0),
+            group_walker: false,
             // the array is given in update order, which is creation order: its position is the tie-break
             seq: k as u32,
         });

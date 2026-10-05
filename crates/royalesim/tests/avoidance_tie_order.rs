@@ -23,8 +23,13 @@
 //!      order both ways (2 and 3 together are the non-vacuity check: the slots are reversed in both);
 //!   4. both scenes: the later-created Cannon does hold the lower slot (the precondition that makes 2 and 3 a test).
 //!
+//!   5. a static blocker grouped as a walker (`Body::group_walker`, spawner.SPECTRAL_PARENT_BLOCKER =
+//!      client15535_static_walker_group) is sighted in the group its circle grown by 250 reaches: a walker whose look
+//!      circle spans two columns meets a right blocker in the right column after a left one in the left column (-200),
+//!      and the same blocker grouped as a walker in the left column, before a left blocker sighted a row down (+200).
+//!
 //! PLANT (regression): `slot_order_group_tie` keys a tie inside one group by index (the slot) again: (1), (2) and (3)
-//! go red.
+//! go red. `group_walker_unread` spans a static body grouped as a walker by its radius: (5) goes red.
 //!     RUSTFLAGS='--cfg clash_plant="slot_order_group_tie"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test avoidance_tie_order
 
 mod common;
@@ -56,6 +61,7 @@ fn body(x: i32, y: i32, r: i32, mover: bool, seq: u32) -> Body {
         dir: (0, 256),
         heading_counts: true,
         avoid_static: false,
+        group_walker: false,
         seq,
     }
 }
@@ -115,4 +121,23 @@ fn the_later_created_left_blocker_decides_from_the_lower_slot() {
     let (offset, first_slot, last_slot) = cannon_scene(LEFT);
     assert!(last_slot < first_slot, "the scene drifted: the later-created Cannon holds slot {last_slot}, the earlier {first_slot}");
     assert_eq!(offset, 190, "the left Cannon, created last, is met last");
+}
+
+/// Plant: group_walker_unread. The walker at (5000, 11900) facing (0, 256): its look circle (5000, 12156) r 500 spans
+/// columns 4 and 5, row 11 (and 12). The right blocker at (5745, 12156): its radius span starts in column 5, its walker
+/// span (r + 250) in column 4. The left blocker at (4700, 13000), r 600: sighted in column 4, row 12.
+#[test]
+fn a_static_blocker_grouped_as_a_walker_is_sighted_where_its_walker_span_reaches() {
+    let index = Index::new(36, 64);
+    let walker = body(5000, 11900, 500, true, 0);
+    let mut right = body(5745, 12156, 500, false, 1);
+    let left = body(4700, 13000, 600, false, 2);
+    for (grouped, want) in [(false, -200), (true, 200)] {
+        right.group_walker = grouped;
+        let bodies = [walker, right, left];
+        let mut scratch = Vec::new();
+        let mut con = Contact::default();
+        avoidance_scan(&index, &bodies, 0, &mut con, None, false, &mut scratch);
+        assert_eq!(con.offset, want, "group_walker {grouped}: the blocker met last decides (right -200, left +200)");
+    }
 }

@@ -16,6 +16,10 @@
 //!   1. client15535_same_tick: on its first frame the Spectral holds a target and stands off the point it was made, at
 //!      most one step (60) and one contact push (150) from it; none (the engine's, the vacuity check): no target, on the
 //!      point.
+//!   2. client15535_same_tick_apart (client 15.535.29: 16 of 17 first-frame displacements beside another newborn with
+//!      the newborns unseen, 6 of 17 seen): two soldiers 400 apart killed on one tick leave two Spectrals 400 apart,
+//!      which under client15535_same_tick push each other apart on their first update and under the new arm do not, so
+//!      the pair stands closer. Plant spectral_newborns_seen (the new arm's Spectrals meet each other) turns it red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -65,4 +69,41 @@ fn a_spectral_takes_its_first_update_on_its_birth_tick_under_client15535_same_ti
     assert!(target.is_some(), "client15535_same_tick: the Spectral holds no target on its first frame");
     let off = pos.dist(made_at) / K;
     assert!(pos != made_at && off <= 60 + 150, "client15535_same_tick: the Spectral stands {off} off the point it was made ({pos:?} from {made_at:?})");
+}
+
+/// The distance between two Spectrals on their first frame under `arm`, their soldiers moved 400 apart at (5000, 11900)
+/// and (5400, 11900) and killed on one tick, a red Knight 3,000 above.
+fn pair_gap(arm: SpectralFirstUpdate) -> i64 {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.spectral_first_update = arm;
+    cfg.decks = [vec!["SkeletonArmy".into(), "Knight".into()], vec!["Knight".into(), "Zap".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    s.spawn_unit(Team::Blue, "SkeletonArmy_EV1", n(9500, 11500), None).expect("the play");
+    for _ in 0..31 {
+        s.tick();
+    }
+    let (a, b) = {
+        let v = find_live(&s, Team::Blue, "SkeletonArmy_EV1");
+        (v[0].id, v[1].id)
+    };
+    assert!(s.debug_set_pos(a, n(5000, 11900)) && s.debug_set_pos(b, n(5400, 11900)));
+    s.scenario_spawn_now(Team::Red, "Knight", n(5200, 14900), None).expect("a red Knight in the Spectrals' sight");
+    assert!(s.debug_set_hp(a, 0) && s.debug_set_hp(b, 0));
+    s.tick();
+    assert!(s.entity(a).is_none() && s.entity(b).is_none(), "{arm:?}: the scene drifted: a soldier lives");
+    let sp = find_live(&s, Team::Blue, "SkeletonArmy_EV1_Spectral");
+    assert_eq!(sp.len(), 2, "{arm:?}: the scene drifted: two Spectrals on the frame the soldiers are first gone");
+    (sp[0].pos.dist(sp[1].pos) / K) as i64
+}
+
+/// Plant: spectral_newborns_seen.
+#[test]
+fn the_tick_s_spectrals_do_not_push_each_other_under_client15535_same_tick_apart() {
+    let seen = pair_gap(SpectralFirstUpdate::Client15535SameTick);
+    let apart = pair_gap(SpectralFirstUpdate::Client15535SameTickApart);
+    assert!(apart < seen, "client15535_same_tick_apart: the pair stands {apart} apart, client15535_same_tick's {seen}: the newborns pushed each other");
 }

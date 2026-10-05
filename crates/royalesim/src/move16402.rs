@@ -157,6 +157,10 @@ pub struct Body {
     /// the separation scan still meets it as a troop): a member waiting out its stagger
     /// under movement.WAITING_HEADING = static_obstacle.
     pub avoid_static: bool,
+    /// Grouped in the index as a walker (span r + 250) whatever `mover` and `avoid_static` say: a soldier dying on the
+    /// tick, a static blocker of an Evo Skeleton Army Spectral's first scan that the index still holds as the walker it
+    /// was (spawner.SPECTRAL_PARENT_BLOCKER = client15535_static_walker_group).
+    pub group_walker: bool,
     /// The body's place in CREATION order (`Entities::creation_seq`), which breaks a tie between two bodies first
     /// sighted in one group (`Index::query`).
     pub seq: u32,
@@ -184,7 +188,11 @@ impl Index {
         if b.r <= 0 {
             return None;
         }
-        let rr = if b.mover && !b.avoid_static { b.r + 250 } else { b.r };
+        #[cfg(not(clash_plant = "group_walker_unread"))]
+        let walker = (b.mover && !b.avoid_static) || b.group_walker;
+        #[cfg(clash_plant = "group_walker_unread")]
+        let walker = b.mover && !b.avoid_static; // PLANT (regression): a static body grouped as a walker spans its radius.
+        let rr = if walker { b.r + 250 } else { b.r };
         let (c0, c1) = ((b.start_x - rr) >> 10, (b.start_x + rr) >> 10);
         let (r0, r1) = ((b.start_y - rr) >> 10, (b.start_y + rr) >> 10);
         let (c0, c1) = (c0.max(0), c1.min(self.cols - 1));
@@ -940,7 +948,7 @@ mod tests {
     use super::*;
 
     fn body(x: i32, y: i32, r: i32, mass: i32, mover: bool, side: u8) -> Body {
-        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false, seq: 0 }
+        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false, group_walker: false, seq: 0 }
     }
 
     #[test]
