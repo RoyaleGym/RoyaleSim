@@ -560,6 +560,10 @@ pub struct Calib {
     /// branch). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `SlideEnd`.
     #[serde(default = "death_spawn_route_default")]
     pub death_spawn_route: DeathSpawnRoute,
+    /// spawner.DEATH_SPAWN_SEGMENT: where the first segment of a sliding death-spawn member's birth route is frozen
+    /// (`phase_path16402`, its slide branch). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Refrozen`.
+    #[serde(default = "death_spawn_segment_default")]
+    pub death_spawn_segment: DeathSpawnSegment,
     /// movement.DEPLOYING_HEADING. Added after SNAPSHOT_FORMAT 20. The `default` is
     /// `Zeroed`, which is what a battle saved before this key actually ran.
     #[serde(default = "deploying_heading_default")]
@@ -1905,6 +1909,10 @@ fn doomed_set_shots_default() -> DoomedSetShots {
 
 fn death_spawn_route_default() -> DeathSpawnRoute {
     DeathSpawnRoute::SlideEnd
+}
+
+fn death_spawn_segment_default() -> DeathSpawnSegment {
+    DeathSpawnSegment::Refrozen
 }
 
 /// targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE's value: the string "global", or a non-negative number of
@@ -3776,6 +3784,22 @@ calib_enum!(
         /// 27250), where the engine's, planned there, headed for (11750, 27750)). Shipped on both clients (Sim's ruling on
         /// parity's r42 proposal, 2026-10-04).
         ClientAtBirth = "client_at_birth",
+    }
+);
+calib_enum!(
+    /// spawner.DEATH_SPAWN_SEGMENT -- see `phase_path16402`'s slide branch: where the first segment of the route a sliding
+    /// death-spawn member plans at its birth (spawner.DEATH_SPAWN_ROUTE = client_at_birth) is frozen, the direction the
+    /// walk's reached test (move16402.rs `move_towards`) measures its next node along.
+    DeathSpawnSegment {
+        /// The engine's: the birth plan leaves the segment unset, and the member's first walking step freezes it from where
+        /// the slide left it toward the next node.
+        Refrozen = "refrozen",
+        /// Frozen at the birth plan, from the death point toward the route's next node, and kept through the slide: on the
+        /// first walking tick a member that slid across it finds the node reached and pops it. Both clients' frames carry
+        /// it (path_segment_direction on the birth frame: 20260919-143305 t3083 (-174, 187), sp-f2-cagegolem-s0 t1255 (6,
+        /// -256)), and on client 15.535.29 every sliding Golemite whose goal cell held popped its next node one tick after
+        /// its slide where that node projected within 1,000 along it (25 of 25), and kept it where it did not.
+        ClientBirthFrozen = "client_birth_frozen",
     }
 );
 
@@ -7830,6 +7854,7 @@ impl Calib {
             launch_beyond_cancel_range: pick(&v, &["combat", "LAUNCH_BEYOND_CANCEL_RANGE", "value"], LaunchBeyondCancelRange::from_calibration_name)?,
             doomed_set_shots: pick(&v, &["targeting", "DOOMED_SET_SHOTS", "value"], DoomedSetShots::from_calibration_name)?,
             death_spawn_route: pick(&v, &["spawner", "DEATH_SPAWN_ROUTE", "value"], DeathSpawnRoute::from_calibration_name)?,
+            death_spawn_segment: pick(&v, &["spawner", "DEATH_SPAWN_SEGMENT", "value"], DeathSpawnSegment::from_calibration_name)?,
             deploying_heading: pick(&v, &["movement", "DEPLOYING_HEADING", "value"], DeployingHeading::from_calibration_name)?,
             variable_damage: pick(&v, &["combat", "VARIABLE_DAMAGE", "value"], VariableDamage::from_calibration_name)?,
             load_first_hit: pick(&v, &["combat", "LOAD_FIRST_HIT", "value"], LoadFirstHit::from_calibration_name)?,
@@ -19983,6 +20008,18 @@ impl BattleState {
                                     }
                                     goals[i] = Some(Vec2::new(gc, gr));
                                     planned[i] = self.scratch.occluder_epoch[e.team[i] as usize];
+                                    // spawner.DEATH_SPAWN_SEGMENT = client_birth_frozen: the route's first segment is frozen
+                                    // here, from the death point toward its next node, and kept through the slide, so the
+                                    // first walking tick's reached test measures that node along it (a member that slid
+                                    // across it pops it at once, as both clients' do).
+                                    // PLANT (regression) death_spawn_segment_refrozen: the new arm still leaves it to the walk.
+                                    #[cfg(not(clash_plant = "death_spawn_segment_refrozen"))]
+                                    if calib.death_spawn_segment == DeathSpawnSegment::ClientBirthFrozen {
+                                        if let Some(&n) = routes[i].last() {
+                                            let sg = move16402::segment_dir(actor.0, actor.1, (n.x / K, n.y / K));
+                                            segs[i] = Vec2::new(sg.0, sg.1);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -30604,6 +30641,9 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.DEATH_SPAWN_SEGMENT: Calib gained death_spawn_segment (serde default the old arm, refrozen), no
+///    new state (the segment it freezes is the saved seg_dir field), so a blob saved before it deserializes and hashes as
+///    it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_SPAWN_ROUTE: Calib gained death_spawn_route (serde default the old arm, slide_end), no new
 ///    state (the route it plans is the saved route field), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
@@ -31649,6 +31689,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("doomed_set_shots".into(), serde_json::to_value(DoomedSetShots::EveryShot).map_err(|e| e.to_string())?);
     // spawner.DEATH_SPAWN_ROUTE: a format-3 battle's sliding members planned when the slide ended (the same rule).
     sh.insert("death_spawn_route".into(), serde_json::to_value(DeathSpawnRoute::SlideEnd).map_err(|e| e.to_string())?);
+    // spawner.DEATH_SPAWN_SEGMENT: a format-3 battle's walks froze their segments themselves (the same rule).
+    sh.insert("death_spawn_segment".into(), serde_json::to_value(DeathSpawnSegment::Refrozen).map_err(|e| e.to_string())?);
     // spells.BUILDING_SPELL_REACH: the same rule.
     sh.insert("building_spell_reach".into(), serde_json::to_value(BuildingSpellReach::AoeHitTest).map_err(|e| e.to_string())?);
     // movement.JUMP_LANDING_CONTACT: a format-3 battle's landers collided on their landing tick; it keeps the old arm
