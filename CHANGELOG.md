@@ -3,6 +3,12 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.14 (2026-10-04)
+
+- No change to installing or calling the engine.
+- Battle logic, as measured in both clients: the units a death spawns (a Golem's Golemites, for example) plan their
+  route from where they appear, not from where their slide ends.
+
 ## 0.1.13 (2026-10-04)
 
 - No change to installing or calling the engine.
