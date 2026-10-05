@@ -5037,6 +5037,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_hero_point (examples/replay_parity/harness.rs CLIENT15535_ARMS). Proposed to ship it on both clients when 16.402 frames of a Hero Dark Prince are read.",
       "engine": "state.rs the Dismount effect (AbilityEffect::Dismount) and dismount_hops, materialise_released's first update (Scratch::mount_bodies), selected by Calib::dismount_mount_birth; tests/dismount_mount_birth.rs."
     },
+    "DISMOUNT_MOUNT_ACQUIRE": {
+      "value": "at_once",
+      "candidates": ["at_once", "client15535_8th_frame"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_8th_frame on client 15.535.29: every first take of a mount on or after F + 7 (two F + 7 scenes, F + 19 to F + 103 elsewhere); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-05) on client 15.535.29's hero Dark Prince scenes (sp-form-DarkPrince-hero-s0, sp-hero2-DarkPrince-melee/-mount/-charge/-still-s0/-s1; the first tick an enemy's target is the mount, from its first frame F): a Knight and two Skeletons first took it on F + 7 in sp-form-DarkPrince-hero-s0 (t213 + 7; on F + 1 they took the hero, standing beside it), a Knight on F + 7 in sp-hero2-DarkPrince-melee-s0, which had been hitting the hero and kept it through F + 6; the mount scene's Knight on F + 19, the towers F + 23 to F + 86. The engine released the mount with no acquire delay, so its Knights and Skeletons took it on F + 1 (melee's Knight leaving the hero for it), as targeting.SPAWNED_UNIT_ACQUIRE_DELAY's open record of action spawns (the Furnace's spirits, the Evo Goblin Drill's Goblins) would have it.",
+      "meaning": "at_once: the engine's; the mount is released with no acquire delay. client15535_8th_frame: it waits as an action's troop does under targeting.SPAWNED_UNIT_ACQUIRE_DELAY: no enemy takes it before its F + 7.",
+      "open": "16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_8th_frame (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs the Dismount effect and dismount_hops (the mount's PendingSpawn::acquire_delay: `mount_waits`), selected by Calib::dismount_mount_acquire; tests/dismount_mount_birth.rs."
+    },
     "DISMOUNT_HOP_WATER": {
       "value": "keep_water",
       "candidates": ["keep_water", "client15535_land_row_centre"],

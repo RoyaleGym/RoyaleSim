@@ -1568,6 +1568,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   (2 of 2 sieges, its shells 2 ticks later).
 ///   spawner.DEATH_RING_DIRECTION = client15535_walk_step: a unit dying on its walk lays its death ring along its last
 ///   step (9 of 9 Evo Battle Rams).
+///   transform.DISMOUNT_MOUNT_ACQUIRE = client15535_8th_frame: no enemy takes the Hero Dark Prince's mount before its
+///   F + 7 (every first take measured).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
@@ -1698,6 +1700,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.GUARD_CHARGE_STEP", "\"client15535_substeps_to_aim\""),
     ("combat.SIEGE_RESET_HOLD", "\"client15535_two_tick_hold\""),
     ("spawner.DEATH_RING_DIRECTION", "\"client15535_walk_step\""),
+    ("transform.DISMOUNT_MOUNT_ACQUIRE", "\"client15535_8th_frame\""),
     ("knockback.COMBO_PUSHBACK", "\"client15535_ladder_armed_at_hit\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),

@@ -1031,6 +1031,10 @@ pub struct Calib {
     /// along. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetFirst`.
     #[serde(default = "death_ring_direction_default")]
     pub death_ring_direction: DeathRingDirection,
+    /// transform.DISMOUNT_MOUNT_ACQUIRE (the Dismount's mount release): whether the Hero Dark Prince's mount waits before an
+    /// enemy may take it. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AtOnce`.
+    #[serde(default = "dismount_mount_acquire_default")]
+    pub dismount_mount_acquire: DismountMountAcquire,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2653,6 +2657,10 @@ fn siege_reset_hold_default() -> SiegeResetHold {
 
 fn death_ring_direction_default() -> DeathRingDirection {
     DeathRingDirection::TargetFirst
+}
+
+fn dismount_mount_acquire_default() -> DismountMountAcquire {
+    DismountMountAcquire::AtOnce
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6398,6 +6406,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// transform.DISMOUNT_MOUNT_ACQUIRE -- see the Dismount effect and `dismount_hops` (the mount's release) and
+    /// `delay_acquisition`: when an enemy may first take the Hero Dark Prince's mount.
+    DismountMountAcquire {
+        /// The engine's: at once (the mount is released with no acquire delay).
+        AtOnce = "at_once",
+        /// As an action's troop (targeting.SPAWNED_UNIT_ACQUIRE_DELAY): no enemy takes it before its F + 7. Measured on
+        /// client 15.535.29 (the hero Dark Prince scenes): every enemy that took a mount took it on F + 7 or later (a
+        /// Knight and Skeletons on F + 7 in sp-form-DarkPrince-hero-s0, a Knight on F + 7 in sp-hero2-DarkPrince-melee-s0,
+        /// F + 19 to F + 103 after), and a Knight hitting the hero as the mount came out kept the hero; the engine's took
+        /// the mount on F + 1, the Knight leaving the hero for it.
+        Client15535EighthFrame = "client15535_8th_frame",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8383,6 +8405,7 @@ impl Calib {
             guard_charge_step: pick(&v, &["combat", "GUARD_CHARGE_STEP", "value"], GuardChargeStep::from_calibration_name)?,
             siege_reset_hold: pick(&v, &["combat", "SIEGE_RESET_HOLD", "value"], SiegeResetHold::from_calibration_name)?,
             death_ring_direction: pick(&v, &["spawner", "DEATH_RING_DIRECTION", "value"], DeathRingDirection::from_calibration_name)?,
+            dismount_mount_acquire: pick(&v, &["transform", "DISMOUNT_MOUNT_ACQUIRE", "value"], DismountMountAcquire::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -25232,7 +25255,13 @@ impl BattleState {
                 let team = r.team;
                 let level = self.ents.level[i];
                 let lvl = self.cfg.cards.unit_level(r.card, mount_card, None, level).expect("the ability unit's level is validated at try_new");
-                self.release(PendingSpawn { team, card: mount_card, level: lvl, pos: p, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: true, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+                // transform.DISMOUNT_MOUNT_ACQUIRE = client15535_8th_frame: the mount waits as an action's troop does (`delay_acquisition`).
+                // PLANT (regression) mount_acquired_at_once: the new arm's mount is anyone's target at once.
+                #[cfg(not(clash_plant = "mount_acquired_at_once"))]
+                let mount_waits = self.cfg.calib.dismount_mount_acquire == DismountMountAcquire::Client15535EighthFrame;
+                #[cfg(clash_plant = "mount_acquired_at_once")]
+                let mount_waits = false;
+                self.release(PendingSpawn { team, card: mount_card, level: lvl, pos: p, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: mount_waits, first_update: true, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
                 self.warps.dismounts[k].at = p;
                 // PLANT (regression) mount_meets_no_hero: the new arm's mount meets no hero on its first update.
                 #[cfg(not(clash_plant = "mount_meets_no_hero"))]
@@ -28491,7 +28520,13 @@ impl BattleState {
                     // Made at the end of this Reap with no update (`release`): its first frame on its point, its one step
                     // on its second, as measured; and no play's deploy blow (its blow is `dismount_pass`'s).
                     if !at_hop {
-                        self.release(PendingSpawn { team, card: d.mount, level: lvl, pos: at, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+                        // transform.DISMOUNT_MOUNT_ACQUIRE = client15535_8th_frame: the mount waits as an action's troop does (`delay_acquisition`).
+                        // PLANT (regression) mount_acquired_at_once: the new arm's mount is anyone's target at once.
+                        #[cfg(not(clash_plant = "mount_acquired_at_once"))]
+                        let mount_waits = self.cfg.calib.dismount_mount_acquire == DismountMountAcquire::Client15535EighthFrame;
+                        #[cfg(clash_plant = "mount_acquired_at_once")]
+                        let mount_waits = false;
+                        self.release(PendingSpawn { team, card: d.mount, level: lvl, pos: at, deploy_ms: Some(0), owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: mount_waits, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
                     }
                     let leapt = self.ents.jumping[i];
                     // transform.DISMOUNT_LEAP_STEP = client15535_leap_lands_first: a hero freed on its leap's last tick
@@ -31446,6 +31481,9 @@ impl BattleState {
 /// 20, unchanged, spawner.DEATH_RING_DIRECTION: Calib gained death_ring_direction (serde default the old arm,
 ///    target_first), no new state (the step is read off the tick's own walk), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, transform.DISMOUNT_MOUNT_ACQUIRE: Calib gained dismount_mount_acquire (serde default the old arm,
+///    at_once), no new state (the delay is the entity's acquirable_from, saved already), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32453,6 +32491,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("siege_reset_hold".into(), serde_json::to_value(SiegeResetHold::NextTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_RING_DIRECTION: a format-3 battle's death rings lay toward the target (the same rule).
     sh.insert("death_ring_direction".into(), serde_json::to_value(DeathRingDirection::TargetFirst).map_err(|e| e.to_string())?);
+    // transform.DISMOUNT_MOUNT_ACQUIRE: a format-3 battle's mount was anyone's target at once (the same rule).
+    sh.insert("dismount_mount_acquire".into(), serde_json::to_value(DismountMountAcquire::AtOnce).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
