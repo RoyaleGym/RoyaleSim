@@ -5679,9 +5679,12 @@ calib_enum!(
         /// ONE request when the knock RELEASES the unit, plus one per new target: a ground unit holding no route whose
         /// fight the knock ends (knockback.ATTACK_RESET's release of its attack, or its own attack's recoil) asks once, on
         /// its first update with the ladder armed (`BattleState::ladder_asks`), from where it stands: the replan gate's
-        /// goal cell around its target and its search when that cell is not its own (none when it is). No reach test and
-        /// no default-tower fallback: a unit with no live target waits for its next one. For the rest of the ladder it asks
-        /// again only when it holds a target other than the one it last asked for. Measured on client 15.535.29
+        /// goal cell around its target and its search when that cell is not its own (none when it is). No reach test. For
+        /// the rest of the ladder it asks again only when it holds a target other than the one it last asked for; a unit
+        /// holding no live target asks for its default tower (the client's targeting takes the tower during the ladder,
+        /// the engine's holds none until it ends: sp-form-Bowler-hero-s0 t228, a knocked Musketeer's target turned to
+        /// Red's tower and it held a 14-node route that tick, which the engine planned on t234 without the tower; the
+        /// two Hero Bowler scenes lost 243 within 250 to it). Measured on client 15.535.29
         /// (parity's ladders.py / census_final.py, 166 ladders of units holding no route going in, 82 scenes): this places
         /// the first route 165 of 166 (the miss a Skeleton whose route flickered before the push), where
         /// client15535_on_ladder places 123; 33 planned within Range + both radii (sp-champ-Monk-nopress-s0 t252: the
@@ -20135,7 +20138,9 @@ impl BattleState {
                     #[cfg(clash_plant = "ladder_plans_at_end")]
                     let asks = false;
                     // knockback.LADDER_PATH_REQUEST = client15535_on_release: only the request a release owes the unit, or one
-                    // for a target other than the one it last asked for (`ladder_asks`); no default tower, no reach test.
+                    // for a target other than the one it last asked for (`ladder_asks`), its default tower when it holds no
+                    // live target; no reach test.
+                    // PLANT (regression) ladder_release_no_tower: the new arm asks nothing of a unit holding no target.
                     let on_release = calib.ladder_path_request == LadderPathRequest::Client15535OnRelease;
                     let still = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 || e.held(&self.cfg.cards.buffs, i, calib.full_stop_buff_is_stun);
                     if asks && !flying && !deploying && !still {
@@ -20143,6 +20148,9 @@ impl BattleState {
                         let asked: Option<(EntityId, Option<usize>)> = if on_release {
                             let me = e.id_of(i);
                             ladder_asks.iter().position(|a| a.0 == me).and_then(|k| {
+                                #[cfg(not(clash_plant = "ladder_release_no_tower"))]
+                                let t = e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i))?;
+                                #[cfg(clash_plant = "ladder_release_no_tower")]
                                 let t = e.target[i].filter(|t| e.is_alive(*t))?;
                                 (ladder_asks[k].2 || Some(t) != ladder_asks[k].1).then_some((t, Some(k)))
                             })
