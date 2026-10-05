@@ -1592,8 +1592,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   hits (a full Recruit's Heal Spirit pulse lost before a tower's arrow; a melee strike, landed at once, still before it).
 ///   knockback.RECOIL_ROUTE = client15535_replanned: an Evo Battle Ram's recoil drops its route and its ladder's first
 ///   step plans a fresh one (16 of 16 impacts).
-///   knockback.LADDER_PATH_REQUEST = client15535_on_ladder: a unit on a knockback ladder with no route plans one on the
-///   ladder's ticks when its target is out of reach (87 of 111 on their first walking frame).
+///   knockback.LADDER_PATH_REQUEST = client15535_on_release: a knocked unit with no route asks once, when the knock
+///   releases it from its fight, and again only for a new target, with no reach test (165 of 166 ladders).
 ///   spawner.SOUL_OFFSET_ROUNDING = client15535_toward_zero: a Skeleton King copy's offset divides toward zero (26 copies
 ///   1 nearer on their negative axes).
 ///   combat.FAR_SHOT_SELECT_MOMENT = client15535_at_load_start: the Evo Archer picks her arrow when her swing's load
@@ -1682,7 +1682,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.SPECTRAL_PARENT_BLOCKER", "\"client15535_static\""),
     ("status.HEAL_PULSE_LANDING", "\"client15535_before_buffered_hits\""),
     ("knockback.RECOIL_ROUTE", "\"client15535_replanned\""),
-    ("knockback.LADDER_PATH_REQUEST", "\"client15535_on_ladder\""),
+    ("knockback.LADDER_PATH_REQUEST", "\"client15535_on_release\""),
     ("spawner.SOUL_OFFSET_ROUNDING", "\"client15535_toward_zero\""),
     ("combat.FAR_SHOT_SELECT_MOMENT", "\"client15535_at_load_start\""),
     ("combat.EVO_CHAIN_HOP_FIRST_STEP", "\"client15535_creation_tick\""),

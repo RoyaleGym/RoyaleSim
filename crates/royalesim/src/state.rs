@@ -5618,6 +5618,18 @@ calib_enum!(
         /// 1-cell route on t224 and, its target switched to a tower on t228, a 14-cell one from there, walked on at the
         /// ladder's end; the engine's planned 13 cells at the end and stepped (39, -45) where the client's took (48, -35).
         Client15535OnLadder = "client15535_on_ladder",
+        /// ONE request when the knock RELEASES the unit, plus one per new target: a ground unit holding no route whose
+        /// fight the knock ends (knockback.ATTACK_RESET's release of its attack, or its own attack's recoil) asks once, on
+        /// its first update with the ladder armed (`BattleState::ladder_asks`), from where it stands: the replan gate's
+        /// goal cell around its target and its search when that cell is not its own (none when it is). No reach test and
+        /// no default-tower fallback: a unit with no live target waits for its next one. For the rest of the ladder it asks
+        /// again only when it holds a target other than the one it last asked for. Measured on client 15.535.29
+        /// (parity's ladders.py / census_final.py, 166 ladders of units holding no route going in, 82 scenes): this places
+        /// the first route 165 of 166 (the miss a Skeleton whose route flickered before the push), where
+        /// client15535_on_ladder places 123; 33 planned within Range + both radii (sp-champ-Monk-nopress-s0 t252: the
+        /// Knight 1,882 from the Monk held a 1-cell route from t253, where the engine's planned on t255); 104 of 109
+        /// routes equal the engine's search cell for cell.
+        Client15535OnRelease = "client15535_on_release",
     }
 );
 calib_enum!(
@@ -10714,6 +10726,10 @@ pub struct BattleState {
     /// THE DEFLECTS ACTIVE (card.rs `AbilityEffect::Deflect`): (champion, the first tick it no longer deflects), in
     /// press order. Empty in every battle without one, which hashes as it did before the field.
     deflects: Vec<(EntityId, u32)>,
+    /// THE KNOCKED UNITS' PATH REQUESTS (knockback.LADDER_PATH_REQUEST = client15535_on_release): (unit, the target it
+    /// last asked for, whether the knock that released it from its fight still owes it a request), one per unit on a
+    /// ladder, kept while its ladder runs. Empty under every other arm, which hashes as it did before the field.
+    ladder_asks: Vec<(EntityId, Option<EntityId>, bool)>,
     /// THE COMMANDS WAITING (`BattleConfig::command_delay_ticks`), in the order they were accepted.
     commands: Vec<PendingCommand>,
     /// What the commands run at the top of the last tick came to (`commands_run`); not state (a report of the tick).
@@ -11134,6 +11150,7 @@ impl BattleState {
             warps: WarpBoard::default(),
             slaps: SlapBoard::default(),
             deflects: Vec::new(),
+            ladder_asks: Vec::new(),
             commands: Vec::new(),
             commands_run: Vec::new(),
             running_command: false,
@@ -14512,6 +14529,7 @@ impl BattleState {
         self.quests.clear();
         self.falls.clear();
         self.deflects.clear();
+        self.ladder_asks.clear();
         // The delayed commands still waiting are dropped, each reported refused GAME_OVER in this tick's
         // `commands_run` (a caller that charged a press when it was accepted can give it back).
         for c in std::mem::take(&mut self.commands) {
@@ -19344,6 +19362,8 @@ impl BattleState {
         // a member reaches its radius.
         let mut slide_c = std::mem::take(&mut self.ents.death_slide_centre);
         let mut slide_r = std::mem::take(&mut self.ents.death_slide_radius);
+        // knockback.LADDER_PATH_REQUEST = client15535_on_release: the knocked units' requests, read and spent in the pass.
+        let mut ladder_asks = std::mem::take(&mut self.ladder_asks);
         // combat.DASH_ATTACK = client_dash: the dash's state, written only here. The blows and the
         // ended dashes are applied after the pass (`land_dash_blows`, `end_dashes`).
         let mut dash_state = std::mem::take(&mut self.ents.dash_state);
@@ -19850,17 +19870,38 @@ impl BattleState {
                     // goal cell holds rides the ladder as it is (knockback.LADDER_END_ROUTE). The ladder still takes the step.
                     // PLANT (regression) ladder_plans_at_end: the new arm still plans only when the ladder ends.
                     #[cfg(not(clash_plant = "ladder_plans_at_end"))]
-                    let asks = calib.ladder_path_request == LadderPathRequest::Client15535OnLadder;
+                    let asks = matches!(calib.ladder_path_request, LadderPathRequest::Client15535OnLadder | LadderPathRequest::Client15535OnRelease);
                     #[cfg(clash_plant = "ladder_plans_at_end")]
                     let asks = false;
+                    // knockback.LADDER_PATH_REQUEST = client15535_on_release: only the request a release owes the unit, or one
+                    // for a target other than the one it last asked for (`ladder_asks`); no default tower, no reach test.
+                    let on_release = calib.ladder_path_request == LadderPathRequest::Client15535OnRelease;
                     let still = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 || e.held(&self.cfg.cards.buffs, i, calib.full_stop_buff_is_stun);
                     if asks && !flying && !deploying && !still {
                         let card: &CardDef = self.cfg.cards.get(e.card[i]);
-                        if let Some(gid) = e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i)) {
+                        let asked: Option<(EntityId, Option<usize>)> = if on_release {
+                            let me = e.id_of(i);
+                            ladder_asks.iter().position(|a| a.0 == me).and_then(|k| {
+                                let t = e.target[i].filter(|t| e.is_alive(*t))?;
+                                (ladder_asks[k].2 || Some(t) != ladder_asks[k].1).then_some((t, Some(k)))
+                            })
+                        } else {
+                            e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i)).map(|t| (t, None))
+                        };
+                        if let Some((gid, slot)) = asked {
                             let gi = gid.index as usize;
                             let walk_own = target::walking_own_radius(calib, card, e.radius[i]);
                             let own = if goals[i].is_some() { walk_own } else { e.radius[i] };
-                            if !target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]) {
+                            // PLANT (regression) ladder_release_reach_gated: the new arm still asks only out of reach.
+                            #[cfg(not(clash_plant = "ladder_release_reach_gated"))]
+                            let gated = !on_release;
+                            #[cfg(clash_plant = "ladder_release_reach_gated")]
+                            let gated = true;
+                            if let Some(k) = slot.filter(|_| !(gated && target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]))) {
+                                ladder_asks[k].1 = Some(gid);
+                                ladder_asks[k].2 = false;
+                            }
+                            if !(gated && target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi])) {
                                 let actor = (bodies[i].x, bodies[i].y);
                                 let target = if calib.goal_target_position == GoalTargetPosition::CreationOrder { (bodies[gi].x, bodies[gi].y) } else { (e.pos[gi].x / K, e.pos[gi].y / K) };
                                 let goal_cell = path16402::choose_goal_cell(
@@ -19873,7 +19914,7 @@ impl BattleState {
                                     g.costs.building,
                                     true,
                                 );
-                                let due = routes[i].is_empty() || goals[i] != goal_cell.map(|(c, r)| Vec2::new(c, r));
+                                let due = on_release || routes[i].is_empty() || goals[i] != goal_cell.map(|(c, r)| Vec2::new(c, r));
                                 if let Some((gc, gr)) = goal_cell.filter(|_| due) {
                                     let (sc, sr) = (actor.0 / path16402::CELL, actor.1 / path16402::CELL);
                                     routes[i].clear();
@@ -20972,6 +21013,9 @@ impl BattleState {
         }
         self.ents.death_slide_centre = slide_c;
         self.ents.death_slide_radius = slide_r;
+        // A request is kept while its unit's ladder runs.
+        ladder_asks.retain(|a| self.ents.is_alive(a.0) && self.ents.push_active[a.0.index as usize]);
+        self.ladder_asks = ladder_asks;
         // A slide that ended this pass drops its cap with it (a container's member carries one, and a dying troop's
         // under spawner.DEATH_SLIDE_STOP = move_count), and its end point (carried under spawner.DEATH_SLIDE_AIM =
         // fixed_end_point alone).
@@ -22812,6 +22856,14 @@ impl BattleState {
         if !self.arm_ladder(i, src, strength, caster, false) {
             return;
         }
+        // knockback.LADDER_PATH_REQUEST = client15535_on_release: a recoil releases the unit from its fight; it owes it
+        // one request (`phase_path16402_for`).
+        if self.cfg.calib.ladder_path_request == LadderPathRequest::Client15535OnRelease && !self.ents.flying[i] {
+            let id = self.ents.id_of(i);
+            let owed = self.ents.route[i].is_empty();
+            self.ladder_asks.retain(|a| a.0 != id);
+            self.ladder_asks.push((id, Some(t), owed));
+        }
         #[cfg(not(clash_plant = "attack_pushback_keeps_cycle"))]
         {
             let e = &mut self.ents;
@@ -23969,6 +24021,14 @@ impl BattleState {
             };
             #[cfg(clash_plant = "knockback_keeps_windup")]
             let resets = false; // PLANT: a push leaves the windup running.
+            // knockback.LADDER_PATH_REQUEST = client15535_on_release: the knocked unit is noted with the target it holds; a
+            // fight the knock ends (its attack running or its target locked) owes it one request (`phase_path16402_for`).
+            if c.ladder_path_request == LadderPathRequest::Client15535OnRelease && !e.flying[i] {
+                let owed = (resets || e.target_locked[i]) && e.route[i].is_empty() && e.target[i].is_some();
+                let (id, last) = (e.id_of(i), e.target[i]);
+                self.ladder_asks.retain(|a| a.0 != id);
+                self.ladder_asks.push((id, last, owed));
+            }
             if resets {
                 e.attack_phase[i] = AttackPhase::Idle;
                 e.attack_ms[i] = 0;
@@ -29600,6 +29660,22 @@ impl BattleState {
                 h.u32(*until);
             }
         }
+        // The knocked units' path requests (knockback.LADDER_PATH_REQUEST = client15535_on_release), only when there are some.
+        if !self.ladder_asks.is_empty() {
+            h.u32(0x4c41_4452);
+            h.u32(self.ladder_asks.len() as u32);
+            for (id, last, owed) in &self.ladder_asks {
+                h.id(*id);
+                match last {
+                    Some(t) => {
+                        h.u32(1);
+                        h.id(*t);
+                    }
+                    None => h.u32(0),
+                }
+                h.u32(u32::from(*owed));
+            }
+        }
         // The dash chains under way, only when there are some.
         if !self.chains.is_empty() {
             h.u32(0x4348_4e53);
@@ -30697,6 +30773,8 @@ impl BattleState {
 /// 20, unchanged, spells.CROWN_TOWER_SPELL_REACH: Calib gained crown_tower_spell_reach (serde default the old arm,
 ///    aoe_hit_test), no new state (the new arm reads the saved tower positions), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
+///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
 ///    (the stand is the saved `Straight::hold`), so a blob saved before it deserializes and hashes as it did. migrate_v3
 ///    runs a migrated battle at the old arm.
@@ -31196,6 +31274,9 @@ struct Snapshot {
     /// The deflects active (`BattleState::deflects`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     deflects: Vec<(EntityId, u32)>,
+    /// The knocked units' path requests (`BattleState::ladder_asks`). Added after SNAPSHOT_FORMAT 20; `default` none.
+    #[serde(default)]
+    ladder_asks: Vec<(EntityId, Option<EntityId>, bool)>,
     /// The command delay and the commands waiting (`BattleConfig::command_delay_ticks`, `BattleState::commands`).
     /// Added after SNAPSHOT_FORMAT 20; `default` no delay and none waiting.
     #[serde(default)]
@@ -32053,6 +32134,7 @@ impl BattleState {
             warps: self.warps.clone(),
             slaps: self.slaps.clone(),
             deflects: self.deflects.clone(),
+            ladder_asks: self.ladder_asks.clone(),
             command_delay_ticks: c.command_delay_ticks,
             commands: self.commands.clone(),
             state_hash: self.state_hash(),
@@ -32326,6 +32408,7 @@ impl BattleState {
             warps: snap.warps,
             slaps: snap.slaps,
             deflects: snap.deflects,
+            ladder_asks: snap.ladder_asks,
             commands: snap.commands,
             commands_run: Vec::new(),
             running_command: false,
