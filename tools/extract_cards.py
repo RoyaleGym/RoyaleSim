@@ -5297,8 +5297,18 @@ def far_shot_block(t: Tables, card: dict) -> dict:
     need(f is not None and f["ClassType"] == "ActionFilter"
          and acts.set_fields.get(name, set()) == {"ClassType", "Condition", "OnTrueAction", "OnFalseAction"},
          f"OnStartingAttackAction {name!r} is not a two-way filter")
-    m = re.fullmatch(r"!target_in_range\((\d+)\)", str(f["Condition"]))
+    m = re.fullmatch(r"!target_in_range\((\d+|[A-Za-z_]\w*)\)", str(f["Condition"]))
     need(m is not None, f"the filter's condition {f['Condition']!r}")
+    arg = m.group(1)
+    if arg.isdigit():
+        reach = int(arg)
+    else:
+        # 16.402: the range is a [VARIABLE] (Archer_EV1_power_shot_min_range, DefaultValue 4500) no action sets.
+        var = t.variables.get(arg) or {}
+        setters = [n for n, x in acts.records.items() if x.get("Variable") == arg]
+        need(t.vintage.filters_format and isinstance(var.get("DefaultValue"), int) and not setters,
+             f"the filter's range variable {arg!r}")
+        reach = var["DefaultValue"]
 
     def index_of(n: str) -> int:
         a = acts.get(n or "")
@@ -5312,10 +5322,11 @@ def far_shot_block(t: Tables, card: dict) -> dict:
     need(row["AttackSequenceMode"] == "None", f"AttackSequenceMode {row['AttackSequenceMode']!r}")
     r1, r2 = pt.get(row["Projectile"]), pt.get(row["Projectile2"])
     need(r1 is not None and r2 is not None, f"Projectile {row['Projectile']!r} / Projectile2 {row['Projectile2']!r}")
-    differ = {c for c in pt.columns if not COSMETIC.search(c) and c not in ("Name", "Base") and r1[c] != r2[c]}
+    # StatsTags is the stat page's (16.402 gives Projectile2 its own).
+    differ = {c for c in pt.columns if not COSMETIC.search(c) and c not in ("Name", "Base", "StatsTags") and r1[c] != r2[c]}
     need(differ == {"Damage"} and isinstance(r2["Damage"], int) and r2["Damage"] > 0,
          f"Projectile2 differs in {sorted(differ)}")
-    return {"range_milli": int(m.group(1)), "damage": r2["Damage"]}
+    return {"range_milli": reach, "damage": r2["Damage"]}
 
 
 # THE AREA AN ATTACK MAKES ON ITS UNIT (`attack_area_block`): the columns its area row may set beside the cosmetic ones.
@@ -7993,6 +8004,13 @@ def shield_start(h: Tables, form: str, start) -> int | None:
     if not isinstance(start, str) or not start:
         return None
     acts = h["actions"]
+    direct = acts.get(start)
+    if direct is not None and direct["ClassType"] == "ActionSetShield":
+        # 16.402: the start IS the ActionSetShield, no group around it (Knight_hero_SetShieldZero).
+        pct = _one_action(acts, start, "ActionSetShield", {"ClassType", "ShieldPercent"})["ShieldPercent"]
+        if not isinstance(pct, int) or not 0 <= pct <= 100:
+            raise SystemExit(f"hero form {form}: its start's ShieldPercent {pct!r}")
+        return pct
     got = _group_leaves(acts, start)
     if got is None or len(got[0]) != 1 or got[1] != [0] or acts.get(got[0][0])["ClassType"] != "ActionSetShield":
         return None
@@ -8031,6 +8049,11 @@ def taunt_area(h: Tables, ability: str, name: str) -> dict:
     if r is None:
         raise SystemExit(f"hero ability {ability}: no area {name}")
     unread = tb.set_fields.get(name, set()) - TAUNT_AREA_READ - HERO_AREA_COSMETIC
+    if "Filter" in unread:
+        # 16.402: the common enemy filter where 15.535 set OnlyEnemies, HitsGround, HitsAir (`normalize_16402`).
+        if r["Filter"] != "CommonAreaDamageFilter":
+            raise SystemExit(f"hero ability {ability}: area {name}'s Filter {r['Filter']!r}")
+        unread -= {"Filter"}
     if unread:
         raise SystemExit(
             f"hero ability {ability}: area {name} sets {sorted(unread)}, which the taunt reader does not read"
