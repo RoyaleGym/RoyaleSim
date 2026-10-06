@@ -368,6 +368,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_airborne (examples/replay_parity/harness.rs CLIENT15535_ARMS). The Hero Giant exists only in the 15.535 tables, so the arm could ship as is.",
       "engine": "state.rs slap_air_mask (TargetCtx::slap_air) and target.rs can_target, selected by Calib::slap_flight_targetability; tests/slap_flight_targets.rs."
     },
+    "SLAP_FLIGHT_SIGHT_HOLD": {
+      "value": "held",
+      "candidates": ["held", "client15535_let_go"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_let_go on client 15.535.29: 4 of 4 Bats chasing one thrown Ice Golemite (one flight), the edge read to 28 native units; a Sparky past its sight on another flight's first step agrees; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (slap_chase_census.py: a flight read as 4 or more consecutive steps of 250; for every unit holding the flying unit, the tick it let go and the start-of-tick distances, Euclidean, max(|dx|, |dy|) and |dy|, on the tick it kept and the tick it let go). sp-il-04cb: a Hero Giant (pressed t1851) threw an Ice Golemite on t1870, 250 a step along +x for 32 steps. Its 5 Bats chased it; 4 let go and took the default tower while it flew: kept at 6,690, 6,596, 6,610 and 6,626, let go at 6,804, 6,740, 6,718 and 6,752, Euclidean, against SightRange 5,500 + 500 + 700 = 6,700. max(|dx|, |dy|) does not order them (kept at 6,557 and 6,504, let go at 6,385 and 6,128), nor does |dy| (650 to 2,800, every one inside the lane limit of targeting.CHASE_DROP_MEASURE's client15535_lane_dy). The engine held all of them through the flight under targeting.CHASE_HOLD_PAST_LIMIT = client15535_troops_kept (the pair inside the lane limit) to t1936; one of them, alive in the engine past its client death, hit the next Ice Golemite during its deploy (t2202, 130), which then fell a tick-step earlier and turned a Minion Horde off it (about 600 within lost). On another flight in the same replay (t3350) a Sparky already past its sight let go on the first step.",
+      "meaning": "held: the engine's; a chaser holds a target in a Hero Giant's slap flight past its round sight as it holds any target (targeting.CHASE_HOLD_PAST_LIMIT). client15535_let_go: a target in a slap flight (`slap_air`, read under targeting.SLAP_FLIGHT_TARGETABILITY = client15535_airborne) is not held past the holder's round sight, SightRange + both radii centre to centre: the holder takes the rescan's target, or none and walks to its default tower.",
+      "open": "One flight; whether the walking hold past round sight reads the Euclidean distance for every pushed or flying target (a knockback ladder, a tornado pull) and not only a slap's; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_let_go (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "target.rs decide (the hold past round sight's `thrown_let_go`), selected by Calib::slap_flight_sight_hold; tests/slap_flight_targets.rs."
+    },
     "KNOCKED_TARGET_HOLD": {
       "value": "held_while_knocked",
       "status": "measured",

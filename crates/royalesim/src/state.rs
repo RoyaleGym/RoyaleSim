@@ -1055,6 +1055,10 @@ pub struct Calib {
     /// decides. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `HeldNone`.
     #[serde(default = "knocked_lost_target_default")]
     pub knocked_lost_target: KnockedLostTarget,
+    /// targeting.SLAP_FLIGHT_SIGHT_HOLD (target.rs `decide`, the hold past round sight): whether a chaser holds a target in
+    /// a slap flight past its round sight. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Held`.
+    #[serde(default = "slap_flight_sight_hold_default")]
+    pub slap_flight_sight_hold: SlapFlightSightHold,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2701,6 +2705,10 @@ fn dismount_mount_hold_body_default() -> DismountMountHoldBody {
 
 fn knocked_lost_target_default() -> KnockedLostTarget {
     KnockedLostTarget::HeldNone
+}
+
+fn slap_flight_sight_hold_default() -> SlapFlightSightHold {
+    SlapFlightSightHold::Held
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6547,6 +6555,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.SLAP_FLIGHT_SIGHT_HOLD -- see target.rs `decide`'s hold past round sight (targeting.CHASE_HOLD_PAST_LIMIT):
+    /// whether it holds a target in a Hero Giant's slap flight (`slap_air`, read under targeting.SLAP_FLIGHT_TARGETABILITY
+    /// = client15535_airborne).
+    SlapFlightSightHold {
+        /// The engine's: held past round sight as any target.
+        Held = "held",
+        /// Let go past the holder's round sight (SightRange + both radii, centre to centre): the holder takes the rescan's,
+        /// or none and its default tower. Measured on client 15.535.29: sp-il-04cb's Ice Golemite thrown on t1870, 4 of 4
+        /// Bats chasing it let go on the first tick past 5,500 + 500 + 700 = 6,700 (held at 6,596 to 6,690, let go at
+        /// 6,718 to 6,804; max(|dx|, |dy|) and |dy| refuted), where the engine held them to t1936.
+        Client15535LetGo = "client15535_let_go",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8538,6 +8560,7 @@ impl Calib {
             ramp_stun_restart: pick(&v, &["combat", "RAMP_STUN_RESTART", "value"], RampStunRestart::from_calibration_name)?,
             dismount_mount_hold_body: pick(&v, &["transform", "DISMOUNT_MOUNT_HOLD_BODY", "value"], DismountMountHoldBody::from_calibration_name)?,
             knocked_lost_target: pick(&v, &["targeting", "KNOCKED_LOST_TARGET", "value"], KnockedLostTarget::from_calibration_name)?,
+            slap_flight_sight_hold: pick(&v, &["targeting", "SLAP_FLIGHT_SIGHT_HOLD", "value"], SlapFlightSightHold::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -31779,6 +31802,9 @@ impl BattleState {
 /// 20, unchanged, targeting.KNOCKED_LOST_TARGET: Calib gained knocked_lost_target (serde default the old arm, held_none),
 ///    no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
 ///    old arm.
+/// 20, unchanged, targeting.SLAP_FLIGHT_SIGHT_HOLD: Calib gained slap_flight_sight_hold (serde default the old arm, held),
+///    no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
+///    old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32798,6 +32824,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dismount_mount_hold_body".into(), serde_json::to_value(DismountMountHoldBody::Collides).map_err(|e| e.to_string())?);
     // targeting.KNOCKED_LOST_TARGET: a format-3 battle's knocked unit held no target to its ladder's end (the same rule).
     sh.insert("knocked_lost_target".into(), serde_json::to_value(KnockedLostTarget::HeldNone).map_err(|e| e.to_string())?);
+    // targeting.SLAP_FLIGHT_SIGHT_HOLD: a format-3 battle's chaser held a thrown target past its sight (the same rule).
+    sh.insert("slap_flight_sight_hold".into(), serde_json::to_value(SlapFlightSightHold::Held).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

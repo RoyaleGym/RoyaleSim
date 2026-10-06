@@ -46,7 +46,7 @@ use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
     AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, ChaseRescanPassOver, DeprioritizedTargetBuff, EqualDistanceTie, KnockedLostTarget, KnockedTargetHold, LeapingUnitTargetability,
-    MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange, WalkingKeepReach, ChaseHoldScope,
+    MinimumRange, PreserveTargetScope, SlapFlightSightHold, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange, WalkingKeepReach, ChaseHoldScope,
 };
 use crate::{EntityId, Team};
 
@@ -1232,7 +1232,15 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 let attacking = ctx.calib.chase_hold_scope == ChaseHoldScope::Client15535WalkersOnly && (!walking_now(e, a) || e.attack_ms[a] > 0);
                 #[cfg(clash_plant = "chase_hold_while_attacking")]
                 let attacking = false;
-                if holds && !attacking {
+                // targeting.SLAP_FLIGHT_SIGHT_HOLD = client15535_let_go: a target in a Hero Giant's slap flight (`slap_air`) is
+                // not held past round sight: client 15.535.29, 4 of 4 Bats chasing a thrown Ice Golemite let it go on the
+                // first tick past SightRange + both radii (sp-il-04cb t1885 to t1899).
+                // PLANT (regression) slap_flight_held_past_sight: the new arm still holds a thrown target past sight.
+                #[cfg(not(clash_plant = "slap_flight_held_past_sight"))]
+                let thrown_let_go = ctx.calib.slap_flight_sight_hold == SlapFlightSightHold::Client15535LetGo && ctx.slap_air.get(ti).copied().unwrap_or(false);
+                #[cfg(clash_plant = "slap_flight_held_past_sight")]
+                let thrown_let_go = false;
+                if holds && !attacking && !thrown_let_go {
                     held_past_sight = Some(t);
                 }
             }
