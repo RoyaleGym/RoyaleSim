@@ -239,8 +239,8 @@ PROLOGUE = {
     # A flyer that aims at its goal's position every tick (the Skeleton Barrel and its evolution; calibration
     # movement.FLY_DIRECT_PATHS), written after the literal on the 15.535 rows that set it.
     "FlyDirectPaths": "fly_direct_paths",
-    # 16.402 only, after the literal: the death spawn as an OnDeathAction ActionSpawn (`death_spawn_action`, the Skeleton
-    # Barrel's containers), and the spawn area as an OnStartingAction ActionSpawn of an area not for a clone
+    # 16.402 only, after the literal: the death spawn as an OnDeathAction ActionSpawn (`death_spawn_action`, the
+    # Skeleton Barrel's containers), and the spawn area as an OnStartingAction ActionSpawn of an area not for a clone
     # (`spawn_area_action`, the Battle Healer and the Goblin Drill). Each names the action its graph is cleared for.
     "OnDeathAction": "death_spawn",
     "OnStartingAction": "spawn_area_object",
