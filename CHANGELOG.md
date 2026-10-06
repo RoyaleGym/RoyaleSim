@@ -3,6 +3,13 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.18 (2026-10-06)
+
+- No change to installing or calling the engine.
+- No change to battle logic. This release adds settings used to measure upcoming fixes against the game (a death
+  bomb's body, the Little Prince's ramp, the Hero Dark Prince's mount, a death ring's direction); every one defaults
+  to the engine's current behaviour.
+
 ## 0.1.17 (2026-10-06)
 
 - Each unit in `state_json()` has a new last value, `unit_type`: what the unit is, while `card_id` stays the card that
