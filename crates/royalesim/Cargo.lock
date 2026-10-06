@@ -151,7 +151,7 @@ dependencies = [
 
 [[package]]
 name = "royalesim"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "pyo3",
  "serde",

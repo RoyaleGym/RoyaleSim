@@ -3,6 +3,18 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.17 (2026-10-06)
+
+- Each unit in `state_json()` has a new last value, `unit_type`: what the unit is, while `card_id` stays the card that
+  put it down. A Witch's Skeletons and a Tombstone's report two card ids and one `unit_type`. It is an index into
+  `Battle.unit_types_json()`, a sorted list of unit names, the same for every Battle on one card table.
+  `Battle.unit_types_digest()` is a short hash of that list. `ENTITY_FIELDS` names the new value.
+- An ability button's `available` value now matches whether a press would be taken (apart from elixir): a Hero Mega
+  Minion's button reads not ready until it has waited and has a target, and a Hero Tombstone's or Hero Goblins' button
+  reads not ready once its time runs out.
+- No change to battle logic. This release also adds settings used to measure upcoming fixes; every one defaults to
+  the engine's current behaviour.
+
 ## 0.1.16 (2026-10-05)
 
 - No change to installing or calling the engine.
