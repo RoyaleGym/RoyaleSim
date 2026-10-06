@@ -1127,7 +1127,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.cage_release_scan, CageReleaseScan::Client15535ScansWhileHeld, "a 15.535.29 capture's freed captive scans in its hold");
     assert_eq!(cfg.calib.guard_charge_step, GuardChargeStep::Client15535SubstepsToAim, "a 15.535.29 capture's guard charges in pieces");
     assert_eq!(cfg.calib.siege_reset_hold, SiegeResetHold::Client15535TwoTickHold, "a 15.535.29 capture's siege is held after its reset");
-    assert_eq!(cfg.calib.death_ring_direction, DeathRingDirection::Client15535WalkStep, "a 15.535.29 capture's walker dies on its step");
+    assert_eq!(cfg.calib.death_ring_direction, DeathRingDirection::Client15535Facing, "a 15.535.29 capture's walker dies on its heading");
     assert_eq!(cfg.calib.dismount_mount_acquire, DismountMountAcquire::Client15535EighthFrame, "a 15.535.29 capture's mount waits for its 8th frame");
     assert_eq!(cfg.calib.death_bomb_avoidance, DeathBombAvoidance::Client15535StaticBlocker, "a 15.535.29 capture's movers steer round a fused bomb");
     assert_eq!(cfg.calib.ramp_grace_move, RampGraceMove::Client15535OwnWalk, "a 15.535.29 capture's Little Prince keeps his ramp through pushes");

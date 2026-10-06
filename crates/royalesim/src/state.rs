@@ -6421,6 +6421,13 @@ calib_enum!(
         /// (`scratch.pushed`) is no walk and keeps the target's (sp-ram-v-Knight-2500-s0: the client's pair along the
         /// Ram's heading, the ladder's step reversed).
         Client15535WalkStep = "client15535_walk_step",
+        /// A unit whose own walk stepped on its death tick (the move pass's requested step, `scratch.walk_step`) lays it
+        /// along its facing after that pass, the heading it walked on, not its step; one whose walk did not step keeps the
+        /// target's direction. Measured on client 15.535.29: sp-form-BattleRam-evo-s0's Evo Battle Ram dying at t1147 as
+        /// its walk slid along the bridge's edge laid its pair at 115 degrees, its step at 102.5, its heading on its last
+        /// recorded tick 114.1 and its target 116 (`Client15535WalkStep` lost 232 hp there); the 12 other walking deaths
+        /// stepped along their heading, each ring within 1 degree of its death tick's step.
+        Client15535Facing = "client15535_facing",
     }
 );
 calib_enum!(
@@ -25857,7 +25864,24 @@ impl BattleState {
             };
             #[cfg(clash_plant = "death_ring_step_unread")]
             let walk_step: Option<Vec2> = None;
-            let facing = match (walk_step, self.ents.target[i].filter(|t| self.ents.is_alive(*t))) {
+            // spawner.DEATH_RING_DIRECTION = client15535_facing: a unit whose own walk stepped on its death tick (the move
+            // pass's requested step, `scratch.walk_step`) lays its ring along its facing after that pass, the heading it
+            // walked on (`ents.facing`, 256 native units per axis, scaled here to subtiles), not its step: a walk sliding
+            // along an edge steps off its heading. One whose walk did not step keeps its target's.
+            // PLANT (regression) death_ring_facing_unread: the new arm lays a walker's ring along its step.
+            let walked = self.cfg.calib.death_ring_direction == DeathRingDirection::Client15535Facing
+                && self.scratch.walk_step.get(i).is_some_and(|&l| l > 0);
+            #[cfg(not(clash_plant = "death_ring_facing_unread"))]
+            let walk_heading = if walked {
+                use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                let f = self.ents.facing[i];
+                Some(Vec2::new(f.x * K, f.y * K)).filter(|d| *d != Vec2::default())
+            } else {
+                None
+            };
+            #[cfg(clash_plant = "death_ring_facing_unread")]
+            let walk_heading = if walked { self.scratch.pre.get(i).map(|p| self.ents.pos[i].sub(*p)).filter(|d| *d != Vec2::default()) } else { None };
+            let facing = match (walk_step.or(walk_heading), self.ents.target[i].filter(|t| self.ents.is_alive(*t))) {
                 (Some(d), _) => d,
                 (None, Some(t)) => {
                     let d = self.ents.pos[t.index as usize].sub(self.ents.pos[i]);

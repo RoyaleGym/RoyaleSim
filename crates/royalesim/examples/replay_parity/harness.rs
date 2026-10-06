@@ -1566,8 +1566,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   re-aimed at his point + (250, 3250) (78 of 78 steps).
 ///   combat.SIEGE_RESET_HOLD = client15535_two_tick_hold: the Hero Bowler swings two ticks after its siege's reset
 ///   (2 of 2 sieges, its shells 2 ticks later).
-///   spawner.DEATH_RING_DIRECTION = client15535_walk_step: a unit dying on its walk lays its death ring along its last
-///   step (9 of 9 Evo Battle Rams).
+///   spawner.DEATH_RING_DIRECTION = client15535_facing: a unit dying on its walk lays its death ring along its heading
+///   after the death tick, not its step (13 of 13 Evo Battle Rams, one sliding along the bridge's edge).
 ///   transform.DISMOUNT_MOUNT_ACQUIRE = client15535_8th_frame: no enemy takes the Hero Dark Prince's mount before its
 ///   F + 7 (every first take measured).
 ///   movement.DEATH_BOMB_AVOIDANCE = client15535_static_blocker: a death bomb on its fuse is a static blocker to the
@@ -1703,7 +1703,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.CAGE_RELEASE_SCAN", "\"client15535_scans_while_held\""),
     ("combat.GUARD_CHARGE_STEP", "\"client15535_substeps_to_aim\""),
     ("combat.SIEGE_RESET_HOLD", "\"client15535_two_tick_hold\""),
-    ("spawner.DEATH_RING_DIRECTION", "\"client15535_walk_step\""),
+    ("spawner.DEATH_RING_DIRECTION", "\"client15535_facing\""),
     ("transform.DISMOUNT_MOUNT_ACQUIRE", "\"client15535_8th_frame\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
