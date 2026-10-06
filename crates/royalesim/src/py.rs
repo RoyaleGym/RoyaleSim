@@ -215,7 +215,8 @@ pub const EMBEDDED_GLOBALS_CSV: &str = include_str!("../../../data/raw/retroroya
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
 /// returns. ENGINE_ERROR is not a protocol status: it marks a DeployError that a
 /// slot-indexed command cannot produce, and Python raises on it.
-/// THE DEFAULT CATALOGUE'S FIRST 133 CARDS, in the order RoyaleSim 087c060 (ship20) listed them. A catalogue id is a
+/// THE DEFAULT CATALOGUE'S FIRST 136 CARDS: the first 133 in the order RoyaleSim 087c060 (ship20) listed them, then
+/// the three ship43 (0.1.16) gave ids 133 to 135. A catalogue id is a
 /// card's place in the catalogue, so `Battle(card_names=None)` lists these first, in this order, and appends every other
 /// loadable card after them in card-table order: a card that begins to load (a row the loader used to refuse, or a new
 /// row) gets the next id and moves no other card's. A name here that no longer loads drops out, which does move the
@@ -239,6 +240,11 @@ pub const CATALOGUE_ORDER: &[&str] = &[
     "GoblinBarrel", "Freeze", "Mirror", "Lightning", "Zap", "Poison", "Graveyard", "Log", "Tornado", "Clone",
     "Earthquake", "BarbLog", "Heal", "Snowball", "RoyalDelivery", "WarmSpell", "DarkMagic", "GoblinCurse",
     "MergeMaiden", "Vines", "MinionGiant",
+    // Grown 2026-10-05 (option B, before the card tables move to the 160402017 client): the three ids the
+    // card-table order gave since ship20, pinned so a new table order cannot move them.
+    "LittlePrince",
+    "Goblinstein",
+    "BossBandit",
 ];
 
 pub const DEPLOY_REASONS: [&str; 19] = [
