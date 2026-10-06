@@ -5157,7 +5157,11 @@ FALL_GROUNDED_SET = {
 
 # A FORM WHOSE MECHANIC IS DATA THE CARD RECORD READS (`data_only_block`): per form, the columns its own row may set
 # beside display ones, and the card blocks they make (each must be on the record).
-DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", "ClonedVersion"}
+# 16.402 added three display columns to the rows these readers pin: StatsTags (the card's stat page),
+# OnStartingClientActions (client visuals: every one names a [CLIENT_ACTION], ClientActionAnimatorLayer or
+# ClientActionAddHealthBarPart only) and HideHealthbar (the health bar's visibility).
+DATA_ONLY_DISPLAY = {"Base", "DeathEffect", "SpawnEffect", "CustomSpawnFilter", "ClonedVersion",
+                     "StatsTags", "OnStartingClientActions", "HideHealthbar"}
 DATA_ONLY_KNIGHT = ({"BuffWhenNotAttacking", "BuffWhenNotAttackingTime", "BuffWhenNotAttackingUseAttackRange"},
                     ["idle_buff"])
 
@@ -7683,6 +7687,7 @@ def flag_button(h: Tables, form: str, unit: str, urow: dict, flag: str, units: d
     # The flag.
     fset = h["characters"].set_fields.get(flag, set()) | h["buildings"].set_fields.get(flag, set())
     _, frow = unit_record(h, flag)
+    fset -= {"OnStartingClientActions"}  # 16.402: the flag's client visual (`DATA_ONLY_DISPLAY`)
     need(fset <= FLAG_ROW_SET and frow["IsBuilding"] is True, f"the flag sets {sorted(fset - FLAG_ROW_SET)}")
     tags = {x.strip() for x in str(frow["GameTagsToSet"]).split(",")}
     need(tags == {"NO_DAMAGE", "NO_CHECKCOLLISIONS", "UNTARGETABLE"} and not frow["AttacksGround"]
