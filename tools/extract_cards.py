@@ -236,6 +236,8 @@ class Vintage:
     # data/client_additions applies: rows a LATER client has and this pack lacks (the Minion Giant over 15.535.29). A
     # vintage of the later client carries those rows itself, and an addition may never change a row the pack has.
     additions: bool = False
+    # The 16.402 targeting and damage format (`normalize_16402`): areas name a Filter, damage is {BaseDamage, TowerDamage}.
+    filters_format: bool = False
 
     @property
     def is_2018(self) -> bool:
@@ -382,6 +384,7 @@ VINTAGES = {
         sources=SOURCES_16402,
         overlays=OVERLAYS_16402,
         character_dirs=("characters", "events"),
+        filters_format=True,
     ),
     # THE SAME BUILD WITH THE 2026-10-06 CONTENT UPDATE laid over it (content 16.402.19; the update folder's changed
     # files, data/raw/cr-160402017-20261006): the live game since 2026-10-05 23:37 PDT.
@@ -404,6 +407,7 @@ VINTAGES = {
         sources=SOURCES_16402,
         overlays=OVERLAYS_16402,
         character_dirs=("characters", "events"),
+        filters_format=True,
     ),
 }
 # The 15.535 file became the default once it passed every gate (cargo test, clippy,
@@ -608,11 +612,14 @@ class Row(dict):
     set says whether the column exists at all -- `flag()` below turns "absent" into
     null rather than false."""
 
-    __slots__ = ("columns",)
+    __slots__ = ("columns", "schemaless")
 
-    def __init__(self, columns: set[str], *a, **k):
+    def __init__(self, columns: set[str], *a, schemaless: bool = False, **k):
         super().__init__(*a, **k)
         self.columns = columns
+        # A row of a table the client keeps as TOML alone (16.402 on): no header lists its columns, so a column
+        # no row sets is not "absent from the schema" but the client's default (`flag`).
+        self.schemaless = schemaless
 
     def __missing__(self, key):
         return None
@@ -752,6 +759,8 @@ class OverlayTable:
         # name -> {col: (op, arg)} operator lists awaiting the base row's value
         self.pending_ops: dict[str, dict[str, tuple[str, int]]] = {}
         self.allow_floats = path is None
+        # Set by `load_tables` on a table the 16.402 client keeps as TOML alone (`Row.schemaless`).
+        self.schemaless = False
         if path is not None:
             self.files.append(path)
             self.header, self.types, self.continuation_rows, self.blank_rows = csv_types(path)
@@ -795,7 +804,7 @@ class OverlayTable:
                 raise SystemExit(f"{label}: [{name}] is not a table")
             rec = self.records.get(name)
             if rec is None:
-                rec = Row(self.columns, {h: None for h in self.header})
+                rec = Row(self.columns, {h: None for h in self.header}, schemaless=self.schemaless)
                 self.records[name] = rec
                 self.arrays[name] = {}
             self.overlaid.setdefault(name, []).append(label)
@@ -966,6 +975,14 @@ def route_sections(t: "Tables", p: Path, doc: dict, label: str) -> None:
             # pass's, `overlay_hero_files`); nothing else reads it.
             if section == "ABILITY" and isinstance(body, dict):
                 t.abilities.update({n: f for n, f in body.items() if isinstance(f, dict)})
+            # A [FILTER.*] in a character's file (16.402: the Earthquake's EarthquakeMainTargets) is a target filter by
+            # name, as game_object_filters.toml's are (`normalize_16402`); one name with two definitions stops the build.
+            if section == "FILTER" and isinstance(body, dict):
+                for n, fdef in body.items():
+                    if isinstance(fdef, dict):
+                        if n in t.filters and t.filters[n] != fdef:
+                            raise SystemExit(f"{label}: [FILTER.{n}] differs from the filter of that name already read")
+                        t.filters[n] = fdef
             continue
         # A [CHARACTER.X] that says IsBuilding is a building row (none does
         # in 15.535, every building overlay is a [BUILDING.] section; kept
@@ -1001,6 +1018,7 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
     for k in v.overlays:
         if k not in v.sources and k != "actions":
             t[k] = OverlayTable(k, None)
+            t[k].schemaless = True
     t["actions"] = OverlayTable("actions", None)
     # [DAMAGE_TYPE.*] sections of the per-character files (SECTION_TABLE). No output lists this
     # table's files, and nothing but `parry` reads it, so every other row is unchanged by it.
@@ -1062,7 +1080,68 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
                 tb.resolve_bases(unit_lookup)
             else:
                 tb.resolve_bases(lambda n, tb=tb: (tb, tb.get(n)))
+    if v.filters_format:
+        normalize_16402(t)
     return t
+
+
+# THE 16.402 TARGETING AND DAMAGE FORMAT (build 160402017 on). An area no longer carries HitsAir, HitsGround, OnlyEnemies,
+# OnlyOwnTroops, IgnoreBuildings, AffectsHidden or NoEffectToCrownTowers: it names a Filter (game_object_filters.toml)
+# built from MatchTeamOwn / MatchTeamEnemy, MatchTypeCharacters and the excluded categories in Filters. And its Damage
+# is a table, {BaseDamage, TowerDamage}: TowerDamage is the crown-tower damage as a level-1 value of its own, where the
+# 15.535 tables gave a percent of the damage (Zap: 75 and -75 % then, BaseDamage 75 and TowerDamage 19 now; every pair
+# of the two packs is round half up of damage * (100 + percent) / 100), and an absent TowerDamage is the full damage.
+# `normalize_16402` writes the 15.535 columns from them, so every reader below is unchanged; TowerDamage stays a column
+# of its own (the engine's to read). Validated against every area both packs carry (tools: the option-B census).
+AREA_FLAG_COLUMNS = ("HitsAir", "HitsGround", "OnlyEnemies", "OnlyOwnTroops", "IgnoreBuildings", "AffectsHidden",
+                     "NoEffectToCrownTowers")
+
+
+def filter_flags(f: dict) -> dict:
+    """The 15.535 area flags a 16.402 game-object filter stands for."""
+    own, enemy = bool(f.get("MatchTeamOwn")), bool(f.get("MatchTeamEnemy"))
+    chars = bool(f.get("MatchTypeCharacters"))
+    excluded = set(f.get("Filters") or [])
+    return {
+        "HitsAir": chars and "Flying" not in excluded,
+        "HitsGround": chars,
+        "OnlyEnemies": enemy and not own,
+        "OnlyOwnTroops": own and not enemy,
+        "IgnoreBuildings": "Buildings" in excluded,
+        # Hiding is from the enemy: a filter that matches own troops alone never meets a hidden target (every
+        # friendly area's 15.535 row says false), so only an enemy-matching filter affects the hidden.
+        "AffectsHidden": chars and enemy and "Hidden" not in excluded,
+        "NoEffectToCrownTowers": enemy and "PrincessTowers" in excluded,
+    }
+
+
+def normalize_16402(t: "Tables") -> None:
+    """Write the 15.535 columns of every 16.402 row that carries the new format (module note above)."""
+    filters = t.filters
+    for key in ("area_effect_objects", "projectiles", "characters", "buildings"):
+        tb = t[key]
+        for name, row in tb.records.items():
+            d = row.get("Damage")
+            if isinstance(d, dict):
+                # Effect is the hit's visual; Flags (DamagesHidden, the Earthquake's) is gameplay, kept as a column.
+                extra = set(d) - {"BaseDamage", "TowerDamage", "Effect", "Flags"}
+                if extra:
+                    raise SystemExit(f"{key}.{name}: Damage carries {sorted(extra)} besides BaseDamage, TowerDamage, Effect and Flags")
+                row["Damage"] = d.get("BaseDamage")
+                row["TowerDamage"] = d.get("TowerDamage")
+                row["DamageFlags"] = d.get("Flags")
+                tb.columns |= {"Damage", "TowerDamage", "DamageFlags"}
+            if key != "area_effect_objects":
+                continue
+            flt = row.get("Filter")
+            if not isinstance(flt, str):
+                continue
+            if flt not in filters:
+                raise SystemExit(f"{key}.{name}: Filter {flt!r} is not in game_object_filters.toml")
+            for col, val in filter_flags(filters[flt]).items():
+                if row.get(col) is None:
+                    row[col] = val
+            tb.columns |= set(AREA_FLAG_COLUMNS)
 
 
 # --- normalisation helpers -------------------------------------------------------
@@ -1084,7 +1163,7 @@ def ct_percent(raw: int | None) -> int:
 def flag(rec: dict, col: str) -> bool | None:
     """A boolean column: a blank cell is false (Supercell loader default); a column
     the TABLE does not carry at all is null, not false."""
-    if isinstance(rec, Row) and not rec.has_column(col):
+    if isinstance(rec, Row) and not rec.has_column(col) and not rec.schemaless:
         return None
     return bool(rec[col])
 
