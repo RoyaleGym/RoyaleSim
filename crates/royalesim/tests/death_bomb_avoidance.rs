@@ -21,7 +21,7 @@
 mod common;
 
 use common::*;
-use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleState, DeathBombAvoidance};
 use royalesim::Team;
 
@@ -49,7 +49,7 @@ fn giant(arm: DeathBombAvoidance) -> (Vec<i32>, i64) {
         let Some(e) = s.entity(g) else { break };
         offsets.push(e.avoid_offset);
         let (dx, dy) = (i64::from(e.pos.x / K - BOMB.0), i64::from(e.pos.y / K - BOMB.1));
-        near = near.min(((dx * dx + dy * dy) as f64).sqrt() as i64);
+        near = near.min(isqrt(dx * dx + dy * dy));
     }
     (offsets, near)
 }
