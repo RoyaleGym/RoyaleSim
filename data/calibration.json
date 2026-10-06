@@ -2481,6 +2481,17 @@
       "promotion_rules": "The shipped value is 16.402's, measured on its corpus. replay_parity runs a client 15.535.29 capture at client15535_death_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS), as it runs that client's card values; a 16.402 record on the death frame would reopen it.",
       "engine": "state.rs phase_reap (the death blow, land_death_blow), selected by Calib::death_damage_tick; tests/death_damage_tick.rs; the harness's per-client list."
     },
+    "DEATH_BLOW_VICTIM_REAP": {
+      "value": "next_tick",
+      "candidates": ["next_tick", "client15535_same_reap"],
+      "status": "measured",
+      "confidence": "MEDIUM-HIGH for client15535_same_reap on client 15.535.29: 15 of 16 low-hitpoint enemies a dying Golem's or Ice Golemite's blow killed left on the death frame, 13 of them in one blow; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (death_damage_reap_census.py: a troop gone on frame D; every enemy troop within 3,000 of it on D - 1 with 400 hitpoints or fewer, gone on D, gone on D + 1, or hurt and still there on D + 1). The death-damage cards' rows: an Ice Golemite's blow (sp-il-04cb t1257) took 13 Skeleton Army members, each gone on its death frame; a Golem's took 2 Evo Dart Goblins (sp-f4-dart t1053, sp-f4-dart2 t1307), gone on D; the one row gone on D + 1, sp-f4-dart2 t297, a Dart Goblin of 152 beside a dying Ice Golemite, may not be the blow's. Under combat.DEATH_DAMAGE_TICK = client15535_death_tick the engine lands the blow in the Reap and leaves the victims at 0 or below to the next tick's Resolve, where movement.DYING_UNIT_VISIBILITY = client_doomed_static makes them static obstacles to that tick's move pass: at sp-il-04cb t1258 the two surviving Skeleton Army members, turning back for the tower, started avoidance turns of -190 and +190 off those bodies; the client's walked straight (avoidance 0), and both drifted 300 to 600 off.",
+      "meaning": "next_tick: the engine's; a unit a death blow landed in the Reap takes to 0 dies in the next tick's Resolve and stands the tick out with its hitpoints at 0 or below. client15535_same_reap: it dies in that Reap, a further wave of the Reap's death steps (its souls, death spawns, areas and blows, elixir, the despawn), until a wave kills nothing; the clones, released units, copies and Spectrals of every wave are made after the last.",
+      "open": "A chain past one wave (a victim whose own blow kills) is unmeasured; a crown tower a blow takes to 0; 16.402 (its blows land a tick later).",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_same_reap (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_reap (the waves' `same`), land_death_blow (`blow_victims`), selected by Calib::death_blow_victim_reap; tests/death_damage_tick.rs."
+    },
     "KAMIKAZE_DEATH": {
       "value": "at_fire",
       "status": "measured",

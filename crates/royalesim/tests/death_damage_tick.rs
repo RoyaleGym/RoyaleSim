@@ -9,13 +9,17 @@
 //! Golem is set to 0 before a tick, so it dies on that tick.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! death_damage_tick`): death_blow_next_tick -> `the_15535_arm_lands_the_blow_on_the_death_tick` red.
+//! death_damage_tick`): death_blow_next_tick -> `the_15535_arm_lands_the_blow_on_the_death_tick` red;
+//! death_blow_victims_next_tick -> `a_unit_the_blow_kills_leaves_on_the_death_tick_under_client15535_same_reap` red.
+//!
+//! combat.DEATH_BLOW_VICTIM_REAP = client15535_same_reap (client 15.535.29: 15 of 16 enemies a dying Golem's or Ice
+//! Golemite's blow killed left on the death frame): a unit the blow takes to 0 dies in that Reap.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, DeathDamageTick};
+use royalesim::state::{BattleState, DeathBlowVictimReap, DeathDamageTick};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["Knight", "Golem", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -60,4 +64,34 @@ fn the_shipped_arm_lands_it_on_the_tick_after() {
     assert_eq!(on, 0, "next_tick (16.402's): the Knight lost {on} on the Golem's death tick");
     let (seq_on, _, _) = knight_after_death(DeathDamageTick::Client15535DeathTick);
     assert_eq!(after, seq_on, "the same blow, a tick later");
+}
+
+/// The Knight at 1 hitpoint when the Golem falls (DEATH_DAMAGE_TICK at the measured arm): whether it is still on the board
+/// at the end of the Golem's death tick and of the tick after, under combat.DEATH_BLOW_VICTIM_REAP = `arm`.
+fn knight_left(arm: DeathBlowVictimReap) -> (bool, bool) {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.death_damage_tick = DeathDamageTick::Client15535DeathTick;
+    cfg.calib.death_blow_victim_reap = arm;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    let golem: EntityId = s.scenario_spawn_now(Team::Red, "Golem", at(9000, 13500), None).expect("the Golem");
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", at(9000, 12000), None).expect("the Knight");
+    assert!(s.debug_set_hp(knight, 1));
+    assert!(s.debug_set_hp(golem, 0));
+    s.tick();
+    assert!(s.entity(golem).is_none(), "the scene drifted: the Golem did not die on the tick");
+    let on = s.entity(knight).is_some();
+    s.tick();
+    (on, s.entity(knight).is_some())
+}
+
+/// Plant: death_blow_victims_next_tick.
+#[test]
+fn a_unit_the_blow_kills_leaves_on_the_death_tick_under_client15535_same_reap() {
+    assert_eq!(knight_left(DeathBlowVictimReap::Client15535SameReap), (false, false), "client15535_same_reap: the Knight outlived the Golem's death tick");
+    // NOT VACUOUS: next_tick leaves it on the board through the death tick.
+    assert_eq!(knight_left(DeathBlowVictimReap::NextTick), (true, false), "next_tick: the Knight did not stand out the death tick");
 }

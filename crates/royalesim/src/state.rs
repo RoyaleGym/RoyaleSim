@@ -1059,6 +1059,10 @@ pub struct Calib {
     /// a slap flight past its round sight. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Held`.
     #[serde(default = "slap_flight_sight_hold_default")]
     pub slap_flight_sight_hold: SlapFlightSightHold,
+    /// combat.DEATH_BLOW_VICTIM_REAP (`phase_reap`'s waves): whether a unit a death blow takes to 0 in the Reap dies in
+    /// it. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
+    #[serde(default = "death_blow_victim_reap_default")]
+    pub death_blow_victim_reap: DeathBlowVictimReap,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2709,6 +2713,10 @@ fn knocked_lost_target_default() -> KnockedLostTarget {
 
 fn slap_flight_sight_hold_default() -> SlapFlightSightHold {
     SlapFlightSightHold::Held
+}
+
+fn death_blow_victim_reap_default() -> DeathBlowVictimReap {
+    DeathBlowVictimReap::NextTick
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6569,6 +6577,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DEATH_BLOW_VICTIM_REAP -- see `phase_reap` and `land_death_blow`: when a unit dies that a death blow landed
+    /// in the Reap (combat.DEATH_DAMAGE_TICK = client15535_death_tick) takes to 0.
+    DeathBlowVictimReap {
+        /// The engine's: in the next tick's Resolve; it stands the tick out with its hitpoints at 0 or below.
+        NextTick = "next_tick",
+        /// In the same Reap, a further wave of the Reap's death steps (its souls, death spawns, areas and blows, elixir),
+        /// until a wave kills nothing. Measured on client 15.535.29: 15 of 16 low-hitpoint enemies a dying Golem's or Ice
+        /// Golemite's blow killed left the board on the death frame (13 Skeleton Army members at sp-il-04cb t1257), where
+        /// the engine left them a tick, static obstacles to the next move pass.
+        Client15535SameReap = "client15535_same_reap",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8561,6 +8582,7 @@ impl Calib {
             dismount_mount_hold_body: pick(&v, &["transform", "DISMOUNT_MOUNT_HOLD_BODY", "value"], DismountMountHoldBody::from_calibration_name)?,
             knocked_lost_target: pick(&v, &["targeting", "KNOCKED_LOST_TARGET", "value"], KnockedLostTarget::from_calibration_name)?,
             slap_flight_sight_hold: pick(&v, &["targeting", "SLAP_FLIGHT_SIGHT_HOLD", "value"], SlapFlightSightHold::from_calibration_name)?,
+            death_blow_victim_reap: pick(&v, &["combat", "DEATH_BLOW_VICTIM_REAP", "value"], DeathBlowVictimReap::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -10778,6 +10800,9 @@ struct Scratch {
     /// as bodies of the contact law (`dying_body`), taken before they are despawned: the death spawns' first update
     /// meets them. Filled and drained inside one `phase_reap`, so it never outlives the phase: not saved, not hashed.
     dying_bodies: Vec<move16402::Body>,
+    /// combat.DEATH_BLOW_VICTIM_REAP: the units this Reap's death blows took to 0 (`land_death_blow`), the next wave's dead
+    /// under client15535_same_reap. Filled and drained inside one `phase_reap`.
+    blow_victims: Vec<EntityId>,
     /// transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: the heroes' pre-hop bodies (`dismount_hops`) the mounts
     /// born this tick meet on their first update (`phase_path16402_for`, both scans, whatever FIRST_STEP_DYING_CONTACT
     /// says of the tick's dead). Filled in Move and cleared after this tick's Reap's first update: not saved, not hashed.
@@ -24065,7 +24090,7 @@ impl BattleState {
     /// LAND A DEATH BLOW IN ITS REAP (combat.DEATH_DAMAGE_TICK = client15535_death_tick): the hits `combat::splash` just
     /// buffered from `from` on, applied as `land_strike` applies a strike (combat.rs `land_at_once`), so the victims'
     /// hitpoints carry the blow on the death tick's frame. A victim the blow takes to 0 dies in the next tick's Resolve,
-    /// as under next_tick. What `resolve` would report from the blow (a first-hit card's unit hurt, an Evo shield taken
+    /// as under next_tick (combat.DEATH_BLOW_VICTIM_REAP = client15535_same_reap: in this Reap). What `resolve` would report from the blow (a first-hit card's unit hurt, an Evo shield taken
     /// to 0) is answered here, in this Reap, so nothing is carried into the next tick. Measured on client 15.535.29: an
     /// enemy within a dying Golem's or Ice Golemite's death radius loses the death damage on the death frame, 122 of 122.
     fn land_death_blow(&mut self, from: usize) {
@@ -24073,6 +24098,13 @@ impl BattleState {
         let underground_immune = self.underground_immune();
         let landed =
             combat::land_at_once(&mut self.ents, &self.cfg.cards, &self.cfg.calib, &hits, self.cfg.calib.hide_hidden_immune, underground_immune, target::riders_immune(&self.cfg.calib), self.tick);
+        // combat.DEATH_BLOW_VICTIM_REAP: the units this blow took to 0, the Reap's next wave (`phase_reap`).
+        for h in &hits {
+            let v = h.target;
+            if self.ents.is_alive(v) && self.ents.hp[v.index as usize] <= 0 && !self.scratch.blow_victims.contains(&v) {
+                self.scratch.blow_victims.push(v);
+            }
+        }
         for (t, hit) in landed.king_hit.into_iter().enumerate() {
             if hit && self.king_wake_ms[t].is_none() {
                 self.king_wake_ms[t] = Some(0);
@@ -25885,640 +25917,663 @@ impl BattleState {
         if self.soul_after_move() && !self.warps.soul_runs.is_empty() {
             self.soul_pass();
         }
-        let deaths = std::mem::take(&mut self.death_queue);
-        // THE SKELETON KINGS' SOULS (`count_souls`).
-        #[cfg(not(clash_plant = "souls_unread"))]
-        if !deaths.is_empty() {
-            self.count_souls(&deaths);
-        }
-        // The tick's kamikazes whose death comes on a kill only (`Scratch::kamikazed`): no death spawn.
-        let kamikazed = std::mem::take(&mut self.scratch.kamikazed);
-        // DEATH SPAWN (card.rs `DeathSpawnDef`): every death that reaches this queue --
-        // hp <= 0 from any hit, the lifetime expiry hit included -- leaves its units
-        // as released units (spawner.RELEASE_TIMING: on the death frame and inert on it, or
-        // queued for the next Spawn phase), placed by `death_spawn_points` in the owner's frame, at the
-        // owner's team and level, with the block's deploy time or the calibration
-        // default. Collected and sorted by (team, the dead entity's team_seq, unit
-        // index) before the push, so the queue order is canonical.
-        //
-        // A DEATH FIRES EVERY BLOCK IT CARRIES, INDEPENDENTLY: the death spawn here,
-        // the death AREA EFFECT and the death DAMAGE disc below. The Ice Golem ships
-        // the last two together (a 2000-millitile disc of 33 and a 2000-millitile
-        // area that carries a slow and no damage of its own) and the Super Ice Golem
-        // ships them with different radii, different damage and different crown
-        // percents -- two columns, one death, neither one the other's carrier.
-        let mut spawned: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
-        // The dying units that release a unit this tick (their own death spawn or a buff's): the parents, which
-        // spawner.FIRST_STEP_DYING_BODIES leaves out of the released units' first update.
-        let mut parents: Vec<usize> = Vec::new();
+        // THE DEATH BLOWS' VICTIMS (combat.DEATH_BLOW_VICTIM_REAP): under client15535_same_reap the units this Reap's death
+        // blows take to 0 die in it too, a further wave of the steps below (their souls, death spawns, areas and blows,
+        // elixir, the despawn), until a wave kills nothing; the clones, released units, copies and Spectrals of every wave
+        // are made after the last. Under next_tick one wave, as before: they die in the next tick's Resolve.
         self.scratch.dying_blockers.clear();
-        #[cfg(not(clash_plant = "death_spawn_dropped"))]
-        for id in &deaths {
-            if kamikazed.contains(id) {
-                continue;
+        self.scratch.dying_bodies.clear();
+        let mut all_spectrals = Vec::new();
+        loop {
+            let deaths = std::mem::take(&mut self.death_queue);
+            // THE SKELETON KINGS' SOULS (`count_souls`).
+            #[cfg(not(clash_plant = "souls_unread"))]
+            if !deaths.is_empty() {
+                self.count_souls(&deaths);
             }
-            let i = id.index as usize;
-            let card = self.cfg.cards.get(self.ents.card[i]);
-            let Some(ds) = card.death_spawn else { continue };
-            let unit = self.cfg.cards.get(ds.unit);
-            let level = self.cfg.cards.death_spawn_level(self.ents.card[i], self.ents.level[i]).expect("death spawn level validated at deploy");
-            // A DEATH BOMB (card.rs `convert_death_bomb`: the Balloon's, the Giant
-            // Skeleton's, the Bomb Tower's) is not spawned, because it is not a unit:
-            // it has no hitpoints, nothing can target it and it stands in nobody's
-            // way. It is one area hit on a timer, left exactly where the parent fell
-            // and released as the spell object an Arrows wave already waits in --
-            // `SpellMotion::Flight` with a delay, aimed at the point it starts from,
-            // so it arrives on the first tick after the fuse runs out and applies the
-            // same enemies-only splash `phase_reap` gives an ordinary DeathDamage row.
-            // THE FUSE IS THE BOMB ROW'S OWN DeployTime and NOT `deploy_ms` below:
-            // DEATH_SPAWN_DEPLOY_TIME_DEFAULT is measured `zero`, which says how fast
-            // a spawned UNIT wakes up and would fire this bomb on the death tick. The
-            // corpus separates them -- a Balloon's bomb lands 61 ticks after its last
-            // live frame, not on it (card.rs `convert_death_bomb`).
-            // ONE bomb, whatever DeathSpawnCount says: all three rows leave it blank
-            // (read as 1), and a ring of N discs on one point is a layout the data
-            // does not ask for and nothing has measured. A row that asked for more
-            // would need `death_spawn_points` and its own reading.
-            if let Some(fuse_ms) = unit.death_bomb_fuse_ms() {
-                let base = unit.death_damage;
-                let damage = self.cfg.cards.scaled(ds.unit, level, base).expect("death bomb level validated at deploy");
-                let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
-                // An Evo Skeleton Barrel's death drop falls `death_offset` from it in the owner's frame (`BarrelDef`).
-                let pos = match self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.barrel) {
-                    Some(b) => {
-                        let fwd = spell::forward_dy(team);
-                        Vec2::new(pos.x + fwd * b.death_offset_x, pos.y + fwd * b.death_offset_y)
-                    }
-                    None => pos,
-                };
-                self.spells.push(Spell {
-                    team,
-                    card: ds.unit,
-                    level,
-                    damage,
-                    pulse: 0,
-                    motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms },
-                    depth: 0,
-                    flown: 0,
-                });
-                continue;
-            }
-            // A COPY'S DEATH SPAWNS ARE COPIES (calibration spells.CLONE_DEATH_SPAWNS = cloned_at_clone_hitpoints, under
-            // the table's CLONE_DEATH_SPAWN_UNITS or _BUILDINGS for the spawned unit's kind): created at the Clone's
-            // hitpoints and never copied again (`make_copy`). Measured on client 15.535.29: a copied Battle Ram killed by
-            // a Zap or a tower arrow released two Barbarians of 1 hitpoint each, where the original's had 716. A death
-            // bomb above is unchanged (not measured).
-            #[cfg(not(clash_plant = "clone_death_spawns_ordinary"))]
-            let copy_spawns = self.ents.cloned[i]
-                && self.cfg.calib.clone_death_spawns == CloneDeathSpawns::ClonedAtCloneHitpoints
-                && self.cfg.cards.globals.clone_flag(if unit.kind == CardKind::Building { "CLONE_DEATH_SPAWN_BUILDINGS" } else { "CLONE_DEATH_SPAWN_UNITS" }) == Some(true);
-            #[cfg(clash_plant = "clone_death_spawns_ordinary")]
-            let copy_spawns = false; // PLANT: a copy's death spawns are ordinary units.
-            let radius = ds.radius.unwrap_or(match self.cfg.calib.death_spawn_radius_default {
-                DeathSpawnRadius::OwnCollisionRadius => self.ents.radius[i],
-                DeathSpawnRadius::Zero => 0,
-            });
-            let deploy_ms = ds.deploy_time_ms.or(match self.cfg.calib.death_spawn_deploy_default {
-                DeathSpawnDeploy::UnitOwnDeployTime => None,
-                DeathSpawnDeploy::Zero => Some(0),
-            });
-            let team = self.ents.team[i];
-            // THE RING'S AXIS: the direction from the death point to the dying unit's
-            // TARGET (the two live rams: the Barbarians' axis at 26.0 / 84.1 degrees
-            // against 26.5 / 83.7 to the tower they were hitting, where the last
-            // movement direction was 20.8 / 89.6), else the unit's facing, else the
-            // seat's forward.
-            // spawner.DEATH_RING_DIRECTION = client15535_walk_step: a unit that walked on its death tick lays its ring along
-            // that step (its point less its point before the tick's walk, `scratch.pre`); one that stood keeps its target's,
-            // and so does one whose move that tick was a knockback ladder's step (`scratch.pushed`): it did not walk.
-            // PLANT (regression) death_ring_step_unread: the new arm still lays a walker's ring toward its target.
-            #[cfg(not(clash_plant = "death_ring_step_unread"))]
-            let walk_step = if self.cfg.calib.death_ring_direction == DeathRingDirection::Client15535WalkStep {
-                self.scratch
-                    .pre
-                    .get(i)
-                    .map(|p| self.ents.pos[i].sub(*p))
-                    .filter(|d| *d != Vec2::default() && !self.scratch.pushed.get(i).copied().unwrap_or(false))
-            } else {
-                None
-            };
-            #[cfg(clash_plant = "death_ring_step_unread")]
-            let walk_step: Option<Vec2> = None;
-            // spawner.DEATH_RING_DIRECTION = client15535_facing: a unit whose own walk stepped on its death tick (the move
-            // pass's requested step, `scratch.walk_step`) lays its ring along its facing after that pass, the heading it
-            // walked on (`ents.facing`, 256 native units per axis, scaled here to subtiles), not its step: a walk sliding
-            // along an edge steps off its heading. One whose walk did not step keeps its target's.
-            // PLANT (regression) death_ring_facing_unread: the new arm lays a walker's ring along its step.
-            let walked = self.cfg.calib.death_ring_direction == DeathRingDirection::Client15535Facing
-                && self.scratch.walk_step.get(i).is_some_and(|&l| l > 0);
-            #[cfg(not(clash_plant = "death_ring_facing_unread"))]
-            let walk_heading = if walked {
-                use crate::fixed::SUBTILE_PER_MILLITILE as K;
-                let f = self.ents.facing[i];
-                Some(Vec2::new(f.x * K, f.y * K)).filter(|d| *d != Vec2::default())
-            } else {
-                None
-            };
-            #[cfg(clash_plant = "death_ring_facing_unread")]
-            let walk_heading = if walked { self.scratch.pre.get(i).map(|p| self.ents.pos[i].sub(*p)).filter(|d| *d != Vec2::default()) } else { None };
-            let facing = match (walk_step.or(walk_heading), self.ents.target[i].filter(|t| self.ents.is_alive(*t))) {
-                (Some(d), _) => d,
-                (None, Some(t)) => {
-                    let d = self.ents.pos[t.index as usize].sub(self.ents.pos[i]);
-                    if d == Vec2::default() { self.ents.facing[i] } else { d }
-                }
-                (None, None) => self.ents.facing[i],
-            };
-            // That direction normalized to 256 native units per axis, truncated: the heading a facing ring's members start
-            // with (`member_facing` below). None for a zero direction.
-            let heading256 = if facing != Vec2::default() {
-                use crate::fixed::SUBTILE_PER_MILLITILE as K;
-                let mut v = (facing.x / K, facing.y / K);
-                if crate::move16402::normalize_to(&mut v, 256) != 0 { Some(Vec2::new(v.0, v.1)) } else { None }
-            } else {
-                None
-            };
-            // spawner.DEATH_RING_AXIS = client15535_unit_heading: the ring's angle is read off that heading, not off the
-            // raw direction (client 15.535.29: a Ram dying 2165 from the tower it hit, the direction (-287, 2146) at 97.62
-            // degrees, its Barbarians' heading (-33, 253) at 97.43, the ring at 97, where the raw direction rounds to 98).
-            #[cfg(not(clash_plant = "death_ring_axis_raw"))]
-            let axis = match heading256 {
-                Some(h) if self.cfg.calib.death_ring_axis == DeathRingAxis::Client15535UnitHeading => h,
-                _ => facing,
-            };
-            #[cfg(clash_plant = "death_ring_axis_raw")]
-            let axis = facing; // PLANT: the ring's angle off the raw direction under the new arm too.
-            let shift = card.formation.spawn_angle_shift_deg;
-            // spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: a dying unit whose ROW sets
-            // DeathSpawnPushback (card.rs `death_spawn_pushback`: the Golem and the Lava Hound
-            // among the loaded cards; the Battle Ram leaves it blank) lays its members on the
-            // small fixed ring (`death_spawn_points` -> `fixed_slide_ring`), and each carries
-            // the slide out to DeathSpawnRadius that the Path phase runs. Every other row, and
-            // every row under the shipped not_read, keeps DEATH_SPAWN_LAYOUT.
-            #[cfg(not(any(clash_plant = "death_ring_slide_facing", clash_plant = "death_ring_slide_ignores_flag", clash_plant = "death_ring_slide_ignores_arm")))]
-            let slide = self.cfg.calib.death_spawn_pushback == DeathSpawnPushback::ClientRingSlide && card.death_spawn_pushback;
-            #[cfg(clash_plant = "death_ring_slide_facing")]
-            let slide = false; // PLANT (regression): a flagged row keeps the facing ring under the new arm.
-            #[cfg(clash_plant = "death_ring_slide_ignores_flag")]
-            let slide = self.cfg.calib.death_spawn_pushback == DeathSpawnPushback::ClientRingSlide; // PLANT: the Battle Ram slides too.
-            #[cfg(clash_plant = "death_ring_slide_ignores_arm")]
-            let slide = card.death_spawn_pushback; // PLANT: the flagged rows slide under not_read as well.
-            // ONLY A TROOP DEATH SPAWN takes the ring and the slide: the slide runs, and ends,
-            // in the Path phase's troop loops alone, so a building laid on the small ring would
-            // keep its slide for ever and never take a target. No loaded row pairs the flag
-            // with a building (every flagged row in the 15.535 table spawns troops); such a row
-            // keeps DEATH_SPAWN_LAYOUT. Plant death_slide_on_a_building drops this line.
-            #[cfg(not(clash_plant = "death_slide_on_a_building"))]
-            let slide = slide && unit.kind == CardKind::Troop;
-            let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing: axis, angle_shift_deg: shift, radius, slide, orientation: RingOrientation::Troop };
-            // spawner.DEATH_SPAWN_AT_EMISSION_POINT = client16402_measured_list: a LISTED unit
-            // with a spawner puts every member on the point its periodic units come out at
-            // (`spawn_point`, through the one-member formation its timed waves use), all
-            // together. Unlisted units, and a listed one without a spawner, keep the ring.
-            let emission = match self.spawner_of(i) {
-                Some(sp) if self.cfg.calib.death_spawn_at_emission == DeathAtEmission::MeasuredList && self.cfg.calib.death_spawn_at_emission_units.contains(&card.unit_name) => {
-                    let point = self.spawn_point(i, &sp);
-                    Some(self.formation_points(team, 1, unit.collision_radius, unit.is_flying(), point)[0])
-                }
-                _ => None,
-            };
-            // spawner.DEATH_SPAWN_RING = client_fixed_ring_listed: a LISTED unit whose row leaves SpawnAngleShift
-            // blank and does not slide lays its members on the fixed ring at DeathSpawnRadius
-            // (`fixed_death_ring`): the Elixir Golem's halves at +-750 on its x axis, the Goblin Drill's
-            // building's two Goblins at +-(500, 0). Every other death keeps DEATH_SPAWN_LAYOUT (or the slide).
-            #[cfg(not(clash_plant = "death_ring_facing"))]
-            let listed = self.cfg.calib.death_ring == DeathRingArm::ClientFixedRingListed
-                && shift == 0
-                && !slide
-                && self.cfg.calib.death_ring_units.contains(&card.unit_name);
-            #[cfg(clash_plant = "death_ring_facing")]
-            let listed = false; // PLANT: the listed units keep DEATH_SPAWN_LAYOUT (the facing ring).
-            // rider.DISMOUNT_POINT: an attached rider's death spawn at its mount's position plus its offset
-            // (`dismount_point`; the Goblin Giant's Spear Goblins), ahead of every other layout.
-            let points = match (self.dismount_point(i, unit.is_flying()), emission) {
-                (Some(p), _) | (None, Some(p)) => vec![p; ds.count.max(1) as usize],
-                (None, None) if listed => self.fixed_death_ring(team, self.ents.pos[i], ds.count, radius, unit.is_flying()),
-                (None, None) => self.death_spawn_points(team, self.ents.pos[i], ring),
-            };
-            // The slide each member of the fixed ring carries: from the death point out to
-            // DeathSpawnRadius, subtiles. None when the radius is at or inside the ring's own
-            // start radius (the members are born on it: nothing to slide), and none on any
-            // other layout.
-            let (slide_centre, slide_radius) = if slide && emission.is_none() && radius > crate::fixed::milli(move16402::DEATH_SLIDE_START) {
-                (self.ents.pos[i], radius)
-            } else {
-                (Vec2::default(), 0)
-            };
-            // spawner.DEATH_SLIDE_AIM = fixed_end_point: where each member's slide ends, fixed now (`slide_ends`).
-            let ends = self.slide_ends(team, self.ents.pos[i], ring, slide_radius);
-            // spawner.SPAWNED_FIRST_STEP: a death spawn takes its first update on its death frame,
-            // except the members of a DeathSpawnPushback row, whose first movement is the slide:
-            // measured on client 16.402, a Golem's Golemites exist on the death frame and are inert
-            // there, whatever this key says. Read off the row, not the slide's arm, so a Golemite
-            // laid by DEATH_SPAWN_LAYOUT under not_read is not stepped either.
-            #[cfg(not(clash_plant = "first_step_moves_pushback_spawns"))]
-            let first_update = !card.death_spawn_pushback;
-            #[cfg(clash_plant = "first_step_moves_pushback_spawns")]
-            let first_update = true; // PLANT (regression): a Golemite steps on its death frame.
-            // THE DYING PARENT STAYS IN ITS MEMBERS' FIRST AVOIDANCE SCAN, as a static blocker, and out of
-            // their separation push (`first_update`): a building and a troop alike, on the parent's own layer
-            // (the scan skips a body of the other one). Measured on client 15.535.29 (the members' first-frame
-            // avoidance offset, the scan run along the member's heading at creation): the Elixir Golem's halves
-            // 42 of 42 that walk on their first frame (the other 6 are in their attack there, which the scan
-            // skips, and read 0), the Battle Ram's Barbarians 33 of 33 (+-190 while they deploy); the Goblin
-            // Giant's riders, flying rows, leave their ground Spear Goblins at 0 (12 of 12). On the 16.402 corpus
-            // the Elixir Golem's halves then slide outward as they walk while the offset decays
-            // (20260920-090204, tick 1260).
-            #[cfg(not(any(clash_plant = "first_step_parent_gone", clash_plant = "first_step_troop_parent_gone")))]
-            let blocks = first_update;
-            #[cfg(clash_plant = "first_step_parent_gone")]
-            let blocks = false; // PLANT (regression): the dying building is gone from the scan.
-            #[cfg(clash_plant = "first_step_troop_parent_gone")]
-            let blocks = first_update && self.ents.kind[i].is_building(); // PLANT (regression): a dying troop is not a blocker.
-            #[cfg(not(clash_plant = "first_step_blocker_ground"))]
-            let air = self.ents.flying[i];
-            #[cfg(clash_plant = "first_step_blocker_ground")]
-            let air = false; // PLANT (regression): every blocker on the ground layer, a flying parent's too.
-            if blocks {
-                use crate::fixed::SUBTILE_PER_MILLITILE as K;
-                let p = self.ents.pos[i];
-                self.scratch.dying_blockers.push((p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8, air, false));
-            }
-            // spawner.DEATH_SPAWN_LAYOUT = facing_ring_rounded: the members start with the dying unit's heading, the
-            // ring's axis normalized to 256 in native units (measured on client 15.535.29: (28, -254) for a Ram dying
-            // on a tower). Only where that ring was laid: not on the slide, not at the emission point.
-            #[cfg(not(clash_plant = "death_ring_members_face_forward"))]
-            let keeps_heading = self.cfg.calib.death_spawn_layout == DeathSpawnLayout::FacingRingRounded && !slide && emission.is_none() && !listed;
-            #[cfg(clash_plant = "death_ring_members_face_forward")]
-            let keeps_heading = false; // PLANT (regression): the members face their side's forward.
-            let member_facing = if keeps_heading { heading256 } else { None };
-            parents.push(i);
-            // spawner.DEATH_SLIDE_STOP = move_count: a member with an end point (DEATH_SLIDE_AIM = fixed_end_point)
-            // slides at most its move count (`slide_move_count`), from where it is born.
-            #[cfg(not(clash_plant = "death_slide_count_ignored"))]
-            let counted = self.cfg.calib.death_slide_stop == DeathSlideStop::MoveCount;
-            #[cfg(clash_plant = "death_slide_count_ignored")]
-            let counted = false; // PLANT (regression): the new arm slides on until the member reaches its end point.
-            for (k, p) in points.into_iter().enumerate() {
-                let slide_end = ends.get(k).copied().unwrap_or_default();
-                let slide_ticks = match ends.get(k) {
-                    Some(&end) if counted => slide_move_count(p, end),
-                    _ => 0,
-                };
-                spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks, slide_end, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns, action_made: false, source: self.ents.producer(i) }));
-            }
-        }
-        // THE DEATH SPAWN OF A BUFF THE DYING UNIT CARRIES (status.rs `BuffDeathSpawn`: the Mother Witch's VoodooCurse
-        // leaves a VoodooHog, the Goblin Curse's mark a GoblinCurseGoblin), beside the unit's own death spawn above,
-        // which still happens (the loader reads only rows that allow it). One unit per live slot whose buff has one:
-        //   - for the side opposite the dead unit's when the row sets DeathSpawnIsEnemy (the caster's), else its own;
-        //   - at the level status.BUFF_DEATH_SPAWN_LEVEL names (the slot's source level, or the dead unit's), skipped
-        //     when the unit has no such level;
-        //   - deploying its own DeployTime when the row sets DeathSpawnDeployDelay, under
-        //     status.BUFF_DEATH_SPAWN_DEPLOY_TIME = unit_deploy_time; else acting at once;
-        //   - where status.BUFF_DEATH_SPAWN_POINT says, clamped to the arena and, for a ground unit, put on land;
-        //   - an ordinary target from its first tick (measured on client 15.535.29: the towers target a curse goblin
-        //     from the tick after it appears, where a unit's own death spawn waits out targeting.SPAWNED_UNIT_
-        //     ACQUIRE_DELAY), and not stepped on its first frame (its deploy frames are measured: 20 for the goblin).
-        // Keyed after the unit's own members (256 + the slot), so the release order stays canonical.
-        #[cfg(not(clash_plant = "buff_death_spawn_dropped"))]
-        for id in &deaths {
-            let i = id.index as usize;
-            let a = i * crate::status::MAX_BUFFS_PER_ENTITY;
-            for k in 0..crate::status::MAX_BUFFS_PER_ENTITY {
-                let slot = self.ents.buffs[a + k];
-                if slot.is_empty() {
+            // The tick's kamikazes whose death comes on a kill only (`Scratch::kamikazed`): no death spawn.
+            let kamikazed = std::mem::take(&mut self.scratch.kamikazed);
+            // DEATH SPAWN (card.rs `DeathSpawnDef`): every death that reaches this queue --
+            // hp <= 0 from any hit, the lifetime expiry hit included -- leaves its units
+            // as released units (spawner.RELEASE_TIMING: on the death frame and inert on it, or
+            // queued for the next Spawn phase), placed by `death_spawn_points` in the owner's frame, at the
+            // owner's team and level, with the block's deploy time or the calibration
+            // default. Collected and sorted by (team, the dead entity's team_seq, unit
+            // index) before the push, so the queue order is canonical.
+            //
+            // A DEATH FIRES EVERY BLOCK IT CARRIES, INDEPENDENTLY: the death spawn here,
+            // the death AREA EFFECT and the death DAMAGE disc below. The Ice Golem ships
+            // the last two together (a 2000-millitile disc of 33 and a 2000-millitile
+            // area that carries a slow and no damage of its own) and the Super Ice Golem
+            // ships them with different radii, different damage and different crown
+            // percents -- two columns, one death, neither one the other's carrier.
+            let mut spawned: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
+            // The dying units that release a unit this tick (their own death spawn or a buff's): the parents, which
+            // spawner.FIRST_STEP_DYING_BODIES leaves out of the released units' first update.
+            let mut parents: Vec<usize> = Vec::new();
+            #[cfg(not(clash_plant = "death_spawn_dropped"))]
+            for id in &deaths {
+                if kamikazed.contains(id) {
                     continue;
                 }
-                let Some(ds) = self.cfg.cards.buffs.get(slot.id as usize - 1).and_then(|d| d.death_spawn) else { continue };
-                if ds.unit == u16::MAX {
-                    continue; // the loader drops an unresolved one; never reached
-                }
-                let victim = self.ents.team[i];
-                let team = if ds.for_other_side { victim.other() } else { victim };
-                let level = match self.cfg.calib.buff_death_spawn_level {
-                    BuffDeathSpawnLevel::SourceLevel => slot.src_level,
-                    BuffDeathSpawnLevel::VictimLevel => self.ents.level[i],
-                };
-                if self.cfg.cards.level_multiplier(ds.unit, level).is_err() {
-                    continue;
-                }
+                let i = id.index as usize;
+                let card = self.cfg.cards.get(self.ents.card[i]);
+                let Some(ds) = card.death_spawn else { continue };
                 let unit = self.cfg.cards.get(ds.unit);
-                let deploy_ms = match (ds.deploy_delay, self.cfg.calib.buff_death_spawn_deploy) {
-                    (true, BuffDeathSpawnDeploy::UnitDeployTime) => Some(unit.deploy_time_ms),
-                    _ => Some(0),
+                let level = self.cfg.cards.death_spawn_level(self.ents.card[i], self.ents.level[i]).expect("death spawn level validated at deploy");
+                // A DEATH BOMB (card.rs `convert_death_bomb`: the Balloon's, the Giant
+                // Skeleton's, the Bomb Tower's) is not spawned, because it is not a unit:
+                // it has no hitpoints, nothing can target it and it stands in nobody's
+                // way. It is one area hit on a timer, left exactly where the parent fell
+                // and released as the spell object an Arrows wave already waits in --
+                // `SpellMotion::Flight` with a delay, aimed at the point it starts from,
+                // so it arrives on the first tick after the fuse runs out and applies the
+                // same enemies-only splash `phase_reap` gives an ordinary DeathDamage row.
+                // THE FUSE IS THE BOMB ROW'S OWN DeployTime and NOT `deploy_ms` below:
+                // DEATH_SPAWN_DEPLOY_TIME_DEFAULT is measured `zero`, which says how fast
+                // a spawned UNIT wakes up and would fire this bomb on the death tick. The
+                // corpus separates them -- a Balloon's bomb lands 61 ticks after its last
+                // live frame, not on it (card.rs `convert_death_bomb`).
+                // ONE bomb, whatever DeathSpawnCount says: all three rows leave it blank
+                // (read as 1), and a ring of N discs on one point is a layout the data
+                // does not ask for and nothing has measured. A row that asked for more
+                // would need `death_spawn_points` and its own reading.
+                if let Some(fuse_ms) = unit.death_bomb_fuse_ms() {
+                    let base = unit.death_damage;
+                    let damage = self.cfg.cards.scaled(ds.unit, level, base).expect("death bomb level validated at deploy");
+                    let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
+                    // An Evo Skeleton Barrel's death drop falls `death_offset` from it in the owner's frame (`BarrelDef`).
+                    let pos = match self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.barrel) {
+                        Some(b) => {
+                            let fwd = spell::forward_dy(team);
+                            Vec2::new(pos.x + fwd * b.death_offset_x, pos.y + fwd * b.death_offset_y)
+                        }
+                        None => pos,
+                    };
+                    self.spells.push(Spell {
+                        team,
+                        card: ds.unit,
+                        level,
+                        damage,
+                        pulse: 0,
+                        motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms },
+                        depth: 0,
+                        flown: 0,
+                    });
+                    continue;
+                }
+                // A COPY'S DEATH SPAWNS ARE COPIES (calibration spells.CLONE_DEATH_SPAWNS = cloned_at_clone_hitpoints, under
+                // the table's CLONE_DEATH_SPAWN_UNITS or _BUILDINGS for the spawned unit's kind): created at the Clone's
+                // hitpoints and never copied again (`make_copy`). Measured on client 15.535.29: a copied Battle Ram killed by
+                // a Zap or a tower arrow released two Barbarians of 1 hitpoint each, where the original's had 716. A death
+                // bomb above is unchanged (not measured).
+                #[cfg(not(clash_plant = "clone_death_spawns_ordinary"))]
+                let copy_spawns = self.ents.cloned[i]
+                    && self.cfg.calib.clone_death_spawns == CloneDeathSpawns::ClonedAtCloneHitpoints
+                    && self.cfg.cards.globals.clone_flag(if unit.kind == CardKind::Building { "CLONE_DEATH_SPAWN_BUILDINGS" } else { "CLONE_DEATH_SPAWN_UNITS" }) == Some(true);
+                #[cfg(clash_plant = "clone_death_spawns_ordinary")]
+                let copy_spawns = false; // PLANT: a copy's death spawns are ordinary units.
+                let radius = ds.radius.unwrap_or(match self.cfg.calib.death_spawn_radius_default {
+                    DeathSpawnRadius::OwnCollisionRadius => self.ents.radius[i],
+                    DeathSpawnRadius::Zero => 0,
+                });
+                let deploy_ms = ds.deploy_time_ms.or(match self.cfg.calib.death_spawn_deploy_default {
+                    DeathSpawnDeploy::UnitOwnDeployTime => None,
+                    DeathSpawnDeploy::Zero => Some(0),
+                });
+                let team = self.ents.team[i];
+                // THE RING'S AXIS: the direction from the death point to the dying unit's
+                // TARGET (the two live rams: the Barbarians' axis at 26.0 / 84.1 degrees
+                // against 26.5 / 83.7 to the tower they were hitting, where the last
+                // movement direction was 20.8 / 89.6), else the unit's facing, else the
+                // seat's forward.
+                // spawner.DEATH_RING_DIRECTION = client15535_walk_step: a unit that walked on its death tick lays its ring along
+                // that step (its point less its point before the tick's walk, `scratch.pre`); one that stood keeps its target's,
+                // and so does one whose move that tick was a knockback ladder's step (`scratch.pushed`): it did not walk.
+                // PLANT (regression) death_ring_step_unread: the new arm still lays a walker's ring toward its target.
+                #[cfg(not(clash_plant = "death_ring_step_unread"))]
+                let walk_step = if self.cfg.calib.death_ring_direction == DeathRingDirection::Client15535WalkStep {
+                    self.scratch
+                        .pre
+                        .get(i)
+                        .map(|p| self.ents.pos[i].sub(*p))
+                        .filter(|d| *d != Vec2::default() && !self.scratch.pushed.get(i).copied().unwrap_or(false))
+                } else {
+                    None
                 };
-                let pos = self.ents.pos[i];
-                #[cfg(not(clash_plant = "buff_death_spawn_at_death_point"))]
-                let point_rule = self.cfg.calib.buff_death_spawn_point;
-                #[cfg(clash_plant = "buff_death_spawn_at_death_point")]
-                let point_rule = BuffDeathSpawnPoint::DeathPosition; // PLANT: the death point for every row.
-                let at = match point_rule {
-                    BuffDeathSpawnPoint::SameLocationOrVictimForward if !ds.same_location => {
-                        Vec2::new(pos.x, pos.y + spell::forward_dy(victim) * (self.ents.radius[i] + unit.collision_radius))
+                #[cfg(clash_plant = "death_ring_step_unread")]
+                let walk_step: Option<Vec2> = None;
+                // spawner.DEATH_RING_DIRECTION = client15535_facing: a unit whose own walk stepped on its death tick (the move
+                // pass's requested step, `scratch.walk_step`) lays its ring along its facing after that pass, the heading it
+                // walked on (`ents.facing`, 256 native units per axis, scaled here to subtiles), not its step: a walk sliding
+                // along an edge steps off its heading. One whose walk did not step keeps its target's.
+                // PLANT (regression) death_ring_facing_unread: the new arm lays a walker's ring along its step.
+                let walked = self.cfg.calib.death_ring_direction == DeathRingDirection::Client15535Facing
+                    && self.scratch.walk_step.get(i).is_some_and(|&l| l > 0);
+                #[cfg(not(clash_plant = "death_ring_facing_unread"))]
+                let walk_heading = if walked {
+                    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                    let f = self.ents.facing[i];
+                    Some(Vec2::new(f.x * K, f.y * K)).filter(|d| *d != Vec2::default())
+                } else {
+                    None
+                };
+                #[cfg(clash_plant = "death_ring_facing_unread")]
+                let walk_heading = if walked { self.scratch.pre.get(i).map(|p| self.ents.pos[i].sub(*p)).filter(|d| *d != Vec2::default()) } else { None };
+                let facing = match (walk_step.or(walk_heading), self.ents.target[i].filter(|t| self.ents.is_alive(*t))) {
+                    (Some(d), _) => d,
+                    (None, Some(t)) => {
+                        let d = self.ents.pos[t.index as usize].sub(self.ents.pos[i]);
+                        if d == Vec2::default() { self.ents.facing[i] } else { d }
                     }
-                    _ => pos,
+                    (None, None) => self.ents.facing[i],
                 };
-                let arena = &self.cfg.arena;
-                let at = Vec2::new(at.x.clamp(0, arena.width), at.y.clamp(0, arena.height));
-                let at = if unit.is_flying() || arena.is_passable_ground(at) { at } else { arena.nearest_passable_ground(at, team).unwrap_or(at) };
-                #[cfg(not(clash_plant = "buff_death_spawn_acquire_delayed"))]
-                let acquire_delay = false;
-                #[cfg(clash_plant = "buff_death_spawn_acquire_delayed")]
-                let acquire_delay = true; // PLANT: the curse's unit waits out the death spawn's acquire delay.
+                // That direction normalized to 256 native units per axis, truncated: the heading a facing ring's members start
+                // with (`member_facing` below). None for a zero direction.
+                let heading256 = if facing != Vec2::default() {
+                    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                    let mut v = (facing.x / K, facing.y / K);
+                    if crate::move16402::normalize_to(&mut v, 256) != 0 { Some(Vec2::new(v.0, v.1)) } else { None }
+                } else {
+                    None
+                };
+                // spawner.DEATH_RING_AXIS = client15535_unit_heading: the ring's angle is read off that heading, not off the
+                // raw direction (client 15.535.29: a Ram dying 2165 from the tower it hit, the direction (-287, 2146) at 97.62
+                // degrees, its Barbarians' heading (-33, 253) at 97.43, the ring at 97, where the raw direction rounds to 98).
+                #[cfg(not(clash_plant = "death_ring_axis_raw"))]
+                let axis = match heading256 {
+                    Some(h) if self.cfg.calib.death_ring_axis == DeathRingAxis::Client15535UnitHeading => h,
+                    _ => facing,
+                };
+                #[cfg(clash_plant = "death_ring_axis_raw")]
+                let axis = facing; // PLANT: the ring's angle off the raw direction under the new arm too.
+                let shift = card.formation.spawn_angle_shift_deg;
+                // spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide: a dying unit whose ROW sets
+                // DeathSpawnPushback (card.rs `death_spawn_pushback`: the Golem and the Lava Hound
+                // among the loaded cards; the Battle Ram leaves it blank) lays its members on the
+                // small fixed ring (`death_spawn_points` -> `fixed_slide_ring`), and each carries
+                // the slide out to DeathSpawnRadius that the Path phase runs. Every other row, and
+                // every row under the shipped not_read, keeps DEATH_SPAWN_LAYOUT.
+                #[cfg(not(any(clash_plant = "death_ring_slide_facing", clash_plant = "death_ring_slide_ignores_flag", clash_plant = "death_ring_slide_ignores_arm")))]
+                let slide = self.cfg.calib.death_spawn_pushback == DeathSpawnPushback::ClientRingSlide && card.death_spawn_pushback;
+                #[cfg(clash_plant = "death_ring_slide_facing")]
+                let slide = false; // PLANT (regression): a flagged row keeps the facing ring under the new arm.
+                #[cfg(clash_plant = "death_ring_slide_ignores_flag")]
+                let slide = self.cfg.calib.death_spawn_pushback == DeathSpawnPushback::ClientRingSlide; // PLANT: the Battle Ram slides too.
+                #[cfg(clash_plant = "death_ring_slide_ignores_arm")]
+                let slide = card.death_spawn_pushback; // PLANT: the flagged rows slide under not_read as well.
+                // ONLY A TROOP DEATH SPAWN takes the ring and the slide: the slide runs, and ends,
+                // in the Path phase's troop loops alone, so a building laid on the small ring would
+                // keep its slide for ever and never take a target. No loaded row pairs the flag
+                // with a building (every flagged row in the 15.535 table spawns troops); such a row
+                // keeps DEATH_SPAWN_LAYOUT. Plant death_slide_on_a_building drops this line.
+                #[cfg(not(clash_plant = "death_slide_on_a_building"))]
+                let slide = slide && unit.kind == CardKind::Troop;
+                let ring = DeathSpawnRing { count: ds.count, unit_radius: unit.collision_radius, flying: unit.is_flying(), facing: axis, angle_shift_deg: shift, radius, slide, orientation: RingOrientation::Troop };
+                // spawner.DEATH_SPAWN_AT_EMISSION_POINT = client16402_measured_list: a LISTED unit
+                // with a spawner puts every member on the point its periodic units come out at
+                // (`spawn_point`, through the one-member formation its timed waves use), all
+                // together. Unlisted units, and a listed one without a spawner, keep the ring.
+                let emission = match self.spawner_of(i) {
+                    Some(sp) if self.cfg.calib.death_spawn_at_emission == DeathAtEmission::MeasuredList && self.cfg.calib.death_spawn_at_emission_units.contains(&card.unit_name) => {
+                        let point = self.spawn_point(i, &sp);
+                        Some(self.formation_points(team, 1, unit.collision_radius, unit.is_flying(), point)[0])
+                    }
+                    _ => None,
+                };
+                // spawner.DEATH_SPAWN_RING = client_fixed_ring_listed: a LISTED unit whose row leaves SpawnAngleShift
+                // blank and does not slide lays its members on the fixed ring at DeathSpawnRadius
+                // (`fixed_death_ring`): the Elixir Golem's halves at +-750 on its x axis, the Goblin Drill's
+                // building's two Goblins at +-(500, 0). Every other death keeps DEATH_SPAWN_LAYOUT (or the slide).
+                #[cfg(not(clash_plant = "death_ring_facing"))]
+                let listed = self.cfg.calib.death_ring == DeathRingArm::ClientFixedRingListed
+                    && shift == 0
+                    && !slide
+                    && self.cfg.calib.death_ring_units.contains(&card.unit_name);
+                #[cfg(clash_plant = "death_ring_facing")]
+                let listed = false; // PLANT: the listed units keep DEATH_SPAWN_LAYOUT (the facing ring).
+                // rider.DISMOUNT_POINT: an attached rider's death spawn at its mount's position plus its offset
+                // (`dismount_point`; the Goblin Giant's Spear Goblins), ahead of every other layout.
+                let points = match (self.dismount_point(i, unit.is_flying()), emission) {
+                    (Some(p), _) | (None, Some(p)) => vec![p; ds.count.max(1) as usize],
+                    (None, None) if listed => self.fixed_death_ring(team, self.ents.pos[i], ds.count, radius, unit.is_flying()),
+                    (None, None) => self.death_spawn_points(team, self.ents.pos[i], ring),
+                };
+                // The slide each member of the fixed ring carries: from the death point out to
+                // DeathSpawnRadius, subtiles. None when the radius is at or inside the ring's own
+                // start radius (the members are born on it: nothing to slide), and none on any
+                // other layout.
+                let (slide_centre, slide_radius) = if slide && emission.is_none() && radius > crate::fixed::milli(move16402::DEATH_SLIDE_START) {
+                    (self.ents.pos[i], radius)
+                } else {
+                    (Vec2::default(), 0)
+                };
+                // spawner.DEATH_SLIDE_AIM = fixed_end_point: where each member's slide ends, fixed now (`slide_ends`).
+                let ends = self.slide_ends(team, self.ents.pos[i], ring, slide_radius);
+                // spawner.SPAWNED_FIRST_STEP: a death spawn takes its first update on its death frame,
+                // except the members of a DeathSpawnPushback row, whose first movement is the slide:
+                // measured on client 16.402, a Golem's Golemites exist on the death frame and are inert
+                // there, whatever this key says. Read off the row, not the slide's arm, so a Golemite
+                // laid by DEATH_SPAWN_LAYOUT under not_read is not stepped either.
+                #[cfg(not(clash_plant = "first_step_moves_pushback_spawns"))]
+                let first_update = !card.death_spawn_pushback;
+                #[cfg(clash_plant = "first_step_moves_pushback_spawns")]
+                let first_update = true; // PLANT (regression): a Golemite steps on its death frame.
+                // THE DYING PARENT STAYS IN ITS MEMBERS' FIRST AVOIDANCE SCAN, as a static blocker, and out of
+                // their separation push (`first_update`): a building and a troop alike, on the parent's own layer
+                // (the scan skips a body of the other one). Measured on client 15.535.29 (the members' first-frame
+                // avoidance offset, the scan run along the member's heading at creation): the Elixir Golem's halves
+                // 42 of 42 that walk on their first frame (the other 6 are in their attack there, which the scan
+                // skips, and read 0), the Battle Ram's Barbarians 33 of 33 (+-190 while they deploy); the Goblin
+                // Giant's riders, flying rows, leave their ground Spear Goblins at 0 (12 of 12). On the 16.402 corpus
+                // the Elixir Golem's halves then slide outward as they walk while the offset decays
+                // (20260920-090204, tick 1260).
+                #[cfg(not(any(clash_plant = "first_step_parent_gone", clash_plant = "first_step_troop_parent_gone")))]
+                let blocks = first_update;
+                #[cfg(clash_plant = "first_step_parent_gone")]
+                let blocks = false; // PLANT (regression): the dying building is gone from the scan.
+                #[cfg(clash_plant = "first_step_troop_parent_gone")]
+                let blocks = first_update && self.ents.kind[i].is_building(); // PLANT (regression): a dying troop is not a blocker.
+                #[cfg(not(clash_plant = "first_step_blocker_ground"))]
+                let air = self.ents.flying[i];
+                #[cfg(clash_plant = "first_step_blocker_ground")]
+                let air = false; // PLANT (regression): every blocker on the ground layer, a flying parent's too.
+                if blocks {
+                    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                    let p = self.ents.pos[i];
+                    self.scratch.dying_blockers.push((p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8, air, false));
+                }
+                // spawner.DEATH_SPAWN_LAYOUT = facing_ring_rounded: the members start with the dying unit's heading, the
+                // ring's axis normalized to 256 in native units (measured on client 15.535.29: (28, -254) for a Ram dying
+                // on a tower). Only where that ring was laid: not on the slide, not at the emission point.
+                #[cfg(not(clash_plant = "death_ring_members_face_forward"))]
+                let keeps_heading = self.cfg.calib.death_spawn_layout == DeathSpawnLayout::FacingRingRounded && !slide && emission.is_none() && !listed;
+                #[cfg(clash_plant = "death_ring_members_face_forward")]
+                let keeps_heading = false; // PLANT (regression): the members face their side's forward.
+                let member_facing = if keeps_heading { heading256 } else { None };
                 parents.push(i);
-                spawned.push((
-                    team,
-                    self.ents.team_seq[i],
-                    256 + k as u32,
-                    PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: NO_CARD },
-                ));
+                // spawner.DEATH_SLIDE_STOP = move_count: a member with an end point (DEATH_SLIDE_AIM = fixed_end_point)
+                // slides at most its move count (`slide_move_count`), from where it is born.
+                #[cfg(not(clash_plant = "death_slide_count_ignored"))]
+                let counted = self.cfg.calib.death_slide_stop == DeathSlideStop::MoveCount;
+                #[cfg(clash_plant = "death_slide_count_ignored")]
+                let counted = false; // PLANT (regression): the new arm slides on until the member reaches its end point.
+                for (k, p) in points.into_iter().enumerate() {
+                    let slide_end = ends.get(k).copied().unwrap_or_default();
+                    let slide_ticks = match ends.get(k) {
+                        Some(&end) if counted => slide_move_count(p, end),
+                        _ => 0,
+                    };
+                    spawned.push((team, self.ents.team_seq[i], k as u32, PendingSpawn { team, card: ds.unit, level, pos: p, deploy_ms, owner: None, stagger_ms: 0, slide_centre, slide_radius, slide_ticks, slide_end, acquire_delay: true, first_update, facing: member_facing, summon_x: None, morph_birth: false, cloned: copy_spawns, action_made: false, source: self.ents.producer(i) }));
+                }
             }
-        }
-        spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
-        for (_, _, _, p) in spawned {
-            self.release(p);
-        }
-        // THE HERO GOBLINS' FLAG (card.rs `FlagSpawnsDef`): an untagged unit of a flag form dying with no untagged unit of
-        // its form of its side left standing (this tick's dying ones aside) leaves the flag where it died, one a side a
-        // tick, released with the tick's other units.
-        #[cfg(not(clash_plant = "flag_never"))]
-        {
-            let mut flagged: Vec<Team> = Vec::new();
+            // THE DEATH SPAWN OF A BUFF THE DYING UNIT CARRIES (status.rs `BuffDeathSpawn`: the Mother Witch's VoodooCurse
+            // leaves a VoodooHog, the Goblin Curse's mark a GoblinCurseGoblin), beside the unit's own death spawn above,
+            // which still happens (the loader reads only rows that allow it). One unit per live slot whose buff has one:
+            //   - for the side opposite the dead unit's when the row sets DeathSpawnIsEnemy (the caster's), else its own;
+            //   - at the level status.BUFF_DEATH_SPAWN_LEVEL names (the slot's source level, or the dead unit's), skipped
+            //     when the unit has no such level;
+            //   - deploying its own DeployTime when the row sets DeathSpawnDeployDelay, under
+            //     status.BUFF_DEATH_SPAWN_DEPLOY_TIME = unit_deploy_time; else acting at once;
+            //   - where status.BUFF_DEATH_SPAWN_POINT says, clamped to the arena and, for a ground unit, put on land;
+            //   - an ordinary target from its first tick (measured on client 15.535.29: the towers target a curse goblin
+            //     from the tick after it appears, where a unit's own death spawn waits out targeting.SPAWNED_UNIT_
+            //     ACQUIRE_DELAY), and not stepped on its first frame (its deploy frames are measured: 20 for the goblin).
+            // Keyed after the unit's own members (256 + the slot), so the release order stays canonical.
+            #[cfg(not(clash_plant = "buff_death_spawn_dropped"))]
             for id in &deaths {
                 let i = id.index as usize;
-                let (card, team) = (self.ents.card[i], self.ents.team[i]);
-                let Some(flag) = self.cfg.cards.flag_of(card).filter(|&fl| fl != card) else { continue };
-                if flagged.contains(&team) || self.flag_tagged(i, card) {
-                    continue;
+                let a = i * crate::status::MAX_BUFFS_PER_ENTITY;
+                for k in 0..crate::status::MAX_BUFFS_PER_ENTITY {
+                    let slot = self.ents.buffs[a + k];
+                    if slot.is_empty() {
+                        continue;
+                    }
+                    let Some(ds) = self.cfg.cards.buffs.get(slot.id as usize - 1).and_then(|d| d.death_spawn) else { continue };
+                    if ds.unit == u16::MAX {
+                        continue; // the loader drops an unresolved one; never reached
+                    }
+                    let victim = self.ents.team[i];
+                    let team = if ds.for_other_side { victim.other() } else { victim };
+                    let level = match self.cfg.calib.buff_death_spawn_level {
+                        BuffDeathSpawnLevel::SourceLevel => slot.src_level,
+                        BuffDeathSpawnLevel::VictimLevel => self.ents.level[i],
+                    };
+                    if self.cfg.cards.level_multiplier(ds.unit, level).is_err() {
+                        continue;
+                    }
+                    let unit = self.cfg.cards.get(ds.unit);
+                    let deploy_ms = match (ds.deploy_delay, self.cfg.calib.buff_death_spawn_deploy) {
+                        (true, BuffDeathSpawnDeploy::UnitDeployTime) => Some(unit.deploy_time_ms),
+                        _ => Some(0),
+                    };
+                    let pos = self.ents.pos[i];
+                    #[cfg(not(clash_plant = "buff_death_spawn_at_death_point"))]
+                    let point_rule = self.cfg.calib.buff_death_spawn_point;
+                    #[cfg(clash_plant = "buff_death_spawn_at_death_point")]
+                    let point_rule = BuffDeathSpawnPoint::DeathPosition; // PLANT: the death point for every row.
+                    let at = match point_rule {
+                        BuffDeathSpawnPoint::SameLocationOrVictimForward if !ds.same_location => {
+                            Vec2::new(pos.x, pos.y + spell::forward_dy(victim) * (self.ents.radius[i] + unit.collision_radius))
+                        }
+                        _ => pos,
+                    };
+                    let arena = &self.cfg.arena;
+                    let at = Vec2::new(at.x.clamp(0, arena.width), at.y.clamp(0, arena.height));
+                    let at = if unit.is_flying() || arena.is_passable_ground(at) { at } else { arena.nearest_passable_ground(at, team).unwrap_or(at) };
+                    #[cfg(not(clash_plant = "buff_death_spawn_acquire_delayed"))]
+                    let acquire_delay = false;
+                    #[cfg(clash_plant = "buff_death_spawn_acquire_delayed")]
+                    let acquire_delay = true; // PLANT: the curse's unit waits out the death spawn's acquire delay.
+                    parents.push(i);
+                    spawned.push((
+                        team,
+                        self.ents.team_seq[i],
+                        256 + k as u32,
+                        PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: NO_CARD },
+                    ));
                 }
-                let others = (0..self.ents.capacity()).any(|j| j != i && self.ents.alive[j] && self.ents.card[j] == card && self.ents.team[j] == team && !deaths.contains(&self.ents.id_of(j)) && !self.flag_tagged(j, card));
-                if others {
-                    continue;
+            }
+            spawned.sort_by_key(|(t, seq, k, _)| (*t as u8, *seq, *k));
+            for (_, _, _, p) in spawned {
+                self.release(p);
+            }
+            // THE HERO GOBLINS' FLAG (card.rs `FlagSpawnsDef`): an untagged unit of a flag form dying with no untagged unit of
+            // its form of its side left standing (this tick's dying ones aside) leaves the flag where it died, one a side a
+            // tick, released with the tick's other units.
+            #[cfg(not(clash_plant = "flag_never"))]
+            {
+                let mut flagged: Vec<Team> = Vec::new();
+                for id in &deaths {
+                    let i = id.index as usize;
+                    let (card, team) = (self.ents.card[i], self.ents.team[i]);
+                    let Some(flag) = self.cfg.cards.flag_of(card).filter(|&fl| fl != card) else { continue };
+                    if flagged.contains(&team) || self.flag_tagged(i, card) {
+                        continue;
+                    }
+                    let others = (0..self.ents.capacity()).any(|j| j != i && self.ents.alive[j] && self.ents.card[j] == card && self.ents.team[j] == team && !deaths.contains(&self.ents.id_of(j)) && !self.flag_tagged(j, card));
+                    if others {
+                        continue;
+                    }
+                    let level = self.cfg.cards.unit_level(card, flag, None, self.ents.level[i]).expect("the flag's level is validated at try_new");
+                    self.release(PendingSpawn { team, card: flag, level, pos: self.ents.pos[i], deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+                    flagged.push(team);
                 }
-                let level = self.cfg.cards.unit_level(card, flag, None, self.ents.level[i]).expect("the flag's level is validated at try_new");
-                self.release(PendingSpawn { team, card: flag, level, pos: self.ents.pos[i], deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
-                flagged.push(team);
             }
-        }
-        // THE EVO LUMBERJACK'S GHOST (card.rs `RageGhostDef`): each of his deaths puts one down RAGE_GHOST_APPEAR_TICKS on,
-        // on his death point (`rage_ghost_release`); his ghost's own death none.
-        #[cfg(not(clash_plant = "rage_ghost_never"))]
-        for id in &deaths {
-            let i = id.index as usize;
-            let card = self.ents.card[i];
-            if let Some(rg) = self.cfg.cards.get(card).evo.as_ref().and_then(|v| v.rage_ghost) {
-                if card != rg.ghost.unit {
-                    self.evo.rage_ghosts.push(RageGhostRun { team: self.ents.team[i], card, level: self.ents.level[i], pos: self.ents.pos[i], made: self.tick, ghost: None, last_in: 0 });
-                }
-            }
-        }
-        // A death releases its area effect (card.rs `death_area_effect`) into the same
-        // spell list a cast goes into, so the disc applies in the NEXT tick's
-        // Projectile phase -- the same tick the death damage buffered below resolves,
-        // because Reap runs after Resolve. Collected first and appended once: the
-        // death queue's order is `combat::resolve`'s canonical one, and the borrow of
-        // `cfg` ends before `spells` is touched.
-        let mut released: Vec<spell::Spell> = Vec::new();
-        for id in &deaths {
-            let i = id.index as usize;
-            let idx = self.ents.card[i];
-            if self.cfg.cards.get(idx).death_area_effect.is_none() {
-                continue;
-            }
-            let mut objects = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i], self.tick)
-                .expect("death area effect level validated at deploy");
-            // spells.DEATH_FUSE_START = one_tick_hop: the bottle a death puts down (card.rs `area_spawns_bottle`, the
-            // Lumberjack's) runs its fuse one tick later than an object Reap makes otherwise would. Measured on client
-            // 15.535.29: the rage's damage lands on the death tick + 13, 5 of 5 deaths; next_tick gives + 12. A zero fuse
-            // (an area that makes an area) is not a bottle and does not read the key.
-            #[cfg(not(clash_plant = "death_fuse_hop_shifted"))]
-            let hop = self.cfg.calib.death_fuse_start == DeathFuseStart::OneTickHop
-                && matches!(self.cfg.cards.get(idx).death_area_effect.as_ref().map(|d| &d.shape), Some(SpellShape::Fuse { fuse_ms, .. }) if *fuse_ms > 0);
-            #[cfg(clash_plant = "death_fuse_hop_shifted")]
-            let hop = false; // PLANT: the bottle's fuse counts from the tick after the death.
-            if hop {
-                for o in objects.iter_mut().filter(|o| o.depth == 0) {
-                    if let spell::SpellMotion::Fuse { ms, .. } = &mut o.motion {
-                        *ms += self.cfg.calib.tick_ms;
+            // THE EVO LUMBERJACK'S GHOST (card.rs `RageGhostDef`): each of his deaths puts one down RAGE_GHOST_APPEAR_TICKS on,
+            // on his death point (`rage_ghost_release`); his ghost's own death none.
+            #[cfg(not(clash_plant = "rage_ghost_never"))]
+            for id in &deaths {
+                let i = id.index as usize;
+                let card = self.ents.card[i];
+                if let Some(rg) = self.cfg.cards.get(card).evo.as_ref().and_then(|v| v.rage_ghost) {
+                    if card != rg.ghost.unit {
+                        self.evo.rage_ghosts.push(RageGhostRun { team: self.ents.team[i], card, level: self.ents.level[i], pos: self.ents.pos[i], made: self.tick, ghost: None, last_in: 0 });
                     }
                 }
             }
-            released.extend(objects);
-        }
-        // spawner.DEATH_SPAWN_PROJECTILE = client_projectile: a death whose row carries a
-        // DeathSpawnProjectile (card.rs `death_projectile`, the Phoenix's PhoenixFireball) leaves
-        // that projectile standing on the death point, aimed at it with no delay (spell.rs
-        // `death_projectile`), in the same spell list and in the same death order. It lands on the
-        // NEXT tick's Projectile phase -- the second tick after the unit's last one, measured on
-        // client 15.535.29 in all three Phoenix scenarios -- and does there what a cast
-        // projectile's arrival does: its Damage at the dead unit's level on every enemy within its
-        // Radius plus the enemy's own (spells.AOE_HIT_TEST), and its SpawnCharacter released at the
-        // point for the dead unit's side and level (`phase_projectile`, which puts a ground unit
-        // over water on land). Under the shipped `none` the column is not read.
-        #[cfg(not(clash_plant = "death_projectile_unread"))]
-        let fires = self.cfg.calib.death_spawn_projectile == DeathSpawnProjectile::ClientProjectile;
-        #[cfg(clash_plant = "death_projectile_unread")]
-        let fires = false; // PLANT (regression): a Phoenix dies with nothing following under the new arm too.
-        if fires {
+            // A death releases its area effect (card.rs `death_area_effect`) into the same
+            // spell list a cast goes into, so the disc applies in the NEXT tick's
+            // Projectile phase -- the same tick the death damage buffered below resolves,
+            // because Reap runs after Resolve. Collected first and appended once: the
+            // death queue's order is `combat::resolve`'s canonical one, and the borrow of
+            // `cfg` ends before `spells` is touched.
+            let mut released: Vec<spell::Spell> = Vec::new();
             for id in &deaths {
                 let i = id.index as usize;
                 let idx = self.ents.card[i];
-                if self.cfg.cards.get(idx).death_projectile.is_none() {
+                if self.cfg.cards.get(idx).death_area_effect.is_none() {
                     continue;
                 }
-                released.push(
-                    spell::death_projectile(&self.cfg.cards, &self.cfg.calib, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
-                        .expect("death projectile level validated at deploy"),
-                );
-            }
-        }
-        self.spells.append(&mut released);
-        // knockback.TROOP_DEATH_PUSHBACK: the pushes this Reap's death blows arm, applied after the loop.
-        let mut death_pushes = EffectBuffer::default();
-        for id in &deaths {
-            let i = id.index as usize;
-            // THE EVO GOBLIN CAGE'S CAPTIVE is let go when the cage dies (card.rs `CageDef`): on the cage's point, its hide
-            // off, held CAGE_RELEASE_HOLD_TICKS more.
-            if let Some(k) = self.evo.cages.iter().position(|r| r.cage == *id) {
-                let r = self.evo.cages.remove(k);
-                if let Some(c) = r.captive.filter(|c| self.ents.is_alive(*c) && self.ents.hp[c.index as usize] > 0) {
-                    let ci = c.index as usize;
-                    let hide = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|e| e.cage).map(|cd| cd.hide);
-                    if let Some(h) = hide {
-                        self.drop_buff(ci, h);
-                    }
-                    // The hold timer set here in Reap runs down at the next tick's start: the ticks it stands, plus that one.
-                    #[cfg(not(clash_plant = "cage_release_at_once"))]
-                    let hold = (crate::card::CAGE_RELEASE_HOLD_TICKS + 1) * self.cfg.calib.tick_ms;
-                    #[cfg(clash_plant = "cage_release_at_once")]
-                    let hold = 0; // PLANT: the captive walks on the tick after the cage's death.
-                    // combat.CAGE_RELEASE_SCAN = client15535_scans_while_held: the hold stops its move alone (`freed`, below),
-                    // so it takes its target on the next tick, standing, and walks the tick after.
-                    // PLANT (regression) cage_release_stunned: the new arm still stuns it through the hold.
-                    #[cfg(not(clash_plant = "cage_release_stunned"))]
-                    let scans = self.cfg.calib.cage_release_scan == CageReleaseScan::Client15535ScansWhileHeld;
-                    #[cfg(clash_plant = "cage_release_stunned")]
-                    let scans = false;
-                    self.ents.stun_ms[ci] = if scans { 0 } else { hold };
-                    // Through the hold it is not pushed either (EvoBoard `freed`; the move pass skips it).
-                    #[cfg(not(any(clash_plant = "cage_release_at_once", clash_plant = "cage_release_pushed")))]
-                    self.evo.freed.push((c, self.tick + crate::card::CAGE_RELEASE_HOLD_TICKS as u32));
-                }
-            }
-            // THE EVO WITCH'S SOUL (card.rs `SoulDrainDef`): a unit of her ROW's own wave dying sends one, due its
-            // flight and a tick on (the heal's pulse). A unit of her interval waves (`witch_wave_pass`, created from her
-            // creation + the interval's first delay on) sends none. Measured on client 15.535.29 (parity's witch_souls
-            // reading): row-wave deaths healed her 8 of 8, interval-wave deaths 0 of 8 (sp-f2-witch-s0, none at her cap).
-            #[cfg(not(clash_plant = "soul_drain_never"))]
-            if let Some(w) = self.ents.spawned_by[i].filter(|w| self.ents.is_alive(*w) && self.ents.hp[w.index as usize] > 0) {
-                if let Some(sd) = self.cfg.cards.get(self.ents.card[w.index as usize]).evo.as_ref().and_then(|e| e.soul_drain) {
-                    let dt = self.cfg.calib.tick_ms.max(1);
-                    #[cfg(not(clash_plant = "interval_units_send_souls"))]
-                    let from_row = self.ents.spawn_tick[i] < self.ents.spawn_tick[w.index as usize] + ((sd.waves.first_ms / dt) as u32).saturating_sub(1);
-                    #[cfg(clash_plant = "interval_units_send_souls")]
-                    let from_row = true; // PLANT (regression): every unit she spawned sends a soul.
-                    if from_row {
-                        let due = self.tick + (sd.flight_ms / dt) as u32 + 1;
-                        self.evo.souls.push((w, due));
-                    }
-                }
-            }
-            let card = self.cfg.cards.get(self.ents.card[i]);
-            let blow_from = self.dmg.hits.len();
-            if self.ents.death_damage[i] > 0 && card.death_damage_radius > 0 {
-                // The blow's own crown-tower percent where it has one (card.rs `CardDef::death_crown_pct`: the Evo Wall
-                // Breakers'), else the card's.
-                #[cfg(not(clash_plant = "death_crown_pct_unread"))]
-                let crown = card.death_crown_pct.unwrap_or(card.crown_tower_damage_percent);
-                #[cfg(clash_plant = "death_crown_pct_unread")]
-                let crown = card.crown_tower_damage_percent; // PLANT: the card's own percent for every death blow.
-                combat::splash(
-                    &self.ents,
-                    &self.hash,
-                    self.ents.team[i],
-                    self.ents.pos[i],
-                    card.death_damage_radius,
-                    true,
-                    true,
-                    self.ents.death_damage[i],
-                    crown,
-                    self.cfg.calib.crown_rounding,
-                    &mut self.dmg,
-                    &mut self.scratch.nb,
-                );
-                // spawner.THROWN_UNIT_DEATH_BLOW = client15535_unreached: a unit a throw put down this tick is put down after
-                // the tick's death blows, so none reaches it (client 15.535.29: the Hero Balloon's trooper landing on the Ice
-                // Golemite its blow killed kept 473 of 473, twice).
-                // PLANT (regression) thrown_unit_blown: the new arm's blow still reaches it.
-                #[cfg(not(clash_plant = "thrown_unit_blown"))]
-                if self.cfg.calib.thrown_unit_death_blow == ThrownUnitDeathBlow::Client15535Unreached && !self.scratch.thrown.is_empty() {
-                    let thrown = std::mem::take(&mut self.scratch.thrown);
-                    let mut k = blow_from;
-                    while k < self.dmg.hits.len() {
-                        if thrown.contains(&self.dmg.hits[k].target) {
-                            self.dmg.hits.remove(k);
-                        } else {
-                            k += 1;
+                let mut objects = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i], self.tick)
+                    .expect("death area effect level validated at deploy");
+                // spells.DEATH_FUSE_START = one_tick_hop: the bottle a death puts down (card.rs `area_spawns_bottle`, the
+                // Lumberjack's) runs its fuse one tick later than an object Reap makes otherwise would. Measured on client
+                // 15.535.29: the rage's damage lands on the death tick + 13, 5 of 5 deaths; next_tick gives + 12. A zero fuse
+                // (an area that makes an area) is not a bottle and does not read the key.
+                #[cfg(not(clash_plant = "death_fuse_hop_shifted"))]
+                let hop = self.cfg.calib.death_fuse_start == DeathFuseStart::OneTickHop
+                    && matches!(self.cfg.cards.get(idx).death_area_effect.as_ref().map(|d| &d.shape), Some(SpellShape::Fuse { fuse_ms, .. }) if *fuse_ms > 0);
+                #[cfg(clash_plant = "death_fuse_hop_shifted")]
+                let hop = false; // PLANT: the bottle's fuse counts from the tick after the death.
+                if hop {
+                    for o in objects.iter_mut().filter(|o| o.depth == 0) {
+                        if let spell::SpellMotion::Fuse { ms, .. } = &mut o.motion {
+                            *ms += self.cfg.calib.tick_ms;
                         }
                     }
-                    self.scratch.thrown = thrown;
                 }
-                // knockback.TROOP_DEATH_PUSHBACK = client15535_ladder: a dying TROOP whose row sets DeathPushBack pushes every
-                // unit its blow hits that a spell's push could move (spell.rs `push_from`), on the knockback ladder from its
-                // death point: the first step on this tick when it was struck down in the pass (its death settled before the
-                // move pass), else on the next. Client 15.535.29: 43 of 43 enemies in reach of a dying Golem or Golemite
-                // pushed (sp-f2-cagefb-s0 t928: a Goblin Brawler 1,342 from the Golem stepped 248, 249, 223 ... away).
-                #[cfg(not(clash_plant = "troop_death_pushback_unread"))]
-                if self.cfg.calib.troop_death_pushback == TroopDeathPushback::Client15535Ladder && card.death_pushback > 0 && self.ents.kind[i] == EntityKind::Troop {
-                    let now = self.scratch.pass_struck.contains(id);
-                    let victims: Vec<usize> = self.dmg.hits[blow_from..].iter().map(|h| h.target.index as usize).collect();
-                    let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[], tick: self.tick };
-                    let k = crate::card::KnockbackDef { distance: card.death_pushback, all: false };
-                    for v in victims {
-                        spell::push_from(&ctx, self.ents.team[i], v, self.ents.pos[i], &k, now, &mut death_pushes);
+                released.extend(objects);
+            }
+            // spawner.DEATH_SPAWN_PROJECTILE = client_projectile: a death whose row carries a
+            // DeathSpawnProjectile (card.rs `death_projectile`, the Phoenix's PhoenixFireball) leaves
+            // that projectile standing on the death point, aimed at it with no delay (spell.rs
+            // `death_projectile`), in the same spell list and in the same death order. It lands on the
+            // NEXT tick's Projectile phase -- the second tick after the unit's last one, measured on
+            // client 15.535.29 in all three Phoenix scenarios -- and does there what a cast
+            // projectile's arrival does: its Damage at the dead unit's level on every enemy within its
+            // Radius plus the enemy's own (spells.AOE_HIT_TEST), and its SpawnCharacter released at the
+            // point for the dead unit's side and level (`phase_projectile`, which puts a ground unit
+            // over water on land). Under the shipped `none` the column is not read.
+            #[cfg(not(clash_plant = "death_projectile_unread"))]
+            let fires = self.cfg.calib.death_spawn_projectile == DeathSpawnProjectile::ClientProjectile;
+            #[cfg(clash_plant = "death_projectile_unread")]
+            let fires = false; // PLANT (regression): a Phoenix dies with nothing following under the new arm too.
+            if fires {
+                for id in &deaths {
+                    let i = id.index as usize;
+                    let idx = self.ents.card[i];
+                    if self.cfg.cards.get(idx).death_projectile.is_none() {
+                        continue;
                     }
-                }
-                // combat.DEATH_DAMAGE_TICK = client15535_death_tick: the blow lands here, on the death tick.
-                #[cfg(not(clash_plant = "death_blow_next_tick"))]
-                if self.cfg.calib.death_damage_tick == DeathDamageTick::Client15535DeathTick {
-                    self.land_death_blow(blow_from);
-                }
-            }
-            #[cfg(clash_plant = "death_blow_next_tick")]
-            let _ = blow_from; // PLANT (regression): the 15.535.29 arm's blow still lands with the next tick's hits.
-            let team = self.ents.team[i] as usize;
-            if let Some(slot) = self.towers[team].iter().position(|t| *t == Some(*id)) {
-                self.towers_down[team][slot] = true;
-                if slot != 0 && self.king_wake_ms[team].is_none() {
-                    self.king_wake_ms[team] = Some(0);
+                    released.push(
+                        spell::death_projectile(&self.cfg.cards, &self.cfg.calib, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
+                            .expect("death projectile level validated at deploy"),
+                    );
                 }
             }
-        }
-        // knockback.TROOP_DEATH_PUSHBACK: arm the death blows' pushes (their first step now for a troop struck in the pass).
-        if !death_pushes.knocks.is_empty() {
-            let later = std::mem::replace(&mut self.effects, death_pushes);
-            self.apply_effects();
-            self.effects = later;
-        }
-        // movement.SPAWN_PATHFIND_STATES: a tunneller that came up as its building this tick (`surface`) leaves
-        // WITHOUT a death -- no death spawn, no area, no damage, no crown -- and its building is created below
-        // (`materialise_released`), on the same frame: the two never share one.
-        for id in std::mem::take(&mut self.scratch.vanish) {
-            self.ents.despawn(id);
-        }
-        // ELIXIR ON DEATH (card.rs `ManaDef`; economy.MANA_ON_DEATH_TRIGGER = any_death): a death through this queue --
-        // destroyed, or drained out at the end of its LifeTime -- pays ManaOnDeath (whole elixir) to the dying unit's
-        // side and ManaOnDeathForOpponent (economy.MANA_ON_DEATH_FOR_OPPONENT_UNIT) to the other. Summed per side over
-        // the tick's deaths and capped once, so the order of the deaths cannot matter. Unmeasured on client 16.402
-        // (both Elixir Collectors lived; the opponent was at the cap at both Elixir Golem deaths). A side nothing is
-        // owed is not touched.
-        let mut owed = [0i64; 2];
-        for id in &deaths {
-            let i = id.index as usize;
-            let Some(m) = self.cfg.cards.get(self.ents.card[i]).mana else { continue };
-            let t = self.ents.team[i] as usize;
-            owed[t] += m.on_death as i64 * self.mana_unit;
-            let other = self.mana_for_opponent(m.on_death_for_opponent);
-            #[cfg(not(clash_plant = "mana_on_death_to_owner"))]
-            {
-                owed[1 - t] += other;
-            }
-            #[cfg(clash_plant = "mana_on_death_to_owner")]
-            {
-                owed[t] += other; // PLANT (regression): the opponent's elixir paid to the dying unit's own side.
-            }
-        }
-        if owed != [0, 0] {
-            let cap = (self.cfg.calib.max_mana as i64) * self.mana_unit;
-            for (t, gain) in owed.into_iter().enumerate() {
-                if gain > 0 {
-                    self.players[t].mana = (self.players[t].mana + gain).min(cap);
-                }
-            }
-        }
-        // spawner.FIRST_STEP_DYING_BODIES = client16402_seen: the tick's dead that released nothing, as the contact law
-        // meets them, taken before the despawn below for the released units' first update (`materialise_released`).
-        // Under hidden the list stays empty, so today's engine is untouched. A MOUNT whose riders' death spawns fired
-        // this tick released those units through them (the Goblin Giant's dismounting Spear Goblins), so its body is
-        // not seen either: the key's "a unit whose death released a unit on that tick", and the dismount law measured on
-        // client 15.535.29 puts each Goblin at the Giant plus its offset, unpushed (tests/goblin_giant.rs).
-        self.scratch.dying_bodies.clear();
-        if self.cfg.calib.first_step_dying == FirstStepDying::Seen {
-            let mounts: Vec<EntityId> = parents.iter().filter_map(|&p| self.ents.attached_to[p]).collect();
+            self.spells.append(&mut released);
+            // knockback.TROOP_DEATH_PUSHBACK: the pushes this Reap's death blows arm, applied after the loop.
+            let mut death_pushes = EffectBuffer::default();
             for id in &deaths {
                 let i = id.index as usize;
-                if self.ents.alive[i] && !parents.contains(&i) && !mounts.contains(id) {
-                    let b = self.dying_body(i);
-                    self.scratch.dying_bodies.push(b);
+                // THE EVO GOBLIN CAGE'S CAPTIVE is let go when the cage dies (card.rs `CageDef`): on the cage's point, its hide
+                // off, held CAGE_RELEASE_HOLD_TICKS more.
+                if let Some(k) = self.evo.cages.iter().position(|r| r.cage == *id) {
+                    let r = self.evo.cages.remove(k);
+                    if let Some(c) = r.captive.filter(|c| self.ents.is_alive(*c) && self.ents.hp[c.index as usize] > 0) {
+                        let ci = c.index as usize;
+                        let hide = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|e| e.cage).map(|cd| cd.hide);
+                        if let Some(h) = hide {
+                            self.drop_buff(ci, h);
+                        }
+                        // The hold timer set here in Reap runs down at the next tick's start: the ticks it stands, plus that one.
+                        #[cfg(not(clash_plant = "cage_release_at_once"))]
+                        let hold = (crate::card::CAGE_RELEASE_HOLD_TICKS + 1) * self.cfg.calib.tick_ms;
+                        #[cfg(clash_plant = "cage_release_at_once")]
+                        let hold = 0; // PLANT: the captive walks on the tick after the cage's death.
+                        // combat.CAGE_RELEASE_SCAN = client15535_scans_while_held: the hold stops its move alone (`freed`, below),
+                        // so it takes its target on the next tick, standing, and walks the tick after.
+                        // PLANT (regression) cage_release_stunned: the new arm still stuns it through the hold.
+                        #[cfg(not(clash_plant = "cage_release_stunned"))]
+                        let scans = self.cfg.calib.cage_release_scan == CageReleaseScan::Client15535ScansWhileHeld;
+                        #[cfg(clash_plant = "cage_release_stunned")]
+                        let scans = false;
+                        self.ents.stun_ms[ci] = if scans { 0 } else { hold };
+                        // Through the hold it is not pushed either (EvoBoard `freed`; the move pass skips it).
+                        #[cfg(not(any(clash_plant = "cage_release_at_once", clash_plant = "cage_release_pushed")))]
+                        self.evo.freed.push((c, self.tick + crate::card::CAGE_RELEASE_HOLD_TICKS as u32));
+                    }
+                }
+                // THE EVO WITCH'S SOUL (card.rs `SoulDrainDef`): a unit of her ROW's own wave dying sends one, due its
+                // flight and a tick on (the heal's pulse). A unit of her interval waves (`witch_wave_pass`, created from her
+                // creation + the interval's first delay on) sends none. Measured on client 15.535.29 (parity's witch_souls
+                // reading): row-wave deaths healed her 8 of 8, interval-wave deaths 0 of 8 (sp-f2-witch-s0, none at her cap).
+                #[cfg(not(clash_plant = "soul_drain_never"))]
+                if let Some(w) = self.ents.spawned_by[i].filter(|w| self.ents.is_alive(*w) && self.ents.hp[w.index as usize] > 0) {
+                    if let Some(sd) = self.cfg.cards.get(self.ents.card[w.index as usize]).evo.as_ref().and_then(|e| e.soul_drain) {
+                        let dt = self.cfg.calib.tick_ms.max(1);
+                        #[cfg(not(clash_plant = "interval_units_send_souls"))]
+                        let from_row = self.ents.spawn_tick[i] < self.ents.spawn_tick[w.index as usize] + ((sd.waves.first_ms / dt) as u32).saturating_sub(1);
+                        #[cfg(clash_plant = "interval_units_send_souls")]
+                        let from_row = true; // PLANT (regression): every unit she spawned sends a soul.
+                        if from_row {
+                            let due = self.tick + (sd.flight_ms / dt) as u32 + 1;
+                            self.evo.souls.push((w, due));
+                        }
+                    }
+                }
+                let card = self.cfg.cards.get(self.ents.card[i]);
+                let blow_from = self.dmg.hits.len();
+                if self.ents.death_damage[i] > 0 && card.death_damage_radius > 0 {
+                    // The blow's own crown-tower percent where it has one (card.rs `CardDef::death_crown_pct`: the Evo Wall
+                    // Breakers'), else the card's.
+                    #[cfg(not(clash_plant = "death_crown_pct_unread"))]
+                    let crown = card.death_crown_pct.unwrap_or(card.crown_tower_damage_percent);
+                    #[cfg(clash_plant = "death_crown_pct_unread")]
+                    let crown = card.crown_tower_damage_percent; // PLANT: the card's own percent for every death blow.
+                    combat::splash(
+                        &self.ents,
+                        &self.hash,
+                        self.ents.team[i],
+                        self.ents.pos[i],
+                        card.death_damage_radius,
+                        true,
+                        true,
+                        self.ents.death_damage[i],
+                        crown,
+                        self.cfg.calib.crown_rounding,
+                        &mut self.dmg,
+                        &mut self.scratch.nb,
+                    );
+                    // spawner.THROWN_UNIT_DEATH_BLOW = client15535_unreached: a unit a throw put down this tick is put down after
+                    // the tick's death blows, so none reaches it (client 15.535.29: the Hero Balloon's trooper landing on the Ice
+                    // Golemite its blow killed kept 473 of 473, twice).
+                    // PLANT (regression) thrown_unit_blown: the new arm's blow still reaches it.
+                    #[cfg(not(clash_plant = "thrown_unit_blown"))]
+                    if self.cfg.calib.thrown_unit_death_blow == ThrownUnitDeathBlow::Client15535Unreached && !self.scratch.thrown.is_empty() {
+                        let thrown = std::mem::take(&mut self.scratch.thrown);
+                        let mut k = blow_from;
+                        while k < self.dmg.hits.len() {
+                            if thrown.contains(&self.dmg.hits[k].target) {
+                                self.dmg.hits.remove(k);
+                            } else {
+                                k += 1;
+                            }
+                        }
+                        self.scratch.thrown = thrown;
+                    }
+                    // knockback.TROOP_DEATH_PUSHBACK = client15535_ladder: a dying TROOP whose row sets DeathPushBack pushes every
+                    // unit its blow hits that a spell's push could move (spell.rs `push_from`), on the knockback ladder from its
+                    // death point: the first step on this tick when it was struck down in the pass (its death settled before the
+                    // move pass), else on the next. Client 15.535.29: 43 of 43 enemies in reach of a dying Golem or Golemite
+                    // pushed (sp-f2-cagefb-s0 t928: a Goblin Brawler 1,342 from the Golem stepped 248, 249, 223 ... away).
+                    #[cfg(not(clash_plant = "troop_death_pushback_unread"))]
+                    if self.cfg.calib.troop_death_pushback == TroopDeathPushback::Client15535Ladder && card.death_pushback > 0 && self.ents.kind[i] == EntityKind::Troop {
+                        let now = self.scratch.pass_struck.contains(id);
+                        let victims: Vec<usize> = self.dmg.hits[blow_from..].iter().map(|h| h.target.index as usize).collect();
+                        let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[], tick: self.tick };
+                        let k = crate::card::KnockbackDef { distance: card.death_pushback, all: false };
+                        for v in victims {
+                            spell::push_from(&ctx, self.ents.team[i], v, self.ents.pos[i], &k, now, &mut death_pushes);
+                        }
+                    }
+                    // combat.DEATH_DAMAGE_TICK = client15535_death_tick: the blow lands here, on the death tick.
+                    #[cfg(not(clash_plant = "death_blow_next_tick"))]
+                    if self.cfg.calib.death_damage_tick == DeathDamageTick::Client15535DeathTick {
+                        self.land_death_blow(blow_from);
+                    }
+                }
+                #[cfg(clash_plant = "death_blow_next_tick")]
+                let _ = blow_from; // PLANT (regression): the 15.535.29 arm's blow still lands with the next tick's hits.
+                let team = self.ents.team[i] as usize;
+                if let Some(slot) = self.towers[team].iter().position(|t| *t == Some(*id)) {
+                    self.towers_down[team][slot] = true;
+                    if slot != 0 && self.king_wake_ms[team].is_none() {
+                        self.king_wake_ms[team] = Some(0);
+                    }
                 }
             }
-        }
-        // THE EVO SKELETON ARMY (`army_deaths`): the Spectrals this tick's dead soldiers leave, and the Spectrals a dead
-        // General takes with it, decided before the dead go.
-        let (deaths, spectrals) = if self.evo.armies.is_empty() { (deaths, Vec::new()) } else { self.army_deaths(deaths) };
-        for id in deaths {
-            self.ents.despawn(id);
+            // knockback.TROOP_DEATH_PUSHBACK: arm the death blows' pushes (their first step now for a troop struck in the pass).
+            if !death_pushes.knocks.is_empty() {
+                let later = std::mem::replace(&mut self.effects, death_pushes);
+                self.apply_effects();
+                self.effects = later;
+            }
+            // movement.SPAWN_PATHFIND_STATES: a tunneller that came up as its building this tick (`surface`) leaves
+            // WITHOUT a death -- no death spawn, no area, no damage, no crown -- and its building is created below
+            // (`materialise_released`), on the same frame: the two never share one.
+            for id in std::mem::take(&mut self.scratch.vanish) {
+                self.ents.despawn(id);
+            }
+            // ELIXIR ON DEATH (card.rs `ManaDef`; economy.MANA_ON_DEATH_TRIGGER = any_death): a death through this queue --
+            // destroyed, or drained out at the end of its LifeTime -- pays ManaOnDeath (whole elixir) to the dying unit's
+            // side and ManaOnDeathForOpponent (economy.MANA_ON_DEATH_FOR_OPPONENT_UNIT) to the other. Summed per side over
+            // the tick's deaths and capped once, so the order of the deaths cannot matter. Unmeasured on client 16.402
+            // (both Elixir Collectors lived; the opponent was at the cap at both Elixir Golem deaths). A side nothing is
+            // owed is not touched.
+            let mut owed = [0i64; 2];
+            for id in &deaths {
+                let i = id.index as usize;
+                let Some(m) = self.cfg.cards.get(self.ents.card[i]).mana else { continue };
+                let t = self.ents.team[i] as usize;
+                owed[t] += m.on_death as i64 * self.mana_unit;
+                let other = self.mana_for_opponent(m.on_death_for_opponent);
+                #[cfg(not(clash_plant = "mana_on_death_to_owner"))]
+                {
+                    owed[1 - t] += other;
+                }
+                #[cfg(clash_plant = "mana_on_death_to_owner")]
+                {
+                    owed[t] += other; // PLANT (regression): the opponent's elixir paid to the dying unit's own side.
+                }
+            }
+            if owed != [0, 0] {
+                let cap = (self.cfg.calib.max_mana as i64) * self.mana_unit;
+                for (t, gain) in owed.into_iter().enumerate() {
+                    if gain > 0 {
+                        self.players[t].mana = (self.players[t].mana + gain).min(cap);
+                    }
+                }
+            }
+            // spawner.FIRST_STEP_DYING_BODIES = client16402_seen: the tick's dead that released nothing, as the contact law
+            // meets them, taken before the despawn below for the released units' first update (`materialise_released`).
+            // Under hidden the list stays empty, so today's engine is untouched. A MOUNT whose riders' death spawns fired
+            // this tick released those units through them (the Goblin Giant's dismounting Spear Goblins), so its body is
+            // not seen either: the key's "a unit whose death released a unit on that tick", and the dismount law measured on
+            // client 15.535.29 puts each Goblin at the Giant plus its offset, unpushed (tests/goblin_giant.rs).
+            if self.cfg.calib.first_step_dying == FirstStepDying::Seen {
+                let mounts: Vec<EntityId> = parents.iter().filter_map(|&p| self.ents.attached_to[p]).collect();
+                for id in &deaths {
+                    let i = id.index as usize;
+                    if self.ents.alive[i] && !parents.contains(&i) && !mounts.contains(id) {
+                        let b = self.dying_body(i);
+                        self.scratch.dying_bodies.push(b);
+                    }
+                }
+            }
+            // THE EVO SKELETON ARMY (`army_deaths`): the Spectrals this tick's dead soldiers leave, and the Spectrals a dead
+            // General takes with it, decided before the dead go.
+            let (deaths, spectrals) = if self.evo.armies.is_empty() { (deaths, Vec::new()) } else { self.army_deaths(deaths) };
+            for id in deaths {
+                self.ents.despawn(id);
+            }
+            all_spectrals.extend(spectrals);
+            // combat.DEATH_BLOW_VICTIM_REAP = client15535_same_reap: the units this wave's blows took to 0 are the next
+            // wave's dead. Measured on client 15.535.29: 15 of 16 such victims left the board on the death frame.
+            // PLANT (regression) death_blow_victims_next_tick: the new arm still leaves them to the next tick.
+            #[cfg(not(clash_plant = "death_blow_victims_next_tick"))]
+            let same = self.cfg.calib.death_blow_victim_reap == DeathBlowVictimReap::Client15535SameReap;
+            #[cfg(clash_plant = "death_blow_victims_next_tick")]
+            let same = false;
+            let mut next: Vec<EntityId> =
+                std::mem::take(&mut self.scratch.blow_victims).into_iter().filter(|id| self.ents.is_alive(*id) && self.ents.hp[id.index as usize] <= 0).collect();
+            next.sort_by_key(|id| id.index);
+            next.dedup();
+            if !same || next.is_empty() {
+                break;
+            }
+            self.death_queue = next;
         }
         // THE CLONE'S COPIES (spell.rs `CloneOrder`, from this tick's Projectile phase): after the dead are despawned, so
         // an original this tick killed is not copied, and before the released units, so a copy's creation order follows
@@ -26553,8 +26608,8 @@ impl BattleState {
             self.evo_copies();
         }
         // THE SPECTRALS this tick's dead soldiers left, after the copies (`army_deaths`).
-        if !spectrals.is_empty() {
-            self.army_spectrals(spectrals);
+        if !all_spectrals.is_empty() {
+            self.army_spectrals(all_spectrals);
         }
         self.hash.rebuild(&self.ents);
     }
@@ -31805,6 +31860,9 @@ impl BattleState {
 /// 20, unchanged, targeting.SLAP_FLIGHT_SIGHT_HOLD: Calib gained slap_flight_sight_hold (serde default the old arm, held),
 ///    no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the
 ///    old arm.
+/// 20, unchanged, combat.DEATH_BLOW_VICTIM_REAP: Calib gained death_blow_victim_reap (serde default the old arm,
+///    next_tick), no new state (the waves' victims are the Reap's scratch), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32826,6 +32884,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("knocked_lost_target".into(), serde_json::to_value(KnockedLostTarget::HeldNone).map_err(|e| e.to_string())?);
     // targeting.SLAP_FLIGHT_SIGHT_HOLD: a format-3 battle's chaser held a thrown target past its sight (the same rule).
     sh.insert("slap_flight_sight_hold".into(), serde_json::to_value(SlapFlightSightHold::Held).map_err(|e| e.to_string())?);
+    // combat.DEATH_BLOW_VICTIM_REAP: a format-3 battle's blow victims died in the next tick's Resolve (the same rule).
+    sh.insert("death_blow_victim_reap".into(), serde_json::to_value(DeathBlowVictimReap::NextTick).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

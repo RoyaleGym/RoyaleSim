@@ -1582,6 +1582,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   one before the ladder ends (28 of 28 ladders).
 ///   targeting.SLAP_FLIGHT_SIGHT_HOLD = client15535_let_go: a target in a slap flight is let go past the chaser's round
 ///   sight (4 of 4 Bats).
+///   combat.DEATH_BLOW_VICTIM_REAP = client15535_same_reap: a unit a death blow kills leaves the board on the death tick
+///   (15 of 16).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
@@ -1716,6 +1718,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.DISMOUNT_MOUNT_HOLD_BODY", "\"client15535_no_body\""),
     ("targeting.KNOCKED_LOST_TARGET", "\"client15535_rescans\""),
     ("targeting.SLAP_FLIGHT_SIGHT_HOLD", "\"client15535_let_go\""),
+    ("combat.DEATH_BLOW_VICTIM_REAP", "\"client15535_same_reap\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
     ("combat.RAMP_STUN_RESTART", "\"client15535_restart\""),
