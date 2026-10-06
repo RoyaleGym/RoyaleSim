@@ -950,6 +950,18 @@ pub fn in_square(centre: Vec2, at: Vec2, half: i32, radius: i32) -> bool {
 /// other impact. Each buff the impact hangs (`buff`, then `buff2`) carries `level` (`BuffHit::src_level`) and its
 /// crown-tower pulse (`crown_pulse`).
 #[allow(clippy::too_many_arguments)]
+/// A hit's crown-tower damage of its own (`SpellHit::tower_damage`), or None for the percent path. Plant
+/// tower_damage_unread: the 16.402 value is ignored and the percent applies (Zap takes 100 % on a 16.402 table).
+fn tower_damage_of(hit: &SpellHit) -> Option<i32> {
+    #[cfg(not(clash_plant = "tower_damage_unread"))]
+    return hit.tower_damage;
+    #[cfg(clash_plant = "tower_damage_unread")]
+    {
+        let _ = hit;
+        None // PLANT: the crown tower's own damage unread.
+    }
+}
+
 fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: &SpellHit, damage: i32, pulse: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>, area: Option<AreaClock>) {
     let e = ctx.ents;
     // `buff` with the spell's pulse, then `buff2`, which never pulses (the loader puts the pulsing one first).
@@ -1050,6 +1062,14 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         let id = e.id_of(v);
         if let (Some(b), true) = (barrage, e.kind[v].is_crown_tower()) {
             let amount = ctx.cards.scaled(card, level, b.crown_damage).unwrap_or(b.crown_damage);
+            if amount > 0 {
+                dmg.hits.push(Hit { target: id, amount, ignores_hide: false, own: false });
+            }
+        } else if let (Some(tower), true) = (tower_damage_of(hit), e.kind[v].is_crown_tower()) {
+            // THE CROWN TOWER'S OWN DAMAGE (16.402 tables: `SpellHit::tower_damage`, Zap 19, Freeze 15): level-1, scaled
+            // by the caster's level as the damage is (the Evo Cannon's barrage scales its crown damage the same way),
+            // in place of `crown_pct` of the damage.
+            let amount = ctx.cards.scaled(card, level, tower).unwrap_or(tower);
             if amount > 0 {
                 dmg.hits.push(Hit { target: id, amount, ignores_hide: false, own: false });
             }

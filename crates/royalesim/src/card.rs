@@ -217,6 +217,11 @@ pub struct SpellHit {
     pub damage: i32,
     /// Effective crown-tower percent (cards.json convention: 100 + negative raw).
     pub crown_pct: i32,
+    /// THE CROWN-TOWER DAMAGE AS A VALUE OF ITS OWN (16.402 on: an area's Damage {BaseDamage, TowerDamage}): level-1
+    /// base, scaled by the caster's level as `damage` is, and what a crown tower takes in place of `crown_pct` of the
+    /// damage (Zap 19, Freeze 15, the Goblin Drill's emergence 8). None on every 15.535 table and every hit whose row
+    /// gives none: the percent then applies, as before.
+    pub tower_damage: Option<i32>,
     /// Area radius, SUBTILES. 0 for a rolling projectile (it uses its rectangle).
     pub radius: i32,
     pub hits_air: bool,
@@ -636,6 +641,7 @@ fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef,
         // strike, ceil(1057 x 25 / 100); the area's own 100 is never read.
         #[cfg(not(clash_plant = "strike_crown_from_area"))]
         crown_pct: crown(p.crown_tower_damage_percent),
+        tower_damage: None,
         #[cfg(clash_plant = "strike_crown_from_area")]
         crown_pct: crown(aeo.crown_tower_damage_percent), // PLANT: the area's 100.
         radius: milli(aeo.radius_milli.ok_or_else(|| format!("striking area effect {what} without radius"))?),
@@ -726,6 +732,7 @@ fn centre_strike_shape(aeo: &RawAreaEffect) -> Result<(StrikeDef, UnitNeeds), St
     let hit = SpellHit {
         damage,
         crown_pct,
+        tower_damage: None,
         radius: milli(aeo.radius_milli.ok_or_else(|| format!("area effect {what} without radius"))?),
         hits_air: aeo.hits_air.unwrap_or(false),
         hits_ground: aeo.hits_ground.unwrap_or(false),
@@ -747,6 +754,7 @@ fn centre_strike_shape(aeo: &RawAreaEffect) -> Result<(StrikeDef, UnitNeeds), St
     let delivery_hit = SpellHit {
         damage,
         crown_pct,
+        tower_damage: None,
         radius: milli(p_radius),
         hits_air: p.aoe_to_air.unwrap_or(false),
         hits_ground: p.aoe_to_ground.unwrap_or(false),
@@ -850,6 +858,7 @@ fn strike_area_shape(aeo: &RawAreaEffect, sa: &RawStrikeArea, buffs: &mut BuffTa
     let hit_of = |radius: i32| SpellHit {
         damage: 0,
         crown_pct: crown(aeo.crown_tower_damage_percent),
+        tower_damage: aeo.tower_damage,
         radius: milli(radius),
         hits_air: true,
         hits_ground: true,
@@ -1068,6 +1077,7 @@ fn clone_shape_of(aeo: &RawAreaEffect, action: &RawCloneAction, buffs: &mut Buff
     let hit = SpellHit {
         damage: 0,
         crown_pct: crown(aeo.crown_tower_damage_percent),
+        tower_damage: aeo.tower_damage,
         radius: milli(aeo.radius_milli.ok_or_else(|| format!("clone area effect {what} without radius"))?),
         hits_air: aeo.hits_air.unwrap_or(false),
         hits_ground: aeo.hits_ground.unwrap_or(false),
@@ -5531,6 +5541,7 @@ fn capture_of(r: &RawCapture, flight_speed: i32, buffs: &mut BuffTable) -> Resul
     let hit = SpellHit {
         damage: pos(r.damage, "damage")?,
         crown_pct: r.crown_tower_damage_percent.unwrap_or(100),
+        tower_damage: None,
         radius: milli(pos(r.radius_milli, "radius")?),
         hits_air: r.hits_air.unwrap_or(false),
         hits_ground: r.hits_ground.unwrap_or(false),
@@ -5600,6 +5611,7 @@ fn ghost_of(r: &RawGhost) -> Result<GhostDef, String> {
     let hit = SpellHit {
         damage: need(r.area_damage, "damage")?,
         crown_pct: 100,
+        tower_damage: None,
         radius: milli(need(r.area_radius_milli, "radius")?),
         hits_air: false,
         hits_ground: true,
@@ -5819,6 +5831,7 @@ fn barrage_of(b: &RawBarrage, buffs: &mut BuffTable) -> Result<BarrageDef, Strin
     let hit = SpellHit {
         damage,
         crown_pct: 100,
+        tower_damage: None,
         radius: milli(BARRAGE_REACH_MILLI),
         hits_air: b.hits_air.unwrap_or(false),
         hits_ground: b.hits_ground.unwrap_or(false),
@@ -6241,6 +6254,7 @@ fn push_hero_area(r: &RawHeroArea, areas: &mut Vec<AttachedArea>, buffs: &mut Bu
     let hit = SpellHit {
         damage: r.damage.unwrap_or(0),
         crown_pct: crown(r.crown_tower_damage_percent),
+        tower_damage: None,
         radius: milli(r.radius_milli),
         hits_air: r.hits_air.unwrap_or(false),
         hits_ground: r.hits_ground.unwrap_or(false),
@@ -6879,6 +6893,12 @@ struct RawAreaEffect {
     hit_speed_ms: Option<i32>,
     damage: Option<i32>,
     crown_tower_damage_percent: Option<i32>,
+    /// 16.402 on (tools/extract_cards.py `norm_aeo`): the crown-tower damage as a level-1 value of its own
+    /// (`SpellHit::tower_damage`), the first hit's offset, and the damage's flags (the Earthquake's DamagesHidden).
+    /// Absent on every 15.535 and 2018 row.
+    tower_damage: Option<i32>,
+    hit_speed_offset_ms: Option<i32>,
+    damage_flags: Option<Vec<String>>,
     no_effect_to_crown_towers: Option<bool>,
     buff: Option<RawBuff>,
     buff_time_ms: Option<i32>,
@@ -7787,6 +7807,7 @@ fn collapse_into_child(aeo: &RawAreaEffect, root: &str, cname: &str, buffs: &mut
             hit: SpellHit {
                 damage: aeo.damage.unwrap_or(0),
                 crown_pct: crown(aeo.crown_tower_damage_percent),
+                tower_damage: aeo.tower_damage,
                 radius: milli(aeo.radius_milli.unwrap_or(0)),
                 hits_air: true,
                 hits_ground: true,
@@ -8087,6 +8108,7 @@ fn area_effect_shape_hits(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Load
     let hit = SpellHit {
         damage: aeo.damage.unwrap_or(0),
         crown_pct: crown(aeo.crown_tower_damage_percent),
+        tower_damage: aeo.tower_damage,
         radius: milli(aeo.radius_milli.ok_or_else(|| format!("area effect {what} without radius"))?),
         hits_air: aeo.hits_air.unwrap_or(false),
         hits_ground: aeo.hits_ground.unwrap_or(false),
@@ -8298,6 +8320,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
             let hit = SpellHit {
                 damage: roll.damage.ok_or_else(|| format!("rolling {rname} without damage"))?,
                 crown_pct: crown(roll.crown_tower_damage_percent),
+                tower_damage: None,
                 radius: 0,
                 hits_air: roll.aoe_to_air.unwrap_or(false),
                 hits_ground: roll.aoe_to_ground.unwrap_or(false),
@@ -8348,6 +8371,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                 Some(d) => Some(SpellHit {
                     damage: d,
                     crown_pct: crown(carrier.crown_tower_damage_percent),
+                    tower_damage: None,
                     radius: milli(disc()?),
                     hits_air: carrier.aoe_to_air.unwrap_or(false),
                     hits_ground: carrier.aoe_to_ground.unwrap_or(false),
@@ -9059,6 +9083,7 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
             hit: Some(SpellHit {
                 damage,
                 crown_pct,
+                tower_damage: None,
                 radius,
                 hits_air: raw.attacks_air.unwrap_or(true),
                 hits_ground: raw.attacks_ground.unwrap_or(true),
@@ -9122,6 +9147,7 @@ fn convert_death_projectile(p: &RawSpellProjectile, buffs: &mut BuffTable) -> Re
         Some(d) => Some(SpellHit {
             damage: d,
             crown_pct: crown(p.crown_tower_damage_percent),
+            tower_damage: None,
             radius: milli(p.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("death projectile {what} deals damage but has no radius"))?),
             hits_air: p.aoe_to_air.unwrap_or(false),
             hits_ground: p.aoe_to_ground.unwrap_or(false),
@@ -9971,6 +9997,7 @@ fn convert_deploy_projectile(v: serde_json::Value) -> Result<SpellDef, String> {
             hit: Some(SpellHit {
                 damage,
                 crown_pct: crown(p.crown_tower_damage_percent),
+                tower_damage: None,
                 radius: milli(radius),
                 hits_air: p.aoe_to_air.unwrap_or(false),
                 hits_ground: p.aoe_to_ground.unwrap_or(false),
@@ -12421,6 +12448,7 @@ impl CardDb {
                 let hit = SpellHit {
                     damage: land.damage,
                     crown_pct: land.crown_tower_damage_percent,
+                    tower_damage: None,
                     radius: milli(land.radius_milli),
                     hits_air: false,
                     hits_ground: true,
@@ -12474,6 +12502,7 @@ impl CardDb {
                 let hit = SpellHit {
                     damage: r.damage,
                     crown_pct: r.crown_tower_damage_percent,
+                    tower_damage: None,
                     radius: milli(r.radius_milli),
                     hits_air: r.hits_air,
                     hits_ground: r.hits_ground,
@@ -12588,6 +12617,7 @@ impl CardDb {
                 let hit = SpellHit {
                     damage: pos(e.landing_damage, "landing damage")?,
                     crown_pct: 100,
+                    tower_damage: None,
                     radius: milli(pos(e.landing_radius_milli, "landing radius")?),
                     hits_air: false,
                     hits_ground: true,
@@ -12697,6 +12727,7 @@ impl CardDb {
                 let hit = SpellHit {
                     damage: rp.damage.ok_or_else(|| format!("{what}: a roll without damage"))?,
                     crown_pct: crown(rp.crown_tower_damage_percent),
+                    tower_damage: None,
                     radius: 0,
                     hits_air: rp.aoe_to_air.unwrap_or(false),
                     hits_ground: rp.aoe_to_ground.unwrap_or(false),
