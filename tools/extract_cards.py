@@ -1140,6 +1140,13 @@ def normalize_16402(t: Tables) -> None:
         tb = t[key]
         for name, row in tb.records.items():
             d = row.get("Damage")
+            # Damage BY NAME: a [DAMAGE_TYPE] section holding the same {BaseDamage, TowerDamage} (the Ice Wizard's
+            # IceWizCold, the Electro Wizard's ElectroWizZap, Rage's RageDamage), read as the table it names.
+            if isinstance(d, str):
+                dt = t["damage_types"]
+                if dt.get(d) is None or dt.set_fields.get(d, set()) - {"BaseDamage", "TowerDamage", "Effect", "Flags"}:
+                    raise SystemExit(f"{key}.{name}: Damage {d!r} names no [DAMAGE_TYPE] of BaseDamage and TowerDamage")
+                d = {k: dt.get(d)[k] for k in dt.set_fields[d]}
             if isinstance(d, dict):
                 # Effect is the hit's visual; Flags (DamagesHidden, the Earthquake's) is gameplay, kept as a column.
                 extra = set(d) - {"BaseDamage", "TowerDamage", "Effect", "Flags"}
@@ -2723,6 +2730,75 @@ def combo(t: dict, table: str, name: str, c: dict) -> dict | None:
     return {"sequence": list(order), "stages": stages}
 
 
+# 16.402: a death bomb's area (`death_bomb_area`): the keys it may set, those it must, and its one filter.
+DEATH_BOMB_AREA_KEYS = {"Name", "Rarity", "Radius", "Damage", "Pushback", "Filter", "StatsTags"}
+DEATH_BOMB_FILTER = "CommonAreaDamageFilter"
+# 16.402: the death spawn as an action (`death_spawn_action`): every key the ActionSpawn sets.
+DEATH_SPAWN_ACTION_KEYS = {"ClassType", "SpawnType", "SpawnData", "SpawnRadius", "IsSpawnConstPriority", "Count",
+                           "DeployTime", "SpawnPushback", "StatsTags"}
+
+
+def death_bomb_area(t, c) -> tuple | None:
+    """16.402: A UNIT'S DEATH BOMB WRITTEN AS ITS DeathAreaEffect, as (damage, radius, pushback), or None. The client
+    moved DeathDamage, DeathDamageRadius and DeathPushBack into an area of exactly those numbers (Golem 88 / 2000 /
+    1800: GolemDeathExplosion Damage {BaseDamage 88}, Radius 2000, Pushback 1800), over CommonAreaDamageFilter (enemy
+    characters and buildings, air and ground; not the hidden, the underground or the dash-immune). Read only from a row
+    with none of the three columns, whose area sets nothing but those keys: no TowerDamage, no hit speed, buff, life
+    or action. Whether the filter's exclusions are what the 15.535 death damage did is option B request 22."""
+    if not getattr(t, "vintage", None) or not t.vintage.filters_format or not isinstance(c, Row):
+        return None
+    if c["DeathDamage"] is not None or c["DeathDamageRadius"] is not None or c.get("DeathPushBack") is not None:
+        return None
+    name = c["DeathAreaEffect"]
+    atb = t["area_effect_objects"]
+    a = atb.get(name) if isinstance(name, str) else None
+    own = atb.set_fields.get(name, set()) if a is not None else set()
+    if a is None or own - DEATH_BOMB_AREA_KEYS or not {"Radius", "Damage", "Filter"} <= own:
+        return None
+    if a["Filter"] != DEATH_BOMB_FILTER or a["TowerDamage"] is not None or a["DamageFlags"] is not None:
+        return None
+    vals = (a["Damage"], a["Radius"], a["Pushback"])
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in vals[:2]) \
+            or not (vals[2] is None or (isinstance(vals[2], int) and vals[2] > 0)):
+        return None
+    return vals
+
+
+def death_spawn_action(t, c) -> dict | None:
+    """16.402: THE DEATH SPAWN AS AN OnDeathAction ActionSpawn of a character (the Skeleton Barrel's containers: Count
+    7 Skeletons at SpawnRadius 1480, DeployTime 500, SpawnPushback), read exactly; None for every other row. The same
+    keys as the 15.535 Evo barrel's container areas (`barrel_block`). 15.535 has no such row."""
+    if not getattr(t, "vintage", None) or not t.vintage.filters_format or not isinstance(c, Row):
+        return None
+    name = c["OnDeathAction"]
+    acts = t["actions"]
+    a = acts.get(name) if isinstance(name, str) else None
+    if a is None or a["ClassType"] != "ActionSpawn" or a["SpawnType"] != "CharacterType" \
+            or acts.set_fields.get(name) != DEATH_SPAWN_ACTION_KEYS or a["IsSpawnConstPriority"] is not True \
+            or not isinstance(a["SpawnData"], str) or not isinstance(a["SpawnPushback"], bool) \
+            or not all(isinstance(a[k], int) for k in ("Count", "SpawnRadius", "DeployTime")):
+        return None
+    return a
+
+
+def spawn_area_action(t, c) -> str | None:
+    """16.402: A UNIT'S SpawnAreaObject AS ITS OnStartingAction, an ActionSpawn of an area run only when the unit is
+    not a clone (ExecuteIfTrue "!is_clone"), read exactly: the area's name, or None. The Battle Healer's heal
+    (BattleHealerSpawnHealArea, the 15.535 BattleHealerSpawnHeal's numbers) and the Goblin Drill's emergence
+    (GoblinDrillDamageArea, which now carries TowerDamage 8 where 15.535's dealt crown towers nothing). 15.535 has no
+    such row. Whether a 15.535 clone put the area down is option B request 4 (the drill) and a Clone capture."""
+    if not getattr(t, "vintage", None) or not t.vintage.filters_format or not isinstance(c, Row):
+        return None
+    name = c["OnStartingAction"]
+    acts = t["actions"]
+    a = acts.get(name) if isinstance(name, str) else None
+    if a is None or a["ClassType"] != "ActionSpawn" or a["SpawnType"] != "AreaEffectType" \
+            or acts.set_fields.get(name) != {"ClassType", "SpawnType", "SpawnData", "ExecuteIfTrue"} \
+            or a["ExecuteIfTrue"] != "!is_clone" or t["area_effect_objects"].get(a["SpawnData"]) is None:
+        return None
+    return a["SpawnData"]
+
+
 def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
     table, c = unit_record(t, name)
     defaults: list[str] = []
@@ -3147,6 +3223,34 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # after the literal and on the 15.535 rows only, so the 2018 file stays byte-identical;
         # tools/check_card_reads.py's PROLOGUE names it for that reason.
         u["death_spawn_pushback"] = flag(c, "DeathSpawnPushback")
+        # 16.402: THE DEATH BOMB AS A DEATH AREA (`death_bomb_area`): read back into the three death columns the
+        # engine's death bomb runs, the area's name cleared. And THE DEATH SPAWN AS AN OnDeathAction ActionSpawn
+        # (`death_spawn_action`: the Skeleton Barrel's containers), read into the death_spawn block, its graph cleared
+        # when the graph is that spawn and nothing else. Neither shape is in a 15.535 row.
+        bomb = death_bomb_area(t, c)
+        if bomb is not None:
+            u["death_damage"], u["death_damage_radius_milli"], u["death_pushback_milli"] = bomb
+            u["death_area_effect"] = None
+        sp = death_spawn_action(t, c) if c["DeathSpawnCharacter"] is None else None
+        if sp is not None:
+            u["death_spawn"] = {"character": sp["SpawnData"], "count": sp["Count"], "radius_milli": sp["SpawnRadius"],
+                                "deploy_time_ms": sp["DeployTime"]}
+            u["death_spawn_pushback"] = sp["SpawnPushback"]
+            g = u.get("action_graph")
+            if g and g["roots"] == {"OnDeathAction": c["OnDeathAction"]} and g["class_types"] == ["ActionSpawn"] \
+                    and g["spawns"] == [f"CharacterType:{sp['SpawnData']}"]:
+                u["action_graph"] = None
+        # 16.402: THE SPAWN AREA AS AN OnStartingAction ActionSpawn of an area, not for a clone (`spawn_area_action`:
+        # the Battle Healer's heal, the Goblin Drill's emergence), read into spawn_area_object with
+        # `spawn_area_unless_clone`, the graph cleared when it is that spawn and nothing else.
+        sa = spawn_area_action(t, c) if c.get("SpawnAreaObject") is None else None
+        if sa is not None:
+            u["spawn_area_object"] = sa
+            u["spawn_area_unless_clone"] = True
+            g = u.get("action_graph")
+            if g and g["roots"] == {"OnStartingAction": c["OnStartingAction"]} and g["class_types"] == ["ActionSpawn"] \
+                    and g["spawns"] == [f"AreaEffectType:{sa}"]:
+                u["action_graph"] = None
         # SpawnCharacter2, into the spawner block: a second periodic unit (the Super Witch's Bat), which
         # the loader refuses. Written on the 15.535 rows only, after the literal, for the reason
         # DeathSpawnPushback is; tools/check_card_reads.py's PROLOGUE names it.
@@ -3469,6 +3573,36 @@ def deploy_area_effect(t: dict, s: dict, character: str) -> str | None:
         return None
     unit, path = found[0]
     if unit != character or path.count("area_effect_objects.") != 1:
+        return None
+    return name
+
+
+#: 16.402: the delay a deploy-area card summons its one unit after (SummonCharactersDelayList), in ms: one tick, the
+#: calibrated spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME client_one_tick_longer (`deploy_area_effect_16402`).
+DEPLOY_AREA_SUMMON_DELAY_MS = 50
+
+
+def deploy_area_effect_16402(t: dict, key: str, s: dict, res: dict) -> str | None:
+    """16.402: THE DEPLOY AREA RE-ENCODED (the Ice Wizard's IceWizardCold, the Electro Wizard's ElectroWizardZap). The
+    card no longer puts its unit down through its area: the area spawns nothing, and the card summons the unit itself
+    (SummonCharactersList of that one unit at offset 0, SummonNumber 1) after SummonCharactersDelayList [50], one tick:
+    the one tick longer deploy calibration spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME measured on both clients. The area
+    then lands where the unit appears, as `deploy_area_effect` says. Read exactly, or None."""
+    name = s.get("AreaEffectObject")
+    area = t["area_effect_objects"].get(name) if isinstance(name, str) and name else None
+    if area is None or area["OnStartingAction"] is not None or spawned_characters(t, name):
+        return None
+    arr = t[key].arrays.get(s["Name"], {})
+
+    def column(col: str) -> list | None:
+        v = arr.get(col)
+        return v if v is not None else ([s[col]] if s.get(col) is not None else None)
+
+    if not res["source"].endswith(".SummonCharactersList (overlay; 1 entries)") or res["others"]:
+        return None
+    if column("SummonCharactersList") != [res["character"]] or column("SummonCharactersOffsetsX") != [0] \
+            or column("SummonCharactersOffsetsY") != [0] or s.get("SummonNumber") != 1 \
+            or column("SummonCharactersDelayList") != [DEPLOY_AREA_SUMMON_DELAY_MS]:
         return None
     return name
 
@@ -4305,6 +4439,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # carries the flag that qualifies it (the loader reads both off the same row).
     if "death_spawn_pushback" in u:
         card["death_spawn_pushback"] = u["death_spawn_pushback"]
+    # 16.402 only (`spawn_area_action`), beside the spawn_area_object it qualifies.
+    if "spawn_area_unless_clone" in u:
+        card["spawn_area_unless_clone"] = u["spawn_area_unless_clone"]
     # 15.535 only: the dash block that starts from an Ability or a scripted action, carried
     # beside the card's `dash` (null on that row) so the card shows what it does not run.
     if "triggered_dash" in u:
@@ -4382,14 +4519,17 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         # 15.535 only, so the 2018 file stays byte-identical: a SummonCharactersList card's members at
         # their explicit offsets (`summon_members`; the Three Musketeers alone), and whether the
         # table marks their x as mirrored. Written only on such a card, so every other row is unchanged.
-        members = summon_members(t, key, s, res)
+        # 16.402: a deploy-area card's one-member list is its single unit (`deploy_area_effect_16402`), not members.
+        dae16 = deploy_area_effect_16402(t, key, s, res) if t.vintage.filters_format else None
+        members = summon_members(t, key, s, res) if dae16 is None else None
         if members is not None:
             card["summon_members"] = members
             card["summon_offsets_x_mirrored"] = flag(s, "CharactersOffsetsXMirrored")
     if not t.vintage.is_2018:
         # 15.535 only, so the 2018 file stays byte-identical: the card row's own AreaEffectObject
-        # column when that area IS the deploy of the card's unit (`deploy_area_effect`).
-        card["deploy_area_effect"] = deploy_area_effect(t, s, res["character"])
+        # column when that area IS the deploy of the card's unit (`deploy_area_effect`; 16.402's re-encoding,
+        # `deploy_area_effect_16402`).
+        card["deploy_area_effect"] = deploy_area_effect(t, s, res["character"]) or dae16
         # 15.535 only, and only on a card whose AreaEffectObject puts the card's own unit down through
         # its own SpawnCharacter (`resolve_summon`; TriWizards alone), so every other row is unchanged:
         # the area's name, which card.rs reads as the whole deploy (`CardDef::deploy_spawn_area`).
@@ -9800,16 +9940,31 @@ def main() -> int:
             + (f" {len(tb.files) - 1:3d} overlay files" if isinstance(tb, OverlayTable) else "")
         )
     doc = build(t)
+    dropped: list[tuple[str, str]] = []
     # A LOST BLOCK is a refusal nobody raised: a named-block reader that meets a shape it does not know returns
     # None ("not this reader's"), so a reworked mechanic vanishes from the table in silence (the 16.402 census:
     # every champion's ability, the Ronin's parry, the Three Musketeers' attack select). Against a reference table,
     # every block it holds that the new one leaves empty is listed with the refusals.
     if CENSUS is not None and args.against is not None:
         ref = json.loads(args.against.read_text(encoding="utf-8"))
-        for sec in ("cards", "units", "evolutions", "hero_forms"):
-            def by_name(x):
-                return {r["name"]: r for r in x} if isinstance(x, list) else dict(x)
+        # The records a builder already refused (`spells_evolved.X`, `hero form X`): not listed again as gone.
+        refused = {re.split(r"[. ]", label)[-1] for label, _ in CENSUS}
+        # The areas a 16.402 deploy-area card now names itself (`deploy_area_effect_16402`): their old spawn graph and
+        # schedule were the unit's deploy, which the card now does.
+        deploy_areas = {c.get("deploy_area_effect") for c in doc.get("cards", []) if c.get("deploy_area_effect")}
+
+        def by_name(x):
+            return {r["name"]: r for r in x} if isinstance(x, list) else dict(x)
+
+        for sec in ("cards", "units", "evolutions", "hero_forms", "area_effect_objects", "projectiles", "buffs"):
             old, new = by_name(ref.get(sec, [])), by_name(doc.get(sec, []))
+            # A RECORD GONE: the reference holds it and this table has no record of that name (a NOTINUSE row is
+            # listed apart; a refused evolution or hero form is already a refusal).
+            for n in sorted(set(old) - set(new)):
+                if n.startswith("NOTINUSE"):
+                    dropped.append((f"{sec}.{n}", "GONE: a NOTINUSE row"))
+                elif n not in refused:
+                    CENSUS.append((f"{sec}.{n}", f"GONE: {args.against.name} holds it, this table has no such record"))
             for n in sorted(set(old) & set(new)):
                 for k, val in old[n].items():
                     # A graph that held no mechanic (no class, no spawn: the 15.535 VisualActions health bar, which
@@ -9825,14 +9980,49 @@ def main() -> int:
                         trow = t[new[n].get("source_table") or "characters"].get(n)
                         if trow is not None and trow["OnStartingClientActions"] == val["roots"]["VisualActions"]:
                             continue
-                    if k not in ("raw", "provenance") and isinstance(val, (dict, list)) and val \
-                            and new[n].get(k) in (None, [], {}):
+                    if k in ("raw", "provenance"):
+                        continue
+                    nv = new[n].get(k)
+                    # A unit's continued columns the client no longer carries at all (Pekka_EV1's ResurrectParameters,
+                    # which nothing read): listed apart, not a refusal.
+                    if k == "list_columns" and isinstance(val, dict) and sec == "units" and nv in (None, [], {}):
+                        trow = t[new[n].get("source_table") or "characters"].get(n)
+                        if trow is not None and all(trow[col] is None for col in val):
+                            dropped.append((f"{sec}.{n}", f"DROPPED COLUMNS {sorted(val)}: the new row has none"))
+                            continue
+                    # A deploy area's old spawn graph and schedule (the card now puts the unit down): listed apart.
+                    if sec == "area_effect_objects" and n in deploy_areas and k in ("action_graph", "schedule") \
+                            and nv in (None, [], {}):
+                        dropped.append((f"{sec}.{n}", f"{k}: the unit's deploy, which the card now does"))
+                        continue
+                    if isinstance(val, (dict, list)) and val and nv in (None, [], {}):
                         CENSUS.append((f"{sec}.{n}",
                                        f"LOST {k}: {args.against.name} holds it, this table leaves it empty"))
+                    # A LOST VALUE: a scalar the reference holds that this table leaves null (16.402 moved the death
+                    # bombs into areas and three spells' damage into actions), or a flag it holds true that this table
+                    # leaves false (a TOML-only row reads an absent flag as the client's default).
+                    elif not isinstance(val, (dict, list)) and val is not None and val is not False \
+                            and (nv is None or (val is True and nv is False)):
+                        # Re-encodings the loader reads alike, listed apart: a zero the client now leaves out; an
+                        # area's BuffNumber 1 (the loader reads an absent one as one); the raw crown-tower percent where
+                        # the area now gives its TowerDamage (`normalize_16402`).
+                        if val == 0 and nv is None and not isinstance(val, bool):
+                            dropped.append((f"{sec}.{n}", f"{k} 0 -> null"))
+                        elif k == "buff_number" and val == 1 and nv is None:
+                            dropped.append((f"{sec}.{n}", "buff_number 1 -> null (the loader reads it as one)"))
+                        elif k == "crown_tower_damage_percent_raw" and new[n].get("tower_damage") is not None:
+                            dropped.append((f"{sec}.{n}", f"crown percent {val} -> TowerDamage "
+                                                          f"{new[n]['tower_damage']}"))
+                        else:
+                            CENSUS.append((f"{sec}.{n}", f"LOST {k} = {val!r}: {args.against.name} holds it, this "
+                                                         f"table gives {nv!r}"))
     if CENSUS is not None:
         print(f"CENSUS {v.key}: {len(CENSUS)} refusals")
         for label, why in CENSUS:
             print(f"  {label}: {why}")
+        print(f"  ({len(dropped)} more listed apart, not counted: re-encodings the loader reads alike)")
+        for label, why in dropped:
+            print(f"  (not counted) {label}: {why}")
         # The table without the refused records, ONLY where --out names a file of its own: a census never writes
         # the vintage's own file (cards.json, cards-<vintage>.json), so a partial table cannot stand in for one.
         if args.out is not None and args.out.resolve() != default_out(v.key).resolve():
