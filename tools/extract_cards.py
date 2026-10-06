@@ -3374,6 +3374,7 @@ DEFLECT_ABILITY_READ = {
 DEFLECT_ABILITY_COSMETIC = {
     "KeepIconEvenWhenOutOfCharges", "HideChargesTextField", "DeployedClip", "DeployedEffect", "IconExportName",
     "IconSWF", "TID", "TID_INFO",
+    "OutOfChargesTID",  # 16.402: the out-of-charges text (BossBandit_ability); UI, as ABILITY_UI_KEYS has it
 }
 DEFLECT_AEO_READ = {
     "DeflectProjectilesEnabled", "FollowBehaviour", "HitsAir", "HitsGround", "IgnoreBuildings", "LifeDuration", "Name",
@@ -5582,6 +5583,12 @@ def fireworks_block(t: Tables, card: dict) -> dict:
         name = r["SpawnAreaEffectObject"]
         a = at.get(name) if isinstance(name, str) else None
         unread = {c for c in at.set_fields.get(name, set()) - FIREWORKS_AREA if not COSMETIC.search(c)} if a else {"?"}
+        if a is not None and t.vintage.filters_format:
+            # 16.402: HitSpeedOffset equal to the HitSpeed (the pack-wide pattern; the engine waits one HitSpeed
+            # before the first pulse either way) and the common enemy filter, pinned (COSMETIC would pass a Filter).
+            need(a["HitSpeedOffset"] == a["HitSpeed"] and a["Filter"] == "CommonAreaDamageFilter",
+                 f"the area {name!r}: HitSpeedOffset {a['HitSpeedOffset']} / Filter {a['Filter']!r}")
+            unread -= {"HitSpeedOffset"}
         need(a is not None and not unread and isinstance(a["HitSpeed"], int) and a["HitSpeed"] > 0
              and isinstance(a["Buff"], str), f"the area {name!r} (sets {sorted(unread)})")
         names.append(name)
@@ -6459,6 +6466,10 @@ def ring_block(t: Tables, card: dict) -> dict:
     r = tb.get(name)
     need(r is not None, f"no area {name}")
     unread = tb.set_fields.get(name, set()) - RING_AREA_READ - HERO_AREA_COSMETIC
+    if t.vintage.filters_format:
+        # 16.402: OnlyEnemies, HitsGround, HitsAir are this filter's (`normalize_16402`); no other filter is read.
+        need(r["Filter"] == "CommonAreaDamageFilter", f"area {name}'s Filter {r['Filter']!r}")
+        unread -= {"Filter"}
     need(not unread, f"area {name} sets {sorted(unread)}")
     need(r["OnlyEnemies"] is True and r["OneHitPerTarget"] is True and not r["Damage"],
          f"area {name} is not a one-hit ring")
@@ -8905,6 +8916,11 @@ def level_up_effect(h: Tables, name: str, subs: list[str], delays: list[int], he
          f"{sel}'s conditions {conds}")
     levels = []
     for o in opts:
+        # 16.402 writes RelativeLevelAdjustmentExpression, a string; only a positive integer literal is read here.
+        if isinstance(o, dict) and "RelativeLevelAdjustmentExpression" in o and "RelativeLevelAdjustment" not in o:
+            e = o["RelativeLevelAdjustmentExpression"]
+            need(isinstance(e, str) and re.fullmatch(r"[1-9][0-9]*", e) is not None, f"option {o}")
+            o = {**{k: v for k, v in o.items() if k != "RelativeLevelAdjustmentExpression"}, "RelativeLevelAdjustment": int(e)}
         need(isinstance(o, dict) and o.get("ClassType") == "ActionSetCharacterLevel"
              and set(o) <= {"ClassType", "RelativeLevelAdjustment", "NextAction"}
              and isinstance(o.get("RelativeLevelAdjustment"), int) and o["RelativeLevelAdjustment"] > 0, f"option {o}")
