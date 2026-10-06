@@ -2978,7 +2978,7 @@ def jump_hack(t) -> str | None:
 
 # A graph that only shows something (`display_only_graph`): effects, and the control that times them.
 DISPLAY_ONLY_CLASSES = {"ActionGroup", "ActionInterval", "ActionRunActionOnResolvedGameObjects", "ActionPlayEffect",
-                        "ActionBlackboardSetInt"}
+                        "ActionBlackboardSetInt", "ActionAeoRunActionAtAliveTimer"}
 
 
 def _reachable_actions(acts, root: str) -> set[str]:
@@ -10491,6 +10491,16 @@ def main() -> int:
                             tos.add(nv2)
             return tos.pop() if len(tos) == 1 else None
 
+        # A gone row whose values one row new to this table holds under another name (the Evo Valkyrie's tornado buff,
+        # Valkyrie_MiniTornado_EV1 -> _BUFF), the TOML-only tables' default flag aside.
+        def same_but_name(rec: dict, sec: str):
+            o_names = set(by_name(ref.get(sec, [])))
+            skip = {"name", "immune_to_anti_magic"}
+            mine = {k: v for k, v in rec.items() if k not in skip}
+            hits = [nn for nn, nr in by_name(doc.get(sec, [])).items()
+                    if nn not in o_names and {k: v for k, v in nr.items() if k not in skip} == mine]
+            return hits[0] if len(hits) == 1 else None
+
         # Every record of the reference as text, to tell a gone row some record named from an orphan.
         ref_texts = [(name, json.dumps(rec)) for sec in ("cards", "units", "evolutions", "hero_forms",
                                                          "area_effect_objects", "projectiles", "buffs")
@@ -10508,6 +10518,8 @@ def main() -> int:
                     dropped.append((f"{sec}.{n}", "GONE: an orphan row (no record of the reference named it)"))
                 elif sec in ("area_effect_objects", "projectiles", "buffs") and (to := renamed_to(n, sec)):
                     dropped.append((f"{sec}.{n}", f"GONE: renamed {to} (each record that named it names that)"))
+                elif sec in ("area_effect_objects", "projectiles", "buffs") and (to := same_but_name(old[n], sec)):
+                    dropped.append((f"{sec}.{n}", f"GONE: renamed {to} (its values, a new name)"))
                 elif n not in refused:
                     CENSUS.append((f"{sec}.{n}", f"GONE: {args.against.name} holds it, this table has no such record"))
             for n in sorted(set(old) & set(new)):
@@ -10593,8 +10605,16 @@ def main() -> int:
                     continue
                 owner = new[n] if sec == "cards" else cards_by_unit.get(n, {})
                 readers = [k for k in GRAPH_BLOCKS if new[n].get(k) or owner.get(k)]
+                # Gained classes (no spawn) that sit only under roots that show something (`display_only_graph`:
+                # the Evo Baby Dragon's wind's end effect on a timer): display.
+                acts = t["actions"]
+                roots = [r for r in (ng.get("roots") or {}).values() if isinstance(r, str) and acts.get(r) is not None]
+                shown = {acts.get(x)["ClassType"] for r in roots if display_only_graph(t, r)
+                         for x in _reachable_actions(acts, r)}
                 if readers or (sec == "units" and n in evo_units):
                     dropped.append((f"{sec}.{n}", f"GAINED {more}: read by {readers or ['its evolution block']}"))
+                elif more and set(more) <= shown:
+                    dropped.append((f"{sec}.{n}", f"GAINED {more}: display only"))
                 else:
                     CENSUS.append((f"{sec}.{n}", f"GAINED a mechanic graph no block reads: {more}"))
     # NOT BUILT: a form the pack carries in play that the builders' pinned lists leave out (a census against an older
