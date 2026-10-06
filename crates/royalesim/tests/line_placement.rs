@@ -154,9 +154,14 @@ fn a_line_is_taken_on_its_own_princess_box_and_refused_on_an_enemy_building() {
     assert_eq!(s.check_deploy(Team::Blue, "RoyalRecruits", own_box), Ok(()), "a line on its own princess box");
 }
 
+/// A native point.
+type Point = (i32, i32);
+/// A tap and the line centre the client put it on.
+type Tap = (Point, Point);
+
 /// The 13 exact ties of the sweep (tap, the centre the client put the line on), native: the two candidates equally near
 /// the tap, the client's order taking one, ring_corner_walk the other.
-const TIES: [((i32, i32), (i32, i32)); 13] = [
+const TIES: [Tap; 13] = [
     ((4000, 6500), (6499, 8500)),
     ((4250, 6500), (6499, 8500)),
     ((4500, 6500), (6499, 8500)),
@@ -173,7 +178,7 @@ const TIES: [((i32, i32), (i32, i32)); 13] = [
 ];
 
 /// The line's centre for each of `taps` under `arm` (formation_preview), as the measurements read it.
-fn centres(arm: LineCentreSearch, taps: &[((i32, i32), (i32, i32))]) -> Vec<((i32, i32), (i32, i32), (i32, i32))> {
+fn centres(arm: LineCentreSearch, taps: &[Tap]) -> Vec<(Point, Point, Point)> {
     let mut cfg: BattleConfig = config();
     cfg.calib.line_centre_search = arm;
     let s = BattleState::new(7, cfg);
