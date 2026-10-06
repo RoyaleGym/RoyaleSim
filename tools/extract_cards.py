@@ -1547,6 +1547,10 @@ def filter_block(t: dict, name) -> dict | None:
             out["tags"] = [s.strip() for s in v.split(",") if s.strip()]
         elif k in FILTER_FLAGS and isinstance(v, bool):
             out[FILTER_FLAGS[k]] = v
+        elif k == "FilterIfNotBuffedByChecker" and isinstance(v, list) and v \
+                and all(isinstance(x, str) and t["character_buffs"].get(x) is not None for x in v):
+            # 16.402 (the Hero Ice Wizard's resolvers): a unit that carries none of these buffs is filtered out.
+            out["only_buffed_by"] = list(v)
         elif k == "Filters" and isinstance(v, list) and set(v) <= set(FILTER_LIST_FLAGS):
             out.update({FILTER_LIST_FLAGS[x]: True for x in v})
         else:
@@ -5103,6 +5107,7 @@ EVOLUTIONS = (
     "Bats_EV1", "Wallbreakers_EV1", "IceSpirits_EV1", "Firecracker_EV1", "Witch_EV1",
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
     "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1", "GoblinBarrel_EV1", "RageBarbarian_EV1",
+    "ElectroGiant_EV1",  # 16.402 on (EVOLUTIONS_16402_ONLY)
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -7631,6 +7636,233 @@ def capture_block(t: Tables, card: dict) -> dict:
     }
 
 
+# THE EVO ELECTRO GIANT'S PULSE (`delevel_pulse_block`; characters/electro_giant_ev1.toml), read whole or the build
+# stops. 16.402 on: the 160402017 pack is the first to carry the form in play (15.535.29's ElectroGiant_EV1 row is a
+# NotInUse Knight placeholder), so the row is built on a filters_format vintage alone (EVOLUTIONS_16402_ONLY).
+EVOLUTIONS_16402_ONLY = frozenset({"ElectroGiant_EV1"})
+# The unit row's own columns: the one it reads, and the display one beside DATA_ONLY_DISPLAY and COSMETIC (PrefabAsset:
+# the 3D model). Base and ClonedVersion (DATA_ONLY_DISPLAY) are pinned to the base card's unit below.
+DELEVEL_ROW = {"OnStartingAction"}
+DELEVEL_ROW_DISPLAY = {"PrefabAsset"}
+# The clock (an ActionInterval) and the area's spawn, every key read.
+DELEVEL_INTERVAL = {"ClassType", "Interval", "StartCounterAt", "ActionToExecute", "PauseTag", "AffectedByHitSpeed",
+                    "StatsTags"}
+DELEVEL_PAUSE_TAG = "COMBAT_DISABLED"
+DELEVEL_SPAWN = {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource"}
+# The pulse area: the columns read (the Filter's flags are the Filter's, `filter_derived`), StatsTags display.
+DELEVEL_AREA_READ = {"Rarity", "Filter", "Radius", "MaxRadius", "LifeDuration", "HitSpeed", "OneHitPerTarget",
+                     "FollowBehaviour", "StayAfterParentDies", "OnHitAction"}
+DELEVEL_AREA_DISPLAY = {"StatsTags"}
+DELEVEL_AREA_FILTER = "CommonAreaDamageFilter"
+# The area's hit: a damage of {BaseDamage, TowerDamage} and the debuff's spawn on all but a crown tower.
+DELEVEL_HIT_DAMAGE = {"ClassType", "Damage"}
+DELEVEL_HIT_DEBUFF = {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ParentGOAsSource", "ExecuteIfTrue"}
+DELEVEL_SPARES = "!is_crown_tower"
+# The debuff row: the columns read, and Scale (the carrier's drawn size, per cent) display.
+DELEVEL_BUFF_READ = {"Rarity", "EnableStacking", "OnStartAction", "OnStackedAction", "OnRemoveAction"}
+DELEVEL_BUFF_DISPLAY = {"Scale"}
+# The level steps: the drop (on start and on every stack), its count, and the give-back on removal.
+DELEVEL_DOWN = {"ClassType", "RelativeLevelAdjustmentExpression", "ExecuteIfTrue", "NextAction", "NextActionWait"}
+DELEVEL_DOWN_IF = re.compile(r"^character_level >= (\d+)$")
+DELEVEL_UP = {"ClassType", "RelativeLevelAdjustmentExpression", "NextAction"}
+DELEVEL_SET = {"ClassType", "Variable", "Value"}
+DELEVEL_COUNT = "{c} - {a}"
+
+
+def _mentions(acts, var: str) -> dict[str, dict]:
+    """Every action row whose string values (inline ones included) name [VARIABLE] `var`, by name."""
+    word = re.compile(rf"(?<![\w#]){re.escape(var)}(?!\w)")
+    out = {}
+    for name, row in acts.records.items():
+        vals = list(row.values()) + [v for col in acts.arrays.get(name, {}).values() for v in col]
+        while vals:
+            v = vals.pop()
+            if isinstance(v, dict):
+                vals.extend(v.values())
+            elif isinstance(v, list):
+                vals.extend(v)
+            elif isinstance(v, str) and word.search(v):
+                out[name] = row
+                break
+    return out
+
+
+def delevel_pulse_block(t: Tables, card: dict) -> dict:
+    """THE EVO ELECTRO GIANT'S PULSE (characters/electro_giant_ev1.toml ElectroGiant_EV1, an [EXT] of
+    CHARACTER.ElectroGiant whose reflect it keeps), read whole or the build stops:
+      - OnStartingAction: an ActionGroup of one ActionInterval and effects, the interval at `start_delay_ms`; the
+        interval fires first StartCounterAt after that (`first_ms` = the two), then every `every_ms` (Interval), its
+        clock scaled by the giant's hit speed (`hit_speed_scaled`, AffectedByHitSpeed) and held while he carries
+        `paused_by` (PauseTag COMBAT_DISABLED);
+      - each firing: an ActionGroup of one ActionSpawn of an AreaEffectType on the giant (ParentGOAsSource; at
+        `area_delay_ms`), the rest effects and a [VARIABLE] only an effect's ForceStopIfTrue reads;
+      - the area (`area`): CommonAreaDamageFilter (enemies, air and ground, buildings and crown towers, not the hidden,
+        `filter`), on the giant as he moves (FollowParent) and after his death (StayAfterParentDies), growing from
+        Radius to MaxRadius over LifeDuration (`min_radius_milli`, `max_radius_milli`, `life_ms`), looking every
+        HitSpeed (`hit_speed_ms`), each target once (OneHitPerTarget); no Damage column of its own;
+      - its OnHitAction: an ActionGroup at 0 of an ActionTakeDamage {BaseDamage, TowerDamage} (`hit_damage`,
+        `hit_tower_damage`) and an ActionSpawn of a BuffType on the target for SpawnTime (`debuff_ms`), not on a crown
+        tower (ExecuteIfTrue "!is_crown_tower": `spares_crown_towers`);
+      - the debuff (`debuff`): EnableStacking; OnStartAction and OnStackedAction the same ActionSetCharacterLevel of
+        RelativeLevelAdjustmentExpression <amount>, a [VARIABLE] no action sets (`levels_per_hit` = -its DefaultValue),
+        run only while `character_level >= k` (`down_while_level_at_least` = k), whose NextAction (NextActionWait) is
+        an ActionGroup of effects and, at `count_delay_ms`, an ActionSetVariable <counter> = <counter> - <amount>;
+        OnRemoveAction an ActionSetCharacterLevel of RelativeLevelAdjustmentExpression <counter> (`restores_on_remove`)
+        whose NextAction sets <counter> to 0. The counter's DefaultValue is 0 and nothing else writes it.
+    Every [VARIABLE] named for the unit (its name and "_") is one of the two, the charge flag above, or one no action
+    names (16.402.19: ElectroGiant_EV1_First_Delevel_Amount)."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts, tb, bf = t["actions"], t["area_effect_objects"], t["character_buffs"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    def is_int(v, lo: int) -> bool:
+        return isinstance(v, int) and not isinstance(v, bool) and v >= lo
+
+    need(t.vintage.filters_format, "the pulse before 16.402")
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - DELEVEL_ROW - DELEVEL_ROW_DISPLAY - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    base = card["form_of"]
+    need(row["Base"] == f"CHARACTER.{base}" and row["ClonedVersion"] == base, f"its row extends {row['Base']!r}")
+
+    # THE CLOCK.
+    start = group_subactions(t, row["OnStartingAction"], f"{unit} start")
+    ivs = [(n, d) for n, d in start if (acts.get(n) or {}).get("ClassType") == "ActionInterval"]
+    need(len(ivs) == 1 and all(_cosmetic_action(acts, n) for n, _ in start if (n, _) not in ivs),
+         f"its start runs {start}")
+    iv_name, start_delay = ivs[0]
+    iv = acts.get(iv_name)
+    need(_present(iv) <= DELEVEL_INTERVAL and iv["PauseTag"] == DELEVEL_PAUSE_TAG
+         and isinstance(iv["AffectedByHitSpeed"], bool), f"the interval {iv_name} sets {sorted(_present(iv))}")
+    need(is_int(iv["Interval"], 1) and is_int(iv["StartCounterAt"], 0) and is_int(start_delay, 0),
+         "the interval's numbers")
+
+    # EACH FIRING: one area on the giant; the rest effects and the charge flag.
+    fire = group_subactions(t, iv["ActionToExecute"], f"{unit} pulse")
+    spawns = [(n, d) for n, d in fire if (acts.get(n) or {}).get("ClassType") == "ActionSpawn"]
+    need(len(spawns) == 1, f"its pulse runs {fire}")
+    flags = set()
+    for n, _ in fire:
+        if (n, _) in spawns or _cosmetic_action(acts, n):
+            continue
+        a = acts.get(n)
+        need(a is not None and a["ClassType"] == "ActionSetVariable" and _present(a) == DELEVEL_SET
+             and a["Value"] in ("0", "1"), f"its pulse's step {n}")
+        flags.add(a["Variable"])
+    sp_name, area_delay = spawns[0]
+    sp = acts.get(sp_name)
+    need(_present(sp) == DELEVEL_SPAWN and sp["SpawnType"] == "AreaEffectType" and sp["ParentGOAsSource"] is True,
+         f"the pulse's spawn {sp_name}")
+    # The charge flag: set in the firing alone, read by an effect's ForceStopIfTrue alone.
+    for var in flags:
+        for n, a in _mentions(acts, var).items():
+            need((a["ClassType"] == "ActionSetVariable" and n in {x for x, _ in fire})
+                 or (a["ClassType"] == "ActionPlayEffect" and a["ForceStopIfTrue"] == f"{var} == 1"),
+                 f"the flag {var} is read by {n}")
+
+    # THE AREA.
+    name = sp["SpawnData"]
+    r = tb.get(name)
+    need(r is not None, f"no area {name}")
+    unread = tb.set_fields.get(name, set()) - DELEVEL_AREA_READ - DELEVEL_AREA_DISPLAY
+    need(not unread, f"area {name} sets {sorted(unread)}")
+    flt = filter_block(t, r["Filter"])
+    need(r["Filter"] == DELEVEL_AREA_FILTER and flt is not None, f"area {name}'s Filter {r['Filter']!r}")
+    need(r["OnlyEnemies"] is True and r["OnlyOwnTroops"] is False and r["IgnoreBuildings"] is False
+         and r["NoEffectToCrownTowers"] is False and r["Damage"] is None and r["TowerDamage"] is None,
+         f"area {name}'s targets")
+    need(r["OneHitPerTarget"] is True and r["FollowBehaviour"] == "FollowParent" and r["StayAfterParentDies"] is True,
+         f"area {name} is not a one-hit ring on the giant")
+    need(all(is_int(r[c], 1) for c in ("Radius", "MaxRadius", "LifeDuration", "HitSpeed"))
+         and r["MaxRadius"] > r["Radius"], f"area {name}'s ring")
+
+    # ITS HIT.
+    hit = group_subactions(t, r["OnHitAction"], f"area {name} hit")
+    by = {(acts.get(n) or {}).get("ClassType"): n for n, _ in hit}
+    need(sorted(by) == ["ActionSpawn", "ActionTakeDamage"] and len(hit) == 2 and all(d == 0 for _, d in hit),
+         f"area {name}'s hit runs {hit}")
+    dmg = acts.get(by["ActionTakeDamage"])
+    d = dmg["Damage"]
+    need(_present(dmg) == DELEVEL_HIT_DAMAGE and isinstance(d, dict) and set(d) <= {"BaseDamage", "TowerDamage"}
+         and all(is_int(v, 0) for v in d.values()) and "BaseDamage" in d, f"the hit's damage {d!r}")
+    db = acts.get(by["ActionSpawn"])
+    need(_present(db) == DELEVEL_HIT_DEBUFF and db["SpawnType"] == "BuffType" and db["ParentGOAsSource"] is True
+         and db["ExecuteIfTrue"] == DELEVEL_SPARES and is_int(db["SpawnTime"], 1),
+         f"the hit's debuff {by['ActionSpawn']}")
+
+    # THE DEBUFF.
+    buff = db["SpawnData"]
+    b = bf.get(buff)
+    need(b is not None and not (bf.set_fields.get(buff, set()) - DELEVEL_BUFF_READ - DELEVEL_BUFF_DISPLAY)
+         and b["EnableStacking"] is True and b["OnStartAction"] == b["OnStackedAction"],
+         f"the debuff {buff} sets {sorted(bf.set_fields.get(buff, set()))}")
+    down = acts.get(b["OnStartAction"])
+    need(down is not None and down["ClassType"] == "ActionSetCharacterLevel" and _present(down) == DELEVEL_DOWN
+         and down["NextActionWait"] is True, f"the debuff's drop {b['OnStartAction']}")
+    amount = down["RelativeLevelAdjustmentExpression"]
+    m = DELEVEL_DOWN_IF.fullmatch(str(down["ExecuteIfTrue"]))
+    step = (t.variables.get(amount) or {}).get("DefaultValue")
+    need(m is not None and is_int(-step if isinstance(step, int) else None, 1), f"the drop {amount!r} if "
+         f"{down['ExecuteIfTrue']!r}")
+    after = group_subactions(t, down["NextAction"], f"{unit} drop")
+    sets = [(n, dl) for n, dl in after if (acts.get(n) or {}).get("ClassType") == "ActionSetVariable"]
+    need(len(sets) == 1 and all(_cosmetic_action(acts, n) for n, dl in after if (n, dl) not in sets),
+         f"the drop's next {after}")
+    count = acts.get(sets[0][0])
+    counter = count["Variable"]
+    need(_present(count) == DELEVEL_SET and count["Value"] == DELEVEL_COUNT.format(c=counter, a=amount)
+         and (t.variables.get(counter) or {}).get("DefaultValue") == 0 and counter != amount,
+         f"the drop's count {sets[0][0]}")
+    up = acts.get(b["OnRemoveAction"])
+    need(up is not None and up["ClassType"] == "ActionSetCharacterLevel" and _present(up) == DELEVEL_UP
+         and up["RelativeLevelAdjustmentExpression"] == counter, f"the debuff's give-back {b['OnRemoveAction']}")
+    reset = acts.get(up["NextAction"])
+    need(reset is not None and reset["ClassType"] == "ActionSetVariable" and _present(reset) == DELEVEL_SET
+         and reset["Variable"] == counter and reset["Value"] == "0", f"the give-back's reset {up['NextAction']}")
+    # The amount and the counter: named by these rows alone (nothing else sets or reads them).
+    need(set(_mentions(acts, amount)) == {b["OnStartAction"], sets[0][0]}, f"{amount} is named elsewhere")
+    need(set(_mentions(acts, counter)) == {sets[0][0], b["OnRemoveAction"], up["NextAction"]},
+         f"{counter} is named elsewhere")
+    # Every [VARIABLE] of the unit: read above, the charge flag, or named by no action.
+    for var in sorted(n for n in t.variables if n.startswith(f"{unit}_")):
+        need(var in {amount, counter} | flags or not _mentions(acts, var), f"the [VARIABLE] {var} is read")
+
+    return {
+        "start_delay_ms": start_delay,
+        "first_ms": start_delay + iv["StartCounterAt"],
+        "every_ms": iv["Interval"],
+        "hit_speed_scaled": iv["AffectedByHitSpeed"],
+        "paused_by": iv["PauseTag"],
+        "area": name,
+        "area_delay_ms": area_delay,
+        "min_radius_milli": r["Radius"],
+        "max_radius_milli": r["MaxRadius"],
+        "life_ms": r["LifeDuration"],
+        "hit_speed_ms": r["HitSpeed"],
+        "follow_parent": True,
+        "stay_after_parent_dies": True,
+        "hits_air": r["HitsAir"] is True,
+        "hits_ground": r["HitsGround"] is True,
+        "affects_hidden": r["AffectsHidden"] is True,
+        "filter": flt,
+        "hit_damage": d["BaseDamage"],
+        "hit_tower_damage": d.get("TowerDamage", d["BaseDamage"]),
+        "debuff": buff,
+        "debuff_ms": db["SpawnTime"],
+        "spares_crown_towers": True,
+        "stacks": True,
+        "levels_per_hit": -step,
+        "down_while_level_at_least": int(m.group(1)),
+        "count_delay_ms": sets[0][1],
+        "restores_on_remove": True,
+    }
+
+
 def hero_file_links(v: Vintage) -> dict[str, list]:
     """Each base card's EvolvedSpells as the hero form files set it ([SPELL_CHARACTER.<base>] or [SPELL_BUILDING.<base>]
     in characters/hero_form/*_spell.toml), by base name."""
@@ -7768,6 +8000,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_bounce"] = bounce_block(t, card)
         elif name == "RageBarbarian_EV1":
             card["evo_rage_ghost"] = rage_ghost_block(t, card, b)
+        elif name == "ElectroGiant_EV1":
+            card["evo_delevel_pulse"] = delevel_pulse_block(t, card)
         elif name == "Valkyrie_EV1":
             card["evo_attack_area"] = attack_area_block(t, card, ATTACK_AREA_READ)
         elif name == "RoyalGiant_EV1":
@@ -7789,6 +8023,9 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
         return card
 
     for name in EVOLUTIONS:
+        # A form whose pack row is a placeholder before 16.402 (EVOLUTIONS_16402_ONLY) is built from 16.402 on alone.
+        if name in EVOLUTIONS_16402_ONLY and not t.vintage.filters_format:
+            continue
         card = census(f"spells_evolved.{name}", one, name)
         if card is not None:
             out.append(card)
@@ -7821,6 +8058,9 @@ HERO_FORMS = {
     "BarbLog_hero": ("BarbLog", "barb_log_hero"),
     "DarkPrince_hero": ("DarkPrince", "dark_prince_hero"),
     "Tombstone_hero": ("Tombstone", "tombstone_hero"),
+    # 16.402 on (HERO_FORMS_16402_ONLY): the 15.535.29 pack carries no file of theirs.
+    "IceWizard_hero": ("IceWizard", "ice_wizard_hero"),
+    "ElectroWizard_hero": ("ElectroWizard", "electro_wizard_hero"),
 }
 # The keys of an [ABILITY.*] row: the ones read, and the ones only the UI reads. Any other key stops the build.
 ABILITY_READ_KEYS = {
@@ -7948,6 +8188,14 @@ def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
                     route = {}
                     for n, f in body.items():
                         base = f.get("Base", "")
+                        # 16.402 (the Hero Ice Wizard's IceWizardHero_FreezeAeo_filter): an [EXT] of a FILTER is a
+                        # target filter by name, as a [FILTER.*] section is: its base's keys with its own over them.
+                        if isinstance(base, str) and base.startswith("FILTER.") and t.vintage.filters_format:
+                            bf = t.filters.get(base.split(".", 1)[1])
+                            if bf is None or n in t.filters:
+                                raise SystemExit(f"{label}: [EXT.{n}] Base {base!r} names no filter, or {n} is named")
+                            t.filters[n] = {**bf, **{k: x for k, x in f.items() if k != "Base"}}
+                            continue
                         key = SECTION_TABLE.get(base.split(".")[0]) if "." in base else None
                         if key is None:
                             raise SystemExit(f"{label}: [EXT.{n}] Base {base!r} names no table")
@@ -9117,6 +9365,12 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
     elif "ActionBossBanditAbility" in classes and "ActionSetAttackSequenceIndex" in classes:
         effect = decoy_warp_effect(h, name, subs, delays, units, hero_unit or "")
         classes = []
+    # THE HERO ELECTRO WIZARD'S SURGE: a buff, an attack entry and an aura, nothing else (`surge_effect`).
+    elif "ActionSetAttackSequenceIndex" in classes and set(classes) <= {
+        "ActionSpawn", "ActionSetAttackSequenceIndex", "ActionPlayEffect"
+    }:
+        effect = surge_effect(h, name, subs, delays, units, hero_unit or "")
+        classes = []
     elif "ActionSelect" in classes and "ActionHeal" in classes:
         effect = level_up_effect(h, name, subs, delays, hero_unit or "")
         classes = []
@@ -10091,9 +10345,713 @@ def spin_chain_effect(h: Tables, name: str, subs: list[str], delays: list[int]) 
     }
 
 
+# 16.402 on: the hero forms the 15.535.29 pack does not carry (characters/hero_form has no file of theirs there). The
+# hero pass of a vintage without filters_format leaves them out (`hero_forms_of`), so its table is unchanged.
+HERO_FORMS_16402_ONLY = frozenset({"ElectroWizard_hero", "IceWizard_hero"})
+
+
+def hero_forms_of(v: Vintage) -> dict:
+    """HERO_FORMS as vintage `v` carries them: every one on a filters_format vintage, else those of 15.535.29."""
+    return {f: x for f, x in HERO_FORMS.items() if v.filters_format or f not in HERO_FORMS_16402_ONLY}
+
+
+# THE HERO ELECTRO WIZARD'S SURGE (`surge_effect`): the keys of its index setters, its buff spawns, its aura (display),
+# its buff rows (read, or display only), its attack entries (read, or display only), its start's instant hit and
+# interval, its prop animation's display actions; the tag its buffs set and its picks read. Any other key stops the
+# build.
+SURGE_INDEX_KEYS = {"ClassType", "AttackIndex", "SetEvenIfCombatDisabled"}
+SURGE_SPAWN_KEYS = {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "StatsTags", "ExecuteIfTrue"}
+SURGE_AURA_KEYS = {"ClassType", "PrefabAsset", "Effect", "EffectFlags", "ForceStopIfTrue"}
+SURGE_BUFF_READ = {"Rarity", "CharacterCrownTowerDamagePercent", "SpeedMultiplier", "OnRemoveAction", "GameTagsToSet"}
+SURGE_BUFF_DISPLAY = {"ContinuousEffect", "LoopContinuousEffect"}
+SURGE_RECOVERY_READ = {"Rarity", "AddAsIndividualBuff", "GameTagsToSet", "OnRemoveAction"}
+SURGE_ROOT_READ = {"Rarity", "AddAsIndividualBuff", "AliveIfTrue", "GameTagsToSet", "OnStartAction"}
+SURGE_ENTRY_READ = {"Damage", "HitSpeedMultiplier", "CustomMultipleTargets", "CustomRememberMultipleTargets",
+                    "AttackStartDelay", "CustomOnAttackAction"}
+SURGE_ENTRY_DISPLAY = {"VisualHitSpeed", "DisableAttackAnimationFrameMatching", "StatsTags"}
+SURGE_ENTRY_SAME = ("Damage", "HitSpeedMultiplier", "CustomMultipleTargets", "CustomRememberMultipleTargets",
+                    "AttackStartDelay")
+SURGE_TAG = "UNIT_CUSTOM_TAG_1"
+SURGE_IN_RANGE = r"target_in_range\((\d+)\)"
+
+
+def surge_effect(h: Tables, name: str, subs: list, delays: list, units: dict, hero_unit: str) -> dict:
+    """THE HERO ELECTRO WIZARD'S SURGE ([ABILITY] OnActivationAction a group, every step at 0), read whole or the build
+    stops. At the trigger `buff` lands on the hero for `buff_ms` (an own buff: CharacterCrownTowerDamagePercent, its
+    hits' share on a crown tower while it lasts; SpeedMultiplier 100, inert: a positive multiplier composes as a max
+    with 100; SURGE_TAG, which the swing pick reads), attack entry 1 is set and an aura plays (display). While the tag
+    is on, each swing's start (the row's OnStartingAttackAction, an ActionSelect: `!TAG` -> entry 0, `<var> == 0` ->
+    entry 1, else entry 2) takes entry 1 once and entry 2 after it; the two are one attack (SURGE_ENTRY_SAME), entry 1
+    only also setting the display variable that tells its spin animation done. That attack (`unit`, the hero's row with
+    its Damage, added to `units`): `damage` a bolt, `multiple_targets` bolts (the row's MultipleTargets),
+    `hit_speed_multiplier` (an own rate, as the siege's), `remember_targets` (CustomRememberMultipleTargets) and
+    `attack_start_delay_ms` (AttackStartDelay), the last two unmeasured. At the buff's end (its OnRemoveAction, a group
+    at 0): entry 0, `recovery_no_attack_ms` of NO_ATTACK (with the tag; its end sets entry 0 again), and, only if its
+    target stands within `recovery_root_range_milli` (target_in_range), `recovery_root_ms` of NO_MOVE_ALLOW_ATTRACT,
+    dropped as soon as it does not (AliveIfTrue), its start an animation (display). Entry 0 is the row's own attack (its
+    Damage, MultipleTargets, HitSpeedMultiplier 100). The row's OnStartingAction (a group at 0): entry 0, an
+    ActionSetInstantHit if its target is within `spawn_instant_range_milli` (target_in_range), and every 50 ms a select
+    of animation modifiers on the tag (display). The row's graph is these two roots alone."""
+    import re
+
+    acts = h["actions"]
+    buffs = h["character_buffs"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero ability {name}: {what}")
+
+    def index_of(n, want: int | None = None) -> int:
+        a = _one_action(acts, n, "ActionSetAttackSequenceIndex", SURGE_INDEX_KEYS)
+        need(a["SetEvenIfCombatDisabled"] is True and (want is None or a["AttackIndex"] == want),
+             f"{n} sets entry {a['AttackIndex']} (want {want})")
+        return a["AttackIndex"]
+
+    def buff_spawn(n) -> tuple[dict, str, int]:
+        sp = _one_action(acts, n, "ActionSpawn", SURGE_SPAWN_KEYS)
+        need(sp["SpawnType"] == "BuffType" and buffs.get(sp["SpawnData"]) is not None
+             and isinstance(sp["SpawnTime"], int) and sp["SpawnTime"] > 0, f"{n} is not a buff with a SpawnTime")
+        return sp, sp["SpawnData"], sp["SpawnTime"]
+
+    def tags(row) -> set[str]:
+        return {x.strip() for x in str(row["GameTagsToSet"] or "").split(",") if x.strip()}
+
+    # THE TRIGGER: the buff, entry 1, the aura.
+    by: dict[str, list[str]] = {}
+    for s, d in zip(subs, delays, strict=True):
+        need(d == 0, f"{s} at {d}")
+        by.setdefault(acts.get(s)["ClassType"], []).append(s)
+    need({k: len(v) for k, v in by.items()} == {"ActionSpawn": 1, "ActionSetAttackSequenceIndex": 1,
+                                                 "ActionPlayEffect": 1}, f"its group runs {sorted(by)}")
+    aura = _one_action(acts, by["ActionPlayEffect"][0], "ActionPlayEffect", SURGE_AURA_KEYS)
+    need(aura["ForceStopIfTrue"] in (None, f"!{SURGE_TAG}"), f"its aura's stop {aura['ForceStopIfTrue']!r}")
+    index_of(by["ActionSetAttackSequenceIndex"][0], 1)
+    sp, bname, buff_ms = buff_spawn(by["ActionSpawn"][0])
+    need(sp["ExecuteIfTrue"] is None, "its buff's spawn is conditional")
+    brow = buffs.get(bname)
+    extra = buffs.set_fields.get(bname, set()) - SURGE_BUFF_READ - SURGE_BUFF_DISPLAY
+    need(not extra, f"its buff {bname} sets {sorted(extra)}")
+    ct = brow["CharacterCrownTowerDamagePercent"]
+    need(tags(brow) == {SURGE_TAG} and brow["SpeedMultiplier"] in (None, 100)
+         and (ct is None or (isinstance(ct, int) and 0 <= ct <= 100)), f"its buff {bname}'s columns")
+
+    # THE END: entry 0, the recovery (NO_ATTACK), the root if the target is in range.
+    end = group_subactions(h, brow["OnRemoveAction"], f"hero ability {name} end")
+    need(all(d == 0 for _, d in end), f"its end's delays {end}")
+    ends: dict[str, list[str]] = {}
+    for s, _ in end:
+        ends.setdefault(acts.get(s)["ClassType"], []).append(s)
+    need({k: len(v) for k, v in ends.items()} == {"ActionSetAttackSequenceIndex": 1, "ActionSpawn": 2},
+         f"its end runs {sorted(ends)}")
+    index_of(ends["ActionSetAttackSequenceIndex"][0], 0)
+    spawned = [buff_spawn(s) for s in ends["ActionSpawn"]]
+    plain = [x for x in spawned if x[0]["ExecuteIfTrue"] is None]
+    gated = [x for x in spawned if x[0]["ExecuteIfTrue"] is not None]
+    need(len(plain) == 1 and len(gated) == 1, "its end's two buffs are not one plain and one gated")
+    _, rname, recovery_ms = plain[0]
+    rrow = buffs.get(rname)
+    need(buffs.set_fields.get(rname, set()) <= SURGE_RECOVERY_READ and rrow["AddAsIndividualBuff"] is True
+         and tags(rrow) == {"NO_ATTACK", SURGE_TAG}, f"its recovery buff {rname}")
+    if rrow["OnRemoveAction"] is not None:
+        index_of(rrow["OnRemoveAction"], 0)
+    gsp, gname, root_ms = gated[0]
+    m = re.fullmatch(SURGE_IN_RANGE, str(gsp["ExecuteIfTrue"]))
+    grow = buffs.get(gname)
+    need(m is not None and buffs.set_fields.get(gname, set()) <= SURGE_ROOT_READ and grow["AddAsIndividualBuff"] is True
+         and str(grow["AliveIfTrue"]) == gsp["ExecuteIfTrue"] and tags(grow) == {"NO_MOVE_ALLOW_ATTRACT"},
+         f"its root buff {gname}")
+    root_range = int(m.group(1))
+    if grow["OnStartAction"] is not None:
+        _one_action(acts, grow["OnStartAction"], "ActionRunForcedAnimationOnce", {"ClassType", "PlaybackDuration"})
+
+    # THE ROW: its entries, its swing pick, its start.
+    table, row = unit_record(h, hero_unit)
+    need(table == "characters", f"the hero {hero_unit} is not a character row")
+    tb = h[table]
+    seq = col_list(tb, hero_unit, "AttackSequenceList")
+    need(row["AttackSequenceMode"] == "None" and col_list(tb, hero_unit, "AttackSequence") == [0, 1, 2]
+         and len(seq) == 3 and all(isinstance(e, dict) for e in seq), f"the hero's entries {seq}")
+    for i, e in enumerate(seq):
+        need(not set(e) - SURGE_ENTRY_READ - SURGE_ENTRY_DISPLAY, f"entry {i} sets {sorted(set(e))}")
+    e0, e1, e2 = seq
+    need(set(e0) <= {"Damage", "VisualHitSpeed", "HitSpeedMultiplier", "CustomMultipleTargets"}
+         and e0.get("Damage", row["Damage"]) == row["Damage"] and e0.get("HitSpeedMultiplier", 100) == 100
+         and e0.get("CustomMultipleTargets", row["MultipleTargets"]) == row["MultipleTargets"],
+         f"entry 0 {e0} is not the row's attack")
+    need(all(e1.get(k) == e2.get(k) for k in SURGE_ENTRY_SAME) and "CustomOnAttackAction" not in e2,
+         f"entries 1 and 2 are not one attack: {e1} {e2}")
+    need(isinstance(e1.get("Damage"), int) and e1["Damage"] > 0 and isinstance(e1.get("HitSpeedMultiplier"), int)
+         and e1["HitSpeedMultiplier"] > 0 and e1.get("CustomMultipleTargets") == row["MultipleTargets"]
+         and e1.get("CustomRememberMultipleTargets") in (None, 0, 1, True, False)
+         and isinstance(e1.get("AttackStartDelay", 0), int) and e1.get("AttackStartDelay", 0) >= 0,
+         f"entry 1 {e1}")
+    setter = _one_action(acts, e1.get("CustomOnAttackAction"), "ActionSetVariable", {"ClassType", "Variable", "Value"})
+    var = setter["Variable"]
+    need(str(setter["Value"]) == "1" and var in h.variables and not (h.variables[var] or {}).get("DefaultValue"),
+         f"entry 1's CustomOnAttackAction {setter}")
+    pick = row["OnStartingAttackAction"]
+    _one_action(acts, pick, "ActionSelect", {"ClassType", "PerActionConditions", "SubActions"})
+    conds = _action_list(acts, pick, "PerActionConditions")
+    need(conds == [f"!{SURGE_TAG}", f"{var} == 0"], f"its pick's conditions {conds}")
+    need([index_of(s) for s in _action_list(acts, pick, "SubActions")] == [0, 1, 2], "its pick's entries")
+    # The variable and the tag: read by nothing in the hero's files but what is read here (the variable's section, its
+    # setter, its pick; the tag's two buffs, its pick, its aura's stop, its prop select).
+    text = getattr(h, "hero_text", "")
+    need(text.count(var) == 3 and text.count(SURGE_TAG) == 5, "the variable or the tag is read elsewhere")
+    start = row["OnStartingAction"]
+    got = _group_leaves(acts, start) if isinstance(start, str) else None
+    need(got is not None and all(d == 0 for d in got[1]) and _present(acts.get(start)) == GROUP_KEYS,
+         f"its start {start}")
+    sb: dict[str, list[str]] = {}
+    for s in got[0]:
+        sb.setdefault(acts.get(s)["ClassType"], []).append(s)
+    need({k: len(v) for k, v in sb.items()} == {"ActionSetAttackSequenceIndex": 1, "ActionSetInstantHit": 1,
+                                                 "ActionInterval": 1}, f"its start runs {sorted(sb)}")
+    index_of(sb["ActionSetAttackSequenceIndex"][0], 0)
+    ih = _one_action(acts, sb["ActionSetInstantHit"][0], "ActionSetInstantHit", {"ClassType", "ExecuteIfTrue"})
+    mi = re.fullmatch(SURGE_IN_RANGE, str(ih["ExecuteIfTrue"]))
+    need(mi is not None, f"its instant hit's condition {ih['ExecuteIfTrue']!r}")
+    iv = _one_action(acts, sb["ActionInterval"][0], "ActionInterval", {"ClassType", "Interval", "ActionToExecute"})
+    prop = _one_action(acts, iv["ActionToExecute"], "ActionSelect", {"ClassType", "PerActionConditions", "SubActions"})
+    need(_action_list(acts, iv["ActionToExecute"], "PerActionConditions") == [SURGE_TAG] and prop is not None,
+         "its prop select's conditions")
+    for s in _action_list(acts, iv["ActionToExecute"], "SubActions"):
+        _one_action(acts, s, "ActionSetAnimationModifier", {"ClassType", "Parameter", "Value"})
+    graph = (units.get(hero_unit) or {}).get("action_graph") or {}
+    need(graph.get("roots") == {"OnStartingAction": start, "OnStartingAttackAction": pick} and not graph.get("spawns"),
+         f"its row's graph {graph.get('roots')}")
+    # Its CrownTowerDamagePercent 0: a delta of 0 (100 + 0), as every negative one is read; its base row's blank.
+    need(row["CrownTowerDamagePercent"] in (None, 0),
+         f"its row's CrownTowerDamagePercent {row['CrownTowerDamagePercent']}")
+    surge = f"{hero_unit}_Surge"
+    rec = norm_unit(h, hero_unit, with_raw=True)
+    rec.update({"name": surge, "damage": e1["Damage"], "crown_tower_damage_percent": 100,
+                "damage_source": f"{table}.{hero_unit}.AttackSequenceList[1].Damage", "action_graph": None})
+    units[surge] = rec
+    return {
+        "kind": "surge",
+        "buff": norm_buff_row(h, bname, brow),
+        "buff_ms": buff_ms,
+        "unit": surge,
+        "damage": e1["Damage"],
+        "multiple_targets": e1["CustomMultipleTargets"],
+        "hit_speed_multiplier": e1["HitSpeedMultiplier"],
+        "remember_targets": bool(e1.get("CustomRememberMultipleTargets")),
+        "attack_start_delay_ms": e1.get("AttackStartDelay", 0),
+        "recovery_no_attack_ms": recovery_ms,
+        "recovery_root_ms": root_ms,
+        "recovery_root_range_milli": root_range,
+        "spawn_instant_range_milli": int(mi.group(1)),
+    }
+
+
+# THE HERO ICE WIZARD'S BUTTON (`ice_cube_button`, 16.402 only). The expressions its actions must hold, with the names
+# its own actions use in place of {pending}, {kill}, {cube}, {inflight} (its four [VARIABLE]s), {key} and {none} (the
+# blackboard keys of its find and of its cube's check) and the distance in place of {ahead}: any other string stops the
+# build (compared with the spaces taken out).
+ICE_FIND_STOP = "as_int(#{key}) != -1 || {kill} > 0"
+ICE_FIND_IF = "{kill} == 0"
+ICE_WAIT = "as_int(#{key}) != -1"
+ICE_WAIT_STOP = "{kill} > 0"
+ICE_FIRE_VALID = ("is_valid_position(as_int(#PosX), as_int(#PosY) + (as_int(#Radius) + {ahead})"
+                  " * team_y_direction(as_int(#TeamIndex))) > 0")
+ICE_FIRE_Y_AHEAD = "as_int(#PosY) + (as_int(#Radius) + {ahead}) * team_y_direction(as_int(#TeamIndex))"
+ICE_FIRE_Y_NEAR = "as_int(#PosY) + as_int(#Radius) * team_y_direction(as_int(#TeamIndex))"
+ICE_FIRE_X = "as_int(#PosX)"
+ICE_SPAWN_X, ICE_SPAWN_Y = "as_int(#PosX, 0)", "as_int(#PosY, 0)"
+ICE_HERE_VALID = "is_valid_position(x, y + (get_radius() + {ahead}) * team_y_direction(team_index)) > 0"
+ICE_HERE_Y_AHEAD = "y + (get_radius() + {ahead}) * team_y_direction(team_index)"
+ICE_HERE_Y_NEAR = "y + get_radius() * team_y_direction(team_index)"
+ICE_KILL_IF = "{kill} == 0 && {pending} == 1 && {cube} == 0"
+ICE_DEATH_IF = "({inflight} == 1 || {pending} == 1) && {kill} == 0"
+ICE_CUBE_IF = "{cube} == 0"
+ICE_START_WAIT = "(!is_active_or_secondary_champion && !{pending}) || {cube} > 0"
+ICE_LINGER = "as_int(#{none}, 0) > 0"
+# The target's facts its find writes, by blackboard key (beside {key} = "self", its id): the point and the side and
+# the radius the cube's point is taken from.
+ICE_REGISTER = {"PosX": "x", "PosY": "y", "TeamIndex": "team_index", "Radius": "get_radius()"}
+# The classes the button's display may run (the pending effect, the button's state, the floating ice's hide and its
+# timer, the hero's start that hides it): read, not run. A display branch spawns nothing and sets no variable.
+ICE_DISPLAY_CLASSES = {"ActionGroup", "ActionPlayEffect", "ActionRunForcedAnimationOnce", "ActionHide",
+                       "ActionInterval", "ActionBlackboardSetInt", "ActionWaitToActivate", "ActionRunOnAttached",
+                       "ActionOverrideAbilityButtonState"}
+ICE_DISPLAY_EFFECT_KEYS = {"ClassType", "Effect", "EffectFlags", "Singleton", "ExecuteIfTrue", "ForceStopIfTrue",
+                           "OverrideScale"}
+ICE_BUTTON_STATE_KEYS = {"ClassType", "ChampionCharacterData", "Persistent", "ApplyImmediate", "StateToSet",
+                         "ExecuteIfTrue", "ForceStopIfTrue"}
+# The hero's own columns (its [EXT] of the Ice Wizard): read (its shot, its three actions, its button, the attached
+# floating ice), and display only.
+ICE_HERO_READ = {"Base", "Projectile", "OnStartingAction", "OnKilledDoneAction", "OnDeathAction", "Ability",
+                 "SpawnAttach", "SpawnCharacter", "SpawnNumber"}
+ICE_HERO_DISPLAY = {"PrefabAsset", "DeathEffect", "SpawnEffect", "AttackStartEffect", "Scale", "AbilityPendingEffect",
+                    "DeployBaseAnimExportName", "HealthBarOffsetYBlue", "HealthBarOffsetYRed", "FileName",
+                    "OnStartingClientActions", "HideHealthbar", "StatsTags"}
+# The floating ice (the hero's attached SpawnCharacter, an [EXT] of the hero): the columns it may set. Its Damage 0 and
+# its blank shot, button, start and spawn leave it the hero's look alone (its inherited kill and death actions run on
+# variables only the hero's own actions set: inert on it).
+ICE_FLOAT_SET = {"Base", "Projectile", "OnStartingAction", "Ability", "OnStartingClientActions", "SpawnAttach",
+                 "SpawnCharacter", "Damage", "PrefabAsset", "Scale", "UseAnimator", "IgnoreBuff", "SpawnDeployBaseAnim"}
+# The cube (a character the button puts down): read, and display only.
+ICE_CUBE_READ = {"Rarity", "Hitpoints", "LifeTime", "DeployTime", "DeployDelay", "LoadTime", "HitSpeed", "Range",
+                 "SightRange", "Speed", "CollisionRadius", "Mass", "UntargetableWhenSpawned", "AttacksGround",
+                 "IgnoreBuff", "IgnoreResurrect", "GameTagsToSet", "OnStartingAction", "OnDeathAction"}
+ICE_CUBE_DISPLAY = {"TID", "IsOccluder", "OnStartingClientActions", "HealthBar", "HideHealthbar", "PrefabAsset",
+                    "UseAnimator", "FileName", "BlueExportName", "RedExportName", "Scale", "StatsTags"}
+ICE_CUBE_TAGS = {"NO_MOVE_ALLOW_ATTRACT", "AVOIDANCE_AS_OBSTACLE", "NO_GIANTBUFFER_CHEF_ENCHANTMENT", "NO_ATTACK"}
+# Its two areas (the freeze and the 50 ms bridge before the cube): read, and display only. No HitSpeed: one hit.
+ICE_AREA_READ = {"Base", "Rarity", "Radius", "Damage", "Filter", "Buff", "BuffTime", "LinkToInstigatorLife",
+                 "LifeDuration", "OnLifeTimeEndAction"}
+ICE_AREA_DISPLAY = {"ScaledEffect", "LoopingEffect", "StatsTags", "OneShotEffect"}
+# Its buffs (the freeze, the bridge's freeze, the slow the freeze leaves): read, and display only.
+ICE_BUFF_READ = {"Base", "Name", "Rarity", "SpeedMultiplier", "HitSpeedMultiplier", "SpawnSpeedMultiplier",
+                 "ControlledByParent", "EnableStacking", "OnRemoveAction"}
+ICE_BUFF_DISPLAY = {"FilterFile", "FilterExportName", "TID"}
+
+
+def _ns(s) -> str:
+    return "".join(str(s).split())
+
+
+def _own_cols(tb, name: str) -> set[str]:
+    """The columns row `name` sets itself or through its Base chain (an [EXT]'s inherited ones), "Base" kept."""
+    out: set[str] = set()
+    seen: set[str] = set()
+    while isinstance(name, str) and name and name not in seen:
+        seen.add(name)
+        out |= tb.set_fields.get(name, set())
+        r = tb.get(name)
+        b = r.get("Base") if r is not None else None
+        name = b.split(".")[-1] if isinstance(b, str) and b else None
+    return out
+
+
+def ice_cube_button(h: Tables, form: str, unit: str, urow, units: dict, card: dict) -> dict:
+    """THE HERO ICE WIZARD'S BUTTON (16.402 on: [ABILITY] IceWizardHero_ability, the hero's OnStartingAction,
+    OnKilledDoneAction and OnDeathAction), read whole or the build stops.
+      - THE PRESS (CastTime 0, TriggerDelay 0, one charge, no cooldown): the button goes PENDING ({pending} 1). Every
+        `find_every_ms` its find takes the CLOSEST enemy (its resolver: a Global shape, `target.filter`) that carries
+        one of `marks` (FilterIfNotBuffedByChecker: the card's deploy chill or the hero's shot's slow) and writes its
+        point, its side and its radius; the first find FIRES the button.
+      - THE FIRE: the button shows used (display) and {pending} 0, {inflight} 1; `spawn_delay_ms` on, from the point
+        the find wrote, the cube's point is `ahead_milli` + the target's radius ahead of the target along ITS side's
+        forward (team_y_direction of its team), or, where that point is not a valid position, the target's radius
+        ahead. There `bridge` lands (an area of `bridge.life_ms`: its freeze for `bridge.buff_time_ms` on every enemy
+        in its radius, no damage), and at its end the cube (`cube.unit`, deploying) stands on its point.
+      - THE KILL (`on_kill`): pending, a kill by the hero (OnKilledDoneAction) fires it at once on the killed unit
+        (its own point, side and radius, the same two points), the bridge first, no `spawn_delay_ms`; the find stops.
+      - THE DEATH (`on_death`): the hero dying pending or with its cube in flight (and not fired by a kill) puts the
+        cube itself (no bridge) on the closest mark's point, found at the death.
+      - THE CUBE: it stands (NO_MOVE_ALLOW_ATTRACT), does not attack (NO_ATTACK), is an avoidance obstacle, takes
+        hits; at its start `freeze` lands on its point: `freeze.damage` (`freeze.tower_damage` a crown tower) and the
+        freeze buff on every enemy in its radius, held while the area lives (ControlledByParent), the area living
+        while the cube does (LinkToInstigatorLife). Each freeze that ends leaves `freeze.after` for its time (the
+        buff's OnRemoveAction). From `check_first_ms`, every `check_every_ms`, a check looks for an enemy anywhere
+        still frozen by it; with none, the cube dies `linger_ms` on. The cube dies `life_ms` after its start at the
+        latest (its row's LifeTime and an interval's ActionKill, the same).
+    The display (the pending effect, the button state, the AbilityPlayed key they read, the floating ice: the hero's
+    attached SpawnCharacter, its hide and its 4 s reappear timer, the start that hides it) is read and not run; the
+    floating ice is written as `display_attached` and the hero's spawner block is cleared. The hero's, the cube's and
+    the bridge's graphs are read here whole and cleared. Returns the button, its areas under `aeos`."""
+    acts = h["actions"]
+    seen: set[str] = set()
+
+    def need(ok, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"hero form {form}: {what}")
+
+    def take(name, cls: str, keys: set[str]) -> dict:
+        a = _one_action(acts, name, cls, keys)
+        seen.add(name)
+        return a
+
+    def same(got, template: str, **names) -> bool:
+        return isinstance(got, str) and _ns(got) == _ns(template.format(**names))
+
+    def display(root) -> None:
+        """A display branch: every action it reaches of ICE_DISPLAY_CLASSES, none inline, no spawn or variable, its
+        blackboard keys read by no action outside it."""
+        reach = _reachable_actions(acts, root)
+        need(reach and all(acts.get(x)["ClassType"] in ICE_DISPLAY_CLASSES for x in reach)
+             and not any(isinstance(v, dict) for x in reach for v in acts.get(x).values()),
+             f"its display branch {root} runs {sorted({acts.get(x)['ClassType'] for x in reach})}")
+        keys = {acts.get(x)["Key"] for x in reach if acts.get(x)["ClassType"] == "ActionBlackboardSetInt"}
+        for n, row in acts.records.items():
+            if n not in reach:
+                text = " ".join(str(v) for v in row.values() if isinstance(v, str))
+                need(not any(f"#{k}" in text for k in keys), f"its display key read by {n}")
+        seen.update(reach)
+
+    def setvar(name, value: str, nxt: bool = False) -> tuple[str, str | None]:
+        a = take(name, "ActionSetVariable", {"ClassType", "Variable", "Value", "NextAction", "NextActionWait",
+                                             "AbortIfInstigatorDies"})
+        need(str(a["Value"]) == value and (a["NextAction"] is not None) == nxt
+             and a["AbortIfInstigatorDies"] in (None, False), f"its variable setter {name}")
+        return a["Variable"], a["NextAction"]
+
+    def leaves(name, what: str, ctx: str | None) -> list[tuple[str, int]]:
+        """A named group's (sub, delay); a group with no SubActionsDelay runs all at 0."""
+        g = take(name, "ActionGroup", {"ClassType", "SubActions", "SubActionsDelay", "ContextMode", "ExecuteIfTrue",
+                                       "AbortIfInstigatorDies"})
+        need(g["ContextMode"] == ctx and g["AbortIfInstigatorDies"] in (None, False), f"its {what}'s context")
+        subs, ds = col_list(acts, name, "SubActions"), col_list(acts, name, "SubActionsDelay")
+        need(bool(subs) and len(ds) in (0, len(subs)), f"its {what}'s SubActionsDelay {ds}")
+        return list(zip(subs, ds or [0] * len(subs), strict=True))
+
+    # --- the button's row
+    ab_name = urow["Ability"]
+    ab = h.abilities.get(ab_name) if isinstance(ab_name, str) else None
+    need(ab is not None and not set(ab) - ABILITY_READ_KEYS - ABILITY_UI_KEYS, f"its button {ab_name}")
+    need(ab.get("MaxCharges") == 1 and not ab.get("Cooldown") and not ab.get("CastTime")
+         and not ab.get("TriggerDelay") and ab.get("IsChampion") is True and not ab.get("KeepCurrentTarget"),
+         "its button's charges and times")
+    # --- the hero's own row
+    _, hrow = unit_record(h, unit)
+    extra = h["characters"].set_fields.get(unit, set()) - ICE_HERO_READ - ICE_HERO_DISPLAY
+    need(not extra, f"its hero sets {sorted(extra)}")
+    need(hrow["Base"] == f"CHARACTER.{card['form_of']}", "its hero is not an [EXT] of its base card's unit")
+
+    # --- the press: the pending flag, the effect, the find, the wait, the button state
+    press = leaves(ab["OnActivationAction"], "press", "Create")
+    need(all(d == 0 for _, d in press), "its press is delayed")
+    by: dict[str, list[str]] = {}
+    for x, _ in press:
+        by.setdefault(acts.get(x)["ClassType"], []).append(x)
+    need({k: len(v) for k, v in by.items()} == {"ActionSetVariable": 1, "ActionPlayEffect": 1, "ActionInterval": 1,
+                                                 "ActionWaitToActivate": 1, "ActionOverrideAbilityButtonState": 1},
+         f"its press runs {sorted(by)}")
+    pending, _ = setvar(by["ActionSetVariable"][0], "1")
+    take(by["ActionPlayEffect"][0], "ActionPlayEffect", ICE_DISPLAY_EFFECT_KEYS)
+    bs = take(by["ActionOverrideAbilityButtonState"][0], "ActionOverrideAbilityButtonState", ICE_BUTTON_STATE_KEYS)
+    need(bs["ChampionCharacterData"] == unit and bs["StateToSet"] == "ChampionPending", "its button's pending state")
+    finder = take(by["ActionInterval"][0], "ActionInterval", {"ClassType", "Interval", "StartCounterAt",
+                                                              "ActionToExecute", "ForceStopIfTrue"})
+    need(isinstance(finder["Interval"], int) and finder["Interval"] > 0, "its find's clock")
+    find = take(finder["ActionToExecute"], "ActionRunActionOnResolvedGameObjects",
+                {"ClassType", "Resolver", "Amount", "Action", "ExecuteIfTrue"})
+    need(find["Amount"] == 1, "its find takes more than one")
+    reg = leaves(find["Action"], "find's record", "Inherit")
+    written = {}
+    for x, d in reg:
+        a = take(x, "ActionBlackboardSetInt", {"ClassType", "Key", "Value", "AbortIfInstigatorDies"})
+        need(d == 0 and a["AbortIfInstigatorDies"] in (None, False) and a["Key"] not in written, f"its record {x}")
+        written[a["Key"]] = str(a["Value"])
+    key = next((k for k, v in written.items() if v == "self"), None)
+    need(key is not None and {k: v for k, v in written.items() if k != key} == ICE_REGISTER,
+         f"its find writes {written}")
+    wait = take(by["ActionWaitToActivate"][0], "ActionWaitToActivate",
+                {"ClassType", "Condition", "OnActivateAction", "ForceStopIfTrue"})
+    need(same(wait["Condition"], ICE_WAIT, key=key), "its wait's condition")
+
+    # --- the fire: AbilityPlayed (display), the cube's point after a delay, the floating ice (display), pending 0
+    fire = take(wait["OnActivateAction"], "ActionGroup", {"ClassType", "SubActions", "SubActionsDelay", "ContextMode"})
+    need(fire["ContextMode"] == "Inherit", "its fire's context")
+    fsubs, fds = col_list(acts, wait["OnActivateAction"], "SubActions"), col_list(acts, wait["OnActivateAction"],
+                                                                                   "SubActionsDelay")
+    # A SubActionsDelay ONE SHORT (the table's [0, 100, 0] for four sub-actions): the last sub-action at 0. Read so,
+    # pinned to that one shape (the variable setter last); any other pairing stops the build.
+    need(len(fds) == len(fsubs) - 1 and acts.get(fsubs[-1])["ClassType"] == "ActionSetVariable",
+         f"its fire's SubActionsDelay {fds} for {len(fsubs)} sub-actions")
+    fire_steps = list(zip(fsubs, [*fds, 0], strict=True))
+    fby: dict[str, list[tuple[str, int]]] = {}
+    for x, d in fire_steps:
+        fby.setdefault(acts.get(x)["ClassType"], []).append((x, d))
+    need(sorted(fby) == ["ActionBlackboardSetInt", "ActionFilter", "ActionRunOnAttached", "ActionSetVariable"]
+         and all(len(v) == 1 for v in fby.values()), f"its fire runs {sorted(fby)}")
+    (played, pd), = fby["ActionBlackboardSetInt"]
+    pa = take(played, "ActionBlackboardSetInt", {"ClassType", "Key", "Value"})
+    need(pd == 0 and str(pa["Value"]) == "1", "its fire's played mark")
+    # The played mark is read only by the display (the pending effect, the button state).
+    for n, row in acts.records.items():
+        text = " ".join(str(v) for v in row.values() if isinstance(v, str))
+        if f"#{pa['Key']}" in text:
+            need(row["ClassType"] in ("ActionPlayEffect", "ActionOverrideAbilityButtonState"),
+                 f"its played mark read by {n}")
+    (attached, ad), = fby["ActionRunOnAttached"]
+    take(attached, "ActionRunOnAttached", {"ClassType", "ActionToRun"})
+    need(ad == 0, "its floating ice's hide is delayed")
+    display(acts.get(attached)["ActionToRun"])
+    (unpend, ud), = fby["ActionSetVariable"]
+    need(ud == 0 and setvar(unpend, "0", nxt=True)[0] == pending, "its fire's pending reset")
+    inflight, _ = setvar(acts.get(unpend)["NextAction"], "1")
+    (pick, spawn_delay), = fby["ActionFilter"]
+    fp = take(pick, "ActionFilter", {"ClassType", "Condition", "OnTrueAction", "OnFalseAction",
+                                     "AbortIfInstigatorDies"})
+
+    m = re.search(r"as_int\(#Radius\)\+(\d+)\)", _ns(fp["Condition"]))
+    need(m is not None, f"its fire's point condition {fp['Condition']!r}")
+    ahead = int(m.group(1))
+    need(same(fp["Condition"], ICE_FIRE_VALID, ahead=ahead), "its fire's point condition")
+    bridge_names, cube_var, cube_setters = set(), None, set()
+    for branch, ytemplate in ((fp["OnTrueAction"], ICE_FIRE_Y_AHEAD), (fp["OnFalseAction"], ICE_FIRE_Y_NEAR)):
+        g = acts.get(branch)
+        need(g is not None and g["ClassType"] == "ActionGroup", f"its fire's branch {branch}")
+        steps = leaves(branch, "fire's branch", "Inherit")
+        need([acts.get(x)["ClassType"] for x, _ in steps] == ["ActionBlackboardSetInt", "ActionBlackboardSetInt",
+                                                              "ActionSpawnToLocation"]
+             and all(d == 0 for _, d in steps), f"its fire's branch {branch} runs {steps}")
+        ys = take(steps[0][0], "ActionBlackboardSetInt", {"ClassType", "Key", "Value", "AbortIfInstigatorDies"})
+        xs = take(steps[1][0], "ActionBlackboardSetInt", {"ClassType", "Key", "Value", "AbortIfInstigatorDies"})
+        need(ys["Key"] == "PosY" and same(ys["Value"], ytemplate, ahead=ahead)
+             and xs["Key"] == "PosX" and same(xs["Value"], ICE_FIRE_X), f"its fire's branch {branch}'s point")
+        sp = take(steps[2][0], "ActionSpawnToLocation",
+                  {"ClassType", "SpawnType", "SpawnData", "YPositionExpression", "XPositionExpression", "UseDeploy",
+                   "ParentGOAsSource", "AbortIfInstigatorDies", "NextAction", "NextActionWait", "ExecuteIfTrue"})
+        need(sp["SpawnType"] == "AreaEffectType" and same(sp["XPositionExpression"], ICE_SPAWN_X)
+             and same(sp["YPositionExpression"], ICE_SPAWN_Y) and sp["UseDeploy"] is False
+             and sp["ParentGOAsSource"] is True and sp["NextActionWait"] is True, f"its fire's spawn {steps[2][0]}")
+        bridge_names.add(sp["SpawnData"])
+        cube_setters.add(sp["NextAction"])
+        v, nxt = setvar(sp["NextAction"], "1", nxt=True)
+        need(cube_var in (None, v) and same(sp["ExecuteIfTrue"], ICE_CUBE_IF, cube=v), "its fire's spawn guard")
+        cube_var = v
+        need(acts.get(sp["NextAction"])["NextActionWait"] is True
+             and setvar(nxt, "0")[0] == inflight, "its cube flag's in-flight reset")
+    need(len(bridge_names) == 1, f"its fire's two branches make {sorted(bridge_names)}")
+    bridge = bridge_names.pop()
+
+    # --- the find's stop (needs {kill}: the kill group's flag)
+    kill_g = urow["OnKilledDoneAction"]
+    kg = acts.get(kill_g)
+    need(kg is not None and kg["ClassType"] == "ActionGroup", "its kill action is not a group")
+    ksteps = leaves(kill_g, "kill", "Create")
+    need(all(d == 0 for _, d in ksteps) and [acts.get(x)["ClassType"] for x, _ in ksteps]
+         == ["ActionSetVariable", "ActionSetVariable", "ActionRunOnInstigator"], f"its kill runs {ksteps}")
+    kill_var, _ = setvar(ksteps[0][0], "1")
+    need(ksteps[1][0] == unpend, "its kill's pending reset is not the fire's")
+    need(len({pending, kill_var, cube_var, inflight}) == 4
+         and all(h.variables.get(v) == {} for v in (pending, kill_var, cube_var, inflight)),
+         "its four variables (each a [VARIABLE] of no DefaultValue: 0)")
+    names = {"pending": pending, "kill": kill_var, "cube": cube_var, "inflight": inflight, "key": key}
+    need(same(finder["ForceStopIfTrue"], ICE_FIND_STOP, **names) and same(find["ExecuteIfTrue"], ICE_FIND_IF, **names)
+         and same(wait["ForceStopIfTrue"], ICE_WAIT_STOP, **names), "its find's and wait's stops")
+    need(same(kg["ExecuteIfTrue"], ICE_KILL_IF, **names), "its kill's condition")
+    rk = take(ksteps[2][0], "ActionRunOnInstigator", {"ClassType", "ActionToExecute", "ExecuteIfTrue", "NextAction",
+                                                      "NextActionWait"})
+    need(same(rk["ExecuteIfTrue"], ICE_CUBE_IF, **names) and rk["NextAction"] in cube_setters
+         and rk["NextActionWait"] is True, "its kill's spawn does not set the fire's cube flag")
+
+    def here_pick(name, spawn_type: str, use_deploy: bool) -> str:
+        """An ActionFilter on the unit it runs on: its two ActionSpawnToLocation of one row, `ahead` + radius or
+        radius ahead along its side's forward."""
+        f = take(name, "ActionFilter", {"ClassType", "Condition", "OnTrueAction", "OnFalseAction"})
+        need(same(f["Condition"], ICE_HERE_VALID, ahead=ahead), f"its point condition {name}")
+        made = set()
+        for br, yt in ((f["OnTrueAction"], ICE_HERE_Y_AHEAD), (f["OnFalseAction"], ICE_HERE_Y_NEAR)):
+            s = take(br, "ActionSpawnToLocation", {"ClassType", "SpawnType", "SpawnData", "YPositionExpression",
+                                                   "XPositionExpression", "UseDeploy"})
+            need(s["SpawnType"] == spawn_type and same(s["XPositionExpression"], "x")
+                 and same(s["YPositionExpression"], yt, ahead=ahead) and s["UseDeploy"] is use_deploy,
+                 f"its spawn {br}")
+            made.add(s["SpawnData"])
+        need(len(made) == 1, f"its point {name} makes {sorted(made)}")
+        return made.pop()
+
+    need(here_pick(rk["ActionToExecute"], "AreaEffectType", True) == bridge, "its kill's spawn is not the bridge")
+
+    # --- the death
+    dg = acts.get(urow["OnDeathAction"])
+    need(dg is not None and dg["ClassType"] == "ActionGroup" and same(dg["ExecuteIfTrue"], ICE_DEATH_IF, **names),
+         "its death's condition")
+    dsteps = leaves(urow["OnDeathAction"], "death", "Create")
+    need(all(d == 0 for _, d in dsteps) and [acts.get(x)["ClassType"] for x, _ in dsteps]
+         == ["ActionRunActionOnResolvedGameObjects", "ActionSetVariable", "ActionSetVariable"], f"its death {dsteps}")
+    need(setvar(dsteps[1][0], "0")[0] == inflight and setvar(dsteps[2][0], "0")[0] == pending, "its death's resets")
+    df = take(dsteps[0][0], "ActionRunActionOnResolvedGameObjects", {"ClassType", "Resolver", "Action", "Amount"})
+    need(df["Resolver"] == find["Resolver"] and df["Amount"] == 1, "its death's find is not its press's")
+    cube = here_pick(df["Action"], "CharacterType", True)
+
+    # --- the hero's start: the floating ice's hide, display
+    st = leaves(urow["OnStartingAction"], "start", None)
+    need(len(st) == 1 and st[0][1] == 0, "its start")
+    sw = take(st[0][0], "ActionWaitToActivate", {"ClassType", "Condition", "OnActivateAction"})
+    need(same(sw["Condition"], ICE_START_WAIT, **names) and acts.get(sw["OnActivateAction"])["ClassType"]
+         == "ActionRunOnAttached", "its start's wait")
+    display(sw["OnActivateAction"])
+
+    # --- the target: its resolver, its marks
+    def resolver(name) -> dict:
+        r = h.resolvers.get(name) if isinstance(name, str) else None
+        need(r is not None and set(r) == {"Shape", "Filter", "StrategyList"}
+             and r["StrategyList"] == ["RESOLVER_STRATEGY_CLOSEST_TARGET"]
+             and h.shapes.get(r["Shape"]) == {"ClassType": "Global"}, f"its resolver {name}")
+        f = filter_block(h, r["Filter"])
+        need(f is not None and f.get("only_buffed_by"), f"its resolver {name}'s filter {r['Filter']}")
+        return f
+
+    tfilter = resolver(find["Resolver"])
+    deploy_area = h["area_effect_objects"].get(card.get("deploy_area_effect") or "")
+    proj = h["projectiles"].get(hrow["Projectile"])
+    need(deploy_area is not None and proj is not None
+         and set(tfilter["only_buffed_by"]) == {deploy_area["Buff"], proj["TargetBuff"]},
+         f"its marks {tfilter['only_buffed_by']} are not its deploy area's and its shot's buffs")
+
+    # --- the bridge (the area the fire and the kill put down) and the cube it leaves
+    at = h["area_effect_objects"]
+
+    def area(name, what: str) -> dict:
+        r = at.get(name)
+        cols = _own_cols(at, name)
+        need(r is not None and not cols - ICE_AREA_READ - ICE_AREA_DISPLAY, f"its {what} {name} sets "
+             f"{sorted(cols - ICE_AREA_READ - ICE_AREA_DISPLAY)}")
+        need(r["HitSpeed"] is None and r["LinkToInstigatorLife"] is True and isinstance(r["Radius"], int)
+             and isinstance(r["LifeDuration"], int) and isinstance(r["BuffTime"], int), f"its {what} {name}")
+        f = filter_block(h, r["Filter"])
+        need(f is not None and not f.get("only_buffed_by"), f"its {what}'s filter {r['Filter']}")
+        return {"area": name, "radius_milli": r["Radius"], "life_ms": r["LifeDuration"], "damage": r["Damage"],
+                "tower_damage": r["TowerDamage"], "filter": f, "buff_time_ms": r["BuffTime"]}
+
+    def buff(name, what: str) -> tuple[dict, dict]:
+        cb = h["character_buffs"]
+        r = cb.get(name)
+        cols = _own_cols(cb, name)
+        need(r is not None and not cols - ICE_BUFF_READ - ICE_BUFF_DISPLAY, f"its {what} {name} sets "
+             f"{sorted(cols - ICE_BUFF_READ - ICE_BUFF_DISPLAY)}")
+        return norm_buff_row(h, name, r), r
+
+    b = area(bridge, "bridge")
+    brow = at.get(bridge)
+    end = take(brow["OnLifeTimeEndAction"], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "UseDeploy",
+                                                            "ParentGOAsSource"})
+    need(end["SpawnType"] == "CharacterType" and end["SpawnData"] == cube and end["UseDeploy"] is True
+         and end["ParentGOAsSource"] is True, "its bridge's end is not its cube")
+    bb, bbrow = buff(brow["Buff"], "bridge's buff")
+    need(bbrow["OnRemoveAction"] is None and bbrow["ControlledByParent"] is not True, "its bridge's buff")
+    b["buff"] = bb
+
+    # --- the cube
+    ct = h["characters"]
+    crow = ct.get(cube)
+    cols = ct.set_fields.get(cube, set())
+    need(crow is not None and not cols - ICE_CUBE_READ - ICE_CUBE_DISPLAY,
+         f"its cube {cube} sets {sorted(cols - ICE_CUBE_READ - ICE_CUBE_DISPLAY)}")
+    tags = {x.strip() for x in str(crow["GameTagsToSet"] or "").split(",") if x.strip()}
+    need(tags == ICE_CUBE_TAGS and crow["UntargetableWhenSpawned"] is False and isinstance(crow["LifeTime"], int),
+         f"its cube's tags {sorted(tags)}")
+    display(crow["OnDeathAction"])
+    cs = crow["OnStartingAction"]
+    need(isinstance(cs, dict) and set(cs) == {"ClassType", "SubActions", "ContextMode"}
+         and cs["ClassType"] == "ActionGroup" and cs["ContextMode"] == "Create"
+         and isinstance(cs["SubActions"], list), "its cube's start")
+    cby: dict[str, list[str]] = {}
+    for x in cs["SubActions"]:
+        need(acts.get(x) is not None, f"its cube's start names {x}")
+        cby.setdefault(acts.get(x)["ClassType"], []).append(x)
+    need({k: len(v) for k, v in cby.items()} == {"ActionSpawn": 1, "ActionPlayEffect": 1, "ActionWaitToActivate": 1,
+                                                  "ActionInterval": 1}, f"its cube's start runs {sorted(cby)}")
+    take(cby["ActionPlayEffect"][0], "ActionPlayEffect", ICE_DISPLAY_EFFECT_KEYS)
+    life = take(cby["ActionInterval"][0], "ActionInterval", {"ClassType", "Interval", "StartCounterAt",
+                                                             "ActionToExecute"})
+    take(life["ActionToExecute"], "ActionKill", {"ClassType"})
+    need(life["Interval"] == life["StartCounterAt"] == crow["LifeTime"], "its cube's life (interval and LifeTime)")
+    lw = take(cby["ActionWaitToActivate"][0], "ActionWaitToActivate", {"ClassType", "Condition", "OnActivateAction"})
+    lg = lw["OnActivateAction"]
+    need(isinstance(lg, dict) and set(lg) == {"ClassType", "SubActions", "SubActionsDelay"}
+         and lg["ClassType"] == "ActionGroup" and lg["SubActions"] == [life["ActionToExecute"]]
+         and isinstance(lg["SubActionsDelay"], list) and len(lg["SubActionsDelay"]) == 1, "its cube's linger")
+    linger = lg["SubActionsDelay"][0]
+    m = re.fullmatch(r"as_int\(#(\w+),0\)>0", _ns(lw["Condition"]))
+    need(m is not None, "its cube's linger condition")
+    none_key = m.group(1)
+    fs = take(cby["ActionSpawn"][0], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "ActionToRunOnSpawned",
+                                                     "ShareContext"})
+    need(fs["SpawnType"] == "AreaEffectType" and fs["ShareContext"] is True, "its cube's freeze spawn")
+    fz = area(fs["SpawnData"], "freeze")
+    frow = at.get(fs["SpawnData"])
+    need(frow["OnLifeTimeEndAction"] is None and frow["BuffTime"] >= frow["LifeDuration"] >= crow["LifeTime"],
+         "its freeze outlives its cube (the cube's life ends it)")
+    fb, fbrow = buff(frow["Buff"], "freeze's buff")
+    need(fbrow["ControlledByParent"] is True and fb["speed_multiplier_raw"] == -100
+         and fb["hit_speed_multiplier_raw"] == -100, "its freeze's buff")
+    after = take(fbrow["OnRemoveAction"], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData", "SpawnTime"})
+    need(after["SpawnType"] == "BuffType" and isinstance(after["SpawnTime"], int), "its freeze's after-buff")
+    ab_row, abr = buff(after["SpawnData"], "after-buff")
+    need(abr["OnRemoveAction"] is None and abr["ControlledByParent"] is not True, "its after-buff")
+    fz.update({"buff": fb, "after": {"buff": ab_row, "time_ms": after["SpawnTime"]},
+               "damage_level_scaling": True})
+    # The freeze's check: every check_every_ms from check_first_ms, an enemy anywhere still frozen; with none, the key.
+    cstart = leaves(fs["ActionToRunOnSpawned"], "freeze's start", "Inherit")
+    need(all(d == 0 for _, d in cstart) and sorted(acts.get(x)["ClassType"] for x, _ in cstart)
+         == ["ActionInterval", "ActionPlayEffect"], f"its freeze's start {cstart}")
+    take(next(x for x, _ in cstart if acts.get(x)["ClassType"] == "ActionPlayEffect"), "ActionPlayEffect",
+         ICE_DISPLAY_EFFECT_KEYS)
+    ck = take(next(x for x, _ in cstart if acts.get(x)["ClassType"] == "ActionInterval"), "ActionInterval",
+              {"ClassType", "Interval", "StartCounterAt", "ActionToExecute"})
+    cr = take(ck["ActionToExecute"], "ActionRunActionOnResolvedGameObjects",
+              {"ClassType", "Resolver", "ActionToRunOnSelfIfNoObjectsFound", "Amount"})
+    cf = resolver(cr["Resolver"])
+    need(cf["only_buffed_by"] == [frow["Buff"]] and isinstance(cr["Amount"], int) and cr["Amount"] > 1,
+         "its check does not look for its own freeze")
+    nk = take(cr["ActionToRunOnSelfIfNoObjectsFound"], "ActionBlackboardSetInt", {"ClassType", "Key", "Value"})
+    need(nk["Key"] == none_key and str(nk["Value"]) == "1" and same(lw["Condition"], ICE_LINGER, none=none_key),
+         "its check's key is not its cube's linger")
+
+    # --- the floating ice: display
+    float_name = hrow["SpawnCharacter"]
+    fcols = ct.set_fields.get(float_name, set())
+    frow2 = ct.get(float_name)
+    need(hrow["SpawnAttach"] is True and hrow["SpawnNumber"] == 1 and frow2 is not None
+         and not fcols - ICE_FLOAT_SET and frow2["Base"] == f"CHARACTER.{unit}" and frow2["Damage"] == 0
+         and not frow2["Projectile"] and not frow2["Ability"] and not frow2["OnStartingAction"]
+         and not frow2["SpawnCharacter"] and frow2["OnKilledDoneAction"] == kill_g
+         and frow2["OnDeathAction"] == urow["OnDeathAction"], f"its floating ice {float_name}")
+    for rec in (card, units[unit]):
+        need((rec.get("spawner") or {}).get("character") == float_name and rec["spawner"].get("attach") is True,
+             "its hero's spawner block is not the floating ice")
+        rec["spawner"] = None
+        rec["action_graph"] = None
+
+    # --- every action its roots reach, read
+    roots = [urow["OnStartingAction"], urow["OnKilledDoneAction"], urow["OnDeathAction"], ab["OnActivationAction"],
+             brow["OnLifeTimeEndAction"], crow["OnDeathAction"], fbrow["OnRemoveAction"], fs["ActionToRunOnSpawned"],
+             *cs["SubActions"]]
+    reach = set().union(*(_reachable_actions(acts, r) for r in roots))
+    need(reach <= seen, f"its actions {sorted(reach - seen)} are not read")
+
+    # --- the tables: the cube, the areas (the card's deploy area too: a hero file's row, not in the top-level map)
+    crec = norm_unit(h, cube, with_raw=True)
+    crec["action_graph"] = None
+    units[cube] = crec
+    aeos = {}
+    for n in (card["deploy_area_effect"], bridge, fs["SpawnData"]):
+        rec = norm_aeo(h, n)
+        need(rec is not None, f"its area {n}")
+        rec["action_graph"] = None
+        aeos[n] = rec
+    return {
+        "name": ab_name,
+        "mana_cost": ab["ManaCost"],
+        "max_charges": 1,
+        "cooldown_ms": None,
+        "cast_ms": 0,
+        "trigger_delay_ms": 0,
+        "keep_current_target": False,
+        "is_champion": True,
+        **({"refund_window_ms": ab["RefundWindow"]} if ab.get("RefundWindow") is not None else {}),
+        "effect": {
+            "kind": "ice_cube",
+            "marks": sorted(tfilter["only_buffed_by"]),
+            "target": {"shape": "global", "strategy": "closest", "filter": tfilter},
+            "find_every_ms": finder["Interval"],
+            "find_first_ms": finder["StartCounterAt"],
+            "spawn_delay_ms": spawn_delay,
+            "ahead_milli": ahead,
+            "on_kill": True,
+            "on_death": True,
+            "bridge": b,
+            "cube": {"unit": cube, "use_deploy": True, "life_ms": crow["LifeTime"], "linger_ms": linger,
+                     "check_first_ms": ck["StartCounterAt"], "check_every_ms": ck["Interval"],
+                     "no_move": True, "no_attack": True},
+            "freeze": fz,
+            "display_attached": float_name,
+        },
+        "aeos": aeos,
+    }
+
+
 def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list[dict], list[Path]]:
     """The `hero_forms` records (HERO_FORMS, in that order) from a load of their own, and the files read."""
-    h = load_tables(v, hero=HERO_FORMS)
+    forms = hero_forms_of(v)
+    h = load_tables(v, hero=forms)
     h.level_base = level_base
     out: list[dict] = []
     files: list[Path] = []
@@ -10149,8 +11107,15 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         # leaves): the unit's row names no Ability; the button is the flag's (`flag_button`), and the unit's graph is
         # read there.
         linked = s.get("LinkedChampionCharacter")
+        # 16.402: a LinkedChampionCharacter that names the form's own unit (the Hero Ice and Electro Wizards,
+        # SpellAsDeploy rows) is its own button, below.
+        if linked == unit and h.vintage.filters_format:
+            linked = None
         if group is not None:
             card["ability"] = tomb_button(h, form, group, units, card)
+        elif h.vintage.filters_format and urow["OnKilledDoneAction"] is not None:
+            # 16.402: THE HERO ICE WIZARD'S CUBE (`ice_cube_button`): its press, kill and death actions, read whole.
+            card["ability"] = ice_cube_button(h, form, unit, urow, units, card)
         elif linked is not None:
             groups: dict = {}
             for f in hero_files(v, stem):
@@ -10171,6 +11136,13 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
                 raise SystemExit(f"hero form {form}: a warp start beside other actions {others}")
             card["action_graph"] = None
             units[unit]["action_graph"] = None
+        # THE SURGE'S ROW (the Hero Electro Wizard's): its start and its swing pick are read whole by `surge_effect`;
+        # its CrownTowerDamagePercent 0 is read as a delta of 0, the 100 its base row's blank gives (option B request
+        # 27).
+        if card["ability"]["effect"]["kind"] == "surge":
+            card["action_graph"] = None
+            units[unit]["action_graph"] = None
+            card["crown_tower_damage_percent"] = units[unit]["crown_tower_damage_percent"] = 100
         # ITS DEATH SPAWN (the Hero Balloon's BalloonHero_Bomb, a BalloonBomb [EXT] that changes display columns only):
         # its own row, in the form's units, which the loader loads for it.
         if urow["DeathSpawnCharacter"] is not None and group is None:
@@ -10180,13 +11152,18 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         for name, rec in (card["ability"].get("aeos") or {}).items():
             aeos[name] = rec
         card["ability"].pop("aeos", None)
+        # A DEPLOY AREA OF ITS OWN (the Hero Electro Wizard's ElectroWizardHeroZap, `deploy_area_effect_16402`): the
+        # hero files' row, which the top-level map does not carry.
+        dpa = card.get("deploy_area_effect")
+        if dpa:
+            aeos[dpa] = norm_aeo(h, dpa)
         dae = card.get("death_area_effect")
         if dae:
             aeos[dae] = norm_aeo(h, dae)
         card["tables"] = {"units": units, "area_effect_objects": aeos}
         return card
 
-    for form, (base, stem) in HERO_FORMS.items():
+    for form, (base, stem) in forms.items():
         card = census(f"hero form {form}", one, form, base, stem)
         if card is not None:
             out.append(card)
