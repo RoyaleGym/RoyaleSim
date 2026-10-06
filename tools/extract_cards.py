@@ -929,6 +929,57 @@ class Tables(dict):
         self.resolvers: dict[str, dict] = {}
 
 
+def route_sections(t: "Tables", p: Path, doc: dict, label: str) -> None:
+    """Lay a file's [KIND.Name] sections over `t`, each routed to its table (SECTION_TABLE), [EXT.*] by its Base's
+    kind, the skipped kinds kept by name where a builder reads them. `label` names the file in each row's provenance.
+    The per-character files are all sections; a 16.402 central file (buildings.toml) holds a few beside its rows."""
+    for section, body in doc.items():
+        if section == "EXT" and isinstance(body, dict):
+            # [EXT.Name] Base = "KIND.Other": a real object of KIND that extends
+            # Other (the three Musketeers of ThreeMusketeers are three EXTs of
+            # ThreeMusketeer_Rework). Routed by the Base's kind; `resolve_bases`
+            # fills the inherited columns. (characters/hero_form/ is not globbed,
+            # so the hero-form EXTs stay out, module doc.)
+            for ext_name, ext in body.items():
+                base = ext.get("Base") if isinstance(ext, dict) else None
+                kind = base.split(".")[0] if isinstance(base, str) and "." in base else None
+                ext_key = SECTION_TABLE.get(kind or "")
+                if ext_key is None:
+                    raise SystemExit(f"{p.name}: [EXT.{ext_name}] Base {base!r} names no table")
+                t[ext_key].overlay(p, {ext_name: ext}, f"{label} [EXT]")
+            continue
+        key = SECTION_TABLE.get(section)
+        # A DAMAGE_TYPE's class is read by name, as the file writes it, by a named-block builder
+        # (`attack_select`), besides the overlay table SECTION_TABLE routes it to (`parry`).
+        if section == "DAMAGE_TYPE" and isinstance(body, dict):
+            t.damage_types.update({n: f for n, f in body.items() if isinstance(f, dict)})
+        if key is None:
+            if section not in SKIP_SECTIONS:
+                raise SystemExit(f"{p.name}: unknown section [{section}]")
+            # A VARIABLE's DefaultValue is read by name by a named-block builder (`attack_select`),
+            # and a SHAPE by `strike_area_block`; every other skipped section is dropped.
+            if section == "VARIABLE" and isinstance(body, dict):
+                t.variables.update({n: f for n, f in body.items() if isinstance(f, dict)})
+            if section == "SHAPE" and isinstance(body, dict):
+                t.shapes.update({n: f for n, f in body.items() if isinstance(f, dict)})
+            # A champion's [ABILITY.*] is read by name by `champion_dash_chain` (the hero forms' are the hero
+            # pass's, `overlay_hero_files`); nothing else reads it.
+            if section == "ABILITY" and isinstance(body, dict):
+                t.abilities.update({n: f for n, f in body.items() if isinstance(f, dict)})
+            continue
+        # A [CHARACTER.X] that says IsBuilding is a building row (none does
+        # in 15.535, every building overlay is a [BUILDING.] section; kept
+        # so a future file cannot file a building under `characters`).
+        if key == "characters" and isinstance(body, dict):
+            moved = {
+                n: f for n, f in body.items() if isinstance(f, dict) and f.get("IsBuilding") is True
+            }
+            if moved:
+                t["buildings"].overlay(p, moved, f"{label} [{section}]")
+                body = {n: f for n, f in body.items() if n not in moved}
+        t[key].overlay(p, body, f"{label} [{section}]")
+
+
 def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) -> Tables:
     """The vintage's tables. `hero` (15.535 only): the hero forms whose characters/hero_form files are laid
     over these tables too (`overlay_hero_files`). Only the hero pass asks for them, on a load of its own, so
@@ -959,55 +1010,16 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
             p = v.file(f)
             if not p.is_file():
                 raise SystemExit(f"missing overlay {p}")
-            t[k].overlay(p, client_toml(p), f)
+            doc = client_toml(p)
+            # A 16.402 central file can hold [KIND.Name] sections beside its rows (buildings.toml: [AEO.*] bomb
+            # explosions, [ACTION.*]): those are routed as a per-character file's are, the rows overlay the table.
+            kinds = {n: b for n, b in doc.items() if (n in SECTION_TABLE or n in SKIP_SECTIONS or n == "EXT") and isinstance(b, dict)}
+            if kinds:
+                route_sections(t, p, kinds, f)
+            t[k].overlay(p, {n: b for n, b in doc.items() if n not in kinds}, f)
     for sub in v.character_dirs:
         for p in v.glob(sub, "*.toml"):
-            doc = client_toml(p)
-            for section, body in doc.items():
-                if section == "EXT" and isinstance(body, dict):
-                    # [EXT.Name] Base = "KIND.Other": a real object of KIND that extends
-                    # Other (the three Musketeers of ThreeMusketeers are three EXTs of
-                    # ThreeMusketeer_Rework). Routed by the Base's kind; `resolve_bases`
-                    # fills the inherited columns. (characters/hero_form/ is not globbed,
-                    # so the hero-form EXTs stay out, module doc.)
-                    for ext_name, ext in body.items():
-                        base = ext.get("Base") if isinstance(ext, dict) else None
-                        kind = base.split(".")[0] if isinstance(base, str) and "." in base else None
-                        ext_key = SECTION_TABLE.get(kind or "")
-                        if ext_key is None:
-                            raise SystemExit(f"{p.name}: [EXT.{ext_name}] Base {base!r} names no table")
-                        t[ext_key].overlay(p, {ext_name: ext}, f"{sub}/{p.name} [EXT]")
-                    continue
-                key = SECTION_TABLE.get(section)
-                # A DAMAGE_TYPE's class is read by name, as the file writes it, by a named-block builder
-                # (`attack_select`), besides the overlay table SECTION_TABLE routes it to (`parry`).
-                if section == "DAMAGE_TYPE" and isinstance(body, dict):
-                    t.damage_types.update({n: f for n, f in body.items() if isinstance(f, dict)})
-                if key is None:
-                    if section not in SKIP_SECTIONS:
-                        raise SystemExit(f"{p.name}: unknown section [{section}]")
-                    # A VARIABLE's DefaultValue is read by name by a named-block builder (`attack_select`),
-                    # and a SHAPE by `strike_area_block`; every other skipped section is dropped.
-                    if section == "VARIABLE" and isinstance(body, dict):
-                        t.variables.update({n: f for n, f in body.items() if isinstance(f, dict)})
-                    if section == "SHAPE" and isinstance(body, dict):
-                        t.shapes.update({n: f for n, f in body.items() if isinstance(f, dict)})
-                    # A champion's [ABILITY.*] is read by name by `champion_dash_chain` (the hero forms' are the hero
-                    # pass's, `overlay_hero_files`); nothing else reads it.
-                    if section == "ABILITY" and isinstance(body, dict):
-                        t.abilities.update({n: f for n, f in body.items() if isinstance(f, dict)})
-                    continue
-                # A [CHARACTER.X] that says IsBuilding is a building row (none does
-                # in 15.535, every building overlay is a [BUILDING.] section; kept
-                # so a future file cannot file a building under `characters`).
-                if key == "characters" and isinstance(body, dict):
-                    moved = {
-                        n: f for n, f in body.items() if isinstance(f, dict) and f.get("IsBuilding") is True
-                    }
-                    if moved:
-                        t["buildings"].overlay(p, moved, f"{sub}/{p.name} [{section}]")
-                        body = {n: f for n, f in body.items() if n not in moved}
-                t[key].overlay(p, body, f"{sub}/{p.name} [{section}]")
+            route_sections(t, p, client_toml(p), f"{sub}/{p.name}")
 
     # THE CLIENT ADDITIONS (data/client_additions/*.toml): a card the live client has and these tables lack, its
     # gameplay rows as a later client's tables datamine them (the file names the client). A row is taken only where
@@ -9356,6 +9368,11 @@ def main() -> int:
         print(f"CENSUS {v.key}: {len(CENSUS)} refusals")
         for label, why in CENSUS:
             print(f"  {label}: {why}")
+        # The table without the refused records, ONLY where --out names a file of its own: a census never writes
+        # the vintage's own file (cards.json, cards-<vintage>.json), so a partial table cannot stand in for one.
+        if args.out is not None and args.out.resolve() != default_out(v.key).resolve():
+            args.out.write_text(render(doc), encoding="utf-8")
+            print(f"  (the table without them: {args.out})")
         return 1 if CENSUS else 0
 
     fail, notes = check_hog_ladder(doc["rarities"], doc["units"], doc["cards"])
