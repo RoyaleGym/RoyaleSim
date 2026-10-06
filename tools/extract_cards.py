@@ -10333,6 +10333,14 @@ def main() -> int:
         def by_name(x):
             return {r["name"]: r for r in x} if isinstance(x, list) else dict(x)
 
+        # AN AREA THAT NEVER HITS (HitSpeed -1 in both tables: the Void's, the Goblin Curse's, Goblinstein's): its own
+        # Damage and flags are inert (16.402 dropped the Damage 100 they carried; the work is their blocks'), and so
+        # is a card field read off it (`damage_source`).
+        old_areas, new_areas = by_name(ref.get("area_effect_objects", [])), by_name(doc.get("area_effect_objects", []))
+        inert = {n for n in set(old_areas) & set(new_areas)
+                 if old_areas[n].get("hit_speed_ms") == -1 and new_areas[n].get("hit_speed_ms") == -1}
+        inert_card_fields = {"damage", "damage_source", "area_damage_radius_milli", "crown_tower_damage_percent"}
+
         for sec in ("cards", "units", "evolutions", "hero_forms", "area_effect_objects", "projectiles", "buffs"):
             old, new = by_name(ref.get(sec, [])), by_name(doc.get(sec, []))
             # A RECORD GONE: the reference holds it and this table has no record of that name (a NOTINUSE row is
@@ -10383,7 +10391,13 @@ def main() -> int:
                         # Re-encodings the loader reads alike, listed apart: a zero the client now leaves out; an
                         # area's BuffNumber 1 (the loader reads an absent one as one); the raw crown-tower percent where
                         # the area now gives its TowerDamage (`normalize_16402`).
-                        if val == 0 and nv is None and not isinstance(val, bool):
+                        src = str(old[n].get("damage_source") or "")
+                        if (sec == "area_effect_objects" and n in inert) or (
+                                sec == "cards" and k in inert_card_fields
+                                and src.split(".")[1:2] and src.split(".")[1] in inert):
+                            dropped.append((f"{sec}.{n}", f"{k} {val!r} -> {nv!r}: an area that never hits "
+                                                          f"(HitSpeed -1)"))
+                        elif val == 0 and nv is None and not isinstance(val, bool):
                             dropped.append((f"{sec}.{n}", f"{k} 0 -> null"))
                         elif k == "buff_number" and val == 1 and nv is None:
                             dropped.append((f"{sec}.{n}", "buff_number 1 -> null (the loader reads it as one)"))
