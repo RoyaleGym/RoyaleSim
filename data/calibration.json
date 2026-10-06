@@ -5521,6 +5521,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_knocked_mover (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_path16402_for, the bodies' `avoid_static` (`knocked_mover`), selected by Calib::knocked_doomed_avoidance; tests/knocked_doomed_avoidance.rs."
     },
+    "DEATH_BOMB_AVOIDANCE": {
+      "value": "none",
+      "candidates": ["none", "client15535_static_blocker"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_static_blocker on client 15.535.29: 4 of 4 clean turns where a ground troop's look circle met a fused bomb's circle, 0 of 76 where the circles stayed apart; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-05) on client 15.535.29's raw frames (bomb_avoid_census.py, every scene with raw frames): each Bomb Tower, Giant Skeleton or Balloon that left the frames on tick D (its bomb where it was last seen), and each ground troop on ticks t - 1 and t in [D, D + 70] with no other entity within 1300 of its look point (its point plus its movement direction, length 256; radius min(r, 500)) on t - 1: whether its avoidance offset started (0 on t - 1, not 0 on t) against the margin, the look point's distance to the bomb less 450 less min(r, 500). In the fuse: 4 starts of 4 rows with a margin below 0 and the offset 0 before, from the tick after the death (sp-bridge-Giant-split-s0's Giant t465, -190, margin -10; il-b5e2's Skeletons t3394 by a Giant Skeleton's bomb, -22; sp-form-Balloon-hero-s0 and -nopress-s0's attacking Musketeer t309 by a Balloon's, -165, which did not start on the death tick t308); 0 starts in 76 rows with a margin of 0 to 400. The rows below 0 whose offset was already running carried on turning (the Giant -80 to -110 through t483). The Giant crossed the bomb's circle by about 200 (its point 998 to 1165 from the bomb, radii 450 + 750) with a collision accumulator of 0: no push. A Hero Balloon's ability unit (sp-form-Balloon-hero-s0, gone t287) left no bomb: no blast, and a Knight walked through its point unturned. The engine's bomb was no body in the move pass, so its Giant walked through the bomb's circle (651 from it on t491) where the client's steered round it.",
+      "meaning": "none: the engine's; a death bomb on its fuse is no body in the move pass and movers walk through its circle. client15535_static_blocker: it is a static blocker of its row's CollisionRadius (450) where it lies, from the tick after its parent's death to its blast: the avoidance scan meets it, the separation scan does not.",
+      "open": "16.402; whether a bomb nudges a troop deploying on it (no such row).",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_static_blocker (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (`bomb_blocks`: the fused bombs pushed onto the board as bodies not alive but collidable), selected by Calib::death_bomb_avoidance; tests/death_bomb_avoidance.rs."
+    },
     "KAMIKAZE_DEATH_CONTACT": {
       "value": "as_doomed",
       "status": "measured",

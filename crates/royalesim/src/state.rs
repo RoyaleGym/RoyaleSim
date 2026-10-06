@@ -1035,6 +1035,10 @@ pub struct Calib {
     /// enemy may take it. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AtOnce`.
     #[serde(default = "dismount_mount_acquire_default")]
     pub dismount_mount_acquire: DismountMountAcquire,
+    /// movement.DEATH_BOMB_AVOIDANCE (the move pass's board): whether a death bomb on its fuse is a static blocker to the
+    /// avoidance scan. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
+    #[serde(default = "death_bomb_avoidance_default")]
+    pub death_bomb_avoidance: DeathBombAvoidance,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2661,6 +2665,10 @@ fn death_ring_direction_default() -> DeathRingDirection {
 
 fn dismount_mount_acquire_default() -> DismountMountAcquire {
     DismountMountAcquire::AtOnce
+}
+
+fn death_bomb_avoidance_default() -> DeathBombAvoidance {
+    DeathBombAvoidance::None
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6422,6 +6430,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.DEATH_BOMB_AVOIDANCE -- see `phase_path16402_for` (the board's bodies): what a death bomb on its fuse (a
+    /// dying Bomb Tower's, Giant Skeleton's or Balloon's: card.rs `convert_death_bomb`, a timed impact with no entity) is
+    /// to the move pass. pathfinding.DEATH_BOMB_OBSTACLE is the same bomb to route planning.
+    DeathBombAvoidance {
+        /// The engine's: nothing; movers walk through its circle.
+        None = "none",
+        /// A static blocker of its row's CollisionRadius (450) where it lies, from the tick after its parent's death to
+        /// its blast: the avoidance scan meets it (a turn starts when the look circle meets its circle), the separation
+        /// scan does not (nothing is pushed out of it). Measured on client 15.535.29 (bomb_avoid_census.py): every ground
+        /// troop whose look circle met a fused bomb's circle with no other body near started a turn on the next tick, 4 of
+        /// 4 (sp-bridge-Giant-split-s0's Giant t465 -190 by a Bomb Tower's, il-b5e2's Skeletons t3394 by a Giant Skeleton's,
+        /// the sp-form-Balloon-hero scenes' Musketeer t309 by a Balloon's); none of 76 whose circles stayed apart (0 to
+        /// 400) turned, and the Giant crossed the bomb's circle by 200 with no push. The engine's walked through it.
+        Client15535StaticBlocker = "client15535_static_blocker",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8408,6 +8433,7 @@ impl Calib {
             siege_reset_hold: pick(&v, &["combat", "SIEGE_RESET_HOLD", "value"], SiegeResetHold::from_calibration_name)?,
             death_ring_direction: pick(&v, &["spawner", "DEATH_RING_DIRECTION", "value"], DeathRingDirection::from_calibration_name)?,
             dismount_mount_acquire: pick(&v, &["transform", "DISMOUNT_MOUNT_ACQUIRE", "value"], DismountMountAcquire::from_calibration_name)?,
+            death_bomb_avoidance: pick(&v, &["movement", "DEATH_BOMB_AVOIDANCE", "value"], DeathBombAvoidance::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -20321,6 +20347,44 @@ impl BattleState {
                     });
                 }
             }
+            // movement.DEATH_BOMB_AVOIDANCE = client15535_static_blocker: each death bomb on its fuse (the spell list's, as
+            // `build_obstacles` reads them) joins the board as a static blocker of its row's CollisionRadius where it lies:
+            // collidable, not alive, so the avoidance scan meets it and the separation scan does not. It is put on the
+            // list in its parent's Reap, so the pass of the death tick does not meet it, and the blast takes it off.
+            // PLANT (regression) death_bomb_unavoided: the new arm's movers still walk through a fused bomb.
+            #[cfg(not(clash_plant = "death_bomb_unavoided"))]
+            let bomb_blocks = calib.death_bomb_avoidance == DeathBombAvoidance::Client15535StaticBlocker;
+            #[cfg(clash_plant = "death_bomb_unavoided")]
+            let bomb_blocks = false;
+            if bomb_blocks {
+                for sp in self.spells.iter() {
+                    let spell::SpellMotion::Flight { pos, delay_ms, .. } = sp.motion else { continue };
+                    let c = self.cfg.cards.get(sp.card);
+                    if delay_ms <= 0 || c.death_bomb_fuse_ms().is_none() || c.collision_radius <= 0 {
+                        continue;
+                    }
+                    let (x, y) = (pos.x / K, pos.y / K);
+                    bodies.push(move16402::Body {
+                        x,
+                        y,
+                        start_x: x,
+                        start_y: y,
+                        side: sp.team as u8,
+                        r: c.collision_radius / K,
+                        mass: 0,
+                        air: false,
+                        mover: false,
+                        alive: false,
+                        collidable: true,
+                        offset: 0,
+                        dir: (0, 0),
+                        heading_counts: false,
+                        avoid_static: false,
+                        group_walker: false,
+                        seq: u32::MAX,
+                    });
+                }
+            }
             // Only the creation-order arm drops a doomed troop at its place in the pass; under
             // client_doomed_static it walks like any other, and only its `avoid_static` differs.
             let drops_doomed = calib.dying_unit_visibility == DyingUnitVisibility::CreationOrderBeforeVictim;
@@ -31512,6 +31576,9 @@ impl BattleState {
 /// 20, unchanged, transform.DISMOUNT_MOUNT_ACQUIRE: Calib gained dismount_mount_acquire (serde default the old arm,
 ///    at_once), no new state (the delay is the entity's acquirable_from, saved already), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.DEATH_BOMB_AVOIDANCE: Calib gained death_bomb_avoidance (serde default the old arm, none), no
+///    new state (the blockers are read off the spell list each pass), so a blob saved before it deserializes and hashes
+///    as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32521,6 +32588,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_ring_direction".into(), serde_json::to_value(DeathRingDirection::TargetFirst).map_err(|e| e.to_string())?);
     // transform.DISMOUNT_MOUNT_ACQUIRE: a format-3 battle's mount was anyone's target at once (the same rule).
     sh.insert("dismount_mount_acquire".into(), serde_json::to_value(DismountMountAcquire::AtOnce).map_err(|e| e.to_string())?);
+    // movement.DEATH_BOMB_AVOIDANCE: a format-3 battle's movers walked through a fused bomb (the same rule).
+    sh.insert("death_bomb_avoidance".into(), serde_json::to_value(DeathBombAvoidance::None).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
