@@ -10475,6 +10475,26 @@ def main() -> int:
         inert = {n for n in set(old_areas) & set(new_areas)
                  if old_areas[n].get("hit_speed_ms") == -1 and new_areas[n].get("hit_speed_ms") == -1}
         inert_card_fields = {"damage", "damage_source", "area_damage_radius_milli", "crown_tower_damage_percent"}
+        # A gone row RENAMED: every card or unit field of the reference that named it names, in this table, one other
+        # row of the same table (the Battle Healer's spawn heal, the Goblin Drill's emergence: batch 4).
+        def renamed_to(gone: str, sec: str):
+            tos = set()
+            here = by_name(doc.get(sec, []))
+            for s2 in ("cards", "units"):
+                o2, n2 = by_name(ref.get(s2, [])), by_name(doc.get(s2, []))
+                for rn, rec in o2.items():
+                    for k2, v2 in rec.items():
+                        if v2 == gone:
+                            nv2 = n2.get(rn, {}).get(k2)
+                            if not isinstance(nv2, str) or nv2 not in here or nv2 == gone:
+                                return None
+                            tos.add(nv2)
+            return tos.pop() if len(tos) == 1 else None
+
+        # Every record of the reference as text, to tell a gone row some record named from an orphan.
+        ref_texts = [(name, json.dumps(rec)) for sec in ("cards", "units", "evolutions", "hero_forms",
+                                                         "area_effect_objects", "projectiles", "buffs")
+                     for name, rec in by_name(ref.get(sec, [])).items()]
 
         for sec in ("cards", "units", "evolutions", "hero_forms", "area_effect_objects", "projectiles", "buffs"):
             old, new = by_name(ref.get(sec, [])), by_name(doc.get(sec, []))
@@ -10483,6 +10503,11 @@ def main() -> int:
             for n in sorted(set(old) - set(new)):
                 if n.startswith("NOTINUSE"):
                     dropped.append((f"{sec}.{n}", "GONE: a NOTINUSE row"))
+                elif sec in ("area_effect_objects", "projectiles", "buffs") and not any(
+                        f'"{n}"' in text for name, text in ref_texts if name != n):
+                    dropped.append((f"{sec}.{n}", "GONE: an orphan row (no record of the reference named it)"))
+                elif sec in ("area_effect_objects", "projectiles", "buffs") and (to := renamed_to(n, sec)):
+                    dropped.append((f"{sec}.{n}", f"GONE: renamed {to} (each record that named it names that)"))
                 elif n not in refused:
                     CENSUS.append((f"{sec}.{n}", f"GONE: {args.against.name} holds it, this table has no such record"))
             for n in sorted(set(old) & set(new)):
