@@ -3900,10 +3900,28 @@ def champion_dash_chain(t, unit: str) -> dict | None:
         return None
     # A seeker whose trigger runs no dash chain (the Hero Giant's slap, read by `slap_effect`) is not this reader's.
     trig = first.get("ActionOnSelfWhenTriggered")
-    if not isinstance(trig, str) or acts.get(trig) is None or acts.get(trig)["ClassType"] != "ActionDashingAttackChain":
+    # 16.402: the trigger is an ActionGroup of the chain and an ActionWithDuration that holds the ability's tags
+    # (ABILITY_COOLDOWN_PAUSED, ABILITY_PENDING) until the knight is DASHING (GoldenKnight_Start_Ability_Group). Read
+    # as exactly that pair; the chain is the group's ActionDashingAttackChain.
+    held = None
+    chain_name = trig if isinstance(trig, str) else None
+    tg = acts.get(trig) if isinstance(trig, str) else None
+    if tg is not None and tg["ClassType"] == "ActionGroup":
+        sub_names = _action_list(acts, trig, "SubActions")
+        parts = [acts.get(x) for x in sub_names]
+        kinds = sorted(p_["ClassType"] for p_ in parts if p_ is not None)
+        if None in parts or kinds != ["ActionDashingAttackChain", "ActionWithDuration"]:
+            return None
+        hold = next(p_ for p_ in parts if p_["ClassType"] == "ActionWithDuration")
+        if hold.get("ForceStopIfTrue") != "DASHING" or set(_present(hold)) - {"ClassType", "GameTagsToSet", "ActionDuration", "ForceStopIfTrue"}:
+            raise SystemExit(f"champion ability {name}: its trigger group's hold is not one ActionWithDuration stopped by DASHING")
+        held = sorted(t_.strip() for t_ in (hold.get("GameTagsToSet") or "").split(",") if t_.strip())
+        chain_name = next(x for x, p_ in zip(sub_names, parts) if p_["ClassType"] == "ActionDashingAttackChain")
+        tg = acts.get(chain_name)
+    if tg is None or tg["ClassType"] != "ActionDashingAttackChain":
         return None
     charge = _one_action(acts, subs[0], "ActionRunActionListOnObjectsInShapeWithPrio", CHAIN_CHARGE_KEYS)
-    execute = acts.get(charge["ActionOnSelfWhenTriggered"])
+    execute = acts.get(chain_name)
     if execute is None or execute["ClassType"] != "ActionDashingAttackChain":
         return None
     shape = t.shapes.get(charge["Shape"])
@@ -3929,6 +3947,8 @@ def champion_dash_chain(t, unit: str) -> dict | None:
         "trigger_delay_ms": a.get("TriggerDelay") or 0,
         # 16.402 on: the Golden Knight's RefundWindow (50 ms), as the hero buttons' (`ABILITY_READ_KEYS`).
         **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
+        # 16.402: the tags its trigger holds until the dash starts (above); what they do is calibration's.
+        **({"held_until_dashing": held} if held is not None else {}),
         "keep_current_target": a.get("KeepCurrentTarget") is True,
         "is_champion": True,
         "effect": {
@@ -9471,6 +9491,10 @@ def main() -> int:
             old, new = by_name(ref.get(sec, [])), by_name(doc.get(sec, []))
             for n in sorted(set(old) & set(new)):
                 for k, val in old[n].items():
+                    # A graph that held no mechanic (no class, no spawn: the 15.535 VisualActions health bar, which
+                    # 16.402 names OnStartingClientActions) is display, not a lost mechanic.
+                    if k == "action_graph" and isinstance(val, dict) and not val.get("mechanic")                             and not val.get("class_types") and not val.get("spawns"):
+                        continue
                     if k not in ("raw", "provenance") and isinstance(val, (dict, list)) and val and new[n].get(k) in (None, [], {}):
                         CENSUS.append((f"{sec}.{n}", f"LOST {k}: {args.against.name} holds it, this table leaves it empty"))
     if CENSUS is not None:
