@@ -223,9 +223,9 @@ fn after_its_captives_death_the_next_troop_in_reach_is_grabbed_10_ticks_on() {
     assert!(d(pts[first]) < d(pts[first - 1]), "dragged toward the cage: {:?}", &pts[first - 1..=first]);
 }
 
-/// The Knight of `grabbed_arm(arm)` let go when the cage dies on K: its point and whether it holds a target on K, K + 1,
-/// K + 2 and K + 3.
-fn let_go(arm: CageReleaseScan) -> Vec<((i32, i32), bool)> {
+/// The Knight of `grabbed_arm(arm)` let go when the cage dies on K: its point on K, K + 1, K + 2 and K + 3. (Its target
+/// is no probe: a troop walking for a tower holds none in the engine.)
+fn let_go(arm: CageReleaseScan) -> Vec<(i32, i32)> {
     let (mut s, cage, knight, pts, _, _) = grabbed_arm(arm);
     assert_eq!(*pts.last().expect("points"), CAGE, "caged");
     assert!(s.debug_set_hp(cage, 0));
@@ -233,7 +233,7 @@ fn let_go(arm: CageReleaseScan) -> Vec<((i32, i32), bool)> {
     for _ in 0..4 {
         s.tick();
         let e = s.entity(knight).expect("the Knight");
-        out.push(((e.pos.x / K, e.pos.y / K), e.target.is_some()));
+        out.push((e.pos.x / K, e.pos.y / K));
     }
     assert!(s.entity(cage).is_none(), "the cage died");
     out
@@ -242,11 +242,12 @@ fn let_go(arm: CageReleaseScan) -> Vec<((i32, i32), bool)> {
 /// Plant: cage_release_stunned.
 #[test]
 fn a_captive_let_go_takes_its_target_on_the_next_tick_under_client15535_scans_while_held() {
-    // NOT VACUOUS: the stun scans nothing through K + 2.
+    // NOT VACUOUS: stunned, it scans nothing through K + 2, so only the Brawler's push moves it on K + 2, straight down
+    // the cage's column; a scan on K + 1 shows as a walk on K + 2, off that column.
     let old = let_go(CageReleaseScan::Stunned);
-    assert!(!old[1].1 && !old[2].1, "stunned: the Knight held a target before K + 3: {old:?}");
+    assert_eq!((old[0], old[1]), (CAGE, CAGE), "stunned: not standing on K and K + 1: {old:?}");
+    assert!(old[2].0 == CAGE.0 && old[2] != CAGE, "stunned: K + 2 is not the push alone: {old:?}");
     let new = let_go(CageReleaseScan::Client15535ScansWhileHeld);
-    assert!(new[1].1, "client15535_scans_while_held: no target on K + 1: {new:?}");
-    assert_eq!((new[0].0, new[1].0), (CAGE, CAGE), "client15535_scans_while_held: not standing on K and K + 1: {new:?}");
-    assert!(new[2].1 && new[2].0 != CAGE, "client15535_scans_while_held: not walking on K + 2: {new:?}");
+    assert_eq!((new[0], new[1]), (CAGE, CAGE), "client15535_scans_while_held: not standing on K and K + 1: {new:?}");
+    assert!(new[2].0 != CAGE.0, "client15535_scans_while_held: not walking on K + 2: {new:?} (stunned {old:?})");
 }
