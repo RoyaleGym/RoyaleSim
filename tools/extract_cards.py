@@ -1704,7 +1704,85 @@ def strike_area_block(t: dict, a: dict) -> dict | None:
     """An area row's striking-area block (15.535): the Vines' ranked catches or the Void's laser ball, or None."""
     if "actions" not in t or not isinstance(a, Row):
         return None
-    return ranked_catches_block(t, a) or laser_ball_block(t, a)
+    return ranked_catches_block(t, a) or ranked_catches_16402(t, a) or laser_ball_block(t, a)
+
+
+# 16.402: the Vines' area keys (`ranked_catches_16402`), each read.
+VINES_16402_KEYS = {"Rarity", "Radius", "MaximumTargets", "HitSpeedOffset", "HitSpeed", "LifeDuration",
+                    "HitBiggestTargets", "OneHitPerTarget", "Filter", "OnHitAction", "StatsTags", "Name"}
+
+
+def ranked_catches_16402(t: dict, a: dict) -> dict | None:
+    """16.402: THE VINES' CATCHES AS A PULSING AREA, read whole, or None. Where 15.535 ran a ranked selector from its
+    start (900 ms on, catches at +0, +50, +150 on the highest current hp including shields), the 16.402 area hits one
+    target (MaximumTargets 1, HitBiggestTargets, OneHitPerTarget) at HitSpeedOffset and every HitSpeed while it lives:
+    900, 1150, 1400 (`catch_offsets_ms` from `start_delay_ms`, the hits at or before LifeDuration: option B request 26
+    for the last one and the order). Each hit runs the same group of an air-to-ground pull and a snare picked by the
+    target's row or radius, as `ranked_catches_block` writes it."""
+    if not getattr(t, "vintage", None) or not t.vintage.filters_format:
+        return None
+    at, acts = t["area_effect_objects"], t["actions"]
+    name = next((n for n, r in at.records.items() if r is a), None)
+    own = {c for c in at.set_fields.get(name, set()) if c == "Filter" or not COSMETIC.search(c)} - {"Name"}
+    if a["OnStartingAction"] is not None or not isinstance(a["OnHitAction"], str) \
+            or own != VINES_16402_KEYS - {"Name"}:
+        return None
+    if a["MaximumTargets"] != 1 or a["HitBiggestTargets"] is not True or a["OneHitPerTarget"] is not True:
+        return None
+    every, first, life = a["HitSpeed"], a["HitSpeedOffset"], a["LifeDuration"]
+    if not all(isinstance(v, int) and v > 0 for v in (every, first, life)) or first > life:
+        return None
+    grp = a["OnHitAction"]
+    g = acts.get(grp)
+    if g is None or g["ClassType"] != "ActionGroup" or _live_keys(g) != GROUP_KEYS:
+        return None
+    parts, part_delays = _list_col(acts, grp, "SubActions"), _list_col(acts, grp, "SubActionsDelay")
+    if len(parts) != 2 or len(part_delays) != 2 or any(d != 0 for d in part_delays):
+        return None
+    by_class = {acts.get(p)["ClassType"]: p for p in parts if isinstance(p, str) and acts.get(p) is not None}
+    if set(by_class) != {"ActionAirToGround", "ActionSelect"}:
+        return None
+    ag = acts.get(by_class["ActionAirToGround"])
+    if _live_keys(ag) - {"StatsTags"} != AIR_TO_GROUND_KEYS - {"StatsTags"}:
+        return None
+    pick_name = by_class["ActionSelect"]
+    if _live_keys(acts.get(pick_name)) != {"ClassType", "SubActions", "PerActionConditions"}:
+        return None
+    options, option_time = [], []
+    for o in _list_col(acts, pick_name, "SubActions"):
+        s = acts.get(o) if isinstance(o, str) else None
+        if s is None or s["ClassType"] != "ActionSpawn" or _live_keys(s) != SPAWN_KEYS:
+            return None
+        if s["SpawnType"] != "BuffType" or not isinstance(s["SpawnData"], str):
+            return None
+        b = norm_buff(t, s["SpawnData"])
+        if b is None:
+            return None
+        options.append(b)
+        option_time.append(s["SpawnTime"])
+    filt = filter_block(t, a["Filter"])
+    if filt is None or not options:
+        return None
+    hits = list(range(first, life + 1, every))
+    return {
+        "kind": "ranked_catches",
+        "start_delay_ms": first,
+        "catch_offsets_ms": [h - first for h in hits],
+        "once_per_target": True,
+        "selection_mode": "HitBiggestTargets",
+        "radius_milli": a["Radius"],
+        "filter": filt,
+        "air_to_ground": {
+            "transition_ms": ag["TransitionDuration"],
+            "total_ms": ag["TotalDuration"],
+            "abort_if_instigator_dies": bool(ag["AbortIfInstigatorDies"]),
+            "singleton": bool(ag["Singleton"]),
+            "allow_is_ground_tag_on_idle": bool(ag["AllowIsGroundTagOnIdle"]),
+        },
+        "options": options,
+        "option_time_ms": option_time,
+        "conditions": _list_col(acts, pick_name, "PerActionConditions"),
+    }
 
 
 def clone_action_block(t: dict, a: dict) -> dict | None:
@@ -10436,6 +10514,12 @@ def main() -> int:
                     if sec == "area_effect_objects" and n in deploy_areas and k in ("action_graph", "schedule") \
                             and nv in (None, [], {}):
                         dropped.append((f"{sec}.{n}", f"{k}: the unit's deploy, which the card now does"))
+                        continue
+                    # An area whose start schedule was its strike (15.535's Vines selector), now a strike block read
+                    # off its hits (`ranked_catches_16402`): listed apart.
+                    if sec == "area_effect_objects" and k == "schedule" and nv in (None, [], {}) \
+                            and new[n].get("strike_area"):
+                        dropped.append((f"{sec}.{n}", "schedule: its strike, now read as its strike_area"))
                         continue
                     if isinstance(val, (dict, list)) and val and nv in (None, [], {}):
                         CENSUS.append((f"{sec}.{n}",
