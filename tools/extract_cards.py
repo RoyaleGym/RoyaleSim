@@ -1146,10 +1146,14 @@ def normalize_16402(t: Tables) -> None:
             # Damage BY NAME: a [DAMAGE_TYPE] section holding the same {BaseDamage, TowerDamage} (the Ice Wizard's
             # IceWizCold, the Electro Wizard's ElectroWizZap, Rage's RageDamage), read as the table it names.
             if isinstance(d, str):
+                # The section is in the table, or (a hero form's file) kept by name in `t.damage_types`.
                 dt = t["damage_types"]
-                if dt.get(d) is None or dt.set_fields.get(d, set()) - {"BaseDamage", "TowerDamage", "Effect", "Flags"}:
+                found = {k: dt.get(d)[k] for k in dt.set_fields.get(d, set())} if dt.get(d) is not None \
+                    else t.damage_types.get(d)
+                if not isinstance(found, dict) or not isinstance(found.get("BaseDamage"), int) \
+                        or set(found) - {"BaseDamage", "TowerDamage", "Effect", "Flags"}:
                     raise SystemExit(f"{key}.{name}: Damage {d!r} names no [DAMAGE_TYPE] of BaseDamage and TowerDamage")
-                d = {k: dt.get(d)[k] for k in dt.set_fields[d]}
+                d = dict(found)
             if isinstance(d, dict):
                 # Effect is the hit's visual; Flags (DamagesHidden, the Earthquake's) is gameplay, kept as a column.
                 extra = set(d) - {"BaseDamage", "TowerDamage", "Effect", "Flags"}
@@ -1485,6 +1489,11 @@ FILTER_FLAGS = {
     "FilterDashImmune": "filter_dash_immune",
     "FilterIfNoHitpointComponent": "filter_if_no_hitpoint_component",
 }
+# 16.402: a filter's exclusions as one list (Filters), each the 15.535 Filter* flag of that name (`filter_block`).
+FILTER_LIST_FLAGS = {"Hidden": "filter_hidden", "Underground": "filter_underground", "Cloning": "filter_cloning",
+                     "Invisible": "filter_invisible", "NoHitpointComponent": "filter_if_no_hitpoint_component",
+                     "DashImmune": "filter_dash_immune", "Flying": "filter_flying", "Summoner": "filter_summoner",
+                     "Buildings": "filter_buildings", "PrincessTowers": "filter_princess_towers"}
 FILTER_LABELS = frozenset({"FilterDescriptionTID"})
 # The columns an inline laser-ball tier buff may set (`laser_ball_block`).
 LASER_BALL_BUFF_KEYS = frozenset(
@@ -1538,6 +1547,8 @@ def filter_block(t: dict, name) -> dict | None:
             out["tags"] = [s.strip() for s in v.split(",") if s.strip()]
         elif k in FILTER_FLAGS and isinstance(v, bool):
             out[FILTER_FLAGS[k]] = v
+        elif k == "Filters" and isinstance(v, list) and set(v) <= set(FILTER_LIST_FLAGS):
+            out.update({FILTER_LIST_FLAGS[x]: True for x in v})
         else:
             return None
     return out
@@ -7836,6 +7847,10 @@ def _one_action(acts, name, cls: str, keys: set[str]) -> dict:
     return a
 
 
+# 16.402: the Hero Valkyrie's chain sets CanUseDefaultTargetAsFallback false (`spin_chain_effect`).
+SPIN_CHAIN_KEYS = SPIN_CHAIN_KEYS | {"CanUseDefaultTargetAsFallback"}
+
+
 def hero_area(h: Tables, name: str) -> dict:
     """One area a hero ability makes (an ActionSpawn of an AreaEffectType whose source is the hero), read
     whole or the build stops: its clock (LifeDuration, HitSpeed, HitSpeedOffset), its hit (Damage and whether
@@ -7886,8 +7901,10 @@ def hero_area(h: Tables, name: str) -> dict:
         "hit_speed_offset_ms": r["HitSpeedOffset"],
         "damage": r["Damage"],
         # DAMAGE_TYPE EnableLevelScaling: false keeps the Damage at every level (a blank type scales).
-        "damage_level_scaling": True if dt is None else dt.get("EnableLevelScaling", True) is not False,
+        "damage_level_scaling": (True if dt is None else dt.get("EnableLevelScaling", True) is not False)
+        and "NoScaling" not in str(r.get("DamageFlags") or "").split(","),
         "crown_tower_damage_percent": ct_percent(r["CrownTowerDamagePercent"]),
+        **({"tower_damage": r["TowerDamage"]} if r.get("TowerDamage") is not None else {}),
         "radius_milli": shape["Radius"],
         "hits_ground": flag(r, "HitsGround"),
         "hits_air": flag(r, "HitsAir"),
@@ -7987,6 +8004,10 @@ SLAP_LANDING_FILTER = "GroundCharacterTargets"
 SLAP_REFUSING_TAGS = {"NO_PUSHBACK", "UNTARGETABLE", "DASHING", "DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS"}
 
 
+# 16.402: the slap's landing filter (`slap_effect`): the same enemy ground troops but for the invisible and cloning.
+SLAP_LANDING_FILTER_16402 = "CommonAreaDamageGround"
+
+
 def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dict:
     """THE HERO GIANT'S BUTTON ([ABILITY.GiantHero_Ability]), read whole or the build stops. OnActivationAction is a
     group of the seeker at delay 0 and the button's UI state and effects. The seeker waits for (WaitForTarget), once per
@@ -8064,7 +8085,10 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
     need(sp["SpawnType"] == "AreaEffectType" and r is not None, "the landing area")
     unread = tb.set_fields.get(sp["SpawnData"], set()) - {"Rarity", "LifeDuration", "HitSpeed", "Damage", "DamageType",
                                                           "Shape", "Filter", "StatsTags"}
-    need(not unread and not r["HitSpeed"] and r["Filter"] == SLAP_LANDING_FILTER and isinstance(r["Damage"], int),
+    # 16.402: Damage {BaseDamage, Effect} (no DamageType row) and the filter CommonAreaDamageGround.
+    v16 = r["Filter"] == SLAP_LANDING_FILTER_16402 and r["DamageType"] is None and r.get("TowerDamage") is None
+    need(not unread and not r["HitSpeed"] and (r["Filter"] == SLAP_LANDING_FILTER or v16)
+         and isinstance(r["Damage"], int),
          f"the landing area sets {sorted(unread)} or is not one hit on enemy ground troops")
     lshape = h.shapes.get(r["Shape"]) if isinstance(r["Shape"], str) else None
     need(lshape is not None and lshape.get("ClassType") == "Circle" and isinstance(lshape.get("Radius"), int),
@@ -8085,7 +8109,9 @@ def slap_effect(h: Tables, name: str, subs: list[str], delays: list[int]) -> dic
         "time_ms": st["SpawnTime"],
         "landing_damage": r["Damage"],
         "landing_radius_milli": lshape["Radius"],
-        "landing_level_scaled": not (dt is not None and dt.get("EnableLevelScaling") is False),
+        "landing_level_scaled": ("NoScaling" not in str(r.get("DamageFlags") or "").split(",")) if v16
+        else not (dt is not None and dt.get("EnableLevelScaling") is False),
+        **({"landing_filter": r["Filter"]} if v16 else {}),
         "retry_ms": fail[1][fail[0].index(seek[0][0])],
     }
 
@@ -8169,7 +8195,8 @@ def decoy_warp_effect(h: Tables, name: str, subs: list, delays: list, units: dic
     decoy = dsp["SpawnData"]
     _, drow = unit_record(h, decoy)
     tags = {x.strip() for x in str(drow["GameTagsToSet"] or "").split(",") if x.strip()}
-    need(tags == DECOY_ROW_TAGS, f"its decoy's tags {sorted(tags)}")
+    # 16.402 adds NO_ATTACK to the decoy's tags (`no_attack`).
+    need(tags in (DECOY_ROW_TAGS, DECOY_ROW_TAGS | {"NO_ATTACK"}), f"its decoy's tags {sorted(tags)}")
     got = _group_leaves(acts, drow["OnStartingAction"])
     need(got is not None, "its decoy's start is not a group")
     dsubs, ddelays = got
@@ -8188,7 +8215,8 @@ def decoy_warp_effect(h: Tables, name: str, subs: list, delays: list, units: dic
     units[decoy]["action_graph"] = None
     return {"kind": "decoy_warp", "buff": norm_buff_row(h, sp["SpawnData"], buff), "buff_ms": sp["SpawnTime"],
             "buff_delay_ms": bdelay, "warp_y_milli": w["WarpY"], "warp_delay_ms": ldelay + lk["WarpDelay"],
-            "unit": decoy, "use_deploy": True, "no_move": True, "decoy_delay_ms": ddelay,
+            "unit": decoy, "use_deploy": True, "no_move": True,
+            **({"no_attack": True} if "NO_ATTACK" in tags else {}), "decoy_delay_ms": ddelay,
             "decoy_life_ms": life["StartCounterAt"], "power_ms": sets[0][1],
             "power": {"middle": middle, "side": side, "count": par["ProjectileCount"],
                       "distance_milli": par["ProjectileDistance"]}}
@@ -8558,7 +8586,14 @@ def reroll_button(h: Tables, form: str, unit: str, units: dict) -> dict:
     }
 
 
-def warp_effect(h: Tables, name: str, lock: str) -> dict:
+# 16.402: the Hero Mega Minion's return to its warp's origin (`warp_effect`): the warp's keys for it, and its mark's
+# pin.
+WARP_HERO_RETURN_KEYS = {"ReturnToOrigin", "ReturnOnTargetDeath", "ReturnDelay", "ReturnWarpAction",
+                         "WarpWindowActiveKey", "WarpWindowOriginXKey", "WarpWindowOriginYKey"}
+WARP_MARK_PIN_KEYS = {"PinnedActiveExpression", "PinnedPositionXExpression", "PinnedPositionYExpression"}
+
+
+def warp_effect(h: Tables, name: str, lock: str, tagged: dict | None = None) -> dict:
     """THE HERO MEGA MINION'S WARP ([ABILITY] OnActivationAction an ActionBossBanditAbility), read whole or the build
     stops. The lock (no warp or lock delay) runs an ActionMegaMinionHeroAbility, which takes its target from the mark
     (an ActionSetIndicatorOnTarget) and runs the warp (an ActionWarpCharacter, InjectedCharacter: `speed`, `accel`, no
@@ -8577,8 +8612,25 @@ def warp_effect(h: Tables, name: str, lock: str) -> dict:
 
     lk = _one_action(acts, lock, "ActionBossBanditAbility", WARP_LOCK_KEYS)
     need(not lk["WarpDelay"] and not lk["LockDelay"], "a delayed warp or lock")
-    x = _one_action(acts, lk["WarpAction"], "ActionMegaMinionHeroAbility", WARP_HERO_KEYS)
-    mark = _one_action(acts, x["ActionToGetTargetFrom"], "ActionSetIndicatorOnTarget", WARP_MARK_KEYS)
+    # 16.402: the hero warps back to the warp's origin ReturnDelay after it, or when its target dies (`return`).
+    ret16 = tagged is not None
+    x = _one_action(acts, lk["WarpAction"], "ActionMegaMinionHeroAbility",
+                    WARP_HERO_KEYS | (WARP_HERO_RETURN_KEYS if ret16 else set()))
+    mark = _one_action(acts, x["ActionToGetTargetFrom"], "ActionSetIndicatorOnTarget",
+                       WARP_MARK_KEYS | (WARP_MARK_PIN_KEYS if ret16 else set()))
+    back = None
+    if ret16:
+        need(x["ReturnToOrigin"] is True and isinstance(x["ReturnDelay"], int) and x["ReturnDelay"] > 0
+             and isinstance(x["ReturnOnTargetDeath"], bool), "the return")
+        rw = _one_action(acts, x["ReturnWarpAction"], "ActionWarpCharacter",
+                         WARP_KEYS - {"TargetResolver", "ForceKeepTargetAfterWarp"})
+        need(rw["WarpMode"] == "InjectedCharacter" and not rw["OffsetX"] and not rw["OffsetY"]
+             and not rw["OffsetToTargetConsideringDirectionToTower"], "the return warp")
+        done = _one_action(acts, rw["OnWarpEndAction"], "ActionSetVariable", {"ClassType", "Variable", "Value"})
+        need(done["Value"] == "1" and tagged["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1"
+             and tagged["ForceStopIfTrue"] == f"{done['Variable']} > 0", "the return's end")
+        back = {"delay_ms": x["ReturnDelay"], "on_target_death": x["ReturnOnTargetDeath"],
+                "speed": rw["Speed"], "accel": rw["Acceleration"]}
     w = _one_action(acts, x["ActionToExecute"], "ActionWarpCharacter", WARP_KEYS)
     need(w["WarpMode"] == "InjectedCharacter" and isinstance(w["Speed"], int) and w["Speed"] > 0
          and isinstance(w["Acceleration"], int) and w["Acceleration"] > 0, "the warp's motion")
@@ -8603,15 +8655,21 @@ def warp_effect(h: Tables, name: str, lock: str) -> dict:
     strike = bt.get(sp["SpawnData"])
     need(strike is not None and bt.set_fields.get(sp["SpawnData"], set()) <= WARP_STRIKE_SHOWN
          and flag(strike, "Invisible") and flag(strike, "RemoveOnAttack"), f"the strike buff {sp['SpawnData']}")
-    rm = _one_action(acts, strike["OnRemoveAction"], "ActionSpawn",
-                     {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ActionDelay"})
-    need(rm["SpawnType"] == "BuffType" and isinstance(rm["SpawnTime"], int) and rm["SpawnTime"] >= 99999,
-         "the after buff")
-    after = bt.get(rm["SpawnData"])
-    need(after is not None and bt.set_fields.get(rm["SpawnData"], set()) <= {"Rarity", "OverrideProjectile"},
-         f"the after buff {rm['SpawnData']}")
-    shot1, shot2 = norm_projectile(h, strike["OverrideProjectile"]), norm_projectile(h, after["OverrideProjectile"])
-    need(shot1 is not None and shot2 is not None, "the override projectiles")
+    # 16.402: the strike's buff hangs no after buff (later shots keep the plain crown damage).
+    if ret16 and strike["OnRemoveAction"] is None:
+        rm, shot2 = {"ActionDelay": None}, None
+    else:
+        rm = _one_action(acts, strike["OnRemoveAction"], "ActionSpawn",
+                         {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ActionDelay"})
+        need(rm["SpawnType"] == "BuffType" and isinstance(rm["SpawnTime"], int) and rm["SpawnTime"] >= 99999,
+             "the after buff")
+        after = bt.get(rm["SpawnData"])
+        need(after is not None and bt.set_fields.get(rm["SpawnData"], set()) <= {"Rarity", "OverrideProjectile"},
+             f"the after buff {rm['SpawnData']}")
+        shot2 = norm_projectile(h, after["OverrideProjectile"])
+        need(shot2 is not None, "the after projectile")
+    shot1 = norm_projectile(h, strike["OverrideProjectile"])
+    need(shot1 is not None, "the override projectiles")
     return {
         "kind": "warp",
         "speed": w["Speed"],
@@ -8620,9 +8678,10 @@ def warp_effect(h: Tables, name: str, lock: str) -> dict:
         "strike_ms": sp["SpawnTime"],
         "strike_damage": shot1["damage"],
         "strike_crown_pct": shot1["crown_tower_damage_percent"],
-        "after_crown_pct": shot2["crown_tower_damage_percent"],
+        "after_crown_pct": shot2["crown_tower_damage_percent"] if shot2 else None,
         "after_delay_ms": rm["ActionDelay"] or 0,
         "mark": x["ActionToGetTargetFrom"],
+        **({"return": back} if back is not None else {}),
     }
 
 
@@ -8855,6 +8914,18 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "is_champion": a.get("IsChampion") is True,
             "effect": effect,
         }
+    # 16.402 (the Hero Mega Minion): a group, at 0, of a tag held until the hero's return and the warp's lock.
+    lock = a["OnActivationAction"]
+    tagged = None
+    if first is not None and first["ClassType"] == "ActionGroup":
+        got = _group_leaves(acts, lock)
+        cls = [acts.get(x)["ClassType"] for x in got[0]] if got else []
+        if cls == ["ActionWithDuration", "ActionBossBanditAbility"] and got[1] == [0, 0] \
+                and _present(first) == {"ClassType", "SubActions", "SubActionsDelay"}:
+            tagged = _one_action(acts, got[0][0], "ActionWithDuration",
+                                 {"ClassType", "ActionDuration", "GameTagsToSet", "ForceStopIfTrue"})
+            lock = got[0][1]
+            first = acts.get(lock)
     if first is not None and first["ClassType"] == "ActionBossBanditAbility":
         return {
             "name": name,
@@ -8866,7 +8937,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
             "keep_current_target": a.get("KeepCurrentTarget") is True,
             "is_champion": a.get("IsChampion") is True,
-            "effect": warp_effect(h, name, a["OnActivationAction"]),
+            "effect": warp_effect(h, name, lock, tagged),
         }
     # THE HERO DARK PRINCE'S DISMOUNT: a group whose sub-group hops the hero (an ActionWarpCharacter), read whole by
     # `dismount_effect`.
@@ -8981,6 +9052,8 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
         "trigger_delay_ms": a.get("TriggerDelay") or 0,
         "keep_current_target": a.get("KeepCurrentTarget") is True,
         "is_champion": a.get("IsChampion") is True,
+        # 16.402: the Hero Ice Golem's, Giant's and Valkyrie's RefundWindow (50), as the other paths carry it.
+        **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
         "effect": effect,
     }
 
@@ -9080,6 +9153,11 @@ def dismount_effect(h: Tables, name: str, group: str, units: dict, hero_unit: st
     for sub_, d in zip(msubs, mdelays[: len(msubs)], strict=True):
         need(acts.get(sub_) is not None, f"{sub_} names no action row")
         mb.setdefault(acts.get(sub_)["ClassType"], []).append((sub_, d))
+    # 16.402: the mount's start also runs the river-jump guard (`jump_hack`), from `jump_ignore_pushback_from_ms`.
+    jump = None
+    if "ActionInterval" in mb:
+        [(jsub, jump)] = mb.pop("ActionInterval")
+        need(jsub == JUMP_HACK and jump_hack(h) is not None, f"its mount's interval {jsub} is not the river-jump guard")
     need(set(mb) == {"ActionWithDuration", "ActionSpawn", "ActionPlayEffect"}, f"its mount's start runs {sorted(mb)}")
     [(nsub, ndelay)] = mb["ActionWithDuration"]
     nm = _one_action(acts, nsub, "ActionWithDuration", {"ClassType", "GameTagsToSet", "ActionDuration"})
@@ -9101,7 +9179,7 @@ def dismount_effect(h: Tables, name: str, group: str, units: dict, hero_unit: st
     units[mount] = mrec
     return {"kind": "dismount", "unit": walker, "no_collide_ms": nc["ActionDuration"], "hop_y_milli": w["WarpY"],
             "hop_ms": step, "hops": bound // step, "mount": mount, "mount_hold_ms": nm["ActionDuration"],
-            "blow_ms": pdelay}
+            "blow_ms": pdelay, **({"jump_ignore_pushback_from_ms": jump} if jump is not None else {})}
 
 
 # THE HERO TOMBSTONE (`tomb_group`, `tomb_button`): the classes of the actions that only show things (the button's
@@ -9151,6 +9229,40 @@ def tomb_group(h: Tables, form: str, s) -> dict | None:
         raise SystemExit(f"hero form {form}: a group other than three members on the tap")
     dummy, tomb, monster = lst
     return {"dummy": dummy, "tomb": tomb, "monster": monster}
+
+
+# 16.402: the tomb's skeleton names its display as OnStartingClientActions; the monster waits with NO_CHECKCOLLISIONS
+# too.
+TOMB_SKELETON_DISPLAY = TOMB_SKELETON_DISPLAY | {"OnStartingClientActions"}
+TOMB_MONSTER_TAGS_16402 = TOMB_MONSTER_TAGS + ",NO_CHECKCOLLISIONS"
+
+
+def tomb_level_link(h, form, reach) -> bool:
+    """16.402.19 (the 2026-10-06 update): the tomb sends its character_level beside its hp (an ActionBlackboardSetInt of
+    tombstone_level), and the monster reads it into Tombstone_Level (DefaultValue -1) and sets its own level to it (an
+    ActionSetCharacterLevel ExecuteOnParent, RelativeLevelAdjustmentExpression "Tombstone_Level - character_level", run
+    when Tombstone_Level >= 0). True when `reach` holds exactly that link, False when it holds no
+    ActionSetCharacterLevel; any other shape stops the build."""
+    acts = h["actions"]
+    lv = [x for x in reach if acts.get(x)["ClassType"] == "ActionSetCharacterLevel"]
+    if not lv:
+        return False
+    a = acts.get(lv[0])
+    ok = (len(lv) == 1
+          and _present(a) == {"ClassType", "ExecuteOnParent", "RelativeLevelAdjustmentExpression", "ExecuteIfTrue"}
+          and a["ExecuteOnParent"] is True
+          and a["RelativeLevelAdjustmentExpression"] == "Tombstone_Level - character_level"
+          and a["ExecuteIfTrue"] == "Tombstone_Level >= 0"
+          and (h.variables.get("Tombstone_Level") or {}).get("DefaultValue") == -1
+          and any(acts.get(x)["ClassType"] == "ActionBlackboardSetInt" and acts.get(x)["Key"] == "tombstone_level"
+                  and acts.get(x)["Value"] == "character_level" for x in reach)
+          and any(acts.get(x)["ClassType"] == "ActionContextToVariable"
+                  and acts.get(x)["OutputVariable"] == "Tombstone_Level"
+                  and acts.get(x)["BlackboardKey"] == "tombstone_level" and acts.get(x)["NextAction"] == lv[0]
+                  for x in reach))
+    if not ok:
+        raise SystemExit(f"hero form {form}: its level link {lv}")
+    return True
 
 
 def tomb_button(h: Tables, form: str, group: dict, units: dict, card: dict) -> dict:
@@ -9216,6 +9328,7 @@ def tomb_button(h: Tables, form: str, group: dict, units: dict, card: dict) -> d
     need(all(d == 0 for _, d in tstart), "its tomb's start is delayed")
     checks = [x for x, _ in tstart if acts.get(x)["ClassType"] == "ActionInterval"]
     kill_ms = check_ms = None
+    level_link = False
     for x in checks:
         iv = acts.get(x)
         run = acts.get(iv["ActionToExecute"])
@@ -9224,7 +9337,8 @@ def tomb_button(h: Tables, form: str, group: dict, units: dict, card: dict) -> d
             check_ms = iv["Interval"]
             f = h.filters.get(run["ObjectFilter"]) or {}
             active = (f.get("IncludeCharactersWithData") or [None])[0]
-            need(f.get("MatchTeamOwn") is True and f.get("FilterSummoner") is True
+            excl = f.get("Filters") if isinstance(f.get("Filters"), list) else []
+            need(f.get("MatchTeamOwn") is True and (f.get("FilterSummoner") is True or "Summoner" in excl)
                  and len(f["IncludeCharactersWithData"]) == 1,
                  f"its tomb's filter {run['ObjectFilter']}")
             kg = group_subactions(h, run["Action"], f"hero form {form} tomb kill")
@@ -9232,7 +9346,11 @@ def tomb_button(h: Tables, form: str, group: dict, units: dict, card: dict) -> d
                  and acts.get(kg[0][0])["GameTagsToSet"] == "UNIT_CUSTOM_TAG_1", "its tomb's kill")
             kill_ms = kg[1][1]
         else:
-            need(classes(_reach(acts, [x])) <= TOMB_UI | {"ActionInterval", "ActionGroup"}, f"its tomb's {x}")
+            rx = _reach(acts, [x])
+            if tomb_level_link(h, form, rx):
+                level_link = True
+                rx = [y for y in rx if acts.get(y)["ClassType"] != "ActionSetCharacterLevel"]
+            need(classes(rx) <= TOMB_UI | {"ActionInterval", "ActionGroup"}, f"its tomb's {x}")
     need(check_ms is not None and kill_ms is not None, "its tomb has no kill check")
     listeners = [x for x, _ in tstart if acts.get(x)["ClassType"] == "ActionActivateOnCardDeploy"]
     need(len(listeners) == 1, "its tomb's listener")
@@ -9252,7 +9370,8 @@ def tomb_button(h: Tables, form: str, group: dict, units: dict, card: dict) -> d
     # The monster.
     mname = group["monster"]
     _, mrow = unit_record(h, mname)
-    need(mrow["GameTagsToSet"] == TOMB_MONSTER_TAGS and isinstance(mrow["LifeTime"], int) and not mrow["Damage"],
+    need(mrow["GameTagsToSet"] in (TOMB_MONSTER_TAGS, TOMB_MONSTER_TAGS_16402) and isinstance(mrow["LifeTime"], int)
+         and not mrow["Damage"],
          "its monster's row")
     ab = h.abilities.get(mrow["Ability"])
     need(ab is not None and not set(ab) - ABILITY_READ_KEYS - ABILITY_UI_KEYS, "its button")
@@ -9359,7 +9478,9 @@ def tomb_button(h: Tables, form: str, group: dict, units: dict, card: dict) -> d
         "effect": {"kind": "tomb_monster", "unit": mname, "active": active_name, "check_ms": check_ms,
                    "kill_ms": kill_ms, "window_ms": iv[0], "fade_ms": kills[0][1],
                    "hold": norm_buff_row(h, hsp["SpawnData"], hb), "hold_ms": hsp["SpawnTime"],
-                   "card_group": list(g.get("PlayableCards") or []) + list(g.get("Heroes") or [])},
+                   "card_group": list(g.get("PlayableCards") or []) + list(g.get("Heroes") or []),
+                   **({"monster_level_from_tomb": True} if level_link else {}),
+                   **({"monster_no_collisions": True} if mrow["GameTagsToSet"] == TOMB_MONSTER_TAGS_16402 else {})},
         "aeos": aeos,
     }
 
@@ -9451,10 +9572,20 @@ def throw_effect(h: Tables, name: str, seeker: str, units: dict) -> dict:
     rec = norm_unit(h, unit, with_raw=True)
     rec["spawn_area_object"] = None
     units[unit] = rec
-    land = h["area_effect_objects"].get(urow["SpawnAreaObject"] or "")
+    # 16.402: the trooper puts its landing down from its OnStartingAction (an ActionSpawn of exactly that area), the
+    # area by Filter, LifeDuration 0 with HitSpeed 50, and its own TowerDamage (10).
+    land_name = urow["SpawnAreaObject"]
+    pinned, v16 = THROW_LANDING_PINNED, False
+    if land_name is None and urow["OnStartingAction"] is not None:
+        sa = _one_action(acts, urow["OnStartingAction"], "ActionSpawn", {"ClassType", "SpawnType", "SpawnData"})
+        need(sa["SpawnType"] == "AreaEffectType", f"{unit}'s OnStartingAction is not an area")
+        land_name, v16 = sa["SpawnData"], True
+        pinned = {**THROW_LANDING_PINNED, "LifeDuration": 0, "Filter": "CommonAreaDamageGround"}
+        rec["action_graph"] = None
+    land = h["area_effect_objects"].get(land_name or "")
     need(land is not None, f"{unit}'s SpawnAreaObject is no area row")
-    off = {k: land.get(k) for k, v in THROW_LANDING_PINNED.items() if land.get(k) != v}
-    unread = h["area_effect_objects"].set_fields.get(urow["SpawnAreaObject"], set()) - set(THROW_LANDING_PINNED) - {
+    off = {k: land.get(k) for k, v in pinned.items() if land.get(k) != v}
+    unread = h["area_effect_objects"].set_fields.get(land_name, set()) - set(pinned) - {
         "Rarity", "Radius", "Damage", "CrownTowerDamagePercent", "StatsTags"}
     need(not off and not unread and isinstance(land["Radius"], int) and isinstance(land["Damage"], int),
          f"the landing area reads {off} off, {sorted(unread)} unread")
@@ -9475,6 +9606,7 @@ def throw_effect(h: Tables, name: str, seeker: str, units: dict) -> dict:
             "radius_milli": land["Radius"],
             "damage": land["Damage"],
             "crown_tower_damage_percent": ct_percent(land["CrownTowerDamagePercent"]),
+            **({"tower_damage": land["TowerDamage"]} if v16 and land["TowerDamage"] is not None else {}),
         },
     }
 
@@ -9743,7 +9875,10 @@ def spin_chain_effect(h: Tables, name: str, subs: list[str], delays: list[int]) 
     need(dummy["ActionDuration"] == 50, "the seeker's per-target action")
     shape = h.shapes.get(sk["Shape"]) if isinstance(sk["Shape"], str) else None
     need(shape is not None and shape.get("ClassType") == "Circle" and isinstance(shape.get("Radius"), int)
-         and shape.get("CollectionMethod") == "ContainsOrigin", f"the seeker's Shape {sk['Shape']!r}")
+         and set(shape) - {"StatsTags"} in ({"ClassType", "Radius", "CollectionMethod"},
+                                              {"ClassType", "Radius", "CheckOrigin"})
+         and (shape.get("CollectionMethod") == "ContainsOrigin" or shape.get("CheckOrigin") is True),
+         f"the seeker's Shape {sk['Shape']!r}")
     pending, pending_ms, pending_row = spawn_buff(subs[2], "the pending buff")
     group = group_subactions(h, sk["ActionOnSelfWhenTriggered"], f"hero ability {name} chain group")
     gclasses = [acts.get(n)["ClassType"] for n, _ in group]
@@ -9756,6 +9891,7 @@ def spin_chain_effect(h: Tables, name: str, subs: list[str], delays: list[int]) 
          and list(res.get("StrategyList") or []) == ["RESOLVER_STRATEGY_CLOSEST_TARGET"], "the chain's resolver")
     need(ch["PerformAttackOnReach"] is False and ch["ResetTargetAfterReach"] is True
          and ch["StopMovementWhenAtTarget"] is True and ch["GameTagsToSet"] == "NO_ATTACK"
+         and ch.get("CanUseDefaultTargetAsFallback") in (None, False)
          and isinstance(ch["ChainCount"], int) and ch["ChainCount"] > 0, "the chain's flags")
     mx = next((k for k in h.variables if ch["ChainCompleteIfTrue"] == f"{var} >= {k}"), None)
     need(mx is not None and isinstance((h.variables.get(mx) or {}).get("DefaultValue"), int),
@@ -9787,6 +9923,9 @@ def spin_chain_effect(h: Tables, name: str, subs: list[str], delays: list[int]) 
     area = at.get(sp["SpawnData"])
     need(area is not None, f"no area row {sp['SpawnData']}")
     unread = at.set_fields.get(sp["SpawnData"], set()) - SPIN_AREA_READ - SPIN_AREA_COSMETIC
+    if area.get("Filter") is not None:
+        need(area["Filter"] == "aeo_enemy_ground", f"the blow's area's Filter {area['Filter']!r}")
+        unread -= {"Filter"}
     need(not unread and isinstance(area["Radius"], int) and isinstance(area["Damage"], int)
          and isinstance(area["LifeDuration"], int), f"the blow's area sets {sorted(unread)}")
     return {
@@ -9809,6 +9948,7 @@ def spin_chain_effect(h: Tables, name: str, subs: list[str], delays: list[int]) 
             "radius_milli": area["Radius"],
             "damage": area["Damage"],
             "crown_tower_damage_percent": ct_percent(area["CrownTowerDamagePercent"]),
+            **({"tower_damage": area["TowerDamage"]} if area.get("TowerDamage") is not None else {}),
             "hits_ground": flag(area, "HitsGround") is True,
             "hits_air": flag(area, "HitsAir") is True,
             "only_enemies": flag(area, "OnlyEnemies") is True,
