@@ -2733,6 +2733,10 @@ def combo(t: dict, table: str, name: str, c: dict) -> dict | None:
     return {"sequence": list(order), "stages": stages}
 
 
+# The named blocks that read a record's own action graph whole (the census's GAINED check lists a graph one of them
+# reads apart): a champion's button, the Little Prince's ramp, the Three Musketeers' select, the Rune Giant's enchant,
+# the health transformation, the counter, the idle buff.
+GRAPH_BLOCKS = ("ability", "ramp", "attack_select", "enchant_friends", "transform_at_hp", "parry", "idle_buff")
 # 16.402: a death bomb's area (`death_bomb_area`): the keys it may set, those it must, and its one filter.
 DEATH_BOMB_AREA_KEYS = {"Name", "Rarity", "Radius", "Damage", "Pushback", "Filter", "StatsTags"}
 DEATH_BOMB_FILTER = "CommonAreaDamageFilter"
@@ -2742,29 +2746,44 @@ DEATH_SPAWN_ACTION_KEYS = {"ClassType", "SpawnType", "SpawnData", "SpawnRadius",
 
 
 def death_bomb_area(t, c) -> tuple | None:
-    """16.402: A UNIT'S DEATH BOMB WRITTEN AS ITS DeathAreaEffect, as (damage, radius, pushback), or None. The client
-    moved DeathDamage, DeathDamageRadius and DeathPushBack into an area of exactly those numbers (Golem 88 / 2000 /
-    1800: GolemDeathExplosion Damage {BaseDamage 88}, Radius 2000, Pushback 1800), over CommonAreaDamageFilter (enemy
-    characters and buildings, air and ground; not the hidden, the underground or the dash-immune). Read only from a row
-    with none of the three columns, whose area sets nothing but those keys: no TowerDamage, no hit speed, buff, life
-    or action. Whether the filter's exclusions are what the 15.535 death damage did is option B request 22."""
+    """16.402: A UNIT'S DEATH BOMB WRITTEN AS AN AREA, as (damage, radius, pushback, via), or None. The client moved
+    DeathDamage, DeathDamageRadius and DeathPushBack into an area of exactly those numbers (Golem 88 / 2000 / 1800:
+    GolemDeathExplosion Damage {BaseDamage 88}, Radius 2000, Pushback 1800), over CommonAreaDamageFilter (enemy
+    characters and buildings, air and ground; not the hidden, the underground or the dash-immune): its DeathAreaEffect
+    (`via` "area"), or, where the DeathAreaEffect stays another area (the Ice Golemite's freeze), one its OnDeathAction
+    spawns, an ActionSpawn of exactly that (`via` "action"). Read only from a row with none of the three columns, whose
+    area sets nothing but those keys: no TowerDamage, no hit speed, buff, life or action. Whether the filter's
+    exclusions are what the 15.535 death damage did is option B request 23."""
     if not getattr(t, "vintage", None) or not t.vintage.filters_format or not isinstance(c, Row):
         return None
     if c["DeathDamage"] is not None or c["DeathDamageRadius"] is not None or c.get("DeathPushBack") is not None:
         return None
-    name = c["DeathAreaEffect"]
     atb = t["area_effect_objects"]
-    a = atb.get(name) if isinstance(name, str) else None
-    own = atb.set_fields.get(name, set()) if a is not None else set()
-    if a is None or own - DEATH_BOMB_AREA_KEYS or not {"Radius", "Damage", "Filter"} <= own:
+
+    def bomb(name):
+        a = atb.get(name) if isinstance(name, str) else None
+        own = atb.set_fields.get(name, set()) if a is not None else set()
+        if a is None or own - DEATH_BOMB_AREA_KEYS or not {"Radius", "Damage", "Filter"} <= own:
+            return None
+        if a["Filter"] != DEATH_BOMB_FILTER or a["TowerDamage"] is not None or a["DamageFlags"] is not None:
+            return None
+        vals = (a["Damage"], a["Radius"], a["Pushback"])
+        if not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in vals[:2]) \
+                or not (vals[2] is None or (isinstance(vals[2], int) and vals[2] > 0)):
+            return None
+        return vals
+
+    got = bomb(c["DeathAreaEffect"])
+    if got is not None:
+        return (*got, "area")
+    acts = t["actions"]
+    on = c["OnDeathAction"]
+    sp = acts.get(on) if isinstance(on, str) else None
+    if sp is None or sp["ClassType"] != "ActionSpawn" or sp["SpawnType"] != "AreaEffectType" \
+            or acts.set_fields.get(on) != {"ClassType", "SpawnType", "SpawnData"}:
         return None
-    if a["Filter"] != DEATH_BOMB_FILTER or a["TowerDamage"] is not None or a["DamageFlags"] is not None:
-        return None
-    vals = (a["Damage"], a["Radius"], a["Pushback"])
-    if not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in vals[:2]) \
-            or not (vals[2] is None or (isinstance(vals[2], int) and vals[2] > 0)):
-        return None
-    return vals
+    got = bomb(sp["SpawnData"])
+    return (*got, "action") if got is not None else None
 
 
 def death_spawn_action(t, c) -> dict | None:
@@ -2809,6 +2828,54 @@ def jump_hack(t) -> str | None:
             and t["character_buffs"].set_fields.get(sp["SpawnData"]) == {"Rarity", "IgnorePushBack"}
             and t["character_buffs"].get(sp["SpawnData"])["IgnorePushBack"] is True)
     return sp["SpawnData"] if ok else None
+
+
+# A graph that only shows something (`display_only_graph`): effects, and the control that times them.
+DISPLAY_ONLY_CLASSES = {"ActionGroup", "ActionInterval", "ActionRunActionOnResolvedGameObjects", "ActionPlayEffect",
+                        "ActionBlackboardSetInt"}
+
+
+def _reachable_actions(acts, root: str) -> set[str]:
+    """Every named action reachable from `root` through any column that names an action row (or a list of them, or an
+    inline sub-action's own columns)."""
+    seen: set[str] = set()
+    todo = [root]
+    while todo:
+        n = todo.pop()
+        if n in seen or acts.get(n) is None:
+            continue
+        seen.add(n)
+        vals = list(acts.get(n).values()) + [v for col in acts.arrays.get(n, {}).values() for v in col]
+        while vals:
+            v = vals.pop()
+            if isinstance(v, str) and acts.get(v) is not None:
+                todo.append(v)
+            elif isinstance(v, list):
+                vals.extend(v)
+            elif isinstance(v, dict):
+                vals.extend(v.values())
+    return seen
+
+
+def display_only_graph(t, root: str) -> bool:
+    """16.402: A START THAT ONLY SHOWS SOMETHING (the Minion Giant's easter egg: every 500 ms, on a unit its resolver
+    finds, an effect, once per 5 s), read whole: every action reachable from `root` is of DISPLAY_ONLY_CLASSES, none is
+    inline (an inline action could spawn), and every blackboard key it writes is read by no action outside it. Nothing
+    in it touches a unit, a stat or a spawn."""
+    acts = t["actions"]
+    reach = _reachable_actions(acts, root)
+    if not reach or any(acts.get(n)["ClassType"] not in DISPLAY_ONLY_CLASSES for n in reach):
+        return False
+    if any(isinstance(v, dict) for n in reach for v in acts.get(n).values()):
+        return False
+    keys = {acts.get(n)["Key"] for n in reach if acts.get(n)["ClassType"] == "ActionBlackboardSetInt"}
+    for name, row in acts.records.items():
+        if name in reach:
+            continue
+        text = " ".join(str(v) for v in row.values() if isinstance(v, str))
+        if any(f"#{k}" in text for k in keys):
+            return False
+    return True
 
 
 def spawn_area_action(t, c) -> str | None:
@@ -3259,8 +3326,15 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # when the graph is that spawn and nothing else. Neither shape is in a 15.535 row.
         bomb = death_bomb_area(t, c)
         if bomb is not None:
-            u["death_damage"], u["death_damage_radius_milli"], u["death_pushback_milli"] = bomb
-            u["death_area_effect"] = None
+            u["death_damage"], u["death_damage_radius_milli"], u["death_pushback_milli"], via = bomb
+            if via == "area":
+                u["death_area_effect"] = None
+            else:
+                g = u.get("action_graph")
+                spawned = t["actions"].get(c["OnDeathAction"])["SpawnData"]
+                if g and g["roots"] == {"OnDeathAction": c["OnDeathAction"]} and g["class_types"] == ["ActionSpawn"] \
+                        and g["spawns"] == [f"AreaEffectType:{spawned}"]:
+                    u["action_graph"] = None
         sp = death_spawn_action(t, c) if c["DeathSpawnCharacter"] is None else None
         if sp is not None:
             u["death_spawn"] = {"character": sp["SpawnData"], "count": sp["Count"], "radius_milli": sp["SpawnRadius"],
@@ -3283,6 +3357,13 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             if g and g["roots"] == {"OnStartingAction": JUMP_HACK} and g["spawns"] == [f"BuffType:{jh}"] \
                     and set(g["class_types"]) == {"ActionInterval", "ActionRunIfInstigatorMatches", "ActionSpawn"}:
                 u["action_graph"] = None
+        # 16.402: A START THAT ONLY SHOWS SOMETHING (`display_only_graph`: the Minion Giant's easter egg): display,
+        # the graph cleared when that start is its only root.
+        g = u.get("action_graph")
+        if getattr(t, "vintage", None) and t.vintage.filters_format and g and g["mechanic"] and not g["spawns"] \
+                and g["roots"] == {"OnStartingAction": c["OnStartingAction"]} \
+                and display_only_graph(t, c["OnStartingAction"]):
+            u["action_graph"] = None
         sa = spawn_area_action(t, c) if c.get("SpawnAreaObject") is None else None
         if sa is not None:
             u["spawn_area_object"] = sa
@@ -10172,6 +10253,30 @@ def main() -> int:
                         else:
                             CENSUS.append((f"{sec}.{n}", f"LOST {k} = {val!r}: {args.against.name} holds it, this "
                                                          f"table gives {nv!r}"))
+        # A GAINED MECHANIC: a graph that scripts classes or spawns the reference's did not (16.402 added the hogs'
+        # river-jump guard, the Earthquake's hidden-damage area). The loader refuses an unread mechanic graph, so this
+        # is loud at load time; the census lists it beforehand. A graph a block on the record (or on the card that
+        # plays the unit, or an evolution's) reads is listed apart.
+        cards_by_unit = {c.get("summon_character"): c for c in doc.get("cards", [])}
+        # An evolution's units: every unit its record names (its own, its building, its drops, ...).
+        evo_text = json.dumps(doc.get("evolutions", []))
+        evo_units = {n for n in by_name(doc.get("units", [])) if f'"{n}"' in evo_text}
+        for sec in ("cards", "units", "area_effect_objects", "projectiles"):
+            old, new = by_name(ref.get(sec, [])), by_name(doc.get(sec, []))
+            for n in sorted(set(old) & set(new)):
+                og, ng = old[n].get("action_graph") or {}, new[n].get("action_graph") or {}
+                if not ng.get("mechanic"):
+                    continue
+                more = sorted(set(ng.get("class_types") or []) - set(og.get("class_types") or [])) \
+                    + sorted(set(ng.get("spawns") or []) - set(og.get("spawns") or []))
+                if og.get("mechanic") and not more:
+                    continue
+                owner = new[n] if sec == "cards" else cards_by_unit.get(n, {})
+                readers = [k for k in GRAPH_BLOCKS if new[n].get(k) or owner.get(k)]
+                if readers or (sec == "units" and n in evo_units):
+                    dropped.append((f"{sec}.{n}", f"GAINED {more}: read by {readers or ['its evolution block']}"))
+                else:
+                    CENSUS.append((f"{sec}.{n}", f"GAINED a mechanic graph no block reads: {more}"))
     if CENSUS is not None:
         print(f"CENSUS {v.key}: {len(CENSUS)} refusals")
         for label, why in CENSUS:
