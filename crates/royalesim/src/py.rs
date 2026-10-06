@@ -2764,9 +2764,15 @@ mod tests {
         // The digest Gym and Train pin the list by: FNV-1a 64, RoyaleGym's protocol.fnv1a64 (its published vectors).
         assert_eq!(fnv1a64_hex(b""), "cbf29ce484222325");
         assert_eq!(fnv1a64_hex(b"a"), "af63dc4c8601ec8c");
-        // The table the Battle keeps is the one this builds, so its frames agree with these.
-        let again = unit_types_of(&db);
-        assert_eq!(again.0, names, "the vocabulary is not deterministic");
+        // THE BATTLE'S OWN TABLE (what `Battle.state_json` writes through `state_json_text_with` and `unit_types_json`
+        // lists): built from the Battle's card table, the same list as this one's for any card_names, and not two
+        // halves of different tables.
+        for deck in [&["Knight", "Giant"][..], &["Witch", "Tombstone", "Skeletons", "Graveyard"][..]] {
+            let b = battle_with(deck, &[]);
+            assert_eq!(b.unit_types, names, "the Battle's vocabulary for {deck:?}");
+            assert_eq!((b.unit_types.clone(), b.unit_type_of_idx.clone()), unit_types_of(&b.cards), "the Battle's table halves for {deck:?}");
+            assert_eq!(b.unit_types_digest(), fnv1a64_hex(serde_json::to_string(&names).unwrap().as_bytes()));
+        }
     }
 
     fn battle(db: &Arc<CardDb>, deck: &[&str]) -> BattleState {

@@ -44,15 +44,26 @@ def test_the_vocabulary_is_sorted_unique_and_named_by_its_digest():
 
 
 def test_skeletons_from_every_producer_share_one_unit_type():
+    """Each row's unit is named WITHOUT the value under test: `unit_hitpoints(card_id, level)` lists every unit the
+    producer puts down with its hitpoints, and the row's max_hp picks which one it is. Every row so named must read
+    that name, and the Witch's, the Tombstone's, the Skeletons card's and the Skeleton Army's Skeletons must all be
+    seen, each under its own producer's card id, with the one Skeleton unit_type."""
     b = battle()
     names = json.loads(b.unit_types_json())
     skeleton = names.index("Skeleton")
     ids = list(range(len(CARDS)))
     b.reset(3, [ids, ids], 0, 200, [10000, 10000], None, [], [[0] * 8, [0] * 8])
+    roster: dict[tuple[int, int], list[tuple[str, int]]] = {}
+
+    def expected(card_id: int, level: int, max_hp: int) -> str | None:
+        rows = roster.setdefault((card_id, level), [(u, hp) for _, u, hp in b.unit_hitpoints(card_id, level)])
+        hits = {u for u, hp in rows if hp == max_hp}
+        return hits.pop() if len(hits) == 1 else None
+
     played: set[str] = set()
-    under: dict[int, set[int]] = {}
-    own_named = 0
-    for _ in range(400):
+    skeletons_under: set[str] = set()
+    named = 0
+    for _ in range(600):
         s = json.loads(b.state_json())
         hand = s["players"][0]["hand"]
         costs = s["players"][0]["hand_costs"]
@@ -71,15 +82,18 @@ def test_skeletons_from_every_producer_share_one_unit_type():
             assert 0 <= ut < len(names), e
             if e[F["tower_slot"]] >= 0:
                 assert names[ut] in ("KingTower", "PrincessTower")
-                own_named += 1
-            elif names[ut] == "Skeleton":
-                under.setdefault(ut, set()).add(e[F["card_id"]])
-            elif e[F["card_id"]] == CARDS.index("Witch") and e[F["team"]] == 0:
-                assert names[ut] == "Witch"
-                own_named += 1
-        if played == PRODUCERS and len(under.get(skeleton, ())) >= 3:
+                continue
+            if e[F["team"]] != 0:
+                continue
+            want = expected(e[F["card_id"]], e[F["level"]], e[F["max_hp"]])
+            if want is None:
+                continue
+            assert names[ut] == want, f"a {want} under card {CARDS[e[F['card_id']]]} reads {names[ut]}"
+            named += 1
+            if want == "Skeleton":
+                assert ut == skeleton
+                skeletons_under.add(CARDS[e[F["card_id"]]])
+        if skeletons_under == PRODUCERS:
             break
-    assert own_named > 0
-    assert set(under) == {skeleton}, "every Skeleton reads the one Skeleton unit_type"
-    got = {CARDS[c] for c in under[skeleton]}
-    assert len(got) >= 3 and got <= PRODUCERS, f"Skeletons seen under {got}, played {played}"
+    assert named > 0
+    assert skeletons_under == PRODUCERS, f"Skeletons seen under {skeletons_under}, played {played}"
