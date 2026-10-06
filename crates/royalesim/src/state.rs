@@ -10631,8 +10631,8 @@ struct Scratch {
     /// Every entity's position at the start of the Move phase's walk (AFTER the
     /// knockback slides), for the charge accumulator's net-move reading.
     pre: Vec<Vec2>,
-    /// Every entity's stomp clock and move-tick count at the same moment (`pre`), so a walk undone after the pass
-    /// (knockback.COMBO_PUSHBACK's at-hit arm) takes its clock's advance with it.
+    /// Every entity's stomp clock and move-tick count at the start of the Path phase, before the move pass advances
+    /// them, so a walk undone after the pass (knockback.COMBO_PUSHBACK's at-hit arm) takes its clock's advance with it.
     pre_stomp: Vec<(i32, u32)>,
     /// The requested step of every entity's walk this tick in NATIVE units
     /// (`L = min(speed, dist, 250)`, the step move16402::move_towards asks for),
@@ -14836,6 +14836,10 @@ impl BattleState {
                 Phase::Spawn => self.phase_spawn(),
                 Phase::Target => self.phase_target(),
                 Phase::Path => {
+                    // Every entity's stomp clock and move-tick count before this tick's move pass advances them
+                    // (`Scratch::pre_stomp`; the 16.402 move pass runs here, phase_move only applies its deltas).
+                    self.scratch.pre_stomp.clear();
+                    self.scratch.pre_stomp.extend(self.ents.stomp_clock.iter().copied().zip(self.ents.move_ticks.iter().copied()));
                     // The dash chains' phases for this tick's move pass (`chain_pass`).
                     self.chain_pass();
                     // The Hero Valkyrie's spins before the move (`spin_seek`).
@@ -22589,8 +22593,6 @@ impl BattleState {
         // so a knockback displacement never counts as a walk.
         self.scratch.pre.clear();
         self.scratch.pre.extend_from_slice(&self.ents.pos);
-        self.scratch.pre_stomp.clear();
-        self.scratch.pre_stomp.extend(self.ents.stomp_clock.iter().copied().zip(self.ents.move_ticks.iter().copied()));
         let arena = &self.cfg.arena;
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] {
