@@ -10631,6 +10631,9 @@ struct Scratch {
     /// Every entity's position at the start of the Move phase's walk (AFTER the
     /// knockback slides), for the charge accumulator's net-move reading.
     pre: Vec<Vec2>,
+    /// Every entity's stomp clock and move-tick count at the same moment (`pre`), so a walk undone after the pass
+    /// (knockback.COMBO_PUSHBACK's at-hit arm) takes its clock's advance with it.
+    pre_stomp: Vec<(i32, u32)>,
     /// The requested step of every entity's walk this tick in NATIVE units
     /// (`L = min(speed, dist, 250)`, the step move16402::move_towards asks for),
     /// for the charge accumulator's client16402 reading; 0 on a tick with no walk.
@@ -22586,6 +22589,8 @@ impl BattleState {
         // so a knockback displacement never counts as a walk.
         self.scratch.pre.clear();
         self.scratch.pre.extend_from_slice(&self.ents.pos);
+        self.scratch.pre_stomp.clear();
+        self.scratch.pre_stomp.extend(self.ents.stomp_clock.iter().copied().zip(self.ents.move_ticks.iter().copied()));
         let arena = &self.cfg.arena;
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] {
@@ -24632,7 +24637,11 @@ impl BattleState {
                 spell::Knock::Push { src, strength, caster, now, .. } => {
                     // knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: a combo hit (the only push landing with
                     // `now`) landed in the attack pass, before the move: the victim's walk of this tick is undone, and the
-                    // ladder is armed and stepped from its start-of-move point (`Scratch::pre`).
+                    // ladder is armed and stepped from its start-of-move point (`Scratch::pre`). The walk's stomp clock
+                    // advance goes with it (`Scratch::pre_stomp`): the victim took no update of its own on the hit's tick,
+                    // so its next pause comes a whole cycle of walk ticks on (client 15.535.29, sp-champ-Monk-recharge-q20-s0's
+                    // Giant: 4 walk ticks before the hit, 9 after the ladder, then its pause, where the engine paused after 8).
+                    // PLANT (regression) combo_push_keeps_clock: the undone walk keeps its clock's advance.
                     // PLANT (regression) combo_push_after_walk: the new arm pushes from the walked point.
                     #[cfg(not(clash_plant = "combo_push_after_walk"))]
                     let at_hit = now && c.combo_pushback == ComboPushback::Client15535LadderArmedAtHit;
@@ -24641,6 +24650,11 @@ impl BattleState {
                     if at_hit {
                         if let Some(p) = self.scratch.pre.get(i).copied() {
                             self.ents.pos[i] = p;
+                        }
+                        #[cfg(not(clash_plant = "combo_push_keeps_clock"))]
+                        if let Some((clock, k)) = self.scratch.pre_stomp.get(i).copied() {
+                            self.ents.stomp_clock[i] = clock;
+                            self.ents.move_ticks[i] = k;
                         }
                     }
                     if self.arm_ladder(i, src, strength, caster, sum[i].is_some()) {

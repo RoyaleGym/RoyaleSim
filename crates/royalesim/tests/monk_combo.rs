@@ -24,13 +24,15 @@
 //!      princess tower, which stands in this scene) takes the third hit's first step, about 250, straight away from the
 //!      Monk out of its point before the tick, and no walk; client15535_ladder_from_attacker_hit_tick (the vacuity check)
 //!      moves it otherwise on that tick (its walk and a step off its walked point). Measured on client 15.535.29
-//!      (sp-champ-Monk-recharge-q20-s0 t302 and t831: 2 of 2 walking victims).
+//!      (sp-champ-Monk-recharge-q20-s0 t302 and t831: 2 of 2 walking victims). The undone walk takes its stomp clock's
+//!      advance with it: the Giant's clock reads on the hit's tick what it read before it (the old arm's advanced 50).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test monk_combo`):
 //!   combo_unread                       every hit deals Damage under the new arm: (1) goes red.
 //!   combo_push_next_tick               the push's first step is the next tick's: (2) goes red.
 //!   walk_reach_every_row_flyers_only   the every-row arm reads flyers alone: (3) goes red.
 //!   combo_push_after_walk              the new arm pushes from the walked point: (5) goes red.
+//!   combo_push_keeps_clock             the new arm's undone walk keeps its stomp clock's advance: (5)'s clock check goes red.
 //!   reach_loss_combo_unread            combat.RETARGET_WAIT_REACH_LOSS's new arm reads the inferno's ramp alone: (6) goes red.
 //!   reach_loss_combo_kept              the new arm counts a re-picked or held knocked target as kept: (6) goes red.
 mod common;
@@ -212,25 +214,33 @@ fn the_shipped_values_are_the_measured_arms_since_the_round_12_flip() {
 /// The Giant's points per tick under `push`: Blue's Monk at (3586, 12375), towers standing, a Red Giant put down at
 /// (2200, 12800) walking to Blue's left princess tower past him; and the tick rows of the Monk's hits on it.
 fn giant_walking_past(push: ComboPushback) -> (Vec<Vec2>, Vec<Vec2>) {
+    let (g, m, _) = giant_walking_past_clocked(push);
+    (g, m)
+}
+
+/// `giant_walking_past`, with the Giant's stomp clock per tick.
+fn giant_walking_past_clocked(push: ComboPushback) -> (Vec<Vec2>, Vec<Vec2>, Vec<i32>) {
     let cfg = cfg_with(AttackCombo::SequenceAcrossTargets, push, DRAGON_ONLY_REACH);
     let mut s = BattleState::try_new(0, cfg).expect("the battle");
     past_deploy_lockout(&mut s);
     let monk = s.scenario_spawn_now(Team::Blue, "Monk", n((3586, 12375)), None).expect("the Monk");
     let giant = s.scenario_spawn_now(Team::Red, "Giant", n((2200, 12800)), None).expect("the Giant");
-    let (mut g, mut m) = (Vec::new(), Vec::new());
+    let (mut g, mut m, mut c) = (Vec::new(), Vec::new(), Vec::new());
     for _ in 0..140 {
-        g.push(s.entity(giant).expect("the Giant lives").pos);
+        let e = s.entity(giant).expect("the Giant lives");
+        g.push(e.pos);
+        c.push(e.stomp_clock);
         m.push(s.entity(monk).expect("the Monk lives").pos);
         s.tick();
     }
-    (g, m)
+    (g, m, c)
 }
 
-/// Plant: combo_push_after_walk.
+/// Plants: combo_push_after_walk, combo_push_keeps_clock.
 #[test]
 fn a_walking_victim_takes_the_combo_push_from_its_point_before_the_tick_under_client15535_ladder_armed_at_hit() {
-    let (old, _) = giant_walking_past(ComboPushback::LadderFromAttackerHitTick);
-    let (new, monk) = giant_walking_past(ComboPushback::Client15535LadderArmedAtHit);
+    let (old, _, old_clock) = giant_walking_past_clocked(ComboPushback::LadderFromAttackerHitTick);
+    let (new, monk, new_clock) = giant_walking_past_clocked(ComboPushback::Client15535LadderArmedAtHit);
     // the first tick the arms part: the third hit's (row t moves from new[t] to new[t + 1])
     let t = (0..new.len() - 1).find(|&t| new[t + 1] != old[t + 1]).expect("NOT VACUOUS: the arms never part (no third hit on a walking Giant)");
     assert_eq!(new[t], old[t], "the arms part before the hit's tick");
@@ -241,6 +251,9 @@ fn a_walking_victim_takes_the_combo_push_from_its_point_before_the_tick_under_cl
     assert!((240..=255).contains(&step), "client15535_ladder_armed_at_hit: the hit tick's move is not a first ladder step alone ({step})");
     let away = dist(monk[t], new[t + 1]) - dist(monk[t], new[t]);
     assert!((step - 2..=step + 2).contains(&away), "client15535_ladder_armed_at_hit: the step is not straight away from the Monk ({away} of {step})");
+    // NOT VACUOUS: the old arm's Giant walked on the hit's tick, its stomp clock with it.
+    assert_ne!(old_clock[t + 1], old_clock[t], "the scene drifted: the old arm's clock did not move on the hit's tick");
+    assert_eq!(new_clock[t + 1], new_clock[t], "client15535_ladder_armed_at_hit: the undone walk kept its stomp clock's advance");
 }
 
 /// (6) combat.RETARGET_WAIT_REACH_LOSS = client15535_after_reach_loss_combo (client 15.535.29: 7 of 7 Monk knocks): the
