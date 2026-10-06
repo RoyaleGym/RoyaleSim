@@ -379,6 +379,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_sight_keep (examples/replay_parity/harness.rs CLIENT15535_ARMS). A 16.402 knocked holder past its sight would settle the shipped arm.",
       "engine": "target.rs decide (the knocked early return) and knocked_lets_go, selected by Calib::knocked_target_hold; tests/knocked_target_hold.rs."
     },
+    "KNOCKED_LOST_TARGET": {
+      "value": "held_none",
+      "candidates": ["held_none", "client15535_rescans"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_rescans on client 15.535.29: 28 of 28 ladders whose unit's target was gone before the ladder ended took a new target before its end; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (ladder_retarget_census.py: a knockback ladder read as 3 or more consecutive ticks of one unit whose step lengths fall by 25, within 4, a tick, from 40 or more: no walk does that; the unit's target on the tick before the ladder, whether that target left the board before the ladder's last tick, and the unit's targets on every ladder tick). Of the 28 ladders whose unit's target was gone before the ladder ended, every one took a new target before its end: 5 on the loss tick, 10 a tick on, 13 after the five-tick post-kill wait (combat.POST_KILL_RETARGET_WAIT); none held none to the end. Sparkies in their own recoil (sp-il-04cb, sp-il-8b9b), an Evo Hunter (sp-f4-hunterG40-s0 t1229: its Golemite killed on t1228, the next Golemite taken on t1229 on the ladder's first tick, where the engine held none to t1238 and its net, thrown after it holds a target, came late; its earlier ladder t1182 waited the five ticks and took the tower, then a Golemite), a Golden Knight's and a Goblin Cage's units. A target alive through the ladder was kept 309 times and changed 23 (targeting.KNOCKED_TARGET_HOLD's sight keep, and rescans this arm does not touch).",
+      "meaning": "held_none: the engine's; a unit on a knockback ladder (a push's, or its own attack's recoil) whose target is gone holds no target and scans nothing until the ladder ends (target.rs decide's knocked branch). client15535_rescans: such a unit (not stunned, hooked or sliding) decides as one off the ladder would: the post-kill wait, then the scan, so its next target can come during the ladder; the ladder still holds its walk and its attack.",
+      "open": "A unit knocked with no target at all before the ladder; a hooked unit (the Fisherman's drag); a death-spawn member sliding out; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_rescans (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "target.rs decide (the knocked branch's `rescans`), selected by Calib::knocked_lost_target; tests/knocked_target_hold.rs."
+    },
     "CHASE_HOLD_SCOPE": {
       "value": "every_holder",
       "candidates": ["every_holder", "client15535_walkers_only"],

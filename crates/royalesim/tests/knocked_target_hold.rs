@@ -10,14 +10,18 @@
 //! recoil ladder carries it back past 6,525.
 //!
 //! PLANT (regression): knocked_target_held -> `a_recoiling_sparky_lets_a_target_past_its_sight_go` red.
+//! PLANT (regression): knocked_lost_target_held -> `a_recoiling_sparky_whose_target_dies_takes_the_next_under_client15535_rescans` red.
 //!   RUSTFLAGS='--cfg clash_plant="knocked_target_held"' CARGO_TARGET_DIR=target/plant cargo test --profile gate
 //!   --test knocked_target_hold
+//!
+//! targeting.KNOCKED_LOST_TARGET = client15535_rescans (client 15.535.29: 28 of 28 ladders whose unit's target was gone
+//! took a new one before the ladder ended): a laddered unit with no live target decides as one off the ladder would.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, KnockedTargetHold};
+use royalesim::state::{BattleState, Calib, KnockedLostTarget, KnockedTargetHold};
 use royalesim::Team;
 
 const SPARKY_AT: (i32, i32) = (9000, 6500);
@@ -71,4 +75,56 @@ fn the_shipped_arm_keeps_a_knocked_units_target() {
     assert_eq!(Calib::shipped().knocked_target_hold, KnockedTargetHold::HeldWhileKnocked);
     let out = ladder(KnockedTargetHold::HeldWhileKnocked);
     assert!(out.iter().all(|&(_, held)| held), "the shipped arm let the Knight go: {out:?}");
+}
+
+/// Where the second red Knight stands: 3,000 beside the Sparky's start, inside its reach.
+const SECOND_AT: (i32, i32) = (SPARKY_AT.0 + 3000, SPARKY_AT.1);
+
+/// The Sparky's ladder ticks after its first shot's recoil: on the ladder's first tick its Knight is killed and a second
+/// red Knight is put down at SECOND_AT; whether it held the second Knight after each later ladder tick, under
+/// targeting.KNOCKED_LOST_TARGET = `arm` (KNOCKED_TARGET_HOLD at the measured arm).
+fn ladder_after_kill(arm: KnockedLostTarget) -> Vec<bool> {
+    let mut cfg = config();
+    cfg.calib.knocked_target_hold = KnockedTargetHold::Client15535SightKeep;
+    cfg.calib.knocked_lost_target = arm;
+    let mut s = BattleState::new(3, cfg);
+    let sparky = s.scenario_spawn_now(Team::Blue, "ZapMachine", at(SPARKY_AT), None).expect("the Sparky");
+    let first = s.scenario_spawn_now(Team::Red, "Knight", at(KNIGHT_AT), Some(100_000)).expect("the first Knight");
+    let mut second = None;
+    let mut out = Vec::new();
+    for _ in 0..400 {
+        if s.entity(first).is_some() {
+            assert!(s.debug_set_pos(first, at(KNIGHT_AT)));
+        }
+        if let Some(k) = second.filter(|k| s.entity(*k).is_some()) {
+            assert!(s.debug_set_pos(k, at(SECOND_AT)));
+        }
+        s.tick();
+        let (pushed, target) = {
+            let sp = s.entity(sparky).expect("the Sparky");
+            (sp.push_active, sp.target)
+        };
+        if pushed {
+            if second.is_none() {
+                assert!(s.debug_set_hp(first, 0));
+                second = Some(s.scenario_spawn_now(Team::Red, "Knight", at(SECOND_AT), Some(100_000)).expect("the second Knight"));
+                continue;
+            }
+            out.push(target.is_some() && target == second);
+        } else if !out.is_empty() {
+            break;
+        }
+    }
+    assert!(out.len() >= 3, "the scene drifted: fewer than 3 ladder ticks after the first Knight's death: {out:?}");
+    out
+}
+
+/// Plant: knocked_lost_target_held.
+#[test]
+fn a_recoiling_sparky_whose_target_dies_takes_the_next_under_client15535_rescans() {
+    let new = ladder_after_kill(KnockedLostTarget::Client15535Rescans);
+    assert!(new.iter().any(|&held| held), "client15535_rescans: the Sparky took no target on its ladder: {new:?}");
+    // NOT VACUOUS: held_none holds none to the ladder's end.
+    let old = ladder_after_kill(KnockedLostTarget::HeldNone);
+    assert!(old.iter().all(|&held| !held), "held_none: the Sparky took the second Knight on its ladder: {old:?}");
 }

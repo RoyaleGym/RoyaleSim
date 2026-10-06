@@ -1578,6 +1578,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   stun: progress 0 on the Zap's tick, a fresh start on the resume).
 ///   transform.DISMOUNT_MOUNT_HOLD_BODY = client15535_no_body: the Hero Dark Prince's held mount meets no body (the one
 ///   dismount that left the pair touching: neither moved until the hold ended).
+///   targeting.KNOCKED_LOST_TARGET = client15535_rescans: a unit on a knockback ladder whose target is gone takes its next
+///   one before the ladder ends (28 of 28 ladders).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
@@ -1710,6 +1712,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.DEATH_RING_DIRECTION", "\"client15535_facing\""),
     ("transform.DISMOUNT_MOUNT_ACQUIRE", "\"client15535_8th_frame\""),
     ("transform.DISMOUNT_MOUNT_HOLD_BODY", "\"client15535_no_body\""),
+    ("targeting.KNOCKED_LOST_TARGET", "\"client15535_rescans\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
     ("combat.RAMP_STUN_RESTART", "\"client15535_restart\""),

@@ -45,7 +45,7 @@ use crate::card::{CardDb, CardDef};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, ChaseRescanPassOver, DeprioritizedTargetBuff, EqualDistanceTie, KnockedTargetHold, LeapingUnitTargetability,
+    AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, ChaseRescanPassOver, DeprioritizedTargetBuff, EqualDistanceTie, KnockedLostTarget, KnockedTargetHold, LeapingUnitTargetability,
     MinimumRange, PreserveTargetScope, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange, WalkingKeepReach, ChaseHoldScope,
 };
 use crate::{EntityId, Team};
@@ -1085,7 +1085,18 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
         if e.stun_ms[a] == 0 && !sliding && held.is_some_and(|t| knocked_lets_go(ctx, a, t.index as usize)) {
             return TargetDecision { target: scan(ctx, a, scratch), cancel_attack: false, resumed: false, chase_dropped: None };
         }
-        return TargetDecision { target: held, cancel_attack: false, resumed: false, chase_dropped: None };
+        // targeting.KNOCKED_LOST_TARGET = client15535_rescans: a unit on a ladder (not stunned, hooked or sliding) holding
+        // no live target decides below as a unit off the ladder would (the post-kill wait, then the scan); measured on
+        // client 15.535.29, 28 of 28 ladders whose unit's target was gone took a new one before the ladder ended.
+        // PLANT (regression) knocked_lost_target_held: the new arm still holds none to the ladder's end.
+        #[cfg(not(clash_plant = "knocked_lost_target_held"))]
+        let rescans = ctx.calib.knocked_lost_target == KnockedLostTarget::Client15535Rescans;
+        #[cfg(clash_plant = "knocked_lost_target_held")]
+        let rescans = false;
+        let on_ladder = e.stun_ms[a] == 0 && !sliding && e.hooked_by[a].is_none() && (e.push_active[a] || e.knock_ms[a] > 0);
+        if !(rescans && on_ladder && held.is_none()) {
+            return TargetDecision { target: held, cancel_attack: false, resumed: false, chase_dropped: None };
+        }
     }
     if e.kind[a] == EntityKind::KingTower && !ctx.king_active[e.team[a] as usize] {
         return TargetDecision { target: None, cancel_attack: false, resumed: false, chase_dropped: None };
