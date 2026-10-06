@@ -6401,7 +6401,9 @@ calib_enum!(
         /// 15.535.29 (the Evo Battle Ram's deaths in sp-form-BattleRam-evo-s0 and the sp-ram-* scenes): 9 of 9 deaths while
         /// walking laid their Evo Barbarians at the whole degree of the death tick's step (sp-ram-alone-s0: the step
         /// (-10, 119), -5 degrees, where the tower lay at +10; sp-ram-v-Giant-3500-s0: 16 against 29), and the deaths
-        /// standing (4 Evo Rams, 27 plain Rams hitting their towers) at the target's.
+        /// standing (4 Evo Rams, 27 plain Rams hitting their towers) at the target's. A death on a knockback ladder's step
+        /// (`scratch.pushed`) is no walk and keeps the target's (sp-ram-v-Knight-2500-s0: the client's pair along the
+        /// Ram's heading, the ladder's step reversed).
         Client15535WalkStep = "client15535_walk_step",
     }
 );
@@ -25727,11 +25729,16 @@ impl BattleState {
             // movement direction was 20.8 / 89.6), else the unit's facing, else the
             // seat's forward.
             // spawner.DEATH_RING_DIRECTION = client15535_walk_step: a unit that walked on its death tick lays its ring along
-            // that step (its point less its point before the tick's walk, `scratch.pre`); one that stood keeps its target's.
+            // that step (its point less its point before the tick's walk, `scratch.pre`); one that stood keeps its target's,
+            // and so does one whose move that tick was a knockback ladder's step (`scratch.pushed`): it did not walk.
             // PLANT (regression) death_ring_step_unread: the new arm still lays a walker's ring toward its target.
             #[cfg(not(clash_plant = "death_ring_step_unread"))]
             let walk_step = if self.cfg.calib.death_ring_direction == DeathRingDirection::Client15535WalkStep {
-                self.scratch.pre.get(i).map(|p| self.ents.pos[i].sub(*p)).filter(|d| *d != Vec2::default())
+                self.scratch
+                    .pre
+                    .get(i)
+                    .map(|p| self.ents.pos[i].sub(*p))
+                    .filter(|d| *d != Vec2::default() && !self.scratch.pushed.get(i).copied().unwrap_or(false))
             } else {
                 None
             };
