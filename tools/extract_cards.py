@@ -3927,6 +3927,8 @@ def champion_dash_chain(t, unit: str) -> dict | None:
         "cooldown_ms": a.get("Cooldown"),
         "cast_ms": a.get("CastTime") or 0,
         "trigger_delay_ms": a.get("TriggerDelay") or 0,
+        # 16.402 on: the Golden Knight's RefundWindow (50 ms), as the hero buttons' (`ABILITY_READ_KEYS`).
+        **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
         "keep_current_target": a.get("KeepCurrentTarget") is True,
         "is_champion": True,
         "effect": {
@@ -6978,6 +6980,10 @@ HERO_FORMS = {
 ABILITY_READ_KEYS = {
     "ManaCost", "MaxCharges", "Cooldown", "CastTime", "TriggerDelay", "IsChampion", "KeepCurrentTarget",
     "OnActivationAction",
+    # 16.402 on: the ability's refund window, ms (50 on most hero buttons and the Golden Knight's, 150 the Hero
+    # Berserker's, 400 the Hero Barbarian Barrel's). Recorded as `refund_window_ms` where set; what it does in a
+    # battle is a calibration question (unmeasured), not the reader's.
+    "RefundWindow",
 }
 ABILITY_UI_KEYS = {
     "TID", "TID_INFO", "IconSWF", "IconExportName", "KeepIconEvenWhenOutOfCharges", "HideChargesTextField",
@@ -8132,6 +8138,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "cooldown_ms": a.get("Cooldown"),
             "cast_ms": a.get("CastTime") or 0,
             "trigger_delay_ms": a.get("TriggerDelay") or 0,
+            **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
             "keep_current_target": a.get("KeepCurrentTarget") is True,
             "is_champion": a.get("IsChampion") is True,
             "effect": effect,
@@ -8144,6 +8151,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "cooldown_ms": a.get("Cooldown"),
             "cast_ms": a.get("CastTime") or 0,
             "trigger_delay_ms": a.get("TriggerDelay") or 0,
+            **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
             "keep_current_target": a.get("KeepCurrentTarget") is True,
             "is_champion": a.get("IsChampion") is True,
             "effect": warp_effect(h, name, a["OnActivationAction"]),
@@ -8163,6 +8171,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "cooldown_ms": a.get("Cooldown"),
             "cast_ms": a.get("CastTime") or 0,
             "trigger_delay_ms": a.get("TriggerDelay") or 0,
+            **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
             "keep_current_target": a.get("KeepCurrentTarget") is True,
             "is_champion": a.get("IsChampion") is True,
             "effect": dismount_effect(h, name, a["OnActivationAction"], units, hero_unit or ""),
@@ -9432,6 +9441,8 @@ def main() -> int:
         help="default: data/derived/cards.json for the default vintage, cards-<vintage>.json otherwise",
     )
     ap.add_argument("--census", action="store_true", help="list every refusal of a new vintage; writes no table")
+    ap.add_argument("--against", type=Path, default=None,
+                    help="--census only: a table (cards-15.535.json) whose non-empty blocks the new one must keep")
     args = ap.parse_args()
     v = VINTAGES[args.vintage]
     if args.census:
@@ -9448,6 +9459,20 @@ def main() -> int:
             + (f" {len(tb.files) - 1:3d} overlay files" if isinstance(tb, OverlayTable) else "")
         )
     doc = build(t)
+    # A LOST BLOCK is a refusal nobody raised: a named-block reader that meets a shape it does not know returns
+    # None ("not this reader's"), so a reworked mechanic vanishes from the table in silence (the 16.402 census:
+    # every champion's ability, the Ronin's parry, the Three Musketeers' attack select). Against a reference table,
+    # every block it holds that the new one leaves empty is listed with the refusals.
+    if CENSUS is not None and args.against is not None:
+        ref = json.loads(args.against.read_text(encoding="utf-8"))
+        for sec in ("cards", "units", "evolutions", "hero_forms"):
+            def by_name(x):
+                return {r["name"]: r for r in x} if isinstance(x, list) else dict(x)
+            old, new = by_name(ref.get(sec, [])), by_name(doc.get(sec, []))
+            for n in sorted(set(old) & set(new)):
+                for k, val in old[n].items():
+                    if k not in ("raw", "provenance") and isinstance(val, (dict, list)) and val and new[n].get(k) in (None, [], {}):
+                        CENSUS.append((f"{sec}.{n}", f"LOST {k}: {args.against.name} holds it, this table leaves it empty"))
     if CENSUS is not None:
         print(f"CENSUS {v.key}: {len(CENSUS)} refusals")
         for label, why in CENSUS:
