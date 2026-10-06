@@ -11,7 +11,12 @@
 //! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, guard_collides,
 //! early_trigger_late, guard_lands_loaded, guard_push_once (`his_guards_charge_pushes_by_a_ladder_rearmed_every_tick`
 //! red), guard_charge_rescaled (`his_guards_charge_steps_as_the_client_steps_it_under_client15535_substeps_to_aim` red),
-//! ramp_grace_pushed (`his_ramp_holds_through_pushes_while_he_attacks_under_client15535_own_walk` red).
+//! ramp_grace_pushed (`his_ramp_holds_through_pushes_while_he_attacks_under_client15535_own_walk` red), ramp_stun_paused
+//! (`a_stun_restarts_his_attack_under_client15535_restart` red).
+//!
+//! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
+//! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
+//! 15 ticks on, at 1200.
 //!
 //! combat.RAMP_GRACE_MOVE = client15535_own_walk (client 15.535.29, every Little Prince scene: 3 of 3 ramps kept through 6
 //! to 8 pushes while he attacked, 6 of 6 reset by a walk): his grace runs down on his own walk alone.
@@ -23,7 +28,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, GuardChargeStep, RampGraceMove};
+use royalesim::state::{BattleConfig, BattleState, GuardChargeStep, LoadTimerTargetLoss, RampGraceMove, RampStunRestart};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -146,6 +151,66 @@ fn his_ramp_holds_through_pushes_while_he_attacks_under_client15535_own_walk() {
     let new = pushed_shots(RampGraceMove::Client15535OwnWalk);
     let g = gaps(&new);
     assert!(g.len() >= 8 && g[..8] == ramp, "client15535_own_walk: his ramp did not hold through the pushes: {g:?} ({new:?})");
+}
+
+/// A red Zap on the Little Prince, shooting at a red Golem held 5000 ahead, landing at the point of his cycle the client's
+/// did (sp-lp-ramp-s0 t337: his load timer 500 the tick before, 450 on the landing tick), under combat.RAMP_STUN_RESTART
+/// = `arm` and the client's combat.LOAD_TIMER_TARGET_LOSS (client15535_stands_while_held): his attack progress on the
+/// landing tick; his progress and load timer on the resume tick (his first with a target again); the ticks from the
+/// resume to his next shot.
+fn zapped_clock(arm: RampStunRestart) -> (i32, i32, i32, u32) {
+    let mine = |s: &BattleState, lp: EntityId| s.projectiles().iter().filter(|q| q.firer == Some(lp)).count();
+    for k in 0..90 {
+        let (mut s, lp, reds) = scene_cfg(
+            |c| {
+                c.calib.ramp_stun_restart = arm;
+                c.calib.load_timer_target_loss = LoadTimerTargetLoss::Client15535StandsWhileHeld;
+            },
+            &[("Golem", (AT.0, AT.1 + 5000))],
+        );
+        for _ in 0..k {
+            hold(&mut s, lp, &reds);
+            s.tick();
+        }
+        let e = s.entity(lp).expect("the Little Prince");
+        if e.target.is_none() || e.attack_load_ms != 500 || e.attack_ms == 0 {
+            continue;
+        }
+        hold(&mut s, lp, &reds);
+        s.spawn_unit(Team::Red, "Zap", n(AT), None).expect("the Zap");
+        s.tick();
+        let e = s.entity(lp).expect("the Little Prince");
+        assert!(e.stun_ms > 0 && e.target.is_none(), "scene: the Zap did not hold him ({k} ticks in)");
+        assert_eq!(e.attack_load_ms, 450, "scene: his load timer on the Zap's tick ({k} ticks in)");
+        let landing = e.attack_ms;
+        let mut known = mine(&s, lp);
+        let mut resume: Option<(u32, i32, i32)> = None;
+        for j in 1..80u32 {
+            hold(&mut s, lp, &reds);
+            s.tick();
+            let e = s.entity(lp).expect("the Little Prince");
+            if resume.is_none() && e.target.is_some() {
+                resume = Some((j, e.attack_ms, e.attack_load_ms));
+            }
+            let m = mine(&s, lp);
+            if m > known {
+                let (r, p, l) = resume.expect("scene: a shot before his target came back");
+                return (landing, p, l, j - r);
+            }
+            known = m;
+        }
+        panic!("scene: no shot after the Zap ({k} ticks in)");
+    }
+    panic!("precondition: no tick puts his load timer at 500 while he shoots");
+}
+
+/// Plant: ramp_stun_paused.
+#[test]
+fn a_stun_restarts_his_attack_under_client15535_restart() {
+    assert_eq!(zapped_clock(RampStunRestart::Client15535Restart), (0, 450, 800, 15), "client15535_restart: progress on the Zap's tick, progress and load on the resume, ticks to the shot");
+    // NOT VACUOUS: paused, his progress survives the stun.
+    let (landing, ..) = zapped_clock(RampStunRestart::Paused);
+    assert!(landing > 0, "paused: his progress did not survive the stun ({landing})");
 }
 
 #[test]

@@ -1043,6 +1043,10 @@ pub struct Calib {
     /// 20; the `default` is the old arm, `PointChanged`.
     #[serde(default = "ramp_grace_move_default")]
     pub ramp_grace_move: RampGraceMove,
+    /// combat.RAMP_STUN_RESTART (`land_stun`): whether a stun restarts the Little Prince's attack cycle. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Paused`.
+    #[serde(default = "ramp_stun_restart_default")]
+    pub ramp_stun_restart: RampStunRestart,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2677,6 +2681,10 @@ fn death_bomb_avoidance_default() -> DeathBombAvoidance {
 
 fn ramp_grace_move_default() -> RampGraceMove {
     RampGraceMove::PointChanged
+}
+
+fn ramp_stun_restart_default() -> RampStunRestart {
+    RampStunRestart::Paused
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6477,6 +6485,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.RAMP_STUN_RESTART -- see `land_stun` (card.rs `RampDef`): what a stun does to the Little Prince's attack
+    /// cycle (his ramp count drops to 0 either way, `ramp_pass`).
+    RampStunRestart {
+        /// The engine's: paused like any unit's (status.STUN_ATTACK_TIMER_MODEL = pause), his progress kept.
+        Paused = "paused",
+        /// Restarted as a damage ramp's is (combat.VARIABLE_DAMAGE): the swing Idle, progress 0; his load timer held
+        /// through the stun (combat.LOAD_TIMER_TARGET_LOSS), the resume rescan's fresh start (progress = LoadTime less
+        /// that timer) times his next shot. Measured on client 15.535.29, sp-lp-ramp-s0's Zap (the one Little Prince stun
+        /// recorded): his progress 6600 read 0 on the landing tick (t337), his load timer held at 450 to t347; on the
+        /// resume (t348) progress 450 and load 800, and he shot at 1200 (t363). Paused, the engine resumed at 6750 and
+        /// shot at 7200 (t357), and every shot after came 6 ticks early.
+        Client15535Restart = "client15535_restart",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8465,6 +8488,7 @@ impl Calib {
             dismount_mount_acquire: pick(&v, &["transform", "DISMOUNT_MOUNT_ACQUIRE", "value"], DismountMountAcquire::from_calibration_name)?,
             death_bomb_avoidance: pick(&v, &["movement", "DEATH_BOMB_AVOIDANCE", "value"], DeathBombAvoidance::from_calibration_name)?,
             ramp_grace_move: pick(&v, &["combat", "RAMP_GRACE_MOVE", "value"], RampGraceMove::from_calibration_name)?,
+            ramp_stun_restart: pick(&v, &["combat", "RAMP_STUN_RESTART", "value"], RampStunRestart::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -11313,8 +11337,9 @@ fn land_buff(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, h: &crate::s
 /// A HOLD OF `ms` LANDING on entity `i`: merged into `stun_ms` by status.SAME_BUFF_REAPPLY, the
 /// target lock released for the resume rescan (status.STUN_RETARGET_ON_RESUME), the attack cycle
 /// paused or reset (status.STUN_ATTACK_TIMER_MODEL), a damage ramp restarted
-/// (combat.VARIABLE_DAMAGE) and the charge cleared (charge.RESET_ON_STUN). The one
-/// implementation behind `apply_effects` and `reflect_melee_hit`.
+/// (combat.VARIABLE_DAMAGE), the Little Prince's cycle restarted (combat.RAMP_STUN_RESTART)
+/// and the charge cleared (charge.RESET_ON_STUN). The one implementation behind
+/// `apply_effects` and `reflect_melee_hit`.
 fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
     #[cfg(not(clash_plant = "stun_replace"))]
     let reapply = c.same_buff_reapply;
@@ -11359,6 +11384,21 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
         false // PLANT (regression): a stun pauses the ramp, so a Zapped Inferno resumes in its second stage.
     };
     if ramp_restarts {
+        e.attack_phase[i] = AttackPhase::Idle;
+        e.attack_ms[i] = 0;
+        e.target_locked[i] = false;
+    }
+    // combat.RAMP_STUN_RESTART = client15535_restart: a stun restarts the Little Prince's cycle (a hit-speed ramp, card.rs
+    // `RampDef`) as it restarts a damage ramp's: progress 0, the swing Idle. His load timer holds through the stun
+    // (combat.LOAD_TIMER_TARGET_LOSS), so the resume rescan's fresh start (progress = LoadTime less that timer) times his
+    // next shot: client 15.535.29's sp-lp-ramp-s0, progress 6600 -> 0 on the Zap's tick, 450 on the resume, the shot at
+    // 1200.
+    // PLANT (regression) ramp_stun_paused: the new arm still pauses his cycle.
+    #[cfg(not(clash_plant = "ramp_stun_paused"))]
+    let lp_restarts = c.ramp_stun_restart == RampStunRestart::Client15535Restart && cards.get(e.card[i]).ramp.is_some();
+    #[cfg(clash_plant = "ramp_stun_paused")]
+    let lp_restarts = false;
+    if lp_restarts {
         e.attack_phase[i] = AttackPhase::Idle;
         e.attack_ms[i] = 0;
         e.target_locked[i] = false;
@@ -31654,6 +31694,8 @@ impl BattleState {
 /// 20, unchanged, combat.RAMP_GRACE_MOVE: Calib gained ramp_grace_move (serde default the old arm, point_changed), no new
 ///    state (the walk step is the move pass's scratch), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RAMP_STUN_RESTART: Calib gained ramp_stun_restart (serde default the old arm, paused), no new
+///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32667,6 +32709,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_bomb_avoidance".into(), serde_json::to_value(DeathBombAvoidance::None).map_err(|e| e.to_string())?);
     // combat.RAMP_GRACE_MOVE: a format-3 battle's Little Prince lost his grace on every tick his point changed (the same rule).
     sh.insert("ramp_grace_move".into(), serde_json::to_value(RampGraceMove::PointChanged).map_err(|e| e.to_string())?);
+    // combat.RAMP_STUN_RESTART: a format-3 battle's stunned Little Prince kept his attack progress (the same rule).
+    sh.insert("ramp_stun_restart".into(), serde_json::to_value(RampStunRestart::Paused).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

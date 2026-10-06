@@ -1574,6 +1574,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   avoidance scan (4 of 4 turns where a look circle met one).
 ///   combat.RAMP_GRACE_MOVE = client15535_own_walk: the Little Prince's ramp grace runs down on his own walk alone (3 of 3
 ///   ramps kept through pushes while he attacked, 6 of 6 reset by a walk).
+///   combat.RAMP_STUN_RESTART = client15535_restart: a stun restarts the Little Prince's attack cycle (his one recorded
+///   stun: progress 0 on the Zap's tick, a fresh start on the resume).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
@@ -1707,6 +1709,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.DISMOUNT_MOUNT_ACQUIRE", "\"client15535_8th_frame\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
+    ("combat.RAMP_STUN_RESTART", "\"client15535_restart\""),
     ("knockback.COMBO_PUSHBACK", "\"client15535_ladder_armed_at_hit\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
     ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),

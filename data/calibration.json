@@ -2085,6 +2085,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_own_walk (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs ramp_pass (`own_walk`: Scratch::walk_step), selected by Calib::ramp_grace_move; tests/little_prince.rs."
     },
+    "RAMP_STUN_RESTART": {
+      "value": "paused",
+      "candidates": ["paused", "client15535_restart"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_restart on client 15.535.29: 1 of 1 Little Prince stuns recorded (sp-lp-ramp-s0's Zap), his attack clock read on every tick; it matches the damage ramp's measured restart (combat.VARIABLE_DAMAGE) and the engine's fresh start to the ms; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (stun_resume_census2.py: every unit whose target cleared for 8 to 40 ticks and came back, with its attack_progress_ms and load timer on the tick before, the clear tick and the resume tick). Every ordinary attacker held by a Zap or an Electro Wizard kept its progress through the hold and resumed it (the Knights of ub-b1-hs2 and ub-b1-hs4: 3100 -> 3150 across the hold; ub-lb5b's Giant, ub-lb4d-hog-b's Hog Rider, ub-gg2-zap's), as status.STUN_ATTACK_TIMER_MODEL = pause has it. The one Little Prince stun, sp-lp-ramp-s0's Zap landing t337 while he shot at x2: his progress 6600 read 0 on the landing tick and stayed 0, his load timer held at 450 (combat.LOAD_TIMER_TARGET_LOSS), no target to t347; on t348 his target back, progress 450 and load 800, and he shot when the progress reached HitSpeed, 1200 (t363), his ramp back at x1. 450 is the engine's fresh start (combat.ATTACK_CYCLE: progress = LoadTime 800 less the load timer 400 on the resume tick, plus the tick's 50). The engine paused him: progress 6700 held, 6750 on t348, the shot at 7200 (t357), and every shot after came 6 ticks early (the Golem's hp a shot ahead from t362, sp-lp-ramp-s0's hp exact 659 of 824).",
+      "meaning": "paused: the engine's; a stun pauses the Little Prince's attack cycle like any unit's (status.STUN_ATTACK_TIMER_MODEL = pause), his progress kept, his ramp count 0 (ramp_pass). client15535_restart: a stun restarts it as it restarts a damage ramp's (combat.VARIABLE_DAMAGE): the swing Idle, progress 0, his load timer held through the stun; the resume rescan's fresh start (progress = LoadTime less the load timer) times his next shot.",
+      "open": "One event. On it the fresh start's progress (LoadTime less the resume tick's load timer, plus a tick: 900 less the held timer) equals the held timer itself (450): a rule taking the held timer as the new progress fits it too; a stun at another point of his cycle separates them. A freeze (no stun: his attack clock stopped) on a Little Prince; a stun on the guard; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_restart (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs land_stun (`lp_restarts`), selected by Calib::ramp_stun_restart; tests/little_prince.rs."
+    },
     "SIEGE_RESET_HOLD": {
       "value": "next_tick",
       "candidates": ["next_tick", "client15535_two_tick_hold"],
