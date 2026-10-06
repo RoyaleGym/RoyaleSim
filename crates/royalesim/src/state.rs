@@ -1047,6 +1047,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Paused`.
     #[serde(default = "ramp_stun_restart_default")]
     pub ramp_stun_restart: RampStunRestart,
+    /// transform.DISMOUNT_MOUNT_HOLD_BODY (the move pass's board, the mount's hold): whether the Hero Dark Prince's held
+    /// mount meets bodies. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Collides`.
+    #[serde(default = "dismount_mount_hold_body_default")]
+    pub dismount_mount_hold_body: DismountMountHoldBody,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2685,6 +2689,10 @@ fn ramp_grace_move_default() -> RampGraceMove {
 
 fn ramp_stun_restart_default() -> RampStunRestart {
     RampStunRestart::Paused
+}
+
+fn dismount_mount_hold_body_default() -> DismountMountHoldBody {
+    DismountMountHoldBody::Collides
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6503,6 +6511,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// transform.DISMOUNT_MOUNT_HOLD_BODY -- see the move pass's board (`drill_off`) and `dismount_pass` (the mount's hold):
+    /// whether the Hero Dark Prince's mount meets bodies while it is held.
+    DismountMountHoldBody {
+        /// The engine's: held (its stun timer), it meets bodies as any stunned unit does: pushed, and pushing.
+        Collides = "collides",
+        /// While its hold lasts (the table's NO_MOVE_ALLOW_ATTRACT, 1000 ms) its body meets no unit. Measured on client
+        /// 15.535.29: in the one dismount whose hops left the pair touching (sp-form-DarkPrince-hero-s0, the trigger T
+        /// t213, 92 apart on T + 20), neither moved on T + 20 .. T + 22 though the hero's own DisablePhysics (1000 ms) was
+        /// over; both moved on T + 23 as the mount's hold ended, the hero's first step (-122, -86). The engine pushed both
+        /// from T + 20 and the hero stood 299 off the client by t234.
+        Client15535NoBody = "client15535_no_body",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8492,6 +8514,7 @@ impl Calib {
             death_bomb_avoidance: pick(&v, &["movement", "DEATH_BOMB_AVOIDANCE", "value"], DeathBombAvoidance::from_calibration_name)?,
             ramp_grace_move: pick(&v, &["combat", "RAMP_GRACE_MOVE", "value"], RampGraceMove::from_calibration_name)?,
             ramp_stun_restart: pick(&v, &["combat", "RAMP_STUN_RESTART", "value"], RampStunRestart::from_calibration_name)?,
+            dismount_mount_hold_body: pick(&v, &["transform", "DISMOUNT_MOUNT_HOLD_BODY", "value"], DismountMountHoldBody::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -20032,6 +20055,27 @@ impl BattleState {
             if let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Dismount(d), .. }) = self.cfg.cards.get(r.card).ability {
                 if self.tick < r.made + (d.no_collide_ms / dt) as u32 {
                     drill_off[r.id.index as usize] = true;
+                }
+            }
+        }
+        // transform.DISMOUNT_MOUNT_HOLD_BODY = client15535_no_body: the mount, while its hold lasts (`dismount_pass`: from
+        // DISMOUNT_MOUNT_HOLD_FROM_TICKS after its first frame to its NO_MOVE's end), meets no unit. Measured on client
+        // 15.535.29 (sp-form-DarkPrince-hero-s0): the pair touching after the hero's own 1000 ms, and still to the hold's end.
+        // PLANT (regression) mount_hold_collides: the new arm's held mount still meets bodies.
+        #[cfg(not(clash_plant = "mount_hold_collides"))]
+        let mount_off = self.cfg.calib.dismount_mount_hold_body == DismountMountHoldBody::Client15535NoBody;
+        #[cfg(clash_plant = "mount_hold_collides")]
+        let mount_off = false;
+        if mount_off {
+            let dt = self.cfg.calib.tick_ms.max(1);
+            for r in self.warps.dismounts.iter() {
+                let Some(m) = r.mount.filter(|m| self.ents.is_alive(*m)) else { continue };
+                let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Dismount(d), .. }) = self.cfg.cards.get(r.card).ability else { continue };
+                let age = self.tick.saturating_sub(r.made);
+                let from = crate::card::DISMOUNT_MOUNT_HOLD_FROM_TICKS;
+                let hold_end = from + (d.mount_hold_ms / dt) as u32 + crate::card::DISMOUNT_MOUNT_HOLD_EXTRA_TICKS - 1;
+                if age >= from && age <= hold_end {
+                    drill_off[m.index as usize] = true;
                 }
             }
         }
@@ -31706,6 +31750,9 @@ impl BattleState {
 ///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RAMP_STUN_RESTART: Calib gained ramp_stun_restart (serde default the old arm, paused), no new
 ///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, transform.DISMOUNT_MOUNT_HOLD_BODY: Calib gained dismount_mount_hold_body (serde default the old arm,
+///    collides), no new state (the hold is read off the dismount's run), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32721,6 +32768,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ramp_grace_move".into(), serde_json::to_value(RampGraceMove::PointChanged).map_err(|e| e.to_string())?);
     // combat.RAMP_STUN_RESTART: a format-3 battle's stunned Little Prince kept his attack progress (the same rule).
     sh.insert("ramp_stun_restart".into(), serde_json::to_value(RampStunRestart::Paused).map_err(|e| e.to_string())?);
+    // transform.DISMOUNT_MOUNT_HOLD_BODY: a format-3 battle's held mount met bodies (the same rule).
+    sh.insert("dismount_mount_hold_body".into(), serde_json::to_value(DismountMountHoldBody::Collides).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

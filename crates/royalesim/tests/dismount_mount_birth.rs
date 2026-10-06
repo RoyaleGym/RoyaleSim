@@ -16,6 +16,11 @@
 //!   * `mount_born_on_trigger` -- the new arm still puts the mount down on the trigger: (1) goes red.
 //!   * `mount_acquired_at_once` -- transform.DISMOUNT_MOUNT_ACQUIRE's new arm releases the mount with no delay:
 //!     `the_mount_waits_for_its_8th_frame_under_client15535_8th_frame` goes red.
+//!   * `mount_hold_collides` -- transform.DISMOUNT_MOUNT_HOLD_BODY's new arm's held mount still meets bodies:
+//!     `the_held_mount_meets_no_body_under_client15535_no_body` goes red.
+//!
+//! transform.DISMOUNT_MOUNT_HOLD_BODY = client15535_no_body (client 15.535.29, sp-form-DarkPrince-hero-s0: the pair touching
+//! from the hero's 1000 ms on, and neither moved before T + 23): the held mount meets no body until its hold ends.
 //!
 //! transform.DISMOUNT_MOUNT_ACQUIRE = client15535_8th_frame (client 15.535.29: every enemy's first take of a mount on its
 //! F + 7 or later): no enemy may take the mount before its F + 7; at_once from its first frame on.
@@ -25,7 +30,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, DismountMountAcquire, DismountMountBirth};
+use royalesim::state::{BattleState, Calib, DismountMountAcquire, DismountMountBirth, DismountMountHoldBody};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -138,4 +143,64 @@ fn the_mount_waits_for_its_8th_frame_under_client15535_8th_frame() {
     assert!(old <= f + 1, "at_once: the mount is not acquirable at once (first frame {f}, acquirable from {old})");
     let (f, new) = mount_acquirable(DismountMountAcquire::Client15535EighthFrame);
     assert_eq!(new, f + 7, "client15535_8th_frame: the mount is not acquirable from its F + 7 (first frame {f})");
+}
+
+/// The ticks, from the mount's first frame F, on which it moved, F + 2 .. F + 30, the hero put back on its point before
+/// every tick (its hops undone, as the river's edge undid them in sp-form-DarkPrince-hero-s0) so that the pair stand
+/// touching, under transform.DISMOUNT_MOUNT_HOLD_BODY = `arm` (the birth and the acquire delay at the measured arms).
+fn mount_moves(arm: DismountMountHoldBody) -> Vec<u32> {
+    let mut cfg = config();
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.dismount_mount_birth = DismountMountBirth::Client15535HeroPoint;
+    cfg.calib.dismount_mount_acquire = DismountMountAcquire::Client15535EighthFrame;
+    cfg.calib.dismount_mount_hold_body = arm;
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let at = n(14500, 11500);
+    s.deploy(Team::Blue, "DarkPrince", at).expect("the play");
+    let mut hero = None;
+    for _ in 0..120 {
+        s.tick();
+        if let Some((id, deploying)) = find_live(&s, Team::Blue, HERO).first().map(|e| (e.id, e.deploying)) {
+            assert!(s.debug_set_pos(id, at));
+            if !deploying {
+                hero = Some(id);
+                break;
+            }
+        }
+    }
+    let hero = hero.unwrap_or_else(|| panic!("{arm:?}: the scene drifted: no hero stood up"));
+    s.press_ability_button(Team::Blue, 0).expect("the press, on the hero");
+    let (mut first, mut last, mut moves) = (None, None, Vec::new());
+    for _ in 0..60 {
+        if s.entity(hero).is_some() {
+            assert!(s.debug_set_pos(hero, at));
+        }
+        s.tick();
+        let Some(m) = find_live(&s, Team::Blue, MOUNT).first().map(|e| e.pos) else { continue };
+        let now = s.tick_count() - 1;
+        let f = *first.get_or_insert(now);
+        if last.is_some_and(|p| p != m) && now >= f + 2 && now <= f + 30 {
+            moves.push(now - f);
+        }
+        last = Some(m);
+    }
+    assert!(first.is_some(), "{arm:?}: the scene drifted: no mount");
+    moves
+}
+
+/// Plant: mount_hold_collides.
+#[test]
+fn the_held_mount_meets_no_body_under_client15535_no_body() {
+    // The client's: no move before F + 23 (sp-form-DarkPrince-hero-s0: first frame t213, walking t236).
+    let new = mount_moves(DismountMountHoldBody::Client15535NoBody);
+    assert_eq!(new.first(), Some(&23), "client15535_no_body: the held mount moved before its hold ended ({new:?})");
+    // NOT VACUOUS: collides pushes it off the hero during its hold, once the hero's 1000 ms are over.
+    let old = mount_moves(DismountMountHoldBody::Collides);
+    assert!(old.first().is_some_and(|&k| k < 23), "collides: the held mount was not pushed during its hold ({old:?})");
 }

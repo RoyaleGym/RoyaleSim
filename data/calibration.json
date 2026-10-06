@@ -5070,6 +5070,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_8th_frame (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs the Dismount effect and dismount_hops (the mount's PendingSpawn::acquire_delay: `mount_waits`), selected by Calib::dismount_mount_acquire; tests/dismount_mount_birth.rs."
     },
+    "DISMOUNT_MOUNT_HOLD_BODY": {
+      "value": "collides",
+      "candidates": ["collides", "client15535_no_body"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_no_body on client 15.535.29: 1 of 1 dismounts that left the pair touching (the hero's hops carried it 1,900 off in the other 5), its three ticks read exactly; it fits the mount's table tag (NO_MOVE_ALLOW_ATTRACT); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (dismount_collide_census.py: every Hero Dark Prince dismount, card 203000027; the trigger T the hero's first frame in state 10, the mount the other 203000027 entity first seen on T). In the five Oracle scenes (sp-hero2-DarkPrince-*) the hero's ten hops of 200 carried it about 1,900 off the mount by T + 20, so nothing separates the arms there; the mount walked on T + 23 in all six. In sp-form-DarkPrince-hero-s0 the hops left the pair touching (T t213; 92 apart on T + 20): neither moved on T + 20, T + 21 or T + 22, though the hero's own DisablePhysics (the table's ActionWithDuration of 1000 ms on its change to walking) was over; on T + 23, the mount's NO_MOVE_ALLOW_ATTRACT (1000 ms, from its spawn group) over, the hero stepped (-122, -86) and the mount walked off it (155, 49). The engine pushed both from T + 20 (the hero's 1000 ms), three ticks early: the hero 299 off the client by t234, the mount 360.",
+      "meaning": "collides: the engine's; the Hero Dark Prince's mount, held by its stun timer from DISMOUNT_MOUNT_HOLD_FROM_TICKS after its first frame to its NO_MOVE's end (dismount_pass), meets bodies as any stunned unit does. client15535_no_body: while that hold lasts its body meets no unit: it neither pushes nor is pushed.",
+      "open": "One dismount. Whether every NO_MOVE_ALLOW_ATTRACT holder meets no body (the tag reads as no move but an attraction), or the mount's hold alone; whether an enemy walking into the held mount passes through it; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_no_body (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs the move pass's board (`mount_off`, beside the dismount's no-collide), selected by Calib::dismount_mount_hold_body; tests/dismount_mount_birth.rs."
+    },
     "DISMOUNT_HOP_WATER": {
       "value": "keep_water",
       "candidates": ["keep_water", "client15535_land_row_centre"],
