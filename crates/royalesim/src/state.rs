@@ -18405,14 +18405,15 @@ impl BattleState {
                 self.ents.target_locked[i] = false;
             }
             // combat.SIEGE_RESET_HOLD = client15535_two_tick_hold: at the reset the hero is held SIEGE_RESET_HOLD_TICKS more
-            // (the stun's hold: no scan, no swing; it runs down in Resolve), so it takes its target back and swings later.
+            // (the stun's hold: no scan, no swing), so it takes its target back and swings later. The hold set here in Status
+            // runs down in this tick's Resolve: the ticks it stands, plus that one.
             // PLANT (regression) siege_reset_unheld: the new arm swings on the tick after the reset, as the old one does.
             #[cfg(not(clash_plant = "siege_reset_unheld"))]
             let held = self.cfg.calib.siege_reset_hold == SiegeResetHold::Client15535TwoTickHold;
             #[cfg(clash_plant = "siege_reset_unheld")]
             let held = false;
             if held && self.tick == at(sg.reset_target_ms) {
-                self.ents.stun_ms[i] = self.ents.stun_ms[i].max(crate::card::SIEGE_RESET_HOLD_TICKS * tick_ms);
+                self.ents.stun_ms[i] = self.ents.stun_ms[i].max((crate::card::SIEGE_RESET_HOLD_TICKS + 1) * tick_ms);
             }
             if self.tick >= at(sg.buff.time_ms) {
                 #[cfg(not(clash_plant = "siege_never_ends"))]
