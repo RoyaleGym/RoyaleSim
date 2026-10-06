@@ -2671,7 +2671,64 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
         if flag(a, "Clone"):
             out["clone"] = True
             out["clone_action"] = clone_action_block(t, a)
+        # 16.402: THE EARTHQUAKE'S HIDDEN TARGETS SPLIT OFF (`hidden_split`), read whole; its graph and schedule are
+        # that split and nothing else.
+        hs = hidden_split(t, a)
+        if hs is not None:
+            out["hidden_split"] = hs
+            out["action_graph"] = None
+            out["schedule"] = None
     return out
+
+
+# 16.402: the Earthquake's split-off hidden-damage area (`hidden_split`): every key it sets.
+HIDDEN_SPLIT_AREA_KEYS = {"Filter", "HitSpeed", "HitSpeedOffset", "LifeDuration", "Name", "OnHitAction", "Radius",
+                          "Rarity"}
+
+
+def hidden_split(t, a) -> dict | None:
+    """16.402: AN AREA WHOSE HIDDEN TARGETS ARE SPLIT OFF (the Earthquake), read whole, or None. 15.535's Earthquake
+    hung its buff on hidden enemies too (AffectsHidden), so its damage per second at its BuildingDamagePercent reached a
+    hiding Tesla. 16.402's main filter excludes those units by name (ExcludeCharactersWithData), and the area's
+    OnStartingAction puts down a second area of the same radius whose filter takes exactly them (enemy buildings,
+    IncludeCharactersWithData) and hits each `damage` every `every_ms` from `first_ms` (HitSpeedOffset) for `life_ms`
+    by an ActionTakeDamage flagged DamagesHidden. `matches_buff`: that damage is the buff's per second at its
+    BuildingDamagePercent, per `every_ms` (Earthquake: 32 x 350 % = 112). Option B request 25 (the hits' ticks)."""
+    if not getattr(t, "vintage", None) or not t.vintage.filters_format or not isinstance(a, Row):
+        return None
+    acts, at = t["actions"], t["area_effect_objects"]
+    on = a["OnStartingAction"]
+    sp = acts.get(on) if isinstance(on, str) else None
+    if sp is None or sp["ClassType"] != "ActionSpawn" or sp["SpawnType"] != "AreaEffectType" \
+            or acts.set_fields.get(on) != {"ClassType", "SpawnType", "SpawnData"}:
+        return None
+    hn = sp["SpawnData"]
+    h = at.get(hn)
+    if h is None or at.set_fields.get(hn) != HIDDEN_SPLIT_AREA_KEYS or h["Radius"] != a["Radius"] \
+            or not isinstance(h["HitSpeed"], int) or not isinstance(h["HitSpeedOffset"], int) \
+            or not isinstance(h["LifeDuration"], int) or h["LifeDuration"] < a["LifeDuration"]:
+        return None
+    main_f, hid_f = t.filters.get(a["Filter"]), t.filters.get(h["Filter"])
+    if main_f is None or hid_f is None:
+        return None
+    units = hid_f.get("IncludeCharactersWithData")
+    if not isinstance(units, list) or main_f.get("ExcludeCharactersWithData") != units \
+            or hid_f.get("MatchTeamEnemy") is not True or hid_f.get("MatchTypeBuildings") is not True:
+        return None
+    hit = acts.get(h["OnHitAction"]) if isinstance(h["OnHitAction"], str) else None
+    if hit is None or hit["ClassType"] != "ActionTakeDamage" or acts.set_fields.get(h["OnHitAction"]) != {
+            "ClassType", "Damage"}:
+        return None
+    d = hit["Damage"]
+    if not isinstance(d, dict) or set(d) != {"BaseDamage", "Flags"} or d["Flags"] != ["DamagesHidden"] \
+            or not isinstance(d["BaseDamage"], int):
+        return None
+    b = norm_buff(t, a["Buff"])
+    bdp = t["character_buffs"].get(a["Buff"])["BuildingDamagePercent"] if b is not None else None
+    matches = (b is not None and isinstance(b["damage_per_second"], int) and isinstance(bdp, int)
+               and b["damage_per_second"] * bdp * h["HitSpeed"] // 100_000 == d["BaseDamage"])
+    return {"units": list(units), "area": hn, "damage": d["BaseDamage"], "every_ms": h["HitSpeed"],
+            "first_ms": h["HitSpeedOffset"], "life_ms": h["LifeDuration"], "matches_buff": matches}
 
 
 def unit_record(t: dict[str, Table], name: str) -> tuple[str, dict]:
