@@ -10417,6 +10417,19 @@ def main() -> int:
                     dropped.append((f"{sec}.{n}", f"GAINED {more}: read by {readers or ['its evolution block']}"))
                 else:
                     CENSUS.append((f"{sec}.{n}", f"GAINED a mechanic graph no block reads: {more}"))
+    # NOT BUILT: a form the pack carries in play that the builders' pinned lists leave out (a census against an older
+    # table cannot see new content: 16.402 adds the Evo Electro Giant, the Hero Ice Wizard and the Hero Electro Wizard).
+    # An evolution row not NotInUse outside EVOLUTIONS; a hero form's _spell.toml [SPELL_HERO.*] outside HERO_FORMS.
+    if CENSUS is not None and not v.is_2018:
+        for n, r in sorted(t["spells_evolved"].records.items()):
+            if n not in EVOLUTIONS and not flag(r, "NotInUse"):
+                CENSUS.append((f"evolutions.{n}",
+                               "NOT BUILT: an evolution the pack carries in play, outside EVOLUTIONS"))
+        for p in v.glob("characters/hero_form", "*_spell.toml"):
+            for n in (client_toml(p).get("SPELL_HERO") or {}):
+                if n not in HERO_FORMS:
+                    CENSUS.append((f"hero_forms.{n}", f"NOT BUILT: a hero form the pack carries ({p.name}), outside "
+                                                      f"HERO_FORMS"))
     if CENSUS is not None:
         print(f"CENSUS {v.key}: {len(CENSUS)} refusals")
         for label, why in CENSUS:
