@@ -1115,6 +1115,16 @@ def filter_flags(f: dict) -> dict:
     }
 
 
+def filter_derived(t: "Tables", row) -> set[str]:
+    """16.402: the AREA_FLAG_COLUMNS a row holds because its Filter gives them (`normalize_16402` wrote them), which a
+    pinned reader counts as the Filter's, not as columns of its own. Empty on a vintage without the format."""
+    f = row.get("Filter") if t.vintage.filters_format else None
+    if not isinstance(f, str) or f not in t.filters:
+        return set()
+    ff = filter_flags(t.filters[f])
+    return {c for c in AREA_FLAG_COLUMNS if row.get(c) == ff[c]}
+
+
 def normalize_16402(t: "Tables") -> None:
     """Write the 15.535 columns of every 16.402 row that carries the new format (module note above)."""
     filters = t.filters
@@ -1891,16 +1901,27 @@ def attack_select(t: dict, table: str, name: str, rec: dict) -> dict | None:
     run = action(seq[melee]["DoAttackAction"], "ActionRunOnInstigator", run_keys, {"ClassType", "ActionToExecute"})
     if run is None:
         return None
-    deal_needs = {"ClassType", "BaseDamageAmount", "BaseDamageType"}
-    deal = action(run["ActionToExecute"], "ActionDealDamage", deal_needs | {"StatsTags"}, deal_needs)
-    if deal is None:
-        return None
+    dname = run["ActionToExecute"]
+    d0 = t["actions"].get(dname) if isinstance(dname, str) else None
+    if d0 is not None and d0["ClassType"] == "ActionTakeDamage":
+        # 16.402: the ActionDealDamage and its DamageTypeBasic as one ActionTakeDamage with an inline Damage table
+        # (the Three Musketeers' bayonet: {BaseDamage 123, Effect}); a TowerDamage or Flags is not this block's shape.
+        take = action(dname, "ActionTakeDamage", {"ClassType", "Damage", "StatsTags"}, {"ClassType", "Damage"})
+        dd = take["Damage"] if take is not None else None
+        if not isinstance(dd, dict) or not set(dd) <= {"BaseDamage", "Effect"}:
+            return None
+        damage = dd.get("BaseDamage")
+    else:
+        deal_needs = {"ClassType", "BaseDamageAmount", "BaseDamageType"}
+        deal = action(dname, "ActionDealDamage", deal_needs | {"StatsTags"}, deal_needs)
+        if deal is None:
+            return None
+        dt = t.damage_types.get(deal["BaseDamageType"]) or {}
+        damage = deal["BaseDamageAmount"]
+        if dt.get("ClassType") != "DamageTypeBasic" or not set(dt) <= {"ClassType", "DamageEffect"}:
+            return None
     effect = run["NextAction"]
     if effect is not None and action(effect, "ActionPlayEffect", {"ClassType", "Effect"}, {"ClassType"}) is None:
-        return None
-    dt = t.damage_types.get(deal["BaseDamageType"]) or {}
-    damage = deal["BaseDamageAmount"]
-    if dt.get("ClassType") != "DamageTypeBasic" or not set(dt) <= {"ClassType", "DamageEffect"}:
         return None
     if not isinstance(damage, int) or isinstance(damage, bool) or damage <= 0:
         return None
@@ -4877,7 +4898,8 @@ def wind_block(t: Tables, card: dict) -> dict:
     need(aeo is not None, f"the wind area {a['Aeo']!r} is no area row")
     set_cols = {k for k in aeo if aeo[k] is not None}
     off = {k: aeo.get(k) for k, v in WIND_AEO_PINNED.items() if aeo.get(k) != v}
-    unread = set_cols - set(WIND_AEO_PINNED) - set(WIND_AEO_READ) - WIND_AEO_COSMETIC - {"Shape", "OnHitAction"}
+    unread = (set_cols - set(WIND_AEO_PINNED) - set(WIND_AEO_READ) - WIND_AEO_COSMETIC - {"Shape", "OnHitAction"}
+              - filter_derived(t, aeo))
     need(not off and not unread and all(isinstance(aeo.get(k), int) for k in WIND_AEO_READ),
          f"the wind area reads {off} off, {sorted(unread)} unread")
     shape = t.shapes.get(aeo["Shape"]) or {}
@@ -9534,6 +9556,12 @@ def main() -> int:
                     # 16.402 names OnStartingClientActions) is display, not a lost mechanic.
                     if k == "action_graph" and isinstance(val, dict) and not val.get("mechanic")                             and not val.get("class_types") and not val.get("spawns"):
                         continue
+                    # A display graph whose only root was VisualActions, which 16.402 moved to OnStartingClientActions
+                    # as a [CLIENT_ACTION] (the Chef Tower's ChefVisualTop): the same display, not a lost mechanic.
+                    if k == "action_graph" and isinstance(val, dict) and not val.get("mechanic") and not val.get("spawns")                             and set((val.get("roots") or {})) == {"VisualActions"} and sec == "units":
+                        trow = t[new[n].get("source_table") or "characters"].get(n)
+                        if trow is not None and trow["OnStartingClientActions"] == val["roots"]["VisualActions"]:
+                            continue
                     if k not in ("raw", "provenance") and isinstance(val, (dict, list)) and val and new[n].get(k) in (None, [], {}):
                         CENSUS.append((f"{sec}.{n}", f"LOST {k}: {args.against.name} holds it, this table leaves it empty"))
     if CENSUS is not None:
