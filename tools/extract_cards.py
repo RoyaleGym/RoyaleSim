@@ -864,7 +864,10 @@ class OverlayTable:
                     resolve(base_name, (*chain, name))
                 mine = self.set_fields.get(name, set())
                 for col, bv in base.items():
-                    if col == "Base" or col in mine or isinstance(bv, dict):
+                    # A sub-object ([KIND.Name.Field]: StatsTags, an inline action) stays its own row's. 16.402's
+                    # Damage {BaseDamage, TowerDamage} is a value, not a sub-object: inherited like any column (the
+                    # Evo Skeleton Barrel's drops are [EXT]s of an area that carries their 75).
+                    if col == "Base" or col in mine or (isinstance(bv, dict) and col != "Damage"):
                         continue
                     if rec[col] is None and bv is not None:
                         rec[col] = bv
@@ -2781,6 +2784,33 @@ def death_spawn_action(t, c) -> dict | None:
     return a
 
 
+# 16.402: THE RIVER-JUMP PUSHBACK GUARD (`jump_hack`), the start of every hog row (the Hog Rider, the Royal Hogs, the
+# Ram Rider's ram, the Mother Witch's hog, the Evo Royal Hogs, the Hero Dark Prince's mount).
+JUMP_HACK = "JumpHack_Check_Jump_Interval"
+
+
+def jump_hack(t) -> str | None:
+    """16.402's shared river-jump guard, read whole, as the name of the buff it hangs (or None): an ActionInterval of
+    50 ms that, while the unit is jumping (its own filter, Filters "Jumping", does not match it), hangs a 50 ms buff of
+    IgnorePushBack alone: a jumping hog is not pushed. Option B request 21 (whether 15.535 did the same natively)."""
+    acts = t["actions"]
+    iv = acts.get(JUMP_HACK)
+    run = acts.get(iv["ActionToExecute"]) if iv is not None else None
+    sp = acts.get(run["ActionToRunIfNoMatch"]) if run is not None else None
+    f = t.filters.get(run["GameObjectFilter"]) if run is not None else None
+    ok = (iv is not None and run is not None and sp is not None
+            and acts.set_fields.get(JUMP_HACK) == {"ClassType", "Interval", "ActionToExecute"}
+            and iv["ClassType"] == "ActionInterval" and iv["Interval"] == 50
+            and acts.set_fields.get(iv["ActionToExecute"]) == {"ClassType", "ActionToRunIfNoMatch", "GameObjectFilter"}
+            and run["ClassType"] == "ActionRunIfInstigatorMatches"
+            and f == {"MatchTypeCharacters": True, "MatchTeamOwn": True, "MatchSelf": True, "Filters": "Jumping"}
+            and acts.set_fields.get(run["ActionToRunIfNoMatch"]) == {"ClassType", "SpawnType", "SpawnData", "SpawnTime"}
+            and sp["SpawnType"] == "BuffType" and sp["SpawnTime"] == 50
+            and t["character_buffs"].set_fields.get(sp["SpawnData"]) == {"Rarity", "IgnorePushBack"}
+            and t["character_buffs"].get(sp["SpawnData"])["IgnorePushBack"] is True)
+    return sp["SpawnData"] if ok else None
+
+
 def spawn_area_action(t, c) -> str | None:
     """16.402: A UNIT'S SpawnAreaObject AS ITS OnStartingAction, an ActionSpawn of an area run only when the unit is
     not a clone (ExecuteIfTrue "!is_clone"), read exactly: the area's name, or None. The Battle Healer's heal
@@ -3243,6 +3273,16 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # 16.402: THE SPAWN AREA AS AN OnStartingAction ActionSpawn of an area, not for a clone (`spawn_area_action`:
         # the Battle Healer's heal, the Goblin Drill's emergence), read into spawn_area_object with
         # `spawn_area_unless_clone`, the graph cleared when it is that spawn and nothing else.
+        # 16.402: A HOG'S START IS THE RIVER-JUMP GUARD alone (`jump_hack`): read as jump_ignores_pushback, the graph
+        # cleared when it is that guard and nothing else.
+        jh = jump_hack(t) if getattr(t, "vintage", None) and t.vintage.filters_format \
+            and c["OnStartingAction"] == JUMP_HACK else None
+        if jh is not None:
+            u["jump_ignores_pushback"] = True
+            g = u.get("action_graph")
+            if g and g["roots"] == {"OnStartingAction": JUMP_HACK} and g["spawns"] == [f"BuffType:{jh}"] \
+                    and set(g["class_types"]) == {"ActionInterval", "ActionRunIfInstigatorMatches", "ActionSpawn"}:
+                u["action_graph"] = None
         sa = spawn_area_action(t, c) if c.get("SpawnAreaObject") is None else None
         if sa is not None:
             u["spawn_area_object"] = sa
@@ -4442,6 +4482,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # 16.402 only (`spawn_area_action`), beside the spawn_area_object it qualifies.
     if "spawn_area_unless_clone" in u:
         card["spawn_area_unless_clone"] = u["spawn_area_unless_clone"]
+    # 16.402 only (`jump_hack`): a jumping hog is not pushed.
+    if "jump_ignores_pushback" in u:
+        card["jump_ignores_pushback"] = u["jump_ignores_pushback"]
     # 15.535 only: the dash block that starts from an Ability or a scripted action, carried
     # beside the card's `dash` (null on that row) so the card shows what it does not run.
     if "triggered_dash" in u:
@@ -4921,6 +4964,12 @@ GHOST_AREA_PINNED = {"HitsAir": False, "HitsGround": True, "OnlyEnemies": True, 
 GHOST_AREA_READ = ("Radius", "Damage")
 GHOST_MARK_PINNED = {"HitsAir": False, "HitsGround": False, "Damage": 0, "HitSpeed": 0}
 GHOST_AREA_COSMETIC = {"Rarity", "OneShotEffect", "StatsTags", "Name", "LifeDuration", "Radius"}
+# 16.402: the same areas by Filter, the damage area's 150 an offset with no HitSpeed (option B request 2), the marks'
+# damage absent; the flags the filters give are counted as the filters' (`filter_derived`).
+GHOST_AREA_PINNED_16402 = {"Filter": "CommonAreaDamageGround", "HitsAir": False, "HitsGround": True,
+                           "OnlyEnemies": True, "LifeDuration": 250, "HitSpeed": None, "HitSpeedOffset": 150}
+GHOST_MARK_PINNED_16402 = {"Filter": "aeo_dummy_no_targets", "HitsAir": False, "HitsGround": False, "Damage": None,
+                           "HitSpeed": 0}
 
 
 def col_list(tb, name: str, col: str) -> list:
@@ -5111,10 +5160,21 @@ def spear_block(t: Tables, card: dict) -> dict:
     max_range = seq[1].get("CustomRange")
     if not isinstance(min_range, int) or not isinstance(max_range, int):
         raise SystemExit(f"{unit}: the spear's ranges {min_range!r} / {max_range!r} are not integers")
-    cond = SPEAR_CONDITION.format(min=SPEAR_MIN_RANGE_VAR, max=max_range)
+    # The window's literal (the switch to the thrown entry): 15.535 the entry's CustomRange; 16.402 (the 10-06 update)
+    # keeps 5000 where the CustomRange went to 4500 (`switch_range_milli`, written only where they differ).
+    window = re.compile(re.escape(SPEAR_CONDITION.format(min=SPEAR_MIN_RANGE_VAR, max="@")).replace("@", r"(\d+)"))
+    lits = set()
     for n in ("AngryBarbarian_EV1_check_can_use_range", "AngryBarbarian_EV1_wait_to_activate_set_range"):
-        if (acts.get(n) or {}).get("Condition") != cond:
-            raise SystemExit(f"{unit}: {n}'s Condition is not {cond!r}")
+        m = window.fullmatch(str((acts.get(n) or {}).get("Condition")))
+        if m is None:
+            raise SystemExit(f"{unit}: {n}'s Condition is not the spear window "
+                             f"{SPEAR_CONDITION.format(min=SPEAR_MIN_RANGE_VAR, max='N')!r}")
+        lits.add(int(m.group(1)))
+    if len(lits) != 1:
+        raise SystemExit(f"{unit}: the two windows differ: {sorted(lits)}")
+    switch = lits.pop()
+    if switch != max_range and not (t.vintage.filters_format and switch > max_range):
+        raise SystemExit(f"{unit}: the window {switch} is not the thrown entry's CustomRange {max_range}")
     spear = norm_projectile(t, seq[1]["Projectile"])
     if spear is None or spear["name"] != row["Projectile"]:
         raise SystemExit(f"{unit}: the thrown entry's Projectile is not the row's")
@@ -5142,7 +5202,7 @@ def spear_block(t: Tables, card: dict) -> dict:
     timer = acts.get(melee[2])
     if timer["ActionToExecute"] != "AngryBarbarian_EV1_as_ranged" or not timer["AffectedByHitSpeed"]:
         raise SystemExit(f"{spear['name']}: the cooldown does not put the ranged state back at the hit speed")
-    return {
+    out = {
         "min_range_milli": min_range,
         "max_range_milli": max_range,
         "sight_range_milli": seq[1].get("CustomSightRange"),
@@ -5154,6 +5214,11 @@ def spear_block(t: Tables, card: dict) -> dict:
         "trail_every_ms": trail["Interval"],
         "area": spawn["SpawnData"],
     }
+    # 16.402 only: the window opens at `switch_range_milli` (5000) while the thrown entry's reach is 4500, and the
+    # thrown entry names no sight range of its own (sight_range_milli null). Option B request 5.
+    if switch != max_range:
+        out["switch_range_milli"] = switch
+    return out
 
 
 def ram_block(t: Tables, card: dict) -> dict:
@@ -5485,14 +5550,16 @@ def ghost_block(t: Tables, card: dict) -> dict:
         r = aeos.get(n or "")
         need(r is not None, f"{n!r} is no area row")
         off = {k: r.get(k) for k, v in pinned.items() if r.get(k) != v}
-        unread = {k for k in r if r[k] is not None} - set(pinned) - set(read) - GHOST_AREA_COSMETIC
+        unread = {k for k in r if r[k] is not None} - set(pinned) - set(read) - GHOST_AREA_COSMETIC \
+            - filter_derived(t, r)
         need(not off and not unread and all(isinstance(r.get(k), int) and r[k] > 0 for k in read),
              f"area {n} reads {off} off, {sorted(unread)} unread")
         return r
 
-    hit = area(a["DamageAEO"], GHOST_AREA_PINNED, GHOST_AREA_READ)
+    new = t.vintage.filters_format
+    hit = area(a["DamageAEO"], GHOST_AREA_PINNED_16402 if new else GHOST_AREA_PINNED, GHOST_AREA_READ)
     for side in ("LeftSummonAreaType", "RightSummonAreaType"):
-        area(a[side], GHOST_MARK_PINNED, ())
+        area(a[side], GHOST_MARK_PINNED_16402 if new else GHOST_MARK_PINNED, ())
     for side in ("LeftSummonType", "RightSummonType"):
         _, u = unit_record(t, sp[side])
         need(u["Name"] == "Ghost" and u["StartWithBuffWhenNotAttacking"] is False,
@@ -5595,6 +5662,7 @@ FALL_GROUNDED_SET = {
     "Base", "ClonedVersion", "VisualActions", "HideHealthbar", "FileName", "BlueExportName", "RedExportName", "Scale",
     "DeathEffect", "MoveEffect", "DamageEffect", "AttackStartEffect", "OnStartingAction", "OnAttackAction",
     "JumpHeight",
+    "OnStartingClientActions",  # 16.402's VisualActions: display
 }
 
 
@@ -5625,15 +5693,47 @@ def kill_heal_block(t: Tables, card: dict) -> dict:
             raise SystemExit(f"{unit}: {what}")
 
     sel = row["OnKilledDoneAction"]
+    # 16.402: the kill writes the victim's hitpoints and shield (at level index L) into a context and sends a soul
+    # (`flight_ms`); the select runs on its arrival and sizes the victim by hitpoints plus shield (`counts_shield`).
+    g = acts.get(sel) if isinstance(sel, str) else None
+    soul = t.vintage.filters_format and g is not None and g["ClassType"] == "ActionGroup"
+    extra, level = {}, None
+    if soul:
+        subs = group_subactions(t, sel, f"{unit} kill")
+        need(len(subs) == 2 and all(d == 0 for _, d in subs) and g["ContextMode"] == "Create"
+             and acts.set_fields.get(sel) == {"ClassType", "SubActions", "SubActionsDelay", "ContextMode"},
+             f"OnKilledDoneAction {sel!r} runs {subs}")
+        w, sd = acts.get(subs[0][0]), acts.get(subs[1][0])
+        need(w["ClassType"] == "ActionWriteInstigatorInfoToContext"
+             and acts.set_fields.get(subs[0][0]) == {"ClassType", "HitpointsKey", "ShieldHitpointsKey",
+                                                     "HitpointsLevelIndex"}
+             and (w["HitpointsKey"], w["ShieldHitpointsKey"]) == ("victim_hp", "victim_shield_hp")
+             and isinstance(w["HitpointsLevelIndex"], int), "the victim's write")
+        need(sd["ClassType"] == "ActionSoulDrain" and isinstance(sd["ConstantFlightDuration"], int)
+             and acts.set_fields.get(subs[1][0], set()) - SOUL_SCRIPT_FLIGHT_DISPLAY == SOUL_DRAIN_FLIGHT_READ,
+             "the soul")
+        arrive = group_subactions(t, sd["ActionOnTargetReached"], f"{unit} soul")
+        sels = [n for n, _ in arrive if acts.get(n)["ClassType"] == "ActionSelect"]
+        need(len(sels) == 1 and all(d == 0 for _, d in arrive)
+             and all(_cosmetic_action(acts, n) for n, _ in arrive if n != sels[0])
+             and acts.get(sd["ActionOnTargetReached"])["ContextMode"] == "Inherit", f"the soul's arrival {arrive}")
+        sel, level = sels[0], w["HitpointsLevelIndex"]
+        extra = {"flight_ms": sd["ConstantFlightDuration"], "counts_shield": True}
     a = acts.get(sel) if isinstance(sel, str) else None
     need(a is not None and a["ClassType"] == "ActionSelect"
          and _present(a) <= {"ClassType", "PerActionConditions", "SubActions"}, f"OnKilledDoneAction {sel!r}")
     conds = _action_list(acts, sel, "PerActionConditions")
     opts = _action_list(acts, sel, "SubActions")
     need(len(conds) == 2 and len(opts) == 3, f"{sel}: {len(conds)} conditions over {len(opts)} options")
-    got = [re.fullmatch(r"target_max_hp\((\d+)\) < (\d+)", str(c)) for c in conds]
-    need(all(got) and got[0].group(1) == got[1].group(1), f"{sel}'s conditions {conds}")
-    level, below = int(got[0].group(1)), [int(m.group(2)) for m in got]
+    if soul:
+        got = [re.fullmatch(r"as_int\(#victim_hp, 0\) \+ as_int\(#victim_shield_hp, 0\) < (\d+)", str(c))
+               for c in conds]
+        need(all(got), f"{sel}'s conditions {conds}")
+        below = [int(m.group(1)) for m in got]
+    else:
+        got = [re.fullmatch(r"target_max_hp\((\d+)\) < (\d+)", str(c)) for c in conds]
+        need(all(got) and got[0].group(1) == got[1].group(1), f"{sel}'s conditions {conds}")
+        level, below = int(got[0].group(1)), [int(m.group(2)) for m in got]
     need(0 < below[0] < below[1], f"{sel}'s thresholds {below}")
     buffs, times = [], set()
     for o in opts:
@@ -5645,7 +5745,7 @@ def kill_heal_block(t: Tables, card: dict) -> dict:
         buffs.append(b)
         times.add(o["SpawnTime"])
     need(len(times) == 1, f"{sel}'s options last {sorted(times)}")
-    return {"level": level, "below": below, "time_ms": times.pop(), "buffs": buffs}
+    return {"level": level, "below": below, "time_ms": times.pop(), "buffs": buffs, **extra}
 
 
 def uppercut_block(t: Tables, card: dict) -> dict:
@@ -5856,6 +5956,7 @@ CAGE_READ = {"ClassType", "CaptureRadius", "HitFrequency", "DamagePerHit", "Numb
              "DragDelay", "CaptureDragTime", "HideDistance", "CaptureCooldown", "PullCenterOffsetX",
              "PullCenterOffsetY",
              "GrabPointOffset", "HideAction", "TimePausedWhenGrabbing", "CapturePriority", "OnCaptureAction"}
+CAGE_HELD_COLS = {"Rarity", "SpeedMultiplier", "HitSpeedMultiplier", "SpawnSpeedMultiplier", "EnableStacking"}
 CAGE_DISPLAY = {"PullEndIdleStartFrame", "PullEndIdleEndFrame", "PullEndGrabStartFrame", "PullEndGrabEndFrame",
                 "CaptureAnimationStartLabel", "CaptureAnimationEndLabel", "IdleAnimationStartLabel",
                 "IdleAnimationEndLabel", "StatsTags", "PullEndClipExportName", "PullEndClipScale", "PullFileName",
@@ -5887,7 +5988,18 @@ def cage_block(t: Tables, card: dict) -> dict:
     need(sorted(cls) == ["ActionCaptureCharacter", "ActionPlayAnimationIfHasTarget"] and all(d == 0 for _, d in subs),
          f"its start runs {subs}")
     cap = acts.get(cls["ActionCaptureCharacter"][0])
-    unread = _present(cap) - CAGE_READ - CAGE_DISPLAY
+    unread = _present(cap) - CAGE_READ - CAGE_DISPLAY - {"BuffDuringCapture"}
+    # 16.402: the captive wears a full stop while caught (BuffDuringCapture: speed, hit speed and spawns at -100),
+    # `captive_buff`. When it starts against the grab is option B request 17.
+    held = None
+    if cap["BuffDuringCapture"] is not None:
+        hname = cap["BuffDuringCapture"]
+        need(t.vintage.filters_format, "a BuffDuringCapture before 16.402")
+        held = norm_buff(t, hname)
+        need(held is not None and t["character_buffs"].set_fields.get(hname, set()) == CAGE_HELD_COLS
+             and all(held[k] == -100 for k in ("speed_multiplier_raw", "hit_speed_multiplier_raw",
+                                               "spawn_speed_multiplier_raw")),
+             f"the capture's buff {hname} is not a full stop")
     need(not unread and cap["NumberOfUnitsToCapture"] == 1
          and cap["TargetFilter"] == "GroundCharacterTargetsNoBuildings",
          f"the capture (sets {sorted(unread)})")
@@ -5900,10 +6012,13 @@ def cage_block(t: Tables, card: dict) -> dict:
          "the capture's numbers")
     need(card["death_spawn"] is not None and card["death_spawn"]["character"] == row["DeathSpawnCharacter"],
          "the record's death spawn")
-    return {"radius_milli": cap["CaptureRadius"], "grab_ahead_milli": cap["GrabPointOffset"],
-            "grab_delay_ms": cap["DragDelay"], "pause_ms": cap["TimePausedWhenGrabbing"],
-            "drag_ms": cap["CaptureDragTime"], "damage": cap["DamagePerHit"], "hit_ms": cap["HitFrequency"],
-            "cooldown_ms": cap["CaptureCooldown"], "unit": row["DeathSpawnCharacter"]}
+    out = {"radius_milli": cap["CaptureRadius"], "grab_ahead_milli": cap["GrabPointOffset"],
+           "grab_delay_ms": cap["DragDelay"], "pause_ms": cap["TimePausedWhenGrabbing"],
+           "drag_ms": cap["CaptureDragTime"], "damage": cap["DamagePerHit"], "hit_ms": cap["HitFrequency"],
+           "cooldown_ms": cap["CaptureCooldown"], "unit": row["DeathSpawnCharacter"]}
+    if held is not None:
+        out["captive_buff"] = held
+    return out
 
 
 # THE EVO WITCH (`soul_drain_block`): the unit row's columns it reads besides display, and the keys of the actions it
@@ -6312,8 +6427,11 @@ def net_block(t: Tables, card: dict) -> dict:
     need(net is not None and net["homing"] and net["speed"] and not net["damage"] and not net["radius_milli"],
          "its net's row")
     hit = acts.get(pt.get(a["Projectile"])["OnHitTargetAction"])
+    # The net skips a target that is dashing: 15.535 "!DASHING" (a game tag), 16.402 "!is_dodging_damage" (a client
+    # builtin no row sets). Neither is run by the engine; 16.402's is written (`hit_unless`) for the loader to decide.
+    guard = "!is_dodging_damage" if t.vintage.filters_format else "!DASHING"
     need(hit is not None and hit["ClassType"] == "ActionGroup" and "ExecuteIfTrue" in _present(hit)
-         and hit["ExecuteIfTrue"] == "!DASHING", "its net's hit")
+         and hit["ExecuteIfTrue"] == guard, f"its net's hit (guard {hit and hit['ExecuteIfTrue']!r})")
     subs = group_subactions(t, pt.get(a["Projectile"])["OnHitTargetAction"], f"{unit} net hit")
     ground = [acts.get(n) for n, _ in subs if (acts.get(n) or {}).get("ClassType") == "ActionAirToGround"]
     select = [n for n, _ in subs if (acts.get(n) or {}).get("ClassType") == "ActionSelect"]
@@ -6326,10 +6444,13 @@ def net_block(t: Tables, card: dict) -> dict:
     need(all(r is not None for r in rows) and all(r[c] == rows[0][c] for r in rows for c in NET_SNARE_COLUMNS)
          and len({s["SpawnTime"] for s in spawns}) == 1, "its snares differ in play")
     need(rows[0]["SpeedMultiplier"] == -100 and rows[0]["HitSpeedMultiplier"] == -100, "its snare is no full stop")
-    return {"range_milli": a["Range"], "cooldown_ms": a["Cooldown"], "initial_ms": a["InitialCooldown"],
-            "cast_ms": a["TrapCastTime"], "start_extra_milli": a["ProjectileStartExtraRadius"], "speed": net["speed"],
-            "snare": norm_buff(t, spawns[0]["SpawnData"]), "snare_ms": spawns[0]["SpawnTime"],
-            "ground_ms": ground[0]["TotalDuration"]}
+    out = {"range_milli": a["Range"], "cooldown_ms": a["Cooldown"], "initial_ms": a["InitialCooldown"],
+           "cast_ms": a["TrapCastTime"], "start_extra_milli": a["ProjectileStartExtraRadius"], "speed": net["speed"],
+           "snare": norm_buff(t, spawns[0]["SpawnData"]), "snare_ms": spawns[0]["SpawnTime"],
+           "ground_ms": ground[0]["TotalDuration"]}
+    if t.vintage.filters_format:
+        out["hit_unless"] = "is_dodging_damage"  # option B request 20
+    return out
 
 
 def mirror_block(t: Tables, s, card: dict) -> dict:
@@ -6415,8 +6536,10 @@ def drill_block(t: Tables, card: dict) -> dict:
     need(len(lines) == len(hides) >= 1 and lines == sorted(lines, reverse=True) and all(0 < x < 100 for x in lines),
          f"its lines {lines} and hides {hides}")
     first = acts.get(rel["FirstAppearAction"])
+    # The base's area: 15.535 its SpawnAreaObject; 16.402 the area its OnStartingAction spawns (`spawn_area_action`).
+    base_area = brow["SpawnAreaObject"] if brow["SpawnAreaObject"] is not None else spawn_area_action(t, brow)
     need(first is not None and first["ClassType"] == "ActionSpawn" and _present(first) <= DRILL_FIRST
-         and first["SpawnType"] == "AreaEffectType" and first["SpawnData"] == brow["SpawnAreaObject"],
+         and first["SpawnType"] == "AreaEffectType" and base_area is not None and first["SpawnData"] == base_area,
          "its first appearance is not its base's area")
     goblin = brow["DeathSpawnCharacter"]
     waves, delay, deploy = [], None, None
@@ -6707,12 +6830,25 @@ def impact_area_block(t: Tables, card: dict) -> dict:
     keys = {"ClassType", "SpawnType", "SpawnData", "SpawnTime"}
     tag = _one_action(acts, pr["OnHitTargetAction"], "ActionSpawn", keys)
     bf = t["character_buffs"]
-    need(tag["SpawnType"] == "BuffType" and bf.get(tag["SpawnData"]) is not None
-         and bf.set_fields.get(tag["SpawnData"], set()) <= IMPACT_TAG_BUFF, f"the shot's OnHitTargetAction {tag}")
+    # 16.402 writes the folded CSV row's Name as a key of its own.
+    tag_cols = bf.set_fields.get(tag["SpawnData"], set())
+    if t.vintage.filters_format and bf.get(tag["SpawnData"]) is not None \
+            and bf.get(tag["SpawnData"])["Name"] == tag["SpawnData"]:
+        tag_cols = tag_cols - {"Name"}
+    need(tag["SpawnType"] == "BuffType" and bf.get(tag["SpawnData"]) is not None and tag_cols <= IMPACT_TAG_BUFF,
+         f"the shot's OnHitTargetAction {tag}")
     name = pr["SpawnAreaEffectObject"]
     a = t["area_effect_objects"].get(name)
-    need(a is not None and a["FollowBehaviour"] == "FollowTarget" and a["StayAfterParentDies"] is True
-         and isinstance(a["HitSpeed"], int) and a["HitSpeed"] > 0 and a["LifeDuration"] == a["HitSpeed"],
+    # One hit at the area's end: 15.535 LifeDuration = HitSpeed; 16.402 no HitSpeed and HitSpeedOffset = LifeDuration
+    # (option B request 2: an offset with no HitSpeed hits once, at the offset), over an enemy filter that reaches the
+    # hidden (the 15.535 row's AffectsHidden).
+    if a is not None and t.vintage.filters_format:
+        one_hit = a["HitSpeed"] is None and isinstance(a["HitSpeedOffset"], int) and a["HitSpeedOffset"] > 0 \
+            and a["HitSpeedOffset"] == a["LifeDuration"] and a["Filter"] == "aeo_enemy_affects_hidden"
+    else:
+        one_hit = a is not None and isinstance(a["HitSpeed"], int) and a["HitSpeed"] > 0 \
+            and a["LifeDuration"] == a["HitSpeed"]
+    need(a is not None and a["FollowBehaviour"] == "FollowTarget" and a["StayAfterParentDies"] is True and one_hit,
          f"the shot's area {name}")
     return {"area": name}
 
@@ -7016,11 +7152,19 @@ def fall_block(t: Tables, card: dict) -> dict:
         if not ok:
             raise SystemExit(f"RoyalHogs_EV1: {what}")
 
-    hp = acts.get(urow["OnStartingAction"]) if isinstance(urow["OnStartingAction"], str) else None
+    # 16.402: the start is a group, at 0, of the river-jump guard (`jump_hack`) and the health trigger.
+    start, jumps = urow["OnStartingAction"], False
+    if t.vintage.filters_format and isinstance(start, str) \
+            and (acts.get(start) or {}).get("ClassType") == "ActionGroup":
+        subs = group_subactions(t, start, f"{unit} start")
+        need(len(subs) == 2 and subs[0][0] == JUMP_HACK and all(d == 0 for _, d in subs) and jump_hack(t) is not None,
+             f"{unit}'s start group {subs}")
+        start, jumps = subs[1][0], True
+    hp = acts.get(start) if isinstance(start, str) else None
     need(hp is not None and hp["ClassType"] == "ActionRunActionAtHealth", f"{unit}'s OnStartingAction")
     need(_present(hp) <= {"ClassType", "HealthPercentages", "Actions"}, "the health trigger's keys")
-    pcts = _action_list(acts, urow["OnStartingAction"], "HealthPercentages")
-    runs = _action_list(acts, urow["OnStartingAction"], "Actions")
+    pcts = _action_list(acts, start, "HealthPercentages")
+    runs = _action_list(acts, start, "Actions")
     need(len(pcts) == 1 and len(runs) == 1 and isinstance(pcts[0], int) and 0 < pcts[0] < 100, "one health line")
     grp = runs[0]
     need(urow["OnAttackAction"] == grp, "OnAttackAction runs another group")
@@ -7063,7 +7207,7 @@ def fall_block(t: Tables, card: dict) -> dict:
          and not grow["OnAttackAction"] and grow["JumpHeight"] == urow["JumpHeight"],
          f"grounded row {grounded} ({sorted(extra)})")
     need(t["area_effect_objects"].get(sp["SpawnData"]) is not None, f"no area {sp['SpawnData']}")
-    return {
+    out = {
         "at_hp_pct": pcts[0],
         "on_attack": True,
         "transition_ms": a["TransitionDuration"],
@@ -7071,6 +7215,11 @@ def fall_block(t: Tables, card: dict) -> dict:
         "landing_area": sp["SpawnData"],
         "reset_path_ms": by["ActionResetPath"][1],
     }
+    # 16.402 only: the flying row runs the river-jump guard; the grounded row clears its start (no guard once
+    # landed). Option B request 21.
+    if jumps:
+        out["jump_ignores_pushback"] = True
+    return out
 
 
 def shot_spawn_block(t: Tables, card: dict) -> dict:
@@ -7140,9 +7289,16 @@ def barrel_block(t: Tables, card: dict) -> dict:
         need(a is not None, f"no area {name}")
         own = at.set_fields.get(name, set())
         base_row = at.set_fields.get(a["Base"].split(".")[-1], set()) if isinstance(a["Base"], str) else set()
-        unread = (own | base_row) - BARREL_DROP_READ - {"ScaledEffect", "StatsTags", "HitEffect"}
+        # 16.402: the flags by Filter (the container's death area's own, CommonAreaDamageFilter), and the one hit at the
+        # fuse an offset with no HitSpeed (option B request 2), where 15.535 gave HitSpeed = LifeDuration.
+        new = t.vintage.filters_format
+        read = (BARREL_DROP_READ - {"HitSpeed", "HitsAir", "HitsGround", "OnlyEnemies"}) \
+            | {"Filter", "HitSpeedOffset"} if new else BARREL_DROP_READ
+        unread = (own | base_row) - read - {"ScaledEffect", "StatsTags", "HitEffect"}
         need(not unread, f"{name} sets {sorted(unread)}")
-        need(a["LifeDuration"] == base["deploy_time_ms"] and a["HitSpeed"] == a["LifeDuration"]
+        one_hit = (a["HitSpeed"] is None and a["HitSpeedOffset"] == a["LifeDuration"]
+                   and a["Filter"] == DEATH_BOMB_FILTER) if new else a["HitSpeed"] == a["LifeDuration"]
+        need(a["LifeDuration"] == base["deploy_time_ms"] and one_hit
              and a["Radius"] == base["death_damage_radius_milli"] and a["Pushback"] == base["death_pushback_milli"]
              and flag(a, "OnlyEnemies") is True, f"{name} is not the container's fuse, radius and push")
         need(_cosmetic_action(acts, a["OnStartingAction"]) or acts.get(a["OnStartingAction"]) is not None,
