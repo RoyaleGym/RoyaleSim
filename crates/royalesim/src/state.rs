@@ -9948,7 +9948,8 @@ pub struct AbilityButton {
     pub form: u16,
     /// The button's newest living hero, if any.
     pub hero: Option<EntityId>,
-    /// A press would be taken but for the elixir and the opening lockout: a hero, deployed, charge unused.
+    /// A press would be taken but for the elixir, a pending press, the opening lockout and game over: the press check's
+    /// own verdict (`BattleState::button_verdict`), so a Warp's wait, its pick and a Tomb's or a Flag's window count.
     pub available: bool,
     /// The newest living hero has used its charge.
     pub spent: bool,
@@ -27965,7 +27966,15 @@ impl BattleState {
                 let champion = self.champion_button(form);
                 let cooldown_ticks = hu.map_or(0, |u| u.recharge_at.saturating_sub(self.tick));
                 let recovers = champion && (self.charge_recovers(form) || hu.is_some_and(|u| self.charges_left(&u, form)));
-                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available: hu.is_some() && !used, spent: used && !recovers, cost, champion, cooldown_ticks })
+                // AVAILABLE is the press check's own verdict (`button_verdict`), so the row and the check cannot disagree:
+                // a Warp before its available_after_ms or with nothing to pick, and a Tomb's or a Flag's closed window, read
+                // unavailable as the check refuses them (RoyaleGym, 2026-10-05: the Hero Mega Minion's row read available
+                // from its first tick while every press was refused).
+                #[cfg(not(clash_plant = "ability_available_ignores_windows"))]
+                let available = self.button_verdict(team, k).is_ok();
+                #[cfg(clash_plant = "ability_available_ignores_windows")]
+                let available = hu.is_some() && !used; // PLANT (regression): the row's old rule, the windows unread.
+                Some(AbilityButton { base, form, hero: hu.map(|u| u.id), available, spent: used && !recovers, cost, champion, cooldown_ticks })
             })
             .collect()
     }
@@ -27992,6 +28001,17 @@ impl BattleState {
             return Err(DeployError::CardPending);
         }
         self.check_elixir(team, a.cost + self.pending_cost(team))?;
+        self.button_verdict(team, k)
+    }
+
+    /// THE BUTTON'S OWN VERDICT: what `check_ability_button` says once the opening lockout, game over, a pending press and
+    /// the elixir are past. NoHero (no button k, nothing alive behind it, or a Tomb's or a Flag's window closed),
+    /// AbilitySpent (a hero's one charge used), AbilityNotReady (a champion's charge out; a Warp before its
+    /// available_after_ms or with nothing to pick). `AbilityButton::available` is this verdict, so the row and the check
+    /// cannot disagree.
+    fn button_verdict(&self, team: Team, k: usize) -> Result<(), DeployError> {
+        let (_, form) = self.button_form(team, k).ok_or(DeployError::NoHero)?;
+        let a = self.cfg.cards.get(form).ability.as_ref().ok_or(DeployError::NoHero)?;
         let h = self.newest_hero(team, form).ok_or(DeployError::NoHero)?;
         let u = self.hero_units[h];
         if u.spent {

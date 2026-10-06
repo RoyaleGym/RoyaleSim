@@ -988,3 +988,23 @@ pub fn tick_until_refilled(s: &mut BattleState, team: Team) -> u32 {
     }
     k
 }
+
+/// THE ROW AND THE CHECK AGREE (state.rs `AbilityButton::available`, `check_ability_button`): a button the row calls
+/// available is refused by the check only for what the row leaves out (the elixir, a pending press, the opening
+/// lockout, game over), and one it calls unavailable is refused. Called every tick through the windows that bite
+/// (a Warp's wait and pick, a Flag's window, a Tomb's window): plant `ability_available_ignores_windows` reddens them.
+pub fn assert_buttons_agree(s: &BattleState, team: Team) {
+    use royalesim::state::DeployError;
+    for (k, b) in s.ability_buttons(team).iter().enumerate() {
+        let v = s.check_ability_button(team, k);
+        let outside = matches!(
+            v,
+            Err(DeployError::NotEnoughElixir { .. } | DeployError::CardPending | DeployError::TooEarly { .. } | DeployError::GameOver)
+        );
+        if b.available {
+            assert!(v.is_ok() || outside, "tick {}: button {k} reads available, the check says {v:?}", s.tick_count());
+        } else {
+            assert!(v.is_err(), "tick {}: button {k} reads unavailable, the check takes the press", s.tick_count());
+        }
+    }
+}

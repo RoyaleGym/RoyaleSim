@@ -1113,7 +1113,9 @@ pub fn state_json_text_with(
         o.push(']');
         // THE SIDE'S ABILITY BUTTONS (state.rs `ability_buttons`), one row per button in button order (the form-2 deck
         // entries, then the champion entries): [available, spent, cost, card_id, cooldown_ticks] -- available 1 when a
-        // press would be taken but for the elixir, spent 1 when a hero has used its one charge (a champion's comes back,
+        // press would be taken but for the elixir, a pending press, the opening lockout and game over (the press check's
+        // own verdict, `BattleState::button_verdict`: a Warp's wait and pick and a Tomb's or a Flag's window count, so
+        // the row and `check_deploy` on the button agree), spent 1 when a hero has used its one charge (a champion's comes back,
         // so it is never spent), cost the press's elixir, card_id the button's base card, cooldown_ticks the ticks until
         // a champion's used charge is back (0 otherwise). Keyed, so a decoder that does not know it drops it.
         o.push_str(",\"abilities\":[");

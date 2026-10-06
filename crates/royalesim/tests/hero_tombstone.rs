@@ -11,7 +11,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_tombstone`): tomb_monster_never, tomb_never, tomb_never_killed, tomb_window_unread, tomb_play_ignored,
-//! tomb_monster_unstepped.
+//! tomb_monster_unstepped, ability_available_ignores_windows (the no-press test: the row reads the button available
+//! after the tomb's window closes, while the monster waits).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -118,6 +119,8 @@ fn with_no_press_its_monster_dies_50_ticks_after_its_tomb_and_a_press_20_ticks_a
     let mut last = d;
     for _ in 0..60 {
         s.tick();
+        // The window closes on the tomb's death + 20 while the monster waits to + 49: the row reads it as the check does.
+        assert_buttons_agree(&s, Team::Blue);
         if s.entity(m).is_some() {
             last = s.tick_count() - 1;
         }
@@ -143,6 +146,7 @@ fn with_no_press_its_monster_dies_50_ticks_after_its_tomb_and_a_press_20_ticks_a
         s.tick();
     }
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    assert!(!s.ability_buttons(Team::Blue)[0].available, "the row reads the closed window as the check does");
     assert!(s.press_ability_button(Team::Blue, 0).is_err(), "the press 31 ticks after the tomb refused");
 }
 

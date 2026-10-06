@@ -10,7 +10,9 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_goblins`): flag_never, flag_spawns_never, flag_play_ignored, flag_never_dies, flag_birth_full_hp,
 //! no_damage_blocks_drain, flag_spawn_acquired_at_once (targeting.SPAWNED_UNIT_ACQUIRE_DELAY: the dummies are targets
-//! from their 8th frame; client 15.535.29, sp-form-Goblins-hero-s0's first dummy taken by an idle tower on F + 7).
+//! from their 8th frame; client 15.535.29, sp-form-Goblins-hero-s0's first dummy taken by an idle tower on F + 7),
+//! ability_available_ignores_windows (`the_last_goblins_death_leaves_the_flag_and_its_button_for_5000_ms`: the row
+//! reads the button available after the flag's window closes).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -94,6 +96,8 @@ fn the_last_goblins_death_leaves_the_flag_and_its_button_for_5000_ms() {
     let mut gone = None;
     for _ in 0..160 {
         s.tick();
+        // The row reads the flag's window as the check does, through its close (RoyaleGym, 2026-10-05).
+        assert_buttons_agree(&s, Team::Blue);
         let now = s.tick_count() - 1;
         if ready_until.is_none() && s.check_ability_button(Team::Blue, 0) == Err(DeployError::NoHero) {
             ready_until = Some(now - d);

@@ -11,6 +11,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_mega_minion`):
+//!   - ability_available_ignores_windows -> `its_button_waits_1500_ms_and_a_pick` red (the row reads available from the
+//!     hero's first tick while the check refuses the press; common.rs `assert_buttons_agree`);
 //!   - warp_swing_held_a_tick -> `the_warp_steps_up_to_its_speed_and_stands_on_its_pick` red;
 //!   - warp_never -> `the_warp_steps_up_to_its_speed_and_stands_on_its_pick` and `its_strike_shot_takes_156` red;
 //!   - warp_full_speed -> `the_warp_steps_up_to_its_speed_and_stands_on_its_pick` red;
@@ -150,18 +152,26 @@ fn its_button_waits_1500_ms_and_a_pick() {
     let mut s = battle();
     s.spawn_unit(Team::Blue, "MegaMinion_hero", n(AT.0, AT.1), None).expect("the hero");
     s.scenario_spawn_now(Team::Red, "Knight", n(AT.0, AT.1 + 4000), None).expect("a red Knight");
+    // The row reads the wait and the pick as the check does, every tick (RoyaleGym, 2026-10-05: it read available from
+    // the hero's first tick while every press was refused).
     for _ in 0..20 {
         s.tick();
+        assert_buttons_agree(&s, Team::Blue);
     }
     assert!(matches!(s.check_ability_button(Team::Blue, 0), Err(DeployError::AbilityNotReady)), "20 ticks after its creation");
+    assert!(!s.ability_buttons(Team::Blue)[0].available, "the row: not ready 20 ticks after its creation");
     for _ in 0..15 {
         s.tick();
+        assert_buttons_agree(&s, Team::Blue);
     }
+    assert!(s.ability_buttons(Team::Blue)[0].available, "the row: ready with a Knight to pick");
     assert!(s.check_ability_button(Team::Blue, 0).is_ok(), "35 ticks after, with a Knight to pick");
     let mut t = battle();
     t.spawn_unit(Team::Blue, "MegaMinion_hero", n(AT.0, AT.1), None).expect("the hero");
     for _ in 0..40 {
         t.tick();
+        assert_buttons_agree(&t, Team::Blue);
     }
     assert!(matches!(t.check_ability_button(Team::Blue, 0), Err(DeployError::AbilityNotReady)), "no enemy troop to pick");
+    assert!(!t.ability_buttons(Team::Blue)[0].available, "the row: no enemy troop to pick");
 }
