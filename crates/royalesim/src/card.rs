@@ -1415,7 +1415,8 @@ pub const TETHER_FIRST_HIT_TICKS: u32 = 19;
 /// THE LITTLE PRINCE'S ATTACK-SPEED RAMP (tools/extract_cards.py `champion_ramp`; state.rs `RampRun`, `ramp_pass`,
 /// `swing_started`). Each shot counts one (to 99) and sets a grace of `grace_ms`; each swing's start sets the grace too,
 /// and at a count of `levels[k].at` hangs `levels[k].buff`, which lives while the count is between `at` and `until`. The
-/// grace runs down only while he moves; at 0, or while his combat is disabled (a stun, a freeze, a cast), the count is 0.
+/// grace runs down only while he moves (combat.RAMP_GRACE_MOVE: on client 15.535.29 his own walk, not a push while he
+/// attacks); at 0, or while his combat is disabled (a stun, a freeze, a cast), the count is 0.
 ///
 /// Measured on client 15.535.29 (Oracle's sp-lp-ramp-s0, sp-lp-walk-s0 and sp-lp-walk2-s0; sp-champ-LittlePrince-s0):
 /// his shots 24, 24, 12, 12, 12, 8, 8 ... ticks apart (HitSpeed 1200; x2 from the 3rd shot, x3 from the 6th), across

@@ -1039,6 +1039,10 @@ pub struct Calib {
     /// avoidance scan. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
     #[serde(default = "death_bomb_avoidance_default")]
     pub death_bomb_avoidance: DeathBombAvoidance,
+    /// combat.RAMP_GRACE_MOVE (`ramp_pass`): what runs the Little Prince's ramp grace down. Added after SNAPSHOT_FORMAT
+    /// 20; the `default` is the old arm, `PointChanged`.
+    #[serde(default = "ramp_grace_move_default")]
+    pub ramp_grace_move: RampGraceMove,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2669,6 +2673,10 @@ fn dismount_mount_acquire_default() -> DismountMountAcquire {
 
 fn death_bomb_avoidance_default() -> DeathBombAvoidance {
     DeathBombAvoidance::None
+}
+
+fn ramp_grace_move_default() -> RampGraceMove {
+    RampGraceMove::PointChanged
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6447,6 +6455,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.RAMP_GRACE_MOVE -- see `ramp_pass` (card.rs `RampDef`): the Little Prince's grace ticker,
+    /// max(0, grace - 50 * is_moving), and what counts as his moving.
+    RampGraceMove {
+        /// The engine's: every tick his point changed (a walk, a push, a knockback).
+        PointChanged = "point_changed",
+        /// Only a tick his own walk stepped (the last move pass's requested step): a push or a knockback while he attacks
+        /// is no move. Measured on client 15.535.29 (lp_ramp_push_census.py, every Little Prince scene): between two swing
+        /// starts with his ramp above its first speed, 6 or more ticks pushed while attacking kept the ramp 3 of 3
+        /// (sp-lp-ramp-s0 t435 to t447, 6 pushes by a walking Golem, x2 to x3; sp-champ-LittlePrince-recharge-q20 t308 and
+        /// t360, 7 and 8), 6 or more walking ticks reset it 6 of 6 (68-tick walks between targets, 12 after a kill); the
+        /// engine's reset on the 6th push (sp-lp-ramp-s0 t443) and made his next 14 shots 24 and 12 ticks apart.
+        Client15535OwnWalk = "client15535_own_walk",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8434,6 +8457,7 @@ impl Calib {
             death_ring_direction: pick(&v, &["spawner", "DEATH_RING_DIRECTION", "value"], DeathRingDirection::from_calibration_name)?,
             dismount_mount_acquire: pick(&v, &["transform", "DISMOUNT_MOUNT_ACQUIRE", "value"], DismountMountAcquire::from_calibration_name)?,
             death_bomb_avoidance: pick(&v, &["movement", "DEATH_BOMB_AVOIDANCE", "value"], DeathBombAvoidance::from_calibration_name)?,
+            ramp_grace_move: pick(&v, &["combat", "RAMP_GRACE_MOVE", "value"], RampGraceMove::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -18193,9 +18217,9 @@ impl BattleState {
     }
 
     /// THE LITTLE PRINCES' RAMPS (card.rs `RampDef`), in the Status phase: the grace runs down 50 a tick he moves (his
-    /// point is not the last tick's), and the count is 0, every level buff off, when the grace is 0 or his combat is
-    /// disabled (a stun or a cast's hold: the stun timer; a freeze: his attack clock stopped). A Little Prince gone ends
-    /// his run.
+    /// point is not the last tick's; under combat.RAMP_GRACE_MOVE = client15535_own_walk, his last walk stepped), and the
+    /// count is 0, every level buff off, when the grace is 0 or his combat is disabled (a stun or a cast's hold: the stun
+    /// timer; a freeze: his attack clock stopped). A Little Prince gone ends his run.
     fn ramp_pass(&mut self) {
         let tick_ms = self.cfg.calib.tick_ms;
         let runs = std::mem::take(&mut self.warps.ramps);
@@ -18207,7 +18231,15 @@ impl BattleState {
             let i = r.id.index as usize;
             let Some(ramp) = self.cfg.cards.get(self.ents.card[i]).ramp.clone() else { continue };
             let pos = self.ents.pos[i];
-            if pos != r.at {
+            // combat.RAMP_GRACE_MOVE = client15535_own_walk: he moves when his own walk stepped (the last move pass's
+            // `walk_step`, 0 while he attacks); a push or a knockback while he attacks is no move.
+            // PLANT (regression) ramp_grace_pushed: the new arm still runs the grace down on a push.
+            #[cfg(not(clash_plant = "ramp_grace_pushed"))]
+            let own_walk = self.cfg.calib.ramp_grace_move == RampGraceMove::Client15535OwnWalk;
+            #[cfg(clash_plant = "ramp_grace_pushed")]
+            let own_walk = false;
+            let moved = if own_walk { self.scratch.walk_step.get(i).is_some_and(|&l| l > 0) } else { pos != r.at };
+            if moved {
                 r.grace_ms = (r.grace_ms - tick_ms).max(0);
             }
             r.at = pos;
@@ -31579,6 +31611,9 @@ impl BattleState {
 /// 20, unchanged, movement.DEATH_BOMB_AVOIDANCE: Calib gained death_bomb_avoidance (serde default the old arm, none), no
 ///    new state (the blockers are read off the spell list each pass), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RAMP_GRACE_MOVE: Calib gained ramp_grace_move (serde default the old arm, point_changed), no new
+///    state (the walk step is the move pass's scratch), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32590,6 +32625,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dismount_mount_acquire".into(), serde_json::to_value(DismountMountAcquire::AtOnce).map_err(|e| e.to_string())?);
     // movement.DEATH_BOMB_AVOIDANCE: a format-3 battle's movers walked through a fused bomb (the same rule).
     sh.insert("death_bomb_avoidance".into(), serde_json::to_value(DeathBombAvoidance::None).map_err(|e| e.to_string())?);
+    // combat.RAMP_GRACE_MOVE: a format-3 battle's Little Prince lost his grace on every tick his point changed (the same rule).
+    sh.insert("ramp_grace_move".into(), serde_json::to_value(RampGraceMove::PointChanged).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

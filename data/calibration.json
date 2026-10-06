@@ -2074,6 +2074,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_substeps_to_aim (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs guard_moves (`substeps`), card.rs GUARD_AIM_OFFSET, GUARD_SPEED, GUARD_STOP; selected by Calib::guard_charge_step; tests/little_prince.rs."
     },
+    "RAMP_GRACE_MOVE": {
+      "value": "point_changed",
+      "candidates": ["point_changed", "client15535_own_walk"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_own_walk on client 15.535.29: 3 of 3 ramps kept through 6 to 8 pushes while he attacked, 6 of 6 reset by a walk of 6 ticks or more; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-05) on client 15.535.29's raw frames (lp_ramp_push_census.py, every scene with a Little Prince, card 26000093): his ramp level each tick from his attack progress's advance (50 a tick at x1, 100 at x2, 150 at x3), his swing starts (the load timer re-armed upward, each a grace set of 300 = 6 ticks), and between each swing start and the next the ticks his point changed while he was attacking (state 2 on both frames: pushed) and while he was not (walking). With his ramp above x1 at the window's start: 6 or more pushed ticks kept the ramp 3 of 3 (sp-lp-ramp-s0 t435 to t447, 6 pushes by the Golem walking into him, x2 then x3 from t448; sp-champ-LittlePrince-recharge-q20-s0 t308 to t320, 7, x2 to x3, and t360 to t368, 8, x3 kept); 6 or more walking ticks reset it 6 of 6 (68-tick walks between targets in sp-lp-far, -live, -side+, -side-; recharge-q20 t368 to t555; sp-lp-ramp-s0 t615 to t632, 12 after his Golem died). The engine ran the grace down on every tick his point changed, so its ramp reset on sp-lp-ramp-s0's sixth push (t443) and his shots fell back to 24 ticks apart where the client's went on at 8 (the Golem 520 hp behind by t506).",
+      "meaning": "point_changed: the engine's; the grace (card.rs RampDef, max(0, grace - 50 * is_moving)) runs down on every tick his point changed. client15535_own_walk: only on a tick his own walk stepped (the last move pass's requested step); a push or a knockback while he attacks is no move.",
+      "open": "a push while he walks (it moves him anyway); a knockback ladder while he walks; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_own_walk (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs ramp_pass (`own_walk`: Scratch::walk_step), selected by Calib::ramp_grace_move; tests/little_prince.rs."
+    },
     "SIEGE_RESET_HOLD": {
       "value": "next_tick",
       "candidates": ["next_tick", "client15535_two_tick_hold"],

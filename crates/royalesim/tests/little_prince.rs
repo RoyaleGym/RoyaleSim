@@ -10,7 +10,11 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! little_prince`): ramp_never, ramp_never_resets, guard_never, guard_never_charges, guard_collides,
 //! early_trigger_late, guard_lands_loaded, guard_push_once (`his_guards_charge_pushes_by_a_ladder_rearmed_every_tick`
-//! red), guard_charge_rescaled (`his_guards_charge_steps_as_the_client_steps_it_under_client15535_substeps_to_aim` red).
+//! red), guard_charge_rescaled (`his_guards_charge_steps_as_the_client_steps_it_under_client15535_substeps_to_aim` red),
+//! ramp_grace_pushed (`his_ramp_holds_through_pushes_while_he_attacks_under_client15535_own_walk` red).
+//!
+//! combat.RAMP_GRACE_MOVE = client15535_own_walk (client 15.535.29, every Little Prince scene: 3 of 3 ramps kept through 6
+//! to 8 pushes while he attacked, 6 of 6 reset by a walk): his grace runs down on his own walk alone.
 //!
 //! combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim (client 15.535.29, the six charges, 78 of 78 steps): the charge
 //! in pieces of 250 and 150 re-aimed at his point + (250, 3250); the engine's rescaled line steps (17, 397).
@@ -19,7 +23,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, GuardChargeStep};
+use royalesim::state::{BattleConfig, BattleState, GuardChargeStep, RampGraceMove};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -36,8 +40,13 @@ fn scene(reds: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, 
 
 /// `scene` under combat.GUARD_CHARGE_STEP = `arm`.
 fn scene_with(arm: GuardChargeStep, reds: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
+    scene_cfg(|c| c.calib.guard_charge_step = arm, reds)
+}
+
+/// `scene` with `tweak` applied to the config first.
+fn scene_cfg(tweak: impl FnOnce(&mut BattleConfig), reds: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
     let mut cfg = config();
-    cfg.calib.guard_charge_step = arm;
+    tweak(&mut cfg);
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -100,6 +109,43 @@ fn his_shots_quicken_twice_after_his_third_and_sixth() {
     let g = gaps(&t);
     assert!(g.len() >= 8, "his shots: {t:?}");
     assert_eq!(&g[..8], &[24, 24, 12, 12, 12, 8, 8, 8], "his shots' gaps: {t:?}");
+}
+
+/// The ticks of his shots at a red Golem held 5000 ahead over 220 ticks, his point put 150 aside on every other tick (a
+/// push while he attacks, as the Golem walking into him gave him in sp-lp-ramp-s0), under combat.RAMP_GRACE_MOVE = `arm`.
+fn pushed_shots(arm: RampGraceMove) -> Vec<u32> {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.ramp_grace_move = arm, &[]);
+    let at = (AT.0, AT.1 + 5000);
+    let reds = vec![(s.scenario_spawn_now(Team::Red, "Golem", n(at), None).expect("a red Golem"), n(at))];
+    let mine = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(lp)).count();
+    let mut known = mine(&s);
+    let mut out = Vec::new();
+    for k in 0..220 {
+        hold(&mut s, lp, &reds);
+        if k % 2 == 1 {
+            assert!(s.debug_set_pos(lp, n((AT.0 - 150, AT.1))));
+        }
+        s.tick();
+        let m = mine(&s);
+        if m > known {
+            out.push(s.tick_count() - 1);
+        }
+        known = m;
+    }
+    out
+}
+
+/// Plant: ramp_grace_pushed.
+#[test]
+fn his_ramp_holds_through_pushes_while_he_attacks_under_client15535_own_walk() {
+    let ramp = [24, 24, 12, 12, 12, 8, 8, 8];
+    // NOT VACUOUS: under point_changed every push runs his grace down, so his ramp never gets past its first speed.
+    let old = pushed_shots(RampGraceMove::PointChanged);
+    let g = gaps(&old);
+    assert!(g.len() >= 8 && g[..8] != ramp && g.iter().all(|&x| x >= 24), "point_changed: the pushes kept his ramp: {old:?}");
+    let new = pushed_shots(RampGraceMove::Client15535OwnWalk);
+    let g = gaps(&new);
+    assert!(g.len() >= 8 && g[..8] == ramp, "client15535_own_walk: his ramp did not hold through the pushes: {g:?} ({new:?})");
 }
 
 #[test]
