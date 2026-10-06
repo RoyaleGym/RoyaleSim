@@ -148,6 +148,62 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+def _deep_merge(into: dict, add: dict, where: str) -> None:
+    for k, v in add.items():
+        if k in into and isinstance(into[k], dict) and isinstance(v, dict):
+            _deep_merge(into[k], v, f"{where}.{k}")
+        elif k in into and into[k] != v:
+            raise SystemExit(f"{where}.{k}: the file declares it twice with different values ({into[k]!r}, {v!r})")
+        else:
+            into[k] = v
+
+
+# --census (a new vintage's first runs): every card or unit a builder refuses is recorded here, with its reason, and
+# left out, so one run lists every refusal; the run then writes no table. None: the first refusal stops the build.
+CENSUS: list[tuple[str, str]] | None = None
+
+
+def census(label: str, fn, *args):
+    """fn(*args), or under --census None with the refusal recorded."""
+    if CENSUS is None:
+        return fn(*args)
+    try:
+        return fn(*args)
+    except SystemExit as e:
+        CENSUS.append((label, str(e)))
+    except Exception as e:  # a builder that trips on a shape it never met: recorded, with its kind
+        CENSUS.append((label, f"{type(e).__name__}: {e}"))
+    return None
+
+
+def client_toml(p: Path) -> dict:
+    """A client TOML file, parsed. The 16.402 client's own files can declare one table twice where it folded a CSV
+    row into TOML beside the row's old overlay (character_buffs.toml: [ImmuneToWeakPushback] once with
+    IgnorePushBack, once with the CSV's Rarity): such a file is read section by section and the repeats merged,
+    which is the old CSV row plus its overlay. Two repeats that give one key different values stop the build; a
+    file that parses as TOML is read exactly as tomllib reads it."""
+    text = p.read_text(encoding="utf-8")
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        if "Cannot declare" not in str(e):
+            raise SystemExit(f"{p}: {e}")
+    if re.search(r"^\s*\[\[", text, re.M):
+        raise SystemExit(f"{p}: declares a table twice and holds an array of tables; not merged")
+    chunks, cur = [], []
+    for line in text.splitlines(keepends=True):
+        if re.match(r"^\s*\[", line) and cur:
+            chunks.append("".join(cur))
+            cur = []
+        cur.append(line)
+    if cur:
+        chunks.append("".join(cur))
+    out: dict = {}
+    for c in chunks:
+        _deep_merge(out, tomllib.loads(c), p.name)
+    return out
+
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mechanic_register as mr  # the 15.535 loaders live there
 
@@ -174,10 +230,36 @@ class Vintage:
     # characters/ (the roster) and events/ (event-mode cards such as SuperKnight,
     # which spells_characters.csv lists with NotVisible = TRUE).
     character_dirs: tuple[str, ...] = ()
+    # A CONTENT UPDATE laid over `raw`, file for file (the client's update folder, decoded the same way): a file the
+    # update carries replaces the base pack's, every other file is the base pack's. None: the base pack alone.
+    update: Path | None = None
+    # data/client_additions applies: rows a LATER client has and this pack lacks (the Minion Giant over 15.535.29). A
+    # vintage of the later client carries those rows itself, and an addition may never change a row the pack has.
+    additions: bool = False
 
     @property
     def is_2018(self) -> bool:
         return self.key == "2018"
+
+    def file(self, rel: str | Path) -> Path:
+        """The vintage's `rel` (under csv_logic): the update's copy where it carries one, else the base pack's."""
+        if self.update is not None and (self.update / rel).is_file():
+            return self.update / rel
+        return self.raw / rel
+
+    def glob(self, sub: str | Path, pattern: str) -> list[Path]:
+        """The vintage's files in `sub` matching `pattern`, by name: the update's copy where it carries one."""
+        by_name = {p.name: p for p in (self.raw / sub).glob(pattern)}
+        if self.update is not None and (self.update / sub).is_dir():
+            by_name.update({p.name: p for p in (self.update / sub).glob(pattern)})
+        return [by_name[n] for n in sorted(by_name)]
+
+    def rel(self, p: Path) -> str:
+        """`p` as the vintage names it: its path under the update or the base pack, csv_logic-relative."""
+        for root in (self.update, self.raw):
+            if root is not None and p.is_relative_to(root):
+                return p.relative_to(root).as_posix()
+        return p.relative_to(ROOT).as_posix()
 
 
 SOURCES_2018 = {
@@ -192,6 +274,27 @@ SOURCES_2018 = {
     # stun spell without its stun is not the card.
     "character_buffs": "character_buffs.csv",
     "rarities": "rarities.csv",
+}
+
+# THE 16.402 LAYOUT (build 160402017): the spells and the rarities stay CSV; characters, buildings, projectiles, areas
+# and buffs are TOML alone (`load_tables` starts each empty and lays its files over it).
+SOURCES_16402 = {
+    "spells_characters": "spells_characters.csv",
+    "spells_buildings": "spells_buildings.csv",
+    "spells_other": "spells_other.csv",
+    "rarities": "rarities.csv",
+    "spells_evolved": "spells_evolved.csv",
+}
+OVERLAYS_16402 = {
+    "characters": ["characters_base.toml", "characters_evo.toml"],
+    "buildings": ["buildings.toml", "buildings_evo.toml"],
+    "projectiles": ["projectiles.toml", "projectiles_evo.toml"],
+    "area_effect_objects": ["area_effect_objects.toml", "area_effect_objects_evo.toml"],
+    "character_buffs": ["character_buffs.toml", "character_buffs_evo.toml"],
+    "spells_characters": ["spells_characters.toml"],
+    "spells_buildings": ["spells_buildings.toml"],
+    "spells_other": ["spells_other.toml"],
+    "actions": ["actions.toml"],
 }
 
 VINTAGES = {
@@ -255,6 +358,52 @@ VINTAGES = {
             "actions": ["actions.toml"],
         },
         character_dirs=("characters", "events"),
+        additions=True,
+    ),
+    # THE CURRENT CLIENT (build 160402017, 16.402.17; owner's option B, 2026-10-05): its install-time asset pack,
+    # decoded by tools/decode_sc_assets.py (data/raw/cr-160402017, content 16.402.2). The client moved characters,
+    # buildings, projectiles, areas and buffs out of CSV into TOML (characters_base.toml and the per-character files),
+    # so those tables are built from their overlays alone; the spells and the rarities are still CSV.
+    "160402017": Vintage(
+        key="160402017",
+        raw=ROOT / "data" / "raw" / "cr-160402017" / "csv_logic",
+        version="cards-160402017.1",
+        warning=(
+            "LIVE 2026 BUILD (the 160402017 client's install-time asset pack, content 16.402.2, decoded by "
+            "tools/decode_sc_assets.py). Every number in this file is EVIDENCE, NOT SPEC: the columns are the "
+            "client's, what the engine does with each is calibration.json's. Stats are UNIFIED LEVEL-1 base "
+            "values (calibration.json combat.STAT_BASE_LEVEL). Effective row = the client's TOML rows (the "
+            "per-character files over characters_base.toml); evolutions and hero forms are excluded from `cards`."
+        ),
+        source="Supercell csv_logic/ of the 160402017 client's install-time asset pack, decoded by "
+        "tools/decode_sc_assets.py (data/raw/cr-160402017/MANIFEST.json carries the per-file hashes)",
+        vintage="160402017 client, content 16.402.2 (2026-10-02 install)",
+        roster_dating="The build is in the file (MANIFEST.json build 160402017, content_version 16.402.2).",
+        sources=SOURCES_16402,
+        overlays=OVERLAYS_16402,
+        character_dirs=("characters", "events"),
+    ),
+    # THE SAME BUILD WITH THE 2026-10-06 CONTENT UPDATE laid over it (content 16.402.19; the update folder's changed
+    # files, data/raw/cr-160402017-20261006): the live game since 2026-10-05 23:37 PDT.
+    "160402017-20261006": Vintage(
+        key="160402017-20261006",
+        raw=ROOT / "data" / "raw" / "cr-160402017" / "csv_logic",
+        update=ROOT / "data" / "raw" / "cr-160402017-20261006" / "csv_logic",
+        version="cards-160402017-20261006.1",
+        warning=(
+            "LIVE 2026 BUILD (the 160402017 client with its 2026-10-06 content update, content 16.402.19: the "
+            "update's files over the install-time pack, decoded by tools/decode_sc_assets.py). Every number in this "
+            "file is EVIDENCE, NOT SPEC: the columns are the client's, what the engine does with each is "
+            "calibration.json's. Stats are UNIFIED LEVEL-1 base values (calibration.json combat.STAT_BASE_LEVEL). "
+            "Effective row = the client's TOML rows; evolutions and hero forms are excluded from `cards`."
+        ),
+        source="Supercell csv_logic/ of the 160402017 client: the 2026-10-06 update folder over the install-time "
+        "pack, decoded by tools/decode_sc_assets.py (each pack's MANIFEST.json carries its per-file hashes)",
+        vintage="160402017 client, content 16.402.19 (the 2026-10-06 balance update)",
+        roster_dating="The build and content are in the files (MANIFEST.json build 160402017, content_version 16.402.19).",
+        sources=SOURCES_16402,
+        overlays=OVERLAYS_16402,
+        character_dirs=("characters", "events"),
     ),
 }
 # The 15.535 file became the default once it passed every gate (cargo test, clippy,
@@ -296,7 +445,9 @@ SECTION_TABLE = {
 # extensions and shapes: not part of a base card's row. SPELL_EVOLVED / SPELL_HERO
 # are excluded on purpose (module doc); the rest are mechanic_register.SKIP_SECTIONS
 # plus the tables this schema does not join.
-SKIP_SECTIONS = (mr.SKIP_SECTIONS - {"EXT"}) | {"SPELL_EVOLVED", "SPELL_HERO", "ABILITY", "CARD_GROUP", "FILTER"}
+# CLIENT_ACTION (16.402 on): the client's own visual actions, ClientActionAnimatorLayer and ClientActionAddHealthBarPart
+# only (every one in the 160402017 pack); 15.535.29 filed the same health-bar parts as [ACTION.*] ActionAddHealthBarPart.
+SKIP_SECTIONS = (mr.SKIP_SECTIONS - {"EXT"}) | {"SPELL_EVOLVED", "SPELL_HERO", "ABILITY", "CARD_GROUP", "FILTER", "CLIENT_ACTION"}
 EXCLUDED_TABLES = {
     "spells_evolved.csv": (
         "evolutions: every row summons a distinct *_EV1 character (characters_evo.toml / "
@@ -786,27 +937,32 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
     t = Tables(v)
     if v.is_2018:
         for k, f in v.sources.items():
-            t[k] = Table(k, v.raw / f)
+            t[k] = Table(k, v.file(f))
         return t
     if not v.raw.is_dir():
         raise SystemExit(
             f"missing {v.raw}: decode the {v.key} assets first (tools/decode_sc_assets.py)"
         )
     for k, f in v.sources.items():
-        t[k] = OverlayTable(k, v.raw / f)
+        t[k] = OverlayTable(k, v.file(f))
+    # A table the client keeps as TOML alone (16.402 moved characters, buildings, projectiles, areas and buffs out of
+    # CSV): it starts empty and is built from its overlays, as `actions` always was.
+    for k in v.overlays:
+        if k not in v.sources and k != "actions":
+            t[k] = OverlayTable(k, None)
     t["actions"] = OverlayTable("actions", None)
     # [DAMAGE_TYPE.*] sections of the per-character files (SECTION_TABLE). No output lists this
     # table's files, and nothing but `parry` reads it, so every other row is unchanged by it.
     t["damage_types"] = OverlayTable("damage_types", None)
     for k, files in v.overlays.items():
         for f in files:
-            p = v.raw / f
+            p = v.file(f)
             if not p.is_file():
                 raise SystemExit(f"missing overlay {p}")
-            t[k].overlay(p, tomllib.load(p.open("rb")), f)
+            t[k].overlay(p, client_toml(p), f)
     for sub in v.character_dirs:
-        for p in sorted((v.raw / sub).glob("*.toml")):
-            doc = tomllib.load(p.open("rb"))
+        for p in v.glob(sub, "*.toml"):
+            doc = client_toml(p)
             for section, body in doc.items():
                 if section == "EXT" and isinstance(body, dict):
                     # [EXT.Name] Base = "KIND.Other": a real object of KIND that extends
@@ -857,8 +1013,8 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
     # gameplay rows as a later client's tables datamine them (the file names the client). A row is taken only where
     # the pack has none of that name: an addition never changes a card the pack carries.
     additions = ROOT / "data" / "client_additions"
-    for p in sorted(additions.glob("*.toml")) if additions.is_dir() else []:
-        for section, body in tomllib.load(p.open("rb")).items():
+    for p in sorted(additions.glob("*.toml")) if additions.is_dir() and v.additions else []:
+        for section, body in client_toml(p).items():
             if not isinstance(body, dict):
                 raise SystemExit(f"{p.name}: [{section}] is not a table")
             for name, fields in body.items():
@@ -875,9 +1031,9 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
                 t[key].overlay(p, {name: fields}, f"client_additions/{p.name} [{section}]")
 
     # The target filters an action names (TargetFilter, HitFilter), by name: read by `strike_area_block`.
-    filters = v.raw / "game_object_filters.toml"
+    filters = v.file("game_object_filters.toml")
     if filters.is_file():
-        t.filters.update({n: f for n, f in tomllib.load(filters.open("rb")).items() if isinstance(f, dict)})
+        t.filters.update({n: f for n, f in client_toml(filters).items() if isinstance(f, dict)})
     if hero:
         overlay_hero_files(t, v, hero)
 
@@ -4112,7 +4268,7 @@ GLOBALS_READ = (
 
 
 def globals_block(v: Vintage) -> dict:
-    path = v.raw / "globals.csv"
+    path = v.file("globals.csv")
     with path.open(encoding="utf-8", newline="") as fh:
         rd = csv.reader(fh)
         header = next(rd)
@@ -4379,9 +4535,8 @@ def overlay_evolved_rows(t: Tables, ev) -> None:
     spells_evolved.csv rows (the table loader skips the section everywhere else, SKIP_SECTIONS): the Elite Barbarians'
     SummonCharactersList and its offsets live there alone. A section for a row outside EVOLUTIONS is not read, so no
     other row changes."""
-    folder = t.vintage.raw / "characters"
-    for p in sorted(folder.glob("*.toml")):
-        doc = tomllib.load(p.open("rb"))
+    for p in t.vintage.glob("characters", "*.toml"):
+        doc = client_toml(p)
         body = doc.get("SPELL_EVOLVED")
         if not isinstance(body, dict):
             continue
@@ -4847,7 +5002,7 @@ def army_block(t: Tables, card: dict, s: dict) -> dict:
 
     # The play's list lives in csv_logic/spells_evolved.toml's flat [SkeletonArmy_EV1] section, which the table loader
     # does not lay over the csv: read here, every key pinned or read.
-    sec = tomllib.load((t.vintage.raw / "spells_evolved.toml").open("rb")).get(s["Name"]) or {}
+    sec = client_toml(t.vintage.file("spells_evolved.toml")).get(s["Name"]) or {}
     need(set(sec) <= {"SummonCharactersList", "SummonCharactersOffsetsX", "SummonCharactersOffsetsY", "Stats"},
          f"spells_evolved.toml [{s['Name']}] sets {sorted(sec)}")
     lst = sec.get("SummonCharactersList")
@@ -5635,7 +5790,7 @@ def mirror_block(t: Tables, s, card: dict) -> dict:
 
     # Its section of csv_logic/spells_evolved.toml (no overlay lays that file): the execute action, the layout its
     # barrel shares with its base's, and the card screen's stats.
-    doc = tomllib.load((t.vintage.raw / "spells_evolved.toml").open("rb")).get(name) or {}
+    doc = client_toml(t.vintage.file("spells_evolved.toml")).get(name) or {}
     need(set(doc) <= {"OnExecuteAction", "SummonCharactersOffsetsX", "SummonCharactersOffsetsY", "Stats"},
          f"its spells_evolved.toml section sets {sorted(doc)}")
     a = acts.get(doc.get("OnExecuteAction"))
@@ -6537,8 +6692,8 @@ def hero_file_links(v: Vintage) -> dict[str, list]:
     """Each base card's EvolvedSpells as the hero form files set it ([SPELL_CHARACTER.<base>] or [SPELL_BUILDING.<base>]
     in characters/hero_form/*_spell.toml), by base name."""
     out: dict[str, list] = {}
-    for p in sorted((v.raw / "characters" / "hero_form").glob("*_spell.toml")):
-        doc = tomllib.loads(p.read_text(encoding="utf-8"))
+    for p in v.glob("characters/hero_form", "*_spell.toml"):
+        doc = client_toml(p)
         for section in ("SPELL_CHARACTER", "SPELL_BUILDING"):
             for base, row in (doc.get(section) or {}).items():
                 if isinstance(row, dict) and isinstance(row.get("EvolvedSpells"), list):
@@ -6552,7 +6707,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     out = []
     ev = t["spells_evolved"]
     overlay_evolved_rows(t, ev)
-    for name in EVOLUTIONS:
+    # One form, built whole or refused whole (`census` lists a refusal and goes on under --census).
+    def one(name: str) -> dict:
         s = ev.get(name)
         if s is None or (s["NotInUse"] and name not in EVOLUTIONS_PLAYED_NOT_IN_USE):
             raise SystemExit(f"spells_evolved.{name}: absent or NotInUse")
@@ -6586,8 +6742,7 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
                 card["evo_capture"] = capture_block(t, card)
             if name == "GoblinBarrel_EV1":
                 card["evo_mirror"] = mirror_block(t, s, card)
-            out.append(card)
-            continue
+            return card
         card = summon_card(t, rarities, kind, "spells_evolved", s)
         # The form's kind is its base card's: Cannon_EV1 is an [EXT] of CHARACTER.Cannon, filed under characters,
         # with IsBuilding inherited true.
@@ -6688,7 +6843,12 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             if card["summon_deploy_delay_ms"] is None:
                 card["summon_deploy_delay_ms"] = s["SummonSpawnDelay"]
         card["cloned_version"] = urow["ClonedVersion"]
-        out.append(card)
+        return card
+
+    for name in EVOLUTIONS:
+        card = census(f"spells_evolved.{name}", one, name)
+        if card is not None:
+            out.append(card)
     return out
 
 
@@ -6786,8 +6946,7 @@ AIR_FORM_COLUMNS = {"Base", "Projectile", "ClonedVersion", "FlyingHeight", "Pref
 
 def hero_files(v: Vintage, stem: str) -> list[Path]:
     """A hero form's two files: its card row, then its unit and ability."""
-    folder = v.raw / "characters" / "hero_form"
-    return [folder / f"{stem}_spell.toml", folder / f"{stem}.toml"]
+    return [v.file(f"characters/hero_form/{stem}_spell.toml"), v.file(f"characters/hero_form/{stem}.toml")]
 
 
 def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
@@ -6801,7 +6960,7 @@ def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
         for p in hero_files(v, stem):
             label = f"characters/hero_form/{p.name}"
             made: set[tuple[str, str]] = set()
-            for section, body in tomllib.load(p.open("rb")).items():
+            for section, body in client_toml(p).items():
                 if not isinstance(body, dict):
                     raise SystemExit(f"{label}: [{section}] is not a table")
                 if section in ("SPELL_CHARACTER", "SPELL_BUILDING", "SPELL_OTHER"):
@@ -6811,7 +6970,8 @@ def overlay_hero_files(t: Tables, v: Vintage, forms: dict) -> None:
                 if section == "ABILITY":
                     t.abilities.update(body)
                     continue
-                if section == "STATS":
+                # [CLIENT_ACTION.*] (16.402 on) are the client's visuals, as in the base pass (SKIP_SECTIONS).
+                if section in ("STATS", "CLIENT_ACTION"):
                     continue
                 # [CARD_GROUP.*] (the Hero Wizard's): the cards an ActionActivateOnCardDeploy listens for, which only
                 # the button's display reads.
@@ -8367,7 +8527,7 @@ def tomb_button(h: Tables, form: str, group: dict, units: dict, card: dict) -> d
     need(m is not None, "its card group")
     groups: dict = {}
     for f in hero_files(h.vintage, HERO_FORMS[form][1]):
-        groups.update(tomllib.loads(f.read_text(encoding="utf-8")).get("CARD_GROUP", {}))
+        groups.update(client_toml(f).get("CARD_GROUP", {}))
     g = groups.get(card_group)
     need(g is not None and not g.get("SupportCards"), f"its card group {card_group}")
     return {
@@ -8839,8 +8999,9 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
     h.level_base = level_base
     out: list[dict] = []
     files: list[Path] = []
-    for form, (base, stem) in HERO_FORMS.items():
-        files += hero_files(v, stem)
+    # One form, built whole or refused whole (`census` lists a refusal and goes on under --census).
+    def one(form: str, base: str, stem: str) -> dict:
+        files.extend(hero_files(v, stem))
         s = h["spells_hero"].get(form)
         if s is None or s["CardForm"] != "HeroForm":
             raise SystemExit(f"hero form {form}: no [SPELL_HERO] row with CardForm HeroForm")
@@ -8851,8 +9012,7 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         key = next((k for k in ("spells_characters", "spells_buildings") if h[k].get(base) is not None), None)
         # A SPELL'S HERO FORM (the Hero Barbarian Barrel): its own card (`spell_hero_card`), built apart.
         if key is None and h["spells_other"].get(base) is not None:
-            out.append(spell_hero_card(h, rarities, form, base, s))
-            continue
+            return spell_hero_card(h, rarities, form, base, s)
         if key is None:
             raise SystemExit(f"hero form {form}: base card {base} is not a troop or building card")
         # A GROUP FORM (the Hero Tombstone): the card of its own building (`tomb_group`); the others are its button's.
@@ -8896,7 +9056,7 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         elif linked is not None:
             groups: dict = {}
             for f in hero_files(v, stem):
-                groups.update(tomllib.loads(f.read_text(encoding="utf-8")).get("CARD_GROUP", {}))
+                groups.update(client_toml(f).get("CARD_GROUP", {}))
             card["ability"] = flag_button(h, form, unit, urow, linked, units, groups)
             card["action_graph"] = None
             units[unit]["action_graph"] = None
@@ -8926,7 +9086,12 @@ def hero_form_records(v: Vintage, rarities: dict, level_base: str) -> tuple[list
         if dae:
             aeos[dae] = norm_aeo(h, dae)
         card["tables"] = {"units": units, "area_effect_objects": aeos}
-        out.append(card)
+        return card
+
+    for form, (base, stem) in HERO_FORMS.items():
+        card = census(f"hero form {form}", one, form, base, stem)
+        if card is not None:
+            out.append(card)
     return out, files
 
 
@@ -8944,9 +9109,11 @@ def build(t: Tables) -> dict:
                 not_in_use.append(f"{key}.{name}")
                 continue
             if kind == "spell":
-                card = spell_card(t, rarities, s)
+                card = census(f"{key}.{name}", spell_card, t, rarities, s)
             else:
-                card = summon_card(t, rarities, kind, key, s)
+                card = census(f"{key}.{name}", summon_card, t, rarities, kind, key, s)
+            if card is None:
+                continue
             if not v.is_2018:
                 # NotVisible: an event-mode / hidden card (SuperKnight, TriWizards, the
                 # Chess recruits...) that is not in the collection. Kept in `cards` -- it
@@ -8959,7 +9126,9 @@ def build(t: Tables) -> dict:
         for name in t[key].records:
             if name in units:
                 raise SystemExit(f"unit name {name!r} in both characters and buildings")
-            units[name] = norm_unit(t, name, with_raw=True)
+            u = census(f"{key}.{name} (unit)", norm_unit, t, name, True)
+            if u is not None:
+                units[name] = u
     # A TETHER CHAMPION'S SECOND UNIT (Goblinstein's Doctor): its start (the tether's area) is the button's, read whole
     # (`champion_tether`); its graph goes.
     for card in cards:
@@ -9042,16 +9211,16 @@ def build(t: Tables) -> dict:
         tb = t[k]
         for p in tb.files:
             # A client addition (`load_tables`) is named by its repo path, the pack's files by their pack path.
-            rel = p.relative_to(v.raw).as_posix() if p.is_relative_to(v.raw) else p.relative_to(ROOT).as_posix()
+            rel = v.rel(p)
             entry = files.setdefault(rel, {"sha256": sha256_of(p)})
             if p == tb.path:
                 entry["continuation_rows"] = tb.continuation_rows
     if not v.is_2018:
         # the file the `globals` block comes from (`globals_block`)
-        files["globals.csv"] = {"sha256": sha256_of(v.raw / "globals.csv")}
+        files["globals.csv"] = {"sha256": sha256_of(v.file("globals.csv"))}
         # the target filters a striking area names (`strike_area_block`)
-        if (v.raw / "game_object_filters.toml").is_file():
-            files["game_object_filters.toml"] = {"sha256": sha256_of(v.raw / "game_object_filters.toml")}
+        if v.file("game_object_filters.toml").is_file():
+            files["game_object_filters.toml"] = {"sha256": sha256_of(v.file("game_object_filters.toml"))}
     provenance = {
         "source": v.source,
         "vintage": v.vintage,
@@ -9141,7 +9310,7 @@ def build(t: Tables) -> dict:
         doc["evolutions"] = evolution_records(t, rarities)
         # THE HERO FORMS (`hero_form_records`), last, from a load of their own: no other record changes.
         doc["hero_forms"], hero_files = hero_form_records(v, rarities, t.level_base)
-        read = {p.relative_to(v.raw).as_posix(): {"sha256": sha256_of(p)} for p in hero_files}
+        read = {v.rel(p): {"sha256": sha256_of(p)} for p in hero_files}
         provenance["files"] = dict(sorted({**provenance["files"], **read}.items()))
     return doc
 
@@ -9166,8 +9335,12 @@ def main() -> int:
         default=None,
         help="default: data/derived/cards.json for the default vintage, cards-<vintage>.json otherwise",
     )
+    ap.add_argument("--census", action="store_true", help="list every refusal of a new vintage; writes no table")
     args = ap.parse_args()
     v = VINTAGES[args.vintage]
+    if args.census:
+        global CENSUS
+        CENSUS = []
 
     print("*** " + v.warning)
     t = load_tables(v)
@@ -9179,6 +9352,11 @@ def main() -> int:
             + (f" {len(tb.files) - 1:3d} overlay files" if isinstance(tb, OverlayTable) else "")
         )
     doc = build(t)
+    if CENSUS is not None:
+        print(f"CENSUS {v.key}: {len(CENSUS)} refusals")
+        for label, why in CENSUS:
+            print(f"  {label}: {why}")
+        return 1 if CENSUS else 0
 
     fail, notes = check_hog_ladder(doc["rarities"], doc["units"], doc["cards"])
     hog = doc["units"]["HogRider"]
