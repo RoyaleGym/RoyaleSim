@@ -2523,6 +2523,18 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
         "cap_buff_time_to_area_effect_time": flag(a, "CapBuffTimeToAreaEffectTime"),
         "affects_hidden": flag(a, "AffectsHidden"),
     }
+    v = getattr(t, "vintage", None)
+    if v is not None and v.filters_format:
+        # 16.402 (`normalize_16402`): the crown-tower damage as a level-1 value of its own where the row gives one
+        # (Zap 19, Freeze 15, the Goblin Drill's emergence 8; an absent one is the full damage), the first hit's
+        # offset (pack-wide in 16.402; an area with an offset and no HitSpeed hits once, at the offset), and the
+        # damage's flags (the Earthquake's DamagesHidden). Written for the 16.402 vintages only, so the 15.535 and
+        # 2018 files stay byte-identical.
+        if a["TowerDamage"] is not None:
+            out["tower_damage"] = a["TowerDamage"]
+        out["hit_speed_offset_ms"] = a["HitSpeedOffset"]
+        if a["DamageFlags"] is not None:
+            out["damage_flags"] = a["DamageFlags"]
     if isinstance(a, Row):
         out["action_graph"] = action_graph(t, a, inline_row=name if WALK_INLINE else None)
         # ControlsBuff (15.535 only, so the 2018 file stays byte-identical): the buff this area
