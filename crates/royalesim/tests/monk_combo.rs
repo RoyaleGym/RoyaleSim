@@ -35,6 +35,7 @@
 //!   combo_push_keeps_clock             the new arm's undone walk keeps its stomp clock's advance: (5)'s clock check goes red.
 //!   reach_loss_combo_unread            combat.RETARGET_WAIT_REACH_LOSS's new arm reads the inferno's ramp alone: (6) goes red.
 //!   reach_loss_combo_kept              the new arm counts a re-picked or held knocked target as kept: (6) goes red.
+//!   reach_loss_combo_in_reach_taken    the new arm takes an enemy already in the Monk's reach at once: (7) goes red.
 mod common;
 
 use common::*;
@@ -288,4 +289,49 @@ fn the_monk_waits_five_ticks_after_his_knocked_target_leaves_his_reach_under_cli
     let new = untargeted_after_push(RetargetWaitReachLoss::Client15535AfterReachLossCombo);
     assert_eq!(new.len(), 5, "client15535_after_reach_loss_combo: not five ticks without a target ({new:?})");
     assert!(new.windows(2).all(|w| w[1] == w[0] + 1), "client15535_after_reach_loss_combo: the five ticks are not one run ({new:?})");
+}
+
+/// (7) combat.RETARGET_WAIT_REACH_LOSS = client15535_after_reach_loss_combo, an enemy in reach (client 15.535.29: 2 of 2,
+/// sp-champ-Monk-recharge-q20-s0 t692 and sp-champ-Monk-nopress-s0 t255): a Red Knight he swings at put 3,500 off him,
+/// out of his reach, while a second Red Knight stands 1,800 from him, inside it (Range 1,200 + both radii, 2,200): the
+/// ticks after the loss on which he held no target, and the target he took after them.
+fn untargeted_with_one_in_reach(arm: RetargetWaitReachLoss) -> (Vec<u32>, Option<EntityId>, EntityId) {
+    let mut cfg = cfg_with(AttackCombo::SequenceAcrossTargets, ComboPushback::LadderFromAttackerHitTick, DRAGON_ONLY_REACH);
+    cfg.calib.retarget_wait_reach_loss = arm;
+    let (a0, b0) = ((3500, 10400), (5300, 9000));
+    let (mut s, monk, reds) = scene(cfg, "Monk", &[("Knight", a0), ("Knight", b0)]);
+    let (a, b) = (reds[0], reds[1]);
+    let full = s.entity(monk).expect("the Monk").max_hp;
+    let mut at_a = a0;
+    let (mut moved, mut gaps) = (false, Vec::new());
+    for t in 0..160u32 {
+        assert!(s.debug_set_pos(a, n(at_a)) && s.debug_set_pos(b, n(b0)) && s.debug_set_hp(monk, full));
+        s.tick();
+        let m = s.entity(monk).expect("the Monk");
+        if !moved {
+            if m.target == Some(a) && m.attack_phase == AttackPhase::Windup && m.attack_ms > 0 {
+                at_a = (3500, 12500);
+                moved = true;
+            }
+            continue;
+        }
+        match m.target {
+            None => gaps.push(t),
+            Some(x) => return (gaps, Some(x), b),
+        }
+    }
+    assert!(moved, "{arm:?}: the scene drifted: he never swung at the first Knight");
+    (gaps, None, b)
+}
+
+/// Plant: reach_loss_combo_in_reach_taken.
+#[test]
+fn the_monk_waits_after_a_reach_loss_with_an_enemy_in_his_reach_under_client15535_after_reach_loss_combo() {
+    let (gaps, took, b) = untargeted_with_one_in_reach(RetargetWaitReachLoss::Client15535AfterReachLossCombo);
+    assert_eq!(gaps.len(), 5, "client15535_after_reach_loss_combo: not five ticks without a target ({gaps:?})");
+    assert!(gaps.windows(2).all(|w| w[1] == w[0] + 1), "client15535_after_reach_loss_combo: the five ticks are not one run ({gaps:?})");
+    assert_eq!(took, Some(b), "client15535_after_reach_loss_combo: not the Knight in his reach after the wait");
+    // NOT VACUOUS: the inferno's scope alone (the Monk outside it) takes the Knight in his reach at once.
+    let (old, took_old, b_old) = untargeted_with_one_in_reach(RetargetWaitReachLoss::ClientAfterReachLoss);
+    assert!(old.is_empty() && took_old == Some(b_old), "client_after_reach_loss: he did not take the Knight in his reach at once ({old:?}, {took_old:?})");
 }

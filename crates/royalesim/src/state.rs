@@ -4469,7 +4469,10 @@ calib_enum!(
         /// kept at 2,192 and let go at 2,355; a Giant kept at 2,422 and let go at 2,478; an Ice Golemite kept at 2,295
         /// and let go at 2,444), his attack progress 0 at once, holds no target for five ticks and takes his next on the
         /// sixth, 7 of 7 (sp-champ-Monk-recharge-q20-s0 t306 to t310, the Giant again on t311, walking); the engine's
-        /// Monk kept the Giant and stood in his attack.
+        /// Monk kept the Giant and stood in his attack. A Monk waits with an enemy already in his reach, too: the in-reach
+        /// exemption is the inferno's alone (every Monk reach loss recorded, 10 of 10 waited five ticks; the two with
+        /// another enemy inside his reach, sp-champ-Monk-recharge-q20-s0 t692, a Wallbreaker 1,899 from him against his
+        /// reach of 2,100 on it, and sp-champ-Monk-nopress-s0 t255, waited and took it on the sixth).
         Client15535AfterReachLossCombo = "client15535_after_reach_loss_combo",
     }
 );
@@ -16807,8 +16810,15 @@ impl BattleState {
                         let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
                         let left = !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti]);
                         // A new target already in reach is taken at once, as client 15.535.29's reach-loss scenarios show
-                        // a Knight doing (the Cannon it switched to stood in its reach).
-                        let next_in_reach = d.target.filter(|n| e.standing(*n, struck)).is_some_and(|n| {
+                        // a Knight doing (the Cannon it switched to stood in its reach). client15535_after_reach_loss_combo:
+                        // not by a Monk, who waits with an enemy in his reach (2 of 2 such losses: sp-champ-Monk-recharge-q20-s0
+                        // t692, a Wallbreaker 1,899 from him against his reach of 2,100; sp-champ-Monk-nopress-s0 t255).
+                        // PLANT (regression) reach_loss_combo_in_reach_taken: the new arm still takes an enemy in reach at once.
+                        #[cfg(not(clash_plant = "reach_loss_combo_in_reach_taken"))]
+                        let exempt = !repick_lost;
+                        #[cfg(clash_plant = "reach_loss_combo_in_reach_taken")]
+                        let exempt = true;
+                        let next_in_reach = exempt && d.target.filter(|n| e.standing(*n, struck)).is_some_and(|n| {
                             let ni = n.index as usize;
                             target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ni], e.radius[ni])
                         });

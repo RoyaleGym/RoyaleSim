@@ -1557,7 +1557,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   status.FIRST_HIT_BUFF_COUNTDOWN = client15535_from_next_tick: an Evo Minion Horde minion's ghost is counted down from
 ///   the tick after its first damage (slowed through H + 60, 6 of 6).
 ///   combat.RETARGET_WAIT_REACH_LOSS = client15535_after_reach_loss_combo: the Monk waits five ticks after his knocked
-///   target leaves his reach, as the Inferno Dragon does (7 of 7 knocks).
+///   target leaves his reach, as the Inferno Dragon does (7 of 7 knocks), an enemy in his reach or not (2 of 2).
 ///   formation.LINE_CENTRE_SEARCH = client15535_interleaved_first_ring: a line's place is looked for as the client walks
 ///   it (245 of 246 Royal Recruits taps).
 ///   combat.CAGE_RELEASE_SCAN = client15535_scans_while_held: an Evo Goblin Cage's freed captive takes its target on the
