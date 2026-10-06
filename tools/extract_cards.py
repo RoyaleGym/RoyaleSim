@@ -148,6 +148,12 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import mechanic_register as mr  # the 15.535 loaders live there
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
 def _deep_merge(into: dict, add: dict, where: str) -> None:
     for k, v in add.items():
         if k in into and isinstance(into[k], dict) and isinstance(v, dict):
@@ -187,7 +193,7 @@ def client_toml(p: Path) -> dict:
         return tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         if "Cannot declare" not in str(e):
-            raise SystemExit(f"{p}: {e}")
+            raise SystemExit(f"{p}: {e}") from e
     if re.search(r"^\s*\[\[", text, re.M):
         raise SystemExit(f"{p}: declares a table twice and holds an array of tables; not merged")
     chunks, cur = [], []
@@ -203,11 +209,6 @@ def client_toml(p: Path) -> dict:
         _deep_merge(out, tomllib.loads(c), p.name)
     return out
 
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import mechanic_register as mr  # the 15.535 loaders live there
-
-ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "derived" / "cards.json"
 
 
@@ -236,7 +237,8 @@ class Vintage:
     # data/client_additions applies: rows a LATER client has and this pack lacks (the Minion Giant over 15.535.29). A
     # vintage of the later client carries those rows itself, and an addition may never change a row the pack has.
     additions: bool = False
-    # The 16.402 targeting and damage format (`normalize_16402`): areas name a Filter, damage is {BaseDamage, TowerDamage}.
+    # The 16.402 targeting and damage format (`normalize_16402`): areas name a Filter, damage is
+    # {BaseDamage, TowerDamage}.
     filters_format: bool = False
 
     @property
@@ -403,7 +405,8 @@ VINTAGES = {
         source="Supercell csv_logic/ of the 160402017 client: the 2026-10-06 update folder over the install-time "
         "pack, decoded by tools/decode_sc_assets.py (each pack's MANIFEST.json carries its per-file hashes)",
         vintage="160402017 client, content 16.402.19 (the 2026-10-06 balance update)",
-        roster_dating="The build and content are in the files (MANIFEST.json build 160402017, content_version 16.402.19).",
+        roster_dating="The build and content are in the files (MANIFEST.json build 160402017, content_version "
+                      "16.402.19).",
         sources=SOURCES_16402,
         overlays=OVERLAYS_16402,
         character_dirs=("characters", "events"),
@@ -450,8 +453,10 @@ SECTION_TABLE = {
 # are excluded on purpose (module doc); the rest are mechanic_register.SKIP_SECTIONS
 # plus the tables this schema does not join.
 # CLIENT_ACTION (16.402 on): the client's own visual actions, ClientActionAnimatorLayer and ClientActionAddHealthBarPart
-# only (every one in the 160402017 pack); 15.535.29 filed the same health-bar parts as [ACTION.*] ActionAddHealthBarPart.
-SKIP_SECTIONS = (mr.SKIP_SECTIONS - {"EXT"}) | {"SPELL_EVOLVED", "SPELL_HERO", "ABILITY", "CARD_GROUP", "FILTER", "CLIENT_ACTION"}
+# only (every one in the 160402017 pack); 15.535.29 filed the same health-bar parts as [ACTION.*]
+# ActionAddHealthBarPart.
+SKIP_SECTIONS = (mr.SKIP_SECTIONS - {"EXT"}) | {"SPELL_EVOLVED", "SPELL_HERO", "ABILITY", "CARD_GROUP", "FILTER",
+                                                "CLIENT_ACTION"}
 EXCLUDED_TABLES = {
     "spells_evolved.csv": (
         "evolutions: every row summons a distinct *_EV1 character (characters_evo.toml / "
@@ -938,7 +943,7 @@ class Tables(dict):
         self.resolvers: dict[str, dict] = {}
 
 
-def route_sections(t: "Tables", p: Path, doc: dict, label: str) -> None:
+def route_sections(t: Tables, p: Path, doc: dict, label: str) -> None:
     """Lay a file's [KIND.Name] sections over `t`, each routed to its table (SECTION_TABLE), [EXT.*] by its Base's
     kind, the skipped kinds kept by name where a builder reads them. `label` names the file in each row's provenance.
     The per-character files are all sections; a 16.402 central file (buildings.toml) holds a few beside its rows."""
@@ -976,7 +981,8 @@ def route_sections(t: "Tables", p: Path, doc: dict, label: str) -> None:
             if section == "ABILITY" and isinstance(body, dict):
                 t.abilities.update({n: f for n, f in body.items() if isinstance(f, dict)})
             # A [FILTER.*] in a character's file (16.402: the Earthquake's EarthquakeMainTargets) is a target filter by
-            # name, as game_object_filters.toml's are (`normalize_16402`); one name with two definitions stops the build.
+            # name, as game_object_filters.toml's are (`normalize_16402`); one name with two definitions stops the
+            # build.
             if section == "FILTER" and isinstance(body, dict):
                 for n, fdef in body.items():
                     if isinstance(fdef, dict):
@@ -1031,7 +1037,8 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
             doc = client_toml(p)
             # A 16.402 central file can hold [KIND.Name] sections beside its rows (buildings.toml: [AEO.*] bomb
             # explosions, [ACTION.*]): those are routed as a per-character file's are, the rows overlay the table.
-            kinds = {n: b for n, b in doc.items() if (n in SECTION_TABLE or n in SKIP_SECTIONS or n == "EXT") and isinstance(b, dict)}
+            kinds = {n: b for n, b in doc.items()
+                     if (n in SECTION_TABLE or n in SKIP_SECTIONS or n == "EXT") and isinstance(b, dict)}
             if kinds:
                 route_sections(t, p, kinds, f)
             t[k].overlay(p, {n: b for n, b in doc.items() if n not in kinds}, f)
@@ -1085,9 +1092,10 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
     return t
 
 
-# THE 16.402 TARGETING AND DAMAGE FORMAT (build 160402017 on). An area no longer carries HitsAir, HitsGround, OnlyEnemies,
-# OnlyOwnTroops, IgnoreBuildings, AffectsHidden or NoEffectToCrownTowers: it names a Filter (game_object_filters.toml)
-# built from MatchTeamOwn / MatchTeamEnemy, MatchTypeCharacters and the excluded categories in Filters. And its Damage
+# THE 16.402 TARGETING AND DAMAGE FORMAT (build 160402017 on). An area no longer carries HitsAir, HitsGround,
+# OnlyEnemies, OnlyOwnTroops, IgnoreBuildings, AffectsHidden or NoEffectToCrownTowers: it names a Filter
+# (game_object_filters.toml) built from MatchTeamOwn / MatchTeamEnemy, MatchTypeCharacters and the excluded categories
+# in Filters. And its Damage
 # is a table, {BaseDamage, TowerDamage}: TowerDamage is the crown-tower damage as a level-1 value of its own, where the
 # 15.535 tables gave a percent of the damage (Zap: 75 and -75 % then, BaseDamage 75 and TowerDamage 19 now; every pair
 # of the two packs is round half up of damage * (100 + percent) / 100), and an absent TowerDamage is the full damage.
@@ -1115,7 +1123,7 @@ def filter_flags(f: dict) -> dict:
     }
 
 
-def filter_derived(t: "Tables", row) -> set[str]:
+def filter_derived(t: Tables, row) -> set[str]:
     """16.402: the AREA_FLAG_COLUMNS a row holds because its Filter gives them (`normalize_16402` wrote them), which a
     pinned reader counts as the Filter's, not as columns of its own. Empty on a vintage without the format."""
     f = row.get("Filter") if t.vintage.filters_format else None
@@ -1125,7 +1133,7 @@ def filter_derived(t: "Tables", row) -> set[str]:
     return {c for c in AREA_FLAG_COLUMNS if row.get(c) == ff[c]}
 
 
-def normalize_16402(t: "Tables") -> None:
+def normalize_16402(t: Tables) -> None:
     """Write the 15.535 columns of every 16.402 row that carries the new format (module note above)."""
     filters = t.filters
     for key in ("area_effect_objects", "projectiles", "characters", "buildings"):
@@ -1136,7 +1144,8 @@ def normalize_16402(t: "Tables") -> None:
                 # Effect is the hit's visual; Flags (DamagesHidden, the Earthquake's) is gameplay, kept as a column.
                 extra = set(d) - {"BaseDamage", "TowerDamage", "Effect", "Flags"}
                 if extra:
-                    raise SystemExit(f"{key}.{name}: Damage carries {sorted(extra)} besides BaseDamage, TowerDamage, Effect and Flags")
+                    raise SystemExit(f"{key}.{name}: Damage carries {sorted(extra)} besides BaseDamage, TowerDamage, "
+                                     "Effect and Flags")
                 row["Damage"] = d.get("BaseDamage")
                 row["TowerDamage"] = d.get("TowerDamage")
                 row["DamageFlags"] = d.get("Flags")
@@ -2007,6 +2016,35 @@ def _cosmetic_action(acts, name, seen: tuple[str, ...] = ()) -> bool:
     return False
 
 
+def _enchant_on_buff_hold(acts, name: str) -> dict | None:
+    """16.402: THE RUNE GIANT'S HOLD ON EACH ENCHANT (its collect's OnBuffAction, a named ActionGroup of four, read
+    exactly): an animation (`animation_ms`, no forced duration), an effect, NO_ATTACK for `no_attack_ms`, and NO_MOVE
+    for `no_move_ms` run if `no_move_execute_if` and stopped when `no_move_stop_if`. Anything else gives None."""
+    g = acts.get(name) if isinstance(name, str) else None
+    if g is None or g["ClassType"] != "ActionGroup" or acts.set_fields.get(name) != {"ClassType", "SubActions"}:
+        return None
+    subs = _action_list(acts, name, "SubActions")
+    rows = [(s, acts.get(s)) for s in subs]
+    if any(r is None for _, r in rows) or len(rows) != 4:
+        return None
+
+    def one(cls: str, keys: set[str], tag: str | None = None):
+        got = [r for s, r in rows if r["ClassType"] == cls and acts.set_fields.get(s) == keys
+               and (tag is None or r["GameTagsToSet"] == tag)]
+        return got[0] if len(got) == 1 else None
+
+    anim = one("ActionRunForcedAnimationOnce", {"ClassType", "CustomStateNumber", "PlaybackDuration"})
+    fx = one("ActionPlayEffect", {"ClassType", "Effect"})
+    na = one("ActionWithDuration", {"ClassType", "ActionDuration", "GameTagsToSet"}, "NO_ATTACK")
+    nm = one("ActionWithDuration", {"ClassType", "ActionDuration", "GameTagsToSet", "ForceStopIfTrue", "ExecuteIfTrue"},
+             "NO_MOVE")
+    if anim is None or fx is None or na is None or nm is None:
+        return None
+    return {"no_attack_ms": na["ActionDuration"], "no_move_ms": nm["ActionDuration"],
+            "no_move_execute_if": nm["ExecuteIfTrue"], "no_move_stop_if": nm["ForceStopIfTrue"],
+            "animation_ms": anim["PlaybackDuration"]}
+
+
 def enchant_friends(t: dict, rec: dict) -> dict | None:
     """THE RUNE GIANT'S ENCHANT as a named block (15.535): the row's OnStartingAction is an
     ActionGiantBufferCollectFriends that sends a homing projectile to its friends, and the
@@ -2026,7 +2064,15 @@ def enchant_friends(t: dict, rec: dict) -> dict | None:
     a = acts.get(root) if isinstance(root, str) else None
     if a is None or a["ClassType"] != "ActionGiantBufferCollectFriends" or not _present(a) <= ENCHANT_COLLECT_KEYS:
         return None
-    if a["UseAbility"] or a["DistanceToUnbuff"] not in (0, None) or not _cosmetic_inline(a["OnBuffAction"]):
+    # 15.535: the OnBuffAction is an inline effect. 16.402: a named group that also holds the giant (`on_buff_hold`).
+    ob, hold = a["OnBuffAction"], None
+    if isinstance(ob, str):
+        hold = _enchant_on_buff_hold(acts, ob)
+        if hold is None:
+            return None
+    elif not _cosmetic_inline(ob):
+        return None
+    if a["UseAbility"] or a["DistanceToUnbuff"] not in (0, None):
         return None
     ename = a["ActionWhenUnitBuffed"]
     e = acts.get(ename) if isinstance(ename, str) else None
@@ -2073,7 +2119,7 @@ def enchant_friends(t: dict, rec: dict) -> dict | None:
         return isinstance(tags, str) and ENCHANT_EXCLUDE_TAG in [x.strip() for x in tags.split(",")]
 
     excluded = sorted(n for k in ("characters", "buildings") for n, r in t[k].records.items() if tagged(r))
-    return {
+    out = {
         "collect": {
             "action": root,
             "action_delay_ms": a["ActionDelay"],
@@ -2096,6 +2142,11 @@ def enchant_friends(t: dict, rec: dict) -> dict | None:
         "excluded_units": excluded,
         "classes": list(ENCHANT_CLASSES),
     }
+    # 16.402 only. `classes` then names ActionWithDuration too, so the loader refuses the block until it runs the hold.
+    if hold is not None:
+        out["on_buff_hold"] = hold
+        out["classes"] = sorted([*ENCHANT_CLASSES, "ActionWithDuration"])
+    return out
 
 
 def _action_list(acts, name: str, col: str) -> list:
@@ -2211,6 +2262,11 @@ def _group_leaves(acts, name: str) -> tuple[list[str], list[int]] | None:
     return subs, list(ds) if ds else [0] * len(subs)
 
 
+REFLECT_ADDED = re.compile(r"^as_int\(#(\w+)\) \* (\d+)$")
+COUNTER_KEYS_16402 = {"ClassType", "Cooldown", "DeployActive", "SelfAction", "InstigatorAction", "DamageKey",
+                      "DefenseScalar", "IncludedFilter", "StatsTags"}
+
+
 def parry(t: dict, rec: dict) -> dict | None:
     """THE COUNTER as a named block (15.535: the Ronin). The row's OnStartingAction is an
     ActionGroup of one ActionCounter and cosmetic effects. The counter's SelfAction group is one
@@ -2253,20 +2309,42 @@ def parry(t: dict, rec: dict) -> dict | None:
     inst_subs, inst_delays = inst
     cls = [acts.get(s)["ClassType"] for s in inst_subs]
     spawns = [k for k, c in enumerate(cls) if c == "ActionSpawn"]
-    damages = [k for k, c in enumerate(cls) if c == "ActionDealDamage"]
-    known = ("ActionSpawn", "ActionDealDamage", "ActionPlayEffect")
+    damages = [k for k, c in enumerate(cls) if c in ("ActionDealDamage", "ActionTakeDamage")]
+    known = ("ActionSpawn", "ActionDealDamage", "ActionTakeDamage", "ActionPlayEffect")
     if len(spawns) != 1 or len(damages) != 1 or any(c not in known for c in cls):
         return None
     spawn = acts.get(inst_subs[spawns[0]])
-    damage = acts.get(inst_subs[damages[0]])
+    dname = inst_subs[damages[0]]
+    damage = acts.get(dname)
     if spawn["SpawnType"] != "BuffType" or not isinstance(spawn["SpawnData"], str):
         return None
-    dt_name = damage["BaseDamageType"]
-    dt = t["damage_types"].get(dt_name) if "damage_types" in t and isinstance(dt_name, str) else None
-    return {
+    included = None
+    if damage["ClassType"] == "ActionTakeDamage":
+        # 16.402: the reflect is `AddedDamage` = the countered hit (the counter's DamageKey) times n, unscaled
+        # (Flags NoScaling): 15.535's DamageScalar n * 100 and a damage type without level scaling, re-encoded. The
+        # counter gains an IncludedFilter naming the attackers it also answers (`included_attackers`).
+        cname = root_subs[counters[0]]
+        m = REFLECT_ADDED.match(str(damage["AddedDamage"] or ""))
+        f = t.filters.get(counter["IncludedFilter"]) if isinstance(counter["IncludedFilter"], str) else None
+        if (acts.set_fields.get(cname) != COUNTER_KEYS_16402
+                or acts.set_fields.get(dname) != {"ClassType", "Damage", "AddedDamage"}
+                or damage["Damage"] != {"BaseDamage": 0, "Flags": "Reflected,NoScaling"}
+                or m is None or m.group(1) != counter["DamageKey"]
+                or f is None or set(f) != {"MatchTeamEnemy", "MatchTypeCharacters", "IncludeCharactersWithData"}
+                or f["MatchTeamEnemy"] is not True or f["MatchTypeCharacters"] is not True
+                or not isinstance(f["IncludeCharactersWithData"], list)):
+            return None
+        scalar, scaling, included = int(m.group(2)) * 100, False, list(f["IncludeCharactersWithData"])
+    else:
+        if counter["DamageKey"] is not None or counter["IncludedFilter"] is not None:
+            return None
+        dt_name = damage["BaseDamageType"]
+        dt = t["damage_types"].get(dt_name) if "damage_types" in t and isinstance(dt_name, str) else None
+        scalar, scaling = counter["DamageScalar"], (flag(dt, "EnableLevelScaling") if dt is not None else None)
+    out = {
         "counter_cooldown_ms": counter["Cooldown"],
         "deploy_active": flag(counter, "DeployActive"),
-        "damage_scalar_pct": counter["DamageScalar"],
+        "damage_scalar_pct": scalar,
         "defense_scalar_pct": counter["DefenseScalar"],
         "root_delays_ms": root_delays,
         "counter_at": counters[0],
@@ -2278,8 +2356,11 @@ def parry(t: dict, rec: dict) -> dict | None:
         "reflect_at": damages[0],
         "stun": norm_buff(t, spawn["SpawnData"]),
         "stun_time_ms": spawn["SpawnTime"],
-        "reflect_level_scaling": flag(dt, "EnableLevelScaling") if dt is not None else None,
+        "reflect_level_scaling": scaling,
     }
+    if included is not None:
+        out["included_attackers"] = included
+    return out
 
 
 def raw_logic(rec: dict) -> dict:
@@ -2527,14 +2608,15 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
     if v is not None and v.filters_format:
         # 16.402 (`normalize_16402`): the crown-tower damage as a level-1 value of its own where the row gives one
         # (Zap 19, Freeze 15, the Goblin Drill's emergence 8; an absent one is the full damage), the first hit's
-        # offset (pack-wide in 16.402; an area with an offset and no HitSpeed hits once, at the offset), and the
-        # damage's flags (the Earthquake's DamagesHidden). Written for the 16.402 vintages only, so the 15.535 and
-        # 2018 files stay byte-identical.
+        # offset (pack-wide in 16.402; an area with an offset and no HitSpeed hits once, at the offset). Written for the
+        # 16.402 vintages only, so the 15.535 and 2018 files stay byte-identical. No area's own Damage carries Flags
+        # in the 160402017 pack (the Earthquake's DamagesHidden is on its hit action, an ActionTakeDamage): one that
+        # does is refused, not written for a loader that would drop it.
+        if a["DamageFlags"] is not None:
+            raise SystemExit(f"area {name}: its Damage carries Flags {a['DamageFlags']!r}, which no reader takes")
         if a["TowerDamage"] is not None:
             out["tower_damage"] = a["TowerDamage"]
         out["hit_speed_offset_ms"] = a["HitSpeedOffset"]
-        if a["DamageFlags"] is not None:
-            out["damage_flags"] = a["DamageFlags"]
     if isinstance(a, Row):
         out["action_graph"] = action_graph(t, a, inline_row=name if WALK_INLINE else None)
         # ControlsBuff (15.535 only, so the 2018 file stays byte-identical): the buff this area
@@ -3416,6 +3498,38 @@ DEFLECT_AEO_READ = {
 DEFLECT_AEO_COSMETIC = {"DeflectedProjectileEffect", "DeflectionFBEffect", "SpawnDeployBaseAnim"}
 # The tags the Deflect holds its champion with while it is active: he stands (no move; an attract still moves him).
 DEFLECT_HOLD_TAGS = "AVOIDANCE_AS_OBSTACLE,NO_MOVE_ALLOW_ATTRACT"
+# 16.402: the Deflect's area names a Filter for the four flags its 15.535 row set, each true.
+DEFLECT_AEO_FLAGS = ("HitsAir", "HitsGround", "IgnoreBuildings", "OnlyEnemies")
+
+
+def deflect_parts(t, a: dict) -> tuple | None:
+    """The Deflect's (area, buff, buff_ms, tag action). 15.535: the ability's AreaEffectObject, Buff and BuffTime, and
+    its OnActivationAction. 16.402: none of the three columns; the OnActivationAction is an ActionGroup, every step at
+    0, of exactly one area spawn, one buff spawn (its SpawnTime the buff's time) and one ActionWithDuration (the tags).
+    Anything else, or one of the columns beside the group, gives None."""
+    acts, on = t["actions"], a.get("OnActivationAction")
+    cols = {"AreaEffectObject", "Buff", "BuffTime"}
+    if not isinstance(on, str):
+        return None
+    if cols <= set(a):
+        return a["AreaEffectObject"], a["Buff"], a["BuffTime"], on
+    if cols & set(a):
+        return None
+    got = _group_leaves(acts, on)
+    if got is None or any(got[1]):
+        return None
+    by: dict[tuple, list[str]] = {}
+    for s in got[0]:
+        by.setdefault((acts.get(s)["ClassType"], acts.get(s)["SpawnType"]), []).append(s)
+    if set(by) != {("ActionSpawn", "AreaEffectType"), ("ActionSpawn", "BuffType"), ("ActionWithDuration", None)} \
+            or any(len(v) != 1 for v in by.values()):
+        return None
+    (ae,), (bf,), (tag,) = by[("ActionSpawn", "AreaEffectType")], by[("ActionSpawn", "BuffType")], \
+        by[("ActionWithDuration", None)]
+    if acts.set_fields.get(ae) != {"ClassType", "SpawnType", "SpawnData"} \
+            or acts.set_fields.get(bf) != {"ClassType", "SpawnType", "SpawnData", "SpawnTime"}:
+        return None
+    return acts.get(ae)["SpawnData"], acts.get(bf)["SpawnData"], acts.get(bf)["SpawnTime"], tag
 
 
 def champion_deflect(t, unit: str) -> dict | None:
@@ -3423,7 +3537,8 @@ def champion_deflect(t, unit: str) -> dict | None:
     troop). The ability row hangs a buff on the champion for BuffTime, puts down an area effect that follows him and
     deflects projectiles (DeflectProjectilesEnabled) for its LifeDuration, holds him while it is active
     (GameTagsWhileAbilityActive AVOIDANCE_AS_OBSTACLE, NO_MOVE_ALLOW_ATTRACT for AbilityStateDuration), and its
-    OnActivationAction only sets tags for a duration. Any other column, or any other shape, gives None."""
+    OnActivationAction only sets tags for a duration. 16.402 spawns the area and the buff from an action group with the
+    tags (`deflect_parts`): the same rows and times. Any other column, or any other shape, gives None."""
     row = t["characters"].get(unit)
     name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
     a = t.abilities.get(name) if isinstance(name, str) else None
@@ -3431,21 +3546,25 @@ def champion_deflect(t, unit: str) -> dict | None:
         return None
     if a.get("GameTagsWhileAbilityActive") != DEFLECT_HOLD_TAGS or a.get("MaxCharges") != 1:
         return None
-    aeo_name = a.get("AreaEffectObject")
+    parts = deflect_parts(t, a)
+    if parts is None:
+        return None
+    aeo_name, buff_name, buff_ms, on = parts
     aeo_tb = t["area_effect_objects"]
     aeo = aeo_tb.get(aeo_name) if isinstance(aeo_name, str) else None
-    if aeo is None or aeo_tb.set_fields.get(aeo_name, set()) - DEFLECT_AEO_READ - DEFLECT_AEO_COSMETIC:
+    if aeo is None or aeo_tb.set_fields.get(aeo_name, set()) - DEFLECT_AEO_READ - DEFLECT_AEO_COSMETIC - {"Filter"}:
+        return None
+    if "Filter" in aeo_tb.set_fields.get(aeo_name, set()) and not all(aeo[c] is True for c in DEFLECT_AEO_FLAGS):
         return None
     if not aeo["DeflectProjectilesEnabled"] or aeo["FollowBehaviour"] != "FollowParent":
         return None
-    on = a.get("OnActivationAction")
     act = t["actions"].get(on) if isinstance(on, str) else None
     if act is None or act["ClassType"] != "ActionWithDuration":
         return None
     if t["actions"].set_fields.get(on, set()) != {"ActionDuration", "ClassType", "GameTagsToSet"}:
         return None
-    buff = norm_buff(t, a.get("Buff"))
-    ints = [a.get(k) for k in ("AbilityStateDuration", "BuffTime", "CastTime", "TriggerDelay", "ManaCost")]
+    buff = norm_buff(t, buff_name)
+    ints = [a.get("AbilityStateDuration"), buff_ms, *(a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost"))]
     if buff is None or not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints):
         return None
     state_ms, buff_ms, cast_ms, trigger_ms, mana = ints
@@ -3632,6 +3751,74 @@ SOUL_AEO_READ = {
     "SpawnMaxRadius", "SpawnMinRadius", "SpawnRandomizeSequence", "SpawnTime", "StayAfterParentDies",
 }
 SOUL_AEO_COSMETIC = {"ScaledEffect", "ScaledEffectFollowAeO", "SpawnDeployBaseAnim", "SpawnEffect"}
+# 16.402: the souls are counted by a script (`soul_script`): the ability's two keys naming it, the trigger's keys and
+# filter, the flight's keys (read, or display only), and the graph's classes (the card's graph is the script, read
+# whole).
+SOUL_SCRIPT_KEYS = {"ResurrectChargesExpression", "SpawnCountResetAction"}
+SOUL_SCRIPT_TRIGGER = {"ClassType", "ActionToRun", "TroopFilter", "MatchOnlyOwnSpawnedTroops",
+                       "MatchOnlyFromSameOwnerIndex"}
+SOUL_SCRIPT_FILTER = {"MatchTeamOwn", "MatchTeamEnemy", "MatchTypeCharacters", "FilterDead", "Filters"}
+SOUL_SCRIPT_FLIGHT_READ = {"ClassType", "ExecuteIfTrue", "ConstantFlightDuration", "ActionOnTargetReached"}
+SOUL_SCRIPT_FLIGHT_DISPLAY = {"Effect", "EffectAbsolutePositionToParent", "MinVisualWaitTime", "MaxVisualWaitTime",
+                              "MinWobble", "MaxWobble", "UseLerpForSouls", "FlipPivotOffsetIfTopBottom"}
+SOUL_SCRIPT_CLASSES = {"ActionGroup", "ActionPlayEffect", "ActionRunActionOnTroopDestroyed", "ActionSetVariable",
+                       "ActionSoulDrain"}
+
+
+def soul_script(t, a: dict, row) -> dict | None:
+    """16.402: THE SKELETON KING'S SOUL COUNT AS A SCRIPT, read whole; {} for an ability without one (15.535, which
+    counts natively from the Resurrect* columns). The ability names a variable (ResurrectChargesExpression, default 0)
+    and its reset (SpawnCountResetAction: set to "0"). His row's OnStartingAction is a group, at 0, of one
+    ActionRunActionOnTroopDestroyed whose TroopFilter matches own and enemy characters, dead or not, less the
+    `soul_filter_excludes` categories, from any owner; it runs an ActionSoulDrain, gated on `soul_if`, that flies
+    `soul_flight_ms` and on arrival runs a group, at 0, of the variable + 1 and effects. Any other shape gives None."""
+    have = SOUL_SCRIPT_KEYS & set(a)
+    if not have:
+        return {}
+    if have != SOUL_SCRIPT_KEYS or not isinstance(row, Row) or "OnStartingAction" not in row.columns:
+        return None
+    acts = t["actions"]
+    var = a["ResurrectChargesExpression"]
+    if not isinstance(var, str) or t.variables.get(var, {}).get("DefaultValue") != 0:
+        return None
+    reset = a["SpawnCountResetAction"]
+    r = acts.get(reset) if isinstance(reset, str) else None
+    if r is None or r["ClassType"] != "ActionSetVariable" \
+            or acts.set_fields.get(reset) != {"ClassType", "Variable", "Value"} \
+            or r["Variable"] != var or r["Value"] != "0":
+        return None
+    start = row["OnStartingAction"]
+    got = _group_leaves(acts, start) if isinstance(start, str) else None
+    if got is None or len(got[0]) != 1 or got[1] != [0]:
+        return None
+    od_name = got[0][0]
+    od = acts.get(od_name)
+    if od["ClassType"] != "ActionRunActionOnTroopDestroyed" or acts.set_fields.get(od_name) != SOUL_SCRIPT_TRIGGER \
+            or od["MatchOnlyOwnSpawnedTroops"] is not False or od["MatchOnlyFromSameOwnerIndex"] is not False:
+        return None
+    f = t.filters.get(od["TroopFilter"]) if isinstance(od["TroopFilter"], str) else None
+    if f is None or set(f) != SOUL_SCRIPT_FILTER or f["MatchTeamOwn"] is not True or f["MatchTeamEnemy"] is not True \
+            or f["MatchTypeCharacters"] is not True or f["FilterDead"] is not False \
+            or not isinstance(f["Filters"], list):
+        return None
+    fl_name = od["ActionToRun"]
+    fl = acts.get(fl_name) if isinstance(fl_name, str) else None
+    if fl is None or fl["ClassType"] != "ActionSoulDrain" \
+            or acts.set_fields.get(fl_name, set()) - SOUL_SCRIPT_FLIGHT_DISPLAY != SOUL_SCRIPT_FLIGHT_READ \
+            or not isinstance(fl["ConstantFlightDuration"], int) or not isinstance(fl["ExecuteIfTrue"], str):
+        return None
+    reach = _group_leaves(acts, fl["ActionOnTargetReached"]) if isinstance(fl["ActionOnTargetReached"], str) else None
+    if reach is None or any(reach[1]):
+        return None
+    ups = [s for s in reach[0] if acts.get(s)["ClassType"] == "ActionSetVariable"]
+    if len(ups) != 1 or not all(s in ups or _cosmetic_action(acts, s) for s in reach[0]):
+        return None
+    up = acts.get(ups[0])
+    if acts.set_fields.get(ups[0]) != {"ClassType", "Variable", "Value"} or up["Variable"] != var \
+            or up["Value"] != f"{var} + 1":
+        return None
+    return {"soul_flight_ms": fl["ConstantFlightDuration"], "soul_if": fl["ExecuteIfTrue"],
+            "soul_filter_excludes": list(f["Filters"])}
 
 
 def champion_soul_summon(t, unit: str) -> dict | None:
@@ -3641,31 +3828,45 @@ def champion_soul_summon(t, unit: str) -> dict | None:
     StayAfterParentDies), puts down that many copies (SpawnClones) of its SpawnCharacter (`unit`), the first
     SpawnInitialDelay on (`spawn_delay_ms`), then one every SpawnInterval (`every_ms`), each deploying SpawnTime
     (`unit_deploy_ms`), in the ring SpawnMinRadius .. SpawnMaxRadius (`min_radius_milli`, `max_radius_milli`) in a
-    randomized sequence, for LifeDuration (`duration_ms`). One charge. Any other column, or any other shape, gives
-    None."""
+    randomized sequence, for LifeDuration (`duration_ms`). One charge. 16.402 counts the souls by a script
+    (`soul_script`, its keys added to the effect), and its area names a Filter (own troops, air and ground) and no
+    SpawnMaxRadius (`max_radius_milli` null). Any other column, or any other shape, gives None."""
     row = t["characters"].get(unit)
     name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
     a = t.abilities.get(name) if isinstance(name, str) else None
-    if a is None or set(a) - SOUL_ABILITY_READ - SOUL_ABILITY_COSMETIC - DEFLECT_ABILITY_COSMETIC:
+    if a is None or set(a) - SOUL_ABILITY_READ - SOUL_ABILITY_COSMETIC - DEFLECT_ABILITY_COSMETIC - SOUL_SCRIPT_KEYS:
         return None
     if a.get("ResurrectEnemies") is not True or a.get("ResurrectOwnTroops") is not True:
+        return None
+    script = soul_script(t, a, row)
+    if script is None:
         return None
     aeo_name = a.get("AreaEffectObject")
     aeo_tb = t["area_effect_objects"]
     aeo = aeo_tb.get(aeo_name) if isinstance(aeo_name, str) else None
-    if aeo is None or aeo_tb.set_fields.get(aeo_name, set()) - SOUL_AEO_READ - SOUL_AEO_COSMETIC:
+    own = aeo_tb.set_fields.get(aeo_name, set()) if aeo is not None else set()
+    if aeo is None or own - SOUL_AEO_READ - SOUL_AEO_COSMETIC - {"Filter"}:
+        return None
+    if "Filter" in own and not (aeo["HitsAir"] is True and aeo["HitsGround"] is True and aeo["OnlyOwnTroops"] is True):
         return None
     if aeo["FollowBehaviour"] != "FollowParent" or not aeo["SpawnClones"] or not aeo["SpawnRandomizeSequence"] \
             or not aeo["StayAfterParentDies"] or not isinstance(aeo["SpawnCharacter"], str):
         return None
     ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost", "MaxCharges", "ResurrectBaseCount",
                                "SpawnLimit")]
-    aints = [aeo[k] for k in ("SpawnInitialDelay", "SpawnInterval", "SpawnTime", "SpawnMinRadius", "SpawnMaxRadius",
-                              "LifeDuration", "Radius")]
+    # SpawnMaxRadius is read where the row sets it: 16.402's script-counted area has none (it equalled the Radius).
+    akeys = ["SpawnInitialDelay", "SpawnInterval", "SpawnTime", "SpawnMinRadius", "SpawnMaxRadius", "LifeDuration",
+             "Radius"]
+    if script and "SpawnMaxRadius" not in own:
+        akeys.remove("SpawnMaxRadius")
+    aints = [aeo[k] for k in akeys]
     if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in ints + aints):
         return None
     cast_ms, trigger_ms, mana, charges, base, limit = ints
-    first_ms, every_ms, deploy_ms, min_r, max_r, life_ms, area_r = aints
+    av = dict(zip(akeys, aints, strict=True))
+    first_ms, every_ms, deploy_ms, min_r, life_ms, area_r = (av[k] for k in (
+        "SpawnInitialDelay", "SpawnInterval", "SpawnTime", "SpawnMinRadius", "LifeDuration", "Radius"))
+    max_r = av.get("SpawnMaxRadius")
     return {
         "name": name,
         "mana_cost": mana,
@@ -3678,7 +3879,7 @@ def champion_soul_summon(t, unit: str) -> dict | None:
         "effect": {"kind": "soul_summon", "unit": aeo["SpawnCharacter"], "count": base, "max_count": limit,
                    "spawn_delay_ms": first_ms, "every_ms": every_ms, "unit_deploy_ms": deploy_ms,
                    "min_radius_milli": min_r, "max_radius_milli": max_r, "duration_ms": life_ms,
-                   "radius_milli": area_r},
+                   "radius_milli": area_r, **script},
     }
 
 
@@ -3696,6 +3897,11 @@ GUARD_SPAWN_KEYS = {"ClassType", "ActionDelay", "AppearBehindAtDistance", "Conti
                     "DistanceProportinalPush",
                     "HitFilter", "PushBackDamage", "PushBackRadius", "PushBackStrength", "SpawnData", "TargetRadius",
                     "StatsTags"}
+# 16.402: the guard's hold sets a second tag (the ramp's grace stands still under it), and her charge puts down an area
+# that follows her (SpawnAEO), its push the action's own number for number: every key it sets.
+GUARD_HOLD_TAGS = (["NO_MOVE"], ["NO_MOVE", "UNIT_CUSTOM_TAG_1"])
+GUARD_CLEAVE_KEYS = {"Radius", "HitSpeed", "LifeDuration", "Filter", "FollowBehaviour", "OneHitPerTarget", "Damage",
+                     "Pushback", "PushbackAll", "RelativePushback", "ContinuousPushback", "Rarity", "StatsTags"}
 
 
 def champion_ramp(t, unit: str) -> dict | None:
@@ -3768,13 +3974,20 @@ def champion_ramp(t, unit: str) -> dict | None:
     dec = steps.get(RAMP_GRACE_TICK.format(g=grace_var))
     if dec is None or dec["Variable"] != grace_var:
         return None
+    # 16.402: the grace stands still while a tag is set (the guard's hold's own: `summon_card` checks they are one).
+    held = None
+    if dec["ExecuteIfTrue"] is not None:
+        m = re.fullmatch(r"!(UNIT_CUSTOM_TAG_\d)", str(dec["ExecuteIfTrue"]))
+        if m is None:
+            return None
+        held = m.group(1)
     resets = sorted(str(a["ExecuteIfTrue"]) for a in (acts.get(x) for x in subs) if a is not None and a["Value"] == "0")
     if resets != sorted(["COMBAT_DISABLED", RAMP_RESET_IF.format(g=grace_var, c=count_var)]):
         return None
     shots = {row["Projectile"], row["Projectile2"], row["Projectile3"]}
     if len(shots) != 1 or not grace.isdigit():
         return None
-    return {"grace_ms": int(grace), "levels": levels}
+    return {"grace_ms": int(grace), "levels": levels, **({"grace_held_while": held} if held else {})}
 
 
 def champion_guard(t, unit: str) -> dict | None:
@@ -3783,7 +3996,8 @@ def champion_guard(t, unit: str) -> dict | None:
     an ActionSpawnGuard: `unit` appears AppearBehindAtDistance behind him and charges, pushing the ground characters
     within PushBackRadius of it (PushBackStrength, in proportion to their distance) and hitting each PushBackDamage
     (`push`). TargetRadius is read and not run: measured, the charge's end is a fixed point from him whatever stands
-    near (state.rs GUARD_*)."""
+    near (state.rs GUARD_*). 16.402: the hold sets a second tag (`hold_tag`), and the charge puts down an area that
+    follows her (`cleave`: its push and damage the action's own, its hit speed and life its own)."""
     row = t["characters"].get(unit)
     name = row["Ability"] if isinstance(row, Row) and "Ability" in row.columns else None
     a = t.abilities.get(name) if isinstance(name, str) else None
@@ -3791,7 +4005,10 @@ def champion_guard(t, unit: str) -> dict | None:
         return None
     acts = t["actions"]
     hold = acts.get(a.get("OnActivationAction"))
-    if hold is None or hold["ClassType"] != "ActionWithDuration" or hold["GameTagsToSet"] != "NO_MOVE":
+    if hold is None or hold["ClassType"] != "ActionWithDuration":
+        return None
+    tags = [x.strip() for x in str(hold["GameTagsToSet"]).split(",")]
+    if tags not in GUARD_HOLD_TAGS:
         return None
     nxt = hold["NextAction"]
     if not isinstance(nxt, dict) or nxt.get("ClassType") != "ActionSpawn" or nxt.get("SpawnType") != "AreaEffectType":
@@ -3799,17 +4016,38 @@ def champion_guard(t, unit: str) -> dict | None:
     aeo = t["area_effect_objects"].get(nxt["SpawnData"])
     if aeo is None or aeo["HitSpeed"] != 0 or aeo["Damage"] or aeo["Buff"]:
         return None
-    g = acts.get(aeo["OnStartingAction"])
-    if g is None or g["ClassType"] != "ActionSpawnGuard" or acts.set_fields.get(aeo["OnStartingAction"],
-                                                                                set()) - GUARD_SPAWN_KEYS:
+    gname = aeo["OnStartingAction"]
+    g = acts.get(gname)
+    if g is None or g["ClassType"] != "ActionSpawnGuard" or acts.set_fields.get(gname, set()) - GUARD_SPAWN_KEYS \
+            - {"SpawnAEO"}:
         return None
     if g["HitFilter"] != "PassiveForcedHitGroundCharacters" or g["ContinuosPushBack"] is not True \
             or g["DistanceProportinalPush"] is not True:
         return None
+    cleave = None
+    if g["SpawnAEO"] is not None:
+        atb = t["area_effect_objects"]
+        c = atb.get(g["SpawnAEO"])
+        if c is None or atb.set_fields.get(g["SpawnAEO"], set()) != GUARD_CLEAVE_KEYS or not (
+                c["Radius"] == g["PushBackRadius"] and c["Damage"] == g["PushBackDamage"] and c["TowerDamage"] is None
+                and c["Pushback"] == g["PushBackStrength"] and c["Filter"] == g["HitFilter"]
+                and c["FollowBehaviour"] == "FollowParent" and c["OneHitPerTarget"] is True
+                and c["PushbackAll"] is True and c["RelativePushback"] is True and c["ContinuousPushback"] is True
+                and isinstance(c["HitSpeed"], int) and isinstance(c["LifeDuration"], int)):
+            return None
+        cleave = {"area": g["SpawnAEO"], "hit_speed_ms": c["HitSpeed"], "life_ms": c["LifeDuration"]}
     ints = [a.get(k) for k in ("CastTime", "TriggerDelay", "ManaCost")]
     if not all(isinstance(v, int) and v >= 0 for v in ints):
         return None
     cast_ms, trigger_ms, mana = ints
+    effect = {"kind": "guard", "hold_ms": hold["ActionDuration"], "unit": g["SpawnData"],
+              "spawn_delay_ms": g["ActionDelay"] or 0, "behind_milli": g["AppearBehindAtDistance"],
+              "target_radius_milli": g["TargetRadius"], "push_radius_milli": g["PushBackRadius"],
+              "push_milli": g["PushBackStrength"], "push_damage": g["PushBackDamage"]}
+    if len(tags) > 1:
+        effect["hold_tag"] = tags[1]
+    if cleave is not None:
+        effect["cleave"] = cleave
     return {
         "name": name,
         "mana_cost": mana,
@@ -3819,10 +4057,7 @@ def champion_guard(t, unit: str) -> dict | None:
         "trigger_delay_ms": trigger_ms,
         "keep_current_target": bool(a.get("KeepCurrentTarget")),
         "is_champion": True,
-        "effect": {"kind": "guard", "hold_ms": hold["ActionDuration"], "unit": g["SpawnData"],
-                   "spawn_delay_ms": g["ActionDelay"] or 0, "behind_milli": g["AppearBehindAtDistance"],
-                   "target_radius_milli": g["TargetRadius"], "push_radius_milli": g["PushBackRadius"],
-                   "push_milli": g["PushBackStrength"], "push_damage": g["PushBackDamage"]},
+        "effect": effect,
     }
 
 
@@ -3947,10 +4182,13 @@ def champion_dash_chain(t, unit: str) -> dict | None:
         if None in parts or kinds != ["ActionDashingAttackChain", "ActionWithDuration"]:
             return None
         hold = next(p_ for p_ in parts if p_["ClassType"] == "ActionWithDuration")
-        if hold.get("ForceStopIfTrue") != "DASHING" or set(_present(hold)) - {"ClassType", "GameTagsToSet", "ActionDuration", "ForceStopIfTrue"}:
-            raise SystemExit(f"champion ability {name}: its trigger group's hold is not one ActionWithDuration stopped by DASHING")
+        if hold.get("ForceStopIfTrue") != "DASHING" \
+                or set(_present(hold)) - {"ClassType", "GameTagsToSet", "ActionDuration", "ForceStopIfTrue"}:
+            raise SystemExit(f"champion ability {name}: its trigger group's hold is not one ActionWithDuration "
+                             "stopped by DASHING")
         held = sorted(t_.strip() for t_ in (hold.get("GameTagsToSet") or "").split(",") if t_.strip())
-        chain_name = next(x for x, p_ in zip(sub_names, parts) if p_["ClassType"] == "ActionDashingAttackChain")
+        chain_name = next(x for x, p_ in zip(sub_names, parts, strict=True)
+                          if p_["ClassType"] == "ActionDashingAttackChain")
         tg = acts.get(chain_name)
     if tg is None or tg["ClassType"] != "ActionDashingAttackChain":
         return None
@@ -4095,9 +4333,17 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         # GOBLINSTEIN'S MONSTER'S OWN GRAPH: a play's tag and the champion's health bar, display only.
         if chain["effect"]["kind"] == "tether" and g and not g["spawns"] and set(g["class_types"]) <= MONSTER_START:
             card["action_graph"] = None
+        # 16.402: THE SKELETON KING'S OWN GRAPH is his soul count (`soul_script`), read whole into the ability.
+        if chain["effect"]["kind"] == "soul_summon" and "soul_flight_ms" in chain["effect"] and g \
+                and not g["spawns"] and set(g["class_types"]) <= SOUL_SCRIPT_CLASSES:
+            card["action_graph"] = None
         # THE LITTLE PRINCE'S RAMP (`champion_ramp`): his row's graph is the ramp, read whole.
         ramp = champion_ramp(t, res["character"]) if chain["effect"]["kind"] == "guard" else None
         if ramp is not None:
+            # 16.402: the grace stands still under the guard's hold tag; one tag, or the two do not pair.
+            if ramp.get("grace_held_while") != chain["effect"].get("hold_tag"):
+                raise SystemExit(f"{s['Name']}: the ramp's grace gate {ramp.get('grace_held_while')} is not the "
+                                 f"guard's hold tag {chain['effect'].get('hold_tag')}")
             card["ramp"] = ramp
             card["action_graph"] = None
     # Only on a row that reflects (norm_unit), so every other card row is unchanged.
@@ -5357,7 +5603,8 @@ def far_shot_block(t: Tables, card: dict) -> dict:
     r1, r2 = pt.get(row["Projectile"]), pt.get(row["Projectile2"])
     need(r1 is not None and r2 is not None, f"Projectile {row['Projectile']!r} / Projectile2 {row['Projectile2']!r}")
     # StatsTags is the stat page's (16.402 gives Projectile2 its own).
-    differ = {c for c in pt.columns if not COSMETIC.search(c) and c not in ("Name", "Base", "StatsTags") and r1[c] != r2[c]}
+    differ = {c for c in pt.columns
+              if not COSMETIC.search(c) and c not in ("Name", "Base", "StatsTags") and r1[c] != r2[c]}
     need(differ == {"Damage"} and isinstance(r2["Damage"], int) and r2["Damage"] > 0,
          f"Projectile2 differs in {sorted(differ)}")
     return {"range_milli": reach, "damage": r2["Damage"]}
@@ -8977,7 +9224,8 @@ def level_up_effect(h: Tables, name: str, subs: list[str], delays: list[int], he
         if isinstance(o, dict) and "RelativeLevelAdjustmentExpression" in o and "RelativeLevelAdjustment" not in o:
             e = o["RelativeLevelAdjustmentExpression"]
             need(isinstance(e, str) and re.fullmatch(r"[1-9][0-9]*", e) is not None, f"option {o}")
-            o = {**{k: v for k, v in o.items() if k != "RelativeLevelAdjustmentExpression"}, "RelativeLevelAdjustment": int(e)}
+            o = {**{k: v for k, v in o.items() if k != "RelativeLevelAdjustmentExpression"},
+                 "RelativeLevelAdjustment": int(e)}
         need(isinstance(o, dict) and o.get("ClassType") == "ActionSetCharacterLevel"
              and set(o) <= {"ClassType", "RelativeLevelAdjustment", "NextAction"}
              and isinstance(o.get("RelativeLevelAdjustment"), int) and o["RelativeLevelAdjustment"] > 0, f"option {o}")
@@ -9566,16 +9814,21 @@ def main() -> int:
                 for k, val in old[n].items():
                     # A graph that held no mechanic (no class, no spawn: the 15.535 VisualActions health bar, which
                     # 16.402 names OnStartingClientActions) is display, not a lost mechanic.
-                    if k == "action_graph" and isinstance(val, dict) and not val.get("mechanic")                             and not val.get("class_types") and not val.get("spawns"):
+                    if k == "action_graph" and isinstance(val, dict) and not val.get("mechanic") \
+                            and not val.get("class_types") and not val.get("spawns"):
                         continue
                     # A display graph whose only root was VisualActions, which 16.402 moved to OnStartingClientActions
                     # as a [CLIENT_ACTION] (the Chef Tower's ChefVisualTop): the same display, not a lost mechanic.
-                    if k == "action_graph" and isinstance(val, dict) and not val.get("mechanic") and not val.get("spawns")                             and set((val.get("roots") or {})) == {"VisualActions"} and sec == "units":
+                    if k == "action_graph" and isinstance(val, dict) and not val.get("mechanic") \
+                            and not val.get("spawns") and set(val.get("roots") or {}) == {"VisualActions"} \
+                            and sec == "units":
                         trow = t[new[n].get("source_table") or "characters"].get(n)
                         if trow is not None and trow["OnStartingClientActions"] == val["roots"]["VisualActions"]:
                             continue
-                    if k not in ("raw", "provenance") and isinstance(val, (dict, list)) and val and new[n].get(k) in (None, [], {}):
-                        CENSUS.append((f"{sec}.{n}", f"LOST {k}: {args.against.name} holds it, this table leaves it empty"))
+                    if k not in ("raw", "provenance") and isinstance(val, (dict, list)) and val \
+                            and new[n].get(k) in (None, [], {}):
+                        CENSUS.append((f"{sec}.{n}",
+                                       f"LOST {k}: {args.against.name} holds it, this table leaves it empty"))
     if CENSUS is not None:
         print(f"CENSUS {v.key}: {len(CENSUS)} refusals")
         for label, why in CENSUS:

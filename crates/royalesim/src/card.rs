@@ -6894,11 +6894,9 @@ struct RawAreaEffect {
     damage: Option<i32>,
     crown_tower_damage_percent: Option<i32>,
     /// 16.402 on (tools/extract_cards.py `norm_aeo`): the crown-tower damage as a level-1 value of its own
-    /// (`SpellHit::tower_damage`), the first hit's offset, and the damage's flags (the Earthquake's DamagesHidden).
-    /// Absent on every 15.535 and 2018 row.
+    /// (`SpellHit::tower_damage`). Absent on every 15.535 and 2018 row. The 16.402 row's `hit_speed_offset_ms` is not
+    /// read yet: the engine times a pulsing area's first hit from calibration (spells.PULSING_AREA_EFFECT).
     tower_damage: Option<i32>,
-    hit_speed_offset_ms: Option<i32>,
-    damage_flags: Option<Vec<String>>,
     no_effect_to_crown_towers: Option<bool>,
     buff: Option<RawBuff>,
     buff_time_ms: Option<i32>,
