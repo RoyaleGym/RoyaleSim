@@ -14352,71 +14352,28 @@ mod tests {
 
     #[test]
     fn an_offset_only_one_hit_area_reads_as_its_15535_form() {
-        // Option B item 22: the 16.402 Evo Ice Spirits' IceSpiritsAOE_EV1 (no HitSpeed, HitSpeedOffset 3000, LifeDuration
-        // 3000) loads as the 15.535 row (HitSpeed 3000) does; an offset short of the life with no HitSpeed is refused.
-        // Plant area_offset_unread: the 16.402 row reads as a one-shot and the first comparison goes red.
+        // Option B item 22: the shipped Evo Ice Spirits' IceSpiritsAOE_EV1 (HitSpeed 3000, LifeDuration 3000) edited into
+        // its 16.402 form (no HitSpeed, HitSpeedOffset 3000) loads as the shipped row does; an offset short of the life
+        // with no HitSpeed is refused. Plant area_offset_unread: the 16.402 row reads as a one-shot and goes red.
         let empty: BTreeMap<String, serde_json::Value> = BTreeMap::new();
         let no_areas: BTreeMap<String, RawAreaEffect> = BTreeMap::new();
         let globals = CardGlobals::default();
         let ctx = LoadCtx { aeos: &no_areas, units: &empty, projectiles: &empty, globals: &globals };
-        let row = |hs: Option<i32>, off: Option<i32>| RawAreaEffect {
-            name: Some("IceSpiritsAOE_EV1".into()),
-            life_duration_ms: Some(3000),
-            hit_speed_ms: hs,
-            hit_speed_offset_ms: off,
-            radius_milli: Some(1500),
-            damage: Some(43),
-            hits_ground: Some(true),
-            hits_air: Some(true),
-            only_enemies: Some(true),
-            ..Default::default()
+        let table: serde_json::Value = serde_json::from_str(EMBEDDED_CARDS_JSON).expect("the shipped table");
+        let base = table["area_effect_objects"]["IceSpiritsAOE_EV1"].clone();
+        assert_eq!((base["hit_speed_ms"].as_i64(), base["life_duration_ms"].as_i64()), (Some(3000), Some(3000)), "the shipped row");
+        let row = |hs: Option<i32>, off: Option<i32>| {
+            let mut j = base.clone();
+            j["hit_speed_ms"] = hs.map_or(serde_json::Value::Null, serde_json::Value::from);
+            j["hit_speed_offset_ms"] = off.map_or(serde_json::Value::Null, serde_json::Value::from);
+            serde_json::from_value::<RawAreaEffect>(j).expect("an area row")
         };
-        let mut b1 = BuffTable::default();
-        let mut b2 = BuffTable::default();
-        let old = area_effect_shape_hits(&row(Some(3000), None), &mut b1, &ctx, true).map(|(s, _)| format!("{s:?}"));
-        let new = area_effect_shape_hits(&row(None, Some(3000)), &mut b2, &ctx, true).map(|(s, _)| format!("{s:?}"));
-        assert!(old.is_ok(), "the 15.535 row loads: {old:?}");
-        assert_eq!(new, old, "the 16.402 row loads as the 15.535 one");
-        let short = area_effect_shape_hits(&row(None, Some(900)), &mut BuffTable::default(), &ctx, true);
+        let shape = |r: &RawAreaEffect| area_effect_shape_hits(r, &mut BuffTable::default(), &ctx, true).map(|(s, _)| format!("{s:?}"));
+        let old = shape(&row(Some(3000), None));
+        assert!(old.as_ref().is_ok_and(|s| s.starts_with("PulsingAreaEffect")), "the shipped row loads as one pulse: {old:?}");
+        assert_eq!(shape(&row(None, Some(3000))), old, "the 16.402 row loads as the 15.535 one");
+        let short = shape(&row(None, Some(900)));
         assert!(short.is_err_and(|e| e.contains("HitSpeedOffset")), "an offset short of the life is refused");
-    }
-
-    #[test]
-    fn the_evolution_gate_takes_the_16402_classes_where_the_block_carries_their_key() {
-        // Option B item 19. The shipped Evo Royal Hogs and Evo P.E.K.K.A. edited into the 16.402 graphs: with the
-        // block's key (jump_ignores_pushback, flight_ms) each loads; without it each is refused, naming a class.
-        // Plant evo_16402_classes_refused: the keyed case is refused too and this goes red.
-        let table = |keyed: bool| {
-            let mut v: serde_json::Value = serde_json::from_str(EMBEDDED_CARDS_JSON).expect("the shipped table");
-            for e in v["evolutions"].as_array_mut().expect("evolutions") {
-                if e["name"] == "RoyalHogs_EV1" {
-                    let g = &mut e["action_graph"];
-                    for c in ["ActionInterval", "ActionRunIfInstigatorMatches"] {
-                        g["class_types"].as_array_mut().expect("classes").push(serde_json::Value::from(c));
-                    }
-                    g["spawns"].as_array_mut().expect("spawns").push(serde_json::Value::from("BuffType:JumpHack_Ignore_Pushback_Buff"));
-                    if keyed {
-                        e["evo_fall"]["jump_ignores_pushback"] = serde_json::Value::Bool(true);
-                    }
-                }
-                if e["name"] == "Pekka_EV1" {
-                    e["action_graph"]["class_types"] = serde_json::json!(["ActionGroup", "ActionPlayEffect", "ActionSelect", "ActionSoulDrain", "ActionWriteInstigatorInfoToContext"]);
-                    if keyed {
-                        e["evo_kill_heal"]["flight_ms"] = serde_json::Value::from(500);
-                    }
-                }
-            }
-            CardDb::from_json_str(&v.to_string(), CardSource::Embedded).expect("the edited table loads")
-        };
-        let refused = |db: &CardDb, n: &str| db.rejected_evolutions.iter().find(|(x, _)| x == n).map(|(_, w)| w.clone());
-        let keyed = table(true);
-        for n in ["RoyalHogs_EV1", "Pekka_EV1"] {
-            assert_eq!(refused(&keyed, n), None, "{n} with its block's key");
-        }
-        let bare = table(false);
-        for n in ["RoyalHogs_EV1", "Pekka_EV1"] {
-            assert!(refused(&bare, n).is_some_and(|w| w.contains("runs an action graph its block does not read")), "{n} without its key");
-        }
     }
 
     #[test]

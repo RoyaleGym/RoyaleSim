@@ -912,11 +912,18 @@ fn a_counter_graph_of_another_shape_is_refused() {
 fn ronin_16402(both: bool) -> royalesim::card::CardDb {
     let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).expect("cards.json");
     let mut v: serde_json::Value = serde_json::from_str(&text).expect("cards.json parses");
-    let c = v["units"]["Ronin"]["action_graph"]["class_types"].as_array_mut().expect("the Ronin's graph");
-    if !both {
-        c.retain(|x| x != "ActionDealDamage");
-    }
-    c.push(serde_json::Value::from("ActionTakeDamage"));
+    // The graph is on the card's row (which the loader reads) and on the units record alike: both edited.
+    let edit = |g: &mut serde_json::Value| {
+        let c = g["class_types"].as_array_mut().expect("the Ronin's graph");
+        assert!(c.iter().any(|x| x == "ActionDealDamage"), "the 15.535 reflect class");
+        if !both {
+            c.retain(|x| x != "ActionDealDamage");
+        }
+        c.push(serde_json::Value::from("ActionTakeDamage"));
+    };
+    edit(&mut v["units"]["Ronin"]["action_graph"]);
+    let card = v["cards"].as_array_mut().expect("cards").iter_mut().find(|c| c["name"] == "Ronin").expect("the Ronin card");
+    edit(&mut card["action_graph"]);
     royalesim::card::CardDb::from_json_str(&v.to_string(), royalesim::card::CardSource::DerivedJson).expect("the edited table parses")
 }
 
