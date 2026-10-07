@@ -337,6 +337,31 @@ fn a_prefix_play_stops_before_the_first_unloadable_deploy() {
     assert_eq!(prefix_cut(&g, &why), None);
 }
 
+/// Item 305: a deploy the fixture maker could not measure cuts the battle at its tick, as an unloadable card does; a
+/// rejected command, a level the capture did not apply and a mid-battle start still leave the fixture unplayed.
+#[test]
+fn a_prefix_play_stops_before_a_deploy_the_maker_could_not_measure() {
+    assert_eq!(unmeasured_deploy_tick("Log at tick 3501: the spell measured nothing"), Some(3501));
+    assert_eq!(unmeasured_deploy_tick("Skeletons at tick 3471 (base) was accepted but no unit of it ever appeared"), Some(3471));
+    assert_eq!(unmeasured_deploy_tick("PrinceBuff at tick 218 was accepted but no unit of it ever appeared: the fixture holds nothing of the card"), Some(218));
+    assert_eq!(unmeasured_deploy_tick("RoyalRecruits at tick 101: native_command_rejected"), None);
+    assert_eq!(unmeasured_deploy_tick("Elixir Collector at tick 300: card_not_in_hand"), None);
+    assert_eq!(unmeasured_deploy_tick("capture starts mid-battle: first frame is tick 5 with 1 non-tower entities on the board"), None);
+    let db = common::cards();
+    let mut f = sample();
+    f.unplayable_reasons.push("Log at tick 1000: the spell measured nothing".into());
+    let why = playability(&f, &db).expect_err("an unmeasured spell");
+    assert_eq!(prefix_cut(&f, &why), Some(1000));
+    let pre = replay(&f, &db, &register(), &Options { prefix: true, ..Options::default() }).unwrap();
+    assert!(pre.playable);
+    assert_eq!(pre.prefix_until, Some(1000));
+    assert!(pre.last_tick < 1000);
+    // with a structural reason beside it, nothing is played
+    f.unplayable_reasons.push("capture starts mid-battle: first frame is tick 5 with 1 non-tower entities on the board".into());
+    let why = playability(&f, &db).expect_err("structural");
+    assert_eq!(prefix_cut(&f, &why), None);
+}
+
 #[test]
 fn the_replay_is_deterministic() {
     let f = sample();

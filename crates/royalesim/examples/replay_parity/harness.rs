@@ -788,7 +788,7 @@ pub fn playability(f: &Fixture, db: &CardDb) -> Result<(), Vec<Unplayable>> {
         // tick; its structural ones (mid-battle start, unknown id, no frames) stand
         let is_card = f.deploys.iter().any(|d| d.card.as_deref().is_some_and(|c| r.starts_with(&format!("{c}: "))));
         if !is_card {
-            why.push(Unplayable { why: r.clone(), cut: None });
+            why.push(Unplayable { why: r.clone(), cut: unmeasured_deploy_tick(r) });
         }
     }
     let mut seen = BTreeSet::new();
@@ -820,8 +820,25 @@ pub fn playability(f: &Fixture, db: &CardDb) -> Result<(), Vec<Unplayable>> {
     }
 }
 
+/// A DEPLOY THE MAKER COULD NOT MEASURE (its reasons "<card> at tick N: the spell measured nothing" and "<card> at tick N
+/// ... was accepted but no unit of it ever appeared"): the deploy's tick N, before which the battle stands, as an
+/// unloadable card's. None for every other reason (a mid-battle start, an unknown id, a rejected command, a level the
+/// capture did not apply), which no prefix can play around. Before this, such a fixture was never scored, whatever came
+/// before the deploy: four il battles (sp-il-2c29, 6a56, b5e2, b924) lost 14,404 ticks of play to a last spell.
+pub fn unmeasured_deploy_tick(reason: &str) -> Option<u32> {
+    let (head, rest) = reason.split_once(" at tick ")?;
+    if head.is_empty() || head.contains(' ') {
+        return None;
+    }
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let tail = &rest[digits.len()..];
+    let unmeasured = tail.starts_with(": the spell measured nothing") || tail.contains("was accepted but no unit of it ever appeared");
+    if unmeasured { digits.parse().ok() } else { None }
+}
+
 /// The tick before which an unplayable fixture can still be played: the earliest
-/// unloadable deploy, when every reason is a card and the prefix is long enough.
+/// unloadable or unmeasured deploy (`unmeasured_deploy_tick`), when every reason has one
+/// and the prefix is long enough.
 pub fn prefix_cut(f: &Fixture, why: &[Unplayable]) -> Option<u32> {
     if why.iter().any(|u| u.cut.is_none()) {
         return None;
