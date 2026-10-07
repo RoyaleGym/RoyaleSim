@@ -6100,6 +6100,91 @@ struct RawAbilityEffect {
     max_radius_milli: Option<i32>,
 }
 
+/// THE 16.402 KEYS A RECORD MAY CARRY THAT NO MODEL READS YET (option B), as (path, what it is). The record loads with
+/// the behaviour the engine has without the key (the 15.535 client's), and `CardDb::unmodelled` lists every record that
+/// carries one with a value other than null or false, so no key is dropped in silence. A key that only a new mechanic
+/// reads is not here: the loader refuses that form (an evolution block or an ability kind it does not know).
+///
+/// A path starts at a section of the file: `cards[]`, `evolutions[]` and `hero_forms[]` are lists of records named by
+/// their `name`, `units{}` a map named by its keys. Then one key per step; `[]` after a key steps into each element of
+/// a list.
+pub const UNMODELLED_KEYS: &[(&str, &str)] = &[
+    ("cards[].ability.refund_window_ms", "a button's refund window (RefundWindow); unmeasured"),
+    ("hero_forms[].ability.refund_window_ms", "a hero button's refund window (RefundWindow); unmeasured"),
+    ("cards[].ability.held_until_dashing", "the Golden Knight's cooldown held until his dash starts; unmeasured"),
+    ("cards[].ability.effect.filter.Filters", "the Golden Knight's dash target filter as tags (FilterTags)"),
+    ("cards[].ability.effect.hold_tag", "the Little Prince's guard holds its target while tagged; unmeasured"),
+    ("cards[].ability.effect.cleave", "the Little Prince's guard's cleave area; unmeasured"),
+    ("cards[].ramp.grace_held_while", "the Little Prince's ramp grace held while tagged; unmeasured"),
+    ("cards[].ability.effect.soul_flight_ms", "the Skeleton King's souls in flight; unmeasured"),
+    ("cards[].ability.effect.soul_if", "the Skeleton King's soul gate (charges left); unmeasured"),
+    ("cards[].ability.effect.soul_filter_excludes", "the Skeleton King's soul filter (buildings, clones); unmeasured"),
+    ("cards[].enchant_friends.on_buff_hold", "the Rune Giant's pause while he enchants (calibration ON_BUFF_PAUSE)"),
+    ("units{}.enchant_friends.on_buff_hold", "the Rune Giant's pause while he enchants (calibration ON_BUFF_PAUSE)"),
+    ("cards[].jump_ignores_pushback", "a jumping hog takes no pushback; unmeasured"),
+    ("units{}.jump_ignores_pushback", "a jumping hog takes no pushback; unmeasured"),
+    ("evolutions[].evo_fall.jump_ignores_pushback", "a jumping Evo Royal Hog takes no pushback; unmeasured"),
+    ("hero_forms[].ability.effect.jump_ignore_pushback_from_ms", "the Hero Dark Prince's jump ignores pushback"),
+    ("cards[].parry.included_attackers", "the Ronin's parry also takes the named attackers; unmeasured"),
+    ("units{}.parry.included_attackers", "the Ronin's parry also takes the named attackers; unmeasured"),
+    ("cards[].spawn_area_unless_clone", "a Clone's copy puts no spawn area down; unmeasured"),
+    ("units{}.spawn_area_unless_clone", "a Clone's copy puts no spawn area down; unmeasured"),
+    ("cards[].spell.area_effect_object.hidden_split", "the Earthquake's own hit on hidden buildings; unmeasured"),
+    ("evolutions[].evo_cage.captive_buff", "the Evo Goblin Cage's buff on its captive; unmeasured"),
+    ("evolutions[].evo_kill_heal.counts_shield", "the Evo P.E.K.K.A.'s heal counts a shield; unmeasured"),
+    ("evolutions[].evo_kill_heal.flight_ms", "the Evo P.E.K.K.A.'s heal flies before it lands; unmeasured"),
+    ("evolutions[].evo_net.hit_unless", "the Evo Hunter's net misses a dodging unit; unmeasured"),
+    ("evolutions[].evo_spear.switch_range_milli", "the Evo Barbarians' spear switch range; unmeasured"),
+    ("hero_forms[].ability.effect.areas[].filter.filter_dash_immune", "a hero area skips dash-immune units"),
+    ("hero_forms[].ability.effect.landing_filter", "the Hero Giant's landing filter; unmeasured"),
+    ("hero_forms[].ability.effect.monster_level_from_tomb", "the Hero Tombstone's monster takes the tomb's level"),
+    ("hero_forms[].ability.effect.monster_no_collisions", "the Hero Tombstone's waiting monster collides with nothing"),
+    ("hero_forms[].ability.effect.no_attack", "the Hero Elite Archers' decoy does not attack"),
+    ("hero_forms[].ability.effect.return", "the Hero Mega Minion's warp back on its target's death; unmeasured"),
+];
+
+/// Every (record, path) of `UNMODELLED_KEYS` that `file` carries with a value other than null or false.
+fn unmodelled_in(file: &serde_json::Value) -> Vec<(String, String)> {
+    fn walk<'a>(v: &'a serde_json::Value, steps: &[&str], out: &mut Vec<&'a serde_json::Value>) {
+        let Some((step, rest)) = steps.split_first() else {
+            out.push(v);
+            return;
+        };
+        let (key, each) = step.strip_suffix("[]").map_or((*step, false), |k| (k, true));
+        let Some(next) = v.get(key) else { return };
+        if each {
+            for x in next.as_array().into_iter().flatten() {
+                walk(x, rest, out);
+            }
+        } else {
+            walk(next, rest, out);
+        }
+    }
+    let mut found = Vec::new();
+    for (path, _) in UNMODELLED_KEYS {
+        let mut steps = path.split('.');
+        let section = steps.next().unwrap_or_default();
+        let steps: Vec<&str> = steps.collect();
+        let records: Vec<(String, &serde_json::Value)> = if let Some(s) = section.strip_suffix("[]") {
+            file.get(s).and_then(serde_json::Value::as_array).into_iter().flatten()
+                .map(|r| (r.get("name").and_then(serde_json::Value::as_str).unwrap_or("?").to_string(), r))
+                .collect()
+        } else if let Some(s) = section.strip_suffix("{}") {
+            file.get(s).and_then(serde_json::Value::as_object).into_iter().flatten().map(|(k, r)| (k.clone(), r)).collect()
+        } else {
+            Vec::new()
+        };
+        for (name, r) in records {
+            let mut vals = Vec::new();
+            walk(r, &steps, &mut vals);
+            if vals.iter().any(|v| !v.is_null() && v.as_bool() != Some(false)) {
+                found.push((name, (*path).to_string()));
+            }
+        }
+    }
+    found
+}
+
 /// cards.json `cards[].ramp` (tools/extract_cards.py `champion_ramp`): the grace and each level.
 #[derive(Deserialize)]
 struct RawRamp {
@@ -7286,6 +7371,9 @@ pub struct CardDb {
     /// The `hero_forms` entries the loader refused, with why. Kept apart from `rejected`, which lists the rows of the
     /// file's `cards` and `towers`.
     pub rejected_forms: Vec<(String, String)>,
+    /// THE 16.402 KEYS THIS TABLE'S RECORDS CARRY AND NO MODEL READS (`UNMODELLED_KEYS`), as (record, key path): each
+    /// record loaded with the behaviour the engine has without the key. Empty on the 15.535.29 and 2018 tables.
+    pub unmodelled: Vec<(String, String)>,
     /// THE FIRST SLOT THE HERO PASS LOADED (`load_hero_forms`): every record from here on is a hero form or its
     /// ability's unit (`is_hero_record`). u16::MAX when no hero pass ran.
     pub hero_start: u16,
@@ -8799,7 +8887,10 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut
         let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: a soul summon with no {k}"));
         let base = pos(e.count, "base count")?;
         let limit = e.max_count.filter(|m| *m >= base).ok_or_else(|| format!("{what}: a soul summon whose limit is below its base"))?;
-        let (min_radius, max_radius) = (milli(pos(e.min_radius_milli, "ring")?), milli(pos(e.max_radius_milli, "ring")?));
+        // 16.402 writes no SpawnMaxRadius (null): the soul pass places by `min_radius` and `area_radius` alone
+        // (state.rs `soul_pass`), so a null ring's outer edge is its inner one.
+        let min_radius = milli(pos(e.min_radius_milli, "ring")?);
+        let max_radius = if e.max_radius_milli.is_none() { min_radius } else { milli(pos(e.max_radius_milli, "ring")?) };
         if max_radius < min_radius {
             return Err(format!("{what}: a soul summon's ring runs backwards"));
         }
@@ -10022,6 +10113,9 @@ impl CardDb {
     /// Parse a cards.json document (schema at the bottom of this file).
     pub fn from_json_str(s: &str, source: CardSource) -> Result<CardDb, String> {
         let mut file: RawCardsFile = serde_json::from_str(s).map_err(|e| format!("cards.json: {e}"))?;
+        // The keys no model reads, from the file as written (`UNMODELLED_KEYS`): the Raw structs ignore what they do not
+        // declare, so this pass is what keeps a dropped key in view.
+        let unmodelled = unmodelled_in(&serde_json::from_str(s).map_err(|e| format!("cards.json: {e}"))?);
         let hero_forms = std::mem::take(&mut file.hero_forms);
         // PLANT hero_forms_in_first_pass (tests/hero_forms.rs): the forms load as ordinary rows of `cards`, ahead of
         // the towers and every summon-only unit, so those slots move.
@@ -10066,6 +10160,7 @@ impl CardDb {
             rejected_evolutions: Vec::new(),
             hero_forms: Vec::new(),
             rejected_forms: Vec::new(),
+            unmodelled,
             hero_start: u16::MAX,
             evo_records: Vec::new(),
         };
@@ -14061,6 +14156,33 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shipped_tables_carry_no_unmodelled_key() {
+        // The register names only 16.402 keys (option B): the 15.535.29 table every battle loads carries none.
+        let db = CardDb::from_json_str(EMBEDDED_CARDS_JSON, CardSource::Embedded).expect("the shipped table loads");
+        assert_eq!(db.unmodelled, Vec::<(String, String)>::new());
+    }
+
+    #[test]
+    fn unmodelled_in_names_each_record_that_carries_a_key() {
+        // A key set to false (the Knight's) or absent is not carried; a list step reaches into each element.
+        let v = serde_json::json!({
+            "cards": [{"name": "GoldenKnight", "ability": {"refund_window_ms": 50}}, {"name": "Knight", "jump_ignores_pushback": false}],
+            "units": {"HogRider": {"jump_ignores_pushback": true}, "Knight": {}},
+            "hero_forms": [{"name": "IceGolemite_hero", "ability": {"effect": {"areas": [{"filter": {}}, {"filter": {"filter_dash_immune": true}}]}}}]
+        });
+        let want = [
+            ("GoldenKnight", "cards[].ability.refund_window_ms"),
+            ("HogRider", "units{}.jump_ignores_pushback"),
+            ("IceGolemite_hero", "hero_forms[].ability.effect.areas[].filter.filter_dash_immune"),
+        ];
+        assert_eq!(unmodelled_in(&v), want.map(|(r, k)| (r.to_string(), k.to_string())).to_vec());
+        for (path, _) in UNMODELLED_KEYS {
+            let section = path.split('.').next().unwrap_or_default();
+            assert!(["cards[]", "units{}", "evolutions[]", "hero_forms[]"].contains(&section), "{path}: no such section");
+        }
+    }
 
     #[test]
     fn the_volley_disc_is_the_spells_radius_and_the_single_carriers_its_own() {

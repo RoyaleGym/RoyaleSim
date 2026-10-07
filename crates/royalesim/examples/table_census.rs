@@ -34,7 +34,7 @@ fn main() {
         };
         let summon_only = db.cards.iter().filter(|c| c.summon_only).count();
         println!(
-            "{p}: version {} | {} records ({} summon-only) | {} evolutions, {} hero forms | refused: {} rows, {} evolutions, {} hero forms",
+            "{p}: version {} | {} records ({} summon-only) | {} evolutions, {} hero forms | refused: {} rows, {} evolutions, {} hero forms | {} keys loaded without",
             db.version,
             db.cards.len(),
             summon_only,
@@ -42,12 +42,17 @@ fn main() {
             db.hero_forms.len(),
             db.rejected.len(),
             db.rejected_evolutions.len(),
-            db.rejected_forms.len()
+            db.rejected_forms.len(),
+            db.unmodelled.len()
         );
         for (what, list) in [("row", &db.rejected), ("evolution", &db.rejected_evolutions), ("hero form", &db.rejected_forms)] {
             for (name, why) in list {
                 println!("  REFUSED {what} {name}: {why}");
             }
+        }
+        // The 16.402 keys these records carry and no model reads (card.rs `UNMODELLED_KEYS`): loaded without them.
+        for (name, key) in &db.unmodelled {
+            println!("  LOADED WITHOUT {name}: {key}");
         }
     }
     std::process::exit(i32::from(failed));
