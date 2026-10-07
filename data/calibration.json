@@ -4531,6 +4531,17 @@
       "promotion_rules": "Flipped at the 2026-09-27 round-6 flip (scored on RoyaleSim fc4dbe4) on the corpus score in the provenance. The old text ('no Golem or LavaHound death falls in a scored window of the corpus, so no report moves') was refuted by that score: six reports move, all up.",
       "engine": "BattleState::death_spawn_points (for a container, the Skeleton Barrel's, release_fuse_end and container_slide_ring, its cap entity.rs death_slide_until and move16402::CONTAINER_SLIDE_TICKS; the ring's base angle and start radius when the row's DeathSpawnPushback is true), a slide state moved in the move pass until DeathSpawnRadius, and the card extractor must carry DeathSpawnPushback"
     },
+    "CONTAINER_RING_WATER": {
+      "value": "eject_nearest_land",
+      "candidates": ["eject_nearest_land", "client15535_clamp_from_burst_point"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_clamp_from_burst_point on client 15.535.29: 14 of 14 members of the 2 rings burst on water, eject 2 of 14; the 4 land-burst rings with a ring point on water agree under both arms (28 of 28); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r55_container_ring_birth_census.py with r55_water_birth_census_lib.py: the 26 container rings in the raw frames; member k's first frame against the burst point C, its x2/y2, and the 250 container ring, side 0 left half (-153,-196), (55,-243), (226,-105), (224,109), (51,244), (-157,194), (-250,0), x negated on the right half, y on side 1). C on water: 2 rings, 14 members: grid_move(C, offset) with the water flag exact (+-1) 14 of 14, ejection to the nearest land 2 of 14, the raw ring 8 of 14 (sp-form-SkeletonBalloon-evo-s0 t987, C (9078, 15154): clamp 7 of 7, eject 2 of 7; ub-sb2-water-mid t219, a plain barrel, C (6326, 15982): all 7 born in cell (12, 31) on the river). C on land with a ring point on water: 4 rings (ub-sb1-cannon-L/R, ub-sb2-rot-cannon-L/R): clamp and eject 28 of 28. Dry rings: 126 of 140 under every reading (the 14 others the 2 burst-pushed rings, combat.CONTAINER_BURST_PUSH). Of the 71 water-birth groups in the corpus only these 2 are ground multi-member births (the rest flyers over the river, or singles the grid rule already covers). Refuted: ejection (2 of 14, and it puts all 14 on land where the client left 12 on the river); the raw ring (8 of 14); nearest_land_grid (all 14 on land).",
+      "meaning": "eject_nearest_land: the engine's; a container ring's point on water is put on the nearest passable ground (Arena::nearest_passable_ground). client15535_clamp_from_burst_point: member k is born at move16402 grid_move(C, its ring offset) with the water flag, C the burst point: an axis crossing into a water cell stops at the edge of C's own cell, even when C's cell is water, so a member may be born on the river; its slide (death_slide_step, the same clamp) keeps it in C's cell.",
+      "open": "16.402; a burst-pushed ring on water.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_clamp_from_burst_point (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs death_spawn_points (the final map's clamp), selected by Calib::container_ring_water; tests/skeleton_barrel.rs."
+    },
     "DEATH_SLIDE_AIM": {
       "value": "fixed_end_point",
       "candidates": ["current_ray", "fixed_end_point"],

@@ -1114,6 +1114,10 @@ pub struct Calib {
     /// `StunnedBody`.
     #[serde(default = "uppercut_flight_contact_default")]
     pub uppercut_flight_contact: UppercutFlightContact,
+    /// spawner.CONTAINER_RING_WATER (`death_spawn_points`): where a container ring's member is born when its ring point
+    /// touches water. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `EjectNearestLand`.
+    #[serde(default = "container_ring_water_default")]
+    pub container_ring_water: ContainerRingWater,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2816,6 +2820,10 @@ fn ladder_plan_segment_default() -> LadderPlanSegment {
 
 fn uppercut_flight_contact_default() -> UppercutFlightContact {
     UppercutFlightContact::StunnedBody
+}
+
+fn container_ring_water_default() -> ContainerRingWater {
+    ContainerRingWater::EjectNearestLand
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6875,6 +6883,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.CONTAINER_RING_WATER -- see `death_spawn_points`: a container's ring (the Skeleton Barrel's) whose
+    /// member points touch water.
+    ContainerRingWater {
+        /// The engine's: a point on water is put on the nearest passable ground.
+        EjectNearestLand = "eject_nearest_land",
+        /// Each member is born where move16402's grid_move takes it from the burst point by its ring offset, with the water
+        /// flag: an axis crossing into a water cell stops at the edge of the burst point's own cell, even a water cell, so a
+        /// member may be born on the river. Measured on client 15.535.29: 14 of 14 members of the 2 rings burst on water
+        /// (sp-form-SkeletonBalloon-evo-s0 t987, 12 of them left on the river; eject 2 of 14); 28 of 28 on land alike.
+        Client15535ClampFromBurstPoint = "client15535_clamp_from_burst_point",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8886,6 +8907,7 @@ impl Calib {
             capture_drag_facing: pick(&v, &["movement", "CAPTURE_DRAG_FACING", "value"], CaptureDragFacing::from_calibration_name)?,
             ladder_plan_segment: pick(&v, &["pathfinding", "LADDER_PLAN_SEGMENT", "value"], LadderPlanSegment::from_calibration_name)?,
             uppercut_flight_contact: pick(&v, &["knockback", "UPPERCUT_FLIGHT_CONTACT", "value"], UppercutFlightContact::from_calibration_name)?,
+            container_ring_water: pick(&v, &["spawner", "CONTAINER_RING_WATER", "value"], ContainerRingWater::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -15218,10 +15240,26 @@ impl BattleState {
         // PLANT container_water_unejected (tests/skeleton_barrel.rs): a container's ring is left on the water.
         #[cfg(clash_plant = "container_water_unejected")]
         let flying = flying || orientation == RingOrientation::Container;
+        // spawner.CONTAINER_RING_WATER = client15535_clamp_from_burst_point: a container's member is born where the water
+        // clamp from the burst point takes it (client 15.535.29: 14 of 14 members of the rings burst on water).
+        // PLANT (regression) container_ring_water_ejected: the new arm still puts a wet point on land.
+        #[cfg(not(clash_plant = "container_ring_water_ejected"))]
+        let clamp = !flying
+            && slide
+            && orientation == RingOrientation::Container
+            && self.cfg.calib.container_ring_water == ContainerRingWater::Client15535ClampFromBurstPoint;
+        #[cfg(clash_plant = "container_ring_water_ejected")]
+        let clamp = false;
+        let k = crate::fixed::SUBTILE_PER_MILLITILE;
+        let is_water = |c: i32, r: i32| arena.cell_bits(c, r) & arena.bit_water != 0;
         points
             .into_iter()
             .map(|q| {
-                if flying || arena.is_passable_ground(q) {
+                if clamp {
+                    let (cx, cy) = (pos.x / k, pos.y / k);
+                    let (nx, ny) = move16402::grid_move(cx, cy, q.x / k - cx, q.y / k - cy, true, &is_water, arena.cols, arena.rows);
+                    Vec2::new(nx * k, ny * k)
+                } else if flying || arena.is_passable_ground(q) {
                     q
                 } else {
                     arena.nearest_passable_ground(q, team).unwrap_or(q)
@@ -32536,6 +32574,9 @@ impl BattleState {
 /// 20, unchanged, knockback.UPPERCUT_FLIGHT_CONTACT: Calib gained uppercut_flight_contact (serde default the old arm,
 ///    stunned_body), no new state (the flight is read off the saved uppercut runs), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.CONTAINER_RING_WATER: Calib gained container_ring_water (serde default the old arm,
+///    eject_nearest_land), no new state (the points are made at the burst), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
@@ -33591,6 +33632,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ladder_plan_segment".into(), serde_json::to_value(LadderPlanSegment::WalkTick).map_err(|e| e.to_string())?);
     // knockback.UPPERCUT_FLIGHT_CONTACT: a format-3 battle's thrown unit stayed a contact body (the same rule).
     sh.insert("uppercut_flight_contact".into(), serde_json::to_value(UppercutFlightContact::StunnedBody).map_err(|e| e.to_string())?);
+    // spawner.CONTAINER_RING_WATER: a format-3 battle's container member on water was put on land (the same rule).
+    sh.insert("container_ring_water".into(), serde_json::to_value(ContainerRingWater::EjectNearestLand).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

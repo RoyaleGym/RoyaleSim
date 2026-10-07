@@ -1610,6 +1610,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   segment on that tick from the start-of-tick point (133 of 133; 21 of 21 kept at the walk).
 ///   knockback.UPPERCUT_FLIGHT_CONTACT = client15535_out_of_pass: a unit in an Evo Mega Knight uppercut's flight is out
 ///   of the contact pass, as a slap's (12 of 12 overlap ticks).
+///   spawner.CONTAINER_RING_WATER = client15535_clamp_from_burst_point: a container ring's member is born where the
+///   water clamp from the burst point takes it, not ejected to land (14 of 14 on water bursts).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1760,6 +1762,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.CAPTURE_DRAG_FACING", "\"client15535_faces_ball\""),
     ("pathfinding.LADDER_PLAN_SEGMENT", "\"client15535_plan_tick\""),
     ("knockback.UPPERCUT_FLIGHT_CONTACT", "\"client15535_out_of_pass\""),
+    ("spawner.CONTAINER_RING_WATER", "\"client15535_clamp_from_burst_point\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

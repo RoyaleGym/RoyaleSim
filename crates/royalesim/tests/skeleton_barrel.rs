@@ -737,3 +737,33 @@ fn a_container_bursts_where_a_covering_unit_pushes_it() {
     assert!(ends[1].iter().all(|e| *e != Vec2::default()), "vacuous: the members have no slide end: {:?}", ends[1]);
     assert_eq!(ends[0], ends[1], "the pushed burst's slides end elsewhere than the unpushed one's");
 }
+
+/// spawner.CONTAINER_RING_WATER (client 15.535.29: 14 of 14 members of the two rings burst on water born where the water
+/// clamp from the burst point takes them, 12 of them on the river; ub-sb2-water-mid t219, a container at (6326, 15982), all
+/// 7 in cell (12, 31)): a Blue barrel killed over the river at (6326, 15982): its members' points on T + 12, native.
+/// Plant: container_ring_water_ejected.
+/// Returns the members' points and the burst point's 500 cell (its low corner, native): the barrel takes its step on its
+/// death tick, so the container falls where that step left it, still on the river.
+fn wet_ring(arm: royalesim::state::ContainerRingWater) -> (Vec<(i32, i32)>, (i32, i32)) {
+    let mut cfg = ring_slide();
+    cfg.calib.container_ring_water = arm;
+    let mut s = BattleState::new(3, cfg);
+    let (t, c) = kill_barrel(&mut s, Team::Blue, (6326, 15982));
+    assert!(!s.arena().is_passable_ground(c), "scene: the burst point is on the river");
+    let (cx, cy) = native(c);
+    after(&mut s, t + 12);
+    let m = members(&s, Team::Blue);
+    assert_eq!(m.len(), 7, "the seven Skeletons on T + 12");
+    (m.iter().map(|id| native(s.entity(*id).expect("a Skeleton").pos)).collect(), (cx / 500 * 500, cy / 500 * 500))
+}
+
+#[test]
+fn a_container_burst_on_the_river_keeps_its_members_in_its_cell_under_client15535_clamp_from_burst_point() {
+    let (new, cell) = wet_ring(royalesim::state::ContainerRingWater::Client15535ClampFromBurstPoint);
+    let inside = |p: &(i32, i32)| (cell.0..=cell.0 + 499).contains(&p.0) && (cell.1..=cell.1 + 499).contains(&p.1);
+    assert!(new.iter().all(inside), "client15535_clamp_from_burst_point: a member left the burst point's cell {cell:?}: {new:?}");
+    // NOT VACUOUS: eject_nearest_land puts members on land, out of the cell.
+    let (old, cell_old) = wet_ring(royalesim::state::ContainerRingWater::EjectNearestLand);
+    assert_eq!(cell_old, cell, "the scene drifted between the arms");
+    assert!(!old.iter().all(inside), "eject_nearest_land: every member stayed in the cell: {old:?}");
+}
