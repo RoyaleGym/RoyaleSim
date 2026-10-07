@@ -418,6 +418,13 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     if e.acquire_delayed(c, ctx.tick) {
         return false;
     }
+    // TargetOnlyKingTower (card.rs `target_only_king_tower`, the Goblin Rocket Silo's last stage): the enemy king alone.
+    // Measured on client 15.535.29 (sp-event-GoblinRocketSilo-s0): GoblinRocketSilo2 took side 1's king, 17,678 off, on
+    // the frame it became that row, with a princess tower and a Knight nearer.
+    #[cfg(not(clash_plant = "king_only_unread"))]
+    if ctx.cards.get(e.card[a]).target_only_king_tower && e.kind[c] != crate::entity::EntityKind::KingTower {
+        return false;
+    }
     // A SPAWNER'S BOTTLE'S BODY (card.rs `bottle_body`, the Super Mini PEKKA's pancake) is nobody's target.
     #[cfg(not(clash_plant = "bottle_body_targetable"))]
     if ctx.cards.get(e.card[c]).untargetable {

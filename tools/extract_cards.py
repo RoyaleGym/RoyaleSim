@@ -2314,6 +2314,57 @@ def _transform_leaf(t: dict, name: str, delays: list | None, at: int | None, noo
     return False
 
 
+def stage_schedule(t: dict, rec: dict) -> list | None:
+    """A TIMED TRANSFORMATION CHAIN (15.535): the row's one root, OnStartingAction, is an ActionGroup whose every
+    sub-action is an ActionGroup of cosmetic effects (ActionPlayEffect) and one ActionChangeGameObjectData into a
+    character row (the Goblin Rocket Silo's StageSwitcher: GoblinRocketSilo1 at 6000 + 200, GoblinRocketSilo2 at
+    12000 + 0). Each stage's time is its group's SubActionsDelay from the root group's start plus the change's own from
+    its group's start (calibration actions.SUB_ACTIONS_DELAY = from_group_start), with the group's
+    AbortIfInstigatorDies. None for any other graph (fail-closed), and the loader then refuses it by its graph as
+    before. Read by card.rs `stages_of`."""
+    g = action_graph(t, rec)
+    if not g or set(g["roots"]) != {"OnStartingAction"}:
+        return None
+    acts = t["actions"]
+    root = g["roots"]["OnStartingAction"]
+    a = acts.get(root)
+    if a is None or a["ClassType"] != "ActionGroup":
+        return None
+    subs = _action_list(acts, root, "SubActions")
+    delays = _action_list(acts, root, "SubActionsDelay") or [0] * len(subs)
+    if not subs or len(delays) != len(subs):
+        return None
+    out = []
+    for sub, d in zip(subs, delays, strict=True):
+        inner = acts.get(sub) if isinstance(sub, str) else None
+        if inner is None or inner["ClassType"] != "ActionGroup":
+            return None
+        isubs = _action_list(acts, sub, "SubActions")
+        ids = _action_list(acts, sub, "SubActionsDelay") or [0] * len(isubs)
+        if len(ids) != len(isubs):
+            return None
+        change = None
+        for s2, d2 in zip(isubs, ids, strict=True):
+            leaf = acts.get(s2) if isinstance(s2, str) else None
+            if leaf is None:
+                return None
+            if leaf["ClassType"] == "ActionPlayEffect":
+                continue
+            into = leaf["NewCharacterData"] if leaf["ClassType"] == "ActionChangeGameObjectData" else None
+            if change is not None or not isinstance(into, str) or not into:
+                return None
+            change = {
+                "at_ms": (d or 0) + (d2 or 0),
+                "into": into,
+                "reset_target": bool(flag(leaf, "ResetTarget")),
+                "abort_if_dies": bool(flag(inner, "AbortIfInstigatorDies")),
+            }
+        if change is None:
+            return None
+        out.append(change)
+    return out
+
+
 def transform_at_hp(t: dict, rec: dict) -> dict | None:
     """THE HEALTH-THRESHOLD TRANSFORMATION as a named block (15.535): the row's one root action,
     OnStartingAction, is an ActionRunActionAtHealth whose HealthPercentages[i] runs Actions[i], and
@@ -3408,6 +3459,14 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         hops = death_projectile_hops(t, u["death_spawn_projectile"])
         if hops is not None:
             u["death_projectile_hops"] = hops
+        # A TIMED TRANSFORMATION CHAIN (15.535; `stage_schedule`) and TargetOnlyKingTower (the Goblin Rocket Silo and
+        # its last stage, read by card.rs `stages_of` and target.rs `can_target`). Each written only where the row is
+        # one or sets it, so every other record is unchanged.
+        stages = stage_schedule(t, c)
+        if stages is not None:
+            u["stage_schedule"] = stages
+        if flag(c, "TargetOnlyKingTower"):
+            u["target_only_king_tower"] = True
         # 15.535: the scripted actions the row reaches (None when it names none), with the
         # DoAttackAction roots of its AttackSequenceList (the Three Musketeers' bayonet).
         u["action_graph"] = action_graph(t, c, t[table].arrays.get(name, {}).get("AttackSequenceList"))
@@ -4715,6 +4774,13 @@ def summon_card(t, rarities, kind, key, s) -> dict:
         card["action_graph"] = u["action_graph"]
     if "life_state_spawner" in u:
         card["life_state_spawner"] = u["life_state_spawner"]
+    if "stage_schedule" in u:
+        card["stage_schedule"] = u["stage_schedule"]
+    # DeployWTileMargin (15.535): a building card whose footprint keeps that many tiles off each side edge (the Goblin
+    # Rocket Silo's 5; state.rs `building_placement`). Written only on a building card that sets it (the troop cards
+    # that set it, the full-lane lines, are laid by their formation).
+    if kind == "building" and isinstance(s, Row) and s.get("DeployWTileMargin"):
+        card["deploy_w_tile_margin"] = s["DeployWTileMargin"]
     if "interval_spawner" in u:
         card["interval_spawner"] = u["interval_spawner"]
     # Only on a row that sets a Mana column (norm_unit), so every other card row is unchanged.

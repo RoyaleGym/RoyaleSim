@@ -16748,6 +16748,21 @@
     "spawns": [],
     "mechanic": true
    },
+   "stage_schedule": [
+    {
+     "at_ms": 6200,
+     "into": "GoblinRocketSilo1",
+     "reset_target": false,
+     "abort_if_dies": true
+    },
+    {
+     "at_ms": 12000,
+     "into": "GoblinRocketSilo2",
+     "reset_target": false,
+     "abort_if_dies": true
+    }
+   ],
+   "deploy_w_tile_margin": 5,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -58498,6 +58513,20 @@
     "flying_height",
     "shield_hitpoints"
    ],
+   "stage_schedule": [
+    {
+     "at_ms": 6200,
+     "into": "GoblinRocketSilo1",
+     "reset_target": false,
+     "abort_if_dies": true
+    },
+    {
+     "at_ms": 12000,
+     "into": "GoblinRocketSilo2",
+     "reset_target": false,
+     "abort_if_dies": true
+    }
+   ],
    "action_graph": {
     "roots": {
      "OnStartingAction": "GoblinRocketSilo_StageSwitcher"
@@ -58701,6 +58730,7 @@
     "flying_height",
     "shield_hitpoints"
    ],
+   "target_only_king_tower": true,
    "action_graph": null,
    "death_spawn_pushback": false,
    "raw": {

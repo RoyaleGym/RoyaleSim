@@ -3170,6 +3170,15 @@ pub struct CardDef {
     /// `health_triggers` and `rebind_unit`): at its threshold the unit becomes another row in place, the same
     /// entity. None on every other card.
     pub transform_at_hp: Option<TransformDef>,
+    /// A TIMED TRANSFORMATION CHAIN (`StageDef`, `timed_stages_of`; the Goblin Rocket Silo's): the rows the unit becomes, each at
+    /// its time from its creation (state.rs `spawn_with`). Empty on every other card.
+    pub stages: Vec<StageDef>,
+    /// TargetOnlyKingTower (the Goblin Rocket Silo's last stage): the enemy king is its one target (target.rs
+    /// `can_target`). False on every other card.
+    pub target_only_king_tower: bool,
+    /// DeployWTileMargin (the Goblin Rocket Silo's 5): its footprint keeps that many tiles off each side edge (state.rs
+    /// `building_placement`). None on every other card.
+    pub deploy_w_tile_margin: Option<i32>,
     /// THE COUNTER (the Ronin; `ParryDef`, state.rs `note_parry` and `parry_pass`): the first hit parry.COUNTERED_HITS
     /// admits while it is ready is taken at its DefenseScalar and answered with a stun and a reflect. None on every
     /// other card.
@@ -3492,6 +3501,13 @@ struct RawCard {
     life_state_spawner: Option<RawLifeState>,
     /// The health-threshold transformation (`TransformDef`), 15.535 only.
     transform_at_hp: Option<RawTransform>,
+    /// cards.json `stage_schedule` (tools/extract_cards.py `stage_schedule`; 15.535 only, written where the row's graph is
+    /// one): `timed_stages_of`.
+    stage_schedule: Option<Vec<RawStage>>,
+    /// TargetOnlyKingTower (15.535 only, written where set): `CardDef::target_only_king_tower`.
+    target_only_king_tower: Option<bool>,
+    /// DeployWTileMargin, a card row's (15.535 only, written where set): `CardDef::deploy_w_tile_margin`.
+    deploy_w_tile_margin: Option<i32>,
     /// cards.json `parry`: the counter (`ParryDef`), 15.535 only.
     parry: Option<RawParry>,
     /// cards.json `ignore_clone` (IgnoreClone; 15.535 only, written where set): `CardDef::ignore_clone`.
@@ -4395,6 +4411,56 @@ fn death_hop(p: &RawSpellProjectile, h: &RawHops) -> Result<HopDef, String> {
     })
 }
 
+/// ONE STAGE OF A TIMED TRANSFORMATION CHAIN (`CardDef::stages`): at `at_ms` from the unit's creation it becomes row
+/// `unit` in place (state.rs `rebind_unit`, the Goblin Demolisher's delayed change), dropped when the unit is gone first.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct StageDef {
+    pub at_ms: i32,
+    /// The row's CardDb index (a `summon_only` record, loaded through `UnitUse::Stage`); u16::MAX until resolved.
+    pub unit: u16,
+    pub reset_target: bool,
+}
+
+/// cards.json `stage_schedule`'s entries, every field nullable.
+#[derive(Deserialize, Default, Clone)]
+#[serde(default)]
+struct RawStage {
+    at_ms: Option<i32>,
+    into: Option<String>,
+    reset_target: Option<bool>,
+    abort_if_dies: Option<bool>,
+}
+
+/// The timed transformation chain a `stage_schedule` block names (`StageDef`), with each stage's row name; or the reason
+/// it is refused. The graph must be groups, cosmetic effects and the changes alone, spawning nothing; each stage after the
+/// one before, dropped when its unit is gone (AbortIfInstigatorDies), into a named row. Measured on client 15.535.29
+/// (sp-event-GoblinRocketSilo-s0): one entity throughout, its hitpoints carried (1797 before and after the first change),
+/// the first change on its first frame + 124 (6000 + 200 ms, the group's delays from its start), the second on + 240.
+fn timed_stages_of(raw: &[RawStage], graph: &Option<RawActionGraph>) -> Result<(Vec<StageDef>, Vec<String>), String> {
+    let refuse = |why: &str| Err(format!("the unit's timed transformation: {why}; not simulated"));
+    let Some(g) = graph else { return refuse("no action graph carries it") };
+    let known = g.class_types.iter().all(|c| matches!(c.as_str(), "ActionGroup" | "ActionPlayEffect" | "ActionChangeGameObjectData"));
+    if !known || !g.spawns.is_empty() {
+        refuse_action_mechanic(graph, "the unit")?;
+        return refuse(&format!("the graph is not a timed transformation ({})", g.class_types.join(", ")));
+    }
+    if raw.is_empty() {
+        return refuse("no stage");
+    }
+    let (mut out, mut names, mut last) = (Vec::new(), Vec::new(), 0);
+    for st in raw {
+        let Some(at) = st.at_ms.filter(|a| *a > last) else { return refuse(&format!("a stage at {:?} not after the one before", st.at_ms)) };
+        if st.abort_if_dies != Some(true) {
+            return refuse("a stage that outlives its unit");
+        }
+        let Some(into) = st.into.clone().filter(|n| !n.is_empty()) else { return refuse("a stage that names no character") };
+        out.push(StageDef { at_ms: at, unit: u16::MAX, reset_target: st.reset_target.unwrap_or(false) });
+        names.push(into);
+        last = at;
+    }
+    Ok((out, names))
+}
+
 /// cards.json `transform_at_hp`, every field nullable (tools/extract_cards.py `transform_at_hp`).
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -4737,6 +4803,9 @@ enum UnitUse {
     /// The row a transformation turns the unit into (`TransformDef::unit`: the Cannon Cart's BrokenCannon, the
     /// Goblin Demolisher's kamikaze form). The one use under which a troop row may carry a LifeTime.
     Transform,
+    /// A row of a timed transformation chain (`StageDef::unit`: the Goblin Rocket Silo's GoblinRocketSilo1 and 2), loaded
+    /// as a transformation's row and resolved onto the first stage still unresolved.
+    Stage,
     /// The unit of entry k of a scheduled area (`SpellShape::ScheduledArea`: the Graveyard's Skeletons, the Suspicious
     /// Bush's goblins), resolved onto the first of the card's spell objects whose entry k is still unresolved.
     Scheduled(u8),
@@ -4842,6 +4911,9 @@ pub enum UnitRef {
     /// 0 the card's own unit (the TriWizard, `SpawnVia::OwnSpawn`), then the cards whose deploy areas its actions make
     /// (the Electro Wizard, the Ice Wizard; `SpawnVia::DeployArea`).
     DeploySpawn(u8),
+    /// The row stage k of a timed transformation chain turns the unit into (`StageDef::unit`, the Goblin Rocket Silo's).
+    /// The entity stays the same one, as a `Transform`'s.
+    Stage(u8),
 }
 
 impl UnitRef {
@@ -4865,6 +4937,7 @@ impl UnitRef {
             UnitRef::AbilityUnit => "a hero ability's unit",
             UnitRef::EvoUnit(_) => "an evolved form's unit",
             UnitRef::DeploySpawn(_) => "a deploy spawn area's unit",
+            UnitRef::Stage(_) => "a timed transformation's row",
         }
     }
 }
@@ -7804,6 +7877,9 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         attack_buff_first: false,
         enchant: None,
         transform_at_hp: None,
+        stages: Vec::new(),
+        target_only_king_tower: false,
+        deploy_w_tile_margin: None,
         parry: None,
         kamikaze_time_ms: 0,
         death_pushback: 0,
@@ -9901,6 +9977,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         (raw.enchant_friends.is_some(), "an enchant"),
         (raw.transform_at_hp.is_some(), "a transformation"),
         (raw.parry.is_some(), "a counter"),
+        (raw.stage_schedule.is_some(), "a timed transformation"),
     ]
     .into_iter()
     .filter_map(|(has, what)| has.then_some(what))
@@ -9917,6 +9994,12 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let attack_select = raw.attack_select.as_ref().map(|sel| attack_select_of(sel, &raw.action_graph)).transpose()?;
     let enchant = raw.enchant_friends.as_ref().map(|ef| enchant_of(ef, &raw.action_graph)).transpose()?;
     let transform = raw.transform_at_hp.as_ref().map(|tr| transform_of(tr, &raw.action_graph)).transpose()?;
+    // PLANT (regression) stages_refused: the timed transformation is not read, and the card is refused again.
+    #[cfg(clash_plant = "stages_refused")]
+    if raw.stage_schedule.is_some() {
+        return Err("the unit runs an action graph this loader does not read (a timed transformation)".into());
+    }
+    let stages = raw.stage_schedule.as_ref().map(|s| timed_stages_of(s, &raw.action_graph)).transpose()?;
     let parry = raw.parry.as_ref().map(|p| parry_of(p, &raw.action_graph, buffs)).transpose()?;
     // THE UNDERGROUND SPAWN WALK: read, or refused with the shape it has (`spawn_pathfind_of`). The
     // morph target is a need of the card, loaded from `units` by the unit loop.
@@ -10171,6 +10254,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     if let Some((_, name)) = &transform {
         units.push((UnitUse::Transform, name.clone()));
     }
+    if let Some((_, names)) = &stages {
+        units.extend(names.iter().map(|n| (UnitUse::Stage, n.clone())));
+    }
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
     }
@@ -10406,10 +10492,11 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         // THE INERT BUILDING THAT PRODUCES (the Elixir Collector): a building with no damage source and a `mana`
         // block ships no HitSpeed and needs none (the Target and Attack passes skip a hit speed of 0), so it loads
         // as 0. Every other row still needs the column: the 2018 Elixir Collector, whose file carries no `mana`,
-        // stays refused, and so does a building that produces nothing.
+        // stays refused, and so does a building that produces nothing. A building that changes on a clock (the Goblin
+        // Rocket Silo, item 302) needs none either: the row it becomes is the one that attacks.
         hit_speed_ms: match raw.hit_speed_ms {
             Some(h) => h,
-            None if inert_building && mana.is_some() => 0,
+            None if inert_building && (mana.is_some() || raw.stage_schedule.is_some()) => 0,
             None => return Err("missing hit_speed_ms".into()),
         },
         load_time_ms: raw.load_time_ms.unwrap_or(0),
@@ -10513,6 +10600,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         enchant,
         // Resolved by `CardDb::from_json_str` (the row's name pushed on `units` above).
         transform_at_hp: transform.map(|(d, _)| d),
+        stages: stages.map(|(d, _)| d).unwrap_or_default(),
+        target_only_king_tower: raw.target_only_king_tower.unwrap_or(false),
+        deploy_w_tile_margin: raw.deploy_w_tile_margin.filter(|m| *m > 0),
         parry,
         kamikaze_time_ms,
         death_pushback,
@@ -11099,7 +11189,13 @@ impl CardDb {
                     let obj = v.as_object_mut().ok_or_else(|| format!("units.{unit} is not an object"))?;
                     obj.insert("kind".into(), serde_json::Value::String(kind.into()));
                     obj.entry("count").or_insert(serde_json::Value::from(1));
-                    let raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
+                    let mut raw: RawCard = serde_json::from_value(v).map_err(|e| format!("units.{unit}: {e}"))?;
+                    // A TIMED STAGE THAT DOES NOTHING (the Goblin Rocket Silo's GoblinRocketSilo1, item 302): a row reached
+                    // only on the clock, with no damage source, ships no HitSpeed and needs none; it loads as 0 like the
+                    // Elixir Collector (the Target and Attack passes skip a hit speed of 0).
+                    if which == UnitUse::Stage && raw.hit_speed_ms.is_none() && raw.damage.is_none() && raw.projectile.is_none() {
+                        raw.hit_speed_ms = Some(0);
+                    }
                     // A SPAWNED UNIT THAT TUNNELS is refused: only a played card starts the walk, at its
                     // owner's King (the one other row that tunnels, GoblinDrill_EV1_Dig, is an evolution).
                     if raw.spawn_pathfind.as_ref().is_some_and(|p| p.speed.is_some() || p.morph.is_some()) {
@@ -11186,7 +11282,7 @@ impl CardDb {
                     // keeps its own and is not deployed again (state.rs `rebind_unit`), so a row whose block
                     // needs either would run without it. Refused by the block; the Cannon Cart's
                     // BrokenCannon and the Goblin Demolisher's kamikaze form carry none of them.
-                    if which == UnitUse::Transform {
+                    if which == UnitUse::Transform || which == UnitUse::Stage {
                         let block = [
                             (c.hide.is_some(), "a hide"),
                             (c.spawner.is_some(), "a periodic spawner"),
@@ -11251,7 +11347,7 @@ impl CardDb {
                     // the cache is by name, so a name's first use decides (no 15.535.29 row is requested both
                     // ways).
                     #[cfg(not(clash_plant = "troop_lifetime_refusal_lifted"))]
-                    let refused = c.kind == CardKind::Troop && c.lifetime_ms.is_some() && which != UnitUse::Transform;
+                    let refused = c.kind == CardKind::Troop && c.lifetime_ms.is_some() && which != UnitUse::Transform && which != UnitUse::Stage;
                     #[cfg(clash_plant = "troop_lifetime_refusal_lifted")]
                     let refused = false; // PLANT (regression): a troop with a LifeTime loads whatever reaches it.
                     if refused {
@@ -11297,7 +11393,7 @@ impl CardDb {
                 }
                 // A transformation turns the unit into a ROW the card owns, never into a playable card: the name of
                 // a card that serves as the unit (`CardDef::unit_name`) is refused here.
-                Ok(u) if which == UnitUse::Transform && !db.cards[u as usize].summon_only => {
+                Ok(u) if (which == UnitUse::Transform || which == UnitUse::Stage) && !db.cards[u as usize].summon_only => {
                     unloadable.push((spell_idx, format!("units.{unit}: a transformation into a playable card is not simulated")));
                 }
                 // A DEPLOY SPAWN AREA'S ENTRY puts its unit down through the area the entry makes, and the engine runs
@@ -11357,6 +11453,11 @@ impl CardDb {
                         // The buff's row, which every card that hangs it shares, not the card.
                         UnitUse::BuffDeathSpawn(b) => buffs.set_death_unit(b, u),
                         UnitUse::Transform => card.transform_at_hp.as_mut().expect("transform present").unit = u,
+                        UnitUse::Stage => {
+                            if let Some(st) = card.stages.iter_mut().find(|s| s.unit == u16::MAX) {
+                                st.unit = u;
+                            }
+                        }
                         // Onto the first of the card's spell objects whose entry k is still unresolved: the spell, the
                         // death area, the projectile area, the order their needs are queued in.
                         UnitUse::Scheduled(k) => {
@@ -14162,7 +14263,8 @@ impl CardDb {
                 | UnitRef::Scheduled(_)
                 | UnitRef::AbilityUnit
                 | UnitRef::EvoUnit(_)
-                | UnitRef::DeploySpawn(_) => self.unit_level(idx, unit, level_index, level)?,
+                | UnitRef::DeploySpawn(_)
+                | UnitRef::Stage(_) => self.unit_level(idx, unit, level_index, level)?,
                 // A variant's form is a card of its own, played at the same unified level: checked whole (its own
                 // units included) by the walk below, at that level. A form is never itself a variant (the loader
                 // refuses one).
@@ -14363,6 +14465,10 @@ impl CardDb {
                 out.push((UnitRef::DeploySpawn(k as u8), e.unit, None));
             }
         }
+        // After it, so no earlier block's place moves: the rows of a timed transformation chain (the Goblin Rocket Silo's).
+        for (k, st) in c.stages.iter().enumerate() {
+            out.push((UnitRef::Stage(k as u8), st.unit, None));
+        }
         out
     }
 
@@ -14410,6 +14516,7 @@ impl CardDb {
                 UnitRef::EvoUnit(_) => card.evo = None,
                 // An area that lost a unit goes whole, as a spell's schedule does.
                 UnitRef::DeploySpawn(_) => card.deploy_spawn_area = None,
+                UnitRef::Stage(_) => card.stages.clear(),
             }
         }
         let card = &mut self.cards[idx as usize];
@@ -15276,12 +15383,14 @@ mod tests {
         // What is NOT simulated is refused out loud. Poison loads -- a pulsing area
         // effect whose mechanic is a BUFF (with Earthquake and the Snowball). Rage and
         // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes), the Graveyard as a scheduled
-        // area (tests/scheduled_area.rs) and the Clone as its own shape (tests/clone.rs). The event's GoblinRocketSilo,
-        // whose unit runs a timed action graph the loader does not read, is still refused (GlobalClone was the example
-        // until it loaded, item 294).
-        let n = "GoblinRocketSilo";
-        assert!(db.index(n).is_none(), "{n} must not be simulable");
-        assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
+        // area (tests/scheduled_area.rs) and the Clone as its own shape (tests/clone.rs). Every row of the 15.535.29 table
+        // loads since the event tier (items 294-302; GlobalClone and then GoblinRocketSilo were the example here): the
+        // refused row is the 2018 table's MovingCannon, whose BrokenCannon is a troop with a LifeTime there.
+        assert!(db.rejected.is_empty(), "the 15.535.29 table refuses {:?}", db.rejected);
+        let old = CardDb::load_repo_file("cards-2018.json").expect("tools/extract_cards.py --vintage 2018");
+        let n = "MovingCannon";
+        assert!(old.index(n).is_none(), "{n} must not be simulable");
+        assert!(old.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
         assert!(matches!(spell("Graveyard").shape, SpellShape::ScheduledArea { .. }), "Graveyard: {:?}", spell("Graveyard"));
         assert!(matches!(spell("Clone").shape, SpellShape::Clone { .. }), "Clone: {:?}", spell("Clone"));
         // The Mirror and the Spirit Empress load as the two shapes that are never cast

@@ -330,6 +330,10 @@ fn field_refs(db: &CardDb, c: &CardDef) -> Vec<(UnitRef, u16, Option<i32>)> {
             out.push((UnitRef::DeploySpawn(k as u8), e.unit, None));
         }
     }
+    // the rows of a timed transformation chain (the Goblin Rocket Silo's), stage by stage
+    for (k, st) in c.stages.iter().enumerate() {
+        out.push((UnitRef::Stage(k as u8), st.unit, None));
+    }
     out
 }
 

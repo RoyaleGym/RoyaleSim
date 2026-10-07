@@ -977,7 +977,7 @@ fn unit_rows_below(cards: &CardDb, calib: &Calib, idx: u16, level: i32, walked: 
             UnitRef::SpellRelease | UnitRef::SpellSummon => Some("release"),
             UnitRef::Scheduled(_) => Some(scheduled_role),
             // The same entity in another row: no unit of its own, but what that row puts down is walked.
-            UnitRef::Transform => None,
+            UnitRef::Transform | UnitRef::Stage(_) => None,
             // A form is an own row (`unit_hitpoint_rows`).
             UnitRef::VariantForm(_) => continue,
         };

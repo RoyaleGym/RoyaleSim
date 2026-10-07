@@ -86,11 +86,16 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // RAGE WAS THE EXAMPLE until it loaded as a spell summon, and then MIRROR until it loaded as the
     // replay of the side's last play, and then CLONE until it loaded as its own shape, and then GlobalClone until it loaded
     // as the Clone's shape with its own hold (item 294), and then GlobalLightning until it loaded as an area that does
-    // nothing (item 297), and then the Super Lava Hound until its fire wall's hops were read (item 300); the Goblin Rocket
-    // Silo runs a timed action graph the loader does not read yet.
-    match s.check_deploy(Team::Blue, "GoblinRocketSilo", t(900, 1000)) {
-        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "GoblinRocketSilo"),
-        other => panic!("expected UnsupportedCard for GoblinRocketSilo, got {other:?}"),
+    // nothing (item 297), the Super Lava Hound until its fire wall's hops were read (item 300), and the Goblin Rocket Silo
+    // until its timed transformation was read (item 302): every row of the 15.535.29 table loads, so the example is the
+    // 2018 table's MovingCannon (its BrokenCannon is a troop with a LifeTime there).
+    let mut old_cfg = scripted_config();
+    old_cfg.cards = std::sync::Arc::new(royalesim::card::CardDb::load_repo_file("cards-2018.json").unwrap_or_else(|e| panic!("{e} (tools/extract_cards.py --vintage 2018)")));
+    let mut old = BattleState::new(1, old_cfg);
+    past_deploy_lockout(&mut old);
+    match old.check_deploy(Team::Blue, "MovingCannon", t(900, 1000)) {
+        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "MovingCannon"),
+        other => panic!("expected UnsupportedCard for the 2018 MovingCannon, got {other:?}"),
     }
     // ...and the expired half becomes a REGRESSION gate: every thin-slice spell is
     // now simulable, so asking about one that is not in hand says NotInHand -- never

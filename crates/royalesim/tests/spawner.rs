@@ -1236,13 +1236,18 @@ fn loader_reads_both_blocks_from_cards_json_shares_the_unit_table_and_rejects_br
     }
     // Rejected after the push (an unloadable unit, a death area effect): in the list,
     // unregistered, its blocks dropped. Rejected in `convert` (an action graph): never
-    // pushed at all. Checked on every row rejected after its push, and there must be one.
+    // pushed at all. Checked on every row rejected after its push, and there must be one. Every row of the 15.535.29
+    // table loads (0 rejected), so the 2018 table's rows are checked with it.
     {
-        let pushed: Vec<_> = db.cards.iter().filter(|c| db.rejected.iter().any(|(n, _)| *n == c.name)).collect();
-        assert!(!pushed.is_empty(), "vacuous: no row of this table is rejected after its push");
-        for c in pushed {
-            assert!(c.death_spawn.is_none() && c.spawner.is_none(), "{}: a rejected card kept a unit block", c.name);
-        }
+        let db18 = CardDb::load_repo_file("cards-2018.json").expect("cards-2018.json (tools/extract_cards.py --vintage 2018)");
+        let check = |t: &CardDb| -> usize {
+            let pushed: Vec<_> = t.cards.iter().filter(|c| t.rejected.iter().any(|(n, _)| *n == c.name)).collect();
+            for c in &pushed {
+                assert!(c.death_spawn.is_none() && c.spawner.is_none(), "{}: a rejected card kept a unit block", c.name);
+            }
+            pushed.len()
+        };
+        assert!(check(&db) + check(&db18) > 0, "vacuous: no row of either table is rejected after its push");
     }
     // A partial block is refused with its column named.
     let broken = LIMITED_CARDS.replacen("\"pause_time_ms\":500", "\"pause_time_ms\":null", 1);

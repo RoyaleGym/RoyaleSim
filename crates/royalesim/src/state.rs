@@ -12629,6 +12629,14 @@ impl BattleState {
         if c.starts_visible {
             self.ents.reveal_from[i] = self.tick;
         }
+        // A TIMED TRANSFORMATION CHAIN (card.rs `StageDef`, the Goblin Rocket Silo's): each stage scheduled from the unit's
+        // creation (`fire_scheduled`, at the top of the tick), dropped when the unit is gone first (AbortIfInstigatorDies).
+        // Measured on client 15.535.29 (sp-event-GoblinRocketSilo-s0): its first frame F, GoblinRocketSilo1 on F + 124
+        // (6000 + 200 ms), GoblinRocketSilo2 on F + 240 (12000 ms), one entity, its hitpoints carried.
+        #[cfg(not(clash_plant = "stages_never_run"))]
+        for st in &c.stages {
+            self.scheduled.push(Scheduled { ms: st.at_ms, action: ScheduledAction::Transform { entity: id, into: st.unit, reset_target: st.reset_target } });
+        }
         // A hiding building (or a spawner) with no deploy time at all is "deployed" now.
         if self.ents.deploy_ms[i] == 0 {
             self.on_deployed(i);
@@ -29430,6 +29438,18 @@ impl BattleState {
         let snapped = match self.cfg.calib.placement_snap_even {
             PlacementSnapEven::PlacerFrame => arena.snap_placement(team, tap, n),
             PlacementSnapEven::Absolute => arena.snap_placement(Team::Blue, tap, n),
+        };
+        // A CARD WITH A SIDE MARGIN (card.rs `deploy_w_tile_margin`, the Goblin Rocket Silo's 5): its footprint keeps that
+        // many tiles off each side edge, its centre moved in along x. Measured on client 15.535.29
+        // (sp-event-GoblinRocketSilo-s0): a tap on (14500, 11500) put the silo's 3 x 3 on (11500, 11500), its right edge
+        // 5 tiles off the arena's; a margin to its centre would have allowed 12500.
+        #[cfg(not(clash_plant = "tile_margin_unread"))]
+        let snapped = match card.deploy_w_tile_margin {
+            Some(m) => {
+                let lo = (m * crate::fixed::tiles(1) + n * crate::fixed::tiles(1) / 2).min(arena.width / 2);
+                Vec2::new(snapped.x.clamp(lo, arena.width - lo), snapped.y)
+            }
+            None => snapped,
         };
         let fits = |centre: Vec2| -> bool {
             let b = Arena::placement_box(centre, n);

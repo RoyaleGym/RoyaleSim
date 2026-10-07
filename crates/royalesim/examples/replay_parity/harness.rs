@@ -1304,8 +1304,9 @@ impl Roots {
                     UnitRef::SummonMember(_) => &mut second_summon_of,
                     // a variant card's form is a card of its own, deployed as itself: rooted as "deployed"
                     UnitRef::VariantForm(_) => continue,
-                    // a transformation keeps the entity: it was rooted when it appeared, and its root stays
-                    UnitRef::Transform => continue,
+                    // a transformation keeps the entity: it was rooted when it appeared, and its root stays; so does a
+                    // timed transformation's stage (the Goblin Rocket Silo's)
+                    UnitRef::Transform | UnitRef::Stage(_) => continue,
                     // a scheduled area's units: a spell's (the Graveyard's Skeletons) are put down by its spell, as a
                     // release is; a death area's (the Suspicious Bush's goblins) come out of a death, as a death spawn
                     UnitRef::Scheduled(_) if db.get(i).spell.is_some() => &mut spell_release_of,

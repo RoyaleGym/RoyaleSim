@@ -192,6 +192,8 @@ CALIBRATION = ROOT / "data" / "calibration.json"
 # unlisted one would silently look unread.
 PROLOGUE = {
     "Damage": "damage",
+    # Written only where set after the literal (the Goblin Rocket Silo's last stage, GoblinRocketSilo2).
+    "TargetOnlyKingTower": "target_only_king_tower",
     "CrownTowerDamagePercent": "crown_tower_damage_percent",
     "AreaDamageRadius": "area_damage_radius_milli",
     "HitSpeed": "hit_speed_ms",
