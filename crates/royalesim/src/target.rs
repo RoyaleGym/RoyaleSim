@@ -471,10 +471,22 @@ fn drops_when_doomed(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool
     let card = ctx.cards.get(e.card[a]);
     #[cfg(clash_plant = "doomed_rescan_takes_fired")]
     let keeping = true; // PLANT (regression): a rescan takes back a doomed unit the attacker has shot at.
+    // targeting.DOOMED_DROP_SPEAR_MEMBERS = client15535_projectile: an Evo Elite Barbarian member (its row's projectile
+    // taken off by the loader) is a projectile attacker here (client 15.535.29: post-throw rescans passed the spear's doomed
+    // victim 6 of 6; sp-form-AngryBarbarians-evo-s0 t885).
+    // PLANT (regression) spear_members_scan_as_melee: the new arm's members take doomed units as melee units do.
+    #[cfg(not(clash_plant = "spear_members_scan_as_melee"))]
+    let spear = ctx.calib.doomed_drop_spear_members == crate::state::DoomedDropSpearMembers::Client15535Projectile
+        && card.evo.as_ref().is_some_and(|v| v.spear.is_some());
+    #[cfg(clash_plant = "spear_members_scan_as_melee")]
+    let spear = false;
     #[cfg(not(clash_plant = "doomed_drop_every_attacker"))]
-    let applies = card.projectile.is_some();
+    let applies = card.projectile.is_some() || spear;
     #[cfg(clash_plant = "doomed_drop_every_attacker")]
-    let applies = true; // PLANT (regression): an attacker with no projectile drops it too.
+    let applies = {
+        let _ = spear;
+        true // PLANT (regression): an attacker with no projectile drops it too.
+    };
     #[cfg(not(clash_plant = "doomed_drop_ignores_fired"))]
     let exempt = e.fired_at[a] == Some(e.id_of(c))
         && (keeping || ctx.calib.doomed_target_drop == crate::state::DoomedTargetDrop::ProjectileAttackers);

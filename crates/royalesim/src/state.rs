@@ -1147,6 +1147,10 @@ pub struct Calib {
     /// stands. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `LandingPoint`.
     #[serde(default = "evo_impact_area_anchor_default")]
     pub evo_impact_area_anchor: EvoImpactAreaAnchor,
+    /// targeting.DOOMED_DROP_SPEAR_MEMBERS (target.rs `drops_when_doomed`, combat.rs `shots_in_flight_at`): how an Evo
+    /// Elite Barbarian member handles a doomed target. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Melee`.
+    #[serde(default = "doomed_drop_spear_members_default")]
+    pub doomed_drop_spear_members: DoomedDropSpearMembers,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2881,6 +2885,10 @@ fn drill_rise_targetable_default() -> DrillRiseTargetable {
 
 fn evo_impact_area_anchor_default() -> EvoImpactAreaAnchor {
     EvoImpactAreaAnchor::LandingPoint
+}
+
+fn doomed_drop_spear_members_default() -> DoomedDropSpearMembers {
+    DoomedDropSpearMembers::Melee
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7046,6 +7054,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.DOOMED_DROP_SPEAR_MEMBERS -- see target.rs `drops_when_doomed`: the Evo Elite Barbarians' members and their spears.
+    DoomedDropSpearMembers {
+        /// The engine's: a member (its row's projectile taken off by the loader) handles a doomed target as a melee unit,
+        /// and its spear in flight is left out of the doomed set under targeting.DOOMED_SET_SHOTS = client_homing_only.
+        Melee = "melee",
+        /// A member is a projectile attacker for targeting.DOOMED_TARGET_DROP (its scans never take a doomed unit, its own
+        /// spear's victim included), and a spear in flight counts in the doomed set (a homing shot). Measured on client
+        /// 15.535.29: post-throw rescans passed the spear's doomed victim 6 of 6 and retook an undoomed one 13 of 13;
+        /// sp-form-AngryBarbarians-evo-s0 t885's post-wait scan passed a doomed Skeleton for a Musketeer 4,452 off.
+        Client15535Projectile = "client15535_projectile",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9065,6 +9086,7 @@ impl Calib {
             drill_rise_body: pick(&v, &["collision", "DRILL_RISE_BODY", "value"], DrillRiseBody::from_calibration_name)?,
             drill_rise_targetable: pick(&v, &["targeting", "DRILL_RISE_TARGETABLE", "value"], DrillRiseTargetable::from_calibration_name)?,
             evo_impact_area_anchor: pick(&v, &["combat", "EVO_IMPACT_AREA_ANCHOR", "value"], EvoImpactAreaAnchor::from_calibration_name)?,
+            doomed_drop_spear_members: pick(&v, &["targeting", "DOOMED_DROP_SPEAR_MEMBERS", "value"], DoomedDropSpearMembers::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -13582,7 +13604,7 @@ impl BattleState {
 
     fn snipe_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
-        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only());
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom());
         let mut snipers = std::mem::take(&mut self.evo.snipers);
         for s in snipers.iter_mut() {
             let (id, ammo, kept) = *s;
@@ -17387,7 +17409,7 @@ impl BattleState {
         // and in the Path phase (`Scratch::lane_doomed`, target.rs `lane_fallen`).
         let lane = self.cfg.calib.doomed_lane_tower != DoomedLaneTower::Standing;
         let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() || lane {
-            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only())
+            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom())
         } else {
             Vec::new()
         };
@@ -30604,6 +30626,12 @@ impl BattleState {
     }
     /// targeting.DOOMED_SET_SHOTS = client_homing_only: the card table the doomed set reads each shot's firer in, to count
     /// only the homing ones (combat.rs `shots_in_flight_at`); None (every shot) under every_shot.
+    /// targeting.DOOMED_DROP_SPEAR_MEMBERS = client15535_projectile: an Evo Elite Barbarian's spear in flight counts in the
+    /// doomed set (combat.rs `shots_in_flight_at`).
+    fn spears_doom(&self) -> bool {
+        self.cfg.calib.doomed_drop_spear_members == DoomedDropSpearMembers::Client15535Projectile
+    }
+
     fn homing_only(&self) -> Option<&CardDb> {
         // PLANT (regression) doomed_set_counts_every_shot: the new arm's doomed set still counts every shot.
         #[cfg(not(clash_plant = "doomed_set_counts_every_shot"))]
@@ -30624,8 +30652,8 @@ impl BattleState {
         }
         let c = &self.cfg.calib;
         let i = id.index as usize;
-        let (pending, last_ms) = combat::shots_in_flight_at(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, c.projectile_step, self.homing_only());
-        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step, self.homing_only());
+        let (pending, last_ms) = combat::shots_in_flight_at(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, c.projectile_step, self.homing_only(), self.spears_doom());
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step, self.homing_only(), self.spears_doom());
         Some(DoomReading { pending: pending[i], last_ms: last_ms[i], hp: self.ents.hp[i].max(0) + self.ents.shield[i].max(0), doomed: doomed[i] })
     }
     /// Live spell objects (in flight, rolling, or an area effect about to apply).
@@ -32962,6 +32990,9 @@ impl BattleState {
 /// 20, unchanged, combat.EVO_IMPACT_AREA_ANCHOR: Calib gained evo_impact_area_anchor (serde default the old arm,
 ///    landing_point), no new state (the area already holds its parent), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.DOOMED_DROP_SPEAR_MEMBERS: Calib gained doomed_drop_spear_members (serde default the old
+///    arm, melee), no new state (read at each scan), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
 ///    carries its shot's tick), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
@@ -34035,6 +34066,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("drill_rise_targetable".into(), serde_json::to_value(DrillRiseTargetable::HiddenThroughRise).map_err(|e| e.to_string())?);
     // combat.EVO_IMPACT_AREA_ANCHOR: a format-3 battle's impact area stood where the shot landed (the same rule).
     sh.insert("evo_impact_area_anchor".into(), serde_json::to_value(EvoImpactAreaAnchor::LandingPoint).map_err(|e| e.to_string())?);
+    // targeting.DOOMED_DROP_SPEAR_MEMBERS: a format-3 battle's spear members took doomed units as melee units do (the same rule).
+    sh.insert("doomed_drop_spear_members".into(), serde_json::to_value(DoomedDropSpearMembers::Melee).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

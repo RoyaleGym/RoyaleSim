@@ -432,6 +432,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_targetable_on_rise (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs drill_pass (the Up flip), selected by Calib::drill_rise_targetable; tests/evo_goblin_drill.rs."
     },
+    "DOOMED_DROP_SPEAR_MEMBERS": {
+      "value": "melee",
+      "candidates": ["melee", "client15535_projectile"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_projectile on client 15.535.29: post-throw rescans 6 of 6 and 13 of 13, the post-wait scan 1 of 1, walking holders 2 of 2; every doomed event lands within 600 ms. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r56_spear_rescan_census.py, r56_far_pick_census.py and r56_evo_eb_doomed_census.py over all 1,675 files). (a) Post-throw rescans on L + 1 (the throw's ActionResetTarget): where the spear's victim X was doomed (pending 453 or 284 >= hp) and nearest, it was passed over 6 of 6: il-2c29 t3233 (62 took 65 at 5,817 over 67 at 5,416), t3279; il-b924 t3993, t4029 (81 took 83 at 4,854 over 84 at 4,772), t4111; sp-form-AngryBarbarians-evo-s0 t1050 (18 took nothing over tower 3, hp 106, pending 284); where X was not doomed it was retaken 13 of 13 (il-2c29 t3388, il-b924 t4166, ec-AngryBarbarians t747/t762, AB-evo t784/t788, rage-4000 t891/t912/t986, rage-5000 t895/t910/t1001/t1009). (b) The post-wait scan, 1 of 1: sp-form-AngryBarbarians-evo-s0 t885, member 18 passed Skeleton 13 at 2,048 (hp 81, pending 109 from Blue's tower arrow landing t896, 550 ms) and took Musketeer 16 at 4,452, where the engine took the Skeleton (the scene's whole loss, 140 within / 109 hp). (c) Walking holders let go of a target the partner's spear doomed 2 of 2 (il-b924 t4029 with its own spear on cooldown, t4111). Refuted: melee scanning (0 of 6, 0 of 1, 0 of 2); melee post-wait pickers took a doomed nearest 14 of 15 and melee holders kept one 702 of 718, plain Elite Barbarians 12 of 12; 'depends on holding the spear' (t4029's on cooldown).",
+      "meaning": "melee: the engine's; an Evo Elite Barbarian member (its row's Projectile taken off by the loader so it never shoots) handles a doomed target as a melee unit (target.rs drops_when_doomed reads no projectile), and its spear in flight is left out of the doomed set under targeting.DOOMED_SET_SHOTS = client_homing_only (its firer's card fires no homing projectile). client15535_projectile: a member whose evo carries a SpearDef is a projectile attacker for targeting.DOOMED_TARGET_DROP, and a spear in flight (combat.rs Projectile::trail) counts in the doomed set as the homing shot it is.",
+      "open": "targeting.DOOMED_LANE_TOWER for spear members (reached through drops_when_doomed, unmeasured); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_projectile (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "target.rs drops_when_doomed and combat.rs shots_in_flight_at (its spears flag), selected by Calib::doomed_drop_spear_members; tests/evo_elite_barbarians.rs."
+    },
     "CHASE_HOLD_SCOPE": {
       "value": "every_holder",
       "candidates": ["every_holder", "client15535_walkers_only"],

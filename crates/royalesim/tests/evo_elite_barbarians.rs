@@ -25,7 +25,8 @@
 //!   - spear_never_thrown -> `each_member_throws_its_spear_at_the_end_of_its_windup` red (they walk and strike);
 //!   - spear_trail_dropped -> `the_thrower_walks_raged_from_11_frames_after_its_throw` red (no area near it);
 //!   - spear_area_pulses_at_once -> `the_thrower_walks_raged_from_11_frames_after_its_throw` red (raged too early);
-//!   - spear_window_every_tick -> `a_throw_under_way_is_thrown_though_its_target_leaves_the_window` red (no throw).
+//!   - spear_window_every_tick -> `a_throw_under_way_is_thrown_though_its_target_leaves_the_window` red (no throw);
+//!   - spear_members_scan_as_melee -> `the_rescan_after_a_throw_passes_its_doomed_victim_under_client15535_projectile` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -195,4 +196,46 @@ fn the_thrower_walks_raged_from_11_frames_after_its_throw() {
     // Unraged 89-90 through throw + 10, raged 115-117 from throw + 11.
     assert!(steps[..10].iter().all(|v| (88..=90).contains(v)), "unraged steps after the throw: {steps:?}");
     assert!(steps[10..].iter().all(|v| (115..=117).contains(v)), "raged from throw + 11: {steps:?}");
+}
+
+/// Under `arm`: the form put down at (9000, 8500) with Blue's princess towers down, a red Knight X held 5,500 ahead at 200
+/// hitpoints (under the spear's 284) and a second, Y, held 900 behind it at full; the form's own member's target on the tick
+/// after its throw, and X's id.
+fn rescan_after_throw(arm: royalesim::state::DoomedDropSpearMembers) -> (Option<EntityId>, EntityId) {
+    let mut cfg = level11(config());
+    cfg.calib.doomed_drop_spear_members = arm;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    s.scenario_set_tower_hp(Team::Blue, 1, 0).unwrap();
+    s.scenario_set_tower_hp(Team::Blue, 2, 0).unwrap();
+    let (xp, yp) = (n(9000, 14000), n(9000, 14900));
+    let x = s.scenario_spawn_now(Team::Red, "Knight", xp, None).expect("Knight X");
+    let y = s.scenario_spawn_now(Team::Red, "Knight", yp, None).expect("Knight Y");
+    s.spawn_unit(Team::Blue, "AngryBarbarians_EV1", n(9000, 8500), None).expect("the form");
+    s.tick();
+    let form = s.cards().index("AngryBarbarians_EV1").unwrap();
+    let m = s.entities().find(|e| e.card_idx == form).expect("the form's member").id;
+    for _ in 0..80 {
+        assert!(s.debug_set_pos(x, xp) && s.debug_set_pos(y, yp));
+        assert!(s.debug_set_hp(x, 200));
+        s.tick();
+        if s.projectiles().iter().any(|p| p.trail.is_some() && p.firer == Some(m)) {
+            assert!(s.debug_set_pos(x, xp) && s.debug_set_pos(y, yp));
+            s.tick();
+            assert!(s.entity(x).is_some(), "the scene drifted: X died before the rescan");
+            return (s.entity(m).expect("the member").target, x);
+        }
+    }
+    panic!("the scene drifted: the member never threw");
+}
+
+/// targeting.DOOMED_DROP_SPEAR_MEMBERS (item 290; client 15.535.29: post-throw rescans passed the spear's doomed victim 6
+/// of 6). Plant: spear_members_scan_as_melee.
+#[test]
+fn the_rescan_after_a_throw_passes_its_doomed_victim_under_client15535_projectile() {
+    let (t, x) = rescan_after_throw(royalesim::state::DoomedDropSpearMembers::Client15535Projectile);
+    assert_ne!(t, Some(x), "client15535_projectile: the member took back the victim its spear doomed");
+    // NOT VACUOUS: as a melee unit (the shipped arm) it takes the nearest, its doomed victim, back.
+    let (t, x) = rescan_after_throw(royalesim::state::DoomedDropSpearMembers::Melee);
+    assert_eq!(t, Some(x), "melee: the member did not take its victim back");
 }

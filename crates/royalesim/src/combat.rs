@@ -2628,9 +2628,9 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i
 /// is skipped too. A shot's enchant bonus (`Projectile::bonus`) is part of what it deals. `homing_only`: see
 /// `shots_in_flight_at`.
 #[allow(clippy::too_many_arguments)]
-pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>) -> Vec<bool> {
+pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>, spears: bool) -> Vec<bool> {
     let cap = ents.capacity();
-    let (pending, last_ms) = shots_in_flight_at(ents, projectiles, rounding, tick_ms, step, homing_only);
+    let (pending, last_ms) = shots_in_flight_at(ents, projectiles, rounding, tick_ms, step, homing_only, spears);
     #[cfg(not(clash_plant = "doomed_eta_ignored"))]
     let within = |t: usize| last_ms[t] <= limit_ms;
     #[cfg(clash_plant = "doomed_eta_ignored")]
@@ -2651,7 +2651,11 @@ pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], ro
 /// targeting.DOOMED_SET_SHOTS = client_homing_only (`homing_only` names the card table): a shot whose firer's card fires a
 /// non-homing projectile (`CardDef::projectile_homing` false: a Bomber's bomb, a Princess's arrows) is left out too, as
 /// the client's own pending damage leaves it out on both clients; a shot with no firer card counts as before.
-pub fn shots_in_flight_at(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>) -> (Vec<i64>, Vec<i32>) {
+///
+/// targeting.DOOMED_DROP_SPEAR_MEMBERS = client15535_projectile (`spears`): an Evo Elite Barbarian's spear in flight
+/// (`Projectile::trail`) counts as the homing shot it is, though its firer's card (its projectile taken off by the loader)
+/// names none (client 15.535.29: its victim's pending damage carried the spear's 284 or 453).
+pub fn shots_in_flight_at(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>, spears: bool) -> (Vec<i64>, Vec<i32>) {
     let cap = ents.capacity();
     let mut pending = vec![0i64; cap];
     let mut last_ms = vec![0i32; cap];
@@ -2659,7 +2663,7 @@ pub fn shots_in_flight_at(ents: &Entities, projectiles: &[Projectile], rounding:
         if p.straight.is_some() || p.hook.is_some() || p.carrier.is_some() || p.enchant.is_some() || !ents.is_alive(p.target) {
             continue;
         }
-        if homing_only.is_some_and(|cards| p.firer_card.is_some_and(|c| !cards.get(c).projectile_homing)) {
+        if homing_only.is_some_and(|cards| p.firer_card.is_some_and(|c| !cards.get(c).projectile_homing)) && !(spears && p.trail.is_some()) {
             continue;
         }
         let t = p.target.index as usize;
