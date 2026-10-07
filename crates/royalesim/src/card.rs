@@ -15276,9 +15276,10 @@ mod tests {
         // What is NOT simulated is refused out loud. Poison loads -- a pulsing area
         // effect whose mechanic is a BUFF (with Earthquake and the Snowball). Rage and
         // Heal load too, as a spell summon (tests/spell_summon.rs pins their shapes), the Graveyard as a scheduled
-        // area (tests/scheduled_area.rs) and the Clone as its own shape (tests/clone.rs). The event's GlobalClone,
-        // whose area runs an action graph the loader does not read, is still refused.
-        let n = "GlobalClone";
+        // area (tests/scheduled_area.rs) and the Clone as its own shape (tests/clone.rs). The event's GoblinRocketSilo,
+        // whose unit runs a timed action graph the loader does not read, is still refused (GlobalClone was the example
+        // until it loaded, item 294).
+        let n = "GoblinRocketSilo";
         assert!(db.index(n).is_none(), "{n} must not be simulable");
         assert!(db.rejected.iter().any(|(r, _)| r == n), "{n} not listed as rejected");
         assert!(matches!(spell("Graveyard").shape, SpellShape::ScheduledArea { .. }), "Graveyard: {:?}", spell("Graveyard"));
