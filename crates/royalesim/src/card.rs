@@ -589,6 +589,28 @@ fn strike_gaps(hit_speed_ms: i32, life_ms: i32) -> Vec<i32> {
     gaps_ms
 }
 
+/// A STRIKING AREA'S CLOCK, (HitSpeed, LifeDuration), from its row in any table's form, or why it is refused:
+///   - 15.535: a HitSpeed and no HitSpeedOffset; strike k falls at k x HitSpeed (`strike_gaps`);
+///   - 16.402, a HitSpeedOffset equal to the HitSpeed (the Lightning's 500 and 500): the same clock, the offset naming
+///     the first strike's k = 1 explicitly;
+///   - 16.402, no HitSpeed and a HitSpeedOffset equal to the LifeDuration (the Royal Delivery's 2000 and 2000): one
+///     strike at the life's end, which 15.535 wrote as a HitSpeed equal to the LifeDuration.
+/// Any other HitSpeedOffset is refused by name (option B items 2 and 22).
+fn strike_clock(aeo: &RawAreaEffect) -> Result<(i32, i32), &'static str> {
+    let life_ms = aeo.life_duration_ms.filter(|l| *l > 0).ok_or("no LifeDuration")?;
+    #[cfg(not(clash_plant = "strike_offset_unread"))]
+    let offset = aeo.hit_speed_offset_ms;
+    #[cfg(clash_plant = "strike_offset_unread")]
+    let offset: Option<i32> = None; // PLANT (card.rs tests): the 16.402 offset forms read as no offset.
+    match (aeo.hit_speed_ms.filter(|h| *h > 0), offset) {
+        (Some(h), None) => Ok((h, life_ms)),
+        (Some(h), Some(o)) if o == h => Ok((h, life_ms)),
+        (None, Some(o)) if o == life_ms => Ok((o, life_ms)),
+        (None, None) => Err("no HitSpeed"),
+        _ => Err("a HitSpeedOffset other than its HitSpeed, or other than its LifeDuration with no HitSpeed"),
+    }
+}
+
 /// THE STRIKING AREA a HitBiggestTargets row is (`StrikeDef`), or the reason it is refused. Exactly one shape is
 /// accepted, Lightning's: HitSpeed and LifeDuration set, a Projectile row, and no Damage, Buff, MaximumTargets,
 /// SpawnCharacter, child area or own-side filter of the area's own; the projectile deals Damage to one target (no
@@ -596,15 +618,13 @@ fn strike_gaps(hit_speed_ms: i32, life_ms: i32) -> Vec<i32> {
 fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef, String> {
     let what = aeo.name.clone().unwrap_or_default();
     let refuse = |why: &str| Err(format!("striking area effect {what}: {why}; not simulated"));
-    let hit_speed_ms = match aeo.hit_speed_ms {
-        Some(h) if h > 0 => h,
-        _ => return refuse("no HitSpeed"),
+    let (hit_speed_ms, life_ms) = match strike_clock(aeo) {
+        Ok(c) => c,
+        Err(why) => return refuse(why),
     };
-    let life_ms = match aeo.life_duration_ms {
-        Some(l) if l > 0 => l,
-        _ => return refuse("no LifeDuration"),
-    };
-    if aeo.damage.is_some() || aeo.buff.is_some() || aeo.maximum_targets.is_some() || aeo.spawn_character.is_some() {
+    // 16.402 writes MaximumTargets 1 on the Lightning: one target a strike, which every strike of a HitBiggestTargets
+    // area already takes (`StrikePick`). Any other count is refused.
+    if aeo.damage.is_some() || aeo.buff.is_some() || aeo.maximum_targets.is_some_and(|m| m != 1) || aeo.spawn_character.is_some() {
         return refuse("the area carries its own Damage, Buff, MaximumTargets or SpawnCharacter");
     }
     if aeo.spawn_area_effect_object.is_some() || aeo.only_own_troops.unwrap_or(false) || aeo.pushback_milli.is_some() {
@@ -683,13 +703,9 @@ fn strike_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable) -> Result<StrikeDef,
 fn centre_strike_shape(aeo: &RawAreaEffect) -> Result<(StrikeDef, UnitNeeds), String> {
     let what = aeo.name.clone().unwrap_or_default();
     let refuse = |why: &str| Err(format!("area effect {what} with a projectile: {why}; not simulated"));
-    let hit_speed_ms = match aeo.hit_speed_ms {
-        Some(h) if h > 0 => h,
-        _ => return refuse("no HitSpeed"),
-    };
-    let life_ms = match aeo.life_duration_ms {
-        Some(l) if l > 0 => l,
-        _ => return refuse("no LifeDuration"),
+    let (hit_speed_ms, life_ms) = match strike_clock(aeo) {
+        Ok(c) => c,
+        Err(why) => return refuse(why),
     };
     if aeo.damage.is_some() || aeo.buff.is_some() || aeo.maximum_targets.is_some() || aeo.spawn_character.is_some() {
         return refuse("the area carries its own Damage, Buff, MaximumTargets or SpawnCharacter");
@@ -8248,7 +8264,22 @@ fn area_effect_shape_hits(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Load
     // (Tornado, WarmAOE) is a second mechanic and stays refused. The striking areas
     // (Lightning, the Royal Delivery, the Vines, the Void) never get here: each is
     // recognised by its own shape first.
-    let pulse_ms = aeo.hit_speed_ms.filter(|h| *h > 0);
+    // 16.402 OFFSETS (option B items 2 and 22): an area with no HitSpeed and a HitSpeedOffset equal to its LifeDuration
+    // is the one hit at the life's end that 15.535 wrote as HitSpeed = LifeDuration (the Evo Ice Spirits' impact area,
+    // the Evo Skeleton Barrel's drops): read so. An offset equal to the HitSpeed names the first pulse explicitly, which
+    // the HitSpeed alone already times here (spells.PULSING_AREA_EFFECT). Any other offset is refused by name, never
+    // read as a hit on landing.
+    #[cfg(not(clash_plant = "area_offset_unread"))]
+    let offset = aeo.hit_speed_offset_ms.filter(|o| *o > 0);
+    #[cfg(clash_plant = "area_offset_unread")]
+    let offset: Option<i32> = None; // PLANT (card.rs tests): the offset-only one-hit area reads as a one-shot.
+    let pulse_ms = match (aeo.hit_speed_ms.filter(|h| *h > 0), offset) {
+        (Some(h), None) => Some(h),
+        (Some(h), Some(o)) if o == h => Some(h),
+        (None, Some(o)) if Some(o) == aeo.life_duration_ms => Some(o),
+        (None, None) => None,
+        (h, o) => return Err(format!("area effect {what}: HitSpeed {h:?} with HitSpeedOffset {o:?} is not simulated")),
+    };
     if pulse_ms.is_some() {
         // Damage 0 deals nothing: the Evo Elite Barbarians' Rage row sets it over the Rage's blank, and only a row that
         // also pulses a buff gets past the next refusal.
@@ -14262,6 +14293,51 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_striking_areas_clock_reads_each_tables_form() {
+        // Option B items 2 and 22. Plant strike_offset_unread: the two 16.402 forms read as no offset, so the Royal
+        // Delivery's (no HitSpeed) is refused and this goes red.
+        let aeo = |hs: Option<i32>, off: Option<i32>, life: i32| RawAreaEffect { hit_speed_ms: hs, hit_speed_offset_ms: off, life_duration_ms: Some(life), ..Default::default() };
+        assert_eq!(strike_clock(&aeo(Some(460), None, 1500)), Ok((460, 1500)), "the 15.535 Lightning");
+        assert_eq!(strike_clock(&aeo(Some(500), Some(500), 1500)), Ok((500, 1500)), "the 16.402 Lightning");
+        assert_eq!(strike_clock(&aeo(Some(2000), None, 2000)), Ok((2000, 2000)), "the 15.535 Royal Delivery");
+        assert_eq!(strike_clock(&aeo(None, Some(2000), 2000)), Ok((2000, 2000)), "the 16.402 Royal Delivery: the same one strike");
+        assert!(strike_clock(&aeo(Some(500), Some(250), 1500)).is_err(), "an offset other than the HitSpeed");
+        assert!(strike_clock(&aeo(None, Some(900), 1400)).is_err(), "an offset short of the life with no HitSpeed");
+        assert_eq!(strike_clock(&aeo(None, None, 1500)), Err("no HitSpeed"));
+    }
+
+    #[test]
+    fn an_offset_only_one_hit_area_reads_as_its_15535_form() {
+        // Option B item 22: the 16.402 Evo Ice Spirits' IceSpiritsAOE_EV1 (no HitSpeed, HitSpeedOffset 3000, LifeDuration
+        // 3000) loads as the 15.535 row (HitSpeed 3000) does; an offset short of the life with no HitSpeed is refused.
+        // Plant area_offset_unread: the 16.402 row reads as a one-shot and the first comparison goes red.
+        let empty: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+        let no_areas: BTreeMap<String, RawAreaEffect> = BTreeMap::new();
+        let globals = CardGlobals::default();
+        let ctx = LoadCtx { aeos: &no_areas, units: &empty, projectiles: &empty, globals: &globals };
+        let row = |hs: Option<i32>, off: Option<i32>| RawAreaEffect {
+            name: Some("IceSpiritsAOE_EV1".into()),
+            life_duration_ms: Some(3000),
+            hit_speed_ms: hs,
+            hit_speed_offset_ms: off,
+            radius_milli: Some(1500),
+            damage: Some(43),
+            hits_ground: Some(true),
+            hits_air: Some(true),
+            only_enemies: Some(true),
+            ..Default::default()
+        };
+        let mut b1 = BuffTable::default();
+        let mut b2 = BuffTable::default();
+        let old = area_effect_shape_hits(&row(Some(3000), None), &mut b1, &ctx, true).map(|(s, _)| format!("{s:?}"));
+        let new = area_effect_shape_hits(&row(None, Some(3000)), &mut b2, &ctx, true).map(|(s, _)| format!("{s:?}"));
+        assert!(old.is_ok(), "the 15.535 row loads: {old:?}");
+        assert_eq!(new, old, "the 16.402 row loads as the 15.535 one");
+        let short = area_effect_shape_hits(&row(None, Some(900)), &mut BuffTable::default(), &ctx, true);
+        assert!(short.is_err_and(|e| e.contains("HitSpeedOffset")), "an offset short of the life is refused");
+    }
 
     #[test]
     fn the_attack_selector_takes_one_melee_damage_class_of_either_table() {
