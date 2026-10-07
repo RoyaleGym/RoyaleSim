@@ -262,6 +262,11 @@ pub struct Entities {
     /// spawner that carries a second unit. `default` and sized on load at 0.
     #[serde(default)]
     pub spawn_waves: Vec<u32>,
+    /// A CHARMED UNIT'S HOME SIDE (status.rs `BuffDef::switch_team`, the Super Elite Archer's charm): Some while a charm
+    /// holds it on the other side (`team` is then the other one), given back when the charm's slot clears (state.rs
+    /// `tick_status_timers`). None on every other entity, hashed only when set. `default` and sized on load at None.
+    #[serde(default)]
+    pub home_team: Vec<Option<crate::Team>>,
     /// INVISIBLE WHEN IDLE (targeting.INVISIBILITY; target.rs `can_target`): the first tick of the window in which
     /// an enemy may target this unit, the tick after its last hit (state.rs, the attack pass); 0 before any hit.
     /// 0 on every other entity, hashed only for a card that carries the idle invisibility. `default` and sized on
@@ -889,6 +894,7 @@ impl Entities {
             self.life_target[i] = None;
             self.life_n[i] = 0;
             self.spawn_waves[i] = 0;
+            self.home_team[i] = None;
             self.reveal_from[i] = 0;
             self.mana_ms[i] = 0;
             self.attached_to[i] = None;
@@ -1045,6 +1051,7 @@ impl Entities {
             self.spawn_ms.push(0);
             self.spawn_wave_left.push(0);
             self.spawn_waves.push(0);
+            self.home_team.push(None);
             self.spawned_by.push(None);
             self.source.push(s.card);
             self.charge_progress.push(0);
@@ -1129,6 +1136,7 @@ impl Entities {
         self.spawn_ms[i] = 0;
         self.spawn_wave_left[i] = 0;
         self.spawn_waves[i] = 0;
+        self.home_team[i] = None;
         self.life_state[i] = 0;
         self.life_ms[i] = 0;
         self.life_target[i] = None;

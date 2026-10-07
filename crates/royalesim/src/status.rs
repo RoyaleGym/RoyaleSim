@@ -185,6 +185,12 @@ pub struct BuffDef {
     /// written before the field still reads.
     #[serde(default)]
     pub over_heal_pct: i32,
+    /// SwitchTeam (the Super Elite Archer's charm): while it lasts its carrier fights for the other side (state.rs
+    /// `apply_effects` gives it the side opposite its home one, `tick_status_timers` gives the home one back; entity.rs
+    /// `home_team`). The loader reads it alone (card.rs `RawBuff::convert_opts`). `default` so a record written before
+    /// the field still reads.
+    #[serde(default)]
+    pub switch_team: bool,
 }
 
 /// A UNIT THAT DIES WITH THIS BUFF LIVE RELEASES `count` of `unit` (character_buffs DeathSpawn,
@@ -231,6 +237,7 @@ impl BuffDef {
             && !self.no_pushed_by_ally
             && !self.no_pushed_by_enemy
             && !self.no_damage
+            && !self.switch_team
     }
 
     /// Does this buff pulse damage or healing?

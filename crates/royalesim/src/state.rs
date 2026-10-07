@@ -16116,6 +16116,17 @@ impl BattleState {
                     *slot = BuffSlot::default();
                 }
             }
+            // A CHARM'S END (status.rs `BuffDef::switch_team`): the unit's home side back once no charm slot holds it.
+            // Measured on client 15.535.29 (sp-event-SuperEliteArcher-s0): BuffTime 4000, 80 ticks to the frame, 4 of 4;
+            // the unit's Target, Move and Attack of that tick ran on the charmed side (the tower's shot at its own king).
+            #[cfg(not(clash_plant = "charm_never_expires"))]
+            if let Some(home) = self.ents.home_team[i] {
+                let buffs = &self.cfg.cards.buffs;
+                if !self.ents.buff_slots(i).iter().any(|sl| !sl.is_empty() && buffs.get(sl.id as usize - 1).is_some_and(|d| d.switch_team)) {
+                    self.ents.team[i] = home;
+                    self.ents.home_team[i] = None;
+                }
+            }
             self.tick_enchant_finish(i);
         }
     }
@@ -26019,6 +26030,15 @@ impl BattleState {
             }
             // The slot and the full-stop test are `land_buff`'s, shared with the reflect's
             // stun (`reflect_melee_hit`), which lands the same way in the attack pass.
+            // A CHARM (status.rs `BuffDef::switch_team`, the Super Elite Archer's SuperEliteArcherCharm) that took its slot:
+            // the carrier keeps its home side (entity.rs `home_team`) and fights for the other one until the slot clears
+            // (`tick_status_timers`). Measured on client 15.535.29 (sp-event-SuperEliteArcher-s0): 4 of 4 flips (the red
+            // Knight twice, the red right princess tower twice) showed on the frame of the arrow's hit, the unit's Target,
+            // Move and Attack of that tick run on its old side; a kept target now an ally is dropped on the next tick.
+            #[cfg(not(clash_plant = "charm_never_flips"))]
+            let charm = self.cfg.cards.buffs.get(b.buff as usize).is_some_and(|d| d.switch_team);
+            #[cfg(clash_plant = "charm_never_flips")]
+            let charm = false; // PLANT: the charm lands and changes no side.
             if land_buff(&mut self.ents, &self.cfg.cards, &c, i, b) {
                 #[cfg(not(clash_plant = "clone_hold_resets"))]
                 let hold = self.cfg.cards.buffs.get(b.buff as usize).is_some_and(|d| d.clone_hold);
@@ -26029,6 +26049,10 @@ impl BattleState {
                 } else {
                     stun_new[i] = stun_new[i].max(b.time_ms);
                 }
+            }
+            if charm && self.ents.buff_slots(i).iter().any(|sl| sl.id == b.buff + 1) {
+                let home = *self.ents.home_team[i].get_or_insert(self.ents.team[i]);
+                self.ents.team[i] = home.other();
             }
             landed.push((b.target, b.buff));
         }
@@ -31627,6 +31651,10 @@ impl BattleState {
                 if self.cfg.cards.get(e.card[i]).spawner.is_some_and(|sp| sp.unit2.is_some()) {
                     h.u32(e.spawn_waves[i]);
                 }
+                // A charmed unit's home side, only while a charm holds it: a battle with none hashes as before the column.
+                if let Some(t) = e.home_team.get(i).copied().flatten() {
+                    h.u32(u32::from(t as u8) + 1);
+                }
                 h.opt_id(e.spawned_by[i]);
                 h.i32(e.charge_progress[i]);
                 h.bool(e.charged[i]);
@@ -33345,6 +33373,9 @@ impl BattleState {
 ///    migrated battle at the old arm.
 /// 20, unchanged, the Super Witch (card.rs `SpawnerDef::unit2`): Entities gained spawn_waves (`default`, sized on load at
 ///    0), hashed only on a spawner with a second unit, so a blob saved before it deserializes and hashes as it did.
+/// 20, unchanged, the Super Elite Archer's charm (status.rs `BuffDef::switch_team`): Entities gained home_team (`default`,
+///    sized on load at None), hashed only while a charm holds a unit, so a blob saved before it deserializes and hashes as
+///    it did.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
 ///    carries its shot's tick), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
@@ -34959,6 +34990,7 @@ impl BattleState {
         snap.ents.life_target.resize(n, None);
         snap.ents.life_n.resize(n, 0);
         snap.ents.spawn_waves.resize(n, 0);
+        snap.ents.home_team.resize(n, None);
         snap.ents.reveal_from.resize(n, 0);
         snap.ents.mana_ms.resize(n, 0);
         snap.ents.attached_to.resize(n, None);

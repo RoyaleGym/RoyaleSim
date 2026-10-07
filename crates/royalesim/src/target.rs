@@ -1277,7 +1277,14 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
     let enemy = e.team[a].other() as usize;
     // targeting.DOOMED_LANE_TOWER: under its new arms a princess tower the shots in flight doom is fallen to the units
     // `lane_fallen` names, in every pick below, as a destroyed one is (never under standing, never the king).
-    let live = |t: Option<EntityId>| t.filter(|id| e.is_alive(*id) && !lane_fallen(ctx, a, *id));
+    // An enemy tower its own side holds by a charm (status.rs `BuffDef::switch_team`) is out of the picks while it is
+    // held, as a fallen one is. Measured on client 15.535.29 (sp-event-SuperEliteArcher-s0): the charmed red Knight
+    // walked for the red king on the tick the right princess tower was charmed too (t286), and again from t398.
+    #[cfg(not(clash_plant = "default_tower_ignores_charm"))]
+    let held = |id: EntityId| e.team[id.index as usize] == e.team[a];
+    #[cfg(clash_plant = "default_tower_ignores_charm")]
+    let held = |_: EntityId| false; // PLANT: a charmed enemy tower stays a pick.
+    let live = |t: Option<EntityId>| t.filter(|id| e.is_alive(*id) && !lane_fallen(ctx, a, *id) && !held(*id));
     #[cfg(not(clash_plant = "default_tower_nearest"))]
     let by_x = ctx.calib.xpos_based_tower_targeting;
     #[cfg(clash_plant = "default_tower_nearest")]

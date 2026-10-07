@@ -6771,6 +6771,8 @@ struct RawBuff {
     no_pushed_by_ally: Option<bool>,
     /// character_buffs GameTagsToSet NO_DAMAGE (`BuffDef::no_damage`); 15.535 only, written where set.
     no_damage: Option<bool>,
+    /// character_buffs SwitchTeam (`BuffDef::switch_team`); 15.535 only, written where set.
+    switch_team: Option<bool>,
     /// character_buffs GameTagsToSet NO_PUSHED_BY_ENEMY (`BuffDef::no_pushed_by_enemy`); 15.535 only, written where set.
     no_pushed_by_enemy: Option<bool>,
     /// character_buffs GameTagsToSet UNKILLABLE and CharacterCrownTowerDamagePercent (`BuffDef::unkillable`,
@@ -6969,7 +6971,16 @@ impl RawBuff {
             unkillable: self.unkillable.unwrap_or(false),
             char_crown_pct: self.character_crown_tower_damage_percent.unwrap_or(0),
             over_heal_pct: self.allowed_over_heal_pct.unwrap_or(0),
+            switch_team: self.switch_team.unwrap_or(false),
         };
+        // A CHARM (SwitchTeam) is read alone, the shape measured (the Super Elite Archer's SuperEliteArcherCharm: every
+        // other effect column blank): beside another effect, on a stacking row or on one its area controls, refused.
+        if def.switch_team {
+            let alone = BuffDef { switch_team: false, ..def }.is_inert() && !def.invisible && !def.clone_hold && !def.not_cloned;
+            if !alone || def.enable_stacking || def.controlled_by_parent {
+                return Err(format!("{what}: buff {name} switches its carrier's side beside another effect, a stack or an area's control; not simulated"));
+            }
+        }
         if def.over_heal_pct != 0 && (def.over_heal_pct < PERCENT_I32 || def.heal_per_second <= 0) {
             return Err(format!("{what}: buff {name} carries AllowedOverHealPerc {} on no heal over 100 %; not simulated", def.over_heal_pct));
         }

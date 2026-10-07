@@ -10420,7 +10420,8 @@
      "controlled_by_parent": false,
      "death_spawn": null,
      "ignore_buildings": false,
-     "crown_tower_damage_per_hit": null
+     "crown_tower_damage_per_hit": null,
+     "switch_team": true
     },
     "buff_time_ms": 4000,
     "spawn_projectile": null,
@@ -31754,7 +31755,8 @@
      "controlled_by_parent": false,
      "death_spawn": null,
      "ignore_buildings": false,
-     "crown_tower_damage_per_hit": null
+     "crown_tower_damage_per_hit": null,
+     "switch_team": true
     },
     "buff_time_ms": 4000,
     "spawn_projectile": null,
@@ -61140,7 +61142,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "switch_team": true
    },
    "buff_time_ms": 4000,
    "spawn_projectile": null,
@@ -70053,7 +70056,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "switch_team": true
    },
    "buff_time_ms": 4000,
    "only_enemies": true,
@@ -74923,7 +74927,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "switch_team": true
   },
   "BolaSnare": {
    "name": "BolaSnare",
@@ -75617,7 +75622,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "switch_team": true
   },
   "InvisibilityTemp": {
    "name": "InvisibilityTemp",

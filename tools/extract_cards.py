@@ -2573,6 +2573,10 @@ def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
         # `invisible_at`). Written only where set, so every other buff is unchanged.
         if flag(b, "Invisible"):
             out["invisible"] = True
+        # SwitchTeam: the carrier fights for the other side while the buff lasts (the Super Elite Archer's charm, the
+        # LoveCharm; the engine's state.rs `apply_effects`). Written only where set, so every other buff is unchanged.
+        if flag(b, "SwitchTeam"):
+            out["switch_team"] = True
         if b["AttachedInheritAs"]:
             out["attached_inherit_as"] = b["AttachedInheritAs"]
         # UNKILLABLE among GameTagsToSet: the carrier's hitpoints do not fall below 1 while the buff lasts (the Hero

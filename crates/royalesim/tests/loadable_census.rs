@@ -182,6 +182,7 @@ const LOADABLE_15535: &[&str] = &[
     "ElixirGolem",
     "BattleHealer",
     "SkeletonKing",
+    "SuperEliteArcher",
     "ArcherQueen",
     "GoldenKnight",
     "SuperIceGolemite",
@@ -258,7 +259,6 @@ const LOADABLE_15535: &[&str] = &[
 ];
 const REJECTED_15535: &[(&str, &str)] = &[
     ("GoblinRocketSilo", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionPlayEffect)"),
-    ("SuperEliteArcher", "the unit's projectile"),
     ("SuperHogRider", "units.SantaPresent"),
     ("SuperLavaHound", "death projectile FireWallProjectile"),
 ];
