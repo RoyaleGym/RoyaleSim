@@ -12251,6 +12251,21 @@ fn dash_goal_native(actor: (i32, i32), target: Vec2, rr: i64) -> (i32, i32) {
     (px.div_euclid(c) * c + c / 2, py.div_euclid(c) * c + c / 2)
 }
 
+/// Whether an Evo Hunter's net may be cast or thrown at `t` (`net_pass`): a troop. His net action's TargetFilter is
+/// default_character_targets_no_buildings (tools/extract_cards.py `net_block` refuses any other), so a building, a crown
+/// tower included, never takes one: he shoots it with his shotgun alone. Client 15.535.29 (sp-f4-hunterG80-s0 t1451): his
+/// target a princess tower through his net cycle, the tower shot on unstopped.
+fn net_takes(e: &Entities, t: EntityId) -> bool {
+    #[cfg(not(clash_plant = "net_at_buildings"))]
+    return !e.kind[t.index as usize].is_building();
+    // PLANT (regression) net_at_buildings: the filter is not applied; a building takes the net.
+    #[cfg(clash_plant = "net_at_buildings")]
+    {
+        let _ = (e, t);
+        true
+    }
+}
+
 impl BattleState {
     /// Build a battle; panics with the reason if the config is invalid.
     pub fn new(seed: u64, config: BattleConfig) -> BattleState {
@@ -19083,7 +19098,8 @@ impl BattleState {
         self.evo.poisons[k] = r;
     }
 
-    /// THE EVO HUNTERS' NETS (card.rs `NetDef`), in the Projectile phase: each notes when he took his current target; a
+    /// THE EVO HUNTERS' NETS (card.rs `NetDef`), in the Projectile phase (a building, crown towers included, never takes
+    /// one: `net_takes`): each notes when he took his current target; a
     /// cast net is thrown on its tick at that target if it lives, and his next check is `cooldown_ms` and a tick on; else,
     /// ready and deployed, with a target held NET_TARGET_HOLD_TICKS and within his net's range (edge to edge), the cast
     /// starts: the throw `cast_ms` on.
@@ -19105,7 +19121,7 @@ impl BattleState {
                     continue;
                 }
                 r.throw_at = None;
-                if let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) {
+                if let Some(t) = r.target.filter(|t| self.ents.is_alive(*t) && net_takes(&self.ents, *t)) {
                     self.throw_net(i, t, &nd);
                 }
                 r.ready_at = tick + (nd.cooldown_ms / dt) as u32 + 1;
@@ -19117,7 +19133,7 @@ impl BattleState {
             if tick < r.ready_at || self.ents.deploy_ms[i] > 0 {
                 continue;
             }
-            let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) else { continue };
+            let Some(t) = r.target.filter(|t| self.ents.is_alive(*t) && net_takes(&self.ents, *t)) else { continue };
             let ti = t.index as usize;
             #[cfg(not(clash_plant = "net_without_hold"))]
             let held = tick >= r.since + crate::card::NET_TARGET_HOLD_TICKS;
