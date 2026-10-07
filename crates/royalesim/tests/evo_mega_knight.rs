@@ -11,13 +11,20 @@
 //! evo_mega_knight`):
 //!   - uppercut_never -> `every_second_hit_throws_its_target_toward_its_king` red;
 //!   - uppercut_throw_never -> the same red;
-//!   - uppercut_flight_collides -> `a_thrown_unit_meets_no_body_in_its_flight_under_client15535_out_of_pass` red.
+//!   - uppercut_flight_collides -> `a_thrown_unit_meets_no_body_in_its_flight_under_client15535_out_of_pass` red;
+//!   - uppercut_flight_ground_target -> `a_ground_attacker_lets_the_thrown_unit_go_under_client15535_airborne` red (309);
+//!   - uppercut_stand_unread -> `he_stands_until_his_load_reads_100_under_client15535_until_load_100` red (315).
+//!
+//! targeting.UPPERCUT_FLIGHT_TARGETABILITY = client15535_airborne (item 309) and combat.UPPERCUT_STAND =
+//! client15535_until_load_100 (item 315), client 15.535.29, sp-form-MegaKnight-evo-s0 t1078-1100: his uppercut's Knight
+//! thrown from the hit's tick + 2, he held it on t1080 and the red Musketeer from t1081, stood with 1,150 on his load
+//! timer and walked on the tick it read 100.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, UppercutFlightContact};
+use royalesim::state::{BattleConfig, BattleState, UppercutFlightContact, UppercutFlightTargetability, UppercutStand};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -143,4 +150,81 @@ fn a_thrown_unit_meets_no_body_in_its_flight_under_client15535_out_of_pass() {
     // NOT VACUOUS: stunned_body pushes it as the Knight flies past.
     let old = musketeer_in_the_throw(UppercutFlightContact::StunnedBody);
     assert!(old.windows(2).any(|w| w[0] != w[1]), "stunned_body: the Musketeer never moved: {old:?}");
+}
+
+/// Items 309 and 315: the throw scene with a red Musketeer 2,500 to his side (in his sight, out of his reach, inside his
+/// jump's minimum range), the Mega Knight held until his second hit (his uppercut) and let go then; per tick from that
+/// hit (h2 = index 0): whether he holds the Knight, his point (native), his load timer.
+fn after_the_uppercut(flight: UppercutFlightTargetability, stand: UppercutStand) -> Vec<(bool, (i32, i32), i32)> {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["MegaKnight".into(), "Knight".into()], vec!["Knight".into(), "Musketeer".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.uppercut_flight_targetability = flight;
+    cfg.calib.uppercut_stand = stand;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s.tick();
+    let (at, kn_at, mu_at) = (n(9000, 12500), n(9000, 13900), n(11500, 12500));
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
+    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", mu_at, None).expect("a red Musketeer");
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    let (mut hits, mut out) = (0, Vec::new());
+    for _ in 0..300 {
+        if hits < 2 {
+            assert!(s.debug_set_pos(mk, at) && s.debug_set_pos(knight, kn_at));
+        }
+        assert!(s.debug_set_pos(musk, mu_at));
+        for id in [knight, musk, mk] {
+            let top = s.entity(id).expect("alive").max_hp;
+            assert!(s.debug_set_hp(id, top));
+        }
+        let top = s.entity(knight).unwrap().max_hp;
+        s.tick();
+        if hits < 2 && top - s.entity(knight).expect("the Knight").hp == 268 {
+            hits += 1;
+        }
+        if hits >= 2 {
+            let m = s.entity(mk).expect("the Mega Knight");
+            out.push((m.target == Some(knight), (m.pos.x / K, m.pos.y / K), m.attack_load_ms));
+            if out.len() > 40 {
+                return out;
+            }
+        }
+    }
+    panic!("{flight:?} {stand:?}: the scene drifted: no second hit");
+}
+
+/// Plant: uppercut_flight_ground_target.
+#[test]
+fn a_ground_attacker_lets_the_thrown_unit_go_under_client15535_airborne() {
+    let new = after_the_uppercut(UppercutFlightTargetability::Client15535Airborne, UppercutStand::None);
+    assert!(new[1].0, "the scene drifted: he does not hold the Knight on the tick after his uppercut: {new:?}");
+    assert!(!new[4].0, "client15535_airborne: he holds the thrown Knight two ticks into its flight: {new:?}");
+    // NOT VACUOUS: the engine's arm keeps the thrown Knight a ground target.
+    let old = after_the_uppercut(UppercutFlightTargetability::Ground, UppercutStand::None);
+    assert!(old[4].0, "ground: he let the thrown Knight go: {old:?}");
+}
+
+/// Plant: uppercut_stand_unread.
+#[test]
+fn he_stands_until_his_load_reads_100_under_client15535_until_load_100() {
+    let new = after_the_uppercut(UppercutFlightTargetability::Client15535Airborne, UppercutStand::Client15535UntilLoad100);
+    let start = new[0].1;
+    let first_move = new.iter().position(|r| r.1 != start).unwrap_or_else(|| panic!("the scene drifted: he never moved: {new:?}"));
+    assert!(new[first_move - 1].2 <= 150, "client15535_until_load_100: he walked at load {}: {new:?}", new[first_move - 1].2);
+    assert!(new[..first_move].iter().filter(|r| r.2 > 100).count() >= 15, "the scene drifted: a short stand: {new:?}");
+    // NOT VACUOUS: the engine's arm walks on while his timer is high.
+    let old = after_the_uppercut(UppercutFlightTargetability::Client15535Airborne, UppercutStand::None);
+    let start = old[0].1;
+    let moved = old.iter().position(|r| r.1 != start).unwrap_or_else(|| panic!("none: he never moved: {old:?}"));
+    assert!(old[moved].2 > 300, "none: he waited for his timer: {old:?}");
 }

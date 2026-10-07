@@ -335,6 +335,20 @@
       "promotion_rules": "The test file passes (crates/royalesim/tests/equal_distance_tie.rs). Flip to own_frame_high_x when parity's scoring by override agrees with the reading above with nothing else moving; a Red unit created on x 9000 settles the frame.",
       "engine": "target.rs key (the second element of the rank: the candidate's own-frame x, negated under own_frame_high_x); client15535_later_created: the rank's tail is the candidate's creation order, latest first (tests/equal_distance_tie.rs)."
     },
+    "UPPERCUT_FLIGHT_TARGETABILITY": {
+      "value": "ground",
+      "candidates": [
+            "ground",
+            "client15535_airborne"
+      ],
+      "status": "measured",
+      "confidence": "LOW for client15535_airborne on client 15.535.29: one uppercut with a ground-only holder (the Evo Mega Knight's own) and another enemy in its sight. It reads as targeting.SLAP_FLIGHT_TARGETABILITY's airborne arm (5 of 5 ground-only holders let a slap's flight go). Air attackers holding an uppercut unit are not read; 16.402 unread.",
+      "provenance": "READ by parity (2026-10-07) on client 15.535.29's sp-form-MegaKnight-evo-s0 against the r58 stack's engine trace: the evolved Mega Knight (key 16, attacks ground only) hit the red Knight (key 11) on t1078, the Knight's uppercut flight took its first step on t1080 (the hit's tick + 2, `uppercut_pass`), and the Mega Knight's pointer read the Knight on t1079 and t1080 and the red Musketeer (key 15) on t1081, where it stood for its jump; the engine held the flying Knight to t1088 and walked to the Musketeer from t1089 (the scene's first error, t1089, 293 off by t1093).",
+      "meaning": "ground: the engine's; a unit in the Evo Mega Knight's uppercut flight stays a ground target for every attacker. client15535_airborne: from its first flight step (the hit's tick + 2) to its last it is a target only for an attacker that attacks air, read in the Target phase as a slap's flight (targeting.SLAP_FLIGHT_TARGETABILITY = client15535_airborne): a ground-only holder drops it on the tick after its first step and may take it again on the tick after its last. Target selection only.",
+      "open": "An air attacker holding the uppercut unit; the landing tick's retake; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_airborne (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs upper_air_mask, target.rs can_target (TargetCtx::upper_air), selected by Calib::uppercut_flight_targetability; tests/evo_mega_knight.rs."
+    },
     "LAUNCH_BEYOND_KEEP": {
       "value": "rescan",
       "candidates": [
@@ -2021,6 +2035,20 @@
       "open": "What restarts the count besides the unit's death: a stun, a knockback, a long pause between targets. Whether a hit that deals no damage (combat.HIT_BEYOND_CANCEL_RANGE) moves the count: the engine moves it on every hit. The Mega Monk's row carries the same columns (140, 140, 420, the third pushing 3000) and is reached by inference.",
       "promotion_rules": "The test file (crates/royalesim/tests/monk_combo.rs) passes. Then score with this arm switched on alone; the registered prediction: only scenes and battles with a Monk move.",
       "engine": "combat.rs stage_damage (the entry's damage), state.rs phase_attack (moves entity.rs combo_ix on after each hit, combat.rs combo_counts); card.rs ComboDef, from cards.json combo (tools/extract_cards.py combo)"
+    },
+    "UPPERCUT_STAND": {
+      "value": "none",
+      "candidates": [
+            "none",
+            "client15535_until_load_100"
+      ],
+      "status": "measured",
+      "confidence": "LOW for client15535_until_load_100 on client 15.535.29: 2 of 2 (both uppercuts of one scene whose thrown target the Mega Knight let go); the flight's end and the load timer's 100 fall on the same tick in both, so which one ends the stand is not separated. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's scenario fixtures (tools leave_load_census.py: every troop leaving its attack with its load timer above 100): 2,225 walked on at once at any load; the evolved Mega Knight of sp-form-MegaKnight-evo-s0, out of his attack after each of his two uppercuts with 1,150 on the timer (his target thrown, targeting.UPPERCUT_FLIGHT_TARGETABILITY), stood 21 ticks with the red Musketeer as his target and walked on the tick his timer read 100 (t1100; the thrown Knight's last flight step on t1099); after an ordinary hit's kill (t598 of his own clock) he walked at once at 900. No other troop left its attack idle with load above 100.",
+      "meaning": "none: the engine's; the Evo Mega Knight walks to his next target at once. client15535_until_load_100: an Evo Mega Knight whose last attack was his uppercut (his count back at 0), out of his attack, does not walk while his load timer is above 100: a stand, his contact kept, as a post-kill wait's (state.rs phase_path16402_for).",
+      "open": "The flight's end against the load timer (one tick in the captures); a victim killed mid-flight; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_until_load_100 (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (uppercut_stand), selected by Calib::uppercut_stand; tests/evo_mega_knight.rs."
     },
     "VARIABLE_DAMAGE": {
       "value": "client16402_attack_progress_stages",

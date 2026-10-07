@@ -84,6 +84,10 @@ pub struct TargetCtx<'a> {
     /// flight (state.rs `slap_air_mask`), which `can_target` reads as a river leap. Empty under ground and outside the
     /// Target phase.
     pub slap_air: &'a [bool],
+    /// targeting.UPPERCUT_FLIGHT_TARGETABILITY = client15535_airborne: per slot, whether the unit is in an Evo Mega Knight's
+    /// uppercut flight (state.rs `upper_air_mask`), read by `can_target` as a slap's flight. Empty under ground and outside
+    /// the Target phase.
+    pub upper_air: &'a [bool],
     /// targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: per slot, whether the unit walked as the tick's Target
     /// phase began (state.rs `Scratch::chase_walked`, `walking_now`). Empty under the other arms and outside the phase,
     /// where `walks_away` reads the units as they stand.
@@ -457,7 +461,10 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     // targeting.SLAP_FLIGHT_TARGETABILITY = client15535_airborne: a unit in a Hero Giant's slap flight, from the throw to
     // its landing, the same (`TargetCtx::slap_air`; client 15.535.29: 5 of 5 ground-only holders let it go on the first
     // flight step, 6 of 6 that attack air kept it).
-    let thrown = ctx.calib.slap_flight_targetability == SlapFlightTargetability::Client15535Airborne && ctx.slap_air.get(c).copied().unwrap_or(false);
+    // targeting.UPPERCUT_FLIGHT_TARGETABILITY = client15535_airborne: a unit in an Evo Mega Knight's uppercut flight, the same
+    // (`TargetCtx::upper_air`, built under that arm alone).
+    let thrown = (ctx.calib.slap_flight_targetability == SlapFlightTargetability::Client15535Airborne && ctx.slap_air.get(c).copied().unwrap_or(false))
+        || ctx.upper_air.get(c).copied().unwrap_or(false);
     #[cfg(not(clash_plant = "leap_targetable_by_ground"))]
     let airborne = (ctx.calib.leaping_unit_targetability == LeapingUnitTargetability::Airborne && e.jumping[c]) || thrown;
     #[cfg(clash_plant = "leap_targetable_by_ground")]

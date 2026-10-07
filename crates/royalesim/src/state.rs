@@ -1179,10 +1179,18 @@ pub struct Calib {
     /// beyond its reach. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Rescan`.
     #[serde(default = "launch_beyond_keep_default")]
     pub launch_beyond_keep: LaunchBeyondKeep,
+    /// targeting.UPPERCUT_FLIGHT_TARGETABILITY (target.rs `can_target`, `upper_air_mask`): whether an uppercut's flight lifts
+    /// its unit out of a ground-only attacker's reach. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Ground`.
+    #[serde(default = "uppercut_flight_targetability_default")]
+    pub uppercut_flight_targetability: UppercutFlightTargetability,
     /// spells.CLONE_SLIDE_ROUTE (`step_knock_slides`): what a unit's route does when the Clone's slide ends. Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
     #[serde(default = "clone_slide_route_default")]
     pub clone_slide_route: CloneSlideRoute,
+    /// combat.UPPERCUT_STAND (`phase_path16402_for`): whether an Evo Mega Knight stands after his uppercut. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
+    #[serde(default = "uppercut_stand_default")]
+    pub uppercut_stand: UppercutStand,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2951,8 +2959,16 @@ fn launch_beyond_keep_default() -> LaunchBeyondKeep {
     LaunchBeyondKeep::Rescan
 }
 
+fn uppercut_flight_targetability_default() -> UppercutFlightTargetability {
+    UppercutFlightTargetability::Ground
+}
+
 fn clone_slide_route_default() -> CloneSlideRoute {
     CloneSlideRoute::Kept
+}
+
+fn uppercut_stand_default() -> UppercutStand {
+    UppercutStand::None
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7231,6 +7247,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.UPPERCUT_FLIGHT_TARGETABILITY -- see `upper_air_mask`: whether a unit in the Evo Mega Knight's uppercut
+    /// flight is a ground target.
+    UppercutFlightTargetability {
+        /// The engine's: it stays a ground target for every attacker.
+        Ground = "ground",
+        /// From its first flight step to its last it is a target only for an attacker that attacks air, as a slap's flight
+        /// under targeting.SLAP_FLIGHT_TARGETABILITY = client15535_airborne. Measured on client 15.535.29
+        /// (sp-form-MegaKnight-evo-s0): the evolved Mega Knight's hit on t1078, the Knight's first flight step on t1080,
+        /// and the Mega Knight (ground only) holding it on t1080 and on the Musketeer on t1081.
+        Client15535Airborne = "client15535_airborne",
+    }
+);
+calib_enum!(
     /// spells.CLONE_SLIDE_ROUTE -- see `step_knock_slides`: what a unit's route does when its slide ends (a knock slide:
     /// under the shipped knockback ladders, the Clone's pair alone slide).
     CloneSlideRoute {
@@ -7243,6 +7272,19 @@ calib_enum!(
         /// (sp-event-GlobalClone-s0 t257-258: a Knight slid past its next cell walked to the cell after it, where the
         /// engine stepped back toward the one behind it).
         Client15535Dropped = "client15535_dropped",
+    }
+);
+calib_enum!(
+    /// combat.UPPERCUT_STAND -- see `phase_path16402_for`: whether an Evo Mega Knight whose last attack was his uppercut
+    /// (his count back at 0, `uppercut_count`) walks while his load timer runs down.
+    UppercutStand {
+        /// The engine's: he walks to his next target at once.
+        None = "none",
+        /// Out of his attack, he does not walk while his load timer is above 100 (a stand, his contact kept, as a
+        /// post-kill wait's). Measured on client 15.535.29 (sp-form-MegaKnight-evo-s0, 2 of 2): his uppercut's target
+        /// thrown, he left his attack with 1,150 on the timer, stood 21 ticks and walked on the tick it read 100 (the
+        /// thrown Knight's last flight step the tick before); after a kill by an ordinary hit he walked at once at 900.
+        Client15535UntilLoad100 = "client15535_until_load_100",
     }
 );
 calib_enum!(
@@ -9274,7 +9316,9 @@ impl Calib {
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
             launch_beyond_keep: pick(&v, &["targeting", "LAUNCH_BEYOND_KEEP", "value"], LaunchBeyondKeep::from_calibration_name)?,
+            uppercut_flight_targetability: pick(&v, &["targeting", "UPPERCUT_FLIGHT_TARGETABILITY", "value"], UppercutFlightTargetability::from_calibration_name)?,
             clone_slide_route: pick(&v, &["spells", "CLONE_SLIDE_ROUTE", "value"], CloneSlideRoute::from_calibration_name)?,
+            uppercut_stand: pick(&v, &["combat", "UPPERCUT_STAND", "value"], UppercutStand::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -13900,6 +13944,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &[],
                 slap_air: &[],
+                upper_air: &[],
                 chase_walked: &[],
             };
             let e = &self.ents;
@@ -17517,6 +17562,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &[],
                 slap_air: &[],
+                upper_air: &[],
                 chase_walked: &[],
             };
             let e = &self.ents;
@@ -17748,6 +17794,7 @@ impl BattleState {
             self.ents.stun_ms[i] = 0;
         }
         let slap_air = self.slap_air_mask();
+        let upper_air = self.upper_air_mask();
         {
             let ctx = TargetCtx {
                 ents: &self.ents,
@@ -17762,6 +17809,7 @@ impl BattleState {
                 doomed: &doomed_drop,
                 lane_doomed: &[],
                 slap_air: &slap_air,
+                upper_air: &upper_air,
                 chase_walked: &self.scratch.chase_walked,
             };
             // transform.ATTACK_STATE: a unit whose transformation reset its target on this tick makes no target
@@ -18717,6 +18765,31 @@ impl BattleState {
             #[cfg(clash_plant = "slap_flight_ground_target")]
             let flying = { let _ = d; false }; // PLANT (regression): the new arm still leaves the thrown unit a ground target.
             v[t.index as usize] |= flying;
+        }
+        v
+    }
+
+    /// targeting.UPPERCUT_FLIGHT_TARGETABILITY = client15535_airborne: per slot, whether the unit is in an uppercut's flight
+    /// at the Target phase: its first step taken (`uppercut_pass`, the hit's tick + 2) and its last not yet (the hit's
+    /// tick + 1 + its steps), so a ground-only attacker drops it on the tick after its first step and may take it
+    /// again on the tick after its last, as a slap's flight (`slap_air_mask`). Empty under ground.
+    fn upper_air_mask(&self) -> Vec<bool> {
+        // PLANT (regression) uppercut_flight_ground_target: the new arm leaves the thrown unit a ground target.
+        #[cfg(not(clash_plant = "uppercut_flight_ground_target"))]
+        let on = self.cfg.calib.uppercut_flight_targetability == UppercutFlightTargetability::Client15535Airborne;
+        #[cfg(clash_plant = "uppercut_flight_ground_target")]
+        let on = false;
+        if !on || self.evo.uppercuts.is_empty() {
+            return Vec::new();
+        }
+        let decel = crate::move16402::PUSHBACK_DECEL;
+        let mut v = vec![false; self.ents.capacity()];
+        for r in &self.evo.uppercuts {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            let last = crate::move16402::ladder_speed(r.push) / decel + 1;
+            v[r.id.index as usize] |= self.tick >= r.mark + 3 && self.tick <= r.mark + 1 + last as u32;
         }
         v
     }
@@ -21249,6 +21322,24 @@ impl BattleState {
         };
         #[cfg(clash_plant = "slap_flight_collides")]
         let slap_flight: Vec<bool> = vec![false; cap]; // PLANT (regression): the thrown unit is a contact body.
+        // combat.UPPERCUT_STAND = client15535_until_load_100: an Evo Mega Knight whose last attack was his uppercut (his
+        // count back at 0), out of his attack, does not walk while his load timer is above 100 (`phase_hold` below).
+        // PLANT (regression) uppercut_stand_unread: the new arm's Mega Knight walks on at once.
+        #[cfg(not(clash_plant = "uppercut_stand_unread"))]
+        let uppercut_stand: Vec<bool> = {
+            let mut v = vec![false; cap];
+            if self.cfg.calib.uppercut_stand == UppercutStand::Client15535UntilLoad100 {
+                for (id, n) in &self.evo.uppercut_counts {
+                    let i = id.index as usize;
+                    if *n == 0 && self.ents.is_alive(*id) && self.ents.attack_phase[i] == AttackPhase::Idle && self.ents.attack_load_ms[i] > 100 {
+                        v[i] = true;
+                    }
+                }
+            }
+            v
+        };
+        #[cfg(clash_plant = "uppercut_stand_unread")]
+        let uppercut_stand: Vec<bool> = vec![false; cap];
         // THE TORNADO'S ATTRACT (status.ATTRACT_LAW): one vector per entity, computed
         // from the START-OF-TICK positions, before anything moves and before the entity
         // arrays are borrowed.
@@ -21656,6 +21747,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
                 slap_air: &[],
+                upper_air: &[],
                 chase_walked: &[],
             };
             // EVERY ENTITY AS THE CONTACT LAW SEES IT: every alive entity, troops and
@@ -22376,7 +22468,7 @@ impl BattleState {
                 // unit is out of the pass entirely. An attacking one does not WALK, and
                 // under the measured arm the contact scans still reach it -- the same
                 // scans this pass already runs for a unit that is merely in range.
-                let phase_hold = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0;
+                let phase_hold = calib.attack_holds(e.attack_phase[i]) || e.retarget_wait[i] > 0 || uppercut_stand[i];
                 // A unit a hook is dragging (combat.SPECIAL_HOOK) is out of the pass like a slide:
                 // the Move phase steps it (`step_hook_drags`).
                 let frozen = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) || e.knock_ms[i] > 0 || e.hooked_by[i].is_some();
@@ -23476,6 +23568,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
                 slap_air: &[],
+                upper_air: &[],
                 chase_walked: &[],
             };
             for i in 0..cap {
@@ -23670,6 +23763,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
                 slap_air: &[],
+                upper_air: &[],
                 chase_walked: &[],
             };
             for i in 0..cap {
@@ -23903,6 +23997,7 @@ impl BattleState {
                 doomed: &[],
                 lane_doomed: &self.scratch.lane_doomed,
                 slap_air: &[],
+                upper_air: &[],
                 chase_walked: &[],
             };
             // None = the measured "no periodic replan" (calibration
@@ -24421,6 +24516,7 @@ impl BattleState {
             doomed: &[],
             lane_doomed: &[],
             slap_air: &[],
+                upper_air: &[],
             chase_walked: &[],
         };
         let e = &self.ents;
@@ -33633,8 +33729,14 @@ impl BattleState {
 /// 20, unchanged, targeting.LAUNCH_BEYOND_KEEP: Calib gained launch_beyond_keep (serde default the old arm, rescan), no new
 ///    state (the launch flag is the saved launched_beyond), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.UPPERCUT_FLIGHT_TARGETABILITY: Calib gained uppercut_flight_targetability (serde default the old
+///    arm, ground), no new state (the flight is the saved UppercutRun), so a blob saved before it deserializes and hashes as
+///    it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.CLONE_SLIDE_ROUTE: Calib gained clone_slide_route (serde default the old arm, kept), no new state
 ///    (the route is the saved route), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, combat.UPPERCUT_STAND: Calib gained uppercut_stand (serde default the old arm, none), no new state (the
+///    count and the load timer are saved), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
 /// 20, unchanged, the Super Witch (card.rs `SpawnerDef::unit2`): Entities gained spawn_waves (`default`, sized on load at
 ///    0), hashed only on a spawner with a second unit, so a blob saved before it deserializes and hashes as it did.
@@ -34737,8 +34839,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("barrel_drop_point".into(), serde_json::to_value(BarrelDropPoint::StatusPhase).map_err(|e| e.to_string())?);
     // targeting.LAUNCH_BEYOND_KEEP: a format-3 battle's troop rescanned after a launch from beyond its reach (the same rule).
     sh.insert("launch_beyond_keep".into(), serde_json::to_value(LaunchBeyondKeep::Rescan).map_err(|e| e.to_string())?);
+    // targeting.UPPERCUT_FLIGHT_TARGETABILITY: a format-3 battle's uppercut unit stayed a ground target (the same rule).
+    sh.insert("uppercut_flight_targetability".into(), serde_json::to_value(UppercutFlightTargetability::Ground).map_err(|e| e.to_string())?);
     // spells.CLONE_SLIDE_ROUTE: a format-3 battle's unit walked its old route on after a Clone's slide (the same rule).
     sh.insert("clone_slide_route".into(), serde_json::to_value(CloneSlideRoute::Kept).map_err(|e| e.to_string())?);
+    // combat.UPPERCUT_STAND: a format-3 battle's Evo Mega Knight walked on after his uppercut (the same rule).
+    sh.insert("uppercut_stand".into(), serde_json::to_value(UppercutStand::None).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

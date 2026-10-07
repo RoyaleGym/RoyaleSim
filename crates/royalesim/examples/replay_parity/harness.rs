@@ -1664,8 +1664,12 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   takes an enemy its rescan ranks nearer (1 of 1, a Skeleton after a Hog Rider pushed by the Log).
 ///   targeting.LAUNCH_BEYOND_KEEP = client15535_plain_keep: a projectile troop that launched from beyond its reach still keeps
 ///   its target within Range + both radii + 25 (8 of 8 within, 5 of 5 past it let go).
+///   targeting.UPPERCUT_FLIGHT_TARGETABILITY = client15535_airborne: a unit in the Evo Mega Knight's uppercut flight is a target
+///   only for an attacker that attacks air (1 of 1, the Mega Knight letting its flying Knight go).
 ///   spells.CLONE_SLIDE_ROUTE = client15535_dropped: a Clone's slide drops the unit's route on its last tick, and a fresh
 ///   one is planned on the next (every Clone slide read in the battery and sp-event-GlobalClone-s0).
+///   combat.UPPERCUT_STAND = client15535_until_load_100: an Evo Mega Knight out of his attack after his uppercut stands until
+///   his load timer reads 100 (2 of 2).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1834,7 +1838,9 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.BARREL_DROP_POINT", "\"client15535_after_move\""),
     ("targeting.CHASE_DROP_KNOCKED_TARGET", "\"client15535_holds_unless_nearer\""),
     ("targeting.LAUNCH_BEYOND_KEEP", "\"client15535_plain_keep\""),
+    ("targeting.UPPERCUT_FLIGHT_TARGETABILITY", "\"client15535_airborne\""),
     ("spells.CLONE_SLIDE_ROUTE", "\"client15535_dropped\""),
+    ("combat.UPPERCUT_STAND", "\"client15535_until_load_100\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
