@@ -1622,6 +1622,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   on nothing (1 of 1 hide with a shot in flight).
 ///   collision.DRILL_RISE_BODY = client15535_hide_time_plus_3: an Evo Goblin Drill building gone under meets no body
 ///   until T + 23 (2 of 2 overlapping units pushed first on T + 23).
+///   targeting.DRILL_RISE_TARGETABLE = client15535_targetable_on_rise: an Evo Goblin Drill building is a target again
+///   on its rise (2 of 2 picks with it nearest took it).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1778,6 +1780,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("pathfinding.HERO_TOMB_DUMMY_OBSTACLE", "\"client15535_dummy_box\""),
     ("hide.DRILL_UNDER_SHOT", "\"client15535_dropped\""),
     ("collision.DRILL_RISE_BODY", "\"client15535_hide_time_plus_3\""),
+    ("targeting.DRILL_RISE_TARGETABLE", "\"client15535_targetable_on_rise\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

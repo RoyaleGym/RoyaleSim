@@ -15,7 +15,8 @@
 //!   - drill_hide_acquired_at_once -> `a_hides_goblins_are_targets_from_their_8th_frame` red;
 //!   - evo_drill_death_ring_unlisted -> `its_buildings_death_goblins_are_laid_on_the_x_axis_ring` red;
 //!   - drill_under_shot_lands -> `a_shot_in_flight_at_a_building_that_goes_under_lands_on_nothing_under_client15535_dropped` red;
-//!   - drill_body_back_at_hide_time -> `its_body_returns_three_ticks_after_its_hide_time_under_client15535_hide_time_plus_3` red.
+//!   - drill_body_back_at_hide_time -> `its_body_returns_three_ticks_after_its_hide_time_under_client15535_hide_time_plus_3` red;
+//!   - drill_rise_hidden -> `a_rising_building_is_a_target_again_under_client15535_targetable_on_rise` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -281,4 +282,35 @@ fn its_body_returns_three_ticks_after_its_hide_time_under_client15535_hide_time_
     // NOT VACUOUS: under hide_time the Knight meets its body on T + 20.
     let rows = rise_pushes(royalesim::state::DrillRiseBody::HideTime);
     assert_eq!(rows.iter().find(|r| r.1).map(|r| r.0), Some(20), "hide_time: the first push from the building: {rows:?}");
+}
+
+/// Under `arm`: the building taken under (to its 66 % line) on T; a red Musketeer put down 4,500 off on T + 1 and held
+/// there, the building's Goblins out of the scene: the first tick (less T) it holds the building.
+fn rise_pick(arm: royalesim::state::DrillRiseTargetable) -> u32 {
+    let (mut s, d) = drill_battle(|c| c.calib.drill_rise_targetable = arm);
+    assert!(s.debug_set_hp(d, 866));
+    s.tick();
+    let t = s.tick_count() - 1;
+    assert_eq!(s.entity(d).expect("the building").hide_state, HideState::Hidden, "the scene drifted: it did not go under");
+    let m = s.scenario_spawn_now(Team::Red, "Musketeer", n(9000, 14500), None).expect("the Musketeer");
+    for _ in 0..60 {
+        clear_blue_troops(&mut s, &[]);
+        assert!(s.debug_set_pos(m, n(9000, 14500)));
+        s.tick();
+        if s.entity(m).and_then(|e| e.target) == Some(d) {
+            return s.tick_count() - 1 - t;
+        }
+    }
+    panic!("the Musketeer never took the building");
+}
+
+/// targeting.DRILL_RISE_TARGETABLE (item 287; client 15.535.29: 2 of 2 picks with the rising building nearest took it, the
+/// earliest on T + 28). Plant: drill_rise_hidden.
+#[test]
+fn a_rising_building_is_a_target_again_under_client15535_targetable_on_rise() {
+    let new = rise_pick(royalesim::state::DrillRiseTargetable::Client15535TargetableOnRise);
+    assert!((20..=28).contains(&new), "client15535_targetable_on_rise: the Musketeer took the rising building on T + {new}");
+    // NOT VACUOUS: under hidden_through_rise it is no target before T + 40.
+    let old = rise_pick(royalesim::state::DrillRiseTargetable::HiddenThroughRise);
+    assert!(old >= 40, "hidden_through_rise: the Musketeer took the building on T + {old}");
 }

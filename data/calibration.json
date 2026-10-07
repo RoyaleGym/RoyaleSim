@@ -421,6 +421,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_tick_survivors (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs create_emissions, first_update (Scratch::birth_tick_deaths), tick_landing_deaths, selected by Calib::newborn_first_target; tests/newborn_first_target.rs."
     },
+    "DRILL_RISE_TARGETABLE": {
+      "value": "hidden_through_rise",
+      "candidates": ["hidden_through_rise", "client15535_targetable_on_rise"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_targetable_on_rise on client 15.535.29: 2 of 2 picks with the rising building nearest took it, 0 passed it over; the first targetable rise frame (T + 20 .. T + 27) and hits during the rise are unread. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r56_drill_hide_pick_census.py: every enemy target pick on T - 3 .. T + 45 of the 6 Evo drill hides). State 6 (under, T .. T + 19): 5 of 5 picks with the building nearer took something farther (sp-form-GoblinDrill-evo-s0 t1145 Knight tower 8,069 against the drill 5,230, Skeleton 8,339 against 6,161; t1217 Musketeer 9,513 against 6,934; t1219 Knight 7,299 against 3,715, Skeleton 6,052 against 3,208), as the engine. State 4 (rising, T + 20 .. T + 38): 2 of 2 picks with it nearest took it: Musketeer 37 on t1244 (T + 28) at 6,670 over Blue's tower at 9,159, Knight 33 on t1249 (T + 33) at 3,098, where the engine's Musketeer took the tower on t1243 and walked, and its Knight the tower on t1248 (the engine re-took the building on T + 40, t1256), the root of the scene's second loss. Holders drop it on T + 1, 3 of 3, as the engine. Its hitpoints hold through every rise (0 changes in 6), and no shot met a rising building.",
+      "meaning": "hidden_through_rise: the engine's; an Evo Goblin Drill building gone under on T is Hidden (untargetable, unhurt) through HideTime and DRILL_RISE_TICKS, Up on T + 39's Resolve. client15535_targetable_on_rise: Up on T + 20's Resolve (HideTime), a target and a hittable building on its rise; its LifeTime drain hold and its spawner hold unchanged.",
+      "open": "The first targetable rise frame (the earliest observed pick is T + 28); whether a hit lands during the rise; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_targetable_on_rise (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs drill_pass (the Up flip), selected by Calib::drill_rise_targetable; tests/evo_goblin_drill.rs."
+    },
     "CHASE_HOLD_SCOPE": {
       "value": "every_holder",
       "candidates": ["every_holder", "client15535_walkers_only"],

@@ -1139,6 +1139,10 @@ pub struct Calib {
     /// no body. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `HideTime`.
     #[serde(default = "drill_rise_body_default")]
     pub drill_rise_body: DrillRiseBody,
+    /// targeting.DRILL_RISE_TARGETABLE (`drill_pass`): when an Evo Goblin Drill building gone under is a target again.
+    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `HiddenThroughRise`.
+    #[serde(default = "drill_rise_targetable_default")]
+    pub drill_rise_targetable: DrillRiseTargetable,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2865,6 +2869,10 @@ fn drill_under_shot_default() -> DrillUnderShot {
 
 fn drill_rise_body_default() -> DrillRiseBody {
     DrillRiseBody::HideTime
+}
+
+fn drill_rise_targetable_default() -> DrillRiseTargetable {
+    DrillRiseTargetable::HiddenThroughRise
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7002,6 +7010,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.DRILL_RISE_TARGETABLE -- see `drill_pass`: an Evo Goblin Drill building's rise.
+    DrillRiseTargetable {
+        /// The engine's: Hidden through HideTime and its rise, Up on T + 39 (a target from T + 40).
+        HiddenThroughRise = "hidden_through_rise",
+        /// Up from T + 20's Resolve, the first rise frame (a target through its 19 rise frames); its drain and spawner
+        /// holds unchanged. Measured on client 15.535.29: 2 of 2 enemy picks with the rising building nearest took it (T + 28,
+        /// T + 33; sp-form-GoblinDrill-evo-s0), 5 of 5 picks while under passed it over.
+        Client15535TargetableOnRise = "client15535_targetable_on_rise",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9019,6 +9038,7 @@ impl Calib {
             hero_tomb_dummy_obstacle: pick(&v, &["pathfinding", "HERO_TOMB_DUMMY_OBSTACLE", "value"], HeroTombDummyObstacle::from_calibration_name)?,
             drill_under_shot: pick(&v, &["hide", "DRILL_UNDER_SHOT", "value"], DrillUnderShot::from_calibration_name)?,
             drill_rise_body: pick(&v, &["collision", "DRILL_RISE_BODY", "value"], DrillRiseBody::from_calibration_name)?,
+            drill_rise_targetable: pick(&v, &["targeting", "DRILL_RISE_TARGETABLE", "value"], DrillRiseTargetable::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -14355,7 +14375,14 @@ impl BattleState {
                 }
                 r.wave_at = 0;
             }
-            if r.under_at > 0 && tick == r.under_at + hide {
+            // targeting.DRILL_RISE_TARGETABLE = client15535_targetable_on_rise: Up after HideTime, its rise a target (client
+            // 15.535.29: 2 of 2 picks with the rising building nearest took it; sp-form-GoblinDrill-evo-s0 t1244, T + 28).
+            // PLANT (regression) drill_rise_hidden: the new arm keeps it Hidden through the rise.
+            #[cfg(not(clash_plant = "drill_rise_hidden"))]
+            let up_at = if self.cfg.calib.drill_rise_targetable == DrillRiseTargetable::Client15535TargetableOnRise { (d.hide_ms / dt) as u32 } else { hide };
+            #[cfg(clash_plant = "drill_rise_hidden")]
+            let up_at = hide;
+            if r.under_at > 0 && tick == r.under_at + up_at {
                 self.ents.hide[i] = HideState::Up;
             }
             let under = r.under_at > 0 && tick < r.under_at + hide;
@@ -32903,6 +32930,9 @@ impl BattleState {
 /// 20, unchanged, collision.DRILL_RISE_BODY: Calib gained drill_rise_body (serde default the old arm, hide_time), no
 ///    new state (read from the hide's start), so a blob saved before it deserializes and hashes as it did. migrate_v3
 ///    runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.DRILL_RISE_TARGETABLE: Calib gained drill_rise_targetable (serde default the old arm,
+///    hidden_through_rise), no new state (the hide's start is kept), so a blob saved before it deserializes and hashes
+///    as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
@@ -33970,6 +34000,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("drill_under_shot".into(), serde_json::to_value(DrillUnderShot::Lands).map_err(|e| e.to_string())?);
     // collision.DRILL_RISE_BODY: a format-3 battle's drill met bodies again after HideTime (the same rule).
     sh.insert("drill_rise_body".into(), serde_json::to_value(DrillRiseBody::HideTime).map_err(|e| e.to_string())?);
+    // targeting.DRILL_RISE_TARGETABLE: a format-3 battle's drill stayed Hidden through its rise (the same rule).
+    sh.insert("drill_rise_targetable".into(), serde_json::to_value(DrillRiseTargetable::HiddenThroughRise).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
