@@ -7616,7 +7616,8 @@ calib_enum!(
         /// Shipped since the 2026-09-28 round 9 flip.
         /// It does not: its first countdown is on c + 1, so it leaves its deploy on c + 20 and first loses lifetime hp
         /// on c + 21. Measured on client 15.535.29 over every ability-made turret of the hero scenes; a played Cannon or
-        /// Tesla leaves on c + 19 and decays from c + 20 there, as in the engine.
+        /// Tesla leaves on c + 19 and decays from c + 20 there, as in the engine. Nor is it a contact body on c
+        /// (`Scratch::action_born`): a turret put down on her pushes her from c + 1 (item 312).
         NextTick = "client_next_tick",
     }
 );
@@ -11523,6 +11524,12 @@ struct Scratch {
     /// decision in its Target phase (`phase_target_with`). Cleared at the top of every Status phase
     /// (`fire_scheduled`), before anything can fill it, so it never outlives its tick and is not state.
     switched_reset: Vec<EntityId>,
+    /// spawner.ABILITY_UNIT_FIRST_UPDATE = client_next_tick: the units an action made (`action_made`) that THIS tick's
+    /// Spawn phase created (`phase_spawn`: a hero's button's turret; an Evo Ghost's pair, flagged too, its contact on that
+    /// tick unmeasured), no contact body in its move pass (`phase_path16402_for`). Emptied at the top of
+    /// every Spawn phase and read only by the move pass after it, so a snapshot that drops it changes nothing: not saved,
+    /// not hashed.
+    action_born: Vec<EntityId>,
     /// THE COUNTER'S CANDIDATES (`note_parry`, `parry_pass`): the hits this Attack phase wrote on a unit that carries
     /// a counter. Filled and emptied inside one call of `phase_attack_for`, so it never outlives the phase and is not
     /// state: not saved, not hashed.
@@ -16975,6 +16982,7 @@ impl BattleState {
     }
 
     fn phase_spawn(&mut self) {
+        self.scratch.action_born.clear();
         #[allow(unused_mut)]
         let mut queue = std::mem::take(&mut self.spawn_queue);
         #[cfg(clash_plant = "unseeded_spawn_order")]
@@ -17092,6 +17100,14 @@ impl BattleState {
             let late = false; // PLANT (regression): the new arm counts the turret down on its creation tick, as the old one does.
             if late && self.ents.deploy_ms[id.index as usize] > 0 {
                 self.ents.deploy_ms[id.index as usize] += self.cfg.calib.tick_ms;
+            }
+            // The same update kept from the move pass: on its creation tick the unit is no contact body (this tick's
+            // `Scratch::action_born`), neither pushing nor pushed nor scanned. Client 15.535.29 (13 h4 hero scenes,
+            // sp-h4grid-x2000y3500-s0 t125, item 312): her turret put down 556 below her, overlapping her, pushed her
+            // 150 a tick from c + 1, not on c.
+            #[cfg(not(clash_plant = "ability_unit_pushes_at_creation"))]
+            if p.action_made && self.cfg.calib.ability_unit_first_update == AbilityUnitFirstUpdate::NextTick {
+                self.scratch.action_born.push(id);
             }
             // spells.DEPLOY_AREA_EFFECT = client_area_effect: a card whose row IS an area effect
             // that spawns its character (card.rs `deploy_area_effect`: the Electro Wizard's
@@ -21692,6 +21708,9 @@ impl BattleState {
             let landed_off = false;
             let chain_ended = &self.scratch.chain_ended;
             let chain_landed = |i: usize| landed_off && (matches!(chain_at[i], Some((ChainPhase::Landed, _, _))) || chain_ended.contains(&e.id_of(i)));
+            // spawner.ABILITY_UNIT_FIRST_UPDATE = client_next_tick: a unit a hero's button put down on this tick
+            // (`Scratch::action_born`) takes no update on it, its contact included.
+            let action_born = &self.scratch.action_born;
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
@@ -21736,7 +21755,8 @@ impl BattleState {
                             && warp_at[i].is_none()
                             && !e.attached(i)
                             && !copy_settling(i)
-                            && !landed_this_tick(i),
+                            && !landed_this_tick(i)
+                            && !action_born.contains(&e.id_of(i)),
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
                         // states 8/0/2/10 and a busy special attack zero the dot

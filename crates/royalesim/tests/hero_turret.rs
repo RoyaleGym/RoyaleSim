@@ -38,6 +38,11 @@
 //!      c + 2, a Knight losing 204 at level 11), each under both arms of spawner.ABILITY_UNIT_FIRST_UPDATE; the
 //!      shipped arms together on c + 2 -- action_blow_at_play_delay (the action arm keeps the play's 6 ticks).
 //!
+//!   5. `a_turret_put_down_on_her_pushes_her_from_c1_under_client_next_tick`: a Hero Musketeer on (2500, 3500), her
+//!      own towers standing, presses; her turret appears overlapping her, and she stands on c and is pushed from c + 1
+//!      (client 15.535.29, 13 h4 hero scenes, item 312); under creation_tick she is pushed on c
+//!      -- ability_unit_pushes_at_creation (the new arm's turret is a contact body on its creation tick).
+//!
 //! The plant acquire_delay_on_buildings (tests/spawn_acquire_delay.rs) makes every flagged building wait under
 //! client_8th_frame too, the turret included: (2)'s old arm goes red under it as well.
 #![allow(unexpected_cfgs)]
@@ -294,4 +299,47 @@ fn the_shipped_arms() {
     assert_eq!(config().calib.spawned_unit_acquire_delay, NEW_DELAY);
     assert_eq!(c.deploy_projectile, DeployProjectile::ClientOnLandingActionAt2, "combat.DEPLOY_PROJECTILE ships client_on_landing_action_at_2");
     assert_eq!(config().calib.deploy_projectile, DeployProjectile::ClientOnLandingActionAt2);
+}
+
+/// (5) Plant: ability_unit_pushes_at_creation. Her point per frame from her turret's first frame c - 1 to c + 2, and the
+/// squared distance from her to it on c and the squared sum of their radii (subtiles), under `update`.
+fn pushed_by_her_turret(update: AbilityUnitFirstUpdate) -> (Vec<Vec2>, i64, i64) {
+    let mut cfg = with_arms(update, NEW_DELAY);
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    let lockout = s.config().calib.deploy_lockout_ticks as u32;
+    s.scenario_set_tick(lockout);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.deploy(Team::Blue, "Musketeer", at((2500, 3500))).expect("the play");
+    s.tick();
+    let hid = find_live(&s, Team::Blue, "Musketeer_hero").first().expect("the hero form").id;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut before = s.entity(hid).unwrap().pos;
+    for _ in 0..60 {
+        s.tick();
+        if let Some(t) = find_live(&s, Team::Blue, "MusketeerTurret").first() {
+            let h = s.entity(hid).expect("she lives");
+            let (gap2, reach) = (h.pos.dist2(t.pos), i64::from(h.radius + t.radius));
+            let mut at_frames = vec![before, h.pos];
+            for _ in 0..2 {
+                s.tick();
+                at_frames.push(s.entity(hid).unwrap().pos);
+            }
+            return (at_frames, gap2, reach * reach);
+        }
+        before = s.entity(hid).unwrap().pos;
+    }
+    panic!("no turret 60 ticks after the press");
+}
+
+#[test]
+fn a_turret_put_down_on_her_pushes_her_from_c1_under_client_next_tick() {
+    let (p, gap2, reach2) = pushed_by_her_turret(NEW_UPDATE);
+    assert!(gap2 < reach2, "the scene drifted: the turret not on her (squared {gap2} against {reach2})");
+    assert_eq!(p[1], p[0], "client_next_tick: she stands on c, the turret's first frame: {p:?}");
+    assert_ne!(p[2], p[1], "client_next_tick: and is pushed from c + 1: {p:?}");
+    let (p, _, _) = pushed_by_her_turret(OLD_UPDATE);
+    assert_ne!(p[1], p[0], "creation_tick: she is pushed on c: {p:?}");
 }
