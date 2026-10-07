@@ -6167,7 +6167,6 @@ pub const UNMODELLED_KEYS: &[(&str, &str)] = &[
     ("cards[].ability.refund_window_ms", "a button's refund window (RefundWindow); unmeasured"),
     ("hero_forms[].ability.refund_window_ms", "a hero button's refund window (RefundWindow); unmeasured"),
     ("cards[].ability.held_until_dashing", "the Golden Knight's cooldown held until his dash starts; unmeasured"),
-    ("cards[].ability.effect.filter.Filters", "the Golden Knight's dash target filter as tags (FilterTags)"),
     ("cards[].ability.effect.hold_tag", "the Little Prince's guard holds its target while tagged; unmeasured"),
     ("cards[].ability.effect.cleave", "the Little Prince's guard's cleave area; unmeasured"),
     ("cards[].ramp.grace_held_while", "the Little Prince's ramp grace held while tagged; unmeasured"),

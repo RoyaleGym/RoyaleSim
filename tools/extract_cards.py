@@ -4541,6 +4541,18 @@ def champion_tether(t, unit: str, second: str | None) -> dict | None:
     }
 
 
+def raw_filter_columns(filt: dict) -> dict:
+    """A filter row as its 15.535 columns: 16.402 lists its exclusions as one Filters list of names, each the Filter*
+    column of that name (NoHitpointComponent is FilterIfNoHitpointComponent). A 15.535 row comes back as it was."""
+    names = filt.get("Filters")
+    if not isinstance(names, list):
+        return dict(filt)
+    out = {k: v for k, v in filt.items() if k != "Filters"}
+    for x in names:
+        out["FilterIfNoHitpointComponent" if x == "NoHitpointComponent" else f"Filter{x}"] = True
+    return out
+
+
 def champion_dash_chain(t, unit: str) -> dict | None:
     """THE BUTTON OF A CHAMPION WHOSE PRESS RUNS A DASH CHAIN (15.535: the Golden Knight's GoldenKnightChain), or
     None for a unit with no [ABILITY] or another one (it loads as a plain troop). The ability's OnActivationAction is
@@ -4632,7 +4644,7 @@ def champion_dash_chain(t, unit: str) -> dict | None:
             "kind": "dash_chain",
             "radius_milli": shape["Radius"],
             "target_filter": charge["TargetFilter"],
-            "filter": {k: v for k, v in sorted(filt.items())},
+            "filter": {k: v for k, v in sorted(raw_filter_columns(filt).items())},
             "selection": charge["TargetSelectionMode"],
             "once_per_target": charge["OncePerTarget"] is True,
             "wait_for_target": charge["WaitForTarget"] is True,
