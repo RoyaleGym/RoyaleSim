@@ -5145,6 +5145,11 @@ pub const EVO_DART_POISON: u8 = u8::MAX - 5;
 /// and 307 (25, 50 and 120 at level 1), each from the first area made after the 1st, 4th and 7th dart; the Ice Golem,
 /// never darted, lost the same on the same ticks, 1493-1800 from the Golem. Read off the table, not measured: the crown
 /// tower's share and end.
+/// combat.DART_POISON_PULSE = client15535_pulses_singleton: an Evo Dart Goblin poison area's life (its AEO rows' LifeDuration,
+/// 1000 ms, read off the table: tools/extract_cards.py `dart_poison_block` checks the rows agree); it pulses every
+/// `first_ms` within it.
+pub const DART_POISON_AREA_LIFE_MS: i32 = 1000;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct DartPoisonDef {
     pub checks: [i32; 3],

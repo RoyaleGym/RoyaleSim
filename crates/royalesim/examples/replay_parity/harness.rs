@@ -1612,6 +1612,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   of the contact pass, as a slap's (12 of 12 overlap ticks).
 ///   spawner.CONTAINER_RING_WATER = client15535_clamp_from_burst_point: a container ring's member is born where the
 ///   water clamp from the burst point takes it, not ejected to land (14 of 14 on water bursts).
+///   combat.DART_POISON_PULSE = client15535_pulses_singleton: an Evo Dart Goblin's poison area pulses every 5 ticks
+///   through its life, one pending damage per unit, the level read at the take (47 of 52 losses; the single take 39).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1763,6 +1765,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("pathfinding.LADDER_PLAN_SEGMENT", "\"client15535_plan_tick\""),
     ("knockback.UPPERCUT_FLIGHT_CONTACT", "\"client15535_out_of_pass\""),
     ("spawner.CONTAINER_RING_WATER", "\"client15535_clamp_from_burst_point\""),
+    ("combat.DART_POISON_PULSE", "\"client15535_pulses_singleton\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

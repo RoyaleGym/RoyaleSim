@@ -1118,6 +1118,10 @@ pub struct Calib {
     /// touches water. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `EjectNearestLand`.
     #[serde(default = "container_ring_water_default")]
     pub container_ring_water: ContainerRingWater,
+    /// combat.DART_POISON_PULSE (`poison_pass`, `poison_pass_for`, `poison_pulses`): how an Evo Dart Goblin's poison
+    /// area takes what it reaches. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `SingleTake`.
+    #[serde(default = "dart_poison_pulse_default")]
+    pub dart_poison_pulse: DartPoisonPulse,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2824,6 +2828,10 @@ fn uppercut_flight_contact_default() -> UppercutFlightContact {
 
 fn container_ring_water_default() -> ContainerRingWater {
     ContainerRingWater::EjectNearestLand
+}
+
+fn dart_poison_pulse_default() -> DartPoisonPulse {
+    DartPoisonPulse::SingleTake
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6896,6 +6904,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DART_POISON_PULSE -- see `poison_pass` and `poison_pulses` (card.rs `DartPoisonDef`,
+    /// DART_POISON_AREA_LIFE_MS): an Evo Dart Goblin's poison area's takes.
+    DartPoisonPulse {
+        /// The engine's: one take, `first_ms` after the area is made, at the level the stack had when it was made; the
+        /// damage `delay_ms` after the take.
+        SingleTake = "single_take",
+        /// A pulse every `first_ms` through the area's life (made at M: M + 5, M + 10, M + 15); each pulse takes every enemy
+        /// in reach with no poison damage pending (a singleton per unit; a damage due on the pulse's tick lands first), at
+        /// the level its run's stack has at the take; the damage `delay_ms` after the take. Measured on client 15.535.29: 47
+        /// of 52 losses predicted (the 5 misses after the darted unit's death), the single take 39 (sp-f4-dart2-s0 t1332:
+        /// the Golemites born on t1307 taken on the area's second pulse).
+        Client15535PulsesSingleton = "client15535_pulses_singleton",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8908,6 +8931,7 @@ impl Calib {
             ladder_plan_segment: pick(&v, &["pathfinding", "LADDER_PLAN_SEGMENT", "value"], LadderPlanSegment::from_calibration_name)?,
             uppercut_flight_contact: pick(&v, &["knockback", "UPPERCUT_FLIGHT_CONTACT", "value"], UppercutFlightContact::from_calibration_name)?,
             container_ring_water: pick(&v, &["spawner", "CONTAINER_RING_WATER", "value"], ContainerRingWater::from_calibration_name)?,
+            dart_poison_pulse: pick(&v, &["combat", "DART_POISON_PULSE", "value"], DartPoisonPulse::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -18390,7 +18414,73 @@ impl BattleState {
         for k in 0..self.evo.poisons.len() {
             self.poison_pass_for(k);
         }
+        if self.dart_pulses() {
+            self.poison_pulses();
+        }
         self.evo.poisons.retain(|r| !r.hits.is_empty() || (r.until.map_or(true, |u| tick < u)));
+    }
+
+    /// combat.DART_POISON_PULSE = client15535_pulses_singleton in force.
+    fn dart_pulses(&self) -> bool {
+        // PLANT (regression) dart_poison_single_take: the new arm's area still takes once.
+        #[cfg(not(clash_plant = "dart_poison_single_take"))]
+        let on = self.cfg.calib.dart_poison_pulse == DartPoisonPulse::Client15535PulsesSingleton;
+        #[cfg(clash_plant = "dart_poison_single_take")]
+        let on = false;
+        on
+    }
+
+    /// combat.DART_POISON_PULSE = client15535_pulses_singleton: the poison areas' damages due this tick land, then each area
+    /// due a pulse takes every enemy in reach with no poison damage pending (a singleton per unit, across every run), at
+    /// its run's level now; a take is a pending PoisonHit (`pick_at` u32::MAX) whose damage lands `delay_ms` on. Measured
+    /// on client 15.535.29: 47 of 52 losses (the single take 39).
+    fn poison_pulses(&mut self) {
+        const PENDING: u32 = u32::MAX;
+        let cards = self.cfg.cards.clone();
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let mut runs = std::mem::take(&mut self.evo.poisons);
+        for r in runs.iter_mut() {
+            let Some(d) = cards.get(r.card).evo.as_ref().and_then(|e| e.dart_poison) else { continue };
+            for h in r.hits.iter_mut().filter(|h| h.pick_at == PENDING && h.due == tick) {
+                for v in std::mem::take(&mut h.victims) {
+                    let vi = v.index as usize;
+                    if self.ents.is_alive(v) && self.ents.hp[vi] > 0 {
+                        let tower = matches!(self.ents.kind[vi], EntityKind::KingTower | EntityKind::PrincessTower);
+                        let amount = if tower { h.damage * d.crown_pct / 100 } else { h.damage };
+                        self.ents.hp[vi] -= amount;
+                    }
+                }
+            }
+            r.hits.retain(|h| h.pick_at != PENDING || h.due > tick);
+        }
+        let mut pending: Vec<EntityId> = runs.iter().flat_map(|r| r.hits.iter().filter(|h| h.pick_at == PENDING).flat_map(|h| h.victims.iter().copied())).collect();
+        for r in runs.iter_mut() {
+            let Some(d) = cards.get(r.card).evo.as_ref().and_then(|e| e.dart_poison) else { continue };
+            let lvl = d.checks.iter().filter(|c| r.stacks >= **c as u32).count();
+            let damage = if lvl > 0 { cards.scaled(r.card, r.level, d.damages[lvl - 1]).unwrap_or(d.damages[lvl - 1]) } else { 0 };
+            let (first, delay) = ((d.first_ms / dt).max(1) as u32, (d.delay_ms / dt) as u32);
+            let mut taken: Vec<PoisonHit> = Vec::new();
+            for h in r.hits.iter_mut().filter(|h| h.pick_at != PENDING && h.pick_at == tick) {
+                let reach = |j: usize| crate::fixed::in_range_edge(h.pos, self.ents.pos[j], d.radius, self.ents.radius[j]);
+                let picked: Vec<EntityId> = self
+                    .ents
+                    .live_indices()
+                    .filter(|&j| self.ents.team[j] != r.team && self.ents.hp[j] > 0 && reach(j))
+                    .filter(|&j| if self.ents.in_air(j) { d.hits_air } else { d.hits_ground })
+                    .map(|j| self.ents.id_of(j))
+                    .collect();
+                for v in picked {
+                    if lvl > 0 && !pending.contains(&v) {
+                        pending.push(v);
+                        taken.push(PoisonHit { pick_at: PENDING, due: tick + delay, damage, pos: h.pos, victims: vec![v] });
+                    }
+                }
+                h.pick_at = tick + first;
+            }
+            r.hits.retain(|h| h.pick_at == PENDING || h.pick_at <= h.due);
+            r.hits.extend(taken);
+        }
+        self.evo.poisons = runs;
     }
 
     /// Run `k`'s step this tick (`poison_pass`).
@@ -18403,6 +18493,21 @@ impl BattleState {
             return;
         };
         let alive = self.ents.is_alive(r.target);
+        // combat.DART_POISON_PULSE = client15535_pulses_singleton: the area alone here, its pulses from first_ms on to the last
+        // within card.rs DART_POISON_AREA_LIFE_MS (`pick_at` the next pulse, `due` the last); `poison_pulses` takes and deals.
+        if self.dart_pulses() {
+            if alive && tick >= r.next_spawn && r.until.map_or(true, |u| tick < u) {
+                if d.checks.iter().any(|c| r.stacks >= *c as u32) {
+                    let first = (d.first_ms / dt).max(1) as u32;
+                    let life = (crate::card::DART_POISON_AREA_LIFE_MS / dt) as u32;
+                    let last = tick + (life.saturating_sub(1) / first).max(1) * first;
+                    r.hits.push(PoisonHit { pick_at: tick + first, due: last, damage: 0, pos: self.ents.pos[r.target.index as usize], victims: Vec::new() });
+                }
+                r.next_spawn = tick + (d.interval_ms / dt) as u32;
+            }
+            self.evo.poisons[k] = r;
+            return;
+        }
         // Its area, on its tick, while the unit lives (and a crown tower's poison lasts), at the stack's level now.
         if alive && tick >= r.next_spawn && r.until.map_or(true, |u| tick < u) {
             let lvl = d.checks.iter().filter(|c| r.stacks >= **c as u32).count();
@@ -32577,6 +32682,9 @@ impl BattleState {
 /// 20, unchanged, spawner.CONTAINER_RING_WATER: Calib gained container_ring_water (serde default the old arm,
 ///    eject_nearest_land), no new state (the points are made at the burst), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DART_POISON_PULSE: Calib gained dart_poison_pulse (serde default the old arm, single_take), no
+///    new state (a pending damage is a saved PoisonHit with pick_at u32::MAX), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
@@ -33634,6 +33742,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("uppercut_flight_contact".into(), serde_json::to_value(UppercutFlightContact::StunnedBody).map_err(|e| e.to_string())?);
     // spawner.CONTAINER_RING_WATER: a format-3 battle's container member on water was put on land (the same rule).
     sh.insert("container_ring_water".into(), serde_json::to_value(ContainerRingWater::EjectNearestLand).map_err(|e| e.to_string())?);
+    // combat.DART_POISON_PULSE: a format-3 battle's poison area took once (the same rule).
+    sh.insert("dart_poison_pulse".into(), serde_json::to_value(DartPoisonPulse::SingleTake).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
