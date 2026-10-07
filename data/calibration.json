@@ -2359,6 +2359,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_shot_plus_two (examples/replay_parity/harness.rs CLIENT15535_ARMS); client15535_creation_tick, its earlier arm, kept as a candidate.",
       "engine": "combat.rs step_projectiles (`step`, `same_tick`, `defer_first`), selected by Calib::evo_chain_hop_first_step; tests/evo_chain_hop_first_step.rs."
     },
+    "EVO_IMPACT_AREA_ANCHOR": {
+      "value": "landing_point",
+      "candidates": ["landing_point", "client15535_follows_target"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_follows_target on client 15.535.29: the one evo Ice Spirit shot whose target left the landing point (sp-f2-ice-s0) was hit at the target's point, 4,200 off; the other fits both; the table row's FollowBehaviour FollowTarget agrees. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r56_evo_ice_second_hit_census.py, the 2 evo Ice Spirit shots of the raw frames). sp-f2-ice-s0: the shot landed on t692 on a Hog Rider at (14737, 13084), -110 and frozen t692-714. On t752 (T + 60, 3000 ms on) the Hog stood at (14739, 8884), 4,200 off the landing point: -110, attack progress held at 1150 (load 900) t752-774, no target, the swing resumed t775 (23 frames, as the first freeze). No arrow landed on t752 (arrows on t742 and t756, 109 each). The landing-point area (radius 2000 + the Hog's 600) cannot reach it; the engine's Hog stayed 110 higher to the end, the scene's whole loss. sp-form-IceSpirits-evo-s0: landed t755 on a Knight at (12945, 16996); on t815 the Knight (2,133 off the landing point, 0 off itself) and a Musketeer (766 off the landing point, 2,031 off the Knight) took 110 each, inside both readings. The row (IceSpiritsAOE_EV1) carries FollowBehaviour FollowTarget; the projectile's OnHitTargetAction hangs IceSpirits_Target_EV1 on the unit hit.",
+      "meaning": "landing_point: the engine's; the impact area (card.rs EVO_IMPACT_AREA) stands where the shot landed. client15535_follows_target: it rides the unit the shot landed on, moved to that unit's point each update (after the Move), and stays where the unit died.",
+      "open": "A target that dies, or a building or crown tower hit, before the 3000 ms hit; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_follows_target (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "spell.rs step_spells (an attached area's follow), selected by Calib::evo_impact_area_anchor; tests/evo_ice_spirits.rs."
+    },
     "EVO_CHAIN_HOP_WAIT": {
       "value": "at_once",
       "status": "measured",

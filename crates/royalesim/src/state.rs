@@ -1143,6 +1143,10 @@ pub struct Calib {
     /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `HiddenThroughRise`.
     #[serde(default = "drill_rise_targetable_default")]
     pub drill_rise_targetable: DrillRiseTargetable,
+    /// combat.EVO_IMPACT_AREA_ANCHOR (spell.rs `step_spells`, an attached area): where the Evo Ice Spirits' impact area
+    /// stands. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `LandingPoint`.
+    #[serde(default = "evo_impact_area_anchor_default")]
+    pub evo_impact_area_anchor: EvoImpactAreaAnchor,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2873,6 +2877,10 @@ fn drill_rise_body_default() -> DrillRiseBody {
 
 fn drill_rise_targetable_default() -> DrillRiseTargetable {
     DrillRiseTargetable::HiddenThroughRise
+}
+
+fn evo_impact_area_anchor_default() -> EvoImpactAreaAnchor {
+    EvoImpactAreaAnchor::LandingPoint
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7027,6 +7035,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.EVO_IMPACT_AREA_ANCHOR -- see spell.rs `step_spells`: the Evo Ice Spirits' impact area (card.rs EVO_IMPACT_AREA).
+    EvoImpactAreaAnchor {
+        /// The engine's: it stands where the shot landed.
+        LandingPoint = "landing_point",
+        /// It rides the unit the shot landed on (its row's FollowBehaviour FollowTarget), its hit centred on that unit's
+        /// point; where the unit died it stays. Measured on client 15.535.29: sp-f2-ice-s0's Hog Rider took the area's 110
+        /// and its freeze on t752, 4,200 off the landing point (the one shot that separates the two; the other fits both).
+        Client15535FollowsTarget = "client15535_follows_target",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9045,6 +9064,7 @@ impl Calib {
             drill_under_shot: pick(&v, &["hide", "DRILL_UNDER_SHOT", "value"], DrillUnderShot::from_calibration_name)?,
             drill_rise_body: pick(&v, &["collision", "DRILL_RISE_BODY", "value"], DrillRiseBody::from_calibration_name)?,
             drill_rise_targetable: pick(&v, &["targeting", "DRILL_RISE_TARGETABLE", "value"], DrillRiseTargetable::from_calibration_name)?,
+            evo_impact_area_anchor: pick(&v, &["combat", "EVO_IMPACT_AREA_ANCHOR", "value"], EvoImpactAreaAnchor::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -32939,6 +32959,9 @@ impl BattleState {
 /// 20, unchanged, targeting.DRILL_RISE_TARGETABLE: Calib gained drill_rise_targetable (serde default the old arm,
 ///    hidden_through_rise), no new state (the hide's start is kept), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.EVO_IMPACT_AREA_ANCHOR: Calib gained evo_impact_area_anchor (serde default the old arm,
+///    landing_point), no new state (the area already holds its parent), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
 ///    carries its shot's tick), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
@@ -34010,6 +34033,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("drill_rise_body".into(), serde_json::to_value(DrillRiseBody::HideTime).map_err(|e| e.to_string())?);
     // targeting.DRILL_RISE_TARGETABLE: a format-3 battle's drill stayed Hidden through its rise (the same rule).
     sh.insert("drill_rise_targetable".into(), serde_json::to_value(DrillRiseTargetable::HiddenThroughRise).map_err(|e| e.to_string())?);
+    // combat.EVO_IMPACT_AREA_ANCHOR: a format-3 battle's impact area stood where the shot landed (the same rule).
+    sh.insert("evo_impact_area_anchor".into(), serde_json::to_value(EvoImpactAreaAnchor::LandingPoint).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

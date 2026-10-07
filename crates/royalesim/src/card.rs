@@ -2344,8 +2344,9 @@ pub struct EvoDef {
     /// (`AttachedArea`, part EVO_IMPACT_AREA; the form's `projectile_area` converted), its row's FollowBehaviour
     /// FollowTarget notwithstanding. Measured on client 15.535.29, level 11: the shot landed on t755 (110 off a Knight and
     /// a Musketeer, 43 at level 1, and the Freeze) and the area hit both again for 110 on t815, 3000 ms on
-    /// (sp-form-IceSpirits-evo-s0); a Hog Rider it froze (t692 to t714) ran off at its full speed and took nothing more
-    /// (Oracle's sp-f2-ice-s0).
+    /// (sp-form-IceSpirits-evo-s0). Under combat.EVO_IMPACT_AREA_ANCHOR = client15535_follows_target it rides the unit
+    /// the shot landed on (spell.rs `step_spells`): sp-f2-ice-s0's Hog Rider, frozen t692 to t714, took its 110 and a
+    /// second freeze on t752, 4,200 off the landing point.
     pub impact_area: Option<AttachedArea>,
     /// Evo Firecracker: the fireworks its rocket and its sparks leave (`FireworksDef`).
     pub fireworks: Option<FireworksDef>,

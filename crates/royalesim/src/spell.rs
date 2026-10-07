@@ -1751,7 +1751,15 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             if !alive && !a.stay {
                 return false;
             }
-            if alive && a.follow {
+            // combat.EVO_IMPACT_AREA_ANCHOR = client15535_follows_target: the Evo Ice Spirits' impact area rides the unit its
+            // shot landed on (client 15.535.29, sp-f2-ice-s0 t752: the Hog Rider hit 4,200 off the landing point).
+            // PLANT (regression) impact_area_stands: the new arm's area stays where the shot landed.
+            #[cfg(not(clash_plant = "impact_area_stands"))]
+            let follow = a.follow
+                || (*part == crate::card::EVO_IMPACT_AREA && ctx.calib.evo_impact_area_anchor == crate::state::EvoImpactAreaAnchor::Client15535FollowsTarget);
+            #[cfg(clash_plant = "impact_area_stands")]
+            let follow = a.follow;
+            if alive && follow {
                 *pos = ctx.ents.pos[parent.index as usize];
             }
             let was_live = *life_ms > 0;
