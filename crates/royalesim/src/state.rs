@@ -1109,6 +1109,11 @@ pub struct Calib {
     /// tick freezes its segment. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `WalkTick`.
     #[serde(default = "ladder_plan_segment_default")]
     pub ladder_plan_segment: LadderPlanSegment,
+    /// knockback.UPPERCUT_FLIGHT_CONTACT (the move pass's `slap_flight` mask): whether a unit in an Evo Mega Knight
+    /// uppercut's flight takes part in the contact pass. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// `StunnedBody`.
+    #[serde(default = "uppercut_flight_contact_default")]
+    pub uppercut_flight_contact: UppercutFlightContact,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2807,6 +2812,10 @@ fn capture_drag_facing_default() -> CaptureDragFacing {
 
 fn ladder_plan_segment_default() -> LadderPlanSegment {
     LadderPlanSegment::WalkTick
+}
+
+fn uppercut_flight_contact_default() -> UppercutFlightContact {
+    UppercutFlightContact::StunnedBody
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6854,6 +6863,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.UPPERCUT_FLIGHT_CONTACT -- see `phase_path16402_for` (the `slap_flight` mask) and `uppercut_pass`: a
+    /// unit the Evo Mega Knight's uppercut throws, on its flight ticks.
+    UppercutFlightContact {
+        /// The engine's: a stunned body, which its neighbours' scans meet.
+        StunnedBody = "stunned_body",
+        /// Out of the move pass, as a Hero Giant slap's flight is: no contact update of its own, met by no neighbour.
+        /// Measured on client 15.535.29: sp-form-MegaKnight-evo-s0's thrown Knight crossed an attacking Musketeer (12 overlap
+        /// ticks, deepest 555), which moved 0 of 12, the Knight on its throw line 12 of 12 (the slap flights 19 of 19).
+        Client15535OutOfPass = "client15535_out_of_pass",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8864,6 +8885,7 @@ impl Calib {
             cage_captive_avoidance: pick(&v, &["collision", "CAGE_CAPTIVE_AVOIDANCE", "value"], CageCaptiveAvoidance::from_calibration_name)?,
             capture_drag_facing: pick(&v, &["movement", "CAPTURE_DRAG_FACING", "value"], CaptureDragFacing::from_calibration_name)?,
             ladder_plan_segment: pick(&v, &["pathfinding", "LADDER_PLAN_SEGMENT", "value"], LadderPlanSegment::from_calibration_name)?,
+            uppercut_flight_contact: pick(&v, &["knockback", "UPPERCUT_FLIGHT_CONTACT", "value"], UppercutFlightContact::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -20343,6 +20365,23 @@ impl BattleState {
             for r in self.slaps.runs.iter().filter(|r| r.phase == 2) {
                 if let Some(t) = r.target.filter(|t| self.ents.is_alive(*t)) {
                     v[t.index as usize] = true;
+                }
+            }
+            // knockback.UPPERCUT_FLIGHT_CONTACT = client15535_out_of_pass: an Evo Mega Knight uppercut's flight too, on the
+            // ticks `uppercut_pass` steps it (client 15.535.29: a crossed Musketeer moved 0 of 12 ticks).
+            // PLANT (regression) uppercut_flight_collides: the new arm's thrown unit is a contact body.
+            #[cfg(not(clash_plant = "uppercut_flight_collides"))]
+            let out_of_pass = self.cfg.calib.uppercut_flight_contact == UppercutFlightContact::Client15535OutOfPass;
+            #[cfg(clash_plant = "uppercut_flight_collides")]
+            let out_of_pass = false;
+            if out_of_pass {
+                let decel = crate::move16402::PUSHBACK_DECEL;
+                for r in self.evo.uppercuts.iter().filter(|r| self.ents.is_alive(r.id)) {
+                    let last = crate::move16402::ladder_speed(r.push) / decel + 1;
+                    let k = self.tick as i32 - r.mark as i32 - 1;
+                    if (1..=last).contains(&k) {
+                        v[r.id.index as usize] = true;
+                    }
                 }
             }
             v
@@ -32494,6 +32533,9 @@ impl BattleState {
 /// 20, unchanged, pathfinding.LADDER_PLAN_SEGMENT: Calib gained ladder_plan_segment (serde default the old arm,
 ///    walk_tick), no new state (the segment is the saved `seg_dir`), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.UPPERCUT_FLIGHT_CONTACT: Calib gained uppercut_flight_contact (serde default the old arm,
+///    stunned_body), no new state (the flight is read off the saved uppercut runs), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
@@ -33547,6 +33589,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("capture_drag_facing".into(), serde_json::to_value(CaptureDragFacing::WalkFacing).map_err(|e| e.to_string())?);
     // pathfinding.LADDER_PLAN_SEGMENT: a format-3 battle's ladder-tick plan left its segment unfrozen (the same rule).
     sh.insert("ladder_plan_segment".into(), serde_json::to_value(LadderPlanSegment::WalkTick).map_err(|e| e.to_string())?);
+    // knockback.UPPERCUT_FLIGHT_CONTACT: a format-3 battle's thrown unit stayed a contact body (the same rule).
+    sh.insert("uppercut_flight_contact".into(), serde_json::to_value(UppercutFlightContact::StunnedBody).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

@@ -10,13 +10,14 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_mega_knight`):
 //!   - uppercut_never -> `every_second_hit_throws_its_target_toward_its_king` red;
-//!   - uppercut_throw_never -> the same red.
+//!   - uppercut_throw_never -> the same red;
+//!   - uppercut_flight_collides -> `a_thrown_unit_meets_no_body_in_its_flight_under_client15535_out_of_pass` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, UppercutFlightContact};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -82,4 +83,64 @@ fn every_second_hit_throws_its_target_toward_its_king() {
     // The root: from 1000 ms after the hit, 400 ms, its point kept.
     let root = h2 + 20;
     assert!(ys[root..root + 8].iter().all(|p| *p == ys[root]), "rooted h2 + 20 .. h2 + 27: {:?}", &ys[root..root + 10]);
+}
+
+/// knockback.UPPERCUT_FLIGHT_CONTACT (client 15.535.29, sp-form-MegaKnight-evo-s0: the thrown Knight crossed an attacking
+/// Musketeer, which moved 0 of 12 overlap ticks): the throw scene with a red Musketeer standing 445 to the side of the
+/// throw line, 1,000 up it: its points from the second hit to 20 ticks on.
+fn musketeer_in_the_throw(arm: UppercutFlightContact) -> Vec<(i32, i32)> {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["MegaKnight".into(), "Knight".into()], vec!["Knight".into(), "Musketeer".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.uppercut_flight_contact = arm;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s.tick();
+    let (at, kn_at, mu_at) = (n(9000, 12500), n(9000, 13900), n(9445, 14900));
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
+    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", mu_at, None).expect("a red Musketeer");
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    let (mut hits, mut out) = (0, Vec::new());
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(mk, at));
+        let top = s.entity(knight).expect("the Knight").max_hp;
+        if hits < 2 {
+            assert!(s.debug_set_pos(knight, kn_at));
+            assert!(s.debug_set_pos(musk, mu_at));
+        }
+        assert!(s.debug_set_hp(knight, top));
+        let mtop = s.entity(musk).expect("the Musketeer").max_hp;
+        assert!(s.debug_set_hp(musk, mtop));
+        s.tick();
+        if top - s.entity(knight).expect("the Knight").hp == 268 {
+            hits += 1;
+        }
+        if hits >= 2 {
+            let m = s.entity(musk).expect("the Musketeer").pos;
+            out.push((m.x / K, m.y / K));
+            if out.len() > 20 {
+                return out;
+            }
+        }
+    }
+    panic!("{arm:?}: the scene drifted: no second hit");
+}
+
+/// Plant: uppercut_flight_collides.
+#[test]
+fn a_thrown_unit_meets_no_body_in_its_flight_under_client15535_out_of_pass() {
+    let new = musketeer_in_the_throw(UppercutFlightContact::Client15535OutOfPass);
+    assert!(new.windows(2).all(|w| w[0] == w[1]), "client15535_out_of_pass: the Musketeer was pushed: {new:?}");
+    // NOT VACUOUS: stunned_body pushes it as the Knight flies past.
+    let old = musketeer_in_the_throw(UppercutFlightContact::StunnedBody);
+    assert!(old.windows(2).any(|w| w[0] != w[1]), "stunned_body: the Musketeer never moved: {old:?}");
 }

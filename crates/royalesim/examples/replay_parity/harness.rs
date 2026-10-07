@@ -1608,6 +1608,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   scans along that facing (52 of 52 drag frames).
 ///   pathfinding.LADDER_PLAN_SEGMENT = client15535_plan_tick: a route planned on a knockback-ladder tick freezes its
 ///   segment on that tick from the start-of-tick point (133 of 133; 21 of 21 kept at the walk).
+///   knockback.UPPERCUT_FLIGHT_CONTACT = client15535_out_of_pass: a unit in an Evo Mega Knight uppercut's flight is out
+///   of the contact pass, as a slap's (12 of 12 overlap ticks).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1757,6 +1759,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("collision.CAGE_CAPTIVE_AVOIDANCE", "\"client15535_masked\""),
     ("movement.CAPTURE_DRAG_FACING", "\"client15535_faces_ball\""),
     ("pathfinding.LADDER_PLAN_SEGMENT", "\"client15535_plan_tick\""),
+    ("knockback.UPPERCUT_FLIGHT_CONTACT", "\"client15535_out_of_pass\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

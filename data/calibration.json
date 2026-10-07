@@ -3787,6 +3787,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_held_offset (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs apply_effects (the at-hit undo's `held`), ladder_step_now (its offset), Scratch::pre_offset, selected by Calib::combo_step_offset; tests/monk_combo.rs."
     },
+    "UPPERCUT_FLIGHT_CONTACT": {
+      "value": "stunned_body",
+      "candidates": ["stunned_body", "client15535_out_of_pass"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_out_of_pass on client 15.535.29: one uppercut throw with 12 overlap ticks (0 pushes, the throw line kept), and the slap flight's 19 of 19 by the same rule; the table (ActionKnockback Duration 900, Height 8000, airborne) points to both clients; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r55_run_overlap_census.py, radii and flying from r55_cardid_radius.json; r55_flight_contact_census.py). The Evo Mega Knight's uppercut (MegaKnight_EV1_uppercut_send_flying: ActionKnockback Duration 900, Height 8000, airborne): one throw, sp-form-MegaKnight-evo-s0's Knight t1080-t1096, overlapping the attacking Musketeer on 12 ticks (centre distance 445..1000 against 1,000, deepest 555): the Musketeer's displacement 0 on 12 of 12, the Knight's deviation from its throw line at most 2.1 (direction rounding) on 12 of 12. The Hero Giant's slap flights (the same SLAP_FLIGHT_STEP class; sp-slap-Golem-14500-1000, sp-slap-Knight-14500-1000, sp-slap-Knight-3500--1000): 19 overlap ticks with the standing Hero Giant (deepest 235-324), the Giant moved 0 of 19, the thrown unit off its line 0 of 19. Refuted: the engine's stunned body (collision.HELD_UNIT_CONTACT client16402_speed_zero_update), which predicts the t1087 pushes (127, -79) and (-53, 33), 0 of 12; 'every knockback run is out of the pass': ordinary runs (spells, attack and death pushes, crowd) deviated on 10 of 57 overlap ticks and their attacking or idle neighbours moved on 11 of 16.",
+      "meaning": "stunned_body: the engine's; a unit the Evo Mega Knight's uppercut throws is stunned through its flight and stays a contact body its neighbours' scans meet. client15535_out_of_pass: on its flight ticks (uppercut_pass's steps) it is out of the move pass as a slap's flight is: it takes no contact update of its own and no neighbour meets it.",
+      "open": "One throw; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_out_of_pass (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (the slap_flight mask's uppercut entries), selected by Calib::uppercut_flight_contact; tests/evo_mega_knight.rs."
+    },
     "ATTACK_PUSHBACK": {
       "value": "ladder_away_from_target",
       "candidates": ["none", "ladder_away_from_target"],
