@@ -1207,12 +1207,27 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             // held troop target across the limit kept it, all three by the holder's own boulder (a Bowler; a Bomber
             // twice, attacking, and a Knight, walking). A push by anything else is inferred.
             #[cfg(not(clash_plant = "chase_drop_knocked_dropped"))]
-            let holds_sliding = ctx.calib.chase_drop_knocked == crate::state::ChaseDropKnocked::ClientHoldsKnocked
+            let holds_sliding = ctx.calib.chase_drop_knocked != crate::state::ChaseDropKnocked::DropsKnocked
                 && chase_drop_applies(ctx, a, ti)
                 && (e.knock_ms[ti] > 0 || e.push_active[ti]);
             #[cfg(clash_plant = "chase_drop_knocked_dropped")]
             let holds_sliding = false; // PLANT (regression): client_holds_knocked still lets a sliding target go.
             if holds_sliding && in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, ti), e.radius[a], e.pos[ti], e.radius[ti]) {
+                // targeting.CHASE_DROP_KNOCKED_TARGET = client15535_holds_unless_nearer: the rescan still takes an enemy it
+                // ranks before the sliding target (`scan`'s own key), which the hold does not shield.
+                // PLANT (regression) knocked_hold_ignores_nearer: the new arm holds against a nearer enemy too.
+                #[cfg(not(clash_plant = "knocked_hold_ignores_nearer"))]
+                let rescans = ctx.calib.chase_drop_knocked == crate::state::ChaseDropKnocked::Client15535HoldsUnlessNearer;
+                #[cfg(clash_plant = "knocked_hold_ignores_nearer")]
+                let rescans = false;
+                if rescans {
+                    if let Some(n) = scan(ctx, a, scratch).filter(|n| *n != t) {
+                        let ni = n.index as usize;
+                        if (deprioritized(ctx, a, ni), key(ctx, a, ni)) < (deprioritized(ctx, a, ti), key(ctx, a, ti)) {
+                            return TargetDecision { target: Some(n), cancel_attack: cancel, resumed: false, chase_dropped: None };
+                        }
+                    }
+                }
                 return TargetDecision { target: Some(t), cancel_attack: cancel, resumed: false, chase_dropped: None };
             }
             #[cfg(not(any(clash_plant = "chase_drop_ignored", clash_plant = "chase_drop_level_triggered")))]

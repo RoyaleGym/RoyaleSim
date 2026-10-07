@@ -16,10 +16,13 @@
 //!      Bowler holds the Bomber, stands, and launches the second one HitSpeed / 50 ticks after the first;
 //!   2. drops_knocked: on that crossing the Bowler lets the Bomber go (the old arm);
 //!   3. both values: the Hog Rider, never pushed, is let go on the tick it crosses the Knight's limit;
-//!   4. the shipped value is client_holds_knocked.
+//!   4. the shipped value is client_holds_knocked;
+//!   5. client15535_holds_unless_nearer (item 307): with a red Giant held where the Bomber's slide makes it the nearer, the
+//!      Bowler takes the Giant while the Bomber still slides, where client_holds_knocked holds the Bomber to the slide's end.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test chase_drop_knocked`):
 //!   * `chase_drop_knocked_dropped` -- client_holds_knocked still lets a sliding target go: (1) goes red.
+//!   * `knocked_hold_ignores_nearer` -- client15535_holds_unless_nearer holds against a nearer enemy: (5) goes red.
 mod common;
 
 use common::*;
@@ -150,4 +153,35 @@ fn a_runner_that_is_not_sliding_is_let_go_on_the_edge() {
 #[test]
 fn the_shipped_value_is_the_new_one() {
     assert_eq!(Calib::shipped().chase_drop_knocked, NEW);
+}
+
+/// (5) A red Giant held at (16235, 22326), farther from the Bowler than the Bomber until the Bomber's slide: per tick
+/// after the tick, whether the Bowler holds the Giant, and whether the Bomber slides.
+fn with_a_nearer_giant(arm: ChaseDropKnocked) -> Vec<(u32, bool, bool)> {
+    let giant_at = (16235, 22326);
+    let mut s = BattleState::new(0, with_arm(arm));
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Blue, "Bowler", at(BOWLER_AT), None), (Team::Red, "Bomber", at(BOMBER_AT), None), (Team::Red, "Giant", at(giant_at), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let (h, o, g) = (ids[0], ids[1], ids[2]);
+    let mut rows = Vec::new();
+    for tick in 1..=50 {
+        assert!(s.debug_set_pos(g, at(giant_at)));
+        s.tick();
+        let (Some(hv), Some(ov)) = (s.entity(h), s.entity(o)) else { break };
+        rows.push((tick, hv.target == Some(g), ov.push_active || ov.knock_ms > 0));
+    }
+    rows
+}
+
+/// Plant: knocked_hold_ignores_nearer. Item 307 (client 15.535.29, sp-il-6a568a0f t313: a Skeleton after a Hog Rider the
+/// Log pushed took the nearer Ice Golemite mid-slide).
+#[test]
+fn under_client15535_holds_unless_nearer_a_nearer_enemy_is_taken_from_a_sliding_target() {
+    let new = with_a_nearer_giant(ChaseDropKnocked::Client15535HoldsUnlessNearer);
+    let first = new.iter().find(|r| r.1).unwrap_or_else(|| panic!("client15535_holds_unless_nearer: the Bowler never took the Giant"));
+    assert!(first.2, "client15535_holds_unless_nearer: the Bowler took the Giant on {}, after the Bomber's slide", first.0);
+    // NOT VACUOUS: client_holds_knocked keeps the sliding Bomber against the nearer Giant
+    let old = with_a_nearer_giant(NEW);
+    assert!(old.iter().all(|r| !(r.1 && r.2)), "client_holds_knocked: the Bowler took the Giant mid-slide on {:?}", old.iter().find(|r| r.1 && r.2).map(|r| r.0));
 }

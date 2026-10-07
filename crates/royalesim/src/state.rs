@@ -3923,6 +3923,11 @@ calib_enum!(
         /// 327 past (20260920-081819, walking; crossing over 1687-1688).
         /// A push by anything else, and a nearer enemy in sight during the slide, are inferred, not measured.
         ClientHoldsKnocked = "client_holds_knocked",
+        /// client_holds_knocked, except that the rescan still takes an enemy it ranks nearer than the sliding target: the
+        /// hold keeps the chase drop off the target, not the nearest-enemy rescan. Measured on client 15.535.29
+        /// (sp-il-6a568a0f t313): a Skeleton walking after a Hog Rider the Log had pushed took the Ice Golemite on the first
+        /// Target phase whose start-of-tick positions put it nearer (3,879 against 3,921 centre), mid-slide.
+        Client15535HoldsUnlessNearer = "client15535_holds_unless_nearer",
     }
 );
 calib_enum!(
