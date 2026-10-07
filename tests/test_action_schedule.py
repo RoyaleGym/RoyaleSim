@@ -8,8 +8,8 @@ tables say:
      GoblinCurseBase at delay 0, and two cosmetic ActionPlayEffect entries at 0 and 5950 (the group's SubActionsDelay);
   2. GoblinCurseBase's hit: two entries read from INLINE tables (no action name), BuffType GoblinCurse and
      GoblinCurseDamage, each with its SpawnTime 100 and its buff row;
-  3. the global Lightning's spawn carries an ActionDelay, which the reader does not understand, so the entry says so
-     (`unread`) and the loader keeps that card refused;
+  3. the global Lightning's spawn carries an ActionDelay (5000), which is the entry's delay: the loader reads a spawn
+     due at its parent's life end as lost (card.rs `late_area_spawn`);
   4. a group that names one action twice keeps both (the Graveyard's twelve entries over its eight actions), in the
      order and with the delays the group lists;
   5. the 2018 build carries no `schedule` or `on_hit` key, so its file stays byte-identical.
@@ -89,12 +89,20 @@ def test_the_curse_circle_hangs_two_buffs_from_inline_tables(tables):
     assert (damage["damage_per_second"], damage["crown_tower_damage_per_hit"]) == (14, 4)
 
 
-def test_a_delayed_spawn_is_left_unread(tables):
-    sched = _aeo(tables, "Event_Global_Lightning_Charge1")["schedule"]
-    assert sched is not None
-    [e] = sched["entries"]
-    assert e["class"] == "ActionSpawn", e
-    assert e.get("unread") == ["columns ActionDelay"], e
+def test_a_spawns_action_delay_is_its_delay(tables):
+    for name, child in (
+        ("Event_Global_Lightning_Charge1", "Event_Global_Lightning_Charge2"),
+        ("Event_Global_Lightning_Charge2", "Event_Global_Lightning"),
+    ):
+        sched = _aeo(tables, name)["schedule"]
+        assert sched is not None
+        [e] = sched["entries"]
+        assert (e["class"], e["spawn"], e["delay_ms"]) == ("ActionSpawn", child, 5000), e
+        assert "unread" not in e, e
+    # A column the reader does not understand stays unread beside it (the setup area's ParentGOAsSource).
+    [e] = _aeo(tables, "Event_Global_Lightning_Setup")["schedule"]["entries"]
+    assert e.get("unread") == ["columns ParentGOAsSource"], e
+    assert e["delay_ms"] > 0, e
 
 
 def test_a_repeated_action_is_kept_in_order(tables, monkeypatch):

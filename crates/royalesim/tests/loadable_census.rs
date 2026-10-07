@@ -246,6 +246,7 @@ const LOADABLE_15535: &[&str] = &[
     "GlobalClone",
     "GoblinPartyRocket",
     "WarmSpell",
+    "GlobalLightning",
     "DarkMagic",
     "GoblinCurse",
     "MergeMaiden",
@@ -255,7 +256,6 @@ const LOADABLE_15535: &[&str] = &[
     "KingTower",
 ];
 const REJECTED_15535: &[(&str, &str)] = &[
-    ("GlobalLightning", "area effect Event_Global_Lightning_Charge1 runs an action graph this loader does not read (ActionSpawn; spawns AreaEffectType:Event_Global_Lightning_Charge2)"),
     ("GoblinRocketSilo", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionPlayEffect)"),
     ("SuperEliteArcher", "the unit's projectile"),
     ("SuperHogRider", "units.SantaPresent"),

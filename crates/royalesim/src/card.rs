@@ -8067,9 +8067,8 @@ fn refuse_action_mechanic_but_on_hit(aeo: &RawAreaEffect, what: &str) -> Result<
 /// Damage never lands (spells.AREA_DAMAGE_WITHOUT_HIT_FLAGS).
 ///
 /// None, and the caller's refusal stands, unless ALL hold:
-///   1. the area's schedule has exactly one entry that is not cosmetic: an ActionSpawn of an AreaEffectType at delay 0,
-///      with nothing unread (the global Lightning's spawn carries an ActionDelay, which is unread: that row stays
-///      refused as before);
+///   1. the area's schedule has exactly one entry that is not cosmetic: an ActionSpawn of an AreaEffectType with nothing
+///      unread, at delay 0 (a spawn at a later delay is `late_area_spawn`'s);
 ///   2. the parent lands nothing: it hits neither ground nor air, and it carries no Buff, Pushback, Projectile,
 ///      SpawnCharacter, MaximumTargets, child area, positive HitSpeed or HitBiggestTargets. Its own Damage is not read.
 ///
@@ -8079,7 +8078,7 @@ fn area_spawns_area(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -
     let sched = aeo.schedule.as_ref()?;
     let live: Vec<&RawScheduleEntry> = sched.entries.iter().filter(|e| !e.is_cosmetic()).collect();
     let [e] = live.as_slice() else { return None };
-    if e.class.as_deref() != Some("ActionSpawn") || e.spawn_type.as_deref() != Some("AreaEffectType") || e.delay_ms.unwrap_or(0) != 0 || !e.unread.is_empty() {
+    if e.class.as_deref() != Some("ActionSpawn") || e.spawn_type.as_deref() != Some("AreaEffectType") || !e.unread.is_empty() {
         return None;
     }
     if !area_lands_nothing(aeo) {
@@ -8087,7 +8086,31 @@ fn area_spawns_area(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -
     }
     let root = sched.root.clone().unwrap_or_default();
     let cname = e.spawn.clone().unwrap_or_default();
+    let delay_ms = e.delay_ms.unwrap_or(0);
+    if delay_ms != 0 {
+        return Some(late_area_spawn(aeo, &cname, delay_ms));
+    }
     Some(collapse_into_child(aeo, &root, &cname, buffs, ctx))
+}
+
+/// AN AREA WHOSE ONE ACTION MAKES ANOTHER AREA AT OR AFTER ITS OWN LIFE'S END (the GlobalLightning event card's
+/// Event_Global_Lightning_Charge1: LifeDuration 5000, an ActionSpawn of Event_Global_Lightning_Charge2 at ActionDelay
+/// 5000): the spawn is lost with its parent, which lives out its LifeDuration and makes nothing (`SpellShape::ScheduledArea`
+/// with no entries; its own Damage is not read, `area_spawns_area`'s clause 2). Measured on client 15.535.29
+/// (sp-event-GlobalLightning-s0, sp-event-GlobalLightning2-s0, two hand casts): no unit or tower lost hp and no unit was
+/// held for 450 ticks after the cast, where the table's chain would have struck from about the cast + 219; the play cost
+/// its 1 elixir. Whether the spawn is lost at the life's end or runs ownerless (the charges' spawns carry no
+/// ParentGOAsSource) is not separated. A spawn due inside its parent's life is not simulated.
+fn late_area_spawn(aeo: &RawAreaEffect, cname: &str, delay_ms: i32) -> Result<(SpellShape, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    #[cfg(not(clash_plant = "late_area_spawn_refused"))]
+    let life_ms = aeo.life_duration_ms.unwrap_or(0);
+    #[cfg(clash_plant = "late_area_spawn_refused")]
+    let life_ms = aeo.life_duration_ms.map_or(0, |_| i32::MAX); // PLANT: every delayed spawn falls inside its parent's life.
+    if life_ms <= 0 || delay_ms < life_ms {
+        return Err(format!("area effect {what} spawns area effect {cname} {delay_ms} ms into its {life_ms} ms life; not simulated"));
+    }
+    Ok((SpellShape::ScheduledArea { life_ms, schedule: Vec::new() }, Vec::new()))
 }
 
 /// The collapse `area_spawns_area` recognised: parent `aeo`, whose action `root` spawns area `cname`.

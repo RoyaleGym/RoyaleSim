@@ -1358,8 +1358,9 @@ def action_graph(t: dict, rec: dict, sequence: list | None = None, inline_row: s
 # SubActionsDelay. An inline `[[ACTION.X.SubActions]]` table (the Goblin Curse's two buffs) arrives as a
 # dict in `acts.arrays[X]["SubActions"]` and is read like a named action. A lone action is a one-entry
 # schedule at delay 0. Every entry carries the parameters this reader understands, and anything else is
-# kept under `unread`, so the loader refuses the area rather than run a plainer one (the global
-# Lightning's ActionDelay is one such column).
+# kept under `unread`, so the loader refuses the area rather than run a plainer one (the global spells'
+# setup areas' ParentGOAsSource is one such column). An ActionSpawn's own ActionDelay (the global
+# Lightning's charges: 5000) is read into its entry's delay_ms, after its group's SubActionsDelay.
 X_EXPR = re.compile(
     r"^\s*x\s*\+\s*\(\s*(-?\d+)\s*\*\s*select\("
     r"\s*x\s*>\s*\(\s*map_width\s*/\s*2\s*\)\s*,\s*-1\s*,\s*1\s*\)\s*\)\s*$"
@@ -1440,12 +1441,15 @@ def schedule_entry(t: dict, rec, name: str | None, delay) -> dict:
             e["relative"] = {"x": rec.get("RelativeX") or 0, "y": rec.get("RelativeY") or 0}
         if e["spawn_type"] == "BuffType":
             e["buff"] = norm_buff(t, e["spawn"])
+        if rec.get("ActionDelay") is not None:
+            e["delay_ms"] = delay + rec["ActionDelay"]
         known = {
             "SpawnType",
             "SpawnData",
             "UseDeploy",
             "DeployTime",
             "SpawnTime",
+            "ActionDelay",
             "XPositionExpression",
             "YPositionExpression",
             "RelativeX",

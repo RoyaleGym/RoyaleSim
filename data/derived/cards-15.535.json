@@ -20406,17 +20406,14 @@
       "root": "GlobalLightningSpawnCharge2",
       "entries": [
        {
-        "delay_ms": 0,
+        "delay_ms": 5000,
         "action": "GlobalLightningSpawnCharge2",
         "class": "ActionSpawn",
         "spawn_type": "AreaEffectType",
         "spawn": "Event_Global_Lightning_Charge2",
         "use_deploy": false,
         "deploy_time_ms": null,
-        "spawn_time_ms": null,
-        "unread": [
-         "columns ActionDelay"
-        ]
+        "spawn_time_ms": null
        }
       ]
      },
@@ -70281,17 +70278,14 @@
     "root": "GlobalLightningSpawnCharge2",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 5000,
       "action": "GlobalLightningSpawnCharge2",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
       "spawn": "Event_Global_Lightning_Charge2",
       "use_deploy": false,
       "deploy_time_ms": null,
-      "spawn_time_ms": null,
-      "unread": [
-       "columns ActionDelay"
-      ]
+      "spawn_time_ms": null
      }
     ]
    },
@@ -70343,17 +70337,14 @@
     "root": "GlobalLightning",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 5000,
       "action": "GlobalLightning",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
       "spawn": "Event_Global_Lightning",
       "use_deploy": false,
       "deploy_time_ms": null,
-      "spawn_time_ms": null,
-      "unread": [
-       "columns ActionDelay"
-      ]
+      "spawn_time_ms": null
      }
     ]
    },
@@ -70496,7 +70487,7 @@
     "root": "GlobalLightning_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 1000,
       "action": "GlobalLightning_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -70505,7 +70496,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -70723,7 +70714,7 @@
     "root": "GlobalRage_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalRage_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -70732,7 +70723,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -70785,7 +70776,7 @@
     "root": "GlobalHeal_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalHeal_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -70794,7 +70785,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -70847,7 +70838,7 @@
     "root": "GlobalFreeze_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalFreeze_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -70856,7 +70847,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -71044,7 +71035,7 @@
     "root": "GlobalInvisibility_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalInvisibility_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -71053,7 +71044,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -71106,17 +71097,14 @@
     "root": "GlobalClone_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalClone_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
       "spawn": "GlobalClone",
       "use_deploy": false,
       "deploy_time_ms": null,
-      "spawn_time_ms": null,
-      "unread": [
-       "columns ActionDelay"
-      ]
+      "spawn_time_ms": null
      }
     ]
    },
@@ -73519,7 +73507,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]

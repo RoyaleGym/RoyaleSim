@@ -85,11 +85,11 @@ fn check_deploy_reports_unknown_and_unsupported_cards_apart() {
     // NotInHand list below, which is where a simulable card belongs.
     // RAGE WAS THE EXAMPLE until it loaded as a spell summon, and then MIRROR until it loaded as the
     // replay of the side's last play, and then CLONE until it loaded as its own shape, and then GlobalClone until it loaded
-    // as the Clone's shape with its own hold (item 294); GlobalLightning, the event's, runs an area action graph the loader
-    // does not read yet.
-    match s.check_deploy(Team::Blue, "GlobalLightning", t(900, 1000)) {
-        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "GlobalLightning"),
-        other => panic!("expected UnsupportedCard for GlobalLightning, got {other:?}"),
+    // as the Clone's shape with its own hold (item 294), and then GlobalLightning until it loaded as an area that does
+    // nothing (item 297); the Super Lava Hound's death projectile is a fire wall the loader does not read yet.
+    match s.check_deploy(Team::Blue, "SuperLavaHound", t(900, 1000)) {
+        Err(DeployError::UnsupportedCard(n, _)) => assert_eq!(n, "SuperLavaHound"),
+        other => panic!("expected UnsupportedCard for SuperLavaHound, got {other:?}"),
     }
     // ...and the expired half becomes a REGRESSION gate: every thin-slice spell is
     // now simulable, so asking about one that is not in hand says NotInHand -- never
