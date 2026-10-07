@@ -4243,7 +4243,8 @@ calib_enum!(
 /// fingerprint is compared), so an override of the key reaches the Python binding, the replay
 /// harness and a restored battle alike. Measured on the 16.402 corpus, every value the unique
 /// integer base that reproduces every observation at every level seen: IceSpirits Hitpoints 84
-/// (the tables 85), IceGolemite 480 (514), GoblinBrawler 438 (422), HealSpirit 84 (85), FireSpirits 84 (85) and
+/// (the tables 85), IceGolemite 480 (514), GoblinBrawler 438 (422) and the Evo Goblin Cage's (the 16.402 tables give both rows
+/// 438), HealSpirit 84 (85), FireSpirits 84 (85) and
 /// its projectile Damage 84 (81), the Bomber's projectile Damage 83 (88), the Fireball's CrownTowerDamagePercent -77
 /// (-75).
 ///
@@ -10657,8 +10658,8 @@ pub struct EntityView<'a> {
     /// `hide_state == Hidden`: under ground, untargetable, immune (hide.*).
     pub hidden: bool,
     /// The protocol's status bits (entity.rs `Entities::status_flags`; py.rs ENTITY_FIELDS
-    /// `status_flags`): bit 0 underground, bit 1 invisible to enemies, bit 2 hidden, bit 3 an evolved unit, bit 4 a hero
-    /// unit, bit 5 a Clone's copy, bit 6 its ability winding up, bit 7 its ability active, bit 8 fully charged
+    /// `status_flags`): bit 0 underground, bit 1 invisible to enemies, bit 2 hidden, bit 3 an evolved unit (card.rs
+    /// `is_evo_record`), bit 4 a hero's body (card.rs `is_hero_body`), bit 5 a Clone's copy, bit 6 its ability winding up, bit 7 its ability active, bit 8 fully charged
     /// (`BattleState::ability_state`, `charge_permille`).
     pub status_flags: i32,
     /// THE BUILD-UP A PLAYER WATCHES, permille, 0 when none (`BattleState::charge_permille`): a charging unit's run-up,
@@ -29680,10 +29681,12 @@ impl BattleState {
             // already counts the tick just run).
             status_flags: e.status_flags(i)
                 | if crate::target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, i) { 2 } else { 0 }
-                // Bit 3: an evolved unit (its card is an evolved form).
-                | if self.cfg.cards.get(e.card[i]).evo.is_some() { 8 } else { 0 }
-                // Bit 4: a hero form's unit (card.rs `CardDef::form_of` with an ability).
-                | if self.cfg.cards.get(e.card[i]).ability.is_some() { 16 } else { 0 }
+                // Bit 3: an evolved unit, on a row of an evolution's own (card.rs `is_evo_record`), through its
+                // changes (a landed Evo Royal Hog's grounded row is one). Bit 4: a hero's body (card.rs
+                // `is_hero_body`) through its lift, siege and walk; never a champion, never what a hero puts down.
+                // Both read the row's place in the table, never its blocks: a form's summons carry no EvoDef, a
+                // hero's lifted row no button, and a champion's row carries one.
+                | self.form_bits(e.card[i])
                 // Bit 5: a copy the Clone made.
                 | if e.cloned[i] { 32 } else { 0 }
                 // Bits 6 and 7: its ability winding up, its ability active.
@@ -29759,6 +29762,18 @@ impl BattleState {
             || self.warps.lanes.iter().any(|r| r.id == id)
             || self.warps.soul_runs.iter().any(|r| r.id == id);
         (windup, active, if active || windup { ticks } else { 0 })
+    }
+
+    /// STATUS BITS 3 AND 4 OF A UNIT ON ROW `card` (`view`): 8 on a row of an evolution's own (card.rs
+    /// `is_evo_record`), 16 on a hero's body (card.rs `is_hero_body`).
+    fn form_bits(&self, card: u16) -> i32 {
+        let cards = &self.cfg.cards;
+        #[cfg(not(clash_plant = "status_bits_from_blocks"))]
+        let (evolved, hero) = (cards.is_evo_record(card), cards.is_hero_body(card));
+        // PLANT (tests/status_bits.rs): the bits read the row's blocks, so a champion is a hero and a lifted hero is not.
+        #[cfg(clash_plant = "status_bits_from_blocks")]
+        let (evolved, hero) = (cards.get(card).evo.is_some(), cards.get(card).ability.is_some());
+        (if evolved { 8 } else { 0 }) | (if hero { 16 } else { 0 })
     }
 
     /// THE BUILD-UP ON ENTITY `i`, permille of its whole (0 when none): a charging card's run-up toward its charge

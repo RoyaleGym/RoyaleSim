@@ -7228,6 +7228,9 @@ pub struct CardDb {
     /// THE FIRST SLOT THE HERO PASS LOADED (`load_hero_forms`): every record from here on is a hero form or its
     /// ability's unit (`is_hero_record`). u16::MAX when no hero pass ran.
     pub hero_start: u16,
+    /// THE RECORDS EACH LOADED EVOLUTION PUSHED, as [first, end) slot ranges (`load_evolution`; `is_evo_record`): the
+    /// form's own row and every row of its own (members, summons, death spawns, a fall's grounded row, a decoy).
+    pub evo_records: Vec<(u16, u16)>,
 }
 
 /// A DECK ENTRY'S FORM (`BattleConfig::forms`): 0 the base card, 1 its evolution, 2 its hero form.
@@ -9996,6 +9999,7 @@ impl CardDb {
             hero_forms: Vec::new(),
             rejected_forms: Vec::new(),
             hero_start: u16::MAX,
+            evo_records: Vec::new(),
         };
         // `buffs` is filled from the table once every card has been converted
         // (`db.buffs = buffs.defs` below): a CardDef holds indices, never the rows.
@@ -12054,6 +12058,7 @@ impl CardDb {
         if members.iter().any(|(_, m)| self.index(&m.name).is_some()) {
             return Err("a member's name is already loaded".into());
         }
+        let first = self.cards.len() as u16;
         self.push(c, None)?;
         let form = (self.cards.len() - 1) as u16;
         // A deploy at explicit offsets: member 0 is the form's own row, as in the table pass.
@@ -12163,6 +12168,7 @@ impl CardDb {
             }
         }
         self.forms.push((base, FORM_EVOLUTION, form));
+        self.evo_records.push((first, self.cards.len() as u16));
         Ok(())
     }
 
@@ -13096,6 +13102,31 @@ impl CardDb {
     /// applies its ProjectileYOffset always (combat.rs `launch_point`).
     pub fn is_hero_record(&self, idx: u16) -> bool {
         idx >= self.hero_start && (idx as usize) < self.cards.len()
+    }
+
+    /// IS RECORD `idx` AN EVOLUTION'S OWN (`evo_records`): the form's row or a row only the form puts down? The
+    /// protocol's status bit 3 (state.rs `view`). A unit on a row the plain card shares (an Evo Goblin Barrel's
+    /// Goblins, an Evo Witch's Skeletons) is not one: it looks plain to a player.
+    pub fn is_evo_record(&self, idx: u16) -> bool {
+        self.evo_records.iter().any(|&(a, b)| (a..b).contains(&idx))
+    }
+
+    /// IS RECORD `idx` A HERO'S BODY: a hero form's own row, or a row its button makes of that body or releases as
+    /// the hero (the Hero Wizard's lift, the Hero Bowler's siege, the Hero Dark Prince's walk, the Hero Barbarian
+    /// Barrel's Barbarian, which holds the charge)? Each is the same unit through its changes (state.rs
+    /// `rebind_unit`). Never a champion's row, and never a row the hero puts down beside itself (a turret, a mount, a
+    /// flag and its spawns, a decoy, a tomb's monster): the protocol's status bit 4 (state.rs `view`).
+    pub fn is_hero_body(&self, idx: u16) -> bool {
+        self.hero_forms.iter().any(|&(_, f)| {
+            f == idx
+                || match self.get(f).ability.as_ref().map(|a| &a.effect) {
+                    Some(AbilityEffect::GroundToAir { unit, .. }) => *unit == idx,
+                    Some(AbilityEffect::Siege(sg)) => sg.unit == idx,
+                    Some(AbilityEffect::Dismount(d)) => d.walker == idx,
+                    Some(AbilityEffect::ReRoll(r)) => r.unit == idx,
+                    _ => false,
+                }
+        })
     }
 
     /// THE ENCHANT'S MULTIPLIERS AND EXCLUSIONS, resolved against the loaded cards (`EnchantDef::per_attacker`,

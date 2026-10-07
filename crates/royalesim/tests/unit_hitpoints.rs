@@ -154,5 +154,11 @@ fn the_rows_are_the_battles_card_data_not_the_tables() {
     assert_eq!(moved, want_moved, "the card-levels whose rows the card-value overlay moves");
     assert_eq!(rows(&shipped, "GoblinCage", 11), want(&[("own", "GoblinCage", 780), ("death_spawn", "GoblinBrawler", 1121)]), "the Brawler on the battle's card data");
     assert_eq!(rows(&table, "GoblinCage", 11), want(&[("own", "GoblinCage", 780), ("death_spawn", "GoblinBrawler", 1080)]), "the Brawler in the committed table");
+    // The Evo Goblin Cage's Brawler, a row of its own, plays the plain Brawler's hitpoints.
+    let ev1 = |db: &CardDb| {
+        let i = db.index("GoblinCage_EV1_GoblinBrawler").expect("the evolved Brawler's row");
+        db.scaled(i, 11, db.get(i).hitpoints).expect("level 11")
+    };
+    assert_eq!((ev1(&shipped), ev1(&table)), (1121, 1080), "the evolved Brawler: the battle's 1121, the table's 1080");
     assert_eq!((rows(&shipped, "IceSpirits", 11), rows(&table, "IceSpirits", 11)), (want(&[("own", "IceSpirits", 215)]), want(&[("own", "IceSpirits", 217)])), "an own row: the battle's 215, the table's 217");
 }

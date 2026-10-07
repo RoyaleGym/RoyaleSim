@@ -58,6 +58,8 @@ the card actually went down. Ask first with
 `check_deploy(team, slot, x, y)`, which returns the same reason without playing.
 
 **State.** `state_json()` returns the whole battle as JSON bytes: towers, units, spells, hands, elixir and the tick.
+`spells` lists every live spell object, not only spell cards. An evolution's effects, a death bomb, a deploy blow and a
+hero's ability are spells too, each under the card that was played.
 `state_hash()` is one number for the whole state. Two runs with the same seed and commands give the same hash.
 
 **Units.** Each unit is a list of values in `ENTITY_FIELDS` order. `card_id` is the card that put the unit down, so a

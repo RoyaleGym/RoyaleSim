@@ -84,7 +84,9 @@
 //!     [stun_ticks, knockback_ticks] (ENTITY_FIELDS's columns 12 and 13, which
 //!     RoyaleGym decodes; the row runs on to `level` and `mount_uid`)
 //!     (ticks remaining, rounded up; under the shipped knockback ladder the ticks the
-//!     ladder still runs, `knock_ticks_left`); and a top-level "spells" array of rows
+//!     ladder still runs, `knock_ticks_left`); and a top-level "spells" array, one row per live spell object (a
+//!     spell card's, and every area, bomb or blow a unit or a form makes: an evolution's effects, a death bomb, a
+//!     deploy blow, a hero's ability), each under the card whose play made it, of rows
 //!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits, ticks_flown]
 //!     ticks_flown: for a FLIGHT spell, the ticks it has moved (0 while it waits out delay_ticks); 0 for every other
 //!     motion. The column is last, so a reader of the first eleven keeps working.
@@ -103,10 +105,14 @@
 //!         [card_id, plays since its last evolved play, 1 when its next play from the hand is evolved else 0, cycles]
 //!     where cycles is the basic plays the form needs before an evolved one (state.rs `EvoCounter::cycles`), so
 //!     plays / cycles is the progress towards the next evolved play. A reader of three columns keeps working.
-//!     and each evolved unit's `status_flags` bit 3 (8).
+//!     and each evolved unit's `status_flags` bit 3 (8): every unit on a row of the evolution's own (its form, its
+//!     summons and death spawns with rows of their own), kept through a change of row (a landed Evo Royal Hog). A
+//!     unit on a row the plain card shares (an Evo Witch's Skeletons) carries none.
 //!     A hero entry puts its hero form down on every play and is one of its side's ability buttons (ABILITY
-//!     BUTTONS). `state_json` gives each player an "abilities" list, one row per button, and each hero unit's
-//!     `status_flags` bit 4 (16). The catalogue's `hero` column is the button's elixir.
+//!     BUTTONS). `state_json` gives each player an "abilities" list, one row per button, and the hero's body
+//!     `status_flags` bit 4 (16), kept through its lift, siege and walk. A champion carries none, nor does what a
+//!     hero puts down (a turret, a mount, a flag, a tomb's monster). The catalogue's `hero` column is the button's
+//!     elixir.
 //!
 //! UNITS AND THEIR LEVELS
 //!     Every entity row ends in `level` (ENTITY_FIELDS) and `mount_uid`. `level` is the unified level the entity plays

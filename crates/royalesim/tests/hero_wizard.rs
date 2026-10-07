@@ -52,6 +52,8 @@ fn battle() -> BattleState {
 /// One frame: the Wizard's card name and target, and each red unit's point, hp and target.
 struct Frame {
     card: String,
+    /// The Wizard's exported status bits (state.rs `view`); 0 once it is gone.
+    status: i32,
     reds: Vec<Option<(Vec2, i32, Option<EntityId>)>>,
 }
 
@@ -98,8 +100,9 @@ fn scene(at: (i32, i32), units: &[(&str, (i32, i32))], frames: usize, free: Opti
         hold(&mut s, free.map_or(true, |f| k < f));
         s.tick();
         let card = s.entity(hero).map(|e| e.card.to_string()).unwrap_or_default();
+        let status = s.entity(hero).map_or(0, |e| e.status_flags);
         let reds = ids.iter().map(|id| s.entity(*id).map(|e| (e.pos, e.hp, e.target))).collect();
-        out.push(Frame { card, reds });
+        out.push(Frame { card, status, reds });
     }
     (hero, ids, out)
 }
@@ -128,6 +131,8 @@ fn a_ground_only_attacker_drops_it_on_the_trigger() {
         assert_ne!(f[at(d)].reds[0].unwrap().2, Some(hero), "the Wizard in the air on P + {d}");
     }
     assert_eq!(f[at(10)].card, "WizardHero_air", "its air form by P + 10 (the trigger + 200 ms)");
+    // Status bit 4 (card.rs `is_hero_body`): the hero on its own row and on its lifted row alike.
+    assert!(f.iter().all(|x| x.status & 16 == 16), "the hero bit on every frame: {:?}", f.iter().map(|x| (x.card.as_str(), x.status)).collect::<Vec<_>>());
 }
 
 #[test]

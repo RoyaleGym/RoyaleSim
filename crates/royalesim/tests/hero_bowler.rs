@@ -152,7 +152,10 @@ fn its_siege_form_lasts_its_buffs_7300_ms() {
     for _ in 0..200 {
         assert!(s.debug_set_pos(hero, n(AT.0, AT.1)));
         s.tick();
-        rows.push((s.tick_count() - 1, s.entity(hero).expect("the hero").card.to_string()));
+        let e = s.entity(hero).expect("the hero");
+        rows.push((s.tick_count() - 1, e.card.to_string()));
+        // Status bit 4 (card.rs `is_hero_body`): the hero on its own row and on its siege row alike.
+        assert_eq!(e.status_flags & 16, 16, "the hero bit on {}", e.card);
     }
     let on = rows.iter().find(|r| r.1 == "BowlerHero_Siege").expect("the siege form").0;
     assert_eq!(on, p + 4, "the siege's trigger, from the press");

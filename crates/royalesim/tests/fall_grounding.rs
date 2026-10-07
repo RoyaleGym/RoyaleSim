@@ -10,7 +10,7 @@
 //! WHAT IS PINNED, on the first hog of an evolved play over the river, set under its health line as a blow in the tick
 //! before frame 30 would leave it (L = frame 41, its blow on frame 42), its points held:
 //!   1. client15535_late_kept_walk: in the air through frame 41 and on the ground (its grounded row) from frame 42, the
-//!      blow on frame 42; status_rebind: on the ground from frame 41;
+//!      blow on frame 42; status_rebind: on the ground from frame 41; evolved (status bit 3) on every frame;
 //!   2. a red Knight held beside it takes it as its target from frame 43 (L + 2); under status_rebind from frame 41;
 //!   3. a red Balloon held ahead of it, coming its way (an air blocker): the hog's avoidance offset after frame 42 is its
 //!      offset after frame 41 less 10 (the decay; on the ground it no longer sees the Balloon); under status_rebind it is
@@ -19,7 +19,9 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! fall_grounding`):
 //!   * `fall_lands_in_status` -- the new arm lands the hog on L in the Status phase: (1) and (2) go red;
-//!   * `fall_landing_resets_walk` -- the late landing drops the walk: (3) goes red.
+//!   * `fall_landing_resets_walk` -- the late landing drops the walk: (3) goes red;
+//!   * `status_bits_from_blocks` (tests/status_bits.rs) -- the grounded row carries no EvoDef, so the landed hog loses
+//!     status bit 3: (1) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -39,6 +41,8 @@ const AT: (i32, i32) = (9500, 15500);
 /// targets and what each lost.
 struct Frame {
     card: String,
+    /// Its exported status bits (state.rs `view`).
+    status: i32,
     flying: bool,
     offset: i32,
     targets: Vec<Option<EntityId>>,
@@ -91,6 +95,7 @@ fn scene(arm: FallGrounding, units: &[(&str, (i32, i32))]) -> (EntityId, Vec<Fra
         let h = s.entity(hogs[0].0).expect("the first hog");
         out.push(Frame {
             card: h.card.to_string(),
+            status: h.status_flags,
             flying: h.flying,
             offset: h.avoid_offset,
             targets: reds.iter().map(|(id, _, _)| s.entity(*id).expect("a red unit held alive").target).collect(),
@@ -111,6 +116,8 @@ fn the_hog_leaves_the_air_on_the_tick_after_its_landing_tick() {
     }
     assert!(f[..42].iter().all(|x| x.losses[0] == 0), "nothing on the Knight before the blow");
     assert_eq!(f[42].losses[0], 43, "the blow on the tick after the landing tick, as under either arm");
+    // Status bit 3 (card.rs `is_evo_record`): an evolved hog in the air and on its grounded row alike.
+    assert!(f.iter().all(|x| x.status & 8 == 8), "the hog is evolved on every frame, landed or not");
     let (_, g) = scene(FallGrounding::StatusRebind, &[("Knight", (0, 1700))]);
     assert_eq!((g[40].flying, g[41].flying), (true, false), "status_rebind: on the ground from frame 41");
 }

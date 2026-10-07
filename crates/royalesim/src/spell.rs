@@ -118,7 +118,8 @@ pub enum SpellMotion {
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Spell {
     pub team: Team,
-    /// The spell card's CardDb index.
+    /// The CardDb index of the card whose play made this spell object: a spell card, or the card of the unit or
+    /// form that made it (an evolution's effects, a death bomb, a deploy blow, a hero's ability).
     pub card: u16,
     /// Unified level it was cast at.
     pub level: i32,
