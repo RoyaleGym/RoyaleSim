@@ -1614,6 +1614,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   water clamp from the burst point takes it, not ejected to land (14 of 14 on water bursts).
 ///   combat.DART_POISON_PULSE = client15535_pulses_singleton: an Evo Dart Goblin's poison area pulses every 5 ticks
 ///   through its life, one pending damage per unit, the level read at the take (47 of 52 losses; the single take 39).
+///   targeting.NEWBORN_FIRST_TARGET = client15535_tick_survivors: an emitted unit's first target skips an enemy the
+///   tick's landing shots will kill (19 of 19 newborns passed over an enemy gone on their birth tick).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1766,6 +1768,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("knockback.UPPERCUT_FLIGHT_CONTACT", "\"client15535_out_of_pass\""),
     ("spawner.CONTAINER_RING_WATER", "\"client15535_clamp_from_burst_point\""),
     ("combat.DART_POISON_PULSE", "\"client15535_pulses_singleton\""),
+    ("targeting.NEWBORN_FIRST_TARGET", "\"client15535_tick_survivors\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

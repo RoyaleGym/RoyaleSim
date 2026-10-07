@@ -410,6 +410,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_rescans (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "target.rs decide (the knocked branch's `rescans`), selected by Calib::knocked_lost_target; tests/knocked_target_hold.rs."
     },
+    "NEWBORN_FIRST_TARGET": {
+      "value": "scan_at_emission",
+      "candidates": ["scan_at_emission", "client15535_tick_survivors"],
+      "status": "measured",
+      "confidence": "MEDIUM-HIGH for client15535_tick_survivors on client 15.535.29: 19 of 19 newborns whose nearest valid enemy was gone on their birth tick passed it over, and none named an enemy absent on its birth tick (0 of 966); the engine already passes over strike kills, so one corpus event discriminates (sp-form-Tombstone-hero-nopress-s0 t242); deaths in Resolve or Reap other than landing shots are not modelled; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r55_newborn_dying_nearest_census.py over all 1,675 raw files, 966 newborns: troops on their first frame, not deploying; valid enemies are card pairs seen as targets somewhere in the corpus within the card's longest first-target distance + 500). Nearest valid enemy gone on the birth tick T: 19 of 19 passed over, 0 taken (17 took the nearest live one, 2 another): 1 by a landing projectile (sp-form-Tombstone-hero-nopress-s0 t242: Skeleton 9 at 81 hp with a left princess tower shot of 109 landing on t242; emitted Skeleton 17 took the Knight 3,339 away over Skeleton 9 at 3,311), 17 by strikes or instant hits (il-208a t1237 x2, il-2142 t1907, il-6a56 t2431 and t3412, il-8b9b x8 t1147-t1502, il-db5f t2228 and t2250, esk-bank-3500 t1033, esk-bank-5500 t1013), 1 other (ub-ph1 t185); 13 of the 19 were not doomed on T - 1. A newborn's target naming an id absent on T: 0 of 966. Baseline, nearest valid enemy alive on T: taken 896 of 947. Doomed on T - 1 but alive on T: taken 12 of 22. The engine (formsR54b traces) already passes over the strike kills (esk-bank-3500 t1033, il-db5f t2228); it takes the dying Skeleton at t242, its periodic emission scanning at the end of Move, before the Projectile phase lands the tower's shot. Refuted: 'skips doomed units' (12 doomed survivors taken, 13 not-doomed dying enemies passed over); 'the nearest at the start of T' (0 of 19).",
+      "meaning": "scan_at_emission: the engine's; an emitted unit's first target pass (first_update, at the end of Move) reads the board as the emission finds it, so it can take an enemy a shot will kill later in the tick. client15535_tick_survivors: that pass leaves out the enemies the tick's landing shots will kill (tick_landing_deaths: homing projectiles in flight, not fresh, whose step this tick reaches their aim, their damage summed per target against its hitpoints).",
+      "open": "Deaths in Resolve or Reap other than landing shots (none discriminates in the corpus); splash shots; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_tick_survivors (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs create_emissions, first_update (Scratch::birth_tick_deaths), tick_landing_deaths, selected by Calib::newborn_first_target; tests/newborn_first_target.rs."
+    },
     "CHASE_HOLD_SCOPE": {
       "value": "every_holder",
       "candidates": ["every_holder", "client15535_walkers_only"],

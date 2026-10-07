@@ -1122,6 +1122,11 @@ pub struct Calib {
     /// area takes what it reaches. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `SingleTake`.
     #[serde(default = "dart_poison_pulse_default")]
     pub dart_poison_pulse: DartPoisonPulse,
+    /// targeting.NEWBORN_FIRST_TARGET (`create_emissions`, `first_update`, `tick_landing_deaths`): which enemies an
+    /// emitted unit's first target pass reads. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm,
+    /// `ScanAtEmission`.
+    #[serde(default = "newborn_first_target_default")]
+    pub newborn_first_target: NewbornFirstTarget,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2832,6 +2837,10 @@ fn container_ring_water_default() -> ContainerRingWater {
 
 fn dart_poison_pulse_default() -> DartPoisonPulse {
     DartPoisonPulse::SingleTake
+}
+
+fn newborn_first_target_default() -> NewbornFirstTarget {
+    NewbornFirstTarget::ScanAtEmission
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6919,6 +6928,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.NEWBORN_FIRST_TARGET -- see `create_emissions` and `first_update` (`Scratch::birth_tick_deaths`): the
+    /// first target of a unit a spawner emits, its target pass run before the tick's Projectile phase.
+    NewbornFirstTarget {
+        /// The engine's: the board as the emission finds it; an enemy a shot will kill later in the tick can be taken.
+        ScanAtEmission = "scan_at_emission",
+        /// The tick's survivors: the enemies this tick's landing shots will kill (`tick_landing_deaths`) are left out.
+        /// Measured on client 15.535.29: 19 of 19 newborns passed over a nearest enemy gone on their birth tick; the engine
+        /// differs on the landing shot (sp-form-Tombstone-hero-nopress-s0 t242: a tower shot killed the nearest on the
+        /// emission's tick, the client's newborn took the Knight).
+        Client15535TickSurvivors = "client15535_tick_survivors",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8932,6 +8954,7 @@ impl Calib {
             uppercut_flight_contact: pick(&v, &["knockback", "UPPERCUT_FLIGHT_CONTACT", "value"], UppercutFlightContact::from_calibration_name)?,
             container_ring_water: pick(&v, &["spawner", "CONTAINER_RING_WATER", "value"], ContainerRingWater::from_calibration_name)?,
             dart_poison_pulse: pick(&v, &["combat", "DART_POISON_PULSE", "value"], DartPoisonPulse::from_calibration_name)?,
+            newborn_first_target: pick(&v, &["targeting", "NEWBORN_FIRST_TARGET", "value"], NewbornFirstTarget::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -11115,6 +11138,9 @@ struct Scratch {
     /// knockback.LADDER_PATH_REQUEST = client15535_on_ladder_goal_held: every entity's target as the tick starts, so a
     /// ladder tick can tell a new target from a held one.
     pre_target: Vec<Option<EntityId>>,
+    /// targeting.NEWBORN_FIRST_TARGET = client15535_tick_survivors: the enemies this tick's landing shots will kill, which
+    /// an emission's first target pass leaves out (`first_update`); empty outside it.
+    birth_tick_deaths: Vec<usize>,
     /// combat.DOOMED_READ_IN_PASS = client15535_at_turn: every entity's hitpoints as the sequential pass has left them at
     /// the turn of an attacker deciding on the pass's start (`phase_target_attack_sequential`), for its doomed test;
     /// empty outside such a turn.
@@ -15005,7 +15031,19 @@ impl BattleState {
         self.hash.rebuild(&self.ents);
         // spawner.SPAWNED_FIRST_STEP: the units this pass emitted take their first update now.
         if first_update {
+            // targeting.NEWBORN_FIRST_TARGET = client15535_tick_survivors: their first target pass leaves out the enemies
+            // this tick's landing shots will kill (client 15.535.29: 19 of 19 newborns passed over an enemy gone on their
+            // birth tick; sp-form-Tombstone-hero-nopress-s0 t242).
+            // PLANT (regression) newborn_takes_tick_deaths: the new arm's newborn scans the board as found.
+            #[cfg(not(clash_plant = "newborn_takes_tick_deaths"))]
+            let survivors = self.cfg.calib.newborn_first_target == NewbornFirstTarget::Client15535TickSurvivors;
+            #[cfg(clash_plant = "newborn_takes_tick_deaths")]
+            let survivors = false;
+            if survivors {
+                self.scratch.birth_tick_deaths = self.tick_landing_deaths();
+            }
             self.first_update(&fresh, true, &[], &[]);
+            self.scratch.birth_tick_deaths.clear();
             // spawner.HERO_TOMB_EMISSION_NUDGE = client15535_right_one: a Skeleton its live Hero Tombstone emitted, whose one
             // contact was that tomb at overlap 0 (a push of 1), lands 1 further to its right (FITTED; client 15.535.29: 15 of
             // 15, the plain Tombstone's 29 of 29 radial).
@@ -15030,6 +15068,29 @@ impl BattleState {
                 }
             }
         }
+    }
+
+    /// targeting.NEWBORN_FIRST_TARGET = client15535_tick_survivors: the live units this tick's landing shots will kill, read
+    /// before the Projectile phase: homing projectiles in flight (not fresh, no straight path, no chain wait, dealing
+    /// damage) whose step this tick reaches their aim (combat.rs `projectile_advance` on a copy of the carry), their damage
+    /// summed per target against its hitpoints.
+    fn tick_landing_deaths(&self) -> Vec<usize> {
+        let mut sum = vec![0i64; self.ents.capacity()];
+        for p in &self.projectiles {
+            if p.fresh || p.straight.is_some() || p.damage <= 0 || p.chain.as_ref().is_some_and(|c| c.wait > 0) {
+                continue;
+            }
+            let ti = p.target.index as usize;
+            if !self.ents.is_alive(p.target) || self.ents.hp[ti] <= 0 {
+                continue;
+            }
+            let aim = if p.fixed { p.aim } else { self.ents.pos[ti] };
+            let mut frac = p.frac;
+            if combat::projectile_advance(self.cfg.calib.projectile_step, p.pos, aim, p.speed, &mut frac, p.team) == aim {
+                sum[ti] += i64::from(p.damage) + i64::from(p.bonus);
+            }
+        }
+        (0..sum.len()).filter(|&j| sum[j] > 0 && sum[j] >= i64::from(self.ents.hp[j])).collect()
     }
 
     /// THE FIRST UPDATE OF A UNIT CREATED AFTER THE TICK'S PASSES (spawner.SPAWNED_FIRST_STEP =
@@ -15115,12 +15176,21 @@ impl BattleState {
                 *d = false;
             }
         }
+        // targeting.NEWBORN_FIRST_TARGET = client15535_tick_survivors: the tick's landing-shot deaths stand at 0 hitpoints for
+        // this target pass alone (`Scratch::birth_tick_deaths`, set by `create_emissions`).
+        let tick_deaths: Vec<(usize, i32)> = self.scratch.birth_tick_deaths.iter().map(|&j| (j, self.ents.hp[j])).collect();
+        for &(j, _) in &tick_deaths {
+            self.ents.hp[j] = 0;
+        }
         #[cfg(not(clash_plant = "first_step_walks_only"))]
         if self.tick_order() == TickOrder::ClientSequentialStrike {
             self.phase_target_attack_sequential(Some(&fresh));
         } else {
             self.phase_target_for(Some(&fresh));
             self.phase_attack_for(Some(&fresh));
+        }
+        for &(j, hp) in &tick_deaths {
+            self.ents.hp[j] = hp;
         }
         let batches: Vec<(Vec<usize>, Vec<usize>)> = if apart {
             fresh.iter().map(|&i| (vec![i], fresh.iter().copied().filter(|&j| j != i).collect())).collect()
@@ -32685,6 +32755,9 @@ impl BattleState {
 /// 20, unchanged, combat.DART_POISON_PULSE: Calib gained dart_poison_pulse (serde default the old arm, single_take), no
 ///    new state (a pending damage is a saved PoisonHit with pick_at u32::MAX), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.NEWBORN_FIRST_TARGET: Calib gained newborn_first_target (serde default the old arm,
+///    scan_at_emission), no new state (the deaths are the tick's scratch), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
@@ -33744,6 +33817,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("container_ring_water".into(), serde_json::to_value(ContainerRingWater::EjectNearestLand).map_err(|e| e.to_string())?);
     // combat.DART_POISON_PULSE: a format-3 battle's poison area took once (the same rule).
     sh.insert("dart_poison_pulse".into(), serde_json::to_value(DartPoisonPulse::SingleTake).map_err(|e| e.to_string())?);
+    // targeting.NEWBORN_FIRST_TARGET: a format-3 battle's emitted unit scanned the board as found (the same rule).
+    sh.insert("newborn_first_target".into(), serde_json::to_value(NewbornFirstTarget::ScanAtEmission).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
