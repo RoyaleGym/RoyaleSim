@@ -10,8 +10,13 @@
 //!   2. next_tick (the old arm, the vacuity check): a tick later;
 //!   3. the shipped value is next_tick (a 15.535.29 replay runs the new arm: tests/replay_parity.rs pins it).
 //!
+//!   4. client15535_shot_plus_two (item 288; client 15.535.29: a first hop lands on its shot's appearance + 1 + ceil(d /
+//!      2000), 11 of 11): with the first Knight 2,400 above the dragon (a one-step shot) the second is hit a tick after the
+//!      first, where client15535_creation_tick hits both on one tick; at 3,499 (a two-step shot) both on one tick.
+//!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test evo_chain_hop_first_step`):
 //!   * `evo_hop_steps_next_tick` -- the new arm's hops still first step next tick: (1) goes red.
+//!   * `evo_first_hop_same_pass` -- client15535_shot_plus_two's one-step first hop still steps in the landing's pass: (4) red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -27,6 +32,11 @@ fn n(x: i32, y: i32) -> Vec2 {
 
 /// Under `arm`: (the tick the first Knight is first hit, the tick the second is), counted from the dragon's put-down.
 fn first_hits(arm: EvoChainHopFirstStep) -> (u32, u32) {
+    first_hits_at(arm, 3499)
+}
+
+/// As `first_hits`, the first Knight `dy` above the dragon (the second 1,200 west of it).
+fn first_hits_at(arm: EvoChainHopFirstStep, dy: i32) -> (u32, u32) {
     let mut cfg: BattleConfig = config();
     cfg.decks = [vec!["ElectroDragon".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
@@ -44,7 +54,7 @@ fn first_hits(arm: EvoChainHopFirstStep) -> (u32, u32) {
     s.spawn_unit(Team::Blue, "ElectroDragon_EV1", at, None).expect("the Electro Dragon");
     s.tick();
     let ed = find_live(&s, Team::Blue, "ElectroDragon_EV1").first().expect("the Electro Dragon").id;
-    let (kp, k2p) = (n(14650, 18499), n(14650 - 1200, 18499));
+    let (kp, k2p) = (n(14650, 15000 + dy), n(14650 - 1200, 15000 + dy));
     let k1 = s.scenario_spawn_now(Team::Red, "Knight", kp, None).expect("the first red Knight");
     let k2 = s.scenario_spawn_now(Team::Red, "Knight", k2p, None).expect("the second red Knight");
     let (mut h1, mut h2) = (None, None);
@@ -82,4 +92,17 @@ fn the_old_value_lands_it_a_tick_later() {
 #[test]
 fn the_shipped_value_is_next_tick() {
     assert_eq!(Calib::shipped().evo_chain_hop_first_step, EvoChainHopFirstStep::NextTick);
+}
+
+/// Plant: evo_first_hop_same_pass.
+#[test]
+fn a_one_step_shots_first_hop_lands_a_tick_after_it_under_client15535_shot_plus_two() {
+    let (a, b) = first_hits_at(EvoChainHopFirstStep::Client15535ShotPlusTwo, 2400);
+    assert_eq!(b, a + 1, "shot_plus_two, a one-step shot: the hop landed {} ticks after the shot", i64::from(b) - i64::from(a));
+    // NOT VACUOUS: client15535_creation_tick lands that hop with the shot.
+    let (a, b) = first_hits_at(EvoChainHopFirstStep::Client15535CreationTick, 2400);
+    assert_eq!(b, a, "creation_tick, a one-step shot: the hop landed {} ticks after the shot", i64::from(b) - i64::from(a));
+    // A two-step shot's first hop still lands with it.
+    let (a, b) = first_hits_at(EvoChainHopFirstStep::Client15535ShotPlusTwo, 3499);
+    assert_eq!(b, a, "shot_plus_two, a two-step shot: the hop landed {} ticks after the shot", i64::from(b) - i64::from(a));
 }

@@ -1688,8 +1688,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   1 nearer on their negative axes).
 ///   combat.FAR_SHOT_SELECT_MOMENT = client15535_at_load_start: the Evo Archer picks her arrow when her swing's load
 ///   starts (14 of 14 arrows).
-///   combat.EVO_CHAIN_HOP_FIRST_STEP = client15535_creation_tick: an Evo Electro Dragon's hop first steps in the pass that
-///   released it (a first hop within a step lands on its shot's tick).
+///   combat.EVO_CHAIN_HOP_FIRST_STEP = client15535_shot_plus_two: an Evo Electro Dragon's hop first steps in the pass that
+///   released it, but a first hop first steps on its shot's appearance + 2 (11 of 11 first hops; a one-step shot's lands
+///   a tick after it).
 ///   targeting.LAUNCH_BEYOND_POSITION = client15535_after_move: a crown tower's launch is judged on its target's point after
 ///   the launch tick's move (59 of 59 let-gos).
 ///   combat.NET_LAUNCH = client15535_edge_next_tick: an Evo Hunter's net starts at his collision radius plus its
@@ -1816,7 +1817,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("knockback.LADDER_PATH_REQUEST", "\"client15535_on_ladder_goal_held\""),
     ("spawner.SOUL_OFFSET_ROUNDING", "\"client15535_toward_zero\""),
     ("combat.FAR_SHOT_SELECT_MOMENT", "\"client15535_at_load_start\""),
-    ("combat.EVO_CHAIN_HOP_FIRST_STEP", "\"client15535_creation_tick\""),
+    ("combat.EVO_CHAIN_HOP_FIRST_STEP", "\"client15535_shot_plus_two\""),
     ("targeting.LAUNCH_BEYOND_POSITION", "\"client15535_after_move\""),
     ("combat.NET_LAUNCH", "\"client15535_edge_next_tick\""),
     ("formation.LINE_LANE", "\"client15535_line_centre\""),

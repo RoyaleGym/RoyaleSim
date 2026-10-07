@@ -1187,7 +1187,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.ladder_path_request, LadderPathRequest::Client15535OnLadderGoalHeld, "a 15.535.29 capture's knocked unit plans on its ladder, a moved goal held");
     assert_eq!(cfg.calib.soul_offset_rounding, SoulOffsetRounding::Client15535TowardZero, "a 15.535.29 capture's copies divide toward zero");
     assert_eq!(cfg.calib.far_shot_select_moment, FarShotSelectMoment::Client15535AtLoadStart, "a 15.535.29 capture's Evo Archer picks at her load start");
-    assert_eq!(cfg.calib.evo_chain_hop_first_step, EvoChainHopFirstStep::Client15535CreationTick, "a 15.535.29 capture's Evo hop steps on its creation tick");
+    assert_eq!(cfg.calib.evo_chain_hop_first_step, EvoChainHopFirstStep::Client15535ShotPlusTwo, "a 15.535.29 capture's Evo first hop steps on its shot's appearance + 2");
     assert_eq!(cfg.calib.launch_beyond_position, LaunchBeyondPosition::Client15535AfterMove, "a 15.535.29 capture's tower judges its launch after the move");
     assert_eq!(cfg.calib.net_launch, NetLaunch::Client15535EdgeNextTick, "a 15.535.29 capture's net starts at the start radius");
     assert_eq!(cfg.calib.line_lane, LineLane::Client15535LineCentre, "a 15.535.29 capture's line takes its centre's lane");

@@ -2479,9 +2479,22 @@ pub fn step_projectiles(
     // hop's wait counts this tick -- and so does every hop those steps release.
     // PLANT (regression) evo_hop_steps_next_tick: the new arm's hops still first step next tick.
     #[cfg(not(clash_plant = "evo_hop_steps_next_tick"))]
-    let same_tick = calib.evo_chain_hop_first_step == crate::state::EvoChainHopFirstStep::Client15535CreationTick;
+    let same_tick = matches!(
+        calib.evo_chain_hop_first_step,
+        crate::state::EvoChainHopFirstStep::Client15535CreationTick | crate::state::EvoChainHopFirstStep::Client15535ShotPlusTwo
+    );
     #[cfg(clash_plant = "evo_hop_steps_next_tick")]
     let same_tick = false;
+    // combat.EVO_CHAIN_HOP_FIRST_STEP = client15535_shot_plus_two: a FIRST hop released on its shot's first step (a
+    // one-step shot, landing on fire + 2 under combat.EVO_CHAIN_SHOT_LAUNCH = client15535_next_tick, fire + 1 under the
+    // shipped arm) takes its first step next tick, on the shot's appearance + 2 (client 15.535.29: 8 of 8 one-step shots'
+    // hops landed a tick after them, sp-f4-ed3-s0 t1205); every other hop steps in this pass.
+    // PLANT (regression) evo_first_hop_same_pass: the new arm's one-step first hop still steps in the landing's pass.
+    #[cfg(not(clash_plant = "evo_first_hop_same_pass"))]
+    let defer_first = calib.evo_chain_hop_first_step == crate::state::EvoChainHopFirstStep::Client15535ShotPlusTwo;
+    #[cfg(clash_plant = "evo_first_hop_same_pass")]
+    let defer_first = false;
+    let first_step_after = 1 + u32::from(calib.evo_chain_shot_launch == crate::state::EvoChainShotLaunch::Client15535NextTick);
     if same_tick {
         loop {
             let mut hops: Vec<Projectile> = {
@@ -2490,6 +2503,12 @@ pub fn step_projectiles(
                 *r = rest;
                 hops
             };
+            if defer_first {
+                let (later, now): (Vec<Projectile>, Vec<Projectile>) =
+                    hops.into_iter().partition(|q| q.chain.as_ref().and_then(|c| c.evo).is_some_and(|e| e.n == 1 && tick == e.shot + first_step_after));
+                projectiles.extend(later);
+                hops = now;
+            }
             if hops.is_empty() {
                 break;
             }

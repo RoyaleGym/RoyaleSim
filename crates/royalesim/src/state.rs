@@ -6051,6 +6051,12 @@ calib_enum!(
         /// (its 2 waits on t1163 and t1164, then two steps), the engine's t1168; sp-f4-ed-s0 t1163, a first hop more than
         /// one step off landed t1164, the engine's t1165. The base dragon's chains (4 ticks a hop) are exact either way.
         Client15535CreationTick = "client15535_creation_tick",
+        /// As `Client15535CreationTick`, but a FIRST hop released on its shot's first step (a one-step shot, landing on
+        /// fire + 2) first steps on the next tick: every first hop first steps on the shot's appearance + 2. Measured on
+        /// client 15.535.29 (r56_ed_first_hop_census.py, every evo shot with a first hop): the hop appears on its target
+        /// on C + 1 and lands on C + 1 + ceil(d / 2000), 11 of 11 (8 one-step shots, the hop a tick after the shot,
+        /// sp-f4-ed3-s0 t1203 and on; 3 two-step shots, on the shot's tick when d < 2000). Creation_tick fits 3 of 11.
+        Client15535ShotPlusTwo = "client15535_shot_plus_two",
     }
 );
 calib_enum!(
@@ -32933,6 +32939,8 @@ impl BattleState {
 /// 20, unchanged, targeting.DRILL_RISE_TARGETABLE: Calib gained drill_rise_targetable (serde default the old arm,
 ///    hidden_through_rise), no new state (the hide's start is kept), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
+///    carries its shot's tick), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
