@@ -178,6 +178,7 @@ const LOADABLE_15535: &[&str] = &[
     "ElectroDragon",
     "Firecracker",
     "MightyMiner",
+    "SuperWitch",
     "ElixirGolem",
     "BattleHealer",
     "SkeletonKing",
@@ -260,7 +261,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("SuperHogRider", "units.SantaPresent"),
     ("SuperLavaHound", "death projectile FireWallProjectile"),
     ("SuperMiniPekka", "units.SuperMiniPekkaPancakes"),
-    ("SuperWitch", "spawner SpawnCharacter2 Bat"),
 ];
 
 /// cards-2018.json at `version` cards-2018.1 (tools/extract_cards.py --vintage 2018), 457423 bytes, FNV-1a

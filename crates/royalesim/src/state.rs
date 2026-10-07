@@ -14291,6 +14291,8 @@ impl BattleState {
         // (team, spawner team_seq, k, the spawn) and the per-spawner timer results.
         let mut emissions: Vec<(Team, u32, u32, PendingSpawn)> = Vec::new();
         let mut timers: Vec<(usize, i32, i32)> = Vec::new();
+        // The spawners whose wave begins in this pass and carry a second unit (`SpawnerDef::unit2`): their count steps after.
+        let mut waves_begun: Vec<usize> = Vec::new();
         // The spawners armed below a health share this pass: (index, id, the tick their clock starts, StartCounterAt).
         let mut armed: Vec<(usize, EntityId, u32, i32)> = Vec::new();
         self.evo.spawn_gates.retain(|(g, _)| self.ents.is_alive(*g));
@@ -14369,7 +14371,22 @@ impl BattleState {
                 timers.push((i, ms, left));
                 continue;
             }
-            let unit = cards.get(sp.unit);
+            // A SECOND PERIODIC UNIT (`SpawnerDef::unit2`, the Super Witch's): a wave that begins in this pass takes the
+            // first SpawnCharacter on an even count of begun waves and the second on an odd one (client 15.535.29: 7 of 7
+            // waves alternated, Skeletons first). A spawner with a second unit has no SpawnInterval (the loader), so its
+            // wave begins and ends in one pass.
+            // PLANT (regression) second_spawner_never_alternates: every wave is the first SpawnCharacter's.
+            #[cfg(not(clash_plant = "second_spawner_never_alternates"))]
+            let wave_card = match sp.unit2 {
+                Some(u2) if left == 0 && e.spawn_waves[i] % 2 == 1 => u2,
+                _ => sp.unit,
+            };
+            #[cfg(clash_plant = "second_spawner_never_alternates")]
+            let wave_card = sp.unit;
+            if sp.unit2.is_some() && left == 0 {
+                waves_begun.push(i);
+            }
+            let unit = cards.get(wave_card);
             let level = cards.spawner_level(e.card[i], e.level[i]).expect("spawner level validated at deploy");
             let point = match sp.to_location {
                 Some((mx, my)) => self.to_location_point(i, mx, my),
@@ -14442,7 +14459,7 @@ impl BattleState {
                     let acquire_delay = action;
                     #[cfg(clash_plant = "interval_spawn_acquired_at_once")]
                     let acquire_delay = false; // PLANT (regression): the Furnace's spirit is a target from its first frame.
-                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: sp.unit, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: e.producer(i) }));
+                    emissions.push((e.team[i], e.team_seq[i], k, PendingSpawn { team: e.team[i], card: wave_card, level, pos, deploy_ms, owner: Some(e.id_of(i)), stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: e.producer(i) }));
                     k += 1;
                 }
                 left -= 1;
@@ -14472,6 +14489,9 @@ impl BattleState {
         for (i, ms, left) in timers {
             self.ents.spawn_ms[i] = ms;
             self.ents.spawn_wave_left[i] = left;
+        }
+        for i in waves_begun {
+            self.ents.spawn_waves[i] += 1;
         }
         for (i, id, from, start) in armed {
             self.evo.spawn_gates.push((id, from));
@@ -31554,6 +31574,11 @@ impl BattleState {
                 h.i32(e.hide_ms[i]);
                 h.i32(e.spawn_ms[i]);
                 h.i32(e.spawn_wave_left[i]);
+                // A second periodic unit's wave count, only on a spawner that carries one: a battle with none hashes as
+                // before the column.
+                if self.cfg.cards.get(e.card[i]).spawner.is_some_and(|sp| sp.unit2.is_some()) {
+                    h.u32(e.spawn_waves[i]);
+                }
                 h.opt_id(e.spawned_by[i]);
                 h.i32(e.charge_progress[i]);
                 h.bool(e.charged[i]);
@@ -33267,6 +33292,8 @@ impl BattleState {
 /// 20, unchanged, targeting.SNIPE_LOCK_RELEASE: Calib gained snipe_lock_release (serde default the old arm,
 ///    ahead_below_min), no new state (read each pass), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, the Super Witch (card.rs `SpawnerDef::unit2`): Entities gained spawn_waves (`default`, sized on load at
+///    0), hashed only on a spawner with a second unit, so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
 ///    carries its shot's tick), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
@@ -34878,6 +34905,7 @@ impl BattleState {
         snap.ents.life_ms.resize(n, 0);
         snap.ents.life_target.resize(n, None);
         snap.ents.life_n.resize(n, 0);
+        snap.ents.spawn_waves.resize(n, 0);
         snap.ents.reveal_from.resize(n, 0);
         snap.ents.mana_ms.resize(n, 0);
         snap.ents.attached_to.resize(n, None);

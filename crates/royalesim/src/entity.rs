@@ -257,6 +257,11 @@ pub struct Entities {
     pub life_target: Vec<Option<EntityId>>,
     #[serde(default)]
     pub life_n: Vec<u32>,
+    /// A SECOND PERIODIC UNIT'S WAVES (card.rs `SpawnerDef::unit2`, the Super Witch's): the waves its spawner has begun,
+    /// whose parity picks the next wave's unit (state.rs `spawner_pass`). 0 on every other entity, hashed only for a
+    /// spawner that carries a second unit. `default` and sized on load at 0.
+    #[serde(default)]
+    pub spawn_waves: Vec<u32>,
     /// INVISIBLE WHEN IDLE (targeting.INVISIBILITY; target.rs `can_target`): the first tick of the window in which
     /// an enemy may target this unit, the tick after its last hit (state.rs, the attack pass); 0 before any hit.
     /// 0 on every other entity, hashed only for a card that carries the idle invisibility. `default` and sized on
@@ -883,6 +888,7 @@ impl Entities {
             self.life_ms[i] = 0;
             self.life_target[i] = None;
             self.life_n[i] = 0;
+            self.spawn_waves[i] = 0;
             self.reveal_from[i] = 0;
             self.mana_ms[i] = 0;
             self.attached_to[i] = None;
@@ -1038,6 +1044,7 @@ impl Entities {
             self.hide_ms.push(0);
             self.spawn_ms.push(0);
             self.spawn_wave_left.push(0);
+            self.spawn_waves.push(0);
             self.spawned_by.push(None);
             self.source.push(s.card);
             self.charge_progress.push(0);
@@ -1121,6 +1128,7 @@ impl Entities {
         self.hide_ms[i] = 0;
         self.spawn_ms[i] = 0;
         self.spawn_wave_left[i] = 0;
+        self.spawn_waves[i] = 0;
         self.life_state[i] = 0;
         self.life_ms[i] = 0;
         self.life_target[i] = None;

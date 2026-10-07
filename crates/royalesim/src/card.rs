@@ -2013,6 +2013,11 @@ pub struct SpawnerDef {
     /// instead of its own DeployTime (the Furnace's Fire Spirit 500 against its own 1000). None on
     /// a Spawn* block (spawner.SPAWNED_DEPLOY_TIME decides) and on an action that sets none.
     pub emit_deploy_ms: Option<i32>,
+    /// A SECOND PERIODIC UNIT (SpawnCharacter2, the Super Witch's Bat): the waves alternate, the first SpawnCharacter's,
+    /// the second this one's, and so on (state.rs `spawner_pass`, entity.rs `spawn_waves`). Measured on client 15.535.29
+    /// (sp-event-SuperWitch-s0): 7 of 7 waves, Skeletons on the odd ones and Bats on the even ones, at her level, on her
+    /// ring. Read on a Spawn* block with no SpawnInterval, SpawnLimit or SpawnAttach alone. None on every other spawner.
+    pub unit2: Option<u16>,
     /// AN INTERVAL ARMED BELOW A SHARE OF ITS UNIT'S HITPOINTS (an ActionRunActionAtHealth running the interval; the
     /// Evo Goblin Giant's 50): the spawner runs nothing until its unit is at or below this per cent of its maximum; the
     /// pass that first sees it there arms it, and its clock starts at StartCounterAt on the next tick's pass (state.rs
@@ -4072,6 +4077,7 @@ fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>)
             to_location: Some(at),
             emit_deploy_ms: deploy,
             below_hp_pct: raw.health_pct,
+            unit2: None,
         },
         unit,
     ))
@@ -4573,6 +4579,8 @@ enum UnitUse {
     Spell,
     /// The Spawn* block.
     Spawner,
+    /// The Spawn* block's SpawnCharacter2 (`SpawnerDef::unit2`, the Super Witch's Bat).
+    Spawner2,
     /// The DeathSpawn* block.
     DeathSpawn,
     /// DeathAreaEffect: an area effect the death releases. NOT a unit -- it resolves
@@ -8825,6 +8833,7 @@ fn convert_spawner(raw: Option<RawSpawner>) -> Result<Option<(SpawnerDef, String
             to_location: None,
             emit_deploy_ms: None,
             below_hp_pct: None,
+            unit2: None,
         },
         unit,
     )))
@@ -9561,10 +9570,21 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         };
         return Ok((c, raw.display_name.clone(), needs));
     }
-    // A SECOND PERIODIC UNIT (SpawnCharacter2, the Super Witch's Bat) is not simulated. Refused here, before anything
-    // of the row is interned, so a refused row adds no buff to the table and moves no other card's buff index.
+    // A SECOND PERIODIC UNIT (SpawnCharacter2, the Super Witch's Bat): its waves alternate with the first's
+    // (`SpawnerDef::unit2`). Read on a Spawn* block with no SpawnInterval, SpawnLimit or SpawnAttach, the one shape
+    // measured; any other is refused here, before anything of the row is interned, so a refused row adds no buff to the
+    // table and moves no other card's buff index. Its SpawnCharacterLevelIndex2 (the Super Witch's 8, raw only) is not
+    // read: measured at level 11, the second unit came at the spawner's level.
+    // PLANT (regression) second_spawner_refused: the Super Witch is refused again.
+    #[cfg(clash_plant = "second_spawner_refused")]
     if let Some(c2) = raw.spawner.as_ref().and_then(|s| s.character2.as_deref()) {
         return Err(format!("spawner SpawnCharacter2 {c2}: a second periodic unit is not simulated"));
+    }
+    let spawner2_name: Option<String> = raw.spawner.as_ref().and_then(|s| s.character2.clone());
+    if let (Some(c2), Some(b)) = (spawner2_name.as_deref(), raw.spawner.as_ref()) {
+        if b.attach == Some(true) || b.interval_ms.is_some_and(|v| v > 0) || b.limit.is_some() {
+            return Err(format!("spawner SpawnCharacter2 {c2} beside SpawnAttach, a SpawnInterval or a SpawnLimit is not simulated"));
+        }
     }
     // THE ACTION BLOCKS. A unit may run an action graph only when the graph is exactly one block the loader reads: the
     // Goblin Hut's controller (a `life_state_spawner` block, `life_state_of`), the Furnace's interval spawner (an
@@ -9761,6 +9781,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     // THE PERIODIC SPAWNER: the Spawn* columns, or the interval spawner read above (a `SpawnerDef` of source
     // ActionInterval, so the one spawner pass runs both). A row with both, or with riders beside an interval
     // spawner, is a shape nothing here was written for.
+    if spawner2_name.is_some() && (spawner.is_none() || interval.is_some()) {
+        return Err("a SpawnCharacter2 with no Spawn* spawner of its own, or beside an interval spawner; not simulated".into());
+    }
     let spawner = match (spawner, interval) {
         (Some(_), Some(_)) => return Err("the unit carries a Spawn* block and an interval spawner; not simulated".into()),
         (None, Some((iv, _))) if attach.is_some() && iv.below_hp_pct.is_none() => {
@@ -9848,6 +9871,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     }
     if let Some((_, u)) = &spawner {
         units.push((UnitUse::Spawner, u.clone()));
+    }
+    if let Some(u2) = &spawner2_name {
+        units.push((UnitUse::Spawner2, u2.clone()));
     }
     if let Some((_, u)) = &attach {
         units.push((UnitUse::Attach, u.clone()));
@@ -10956,6 +10982,7 @@ impl CardDb {
                             }
                         }
                         UnitUse::Spawner => card.spawner.as_mut().expect("spawner block present").unit = u,
+                        UnitUse::Spawner2 => card.spawner.as_mut().expect("spawner block present").unit2 = Some(u),
                         UnitUse::DeathSpawn => card.death_spawn.as_mut().expect("death_spawn block present").unit = u,
                         UnitUse::SecondSummon => card.formation.second_summon.as_mut().expect("second_summon present").unit = u,
                         UnitUse::DeathProjectileRelease => {
