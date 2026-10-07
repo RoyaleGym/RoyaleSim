@@ -2768,6 +2768,12 @@ def norm_aeo(t: dict[str, Table], name: str | None) -> dict | None:
             out["hidden_split"] = hs
             out["action_graph"] = None
             out["schedule"] = None
+        # Boost and DeathSpawnCharacter: a PICKUP area (the Super Hog Rider's present's BoostInvisibilityBottle): it
+        # pulses until an own troop reaches it, then ends and puts down its DeathSpawnCharacter, a bottle (card.rs
+        # `boost_shape`). Written only where Boost is set, so every other area is unchanged.
+        if flag(a, "Boost"):
+            out["boost"] = True
+            out["death_spawn_character"] = a["DeathSpawnCharacter"]
     return out
 
 

@@ -658,6 +658,12 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
         // `formation_preview`, `load_with`).
         SpellShape::Mirror => return Err(format!("{} replays its side's last play; it is never cast", cards.get(card).name)),
         SpellShape::Variant { .. } => return Err(format!("{} chooses a form at the play; it is never cast", cards.get(card).name)),
+        // A PICKUP AREA (card.rs `BoostDef`): it pulses from the tick after it is made, first on its 6th update for a
+        // HitSpeed of 300 (HitSpeed less the tick; `step_spells`). It deals nothing.
+        SpellShape::Boost(b) => {
+            let next_ms = (b.hit_speed_ms - calib.tick_ms).max(0);
+            out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Pulsing(Pulse { pos: tap, life_ms: b.life_ms, next_ms }), depth, flown: 0 });
+        }
         // THE CLONE: a one-shot area at the tap, which copies on its first update (`step_spells`). It deals nothing.
         SpellShape::Clone { .. } => {
             out.push(Spell { team, card, level, damage: 0, pulse: 0, motion: SpellMotion::Area { pos: tap }, depth, flown: 0 });
@@ -1243,6 +1249,21 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         chain: None,
         bounce: None,
     });
+}
+
+/// Does an own troop of `team` (air or ground by the pickup's flags; alive, standing, not under ground) stand within the pickup
+/// area's radius plus its own of `pos`? (card.rs `BoostDef`.)
+fn boost_reached(ctx: &SpellCtx, team: Team, b: &crate::card::BoostDef, pos: Vec2) -> bool {
+    let e = ctx.ents;
+    (0..e.capacity()).any(|v| {
+        e.alive[v]
+            && e.hp[v] > 0
+            && e.team[v] == team
+            && e.kind[v] == crate::entity::EntityKind::Troop
+            && !e.underground(v)
+            && if e.in_air(v) { b.hits_air } else { b.hits_ground }
+            && in_range_edge(pos, e.pos[v], b.radius, e.radius[v])
+    })
 }
 
 /// THE FIRST HOP OF A DEATH PROJECTILE THAT HOPS ON (card.rs `HopDef`, the Super Lava Hound's fire wall), launched where
@@ -2122,6 +2143,28 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 // (the loop above needs life left), so that its last update's pull moves its victims on the next tick
                 // (state.rs `phase_path16402`); it goes on that tick's update.
                 p.life_ms > 0 || (attract_lags(ctx, hit) && p.life_ms > -tick)
+            }
+            // A PICKUP AREA (card.rs `BoostDef`, the Super Hog Rider's present): on each due pulse, the first own troop within
+            // its radius plus the troop's own ends it, and its bottle is made on its point (acting from the next tick).
+            // Measured on client 15.535.29 (sp-event-SuperHogRider-s0): the Hog's enemies let it go 37 ticks after each
+            // present's emission (its fuse 20, the pickup on its area's 6th update, the bottle's fuse 10, the targeting 1).
+            (SpellMotion::Pulsing(p), SpellShape::Boost(b)) => {
+                while p.next_ms <= 0 && p.life_ms > 0 {
+                    #[cfg(not(clash_plant = "boost_never_picked"))]
+                    let picked = boost_reached(ctx, s.team, b, p.pos);
+                    #[cfg(clash_plant = "boost_never_picked")]
+                    let picked = false; // PLANT: no troop ever picks it up.
+                    if picked {
+                        if let Ok(v) = objects_for(ctx.cards, ctx.calib, None, s.team, s.card, s.level, s.depth + 1, &b.then, p.pos, ctx.tick) {
+                            out.born.extend(v);
+                        }
+                        return false;
+                    }
+                    p.next_ms += b.hit_speed_ms.max(tick);
+                }
+                p.next_ms -= tick;
+                p.life_ms -= tick;
+                p.life_ms > 0
             }
             (SpellMotion::Airborne { pos, aim, frac, roll_start, roll_len }, SpellShape::Rolling { airborne_speed, .. }) => {
                 let (np, _) = advance(*pos, *aim, airborne_speed * mult, frac);

@@ -211,11 +211,11 @@ fn the_barrel_and_its_container_load() {
     assert_eq!(db.get(inner.unit).name, "Skeleton");
     assert_eq!((inner.count, inner.radius, inner.deploy_time_ms), (7, Some(milli(1480)), Some(500)), "count, DeathSpawnRadius, DeathSpawnDeployTime");
     assert_eq!(db.scaled(inner.unit, LEVEL, db.get(inner.unit).hitpoints).unwrap(), 81, "a Skeleton at level 11, measured 81");
-    // The other hitpoint-less rows keep their refusals: a bottle is no container (the Super Mini PEKKA's pancake, a
-    // spawner's bottle with a body, loads as `bottle_body`'s, item 298).
-    for (card, why) in [("SuperHogRider", "units.SantaPresent")] {
-        let got = db.rejected.iter().find(|(n, _)| n == card).map(|(_, w)| w.clone());
-        assert!(got.as_deref().is_some_and(|w| w.starts_with(why)), "{card}: {got:?}");
+    // A bottle is no container: the spawners' bottles (the Super Mini PEKKA's pancake, the Super Hog Rider's present) load
+    // as `bottle_body`'s records (items 298, 301), never as a death bomb.
+    for card in ["SuperMiniPekkaPancakes", "SantaPresent"] {
+        let i = db.cards.iter().position(|c| c.name == card || c.name == format!("units.{card}")).unwrap_or_else(|| panic!("{card} is not loaded"));
+        assert!(db.cards[i].death_bomb_fuse_ms().is_none() && db.cards[i].untargetable, "{card}: a bottle's record");
     }
     // The 2018 barrel's container has no DeathDamage and a Spawn* block: no bomb, so the barrel stays refused.
     let old = CardDb::load_repo_file("cards-2018.json").unwrap_or_else(|e| panic!("{e} (tools/extract_cards.py --vintage 2018)"));

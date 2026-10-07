@@ -67120,7 +67120,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "BoostClone": {
    "name": "BoostClone",
@@ -67176,7 +67178,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "BoostHeal": {
    "name": "BoostHeal",
@@ -67231,7 +67235,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "BoostGrowth": {
    "name": "BoostGrowth",
@@ -67286,7 +67292,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "BoostSpearGoblins": {
    "name": "BoostSpearGoblins",
@@ -67341,7 +67349,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "BoostShield": {
    "name": "BoostShield",
@@ -67375,7 +67385,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "BoostRageBottle": {
    "name": "BoostRageBottle",
@@ -67430,7 +67442,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "RageBarbarianBottle"
   },
   "BoostCloneBottle": {
    "name": "BoostCloneBottle",
@@ -67485,7 +67499,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "CloneBottle"
   },
   "ElectroWizardZap": {
    "name": "ElectroWizardZap",
@@ -67623,7 +67639,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "ElixirDrop": {
    "name": "ElixirDrop",
@@ -67678,7 +67696,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "GraveyardOrb": {
    "name": "GraveyardOrb",
@@ -68201,7 +68221,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "InvisibilityBottle"
   },
   "InvisibilityArea": {
    "name": "InvisibilityArea",
@@ -68312,7 +68334,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "HealBottle"
   },
   "BoostLevelUp": {
    "name": "BoostLevelUp",
@@ -68367,7 +68391,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "BoostShieldBottle": {
    "name": "BoostShieldBottle",
@@ -68422,7 +68448,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "ShieldBottle"
   },
   "ShieldArea": {
    "name": "ShieldArea",
@@ -68532,7 +68560,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "CloneBottle"
   },
   "RageDamage": {
    "name": "RageDamage",
@@ -68655,7 +68685,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "HealBottle"
   },
   "SantaPresentBoostInvisibility": {
    "name": "SantaPresentBoostInvisibility",
@@ -68710,7 +68742,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "InvisibilityBottle"
   },
   "SantaPresentBoostRage": {
    "name": "SantaPresentBoostRage",
@@ -68765,7 +68799,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "RageBarbarianBottle"
   },
   "GoblinMorphAOEFriend": {
    "name": "GoblinMorphAOEFriend",
@@ -69033,7 +69069,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "RageBottle_Battleground"
   },
   "BoostCloneBottle_Battleground": {
    "name": "BoostCloneBottle_Battleground",
@@ -69088,7 +69126,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "CloneBottle_Battleground"
   },
   "BoostInvisibilityBottle_Battleground": {
    "name": "BoostInvisibilityBottle_Battleground",
@@ -69143,7 +69183,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "InvisibilityBottle_Battleground"
   },
   "BoostHealBottle_Battleground": {
    "name": "BoostHealBottle_Battleground",
@@ -69198,7 +69240,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "HealBottle_Battleground"
   },
   "MegaDeflect": {
    "name": "MegaDeflect",
@@ -69398,7 +69442,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": null
   },
   "DarkElixirAOE": {
    "name": "DarkElixirAOE",
@@ -69508,7 +69554,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "BoostObject_TrickOrTreat_Pekka"
   },
   "BoostAOE_TrickOrTreat_Bomb": {
    "name": "BoostAOE_TrickOrTreat_Bomb",
@@ -69563,7 +69611,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "BoostObject_TrickOrTreat_Bomb"
   },
   "BoostAOE_TrickOrTreat_Clone": {
    "name": "BoostAOE_TrickOrTreat_Clone",
@@ -69618,7 +69668,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "BoostObject_TrickOrTreat_Clone"
   },
   "BoostAOE_TrickOrTreat_Elixir": {
    "name": "BoostAOE_TrickOrTreat_Elixir",
@@ -69673,7 +69725,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "BoostObject_TrickOrTreat_Elixir"
   },
   "BoostAOE_TrickOrTreat_Skeletons": {
    "name": "BoostAOE_TrickOrTreat_Skeletons",
@@ -69728,7 +69782,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "BoostObject_TrickOrTreat_Skeletons"
   },
   "BoostAOE_TrickOrTreat_SuperRage": {
    "name": "BoostAOE_TrickOrTreat_SuperRage",
@@ -69783,7 +69839,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "BoostObject_TrickOrTreat_SuperRage"
   },
   "TrickOrTreat_Bomb_AOE": {
    "name": "TrickOrTreat_Bomb_AOE",
@@ -74267,7 +74325,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "BushSpawner"
   },
   "BushStatic_Middle": {
    "name": "BushStatic_Middle",
@@ -74322,7 +74382,9 @@
    "hit_biggest_targets": false,
    "schedule": null,
    "on_hit": null,
-   "spawn_time_ms": null
+   "spawn_time_ms": null,
+   "boost": true,
+   "death_spawn_character": "BushStatic_Randomiser"
   },
   "Event_Rage": {
    "name": "Event_Rage",

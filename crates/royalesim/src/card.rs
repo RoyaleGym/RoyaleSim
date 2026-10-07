@@ -362,11 +362,28 @@ pub enum SpellShape {
     /// calibration actions.SUB_ACTIONS_DELAY and actions.SUB_TICK_DELAY_ROUNDING), at the point its offset gives
     /// (state.rs `scheduled_point`). The area lasts `life_ms`; an entry due after that never acts.
     ScheduledArea { life_ms: i32, schedule: Vec<ScheduledSpawn> },
+    /// A PICKUP AREA (Boost; `BoostDef`, `boost_shape`; the Super Hog Rider's present's BoostInvisibilityBottle).
+    Boost(Box<BoostDef>),
     /// THE CLONE (area_effect_objects Clone with its ActionClone; the Clone card alone): a one-shot area at the tap
     /// that, on its first update, copies each own troop `hit` takes (spell.rs `step_spells`) and hangs `hold` on it;
     /// the copies appear in the Reap phase of that tick (state.rs `materialise_clones`) under `rules` (the table's
     /// CLONE_* globals) and calibration spells.CLONE_*. It deals nothing itself.
     Clone { hit: SpellHit, hold: BuffApply, rules: CloneRules },
+}
+
+/// A PICKUP AREA (`SpellShape::Boost`, area_effect_objects Boost; the Super Hog Rider's present's BoostInvisibilityBottle:
+/// LifeDuration 10000, Radius 1000, HitSpeed 300, OnlyOwnTroops): every `hit_speed_ms` it looks for an own troop (air or
+/// ground by its flags) within `radius` plus the troop's own; the first pulse that finds one ends it and makes `then` (its
+/// DeathSpawnCharacter's bottle: a `Fuse` over the bottle's area) on its point. Nothing reached in `life_ms`: it ends with
+/// nothing. Its marker buff (DummyCollisionBoostEpic, every column blank) is not interned. spell.rs `step_spells`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct BoostDef {
+    pub radius: i32,
+    pub hit_speed_ms: i32,
+    pub life_ms: i32,
+    pub hits_air: bool,
+    pub hits_ground: bool,
+    pub then: SpellShape,
 }
 
 /// ONE ENTRY OF A SCHEDULED AREA (`SpellShape::ScheduledArea`): an ActionSpawnToLocation of a unit, in the order the
@@ -1200,6 +1217,7 @@ impl SpellShape {
             SpellShape::Fuse { then, .. } | SpellShape::Echo { then, .. } => Some(then),
             SpellShape::PulsingAreaEffect { child, .. } => child.as_deref(),
             SpellShape::Projectile { area, .. } => area.as_deref(),
+            SpellShape::Boost(b) => Some(&b.then),
             SpellShape::Strikes(d) => d.delivery.as_deref(),
             _ => None,
         }
@@ -1221,6 +1239,7 @@ impl SpellShape {
             SpellShape::Fuse { then, .. } | SpellShape::Echo { then, .. } => then.schedule_mut(),
             SpellShape::PulsingAreaEffect { child: Some(c), .. } => c.schedule_mut(),
             SpellShape::Projectile { area: Some(a), .. } => a.schedule_mut(),
+            SpellShape::Boost(b) => b.then.schedule_mut(),
             SpellShape::Strikes(d) => d.delivery.as_deref_mut().and_then(SpellShape::schedule_mut),
             _ => None,
         }
@@ -1236,7 +1255,7 @@ impl SpellShape {
             SpellShape::Strikes(d) => Some(&d.hit),
             SpellShape::Clone { hit, .. } => Some(hit),
             SpellShape::CaptureRoll(d) => Some(&d.hit),
-            SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } => None,
+            SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } | SpellShape::Boost(_) => None,
         };
         if let Some(h) = hit {
             for b in [h.buff, h.buff2].into_iter().flatten() {
@@ -7327,6 +7346,10 @@ struct RawAreaEffect {
     /// `clone_action_block`; 15.535 only, written where set): `clone_shape`.
     clone: Option<bool>,
     clone_action: Option<RawCloneAction>,
+    /// area_effect_objects Boost and DeathSpawnCharacter (tools/extract_cards.py `norm_aeo`; 15.535 only, written where
+    /// Boost is set): a pickup area (`boost_shape`).
+    boost: Option<bool>,
+    death_spawn_character: Option<String>,
 }
 
 /// cards.json `strike_area` (tools/extract_cards.py `strike_area_block`), every field nullable: the fields of both
@@ -7830,6 +7853,12 @@ fn knockback(pushback_milli: Option<i32>, all: Option<bool>) -> Option<Knockback
 /// Returns the shape and the units it needs loaded, like every converter (neither
 /// accepted shape releases one, so the list is empty).
 fn convert_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    // A PICKUP AREA (Boost) is recognised first: what it does is its pickup (`boost_shape`).
+    // PLANT (regression) boost_unread: the column is not read, and the row goes the ordinary way.
+    #[cfg(not(clash_plant = "boost_unread"))]
+    if aeo.boost == Some(true) {
+        return boost_shape(aeo, buffs, ctx);
+    }
     // AN AREA WHOSE ONE ACTION MAKES ANOTHER AREA (the Goblin Curse) is recognised first: its action is what it does.
     if let Some(got) = area_spawns_area(aeo, buffs, ctx) {
         return got;
@@ -8471,6 +8500,53 @@ fn convert_idle_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Lo
 /// Party Rocket's three.
 const ONE_SHOT_CHAIN_AREAS: usize = 3;
 
+/// A PICKUP AREA (`SpellShape::Boost`, `BoostDef`), or the reason it is refused. Read: an own-troop area (OnlyOwnTroops)
+/// that pulses (HitSpeed) for its LifeDuration over its Radius, deals and pushes nothing, carries no projectile, unit,
+/// cap, child, action or a buff that does anything (its marker is not interned), and whose DeathSpawnCharacter is a
+/// bottle (`bottle_of`) over a one-shot area. Measured on client 15.535.29 (sp-event-SuperHogRider-s0, four presents):
+/// the Hog's enemies let it go 37 ticks after each present's emission (20 its fuse, 6 the pickup's HitSpeed, 10 the
+/// bottle's fuse, one to the targeting) and took it back 60 later (InvisibilityTemp 3000), a present emitted 1440 from where
+/// the Hog stopped was picked up (Radius 1000 + its 600), one it walked away from was not.
+fn boost_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(SpellShape, UnitNeeds), String> {
+    let what = aeo.name.clone().unwrap_or_default();
+    let refuse = |why: &str| Err(format!("pickup area {what} {why}; not simulated"));
+    if aeo.only_own_troops != Some(true) || aeo.only_enemies == Some(true) {
+        return refuse("is not an own-troop area");
+    }
+    if aeo.damage.is_some_and(|d| d != 0) || aeo.pushback_milli.is_some() || aeo.maximum_targets.is_some() || aeo.spawn_character.is_some() || aeo.spawn_area_effect_object.is_some() {
+        return refuse("deals, pushes, caps or makes something of its own");
+    }
+    if aeo.projectile.as_ref().is_some_and(|p| !p.is_null()) || aeo.schedule.is_some() || aeo.on_hit.is_some() || aeo.strike_area.is_some() || aeo.clone_action.is_some() {
+        return refuse("carries a projectile or an action");
+    }
+    if aeo.buff_number.is_some_and(|n| n != 1) {
+        return refuse("stacks its buff");
+    }
+    if let Some(b) = &aeo.buff {
+        let d = b.convert_with(&format!("pickup area {what}"), true)?;
+        if !d.is_inert() || d.invisible || d.clone_hold || d.not_cloned {
+            return refuse("hangs a buff that does something");
+        }
+    }
+    let hit_speed_ms = aeo.hit_speed_ms.filter(|h| *h > 0).ok_or_else(|| format!("pickup area {what} without HitSpeed; not simulated"))?;
+    let life_ms = aeo.life_duration_ms.filter(|l| *l > 0).ok_or_else(|| format!("pickup area {what} without LifeDuration; not simulated"))?;
+    let radius = milli(aeo.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("pickup area {what} without Radius; not simulated"))?);
+    let (hits_air, hits_ground) = (aeo.hits_air.unwrap_or(false), aeo.hits_ground.unwrap_or(false));
+    if !hits_air && !hits_ground {
+        return refuse("reaches neither ground nor air");
+    }
+    let unit = aeo.death_spawn_character.clone().filter(|n| !n.is_empty()).ok_or_else(|| format!("pickup area {what} puts down nothing; not simulated"))?;
+    let (fuse_ms, area) = bottle_of(ctx.units, &unit).ok_or_else(|| format!("pickup area {what} puts down {unit}, which is not a bottle; not simulated"))?;
+    let a = ctx.aeos.get(&area).ok_or_else(|| format!("pickup area {what}: {unit}'s area {area} has no area_effect_objects record"))?;
+    refuse_action_mechanic_but_on_hit(a, &format!("area effect {area}"))?;
+    let (inner, needs) = area_effect_shape(a, buffs, ctx).map_err(|e| format!("pickup area {what} puts down {unit}: {e}"))?;
+    if !needs.is_empty() || !matches!(inner, SpellShape::AreaEffect { .. }) {
+        return refuse(&format!("puts down {unit}, whose area {area} is not a one-shot area"));
+    }
+    let then = SpellShape::Fuse { fuse_ms, then: Box::new(inner) };
+    Ok((SpellShape::Boost(Box::new(BoostDef { radius, hit_speed_ms, life_ms, hits_air, hits_ground, then })), Vec::new()))
+}
+
 /// The shape of an area effect whose action graph the caller has accepted (`convert_area_effect`,
 /// `convert_deploy_area_effect`, `convert_spawn_area_effect`). An own-troop area (OnlyOwnTroops)
 /// is read from every caller: the filter is `SpellHit::only_own_troops`.
@@ -8566,9 +8642,21 @@ fn area_effect_shape_hits(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Load
     // THE AREA'S BUFF, whatever class it is: the stun-class special
     // case is gone -- a -100 / -100 / -100 row is just a buff whose composed speed
     // is 0, and `apply_effects` turns that into the hold every stun already used.
+    // An area's buff that is an Invisible marker alone (the Super Hog Rider's InvisibilityArea's InvisibilityTemp) is read
+    // as the Archer Queen's cape is (`BuffTable::apply_invisible`); every other buff the ordinary way.
     let area_buff = match &aeo.buff {
         None => hit_buff,
-        Some(b) => Some(buffs.apply(b, aeo.buff_time_ms, &format!("area effect {what}"))?),
+        Some(b) => {
+            #[cfg(not(clash_plant = "area_invisible_refused"))]
+            let invisible = b.convert_with(&format!("area effect {what}"), true).is_ok_and(|d| d.invisible && d.is_inert());
+            #[cfg(clash_plant = "area_invisible_refused")]
+            let invisible = false; // PLANT: the marker goes the ordinary way and is refused.
+            Some(if invisible {
+                buffs.apply_invisible(b, aeo.buff_time_ms, &format!("area effect {what}"))?
+            } else {
+                buffs.apply(b, aeo.buff_time_ms, &format!("area effect {what}"))?
+            })
+        }
     };
     // AN OWN-SIDE AREA WHOSE BUFF IS A FULL STOP is refused: the 2018 Clone row would otherwise load
     // as "hold your own troops", a different card (its copy is an action this loader does not run).
@@ -9455,14 +9543,18 @@ enum Hitpointless {
 /// 15.535.29 (sp-event-SuperMiniPekka-s0, three pancakes seen through the own Knight): the Knight was shoved -130 on an
 /// emission tick E and -125, then -148 a tick (the contact cap) on the next pancake's, and healed +53 (100 a second every
 /// 250 ms on the Rare ladder, 212 % at level 11) on E + 25, 30, 35 and 40 of each; an enemy tower 2600 off gained nothing.
-/// A bottle row with no CollisionRadius (the Super Hog Rider's present) has no body and is refused.
+/// A bottle row with no CollisionRadius (the Super Hog Rider's present SantaPresent) has no body: a record of radius 0.
 fn bottle_body(raw: &RawCard, fuse_ms: i32, area: &str, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<CardDef, String> {
+    // A row with no CollisionRadius (the Super Hog Rider's present) has no body: a record of radius 0, which meets nothing.
+    #[cfg(not(clash_plant = "bottle_without_body_refused"))]
+    let radius = raw.collision_radius_milli.unwrap_or(0).max(0);
+    #[cfg(clash_plant = "bottle_without_body_refused")]
     let radius = raw.collision_radius_milli.filter(|r| *r > 0).ok_or("a spawner's bottle with no CollisionRadius has no body; not simulated")?;
     let a = ctx.aeos.get(area).ok_or_else(|| format!("its area {area} has no area_effect_objects record"))?;
-    refuse_action_mechanic_but_on_hit(a, &format!("area effect {area}"))?;
-    let (then, needs) = area_effect_shape(a, buffs, ctx).map_err(|e| format!("its area {area}: {e}"))?;
-    if !needs.is_empty() || !matches!(then, SpellShape::AreaEffect { .. }) {
-        return Err(format!("its area {area} is not a one-shot area; not simulated"));
+    // Its area: a one-shot area (the pancake's heal), or a pickup area (the present's BoostInvisibilityBottle, `boost_shape`).
+    let (then, needs) = convert_area_effect(a, buffs, ctx).map_err(|e| format!("its area {area}: {e}"))?;
+    if !needs.is_empty() || !matches!(then, SpellShape::AreaEffect { .. } | SpellShape::Boost(_)) {
+        return Err(format!("its area {area} is neither a one-shot nor a pickup area; not simulated"));
     }
     let (level_table, level_base) = level_table_of(raw.level_scaling.clone())?;
     let mut c = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, 0);
@@ -11436,13 +11528,13 @@ impl CardDb {
             // is KEPT -- registered, its blocks dropped, running as the plain unit --
             // the way a lifted refusal admits a row nobody planned for. One row per
             // table whose status no other test pins in that table, so only the check
-            // over every row sees it move: the 15.535.29 SuperHogRider (its spawner's
-            // SantaPresent is a building with no hitpoints) and the 2018 MovingCannon (its
-            // BrokenCannon is a troop with a LifeTime). The 15.535.29 MovingCannon loads
+            // over every row sees it move: the 2018 MovingCannon (its BrokenCannon is a troop
+            // with a LifeTime; the 15.535.29 SuperHogRider was the other until it loaded,
+            // item 301). The 15.535.29 MovingCannon loads
             // (its BrokenCannon is a transformation target there) and never gets here; the
             // 15.535.29 ElixirGolem, the row before, is pinned by tests/spawn_chain.rs now.
             #[cfg(clash_plant = "census_admits_one")]
-            if name == "SuperHogRider" || name == "MovingCannon" {
+            if name == "MovingCannon" {
                 continue;
             }
             db.by_name.retain(|_, i| *i != spell_idx);
@@ -14556,7 +14648,7 @@ impl CardDb {
                                 h.crown_pct = pct;
                             }
                         }
-                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } | SpellShape::Clone { .. }) => {
+                        Some(SpellShape::Fuse { .. } | SpellShape::Summon { .. } | SpellShape::Mirror | SpellShape::Variant { .. } | SpellShape::ScheduledArea { .. } | SpellShape::Clone { .. } | SpellShape::Boost(_)) => {
                             return Err(format!("{what}: the spell's own object carries no crown-tower share"))
                         }
                         // An echoing area's two hits are the table's own; a value for one of them is refused.
