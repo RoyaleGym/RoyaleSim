@@ -2206,6 +2206,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_edge_next_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs throw_net (`client`), selected by Calib::net_launch; tests/net_launch.rs."
     },
+    "NET_CAST_WINDOW": {
+      "value": "target_hold",
+      "candidates": ["target_hold", "client15535_shot_window"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_shot_window on client 15.535.29: all 19 Evo Hunter nets in the captures (7 scenes), where target_hold gives 15; the window's pre-shot length W is fitted between 4 and 7 (4 the shortest fit); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (r54_net_cast_census.py: every Evo Hunter net in sp-f4-hunter, -hunterBD, -hunterG0, -hunterG40, -hunterG80, -hunterK and sp-form-Hunter-evo: its ready tick, the previous throw + 101 or the first ready under combat.NET_INITIAL_COOLDOWN; the Hunter's load timer per tick, 1500 = LoadTime on a shot tick and on his attack's entry; his target and its reach; the cast = the net's first frame - 4). The cast is the first tick at or after the ready tick with a target in the net's reach outside the window: the load timer's set tick S and the 4 after it, and while he attacks (behaviour_state 2) the W before a regular shot; W = 4..7 fit 19 of 19, W <= 3 misses sp-f4-hunterG0-s0 F1222, W >= 8 at most 14 (it blocks the first nets). The engine's hold (5 ticks since the take) gives 15 of 19, its 4 misses all nets whose ready tick fell in a window: G0 F1003 (ready 997 = shot 994 + 3, cast 999, the engine's net 2 ticks early), G0 F1222 (ready 1209, 4 before the shot at 1213, cast 1218 = shot + 5 at the new target 23), G40 F1233 (ready 1224 = the shot tick; cast 1229 at Golemite 23 taken that tick on his knockback ladder, where the engine cast on 1224 and its throw met the dying 22; 23 never netted, the scene 7 short of the bar), G80 F1272 (ready 1264 = shot 1263 + 1, cast 1268). The first nets fit both (his entry at the take sets the load timer, so the earliest cast is the take + 5). Two nets were cast 1 tick before an attack's entry (G0 892, Hunter-evo 1071): the pre-shot block is for a shot, not an entry.",
+      "meaning": "target_hold: the engine's; a ready net is cast once its Hunter has held his target NET_TARGET_HOLD_TICKS (5) and it stands within the net's reach. client15535_shot_window: no hold; it is cast on the first tick, the target within reach, that is not on or within NET_SHOT_WINDOW_TICKS (4) after his load timer was set to LoadTime (a shot, or his attack's entry), nor, while he attacks, within the 4 before his next shot.",
+      "open": "W between 4 and 7; a net whose cast target dies before the throw with nothing else in sight; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_shot_window (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs net_pass (`free`), net_shot_window, card.rs NET_SHOT_WINDOW_TICKS, selected by Calib::net_cast_window; tests/net_cast_window.rs."
+    },
     "NET_INITIAL_COOLDOWN": {
       "value": "after_deploy",
       "candidates": ["after_deploy", "client15535_from_creation"],

@@ -5163,6 +5163,12 @@ pub struct DartPoisonDef {
 /// TrapCastTime's 4, the net 9 ticks after he takes a target already in reach, five runs of five).
 pub const NET_TARGET_HOLD_TICKS: u32 = 5;
 
+/// combat.NET_CAST_WINDOW = client15535_shot_window: the ticks after the Evo Hunter's load timer is set to LoadTime (a shot,
+/// or his attack's entry), and before his next shot while he attacks, in which his ready net is not cast (state.rs
+/// `net_shot_window`). Measured on client 15.535.29: 4 after, 19 of 19 nets; before, 4 to 7 fit 19 of 19 (3 or fewer miss
+/// sp-f4-hunterG0-s0's net thrown on t1222), 4 the shortest.
+pub const NET_SHOT_WINDOW_TICKS: i32 = 4;
+
 /// THE EVO HUNTER'S NET (tools/extract_cards.py `net_block`; state.rs EvoBoard `nets`, `net_pass`): his InitialCooldown
 /// after his deploy, then each tick: once he has held his target NET_TARGET_HOLD_TICKS and it stands within `range`
 /// (SUBTILES, edge to edge), the net is cast and thrown `cast_ms` later at it (a homing shot of `speed`, no damage, from

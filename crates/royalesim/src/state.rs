@@ -1073,6 +1073,10 @@ pub struct Calib {
     /// the `default` is the old arm, `StartOfPass`.
     #[serde(default = "doomed_read_in_pass_default")]
     pub doomed_read_in_pass: DoomedReadInPass,
+    /// combat.NET_CAST_WINDOW (`net_pass`, `net_shot_window`): when an Evo Hunter's ready net is cast. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetHold`.
+    #[serde(default = "net_cast_window_default")]
+    pub net_cast_window: NetCastWindow,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2735,6 +2739,10 @@ fn combo_step_offset_default() -> ComboStepOffset {
 
 fn doomed_read_in_pass_default() -> DoomedReadInPass {
     DoomedReadInPass::StartOfPass
+}
+
+fn net_cast_window_default() -> NetCastWindow {
+    NetCastWindow::TargetHold
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6648,6 +6656,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.NET_CAST_WINDOW -- see `net_pass` and `net_shot_window`: what an Evo Hunter's ready net waits for, his
+    /// target within its reach.
+    NetCastWindow {
+        /// The engine's: his target held card.rs NET_TARGET_HOLD_TICKS (5).
+        TargetHold = "target_hold",
+        /// His shot window to pass: no cast on the tick his load timer is set to LoadTime (a shot, or his attack's entry)
+        /// nor the card.rs NET_SHOT_WINDOW_TICKS (4) after it, nor, while he attacks, the 4 before his next shot; no hold.
+        /// Measured on client 15.535.29: all 19 Evo Hunter nets (7 scenes), where the hold gives 15 (sp-f4-hunterG40-s0: ready
+        /// on his shot tick t1224, cast on t1229 at the Golemite he took that tick, where the engine cast on t1224 and threw at
+        /// the dying one).
+        Client15535ShotWindow = "client15535_shot_window",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8643,6 +8665,7 @@ impl Calib {
             death_blow_victim_reap: pick(&v, &["combat", "DEATH_BLOW_VICTIM_REAP", "value"], DeathBlowVictimReap::from_calibration_name)?,
             combo_step_offset: pick(&v, &["knockback", "COMBO_STEP_OFFSET", "value"], ComboStepOffset::from_calibration_name)?,
             doomed_read_in_pass: pick(&v, &["combat", "DOOMED_READ_IN_PASS", "value"], DoomedReadInPass::from_calibration_name)?,
+            net_cast_window: pick(&v, &["combat", "NET_CAST_WINDOW", "value"], NetCastWindow::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -18113,11 +18136,36 @@ impl BattleState {
             let held = tick >= r.since + crate::card::NET_TARGET_HOLD_TICKS;
             #[cfg(clash_plant = "net_without_hold")]
             let held = tick >= r.since; // PLANT: cast on the tick the target is taken.
-            if held && crate::fixed::in_range_edge(self.ents.pos[i], self.ents.pos[ti], nd.range + self.ents.radius[i], self.ents.radius[ti]) {
+            // combat.NET_CAST_WINDOW = client15535_shot_window: no hold; the cast waits out his shot window
+            // (`net_shot_window`; client 15.535.29: 19 of 19 nets, the hold 15).
+            // PLANT (regression) net_window_unread: the new arm still waits for the hold.
+            #[cfg(not(clash_plant = "net_window_unread"))]
+            let window = self.cfg.calib.net_cast_window == NetCastWindow::Client15535ShotWindow;
+            #[cfg(clash_plant = "net_window_unread")]
+            let window = false;
+            let free = if window { !self.net_shot_window(i) } else { held };
+            if free && crate::fixed::in_range_edge(self.ents.pos[i], self.ents.pos[ti], nd.range + self.ents.radius[i], self.ents.radius[ti]) {
                 r.throw_at = Some(tick + (nd.cast_ms / dt) as u32);
             }
         }
         self.evo.nets = runs;
+    }
+
+    /// combat.NET_CAST_WINDOW = client15535_shot_window: whether Evo Hunter `i` stands in his shot window, read in the
+    /// Projectile phase on this tick's attack clock: his load timer set to LoadTime (a shot, or his attack's entry) on this
+    /// tick or within card.rs NET_SHOT_WINDOW_TICKS before it, or, while he attacks, his next shot (his progress crossing
+    /// the next multiple of HitSpeed) within that many ticks.
+    fn net_shot_window(&self, i: usize) -> bool {
+        let c = self.cfg.cards.get(self.ents.card[i]);
+        let (hs, lt, dt) = (c.hit_speed_ms, c.load_time_ms.max(0), self.cfg.calib.tick_ms.max(1));
+        let w = crate::card::NET_SHOT_WINDOW_TICKS;
+        let load = self.ents.attack_load_ms[i];
+        let after = lt > 0 && load > 0 && load >= lt - w * dt;
+        let before = self.ents.attack_phase[i] != AttackPhase::Idle && hs > 0 && {
+            let left = hs - self.ents.attack_ms[i].rem_euclid(hs);
+            (1..=w).contains(&((left + dt - 1) / dt))
+        };
+        after || before
     }
 
     /// Hunter `i`'s net at `t` (`net_pass`): a homing shot from his ProjectileStartRadius plus the net's extra toward it, of
@@ -32022,6 +32070,9 @@ impl BattleState {
 /// 20, unchanged, combat.DOOMED_READ_IN_PASS: Calib gained doomed_read_in_pass (serde default the old arm,
 ///    start_of_pass), no new state (the turn's hitpoints are the pass's scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.NET_CAST_WINDOW: Calib gained net_cast_window (serde default the old arm, target_hold), no new
+///    state (the window is read off his attack clock), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
 ///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
@@ -33051,6 +33102,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("combo_step_offset".into(), serde_json::to_value(ComboStepOffset::Unrotated).map_err(|e| e.to_string())?);
     // combat.DOOMED_READ_IN_PASS: a format-3 battle's doomed test read the pass's start (the same rule).
     sh.insert("doomed_read_in_pass".into(), serde_json::to_value(DoomedReadInPass::StartOfPass).map_err(|e| e.to_string())?);
+    // combat.NET_CAST_WINDOW: a format-3 battle's net waited for the hold (the same rule).
+    sh.insert("net_cast_window".into(), serde_json::to_value(NetCastWindow::TargetHold).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
