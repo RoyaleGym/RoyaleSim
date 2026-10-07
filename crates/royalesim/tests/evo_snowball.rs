@@ -24,7 +24,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, CaptureDragFacing};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -171,4 +171,64 @@ fn a_pair_is_let_go_150_either_side_the_first_made_ahead() {
     let end = n(TAP.0, TAP.1 + 4000);
     assert_eq!(f[r + 15].units[0].unwrap().0, end.add(n(0, 150)), "the first made ahead");
     assert_eq!(f[r + 15].units[1].unwrap().0, end.add(n(0, -150)), "the second behind");
+}
+
+/// movement.CAPTURE_DRAG_FACING (client 15.535.29: 52 of 52 drag frames of 9 captives face the ball, the walk facing 7):
+/// a red Knight held 1,600 to the side of the ball's path until it is taken; per drag tick (R + 3 .. R + 7), its facing
+/// and the unit vector, 256 long, from its point to the ball's.
+fn drag_facings(arm: CaptureDragFacing) -> Vec<(Vec2, (i32, i32))> {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["Snowball".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.capture_drag_facing = arm;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    for _ in 0..2 {
+        s.scenario_set_elixir_milli(Team::Blue, 10_000);
+        s.deploy(Team::Blue, "Snowball", n(3000, 28000)).expect("a basic play");
+        for _ in 0..30 {
+            s.tick();
+        }
+    }
+    let home = n(TAP.0 + 1600, TAP.1 + 600);
+    let k = s.scenario_spawn_now(Team::Red, "Knight", home, None).expect("a red Knight");
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.deploy(Team::Blue, "Snowball", n(TAP.0, TAP.1)).expect("the evolved play");
+    let (mut out, mut taken) = (Vec::new(), false);
+    for _ in 0..40 {
+        if !taken {
+            assert!(s.debug_set_pos(k, home));
+        }
+        s.tick();
+        let ball = s.spells().iter().find_map(|sp| match &sp.motion {
+            SpellMotion::CaptureRoll { pos, age, .. } => Some((*pos, *age)),
+            _ => None,
+        });
+        taken |= ball.is_some_and(|b| b.1 >= 1);
+        if let Some((bp, _)) = ball.filter(|b| (3..=7).contains(&b.1)) {
+            let e = s.entity(k).expect("the Knight");
+            out.push((e.facing, ((bp.x - e.pos.x) / K, (bp.y - e.pos.y) / K)));
+        }
+    }
+    assert_eq!(out.len(), 5, "the scene drifted: not five drag ticks ({})", out.len());
+    out
+}
+
+/// Whether facing `f` (256 long) points along (dx, dy) within 3 per 256 on each axis.
+fn faces(f: Vec2, d: (i32, i32)) -> bool {
+    let n = royalesim::fixed::isqrt(i64::from(d.0) * i64::from(d.0) + i64::from(d.1) * i64::from(d.1)).max(1);
+    let (ux, uy) = (i64::from(d.0) * 256 / n, i64::from(d.1) * 256 / n);
+    (i64::from(f.x) - ux).abs() <= 3 && (i64::from(f.y) - uy).abs() <= 3
+}
+
+/// Plant: drag_keeps_walk_facing.
+#[test]
+fn a_dragged_captive_faces_the_ball_under_client15535_faces_ball() {
+    let new = drag_facings(CaptureDragFacing::Client15535FacesBall);
+    assert!(new.iter().all(|&(f, d)| faces(f, d)), "client15535_faces_ball: a drag tick's facing is not toward the ball: {new:?}");
+    // NOT VACUOUS: walk_facing keeps a facing that is not toward the ball.
+    let old = drag_facings(CaptureDragFacing::WalkFacing);
+    assert!(old.iter().any(|&(f, d)| !faces(f, d)), "walk_facing: the facing pointed at the ball anyway: {old:?}");
 }

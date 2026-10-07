@@ -273,6 +273,9 @@ pub struct SpellOut {
     /// THE POINTS OF THE UNITS A BALL CARRIES this tick (`SpellMotion::CaptureRoll`), set after the spells step (state.rs
     /// `phase_projectile`).
     pub carried: Vec<(EntityId, Vec2)>,
+    /// movement.CAPTURE_DRAG_FACING = client15535_faces_ball: the facings (256 long) of the units a ball drags this tick,
+    /// toward its point, set with `carried`.
+    pub faced: Vec<(EntityId, Vec2)>,
 }
 
 /// One buffered knockback. Which variant a spell writes is calibration
@@ -1708,6 +1711,19 @@ fn capture_roll(
         } else {
             Vec2::new((cx + (dx * len as i64 / dist) as i32) * K, (cy + (dy * len as i64 / dist) as i32) * K)
         };
+        // movement.CAPTURE_DRAG_FACING = client15535_faces_ball: a dragged captive faces the ball's point from its new one
+        // (client 15.535.29: 52 of 52 drag frames); on the point it keeps the last.
+        // PLANT (regression) drag_keeps_walk_facing: the new arm leaves the captive's facing as it was.
+        #[cfg(not(clash_plant = "drag_keeps_walk_facing"))]
+        let faces = ctx.calib.capture_drag_facing == crate::state::CaptureDragFacing::Client15535FacesBall;
+        #[cfg(clash_plant = "drag_keeps_walk_facing")]
+        let faces = false;
+        if faces && at != *pos {
+            let mut f = ((pos.x - at.x) / K, (pos.y - at.y) / K);
+            if crate::move16402::normalize_to(&mut f, 256) != 0 {
+                out.faced.push((c.id, Vec2::new(f.0, f.1)));
+            }
+        }
         if at.dist(*pos) <= d.hide_distance {
             c.joined = true;
             out.carried.push((c.id, *pos));

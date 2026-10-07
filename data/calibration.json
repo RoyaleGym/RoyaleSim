@@ -5699,6 +5699,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_knocked_mover (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_path16402_for, the bodies' `avoid_static` (`knocked_mover`), selected by Calib::knocked_doomed_avoidance; tests/knocked_doomed_avoidance.rs."
     },
+    "CAPTURE_DRAG_FACING": {
+      "value": "walk_facing",
+      "candidates": ["walk_facing", "client15535_faces_ball"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_faces_ball on client 15.535.29: 52 of 52 drag frames of 9 captives face the ball within 3, and the avoidance scan along that facing predicts 43 of 43 drag frames entered at offset 0 (3 starts); a WALKING captive riding the ball is unmeasured; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r55_snowball_captive_facing_census.py over every raw file with a rolling ball, projectile card 28000017 rolling 300 a frame: 9 captives in 7 files, sp-form-Snowball-evo-s0's Knight and Musketeer, sp-snow-Archer-0-1000-l8's two Archers, five sp-snow-Knight-*; each drag frame's movement_direction against unit(ball - point), and the avoidance scan, a look circle of min(R, 500) around the start-of-tick point plus the facing entered with, against the offsets). 52 of 52 drag frames face the ball within 3 (the walk facing, the engine's, 7 of 52: only where the ball lies straight along it; the step's direction 32 of 52). 43 of 43 drag frames entered at offset 0 match the scan on that facing: 3 starts predicted and seen (sp-form-Snowball-evo-s0's Knight t948 with the Musketeer 997 from the look point; the two Archers of sp-snow-Archer-0-1000-l8 t714, each 817 from the other's), 40 non-starts. Deploying or attacking captives keep the last drag facing through the carry, 6 of 6. A wider census (r55_start_facing_sign_census.py, 552 starts on turns past 30 degrees over all 1,675 raw files): the scan reads the facing entered with, 294 signs right, 10 wrong.",
+      "meaning": "walk_facing: the engine's; a dragged captive keeps its facing (its last walk's), and its scan (it is held) looks along it. client15535_faces_ball: on every drag tick its facing is set to the unit vector from its new point to the ball's, 256 long (spell.rs capture_roll, written in phase_projectile); riding the ball (on its point) it keeps the last; its next tick's scan looks along it.",
+      "open": "A walking captive riding the ball; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_faces_ball (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "spell.rs capture_roll (`out.faced`), state.rs phase_projectile (the faced write), selected by Calib::capture_drag_facing; tests/evo_snowball.rs."
+    },
     "DEATH_BOMB_AVOIDANCE": {
       "value": "none",
       "candidates": ["none", "client15535_static_blocker"],

@@ -1604,6 +1604,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   alone lands 1 further to its right (15 of 15; fitted).
 ///   collision.CAGE_CAPTIVE_AVOIDANCE = client15535_masked: an Evo Goblin Cage's captive runs no avoidance scan from
 ///   its grab through its release hold (761 captive frames at 0; 3 of 3 releases start -190).
+///   movement.CAPTURE_DRAG_FACING = client15535_faces_ball: an Evo Giant Snowball's dragged captive faces the ball, and
+///   scans along that facing (52 of 52 drag frames).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1750,6 +1752,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.DASH_RANGE_TARGET_POINT", "\"client15535_pass_point\""),
     ("spawner.HERO_TOMB_EMISSION_NUDGE", "\"client15535_right_one\""),
     ("collision.CAGE_CAPTIVE_AVOIDANCE", "\"client15535_masked\""),
+    ("movement.CAPTURE_DRAG_FACING", "\"client15535_faces_ball\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

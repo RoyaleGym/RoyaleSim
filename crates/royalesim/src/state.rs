@@ -1101,6 +1101,10 @@ pub struct Calib {
     /// for avoidance. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Scanned`.
     #[serde(default = "cage_captive_avoidance_default")]
     pub cage_captive_avoidance: CageCaptiveAvoidance,
+    /// movement.CAPTURE_DRAG_FACING (spell.rs `capture_roll`, `SpellOut::faced`): an Evo Giant Snowball's dragged
+    /// captive's facing. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `WalkFacing`.
+    #[serde(default = "capture_drag_facing_default")]
+    pub capture_drag_facing: CaptureDragFacing,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2791,6 +2795,10 @@ fn hero_tomb_emission_nudge_default() -> HeroTombEmissionNudge {
 
 fn cage_captive_avoidance_default() -> CageCaptiveAvoidance {
     CageCaptiveAvoidance::Scanned
+}
+
+fn capture_drag_facing_default() -> CaptureDragFacing {
+    CaptureDragFacing::WalkFacing
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6806,6 +6814,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.CAPTURE_DRAG_FACING -- see spell.rs `capture_roll` and `phase_projectile` (`SpellOut::faced`): the facing
+    /// of a captive an Evo Giant Snowball's ball drags, which its avoidance scan looks along.
+    CaptureDragFacing {
+        /// The engine's: the facing it had (its last walk's).
+        WalkFacing = "walk_facing",
+        /// On every drag tick, the unit vector from its new point to the ball's point, 256 long; riding the ball (on its
+        /// point) it keeps the last. Measured on client 15.535.29: 52 of 52 drag frames of 9 captives (the walk facing 7);
+        /// the scan along it 43 of 43 (sp-form-Snowball-evo-s0's Knight t948 starts its turn +120 where the engine's turned
+        /// -190).
+        Client15535FacesBall = "client15535_faces_ball",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8814,6 +8835,7 @@ impl Calib {
             dash_range_target_point: pick(&v, &["combat", "DASH_RANGE_TARGET_POINT", "value"], DashRangeTargetPoint::from_calibration_name)?,
             hero_tomb_emission_nudge: pick(&v, &["spawner", "HERO_TOMB_EMISSION_NUDGE", "value"], HeroTombEmissionNudge::from_calibration_name)?,
             cage_captive_avoidance: pick(&v, &["collision", "CAGE_CAPTIVE_AVOIDANCE", "value"], CageCaptiveAvoidance::from_calibration_name)?,
+            capture_drag_facing: pick(&v, &["movement", "CAPTURE_DRAG_FACING", "value"], CaptureDragFacing::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -24646,7 +24668,7 @@ impl BattleState {
         // DRAINED HERE, in `SpellOut`'s documented order, and nothing is kept past the
         // phase. Destructured without `..`, so a field added to the bundle does not
         // compile until it has a consumer below.
-        let spell::SpellOut { released, scheduled, mut born, mut launched, areas, clones, fuse_ends, carried } = out;
+        let spell::SpellOut { released, scheduled, mut born, mut launched, areas, clones, fuse_ends, carried, faced } = out;
         // THE UNITS A BALL CARRIES (card.rs `SpellShape::CaptureRoll`) stand where its step put them this tick.
         if !carried.is_empty() {
             for (id, p) in carried {
@@ -24655,6 +24677,12 @@ impl BattleState {
                 }
             }
             self.hash.rebuild(&self.ents);
+        }
+        // movement.CAPTURE_DRAG_FACING = client15535_faces_ball: the dragged ones face the ball (`SpellOut::faced`).
+        for (id, f) in faced {
+            if self.ents.is_alive(id) {
+                self.ents.facing[id.index as usize] = f;
+            }
         }
         // A SPELL'S RELEASED UNITS (the Goblin Barrel's Goblins) take their first update on their creation tick, as a
         // scheduled area's do (spawner.SCHEDULED_UNIT_FIRST_UPDATE = client_creation_tick, `materialise_released`):
@@ -32402,6 +32430,9 @@ impl BattleState {
 /// 20, unchanged, collision.CAGE_CAPTIVE_AVOIDANCE: Calib gained cage_captive_avoidance (serde default the old arm,
 ///    scanned), no new state (the mask is read off the saved cage runs and freed captives), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.CAPTURE_DRAG_FACING: Calib gained capture_drag_facing (serde default the old arm,
+///    walk_facing), no new state (the facing is the saved `facing`), so a blob saved before it deserializes and hashes
+///    as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
 ///    saved before it deserializes and hashes as it did.
 /// 20, unchanged, spawner.EVO_COPY_POINT gained client15535_ahead_outward_behind_clamped, no new state, so a blob
@@ -33449,6 +33480,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("hero_tomb_emission_nudge".into(), serde_json::to_value(HeroTombEmissionNudge::None).map_err(|e| e.to_string())?);
     // collision.CAGE_CAPTIVE_AVOIDANCE: a format-3 battle's captive scanned as a held unit (the same rule).
     sh.insert("cage_captive_avoidance".into(), serde_json::to_value(CageCaptiveAvoidance::Scanned).map_err(|e| e.to_string())?);
+    // movement.CAPTURE_DRAG_FACING: a format-3 battle's dragged captive kept its facing (the same rule).
+    sh.insert("capture_drag_facing".into(), serde_json::to_value(CaptureDragFacing::WalkFacing).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
