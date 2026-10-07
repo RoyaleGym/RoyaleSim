@@ -1131,6 +1131,10 @@ pub struct Calib {
     /// stays in the path grid while its dummy stands. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
     #[serde(default = "hero_tomb_dummy_obstacle_default")]
     pub hero_tomb_dummy_obstacle: HeroTombDummyObstacle,
+    /// hide.DRILL_UNDER_SHOT (combat.rs `step_projectiles`): a shot flying at an Evo Goblin Drill building that has gone
+    /// under. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Lands`.
+    #[serde(default = "drill_under_shot_default")]
+    pub drill_under_shot: DrillUnderShot,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2849,6 +2853,10 @@ fn newborn_first_target_default() -> NewbornFirstTarget {
 
 fn hero_tomb_dummy_obstacle_default() -> HeroTombDummyObstacle {
     HeroTombDummyObstacle::None
+}
+
+fn drill_under_shot_default() -> DrillUnderShot {
+    DrillUnderShot::Lands
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6963,6 +6971,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// hide.DRILL_UNDER_SHOT -- see `step_projectiles`: a shot in flight at an Evo Goblin Drill building that goes under.
+    DrillUnderShot {
+        /// The engine's: the shot follows hide.SHOT_AT_HIDING_BUILDING, as a Tesla's does.
+        Lands = "lands",
+        /// It is dropped: it no longer follows the building and lands on nothing (a splash shot still bursts where it
+        /// lands). Measured on client 15.535.29: the one hide with a shot in flight, 1 of 1 (sp-f4-drill-s0 t1011: the
+        /// arrow lost its target, the pending 109 went to 0, no hitpoint moved); 0 clears of 193,333 shots whose target held
+        /// its state; the Tesla's hides kept theirs 3 of 3.
+        Client15535Dropped = "client15535_dropped",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8978,6 +8998,7 @@ impl Calib {
             dart_poison_pulse: pick(&v, &["combat", "DART_POISON_PULSE", "value"], DartPoisonPulse::from_calibration_name)?,
             newborn_first_target: pick(&v, &["targeting", "NEWBORN_FIRST_TARGET", "value"], NewbornFirstTarget::from_calibration_name)?,
             hero_tomb_dummy_obstacle: pick(&v, &["pathfinding", "HERO_TOMB_DUMMY_OBSTACLE", "value"], HeroTombDummyObstacle::from_calibration_name)?,
+            drill_under_shot: pick(&v, &["hide", "DRILL_UNDER_SHOT", "value"], DrillUnderShot::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -32847,6 +32868,9 @@ impl BattleState {
 ///    arm, none), no new state in the shipped arm (TombRun gained `at`, serde default the origin, not hashed: the
 ///    tomb's point, set at the play), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, hide.DRILL_UNDER_SHOT: Calib gained drill_under_shot (serde default the old arm, lands), no new state
+///    (read at the landing), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
@@ -33910,6 +33934,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("newborn_first_target".into(), serde_json::to_value(NewbornFirstTarget::ScanAtEmission).map_err(|e| e.to_string())?);
     // pathfinding.HERO_TOMB_DUMMY_OBSTACLE: a format-3 battle's tomb left the path grid at its death (the same rule).
     sh.insert("hero_tomb_dummy_obstacle".into(), serde_json::to_value(HeroTombDummyObstacle::None).map_err(|e| e.to_string())?);
+    // hide.DRILL_UNDER_SHOT: a format-3 battle's shot at a building gone under followed the hide rule (the same rule).
+    sh.insert("drill_under_shot".into(), serde_json::to_value(DrillUnderShot::Lands).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

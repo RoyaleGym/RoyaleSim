@@ -4309,6 +4309,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_lands (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "combat.rs step_projectiles (the landing's hit on its own target, `shot_passes_hide`), selected by Calib::shot_at_hiding_building; tests/shot_at_hiding_building.rs."
     },
+    "DRILL_UNDER_SHOT": {
+      "value": "lands",
+      "candidates": ["lands", "client15535_dropped"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_dropped on client 15.535.29: the one Evo drill hide with a shot in flight, 1 of 1, against 0 target clears among 193,333 shot-frame pairs whose target kept its state; a homing tower arrow only. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r56_shot_target_clear_census.py: every projectile whose target lives on from one frame to the next, about 215k pairs; r56_drill_hide_census.py section C). A target was cleared exactly once: sp-f4-drill-s0 t1011, the Evo drill building's 0 -> 6 (gone under at 879 of 1313, floored 66 %): Red's princess tower arrow (4000040, 109) fired t1007 held the building on t1010 and no target on t1011, the building's pending_damage 109 -> 0 and its event timer 150 -> 100, the arrow last seen t1012, the building's hp 879 on t1012-1014. The engine (hide.SHOT_AT_HIDING_BUILDING = client15535_lands, the Tesla's) landed 109 on t1013 (879 -> 770), the root of the scene's loss: its second hide came 16 ticks early (t1100 against t1116), its death 15 early. With the target's state unchanged: 0 clears, 193,333 kept, 21,970 gone, 51 retargeted. The Tesla's hide (2 -> 0) kept its shot 3 of 3 (sp-tesla-hide-10/12/60 t177, the bomb landing 225 on t179).",
+      "meaning": "lands: the engine's; a shot at an Evo Goblin Drill building that goes under follows hide.SHOT_AT_HIDING_BUILDING, as a Tesla's does. client15535_dropped: from the tick the building goes under, a shot flying at it no longer follows it and lands on nothing (step_projectiles treats its target as gone); a splash shot still bursts where it lands, as before.",
+      "open": "Splash shots, swings already started and spells in flight at a drill going under; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_dropped (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "combat.rs step_projectiles (the target's liveness for the step), selected by Calib::drill_under_shot; tests/evo_goblin_drill.rs."
+    },
     "HIDDEN_OCCLUDES_PATH": {
       "value": true,
       "status": "community",

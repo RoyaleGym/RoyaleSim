@@ -2215,6 +2215,15 @@ pub fn step_projectiles(
             return true;
         }
         let alive = ents.is_alive(p.target) && ents.hp[p.target.index as usize] > 0;
+        // hide.DRILL_UNDER_SHOT = client15535_dropped: a shot flying at an Evo Goblin Drill building that has gone under is
+        // dropped: it no longer follows the building and lands on nothing (client 15.535.29, sp-f4-drill-s0 t1011: the
+        // arrow lost its target on the hide tick, the pending 109 went to 0 and no hitpoint moved).
+        // PLANT (regression) drill_under_shot_lands: the new arm still lands the shot.
+        #[cfg(not(clash_plant = "drill_under_shot_lands"))]
+        let alive = alive
+            && !(calib.drill_under_shot == crate::state::DrillUnderShot::Client15535Dropped
+                && ents.hide[p.target.index as usize] == HideState::Hidden
+                && cards.get(ents.card[p.target.index as usize]).evo.as_ref().is_some_and(|v| v.drill.is_some()));
         // A spark carrier flies to the point it was aimed at and never follows its target, and so does a shot
         // that keeps its aim (`Projectile::fixed`, combat.NON_HOMING_AIM = fixed_at_fire).
         #[cfg(not(clash_plant = "carrier_follows_target"))]

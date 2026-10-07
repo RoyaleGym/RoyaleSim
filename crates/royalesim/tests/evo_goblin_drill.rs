@@ -13,7 +13,8 @@
 //!   - drill_spawner_unheld -> the same red;
 //!   - drill_hide_collides -> the same red (its Goblins pushed off its footprint);
 //!   - drill_hide_acquired_at_once -> `a_hides_goblins_are_targets_from_their_8th_frame` red;
-//!   - evo_drill_death_ring_unlisted -> `its_buildings_death_goblins_are_laid_on_the_x_axis_ring` red.
+//!   - evo_drill_death_ring_unlisted -> `its_buildings_death_goblins_are_laid_on_the_x_axis_ring` red;
+//!   - drill_under_shot_lands -> `a_shot_in_flight_at_a_building_that_goes_under_lands_on_nothing_under_client15535_dropped` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -161,4 +162,79 @@ fn its_buildings_death_goblins_are_laid_on_the_x_axis_ring() {
     // Within the native unit the ring's trigonometry rounds (the base building's pair reads 8499 for 8500 too).
     let want = [(8500, 10000), (9500, 10000)];
     assert!(points.len() == 2 && points.iter().zip(want).all(|(p, w)| (p.0 - w.0).abs() <= 1 && (p.1 - w.1).abs() <= 1), "its death pair, in creation order: {new:?}");
+}
+
+/// A level-11 battle with the Evo Goblin Drill's form, `set` applied to its config, its building put down at (9000, 10000)
+/// and three ticks run: the battle and the building.
+fn drill_battle(set: impl FnOnce(&mut BattleConfig)) -> (BattleState, EntityId) {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["GoblinDrill".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    set(&mut cfg);
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let d = s.scenario_spawn_now(Team::Blue, "units.GoblinDrill_EV1", n(9000, 10000), None).expect("the drill's building");
+    for _ in 0..3 {
+        s.tick();
+    }
+    (s, d)
+}
+
+/// Every blue troop but `keep` killed (the building's Goblins out of the scene).
+fn clear_blue_troops(s: &mut BattleState, keep: &[EntityId]) {
+    let ids: Vec<EntityId> =
+        s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::Troop && !keep.contains(&e.id)).map(|e| e.id).collect();
+    for id in ids {
+        assert!(s.debug_set_hp(id, 0));
+    }
+}
+
+/// Under `arm` (and hide.SHOT_AT_HIDING_BUILDING = client15535_lands, the Tesla's, as a 15.535.29 capture runs): a red
+/// Musketeer held 4,500 off (on dry ground below the river) shoots the building; with a shot in flight two steps or more from its aim the building is
+/// taken to its 66 % line and goes under. The building's hitpoints the tick after it went under, and once no shot is
+/// flying at it.
+fn shot_through_hide(arm: royalesim::state::DrillUnderShot) -> (i32, i32) {
+    let (mut s, d) = drill_battle(|c| {
+        c.calib.drill_under_shot = arm;
+        c.calib.shot_at_hiding_building = royalesim::state::ShotAtHidingBuilding::Client15535Lands;
+    });
+    let m = s.scenario_spawn_now(Team::Red, "Musketeer", n(9000, 14500), None).expect("the Musketeer");
+    let flying = |s: &BattleState| s.projectiles().iter().any(|p| p.team == Team::Red && p.target == d);
+    let mut shot = false;
+    for _ in 0..200 {
+        clear_blue_troops(&mut s, &[]);
+        assert!(s.debug_set_pos(m, n(9000, 14500)));
+        s.tick();
+        if s.projectiles().iter().any(|p| p.team == Team::Red && p.target == d && (p.aim.y - p.pos.y).abs() > 2 * p.speed) {
+            shot = true;
+            break;
+        }
+    }
+    assert!(shot, "the scene drifted: no shot at the building in flight");
+    assert!(s.debug_set_hp(d, 866));
+    s.tick();
+    assert_eq!(s.entity(d).expect("the building").hide_state, HideState::Hidden, "the scene drifted: it did not go under");
+    s.tick();
+    let held = s.entity(d).expect("the building").hp;
+    for _ in 0..30 {
+        if !flying(&s) {
+            break;
+        }
+        s.tick();
+    }
+    assert!(!flying(&s), "the scene drifted: the shot never landed");
+    (held, s.entity(d).expect("the building").hp)
+}
+
+/// hide.DRILL_UNDER_SHOT (item 285; client 15.535.29, sp-f4-drill-s0 t1011: the arrow in flight lost its target on the
+/// hide tick and no hitpoint moved). Plant: drill_under_shot_lands.
+#[test]
+fn a_shot_in_flight_at_a_building_that_goes_under_lands_on_nothing_under_client15535_dropped() {
+    let (held, after) = shot_through_hide(royalesim::state::DrillUnderShot::Client15535Dropped);
+    assert_eq!(after, held, "client15535_dropped: the shot landed on the building under ground");
+    // NOT VACUOUS: under lands (the Tesla's rule) the same shot takes its damage off the building.
+    let (held, after) = shot_through_hide(royalesim::state::DrillUnderShot::Lands);
+    assert!(after < held, "lands: the shot did not land ({held} -> {after})");
 }
