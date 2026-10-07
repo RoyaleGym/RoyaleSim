@@ -13,14 +13,15 @@
 //! hero_tombstone`): tomb_monster_never, tomb_never, tomb_never_killed, tomb_window_unread, tomb_play_ignored,
 //! tomb_monster_unstepped, ability_available_ignores_windows (the no-press test: the row reads the button available
 //! after the tomb's window closes, while the monster waits), tomb_step_every_press (transform.TOMB_MONSTER_STEP_SCOPE's new
-//! arm steps a monster pressed after its tomb's death).
+//! arm steps a monster pressed after its tomb's death), tomb_press_spawn_reads_moved (spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE's
+//! new arm's death spawn reads the moved board).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, TombMonsterStepScope};
+use royalesim::state::{BattleState, TombMonsterStepScope, TombPressSpawnFirstUpdate};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -234,4 +235,56 @@ fn a_monster_pressed_beside_its_standing_tomb_steps_under_both_arms() {
         let b = s.entity(m).expect("the monster").pos;
         assert_eq!(((b.x - a.x) / K, (b.y - a.y) / K), (-106, -106), "{scope:?}: not its one step");
     }
+}
+
+/// spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE (client 15.535.29: 16 of 16 press-kill members pushed from the neighbour's
+/// start-of-tick point): the tomb pressed with a Blue Knight held 980 south of its death spawn's birth point at every
+/// tick's start (overlap 20 with a member there: a push of 121), walking north on each tick (60: overlap 80, the push's
+/// cap). The death spawn's first-frame points, sorted; `knight`: whether the Knight is there.
+fn press_spawn_first_frame(arm: TombPressSpawnFirstUpdate, knight: bool) -> Vec<(i32, i32)> {
+    let mut cfg = config();
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.tomb_press_spawn_first_update = arm;
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    past_deploy_lockout(&mut s);
+    let (tomb, _) = play(&mut s, Team::Blue, n(14500, 11500));
+    let held = n(14500, 13000 - 980);
+    let k = if knight { Some(s.scenario_spawn_now(Team::Blue, "Knight", held, None).expect("the Knight")) } else { None };
+    // The tomb's Skeletons so far gone, so nothing else walks by the birth point.
+    let before: Vec<EntityId> = skeletons(&s, Team::Blue).into_iter().map(|x| x.0).collect();
+    for id in &before {
+        assert!(s.debug_set_hp(*id, 0));
+    }
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..6 {
+        if let Some(k) = k {
+            assert!(s.debug_set_pos(k, held));
+        }
+        s.tick();
+        if s.entity(tomb).is_none() {
+            let mut out: Vec<(i32, i32)> = skeletons(&s, Team::Blue).into_iter().filter(|x| !before.contains(&x.0)).map(|(_, p)| (p.x / K, p.y / K)).collect();
+            out.sort_unstable();
+            assert_eq!(out.len(), 4, "{arm:?}: the scene drifted: not four death-spawn Skeletons ({out:?})");
+            return out;
+        }
+    }
+    panic!("{arm:?}: the scene drifted: the tomb outlived the press");
+}
+
+/// Plant: tomb_press_spawn_reads_moved.
+#[test]
+fn a_press_kills_death_spawn_reads_the_start_of_tick_board_under_client15535_start_of_tick() {
+    // NOT VACUOUS: with the Knight walking through the kill's tick, the boards part.
+    let new = press_spawn_first_frame(TombPressSpawnFirstUpdate::Client15535StartOfTick, true);
+    let old = press_spawn_first_frame(TombPressSpawnFirstUpdate::PostMove, true);
+    assert_ne!(new, old, "the arms put the death spawn on the same points with the Knight walking");
+    // With nothing moving by the birth point the boards agree.
+    let new = press_spawn_first_frame(TombPressSpawnFirstUpdate::Client15535StartOfTick, false);
+    let old = press_spawn_first_frame(TombPressSpawnFirstUpdate::PostMove, false);
+    assert_eq!(new, old, "the arms part with nothing moving by the birth point");
 }

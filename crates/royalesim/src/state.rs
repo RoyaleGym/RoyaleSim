@@ -1085,6 +1085,10 @@ pub struct Calib {
     /// monster takes its one step. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `EveryPress`.
     #[serde(default = "tomb_monster_step_scope_default")]
     pub tomb_monster_step_scope: TombMonsterStepScope,
+    /// spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE (`materialise_released`): the board a Hero Tombstone's death spawn after its
+    /// press kill takes its first update on. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `PostMove`.
+    #[serde(default = "tomb_press_spawn_first_update_default")]
+    pub tomb_press_spawn_first_update: TombPressSpawnFirstUpdate,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2759,6 +2763,10 @@ fn attract_contact_mean_default() -> AttractContactMean {
 
 fn tomb_monster_step_scope_default() -> TombMonsterStepScope {
     TombMonsterStepScope::EveryPress
+}
+
+fn tomb_press_spawn_first_update_default() -> TombPressSpawnFirstUpdate {
+    TombPressSpawnFirstUpdate::PostMove
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6714,6 +6722,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE -- see `materialise_released` and `tomb_resolve` (`Scratch::tomb_press_kills`):
+    /// the points of the other units a Hero Tombstone's death spawn reads in its first update when the press killed the
+    /// tomb (card.rs TOMB_KILL_TICKS).
+    TombPressSpawnFirstUpdate {
+        /// The engine's: their points after this tick's move (the first update runs at the end of the Reap).
+        PostMove = "post_move",
+        /// Their start-of-tick points (the move pass's `Scratch::pre`), for its contact pushes and its target's point. Measured
+        /// on client 15.535.29: 16 of 16 members pushed by one moving neighbour exact from the neighbour's start-of-tick point,
+        /// 0 from its moved point; 4 of 4 first goal cells from the target's start-of-tick point (sp-form-Tombstone-hero-s0
+        /// t217, where the engine's goal cell, from the moved point, sent the four 12 off and split them).
+        Client15535StartOfTick = "client15535_start_of_tick",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8712,6 +8734,7 @@ impl Calib {
             net_cast_window: pick(&v, &["combat", "NET_CAST_WINDOW", "value"], NetCastWindow::from_calibration_name)?,
             attract_contact_mean: pick(&v, &["collision", "ATTRACT_CONTACT_MEAN", "value"], AttractContactMean::from_calibration_name)?,
             tomb_monster_step_scope: pick(&v, &["transform", "TOMB_MONSTER_STEP_SCOPE", "value"], TombMonsterStepScope::from_calibration_name)?,
+            tomb_press_spawn_first_update: pick(&v, &["spawner", "TOMB_PRESS_SPAWN_FIRST_UPDATE", "value"], TombPressSpawnFirstUpdate::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -10896,6 +10919,9 @@ struct Scratch {
     /// the turn of an attacker deciding on the pass's start (`phase_target_attack_sequential`), for its doomed test;
     /// empty outside such a turn.
     turn_hp: Vec<i32>,
+    /// spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE: this tick's press-killed Hero Tombstones (their team and point), whose death
+    /// spawns `materialise_released` gives the start-of-tick board under client15535_start_of_tick.
+    tomb_press_kills: Vec<(Team, Vec2)>,
     /// The requested step of every entity's walk this tick in NATIVE units
     /// (`L = min(speed, dist, 250)`, the step move16402::move_towards asks for),
     /// for the charge accumulator's client16402 reading; 0 on a tick with no walk.
@@ -12352,7 +12378,44 @@ impl BattleState {
         // spawner.FIRST_STEP_DYING_BODIES: the tick's other dead, as `phase_reap` took them before the despawn (empty
         // under hidden).
         let dying = std::mem::take(&mut self.scratch.dying_bodies);
-        self.first_update(&fresh, apart, &blockers, &dying);
+        // spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE = client15535_start_of_tick: a press-killed Hero Tombstone's death spawn (its
+        // side's newborns within 3,000 of the tomb's point) reads every other unit at its start-of-tick point (the move
+        // pass's `Scratch::pre`; client 15.535.29: 16 of 16 pushes, 4 of 4 goals).
+        // PLANT (regression) tomb_press_spawn_reads_moved: the new arm's members read the moved board.
+        #[cfg(not(clash_plant = "tomb_press_spawn_reads_moved"))]
+        let start_board = self.cfg.calib.tomb_press_spawn_first_update == TombPressSpawnFirstUpdate::Client15535StartOfTick;
+        #[cfg(clash_plant = "tomb_press_spawn_reads_moved")]
+        let start_board = false;
+        let kills = std::mem::take(&mut self.scratch.tomb_press_kills);
+        let press: Vec<usize> = if start_board {
+            fresh.iter().copied().filter(|&j| kills.iter().any(|&(t, p)| self.ents.team[j] == t && self.ents.pos[j].dist2(p) <= (3000 * crate::fixed::SUBTILE_PER_MILLITILE as i64).pow(2))).collect()
+        } else {
+            Vec::new()
+        };
+        if press.is_empty() {
+            self.first_update(&fresh, apart, &blockers, &dying);
+        } else {
+            let rest: Vec<usize> = fresh.iter().copied().filter(|j| !press.contains(j)).collect();
+            if !rest.is_empty() {
+                self.first_update(&rest, apart, &blockers, &dying);
+            }
+            let moved = self.ents.pos.clone();
+            for j in 0..self.ents.capacity() {
+                if self.ents.alive[j] && !press.contains(&j) {
+                    if let Some(p) = self.scratch.pre.get(j).copied() {
+                        self.ents.pos[j] = p;
+                    }
+                }
+            }
+            self.hash.rebuild(&self.ents);
+            self.first_update(&press, apart, &blockers, &dying);
+            for (j, p) in moved.into_iter().enumerate().take(self.ents.capacity()) {
+                if !press.contains(&j) {
+                    self.ents.pos[j] = p;
+                }
+            }
+            self.hash.rebuild(&self.ents);
+        }
         // transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: the heroes' pre-hop bodies served this first update only.
         self.scratch.mount_bodies.clear();
     }
@@ -25697,6 +25760,7 @@ impl BattleState {
     /// A run ends with its tomb's kill once pressed, or with its monster while waiting.
     fn tomb_resolve(&mut self) {
         let dt = self.cfg.calib.tick_ms.max(1) as u32;
+        self.scratch.tomb_press_kills.clear();
         let runs = std::mem::take(&mut self.warps.tombs);
         let mut keep = Vec::new();
         for r in runs {
@@ -25708,6 +25772,7 @@ impl BattleState {
                     #[cfg(not(clash_plant = "tomb_never_killed"))]
                     if tomb && self.tick == p + crate::card::TOMB_KILL_TICKS {
                         dies = Some(r.tomb);
+                        self.scratch.tomb_press_kills.push((r.team, self.ents.pos[r.tomb.index as usize]));
                     }
                     self.tick >= p + crate::card::TOMB_KILL_TICKS
                 }
@@ -32159,6 +32224,9 @@ impl BattleState {
 /// 20, unchanged, transform.TOMB_MONSTER_STEP_SCOPE: Calib gained tomb_monster_step_scope (serde default the old arm,
 ///    every_press), no new state (the scope is read off the run's tomb), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE: Calib gained tomb_press_spawn_first_update (serde default the
+///    old arm, post_move), no new state (the press kills are the tick's scratch), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
 ///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
@@ -33194,6 +33262,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("attract_contact_mean".into(), serde_json::to_value(AttractContactMean::AfterMean).map_err(|e| e.to_string())?);
     // transform.TOMB_MONSTER_STEP_SCOPE: a format-3 battle's pressed monster stepped after every press (the same rule).
     sh.insert("tomb_monster_step_scope".into(), serde_json::to_value(TombMonsterStepScope::EveryPress).map_err(|e| e.to_string())?);
+    // spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE: a format-3 battle's press-kill death spawn read the moved board (the same rule).
+    sh.insert("tomb_press_spawn_first_update".into(), serde_json::to_value(TombPressSpawnFirstUpdate::PostMove).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

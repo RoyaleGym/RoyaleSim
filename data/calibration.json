@@ -4647,6 +4647,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_same_tick_apart (was client15535_same_tick; examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs army_spectrals (`first_update`), selected by Calib::spectral_first_update; tests/spectral_first_update.rs."
     },
+    "TOMB_PRESS_SPAWN_FIRST_UPDATE": {
+      "value": "post_move",
+      "candidates": ["post_move", "client15535_start_of_tick"],
+      "status": "measured",
+      "confidence": "MEDIUM-HIGH for client15535_start_of_tick on client 15.535.29: 16 of 16 pushes exact at the neighbour's start-of-tick point (0 at its moved point) in 4 press kills; the goal-cell half rests on one event (4 members); whether an ordinary kill's death spawn reads the same board is unmeasured (every discriminating death spawn in the captures is a press kill); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (r54_spawn_first_push_census.py: Skeleton-class newborns with exactly one troop contact, a neighbour that moved on the birth tick, no building within 1,600; the contact law's push from the neighbour's start-of-tick and moved points against the member's first frame less its walk. r54_newborn_goal_census.py: the first route's goal cell, path_nodes[0], against choose_goal_cell with reach 1,000 from the target's start-of-tick and moved points). Hero Tombstone press-kill death spawns: 16 of 16 members (sp-hero2-Tombstone-death-s0, -full-s0, -full-s1, -monster-s0, every one a t136 press kill) exact at the neighbour's start-of-tick point, e.g. R (-40, -144) = the start-of-tick prediction against (-36, -145) from the moved point; 0 of 16 exact at the moved point (2 to 9 off). Goals: sp-form-Tombstone-hero-s0 t217, the four members' goal cell 996 (24, 27) from the target Skeleton's start-of-tick point (12852, 14066), where its moved point (12799, 13994) gives 960; 4 of 4. Emitted Skeletons read their neighbours in creation order (5 exact post-move, 3 approximate pre-move): not this key's. The engine read the moved board: sp-hero2-Tombstone-monster-s0's members 4 off at t136, a goal flip at t166 and the Knight's first hit 18 ticks late; sp-form-Tombstone-hero-s0's 18 and 19 split to opposite sides.",
+      "meaning": "post_move: the engine's; a Hero Tombstone's death spawn after its press kill takes its first update at the end of the Reap on the other units' points after this tick's move. client15535_start_of_tick: it reads the other units at their start-of-tick points (the move pass's Scratch::pre) for its contact pushes, its target and its first route's goal.",
+      "open": "An ordinary kill's death spawn (a strike, a lifetime, a shot) is unmeasured, the press kill alone is read; whether the start-of-tick board is the tomb's slot in the move pass (refuted on the goal: its creation-order slot predicts the moved point); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_start_of_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs tomb_resolve (Scratch::tomb_press_kills), materialise_released (the members' start-of-tick board), selected by Calib::tomb_press_spawn_first_update; tests/hero_tombstone.rs."
+    },
     "SPECTRAL_BIRTH_POINT": {
       "value": "soldier_point",
       "candidates": ["soldier_point", "client15535_water_nudge"],
