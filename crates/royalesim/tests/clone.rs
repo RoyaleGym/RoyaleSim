@@ -44,7 +44,12 @@
 //!  16. spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy: a Knight put down (deploying) 2 ticks before the cast, a
 //!      Red Giant held 1,900 north of it: under hold_time the original, still deploying and no longer held, is pushed off
 //!      the Giant from C + 11; under the new arm it stands on its slide's last point through C + 14, held for its deploy
-//!      left (measured on client 15.535.29, sp-m5-clone-s0: three deploying Skeletons and their copies held to C + 14).
+//!      left (measured on client 15.535.29, sp-m5-clone-s0: three deploying Skeletons and their copies held to C + 14);
+//!  17. spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy_late_walk: the same scene; the original takes its target a
+//!      tick after it would under client15535_covers_deploy, and is first pushed off the Giant a tick after that, where
+//!      client15535_covers_deploy pushes it on its target's tick; its attack clock runs from its target's tick (measured on
+//!      client 15.535.29, sp-m5-clone-s0: targets on C + 16, first steps on C + 17, first hits on C + 25 where
+//!      client15535_covers_deploy's land on C + 24).
 //!
 //! THE SCENE. Blue's own half, the tap at (9000, 9000), where the slide stays on open ground and no crown tower is on
 //! the pair's line. Units are put down already deployed unless said, so they walk from tick 0.
@@ -71,6 +76,8 @@
 //!   * `clone_slide_hidden` -- the sliding pair is out of its neighbours' scans: (14) goes red.
 //!   * `clone_slide_on_axis` -- the new CLONE_OFFSET arm slides along the owner's y axis: (15) goes red.
 //!   * `clone_hold_ends_in_deploy` -- the new CLONE_HOLD_DEPLOY arm holds the pair the hold's time alone: (16) goes red.
+//!   * `clone_late_walk_unread` -- client15535_covers_deploy_late_walk holds as client15535_covers_deploy: (17) goes red.
+//!   * `clone_walk_with_targets` -- the late-walk pair walks on its targets' tick: (17) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -355,6 +362,56 @@ fn under_client15535_covers_deploy_a_deploying_pair_is_held_through_its_deploy()
     for (k, p) in new.iter().enumerate().take(15).skip(11) {
         assert_eq!(*p, new[10], "client15535_covers_deploy: the original moved on C + {k} while its deploy holds it");
     }
+}
+
+// ---------------------------------------------------------------------------
+// (17)
+
+/// The original's (point, target, attack progress) on C to C + 23 under `arm`, in (16)'s scene.
+fn deploying_pair(arm: CloneHoldDeploy) -> Vec<(Vec2, Option<royalesim::EntityId>, i32)> {
+    let giant_at = at((TAP.0, TAP.1 + 1900));
+    let mut cfg = shipped();
+    cfg.calib.clone_hold_deploy = arm;
+    let mut s = BattleState::new(0, cfg);
+    let g = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("spawn Giant");
+    s.spawn_unit(Team::Blue, "Knight", at(TAP), None).expect("put down the Knight");
+    for _ in 0..2 {
+        s.debug_set_pos(g, giant_at);
+        s.tick();
+    }
+    let k = s.entities().find(|e| e.team == Team::Blue && e.card == "Knight").map(|e| e.id).expect("the Knight");
+    s.spawn_unit(Team::Blue, "Clone", at(TAP), None).expect("cast Clone");
+    (0..24)
+        .map(|_| {
+            s.debug_set_pos(g, giant_at);
+            s.tick();
+            let e = s.entity(k).expect("the original lives");
+            (e.pos, e.target, e.attack_ms)
+        })
+        .collect()
+}
+
+/// The first tick (from C) with a target, and the first after the slide (C + 11 on) whose point moved.
+fn first_target_and_move(p: &[(Vec2, Option<royalesim::EntityId>, i32)]) -> (usize, usize) {
+    let t = p.iter().position(|(_, t, _)| t.is_some()).expect("the original never took a target");
+    let m = (11..p.len()).find(|&k| p[k].0 != p[k - 1].0).expect("the original never moved after the slide");
+    (t, m)
+}
+
+/// Plants: clone_late_walk_unread, clone_walk_with_targets.
+#[test]
+fn under_client15535_covers_deploy_late_walk_a_deploying_pair_targets_a_tick_late_and_walks_a_tick_after() {
+    let old = deploying_pair(CloneHoldDeploy::Client15535CoversDeploy);
+    let (t_old, m_old) = first_target_and_move(&old);
+    // NOT VACUOUS: under client15535_covers_deploy the original is pushed off the Giant on the tick it takes its target.
+    assert_eq!(m_old, t_old, "client15535_covers_deploy: the original took its target on C + {t_old} and first moved on C + {m_old}");
+    let new = deploying_pair(CloneHoldDeploy::Client15535CoversDeployLateWalk);
+    let (t_new, m_new) = first_target_and_move(&new);
+    assert_eq!(&new[..t_old], &old[..t_old], "client15535_covers_deploy_late_walk: the slide or the hold moved");
+    assert_eq!(t_new, t_old + 1, "client15535_covers_deploy_late_walk: the target came on C + {t_new}, not C + {}", t_old + 1);
+    assert_eq!(m_new, t_new + 1, "client15535_covers_deploy_late_walk: the first move came on C + {m_new}, not C + {}", t_new + 1);
+    // its attack clock runs from its target's tick (the Giant in its reach there), its walk's wait aside
+    assert!(new[t_new].2 > 0, "client15535_covers_deploy_late_walk: no attack progress on its target's tick C + {t_new}: {:?}", &new[t_new - 1..=t_new + 1]);
 }
 
 // ---------------------------------------------------------------------------

@@ -267,6 +267,12 @@ pub struct Entities {
     /// `tick_status_timers`). None on every other entity, hashed only when set. `default` and sized on load at None.
     #[serde(default)]
     pub home_team: Vec<Option<crate::Team>>,
+    /// A PAIR CLONED IN ITS DEPLOY (spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy_late_walk, state.rs
+    /// `materialise_clones`): the first tick it walks and meets the contact law, the tick after its hold's end takes its
+    /// targets (the move pass skips it before then, as a freed captive). 0 on every other entity, hashed only while it is
+    /// ahead. `default` and sized on load at 0.
+    #[serde(default)]
+    pub walk_from: Vec<u32>,
     /// INVISIBLE WHEN IDLE (targeting.INVISIBILITY; target.rs `can_target`): the first tick of the window in which
     /// an enemy may target this unit, the tick after its last hit (state.rs, the attack pass); 0 before any hit.
     /// 0 on every other entity, hashed only for a card that carries the idle invisibility. `default` and sized on
@@ -895,6 +901,7 @@ impl Entities {
             self.life_n[i] = 0;
             self.spawn_waves[i] = 0;
             self.home_team[i] = None;
+            self.walk_from[i] = 0;
             self.reveal_from[i] = 0;
             self.mana_ms[i] = 0;
             self.attached_to[i] = None;
@@ -1052,6 +1059,7 @@ impl Entities {
             self.spawn_wave_left.push(0);
             self.spawn_waves.push(0);
             self.home_team.push(None);
+            self.walk_from.push(0);
             self.spawned_by.push(None);
             self.source.push(s.card);
             self.charge_progress.push(0);
@@ -1137,6 +1145,7 @@ impl Entities {
         self.spawn_wave_left[i] = 0;
         self.spawn_waves[i] = 0;
         self.home_team[i] = None;
+        self.walk_from[i] = 0;
         self.life_state[i] = 0;
         self.life_ms[i] = 0;
         self.life_target[i] = None;

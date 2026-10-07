@@ -1118,7 +1118,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.dismount_mount_birth, DismountMountBirth::Client15535HeroPoint, "a 15.535.29 capture's mount is born on the hero's point");
     assert_eq!(cfg.calib.clone_offset, CloneOffset::Client15535ColumnEdgeSlide, "a 15.535.29 capture's Clone pair slides toward its column's edge cell");
     assert_eq!(cfg.calib.spectral_birth_point, SpectralBirthPoint::Client15535WaterNudge, "a 15.535.29 capture's Spectral over water is made 1 to the right");
-    assert_eq!(cfg.calib.clone_hold_deploy, CloneHoldDeploy::Client15535CoversDeploy, "a 15.535.29 capture's Clone holds a deploying pair through its deploy");
+    assert_eq!(cfg.calib.clone_hold_deploy, CloneHoldDeploy::Client15535CoversDeployLateWalk, "a 15.535.29 capture's Clone holds a deploying pair through its deploy, its walk a tick after its targets");
     assert_eq!(cfg.calib.timed_jump_blow_stop, TimedJumpBlowStop::Client15535StopsAtBlow, "a 15.535.29 capture's timed jump stops at its blow");
     assert_eq!(cfg.calib.first_hit_buff_countdown, FirstHitBuffCountdown::Client15535FromNextTick, "a 15.535.29 capture's ghost counts down from the next tick");
     assert_eq!(cfg.calib.combo_pushback, ComboPushback::Client15535LadderArmedAtHit, "a 15.535.29 capture's combo push lands before the move");

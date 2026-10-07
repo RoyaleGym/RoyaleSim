@@ -6606,6 +6606,15 @@ calib_enum!(
         /// slide over C + 1 to C + 10 as ever, then standing on its point through C + 14 beside an enemy Giant the
         /// engine's pushed them off (the original 539 off by C + 14, the scene's first error).
         Client15535CoversDeploy = "client15535_covers_deploy",
+        /// client15535_covers_deploy a tick on, its walk a tick after its targets: the pair is held (no target, no update,
+        /// no push) through C + 1 + the original's deploy left on C before that tick's count (C + 15 in the scene, the
+        /// client's state 1), takes its targets and starts its attack on the tick after, and walks and meets the contact
+        /// law from the tick after that (entity.rs `walk_from`). Measured on client 15.535.29 (sp-m5-clone-s0, the same
+        /// cast, three originals and three copies): state 1 on C + 15, the targets on C + 16 (6 of 6), the first steps on
+        /// C + 17 (4 of 4 walkers, each the step client15535_covers_deploy takes on C + 15; an original against the Giant
+        /// pushed first on C + 17), the originals' first hits on the Giant on C + 25 (C + 24 under
+        /// client15535_covers_deploy), the Evo Skeletons' copies with them.
+        Client15535CoversDeployLateWalk = "client15535_covers_deploy_late_walk",
     }
 );
 calib_enum!(
@@ -13975,17 +13984,29 @@ impl BattleState {
             self.ents.stun_ms[j] = self.ents.stun_ms[j].max(hold.time_ms);
             // spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy: an original still deploying holds the pair for its
             // deploy left when that is longer than the hold, both of them (the hold timer, as the hold's own).
-            // PLANT (regression) clone_hold_ends_in_deploy: the new arm holds the pair the hold's time alone.
+            // client15535_covers_deploy_late_walk: for its deploy left before this tick's count (a tick more), and the walk
+            // a tick after (entity.rs `walk_from`): the pair takes its targets and starts its attack a tick before it walks
+            // or is pushed.
+            // PLANT (regression) clone_hold_ends_in_deploy: the new arms hold the pair the hold's time alone.
             #[cfg(not(clash_plant = "clone_hold_ends_in_deploy"))]
-            let covers = self.cfg.calib.clone_hold_deploy == CloneHoldDeploy::Client15535CoversDeploy;
+            let covers = self.cfg.calib.clone_hold_deploy != CloneHoldDeploy::HoldTime;
             #[cfg(clash_plant = "clone_hold_ends_in_deploy")]
             let covers = false;
-            if covers && original_deploy > hold.time_ms {
-                self.ents.stun_ms[i] = self.ents.stun_ms[i].max(original_deploy);
-                self.ents.stun_ms[j] = self.ents.stun_ms[j].max(original_deploy);
+            // PLANT (regression) clone_late_walk_unread: the late-walk arm holds the pair as client15535_covers_deploy.
+            #[cfg(not(clash_plant = "clone_late_walk_unread"))]
+            let late = self.cfg.calib.clone_hold_deploy == CloneHoldDeploy::Client15535CoversDeployLateWalk;
+            #[cfg(clash_plant = "clone_late_walk_unread")]
+            let late = false;
+            let left = original_deploy + if late { dt } else { 0 };
+            if covers && left > hold.time_ms {
+                self.ents.stun_ms[i] = self.ents.stun_ms[i].max(left);
+                self.ents.stun_ms[j] = self.ents.stun_ms[j].max(left);
                 // the hold's slot too, which keeps the pair out of the contact law (the move pass's `clone_held`)
                 for (u, uid) in [(i, o.src), (j, id)] {
-                    land_buff(&mut self.ents, &self.cfg.cards, &c, u, &crate::status::BuffHit::plain(uid, hold.buff, original_deploy, 0));
+                    land_buff(&mut self.ents, &self.cfg.cards, &c, u, &crate::status::BuffHit::plain(uid, hold.buff, left, 0));
+                    if late {
+                        self.ents.walk_from[u] = self.tick + 2 + (left / dt) as u32;
+                    }
                 }
             }
             // THE SLIDE: CLONE_DISTANCE_Y shared by the two, CLONE_DISTANCE_Y / 2 a tick each over the hold, the original
@@ -22198,6 +22219,15 @@ impl BattleState {
                 if freed_hold[i] {
                     continue;
                 }
+                // spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy_late_walk: A PAIR CLONED IN ITS DEPLOY DOES NOT MOVE ON
+                // ITS TARGETS' TICK (entity.rs `walk_from`): no walk, no avoidance, no separation scan of its own, as the
+                // freed captive above; its body stays collidable. Its target and its attack clock run (client 15.535.29,
+                // sp-m5-clone-s0: targets on C + 16 with no step, the first steps on C + 17, the first hits on C + 25).
+                // PLANT (regression) clone_walk_with_targets: the pair walks on its targets' tick.
+                #[cfg(not(clash_plant = "clone_walk_with_targets"))]
+                if e.walk_from[i] > self.tick {
+                    continue;
+                }
                 if calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0 {
                     if attract[i] != (0, 0) {
                         let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, (deploying || pull_edge) && !flying, &is_water, arena.cols, arena.rows);
@@ -22228,8 +22258,9 @@ impl BattleState {
                 // Ice Spirits, 3 battles) and stood still on 353 of 353 with none; a nonzero avoidance offset shrank
                 // by 10 on 28 of 28, walking (21) and attacking (7).
                 // spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy: a unit the Clone holds (its hold's slot live) takes no
-                // contact update: the client's state 8, unpushed to the hold's end (sp-m5-clone-s0 t823 to t826).
-                let clone_held = calib.clone_hold_deploy == CloneHoldDeploy::Client15535CoversDeploy
+                // contact update: the client's state 8, unpushed to the hold's end (sp-m5-clone-s0 t823 to t826; to t828,
+                // its targets' tick, under client15535_covers_deploy_late_walk).
+                let clone_held = calib.clone_hold_deploy != CloneHoldDeploy::HoldTime
                     && e.buff_slots(i).iter().any(|s| !s.is_empty() && self.cfg.cards.buffs.get(s.id as usize - 1).is_some_and(|d| d.clone_hold));
                 let held_walk = calib.held_unit_contact == HeldUnitContact::Client16402SpeedZeroUpdate
                     && !clone_held
@@ -31706,6 +31737,10 @@ impl BattleState {
                 if let Some(t) = e.home_team.get(i).copied().flatten() {
                     h.u32(u32::from(t as u8) + 1);
                 }
+                // A pair cloned in its deploy, only while its walk waits: a battle with none hashes as before the column.
+                if e.walk_from.get(i).is_some_and(|&w| w > self.tick) {
+                    h.u32(e.walk_from[i]);
+                }
                 h.opt_id(e.spawned_by[i]);
                 h.i32(e.charge_progress[i]);
                 h.bool(e.charged[i]);
@@ -33430,6 +33465,9 @@ impl BattleState {
 /// 20, unchanged, the Super Elite Archer's charm (status.rs `BuffDef::switch_team`): Entities gained home_team (`default`,
 ///    sized on load at None), hashed only while a charm holds a unit, so a blob saved before it deserializes and hashes as
 ///    it did.
+/// 20, unchanged, spells.CLONE_HOLD_DEPLOY gained client15535_covers_deploy_late_walk: Entities gained walk_from
+///    (`default`, sized on load at 0), hashed only while a pair's walk waits, so a blob saved before it deserializes and
+///    hashes as it did.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
 ///    carries its shot's tick), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
@@ -35047,6 +35085,7 @@ impl BattleState {
         snap.ents.life_n.resize(n, 0);
         snap.ents.spawn_waves.resize(n, 0);
         snap.ents.home_team.resize(n, None);
+        snap.ents.walk_from.resize(n, 0);
         snap.ents.reveal_from.resize(n, 0);
         snap.ents.mana_ms.resize(n, 0);
         snap.ents.attached_to.resize(n, None);

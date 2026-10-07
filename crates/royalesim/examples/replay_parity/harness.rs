@@ -1552,8 +1552,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   takes its first update that tick, meeting its body (6 of 6 mounts exact).
 ///   spells.CLONE_OFFSET = client15535_column_edge_slide: a Clone's pair each walk 125 a tick toward their own column's
 ///   edge cell (692 of 692 slide steps).
-///   spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy: a Clone holds a pair whose original is still deploying for its
-///   deploy left when longer than the hold (5 of 5 units of the one such cast).
+///   spells.CLONE_HOLD_DEPLOY = client15535_covers_deploy_late_walk: a Clone holds a pair whose original is still deploying
+///   for its deploy left when longer than the hold, a tick more, and the pair walks a tick after it takes its targets (6 of
+///   6 units of the one such cast).
 ///   combat.TIMED_JUMP_BLOW_STOP = client15535_stops_at_blow: a Mega Knight's jump stops at its blow, put on land then
 ///   when over water (6 of 6 jumps never move past the blow).
 ///   status.FIRST_HIT_BUFF_COUNTDOWN = client15535_from_next_tick: an Evo Minion Horde minion's ghost is counted down from
@@ -1762,7 +1763,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("transform.DISMOUNT_HOP_WATER", "\"client15535_land_row_centre\""),
     ("transform.DISMOUNT_MOUNT_BIRTH", "\"client15535_hero_point\""),
     ("spells.CLONE_OFFSET", "\"client15535_column_edge_slide\""),
-    ("spells.CLONE_HOLD_DEPLOY", "\"client15535_covers_deploy\""),
+    ("spells.CLONE_HOLD_DEPLOY", "\"client15535_covers_deploy_late_walk\""),
     ("combat.TIMED_JUMP_BLOW_STOP", "\"client15535_stops_at_blow\""),
     ("status.FIRST_HIT_BUFF_COUNTDOWN", "\"client15535_from_next_tick\""),
     ("combat.RETARGET_WAIT_REACH_LOSS", "\"client15535_after_reach_loss_variable_rows\""),
