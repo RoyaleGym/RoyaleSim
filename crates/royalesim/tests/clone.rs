@@ -16,8 +16,8 @@
 //!     killed by a Zap released two Barbarians of 1 hitpoint each.
 //!
 //! WHAT IS PINNED, each with its precondition:
-//!   1. the loader reads the Clone as its action with the table's rules, keeps the GlobalClone event refused by its
-//!      graph, and refuses the rules the engine does not run and a rule the file lacks;
+//!   1. the loader reads the Clone as its action with the table's rules, reads the GlobalClone event's own Buff as its
+//!      copies' hold (item 294), and refuses the rules the engine does not run and a rule the file lacks;
 //!   2. on C, one copy of each own troop inside and none of the one just outside, the building or the enemy, each on
 //!      its original's spot at hp 1 of 1;
 //!   3. the pair slides 125 a tick apart for 10 ticks along the owner's y axis, for either side;
@@ -167,11 +167,11 @@ fn the_clone_loads_as_its_action_with_the_tables_rules() {
     assert_eq!((def.speed_pct, def.hit_speed_pct, def.spawn_speed_pct, hold.time_ms), (-100, -100, -100, 500));
     assert_eq!(rules.distance_y, 250, "CLONE_DISTANCE_Y");
     assert!(rules.preserve_shield && !rules.reset_target && !rules.reset_charge && rules.death_spawns, "{rules:?}");
-    let why = s.cards().rejected.iter().find(|(n, _)| n == "GlobalClone").map(|(_, w)| w.clone()).expect("GlobalClone is refused");
-    assert!(
-        why.starts_with("area effect GlobalClone runs an action graph this loader does not read (ActionClone, ActionSpawn; spawns BuffType:Clone)"),
-        "the GlobalClone event keeps its refusal: {why}"
-    );
+    // The GlobalClone event (item 294): the Clone's shape with Radius 30000, its own Buff read as the copies' hold.
+    let g_spell = card_stat(&s, "GlobalClone").spell.as_ref().expect("GlobalClone loads as a spell");
+    let SpellShape::Clone { hit: g_hit, hold: g_hold, .. } = &g_spell.shape else { panic!("GlobalClone: {:?}", g_spell.shape) };
+    assert_eq!(g_hit.radius, 30000 * K, "the event's Radius");
+    assert_eq!(g_hit.buff.map(|b| (b.buff, b.time_ms)), Some((g_hold.buff, g_hold.time_ms)), "its own Buff is the copies' hold");
     // The synthetic copy loads with the table's rules, and the rules the engine does not run are refused.
     let g = table_globals();
     assert_eq!(g.as_object().map(|m| m.len()), Some(11), "the eleven CLONE_* globals: {g}");

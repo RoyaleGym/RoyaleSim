@@ -1988,6 +1988,25 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     })
                     .collect();
                 picked.sort_by_key(|&v| e.team_seq[v]);
+                // THE AREA'S OWN BUFF (the GlobalClone event's, card.rs `clone_shape_of`: the copies' hold): it lands on the
+                // own units in reach the action does not copy too (an earlier copy, an IgnoreClone unit), once each.
+                // PLANT (regression) global_clone_buff_on_picked_only: the area's own Buff reaches the copied units alone.
+                #[cfg(not(clash_plant = "global_clone_buff_on_picked_only"))]
+                if let Some(b) = hit.buff.as_ref() {
+                    let edge_of = |v: usize| match ctx.calib.aoe_hit_test {
+                        AoeHitTest::EdgeInclusive => e.radius[v],
+                        AoeHitTest::CentreInRadius => 0,
+                    };
+                    let mut passed: Vec<usize> = nb
+                        .iter()
+                        .map(|&v| v as usize)
+                        .filter(|&v| !picked.contains(&v) && eligible(e, v, s.team, hit, ctx.calib) && in_range_edge(*pos, e.pos[v], hit.radius, edge_of(v)))
+                        .collect();
+                    passed.sort_by_key(|&v| e.team_seq[v]);
+                    for v in passed {
+                        fx.buffs.push(BuffHit::plain(e.id_of(v), b.buff, b.time_ms, 0));
+                    }
+                }
                 for v in picked {
                     let id = e.id_of(v);
                     out.clones.push(CloneOrder { src: id, level: s.level, card: s.card });

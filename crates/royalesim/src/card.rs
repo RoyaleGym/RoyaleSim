@@ -1047,7 +1047,13 @@ fn strike_area_shape(aeo: &RawAreaEffect, sa: &RawStrikeArea, buffs: &mut BuffTa
 /// CLONE_MOVE_PARENT false, CLONE_CLONED_UNITS or CLONE_INHERIT_CHARGE true, CLONE_DEATH_SPAWN_UNITS and _BUILDINGS
 /// apart.
 fn clone_shape(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &LoadCtx) -> Option<Result<(SpellShape, UnitNeeds), String>> {
-    if aeo.clone != Some(true) || aeo.buff.is_some() {
+    // An area carrying its own Buff (the GlobalClone event's) is read when that Buff is the copies' hold (`clone_shape_of`).
+    // PLANT (regression) global_clone_refused: a clone area with its own Buff is left to the action-graph refusal again.
+    #[cfg(clash_plant = "global_clone_refused")]
+    if aeo.buff.is_some() {
+        return None;
+    }
+    if aeo.clone != Some(true) {
         return None;
     }
     let action = aeo.clone_action.as_ref()?;
@@ -1121,6 +1127,21 @@ fn clone_shape_of(aeo: &RawAreaEffect, action: &RawCloneAction, buffs: &mut Buff
         death_spawns: flag("CLONE_DEATH_SPAWN_UNITS"),
     };
     let hold = buffs.apply(raw_hold, on.spawn_time_ms, &format!("clone area effect {what}'s hold"))?;
+    // THE AREA'S OWN BUFF (the GlobalClone event's: Buff Clone, BuffTime 500): read only when it is the copies' hold -- the
+    // Clone buff, the OnClonedAction's own row, for its SpawnTime, neither capped to the area's time nor controlled -- so it
+    // interns to `hold`. It lands on every own unit the area reaches, the copied ones and the ones the action passes over
+    // (spell.rs, the Clone arm). Measured on client 15.535.29 (sp-event-GlobalClone-s0): the six copied pairs held C..C+9,
+    // as the Clone's; the units the action passes over were not in the capture (a table reading).
+    let own_buff = match aeo.buff.as_ref() {
+        None => None,
+        Some(b) => {
+            let same_row = b.clone == Some(true) && b.name.is_some() && b.name == raw_hold.name;
+            if !same_row || aeo.buff_time_ms != on.spawn_time_ms || aeo.cap_buff_time_to_area_effect_time == Some(true) || aeo.controls_buff == Some(true) {
+                return refuse(format!("its own Buff {} {:?} ms is not its copies' hold", b.name.clone().unwrap_or_default(), aeo.buff_time_ms));
+            }
+            Some(buffs.apply(b, aeo.buff_time_ms, &format!("clone area effect {what}'s own buff"))?)
+        }
+    };
     let hit = SpellHit {
         damage: 0,
         crown_pct: crown(aeo.crown_tower_damage_percent),
@@ -1133,7 +1154,7 @@ fn clone_shape_of(aeo: &RawAreaEffect, action: &RawCloneAction, buffs: &mut Buff
         ignore_buildings: aeo.ignore_buildings.unwrap_or(false),
         no_effect_to_crown_towers: aeo.no_effect_to_crown_towers.unwrap_or(false),
         knockback: None,
-        buff: None,
+        buff: own_buff,
         buff2: None,
         caps_buff_time: false,
         controls_buff: false,

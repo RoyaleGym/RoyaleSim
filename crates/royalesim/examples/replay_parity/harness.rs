@@ -2077,9 +2077,17 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 // to the Clone card. The recording names every copy by the Clone card's id (28000013), whatever unit it
                 // copies, so the maker labels it "Clone", and rooted as its unit it had no counterpart: sweep-Clone's
                 // copied Knight, sp-h8's copied hero Musketeer and sp-m5-clone's three copies were each an unmatched pair
-                // (a truth "Clone" and a sim Knight or Musketeer), and none of their rows was scored.
+                // (a truth "Clone" and a sim Knight or Musketeer), and none of their rows was scored. A copy GlobalClone made
+                // (the event card, its copies named by its own id) roots to GlobalClone: the clone card its side cast last
+                // within SPELL_RELEASE_LOOKBACK, "Clone" when none (a copy's later death spawn). Rooted "Clone",
+                // sp-event-GlobalClone-s0's six copies were unmatched.
                 // PLANT replay_roots_a_copy_as_its_unit: a copy roots as the unit it copies.
-                ("Clone".to_string(), "clone")
+                let maker = spell_casts.iter().rev().find(|(t, team, c)| {
+                    *team == e.team
+                        && tick.saturating_sub(*t) <= SPELL_RELEASE_LOOKBACK
+                        && matches!(db.get(*c).spell.as_ref().map(|sp| &sp.shape), Some(royalesim::card::SpellShape::Clone { .. }))
+                });
+                (maker.map_or_else(|| "Clone".to_string(), |(_, _, c)| db.get(*c).name.clone()), "clone")
             } else if let Some(k) = emitted_by {
                 #[cfg(not(clash_plant = "replay_roots_an_emitted_card_as_deployed"))]
                 let root = (sim[k].root.clone(), "spawner");
