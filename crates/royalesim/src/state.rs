@@ -1105,6 +1105,10 @@ pub struct Calib {
     /// captive's facing. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `WalkFacing`.
     #[serde(default = "capture_drag_facing_default")]
     pub capture_drag_facing: CaptureDragFacing,
+    /// pathfinding.LADDER_PLAN_SEGMENT (`phase_path16402_for`'s pushback-tick plan): when a route planned on a ladder
+    /// tick freezes its segment. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `WalkTick`.
+    #[serde(default = "ladder_plan_segment_default")]
+    pub ladder_plan_segment: LadderPlanSegment,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2799,6 +2803,10 @@ fn cage_captive_avoidance_default() -> CageCaptiveAvoidance {
 
 fn capture_drag_facing_default() -> CaptureDragFacing {
     CaptureDragFacing::WalkFacing
+}
+
+fn ladder_plan_segment_default() -> LadderPlanSegment {
+    LadderPlanSegment::WalkTick
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6827,6 +6835,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// pathfinding.LADDER_PLAN_SEGMENT -- see `phase_path16402_for` (knockback.LADDER_PATH_REQUEST's plan on a pushback
+    /// tick): when the new route's segment direction is frozen.
+    LadderPlanSegment {
+        /// The engine's: left unfrozen; the first walk step after the ladder freezes it from that tick's start point.
+        WalkTick = "walk_tick",
+        /// On the plan tick, from the start-of-tick point toward the route's next node; it holds through the ladder and the
+        /// first walk step. Measured on client 15.535.29: 133 of 133 ladder-tick plans, 21 of 21 first walk steps kept it
+        /// (sp-m3-radius-s0 key 34: the client's node popped a tick before the engine's, the scene's first divergence).
+        Client15535PlanTick = "client15535_plan_tick",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8836,6 +8856,7 @@ impl Calib {
             hero_tomb_emission_nudge: pick(&v, &["spawner", "HERO_TOMB_EMISSION_NUDGE", "value"], HeroTombEmissionNudge::from_calibration_name)?,
             cage_captive_avoidance: pick(&v, &["collision", "CAGE_CAPTIVE_AVOIDANCE", "value"], CageCaptiveAvoidance::from_calibration_name)?,
             capture_drag_facing: pick(&v, &["movement", "CAPTURE_DRAG_FACING", "value"], CaptureDragFacing::from_calibration_name)?,
+            ladder_plan_segment: pick(&v, &["pathfinding", "LADDER_PLAN_SEGMENT", "value"], LadderPlanSegment::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -21143,7 +21164,20 @@ impl BattleState {
                                         let chain: Vec<i32> = g.pf.find_path(sc, sr, gc, gr, true, &cost).to_vec();
                                         let cols = arena.cols;
                                         routes[i] = chain.iter().map(|&n| arena.half_to_subtile_center(n % cols, n / cols)).collect();
-                                        segs[i] = Vec2::default();
+                                        // pathfinding.LADDER_PLAN_SEGMENT = client15535_plan_tick: the segment frozen at once, from
+                                        // the start-of-tick point toward the next node (client 15.535.29: 133 of 133 ladder plans).
+                                        // PLANT (regression) ladder_plan_segment_unfrozen: the new arm leaves it to the walk.
+                                        #[cfg(not(clash_plant = "ladder_plan_segment_unfrozen"))]
+                                        let freeze = calib.ladder_plan_segment == LadderPlanSegment::Client15535PlanTick;
+                                        #[cfg(clash_plant = "ladder_plan_segment_unfrozen")]
+                                        let freeze = false;
+                                        segs[i] = match routes[i].last().filter(|_| freeze) {
+                                            Some(p) => {
+                                                let d = move16402::segment_dir(actor.0, actor.1, (p.x / K, p.y / K));
+                                                Vec2::new(d.0, d.1)
+                                            }
+                                            None => Vec2::default(),
+                                        };
                                     }
                                     goals[i] = Some(Vec2::new(gc, gr));
                                     planned[i] = self.scratch.occluder_epoch[e.team[i] as usize];
@@ -32433,6 +32467,9 @@ impl BattleState {
 /// 20, unchanged, movement.CAPTURE_DRAG_FACING: Calib gained capture_drag_facing (serde default the old arm,
 ///    walk_facing), no new state (the facing is the saved `facing`), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, pathfinding.LADDER_PLAN_SEGMENT: Calib gained ladder_plan_segment (serde default the old arm,
+///    walk_tick), no new state (the segment is the saved `seg_dir`), so a blob saved before it deserializes and hashes
+///    as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
 ///    saved before it deserializes and hashes as it did.
 /// 20, unchanged, spawner.EVO_COPY_POINT gained client15535_ahead_outward_behind_clamped, no new state, so a blob
@@ -33482,6 +33519,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("cage_captive_avoidance".into(), serde_json::to_value(CageCaptiveAvoidance::Scanned).map_err(|e| e.to_string())?);
     // movement.CAPTURE_DRAG_FACING: a format-3 battle's dragged captive kept its facing (the same rule).
     sh.insert("capture_drag_facing".into(), serde_json::to_value(CaptureDragFacing::WalkFacing).map_err(|e| e.to_string())?);
+    // pathfinding.LADDER_PLAN_SEGMENT: a format-3 battle's ladder-tick plan left its segment unfrozen (the same rule).
+    sh.insert("ladder_plan_segment".into(), serde_json::to_value(LadderPlanSegment::WalkTick).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

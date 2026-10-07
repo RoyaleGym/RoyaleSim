@@ -14,12 +14,14 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test ladder_path_request`):
 //!   * `ladder_plans_at_end` -- the new arm still plans only when the ladder ends: (1) goes red.
+//!   * `ladder_plan_segment_unfrozen` -- pathfinding.LADDER_PLAN_SEGMENT's new arm leaves the plan's segment to the
+//!     walk: (4) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, LadderPathRequest};
+use royalesim::state::{BattleConfig, BattleState, Calib, LadderPathRequest, LadderPlanSegment};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -85,4 +87,54 @@ fn the_old_value_plans_only_when_the_ladder_ends() {
 #[test]
 fn the_shipped_value_is_ladder_end() {
     assert_eq!(Calib::shipped().ladder_path_request, LadderPathRequest::LadderEnd);
+}
+
+/// (4) pathfinding.LADDER_PLAN_SEGMENT (client 15.535.29: 133 of 133 ladder-tick plans froze their segment on the plan
+/// tick from the start-of-tick point): the scene under client15535_on_ladder; on the tick the blue Knight's ladder plan
+/// lands (its route empty before, held after): its segment, and the direction (256 long) from its point before that tick
+/// toward the route's next node.
+fn plan_tick_segment(arm: LadderPlanSegment) -> ((i32, i32), (i32, i32)) {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.ladder_path_request = LadderPathRequest::Client15535OnLadder;
+    cfg.calib.ladder_plan_segment = arm;
+    cfg.decks = [vec!["Knight".into(), "Zap".into()], vec!["Knight".into(), "Fireball".into()]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(3, cfg);
+    past_deploy_lockout(&mut s);
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Blue, "Knight", n(9000, 12000), None), (Team::Red, "Knight", n(9000, 13300), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let blue = ids[0];
+    for _ in 0..60 {
+        s.tick();
+    }
+    let at = s.entity(blue).expect("the blue Knight").pos;
+    s.spawn_unit(Team::Red, "Fireball", at, None).expect("the Fireball");
+    for _ in 0..90 {
+        let (p0, had) = {
+            let k = s.entity(blue).expect("the blue Knight");
+            (k.pos, !k.route.is_empty())
+        };
+        s.tick();
+        let k = s.entity(blue).expect("the blue Knight");
+        if !had && k.push_active && !k.route.is_empty() {
+            let node = *k.route.last().expect("a node");
+            let mut d = ((node.x - p0.x) / K, (node.y - p0.y) / K);
+            let len = isqrt(i64::from(d.0) * i64::from(d.0) + i64::from(d.1) * i64::from(d.1)).max(1);
+            d = ((i64::from(d.0) * 256 / len) as i32, (i64::from(d.1) * 256 / len) as i32);
+            return ((k.seg_dir.x, k.seg_dir.y), d);
+        }
+    }
+    panic!("{arm:?}: the scene drifted: no plan on a ladder tick");
+}
+
+/// Plant: ladder_plan_segment_unfrozen.
+#[test]
+fn a_ladder_tick_plan_freezes_its_segment_at_once_under_client15535_plan_tick() {
+    let (seg, d) = plan_tick_segment(LadderPlanSegment::Client15535PlanTick);
+    assert!((seg.0 - d.0).abs() <= 1 && (seg.1 - d.1).abs() <= 1, "client15535_plan_tick: the segment {seg:?} is not toward the next node from the start of the tick {d:?}");
+    // NOT VACUOUS: walk_tick leaves it unfrozen on the plan tick.
+    let (old, _) = plan_tick_segment(LadderPlanSegment::WalkTick);
+    assert_eq!(old, (0, 0), "walk_tick: the plan tick's segment is frozen");
 }

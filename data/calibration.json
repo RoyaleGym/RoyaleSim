@@ -1173,6 +1173,17 @@
         "PATHFINDING_FRIENDLYONLY_OCCLUSIONS does not restrict the stamping (every building of both sides is stamped, measured); what the flag does gate is the replan trigger: only the own side's occluder set changing forces a new search"
       ]
     },
+    "LADDER_PLAN_SEGMENT": {
+      "value": "walk_tick",
+      "candidates": ["walk_tick", "client15535_plan_tick"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_plan_tick on client 15.535.29: 133 of 133 plans on a ladder tick froze the segment on that tick from the start-of-tick point, 21 of 21 first walk steps after one kept it, 0 of 312 ladder ticks popped a node; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r55_ladder_route_census.py: strict ladder ticks, facing unchanged, steps shrinking 25 +- 4 a tick, the step more than 45 degrees off the facing; 1,900 ladder ticks over all 1,675 raw files; the route's path_nodes and path_segment_direction per tick). (a) 133 of 133 plans on a ladder tick have the segment frozen on the plan tick from the start-of-tick point, normalize_to(centre(next node) - S, 256) (130 discriminate the start-of-tick point from the moved one); 0 unfrozen, 0 from the moved point. (b) 312 ladder ticks with a route whose projection was <= 1000 kept their node, 0 popped (the engine runs no reached test there either). (c) 21 of 21 first walk ticks after a ladder plan, where the readings differ, kept the plan-time segment, 0 refrozen from the walk tick's start point (sp-m3-radius-s0, sp-il-8b9b, sp-il-8e13, sp-axe-Knight-2000-s0, sp-champ-Monk-nopress-s0, sp-ec-Firecracker, sp-f2-cagefb-s0, sp-form-AxeMan-evo-s0, sp-hero2-DarkPrince-melee-s0, sp-rg-evo-attack-s0, sp-splashkill-Valkyrie-Golem-v0, ub-gd1-tower-knight, ub-ph2). A looser census (r55_plan_freeze_census.py): 31,824 plan ticks of every kind, 0 left unfrozen on the plan tick. sp-m3-radius-s0 key 34: the client's segment (-118, -226) from t989, the engine's (-55, -250) frozen on t998; projections at t1000 960 and 1,046, so the client popped the node on t1000, the engine on t1001, the scene's first divergence (17 off).",
+      "meaning": "walk_tick: the engine's; a route planned on a pushback-ladder tick (knockback.LADDER_PATH_REQUEST) leaves its segment unfrozen, and the first walk step after the ladder freezes it from that tick's start point. client15535_plan_tick: the plan freezes it at once, segment_dir from the start-of-tick point toward the route's next node; the ladder runs no reached test, and the first walk step keeps it.",
+      "open": "16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_plan_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (the pushback-tick plan's `segs[i]`), selected by Calib::ladder_plan_segment; tests/ladder_path_request.rs."
+    },
     "REPATH_INTERVAL_TICKS": {
       "value": null,
       "units": "ticks; null = no periodic replan, the triggers in REPLAN_TRIGGERS instead",
