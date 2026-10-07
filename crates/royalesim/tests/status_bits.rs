@@ -115,3 +115,22 @@ fn a_champion_on_the_board_carries_no_hero_bit() {
         assert_eq!(e[0].status_flags & 24, 0, "{name}: neither evolved nor a hero (status {})", e[0].status_flags);
     }
 }
+
+#[test]
+fn status_bits_name_every_bit_the_export_sets() {
+    // py.rs STATUS_BITS: name k is bit k. The values the export sets (entity.rs `status_flags`, state.rs `view`).
+    let want = [
+        ("underground", 1),
+        ("invisible", 2),
+        ("hidden", 4),
+        ("evolved", 8),
+        ("hero", 16),
+        ("clone", 32),
+        ("ability_windup", 64),
+        ("ability_active", 128),
+        ("charged", 256),
+        ("grounded", 512),
+    ];
+    let got: Vec<(&str, i32)> = royalesim::py::STATUS_BITS.iter().enumerate().map(|(k, n)| (*n, 1 << k)).collect();
+    assert_eq!(got, want.to_vec());
+}

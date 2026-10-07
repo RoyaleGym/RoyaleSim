@@ -317,7 +317,8 @@ pub const ENTITY_FIELDS: [&str; 28] = [
     // added 2026-09-25: the engine's own status bits (entity.rs `Entities::status_flags`):
     // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide; bit 3 an evolved unit;
     // bit 4 a hero unit; added 2026-10-03 (what a human sees): bit 5 a Clone's copy, bit 6 its ability winding up,
-    // bit 7 its ability active, bit 8 fully charged (state.rs `BattleState::ability_state`)
+    // bit 7 its ability active, bit 8 fully charged (state.rs `BattleState::ability_state`); added 2026-10-07: bit
+    // 9 a flier held to the ground (entity.rs `in_air`). STATUS_BITS names them in bit order.
     "status_flags",
     // added 2026-09-28: the unified level the entity plays at (state.rs `EntityView::level`): a played unit's card
     // level, a Mirror's copy that plus one, a Clone's copy the Clone's (spells.CLONE_LEVEL), a unit another puts down
@@ -342,6 +343,22 @@ pub const ENTITY_FIELDS: [&str; 28] = [
     // `unit_types_of`'s list (`Battle.unit_types_json`). `card_id` is the producer, so the Witch's, a Tombstone's and
     // a Skeleton Army's Skeletons report three card ids and one unit_type. Never -1 for an entity on the board.
     "unit_type",
+];
+
+/// THE STATUS BITS of an entity row's `status_flags` (ENTITY_FIELDS), in bit order: name k is bit k (value 1 << k).
+/// A reader asks this list for a bit by name; a bit missing from it is one this engine does not report, never one it
+/// reports as unset. Pinned to the export by `status_bits_name_every_bit_the_export_sets`.
+pub const STATUS_BITS: [&str; 10] = [
+    "underground",
+    "invisible",
+    "hidden",
+    "evolved",
+    "hero",
+    "clone",
+    "ability_windup",
+    "ability_active",
+    "charged",
+    "grounded",
 ];
 
 /// THE PROJECTILE ROW'S FIELDS, in `state_json`'s order (its `projectiles` key). Same
@@ -2400,6 +2417,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pushback_step16402, m)?)?;
     m.add("DEPLOY_REASONS", DEPLOY_REASONS.to_vec())?;
     m.add("ENTITY_FIELDS", ENTITY_FIELDS.to_vec())?;
+    m.add("STATUS_BITS", STATUS_BITS.to_vec())?;
     m.add("UNIT_ROLES", UNIT_ROLES.to_vec())?;
     m.add("PROJECTILE_FIELDS", PROJECTILE_FIELDS.to_vec())?;
     m.add("SPELL_FIELDS", SPELL_FIELDS.to_vec())?;

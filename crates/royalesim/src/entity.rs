@@ -797,7 +797,8 @@ impl Entities {
 
     /// THE STATUS BITS of entity `i` that the entity table alone decides, as the protocol's
     /// `status_flags` column reports them (py.rs ENTITY_FIELDS): bit 0 `underground`, bit 2
-    /// under ground by its own hide (`HideState::Hidden`: a Tesla with nothing to shoot).
+    /// under ground by its own hide (`HideState::Hidden`: a Tesla with nothing to shoot), bit 9 a
+    /// flier a Vines catch holds to the ground (`flying` and not `in_air`: what targeting reads).
     /// Bit 1, invisible to enemies, needs the ledger, the card table and the tick, so the
     /// export adds it from target.rs `invisible_at` (state.rs `view`). Each bit is the
     /// predicate the engine itself acts on, so an observation built from it reads what the
@@ -809,6 +810,9 @@ impl Entities {
         }
         if self.hide[i] == HideState::Hidden {
             bits |= 4;
+        }
+        if self.flying[i] && !self.in_air(i) {
+            bits |= 512;
         }
         bits
     }

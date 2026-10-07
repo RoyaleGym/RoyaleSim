@@ -41,7 +41,7 @@
 //!   * `vines_rank_ignores_shield` -- the rank leaves the shield out: (4) goes red.
 //!   * `vines_ranked_once` -- no unit that was not on the board at the first catch is caught later: (5) goes red.
 //!   * `crown_per_hit_ignored` (tests/curse.rs's) -- a crown tower takes the percent route: (3) goes red.
-//!   * `grounding_ignored` -- a caught flier stays in the air: (6) goes red.
+//!   * `grounding_ignored` -- a caught flier stays in the air: (6) goes red, and its status bit 9 never shows.
 //!   * `vines_skips_hidden` -- a blank FilterHidden read as set: (1) and (7) go red.
 //!   * `hash_skips_grounded`, `hash_skips_reach_hidden` -- the window, the slot's reach not hashed: (8) goes red.
 #![allow(unexpected_cfgs)]
@@ -293,6 +293,29 @@ fn a_caught_balloon_is_a_ground_target_until_c_plus_60() {
     c.calib.air_to_ground_window = AirToGroundWindow::TotalDuration;
     let (on, _, _) = balloon_targeted(c);
     assert_eq!(on.last(), Some(&58), "under total_duration, through C' + 40: {on:?}");
+}
+
+/// Plant: grounding_ignored. The export's status bit 9 (512) is the same predicate (entity.rs `in_air`): set on the
+/// caught Balloon exactly while its window runs, and not before the catch.
+#[test]
+fn a_caught_balloon_reports_status_bit_9_while_it_is_held() {
+    let mut s = BattleState::new(0, shipped());
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Red, "Balloon", at((9000, 15600)), None), (Team::Blue, "Knight", at((9000, 14300)), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    s.spawn_unit(Team::Blue, "Vines", at((9000, 15600)), None).expect("cast Vines");
+    let mut held = Vec::new();
+    for k in 0..64u32 {
+        s.tick();
+        let v = s.entity(ids[0]).expect("the scene drifted: the Balloon died inside the run");
+        assert!(v.flying, "the Balloon is a flier throughout");
+        assert_eq!(v.status_flags & 512 != 0, v.grounded_ms > 0, "tick {k}: bit 9 is the hold (window {})", v.grounded_ms);
+        if v.status_flags & 512 != 0 {
+            held.push(k);
+        }
+    }
+    assert!(held.first().is_some_and(|&k| k >= 18) && held.len() >= 30, "held on the ticks {held:?}");
+    assert_eq!(held.last().copied(), Some(held[0] + held.len() as u32 - 1), "one unbroken hold: {held:?}");
 }
 
 // ---------------------------------------------------------------------------
