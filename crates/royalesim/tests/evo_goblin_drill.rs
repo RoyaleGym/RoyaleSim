@@ -14,7 +14,8 @@
 //!   - drill_hide_collides -> the same red (its Goblins pushed off its footprint);
 //!   - drill_hide_acquired_at_once -> `a_hides_goblins_are_targets_from_their_8th_frame` red;
 //!   - evo_drill_death_ring_unlisted -> `its_buildings_death_goblins_are_laid_on_the_x_axis_ring` red;
-//!   - drill_under_shot_lands -> `a_shot_in_flight_at_a_building_that_goes_under_lands_on_nothing_under_client15535_dropped` red.
+//!   - drill_under_shot_lands -> `a_shot_in_flight_at_a_building_that_goes_under_lands_on_nothing_under_client15535_dropped` red;
+//!   - drill_body_back_at_hide_time -> `its_body_returns_three_ticks_after_its_hide_time_under_client15535_hide_time_plus_3` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -237,4 +238,47 @@ fn a_shot_in_flight_at_a_building_that_goes_under_lands_on_nothing_under_client1
     // NOT VACUOUS: under lands (the Tesla's rule) the same shot takes its damage off the building.
     let (held, after) = shot_through_hide(royalesim::state::DrillUnderShot::Lands);
     assert!(after < held, "lands: the shot did not land ({held} -> {after})");
+}
+
+/// Under `arm`: a blue Knight held 650 from the building's centre (an overlap of 350), deployed before the building is
+/// taken under (to its 66 % line) on T, the building's Goblins out of the scene: from T + 18 to T + 26, (the tick less T,
+/// whether the Knight met a body's push).
+fn rise_pushes(arm: royalesim::state::DrillRiseBody) -> Vec<(u32, bool)> {
+    let (mut s, d) = drill_battle(|c| c.calib.drill_rise_body = arm);
+    let kn = s.scenario_spawn_now(Team::Blue, "Knight", n(9650, 10000), None).expect("the Knight");
+    let hold = |s: &mut BattleState| {
+        clear_blue_troops(s, &[kn]);
+        assert!(s.debug_set_pos(kn, n(9650, 10000)));
+    };
+    for _ in 0..25 {
+        hold(&mut s);
+        s.tick();
+    }
+    assert!(!s.entity(kn).expect("the Knight").deploying, "the scene drifted: the Knight still deploys");
+    assert!(s.debug_set_hp(d, 866));
+    hold(&mut s);
+    s.tick();
+    assert_eq!(s.entity(d).expect("the building").hide_state, HideState::Hidden, "the scene drifted: it did not go under");
+    let mut rows = Vec::new();
+    for k in 1..=26u32 {
+        hold(&mut s);
+        s.tick();
+        if k >= 18 {
+            let e = s.entity(kn).expect("the Knight lives");
+            rows.push((k, e.push_neighbours > 0 && (e.push_applied.x != 0 || e.push_applied.y != 0)));
+        }
+    }
+    rows
+}
+
+/// collision.DRILL_RISE_BODY (item 286; client 15.535.29: 2 of 2 units overlapping the building took no push on
+/// T + 20 .. T + 22 and the capped push on T + 23). Plant: drill_body_back_at_hide_time.
+#[test]
+fn its_body_returns_three_ticks_after_its_hide_time_under_client15535_hide_time_plus_3() {
+    let rows = rise_pushes(royalesim::state::DrillRiseBody::Client15535HideTimePlus3);
+    let first = rows.iter().find(|r| r.1).map(|r| r.0);
+    assert_eq!(first, Some(23), "client15535_hide_time_plus_3: the first push from the building: {rows:?}");
+    // NOT VACUOUS: under hide_time the Knight meets its body on T + 20.
+    let rows = rise_pushes(royalesim::state::DrillRiseBody::HideTime);
+    assert_eq!(rows.iter().find(|r| r.1).map(|r| r.0), Some(20), "hide_time: the first push from the building: {rows:?}");
 }

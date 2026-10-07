@@ -5070,6 +5070,10 @@ pub struct DrillDef {
 
 /// The ticks an Evo Goblin Drill takes to come back up after its HideTime (`DrillDef`): measured 19 (state 4).
 pub const DRILL_RISE_TICKS: u32 = 19;
+
+/// collision.DRILL_RISE_BODY = client15535_hide_time_plus_3: the ticks past its HideTime an Evo Goblin Drill building still
+/// meets no body (state.rs `drill_off`). Measured 3 on client 15.535.29: 2 of 2 overlapping units pushed first on T + 23.
+pub const DRILL_RISE_BODY_EXTRA_TICKS: u32 = 3;
 /// The ticks an Evo Goblin Drill's spawner is held by each hide (`DrillDef`): measured 37 (its regular Goblins 97 ticks
 /// apart across a hide, 60 without).
 pub const DRILL_SPAWNER_HOLD_TICKS: u32 = 37;

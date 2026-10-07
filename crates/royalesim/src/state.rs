@@ -1135,6 +1135,10 @@ pub struct Calib {
     /// under. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Lands`.
     #[serde(default = "drill_under_shot_default")]
     pub drill_under_shot: DrillUnderShot,
+    /// collision.DRILL_RISE_BODY (the move pass's `drill_off`): how long an Evo Goblin Drill building gone under meets
+    /// no body. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `HideTime`.
+    #[serde(default = "drill_rise_body_default")]
+    pub drill_rise_body: DrillRiseBody,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2857,6 +2861,10 @@ fn hero_tomb_dummy_obstacle_default() -> HeroTombDummyObstacle {
 
 fn drill_under_shot_default() -> DrillUnderShot {
     DrillUnderShot::Lands
+}
+
+fn drill_rise_body_default() -> DrillRiseBody {
+    DrillRiseBody::HideTime
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6983,6 +6991,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// collision.DRILL_RISE_BODY -- see the move pass's `drill_off`: an Evo Goblin Drill building's body through its hide.
+    DrillRiseBody {
+        /// The engine's: off for HideTime from the tick it went under (T .. T + 19).
+        HideTime = "hide_time",
+        /// Off three ticks more (card.rs DRILL_RISE_BODY_EXTRA_TICKS): a body again from T + 23. Measured on client
+        /// 15.535.29: 2 of 2 units overlapping it across T + 20 .. T + 23 took no push until T + 23 and the 150-capped push
+        /// off its centre then (sp-form-GoblinDrill-evo-s0 T 1144, sp-f4-drill-s0 T 1116).
+        Client15535HideTimePlus3 = "client15535_hide_time_plus_3",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8999,6 +9018,7 @@ impl Calib {
             newborn_first_target: pick(&v, &["targeting", "NEWBORN_FIRST_TARGET", "value"], NewbornFirstTarget::from_calibration_name)?,
             hero_tomb_dummy_obstacle: pick(&v, &["pathfinding", "HERO_TOMB_DUMMY_OBSTACLE", "value"], HeroTombDummyObstacle::from_calibration_name)?,
             drill_under_shot: pick(&v, &["hide", "DRILL_UNDER_SHOT", "value"], DrillUnderShot::from_calibration_name)?,
+            drill_rise_body: pick(&v, &["collision", "DRILL_RISE_BODY", "value"], DrillRiseBody::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -20891,14 +20911,23 @@ impl BattleState {
         // the tick it went under; no unit meets its body. Measured on client 15.535.29 (sp-f4-drill-s0): its hide's Goblins
         // stood 500 from its centre, on its footprint, and were not pushed off it.
         let mut drill_off = vec![false; self.ents.capacity()];
+        // collision.DRILL_RISE_BODY = client15535_hide_time_plus_3: off three ticks past HideTime, a body from T + 23 (client
+        // 15.535.29: 2 of 2 overlapping units pushed first on T + 23; sp-form-GoblinDrill-evo-s0 T 1144).
+        // PLANT (regression) drill_body_back_at_hide_time: the new arm's building is a body from T + 20 again.
+        #[cfg(not(clash_plant = "drill_body_back_at_hide_time"))]
+        let rise_extra = if self.cfg.calib.drill_rise_body == DrillRiseBody::Client15535HideTimePlus3 { crate::card::DRILL_RISE_BODY_EXTRA_TICKS } else { 0 };
+        #[cfg(clash_plant = "drill_body_back_at_hide_time")]
+        let rise_extra = 0;
         #[cfg(not(clash_plant = "drill_hide_collides"))]
         for r in self.evo.drills.iter().filter(|r| r.under_at > 0 && self.ents.is_alive(r.id)) {
             let i = r.id.index as usize;
             let dt = self.cfg.calib.tick_ms.max(1);
-            if self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.drill).is_some_and(|d| self.tick < r.under_at + (d.hide_ms / dt) as u32) {
+            if self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.drill).is_some_and(|d| self.tick < r.under_at + (d.hide_ms / dt) as u32 + rise_extra) {
                 drill_off[i] = true;
             }
         }
+        #[cfg(clash_plant = "drill_hide_collides")]
+        let _ = rise_extra;
         // THE HERO DARK PRINCE'S DISMOUNT (card.rs `DismountDef`): DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS for its
         // `no_collide_ms` from the trigger; no unit meets its body.
         #[cfg(not(clash_plant = "dismount_collides"))]
@@ -32871,6 +32900,9 @@ impl BattleState {
 /// 20, unchanged, hide.DRILL_UNDER_SHOT: Calib gained drill_under_shot (serde default the old arm, lands), no new state
 ///    (read at the landing), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
+/// 20, unchanged, collision.DRILL_RISE_BODY: Calib gained drill_rise_body (serde default the old arm, hide_time), no
+///    new state (read from the hide's start), so a blob saved before it deserializes and hashes as it did. migrate_v3
+///    runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
@@ -33936,6 +33968,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("hero_tomb_dummy_obstacle".into(), serde_json::to_value(HeroTombDummyObstacle::None).map_err(|e| e.to_string())?);
     // hide.DRILL_UNDER_SHOT: a format-3 battle's shot at a building gone under followed the hide rule (the same rule).
     sh.insert("drill_under_shot".into(), serde_json::to_value(DrillUnderShot::Lands).map_err(|e| e.to_string())?);
+    // collision.DRILL_RISE_BODY: a format-3 battle's drill met bodies again after HideTime (the same rule).
+    sh.insert("drill_rise_body".into(), serde_json::to_value(DrillRiseBody::HideTime).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

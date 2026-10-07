@@ -866,6 +866,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_masked (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_path16402_for (`caged`, `cage_masked`), selected by Calib::cage_captive_avoidance; tests/evo_goblin_cage.rs."
     },
+    "DRILL_RISE_BODY": {
+      "value": "hide_time",
+      "candidates": ["hide_time", "client15535_hide_time_plus_3"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_hide_time_plus_3 on client 15.535.29: 2 of 2 hides in which a unit overlapped the building across T + 20 .. T + 23 (no push on T + 20 .. T + 22, the capped push on T + 23); the other 4 hides had no unit in reach. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r56_drill_hide_census.py section F over the 6 Evo drill hides of sp-ec-GoblinDrill, sp-f4-drill-s0 and sp-form-GoblinDrill-evo-s0; contact read from the displacements, the frames' collision fields being empty). sp-form-GoblinDrill-evo-s0 T 1144, Goblin 41: start distances 581, 657, 761 on T + 20 .. T + 22 (overlaps 419, 343, 239), plain steps of 119; on T + 23 (t1167) the step (216, 129) = the 150-capped push (97, 114) straight off the centre + its walk (119, 15). sp-f4-drill-s0 T 1116, Goblin 37: overlaps 353, 293, 204, plain steps of 120; on T + 23 (t1139) (-72, 254) = (-16, 149) + (-56, 105). The engine (off for HideTime) pushed Goblin 41 by (60, 137) on t1164 = T + 20, the root of sp-form-GoblinDrill-evo-s0's first loss. Refuted: off through the whole rise (to T + 38): both were pushed on T + 23.",
+      "meaning": "hide_time: the engine's; an Evo Goblin Drill building gone under on T meets no body on T .. T + 19 (HideTime). client15535_hide_time_plus_3: on T .. T + 22 (card.rs DRILL_RISE_BODY_EXTRA_TICKS 3), a static body again from T + 23.",
+      "open": "Avoidance votes in the window (none met); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_hide_time_plus_3 (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (`drill_off`), selected by Calib::drill_rise_body; card.rs DRILL_RISE_BODY_EXTRA_TICKS; tests/evo_goblin_drill.rs."
+    },
     "HELD_UNIT_AVOIDANCE": {
       "value": "masked",
       "candidates": ["scanned", "masked"],
