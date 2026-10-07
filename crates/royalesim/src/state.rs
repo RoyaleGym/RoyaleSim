@@ -16767,6 +16767,9 @@ impl BattleState {
                 continue;
             }
             let decay = if self.ents.kind[i] == EntityKind::Troop { troop_decay } else { decay };
+            // A SPAWNER'S BOTTLE'S BODY (card.rs `bottle_body`, the Super Mini PEKKA's pancake) lasts its fuse to the tick,
+            // whatever its few hitpoints: the drain's whole-hitpoint steps would round it.
+            let decay = if self.cfg.cards.get(self.ents.card[i]).untargetable { LifetimeDecay::ExpiryHit } else { decay };
             if lifetime_paused && self.ents.stun_ms[i] > 0 {
                 continue;
             }

@@ -211,8 +211,9 @@ fn the_barrel_and_its_container_load() {
     assert_eq!(db.get(inner.unit).name, "Skeleton");
     assert_eq!((inner.count, inner.radius, inner.deploy_time_ms), (7, Some(milli(1480)), Some(500)), "count, DeathSpawnRadius, DeathSpawnDeployTime");
     assert_eq!(db.scaled(inner.unit, LEVEL, db.get(inner.unit).hitpoints).unwrap(), 81, "a Skeleton at level 11, measured 81");
-    // The other hitpoint-less rows keep their refusals: a bottle is no container.
-    for (card, why) in [("SuperHogRider", "units.SantaPresent"), ("SuperMiniPekka", "units.SuperMiniPekkaPancakes")] {
+    // The other hitpoint-less rows keep their refusals: a bottle is no container (the Super Mini PEKKA's pancake, a
+    // spawner's bottle with a body, loads as `bottle_body`'s, item 298).
+    for (card, why) in [("SuperHogRider", "units.SantaPresent")] {
         let got = db.rejected.iter().find(|(n, _)| n == card).map(|(_, w)| w.clone());
         assert!(got.as_deref().is_some_and(|w| w.starts_with(why)), "{card}: {got:?}");
     }

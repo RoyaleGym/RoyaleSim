@@ -3084,6 +3084,9 @@ pub struct CardDef {
     /// NO_DAMAGE (the Evo Skeleton Army's Spectral, `ArmyDef`): no hit lands on it (combat.rs `resolve`). False on
     /// every other card.
     pub no_damage: bool,
+    /// A SPAWNER'S BOTTLE'S BODY (`bottle_body`, the Super Mini PEKKA's pancake): nobody's target (target.rs `can_target`).
+    /// False on every other card.
+    pub untargetable: bool,
     /// WHERE THE AREA THIS CARD'S SHOT LEAVES IS PUT (`projectile_area`): this far ahead of the hit along the owner's
     /// forward, SUBTILES (the Hero Wizard's air form: its reach areas' OffsetY 1000). 0 on every other card.
     pub projectile_area_ahead: i32,
@@ -7683,6 +7686,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         invisible_when_idle: None,
         starts_visible: false,
         no_damage: false,
+        untargetable: false,
         projectile_area_ahead: 0,
         spawn_pathfind: None,
         can_deploy_on_enemy_side: false,
@@ -9357,10 +9361,55 @@ enum Hitpointless {
     /// columns and a DeathSpawn block, and no other block. When its fuse ends it hits, and it also
     /// releases its own death spawn (`convert_death_bomb` with the spawn; state.rs `release_fuse_end`).
     BombWithDeathSpawn { fuse_ms: i32, damage: i32, radius_milli: i32 },
-    /// A BOTTLE (Rage's RageBottle): DeployTime and a DeathAreaEffect, and no other block. Only a
-    /// spell summon releases one; it becomes that spell's `SpellShape::Fuse`.
+    /// A BOTTLE (Rage's RageBottle): DeployTime and a DeathAreaEffect, and no other block. A spell
+    /// summon releases one as that spell's `SpellShape::Fuse`; a Spawn* block puts one with a
+    /// CollisionRadius down as a body (`bottle_body`).
     Bottle { fuse_ms: i32, area: String },
 }
+
+/// A SPAWNER'S BOTTLE WITH A BODY (`Hitpointless::Bottle` named by a Spawn* block, with a CollisionRadius: the Super Mini
+/// PEKKA's pancake SuperMiniPekkaPancakes, DeployTime 1000, CollisionRadius 450, DeathAreaEffect SuperMiniPekkaPancakesHeal).
+/// It is put down as a building of one hitpoint whose LifeTime is the fuse: nobody's target (`CardDef::untargetable`), no
+/// hit of another lands on it (`no_damage`; its own drain does), a static body in the contact pass while it stands, and its
+/// death leaves the bottle's one-shot area (`death_area_effect`, acting from the next tick) at its own level and on its own
+/// rarity's ladder. Its inert columns (AttacksAir, AttacksGround, ProjectileStartRadius) are not read. Measured on client
+/// 15.535.29 (sp-event-SuperMiniPekka-s0, three pancakes seen through the own Knight): the Knight was shoved -130 on an
+/// emission tick E and -125, then -148 a tick (the contact cap) on the next pancake's, and healed +53 (100 a second every
+/// 250 ms on the Rare ladder, 212 % at level 11) on E + 25, 30, 35 and 40 of each; an enemy tower 2600 off gained nothing.
+/// A bottle row with no CollisionRadius (the Super Hog Rider's present) has no body and is refused.
+fn bottle_body(raw: &RawCard, fuse_ms: i32, area: &str, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<CardDef, String> {
+    let radius = raw.collision_radius_milli.filter(|r| *r > 0).ok_or("a spawner's bottle with no CollisionRadius has no body; not simulated")?;
+    let a = ctx.aeos.get(area).ok_or_else(|| format!("its area {area} has no area_effect_objects record"))?;
+    refuse_action_mechanic_but_on_hit(a, &format!("area effect {area}"))?;
+    let (then, needs) = area_effect_shape(a, buffs, ctx).map_err(|e| format!("its area {area}: {e}"))?;
+    if !needs.is_empty() || !matches!(then, SpellShape::AreaEffect { .. }) {
+        return Err(format!("its area {area} is not a one-shot area; not simulated"));
+    }
+    let (level_table, level_base) = level_table_of(raw.level_scaling.clone())?;
+    let mut c = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, 0);
+    c.kind = CardKind::Building;
+    c.hitpoints = 1;
+    c.collision_radius = milli(radius);
+    // ITS LIFETIME is the fuse less one tick, run out by the expiry hit (state.rs, the lifetime pass): its death area acts
+    // on the tick after its death (`phase_reap`), and the client's acts on the fuse's last tick (sp-event-SuperMiniPekka-s0:
+    // the heal buff's first pulse on E + 25, 12 of 12, HitFrequency 250 after an application on E + 20). Its body's last
+    // frame (E + 18) is not measured.
+    #[cfg(not(clash_plant = "bottle_body_full_fuse"))]
+    let life_ms = fuse_ms - BOTTLE_BODY_EARLY_MS;
+    #[cfg(clash_plant = "bottle_body_full_fuse")]
+    let life_ms = fuse_ms; // PLANT: the body lives its whole fuse, and its area acts a tick late.
+    c.lifetime_ms = Some(life_ms.max(1));
+    c.no_damage = true;
+    c.untargetable = true;
+    c.level_table = level_table;
+    c.level_base = level_base;
+    c.death_area_effect = Some(SpellDef { shape: then, placement: SpellPlacement::Anywhere });
+    Ok(c)
+}
+
+/// How much shorter than its fuse a spawner's bottle's body lives (`bottle_body`): one tick, so its death area acts on the
+/// fuse's last tick.
+const BOTTLE_BODY_EARLY_MS: i32 = 50;
 
 /// Which `Hitpointless` shape `raw` is, or None.
 fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
@@ -10267,6 +10316,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         invisible_when_idle,
         starts_visible,
         no_damage: false,
+        untargetable: false,
         projectile_area_ahead: 0,
         // Its morph resolved by `CardDb::from_json_str` (the name pushed on `units` above).
         spawn_pathfind: spawn_pathfind.map(|(d, _)| d),
@@ -10867,6 +10917,24 @@ impl CardDb {
                     // owner's King (the one other row that tunnels, GoblinDrill_EV1_Dig, is an evolution).
                     if raw.spawn_pathfind.as_ref().is_some_and(|p| p.speed.is_some() || p.morph.is_some()) {
                         return Err(format!("units.{unit} travels underground; only a played card is simulated doing that"));
+                    }
+                    // A SPAWNER'S BOTTLE (`bottle_body`, the Super Mini PEKKA's pancake): a body for its fuse, whose death
+                    // leaves the bottle's area. Every other path that names a bottle keeps `convert`'s refusal.
+                    // PLANT (regression) spawned_bottle_refused: the Super Mini PEKKA is refused again.
+                    #[cfg(not(clash_plant = "spawned_bottle_refused"))]
+                    if which == UnitUse::Spawner {
+                        if let Some(Hitpointless::Bottle { fuse_ms, area }) = hitpointless_building(&raw) {
+                            let mut c = bottle_body(&raw, fuse_ms, &area, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: {e}"))?;
+                            if !db.rarities.iter().any(|r| r.name == c.rarity) {
+                                return Err(format!("units.{unit}: rarity {} not in rarities.csv", c.rarity));
+                            }
+                            c.summon_only = true;
+                            if taken {
+                                c.name = format!("units.{unit}");
+                            }
+                            db.push(c, None)?;
+                            return Ok((db.cards.len() - 1) as u16);
+                        }
                     }
                     let ignore = raw.ignore_buffs.clone().unwrap_or_default();
                     let (mut c, _, nested) = convert(raw, &mut buffs, &ctx).map_err(|e| format!("units.{unit}: {e}"))?;

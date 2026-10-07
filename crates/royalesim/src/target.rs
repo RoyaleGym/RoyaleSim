@@ -418,6 +418,11 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     if e.acquire_delayed(c, ctx.tick) {
         return false;
     }
+    // A SPAWNER'S BOTTLE'S BODY (card.rs `bottle_body`, the Super Mini PEKKA's pancake) is nobody's target.
+    #[cfg(not(clash_plant = "bottle_body_targetable"))]
+    if ctx.cards.get(e.card[c]).untargetable {
+        return false;
+    }
     let card = ctx.cards.get(e.card[a]);
     // targeting.DOOMED_TARGET_DROP: a projectile attacker neither keeps nor takes a unit the shots already in flight
     // will kill (`ctx.doomed`) unless it has shot at it (`drops_when_doomed`).

@@ -190,6 +190,7 @@ const LOADABLE_15535: &[&str] = &[
     "RoyalRecruits_Chess",
     "SkeletonDragons",
     "SuperHogRiderTerry",
+    "SuperMiniPekka",
     "WitchMother",
     "ElectroSpirit",
     "ElectroGiant",
@@ -260,7 +261,6 @@ const REJECTED_15535: &[(&str, &str)] = &[
     ("SuperEliteArcher", "the unit's projectile"),
     ("SuperHogRider", "units.SantaPresent"),
     ("SuperLavaHound", "death projectile FireWallProjectile"),
-    ("SuperMiniPekka", "units.SuperMiniPekkaPancakes"),
 ];
 
 /// cards-2018.json at `version` cards-2018.1 (tools/extract_cards.py --vintage 2018), 457423 bytes, FNV-1a
