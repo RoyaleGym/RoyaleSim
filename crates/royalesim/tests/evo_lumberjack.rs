@@ -7,8 +7,12 @@
 //! the Rage's point its last frame is its first + 109; flying off (2860 from the point at its first + 60, 3574 at + 66)
 //! its last frame is its first + 84; the base Lumberjack leaves none.
 //!
+//! ITS IgnoreBuff (item 283; the ghost's row lists Rage): the Rage it stands in never speeds it. Client 15.535.29: in
+//! his death Rage its walking steps were 125 or less 67 of 67 (the engine's 155-156 before the fix) and its attack
+//! progress +50 a tick 261 of 261 (sp-lumber-fight-s0, sp-form-RageBarbarian-evo-s0).
+//!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! evo_lumberjack`): rage_ghost_never, rage_ghost_never_killed.
+//! evo_lumberjack`): rage_ghost_never, rage_ghost_never_killed, ghost_ignore_buffs_unread.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -120,4 +124,23 @@ fn the_base_lumberjack_leaves_no_ghost() {
     let (mut s, knight, _) = killed("RageBarbarian");
     let rows = ghost_rows(&mut s, knight, 40, false);
     assert!(rows.iter().all(|r| r.1.is_none()), "a ghost from the base: {rows:?}");
+}
+
+/// Plant: ghost_ignore_buffs_unread.
+#[test]
+fn its_ghost_walks_at_its_own_speed_inside_his_rage() {
+    let (mut s, knight, _) = killed("RageBarbarian_EV1");
+    let rows = ghost_rows(&mut s, knight, 100, false);
+    // Each walking step (both ticks seen, neither deploying) and whether it ends inside the Rage (3000 of the point).
+    let steps: Vec<(u32, i64, bool)> = rows
+        .windows(2)
+        .filter_map(|w| match (w[0].1, w[1].1) {
+            (Some((a, false)), Some((b, false))) => Some((w[1].0, dist(a, b), dist(b, n(AT.0, AT.1)) <= 3000)),
+            _ => None,
+        })
+        .collect();
+    let inside: Vec<_> = steps.iter().filter(|s| s.2 && s.1 > 0).collect();
+    // NOT VACUOUS: the ghost walks inside the Rage for at least five ticks.
+    assert!(inside.len() >= 5, "the scene drifted: the ghost took {} steps inside the Rage: {steps:?}", inside.len());
+    assert!(steps.iter().all(|s| s.1 <= 125), "a ghost step past its own speed (the Rage landed on it): {steps:?}");
 }

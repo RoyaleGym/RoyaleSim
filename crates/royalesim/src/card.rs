@@ -6840,6 +6840,29 @@ impl BuffTable {
     fn indices_named(&self, name: &str) -> Vec<u16> {
         (0..self.names.len()).filter(|&k| self.names[k].iter().any(|n| n == name)).map(|k| k as u16).collect()
     }
+
+    /// A record's IgnoreBuff names as the buff indices they interned to, sorted. A name no buff carries is dropped; a name
+    /// whose index also stands for a row the list does not name is refused (interning merges rows by value, so the
+    /// immunity would reach a buff the row never listed).
+    fn ignore_ids(&self, names: &[String]) -> Result<Vec<u16>, String> {
+        let mut ids: Vec<u16> = Vec::new();
+        let mut why: Option<String> = None;
+        for n in names {
+            for b in self.indices_named(n) {
+                if let Some(other) = self.names[b as usize].iter().find(|x| !names.contains(x)) {
+                    why = Some(format!("IgnoreBuff {n} shares its row with {other}; the immunity would be ambiguous"));
+                }
+                if !ids.contains(&b) {
+                    ids.push(b);
+                }
+            }
+        }
+        ids.sort_unstable();
+        match why {
+            Some(w) => Err(w),
+            None => Ok(ids),
+        }
+    }
 }
 
 #[derive(Deserialize, Default)]
@@ -10653,22 +10676,9 @@ impl CardDb {
             if unloadable.iter().any(|(i, _)| *i == idx) {
                 continue;
             }
-            let mut ids: Vec<u16> = Vec::new();
-            let mut why: Option<String> = None;
-            for n in &names {
-                for b in buffs.indices_named(n) {
-                    if let Some(other) = buffs.names[b as usize].iter().find(|x| !names.contains(x)) {
-                        why = Some(format!("IgnoreBuff {n} shares its row with {other}; the immunity would be ambiguous"));
-                    }
-                    if !ids.contains(&b) {
-                        ids.push(b);
-                    }
-                }
-            }
-            ids.sort_unstable();
-            match why {
-                Some(w) => unloadable.push((idx, w)),
-                None => db.cards[idx as usize].ignore_buffs = ids,
+            match buffs.ignore_ids(&names) {
+                Err(w) => unloadable.push((idx, w)),
+                Ok(ids) => db.cards[idx as usize].ignore_buffs = ids,
             }
         }
         // THE BUFF TABLE AS IT STANDS NOW, so `unit_refs` sees the buffs' death spawns in the scan below and in the
@@ -11619,7 +11629,19 @@ impl CardDb {
             if ur.action_graph.as_ref().is_some_and(|a| a.mechanic.unwrap_or(false)) {
                 return Err(format!("ghost {} runs a graph its block did not clear", g.ghost));
             }
+            let ignore = ur.ignore_buffs.clone().unwrap_or_default();
             let (mut m, _, gneeds) = convert(ur, buffs, ctx).map_err(|e| format!("ghost {}: {e}", g.ghost))?;
+            // ITS IgnoreBuff (its row lists Rage), resolved as every record's is: the ghost was the one record the loader
+            // never read it for, so its Lumberjack's death Rage sped it. Measured on client 15.535.29: in that Rage its
+            // attack progress ran +50 a tick 261 of 261 (the engine +65) and it walked 125 or less 67 of 67 (the engine
+            // 155), while a plain Lumberjack in the same Rage walked 155 (sp-lumber-fight-s0 t1276).
+            // PLANT (regression) ghost_ignore_buffs_unread: the ghost's IgnoreBuff is left unread again.
+            #[cfg(not(clash_plant = "ghost_ignore_buffs_unread"))]
+            {
+                m.ignore_buffs = buffs.ignore_ids(&ignore).map_err(|e| format!("ghost {}: {e}", g.ghost))?;
+            }
+            #[cfg(clash_plant = "ghost_ignore_buffs_unread")]
+            let _ = ignore;
             if let Some((_, n)) = gneeds.first() {
                 return Err(format!("ghost {} needs {n}; not simulated", g.ghost));
             }
