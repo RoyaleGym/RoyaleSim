@@ -335,6 +335,20 @@
       "promotion_rules": "The test file passes (crates/royalesim/tests/equal_distance_tie.rs). Flip to own_frame_high_x when parity's scoring by override agrees with the reading above with nothing else moving; a Red unit created on x 9000 settles the frame.",
       "engine": "target.rs key (the second element of the rank: the candidate's own-frame x, negated under own_frame_high_x); client15535_later_created: the rank's tail is the candidate's creation order, latest first (tests/equal_distance_tie.rs)."
     },
+    "LAUNCH_BEYOND_KEEP": {
+      "value": "rescan",
+      "candidates": [
+            "rescan",
+            "client15535_plain_keep"
+      ],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_plain_keep on client 15.535.29: 8 of 8 projectile troops leaving their attack 1 to 25 past their reach kept their target, 5 of 5 26 to 100 past let it go (13 events over the scenario fixtures). 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's scenario fixtures (tools keep_band_census.py: every projectile troop, not a building, whose state goes from attacking (2) to anything else on a frame, holding a live target whose start-of-frame centre distance is past its attack reach, Range + both CollisionRadii, by at most 100): kept on the next frame 8 of 8 at 1 to 25 past (the Hunter twice, a Bomber, a Musketeer, an Ice Wizard hero, a Royal Giant, a Baby Dragon, and sp-il-2c295ac9's Hero Musketeer at 4 past), let go 5 of 5 at 26 to 100 past (Musketeers at 43, 43 and 66, a Witch at 29, a Zappy at 89). The keep is Range + both radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET (25). sp-il-2c295ac9 t2648-2649: the Hero Musketeer shot from 6,954 against a reach of 6,950 (Range 6000, radii 500 + 450), stepped toward her target and shot on from 52 nearer; the engine's launched_beyond flag ended her keep, her rescan found nothing within her sight (6,950) and she walked her route, taking the target again on the next tick 99 off the client's point (the battle's first divergence, t2662).",
+      "meaning": "rescan: the engine's; a projectile troop that launched at its target from beyond its reach (entity.rs launched_beyond) drops its hold and rescans on the next tick, so a target past its sight is lost. client15535_plain_keep: the launch ends the hold past reach, not the plain keep; within Range + both radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET the troop keeps the target (and walks to it), past it it rescans. Crown towers and buildings are unchanged.",
+      "open": "Buildings (a launch flag judged after the move under targeting.LAUNCH_BEYOND_POSITION); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_plain_keep (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "target.rs decide (the projectile attacker's hold), selected by Calib::launch_beyond_keep; tests/launch_beyond_keep.rs."
+    },
     "LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET": {
       "value": 25,
       "units": "millitiles",

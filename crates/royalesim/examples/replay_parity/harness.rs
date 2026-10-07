@@ -1662,6 +1662,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   after that tick's step (7 of 7 Skeletons of the one such drop).
 ///   targeting.CHASE_DROP_KNOCKED_TARGET = client15535_holds_unless_nearer: a troop holding a sliding troop target still
 ///   takes an enemy its rescan ranks nearer (1 of 1, a Skeleton after a Hog Rider pushed by the Log).
+///   targeting.LAUNCH_BEYOND_KEEP = client15535_plain_keep: a projectile troop that launched from beyond its reach still keeps
+///   its target within Range + both radii + 25 (8 of 8 within, 5 of 5 past it let go).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1829,6 +1831,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.DEATH_SPAWN_PROJECTILE", "\"client_projectile\""),
     ("spawner.BARREL_DROP_POINT", "\"client15535_after_move\""),
     ("targeting.CHASE_DROP_KNOCKED_TARGET", "\"client15535_holds_unless_nearer\""),
+    ("targeting.LAUNCH_BEYOND_KEEP", "\"client15535_plain_keep\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

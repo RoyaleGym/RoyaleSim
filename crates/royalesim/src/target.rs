@@ -1175,6 +1175,20 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 if !launched_out && in_attack_range(ctx.calib, e.pos[a], hold, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
+                // targeting.LAUNCH_BEYOND_KEEP = client15535_plain_keep: a troop's launch beyond its reach ends the hold past
+                // reach, not the plain keep (Range + both radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET).
+                // PLANT (regression) launch_beyond_drops_plain_keep: the new arm still rescans past the reach.
+                #[cfg(not(clash_plant = "launch_beyond_drops_plain_keep"))]
+                let plain = ctx.calib.launch_beyond_keep == crate::state::LaunchBeyondKeep::Client15535PlainKeep;
+                #[cfg(clash_plant = "launch_beyond_drops_plain_keep")]
+                let plain = false;
+                if launched_out
+                    && plain
+                    && e.kind[a] == EntityKind::Troop
+                    && in_attack_range(ctx.calib, e.pos[a], card.range + ctx.calib.range_extension_to_keep_target, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti])
+                {
+                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
+                }
             } else if locked && ctx.calib.locks_target(card) {
                 // targeting.TOWER_CANCEL_HIT_FROM_LONG_DISTANCE_RANGE: a crown tower's own hold when the key names one.
                 let hold = card.range + locked_hold_beyond(ctx, a);

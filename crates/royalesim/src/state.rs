@@ -1175,6 +1175,10 @@ pub struct Calib {
     /// from. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `StatusPhase`.
     #[serde(default = "barrel_drop_point_default")]
     pub barrel_drop_point: BarrelDropPoint,
+    /// targeting.LAUNCH_BEYOND_KEEP (target.rs `decide`): what a projectile troop keeps after launching at its target from
+    /// beyond its reach. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Rescan`.
+    #[serde(default = "launch_beyond_keep_default")]
+    pub launch_beyond_keep: LaunchBeyondKeep,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2937,6 +2941,10 @@ fn death_projectile_copies_default() -> DeathProjectileCopies {
 
 fn barrel_drop_point_default() -> BarrelDropPoint {
     BarrelDropPoint::StatusPhase
+}
+
+fn launch_beyond_keep_default() -> LaunchBeyondKeep {
+    LaunchBeyondKeep::Rescan
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7201,6 +7209,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.LAUNCH_BEYOND_KEEP -- see target.rs `decide`: what a projectile troop keeps on the tick after it launched at
+    /// its target from beyond its reach (Range + both radii; entity.rs `launched_beyond`).
+    LaunchBeyondKeep {
+        /// The engine's: the launch ends its keep; it rescans, and a target past its sight is lost.
+        Rescan = "rescan",
+        /// The launch ends the hold past reach (PROJECTILE_HOLD_BEYOND_REACH), not the plain keep: within Range + both
+        /// radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET a troop keeps the target (and walks to it); past it, it rescans.
+        /// Measured on client 15.535.29: every projectile troop leaving its attack with its target 1 to 25 past its
+        /// reach kept it (8 of 8), 26 to 100 past let it go (5 of 5); sp-il-2c295ac9 t2649, a Hero Musketeer that
+        /// launched 4 past her reach kept her target and stepped to it.
+        Client15535PlainKeep = "client15535_plain_keep",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9227,6 +9249,7 @@ impl Calib {
             buff_death_spawn_undelayed: pick(&v, &["status", "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "value"], BuffDeathSpawnUndelayed::from_calibration_name)?,
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
+            launch_beyond_keep: pick(&v, &["targeting", "LAUNCH_BEYOND_KEEP", "value"], LaunchBeyondKeep::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -33523,6 +33546,9 @@ impl BattleState {
 /// 20, unchanged, spawner.BARREL_DROP_POINT: Calib gained barrel_drop_point (serde default the old arm, status_phase), no
 ///    new state (the drop waits in `Scratch::barrel_pending` within its tick alone), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.LAUNCH_BEYOND_KEEP: Calib gained launch_beyond_keep (serde default the old arm, rescan), no new
+///    state (the launch flag is the saved launched_beyond), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, the Super Witch (card.rs `SpawnerDef::unit2`): Entities gained spawn_waves (`default`, sized on load at
 ///    0), hashed only on a spawner with a second unit, so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, the Super Elite Archer's charm (status.rs `BuffDef::switch_team`): Entities gained home_team (`default`,
@@ -34622,6 +34648,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_projectile_copies".into(), serde_json::to_value(DeathProjectileCopies::One).map_err(|e| e.to_string())?);
     // spawner.BARREL_DROP_POINT: a format-3 battle's barrel dropped from its Status-phase point (the same rule).
     sh.insert("barrel_drop_point".into(), serde_json::to_value(BarrelDropPoint::StatusPhase).map_err(|e| e.to_string())?);
+    // targeting.LAUNCH_BEYOND_KEEP: a format-3 battle's troop rescanned after a launch from beyond its reach (the same rule).
+    sh.insert("launch_beyond_keep".into(), serde_json::to_value(LaunchBeyondKeep::Rescan).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
