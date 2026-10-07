@@ -4366,7 +4366,13 @@ fn parry_of(raw: &RawParry, graph: &Option<RawActionGraph>, buffs: &mut BuffTabl
     let stun_name = raw.stun.as_ref().and_then(|b| b.name.clone()).unwrap_or_default();
     #[cfg(not(clash_plant = "parry_shape_unchecked"))]
     {
-        let known = g.class_types.iter().all(|c| PARRY_CLASSES.contains(&c.as_str()));
+        // 16.402 (option B item 13): the reflect is an ActionTakeDamage where 15.535 wrote ActionDealDamage, the same
+        // damage either way (the block's damage_scalar_pct): exactly one of the two.
+        #[cfg(not(clash_plant = "parry_take_damage_refused"))]
+        let reflect_ok = g.class_types.iter().filter(|c| matches!(c.as_str(), "ActionDealDamage" | "ActionTakeDamage")).count() == 1;
+        #[cfg(clash_plant = "parry_take_damage_refused")]
+        let reflect_ok = !g.class_types.iter().any(|c| c == "ActionTakeDamage"); // PLANT (tests/parry.rs): the 16.402 reflect refused.
+        let known = reflect_ok && g.class_types.iter().all(|c| PARRY_CLASSES.contains(&c.as_str()) || c == "ActionTakeDamage");
         let spawns_stun = g.spawns.len() == 1 && g.spawns[0] == format!("BuffType:{stun_name}");
         if !known || !spawns_stun || !g.class_types.iter().any(|c| c == "ActionCounter") {
             refuse_action_mechanic(graph, "the unit")?;

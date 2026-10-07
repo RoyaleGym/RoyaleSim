@@ -67,6 +67,8 @@
 //!     held or slowed, the Knight's next hit comes on H + 34 either way.
 //!   * `hash_skips_parry` -- the cooldown is not hashed: 13 red.
 //!   * `parry_shape_unchecked` -- any graph that carries a counter block loads: 15's refusals red.
+//!   * `parry_take_damage_refused` -- the 16.402 reflect (an ActionTakeDamage, option B item 13) refused: the 16.402
+//!     test at the end goes red.
 //!   * `scheduled_dropped_on_save` (tests/transform.rs's) -- the reflect in flight is lost across a save: 12 red.
 //!   * `hash_skips_scheduled` (tests/transform.rs's) -- the scheduled list is not hashed: 13 red (the reflect).
 //!
@@ -900,4 +902,32 @@ fn a_counter_graph_of_another_shape_is_refused() {
         r#""life_state_spawner":{"action_delay_ms":1000,"spawn_interval_ms":2200,"character":"Imp","number":1,"offset_milli":1200,"offset_angle_deg":20,"object_filter":"DefaultCharacterTargets"}, "parry":"#,
     );
     assert_eq!(why(&two).as_deref(), Some("the unit carries more than one action block (a life-state controller and a counter); not simulated"));
+}
+
+// ---------------------------------------------------------------------------
+// The 16.402 Ronin (option B item 13)
+
+/// The shipped table with the Ronin's graph in the 16.402 table's shape: its reflect an ActionTakeDamage where 15.535
+/// wrote ActionDealDamage (`both` keeps the ActionDealDamage beside it).
+fn ronin_16402(both: bool) -> royalesim::card::CardDb {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).expect("cards.json");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("cards.json parses");
+    let c = v["units"]["Ronin"]["action_graph"]["class_types"].as_array_mut().expect("the Ronin's graph");
+    if !both {
+        c.retain(|x| x != "ActionDealDamage");
+    }
+    c.push(serde_json::Value::from("ActionTakeDamage"));
+    royalesim::card::CardDb::from_json_str(&v.to_string(), royalesim::card::CardSource::DerivedJson).expect("the edited table parses")
+}
+
+/// Plant: parry_take_damage_refused.
+#[test]
+fn the_16402_ronin_loads_with_the_same_parry() {
+    let shipped = cards();
+    let parry = |db: &royalesim::card::CardDb| db.index("Ronin").map(|i| format!("{:?}", db.get(i).parry));
+    assert!(parry(&shipped).is_some_and(|p| p.starts_with("Some")), "the shipped Ronin carries its parry");
+    let new = ronin_16402(false);
+    assert_eq!(parry(&new), parry(&shipped), "the 16.402 graph loads the same parry: {:?}", new.rejected.iter().find(|(n, _)| n == "Ronin"));
+    let both = ronin_16402(true);
+    assert!(both.rejected.iter().any(|(n, _)| n == "Ronin"), "a graph with both damage classes is refused");
 }
