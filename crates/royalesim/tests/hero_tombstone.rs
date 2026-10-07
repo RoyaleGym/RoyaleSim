@@ -14,14 +14,15 @@
 //! tomb_monster_unstepped, ability_available_ignores_windows (the no-press test: the row reads the button available
 //! after the tomb's window closes, while the monster waits), tomb_step_every_press (transform.TOMB_MONSTER_STEP_SCOPE's new
 //! arm steps a monster pressed after its tomb's death), tomb_press_spawn_reads_moved (spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE's
-//! new arm's death spawn reads the moved board).
+//! new arm's death spawn reads the moved board), hero_tomb_emission_radial (spawner.HERO_TOMB_EMISSION_NUDGE's new arm keeps
+//! the radial push alone).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, TombMonsterStepScope, TombPressSpawnFirstUpdate};
+use royalesim::state::{BattleState, HeroTombEmissionNudge, TombMonsterStepScope, TombPressSpawnFirstUpdate};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -287,4 +288,38 @@ fn a_press_kills_death_spawn_reads_the_start_of_tick_board_under_client15535_sta
     let new = press_spawn_first_frame(TombPressSpawnFirstUpdate::Client15535StartOfTick, false);
     let old = press_spawn_first_frame(TombPressSpawnFirstUpdate::PostMove, false);
     assert_eq!(new, old, "the arms part with nothing moving by the birth point");
+}
+
+/// spawner.HERO_TOMB_EMISSION_NUDGE (client 15.535.29: 15 of 15 hero emissions touching their tomb alone landed (1, 1) off
+/// the walk, side 1 (-1, -1), where the radial push gives (0, 1) / (0, -1)): `team`'s hero Tombstone stood up alone, its
+/// first emitted Skeleton's first-frame point. Plant: hero_tomb_emission_radial.
+fn first_emission(team: Team, nudge: HeroTombEmissionNudge) -> Vec2 {
+    let mut cfg = config();
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.hero_tomb_emission_nudge = nudge;
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    past_deploy_lockout(&mut s);
+    let at = if team == Team::Blue { n(14500, 11500) } else { n(3500, 20500) };
+    s.scenario_set_elixir_milli(team, 10_000);
+    s.deploy(team, "Tombstone", at).expect("the play");
+    for _ in 0..200 {
+        s.tick();
+        if let Some((_, p)) = skeletons(&s, team).first() {
+            return *p;
+        }
+    }
+    panic!("{team:?}: the scene drifted: no Skeleton emitted");
+}
+
+#[test]
+fn a_hero_tombs_emission_touching_it_alone_lands_one_to_its_right_under_client15535_right_one() {
+    for (team, right) in [(Team::Blue, 1), (Team::Red, -1)] {
+        let new = first_emission(team, HeroTombEmissionNudge::Client15535RightOne);
+        let old = first_emission(team, HeroTombEmissionNudge::None);
+        assert_eq!(((new.x - old.x) / K, (new.y - old.y) / K), (right, 0), "{team:?}: the nudge against the radial push alone");
+    }
 }

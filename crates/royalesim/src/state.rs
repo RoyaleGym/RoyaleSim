@@ -1093,6 +1093,10 @@ pub struct Calib {
     /// reads. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `StartOfTick`.
     #[serde(default = "dash_range_target_point_default")]
     pub dash_range_target_point: DashRangeTargetPoint,
+    /// spawner.HERO_TOMB_EMISSION_NUDGE (`create_emissions`): a Hero Tombstone's emitted Skeleton's first point. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
+    #[serde(default = "hero_tomb_emission_nudge_default")]
+    pub hero_tomb_emission_nudge: HeroTombEmissionNudge,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2775,6 +2779,10 @@ fn tomb_press_spawn_first_update_default() -> TombPressSpawnFirstUpdate {
 
 fn dash_range_target_point_default() -> DashRangeTargetPoint {
     DashRangeTargetPoint::StartOfTick
+}
+
+fn hero_tomb_emission_nudge_default() -> HeroTombEmissionNudge {
+    HeroTombEmissionNudge::None
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6757,6 +6765,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.HERO_TOMB_EMISSION_NUDGE -- see `create_emissions`: the first point of a Skeleton a Hero Tombstone emits
+    /// whose only contact on its first update is its live tomb (touching, overlap 0).
+    HeroTombEmissionNudge {
+        /// The engine's: the contact law's radial push from the tomb, 1 straight away.
+        None = "none",
+        /// 1 further to its right (its side's frame). FITTED, the cause not modelled. Measured on client 15.535.29: 15 of 15
+        /// such emissions ((1, 1) less the walk on side 0, 14; (-1, -1) on side 1, 1), the plain Tombstone's 29 of 29 radial;
+        /// sp-hero2-Tombstone-nopress-s0 t292's Skeleton 14 at (14501, 13001), where the engine's stood at (14500, 13001) and
+        /// the death spawn born on it at t299 was pushed (0, -150) instead of (-106, -106).
+        Client15535RightOne = "client15535_right_one",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8757,6 +8778,7 @@ impl Calib {
             tomb_monster_step_scope: pick(&v, &["transform", "TOMB_MONSTER_STEP_SCOPE", "value"], TombMonsterStepScope::from_calibration_name)?,
             tomb_press_spawn_first_update: pick(&v, &["spawner", "TOMB_PRESS_SPAWN_FIRST_UPDATE", "value"], TombPressSpawnFirstUpdate::from_calibration_name)?,
             dash_range_target_point: pick(&v, &["combat", "DASH_RANGE_TARGET_POINT", "value"], DashRangeTargetPoint::from_calibration_name)?,
+            hero_tomb_emission_nudge: pick(&v, &["spawner", "HERO_TOMB_EMISSION_NUDGE", "value"], HeroTombEmissionNudge::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -14815,6 +14837,29 @@ impl BattleState {
         // spawner.SPAWNED_FIRST_STEP: the units this pass emitted take their first update now.
         if first_update {
             self.first_update(&fresh, true, &[], &[]);
+            // spawner.HERO_TOMB_EMISSION_NUDGE = client15535_right_one: a Skeleton its live Hero Tombstone emitted, whose one
+            // contact was that tomb at overlap 0 (a push of 1), lands 1 further to its right (FITTED; client 15.535.29: 15 of
+            // 15, the plain Tombstone's 29 of 29 radial).
+            // PLANT (regression) hero_tomb_emission_radial: the new arm keeps the radial push alone.
+            #[cfg(not(clash_plant = "hero_tomb_emission_radial"))]
+            let nudge = self.cfg.calib.hero_tomb_emission_nudge == HeroTombEmissionNudge::Client15535RightOne && !self.warps.tombs.is_empty();
+            #[cfg(clash_plant = "hero_tomb_emission_radial")]
+            let nudge = false;
+            if nudge {
+                let mut moved = false;
+                for &i in &fresh {
+                    let Some(t) = self.ents.spawned_by[i] else { continue };
+                    let hero = self.warps.tombs.iter().any(|r| r.tomb == t) && self.ents.is_alive(t);
+                    let p = self.ents.push_applied[i];
+                    if hero && self.ents.alive[i] && self.ents.push_neighbours[i] == 1 && p.x.abs() + p.y.abs() == 1 {
+                        self.ents.pos[i] = guard_point(self.ents.team[i], self.ents.pos[i], (1, 0));
+                        moved = true;
+                    }
+                }
+                if moved {
+                    self.hash.rebuild(&self.ents);
+                }
+            }
         }
     }
 
@@ -32261,6 +32306,9 @@ impl BattleState {
 /// 20, unchanged, combat.DASH_RANGE_TARGET_POINT: Calib gained dash_range_target_point (serde default the old arm,
 ///    start_of_tick), no new state (the pass's points are the tick's), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.HERO_TOMB_EMISSION_NUDGE: Calib gained hero_tomb_emission_nudge (serde default the old arm,
+///    none), no new state (the nudge is read off the emission's first update), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
 ///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
@@ -33300,6 +33348,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("tomb_press_spawn_first_update".into(), serde_json::to_value(TombPressSpawnFirstUpdate::PostMove).map_err(|e| e.to_string())?);
     // combat.DASH_RANGE_TARGET_POINT: a format-3 battle's dash read its target's start-of-tick point (the same rule).
     sh.insert("dash_range_target_point".into(), serde_json::to_value(DashRangeTargetPoint::StartOfTick).map_err(|e| e.to_string())?);
+    // spawner.HERO_TOMB_EMISSION_NUDGE: a format-3 battle's hero tomb emission took the radial push alone (the same rule).
+    sh.insert("hero_tomb_emission_nudge".into(), serde_json::to_value(HeroTombEmissionNudge::None).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
