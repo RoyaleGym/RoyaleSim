@@ -3,8 +3,9 @@
 //! 15.535.29 gave Damage 75 and CrownTowerDamagePercent -75 (every pair across the two packs is round half up of
 //! damage * share at level 1). A crown tower takes the TowerDamage scaled by the caster's level, as the damage is
 //! (the Evo Cannon's barrage scales its crown damage the same way); a hit without one keeps the percent, so the
-//! 15.535 tables play as before. Whether the client scales TowerDamage on the damage's ladder is an open
-//! measurement (option B, measurement request 1); this pins what the engine does until it lands.
+//! 15.535 tables play as before. Measured on client 16.402.19 (two Zaps and two Freezes on crown towers at level
+//! 11): the tower lost 48 to each Zap and 38 to each Freeze, TowerDamage x 2.56 floored (19 -> 48.64, 15 -> 38.4);
+//! no single level fits the old percent of the scaled damage.
 //!
 //! Each test casts Blue's Zap on Red's left princess tower at a given level, its hit's tower_damage set as the case
 //! needs, and reads the tower's loss.
