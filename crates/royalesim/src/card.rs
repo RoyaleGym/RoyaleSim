@@ -1325,6 +1325,10 @@ pub const TOMB_KILL_TICKS: u32 = 2;
 /// red -s1, the monster standing on its tomb's point until then and still after it (its hold) beside the standing tomb,
 /// which meets no body of it. FITTED: the cause is not modelled.
 pub const TOMB_MONSTER_STEP: (i32, i32) = (-106, -106);
+/// pathfinding.HERO_TOMB_DUMMY_OBSTACLE = client15535_dummy_box: the ticks after the press through which the Hero Tombstone's
+/// visual dummy (card 203000088, hp -1) stands, and its dead tomb's box with it: measured 36 in 6 of 7 presses on client
+/// 15.535.29 (sp-hero2-Tombstone-full-s0: pressed on t134, the dummy's last frame t170), 35 once.
+pub const HERO_TOMB_DUMMY_TICKS: u32 = 36;
 
 /// THE RE-ROLL (the Hero Barbarian Barrel's; tools/extract_cards.py `spell_hero_card`, `reroll_button`; state.rs
 /// `RerollRun`, `reroll_pass`, `reroll_logs`). The form is a spell whose roll releases `unit`, which holds the button. At

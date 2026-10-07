@@ -15,14 +15,15 @@
 //! after the tomb's window closes, while the monster waits), tomb_step_every_press (transform.TOMB_MONSTER_STEP_SCOPE's new
 //! arm steps a monster pressed after its tomb's death), tomb_press_spawn_reads_moved (spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE's
 //! new arm's death spawn reads the moved board), hero_tomb_emission_radial (spawner.HERO_TOMB_EMISSION_NUDGE's new arm keeps
-//! the radial push alone).
+//! the radial push alone), tomb_box_leaves_at_death (pathfinding.HERO_TOMB_DUMMY_OBSTACLE's new arm takes the dead tomb out
+//! of the path grid at once).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, HeroTombEmissionNudge, TombMonsterStepScope, TombPressSpawnFirstUpdate};
+use royalesim::state::{BattleState, HeroTombDummyObstacle, HeroTombEmissionNudge, TombMonsterStepScope, TombPressSpawnFirstUpdate};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -322,4 +323,51 @@ fn a_hero_tombs_emission_touching_it_alone_lands_one_to_its_right_under_client15
         let old = first_emission(team, HeroTombEmissionNudge::None);
         assert_eq!(((new.x - old.x) / K, (new.y - old.y) / K), (right, 0), "{team:?}: the nudge against the radial push alone");
     }
+}
+
+/// pathfinding.HERO_TOMB_DUMMY_OBSTACLE (client 15.535.29: 6 of 6 plans made while the dead tomb's dummy stood took the
+/// boxed search): the tomb at (9500, 11500) pressed, killed on P + 2; on P + 5 a Blue Knight is put 2,000 below it, a Red
+/// Knight held 2,000 above it its target: the Blue Knight's route on P + 8, and whether a node lies within the tomb's
+/// CollisionRadius of its point.
+fn route_past_dead_tomb(arm: HeroTombDummyObstacle) -> (Vec<(i32, i32)>, bool) {
+    let mut cfg = config();
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.hero_tomb_dummy_obstacle = arm;
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    past_deploy_lockout(&mut s);
+    let (tomb, _) = play(&mut s, Team::Blue, n(9500, 11500));
+    let r = s.entity(tomb).expect("the tomb").radius / K;
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let red = s.scenario_spawn_now(Team::Red, "Knight", n(9500, 13500), None).expect("a red Knight");
+    let mut blue = None;
+    for k in 1..=8 {
+        assert!(s.debug_set_pos(red, n(9500, 13500)));
+        s.tick();
+        if k == 5 {
+            assert!(s.entity(tomb).is_none(), "the scene drifted: the tomb stands on P + 5");
+            blue = Some(s.scenario_spawn_now(Team::Blue, "Knight", n(9500, 9500), None).expect("a blue Knight"));
+        }
+    }
+    let route: Vec<(i32, i32)> = s.entity(blue.expect("the blue Knight")).expect("the blue Knight").route.iter().map(|p| (p.x / K, p.y / K)).collect();
+    assert!(!route.is_empty(), "{arm:?}: the scene drifted: the blue Knight holds no route");
+    let inside = route.iter().any(|&(x, y)| {
+        let (dx, dy) = (i64::from(x - 9500), i64::from(y - 11500));
+        dx * dx + dy * dy < i64::from(r) * i64::from(r)
+    });
+    (route, inside)
+}
+
+/// Plant: tomb_box_leaves_at_death.
+#[test]
+fn a_dead_hero_tombs_box_stays_in_the_path_grid_while_its_dummy_stands_under_client15535_dummy_box() {
+    let (new, inside) = route_past_dead_tomb(HeroTombDummyObstacle::Client15535DummyBox);
+    assert!(!inside, "client15535_dummy_box: the route crosses the dead tomb's box: {new:?}");
+    // NOT VACUOUS: none routes straight through the freed box.
+    let (old, inside) = route_past_dead_tomb(HeroTombDummyObstacle::None);
+    assert!(inside, "none: the route goes round the freed box: {old:?}");
 }

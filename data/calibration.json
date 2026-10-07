@@ -1195,6 +1195,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_plan_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_path16402_for (the pushback-tick plan's `segs[i]`), selected by Calib::ladder_plan_segment; tests/ladder_path_request.rs."
     },
+    "HERO_TOMB_DUMMY_OBSTACLE": {
+      "value": "none",
+      "candidates": ["none", "client15535_dummy_box"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_dummy_box on client 15.535.29: 6 of 6 discriminating plans (4 distinct situations) took the boxed search and 7 of 7 walkers switched at the dummy's departure, where the plain Tombstone's box left at its death 9 of 9; the departure tick is P + 36 in 6 of 7 presses (P + 35 once); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r55_hero_dummy_occlusion_census.py over all 1,675 raw files, 9 with a Hero Tombstone; the visual dummy is card 203000088, max_hp -1, frames kind 12 then 13, on the tomb's centre from the deploy, the only hp -1 building in the corpus; plans compared with astar16402 with and without the tomb's occlusion box, CollisionRadius 1000). ROUTE: plans made while the tomb was gone and the dummy stood, where the two searches differ: 6 of 6 equal the boxed search, 0 of 6 the unboxed (sp-form-Tombstone-hero-s0 t225, Skeleton 17's replan [923,922,921] against [923,886,885,884]: the root of the scene's loss after r54; the pressed monster's first plan in sp-hero2-Tombstone-death-s0, -full-s0 and -monster-s0 at t136, -half-s0 t278, -window-s0 t322). TIMING: at the dummy's departure 7 of 7 walkers whose fresh search uses the freed cells changed their list on that tick or the next (sp-hero2-Tombstone-full-s0: the dummy's last frame t170, the switch t172), 21 of 21 others kept theirs; the dummy left P + 36 after the press in 6 of 7 presses (P + 35 in sp-form-Tombstone-hero-s0), and with the waiting monster 50 ticks after the tomb's death unpressed (2 of 2). Control (r55_plain_tomb_unstamp_census.py): plans 6-55 ticks after a plain Tombstone's death routed through its freed cells 9 of 9. Refuted: the box leaving with the tomb (0 of 6 routes, 0 of 7 switches); the passive or the active monster as the occluder; a fixed linger after any building's death (the plain tomb's control).",
+      "meaning": "none: the engine's; a Hero Tombstone's tomb leaves the path grid (build_obstacles' live buildings) at its death. client15535_dummy_box: until its visual dummy leaves (card.rs HERO_TOMB_DUMMY_TICKS after the press, its run kept that long; unpressed, its run's end with the waiting monster), a dead tomb's box stays an obstacle of its side at its point (TombRun::at) with its form's CollisionRadius, counted in that side's friendly-occluder epoch, so its departure arms the friendly-building replan.",
+      "open": "The departure tick's convention (P + 35 once); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_dummy_box (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs build_obstacles (the dummy boxes), tomb_resolve (the pressed run kept), TombRun::at, card.rs HERO_TOMB_DUMMY_TICKS, selected by Calib::hero_tomb_dummy_obstacle; tests/hero_tombstone.rs."
+    },
     "REPATH_INTERVAL_TICKS": {
       "value": null,
       "units": "ticks; null = no periodic replan, the triggers in REPLAN_TRIGGERS instead",

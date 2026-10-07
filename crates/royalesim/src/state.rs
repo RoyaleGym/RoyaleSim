@@ -1127,6 +1127,10 @@ pub struct Calib {
     /// `ScanAtEmission`.
     #[serde(default = "newborn_first_target_default")]
     pub newborn_first_target: NewbornFirstTarget,
+    /// pathfinding.HERO_TOMB_DUMMY_OBSTACLE (`build_obstacles`, `tomb_resolve`): whether a dead Hero Tombstone's box
+    /// stays in the path grid while its dummy stands. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
+    #[serde(default = "hero_tomb_dummy_obstacle_default")]
+    pub hero_tomb_dummy_obstacle: HeroTombDummyObstacle,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2841,6 +2845,10 @@ fn dart_poison_pulse_default() -> DartPoisonPulse {
 
 fn newborn_first_target_default() -> NewbornFirstTarget {
     NewbornFirstTarget::ScanAtEmission
+}
+
+fn hero_tomb_dummy_obstacle_default() -> HeroTombDummyObstacle {
+    HeroTombDummyObstacle::None
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6941,6 +6949,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// pathfinding.HERO_TOMB_DUMMY_OBSTACLE -- see `build_obstacles` and `tomb_resolve` (`TombRun::at`, card.rs
+    /// HERO_TOMB_DUMMY_TICKS): a Hero Tombstone's tomb in the path grid after its death.
+    HeroTombDummyObstacle {
+        /// The engine's: the box leaves with the tomb.
+        None = "none",
+        /// The box stays, a friendly building of the tomb's CollisionRadius on its point counted in its side's
+        /// friendly-occluder epoch, until the tomb's visual dummy leaves: HERO_TOMB_DUMMY_TICKS after the press (the run kept
+        /// that long), or with the waiting monster when unpressed. Measured on client 15.535.29: 6 of 6 plans while the dummy
+        /// stood took the boxed search (sp-form-Tombstone-hero-s0 t225), 7 of 7 switched at its departure; the plain
+        /// Tombstone's box left at its death, 9 of 9.
+        Client15535DummyBox = "client15535_dummy_box",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8955,6 +8977,7 @@ impl Calib {
             container_ring_water: pick(&v, &["spawner", "CONTAINER_RING_WATER", "value"], ContainerRingWater::from_calibration_name)?,
             dart_poison_pulse: pick(&v, &["combat", "DART_POISON_PULSE", "value"], DartPoisonPulse::from_calibration_name)?,
             newborn_first_target: pick(&v, &["targeting", "NEWBORN_FIRST_TARGET", "value"], NewbornFirstTarget::from_calibration_name)?,
+            hero_tomb_dummy_obstacle: pick(&v, &["pathfinding", "HERO_TOMB_DUMMY_OBSTACLE", "value"], HeroTombDummyObstacle::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -10291,6 +10314,9 @@ pub struct TombRun {
     pub pressed: Option<u32>,
     pub tomb_gone: Option<u32>,
     pub reset: bool,
+    /// The tomb's point, for its box after its death (pathfinding.HERO_TOMB_DUMMY_OBSTACLE); not hashed: set at the play.
+    #[serde(default)]
+    pub at: Vec2,
 }
 
 /// A HERO DARK PRINCE'S DISMOUNT UNDER WAY (card.rs `DismountDef`; `dismount_pass`, `dismount_hops`): the hero, its side,
@@ -12307,7 +12333,7 @@ impl BattleState {
                     let m = self.spawn_now(team, t.passive, lvl, pos, EntityKind::Troop)?;
                     let h = crate::status::BuffHit::plain(m, t.hide.buff, t.hide.time_ms, 0);
                     land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, m.index as usize, &h);
-                    self.warps.tombs.push(TombRun { team, form: card, tomb: id, monster: m, made: self.tick, pressed: None, tomb_gone: None, reset: false });
+                    self.warps.tombs.push(TombRun { team, form: card, tomb: id, monster: m, made: self.tick, pressed: None, tomb_gone: None, reset: false, at: pos });
                 }
                 let _ = t;
             }
@@ -17769,6 +17795,25 @@ impl BattleState {
         // Hashed in FRAME coordinates, over friendly obstacles only, so a unit and
         // its rotated twin compute the SAME epoch: the two lists are built in one
         // pass in slot order and each red entry is the rotation of its blue one.
+        // pathfinding.HERO_TOMB_DUMMY_OBSTACLE = client15535_dummy_box: a dead Hero Tombstone's box while its dummy stands, a
+        // friendly building in the epoch below (client 15.535.29: 6 of 6 plans boxed, 7 of 7 switched at its departure).
+        if self.dummy_box() {
+            let [blue, red] = &mut self.scratch.obstacles;
+            for (k, r) in self.warps.tombs.iter().enumerate() {
+                if self.ents.is_alive(r.tomb) || r.pressed.is_some_and(|p| self.tick > p + crate::card::HERO_TOMB_DUMMY_TICKS) {
+                    continue;
+                }
+                let rad = self.cfg.cards.get(r.form).collision_radius;
+                if rad <= 0 {
+                    continue;
+                }
+                let shape = arena.building_shape(model, r.at, rad, None);
+                let id = EntityId { index: u32::MAX - 0x8000 - k as u32, generation: 0 };
+                let key: path::YieldKey = (u32::MAX, r.form, 0, 1, k as u32);
+                blue.push(Obstacle { id, shape, radius: rad, key, ally: r.team == Team::Blue });
+                red.push(Obstacle { id, shape: shape.rotated(arena.width, arena.height), radius: rad, key, ally: r.team == Team::Red });
+            }
+        }
         for (t, list) in [Team::Blue, Team::Red].into_iter().zip(self.scratch.obstacles.iter()) {
             let mut h = Fnv::new();
             for o in list.iter().filter(|o| o.ally) {
@@ -26258,6 +26303,16 @@ impl BattleState {
         }
     }
 
+    /// pathfinding.HERO_TOMB_DUMMY_OBSTACLE = client15535_dummy_box in force.
+    fn dummy_box(&self) -> bool {
+        // PLANT (regression) tomb_box_leaves_at_death: the new arm's dead tomb leaves the path grid at once.
+        #[cfg(not(clash_plant = "tomb_box_leaves_at_death"))]
+        let on = self.cfg.calib.hero_tomb_dummy_obstacle == HeroTombDummyObstacle::Client15535DummyBox;
+        #[cfg(clash_plant = "tomb_box_leaves_at_death")]
+        let on = false;
+        on
+    }
+
     /// THE HERO TOMBSTONES (card.rs `TombMonsterDef`, `TombRun`), at the end of Resolve: a pressed one's tomb dies
     /// TOMB_KILL_TICKS after the trigger; a waiting monster dies `window_ms` + `fade_ms` after its tomb's death, or at
     /// once after a later play of its card group. Both join this Resolve's deaths (the monster takes no hit: NO_DAMAGE).
@@ -26278,7 +26333,8 @@ impl BattleState {
                         dies = Some(r.tomb);
                         self.scratch.tomb_press_kills.push((r.team, self.ents.pos[r.tomb.index as usize]));
                     }
-                    self.tick >= p + crate::card::TOMB_KILL_TICKS
+                    // pathfinding.HERO_TOMB_DUMMY_OBSTACLE = client15535_dummy_box: the run stays while the dummy does.
+                    self.tick >= p + crate::card::TOMB_KILL_TICKS && !(self.dummy_box() && self.tick <= p + crate::card::HERO_TOMB_DUMMY_TICKS)
                 }
                 None => {
                     let faded = r.tomb_gone.is_some_and(|g| self.tick >= g + (t.window_ms + t.fade_ms) as u32 / dt);
@@ -32758,6 +32814,10 @@ impl BattleState {
 /// 20, unchanged, targeting.NEWBORN_FIRST_TARGET: Calib gained newborn_first_target (serde default the old arm,
 ///    scan_at_emission), no new state (the deaths are the tick's scratch), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, pathfinding.HERO_TOMB_DUMMY_OBSTACLE: Calib gained hero_tomb_dummy_obstacle (serde default the old
+///    arm, none), no new state in the shipped arm (TombRun gained `at`, serde default the origin, not hashed: the
+///    tomb's point, set at the play), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
 ///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
@@ -33819,6 +33879,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dart_poison_pulse".into(), serde_json::to_value(DartPoisonPulse::SingleTake).map_err(|e| e.to_string())?);
     // targeting.NEWBORN_FIRST_TARGET: a format-3 battle's emitted unit scanned the board as found (the same rule).
     sh.insert("newborn_first_target".into(), serde_json::to_value(NewbornFirstTarget::ScanAtEmission).map_err(|e| e.to_string())?);
+    // pathfinding.HERO_TOMB_DUMMY_OBSTACLE: a format-3 battle's tomb left the path grid at its death (the same rule).
+    sh.insert("hero_tomb_dummy_obstacle".into(), serde_json::to_value(HeroTombDummyObstacle::None).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
