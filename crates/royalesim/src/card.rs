@@ -834,21 +834,41 @@ fn selector_filter(f: &RawTargetFilter) -> Result<SelectorFilter, String> {
 fn strike_area_shape(aeo: &RawAreaEffect, sa: &RawStrikeArea, buffs: &mut BuffTable) -> Result<StrikeDef, String> {
     let what = aeo.name.clone().unwrap_or_default();
     let refuse = |why: String| -> Result<StrikeDef, String> { Err(format!("striking area effect {what}: {why}; not simulated")) };
+    // THE 16.402 VINES (option B item 26): the area is a pulsing area whose pulses ARE the catches -- HitSpeedOffset the
+    // first, HitSpeed the gap, MaximumTargets 1, HitBiggestTargets -- and its block (tools/extract_cards.py
+    // `ranked_catches_16402`) carries the same clock as its start and offsets. Read through the block, the area's own
+    // columns agreeing with it exactly. Measured on the 017 kernel (2026-10-07, sp-vines-3-s0, pack and 10-06 content):
+    // catches on C + 18, 23 and 28 (offsets 0, 250, 500), the biggest first (a Knight 1766, a Musketeer 721, an Archer).
+    let pulse_catches = sa.kind.as_deref() == Some("ranked_catches")
+        && sa.selection_mode.as_deref() == Some("HitBiggestTargets")
+        && aeo.hit_biggest_targets == Some(true)
+        && aeo.maximum_targets == Some(1)
+        && aeo.hit_speed_ms.is_some_and(|h| h > 0)
+        && aeo.hit_speed_offset_ms.is_some()
+        && aeo.hit_speed_offset_ms == sa.start_delay_ms
+        && sa.catch_offsets_ms.as_ref().is_some_and(|o| {
+            !o.is_empty() && o.iter().enumerate().all(|(k, v)| i64::from(*v) == k as i64 * i64::from(aeo.hit_speed_ms.unwrap_or(0)))
+        });
+    #[cfg(clash_plant = "vines_pulse_unread")]
+    let pulse_catches = {
+        let _ = pulse_catches;
+        false // PLANT (tests/vines.rs): the 16.402 Vines is refused, as before option B.
+    };
     if aeo.buff.is_some()
         || aeo.projectile.as_ref().is_some_and(|p| !p.is_null())
         || aeo.spawn_character.is_some()
-        || aeo.maximum_targets.is_some()
+        || (aeo.maximum_targets.is_some() && !pulse_catches)
         || aeo.pushback_milli.is_some()
         || aeo.spawn_area_effect_object.is_some()
         || aeo.only_own_troops == Some(true)
-        || aeo.hit_biggest_targets == Some(true)
+        || (aeo.hit_biggest_targets == Some(true) && !pulse_catches)
     {
         return refuse("the area carries its own Buff, Projectile, SpawnCharacter, MaximumTargets, Pushback, child area, own-side filter or HitBiggestTargets beside its action".into());
     }
     if aeo.damage.is_some() && (aeo.hits_ground == Some(true) || aeo.hits_air == Some(true)) {
         return refuse("it carries its own Damage and its strikes".into());
     }
-    if aeo.hit_speed_ms.is_some_and(|h| h > 0) {
+    if aeo.hit_speed_ms.is_some_and(|h| h > 0) && !pulse_catches {
         return refuse("a HitSpeed beside its action".into());
     }
     let Some(life_ms) = aeo.life_duration_ms.filter(|l| *l > 0) else { return refuse("no LifeDuration".into()) };
@@ -880,7 +900,9 @@ fn strike_area_shape(aeo: &RawAreaEffect, sa: &RawStrikeArea, buffs: &mut BuffTa
             if sa.once_per_target != Some(true) {
                 return refuse("catches that may take one target twice".into());
             }
-            if sa.selection_mode.as_deref() != Some("HighestCurrentHpIncludeShields") {
+            // HitBiggestTargets (16.402) ranks as HighestCurrentHpIncludeShields does: biggest first on the kernel's
+            // scene of full-hp units, which does not tell current hp from max hp (an open measurement).
+            if sa.selection_mode.as_deref() != Some("HighestCurrentHpIncludeShields") && !pulse_catches {
                 return refuse(format!("catches ranked by {:?}", sa.selection_mode));
             }
             let Some(radius) = sa.radius_milli.filter(|r| *r > 0) else { return refuse("catches with no shape radius".into()) };
@@ -7000,9 +7022,12 @@ struct RawAreaEffect {
     damage: Option<i32>,
     crown_tower_damage_percent: Option<i32>,
     /// 16.402 on (tools/extract_cards.py `norm_aeo`): the crown-tower damage as a level-1 value of its own
-    /// (`SpellHit::tower_damage`). Absent on every 15.535 and 2018 row. The 16.402 row's `hit_speed_offset_ms` is not
-    /// read yet: the engine times a pulsing area's first hit from calibration (spells.PULSING_AREA_EFFECT).
+    /// (`SpellHit::tower_damage`). Absent on every 15.535 and 2018 row.
     tower_damage: Option<i32>,
+    /// 16.402 on: HitSpeedOffset, the ms before a pulsing area's first hit. Read by the 16.402 Vines' catch clock
+    /// (`strike_area_shape`); an ordinary pulsing area still times its first hit from calibration
+    /// (spells.PULSING_AREA_EFFECT, option B item 2).
+    hit_speed_offset_ms: Option<i32>,
     no_effect_to_crown_towers: Option<bool>,
     buff: Option<RawBuff>,
     buff_time_ms: Option<i32>,

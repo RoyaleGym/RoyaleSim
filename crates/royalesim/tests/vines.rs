@@ -44,6 +44,13 @@
 //!   * `grounding_ignored` -- a caught flier stays in the air: (6) goes red, and its status bit 9 never shows.
 //!   * `vines_skips_hidden` -- a blank FilterHidden read as set: (1) and (7) go red.
 //!   * `hash_skips_grounded`, `hash_skips_reach_hidden` -- the window, the slot's reach not hashed: (8) goes red.
+//!   * `vines_pulse_unread` -- the 16.402 Vines (a pulsing area whose pulses are the catches) refused: (9) goes red.
+//!
+//!   9. THE 16.402 VINES (option B item 26): HitSpeedOffset 900, HitSpeed 250, MaximumTargets 1, HitBiggestTargets,
+//!      LifeDuration 1400, its block's offsets [0, 250, 500] and mode HitBiggestTargets (tools/extract_cards.py
+//!      `ranked_catches_16402`), edited onto the shipped row: it loads as catches 900, 250 and 250 apart and catches the
+//!      tower, the Mortar and the Cannon on C + 18, 23 and 28, as the 017 kernel caught a Knight, a Musketeer and an
+//!      Archer (2026-10-07, sp-vines-3-s0, pack and 10-06 content). A pulse that disagrees with the block is refused.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -397,4 +404,49 @@ fn a_grounded_flier_and_a_snare_that_reaches_a_hidden_building_are_state() {
         v["ents"]["buffs"][tesla.index as usize * m + k]["reach_hidden"] = serde_json::Value::Bool(false);
     });
     assert!(hashed, "a save edited only in a slot's reach loads under the old hash: the reach is not hashed");
+}
+
+// ---------------------------------------------------------------------------
+// (9) the 16.402 Vines
+
+/// The shipped table with the Vines' area in the 16.402 table's shape (`edit` applied after).
+fn vines_16402(edit: impl FnOnce(&mut serde_json::Value)) -> CardDb {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).expect("cards.json");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("cards.json parses");
+    let row = v["cards"].as_array_mut().expect("cards").iter_mut().find(|c| c["name"] == "Vines").expect("the Vines row");
+    let a = &mut row["spell"]["area_effect_object"];
+    a["hit_speed_ms"] = serde_json::Value::from(250);
+    a["hit_speed_offset_ms"] = serde_json::Value::from(900);
+    a["maximum_targets"] = serde_json::Value::from(1);
+    a["hit_biggest_targets"] = serde_json::Value::Bool(true);
+    a["life_duration_ms"] = serde_json::Value::from(1400);
+    a["strike_area"]["catch_offsets_ms"] = serde_json::json!([0, 250, 500]);
+    a["strike_area"]["selection_mode"] = serde_json::Value::from("HitBiggestTargets");
+    edit(a);
+    CardDb::from_json_str(&v.to_string(), CardSource::DerivedJson).expect("the edited table parses")
+}
+
+/// Plant: vines_pulse_unread.
+#[test]
+fn the_16402_vines_reads_its_pulse_as_the_catch_clock() {
+    let db = vines_16402(|_| {});
+    let i = db.index("Vines").filter(|&i| db.get(i).spell.is_some()).unwrap_or_else(|| panic!("refused: {:?}", db.rejected.iter().find(|(n, _)| n == "Vines")));
+    let SpellShape::Strikes(d) = &db.get(i).spell.as_ref().unwrap().shape else { panic!("Vines: not strikes") };
+    assert_eq!((d.pick, d.life_ms, d.gaps_ms.clone()), (StrikePick::RankedCatches, 1400, vec![900, 250, 250]));
+    // A pulse that disagrees with the block's clock is refused, naming the column it carries.
+    let off = vines_16402(|a| a["hit_speed_offset_ms"] = serde_json::Value::from(800));
+    let why = off.rejected.iter().find(|(n, _)| n == "Vines").map(|(_, w)| w.clone()).unwrap_or_default();
+    assert!(why.contains("MaximumTargets") || why.contains("HitSpeed"), "a HitSpeedOffset off the start: {why:?}");
+    let gap = vines_16402(|a| a["strike_area"]["catch_offsets_ms"] = serde_json::json!([0, 250, 450]));
+    assert!(gap.rejected.iter().any(|(n, _)| n == "Vines"), "offsets that are not the HitSpeed's multiples");
+}
+
+/// Plant: vines_pulse_unread.
+#[test]
+fn the_16402_vines_catches_on_c_plus_18_23_and_28() {
+    let mut s = BattleState::new(0, BattleConfig::with_cards(vines_16402(|_| {})));
+    let (ids, tap) = three_buildings(&mut s);
+    let hp: Vec<i32> = ids.iter().map(|&id| s.entity(id).unwrap().hp).collect();
+    assert!(hp[0] > hp[1] && hp[1] > hp[2], "the scene drifted: the hp order is not tower, Mortar, Cannon: {hp:?}");
+    assert_eq!(first_held(&mut s, &ids, tap, 40), vec![Some(18), Some(23), Some(28)], "biggest first, 250 ms apart, the last at the life's end");
 }
