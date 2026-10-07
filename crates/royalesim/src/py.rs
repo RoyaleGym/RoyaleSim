@@ -711,8 +711,8 @@ pub fn kind_code(cards: &CardDb, calib: &Calib, idx: u16) -> u8 {
         // (placement.SPELL_AS_DEPLOY_TAPS), and a tap nothing moves is refused. So it takes a troop's code. By the rule,
         // not the name: code 3 alone cannot tell it from the Log, which may land on buildings.
         #[cfg(not(clash_plant = "footprint_spell_kind_rolling"))]
-        (CardKind::Spell, (Territory::EnemyTowerRects, true)) => 0,
-        (CardKind::Spell, (Territory::EnemyTowerRects, _)) => 3,
+        (CardKind::Spell, (Territory::EnemyTowerRects { .. }, true)) => 0,
+        (CardKind::Spell, (Territory::EnemyTowerRects { .. }, _)) => 3,
         (CardKind::Spell, (Territory::AnywhereButWater, _)) => 4,
         (CardKind::Spell, _) => 2,
     }
@@ -1665,13 +1665,15 @@ impl Battle {
     fn territory_model() -> &'static str {
         match crate::state::Calib::shipped().territory_model {
             crate::arena::TerritoryModel::EnemyTowerNoDeployRects => "enemy_tower_no_deploy_rects",
+            crate::arena::TerritoryModel::EnemyTowerNoDeployRectsOpenBridge => "enemy_tower_no_deploy_rects_open_bridge",
         }
     }
 
     /// Every crown tower's closed NoDeploySize rect, `[team][k] = [x0, y0, x1, y1]`
     /// in subtiles, engine k order (king, engine-Left, engine-Right), whether or not
     /// the tower is alive. A `team` troop may not be placed inside the rect of any
-    /// ALIVE tower of the other team (and never in the river band). Sizes are this
+    /// ALIVE tower of the other team (nor in the river band, save a fallen lane's bridge under
+    /// arena.TERRITORY_MODEL = enemy_tower_no_deploy_rects_open_bridge). Sizes are this
     /// object's cards.json `no_deploy_size_tiles`; centres are the engine's tower
     /// positions.
     fn tower_no_deploy_rects(&self) -> PyResult<Vec<Vec<[i32; 4]>>> {
@@ -3073,7 +3075,7 @@ mod tests {
                 _ => "SPELL",
             };
             // A spell placed as a troop is (troop territory with a troop's footprint rule: Heal) reports a troop's 0.
-            let troop_placed_spell = kind == "SPELL" && code == 0 && matches!(deploy_rule(&calib, db.get(shown)), (Territory::EnemyTowerRects, true));
+            let troop_placed_spell = kind == "SPELL" && code == 0 && matches!(deploy_rule(&calib, db.get(shown)), (Territory::EnemyTowerRects { .. }, true));
             // A tunneller (5) keeps its kind's footprint rule, a troop's or a building's, which card_kind names.
             let tunneller = code == u64::from(KIND_TUNNEL) && (kind == "TROOP" || kind == "BUILDING");
             assert!(kind == band || troop_placed_spell || tunneller, "{r:?}: card_kind {kind}, kind code band {band}");

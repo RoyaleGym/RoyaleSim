@@ -12,7 +12,10 @@
 //!   out of arena (not strictly inside)      -> OutOfArena
 //!   touches a WATER cell                    -> Water
 //!   touches a NO_DEPLOY cell                -> NoDeploy
-//!   touches a river-band row                -> OutOfTerritory   (unsourced, kept)
+//!   touches a river-band row                -> OutOfTerritory   (arena.TERRITORY_MODEL = enemy_tower_no_deploy_rects
+//!                                                                 only; the shipped ..._open_bridge leaves the band to
+//!                                                                 the rects and the water test, so a fallen lane's
+//!                                                                 bridge takes a troop: tests/bridge_after_fall.rs)
 //!   inside the CLOSED NoDeploySize rect of an ALIVE ENEMY crown tower -> OutOfTerritory
 //!   touches (closed) a building footprint   -> Occupied
 //!
@@ -31,7 +34,7 @@
 //! tests/tower_tap_push.rs and tests/test_king_area_placement.py pin that arm.
 mod common;
 
-use royalesim::arena::Rect;
+use royalesim::arena::{Rect, TerritoryModel};
 use royalesim::card::{KING_TOWER, PRINCESS_TOWER};
 use royalesim::fixed::Vec2;
 use royalesim::state::{footprint_of, BattleState, DeployError, TroopTowerTaps};
@@ -109,7 +112,8 @@ fn expected(s: &BattleState, team: Team, p: Vec2) -> Result<(), DeployError> {
         return Err(DeployError::NoDeploy);
     }
     let (river_lo, river_hi) = (a.water_y_min / a.cell, a.water_y_max / a.cell - 1);
-    if (y0..=y1).any(|r| r >= river_lo && r <= river_hi) {
+    let band_closed = s.config().calib.territory_model == TerritoryModel::EnemyTowerNoDeployRects;
+    if band_closed && (y0..=y1).any(|r| r >= river_lo && r <= river_hi) {
         return Err(DeployError::OutOfTerritory);
     }
     if expected_rects(s, team).iter().any(|r| p.x >= r.min.x && p.x <= r.max.x && p.y >= r.min.y && p.y <= r.max.y) {

@@ -184,18 +184,27 @@
       "promotion_rules": "Re-measure against a screenshot of the live arena with a calibrated tile overlay."
     },
     "TERRITORY_MODEL": {
-      "value": "enemy_tower_no_deploy_rects",
-      "status": "datamined",
+      "value": "enemy_tower_no_deploy_rects_open_bridge",
+      "status": "measured",
       "confidence": "medium",
       "candidates": [
-        "enemy_tower_no_deploy_rects"
+        "enemy_tower_no_deploy_rects",
+        "enemy_tower_no_deploy_rects_open_bridge"
       ],
-      "provenance": "data/raw/retroroyale-2018/csv_logic/buildings.csv NoDeploySizeW / NoDeploySizeH, ~2018 client data (PRE-2025; evidence, not spec). The columns are set on exactly three rows: KingTower (18, 16), PrincessTower (11, 21) and NOTINUSE21, a disused copy of the king (18, 16). Carried into data/derived/cards.json towers[].no_deploy_size_tiles by tools/extract_cards.py.",
+      "provenance": "data/raw/retroroyale-2018/csv_logic/buildings.csv NoDeploySizeW / NoDeploySizeH, ~2018 client data (PRE-2025; evidence, not spec). The columns are set on exactly three rows: KingTower (18, 16), PrincessTower (11, 21) and NOTINUSE21, a disused copy of the king (18, 16). Carried into data/derived/cards.json towers[].no_deploy_size_tiles by tools/extract_cards.py. THE BRIDGE (value enemy_tower_no_deploy_rects_open_bridge, 2026-10-07): MEASURED on 252k IL_Replay ladder matches (RoyaleTraining BRIDGE COUNT, one-tile landing cells): no troop or building lands on river rows 15-16 by a side that took no crown (0 of 10,840), none in the lane whose princess stands (44,447 one-crown sides), and after a fall 5,058 river-row plays land on the bridge columns (tiles 3 and 14, with 2/4 and 13/15 at the edges, both river rows alike).",
       "rule": "A TROOP may not be placed at a point inside the closed axis-aligned rectangle, centred on the tower centre with half-extents NoDeploySizeW/2 and NoDeploySizeH/2 tiles, of any ALIVE ENEMY crown tower; plus the tilemap WATER and NO_DEPLOY bits, arena bounds, building footprints, and the river band (never troop territory, see open_question). Buildings stay own half only (unsourced, unchanged). Spells anywhere.",
       "unit_inference": "TILES, inferred from 4 of 4 landmarks that come out exact under that reading and 0 of 4 under the half-tile reading, against the independently derived data/derived/arena.json and the princess tower centre (3.5, 6.5): (1) the king rect spans x = [0, 18], exactly the arena width; (2) the left and right princess rects (x = 3.5 +- 5.5 and 14.5 +- 5.5) meet exactly at x = 9, the centre line; (3) and (4) each princess rect's far edge (y = 6.5 + 10.5 = 17) is exactly the far river bank. tools/check_data.py gates all four.",
       "consequence": "With every enemy tower up, the rects forbid everything from the near river bank onward. When one enemy princess falls, the ground that opens on that side is between the far river bank (y = 17) and the enemy king rect (y = 21): 8 half-rows (4 tiles), x from the side wall to the centre line.",
-      "open_question": "The four dry bridge half-columns (rows 15-17) are marked neither WATER nor NO_DEPLOY in the tilemap, so the rects alone would open them once that lane's princess falls. The engine keeps the river band closed to troops, carried from the previous rule WITHOUT a source. A recording of a troop placement attempt on the bridge after a princess tower falls settles it.",
+      "open_question": "ANSWERED 2026-10-07 by the replays (see provenance): a fallen lane's bridge takes troops, and the engine leaves the river band to the rects and the water test (enemy_tower_no_deploy_rects_open_bridge). The client agrees (Oracle's client taps, 2026-10-07: with Red's left princess down, Blue Knights tapped at x 3000, 3500 and 4000 on rows 15500 and 16500 stood on the left bridge at (3499, row); before the fall the same taps were moved back to row 14500). Still open: the tile-boundary tap at x 4000 (the client stood it on x 3500; the engine snaps it to 4500, the bridge's water edge), and the edge taps at x 2500 (the client moved it off the bridge) and 4500 (refused). The Log and the Barbarian Barrel land on river rows off the bridge after a fall in the replays: a rolling spell's own rule, not this one.",
       "history": [
+        {
+          "date": "2026-10-07",
+          "value": "enemy_tower_no_deploy_rects",
+          "status": "datamined",
+          "confidence": "medium",
+          "provenance": "The same rects, with the river band closed to troops WITHOUT a source (carried from the previous rule).",
+          "overturned_by": "252k IL_Replay ladder matches (RoyaleTraining BRIDGE COUNT): troops land on a bridge only after that lane's princess has fallen. The rects stay as they were; only the river band opens to them."
+        },
         {
           "date": "2026-09-13",
           "value": "own_half_plus_pocket_12_half_rows",

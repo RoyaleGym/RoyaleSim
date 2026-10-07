@@ -75,8 +75,11 @@ pub enum Territory {
     /// kept rather than widened on no evidence.
     OwnHalf,
     /// Troops: outside every closed `enemy_rects` rectangle (the alive enemy crown
-    /// towers' NoDeploySize rects), and never in the river band.
-    EnemyTowerRects,
+    /// towers' NoDeploySize rects). The river band is closed unless `open_bridge`
+    /// (calibration arena.TERRITORY_MODEL = enemy_tower_no_deploy_rects_open_bridge):
+    /// then the band is left to the rects and the water test, which open a bridge's dry
+    /// cells once that lane's princess has fallen (its rect reaches the far bank).
+    EnemyTowerRects { open_bridge: bool },
     /// Spells: anywhere strictly inside the arena.
     Anywhere,
     /// Spells that release units (Goblin Barrel) under calibration
@@ -86,19 +89,34 @@ pub enum Territory {
     AnywhereButWater,
 }
 
-/// calibration.json arena.TERRITORY_MODEL. One candidate is implemented; the enum
-/// exists so the registry value is READ and an unknown one is refused, never
-/// silently run as this one.
+/// calibration.json arena.TERRITORY_MODEL; an unknown value is refused, never silently run as another.
+/// `EnemyTowerNoDeployRects`: troops outside the alive enemy towers' rects, never in the river band.
+/// `EnemyTowerNoDeployRectsOpenBridge`: the same rects, and the river band left to them and the water test,
+/// so a bridge takes a troop once that lane's enemy princess has fallen (`Territory::EnemyTowerRects`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum TerritoryModel {
     EnemyTowerNoDeployRects,
+    EnemyTowerNoDeployRectsOpenBridge,
 }
 
 impl TerritoryModel {
     pub fn from_calibration_name(s: &str) -> Option<Self> {
         match s {
             "enemy_tower_no_deploy_rects" => Some(Self::EnemyTowerNoDeployRects),
+            "enemy_tower_no_deploy_rects_open_bridge" => Some(Self::EnemyTowerNoDeployRectsOpenBridge),
             _ => None,
+        }
+    }
+
+    /// Does a fallen lane's bridge take a troop under this model?
+    pub fn open_bridge(self) -> bool {
+        #[cfg(not(clash_plant = "bridge_closed_after_fall"))]
+        return self == Self::EnemyTowerNoDeployRectsOpenBridge;
+        // PLANT (tests/bridge_after_fall.rs): the open arm keeps the river band closed.
+        #[cfg(clash_plant = "bridge_closed_after_fall")]
+        {
+            let _ = self;
+            false
         }
     }
 }
@@ -872,11 +890,11 @@ impl Arena {
     /// every rect edge lies on a half-cell boundary, which the shipped sizes do
     /// (arena.rs test `rect_point_rule_equals_the_cell_rule`).
     ///
-    /// THE RIVER BAND STAYS CLOSED TO TROOPS. UNSOURCED, carried from the previous
-    /// rule: the rects alone would open the four dry bridge half-columns (16 cells
-    /// per bridge) once that lane's princess falls, because the tilemap marks
-    /// bridge cells neither WATER nor NO_DEPLOY. Whether the live game lets a troop
-    /// be placed on the bridge then is a question to measure, not a data one.
+    /// THE RIVER BAND. Under `open_bridge` it is left to the rects and the water test:
+    /// they open the four dry bridge half-columns (16 cells per bridge) once that
+    /// lane's princess falls, because the tilemap marks bridge cells neither WATER nor
+    /// NO_DEPLOY and an alive princess's rect reaches the far bank. Closed otherwise
+    /// (calibration arena.TERRITORY_MODEL; the replay evidence is there).
     ///
     /// MIRROR. Red's rows are counted from the top (`rows - 1 - row`), and the rects
     /// are built from tower positions that the rotation maps onto each other, so
@@ -956,14 +974,14 @@ impl Arena {
             };
             let refused = match territory {
                 Territory::OwnHalf => own_row >= water_lo,
-                Territory::EnemyTowerRects => own_row >= water_lo && own_row <= water_hi,
+                Territory::EnemyTowerRects { open_bridge } => !open_bridge && own_row >= water_lo && own_row <= water_hi,
                 Territory::Anywhere | Territory::AnywhereButWater => false,
             };
             if refused {
                 return Err(ZoneError::OutOfTerritory);
             }
         }
-        if territory == Territory::EnemyTowerRects && enemy_rects.iter().any(|r| r.contains_closed(p)) {
+        if matches!(territory, Territory::EnemyTowerRects { .. }) && enemy_rects.iter().any(|r| r.contains_closed(p)) {
             return Err(ZoneError::OutOfTerritory);
         }
         Ok(())
@@ -1144,7 +1162,7 @@ impl Arena {
         let row = (forward_y - 1).div_euclid(self.cell);
         let refused = match territory {
             Territory::OwnHalf => row >= water_lo,
-            Territory::EnemyTowerRects => row >= water_lo && row <= water_hi,
+            Territory::EnemyTowerRects { open_bridge } => !open_bridge && row >= water_lo && row <= water_hi,
             Territory::Anywhere | Territory::AnywhereButWater => false,
         };
         if refused {
@@ -1220,41 +1238,57 @@ mod tests {
     #[test]
     fn deploy_zones() {
         use Territory::*;
+        // The troop rule with the river band closed (arena.TERRITORY_MODEL = enemy_tower_no_deploy_rects); the open
+        // bridge's verdicts follow the "bridge stays closed" line.
+        const TR: Territory = EnemyTowerRects { open_bridge: false };
+        const OPEN: Territory = EnemyTowerRects { open_bridge: true };
         let a = Arena::shipped();
         let rb = enemy_rects(&a, Team::Blue);
         let rr = enemy_rects(&a, Team::Red);
         let all_b = rb.to_vec();
         let left_down_b = vec![rb[0], rb[2]];
         let z = |p, team, terr, rects: &[Rect]| a.deploy_zone(p, team, terr, rects);
-        assert_eq!(z(t100(900, 1000), Team::Blue, EnemyTowerRects, &all_b), Ok(()));
-        assert_eq!(z(t100(900, 1000), Team::Red, EnemyTowerRects, &rr), Err(ZoneError::OutOfTerritory));
-        assert_eq!(z(t100(900, 2200), Team::Red, EnemyTowerRects, &rr), Ok(()));
-        assert_eq!(z(t100(900, 300), Team::Blue, EnemyTowerRects, &all_b), Err(ZoneError::NoDeploy), "king block");
-        assert_eq!(z(t100(900, 1600), Team::Blue, EnemyTowerRects, &[]), Err(ZoneError::Water));
+        assert_eq!(z(t100(900, 1000), Team::Blue, TR, &all_b), Ok(()));
+        assert_eq!(z(t100(900, 1000), Team::Red, TR, &rr), Err(ZoneError::OutOfTerritory));
+        assert_eq!(z(t100(900, 2200), Team::Red, TR, &rr), Ok(()));
+        assert_eq!(z(t100(900, 300), Team::Blue, TR, &all_b), Err(ZoneError::NoDeploy), "king block");
+        assert_eq!(z(t100(900, 1600), Team::Blue, TR, &[]), Err(ZoneError::Water));
         assert_eq!(z(Vec2::new(0, 5), Team::Blue, Anywhere, &all_b), Err(ZoneError::OutOfArena));
         assert_eq!(z(t100(900, 2200), Team::Blue, Anywhere, &all_b), Ok(()), "spells go anywhere");
-        assert_eq!(z(t100(350, 2000), Team::Blue, EnemyTowerRects, &all_b), Err(ZoneError::OutOfTerritory));
-        assert_eq!(z(t100(350, 2000), Team::Blue, EnemyTowerRects, &left_down_b), Ok(()), "pocket opens");
+        assert_eq!(z(t100(350, 2000), Team::Blue, TR, &all_b), Err(ZoneError::OutOfTerritory));
+        assert_eq!(z(t100(350, 2000), Team::Blue, TR, &left_down_b), Ok(()), "pocket opens");
         assert_eq!(z(t100(350, 2000), Team::Blue, OwnHalf, &left_down_b), Err(ZoneError::OutOfTerritory), "no pocket for buildings");
-        assert_eq!(z(t100(1450, 2000), Team::Blue, EnemyTowerRects, &left_down_b), Err(ZoneError::OutOfTerritory));
+        assert_eq!(z(t100(1450, 2000), Team::Blue, TR, &left_down_b), Err(ZoneError::OutOfTerritory));
         // Depth: the enemy king rect starts at y = 21 (closed), so the pocket is
         // y in (17, 21) -- 8 half-rows, where a 12-half-row pocket would reach 23 tiles.
-        assert_eq!(z(Vec2::new(tiles(3), tiles(21) - 1), Team::Blue, EnemyTowerRects, &left_down_b), Ok(()));
-        assert_eq!(z(Vec2::new(tiles(3), tiles(21)), Team::Blue, EnemyTowerRects, &left_down_b), Err(ZoneError::OutOfTerritory));
+        assert_eq!(z(Vec2::new(tiles(3), tiles(21) - 1), Team::Blue, TR, &left_down_b), Ok(()));
+        assert_eq!(z(Vec2::new(tiles(3), tiles(21)), Team::Blue, TR, &left_down_b), Err(ZoneError::OutOfTerritory));
         // The side edge: the surviving right princess rect starts at x = 9 (closed).
-        assert_eq!(z(Vec2::new(tiles(9) - 1, tiles(19)), Team::Blue, EnemyTowerRects, &left_down_b), Ok(()));
-        assert_eq!(z(Vec2::new(tiles(9), tiles(19)), Team::Blue, EnemyTowerRects, &left_down_b), Err(ZoneError::OutOfTerritory));
+        assert_eq!(z(Vec2::new(tiles(9) - 1, tiles(19)), Team::Blue, TR, &left_down_b), Ok(()));
+        assert_eq!(z(Vec2::new(tiles(9), tiles(19)), Team::Blue, TR, &left_down_b), Err(ZoneError::OutOfTerritory));
         // The bank line on a bridge column touches bridge row 33: the river band.
-        assert_eq!(z(t100(350, 1700), Team::Blue, EnemyTowerRects, &left_down_b), Err(ZoneError::OutOfTerritory));
-        assert_eq!(z(t100(350, 1600), Team::Blue, EnemyTowerRects, &left_down_b), Err(ZoneError::OutOfTerritory), "bridge stays closed");
+        assert_eq!(z(t100(350, 1700), Team::Blue, TR, &left_down_b), Err(ZoneError::OutOfTerritory));
+        assert_eq!(z(t100(350, 1600), Team::Blue, TR, &left_down_b), Err(ZoneError::OutOfTerritory), "bridge stays closed");
+        // OPEN BRIDGE (enemy_tower_no_deploy_rects_open_bridge): the fallen lane's bridge takes a troop, on both river
+        // rows and on the bank line; the standing princess's rect reaches the far bank and keeps its bridge closed; a
+        // river cell off the bridges is water either way; the rest of the territory is unchanged.
+        assert_eq!(z(t100(350, 1600), Team::Blue, OPEN, &left_down_b), Ok(()), "a fallen lane's bridge");
+        assert_eq!(z(t100(350, 1500), Team::Blue, OPEN, &left_down_b), Ok(()), "its near river row");
+        assert_eq!(z(t100(350, 1700), Team::Blue, OPEN, &left_down_b), Ok(()), "its bank line");
+        assert_eq!(z(t100(350, 1600), Team::Blue, OPEN, &all_b), Err(ZoneError::OutOfTerritory), "a standing princess's bridge");
+        assert_eq!(z(t100(1450, 1600), Team::Blue, OPEN, &left_down_b), Err(ZoneError::OutOfTerritory), "the other lane's bridge");
+        assert_eq!(z(t100(550, 1600), Team::Blue, OPEN, &left_down_b), Err(ZoneError::Water), "off the bridge");
+        assert_eq!(z(t100(350, 2000), Team::Blue, OPEN, &left_down_b), Ok(()), "the pocket as before");
+        assert_eq!(z(t100(1450, 2000), Team::Blue, OPEN, &left_down_b), Err(ZoneError::OutOfTerritory));
+        assert_eq!(z(a.rotate(t100(350, 1600)), Team::Red, OPEN, &[rr[0], rr[1]]), Ok(()), "Red's rotation");
         // Rotation: Red at (W - x, H - y) with Blue's ENGINE-RIGHT tower down (the
         // rotation of Red's engine-left) gets exactly Blue's verdicts.
         let right_down_r = vec![rr[0], rr[1]];
         for (bx, by) in [(350, 2000), (1450, 2000), (350, 1700), (900, 1000), (300, 2099), (300, 2100), (899, 1900), (900, 1900)] {
             let p = t100(bx, by);
             assert_eq!(
-                z(p, Team::Blue, EnemyTowerRects, &left_down_b),
-                z(a.rotate(p), Team::Red, EnemyTowerRects, &right_down_r),
+                z(p, Team::Blue, TR, &left_down_b),
+                z(a.rotate(p), Team::Red, TR, &right_down_r),
                 "at {p:?}"
             );
         }

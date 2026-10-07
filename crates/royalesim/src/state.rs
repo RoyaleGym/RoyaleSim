@@ -11414,10 +11414,10 @@ pub fn deploy_rule(calib: &Calib, card: &CardDef) -> (Territory, bool) {
     let placement = card.spell.as_ref().map(|s| s.placement);
     let territory = match (card.kind, calib.territory_model) {
         (CardKind::Building, _) => Territory::OwnHalf,
-        (CardKind::Troop, TerritoryModel::EnemyTowerNoDeployRects) => Territory::EnemyTowerRects,
+        (CardKind::Troop, m) => Territory::EnemyTowerRects { open_bridge: m.open_bridge() },
         (CardKind::Spell, _) => match (placement, calib.spawning_spell_water) {
             #[cfg(not(clash_plant = "log_territory_anywhere"))]
-            (Some(SpellPlacement::TroopTerritory { .. }), _) => Territory::EnemyTowerRects,
+            (Some(SpellPlacement::TroopTerritory { .. }), _) => Territory::EnemyTowerRects { open_bridge: calib.territory_model.open_bridge() },
             #[cfg(not(clash_plant = "barrel_anywhere_incl_water"))]
             (Some(SpellPlacement::AnywhereButWater), SpawnWaterRule::RefuseTouchingWater) => Territory::AnywhereButWater,
             _ => Territory::Anywhere,
