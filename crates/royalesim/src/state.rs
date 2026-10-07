@@ -1081,6 +1081,10 @@ pub struct Calib {
     /// its contacts. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AfterMean`.
     #[serde(default = "attract_contact_mean_default")]
     pub attract_contact_mean: AttractContactMean,
+    /// transform.TOMB_MONSTER_STEP_SCOPE (`tomb_status`, the move pass's tomb bodies): when a pressed Hero Tombstone
+    /// monster takes its one step. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `EveryPress`.
+    #[serde(default = "tomb_monster_step_scope_default")]
+    pub tomb_monster_step_scope: TombMonsterStepScope,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2751,6 +2755,10 @@ fn net_cast_window_default() -> NetCastWindow {
 
 fn attract_contact_mean_default() -> AttractContactMean {
     AttractContactMean::AfterMean
+}
+
+fn tomb_monster_step_scope_default() -> TombMonsterStepScope {
+    TombMonsterStepScope::EveryPress
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6692,6 +6700,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// transform.TOMB_MONSTER_STEP_SCOPE -- see `tomb_status` (card.rs TOMB_MONSTER_STEP) and the move pass's tomb
+    /// bodies (`drill_off`): whether a pressed Hero Tombstone monster steps off its tomb's point with its tomb gone.
+    TombMonsterStepScope {
+        /// The engine's: the step the tick after every press; pressed with its tomb gone, it meets bodies from the trigger's
+        /// tick.
+        EveryPress = "every_press",
+        /// The step only beside a standing tomb; pressed with its tomb gone, no step, and no body on the trigger's tick (it
+        /// meets them from the next). Measured on client 15.535.29: 6 of 6 presses with the tomb standing stepped (-106,
+        /// -106) (red (+106, +106)); the one press after the tomb's death (sp-hero2-Tombstone-window-s0 t320) stood on the
+        /// trigger's tick and took a Skeleton's contact push alone on the two after.
+        Client15535TombStanding = "client15535_tomb_standing",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8689,6 +8711,7 @@ impl Calib {
             doomed_read_in_pass: pick(&v, &["combat", "DOOMED_READ_IN_PASS", "value"], DoomedReadInPass::from_calibration_name)?,
             net_cast_window: pick(&v, &["combat", "NET_CAST_WINDOW", "value"], NetCastWindow::from_calibration_name)?,
             attract_contact_mean: pick(&v, &["collision", "ATTRACT_CONTACT_MEAN", "value"], AttractContactMean::from_calibration_name)?,
+            tomb_monster_step_scope: pick(&v, &["transform", "TOMB_MONSTER_STEP_SCOPE", "value"], TombMonsterStepScope::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -20335,7 +20358,15 @@ impl BattleState {
         // A HERO TOMBSTONE'S MONSTER WAITING (card.rs `TombMonsterDef`): DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS; no unit
         // meets its body (no plant: its tomb's body covers it while it stands, and nothing measured it after). Pressed, it
         // meets none while its tomb stands (measured: still beside the standing tomb after its one step, TOMB_MONSTER_STEP).
-        for r in self.warps.tombs.iter().filter(|r| (r.pressed.is_none() || self.ents.is_alive(r.tomb)) && self.ents.is_alive(r.monster)) {
+        // transform.TOMB_MONSTER_STEP_SCOPE = client15535_tomb_standing: pressed with its tomb gone, it meets none on the
+        // trigger's tick either (sp-hero2-Tombstone-window-s0 t320: no move on it, a Skeleton's push from the next).
+        let press_tick_off = self.cfg.calib.tomb_monster_step_scope == TombMonsterStepScope::Client15535TombStanding;
+        for r in self
+            .warps
+            .tombs
+            .iter()
+            .filter(|r| (r.pressed.is_none() || self.ents.is_alive(r.tomb) || (press_tick_off && r.pressed == Some(self.tick))) && self.ents.is_alive(r.monster))
+        {
             drill_off[r.monster.index as usize] = true;
         }
         // THE MONK'S DEFLECT (card.rs `AbilityEffect::Deflect`, `deflects`; his ability's AVOIDANCE_AS_OBSTACLE): while it
@@ -25636,8 +25667,15 @@ impl BattleState {
         for k in 0..self.warps.tombs.len() {
             let r = self.warps.tombs[k].clone();
             // A PRESSED MONSTER'S ONE STEP (card.rs TOMB_MONSTER_STEP), the tick after the trigger.
+            // transform.TOMB_MONSTER_STEP_SCOPE = client15535_tomb_standing: beside a standing tomb alone (client 15.535.29: 6
+            // of 6 with the tomb standing stepped; pressed after the tomb's death, sp-hero2-Tombstone-window-s0, none).
+            // PLANT (regression) tomb_step_every_press: the new arm steps a monster whose tomb is gone.
+            #[cfg(not(clash_plant = "tomb_step_every_press"))]
+            let standing = self.cfg.calib.tomb_monster_step_scope != TombMonsterStepScope::Client15535TombStanding || self.ents.is_alive(r.tomb);
+            #[cfg(clash_plant = "tomb_step_every_press")]
+            let standing = true;
             #[cfg(not(clash_plant = "tomb_monster_unstepped"))]
-            if r.pressed.is_some_and(|p| self.tick == p + 1) && self.ents.is_alive(r.monster) {
+            if r.pressed.is_some_and(|p| self.tick == p + 1) && self.ents.is_alive(r.monster) && standing {
                 let mi = r.monster.index as usize;
                 self.ents.pos[mi] = guard_point(r.team, self.ents.pos[mi], crate::card::TOMB_MONSTER_STEP);
                 self.hash.rebuild(&self.ents);
@@ -32118,6 +32156,9 @@ impl BattleState {
 /// 20, unchanged, collision.ATTRACT_CONTACT_MEAN: Calib gained attract_contact_mean (serde default the old arm,
 ///    after_mean), no new state (the pull's sources are the tick's), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, transform.TOMB_MONSTER_STEP_SCOPE: Calib gained tomb_monster_step_scope (serde default the old arm,
+///    every_press), no new state (the scope is read off the run's tomb), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
 ///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
@@ -33151,6 +33192,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("net_cast_window".into(), serde_json::to_value(NetCastWindow::TargetHold).map_err(|e| e.to_string())?);
     // collision.ATTRACT_CONTACT_MEAN: a format-3 battle's pull was added after the contact mean (the same rule).
     sh.insert("attract_contact_mean".into(), serde_json::to_value(AttractContactMean::AfterMean).map_err(|e| e.to_string())?);
+    // transform.TOMB_MONSTER_STEP_SCOPE: a format-3 battle's pressed monster stepped after every press (the same rule).
+    sh.insert("tomb_monster_step_scope".into(), serde_json::to_value(TombMonsterStepScope::EveryPress).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

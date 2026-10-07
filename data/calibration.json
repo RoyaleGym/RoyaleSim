@@ -5159,6 +5159,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_no_body (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs the move pass's board (`mount_off`, beside the dismount's no-collide), selected by Calib::dismount_mount_hold_body; tests/dismount_mount_birth.rs."
     },
+    "TOMB_MONSTER_STEP_SCOPE": {
+      "value": "every_press",
+      "candidates": ["every_press", "client15535_tomb_standing"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_tomb_standing on client 15.535.29: 6 of 6 presses with the tomb standing stepped, the 1 press after the tomb's death did not (one event, and with it the trigger tick's missing contact); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (r54 monster_step census: every Hero Tombstone press P in the captures, the monster's points P..P + 3 and its tomb's state). The tomb standing on P + 1 (sp-form-Tombstone-hero-s0 t216, sp-hero2-Tombstone-death-s0, -full-s0, -half-s0 t277, -monster-s0 t135; red -full-s1): the monster stepped (-106, -106) (red (+106, +106)), 6 of 6. The tomb dead before the press (sp-hero2-Tombstone-window-s0, pressed t320 inside the window after its tomb's death on t299): the monster did not move on the trigger's tick and moved (-2, -16) then (-2, -11) on P + 1 and P + 2, Skeleton 16's mass-ratio push alone (overlap 355, read at its start-of-tick point), standing at (14496, 11469); the engine pushed it (6, -15) on the trigger's tick and stepped it (-106, -106) on P + 1, 145 behind at t324 and 93 in y once both walked, so the princess tower's 109s landed 12 ticks late in the engine (105 hp-exact ticks). The step's own cause is open (card.rs TOMB_MONSTER_STEP is fitted).",
+      "meaning": "every_press: the engine's; card.rs TOMB_MONSTER_STEP the tick after every press, and a monster pressed with its tomb gone meets bodies from the trigger's tick. client15535_tomb_standing: the step only while the tomb stands; pressed with its tomb gone the monster takes no step and keeps its no-body on the trigger's tick, meeting bodies from the next.",
+      "open": "One press after the tomb's death; why the step is (-106, -106) (the push of a standing tomb on a coincident monster, rotated? see sp-hero2-Tombstone emissions); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_tomb_standing (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs tomb_status (the step's `standing`), the move pass's tomb bodies (`drill_off`), selected by Calib::tomb_monster_step_scope; tests/hero_tombstone.rs."
+    },
     "DISMOUNT_HOP_WATER": {
       "value": "keep_water",
       "candidates": ["keep_water", "client15535_land_row_centre"],

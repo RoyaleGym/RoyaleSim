@@ -1593,6 +1593,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   hold (19 of 19 nets; the hold 15).
 ///   collision.ATTRACT_CONTACT_MEAN = client15535_in_mean: a pulled unit with a contact takes the pull as one entry of
 ///   its contact mean (32 of 32 pulled steps with a neighbour).
+///   transform.TOMB_MONSTER_STEP_SCOPE = client15535_tomb_standing: a pressed Hero Tombstone monster steps off its tomb
+///   only beside a standing tomb (6 of 6; 1 of 1 after the tomb's death stood).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
@@ -1732,6 +1734,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.DOOMED_READ_IN_PASS", "\"client15535_at_turn\""),
     ("combat.NET_CAST_WINDOW", "\"client15535_shot_window\""),
     ("collision.ATTRACT_CONTACT_MEAN", "\"client15535_in_mean\""),
+    ("transform.TOMB_MONSTER_STEP_SCOPE", "\"client15535_tomb_standing\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
     ("combat.RAMP_STUN_RESTART", "\"client15535_restart\""),

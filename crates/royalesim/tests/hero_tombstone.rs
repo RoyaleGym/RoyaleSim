@@ -12,14 +12,15 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_tombstone`): tomb_monster_never, tomb_never, tomb_never_killed, tomb_window_unread, tomb_play_ignored,
 //! tomb_monster_unstepped, ability_available_ignores_windows (the no-press test: the row reads the button available
-//! after the tomb's window closes, while the monster waits).
+//! after the tomb's window closes, while the monster waits), tomb_step_every_press (transform.TOMB_MONSTER_STEP_SCOPE's new
+//! arm steps a monster pressed after its tomb's death).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::BattleState;
+use royalesim::state::{BattleState, TombMonsterStepScope};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -32,7 +33,12 @@ const WAITING: &str = "TombstoneHero_Monster_Passive";
 const ACTIVE: &str = "TombstoneHero_Monster_Active";
 
 fn battle() -> BattleState {
+    battle_with(TombMonsterStepScope::EveryPress)
+}
+
+fn battle_with(scope: TombMonsterStepScope) -> BattleState {
     let mut cfg = config();
+    cfg.calib.tomb_monster_step_scope = scope;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]];
@@ -184,4 +190,48 @@ fn its_active_monsters_death_puts_four_skeletons_down_around_its_last_point_on_t
         skeletons(&s, Team::Blue).into_iter().filter(|x| !before.contains(&x.0)).map(|(_, p)| ((p.x - at.x) / K, (p.y - at.y) / K)).collect();
     new.sort_unstable();
     assert_eq!(new, vec![(-500, -1000), (-500, 0), (500, -1000), (500, 0)], "the four Skeletons around its last point");
+}
+
+/// transform.TOMB_MONSTER_STEP_SCOPE (client 15.535.29: 6 of 6 presses beside a standing tomb stepped (-106, -106); the
+/// one press after the tomb's death, sp-hero2-Tombstone-window-s0 t320, did not): the tomb taken, the press 10 ticks after,
+/// the monster's move from the trigger's tick to P + 3. Plant: tomb_step_every_press.
+fn pressed_after_the_tomb(scope: TombMonsterStepScope) -> (i32, i32) {
+    let mut s = battle_with(scope);
+    let (tomb, m) = play(&mut s, Team::Blue, n(14500, 11500));
+    assert!(s.debug_set_hp(tomb, 0));
+    for _ in 0..10 {
+        s.tick();
+    }
+    assert!(s.entity(tomb).is_none(), "the scene drifted: the tomb stands");
+    let a = s.entity(m).expect("the monster").pos;
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.press_ability_button(Team::Blue, 0).expect("the press 10 ticks after the tomb");
+    for _ in 0..3 {
+        s.tick();
+    }
+    let b = s.entity(m).expect("the monster").pos;
+    ((b.x - a.x) / K, (b.y - a.y) / K)
+}
+
+#[test]
+fn a_monster_pressed_after_its_tombs_death_takes_no_step_under_client15535_tomb_standing() {
+    assert_eq!(pressed_after_the_tomb(TombMonsterStepScope::Client15535TombStanding), (0, 0), "client15535_tomb_standing: it moved");
+    // NOT VACUOUS: every_press steps it.
+    assert_eq!(pressed_after_the_tomb(TombMonsterStepScope::EveryPress), (-106, -106), "every_press: not its one step");
+}
+
+#[test]
+fn a_monster_pressed_beside_its_standing_tomb_steps_under_both_arms() {
+    for scope in [TombMonsterStepScope::EveryPress, TombMonsterStepScope::Client15535TombStanding] {
+        let mut s = battle_with(scope);
+        let (_, m) = play(&mut s, Team::Blue, n(14500, 11500));
+        s.scenario_set_elixir_milli(Team::Blue, 10_000);
+        let a = s.entity(m).expect("the monster").pos;
+        s.press_ability_button(Team::Blue, 0).expect("the press");
+        for _ in 0..3 {
+            s.tick();
+        }
+        let b = s.entity(m).expect("the monster").pos;
+        assert_eq!(((b.x - a.x) / K, (b.y - a.y) / K), (-106, -106), "{scope:?}: not its one step");
+    }
 }
