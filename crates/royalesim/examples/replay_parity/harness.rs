@@ -1597,6 +1597,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   only beside a standing tomb (6 of 6; 1 of 1 after the tomb's death stood).
 ///   spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE = client15535_start_of_tick: a Hero Tombstone's press-kill death spawn takes
 ///   its first update on the start-of-tick board (16 of 16 pushes, 4 of 4 goals).
+///   combat.DASH_RANGE_TARGET_POINT = client15535_pass_point: a dash's Range test reads its target's point in the move
+///   pass (14 of 14 dash ends; one discriminating).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
@@ -1738,6 +1740,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("collision.ATTRACT_CONTACT_MEAN", "\"client15535_in_mean\""),
     ("transform.TOMB_MONSTER_STEP_SCOPE", "\"client15535_tomb_standing\""),
     ("spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE", "\"client15535_start_of_tick\""),
+    ("combat.DASH_RANGE_TARGET_POINT", "\"client15535_pass_point\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
     ("combat.RAMP_STUN_RESTART", "\"client15535_restart\""),

@@ -1089,6 +1089,10 @@ pub struct Calib {
     /// press kill takes its first update on. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `PostMove`.
     #[serde(default = "tomb_press_spawn_first_update_default")]
     pub tomb_press_spawn_first_update: TombPressSpawnFirstUpdate,
+    /// combat.DASH_RANGE_TARGET_POINT (`phase_path16402`'s dash half-steps): the target point a dash's Range test
+    /// reads. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `StartOfTick`.
+    #[serde(default = "dash_range_target_point_default")]
+    pub dash_range_target_point: DashRangeTargetPoint,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2767,6 +2771,10 @@ fn tomb_monster_step_scope_default() -> TombMonsterStepScope {
 
 fn tomb_press_spawn_first_update_default() -> TombPressSpawnFirstUpdate {
     TombPressSpawnFirstUpdate::PostMove
+}
+
+fn dash_range_target_point_default() -> DashRangeTargetPoint {
+    DashRangeTargetPoint::StartOfTick
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6736,6 +6744,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_RANGE_TARGET_POINT -- see `phase_path16402` (a dash with no DashConstantTime, the Bandit's): the
+    /// target point each half-step's Range test reads.
+    DashRangeTargetPoint {
+        /// The engine's: the target's start-of-tick point.
+        StartOfTick = "start_of_tick",
+        /// The target's point in the move pass so far: moved when it updates before the dasher, its start-of-tick point
+        /// otherwise (as the dash chain reads it). Measured on client 15.535.29: 14 of 14 checkable dash ends, where the
+        /// start-of-tick point gives 13 (sp-champ-BossBandit-s0 t224: the Boss Bandit took a second half-step the client did
+        /// not, 248 off) and the end-of-tick point 12.
+        Client15535PassPoint = "client15535_pass_point",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8735,6 +8756,7 @@ impl Calib {
             attract_contact_mean: pick(&v, &["collision", "ATTRACT_CONTACT_MEAN", "value"], AttractContactMean::from_calibration_name)?,
             tomb_monster_step_scope: pick(&v, &["transform", "TOMB_MONSTER_STEP_SCOPE", "value"], TombMonsterStepScope::from_calibration_name)?,
             tomb_press_spawn_first_update: pick(&v, &["spawner", "TOMB_PRESS_SPAWN_FIRST_UPDATE", "value"], TombPressSpawnFirstUpdate::from_calibration_name)?,
+            dash_range_target_point: pick(&v, &["combat", "DASH_RANGE_TARGET_POINT", "value"], DashRangeTargetPoint::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -21571,11 +21593,20 @@ impl BattleState {
                                     let (parts, len) = (2, d.speed / 2);
                                     #[cfg(clash_plant = "dash_whole_steps")]
                                     let (parts, len) = (1, d.speed); // PLANT: one whole step a tick, one Range test.
+                                    // combat.DASH_RANGE_TARGET_POINT = client15535_pass_point: the target's point in the
+                                    // pass so far (`bodies`, moved if it updated before the dasher), as a dash chain reads it
+                                    // (client 15.535.29: 14 of 14 dash ends; sp-champ-BossBandit-s0 t224).
+                                    // PLANT (regression) dash_range_reads_start: the new arm reads the start-of-tick point.
+                                    #[cfg(not(clash_plant = "dash_range_reads_start"))]
+                                    let pass_point = calib.dash_range_target_point == DashRangeTargetPoint::Client15535PassPoint;
+                                    #[cfg(clash_plant = "dash_range_reads_start")]
+                                    let pass_point = false;
+                                    let tp = if pass_point { Vec2::new(bodies[ti].x * K, bodies[ti].y * K) } else { e.pos[ti] };
                                     for _ in 0..parts {
                                         let (q, arrived) = move16402::dash_half_step(p, goal, len);
                                         p = q;
                                         let at = Vec2::new(p.0 * K, p.1 * K);
-                                        if target::in_attack_range(calib, at, card.range, e.radius[i], e.pos[ti], e.radius[ti]) {
+                                        if target::in_attack_range(calib, at, card.range, e.radius[i], tp, e.radius[ti]) {
                                             dash_blows.push((i, Some(t), at));
                                             ended = true;
                                             break;
@@ -32227,6 +32258,9 @@ impl BattleState {
 /// 20, unchanged, spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE: Calib gained tomb_press_spawn_first_update (serde default the
 ///    old arm, post_move), no new state (the press kills are the tick's scratch), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_RANGE_TARGET_POINT: Calib gained dash_range_target_point (serde default the old arm,
+///    start_of_tick), no new state (the pass's points are the tick's), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
 ///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
@@ -33264,6 +33298,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("tomb_monster_step_scope".into(), serde_json::to_value(TombMonsterStepScope::EveryPress).map_err(|e| e.to_string())?);
     // spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE: a format-3 battle's press-kill death spawn read the moved board (the same rule).
     sh.insert("tomb_press_spawn_first_update".into(), serde_json::to_value(TombPressSpawnFirstUpdate::PostMove).map_err(|e| e.to_string())?);
+    // combat.DASH_RANGE_TARGET_POINT: a format-3 battle's dash read its target's start-of-tick point (the same rule).
+    sh.insert("dash_range_target_point".into(), serde_json::to_value(DashRangeTargetPoint::StartOfTick).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

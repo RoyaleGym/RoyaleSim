@@ -1781,6 +1781,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_goal_cell (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_path16402_for (the chain dash, `chain_aim`), ChainRun::aim, selected by Calib::dash_chain_aim; tests/dash_chain_aim.rs."
     },
+    "DASH_RANGE_TARGET_POINT": {
+      "value": "start_of_tick",
+      "candidates": ["start_of_tick", "client15535_pass_point"],
+      "status": "measured",
+      "confidence": "LOW-MEDIUM for client15535_pass_point on client 15.535.29: it fits 14 of 14 checkable dash ends, the start-of-tick point 13; only one end discriminates (sp-champ-BossBandit-s0 t224), and the target's point on that tick is predicted, not read (it died that tick); the reading is the engine's own for its dash chains; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (r54_dash_end_census.py: 16 dashes, the Boss Bandit's 3 and 13 Assassin probes (ub-sd13); for every half-step of every dash the margin of Range + both radii over the dasher's half-step point's distance to the target, at three readings of the target's point). 14 blow ends checkable (2 river relocations left out). The start-of-tick point fits 13 of 14, missing sp-champ-BossBandit-s0 t224 by 84.6 at the blow half-step (the client's Boss Bandit ended its second dash after one half-step (125, 215) at (12647, 11717) and blew the Skeleton dead; the engine read the Skeleton at its start-of-tick point (13860, 13284), 1,984 off, took a second half-step and ran 239 to 368 off after). The end-of-tick point fits 12 (ub-sd13-immune-g83 t205: a Giant updated after the Bandit; an earlier half-step at -38.8 from its moved point, yet the dash went on: +11.9 from its start point). The pass point (moved if the target updates before the dasher, as the Skeleton, ordinal 8, before the Bandit, 11) fits 13 of 14 with the Skeleton's t224 step taken as its t223 one (margin +5.0) and 14 of 14 with its step predicted from its t223 path segment (-45, -77) (margin -3.8); every non-blow half-step keeps a positive margin under it. In the other 13 blows the target stood still or was created after the dasher, where the readings agree.",
+      "meaning": "start_of_tick: the engine's; each half-step of a dash with no DashConstantTime tests Range + both radii against its target's start-of-tick point. client15535_pass_point: against the target's point in the move pass so far (`bodies`), moved when the target updates before the dasher, as the engine's dash chains read it.",
+      "open": "One discriminating end, its target's point predicted; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_pass_point (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402 (the dash half-steps' `tp`), selected by Calib::dash_range_target_point; tests/dash_range_target_point.rs."
+    },
     "DASH_CHAIN_END": {
       "value": "client15535_no_target_two_ticks",
       "candidates": ["keep_last_target", "client15535_no_target_two_ticks"],
