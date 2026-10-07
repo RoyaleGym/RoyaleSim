@@ -696,6 +696,12 @@ fn walks_away(ctx: &TargetCtx, a: usize, c: usize) -> bool {
 /// client15535_growing_away): does `a`'s rescan pass over troop `c` because `a` walked into its last Target phase and
 /// left it holding no target (entity.rs `chase_lane_walk`) and the measured distance (targeting.CHASE_DROP_MEASURE) grew
 /// since that phase (entity.rs `chase_last_pos`), whatever `c` does? The caller reads it past the limit alone.
+///
+/// A troop not on the board at the start of the tick before (`spawn_tick`: made on it, or since) never recedes: its
+/// `chase_last_pos` is its birth point, which no frame showed, where the client reads the growth frame to frame. Measured
+/// on client 15.535.29 (item 313; sp-form-Tombstone-hero-nopress-s0 t154: a Red Skeleton pushed back 75 by its own
+/// neighbour, |dy| 99,450 -> 99,648 to the hero Tombstone's first Skeleton born the tick before, took it with the other
+/// two); the 2 receding pass-overs of the 426 scored scenes were both this one (tools/recede_census.py).
 #[inline]
 fn recedes_from_lane_walk(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     // PLANT (regression) chase_rescan_drop_tick_only: the new arm still passes over on the drop tick alone.
@@ -704,8 +710,14 @@ fn recedes_from_lane_walk(ctx: &TargetCtx, a: usize, c: usize) -> bool {
     #[allow(unreachable_code)]
     {
         let e = ctx.ents;
+        #[cfg(not(clash_plant = "recede_reads_newborn"))]
+        let seen_before = e.spawn_tick[c].saturating_add(1) < ctx.tick;
+        // PLANT (regression) recede_reads_newborn: a troop born the tick before recedes from its birth point.
+        #[cfg(clash_plant = "recede_reads_newborn")]
+        let seen_before = true;
         matches!(ctx.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind)
             && e.chase_lane_walk.get(a).copied().unwrap_or(false)
+            && seen_before
             && chase_measure(ctx.calib, e.pos[c].sub(e.pos[a])) > chase_measure(ctx.calib, e.chase_last_pos[c].sub(e.chase_last_pos[a]))
     }
 }

@@ -12,7 +12,10 @@
 //! WHAT IS PINNED, and the plant that turns it red (chase_rescan_drop_tick_only):
 //!   1. drop_tick (the engine's, the vacuity check): the Knight takes the Giant; client15535_receding_lane_walk: it holds
 //!      no target;
-//!   2. under client15535_receding_lane_walk a fresh Knight on the same point (its first pick) takes the Giant.
+//!   2. under client15535_receding_lane_walk a fresh Knight on the same point (its first pick) takes the Giant;
+//!   5. (plant recede_reads_newborn) a Giant put down on the tick before the decisive one never recedes: both arms take
+//!      it (client 15.535.29, item 313: sp-form-Tombstone-hero-nopress-s0 t154, the hero Tombstone's first Skeleton,
+//!      born the tick before, taken by a Red Skeleton whose own push grew |dy|).
 //!
 //! client15535_receding_or_behind (receding_behind_census.py: a troop behind past the limit taken in 0 of 1,326 rescans,
 //! sp-il-04cb t1222 and t2931) -- plant rescan_behind_taken:
@@ -131,4 +134,42 @@ fn a_rescan_passes_over_a_troop_behind_past_the_limit_under_client15535_receding
 fn the_receding_cases_hold_under_client15535_receding_or_behind() {
     let (new, _, _) = rescan(ChaseRescanPassOver::Client15535RecedingOrBehind, false);
     assert_eq!(new, None, "client15535_receding_or_behind: the Knight took the receding Giant");
+}
+
+/// (5) The walking Red Knight's target after the decisive tick, a Blue Giant AHEAD of it (Red walks to -y) past its limit,
+/// |dy| 100 more than on the tick before: put down on the tick before the decisive one when `newborn`, before the hold
+/// otherwise (`rescan`'s scene).
+fn ahead_rescan(arm: ChaseRescanPassOver, newborn: bool) -> (Option<EntityId>, EntityId) {
+    let mut s = BattleState::new(0, with_arm(arm));
+    past_deploy_lockout(&mut s);
+    let lim = limit_on(&s, "Giant");
+    let far = n(KNIGHT.0 + 9000, KNIGHT.1 - lim - 200);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", n(KNIGHT.0, KNIGHT.1), None).expect("the Knight");
+    let early = (!newborn).then(|| s.scenario_spawn_now(Team::Blue, "Giant", far, None).expect("the Giant"));
+    for _ in 0..3 {
+        assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && early.map_or(true, |g| s.debug_set_pos(g, far)));
+        s.tick();
+        assert_eq!(s.entity(knight).expect("the Knight").target, None, "the scene drifted: the Knight holds a target before the Giant comes near");
+    }
+    let giant = early.unwrap_or_else(|| s.scenario_spawn_now(Team::Blue, "Giant", far, None).expect("the Giant"));
+    assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && s.debug_set_pos(giant, far));
+    s.tick();
+    assert_eq!(s.entity(knight).expect("the Knight").target, None, "the scene drifted: the Knight took the Giant far across");
+    assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)));
+    // In round sight (|dx| 400), past the limit by 300, |dy| 100 more than the tick before.
+    assert!(s.debug_set_pos(giant, n(KNIGHT.0 + 400, KNIGHT.1 - lim - 300)));
+    s.tick();
+    (s.entity(knight).expect("the Knight").target, giant)
+}
+
+/// Plant: recede_reads_newborn.
+#[test]
+fn a_troop_born_the_tick_before_never_recedes() {
+    for arm in [ChaseRescanPassOver::Client15535RecedingLaneWalk, ChaseRescanPassOver::Client15535RecedingOrBehind] {
+        // NOT VACUOUS: the same Giant on the board from before the hold recedes and is passed over.
+        let (old, _) = ahead_rescan(arm, false);
+        assert_eq!(old, None, "{arm:?}: the Knight took a receding Giant ahead of it");
+        let (took, giant) = ahead_rescan(arm, true);
+        assert_eq!(took, Some(giant), "{arm:?}: the Knight passed over a Giant born the tick before");
+    }
 }
