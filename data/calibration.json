@@ -3552,6 +3552,20 @@
       "engine": "read by crates/royalesim (state.rs Calib::from_json, Calib::clone_offset); state.rs materialise_clones (the slide, through step_knock_slides); tests/clone.rs (15).",
       "globals_role": "context"
     },
+    "CLONE_SLIDE_ROUTE": {
+      "value": "kept",
+      "candidates": [
+            "kept",
+            "client15535_dropped"
+      ],
+      "status": "measured",
+      "confidence": "HIGH for client15535_dropped on client 15.535.29: every Clone slide in the ub-cl battery frames and sp-event-GlobalClone-s0 (31 slides of units of both sides, originals and copies) held one path node through the slide, none on its last tick and a fresh route on the next. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on the client 15.535.29 frames of reports/scenarios/unloadable/ub-cl*.frames.json.gz and specials/sp-event-GlobalClone-s0.frames.json.gz: each run of behavior_state 8 (the slide), the unit's path_nodes on the frame before it, through it and on the two frames after it. 29 of the 31 held a route before; every one read 1 node through the slide, 0 on its last frame and a fresh route on the next (11 to 29 nodes; 1 with none, a unit that attacked). sp-event-GlobalClone-s0 t247-258: the six units walking for the tower slid 10 x 125; on t258 the client's Knight, slid past its next cell (13750, 13750), stepped (+48, +34) toward the cell after it, (13750, 14250), with a fresh 20-node route, where the engine kept its 22-node route and stepped (+59, -10) along the segment it held before the slide, back toward the cell behind it; every unit of the scene parted from there (within 250: 33 %).",
+      "meaning": "kept: the engine's; the route waits out the slide and the unit walks it on along the segment it held before the slide. client15535_dropped: the route is dropped on the slide's last tick (state.rs step_knock_slides) and the replan gate plans afresh from where the slide left the unit on the next tick.",
+      "open": "16.402 (no Clone slide of a unit with a route in its corpus read). Knockback slides under the fixed_distance law read the same key; the ladders have knockback.LADDER_END_ROUTE.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_dropped (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs step_knock_slides, selected by Calib::clone_slide_route; tests/clone_slide_route.rs."
+    },
     "CLONE_HOLD_DEPLOY": {
       "value": "hold_time",
       "candidates": ["hold_time", "client15535_covers_deploy", "client15535_covers_deploy_late_walk"],

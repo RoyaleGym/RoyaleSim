@@ -1179,6 +1179,10 @@ pub struct Calib {
     /// beyond its reach. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Rescan`.
     #[serde(default = "launch_beyond_keep_default")]
     pub launch_beyond_keep: LaunchBeyondKeep,
+    /// spells.CLONE_SLIDE_ROUTE (`step_knock_slides`): what a unit's route does when the Clone's slide ends. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
+    #[serde(default = "clone_slide_route_default")]
+    pub clone_slide_route: CloneSlideRoute,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2945,6 +2949,10 @@ fn barrel_drop_point_default() -> BarrelDropPoint {
 
 fn launch_beyond_keep_default() -> LaunchBeyondKeep {
     LaunchBeyondKeep::Rescan
+}
+
+fn clone_slide_route_default() -> CloneSlideRoute {
+    CloneSlideRoute::Kept
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7223,6 +7231,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.CLONE_SLIDE_ROUTE -- see `step_knock_slides`: what a unit's route does when its slide ends (a knock slide:
+    /// under the shipped knockback ladders, the Clone's pair alone slide).
+    CloneSlideRoute {
+        /// The engine's: the route waits out the slide and the unit walks it on, its first step along the segment it held
+        /// before the slide, from wherever the slide left it.
+        Kept = "kept",
+        /// The route is dropped on the slide's last tick and the replan gate plans afresh from where the slide left the
+        /// unit on the next. Measured on client 15.535.29: on every Clone slide of the battery and of the GlobalClone
+        /// scene the unit held one path node through the slide, none on its last tick and a fresh route on the next
+        /// (sp-event-GlobalClone-s0 t257-258: a Knight slid past its next cell walked to the cell after it, where the
+        /// engine stepped back toward the one behind it).
+        Client15535Dropped = "client15535_dropped",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9251,6 +9274,7 @@ impl Calib {
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
             launch_beyond_keep: pick(&v, &["targeting", "LAUNCH_BEYOND_KEEP", "value"], LaunchBeyondKeep::from_calibration_name)?,
+            clone_slide_route: pick(&v, &["spells", "CLONE_SLIDE_ROUTE", "value"], CloneSlideRoute::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -26138,6 +26162,19 @@ impl BattleState {
             self.ents.knock_ms[i] = (left - dt).max(0);
             if self.ents.knock_ms[i] == 0 {
                 self.ents.knock_rem[i] = Vec2::default();
+                // spells.CLONE_SLIDE_ROUTE = client15535_dropped: the slide's last tick drops the route, and the replan
+                // gate plans afresh from here on the next (client 15.535.29: one node through the slide, none on its last
+                // tick, a fresh route the tick after, on every Clone slide read).
+                // PLANT (regression) clone_slide_route_kept: the new arm still walks the old route on.
+                #[cfg(not(clash_plant = "clone_slide_route_kept"))]
+                let drop = self.cfg.calib.clone_slide_route == CloneSlideRoute::Client15535Dropped;
+                #[cfg(clash_plant = "clone_slide_route_kept")]
+                let drop = false;
+                if drop {
+                    self.ents.route[i].clear();
+                    self.ents.route_goal[i] = None;
+                    self.ents.seg_dir[i] = Vec2::default();
+                }
             }
             moved = true;
         }
@@ -33596,6 +33633,9 @@ impl BattleState {
 /// 20, unchanged, targeting.LAUNCH_BEYOND_KEEP: Calib gained launch_beyond_keep (serde default the old arm, rescan), no new
 ///    state (the launch flag is the saved launched_beyond), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.CLONE_SLIDE_ROUTE: Calib gained clone_slide_route (serde default the old arm, kept), no new state
+///    (the route is the saved route), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, the Super Witch (card.rs `SpawnerDef::unit2`): Entities gained spawn_waves (`default`, sized on load at
 ///    0), hashed only on a spawner with a second unit, so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, the Super Elite Archer's charm (status.rs `BuffDef::switch_team`): Entities gained home_team (`default`,
@@ -34697,6 +34737,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("barrel_drop_point".into(), serde_json::to_value(BarrelDropPoint::StatusPhase).map_err(|e| e.to_string())?);
     // targeting.LAUNCH_BEYOND_KEEP: a format-3 battle's troop rescanned after a launch from beyond its reach (the same rule).
     sh.insert("launch_beyond_keep".into(), serde_json::to_value(LaunchBeyondKeep::Rescan).map_err(|e| e.to_string())?);
+    // spells.CLONE_SLIDE_ROUTE: a format-3 battle's unit walked its old route on after a Clone's slide (the same rule).
+    sh.insert("clone_slide_route".into(), serde_json::to_value(CloneSlideRoute::Kept).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
