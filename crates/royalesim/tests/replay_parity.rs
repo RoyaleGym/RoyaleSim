@@ -1122,7 +1122,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.timed_jump_blow_stop, TimedJumpBlowStop::Client15535StopsAtBlow, "a 15.535.29 capture's timed jump stops at its blow");
     assert_eq!(cfg.calib.first_hit_buff_countdown, FirstHitBuffCountdown::Client15535FromNextTick, "a 15.535.29 capture's ghost counts down from the next tick");
     assert_eq!(cfg.calib.combo_pushback, ComboPushback::Client15535LadderArmedAtHit, "a 15.535.29 capture's combo push lands before the move");
-    assert_eq!(cfg.calib.retarget_wait_reach_loss, RetargetWaitReachLoss::Client15535AfterReachLossCombo, "a 15.535.29 capture's Monk waits after a reach loss");
+    assert_eq!(cfg.calib.retarget_wait_reach_loss, RetargetWaitReachLoss::Client15535AfterReachLossVariableRows, "a 15.535.29 capture's Monk and inferno wait after a reach loss");
     assert_eq!(cfg.calib.line_centre_search, LineCentreSearch::Client15535InterleavedFirstRing, "a 15.535.29 capture's line is placed by the client's search");
     assert_eq!(cfg.calib.cage_release_scan, CageReleaseScan::Client15535ScansWhileHeld, "a 15.535.29 capture's freed captive scans in its hold");
     assert_eq!(cfg.calib.guard_charge_step, GuardChargeStep::Client15535SubstepsToAim, "a 15.535.29 capture's guard charges in pieces");

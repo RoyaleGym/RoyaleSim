@@ -4516,6 +4516,14 @@ calib_enum!(
         /// another enemy inside his reach, sp-champ-Monk-recharge-q20-s0 t692, a Wallbreaker 1,899 from him against his
         /// reach of 2,100 on it, and sp-champ-Monk-nopress-s0 t255, waited and took it on the sixth).
         Client15535AfterReachLossCombo = "client15535_after_reach_loss_combo",
+        /// client15535_after_reach_loss_combo, its Monk reading (no in-reach exemption; a target the decision keeps or
+        /// re-picks counts as lost) read on every VariableDamage row too. Measured on client 15.535.29: 4 of 4 Inferno
+        /// Dragon reach losses waited five ticks, their attack progress 0 on the loss tick, 2 with the next target already in
+        /// their reach (sp-il-323a t3623, a Hog Rider 3,816 from the Dragon, taken on t3628, where the engine took it at
+        /// once and burned it with its ramp kept; sp-form-InfernoDragon-evo-s0 t1178) and 2 re-picking the lost target after
+        /// the wait (sp-il-323a t1919, il-b5e2 t4351, where the engine kept it); rows without VariableDamage or a combo took
+        /// a next target already in their reach at once, 54 of 54.
+        Client15535AfterReachLossVariableRows = "client15535_after_reach_loss_variable_rows",
     }
 );
 calib_enum!(
@@ -16918,7 +16926,10 @@ impl BattleState {
                 // target), with its attack progress 0 at once. Other units retarget at once: the 16.402 corpus shows it
                 // (a Spear Goblin, a Skeleton), and the arm read on every unit lost 3,207 within 250 there.
                 #[cfg(not(clash_plant = "reach_loss_no_wait"))]
-                let reach_wait = matches!(calib.retarget_wait_reach_loss, RetargetWaitReachLoss::ClientAfterReachLoss | RetargetWaitReachLoss::Client15535AfterReachLossCombo);
+                let reach_wait = matches!(
+                    calib.retarget_wait_reach_loss,
+                    RetargetWaitReachLoss::ClientAfterReachLoss | RetargetWaitReachLoss::Client15535AfterReachLossCombo | RetargetWaitReachLoss::Client15535AfterReachLossVariableRows
+                );
                 #[cfg(clash_plant = "reach_loss_no_wait")]
                 let reach_wait = false; // PLANT (regression): the new arm retargets at once after a reach loss.
                 if reach_wait && e.retarget_wait[i] == 0 && !d.resumed && e.attack_phase[i] != AttackPhase::Idle {
@@ -16926,15 +16937,38 @@ impl BattleState {
                     // decision would keep it (a sliding target is held through its slide, targeting.CHASE_DROP_KNOCKED_TARGET)
                     // or re-pick it (the only enemy in sight): measured, he lets it go and waits (7 of 7 knocks).
                     // PLANT (regression) reach_loss_combo_kept: the new arm counts a re-picked target as kept.
+                    // client15535_after_reach_loss_variable_rows: an inferno (a VariableDamage row) too (4 of 4 Inferno Dragon
+                    // reach losses: no in-reach exemption, a re-pick counts as lost).
+                    // PLANT (regression) reach_loss_variable_rows_exempt: the new arm reads the Monk's row alone.
+                    let monk_rows = matches!(
+                        calib.retarget_wait_reach_loss,
+                        RetargetWaitReachLoss::Client15535AfterReachLossCombo | RetargetWaitReachLoss::Client15535AfterReachLossVariableRows
+                    );
+                    let variable_rows = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::Client15535AfterReachLossVariableRows;
+                    #[cfg(not(clash_plant = "reach_loss_variable_rows_exempt"))]
+                    let inferno_row = variable_rows && cards.get(e.card[i]).variable_damage.is_some();
+                    #[cfg(clash_plant = "reach_loss_variable_rows_exempt")]
+                    let inferno_row = false;
                     #[cfg(not(clash_plant = "reach_loss_combo_kept"))]
-                    let repick_lost = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::Client15535AfterReachLossCombo
-                        && cards.get(e.card[i]).combo.is_some();
+                    let repick_lost = monk_rows && (cards.get(e.card[i]).combo.is_some() || inferno_row);
                     #[cfg(clash_plant = "reach_loss_combo_kept")]
-                    let repick_lost = false;
+                    let repick_lost = { let _ = (monk_rows, inferno_row); false };
                     if let Some(t) = e.target[i].filter(|t| e.standing(*t, struck) && (d.target != Some(*t) || repick_lost)) {
                         let (ti, c) = (t.index as usize, cards.get(e.card[i]));
                         let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
                         let left = !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti]);
+                        // client15535_after_reach_loss_variable_rows: a target the decision keeps or re-picks is lost only past
+                        // its keep reach (Range + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET + both radii): sweep-InfernoDragon t325,
+                        // the Dragon's Knight 6 past its reach and inside the keep reach, kept; the 4 inferno losses that
+                        // waited stood 33 to 122 past, the Monk's 28 or more.
+                        // PLANT (regression) reach_loss_kept_within_keep_lost: the new arm loses a kept target inside the keep reach.
+                        #[cfg(not(clash_plant = "reach_loss_kept_within_keep_lost"))]
+                        let keeps = variable_rows
+                            && d.target == Some(t)
+                            && target::in_attack_range(calib, e.pos[i], c.range + calib.range_extension_to_keep_target, own, e.pos[ti], e.radius[ti]);
+                        #[cfg(clash_plant = "reach_loss_kept_within_keep_lost")]
+                        let keeps = false;
+                        let left = left && !keeps;
                         // A new target already in reach is taken at once, as client 15.535.29's reach-loss scenarios show
                         // a Knight doing (the Cannon it switched to stood in its reach). client15535_after_reach_loss_combo:
                         // not by a Monk, who waits with an enemy in his reach (2 of 2 such losses: sp-champ-Monk-recharge-q20-s0
@@ -16952,7 +16986,7 @@ impl BattleState {
                         // columns loaded as a combo) is in the scope too.
                         // PLANT (regression) reach_loss_combo_unread: the new arm reads the inferno's ramp alone.
                         #[cfg(not(clash_plant = "reach_loss_combo_unread"))]
-                        let combo_scope = calib.retarget_wait_reach_loss == RetargetWaitReachLoss::Client15535AfterReachLossCombo && c.combo.is_some();
+                        let combo_scope = monk_rows && c.combo.is_some();
                         #[cfg(clash_plant = "reach_loss_combo_unread")]
                         let combo_scope = false;
                         #[cfg(not(clash_plant = "reach_loss_any_unit"))]
@@ -31939,6 +31973,8 @@ impl BattleState {
 /// 20, unchanged, knockback.COMBO_STEP_OFFSET: Calib gained combo_step_offset (serde default the old arm, unrotated),
 ///    no new state (the start-of-tick offsets are the tick's scratch), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
+///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state

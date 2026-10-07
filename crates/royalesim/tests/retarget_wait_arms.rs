@@ -45,6 +45,9 @@
 //!   * `reach_loss_no_wait` -- the new arm retargets at once after a reach loss: (2) goes red.
 //!   * `reach_loss_any_unit` -- every unit waits after a reach loss, not the inferno's alone: (4) goes red.
 //!   * `retarget_wait_runs_while_held` -- the new arm counts the held ticks: (6) goes red.
+//!   * `reach_loss_variable_rows_exempt` -- client15535_after_reach_loss_variable_rows takes an enemy already in the
+//!     inferno's reach at once: (8) goes red.
+//!   * `reach_loss_kept_within_keep_lost` -- the new arm loses a kept target inside the keep reach: (9) goes red.
 //!     RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //!     retarget_wait_arms
 #![allow(unexpected_cfgs)]
@@ -141,7 +144,7 @@ fn the_new_arm_waits_five_ticks_then_takes_the_cannon_where_it_stands() {
 /// Giant. The Knight has no VariableDamage: it takes the Cannon on L under both arms, and walks at it.
 #[test]
 fn a_unit_without_the_inferno_takes_the_cannon_at_once_under_both_arms() {
-    for arm in [RetargetWaitReachLoss::KillOnly, RetargetWaitReachLoss::ClientAfterReachLoss] {
+    for arm in [RetargetWaitReachLoss::KillOnly, RetargetWaitReachLoss::ClientAfterReachLoss, RetargetWaitReachLoss::Client15535AfterReachLossVariableRows] {
         let (rows, g, c) = reach_scene(arm, "Knight", 2550, (2400, 0));
         let l = reach_loss(&rows, g, "Knight");
         assert_eq!(rows[l].0, Some(c), "{arm:?}: the Knight's target on L = {l}");
@@ -208,4 +211,36 @@ fn the_shipped_values_are_the_new_arms() {
     let c = Calib::shipped();
     assert_eq!(c.retarget_wait_reach_loss, RetargetWaitReachLoss::ClientAfterReachLoss);
     assert_eq!(c.retarget_wait_while_held, RetargetWaitWhileHeld::ClientPaused);
+}
+
+/// (8) combat.RETARGET_WAIT_REACH_LOSS = client15535_after_reach_loss_variable_rows (client 15.535.29: 4 of 4 Inferno
+/// Dragon reach losses waited five ticks, 2 with the next target already in reach, sp-il-323a t3623 and
+/// sp-form-InfernoDragon-evo-s0 t1178): the null's scene, the Cannon 100 inside the Dragon's reach at the loss: no target
+/// on L..L + 4, the Cannon on L + 5, and the Dragon stands. Plant: reach_loss_variable_rows_exempt.
+#[test]
+fn an_inferno_waits_with_an_enemy_in_its_reach_under_client15535_after_reach_loss_variable_rows() {
+    let (rows, g, c) = dragon_scene(RetargetWaitReachLoss::Client15535AfterReachLossVariableRows, -100);
+    let l = reach_loss(&rows, g, "client15535_after_reach_loss_variable_rows");
+    let targets: Vec<Option<EntityId>> = rows[l..l + 6].iter().map(|r| r.0).collect();
+    assert_eq!(targets, vec![None, None, None, None, None, Some(c)], "client15535_after_reach_loss_variable_rows: the targets on L..L + 5 (L = {l})");
+    assert!(rows[l - 1..l + 6].iter().all(|r| r.1 == rows[l - 1].1), "client15535_after_reach_loss_variable_rows: the Dragon moved");
+    // NOT VACUOUS: the Monk's arm (the inferno exempt) takes the Cannon on L.
+    let (rows, g, c) = dragon_scene(RetargetWaitReachLoss::Client15535AfterReachLossCombo, -100);
+    let l = reach_loss(&rows, g, "client15535_after_reach_loss_combo");
+    assert_eq!(rows[l].0, Some(c), "client15535_after_reach_loss_combo: the target on L = {l}, the Cannon in reach");
+}
+
+/// (9) client15535_after_reach_loss_variable_rows keeps a target the decision keeps inside its keep reach (Range +
+/// LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET + both radii; sweep-InfernoDragon t325: the Dragon's Knight 6 past its reach, kept):
+/// the Giant set down 4,760 off (10 past the Dragon's reach of 4,750 on it, inside 4,775), the Cannon far out of sight, so
+/// the decision keeps the Giant: the Dragon's target on that tick is the Giant. Plant: reach_loss_kept_within_keep_lost.
+#[test]
+fn an_inferno_keeps_a_target_inside_its_keep_reach_under_client15535_after_reach_loss_variable_rows() {
+    let (rows, g, _) = reach_scene(RetargetWaitReachLoss::Client15535AfterReachLossVariableRows, "InfernoDragon", 4760, (0, CANNON_REACH + 4000));
+    assert!(rows[MOVED_AT - 1].0 == Some(g), "the scene drifted: the Dragon did not hold the Giant before the move");
+    assert_eq!(rows[MOVED_AT].0, Some(g), "client15535_after_reach_loss_variable_rows: the Giant 10 past the reach, inside the keep reach, let go");
+    // NOT VACUOUS: 30 past the reach (5 past the keep reach) it is let go, and the Dragon waits.
+    let (rows, g, _) = reach_scene(RetargetWaitReachLoss::Client15535AfterReachLossVariableRows, "InfernoDragon", 4780, (0, CANNON_REACH + 4000));
+    assert!(rows[MOVED_AT - 1].0 == Some(g), "the scene drifted: the Dragon did not hold the Giant before the move");
+    assert_eq!(rows[MOVED_AT].0, None, "client15535_after_reach_loss_variable_rows: the Giant 5 past the keep reach kept");
 }
