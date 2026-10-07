@@ -665,3 +665,18 @@ fn forms_take_slots_after_every_existing_card() {
     assert_eq!(full.forms, db.forms);
     assert!((n..full.cards.len()).all(|k| full.is_hero_record(k as u16)), "a slot after the evolved forms that the hero pass did not load");
 }
+
+#[test]
+fn an_evo_copy_point_past_the_last_rows_centre_is_clamped_to_it_under_client15535_ahead_outward_behind_clamped() {
+    // spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped (parity's item 271; client 15.535.29: 4 of 4 copies
+    // whose ahead point lay past y 31,750 were born on 31,750, x kept; sp-m4-towerhit-s0 t1243). A Blue hitter behind the
+    // Red king at (6973, 30829): its ahead point (6973, 31829) is in bounds and dry, past the last row's centre. One at
+    // (9579, 31071) has its ahead point off the arena and goes outward under both arms. Plant: evo_copy_unclamped.
+    for (arm, y) in [(EvoCopyPoint::ClientAheadOutwardBehindClamped, 31750), (EvoCopyPoint::ClientAheadOutwardBehind, 31829)] {
+        let mut cfg = config();
+        cfg.calib.evo_copy_point = arm;
+        let s = battle(cfg);
+        assert_eq!(s.evo_copy_point(n(6973, 30829), Team::Blue), n(6973, y), "{arm:?}: the copy point past the last row's centre");
+        assert_eq!(s.evo_copy_point(n(9579, 31071), Team::Blue), n(10579, 31071), "{arm:?}: an ahead point off the arena goes outward");
+    }
+}

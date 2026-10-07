@@ -8165,6 +8165,12 @@ calib_enum!(
         /// -- AHEAD (toward the enemy in y), then OUTWARD (in x, toward the nearer side of the arena: -x left of its
         /// centre line, +x right of it), then BEHIND. 239 of 239 copies: 197 ahead, 28 outward, 14 behind.
         ClientAheadOutwardBehind = "client15535_ahead_outward_behind",
+        /// client15535_ahead_outward_behind, the chosen point's y then clamped into [250, height - 250] (the first and
+        /// last cell rows' centres). Measured on client 15.535.29: 4 of 4 copies whose in-bounds ahead point lay past y
+        /// 31,750 were born at y 31,750 exactly, x kept (sp-m4-towerhit-s0 t1243: (6973, 31829) -> (6973, 31750); sp-il-8b9b
+        /// t1501, t1664, t1682), where the engine made them unclamped; 296 of the other 296 exact either way. The bottom
+        /// clamp is the top's mirror, unmeasured.
+        ClientAheadOutwardBehindClamped = "client15535_ahead_outward_behind_clamped",
     }
 );
 calib_enum!(
@@ -12912,10 +12918,23 @@ impl BattleState {
         }
         let arena = &self.cfg.arena;
         let out = if at.x < arena.width / 2 { -1 } else { 1 };
-        [ahead, Vec2::new(at.x + out * d, at.y), Vec2::new(at.x, at.y - fwd * d)]
+        let p = [ahead, Vec2::new(at.x + out * d, at.y), Vec2::new(at.x, at.y - fwd * d)]
             .into_iter()
             .find(|p| arena.is_passable_ground(*p))
-            .unwrap_or(ahead)
+            .unwrap_or(ahead);
+        // client15535_ahead_outward_behind_clamped: the point's y kept within the first and last cell rows' centres
+        // (client 15.535.29: 4 of 4 copies ahead past y 31,750 were born on it).
+        // PLANT (regression) evo_copy_unclamped: the new arm leaves the point past the last row's centre.
+        #[cfg(not(clash_plant = "evo_copy_unclamped"))]
+        let clamped = arm == EvoCopyPoint::ClientAheadOutwardBehindClamped;
+        #[cfg(clash_plant = "evo_copy_unclamped")]
+        let clamped = false;
+        if clamped {
+            let edge = arena.cell / 2;
+            Vec2::new(p.x, p.y.clamp(edge, arena.height - edge))
+        } else {
+            p
+        }
     }
 
     /// THE EVO SKELETONS COPIES this tick earned (`evo_after_fire`), in hit order, at the end of Reap: each a Skeleton_EV1
@@ -32309,6 +32328,8 @@ impl BattleState {
 /// 20, unchanged, spawner.HERO_TOMB_EMISSION_NUDGE: Calib gained hero_tomb_emission_nudge (serde default the old arm,
 ///    none), no new state (the nudge is read off the emission's first update), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.EVO_COPY_POINT gained client15535_ahead_outward_behind_clamped, no new state, so a blob
+///    saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
 ///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
