@@ -3698,6 +3698,17 @@
       "promotion_rules": "The test file (crates/royalesim/tests/monk_combo.rs) passes. Then score with this arm switched on alone and on top of combat.ATTACK_COMBO's new arm; the registered prediction: only scenes and battles with a Monk move.",
       "engine": "combat.rs fire (the single-target hit's push: spell.rs push_from with its first step now), state.rs phase_attack (the count); card.rs ComboStage"
     },
+    "COMBO_STEP_OFFSET": {
+      "value": "unrotated",
+      "candidates": ["unrotated", "client15535_held_offset"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_held_offset on client 15.535.29: 20 of 20 clean knockback ladders whose victim held a nonzero avoidance offset reproduce to the unit under the held offset (0 under none), the Monk's 2 at-hit knocks among them; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (r54_ladder_offset_census.py over every scenarios frame file: ladders found by step length, then an exact integer search for the ladder's target reproduces every step through move16402's move_towards with the victim's avoidance offset). 31 ladders hold a nonzero offset; 18 reproduce exactly from the first step under the offset held through the ladder and 0 under offset 0, 2 more from step 2 (il-8e13 t2355, a Log; il-2c29 t2664); the 4 others are not clean ladders. The Monk's third hit (knockback.COMBO_PUSHBACK client15535_ladder_armed_at_hit, the step on the hit's own tick) on deploying victims (r54_deploying_knock_offset_census.py): sp-champ-Monk-recharge-q20-s0 t774, the Ice Golemite (offset -180, -170, and -170 on the hit's tick: no decay) stepped (-193,158), (-170,183), (-129,185) ... 13 of 13 exact from the Monk's point with the offset -170, where the engine stepped (56,243) straight away and turned the rest by its decayed -160 (the ladder's end 242 off); t892, the Golem (offset -10), 13 of 13. The victim's facing (both (0,-256)), the t-2 offset and the decayed offset are refuted. The 7 Monk knocks on standing or walking victims hold offset 0 and step straight in both arms.",
+      "meaning": "unrotated: the engine's; the hit tick's ladder step (ladder_step_now) takes no rotation, and the move pass's decay of the victim's offset on that tick stands. client15535_held_offset: knockback.COMBO_PUSHBACK's at-hit undo restores the victim's start-of-tick avoidance offset with its point and stomp clock, and the hit tick's step turns by it (move16402 move_towards' avoidance rotation), as the move pass turns every later step.",
+      "open": "A barrage push's hit-tick step (the plant barrage_lands_after_the_move's path) is not touched; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_held_offset (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs apply_effects (the at-hit undo's `held`), ladder_step_now (its offset), Scratch::pre_offset, selected by Calib::combo_step_offset; tests/monk_combo.rs."
+    },
     "ATTACK_PUSHBACK": {
       "value": "ladder_away_from_target",
       "candidates": ["none", "ladder_away_from_target"],

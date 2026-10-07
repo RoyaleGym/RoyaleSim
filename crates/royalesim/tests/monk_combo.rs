@@ -36,12 +36,13 @@
 //!   reach_loss_combo_unread            combat.RETARGET_WAIT_REACH_LOSS's new arm reads the inferno's ramp alone: (6) goes red.
 //!   reach_loss_combo_kept              the new arm counts a re-picked or held knocked target as kept: (6) goes red.
 //!   reach_loss_combo_in_reach_taken    the new arm takes an enemy already in the Monk's reach at once: (7) goes red.
+//!   combo_step_unrotated               knockback.COMBO_STEP_OFFSET's new arm takes no rotation on the hit's tick: (8) goes red.
 mod common;
 
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AttackCombo, BattleConfig, BattleState, Calib, ComboPushback, RetargetWaitReachLoss, VariableDamageWalkReach};
+use royalesim::state::{AttackCombo, BattleConfig, BattleState, Calib, ComboPushback, ComboStepOffset, RetargetWaitReachLoss, VariableDamageWalkReach};
 use royalesim::{EntityId, Team};
 
 const ME_AT: (i32, i32) = (3500, 9000);
@@ -334,4 +335,42 @@ fn the_monk_waits_after_a_reach_loss_with_an_enemy_in_his_reach_under_client1553
     // NOT VACUOUS: the inferno's scope alone (the Monk outside it) takes the Knight in his reach at once.
     let (old, took_old, b_old) = untargeted_with_one_in_reach(RetargetWaitReachLoss::ClientAfterReachLoss);
     assert!(old.is_empty() && took_old == Some(b_old), "client_after_reach_loss: he did not take the Knight in his reach at once ({old:?}, {took_old:?})");
+}
+
+/// (8) knockback.COMBO_STEP_OFFSET (client 15.535.29: 20 of 20 held-offset ladders; sp-champ-Monk-recharge-q20-s0 t774,
+/// a deploying Ice Golemite at -170 stepped (-193, 158) where the unturned step is (56, 243)): the Knight scene under
+/// COMBO_PUSHBACK's at-hit arm, the Knight's avoidance offset held at -170 at every tick's start until the third hit (a
+/// deploying unit's, put by hand): the hit tick's step, native.
+fn third_hit_step(arm: ComboStepOffset) -> (i64, i64) {
+    let mut cfg = cfg_with(AttackCombo::SequenceAcrossTargets, ComboPushback::Client15535LadderArmedAtHit, DRAGON_ONLY_REACH);
+    cfg.calib.combo_step_offset = arm;
+    let (mut s, _monk, reds) = scene(cfg, "Monk", &[("Knight", (3500, 11000))]);
+    let knight = reds[0];
+    for _ in 0..160 {
+        assert!(s.debug_set_avoid_offset(knight, -170));
+        let (hp, at) = {
+            let k = s.entity(knight).expect("the Knight lives");
+            (k.hp, k.pos)
+        };
+        s.tick();
+        let k = s.entity(knight).expect("the Knight lives");
+        if hp - k.hp == 422 {
+            return (((k.pos.x - at.x) / K) as i64, ((k.pos.y - at.y) / K) as i64);
+        }
+    }
+    panic!("{arm:?}: the scene drifted: no third hit");
+}
+
+/// Plant: combo_step_unrotated.
+#[test]
+fn a_combo_hits_first_step_turns_by_the_victims_held_offset_under_client15535_held_offset() {
+    // The Knight stands up the lane from the Monk: straight away is +y.
+    let (dx, dy) = third_hit_step(ComboStepOffset::Client15535HeldOffset);
+    let len = isqrt(dx * dx + dy * dy);
+    assert!((240..=252).contains(&len), "client15535_held_offset: the hit tick's step is not a first ladder step ({dx}, {dy})");
+    // offset -170 turns (0, 250) to (-170, 86) / 256 normalized: (-223, 112), within the truncations.
+    assert!(dx <= -215 && (100..=120).contains(&dy), "client15535_held_offset: the step did not turn by -170 ({dx}, {dy})");
+    // NOT VACUOUS: unrotated steps straight away.
+    let (dx, dy) = third_hit_step(ComboStepOffset::Unrotated);
+    assert!(dx.abs() <= 3 && (240..=252).contains(&dy), "unrotated: the step is not straight away from the Monk ({dx}, {dy})");
 }

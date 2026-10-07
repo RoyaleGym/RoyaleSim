@@ -1063,6 +1063,11 @@ pub struct Calib {
     /// it. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
     #[serde(default = "death_blow_victim_reap_default")]
     pub death_blow_victim_reap: DeathBlowVictimReap,
+    /// knockback.COMBO_STEP_OFFSET (`apply_effects`' at-hit undo, `ladder_step_now`): whether a combo hit's first
+    /// ladder step on its own tick turns by the victim's avoidance offset. Added after SNAPSHOT_FORMAT 20; the `default`
+    /// is the old arm, `Unrotated`.
+    #[serde(default = "combo_step_offset_default")]
+    pub combo_step_offset: ComboStepOffset,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2717,6 +2722,10 @@ fn slap_flight_sight_hold_default() -> SlapFlightSightHold {
 
 fn death_blow_victim_reap_default() -> DeathBlowVictimReap {
     DeathBlowVictimReap::NextTick
+}
+
+fn combo_step_offset_default() -> ComboStepOffset {
+    ComboStepOffset::Unrotated
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6591,6 +6600,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.COMBO_STEP_OFFSET -- see `apply_effects` (knockback.COMBO_PUSHBACK's at-hit undo) and `ladder_step_now`:
+    /// the avoidance offset a combo hit's first ladder step, on the hit's own tick, turns by.
+    ComboStepOffset {
+        /// The engine's: none (the step is straight toward the ladder's target); the move pass's decay of the victim's
+        /// offset on the hit's tick stands, and the later steps turn by the decayed offset.
+        Unrotated = "unrotated",
+        /// The victim's offset at the start of the hit's tick, restored with its point and stomp clock (it took no update
+        /// of its own on that tick), the first step turned by it as the move pass turns every later ladder step. Measured on
+        /// client 15.535.29: 20 of 20 clean ladders whose victim held a nonzero offset exact under the held offset, 0 under
+        /// none; the Monk's knocks on deploying victims (sp-champ-Monk-recharge-q20-s0 t774, offset -170: first step
+        /// (-193, 158), where the engine stepped (56, 243); t892) exact 13 of 13 steps each.
+        Client15535HeldOffset = "client15535_held_offset",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8584,6 +8608,7 @@ impl Calib {
             knocked_lost_target: pick(&v, &["targeting", "KNOCKED_LOST_TARGET", "value"], KnockedLostTarget::from_calibration_name)?,
             slap_flight_sight_hold: pick(&v, &["targeting", "SLAP_FLIGHT_SIGHT_HOLD", "value"], SlapFlightSightHold::from_calibration_name)?,
             death_blow_victim_reap: pick(&v, &["combat", "DEATH_BLOW_VICTIM_REAP", "value"], DeathBlowVictimReap::from_calibration_name)?,
+            combo_step_offset: pick(&v, &["knockback", "COMBO_STEP_OFFSET", "value"], ComboStepOffset::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -10760,6 +10785,10 @@ struct Scratch {
     /// Every entity's stomp clock and move-tick count at the start of the Path phase, before the move pass advances
     /// them, so a walk undone after the pass (knockback.COMBO_PUSHBACK's at-hit arm) takes its clock's advance with it.
     pre_stomp: Vec<(i32, u32)>,
+    /// Every entity's avoidance offset at the start of the Path phase, before the move pass decays it, so a walk undone
+    /// after the pass (knockback.COMBO_PUSHBACK's at-hit undo) gives its offset back under knockback.COMBO_STEP_OFFSET =
+    /// client15535_held_offset.
+    pre_offset: Vec<i32>,
     /// The requested step of every entity's walk this tick in NATIVE units
     /// (`L = min(speed, dist, 250)`, the step move16402::move_towards asks for),
     /// for the charge accumulator's client16402 reading; 0 on a tick with no walk.
@@ -14985,6 +15014,8 @@ impl BattleState {
                     // (`Scratch::pre_stomp`; the 16.402 move pass runs here, phase_move only applies its deltas).
                     self.scratch.pre_stomp.clear();
                     self.scratch.pre_stomp.extend(self.ents.stomp_clock.iter().copied().zip(self.ents.move_ticks.iter().copied()));
+                    self.scratch.pre_offset.clear();
+                    self.scratch.pre_offset.extend(self.ents.avoid_offset.iter().copied());
                     // The dash chains' phases for this tick's move pass (`chain_pass`).
                     self.chain_pass();
                     // The Hero Valkyrie's spins before the move (`spin_seek`).
@@ -24613,11 +24644,14 @@ impl BattleState {
     /// its 281 landed, where a Fireball's push steps one tick after, on 15.535.29 and in the 16.402 corpus. Reached only
     /// by a bomb that lands in the Projectile phase: under the plant barrage_lands_after_the_move, since
     /// `land_barrage_early` lands every due bomb before the move pass and arms its pushes with `now` cleared.
-    fn ladder_step_now(&mut self, i: usize) {
+    ///
+    /// knockback.COMBO_STEP_OFFSET = client15535_held_offset: `turned` (a combo hit's) turns the step by the victim's
+    /// avoidance offset, the start-of-tick value the at-hit undo gave back, as the move pass turns every later step.
+    fn ladder_step_now(&mut self, i: usize, turned: bool) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let arena = &self.cfg.arena;
         let e = &mut self.ents;
-        let mut con = move16402::Contact::default();
+        let mut con = move16402::Contact { offset: if turned { e.avoid_offset[i] } else { 0 }, ..Default::default() };
         let mut rem = e.push_speed[i];
         let old = e.pos[i];
         let tgt = (e.push_target[i].x, e.push_target[i].y);
@@ -24796,7 +24830,7 @@ impl BattleState {
         // client16402: arm the ladder on the first push per unit (the
         // `Some(None)` of `sum`: landed, no displacement to apply here).
         let mut sum = vec![None::<Option<Vec2>>; cap];
-        let mut step_now: Vec<usize> = Vec::new();
+        let mut step_now: Vec<(usize, bool)> = Vec::new();
         for k in &fx.knocks {
             let id = k.id();
             if !survivor(&self.ents, id) {
@@ -24839,10 +24873,24 @@ impl BattleState {
                             self.ents.move_ticks[i] = k;
                         }
                     }
+                    // knockback.COMBO_STEP_OFFSET = client15535_held_offset: the victim's offset goes back to its
+                    // start-of-tick value with its point (the move pass's decay undone with its walk), and the hit tick's
+                    // step turns by it (client 15.535.29: 20 of 20 held-offset ladders; the Monk's t774 Ice Golemite
+                    // stepped (-193, 158) at -170, where the unturned step is (56, 243)).
+                    // PLANT (regression) combo_step_unrotated: the new arm's first step takes no rotation.
+                    #[cfg(not(clash_plant = "combo_step_unrotated"))]
+                    let held = at_hit && c.combo_step_offset == ComboStepOffset::Client15535HeldOffset;
+                    #[cfg(clash_plant = "combo_step_unrotated")]
+                    let held = false;
+                    if held {
+                        if let Some(o) = self.scratch.pre_offset.get(i).copied() {
+                            self.ents.avoid_offset[i] = o;
+                        }
+                    }
                     if self.arm_ladder(i, src, strength, caster, sum[i].is_some()) {
                         sum[i] = Some(None);
                         if now {
-                            step_now.push(i);
+                            step_now.push((i, held));
                         }
                     }
                 }
@@ -24931,8 +24979,8 @@ impl BattleState {
                 moved = true;
             }
         }
-        for i in step_now {
-            self.ladder_step_now(i);
+        for (i, turned) in step_now {
+            self.ladder_step_now(i, turned);
             moved = true;
         }
         if moved {
@@ -29825,6 +29873,16 @@ impl BattleState {
         true
     }
 
+    /// Test/scenario entry point: overwrite an entity's avoidance offset (entity.rs `avoid_offset`, multiples of 10 in
+    /// [-190, 190]), for a scenario whose unit holds an offset when something reaches it (a deploying unit's).
+    pub fn debug_set_avoid_offset(&mut self, id: EntityId, offset: i32) -> bool {
+        if !self.ents.is_alive(id) {
+            return false;
+        }
+        self.ents.avoid_offset[id.index as usize] = offset;
+        true
+    }
+
     /// Test/scenario entry point: overwrite an entity's shield (entity.rs `shield`), for a scenario that starts after a
     /// shield has broken (the Evo Royal Recruits' charge waits for that).
     pub fn debug_set_shield(&mut self, id: EntityId, shield: i32) -> bool {
@@ -31878,6 +31936,9 @@ impl BattleState {
 /// 20, unchanged, combat.DEATH_BLOW_VICTIM_REAP: Calib gained death_blow_victim_reap (serde default the old arm,
 ///    next_tick), no new state (the waves' victims are the Reap's scratch), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.COMBO_STEP_OFFSET: Calib gained combo_step_offset (serde default the old arm, unrotated),
+///    no new state (the start-of-tick offsets are the tick's scratch), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
 ///    default none, hashed only when some), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.HELD_SHOT_TEST: Calib gained held_shot_test (serde default the old arm, tested), no new state
@@ -32901,6 +32962,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("slap_flight_sight_hold".into(), serde_json::to_value(SlapFlightSightHold::Held).map_err(|e| e.to_string())?);
     // combat.DEATH_BLOW_VICTIM_REAP: a format-3 battle's blow victims died in the next tick's Resolve (the same rule).
     sh.insert("death_blow_victim_reap".into(), serde_json::to_value(DeathBlowVictimReap::NextTick).map_err(|e| e.to_string())?);
+    // knockback.COMBO_STEP_OFFSET: a format-3 battle's combo step took no rotation on the hit's tick (the same rule).
+    sh.insert("combo_step_offset".into(), serde_json::to_value(ComboStepOffset::Unrotated).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
