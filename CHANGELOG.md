@@ -3,6 +3,14 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.21 (2026-10-07)
+
+- Placement, as recorded in ladder battles and measured in the game: once a lane's enemy princess tower has fallen, a
+  troop (and the Log) may be placed on that lane's bridge. The other lane's bridge stays closed while its princess
+  stands, and the river off the bridges stays water. `Battle.territory_model()` now returns
+  `"enemy_tower_no_deploy_rects_open_bridge"`.
+- RoyaleGym 0.1.19 or later is needed with this engine: older RoyaleGym versions refuse the new territory model.
+
 ## 0.1.20 (2026-10-07)
 
 - `status_flags` bit 3 (evolved) and bit 4 (hero) now follow the unit, not the row it is on right now. A landed Evo
