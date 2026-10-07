@@ -49,7 +49,7 @@
 //!   9. THE 16.402 VINES (option B item 26): HitSpeedOffset 900, HitSpeed 250, MaximumTargets 1, HitBiggestTargets,
 //!      LifeDuration 1400, its block's offsets [0, 250, 500] and mode HitBiggestTargets (tools/extract_cards.py
 //!      `ranked_catches_16402`), edited onto the shipped row: it loads as catches 900, 250 and 250 apart and catches the
-//!      tower, the Mortar and the Cannon on C + 18, 23 and 28, as the 017 kernel caught a Knight, a Musketeer and an
+//!      tower, the Mortar and the Cannon on C + 18, 23 and 28, as the client (Oracle, 16.402) caught a Knight, a Musketeer and an
 //!      Archer (2026-10-07, sp-vines-3-s0, pack and 10-06 content). A pulse that disagrees with the block is refused.
 #![allow(unexpected_cfgs)]
 mod common;

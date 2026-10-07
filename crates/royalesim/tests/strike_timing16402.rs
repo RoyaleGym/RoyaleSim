@@ -241,7 +241,7 @@ fn an_area_hit_speed_off_a_striking_area_is_refused() {
 /// The shipped engine strikes as before: the Lightning's 500 is not listed, so whatever arm cards.CLIENT16402_VALUES
 /// ships, the Lightning runs the tables' 460 row, whose third strike is due inside its life; spells.STRIKE_AREA_END
 /// ships with_last_strike (measured on client 16.402: the 16.402 Vines' catch due at its 1400 ms life falls, Oracle's
-/// 017 kernel 2026-10-07), which moves nothing for the 460 row. Plant: strike_timer_restarts.
+/// Oracle 2026-10-07), which moves nothing for the 460 row. Plant: strike_timer_restarts.
 #[test]
 fn the_shipped_engine_runs_the_tables_lightning_and_with_last_strike() {
     let shipped = config();

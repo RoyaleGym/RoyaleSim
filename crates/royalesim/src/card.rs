@@ -853,7 +853,7 @@ fn strike_area_shape(aeo: &RawAreaEffect, sa: &RawStrikeArea, buffs: &mut BuffTa
     // THE 16.402 VINES (option B item 26): the area is a pulsing area whose pulses ARE the catches -- HitSpeedOffset the
     // first, HitSpeed the gap, MaximumTargets 1, HitBiggestTargets -- and its block (tools/extract_cards.py
     // `ranked_catches_16402`) carries the same clock as its start and offsets. Read through the block, the area's own
-    // columns agreeing with it exactly. Measured on the 017 kernel (2026-10-07, sp-vines-3-s0, pack and 10-06 content):
+    // columns agreeing with it exactly. Measured on client 16.402 (Oracle, 2026-10-07, sp-vines-3-s0, the pack and the 10-06 content):
     // catches on C + 18, 23 and 28 (offsets 0, 250, 500), the biggest first (a Knight 1766, a Musketeer 721, an Archer).
     let pulse_catches = sa.kind.as_deref() == Some("ranked_catches")
         && sa.selection_mode.as_deref() == Some("HitBiggestTargets")
@@ -916,7 +916,7 @@ fn strike_area_shape(aeo: &RawAreaEffect, sa: &RawStrikeArea, buffs: &mut BuffTa
             if sa.once_per_target != Some(true) {
                 return refuse("catches that may take one target twice".into());
             }
-            // HitBiggestTargets (16.402) ranks as HighestCurrentHpIncludeShields does: biggest first on the kernel's
+            // HitBiggestTargets (16.402) ranks as HighestCurrentHpIncludeShields does: biggest first on the client's
             // scene of full-hp units, which does not tell current hp from max hp (an open measurement).
             if sa.selection_mode.as_deref() != Some("HighestCurrentHpIncludeShields") && !pulse_catches {
                 return refuse(format!("catches ranked by {:?}", sa.selection_mode));
