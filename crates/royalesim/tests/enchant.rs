@@ -53,6 +53,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test enchant`):
 //!   * `enchant_multiplier_by_card_name` -- a multiplier matched by the card's own name: (1) goes red.
+//!   * `enchant_hold_refused` -- the 16.402 Rune Giant (the enchant's hold on him, option B item 12) is refused: the
+//!     16.402 test at the end goes red.
 //!   * `enchant_never_picks` -- a look finds nobody: (2), (3), (4), (5), (6), (14), (15), (17) go red.
 //!   * `enchant_launch_at_pick` -- the projectile leaves on the pick tick: (2), (5) and (16) go red.
 //!   * `enchant_empty_pick_waits_cooldown` -- an empty look waits a whole Cooldown: (3) goes red.
@@ -890,4 +892,53 @@ fn a_tagged_unit_is_never_picked() {
     let (s, picks) = first_picks(cfg, &[("Knight", (14500, 11500)), ("Archer", (14500, 8500))]);
     let knight = the(&s, Team::Blue, "Knight");
     assert!(!picks.is_empty() && !picks.contains(&knight), "a tagged Knight was picked: {picks:?}");
+}
+
+// ---------------------------------------------------------------------------
+// The 16.402 Rune Giant (option B item 12)
+
+/// The shipped table with the Rune Giant's enchant in the 16.402 table's shape: the hold each enchant hangs on him
+/// (`on_buff_hold`, an ActionWithDuration), its class in the block, and the graph's ActionGroup, ActionRunForcedAnimationOnce
+/// and ActionWithDuration; `hold` false leaves the hold out (the graph keeps its class).
+fn rune_giant_16402(hold: bool) -> CardDb {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).expect("cards.json");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("cards.json parses");
+    let edit = |r: &mut serde_json::Value| {
+        if r.get("enchant_friends").map_or(true, |e| e.is_null()) {
+            return;
+        }
+        let ef = &mut r["enchant_friends"];
+        ef["classes"].as_array_mut().expect("the block's classes").push(serde_json::Value::from("ActionWithDuration"));
+        if hold {
+            ef["on_buff_hold"] = serde_json::json!({"no_attack_ms": 600, "no_move_ms": 600, "animation_ms": 1600});
+        }
+        if let Some(g) = r.get_mut("action_graph").filter(|g| !g.is_null()) {
+            let c = g["class_types"].as_array_mut().expect("the graph's classes");
+            for x in ["ActionGroup", "ActionRunForcedAnimationOnce", "ActionWithDuration"] {
+                if !c.iter().any(|y| y == x) {
+                    c.push(serde_json::Value::from(x));
+                }
+            }
+        }
+    };
+    edit(&mut v["units"]["GiantBuffer"]);
+    edit(v_card(&mut v));
+    CardDb::from_json_str(&v.to_string(), royalesim::card::CardSource::DerivedJson).expect("the edited table parses")
+}
+
+fn v_card(v: &mut serde_json::Value) -> &mut serde_json::Value {
+    v["cards"].as_array_mut().expect("cards").iter_mut().find(|c| c["name"] == "GiantBuffer").expect("the GiantBuffer card")
+}
+
+/// Plant: enchant_hold_refused.
+#[test]
+fn the_16402_rune_giant_loads_with_the_same_enchant() {
+    let shipped = cards();
+    let new = rune_giant_16402(true);
+    let enchant = |db: &CardDb| db.index("GiantBuffer").and_then(|i| db.get(i).enchant.clone());
+    assert!(enchant(&shipped).is_some(), "the shipped Rune Giant carries its enchant");
+    assert_eq!(enchant(&new), enchant(&shipped), "the 16.402 shape loads the same enchant: {:?}", new.rejected.iter().find(|(n, _)| n == "GiantBuffer"));
+    let bare = rune_giant_16402(false);
+    let why = bare.rejected.iter().find(|(n, _)| n == "GiantBuffer").map(|(_, w)| w.clone()).unwrap_or_default();
+    assert!(why.contains("ActionWithDuration"), "an ActionWithDuration with no hold is refused: {why:?}");
 }

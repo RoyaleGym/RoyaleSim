@@ -4137,6 +4137,10 @@ struct RawEnchantFriends {
     enchant: RawEnchantBuff,
     excluded_units: Vec<String>,
     classes: Vec<String>,
+    /// 16.402 on: the pause each enchant hangs on the Rune Giant (an ActionWithDuration: NO_ATTACK and a conditional
+    /// NO_MOVE, 600 ms). Its effect is calibration combat.ON_BUFF_PAUSE's (shipped none: he walks and attacks on); the
+    /// block is read here so the ActionWithDuration it stands for is accepted, and UNMODELLED_KEYS lists it.
+    on_buff_hold: Option<serde_json::Value>,
 }
 
 /// cards.json `enchant_friends.collect`: the ActionGiantBufferCollectFriends row.
@@ -4175,11 +4179,19 @@ struct RawEnchantBuff {
 fn enchant_of(raw: &RawEnchantFriends, graph: &Option<RawActionGraph>) -> Result<EnchantDef, String> {
     let refuse = |why: String| Err(format!("the unit's enchant: {why}; not simulated"));
     let Some(g) = graph else { return refuse("no action graph carries it".into()) };
-    let read = |c: &str| ENCHANT_CLASSES.contains(&c) || matches!(c, "ActionGroup" | "ActionPlayEffect");
+    // 16.402 (option B item 12): the enchant's hold on the Rune Giant (`on_buff_hold`, an ActionWithDuration) and an
+    // animation (ActionRunForcedAnimationOnce, cosmetic); the hold's class only where the block carries the hold.
+    #[cfg(not(clash_plant = "enchant_hold_refused"))]
+    let hold = raw.on_buff_hold.as_ref().is_some_and(|h| !h.is_null());
+    #[cfg(clash_plant = "enchant_hold_refused")]
+    let hold = false; // PLANT (tests/enchant.rs): the 16.402 Rune Giant is refused, as before option B.
+    let read = |c: &str| {
+        ENCHANT_CLASSES.contains(&c) || matches!(c, "ActionGroup" | "ActionPlayEffect" | "ActionRunForcedAnimationOnce") || (hold && c == "ActionWithDuration")
+    };
     if !g.spawns.is_empty() || g.class_types.iter().any(|c| !read(c)) {
         return refuse(format!("the graph runs more than the enchant ({})", g.class_types.join(", ")));
     }
-    let mut classes = raw.classes.clone();
+    let mut classes: Vec<String> = raw.classes.iter().filter(|c| !(hold && c.as_str() == "ActionWithDuration")).cloned().collect();
     classes.sort();
     if classes != ENCHANT_CLASSES {
         return refuse(format!("the block stands for {}", raw.classes.join(", ")));
