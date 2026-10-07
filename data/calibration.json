@@ -3667,6 +3667,17 @@
       "open": "The other flags (FilterInvisible, FilterFlying) are not measured one by one.",
       "promotion_rules": "Settled for FilterHidden.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); card.rs selector_filter; spell.rs selector_candidates"
+    },
+    "CAPTURE_ROUTE": {
+      "value": "kept",
+      "candidates": ["kept", "client15535_dropped_at_join"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_dropped_at_join on client 15.535.29: the 2 captives holding a route at the join lost it on the join frame, 0 of 60 ride frames held one, 9 of 9 planned afresh on release; 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r56_snowball_captive_route_census.py, captures found as r55_snowball_captive_facing_census.py: 9 captives in 7 scenes). Ride frames holding a route: 0 of 60. Captives holding a route on the frame before the join: 2. sp-form-Snowball-evo-s0's Knight held 8 nodes through its drag t944-949 and none on its join t950; sp-snow-Knight-0-2500-l35-s0's held 26 nodes through t713-717 and none on t718. The first route after the ride was a fresh plan on ride end + 3 for 9 of 9; the two former holders' (19 and 29 nodes) are not suffixes of the old ones. The engine kept the 26-node route through the ride and on t727 stepped (18, -33) along it where the client planned 29 nodes from (9500, 22500) and stepped (37, -12): sp-snow-Knight-0-2500-l35-s0's whole loss (90 within, 113 path_n). The four other snow-Knight scenes (captured while deploying, no route) are exact either way.",
+      "meaning": "kept: the engine's; a captive keeps the route, its goal and segment through the capture (the carry moves its point only) and walks the rest of it when let go. client15535_dropped_at_join: on the tick it joins the ball (`SpellOut::joined`) its route, goal and segment are dropped, as combat.HOOK_DRAG_ROUTE = client16402_dropped drops a dragged unit's, and the replan gate plans afresh where it is let go.",
+      "open": "A captive that joins with no drag (struck on the ball's point); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_dropped_at_join (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "spell.rs capture_roll (`SpellOut::joined`) and state.rs phase_projectile (the drop), selected by Calib::capture_route; tests/evo_snowball.rs."
     }
   },
   "knockback": {

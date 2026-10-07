@@ -1151,6 +1151,10 @@ pub struct Calib {
     /// Elite Barbarian member handles a doomed target. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Melee`.
     #[serde(default = "doomed_drop_spear_members_default")]
     pub doomed_drop_spear_members: DoomedDropSpearMembers,
+    /// spells.CAPTURE_ROUTE (spell.rs `capture_roll`, `SpellOut::joined`; `phase_projectile`): an Evo Giant Snowball's
+    /// captive's route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
+    #[serde(default = "capture_route_default")]
+    pub capture_route: CaptureRoute,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2889,6 +2893,10 @@ fn evo_impact_area_anchor_default() -> EvoImpactAreaAnchor {
 
 fn doomed_drop_spear_members_default() -> DoomedDropSpearMembers {
     DoomedDropSpearMembers::Melee
+}
+
+fn capture_route_default() -> CaptureRoute {
+    CaptureRoute::Kept
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7067,6 +7075,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.CAPTURE_ROUTE -- see spell.rs `capture_roll` and `phase_projectile`: the route of a unit an Evo Giant Snowball carries.
+    CaptureRoute {
+        /// The engine's: it keeps the route it held through the capture and walks the rest of it when let go.
+        Kept = "kept",
+        /// Its route, goal and segment are dropped on the tick it joins the ball (as combat.HOOK_DRAG_ROUTE's drop), so it
+        /// plans afresh where it is let go. Measured on client 15.535.29: 0 of 60 ride frames held a route; the 2 captives
+        /// holding one had none from the join frame (sp-snow-Knight-0-2500-l35-s0 t718), 9 of 9 planned afresh on release.
+        Client15535DroppedAtJoin = "client15535_dropped_at_join",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9087,6 +9106,7 @@ impl Calib {
             drill_rise_targetable: pick(&v, &["targeting", "DRILL_RISE_TARGETABLE", "value"], DrillRiseTargetable::from_calibration_name)?,
             evo_impact_area_anchor: pick(&v, &["combat", "EVO_IMPACT_AREA_ANCHOR", "value"], EvoImpactAreaAnchor::from_calibration_name)?,
             doomed_drop_spear_members: pick(&v, &["targeting", "DOOMED_DROP_SPEAR_MEMBERS", "value"], DoomedDropSpearMembers::from_calibration_name)?,
+            capture_route: pick(&v, &["spells", "CAPTURE_ROUTE", "value"], CaptureRoute::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -25173,8 +25193,24 @@ impl BattleState {
         // DRAINED HERE, in `SpellOut`'s documented order, and nothing is kept past the
         // phase. Destructured without `..`, so a field added to the bundle does not
         // compile until it has a consumer below.
-        let spell::SpellOut { released, scheduled, mut born, mut launched, areas, clones, fuse_ends, carried, faced } = out;
+        let spell::SpellOut { released, scheduled, mut born, mut launched, areas, clones, fuse_ends, carried, faced, joined } = out;
         // THE UNITS A BALL CARRIES (card.rs `SpellShape::CaptureRoll`) stand where its step put them this tick.
+        // spells.CAPTURE_ROUTE = client15535_dropped_at_join: a captive's route, goal and segment go on the tick it joins the
+        // ball (client 15.535.29: 0 of 60 ride frames held a route; sp-snow-Knight-0-2500-l35-s0 t718), as a hook's drag
+        // drops them, and it plans afresh where it is let go.
+        // PLANT (regression) capture_route_kept: the new arm's captive keeps its route.
+        #[cfg(not(clash_plant = "capture_route_kept"))]
+        let drop_routes = self.cfg.calib.capture_route == CaptureRoute::Client15535DroppedAtJoin;
+        #[cfg(clash_plant = "capture_route_kept")]
+        let drop_routes = false;
+        if drop_routes {
+            let live: Vec<usize> = joined.into_iter().filter(|id| self.ents.is_alive(*id)).map(|id| id.index as usize).collect();
+            for i in live {
+                self.ents.route[i].clear();
+                self.ents.route_goal[i] = None;
+                self.ents.seg_dir[i] = Vec2::default();
+            }
+        }
         if !carried.is_empty() {
             for (id, p) in carried {
                 if self.ents.is_alive(id) {
@@ -32993,6 +33029,9 @@ impl BattleState {
 /// 20, unchanged, targeting.DOOMED_DROP_SPEAR_MEMBERS: Calib gained doomed_drop_spear_members (serde default the old
 ///    arm, melee), no new state (read at each scan), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.CAPTURE_ROUTE: Calib gained capture_route (serde default the old arm, kept), no new state
+///    (`SpellOut::joined` is the tick's output), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
 ///    carries its shot's tick), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
@@ -34068,6 +34107,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_impact_area_anchor".into(), serde_json::to_value(EvoImpactAreaAnchor::LandingPoint).map_err(|e| e.to_string())?);
     // targeting.DOOMED_DROP_SPEAR_MEMBERS: a format-3 battle's spear members took doomed units as melee units do (the same rule).
     sh.insert("doomed_drop_spear_members".into(), serde_json::to_value(DoomedDropSpearMembers::Melee).map_err(|e| e.to_string())?);
+    // spells.CAPTURE_ROUTE: a format-3 battle's captive kept its route (the same rule).
+    sh.insert("capture_route".into(), serde_json::to_value(CaptureRoute::Kept).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

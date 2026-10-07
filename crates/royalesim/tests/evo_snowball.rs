@@ -24,7 +24,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState, CaptureDragFacing};
+use royalesim::state::{BattleConfig, BattleState, CaptureDragFacing, CaptureRoute};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -231,4 +231,61 @@ fn a_dragged_captive_faces_the_ball_under_client15535_faces_ball() {
     // NOT VACUOUS: walk_facing keeps a facing that is not toward the ball.
     let old = drag_facings(CaptureDragFacing::WalkFacing);
     assert!(old.iter().any(|&(f, d)| !faces(f, d)), "walk_facing: the facing pointed at the ball anyway: {old:?}");
+}
+
+/// spells.CAPTURE_ROUTE (item 291; client 15.535.29: 0 of 60 ride frames held a route, the 2 captives holding one lost it
+/// on the join frame): a red Knight put down 1,600 beside the ball's path 60 ticks before the play (walking, with a route)
+/// and held there until it is taken; its route's length on the ball's age 1 (before the capture) and on its ride (ages 8 to
+/// 14).
+fn ride_routes(arm: CaptureRoute) -> (usize, Vec<usize>) {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["Snowball".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.capture_route = arm;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let home = n(TAP.0 + 1600, TAP.1 + 600);
+    let k = s.scenario_spawn_now(Team::Red, "Knight", home, None).expect("a red Knight");
+    for _ in 0..2 {
+        s.scenario_set_elixir_milli(Team::Blue, 10_000);
+        s.deploy(Team::Blue, "Snowball", n(3000, 28000)).expect("a basic play");
+        for _ in 0..30 {
+            assert!(s.debug_set_pos(k, home));
+            s.tick();
+        }
+    }
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.deploy(Team::Blue, "Snowball", n(TAP.0, TAP.1)).expect("the evolved play");
+    let (mut before, mut ride, mut taken) = (None, Vec::new(), false);
+    for _ in 0..40 {
+        if !taken {
+            assert!(s.debug_set_pos(k, home));
+        }
+        s.tick();
+        let age = s.spells().iter().find_map(|sp| match &sp.motion {
+            SpellMotion::CaptureRoll { age, .. } => Some(*age),
+            _ => None,
+        });
+        taken |= age.is_some_and(|a| a >= 1);
+        let len = s.entity(k).expect("the Knight").route.len();
+        match age {
+            Some(1) => before = Some(len),
+            Some(a) if (8..=14).contains(&a) => ride.push(len),
+            _ => {}
+        }
+    }
+    (before.expect("the scene drifted: the ball never reached age 1"), ride)
+}
+
+/// Plant: capture_route_kept.
+#[test]
+fn a_captive_drops_its_route_when_it_joins_the_ball_under_client15535_dropped_at_join() {
+    let (before, ride) = ride_routes(CaptureRoute::Client15535DroppedAtJoin);
+    // NOT VACUOUS: the Knight walked a route before the capture.
+    assert!(before > 0, "the scene drifted: the Knight held no route before the capture");
+    assert!(ride.len() == 7 && ride.iter().all(|l| *l == 0), "client15535_dropped_at_join: a route on the ride: {ride:?}");
+    let (_, ride) = ride_routes(CaptureRoute::Kept);
+    assert!(ride.iter().any(|l| *l > 0), "kept: no route on the ride: {ride:?}");
 }

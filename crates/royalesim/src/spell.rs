@@ -276,6 +276,9 @@ pub struct SpellOut {
     /// movement.CAPTURE_DRAG_FACING = client15535_faces_ball: the facings (256 long) of the units a ball drags this tick,
     /// toward its point, set with `carried`.
     pub faced: Vec<(EntityId, Vec2)>,
+    /// spells.CAPTURE_ROUTE: the captives that joined their ball this tick (state.rs `phase_projectile` drops their routes
+    /// under client15535_dropped_at_join).
+    pub joined: Vec<EntityId>,
 }
 
 /// One buffered knockback. Which variant a spell writes is calibration
@@ -1698,6 +1701,9 @@ fn capture_roll(
         #[cfg(clash_plant = "capture_snaps_at_once")]
         let snapped = true; // PLANT (regression): the captive rides on the ball from the tick after the capture.
         if snapped {
+            if !c.joined {
+                out.joined.push(c.id);
+            }
             c.joined = true;
             out.carried.push((c.id, *pos));
             continue;
@@ -1725,6 +1731,7 @@ fn capture_roll(
             }
         }
         if at.dist(*pos) <= d.hide_distance {
+            out.joined.push(c.id);
             c.joined = true;
             out.carried.push((c.id, *pos));
         } else {
