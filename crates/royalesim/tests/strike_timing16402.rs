@@ -238,12 +238,14 @@ fn an_area_hit_speed_off_a_striking_area_is_refused() {
     );
 }
 
-/// The shipped engine is unchanged: the Lightning's 500 is not listed, so whatever arm cards.CLIENT16402_VALUES ships,
-/// the Lightning runs the tables' 460 row, and spells.STRIKE_AREA_END ships its old arm. Plant: strike_timer_restarts.
+/// The shipped engine strikes as before: the Lightning's 500 is not listed, so whatever arm cards.CLIENT16402_VALUES
+/// ships, the Lightning runs the tables' 460 row, whose third strike is due inside its life; spells.STRIKE_AREA_END
+/// ships with_last_strike (measured on client 16.402: the 16.402 Vines' catch due at its 1400 ms life falls, Oracle's
+/// 017 kernel 2026-10-07), which moves nothing for the 460 row. Plant: strike_timer_restarts.
 #[test]
-fn the_shipped_engine_runs_the_tables_lightning_and_at_life_end() {
+fn the_shipped_engine_runs_the_tables_lightning_and_with_last_strike() {
     let shipped = config();
-    assert_eq!(shipped.calib.strike_area_end, LIFE, "spells.STRIKE_AREA_END ships its old arm");
+    assert_eq!(shipped.calib.strike_area_end, LAST, "spells.STRIKE_AREA_END ships with_last_strike");
     let listed: Vec<&CardValue> = shipped.calib.card_value_overrides.iter().filter(|v| v.column == CardColumn::AreaHitSpeed).collect();
     assert!(listed.is_empty(), "cards.CLIENT16402_VALUES lists an AreaHitSpeed before it is scored: {listed:?}");
     let mut at_11 = shipped;
