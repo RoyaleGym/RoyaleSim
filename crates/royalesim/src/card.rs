@@ -3577,9 +3577,17 @@ struct RawAttackSelect {
     ranged_index: Option<i32>,
 }
 
-/// THE ACTION CLASSES the attack selector's graph may reach (tools/extract_cards.py `attack_select`): the four it
-/// runs and its one cosmetic hook. Its graph must reach the four and nothing outside the five.
-const ATTACK_SELECT_CLASSES: [&str; 5] = ["ActionFilter", "ActionSetAttackSequenceIndex", "ActionRunOnInstigator", "ActionDealDamage", "ActionPlayEffect"];
+/// THE ACTION CLASSES the attack selector's graph may reach (tools/extract_cards.py `attack_select`): the three it runs,
+/// its melee blow's damage class and its one cosmetic hook. Its graph must reach the three and exactly one damage class,
+/// and nothing else. The blow is an ActionDealDamage on the 15.535 tables and an ActionTakeDamage on the 16.402 ones
+/// (option B item 3), the same melee damage either way (`RawAttackSelect::melee_damage`).
+const ATTACK_SELECT_CLASSES: [&str; 3] = ["ActionFilter", "ActionSetAttackSequenceIndex", "ActionRunOnInstigator"];
+#[cfg(not(clash_plant = "attack_select_deal_damage_only"))]
+const ATTACK_SELECT_DAMAGE: [&str; 2] = ["ActionDealDamage", "ActionTakeDamage"];
+// PLANT (card.rs tests `the_attack_selector_takes_one_melee_damage_class_of_either_table`): the 16.402 blow refused.
+#[cfg(clash_plant = "attack_select_deal_damage_only")]
+const ATTACK_SELECT_DAMAGE: [&str; 1] = ["ActionDealDamage"];
+const ATTACK_SELECT_COSMETIC: &str = "ActionPlayEffect";
 
 /// The selector an `attack_select` block names, or the reason it is refused. The block must be the one shape the
 /// extractor writes -- melee entry 1, the row's own projectile entry 0, a ground-only condition -- and the row's
@@ -3587,11 +3595,15 @@ const ATTACK_SELECT_CLASSES: [&str; 5] = ["ActionFilter", "ActionSetAttackSequen
 fn attack_select_of(raw: &RawAttackSelect, graph: &Option<RawActionGraph>) -> Result<AttackSelectDef, String> {
     let refuse = |why: &str| Err(format!("the unit's attack selector: {why}; not simulated"));
     let Some(g) = graph else { return refuse("no action graph carries it") };
-    if !g.spawns.is_empty() || g.class_types.iter().any(|c| !ATTACK_SELECT_CLASSES.contains(&c.as_str())) {
+    let known = |c: &str| ATTACK_SELECT_CLASSES.contains(&c) || ATTACK_SELECT_DAMAGE.contains(&c) || c == ATTACK_SELECT_COSMETIC;
+    if !g.spawns.is_empty() || g.class_types.iter().any(|c| !known(c)) {
         return refuse(&format!("the graph runs more than the selector ({})", g.class_types.join(", ")));
     }
-    if let Some(missing) = ATTACK_SELECT_CLASSES[..4].iter().find(|c| !g.class_types.iter().any(|x| x == *c)) {
+    if let Some(missing) = ATTACK_SELECT_CLASSES.iter().find(|c| !g.class_types.iter().any(|x| x == *c)) {
         return refuse(&format!("the graph does not reach {missing}"));
+    }
+    if g.class_types.iter().filter(|c| ATTACK_SELECT_DAMAGE.contains(&c.as_str())).count() != 1 {
+        return refuse(&format!("the graph reaches {} melee damage classes, not one", g.class_types.iter().filter(|c| ATTACK_SELECT_DAMAGE.contains(&c.as_str())).count()));
     }
     if (raw.melee_index, raw.ranged_index) != (Some(1), Some(0)) {
         return refuse(&format!("sequence entries melee {:?} / ranged {:?}", raw.melee_index, raw.ranged_index));
@@ -14165,6 +14177,27 @@ const FALLBACK_CARDS_JSON: &str = r#"{ "version": "fallback", "cards": [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_attack_selector_takes_one_melee_damage_class_of_either_table() {
+        // Option B item 3: the Three Musketeers' melee blow is an ActionDealDamage on 15.535 and an ActionTakeDamage on
+        // 16.402; a graph with both, or with neither, is refused. Plant attack_select_deal_damage_only: the ActionTakeDamage graph is
+        // refused, so this goes red.
+        let raw = RawAttackSelect { melee_range_milli: Some(1600), melee_ground_only: Some(true), melee_damage: Some(123), melee_index: Some(1), ranged_index: Some(0) };
+        let graph = |damage: &[&str]| {
+            let mut c: Vec<String> = ["ActionFilter", "ActionPlayEffect", "ActionRunOnInstigator", "ActionSetAttackSequenceIndex"].map(String::from).to_vec();
+            c.extend(damage.iter().map(|d| d.to_string()));
+            Some(RawActionGraph { class_types: c, ..Default::default() })
+        };
+        for damage in ["ActionDealDamage", "ActionTakeDamage"] {
+            let d = attack_select_of(&raw, &graph(&[damage])).unwrap_or_else(|e| panic!("{damage}: {e}"));
+            assert_eq!((d.melee_damage, d.ground_only), (123, true), "{damage}");
+        }
+        for damage in [&["ActionDealDamage", "ActionTakeDamage"][..], &[][..]] {
+            let e = attack_select_of(&raw, &graph(damage)).err().unwrap_or_else(|| panic!("{damage:?} accepted"));
+            assert!(e.contains("melee damage classes"), "{damage:?}: {e}");
+        }
+    }
 
     #[test]
     fn the_shipped_tables_carry_no_unmodelled_key() {
