@@ -5074,6 +5074,9 @@ struct RawKillHeal {
     below: Option<Vec<i32>>,
     time_ms: Option<i32>,
     buffs: Option<Vec<RawBuff>>,
+    /// 16.402 on: the heal flies to the Evo P.E.K.K.A. before it lands (an ActionSoulDrain). Not modelled
+    /// (UNMODELLED_KEYS lists it); read here so the graph's classes that stand for it pass the evolution graph gate.
+    flight_ms: Option<i32>,
 }
 
 /// THE EVO BOMBER'S BOUNCE (tools/extract_cards.py `bounce_block`; combat.rs `BounceHop`, the bounce in
@@ -5555,6 +5558,10 @@ struct RawFall {
     grounded: Option<serde_json::Value>,
     landing_area: Option<String>,
     reset_path_ms: Option<i32>,
+    /// 16.402 on: a jumping hog takes no pushback (the JumpHack buff an ActionInterval re-hangs while it jumps). Its
+    /// effect is not modelled (UNMODELLED_KEYS lists it); read here so the graph's classes that stand for it pass the
+    /// evolution graph gate.
+    jump_ignores_pushback: Option<bool>,
 }
 
 /// cards.json `evolutions[].evo_barrel` (tools/extract_cards.py `barrel_block`): the health line, the two containers (units
@@ -11314,8 +11321,25 @@ impl CardDb {
             g.spawns.iter().all(|s| s == &format!("CharacterType:{sp}") || s.starts_with("BuffType:"))
         });
         // THE FALL'S LANDING AREA is its own block's too (`fall_block` reads it whole).
+        // 16.402 (option B item 19): the classes a block's 16.402 key stands for, taken only where the block carries
+        // it -- the Evo Royal Hogs' jump hack (an ActionInterval re-hanging JumpHack_Ignore_Pushback_Buff under an
+        // ActionRunIfInstigatorMatches) and the Evo P.E.K.K.A.'s heal flight (ActionSoulDrain,
+        // ActionWriteInstigatorInfoToContext, in an ActionGroup with an effect). Their effects are UNMODELLED_KEYS'.
+        #[cfg(not(clash_plant = "evo_16402_classes_refused"))]
+        let (jump_hack, heal_flight) = (
+            extra.evo_fall.as_ref().is_some_and(|f| f.jump_ignores_pushback == Some(true)),
+            extra.evo_kill_heal.as_ref().is_some_and(|k| k.flight_ms.is_some_and(|m| m > 0)),
+        );
+        #[cfg(clash_plant = "evo_16402_classes_refused")]
+        let (jump_hack, heal_flight) = (false, false); // PLANT (card.rs tests): the 16.402 Evo Royal Hogs and P.E.K.K.A. refused.
+        let reads_16402 = |c: &str| {
+            (jump_hack && matches!(c, "ActionInterval" | "ActionRunIfInstigatorMatches"))
+                || (heal_flight && matches!(c, "ActionGroup" | "ActionPlayEffect" | "ActionSoulDrain" | "ActionWriteInstigatorInfoToContext"))
+        };
         let fall_spawns = |g: &RawActionGraph| {
-            extra.evo_fall.as_ref().and_then(|f| f.landing_area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
+            extra.evo_fall.as_ref().and_then(|f| f.landing_area.as_deref()).is_some_and(|a| {
+                g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}") || (jump_hack && s == "BuffType:JumpHack_Ignore_Pushback_Buff"))
+            })
         };
         // THE GHOST BUFF is the first hit's block's too (`first_hit_block` reads it whole).
         let ghost_spawns = |g: &RawActionGraph| {
@@ -11370,7 +11394,7 @@ impl CardDb {
             })
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g) && !mirror_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str())) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g) && !mirror_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str()) && !reads_16402(c)) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -14355,6 +14379,44 @@ mod tests {
         assert_eq!(new, old, "the 16.402 row loads as the 15.535 one");
         let short = area_effect_shape_hits(&row(None, Some(900)), &mut BuffTable::default(), &ctx, true);
         assert!(short.is_err_and(|e| e.contains("HitSpeedOffset")), "an offset short of the life is refused");
+    }
+
+    #[test]
+    fn the_evolution_gate_takes_the_16402_classes_where_the_block_carries_their_key() {
+        // Option B item 19. The shipped Evo Royal Hogs and Evo P.E.K.K.A. edited into the 16.402 graphs: with the
+        // block's key (jump_ignores_pushback, flight_ms) each loads; without it each is refused, naming a class.
+        // Plant evo_16402_classes_refused: the keyed case is refused too and this goes red.
+        let table = |keyed: bool| {
+            let mut v: serde_json::Value = serde_json::from_str(EMBEDDED_CARDS_JSON).expect("the shipped table");
+            for e in v["evolutions"].as_array_mut().expect("evolutions") {
+                if e["name"] == "RoyalHogs_EV1" {
+                    let g = &mut e["action_graph"];
+                    for c in ["ActionInterval", "ActionRunIfInstigatorMatches"] {
+                        g["class_types"].as_array_mut().expect("classes").push(serde_json::Value::from(c));
+                    }
+                    g["spawns"].as_array_mut().expect("spawns").push(serde_json::Value::from("BuffType:JumpHack_Ignore_Pushback_Buff"));
+                    if keyed {
+                        e["evo_fall"]["jump_ignores_pushback"] = serde_json::Value::Bool(true);
+                    }
+                }
+                if e["name"] == "Pekka_EV1" {
+                    e["action_graph"]["class_types"] = serde_json::json!(["ActionGroup", "ActionPlayEffect", "ActionSelect", "ActionSoulDrain", "ActionWriteInstigatorInfoToContext"]);
+                    if keyed {
+                        e["evo_kill_heal"]["flight_ms"] = serde_json::Value::from(500);
+                    }
+                }
+            }
+            CardDb::from_json_str(&v.to_string(), CardSource::Embedded).expect("the edited table loads")
+        };
+        let refused = |db: &CardDb, n: &str| db.rejected_evolutions.iter().find(|(x, _)| x == n).map(|(_, w)| w.clone());
+        let keyed = table(true);
+        for n in ["RoyalHogs_EV1", "Pekka_EV1"] {
+            assert_eq!(refused(&keyed, n), None, "{n} with its block's key");
+        }
+        let bare = table(false);
+        for n in ["RoyalHogs_EV1", "Pekka_EV1"] {
+            assert!(refused(&bare, n).is_some_and(|w| w.contains("runs an action graph its block does not read")), "{n} without its key");
+        }
     }
 
     #[test]
