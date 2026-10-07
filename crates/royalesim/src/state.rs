@@ -27037,6 +27037,10 @@ impl BattleState {
                     && shift == 0
                     && !slide
                     && self.cfg.calib.death_ring_units.contains(&card.unit_name);
+                // PLANT (regression) evo_drill_death_ring_unlisted (tests/evo_goblin_drill.rs): the Evo Goblin Drill's
+                // building (GoblinDrill_EV1, listed since 2026-10-07) lays its pair by DEATH_SPAWN_LAYOUT again.
+                #[cfg(all(not(clash_plant = "death_ring_facing"), clash_plant = "evo_drill_death_ring_unlisted"))]
+                let listed = listed && card.unit_name != "GoblinDrill_EV1";
                 #[cfg(clash_plant = "death_ring_facing")]
                 let listed = false; // PLANT: the listed units keep DEATH_SPAWN_LAYOUT (the facing ring).
                 // rider.DISMOUNT_POINT: an attached rider's death spawn at its mount's position plus its offset

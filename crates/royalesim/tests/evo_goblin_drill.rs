@@ -12,7 +12,8 @@
 //!   - drill_hide_drains -> the same red;
 //!   - drill_spawner_unheld -> the same red;
 //!   - drill_hide_collides -> the same red (its Goblins pushed off its footprint);
-//!   - drill_hide_acquired_at_once -> `a_hides_goblins_are_targets_from_their_8th_frame` red.
+//!   - drill_hide_acquired_at_once -> `a_hides_goblins_are_targets_from_their_8th_frame` red;
+//!   - evo_drill_death_ring_unlisted -> `its_buildings_death_goblins_are_laid_on_the_x_axis_ring` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -124,4 +125,40 @@ fn a_hides_goblins_are_targets_from_their_8th_frame() {
     assert!(hide.iter().all(|(born, from)| *from == born + 7), "a hide's Goblins: an enemy may target them from their 8th frame: {hide:?}");
     // NOT VACUOUS: the regular Goblins are targets at once.
     assert!(!regular.is_empty() && regular.iter().all(|(_, from)| *from == 0), "the regular Goblins carry a delay: {regular:?}");
+}
+
+/// spawner.DEATH_SPAWN_RING (item 284: GoblinDrill_EV1 on the list): the Evo building's death pair is laid as the base
+/// building's, at (x - 500, y) and (x + 500, y), the first-created Goblin on -x (client 15.535.29: 3 of 3 Evo deaths; the
+/// lower ordinal on -x in all 16 Drill deaths); DEATH_SPAWN_LAYOUT, the engine's before, laid them at (x, y -+ 500).
+/// Plant: evo_drill_death_ring_unlisted.
+#[test]
+fn its_buildings_death_goblins_are_laid_on_the_x_axis_ring() {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["GoblinDrill".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let d = s.scenario_spawn_now(Team::Blue, "units.GoblinDrill_EV1", n(9000, 10000), None).expect("the drill's building");
+    for _ in 0..3 {
+        s.tick();
+    }
+    let before: Vec<EntityId> = s.entities().map(|e| e.id).collect();
+    assert!(s.debug_set_hp(d, 0));
+    s.tick();
+    s.tick();
+    assert!(s.entity(d).is_none(), "the scene drifted: the building still stands");
+    // The troops new since the kill, within 1,000 of its point, in creation order.
+    let mut new: Vec<(u32, (i32, i32))> = s
+        .entities()
+        .filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::Troop && !before.contains(&e.id))
+        .map(|e| (e.team_seq, (e.pos.x / K, e.pos.y / K)))
+        .filter(|(_, p)| (p.0 - 9000).abs() <= 1000 && (p.1 - 10000).abs() <= 1000)
+        .collect();
+    new.sort_unstable();
+    let points: Vec<(i32, i32)> = new.iter().map(|(_, p)| *p).collect();
+    // Within the native unit the ring's trigonometry rounds (the base building's pair reads 8499 for 8500 too).
+    let want = [(8500, 10000), (9500, 10000)];
+    assert!(points.len() == 2 && points.iter().zip(want).all(|(p, w)| (p.0 - w.0).abs() <= 1 && (p.1 - w.1).abs() <= 1), "its death pair, in creation order: {new:?}");
 }
