@@ -1077,6 +1077,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetHold`.
     #[serde(default = "net_cast_window_default")]
     pub net_cast_window: NetCastWindow,
+    /// collision.ATTRACT_CONTACT_MEAN (`phase_path16402`'s walk step): how a pulled unit's step takes the pull with
+    /// its contacts. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AfterMean`.
+    #[serde(default = "attract_contact_mean_default")]
+    pub attract_contact_mean: AttractContactMean,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2743,6 +2747,10 @@ fn doomed_read_in_pass_default() -> DoomedReadInPass {
 
 fn net_cast_window_default() -> NetCastWindow {
     NetCastWindow::TargetHold
+}
+
+fn attract_contact_mean_default() -> AttractContactMean {
+    AttractContactMean::AfterMean
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6670,6 +6678,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// collision.ATTRACT_CONTACT_MEAN -- see `phase_path16402` (the walk step's `pull`) and move16402.rs
+    /// `move_towards_extra`: how a ground unit's walk step combines an area's pull (status.ATTRACT_LAW) with its contact
+    /// pushes.
+    AttractContactMean {
+        /// The engine's: the contact mean (capped at 150), then the whole pull.
+        AfterMean = "after_mean",
+        /// With a contact, each pulling source is one entry of the contact accumulator: the step is the walk plus
+        /// tdiv(pull + the pushes, sources + contacts); with none, the pull whole, uncapped. Measured on client 15.535.29:
+        /// 32 of 32 pulled steps with an overlapping neighbour (sp-form-Wizard-hero-s0's Musketeer pulled into a Knight
+        /// t248-t251, sp-form-Valkyrie-evo-s0's Knight among Skeletons), the after-mean reading 0 of 32.
+        Client15535InMean = "client15535_in_mean",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8666,6 +8688,7 @@ impl Calib {
             combo_step_offset: pick(&v, &["knockback", "COMBO_STEP_OFFSET", "value"], ComboStepOffset::from_calibration_name)?,
             doomed_read_in_pass: pick(&v, &["combat", "DOOMED_READ_IN_PASS", "value"], DoomedReadInPass::from_calibration_name)?,
             net_cast_window: pick(&v, &["combat", "NET_CAST_WINDOW", "value"], NetCastWindow::from_calibration_name)?,
+            attract_contact_mean: pick(&v, &["collision", "ATTRACT_CONTACT_MEAN", "value"], AttractContactMean::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -20084,7 +20107,7 @@ impl BattleState {
         let lag = self.cfg.calib.attract_onset == AttractOnset::ClientNextTick;
         #[cfg(clash_plant = "attract_onset_area_first_tick")]
         let lag = false; // PLANT (regression): the new arm pulls from the area's first tick.
-        let attract: Vec<(i32, i32)> = {
+        let (attract, attract_n): (Vec<(i32, i32)>, Vec<i32>) = {
             let sources: Vec<AttractSource> = self
                 .spells
                 .iter()
@@ -20129,6 +20152,8 @@ impl BattleState {
                 })
                 .collect();
             let mut out = vec![(0i32, 0i32); cap];
+            // collision.ATTRACT_CONTACT_MEAN: how many sources pull each unit.
+            let mut n_out = vec![0i32; cap];
             for (i, slot) in out.iter_mut().enumerate() {
                 if sources.is_empty() || !self.ents.alive[i] {
                     continue;
@@ -20173,10 +20198,11 @@ impl BattleState {
                     move16402::normalize_to(&mut v, l);
                     acc.0 += v.0;
                     acc.1 += v.1;
+                    n_out[i] += 1;
                 }
                 *slot = acc;
             }
-            out
+            (out, n_out)
         };
         let mut deltas = std::mem::take(&mut self.scratch.deltas);
         deltas.clear();
@@ -21887,6 +21913,22 @@ impl BattleState {
                 let set_dir = speed > 0 || (aim != actor);
                 // a held unit is pulled only under status.ATTRACT_WHILE_HELD = pulled, as in the held branch
                 let pull = if held_walk && calib.attract_while_held != AttractWhileHeld::Pulled { (0, 0) } else { attract[i] };
+                // collision.ATTRACT_CONTACT_MEAN = client15535_in_mean: with a contact, the pull is one entry of the contact
+                // accumulator per pulling source, the mean taken over both (client 15.535.29: 32 of 32 pulled steps with an
+                // overlapping neighbour); with none it stays whole, after the (empty) mean.
+                // PLANT (regression) attract_after_mean: the new arm adds the pull after the mean.
+                #[cfg(not(clash_plant = "attract_after_mean"))]
+                let in_mean = calib.attract_contact_mean == AttractContactMean::Client15535InMean;
+                #[cfg(clash_plant = "attract_after_mean")]
+                let in_mean = false;
+                let pull = if in_mean && pull != (0, 0) && con.count > 0 {
+                    con.acc.0 += pull.0;
+                    con.acc.1 += pull.1;
+                    con.count += attract_n[i].max(1);
+                    (0, 0)
+                } else {
+                    pull
+                };
                 let m = move16402::move_towards_extra(
                     actor,
                     aim.0,
@@ -32073,6 +32115,9 @@ impl BattleState {
 /// 20, unchanged, combat.NET_CAST_WINDOW: Calib gained net_cast_window (serde default the old arm, target_hold), no new
 ///    state (the window is read off his attack clock), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, collision.ATTRACT_CONTACT_MEAN: Calib gained attract_contact_mean (serde default the old arm,
+///    after_mean), no new state (the pull's sources are the tick's), so a blob saved before it deserializes and hashes
+///    as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
 ///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
@@ -33104,6 +33149,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("doomed_read_in_pass".into(), serde_json::to_value(DoomedReadInPass::StartOfPass).map_err(|e| e.to_string())?);
     // combat.NET_CAST_WINDOW: a format-3 battle's net waited for the hold (the same rule).
     sh.insert("net_cast_window".into(), serde_json::to_value(NetCastWindow::TargetHold).map_err(|e| e.to_string())?);
+    // collision.ATTRACT_CONTACT_MEAN: a format-3 battle's pull was added after the contact mean (the same rule).
+    sh.insert("attract_contact_mean".into(), serde_json::to_value(AttractContactMean::AfterMean).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

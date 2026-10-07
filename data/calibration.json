@@ -776,6 +776,17 @@
         "the death order inside one move pass (a unit killed by an earlier mover's attack component is dropped from later scans in the same tick; measured, mechanism not read)"
       ]
     },
+    "ATTRACT_CONTACT_MEAN": {
+      "value": "after_mean",
+      "candidates": ["after_mean", "client15535_in_mean"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_in_mean on client 15.535.29: 32 of 32 pulled ground-troop steps with an overlapping troop neighbour, where after_mean gives 0; whether the 150 cap applies to a mean with a pull in it is not separated (no such mean reached 150); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-06) on client 15.535.29's raw frames (r54_pull_survey.py: the captures carrying a pull, the raw collision_accumulator on the tick before with collision_count the pulling sources: sp-form-Wizard-hero-s0, sp-form-Valkyrie-evo-s0, ub-sd14-b0..b3; r54_pull_mean_census.py: every pulled ground-troop step with an overlapping troop neighbour, its walk, the pull, and the contact law's push from each neighbour at both mass readings). 32 rows: the in-mean reading (walk + tdiv(pull + the pushes, sources + contacts)) fits 32 of 32 with the engine's own skips (a neighbour under NO_PUSHED_BY_ALLY / ENEMY adds no entry: 10 Wizard-hero rows whose ally neighbour carried HeroWizardNoMove), the engine's after-mean (walk + the capped mean + the pull) 0 of 32. sp-form-Wizard-hero-s0 t249: the Musketeer pulled (-12, -149) with a contact push (6, 172) stepped (-3, 11), the in-mean (-3, 11), the engine (-7, 0); its t248..t250 steps put the engine's Musketeer 131 closer to the Knight, whose avoidance then turned it (offset 190 at t251) and walked it 300 off. sp-form-Valkyrie-evo-s0 t1138: the Knight pulled (-140, -113) among Skeletons stepped (-64, -72), in-mean (-64, -72), after-mean (-128, -144). A pull with no contact is applied whole: the Tornado's 432 on a Hog Rider (ub-sd14-b*), 84 rows above 150.",
+      "meaning": "after_mean: the engine's; move16402 move_towards adds the pull after the contact mean (capped at 150). client15535_in_mean: a pulled ground unit with at least one contact this tick adds the pull to its contact accumulator as one entry per pulling source, so its step is the walk plus tdiv(pull + the pushes, sources + contacts) (the 150 cap applied to that mean as to any); with no contact the pull is applied whole, as under after_mean.",
+      "open": "Whether the 150 cap applies to a mean holding a pull (never reached in the corpus); a pulled unit on a knockback ladder or in a death slide (left at after_mean); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_in_mean (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402 (the walk step's `pull`, the attract pre-pass's source count `attract_n`), selected by Calib::attract_contact_mean; tests/attract_contact_mean.rs."
+    },
     "PUSH_MODEL": {
       "value": "mass_weighted",
       "status": "guess",
