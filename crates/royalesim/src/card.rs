@@ -6250,6 +6250,9 @@ struct RawSpinArea {
     radius_milli: i32,
     damage: i32,
     crown_tower_damage_percent: i32,
+    /// 16.402 on: the crown-tower damage as a level-1 value of its own (`SpellHit::tower_damage`; the area row's
+    /// TowerDamage, where its CrownTowerDamagePercent reads 100). Absent on every 15.535 and 2018 row.
+    tower_damage: Option<i32>,
     hits_ground: bool,
     hits_air: bool,
     only_enemies: bool,
@@ -6261,6 +6264,9 @@ struct RawThrowLanding {
     radius_milli: i32,
     damage: i32,
     crown_tower_damage_percent: i32,
+    /// 16.402 on: the crown-tower damage as a level-1 value of its own (`SpellHit::tower_damage`; the area row's
+    /// TowerDamage, where its CrownTowerDamagePercent reads 100). Absent on every 15.535 and 2018 row.
+    tower_damage: Option<i32>,
 }
 
 /// THE HERO BALLOON'S THROW CLOCK the engine runs (state.rs `throw_pass`), in the table's values it was measured on:
@@ -6303,6 +6309,9 @@ struct RawHeroArea {
     damage: Option<i32>,
     damage_level_scaling: bool,
     crown_tower_damage_percent: Option<i32>,
+    /// 16.402 on: the crown-tower damage as a level-1 value of its own (`SpellHit::tower_damage`; the area row's
+    /// TowerDamage, where its CrownTowerDamagePercent reads 100). Absent on every 15.535 and 2018 row.
+    tower_damage: Option<i32>,
     radius_milli: i32,
     hits_ground: Option<bool>,
     hits_air: Option<bool>,
@@ -6339,7 +6348,7 @@ fn push_hero_area(r: &RawHeroArea, areas: &mut Vec<AttachedArea>, buffs: &mut Bu
     let hit = SpellHit {
         damage: r.damage.unwrap_or(0),
         crown_pct: crown(r.crown_tower_damage_percent),
-        tower_damage: None,
+        tower_damage: r.tower_damage,
         radius: milli(r.radius_milli),
         hits_air: r.hits_air.unwrap_or(false),
         hits_ground: r.hits_ground.unwrap_or(false),
@@ -12541,7 +12550,7 @@ impl CardDb {
                 let hit = SpellHit {
                     damage: land.damage,
                     crown_pct: land.crown_tower_damage_percent,
-                    tower_damage: None,
+                    tower_damage: land.tower_damage,
                     radius: milli(land.radius_milli),
                     hits_air: false,
                     hits_ground: true,
@@ -12595,7 +12604,7 @@ impl CardDb {
                 let hit = SpellHit {
                     damage: r.damage,
                     crown_pct: r.crown_tower_damage_percent,
-                    tower_damage: None,
+                    tower_damage: r.tower_damage,
                     radius: milli(r.radius_milli),
                     hits_air: r.hits_air,
                     hits_ground: r.hits_ground,
