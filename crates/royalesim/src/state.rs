@@ -5928,6 +5928,13 @@ calib_enum!(
         /// Knight 1,882 from the Monk held a 1-cell route from t253, where the engine's planned on t255); 104 of 109
         /// routes equal the engine's search cell for cell.
         Client15535OnRelease = "client15535_on_release",
+        /// client15535_on_ladder less its same-target replan: on a ladder tick a unit plans when it holds no route or its
+        /// target is new this tick (`Scratch::pre_target`); a goal cell that moved for the same target waits for the walk
+        /// gate on the first tick after the ladder. Measured on client 15.535.29: 91 knockback ladders holding a route
+        /// with the same target throughout changed their goal mid-ladder 0 times (26 by E + 2 or later; sp-form-MegaKnight-
+        /// evo-s0 t1050, where the engine replanned mid-ladder, the client on t1052); a new target mid-ladder changed the
+        /// route on its own tick 23 of 24.
+        Client15535OnLadderGoalHeld = "client15535_on_ladder_goal_held",
     }
 );
 calib_enum!(
@@ -11037,6 +11044,9 @@ struct Scratch {
     /// after the pass (knockback.COMBO_PUSHBACK's at-hit undo) gives its offset back under knockback.COMBO_STEP_OFFSET =
     /// client15535_held_offset.
     pre_offset: Vec<i32>,
+    /// knockback.LADDER_PATH_REQUEST = client15535_on_ladder_goal_held: every entity's target as the tick starts, so a
+    /// ladder tick can tell a new target from a held one.
+    pre_target: Vec<Option<EntityId>>,
     /// combat.DOOMED_READ_IN_PASS = client15535_at_turn: every entity's hitpoints as the sequential pass has left them at
     /// the turn of an attacker deciding on the pass's start (`phase_target_attack_sequential`), for its doomed test;
     /// empty outside such a turn.
@@ -15324,6 +15334,9 @@ impl BattleState {
             TickOrder::LegacyMoveBeforeAttack => &LEGACY_TICK_PHASES,
             TickOrder::ClientSequentialStrike => &SEQUENTIAL_STRIKE_TICK_PHASES,
         };
+        // knockback.LADDER_PATH_REQUEST = client15535_on_ladder_goal_held: the targets the tick starts with (`Scratch::pre_target`).
+        self.scratch.pre_target.clear();
+        self.scratch.pre_target.extend(self.ents.target.iter().copied());
         #[cfg(clash_profile)]
         let mut k = 0usize;
         for &phase in phases {
@@ -21102,7 +21115,10 @@ impl BattleState {
                     // goal cell holds rides the ladder as it is (knockback.LADDER_END_ROUTE). The ladder still takes the step.
                     // PLANT (regression) ladder_plans_at_end: the new arm still plans only when the ladder ends.
                     #[cfg(not(clash_plant = "ladder_plans_at_end"))]
-                    let asks = matches!(calib.ladder_path_request, LadderPathRequest::Client15535OnLadder | LadderPathRequest::Client15535OnRelease);
+                    let asks = matches!(
+                        calib.ladder_path_request,
+                        LadderPathRequest::Client15535OnLadder | LadderPathRequest::Client15535OnRelease | LadderPathRequest::Client15535OnLadderGoalHeld
+                    );
                     #[cfg(clash_plant = "ladder_plans_at_end")]
                     let asks = false;
                     // knockback.LADDER_PATH_REQUEST = client15535_on_release: only the request a release owes the unit, or one
@@ -21151,7 +21167,15 @@ impl BattleState {
                                     g.costs.building,
                                     true,
                                 );
-                                let due = on_release || routes[i].is_empty() || goals[i] != goal_cell.map(|(c, r)| Vec2::new(c, r));
+                                // knockback.LADDER_PATH_REQUEST = client15535_on_ladder_goal_held: a moved goal cell replans only
+                                // for a target new this tick (client 15.535.29: 0 of 91 same-target ladders replanned mid-ladder).
+                                // PLANT (regression) ladder_goal_moved_replans: the new arm replans a moved goal for the same target.
+                                #[cfg(not(clash_plant = "ladder_goal_moved_replans"))]
+                                let goal_held = calib.ladder_path_request == LadderPathRequest::Client15535OnLadderGoalHeld
+                                    && self.scratch.pre_target.get(i).copied().flatten() == e.target[i];
+                                #[cfg(clash_plant = "ladder_goal_moved_replans")]
+                                let goal_held = false;
+                                let due = on_release || routes[i].is_empty() || (!goal_held && goals[i] != goal_cell.map(|(c, r)| Vec2::new(c, r)));
                                 if let Some((gc, gr)) = goal_cell.filter(|_| due) {
                                     let (sc, sr) = (actor.0 / path16402::CELL, actor.1 / path16402::CELL);
                                     routes[i].clear();
@@ -32470,6 +32494,8 @@ impl BattleState {
 /// 20, unchanged, pathfinding.LADDER_PLAN_SEGMENT: Calib gained ladder_plan_segment (serde default the old arm,
 ///    walk_tick), no new state (the segment is the saved `seg_dir`), so a blob saved before it deserializes and hashes
 ///    as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
+///    targets are the tick's scratch), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
 ///    saved before it deserializes and hashes as it did.
 /// 20, unchanged, spawner.EVO_COPY_POINT gained client15535_ahead_outward_behind_clamped, no new state, so a blob

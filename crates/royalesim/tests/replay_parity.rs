@@ -1176,7 +1176,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.spectral_parent_blocker, SpectralParentBlocker::Client15535StaticWalkerGroup, "a 15.535.29 capture's Spectral meets its dying soldier");
     assert_eq!(cfg.calib.heal_pulse_landing, HealPulseLanding::Client15535BeforeBufferedHits, "a 15.535.29 capture's heals land before the buffered hits");
     assert_eq!(cfg.calib.recoil_route, RecoilRoute::Client15535Replanned, "a 15.535.29 capture's ram replans after its recoil");
-    assert_eq!(cfg.calib.ladder_path_request, LadderPathRequest::Client15535OnLadder, "a 15.535.29 capture's knocked unit plans on its ladder");
+    assert_eq!(cfg.calib.ladder_path_request, LadderPathRequest::Client15535OnLadderGoalHeld, "a 15.535.29 capture's knocked unit plans on its ladder, a moved goal held");
     assert_eq!(cfg.calib.soul_offset_rounding, SoulOffsetRounding::Client15535TowardZero, "a 15.535.29 capture's copies divide toward zero");
     assert_eq!(cfg.calib.far_shot_select_moment, FarShotSelectMoment::Client15535AtLoadStart, "a 15.535.29 capture's Evo Archer picks at her load start");
     assert_eq!(cfg.calib.evo_chain_hop_first_step, EvoChainHopFirstStep::Client15535CreationTick, "a 15.535.29 capture's Evo hop steps on its creation tick");
