@@ -1068,6 +1068,11 @@ pub struct Calib {
     /// is the old arm, `Unrotated`.
     #[serde(default = "combo_step_offset_default")]
     pub combo_step_offset: ComboStepOffset,
+    /// combat.DOOMED_READ_IN_PASS (`phase_target`'s doomed test, `phase_target_attack_sequential`'s `turn_hp`): the
+    /// hitpoints an attacker deciding on the pass's start reads its target's doom against. Added after SNAPSHOT_FORMAT 20;
+    /// the `default` is the old arm, `StartOfPass`.
+    #[serde(default = "doomed_read_in_pass_default")]
+    pub doomed_read_in_pass: DoomedReadInPass,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2726,6 +2731,10 @@ fn death_blow_victim_reap_default() -> DeathBlowVictimReap {
 
 fn combo_step_offset_default() -> ComboStepOffset {
     ComboStepOffset::Unrotated
+}
+
+fn doomed_read_in_pass_default() -> DoomedReadInPass {
+    DoomedReadInPass::StartOfPass
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6623,6 +6632,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DOOMED_READ_IN_PASS -- see `phase_target` (the doomed test, combat.POST_KILL_RETARGET_WAIT's clause (c)) and
+    /// `phase_target_attack_sequential`: under match.TICK_ORDER = client_sequential_strike, the hitpoints an attacker that
+    /// decides on the pass's starting hitpoints (in its attack, or in reach) reads its target's doom against.
+    DoomedReadInPass {
+        /// The engine's: the pass's starting hitpoints, which its decision reads.
+        StartOfPass = "start_of_pass",
+        /// The hitpoints as the pass has left them at its turn, after the strikes of units created before it (0 or less for
+        /// a target struck dead earlier in the pass): doomed when the homing shots in flight at it are more than 0 and at
+        /// least that. Its decision still reads the pass's start. Measured on client 15.535.29: of 89 projectile attackers
+        /// whose target died not doomed at the tick's start, the reading frees 4, all 4 went at once (sp-champ-Goblinstein-
+        /// nopress-s0 t297: a Knight's 202 and a Skeleton's 81 before the Musketeer's turn left the monster at -49 with a
+        /// tower arrow of 109 in flight; sp-scene-e-s0 t223), and holds 85, 82 of which waited.
+        Client15535AtTurn = "client15535_at_turn",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8617,6 +8642,7 @@ impl Calib {
             slap_flight_sight_hold: pick(&v, &["targeting", "SLAP_FLIGHT_SIGHT_HOLD", "value"], SlapFlightSightHold::from_calibration_name)?,
             death_blow_victim_reap: pick(&v, &["combat", "DEATH_BLOW_VICTIM_REAP", "value"], DeathBlowVictimReap::from_calibration_name)?,
             combo_step_offset: pick(&v, &["knockback", "COMBO_STEP_OFFSET", "value"], ComboStepOffset::from_calibration_name)?,
+            doomed_read_in_pass: pick(&v, &["combat", "DOOMED_READ_IN_PASS", "value"], DoomedReadInPass::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -10797,6 +10823,10 @@ struct Scratch {
     /// after the pass (knockback.COMBO_PUSHBACK's at-hit undo) gives its offset back under knockback.COMBO_STEP_OFFSET =
     /// client15535_held_offset.
     pre_offset: Vec<i32>,
+    /// combat.DOOMED_READ_IN_PASS = client15535_at_turn: every entity's hitpoints as the sequential pass has left them at
+    /// the turn of an attacker deciding on the pass's start (`phase_target_attack_sequential`), for its doomed test;
+    /// empty outside such a turn.
+    turn_hp: Vec<i32>,
     /// The requested step of every entity's walk this tick in NATIVE units
     /// (`L = min(speed, dist, 250)`, the step move16402::move_towards asks for),
     /// for the charge accumulator's client16402 reading; 0 on a tick with no walk.
@@ -16871,7 +16901,10 @@ impl BattleState {
                     pending[p.target.index as usize] += p.damage as i64 + p.bonus as i64;
                 }
             }
-            (0..self.ents.capacity()).map(|j| pending[j] > 0 && pending[j] >= self.ents.hp[j] as i64).collect()
+            // combat.DOOMED_READ_IN_PASS = client15535_at_turn: an attacker deciding on the pass's start reads the doom
+            // against the hitpoints the pass has left at its turn (`Scratch::turn_hp`, set for that turn alone).
+            let turn = &self.scratch.turn_hp;
+            (0..self.ents.capacity()).map(|j| pending[j] > 0 && pending[j] >= turn.get(j).copied().unwrap_or(self.ents.hp[j]) as i64).collect()
         } else {
             Vec::new()
         };
@@ -24111,10 +24144,23 @@ impl BattleState {
                     .filter(|&j| self.ents.hp[j] != start_hp[j] && (j != i || self.ents.hp[i] <= 0) && (launcher || !self.scratch.launched.contains(&j)))
                     .map(|j| (j, self.ents.hp[j]))
                     .collect();
+                // combat.DOOMED_READ_IN_PASS = client15535_at_turn: its doomed test reads the hitpoints as the pass has left
+                // them (`Scratch::turn_hp`), its decision the pass's start (client 15.535.29: 4 of 4 freed; Goblinstein's
+                // Musketeer t297, the monster struck to -49 before its turn with a tower arrow in flight, walked on t298).
+                // PLANT (regression) doomed_reads_pass_start: the new arm's doomed test reads the pass's start.
+                #[cfg(not(clash_plant = "doomed_reads_pass_start"))]
+                let at_turn = self.cfg.calib.doomed_read_in_pass == DoomedReadInPass::Client15535AtTurn;
+                #[cfg(clash_plant = "doomed_reads_pass_start")]
+                let at_turn = false;
+                if at_turn && !changed.is_empty() {
+                    self.scratch.turn_hp.clear();
+                    self.scratch.turn_hp.extend(self.ents.hp.iter().copied());
+                }
                 for &(j, _) in &changed {
                     self.ents.hp[j] = start_hp[j];
                 }
                 self.phase_target_with(Some(&[i]), shots);
+                self.scratch.turn_hp.clear();
                 for &(j, hp) in &changed {
                     self.ents.hp[j] = hp;
                 }
@@ -31973,6 +32019,9 @@ impl BattleState {
 /// 20, unchanged, knockback.COMBO_STEP_OFFSET: Calib gained combo_step_offset (serde default the old arm, unrotated),
 ///    no new state (the start-of-tick offsets are the tick's scratch), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DOOMED_READ_IN_PASS: Calib gained doomed_read_in_pass (serde default the old arm,
+///    start_of_pass), no new state (the turn's hitpoints are the pass's scratch), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
 ///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_release, and BattleState gained ladder_asks (serde
@@ -33000,6 +33049,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_blow_victim_reap".into(), serde_json::to_value(DeathBlowVictimReap::NextTick).map_err(|e| e.to_string())?);
     // knockback.COMBO_STEP_OFFSET: a format-3 battle's combo step took no rotation on the hit's tick (the same rule).
     sh.insert("combo_step_offset".into(), serde_json::to_value(ComboStepOffset::Unrotated).map_err(|e| e.to_string())?);
+    // combat.DOOMED_READ_IN_PASS: a format-3 battle's doomed test read the pass's start (the same rule).
+    sh.insert("doomed_read_in_pass".into(), serde_json::to_value(DoomedReadInPass::StartOfPass).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

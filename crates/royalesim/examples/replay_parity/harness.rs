@@ -1587,6 +1587,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   (15 of 16).
 ///   knockback.COMBO_STEP_OFFSET = client15535_held_offset: a combo hit's first ladder step turns by the victim's
 ///   start-of-tick avoidance offset (20 of 20 held-offset ladders; the Monk's 2 on deploying victims).
+///   combat.DOOMED_READ_IN_PASS = client15535_at_turn: an attacker's doomed test reads its target's hitpoints after the
+///   strikes earlier in the pass (freed 4 of 4; 82 of 85 held waited).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
@@ -1723,6 +1725,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.SLAP_FLIGHT_SIGHT_HOLD", "\"client15535_let_go\""),
     ("combat.DEATH_BLOW_VICTIM_REAP", "\"client15535_same_reap\""),
     ("knockback.COMBO_STEP_OFFSET", "\"client15535_held_offset\""),
+    ("combat.DOOMED_READ_IN_PASS", "\"client15535_at_turn\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
     ("combat.RAMP_STUN_RESTART", "\"client15535_restart\""),
