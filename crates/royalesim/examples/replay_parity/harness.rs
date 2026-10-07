@@ -1634,6 +1634,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   below SnipeMinRange + its radius ahead and shoots it plain, her windup running on (2 of 2; 0 of 610 held steps).
 ///   status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY = client15535_unit_deploy_time: a buff death spawn whose row leaves
 ///   DeathSpawnDeployDelay blank deploys its unit's DeployTime (the Goblin Party Rocket's goblins: 1000 ms).
+///   spawner.DEATH_PROJECTILE_COPIES = client15535_per_death_spawn_member: a death leaves one death projectile for each
+///   member of its own death spawn (the Super Lava Hound's two fire walls).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1797,6 +1799,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.CAPTURE_ROUTE", "\"client15535_dropped_at_join\""),
     ("targeting.SNIPE_LOCK_RELEASE", "\"client15535_min_plus_radius_keep_windup\""),
     ("status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "\"client15535_unit_deploy_time\""),
+    ("spawner.DEATH_PROJECTILE_COPIES", "\"client15535_per_death_spawn_member\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

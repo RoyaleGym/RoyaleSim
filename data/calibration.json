@@ -4618,6 +4618,17 @@
       "promotion_rules": "The test file passes. The flip moves every scene where a Phoenix or a Goblin Party Hut dies, so replay reports can move; register the prediction before the flip. It also gives the Goblin Demolisher its blast, which it lacks under none.",
       "engine": "tools/extract_cards.py (read the character's DeathSpawnProjectile, its damage and radius, and its SpawnCharacter), card.rs (the card row's death projectile, and a spawned unit's that only deals damage: the Goblin Demolisher's kamikaze form) and the death path in state.rs (the area damage and the spawn on the second tick after the last one)"
     },
+    "DEATH_PROJECTILE_COPIES": {
+      "value": "one",
+      "candidates": ["one", "client15535_per_death_spawn_member"],
+      "status": "measured",
+      "confidence": "LOW for client15535_per_death_spawn_member on client 15.535.29: one death; DeathSpawnCount and the carrier's SpawnChain are both 2 there, so the count could come from either. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r57_event_census.py, sp-event-SuperLavaHound-s0, level 11): on the death tick t679 two FireWallProjectile objects (gk 4000057/58, card 26000070, source null) stood on the death point (14677, 20264) beside the two SuperLavaHound2, and were gone on t680, when the Musketeer 336 off took 614 = 2 x 307 (120 at the Common ladder's 256 %) and two FireWallMovingProjectile pairs began their hops. The Phoenix's PhoenixFireball (no death spawn) leaves one in all three Phoenix scenarios.",
+      "meaning": "one: the engine's; a death whose row carries a DeathSpawnProjectile leaves one (spawner.DEATH_SPAWN_PROJECTILE). client15535_per_death_spawn_member: it leaves one for each member of its own death spawn (DeathSpawnCount), one when it has none, all standing on the death point, each with its own hops and hit lists.",
+      "open": "Whether the count is the death spawn's or the carrier's SpawnChain (both 2 here); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_per_death_spawn_member (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_reap (the death projectile release), selected by Calib::death_projectile_copies; tests/super_lava_hound.rs."
+    },
     "SPAWN_AREA_OBJECT_SCOPE": {
       "value": "every_row",
       "candidates": ["morph_targets_only", "every_row"],

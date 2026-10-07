@@ -31412,6 +31412,11 @@
     "area_damage_radius_milli",
     "shield_hitpoints"
    ],
+   "death_projectile_hops": {
+    "count": 2,
+    "axis_y": true,
+    "rarity": "Rare"
+   },
    "action_graph": null,
    "ignore_resurrect": true,
    "death_spawn_pushback": true,

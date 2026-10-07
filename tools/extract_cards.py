@@ -2821,6 +2821,22 @@ def hidden_split(t, a) -> dict | None:
             "first_ms": h["HitSpeedOffset"], "life_ms": h["LifeDuration"], "matches_buff": matches}
 
 
+def death_projectile_hops(t: dict[str, Table], name: str | None) -> dict | None:
+    """THE HOPS OF A DEATH PROJECTILE (15.535): a `projectiles` row that chains (SpawnChain: the Super Lava Hound's
+    FireWallProjectile, 2 hops of its SpawnProjectile FireWallMovingProjectile along its owner's forward axis,
+    SpawnAxisY), with the Rarity the hop row's damage scales on; read by card.rs `death_hop`. None for a row that does
+    not chain."""
+    dpr = t["projectiles"].get(name) if name else None
+    if dpr is None or not dpr["SpawnChain"]:
+        return None
+    hop = t["projectiles"].get(dpr["SpawnProjectile"]) if dpr["SpawnProjectile"] else None
+    return {
+        "count": dpr["SpawnChain"],
+        "axis_y": bool(flag(dpr, "SpawnAxisY")),
+        "rarity": hop["Rarity"] if hop is not None else None,
+    }
+
+
 def unit_record(t: dict[str, Table], name: str) -> tuple[str, dict]:
     for key in ("characters", "buildings"):
         r = t[key].get(name)
@@ -3381,6 +3397,11 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         for k in UNIT_FIELDS_15535:
             del u[k]
     if isinstance(c, Row):
+        # THE DEATH PROJECTILE'S HOPS (15.535; `death_projectile_hops`). Written only on a unit whose death projectile
+        # chains, so every other record is unchanged.
+        hops = death_projectile_hops(t, u["death_spawn_projectile"])
+        if hops is not None:
+            u["death_projectile_hops"] = hops
         # 15.535: the scripted actions the row reaches (None when it names none), with the
         # DoAttackAction roots of its AttackSequenceList (the Three Musketeers' bayonet).
         u["action_graph"] = action_graph(t, c, t[table].arrays.get(name, {}).get("AttackSequenceList"))

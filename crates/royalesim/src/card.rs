@@ -3087,6 +3087,9 @@ pub struct CardDef {
     /// A SPAWNER'S BOTTLE'S BODY (`bottle_body`, the Super Mini PEKKA's pancake): nobody's target (target.rs `can_target`).
     /// False on every other card.
     pub untargetable: bool,
+    /// THE HOPS ITS DEATH PROJECTILE GOES ON (`HopDef`, the Super Lava Hound's fire wall; spell.rs `launch_hop`). None on
+    /// every other card.
+    pub death_hop: Option<HopDef>,
     /// WHERE THE AREA THIS CARD'S SHOT LEAVES IS PUT (`projectile_area`): this far ahead of the hit along the owner's
     /// forward, SUBTILES (the Hero Wizard's air form: its reach areas' OffsetY 1000). 0 on every other card.
     pub projectile_area_ahead: i32,
@@ -4307,6 +4310,70 @@ pub struct TransformDef {
     pub reset_target: bool,
     /// From the trigger to the change, ms: the change's SubActionsDelay in its group, 0 when it runs directly.
     pub delay_ms: i32,
+}
+
+/// A DEATH PROJECTILE THAT HOPS ON (`CardDef::death_hop`; units.<row>.death_projectile_hops and the carrier's
+/// SpawnProjectile row; `death_hop`): where the carrier lands, a shot of the hop row stands and then flies `range` along its
+/// owner's forward axis, lands, and goes on `count` landings in all, each splashing the enemies its chain has not hit yet
+/// (combat.rs `BounceHop`). Its damage is the hop row's own, on its own `rarity`'s ladder.
+#[derive(Clone, Debug)]
+pub struct HopDef {
+    /// SpawnChain: the hop landings after the carrier's.
+    pub count: u8,
+    /// The hop row's MinDistance, SUBTILES: each hop's length.
+    pub range: i32,
+    /// The hop row's Speed, raw.
+    pub speed: i32,
+    /// The hop row's Damage at its rarity's local 1, its splash Radius (SUBTILES), crown percent and filters.
+    pub damage: i32,
+    pub radius: i32,
+    pub crown_pct: i32,
+    pub hits_air: bool,
+    pub hits_ground: bool,
+    /// The hop row's Rarity: its damage's ladder (`CardDb::rarity_scaled`).
+    pub rarity: String,
+}
+
+/// cards.json units.<row>.death_projectile_hops (tools/extract_cards.py `norm_unit`), every field nullable.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawHops {
+    count: Option<i32>,
+    axis_y: Option<bool>,
+    rarity: Option<String>,
+}
+
+/// The hops of death projectile `p` (`HopDef`), or the reason they are refused. Accepted: one SpawnChain of 1 or more
+/// along the owner's forward axis (SpawnAxisY, the one measured), whose hop row moves (Speed), hops (MinDistance), deals
+/// Damage over a Radius, names its Rarity and carries no projectile, target cap, buff, area or unit of its own.
+/// Measured on client 15.535.29 (sp-event-SuperLavaHound-s0): each carrier's two hops stood on its landing point on the
+/// landing tick, flew 600 a tick along side 0's +y, landed 2000 on (death + 6 and + 10 ticks), the first taking 77 = ceil(254
+/// x 30 %) off a princess tower 3241 off (254 = 120 at the Rare ladder's 212 %: the hop row's own rarity), the second
+/// sparing the units its chain had hit.
+fn death_hop(p: &RawSpellProjectile, h: &RawHops) -> Result<HopDef, String> {
+    let what = p.name.clone().unwrap_or_default();
+    let refuse = |why: &str| Err(format!("death projectile {what}'s hops: {why}; not simulated"));
+    let count = h.count.filter(|c| (1..=u8::MAX as i32).contains(c)).ok_or_else(|| format!("death projectile {what}: SpawnChain {:?} out of range", h.count))?;
+    if h.axis_y != Some(true) {
+        return refuse("a hop along the carrier's own line (no SpawnAxisY)");
+    }
+    let Some(m) = p.spawn_projectile.as_deref() else { return refuse("a SpawnChain with no SpawnProjectile") };
+    let mname = m.name.clone().unwrap_or_default();
+    if m.spawn_projectile.is_some() || m.maximum_targets.is_some() || m.spawn_area_effect_object.is_some() || m.spawn_character.is_some() || m.target_buff.as_ref().is_some_and(|b| !b.is_null()) {
+        return refuse(&format!("its hop row {mname} carries a projectile, a target cap, an area, a unit or a buff of its own"));
+    }
+    let rarity = h.rarity.clone().filter(|r| !r.is_empty()).ok_or_else(|| format!("death projectile {what}: its hop row {mname} names no Rarity"))?;
+    Ok(HopDef {
+        count: count as u8,
+        range: milli(m.min_distance_milli.filter(|d| *d > 0).ok_or_else(|| format!("death projectile {what}: its hop row {mname} has no MinDistance"))?),
+        speed: m.speed.filter(|s| *s > 0).ok_or_else(|| format!("death projectile {what}: its hop row {mname} has no Speed"))?,
+        damage: m.damage.ok_or_else(|| format!("death projectile {what}: its hop row {mname} deals no damage"))?,
+        radius: milli(m.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("death projectile {what}: its hop row {mname} has no Radius"))?),
+        crown_pct: crown(m.crown_tower_damage_percent),
+        hits_air: m.aoe_to_air.unwrap_or(false),
+        hits_ground: m.aoe_to_ground.unwrap_or(false),
+        rarity,
+    })
 }
 
 /// cards.json `transform_at_hp`, every field nullable (tools/extract_cards.py `transform_at_hp`).
@@ -7698,6 +7765,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         starts_visible: false,
         no_damage: false,
         untargetable: false,
+        death_hop: None,
         projectile_area_ahead: 0,
         spawn_pathfind: None,
         can_deploy_on_enemy_side: false,
@@ -9625,10 +9693,11 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
 /// spawner.START_TIME_ORIGIN = from_activation needs the egg active on its first tick (its own
 /// DeployTime of 1000 would put the hatch at 96). `speed` is kept and unread: the projectile
 /// stands on the point it is aimed at (state.rs `phase_reap`).
-fn convert_death_projectile(p: &RawSpellProjectile, buffs: &mut BuffTable) -> Result<(SpellDef, UnitNeeds), String> {
+fn convert_death_projectile(p: &RawSpellProjectile, buffs: &mut BuffTable, hops: bool) -> Result<(SpellDef, UnitNeeds), String> {
     let what = p.name.clone().unwrap_or_default();
     refuse_action_mechanic(&p.action_graph, &format!("death projectile {what}"))?;
-    if p.spawn_projectile.is_some() || p.maximum_targets.is_some() || p.spawn_area_effect_object.is_some() {
+    // `hops`: its SpawnProjectile is the hop row `death_hop` read (the Super Lava Hound's fire wall).
+    if (p.spawn_projectile.is_some() && !hops) || p.maximum_targets.is_some() || p.spawn_area_effect_object.is_some() {
         return Err(format!("death projectile {what} with a chained projectile, a target cap or an area effect is not simulated"));
     }
     let target_buff = match &p.target_buff {
@@ -10328,6 +10397,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         starts_visible,
         no_damage: false,
         untargetable: false,
+        death_hop: None,
         projectile_area_ahead: 0,
         // Its morph resolved by `CardDb::from_json_str` (the name pushed on `units` above).
         spawn_pathfind: spawn_pathfind.map(|(d, _)| d),
@@ -10807,14 +10877,25 @@ impl CardDb {
                 ];
                 let members = c.count.max(1) + c.formation.second_summon.map_or(0, |s| s.count);
                 let own_unit = c.unit_name.clone();
+                let mut hop_out: Option<HopDef> = None;
                 let got: Result<(SpellDef, UnitNeeds), String> = if blocks.contains(&true) {
                     Err("the card already carries a spell, an area or a projectile, and one spell object names one".into())
                 } else {
                     match which {
+                        // A death projectile that hops on (`death_hop`; units.<row>.death_projectile_hops, the Super Lava Hound's).
+                        // PLANT (regression) fire_wall_refused: the hops are not read, and the card is refused again.
                         UnitUse::DeathProjectile => match file.projectiles.get(&unit) {
-                            Some(v) => serde_json::from_value::<RawSpellProjectile>(v.clone())
-                                .map_err(|e| e.to_string())
-                                .and_then(|p| convert_death_projectile(&p, &mut buffs)),
+                            Some(v) => serde_json::from_value::<RawSpellProjectile>(v.clone()).map_err(|e| e.to_string()).and_then(|p| {
+                                #[cfg(not(clash_plant = "fire_wall_refused"))]
+                                let hv = file.units.get(&own_unit).and_then(|u| u.get("death_projectile_hops")).filter(|h| !h.is_null());
+                                #[cfg(clash_plant = "fire_wall_refused")]
+                                let hv: Option<&serde_json::Value> = None;
+                                if let Some(h) = hv {
+                                    let raw: RawHops = serde_json::from_value(h.clone()).map_err(|e| format!("death_projectile_hops: {e}"))?;
+                                    hop_out = Some(death_hop(&p, &raw)?);
+                                }
+                                convert_death_projectile(&p, &mut buffs, hop_out.is_some())
+                            }),
                             None => Err(format!("no projectiles record in cards.json (the file lists {})", file.projectiles.len())),
                         },
                         // The area a play IS acts once per play: taken on a one-member card alone.
@@ -10837,7 +10918,10 @@ impl CardDb {
                     Ok((def, needs)) => {
                         let card = &mut db.cards[spell_idx as usize];
                         match which {
-                            UnitUse::DeathProjectile => card.death_projectile = Some(def),
+                            UnitUse::DeathProjectile => {
+                                card.death_projectile = Some(def);
+                                card.death_hop = hop_out.take();
+                            }
                             UnitUse::DeployAreaEffect => card.deploy_area_effect = Some(def),
                             UnitUse::IdleArea => card.idle_area = Some(def),
                             _ => card.spawn_area_effect = Some(def),
@@ -10976,7 +11060,7 @@ impl CardDb {
                             {
                                 let v = ctx.projectiles.get(&u).ok_or_else(|| format!("units.{unit}: its death projectile {u} has no projectiles record"))?;
                                 let p: RawSpellProjectile = serde_json::from_value(v.clone()).map_err(|e| format!("units.{unit}: death projectile {u}: {e}"))?;
-                                let (def, needs) = convert_death_projectile(&p, &mut buffs).map_err(|e| format!("units.{unit}: death projectile {u}: {e}"))?;
+                                let (def, needs) = convert_death_projectile(&p, &mut buffs, false).map_err(|e| format!("units.{unit}: death projectile {u}: {e}"))?;
                                 if !needs.is_empty() {
                                     chain.push((w, u));
                                     continue;
@@ -14386,6 +14470,19 @@ impl CardDb {
             Some(by_level) => by_level.get(step as usize).copied().ok_or_else(short),
             None => r.multipliers.get((step - 1) as usize).copied().ok_or_else(short),
         }
+    }
+
+    /// A level-1 stat of a row of `rarity` at a unified level, on that rarity's own ladder from its local 1 (combat.
+    /// STAT_BASE_LEVEL object_rarity_local_1, read for a row that is no card: the Super Lava Hound's fire wall hop, a Rare
+    /// projectile row, 120 -> 254 at level 11). Truncating integer division, as `scaled`.
+    pub fn rarity_scaled(&self, rarity: &str, level: i32, base: i32) -> Result<i32, String> {
+        let r = self.rarity(rarity).ok_or_else(|| format!("unknown rarity {rarity}"))?;
+        let step = level - (r.relative_level + 1);
+        if step < 0 || level - r.relative_level > r.level_count {
+            return Err(format!("a {rarity} row has no level {level}"));
+        }
+        let m = if step == 0 { PERCENT as i32 } else { *r.multipliers.get((step - 1) as usize).ok_or_else(|| format!("{rarity}: multiplier table too short for level {level}"))? };
+        Ok(Self::scale(base, m))
     }
 
     /// A level-1 stat at a unified level. Truncating integer division -- see

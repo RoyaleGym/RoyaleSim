@@ -70,7 +70,7 @@ layer bots train in. Install steps are below, under "Install".
     <td width="33%" align="center"><img src="media/throughput.png" width="100%" alt="The throughput tool's own output: the median of five runs, with the spread of all five"><br><b>The engine is not the slow part</b><br><sub>A three-minute battle is 3,600 ticks and an hour is 3,600 seconds, so the tool's ticks per second is also battles per hour on one core. Yours will differ with load.</sub></td>
   </tr>
   <tr>
-    <td width="33%" align="center"><img src="media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 142 of the 145 cards in its card table (the 15.535 client's, plus the Minion Giant) and refuses 3, all event-only, with a reason for each, and fifty-eight of them also in their evolved or hero form. Counted by the loader itself (its census at `ca49eba`, `cards.json` FNV-1a 64 1b8121b10c3222cd). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
+    <td width="33%" align="center"><img src="media/cards-and-spells.gif" width="100%" alt="A spell landing on a crowd late in an engine battle"><br><b>Cards, towers, spells, overtime</b><br><sub>The engine plays 143 of the 145 cards in its card table (the 15.535 client's, plus the Minion Giant) and refuses 2, all event-only, with a reason for each, and fifty-eight of them also in their evolved or hero form. Counted by the loader itself (its census at `ca49eba`, `cards.json` FNV-1a 64 1b8121b10c3222cd). That table is committed, so a clone reads the same one. A match runs through overtime to the 3-crown win or the tiebreak.</sub></td>
     <td width="33%" align="center"><img src="media/snapshots.png" width="100%" alt="One 12 kB snapshot loaded into four engines, each played on differently, with the resulting board hashes"><br><b>Save a battle, branch it</b><br><sub>A battle saves to about 12 kB and loads back to the identical state hash. Four branches off one save, each reaching a different board.</sub></td>
     <td width="33%" align="center"><img src="media/ledger.png" width="100%" alt="The engine's constants, graded by how well each one is known"><br><b>Every number says how well it is known</b><br><sub>All 373 carry a status from guess to measured, and 258 are measured (RoyaleSim e70e458). 318 also name the rivals they were chosen against, and 327 say what would change them. A ledger entry is one `section.KEY`, which is how the docs and the code address them.</sub></td>
   </tr>
@@ -494,11 +494,11 @@ Working:
 - The full match loop: elixir, deploys, formations for multi-unit cards, fighting, Fireball,
   Arrows, Zap, The Log and Goblin Barrel, king activation, double elixir, 120 s overtime with
   triple elixir in its last minute, the 3-crown win and the tiebreak. Card levels and the tower ladder are measured on 2026 recordings.
-- Cards. **Of the card table's 145 rows the engine loads 142 and refuses 3**, with a reason for
-  each refusal; the three are event-only cards (six more, GlobalClone, GlobalLightning, the Super Witch, the Super Elite Archer, the Super Mini PEKKA and the Goblin Party Rocket, load). 144 rows are the 15.535 client's own table; the 145th, the Minion Giant, is a
+- Cards. **Of the card table's 145 rows the engine loads 143 and refuses 2**, with a reason for
+  each refusal; the two are event-only cards (seven more, GlobalClone, GlobalLightning, the Super Witch, the Super Elite Archer, the Super Mini PEKKA, the Super Lava Hound and the Goblin Party Rocket, load). 144 rows are the 15.535 client's own table; the 145th, the Minion Giant, is a
   card the live client has and that table lacks, taken from a later client's table and added
-  last. The engine's own census reports **186 loadable, 3 rejected and 83 summon-only**, and
-  those do not sum to 145 for a reason worth stating: the 186 is the 142 plus the King and
+  last. The engine's own census reports **187 loadable, 2 rejected and 84 summon-only**, and
+  those do not sum to 145 for a reason worth stating: the 187 is the 143 plus the King and
   Princess towers plus 42 evolved forms (the `_EV1` rows), which load as cards of their own, and
   the 81 summon-only are unit definitions that are not rows of the card table at all - a
   Barbarian is what *Barbarians* puts on the board, a BalloonBomb is what a *Balloon* drops, the

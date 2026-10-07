@@ -1245,6 +1245,57 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
     });
 }
 
+/// THE FIRST HOP OF A DEATH PROJECTILE THAT HOPS ON (card.rs `HopDef`, the Super Lava Hound's fire wall), launched where
+/// its carrier landed (`at`) on the carrier's landing tick: a shot of the hop row standing there, aimed `range` along its
+/// owner's forward axis, fixed, at the hop row's speed, splashing the hop row's damage (on its own rarity's ladder at the
+/// dead unit's level) over its radius. Its BounceHop (combat.rs, the Evo Bomber's) carries the landings left after it,
+/// the line (from `at`) and `hit`, the units the carrier hit, which every landing of this chain spares. It first steps on
+/// the next tick, as every shot a spell launches does (state.rs `phase_projectile`). Measured on client 15.535.29
+/// (sp-event-SuperLavaHound-s0): the hops stood on the death point on the carrier's landing tick, stepped 600 from the
+/// next, landed 2000 on 4 ticks later, and the second landing spared the tower the first had hit.
+#[allow(clippy::too_many_arguments)]
+fn launch_hop(ctx: &SpellCtx, team: Team, card: u16, level: i32, hd: &crate::card::HopDef, at: Vec2, hit: Vec<crate::EntityId>, launched: &mut Vec<Projectile>) {
+    #[cfg(not(clash_plant = "hop_on_card_ladder"))]
+    let damage = ctx.cards.rarity_scaled(&hd.rarity, level, hd.damage);
+    #[cfg(clash_plant = "hop_on_card_ladder")]
+    let damage = ctx.cards.scaled(card, level, hd.damage); // PLANT: the hop on the dead unit's ladder.
+    let Ok(damage) = damage else { return };
+    let aim = Vec2::new(at.x, at.y + forward_dy(team) * hd.range);
+    launched.push(Projectile {
+        team,
+        pos: at,
+        // No unit: the hop flies to its point (`fixed`) and splashes there.
+        target: crate::EntityId { index: u32::MAX, generation: 0 },
+        aim,
+        speed: (hd.speed * ctx.calib.projectile_speed_to_subtiles_per_tick).max(1),
+        damage,
+        crown_pct: hd.crown_pct,
+        splash: hd.radius,
+        hits_air: hd.hits_air,
+        hits_ground: hd.hits_ground,
+        frac: Vec2::default(),
+        fresh: false,
+        buff: None,
+        pulse: 0,
+        firer_card: Some(card),
+        firer: None,
+        deflected: false,
+        straight: None,
+        hook: None,
+        carrier: None,
+        fixed: true,
+        release: None,
+        buff_first: false,
+        src_level: level,
+        enchant: None,
+        bonus: 0,
+        bonus_crown: 0,
+        trail: None,
+        chain: None,
+        bounce: Some(crate::combat::BounceHop { left: hd.count.saturating_sub(1), range: hd.range, from: at, hit }),
+    });
+}
+
 /// THE CANDIDATES OF AN ACTION'S SELECTOR at `pos` (`StrikeDef::selector`: the Vines' catches, the Void's strikes), by
 /// index in ascending `team_seq` (one team, so the order is the creation order and the same for both seats):
 /// - every unit `eligible` admits for the strike's hit (alive, an enemy of `team`, air or ground, not under ground
@@ -1900,7 +1951,17 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                         Some(k) => SpellHit { knockback: Some(k), ..h },
                         None => h,
                     };
+                    let first = dmg.hits.len();
                     impact(ctx, s.team, s.card, s.level, *aim, &h, s.damage, s.pulse, dmg, fx, nb, None);
+                    // A DEATH PROJECTILE THAT HOPS ON (card.rs `HopDef`, the Super Lava Hound's fire wall): its first hop stands
+                    // on the landing point, sparing what this landing hit (`launch_hop`).
+                    #[cfg(not(clash_plant = "fire_wall_never_hops"))]
+                    if let Some(hd) = def.death_hop.as_ref().filter(|_| s.depth == 0) {
+                        let mut hit: Vec<crate::EntityId> = dmg.hits[first..].iter().map(|x| x.target).collect();
+                        hit.sort();
+                        hit.dedup();
+                        launch_hop(ctx, s.team, s.card, s.level, hd, *aim, hit, &mut out.launched);
+                    }
                 }
                 // The container's units, after its hit, unless they came out on the fuse's last tick already.
                 if container && *delay_ms != FUSE_RELEASED {

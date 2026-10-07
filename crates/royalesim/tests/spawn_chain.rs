@@ -204,12 +204,11 @@ fn a_card_refused_by_a_table_row_leaves_no_unit_behind() {
     let why = rejected(&db, "Hound").expect("Hound loads without its death projectile's row");
     assert!(why.starts_with("death projectile NoSuchShot: "), "{why}");
     assert!(db.cards.iter().all(|c| c.name != "Pup" && c.name != "units.Pup"), "the refused Hound left its Pup behind");
-    // The 15.535.29 SuperLavaHound: its death projectile chains a second projectile, which is not simulated, and its
-    // death spawn SuperLavaHound2 (whose own death spawn is the Lava Pups) is never loaded, so no later record moves.
+    // The 15.535.29 SuperLavaHound loads (item 300: its death projectile's hops are read, card.rs `death_hop`), and with it
+    // its death spawn SuperLavaHound2, whose own death spawn is the Lava Pups.
     let db = cards();
-    let why = rejected(&db, "SuperLavaHound").expect("SuperLavaHound is refused");
-    assert!(why.starts_with("death projectile FireWallProjectile: "), "{why}");
-    assert!(db.cards.iter().all(|c| c.name != "SuperLavaHound2" && c.name != "units.SuperLavaHound2"), "the refused SuperLavaHound left SuperLavaHound2 behind");
+    assert!(db.index("SuperLavaHound").is_some(), "SuperLavaHound is refused: {:?}", rejected(&db, "SuperLavaHound"));
+    assert!(db.cards.iter().any(|c| c.name == "SuperLavaHound2" || c.name == "units.SuperLavaHound2"), "SuperLavaHound2 did not load");
 }
 
 // ---------------------------------------------------------------------------

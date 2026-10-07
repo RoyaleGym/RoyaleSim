@@ -1167,6 +1167,10 @@ pub struct Calib {
     /// leaves DeathSpawnDeployDelay blank. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Zero`.
     #[serde(default = "buff_death_spawn_undelayed_default")]
     pub buff_death_spawn_undelayed: BuffDeathSpawnUndelayed,
+    /// spawner.DEATH_PROJECTILE_COPIES (`phase_reap`): how many death projectiles a death leaves. Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `One`.
+    #[serde(default = "death_projectile_copies_default")]
+    pub death_projectile_copies: DeathProjectileCopies,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2921,6 +2925,10 @@ fn snipe_lock_release_default() -> SnipeLockRelease {
 
 fn buff_death_spawn_undelayed_default() -> BuffDeathSpawnUndelayed {
     BuffDeathSpawnUndelayed::Zero
+}
+
+fn death_projectile_copies_default() -> DeathProjectileCopies {
+    DeathProjectileCopies::One
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7148,6 +7156,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.DEATH_PROJECTILE_COPIES -- see `phase_reap`: the death projectiles one death leaves (spawner.DEATH_SPAWN_PROJECTILE).
+    DeathProjectileCopies {
+        /// The engine's: one.
+        One = "one",
+        /// One for each member of the unit's own death spawn (DeathSpawnCount), one when it has none. Measured on client
+        /// 15.535.29 (sp-event-SuperLavaHound-s0): two FireWallProjectile carriers stood on the death point beside the two
+        /// SuperLavaHound2, and the Musketeer took two carrier hits of 307; the Phoenix (no death spawn) leaves one.
+        Client15535PerDeathSpawnMember = "client15535_per_death_spawn_member",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9172,6 +9191,7 @@ impl Calib {
             capture_route: pick(&v, &["spells", "CAPTURE_ROUTE", "value"], CaptureRoute::from_calibration_name)?,
             snipe_lock_release: pick(&v, &["targeting", "SNIPE_LOCK_RELEASE", "value"], SnipeLockRelease::from_calibration_name)?,
             buff_death_spawn_undelayed: pick(&v, &["status", "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "value"], BuffDeathSpawnUndelayed::from_calibration_name)?,
+            death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -27740,10 +27760,21 @@ impl BattleState {
                     if self.cfg.cards.get(idx).death_projectile.is_none() {
                         continue;
                     }
-                    released.push(
-                        spell::death_projectile(&self.cfg.cards, &self.cfg.calib, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
-                            .expect("death projectile level validated at deploy"),
-                    );
+                    // spawner.DEATH_PROJECTILE_COPIES = client15535_per_death_spawn_member: one for each member of the unit's own
+                    // death spawn (the Super Lava Hound's two fire walls beside its two SuperLavaHound2).
+                    #[cfg(not(clash_plant = "death_projectile_single_copy"))]
+                    let copies = match self.cfg.calib.death_projectile_copies {
+                        DeathProjectileCopies::One => 1,
+                        DeathProjectileCopies::Client15535PerDeathSpawnMember => self.cfg.cards.get(idx).death_spawn.map_or(1, |ds| ds.count.max(1)),
+                    };
+                    #[cfg(clash_plant = "death_projectile_single_copy")]
+                    let copies = 1; // PLANT: one carrier whatever the key says.
+                    for _ in 0..copies {
+                        released.push(
+                            spell::death_projectile(&self.cfg.cards, &self.cfg.calib, self.ents.team[i], idx, self.ents.level[i], self.ents.pos[i])
+                                .expect("death projectile level validated at deploy"),
+                        );
+                    }
                 }
             }
             self.spells.append(&mut released);
@@ -33371,6 +33402,9 @@ impl BattleState {
 /// 20, unchanged, status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY: Calib gained buff_death_spawn_undelayed (serde default the
 ///    old arm, zero), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, spawner.DEATH_PROJECTILE_COPIES: Calib gained death_projectile_copies (serde default the old arm,
+///    one), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
 /// 20, unchanged, the Super Witch (card.rs `SpawnerDef::unit2`): Entities gained spawn_waves (`default`, sized on load at
 ///    0), hashed only on a spawner with a second unit, so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, the Super Elite Archer's charm (status.rs `BuffDef::switch_team`): Entities gained home_team (`default`,
@@ -34463,6 +34497,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("snipe_lock_release".into(), serde_json::to_value(SnipeLockRelease::AheadBelowMin).map_err(|e| e.to_string())?);
     // status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY: a format-3 battle had no buff death spawn with a blank DeathSpawnDeployDelay (the same rule).
     sh.insert("buff_death_spawn_undelayed".into(), serde_json::to_value(BuffDeathSpawnUndelayed::Zero).map_err(|e| e.to_string())?);
+    // spawner.DEATH_PROJECTILE_COPIES: a format-3 battle left one death projectile a death (the same rule).
+    sh.insert("death_projectile_copies".into(), serde_json::to_value(DeathProjectileCopies::One).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

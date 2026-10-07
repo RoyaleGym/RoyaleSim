@@ -182,6 +182,7 @@ const LOADABLE_15535: &[&str] = &[
     "ElixirGolem",
     "BattleHealer",
     "SkeletonKing",
+    "SuperLavaHound",
     "SuperEliteArcher",
     "ArcherQueen",
     "GoldenKnight",
@@ -260,7 +261,6 @@ const LOADABLE_15535: &[&str] = &[
 const REJECTED_15535: &[(&str, &str)] = &[
     ("GoblinRocketSilo", "the unit runs an action graph this loader does not read (ActionChangeGameObjectData, ActionGroup, ActionPlayEffect)"),
     ("SuperHogRider", "units.SantaPresent"),
-    ("SuperLavaHound", "death projectile FireWallProjectile"),
 ];
 
 /// cards-2018.json at `version` cards-2018.1 (tools/extract_cards.py --vintage 2018), 457423 bytes, FNV-1a
