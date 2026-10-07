@@ -10426,7 +10426,8 @@ pub struct ChainRun {
 
 /// Where a dash chain stands (`ChainRun`). Measured on client 15.535.29 (parity, round 10 item 53; Oracle's GK battery
 /// and sp-champ-GoldenKnight-s0):
-///   - Seek: pressed with no target in reach; he walks, and takes the first that comes (WaitForTarget; unmeasured);
+///   - Seek: pressed with no target in reach; he walks, and takes the first that comes (WaitForTarget); under
+///     combat.DASH_CHAIN_PENDING = client15535_run_to_current_target, `target` is the one he held at the last pass;
 ///   - Aim: the press row: he takes his walk step, and dashes from the next tick;
 ///   - Dash: JumpSpeed a tick in sub-steps, each followed by the range test (`phase_path16402_for`);
 ///   - Landed: the blow's tick and the one after, standing on the target he hit;
@@ -20902,10 +20903,19 @@ impl BattleState {
             };
             match c.phase {
                 // combat.DASH_CHAIN_PENDING = client15535_run_to_current_target: the waiting press dashes, from this
-                // tick, once his current target's centre stands within DashRange + its radius on the positions the
-                // last move pass left (its run is the move pass's, at the pending SpeedMultiplier).
+                // tick, once the target he held at the end of the last tick (`c.target`, noted here each tick he
+                // waits) stands, centre to centre, within DashRange + its radius on the positions the last move pass
+                // left (its run is the move pass's, at the pending SpeedMultiplier); a target this tick's Target phase
+                // first gave him is read from the next. Measured on client 15.535.29 (sp-champ-GK-empty-knight40-s0,
+                // item 311): the Knight placed on t201 his target on t202, inside 5,500 + its 500 on t201's positions,
+                // he ran on t202 (+118) and dashed from t203.
                 ChainPhase::Seek if self.cfg.calib.dash_chain_pending == DashChainPending::ClientRunToCurrentTarget => {
-                    let t = self.ents.target[i].filter(|t| self.ents.is_alive(*t) && self.ents.team[t.index as usize] != self.ents.team[i]);
+                    let now = self.ents.target[i].filter(|t| self.ents.is_alive(*t) && self.ents.team[t.index as usize] != self.ents.team[i]);
+                    #[cfg(not(clash_plant = "pending_trigger_reads_fresh_target"))]
+                    let t = c.target.filter(|t| self.ents.is_alive(*t) && self.ents.team[t.index as usize] != self.ents.team[i]);
+                    #[cfg(clash_plant = "pending_trigger_reads_fresh_target")]
+                    let t = now; // PLANT (regression): the trigger reads the target this tick's Target phase gave him.
+                    c.target = now;
                     if let Some(t) = t {
                         let ti = t.index as usize;
                         #[cfg(not(clash_plant = "pending_trigger_without_radius"))]
@@ -20916,6 +20926,7 @@ impl BattleState {
                             c.phase = ChainPhase::Dash;
                             c.mark = tick;
                             c.target = Some(t);
+                            self.ents.target[i] = Some(t);
                         }
                     }
                 }

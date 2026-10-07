@@ -26,7 +26,9 @@
 //!      the charge's circle, he runs 2 x his walk toward his target (a princess tower) and dashes from the tick after
 //!      the one whose run brings its centre within DashRange + its radius; wait_for_ground_character never dashes;
 //!   7. the same arm re-decides his target while he runs: a Knight put down near him mid-run becomes his target, and
-//!      his dash goes at it.
+//!      his dash goes at it;
+//!   8. and the trigger reads the target he held at the end of the last tick: on the tick the Knight, in reach, is
+//!      first his target he runs (115-125), and he dashes from the next (client 15.535.29, item 311).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test golden_knight`):
 //!   chain_whole_step    one range test a tick, after the whole JumpSpeed: (1) goes red.
@@ -38,6 +40,7 @@
 //!                       `the_pending_run_starts_the_tick_after_the_press_s_first` goes red.
 //!   pending_trigger_without_radius the trigger reads DashRange alone: (6) goes red.
 //!   pending_target_frozen the waiting press keeps its target from the press: (7) goes red.
+//!   pending_trigger_reads_fresh_target the trigger reads the target this tick gave him: (8) goes red.
 //!   chain_end_keeps_cycle the measured cycle keeps the one the chain left: under_the_measured_cycle_... goes red.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -328,6 +331,46 @@ fn a_waiting_press_re_decides_its_target_each_tick_and_dashes_at_a_knight_put_do
     assert!(knight.is_some(), "the scene drifted: no Knight on the board");
     assert_ne!(Some(tower), knight, "the scene drifted");
     assert!(dashed_at_knight, "his target was not re-decided to the Knight, or he never dashed at it: (on the Knight, on the tower, step) {seen:?}");
+}
+
+/// (8) Plant: pending_trigger_reads_fresh_target. Measured on client 15.535.29 (sp-champ-GK-empty-knight40-s0): a
+/// Knight placed on t201, his target on t202 and inside 5,500 + its 500 on t201's positions; t202 a run (+118), and
+/// the dash from t203.
+#[test]
+fn a_waiting_press_dashes_the_tick_after_the_knight_is_first_his_target() {
+    let mut cfg = cfg_with(Some(11_000));
+    cfg.calib.dash_chain_pending = DashChainPending::ClientRunToCurrentTarget;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let gk = s.scenario_spawn_now(Team::Blue, "GoldenKnight", n((3500, 17500)), None).expect("the Golden Knight");
+    s.tick();
+    s.press_ability_button(Team::Blue, 0).expect("the press is taken with nothing in reach");
+    for _ in 0..3 {
+        s.tick();
+    }
+    let tower = s.entity(gk).unwrap().target.expect("he runs at a tower");
+    s.spawn_unit(Team::Red, "Knight", n((5500, 21500)), None).expect("a Red Knight");
+    let mut steps = Vec::new();
+    let mut first = None;
+    for k in 0..12 {
+        let before = s.entity(gk).unwrap().pos;
+        s.tick();
+        let knight = s.entities().find(|e| e.team == Team::Red && e.card == "Knight").map(|e| (e.id, e.pos));
+        let g = s.entity(gk).unwrap();
+        steps.push(dist(before, g.pos));
+        if let (None, Some((kid, kpos))) = (first, knight) {
+            if g.target == Some(kid) {
+                assert!(dist(before, kpos) < 6000, "the scene drifted: the Knight out of reach on the tick before ({steps:?})");
+                first = Some(k);
+            }
+        }
+    }
+    let f = first.unwrap_or_else(|| panic!("the Knight never became his target: {steps:?}"));
+    assert_ne!(Some(tower), s.entity(gk).unwrap().target, "the scene drifted");
+    assert!(f + 1 < steps.len(), "the scene drifted: {steps:?}");
+    assert!((115..=125).contains(&steps[f]), "the tick the Knight is first his target he runs: {f} {steps:?}");
+    assert!(steps[f + 1] >= 390, "and he dashes from the next: {f} {steps:?}");
 }
 
 #[test]
