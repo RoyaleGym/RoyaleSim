@@ -3,6 +3,21 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.20 (2026-10-07)
+
+- `status_flags` bit 3 (evolved) and bit 4 (hero) now follow the unit, not the row it is on right now. A landed Evo
+  Royal Hog, a lifted Hero Wizard and a Hero Bowler in its siege keep their bit, and an evolution's own summons (the
+  Evo Royal Ghost's pair) now carry bit 3. A champion no longer carries bit 4, and neither does anything a hero puts
+  down beside itself (a turret, a mount, a flag, a tomb's monster).
+- `status_flags` gains bit 9 (512): a flier that Vines holds to the ground. `flying` keeps its meaning; a unit is in the
+  air for targeting when it is flying and bit 9 is not set.
+- New: `royalesim.STATUS_BITS`, the names of the status bits in bit order (name k is bit k). A bit missing from the list
+  is one this engine does not report.
+- Battle logic: the Evo Goblin Cage's Brawler plays with the plain Brawler's hitpoints (1121 at level 11, not 1080).
+- This release also adds settings used to measure upcoming fixes against the game (a combo hit's step, a target lost
+  past its reach, a net cast between shots, a pull among touching units, the Hero Tombstone's monster and its
+  Skeletons, a dash's range check); every one defaults to the engine's current behaviour.
+
 ## 0.1.19 (2026-10-06)
 
 - No change to installing or calling the engine.
