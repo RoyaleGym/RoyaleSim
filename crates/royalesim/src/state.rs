@@ -11149,6 +11149,10 @@ struct Scratch {
     /// Hash of each team's OWN buildings as the path grid sees them; a change is
     /// replan trigger 2 (calibration pathfinding.REPLAN_TRIGGERS).
     occluder_epoch: [u32; 2],
+    /// pathfinding.DEATH_BOMB_OBSTACLE = client15535_fused_building: a hash of the fused death bombs `build_obstacles`
+    /// added (0 when there are none), mixed into the path grid's refresh key so the grid is re-stamped on the tick a bomb
+    /// starts or ends its fuse. Not part of the replan epoch. Rebuilt every tick.
+    bomb_key: u32,
     blockers: Vec<UnitBlocker>,
     collide: CollideScratch,
     /// Every entity's position at the start of the Move phase's walk (AFTER the
@@ -11432,8 +11436,8 @@ impl Grid16402 {
         g
     }
 
-    /// Re-stamp when the building set changed. `obstacles` is Blue's list, which is
-    /// the absolute one (Blue's frame is the identity) and holds BOTH sides.
+    /// Re-stamp when the building set (or the set of fused death bombs, `Scratch::bomb_key`) changed. `obstacles` is
+    /// Blue's list, which is the absolute one (Blue's frame is the identity) and holds BOTH sides.
     fn refresh(&mut self, epochs: [u32; 2], obstacles: &[Obstacle]) {
         if self.epochs == epochs {
             return;
@@ -17829,9 +17833,16 @@ impl BattleState {
         // bomb is no friendly building entering the world (replan trigger 2 is measured on entities), so it arms no replan
         // by itself. Its id names no entity (u32::MAX less its place in the spell list), so no mover ignores it as a target.
         // PLANT (regression) death_bomb_never_blocks: the new arm still plans through a fused bomb.
+        // The bombs' hash (`Scratch::bomb_key`) re-stamps the path grid when a bomb starts or ends its fuse: the grid's key
+        // was the epochs alone, so a bomb was stamped only by a building's change during its fuse and stayed until the next
+        // one (client 15.535.29, sp-il-323a t3811: a Giant Skeleton's bomb stamped by a Cannon's expiry still steered the
+        // Skeleton King's route 508 ticks after it burst; the client's routes cross a bomb's cells after the blast).
+        self.scratch.bomb_key = 0;
         #[cfg(not(clash_plant = "death_bomb_never_blocks"))]
         if self.cfg.calib.death_bomb_obstacle == DeathBombObstacle::Client15535FusedBuilding {
             let [blue, red] = &mut self.scratch.obstacles;
+            let mut h = Fnv::new();
+            let mut any = false;
             for (k, sp) in self.spells.iter().enumerate() {
                 let spell::SpellMotion::Flight { pos, delay_ms, .. } = sp.motion else { continue };
                 let c = self.cfg.cards.get(sp.card);
@@ -17841,9 +17852,20 @@ impl BattleState {
                 let shape = arena.building_shape(model, pos, c.collision_radius, None);
                 let id = EntityId { index: u32::MAX - k as u32, generation: 0 };
                 let key: path::YieldKey = (u32::MAX, sp.card, sp.level, 0, k as u32);
+                h.vec(shape.center());
+                h.i32(c.collision_radius);
+                any = true;
                 blue.push(Obstacle { id, shape, radius: c.collision_radius, key, ally: sp.team == Team::Blue });
                 red.push(Obstacle { id, shape: shape.rotated(arena.width, arena.height), radius: c.collision_radius, key, ally: sp.team == Team::Red });
             }
+            // PLANT (regression) bomb_never_restamps: the grid's key is the epochs alone again, so a troop's bomb goes
+            // unseen and a bomb stamped by a building's change outlives its fuse.
+            #[cfg(not(clash_plant = "bomb_never_restamps"))]
+            if any {
+                self.scratch.bomb_key = (h.finish() as u32) | 1;
+            }
+            #[cfg(clash_plant = "bomb_never_restamps")]
+            let _ = (any, h);
         }
     }
 
@@ -20612,7 +20634,10 @@ impl BattleState {
             self.doomed_mask();
         }
         let mut g = self.scratch.grid16402.take().unwrap_or_else(|| Grid16402::new(&self.cfg.arena, &self.cfg.calib));
-        g.refresh(self.scratch.occluder_epoch, &self.scratch.obstacles[0]);
+        // The grid's refresh key: the two friendly-occluder epochs, the red one mixed with the fused bombs' hash (0 when
+        // there are none, so under pathfinding.DEATH_BOMB_OBSTACLE = none the key is the epochs themselves).
+        let grid_key = [self.scratch.occluder_epoch[0], self.scratch.occluder_epoch[1] ^ self.scratch.bomb_key];
+        g.refresh(grid_key, &self.scratch.obstacles[0]);
         let cap = self.ents.capacity();
         // A UNIT IN A SLAP'S FLIGHT (`slap_pass`, the Hero Giant's) is out of this pass, as a knockback's slide is: it takes
         // no contact update of its own and no neighbour meets it. Measured on client 15.535.29 (sp-slap-Knight-*): the

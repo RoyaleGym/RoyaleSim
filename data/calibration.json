@@ -1103,7 +1103,7 @@
       "meaning": "none: the engine's; a death bomb (card.rs convert_death_bomb) is a timed impact and route planning does not see it. client15535_fused_building: while its fuse burns it is a building obstacle of its row's CollisionRadius where it lies (state.rs build_obstacles), for every plan made in that time; it arms no replan by itself.",
       "open": "Whether a fused bomb also stops movement (a static body to the move pass), and whether it arms a replan when it lands; the Skeleton Barrel's container; the Hero Balloon's own bomb (none met); 16.402.",
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_fused_building (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
-      "engine": "state.rs build_obstacles, selected by Calib::death_bomb_obstacle; tests/death_bomb_obstacle.rs."
+      "engine": "state.rs build_obstacles, selected by Calib::death_bomb_obstacle; the path grid is re-stamped on the tick a bomb starts or ends its fuse (Scratch::bomb_key mixed into Grid16402's refresh key, not the replan epoch); tests/death_bomb_obstacle.rs."
     },
     "HELD_PRESS_ROUTE": {
       "value": "kept",
