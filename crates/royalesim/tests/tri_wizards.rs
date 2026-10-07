@@ -44,6 +44,12 @@
 //! (docs/contributing.md):
 //!   * `deploy_spawn_area_acquire_delayed` -- the three units carry the Graveyard's acquire delay (state.rs
 //!     `phase_projectile`): (6) goes red, each unit first targeted 7 frames after its first.
+//!   * `deploy_spawn_character_unpaired` -- the loader reads no 16.402 pair: (7) goes red, the 16.402 shape refused.
+//!
+//!   7. THE 16.402 TABLE'S SHAPE (option B item 28): its TriWizardSpawn's two areas put no wizard down (no action
+//!      graph), and two CharacterType entries one tick after them (350, RelativeX +5 and -5) put the Electro and Ice
+//!      Wizards down themselves. Edited onto the 15.535 rows, it reads as the same three entries and a play puts down
+//!      the same units on the same ticks; a wizard entry with no area one tick before it is refused.
 mod common;
 
 use common::*;
@@ -357,4 +363,44 @@ fn in_the_clients_scene_the_knight_takes_the_triwizard_on_c_plus_6_and_the_ice_w
         got, want,
         "the Knight's target from C + 4: the TriWizard on C + 6, as the client's Knight; the Ice Wizard on C + 7, a frame before the client's C + 8"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 7. the 16.402 shape
+
+/// The shipped table with TriWizardSpawn in the 16.402 table's shape: its two areas' spawn graphs gone, and the two
+/// CharacterType entries at `wizard_ms` (350 in the 16.402 table) after them.
+fn shape_16402(wizard_ms: i32) -> CardDb {
+    let text = std::fs::read_to_string(format!("{}/../../data/derived/cards.json", env!("CARGO_MANIFEST_DIR"))).expect("cards.json");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("cards.json is JSON");
+    for area in ["ElectroWizardZap", "IceWizardCold"] {
+        let a = v["area_effect_objects"][area].as_object_mut().unwrap_or_else(|| panic!("{area} row"));
+        assert!(a.remove("action_graph").is_some(), "{area} carries its spawn graph on 15.535");
+    }
+    let entries = v["area_effect_objects"]["TriWizardSpawn"]["schedule"]["entries"].as_array_mut().expect("the schedule");
+    for (action, wizard, x) in [("ElectroWizardCharSpawn", "ElectroWizard", 5), ("IceWizardCharSpawn", "IceWizard", -5)] {
+        entries.push(serde_json::json!({"delay_ms": wizard_ms, "action": action, "class": "ActionSpawnToLocation", "spawn_type": "CharacterType",
+            "spawn": wizard, "use_deploy": false, "deploy_time_ms": null, "spawn_time_ms": null, "relative": {"x": x, "y": 0}}));
+    }
+    CardDb::from_json_str(&serde_json::to_string(&v).unwrap(), CardSource::DerivedJson).expect("the edited table loads")
+}
+
+/// Plant: deploy_spawn_character_unpaired.
+#[test]
+fn the_16402_shape_reads_and_plays_as_the_15535_one() {
+    let (old, new) = (cards(), shape_16402(350));
+    let tri = |db: &CardDb| db.index("TriWizards").filter(|&i| db.get(i).deploy_spawn_area.is_some());
+    let t = tri(&new).unwrap_or_else(|| panic!("the 16.402 shape is refused: {:?}", new.rejected.iter().find(|(n, _)| n == "TriWizards")));
+    let shape = |db: &CardDb, i: u16| format!("{:?}", db.get(i).deploy_spawn_area.as_ref().map(|d| &d.shape));
+    assert_eq!(shape(&new, t), shape(&old, tri(&old).expect("the 15.535 rows load")), "the same three entries");
+    assert_eq!(new.unit_refs(t), old.unit_refs(t), "the same units");
+    assert_eq!(play(BattleConfig::with_cards(new), Team::Blue, TAP), play(BattleConfig::with_cards(old), Team::Blue, TAP), "the same play");
+}
+
+#[test]
+fn a_16402_wizard_entry_with_no_area_one_tick_before_it_is_refused() {
+    let db = shape_16402(400);
+    assert!(db.index("TriWizards").map_or(true, |i| db.get(i).deploy_spawn_area.is_none()), "a wizard 100 ms after its area is read");
+    let why = db.rejected.iter().find(|(n, _)| n == "TriWizards").map(|(_, w)| w.as_str()).unwrap_or_default();
+    assert!(why.contains("TriWizardSpawn"), "refused naming the area: {why:?}");
 }

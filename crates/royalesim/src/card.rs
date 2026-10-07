@@ -7989,6 +7989,11 @@ fn convert_deploy_area_effect(aeo: &RawAreaEffect, unit_name: &str, buffs: &mut 
     area_effect_shape(aeo, buffs, ctx)
 }
 
+/// THE LAG of a 16.402 deploy spawn area's CharacterType entry behind the area entry it pairs with (TriWizardSpawn's
+/// 350 behind 300; `convert_deploy_spawn_area`): one tick, the delay the 15.535 area's own ActionSpawn put its wizard
+/// down after (measured C + 7 = 350).
+const DEPLOY_SPAWN_CHARACTER_LAG_MS: i32 = 50;
+
 /// What `convert_deploy_spawn_area` reads: the area's shape, the card's needs, and the area each DeployArea entry makes
 /// as (entry, area name).
 type DeploySpawnArea = (SpellShape, UnitNeeds, Vec<(u8, String)>);
@@ -8062,9 +8067,42 @@ fn convert_deploy_spawn_area(aeo: &RawAreaEffect, own_unit: &str, own_idx: u16, 
             if !graph_is_its_schedule(aeo, sched) {
                 return refuse("its action graph runs more than its schedule".into());
             }
-            for e in sched.entries.iter().filter(|e| !e.is_cosmetic()) {
+            let entries: Vec<&RawScheduleEntry> = sched.entries.iter().filter(|e| !e.is_cosmetic()).collect();
+            let rel_x = |e: &RawScheduleEntry| match (&e.x, &e.y, &e.relative) {
+                (None, None, Some(r)) if r.y.unwrap_or(0) == 0 => Some(r.x.unwrap_or(0)),
+                _ => None,
+            };
+            let spawns = |e: &RawScheduleEntry, kind: &str| {
+                e.class.as_deref() == Some("ActionSpawnToLocation") && e.spawn_type.as_deref() == Some(kind) && e.unread.is_empty()
+            };
+            // THE 16.402 SHAPE (option B item 28): an area entry whose area puts no character down (no action graph),
+            // and a CharacterType entry one tick after it at the same RelativeX that puts the wizard down itself
+            // (TriWizardSpawn: ElectroWizardZap and IceWizardCold at 300, the Electro and Ice Wizards at 350). The pair
+            // is the 15.535 entry whose area put its wizard down, measured at C + 7 = 350: read as that one entry, the
+            // area's delay and the character as its unit. A CharacterType entry with no such area is refused.
+            let mut pair: Vec<(usize, usize)> = Vec::new();
+            for (i, a) in entries.iter().enumerate() {
+                let bare = a.spawn.as_ref().and_then(|n| ctx.aeos.get(n)).is_some_and(|c| c.action_graph.is_none());
+                if !(spawns(a, "AreaEffectType") && bare) {
+                    continue;
+                }
+                let due = a.delay_ms.unwrap_or(0) + DEPLOY_SPAWN_CHARACTER_LAG_MS;
+                if let Some(j) = (0..entries.len()).find(|&j| {
+                    spawns(entries[j], "CharacterType") && entries[j].delay_ms.unwrap_or(0) == due && rel_x(entries[j]).is_some() && rel_x(entries[j]) == rel_x(a)
+                }) {
+                    pair.push((i, j));
+                }
+            }
+            // PLANT (tests/tri_wizards.rs `the_16402_shape_reads_and_plays_as_the_15535_one`): no pair is read, so the
+            // 16.402 TriWizardSpawn is refused.
+            #[cfg(clash_plant = "deploy_spawn_character_unpaired")]
+            pair.clear();
+            for (i, e) in entries.iter().enumerate() {
                 let name = e.action.clone().unwrap_or_else(|| "(inline)".to_string());
-                if e.class.as_deref() != Some("ActionSpawnToLocation") || e.spawn_type.as_deref() != Some("AreaEffectType") || !e.unread.is_empty() {
+                if pair.iter().any(|(_, j)| *j == i) {
+                    continue;
+                }
+                if !spawns(e, "AreaEffectType") {
                     return refuse(format!("its action {name} is not an ActionSpawnToLocation of an area read whole"));
                 }
                 let delay_ms = e.delay_ms.unwrap_or(0);
@@ -8081,6 +8119,8 @@ fn convert_deploy_spawn_area(aeo: &RawAreaEffect, own_unit: &str, own_idx: u16, 
                 // (`convert_deploy_area_effect`), which is how the engine runs it (the unit's own card's).
                 let unit = match child.action_graph.as_ref() {
                     Some(g) if g.class_types == ["ActionSpawn"] && g.spawns.len() == 1 => g.spawns[0].strip_prefix("CharacterType:").map(str::to_string),
+                    // The 16.402 pair: the character its CharacterType entry puts down one tick later.
+                    None => pair.iter().find(|(a, _)| *a == i).and_then(|(_, j)| entries[*j].spawn.clone()),
                     _ => None,
                 };
                 let Some(unit) = unit else { return refuse(format!("its action {name} makes {area}, which does not put one character down")) };
