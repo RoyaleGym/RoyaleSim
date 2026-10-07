@@ -156,7 +156,8 @@ fn the_cages_death_lets_its_captive_go_on_its_point_standing_a_tick() {
     assert_eq!((after[0], after[1]), (CAGE, CAGE), "stands on the point: {after:?}");
     assert_ne!(after[2], CAGE, "walks on K + 2: {after:?}");
     let brawlers = find_live(&s, Team::Blue, "GoblinCage_EV1_GoblinBrawler");
-    assert!(brawlers.len() == 1 && brawlers[0].max_hp == 1080, "its Brawler");
+    // At level 11 under the shipped cards.CLIENT16402_VALUES: the plain Brawler's 438 (1121), not the table's 422 (1080).
+    assert!(brawlers.len() == 1 && brawlers[0].max_hp == 1121, "its Brawler: {:?}", brawlers.iter().map(|b| b.max_hp).collect::<Vec<_>>());
 }
 
 /// The cage dies on K with `captive` set on its point: the captive's points after K, K + 1 and K + 2.

@@ -34301,9 +34301,10 @@ mod tests {
         // correct. A re-extraction that renames it fails here; it never drops the values silently.
         assert_eq!(shipped.version, c.card_values_table, "cards.json is not the table cards.CLIENT16402_VALUES corrects");
         let on = with_card_values(&c, shipped.clone()).unwrap();
-        // The eight Hitpoints, ProjectileDamage and CrownTowerDamagePercent rows, and since parity scored them the
-        // Freeze's and the Ice Golemite's AreaBuffTime.
-        assert_eq!(c.card_value_overrides.len(), 10, "{:?}", c.card_value_overrides);
+        // The eight Hitpoints, ProjectileDamage and CrownTowerDamagePercent rows, since parity scored them the
+        // Freeze's and the Ice Golemite's AreaBuffTime, and the Evo Goblin Cage's Brawler's Hitpoints (the plain
+        // Brawler's 438: the 16.402 tables give both rows the one value).
+        assert_eq!(c.card_value_overrides.len(), 11, "{:?}", c.card_value_overrides);
         for v in &c.card_value_overrides {
             let idx = shipped.index(&v.card).unwrap_or_else(|| panic!("{} is not loaded", v.card));
             let read = |db: &CardDb| -> i32 {
