@@ -4605,6 +4605,12 @@ calib_enum!(
         /// target on the kill frame and 17 of 19 created before it waited (sp-esk-bank-1500-s0 t999, sp-il-b5e2 t3578);
         /// in reach, 131 of 131 after the striker waited.
         Client15535ChaserReadsPass = "client15535_chaser_reads_pass",
+        /// client15535_chaser_reads_pass with the chaser test at the keep reach (Range + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET
+        /// + both radii): an attacker past its reach but inside the keep reach waits as one in reach. Client 15.535.29: 3
+        /// of 3 created after the striker in the band 1..25 past the reach waited (sp-esk-bank-9500-s0 t1024 at +5, where
+        /// the engine walked; sp-esk-bank-1500-s0 t999 at +8; sp-il-b5e2 t2145 at +13); the smallest margin of any that
+        /// went at once is 28.
+        Client15535ChaserPastKeepReadsPass = "client15535_chaser_past_keep_reads_pass",
     }
 );
 calib_enum!(
@@ -17287,14 +17293,22 @@ impl BattleState {
                 // combat.PASS_KILL_CHASE = client15535_chaser_reads_pass: an attacker whose target still lies on the board
                 // at 0 hp (felled earlier in the sequential pass, which a chaser reads) and out of its attack reach takes
                 // the decision's next target at once; the wait below is for one in reach.
+                // client15535_chaser_past_keep_reads_pass: the chaser test at the keep reach (3 of 3 in the band waited).
+                // PLANT (regression) chaser_keep_reach_unread: the new arm's chaser test reads the plain reach.
+                #[cfg(not(clash_plant = "chaser_keep_reach_unread"))]
+                let keep_ext = if calib.pass_kill_chase == PassKillChase::Client15535ChaserPastKeepReadsPass { calib.range_extension_to_keep_target } else { 0 };
+                #[cfg(clash_plant = "chaser_keep_reach_unread")]
+                let keep_ext = 0;
                 #[cfg(not(clash_plant = "chaser_waits"))]
-                let spared = calib.pass_kill_chase == PassKillChase::Client15535ChaserReadsPass
+                let spared = matches!(calib.pass_kill_chase, PassKillChase::Client15535ChaserReadsPass | PassKillChase::Client15535ChaserPastKeepReadsPass)
                     && struck
                     && e.target[i].is_some_and(|t| {
                         let (ti, c) = (t.index as usize, cards.get(e.card[i]));
                         let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
-                        e.is_alive(t) && !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti])
+                        e.is_alive(t) && !target::in_attack_range(calib, e.pos[i], c.range + keep_ext, own, e.pos[ti], e.radius[ti])
                     });
+                #[cfg(clash_plant = "chaser_waits")]
+                let _ = keep_ext;
                 #[cfg(clash_plant = "chaser_waits")]
                 let spared = false; // PLANT: the chaser that read the kill starts the wait under the new arm too.
                 if e.retarget_wait[i] > 0 {
@@ -24427,10 +24441,29 @@ impl BattleState {
             let in_reach = false; // PLANT (regression): a walker in reach of its target reads the kills earlier in the pass.
             // combat.PASS_KILL_CHASE = client15535_chaser_reads_pass: an attacker chasing a target out of its attack reach
             // reads the pass's kills as a walker out of reach does (`phase_target`'s wait spares it below).
+            // client15535_chaser_past_keep_reads_pass: an attacker inside its keep reach is no chaser (it reads the pass's
+            // start and waits as one in reach).
+            #[cfg(not(clash_plant = "chaser_keep_reach_unread"))]
+            let in_keep = self.cfg.calib.pass_kill_chase == PassKillChase::Client15535ChaserPastKeepReadsPass
+                && self.ents.target[i].filter(|t| self.ents.is_alive(*t)).is_some_and(|t| {
+                    let (ti, c) = (t.index as usize, self.cfg.cards.get(self.ents.card[i]));
+                    let own = if self.ents.route_goal[i].is_some() {
+                        target::walking_own_radius(&self.cfg.calib, c, self.ents.radius[i])
+                    } else {
+                        self.ents.radius[i]
+                    };
+                    let keep = c.range + self.cfg.calib.range_extension_to_keep_target;
+                    target::in_attack_range(&self.cfg.calib, self.ents.pos[i], keep, own, self.ents.pos[ti], self.ents.radius[ti])
+                });
+            #[cfg(clash_plant = "chaser_keep_reach_unread")]
+            let in_keep = false;
             #[cfg(not(clash_plant = "chaser_reads_pass_start"))]
-            let chasing = self.cfg.calib.pass_kill_chase == PassKillChase::Client15535ChaserReadsPass
+            let chasing = matches!(self.cfg.calib.pass_kill_chase, PassKillChase::Client15535ChaserReadsPass | PassKillChase::Client15535ChaserPastKeepReadsPass)
                 && !in_reach
+                && !in_keep
                 && self.ents.target[i].is_some_and(|t| self.ents.is_alive(t));
+            #[cfg(clash_plant = "chaser_reads_pass_start")]
+            let _ = in_keep;
             #[cfg(clash_plant = "chaser_reads_pass_start")]
             let chasing = false; // PLANT: a chasing attacker reads the pass's start under the new arm too.
             #[cfg(not(clash_plant = "attacker_reads_pass_kills"))]
@@ -32369,6 +32402,8 @@ impl BattleState {
 /// 20, unchanged, collision.CAGE_CAPTIVE_AVOIDANCE: Calib gained cage_captive_avoidance (serde default the old arm,
 ///    scanned), no new state (the mask is read off the saved cage runs and freed captives), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.PASS_KILL_CHASE gained client15535_chaser_past_keep_reads_pass, no new state, so a blob
+///    saved before it deserializes and hashes as it did.
 /// 20, unchanged, spawner.EVO_COPY_POINT gained client15535_ahead_outward_behind_clamped, no new state, so a blob
 ///    saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a

@@ -1498,8 +1498,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   first legal tile back along its column (4 of 4 bridge taps, 3 of 3 enemy-half singles on client 15.535.29).
 ///   spawner.DEATH_RING_AXIS = client15535_unit_heading: a death ring's degree is read off its members' heading, the
 ///   direction normalized to 256 (7 of 7 Battle Ram deaths where it rounds apart from the raw direction).
-///   combat.PASS_KILL_CHASE = client15535_chaser_reads_pass: an attacker chasing its target out of reach reads a kill
-///   earlier in the sequential pass and takes its next target at once (19 of 25 created after the striker).
+///   combat.PASS_KILL_CHASE = client15535_chaser_past_keep_reads_pass: an attacker chasing its target past its keep
+///   reach reads the pass's kills and takes its next target at once (19 of 25 after the striker); inside the keep
+///   reach it waits as one in reach (3 of 3).
 ///   movement.KNOCKED_DOOMED_AVOIDANCE = client15535_knocked_mover: a doomed troop mid-knockback (an Evo Cannon bomb's
 ///   victim) is no static obstacle to the avoidance scan (8 of 8 scanners kept their offset).
 ///   knockback.TROOP_DEATH_PUSHBACK = client15535_ladder: a dying Golem or Golemite pushes the units its death blow hits
@@ -1698,7 +1699,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("placement.ILLEGAL_TROOP_TAP", "\"client15535_clamp_to_legal_edge\""),
     ("combat.LOAD_FIRST_HIT_LEAVE", "\"client15535_windup_refunded\""),
     ("spawner.DEATH_RING_AXIS", "\"client15535_unit_heading\""),
-    ("combat.PASS_KILL_CHASE", "\"client15535_chaser_reads_pass\""),
+    ("combat.PASS_KILL_CHASE", "\"client15535_chaser_past_keep_reads_pass\""),
     ("movement.KNOCKED_DOOMED_AVOIDANCE", "\"client15535_knocked_mover\""),
     ("knockback.TROOP_DEATH_PUSHBACK", "\"client15535_ladder\""),
     ("movement.STRUCK_CONTACT_ORDER", "\"client15535_before_pass\""),

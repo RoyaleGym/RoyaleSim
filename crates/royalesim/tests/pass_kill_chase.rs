@@ -19,7 +19,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! pass_kill_chase`):
 //!   * `chaser_reads_pass_start` -- the chaser reads the pass as it began under the new arm too: (1) goes red;
-//!   * `chaser_waits` -- the chaser that reads the kill still starts the wait: (1) goes red.
+//!   * `chaser_waits` -- the chaser that reads the kill still starts the wait: (1) goes red;
+//!   * `chaser_keep_reach_unread` -- client15535_chaser_past_keep_reads_pass reads the plain reach: (4) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -123,4 +124,40 @@ fn in_reach_both_arms_wait() {
     let old = second_knight(PassKillChase::StartOfPass, 0);
     assert!(new[1..5].iter().all(|r| r.1.is_none()), "the scene drifted: the second Knight in reach did not wait: {new:?}");
     assert_eq!(new, old, "an attacker in reach: the arms part");
+}
+
+/// (4) combat.PASS_KILL_CHASE = client15535_chaser_past_keep_reads_pass (client 15.535.29: 3 of 3 attackers created after
+/// the striker standing 1..25 past their reach waited; sp-esk-bank-9500-s0 t1024 at +5): the second Knight set straight
+/// back from the victim to Range + both radii + `extra` on the tick before the kill: its (target, point) on the kill tick
+/// and the 6 after.
+fn second_knight_at(arm: PassKillChase, extra: i32) -> Vec<(Option<EntityId>, Vec2)> {
+    let (_, _, _, n) = scene(arm, None);
+    let (mut s, k2, v, _) = scene(arm, Some(n));
+    let e = s.entity(k2).expect("the second Knight");
+    assert_eq!(e.target, Some(v), "the scene drifted: the second Knight was not on the victim before the kill");
+    let vp = s.entity(v).expect("the victim").pos;
+    // Range 1,200 + both radii (500 + 500), straight below the victim.
+    assert!(s.debug_set_pos(k2, Vec2::new(vp.x, vp.y - (2200 + extra) * K)));
+    s.tick();
+    assert!(s.entity(v).is_none(), "the scene drifted: the kill did not come on the tick the dry run found");
+    let mut out = Vec::new();
+    for _ in 0..7 {
+        let e = s.entity(k2).expect("the second Knight");
+        out.push((e.target, e.pos));
+        s.tick();
+    }
+    out
+}
+
+/// Plant: chaser_keep_reach_unread.
+#[test]
+fn a_chaser_inside_its_keep_reach_waits_under_client15535_chaser_past_keep_reads_pass() {
+    let waits = |rows: &[(Option<EntityId>, Vec2)]| rows[1..5].iter().all(|r| r.0.is_none()) && rows[1..5].windows(2).all(|w| w[0].1 == w[1].1);
+    let new = second_knight_at(PassKillChase::Client15535ChaserPastKeepReadsPass, 5);
+    assert!(waits(&new), "client15535_chaser_past_keep_reads_pass: 5 past the reach, it did not wait: {new:?}");
+    let far = second_knight_at(PassKillChase::Client15535ChaserPastKeepReadsPass, 60);
+    assert!(!waits(&far), "client15535_chaser_past_keep_reads_pass: 60 past the reach (35 past the keep), it waited: {far:?}");
+    // NOT VACUOUS: client15535_chaser_reads_pass takes its next target at once from 5 past.
+    let old = second_knight_at(PassKillChase::Client15535ChaserReadsPass, 5);
+    assert!(!waits(&old), "client15535_chaser_reads_pass: 5 past the reach, it waited: {old:?}");
 }

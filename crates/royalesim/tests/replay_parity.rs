@@ -1084,7 +1084,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.load_first_hit_leave, LoadFirstHitLeave::Client15535WindupRefunded, "a 15.535.29 capture's leaving Sparky gets its windup back");
     assert_eq!(cfg.calib.random_delay_stream, RandomDelayStream::Client15535BattleStream, "a 15.535.29 capture's pellet delays draw from its stream (the shipped arm)");
     assert_eq!(cfg.calib.death_ring_axis, DeathRingAxis::Client15535UnitHeading, "a 15.535.29 capture reads its death ring off the members' heading");
-    assert_eq!(cfg.calib.pass_kill_chase, PassKillChase::Client15535ChaserReadsPass, "a 15.535.29 capture's chaser reads a kill in the pass");
+    assert_eq!(cfg.calib.pass_kill_chase, PassKillChase::Client15535ChaserPastKeepReadsPass, "a 15.535.29 capture's chaser reads the pass past its keep reach");
     assert_eq!(cfg.calib.knocked_doomed_avoidance, KnockedDoomedAvoidance::Client15535KnockedMover, "a 15.535.29 capture's knocked doomed troop is no static obstacle");
     assert_eq!(cfg.calib.troop_death_pushback, TroopDeathPushback::Client15535Ladder, "a 15.535.29 capture's dying Golem pushes");
     assert_eq!(cfg.calib.struck_contact_order, StruckContactOrder::Client15535BeforePass, "a 15.535.29 capture's struck troop leaves the pass as it begins");
