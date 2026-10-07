@@ -32,7 +32,7 @@ mod common;
 use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CageReleaseScan};
+use royalesim::state::{BattleConfig, BattleState, CageCaptiveAvoidance, CageReleaseScan, HeldUnitAvoidance};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -251,4 +251,50 @@ fn a_captive_let_go_takes_its_target_on_the_next_tick_under_client15535_scans_wh
     let new = let_go(CageReleaseScan::Client15535ScansWhileHeld);
     assert_eq!((new[0], new[1]), (CAGE, CAGE), "client15535_scans_while_held: not standing on K and K + 1: {new:?}");
     assert!(new[2].0 != CAGE.0, "client15535_scans_while_held: not walking on K + 2: {new:?} (stunned {old:?})");
+}
+
+/// collision.CAGE_CAPTIVE_AVOIDANCE (client 15.535.29: 761 captive frames of 8 captives at offset 0, where a held unit
+/// scanning, collision.HELD_UNIT_AVOIDANCE's 15.535 arm, starts a turn on the cage at once): the grab scene under
+/// HELD_UNIT_AVOIDANCE = scanned, the Knight's avoidance offset on every tick from the grab to G + 45.
+fn captive_offsets(arm: CageCaptiveAvoidance) -> Vec<i32> {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.held_unit_avoidance = HeldUnitAvoidance::Scanned;
+    cfg.calib.cage_captive_avoidance = arm;
+    cfg.decks = [vec!["GoblinCage".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s.spawn_unit(Team::Blue, "GoblinCage_EV1", n(CAGE.0, CAGE.1), None).expect("the cage");
+    s.tick();
+    let far = n(CAGE.0 + 3700, CAGE.1);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", far, None).expect("a red Knight");
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(knight, far));
+        s.tick();
+    }
+    let mut rows: Vec<((i32, i32), i32)> = Vec::new();
+    for _ in 0..80 {
+        s.tick();
+        let k = s.entity(knight).expect("the Knight");
+        rows.push(((k.pos.x / K, k.pos.y / K), k.avoid_offset));
+    }
+    let g = (1..rows.len() - 1).find(|&k| rows[k].0 != rows[k - 1].0 && rows[k + 1].0 == rows[k].0).expect("the Knight stopped");
+    rows[g..=(g + 45).min(rows.len() - 1)].iter().map(|r| r.1).collect()
+}
+
+/// Plant: cage_captive_scanned.
+#[test]
+fn a_caged_captive_scans_no_avoidance_under_client15535_masked() {
+    let new = captive_offsets(CageCaptiveAvoidance::Client15535Masked);
+    assert!(new.iter().all(|&o| o == 0), "client15535_masked: the captive turned: {new:?}");
+    // NOT VACUOUS: scanned, the cage on its point starts a turn.
+    let old = captive_offsets(CageCaptiveAvoidance::Scanned);
+    assert!(old.iter().any(|&o| o != 0), "scanned: the captive never turned: {old:?}");
 }

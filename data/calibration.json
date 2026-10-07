@@ -844,6 +844,17 @@
       "promotion_rules": "The test files (crates/royalesim/tests/held_unit_contact.rs, tests/test_held_unit_contact.py) pass. Then score with this arm switched on alone. The registered prediction: 20260919-184136 (both seats) gains, its first Goblin departure moves from tick 357 to later; the sweep's ElectroGiant scene moves from tick 304 and gains; a report moves only where a frozen or stunned troop overlaps another unit (in the recorded positions: 20260918-130203.b2, 20260919-182539 and 20260919-184136, and the Electro Giant scenario). A report that moves elsewhere must show a held unit overlapped on the engine's own positions.",
       "engine": "state.rs phase_path16402_for: the bodies' collidable flag and the held branch before the dash; under the new arm a held unit falls through to the ordinary update with the dash start, the path gate, the stomp clock, the step and the waypoint bookkeeping skipped."
     },
+    "CAGE_CAPTIVE_AVOIDANCE": {
+      "value": "scanned",
+      "candidates": ["scanned", "client15535_masked"],
+      "status": "measured",
+      "confidence": "HIGH for client15535_masked on client 15.535.29: 761 captive frames of 8 captives with offset 0 and no turn, 3 of 3 releases starting a fresh -190 on the first walk; whether the mask is 'no scan while held' or 'a reset at the release' is not separated (the offset before every grab was 0); 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r55_cage_captive_avoidance_census.py over every raw file with an Evo Goblin Cage (13000107) as a building: 8 captives in sp-f2-cage, -cagefb, -cagegolem, -cageknfb, sp-grab-Giant, -Knight x2, -MiniPekka; their avoidance_offset on every captive frame and around the release). 0 of 761 captive frames nonzero, 0 turns started, though the cage stands on the captive's point at distance 0; offset 0 on the frame before the grab, 8 of 8. Releases (cagefb, cagegolem, cageknfb): offsets 0, 0, then -190, -180, ... from the first walking tick (the cage's last frame + 3), 3 of 3, copying the new Brawler's running -180 in sign. The engine (r55_cage_captive_engine_side.py on the formsR54b traces): 756 of 761 captive frames nonzero, 13 starts (+190 on the snap, then -190 held by the cage), and -180, -170, -180 on the first walk. Refuted: the captive scanning as a held unit (collision.HELD_UNIT_AVOIDANCE's 15.535 arm, scanned); a release carrying the captivity's running offset.",
+      "meaning": "scanned: the engine's; a caged captive is a held unit and scans as collision.HELD_UNIT_AVOIDANCE says (under scanned, the cage on its point starts a turn at once). client15535_masked: from its grab through its release hold (EvoBoard cages' captive past its grab tick; EvoBoard freed) a captive runs no avoidance scan, its offset decaying as an attacker's; its first walk after the release scans afresh.",
+      "open": "Whether the client masks the scan or resets the offset at the release (not separated); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_masked (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_path16402_for (`caged`, `cage_masked`), selected by Calib::cage_captive_avoidance; tests/evo_goblin_cage.rs."
+    },
     "HELD_UNIT_AVOIDANCE": {
       "value": "masked",
       "candidates": ["scanned", "masked"],

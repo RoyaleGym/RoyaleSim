@@ -1097,6 +1097,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `None`.
     #[serde(default = "hero_tomb_emission_nudge_default")]
     pub hero_tomb_emission_nudge: HeroTombEmissionNudge,
+    /// collision.CAGE_CAPTIVE_AVOIDANCE (the move pass's `cage_masked`): whether an Evo Goblin Cage's captive scans
+    /// for avoidance. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Scanned`.
+    #[serde(default = "cage_captive_avoidance_default")]
+    pub cage_captive_avoidance: CageCaptiveAvoidance,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2783,6 +2787,10 @@ fn dash_range_target_point_default() -> DashRangeTargetPoint {
 
 fn hero_tomb_emission_nudge_default() -> HeroTombEmissionNudge {
     HeroTombEmissionNudge::None
+}
+
+fn cage_captive_avoidance_default() -> CageCaptiveAvoidance {
+    CageCaptiveAvoidance::Scanned
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -6778,6 +6786,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// collision.CAGE_CAPTIVE_AVOIDANCE -- see the move pass's `cage_masked` (state.rs `phase_path16402_for`): an Evo
+    /// Goblin Cage's captive's avoidance scan, from its grab through its release hold (EvoBoard `cages`, `freed`).
+    CageCaptiveAvoidance {
+        /// The engine's: as any held unit's (collision.HELD_UNIT_AVOIDANCE); scanned, the cage on its own point starts a
+        /// turn at once and keeps it.
+        Scanned = "scanned",
+        /// No scan from the grab through the release hold: the offset decays as an attacker's, and the first walk after the
+        /// release starts a fresh turn. Measured on client 15.535.29: 0 nonzero offsets in 761 captive frames of 8 captives
+        /// (the engine 756), and 3 of 3 releases read 0, 0, then -190 on the first walking tick (the engine -180, -170,
+        /// -180).
+        Client15535Masked = "client15535_masked",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -8785,6 +8807,7 @@ impl Calib {
             tomb_press_spawn_first_update: pick(&v, &["spawner", "TOMB_PRESS_SPAWN_FIRST_UPDATE", "value"], TombPressSpawnFirstUpdate::from_calibration_name)?,
             dash_range_target_point: pick(&v, &["combat", "DASH_RANGE_TARGET_POINT", "value"], DashRangeTargetPoint::from_calibration_name)?,
             hero_tomb_emission_nudge: pick(&v, &["spawner", "HERO_TOMB_EMISSION_NUDGE", "value"], HeroTombEmissionNudge::from_calibration_name)?,
+            cage_captive_avoidance: pick(&v, &["collision", "CAGE_CAPTIVE_AVOIDANCE", "value"], CageCaptiveAvoidance::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -20599,6 +20622,14 @@ impl BattleState {
                 freed_hold[id.index as usize] = true;
             }
         }
+        // collision.CAGE_CAPTIVE_AVOIDANCE = client15535_masked: the Evo Goblin Cages' captives past their grab, and the
+        // freed ones in their release hold, scan nothing (`cage_masked` below).
+        let mut caged = freed_hold.clone();
+        for r in &self.evo.cages {
+            if let Some(c) = r.captive.filter(|c| self.ents.is_alive(*c) && self.tick >= r.grab) {
+                caged[c.index as usize] = true;
+            }
+        }
         // A chain on its first tick, seeking, before any blow (the press's trigger): its champion walks at his own speed
         // this tick (the pending run below starts on the next). Measured on client 15.535.29 (sp-champ-GK-empty-s0).
         let mut chain_fresh = vec![false; self.ents.capacity()];
@@ -21961,7 +21992,14 @@ impl BattleState {
                 let held_masked = held_walk && calib.held_unit_avoidance == HeldUnitAvoidance::Masked;
                 #[cfg(clash_plant = "held_avoidance_scanned")]
                 let held_masked = false; // PLANT (regression): the new arm still scans a held unit.
-                if !attacking && !held_masked {
+                // collision.CAGE_CAPTIVE_AVOIDANCE = client15535_masked: a caged captive (and a freed one in its release hold)
+                // scans nothing; the decay below still runs (client 15.535.29: 761 captive frames at offset 0).
+                // PLANT (regression) cage_captive_scanned: the new arm still scans a captive.
+                #[cfg(not(clash_plant = "cage_captive_scanned"))]
+                let cage_masked = caged[i] && calib.cage_captive_avoidance == CageCaptiveAvoidance::Client15535Masked;
+                #[cfg(clash_plant = "cage_captive_scanned")]
+                let cage_masked = false;
+                if !attacking && !held_masked && !cage_masked {
                     // The scan runs for walking and deploying units, not for an
                     // attacking one: an attacking unit is masked out of it (and a held
                     // one under collision.HELD_UNIT_AVOIDANCE = masked). A CHARGED
@@ -32328,6 +32366,9 @@ impl BattleState {
 /// 20, unchanged, spawner.HERO_TOMB_EMISSION_NUDGE: Calib gained hero_tomb_emission_nudge (serde default the old arm,
 ///    none), no new state (the nudge is read off the emission's first update), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, collision.CAGE_CAPTIVE_AVOIDANCE: Calib gained cage_captive_avoidance (serde default the old arm,
+///    scanned), no new state (the mask is read off the saved cage runs and freed captives), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.EVO_COPY_POINT gained client15535_ahead_outward_behind_clamped, no new state, so a blob
 ///    saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.RETARGET_WAIT_REACH_LOSS gained client15535_after_reach_loss_variable_rows, no new state, so a
@@ -33371,6 +33412,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_range_target_point".into(), serde_json::to_value(DashRangeTargetPoint::StartOfTick).map_err(|e| e.to_string())?);
     // spawner.HERO_TOMB_EMISSION_NUDGE: a format-3 battle's hero tomb emission took the radial push alone (the same rule).
     sh.insert("hero_tomb_emission_nudge".into(), serde_json::to_value(HeroTombEmissionNudge::None).map_err(|e| e.to_string())?);
+    // collision.CAGE_CAPTIVE_AVOIDANCE: a format-3 battle's captive scanned as a held unit (the same rule).
+    sh.insert("cage_captive_avoidance".into(), serde_json::to_value(CageCaptiveAvoidance::Scanned).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
