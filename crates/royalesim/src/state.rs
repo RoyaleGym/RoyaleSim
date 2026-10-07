@@ -1155,6 +1155,10 @@ pub struct Calib {
     /// captive's route. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Kept`.
     #[serde(default = "capture_route_default")]
     pub capture_route: CaptureRoute,
+    /// targeting.SNIPE_LOCK_RELEASE (`snipe_pass`): when an Evo Musketeer lets her snipe target go as it comes near, and
+    /// what her windup does. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AheadBelowMin`.
+    #[serde(default = "snipe_lock_release_default")]
+    pub snipe_lock_release: SnipeLockRelease,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2897,6 +2901,10 @@ fn doomed_drop_spear_members_default() -> DoomedDropSpearMembers {
 
 fn capture_route_default() -> CaptureRoute {
     CaptureRoute::Kept
+}
+
+fn snipe_lock_release_default() -> SnipeLockRelease {
+    SnipeLockRelease::AheadBelowMin
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7086,6 +7094,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.SNIPE_LOCK_RELEASE -- see `snipe_pass`: an Evo Musketeer's snipe target coming inside her SnipeMinRange.
+    SnipeLockRelease {
+        /// The engine's: kept while SnipeMinRange or more ahead; let go, her windup restarts and she re-picks that tick.
+        AheadBelowMin = "ahead_below_min",
+        /// Let go below SnipeMinRange + the target's radius ahead, on the tick's positions after the move: she holds it on
+        /// as an ordinary target, her windup running on, and fires a plain shot. Measured on client 15.535.29: 2 of 2 let-gos
+        /// inside the side clip at 6,446 and 6,481 ahead, 0 of 610 held steps let go (sp-m6d-s0 t1130, sp-scene-c-s0-v2 t921).
+        Client15535MinPlusRadiusKeepWindup = "client15535_min_plus_radius_keep_windup",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9107,6 +9126,7 @@ impl Calib {
             evo_impact_area_anchor: pick(&v, &["combat", "EVO_IMPACT_AREA_ANCHOR", "value"], EvoImpactAreaAnchor::from_calibration_name)?,
             doomed_drop_spear_members: pick(&v, &["targeting", "DOOMED_DROP_SPEAR_MEMBERS", "value"], DoomedDropSpearMembers::from_calibration_name)?,
             capture_route: pick(&v, &["spells", "CAPTURE_ROUTE", "value"], CaptureRoute::from_calibration_name)?,
+            snipe_lock_release: pick(&v, &["targeting", "SNIPE_LOCK_RELEASE", "value"], SnipeLockRelease::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -13702,6 +13722,25 @@ impl BattleState {
                 let ti = t.index as usize;
                 target::in_attack_range(&self.cfg.calib, e.pos[a], card.range, e.radius[a], e.pos[ti], e.radius[ti])
             });
+            // targeting.SNIPE_LOCK_RELEASE = client15535_min_plus_radius_keep_windup: the kept target is let go below
+            // SnipeMinRange + its radius ahead, and she holds it on as an ordinary target, her windup running on (client
+            // 15.535.29: 2 of 2 let-gos at 6,446 and 6,481 ahead, 0 of 610 held steps; sp-scene-c-s0-v2 t921).
+            // PLANT (regression) snipe_release_at_min: the new arm lets go at SnipeMinRange, as the old one does.
+            #[cfg(not(clash_plant = "snipe_release_at_min"))]
+            let near_release = self.cfg.calib.snipe_lock_release == SnipeLockRelease::Client15535MinPlusRadiusKeepWindup;
+            #[cfg(clash_plant = "snipe_release_at_min")]
+            let near_release = false;
+            let released_near = near_release
+                && kept.is_some_and(|t| {
+                    let c = t.index as usize;
+                    !ordinary && e.is_alive(t) && fits(c, sn.locked_clip) && place(c).0 < (sn.min + e.radius[c]) / K
+                });
+            if released_near {
+                s.2 = None;
+                self.ents.attack_seq[a] = 0;
+                self.ents.target_locked[a] = false;
+                continue;
+            }
             let keep = kept.filter(|t| !ordinary && e.is_alive(*t) && fits(t.index as usize, sn.locked_clip));
             // targeting.SNIPE_REPICK = client15535_last_target_first: with no target kept, her last snipe's target comes
             // first while it lives, fits within LockedTargetSnipeSideClip and the shots in flight do not doom it.
@@ -13729,6 +13768,16 @@ impl BattleState {
                         self.ents.attack_phase[a] = AttackPhase::Idle;
                         self.ents.attack_ms[a] = 0;
                         self.ents.fired_at[a] = None;
+                    }
+                    // targeting.SNIPE_LOCK_RELEASE = client15535_min_plus_radius_keep_windup: a snipe pick ends a post-kill
+                    // wait (combat.POST_KILL_RETARGET_WAIT), which counts down only in the Target phase's decisions this pass
+                    // keeps her out of: the released target she held on as an ordinary one died in her windup, and the
+                    // wait it started froze her timers for good (client 15.535.29, sp-m6d-s0: the Goblin dead on t1135,
+                    // the far Knight taken on t1136 and shot on t1150).
+                    // PLANT (regression) snipe_pick_keeps_kill_wait: the wait stands through the pick.
+                    #[cfg(not(clash_plant = "snipe_pick_keeps_kill_wait"))]
+                    if near_release {
+                        self.ents.retarget_wait[a] = 0;
                     }
                     self.ents.target[a] = Some(t);
                     self.ents.attack_seq[a] = 1;
@@ -33032,6 +33081,9 @@ impl BattleState {
 /// 20, unchanged, spells.CAPTURE_ROUTE: Calib gained capture_route (serde default the old arm, kept), no new state
 ///    (`SpellOut::joined` is the tick's output), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.SNIPE_LOCK_RELEASE: Calib gained snipe_lock_release (serde default the old arm,
+///    ahead_below_min), no new state (read each pass), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
 ///    carries its shot's tick), so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, knockback.LADDER_PATH_REQUEST gained client15535_on_ladder_goal_held, no new state (the start-of-tick
@@ -34109,6 +34161,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("doomed_drop_spear_members".into(), serde_json::to_value(DoomedDropSpearMembers::Melee).map_err(|e| e.to_string())?);
     // spells.CAPTURE_ROUTE: a format-3 battle's captive kept its route (the same rule).
     sh.insert("capture_route".into(), serde_json::to_value(CaptureRoute::Kept).map_err(|e| e.to_string())?);
+    // targeting.SNIPE_LOCK_RELEASE: a format-3 battle's Evo Musketeer let her snipe target go below SnipeMinRange (the same rule).
+    sh.insert("snipe_lock_release".into(), serde_json::to_value(SnipeLockRelease::AheadBelowMin).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

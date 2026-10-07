@@ -488,6 +488,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_last_target_first (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs snipe_pass with EvoBoard snipe_last, selected by Calib::snipe_repick; tests/snipe_repick.rs."
     },
+    "SNIPE_LOCK_RELEASE": {
+      "value": "ahead_below_min",
+      "candidates": ["ahead_below_min", "client15535_min_plus_radius_keep_windup"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_min_plus_radius_keep_windup on client 15.535.29: 2 of 2 let-gos inside the side clip and 0 of 610 held steps let go; both targets had radius 500 nearly straight ahead, so centre distance against ahead and the target's radius against hers are not separated. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r56_snipe_min_release_census.py: the held steps of the snipe runs that ended in her snipe, 610, and the let-gos). 'Let go iff ahead < 6000 + r on the tick's positions after the move': 2 of 3 let-gos and 0 of 610 held steps wrongly let go; the third let-go (il-323a t2477, side 2,004 > 2,000) is the side clip's, as the engine has it, so the rule with the clip gets 3 of 3. sp-m6d-s0 t1130: Goblin 18 at 6,463 (ahead 6,446), held on t1129 at 6,582; sp-scene-c-s0-v2 t921: Knight 20 at 6,482 (ahead 6,481), held on t920 at 6,541; the closest held step of a sniped run 6,788 (m6b2 t962). Her windup ran on through the let-go: m6d 400 -> 450 (no target) -> 500 (re-taken), v2 450 -> 500 -> 550, and v2's plain shot (4000048) left t931 at progress 1000 and took 217 off the Knight on t937. Refuted: the engine's ahead < 6000 (1 of 3: it let go 9 ticks late in v2, at 5,949, and 4 late in m6d, re-picking Goblin 19 and restarting the windup); a release at her ordinary reach (d < 7000) would drop 5 of 610 held steps; a release judged on the previous tick's positions 0 of 3; a windup reset on release (progress rose 2 of 2).",
+      "meaning": "ahead_below_min: the engine's; her snipe target is kept while it stands SnipeMinRange (6000) or more ahead within LockedTargetSnipeSideClip; let go, her windup restarts and she re-picks the nearest in the band on that tick. client15535_min_plus_radius_keep_windup: the kept target is let go on the first tick it stands less than SnipeMinRange + its radius ahead on that tick's positions after the move; she holds it on as an ordinary target (no re-pick that tick), her windup running on, so her next shot is a plain one at its completion. The side clip's release is unchanged.",
+      "open": "Centre distance against ahead, and the target's radius against hers or a constant 500 (a Giant or Golem at an angle would separate them); whether the same bound gates a take (6000 to 6500 ahead); 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_min_plus_radius_keep_windup (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs snipe_pass (the kept target's min test and the release), selected by Calib::snipe_lock_release; tests/snipe_lock_release.rs."
+    },
     "CHASE_DROP_MEASURE": {
       "value": "max_abs",
       "candidates": ["max_abs", "client15535_lane_dy"],

@@ -1630,6 +1630,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   attacker for doomed targets and its spear dooms (6 of 6 post-throw rescans passed the doomed victim).
 ///   spells.CAPTURE_ROUTE = client15535_dropped_at_join: an Evo Giant Snowball's captive drops its route when it joins
 ///   the ball (0 of 60 ride frames held one; 9 of 9 planned afresh).
+///   targeting.SNIPE_LOCK_RELEASE = client15535_min_plus_radius_keep_windup: an Evo Musketeer lets her snipe target go
+///   below SnipeMinRange + its radius ahead and shoots it plain, her windup running on (2 of 2; 0 of 610 held steps).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1791,6 +1793,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.EVO_IMPACT_AREA_ANCHOR", "\"client15535_follows_target\""),
     ("targeting.DOOMED_DROP_SPEAR_MEMBERS", "\"client15535_projectile\""),
     ("spells.CAPTURE_ROUTE", "\"client15535_dropped_at_join\""),
+    ("targeting.SNIPE_LOCK_RELEASE", "\"client15535_min_plus_radius_keep_windup\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),
