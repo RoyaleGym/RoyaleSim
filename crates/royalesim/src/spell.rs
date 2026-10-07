@@ -945,11 +945,6 @@ pub fn in_square(centre: Vec2, at: Vec2, half: i32, radius: i32) -> bool {
     dx * dx + dy * dy < (radius as i64) * (radius as i64)
 }
 
-/// Apply one circular impact of `hit` at `centre` for `team`, of card `card` cast at unified `level`. `damage` is
-/// level-scaled. `area`: the clock of the pulsing area this impact is one application of (`area_bound`), None for every
-/// other impact. Each buff the impact hangs (`buff`, then `buff2`) carries `level` (`BuffHit::src_level`) and its
-/// crown-tower pulse (`crown_pulse`).
-#[allow(clippy::too_many_arguments)]
 /// A hit's crown-tower damage of its own (`SpellHit::tower_damage`), or None for the percent path. Plant
 /// tower_damage_unread: the 16.402 value is ignored and the percent applies (Zap takes 100 % on a 16.402 table).
 fn tower_damage_of(hit: &SpellHit) -> Option<i32> {
@@ -962,6 +957,11 @@ fn tower_damage_of(hit: &SpellHit) -> Option<i32> {
     }
 }
 
+/// Apply one circular impact of `hit` at `centre` for `team`, of card `card` cast at unified `level`. `damage` is
+/// level-scaled. `area`: the clock of the pulsing area this impact is one application of (`area_bound`), None for every
+/// other impact. Each buff the impact hangs (`buff`, then `buff2`) carries `level` (`BuffHit::src_level`) and its
+/// crown-tower pulse (`crown_pulse`).
+#[allow(clippy::too_many_arguments)]
 fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: &SpellHit, damage: i32, pulse: i32, dmg: &mut DamageBuffer, fx: &mut EffectBuffer, nb: &mut Vec<u32>, area: Option<AreaClock>) {
     let e = ctx.ents;
     // `buff` with the spell's pulse, then `buff2`, which never pulses (the loader puts the pulsing one first).
