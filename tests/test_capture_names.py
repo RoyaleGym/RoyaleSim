@@ -133,6 +133,35 @@ def test_distinct_captures_collapses_two_names_for_one_file(tmp_path, m):
     assert kept[0].endswith("-31.native.oracle.jsonl.gz")
 
 
+def test_folder_captures_leaves_out_a_capture_stamped_with_another_content(tmp_path, m):
+    # The fixtures are measured on client 16.402 before its 2026-10-06 update; the live reader stamps a capture's
+    # content from that day on, and a 16.402.19 capture rebuilt into them made spell_impacts.json "stale".
+    import gzip
+    import json
+
+    def capture(name: str, header: dict) -> None:
+        with gzip.open(tmp_path / name, "wt", encoding="utf-8") as fh:
+            fh.write(json.dumps(header) + "\n")
+
+    capture("frames-auto-20260920-083112-31.native.oracle.jsonl.gz", {"record": "header"})
+    capture("frames-auto-20261006-190617-31.native.oracle.jsonl.gz",
+            {"record": "header", "client": {"build": 160402017, "content_version": "16.402.19"}})
+    kept = [os.path.basename(p) for p in m.folder_captures(str(tmp_path))]
+    assert kept == ["frames-auto-20260920-083112-31.native.oracle.jsonl.gz"]
+    assert m.capture_content(str(tmp_path / "frames-auto-20261006-190617-31.native.oracle.jsonl.gz")) == "16.402.19"
+
+
+def test_every_maker_globs_its_folder_through_folder_captures():
+    # A maker that globs the folder itself takes every capture in it, a stamped 16.402.19 one included.
+    offenders = []
+    for name in MAKERS:
+        with open(os.path.join(TOOLS, name), encoding="utf-8") as f:
+            body = f.read()
+        if re.search(r"distinct_captures\(glob\.glob\(", body):
+            offenders.append(name)
+    assert not offenders, f"these makers glob the captures folder without folder_captures: {offenders}"
+
+
 def test_argv_guard_refuses_a_mistyped_flag(m):
     m.argv_guard([], "doc")
     m.argv_guard(["--check"], "doc")

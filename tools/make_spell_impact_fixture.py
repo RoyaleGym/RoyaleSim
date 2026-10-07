@@ -68,7 +68,6 @@ NAMES
 
 from __future__ import annotations
 
-import glob
 import gzip
 import json
 import math
@@ -79,7 +78,7 @@ from collections import Counter, defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from capture_names import argv_guard, distinct_captures, folder_seats  # noqa: E402
+from capture_names import argv_guard, folder_captures, folder_seats  # noqa: E402
 from make_replay_fixture import (  # noqa: E402
     CARDS,
     CAST_GAP_TICKS,
@@ -502,7 +501,7 @@ def build(reports: str) -> dict:
     names = load_id_table()
     kinds = damage_kinds()
     seats = folder_seats(reports, SUFFIX)
-    paths = distinct_captures(glob.glob(os.path.join(reports, "*" + SUFFIX)))
+    paths = folder_captures(reports, SUFFIX)
     census = Counter()
     by_card = Counter()
     captures, events = [], []

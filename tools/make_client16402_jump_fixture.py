@@ -34,7 +34,6 @@ WHAT IT HOLDS
 """
 from __future__ import annotations
 
-import glob
 import gzip
 import json
 import os
@@ -43,7 +42,7 @@ import tomllib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from capture_names import argv_guard, distinct_captures, folder_seats, public_name  # noqa: E402
+from capture_names import argv_guard, folder_captures, folder_seats, public_name  # noqa: E402
 
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 # The battle, recorded from both seats; the side-0 seat's file is the one used (its header says so).
@@ -130,7 +129,7 @@ def find_capture() -> str:
     """
     if not LIVE:
         sys.exit("set ROYALELIVE_REPORTS to the folder holding frames-auto-" + BATTLE + "-*" + SUFFIX)
-    paths = distinct_captures(glob.glob(os.path.join(LIVE, "frames-auto-" + BATTLE + "-*" + SUFFIX)))
+    paths = folder_captures(LIVE, SUFFIX, "frames-auto-" + BATTLE + "-*")
     hits = []
     for path in paths:
         with gzip.open(path, "rt", encoding="utf-8") as f:

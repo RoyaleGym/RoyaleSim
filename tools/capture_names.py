@@ -55,6 +55,32 @@ def public_name(raw: str, seats: dict[str, str]) -> str:
     return SEAT_TAG.sub(lambda m: "-" + seats[m.group(1)], raw)
 
 
+def capture_content(path: str) -> str | None:
+    """The client content a capture was recorded on, from its header's `client` stamp (the live reader writes it
+    from 2026-10-06 on: build 160402017, content 16.402.19), or None for a capture recorded before the stamp."""
+    import gzip
+    import json
+
+    try:
+        opener = gzip.open if path.endswith(".gz") else open
+        with opener(path, "rt", encoding="utf-8") as fh:
+            first = fh.readline()
+        head = json.loads(first) if first.strip() else {}
+    except (OSError, ValueError):
+        return None
+    client = head.get("client") if isinstance(head, dict) else None
+    return client.get("content_version") if isinstance(client, dict) else None
+
+
+def folder_captures(reports: str, suffix: str = CAPTURE_SUFFIX, pattern: str = "*") -> list[str]:
+    """The captures of a folder a fixture is built from: one path per file (`distinct_captures`), less every capture
+    stamped with a client content (`capture_content`). The fixtures are measured on client 16.402 before its
+    2026-10-06 update (content 16.402.12), whose captures carry no stamp; a stamped one (16.402.19 on: the option-B
+    runs) belongs to its own content's tables and is left out here. A capture given by path is not filtered."""
+    paths = distinct_captures(glob.glob(os.path.join(reports, pattern + suffix)))
+    return [p for p in paths if capture_content(p) is None]
+
+
 def distinct_captures(paths: list[str]) -> list[str]:
     """One path per file, sorted: several names for the same bytes collapse to one.
 

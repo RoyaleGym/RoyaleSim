@@ -434,7 +434,7 @@ from collections import Counter, defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from capture_names import SEAT_TAG, distinct_captures, folder_seats  # noqa: E402
+from capture_names import SEAT_TAG, folder_captures, folder_seats  # noqa: E402
 
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 RAW = os.path.join(ROOT, "data", "raw", "cr-15.535.29", "csv_logic")
@@ -689,7 +689,7 @@ def capture_named(name: str, reports: str | None) -> str | None:
     as in every run. Two captures under one name is an error, not a choice."""
     if not reports or not os.path.isdir(reports):
         return None
-    paths = distinct_captures(glob.glob(os.path.join(reports, "*" + CAPTURE_SUFFIX)))
+    paths = folder_captures(reports, CAPTURE_SUFFIX)
     seats = folder_seats(reports, CAPTURE_SUFFIX, paths)
     hits = [p for p in paths if public_name(p, seats) == name]
     if len(hits) > 1:
@@ -2817,7 +2817,7 @@ def main() -> int:
     captures = (
         [args.capture]
         if args.capture
-        else distinct_captures(glob.glob(os.path.join(args.reports, "*" + CAPTURE_SUFFIX)))
+        else folder_captures(args.reports, CAPTURE_SUFFIX)
     )
     jobs = [
         (
@@ -2834,7 +2834,7 @@ def main() -> int:
     for cap, _ in jobs:
         folder = os.path.dirname(os.path.abspath(cap))
         if folder not in folders:
-            folders[folder] = distinct_captures(glob.glob(os.path.join(folder, "*" + CAPTURE_SUFFIX)))
+            folders[folder] = folder_captures(folder, CAPTURE_SUFFIX)
         partners_of[cap] = battle_partners(cap, folders[folder])
     # ONE seat map for the run, the captures folder's (tools/capture_names.py folder_seats),
     # so a capture's letter is the same whether it is built alone, with --all, or by another

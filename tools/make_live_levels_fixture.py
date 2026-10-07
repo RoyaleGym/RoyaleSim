@@ -39,7 +39,6 @@ WHAT IT HOLDS
 from __future__ import annotations
 
 import csv
-import glob
 import gzip
 import json
 import os
@@ -48,7 +47,7 @@ from collections import Counter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from capture_names import argv_guard, distinct_captures, folder_seats, public_name  # noqa: E402
+from capture_names import argv_guard, folder_captures, folder_seats, public_name  # noqa: E402
 
 LIVE = os.environ.get("ROYALELIVE_REPORTS")
 SUFFIX = ".native.oracle.jsonl.gz"
@@ -147,7 +146,7 @@ def build() -> dict:
     cards = {c["name"]: c for c in doc["cards"]}
     seen: Counter = Counter()
     files = []
-    paths = distinct_captures(glob.glob(os.path.join(LIVE, "*" + SUFFIX)))
+    paths = folder_captures(LIVE, SUFFIX)
     seats = folder_seats(LIVE, SUFFIX)
     for f in paths:
         files.append(capture_name(os.path.basename(f), seats))
