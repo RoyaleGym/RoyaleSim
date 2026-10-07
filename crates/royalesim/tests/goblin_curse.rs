@@ -200,9 +200,10 @@ fn goblin_curse_loads_as_a_zero_fuse_over_its_curse_circle() {
     let pulsing_pair = format!("{},{}", damage("HexDamage", 14), damage("HexBurn", 20));
     let why = refusal(&synthetic(false, "", &pulsing_pair), "Hex").unwrap_err();
     assert!(why.contains("two buffs that pulse"), "two pulsing buffs: {why}");
+    // A mark without OtherBuffDeathSpawnAllowed loads (item 296): it takes the place of its carrier's own death spawn.
+    assert!(!ds.suppresses_own, "the Goblin Curse's mark sets OtherBuffDeathSpawnAllowed: its victim's own death spawn comes");
     let unallowed = format!("{},{}", mark(""), damage("HexDamage", 14));
-    let why = refusal(&synthetic(false, "", &unallowed), "Hex").unwrap_err();
-    assert!(why.contains("would be suppressed"), "a mark without OtherBuffDeathSpawnAllowed: {why}");
+    assert_eq!(refusal(&synthetic(false, "", &unallowed), "Hex"), Ok(()), "a mark without OtherBuffDeathSpawnAllowed loads");
 }
 
 // ---------------------------------------------------------------------------

@@ -305,13 +305,19 @@ pub enum SpellShape {
     /// tap, hitting (and/or releasing units) on its arrival tick. `waves` copies,
     /// wave i released i * `wave_interval_ms` later (spells_other ProjectileWaves /
     /// ProjectileWaveInterval; absent in the 2018 data, read as 1 and 0).
-    Projectile { speed: i32, hit: Option<SpellHit>, waves: i32, wave_interval_ms: i32, spawn: Option<SpawnDef> },
+    ///
+    /// `area` is the carrier's SpawnAreaEffectObject (the Goblin Party Rocket's GoblinMorphAOEFriend, on a carrier with no
+    /// Damage, units or roll): made on the aim on the landing tick, it acts from the next (spell.rs `step_spells`). A
+    /// one-shot area or a chain of them (`area_effect_shape_hits`). None on every other projectile.
+    Projectile { speed: i32, hit: Option<SpellHit>, waves: i32, wave_interval_ms: i32, spawn: Option<SpawnDef>, area: Option<Box<SpellShape>> },
     /// A one-shot area effect at the tap (HitSpeed blank), applied on its first
     /// update (calibration spells.ONE_SHOT_AREA_EFFECT_APPLICATION).
     AreaEffect { hit: SpellHit },
     /// A ONE-SHOT AREA THAT STRIKES AGAIN (the Evo Zap's Zap_EV1; `echo_area`): `hit` on its first update, as an
     /// `AreaEffect` applies it, and its OnStartingAction's one live area later, `then`: a `Fuse` made with it, whose
-    /// fuse is that action's SubActionsDelay and whose `then` is the second area, at the same point.
+    /// fuse is that action's SubActionsDelay and whose `then` is the second area, at the same point. A one-shot area
+    /// whose SpawnAreaEffectObject is a one-shot area (the Goblin Party Rocket's chain; `area_effect_shape_hits`) is one
+    /// too, over a zero fuse: the child is made on the parent's first update and acts on the next tick.
     Echo { hit: SpellHit, then: Box<SpellShape> },
     /// A PULSING area effect at the tap (HitSpeed set): it stands on the ground for
     /// LifeDuration and applies `hit` to everything inside it every `hit_speed_ms`,
@@ -802,7 +808,7 @@ fn centre_strike_shape(aeo: &RawAreaEffect) -> Result<(StrikeDef, UnitNeeds), St
         deploy_time_ms: p.spawn_character_deploy_time_ms,
         level_index: p.spawn_character_level_index,
     };
-    let delivery = SpellShape::Projectile { speed, hit: Some(delivery_hit), waves: 1, wave_interval_ms: 0, spawn: Some(spawn) };
+    let delivery = SpellShape::Projectile { speed, hit: Some(delivery_hit), waves: 1, wave_interval_ms: 0, spawn: Some(spawn), area: None };
     Ok((StrikeDef { hit, life_ms, gaps_ms, speed, pick: StrikePick::AreaCentre, delivery: Some(Box::new(delivery)), selector: None }, vec![(UnitUse::Spell, unit)]))
 }
 
@@ -1187,12 +1193,13 @@ impl SpellShape {
         }
     }
 
-    /// The next object of this shape's chain: what a `Fuse` releases, a pulsing area's child, or the object a
-    /// centre-aimed strike makes (`StrikeDef::delivery`).
+    /// The next object of this shape's chain: what a `Fuse` releases, a pulsing area's child, the object a
+    /// centre-aimed strike makes (`StrikeDef::delivery`), or the area a projectile's landing makes (`Projectile::area`).
     pub fn child(&self) -> Option<&SpellShape> {
         match self {
             SpellShape::Fuse { then, .. } | SpellShape::Echo { then, .. } => Some(then),
             SpellShape::PulsingAreaEffect { child, .. } => child.as_deref(),
+            SpellShape::Projectile { area, .. } => area.as_deref(),
             SpellShape::Strikes(d) => d.delivery.as_deref(),
             _ => None,
         }
@@ -1213,6 +1220,7 @@ impl SpellShape {
             SpellShape::ScheduledArea { schedule, .. } => Some(schedule),
             SpellShape::Fuse { then, .. } | SpellShape::Echo { then, .. } => then.schedule_mut(),
             SpellShape::PulsingAreaEffect { child: Some(c), .. } => c.schedule_mut(),
+            SpellShape::Projectile { area: Some(a), .. } => a.schedule_mut(),
             SpellShape::Strikes(d) => d.delivery.as_deref_mut().and_then(SpellShape::schedule_mut),
             _ => None,
         }
@@ -5830,7 +5838,7 @@ fn ghost_of(r: &RawGhost) -> Result<GhostDef, String> {
         pair: [PairUnit { unit: u16::MAX }; 2],
         strike_delay_ms: r.area_delay_ms.filter(|d| *d >= 0).ok_or("a ghost pair with no area delay")?
             + ghost_offset_lag(r.area_hit_speed_offset_ms),
-        strike: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None }, placement: SpellPlacement::Anywhere },
+        strike: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None, area: None }, placement: SpellPlacement::Anywhere },
     })
 }
 
@@ -6059,7 +6067,7 @@ fn barrage_of(b: &RawBarrage, buffs: &mut BuffTable) -> Result<BarrageDef, Strin
         .collect::<Result<Vec<_>, String>>()?;
     Ok(BarrageDef {
         bombs,
-        shot: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None }, placement: SpellPlacement::Anywhere },
+        shot: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None, area: None }, placement: SpellPlacement::Anywhere },
         crown_damage: b.buff_crown_tower_damage_per_hit.unwrap_or(0).max(0),
     })
 }
@@ -6984,16 +6992,15 @@ impl RawBuff {
 
 /// A buff row's death spawn (`BuffDeathSpawn`), its unit still unresolved (u16::MAX: `BuffTable::set_death_unit`
 /// fills it once the loader has loaded the unit), or the reason it is refused. Accepted: one unit (a blank
-/// DeathSpawnCount reads one, as a unit's does), with OtherBuffDeathSpawnAllowed set, so the carrier's own death spawn
-/// still happens beside it (the engine runs both, state.rs `phase_reap`).
+/// DeathSpawnCount reads one, as a unit's does). With OtherBuffDeathSpawnAllowed set the carrier's own death spawn
+/// still happens beside it (the engine runs both, state.rs `phase_reap`); with it blank (the Goblin Party Rocket's
+/// curses) this unit takes its place (`BuffDeathSpawn::suppresses_own`). Read off the row's name, not measured: none of
+/// the measured victims had a death spawn of its own.
 fn buff_death_spawn(ds: &RawBuffDeathSpawn, name: &str, what: &str) -> Result<BuffDeathSpawn, String> {
     let unit = ds.character.as_deref().filter(|c| !c.is_empty()).ok_or_else(|| format!("{what}: buff {name}: a death spawn with no DeathSpawn"))?;
     let count = ds.count.unwrap_or(1);
     if count != 1 {
         return Err(format!("{what}: buff {name}: a buff death spawn of {count} units ({unit}) has no measured layout; not simulated"));
-    }
-    if ds.other_buff_death_spawn_allowed != Some(true) {
-        return Err(format!("{what}: buff {name}: without OtherBuffDeathSpawnAllowed the carrier's own death spawn would be suppressed; not simulated"));
     }
     Ok(BuffDeathSpawn {
         unit: u16::MAX,
@@ -7001,6 +7008,7 @@ fn buff_death_spawn(ds: &RawBuffDeathSpawn, name: &str, what: &str) -> Result<Bu
         for_other_side: ds.is_enemy.unwrap_or(false),
         deploy_delay: ds.deploy_delay.unwrap_or(false),
         same_location: ds.same_location.unwrap_or(false),
+        suppresses_own: ds.other_buff_death_spawn_allowed != Some(true),
     })
 }
 
@@ -8353,6 +8361,10 @@ fn convert_idle_area_effect(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Lo
     Ok((shape, needs))
 }
 
+/// THE LONGEST CHAIN OF ONE-SHOT AREAS a one-shot area may start (`area_effect_shape_hits`), itself counted: the Goblin
+/// Party Rocket's three.
+const ONE_SHOT_CHAIN_AREAS: usize = 3;
+
 /// The shape of an area effect whose action graph the caller has accepted (`convert_area_effect`,
 /// `convert_deploy_area_effect`, `convert_spawn_area_effect`). An own-troop area (OnlyOwnTroops)
 /// is read from every caller: the filter is `SpellHit::only_own_troops`.
@@ -8476,13 +8488,33 @@ fn area_effect_shape_hits(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Load
         controls_buff: aeo.controls_buff.unwrap_or(false),
     };
     // THE CHILD (SpawnAreaEffectObject): a one-shot area with no child of its own, born on a PULSING
-    // parent's first update. A child on a one-shot parent, or a child of another shape, is refused.
+    // parent's first update. Under a ONE-SHOT parent (the Goblin Party Rocket's GoblinMorphAOEFriend -> GoblinMorphAOEFoe
+    // -> GoblinMorphAOEDamage): a one-shot area or a chain of them, at most ONE_SHOT_CHAIN_AREAS areas, made on the
+    // parent's first update and acting on the next tick (`SpellShape::Echo` over a zero `Fuse`). Measured on client
+    // 15.535.29 (sp-event-GoblinPartyRocket-s0): the chain's 9999 hit took its victims on the landing tick + 3, one tick
+    // a link after the landing made the first area. A child of another shape is refused.
+    let mut one_shot_child = None;
     let child = match &aeo.spawn_area_effect_object {
         None => None,
-        Some(cname) => {
-            if pulse_ms.is_none() {
-                return Err(format!("one-shot area effect {what} spawns area effect {cname}; not simulated"));
+        Some(cname) if pulse_ms.is_none() => {
+            let mut areas = 2;
+            let mut next = ctx.aeos.get(cname).and_then(|c| c.spawn_area_effect_object.clone());
+            while let Some(n) = next {
+                areas += 1;
+                if areas > ONE_SHOT_CHAIN_AREAS {
+                    return Err(format!("area effect {what}: a chain of more than {ONE_SHOT_CHAIN_AREAS} one-shot areas is not simulated"));
+                }
+                next = ctx.aeos.get(&n).and_then(|c| c.spawn_area_effect_object.clone());
             }
+            let c = ctx.aeos.get(cname).ok_or_else(|| format!("area effect {what} spawns {cname}, which has no area_effect_objects record"))?;
+            let (cs, _) = convert_area_effect(c, buffs, ctx).map_err(|e| format!("area effect {what} spawns {cname}: {e}"))?;
+            if !matches!(cs, SpellShape::AreaEffect { .. } | SpellShape::Echo { .. }) {
+                return Err(format!("one-shot area effect {what} spawns area effect {cname} whose shape is not a one-shot area; not simulated"));
+            }
+            one_shot_child = Some(cs);
+            None
+        }
+        Some(cname) => {
             let c = ctx.aeos.get(cname).ok_or_else(|| format!("area effect {what} spawns {cname}, which has no area_effect_objects record"))?;
             let (cs, _) = convert_area_effect(c, buffs, ctx).map_err(|e| format!("area effect {what} spawns {cname}: {e}"))?;
             if !matches!(cs, SpellShape::AreaEffect { .. }) {
@@ -8494,7 +8526,10 @@ fn area_effect_shape_hits(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Load
     let shape = match pulse_ms {
         None => {
             let _ = aeo.life_duration_ms; // one-shot: applied once whatever its life (see SpellShape)
-            SpellShape::AreaEffect { hit }
+            match one_shot_child {
+                None => SpellShape::AreaEffect { hit },
+                Some(cs) => SpellShape::Echo { hit, then: Box::new(SpellShape::Fuse { fuse_ms: 0, then: Box::new(cs) }) },
+            }
         }
         Some(hit_speed_ms) => {
             let life_ms = aeo
@@ -8618,8 +8653,8 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
         if let Some(roll) = &carrier.spawn_projectile {
             refuse_action_mechanic(&roll.action_graph, &format!("rolling projectile {}", roll.name.clone().unwrap_or_default()))?;
         }
-        if carrier.maximum_targets.is_some() || carrier.spawn_area_effect_object.is_some() {
-            return Err(format!("projectile {what} with a target cap or an area effect is not simulated"));
+        if carrier.maximum_targets.is_some() {
+            return Err(format!("projectile {what} with a target cap is not simulated"));
         }
         // TargetBuff + BuffTime (the Snowball's IceWizardSlowDown 3000 ms): the buff
         // rides the impact and lands on everything the splash lands on, under
@@ -8633,6 +8668,12 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
             }
         };
         let speed = carrier.speed.filter(|s| *s > 0).ok_or_else(|| format!("projectile {what} without speed"))?;
+        // An area the landing makes beside the carrier's own damage, units, buff or roll is a shape this loader does not read.
+        if carrier.spawn_area_effect_object.is_some()
+            && (carrier.damage.is_some() || carrier.spawn_character.is_some() || carrier.spawn_projectile.is_some() || target_buff.is_some())
+        {
+            return Err(format!("projectile {what} with an area effect beside its own damage, units, buff or roll is not simulated"));
+        }
         if let Some(roll) = carrier.spawn_projectile {
             let rname = roll.name.clone().unwrap_or_default();
             if !as_deploy {
@@ -8752,7 +8793,23 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                     })
                 }
             };
-            if hit.is_none() && spawn.is_none() {
+            // A LANDING THAT MAKES AN AREA (`SpellShape::Projectile::area`; the Goblin Party Rocket's GoblinMorphProjectile:
+            // SpawnAreaEffectObject GoblinMorphAOEFriend, no Damage, no Radius, no units). Measured on client 15.535.29
+            // (sp-event-GoblinPartyRocket-s0): the Rocket's flight, 350 a tick from the caster's king, gone on its landing
+            // tick T with nothing hit until its chain's last area took four victims on T + 3.
+            let area = match &carrier.spawn_area_effect_object {
+                None => None,
+                Some(aname) => {
+                    let a = ctx.aeos.get(aname).ok_or_else(|| format!("projectile {what} leaves {aname}, which has no area_effect_objects record"))?;
+                    let (shape, needs) = convert_area_effect(a, buffs, ctx).map_err(|e| format!("projectile {what} leaves {aname}: {e}"))?;
+                    if !matches!(shape, SpellShape::AreaEffect { .. } | SpellShape::Echo { .. }) {
+                        return Err(format!("projectile {what} leaves area effect {aname} whose shape is not a one-shot area; not simulated"));
+                    }
+                    units.extend(needs);
+                    Some(Box::new(shape))
+                }
+            };
+            if hit.is_none() && spawn.is_none() && area.is_none() {
                 return Err(format!("projectile {what} neither deals damage nor spawns units"));
             }
             let waves = spell.projectile_waves.unwrap_or(1);
@@ -8761,7 +8818,7 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
                 return Err(format!("ProjectileWaves {waves} / interval {wave_interval_ms} out of range"));
             }
             let spawns = spawn.is_some();
-            SpellDef { shape: SpellShape::Projectile { speed, hit, waves, wave_interval_ms, spawn }, placement: placement_for(spawns) }
+            SpellDef { shape: SpellShape::Projectile { speed, hit, waves, wave_interval_ms, spawn, area }, placement: placement_for(spawns) }
         }
     };
     def.spell = Some(shape);
@@ -9457,6 +9514,7 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
             waves: 1,
             wave_interval_ms: 0,
             spawn: None,
+            area: None,
         },
         // Unread: a bomb is never cast, so it is never placed. `Anywhere` is the
         // inert value; `state.rs check_position` only ever sees catalogue cards.
@@ -9539,7 +9597,7 @@ fn convert_death_projectile(p: &RawSpellProjectile, buffs: &mut BuffTable) -> Re
     if hit.is_none() && spawn.is_none() {
         return Err(format!("death projectile {what} neither deals damage nor releases a unit"));
     }
-    let shape = SpellShape::Projectile { speed: p.speed.unwrap_or(0), hit, waves: 1, wave_interval_ms: 0, spawn };
+    let shape = SpellShape::Projectile { speed: p.speed.unwrap_or(0), hit, waves: 1, wave_interval_ms: 0, spawn, area: None };
     // Unread, as a death bomb's: a death is not a cast and has no tap to validate.
     Ok((SpellDef { shape, placement: SpellPlacement::Anywhere }, units))
 }
@@ -10388,6 +10446,7 @@ fn convert_deploy_projectile(v: serde_json::Value) -> Result<SpellDef, String> {
             waves: 1,
             wave_interval_ms: 0,
             spawn: None,
+            area: None,
         },
         // Unread: a deploy blow is never cast, so it is never placed.
         placement: SpellPlacement::Anywhere,
@@ -14843,7 +14902,7 @@ mod tests {
 
         let fb = card("Fireball");
         match spell("Fireball") {
-            SpellDef { shape: SpellShape::Projectile { speed, hit: Some(h), waves: 1, wave_interval_ms: 0, spawn: None }, placement: SpellPlacement::Anywhere } => {
+            SpellDef { shape: SpellShape::Projectile { speed, hit: Some(h), waves: 1, wave_interval_ms: 0, spawn: None, area: None }, placement: SpellPlacement::Anywhere } => {
                 assert_eq!(speed, int(&fb["projectile"]["speed"]));
                 assert_eq!(h.damage, int(&fb["projectile"]["damage"]));
                 assert_eq!(h.radius, milli(int(&fb["projectile"]["radius_milli"])));
@@ -14864,7 +14923,7 @@ mod tests {
         let want_interval = ar["spell"]["projectile_wave_interval_ms"].as_i64().map_or(0, |w| w as i32);
         let want_disc = if ar["spell"]["multiple_projectiles"].as_i64().unwrap_or(1) > 1 { int(&ar["spell"]["radius_milli"]) } else { int(&carrier["radius_milli"]) };
         match spell("Arrows") {
-            SpellDef { shape: SpellShape::Projectile { speed, hit: Some(h), waves, wave_interval_ms, spawn: None }, placement: SpellPlacement::Anywhere } => {
+            SpellDef { shape: SpellShape::Projectile { speed, hit: Some(h), waves, wave_interval_ms, spawn: None, area: None }, placement: SpellPlacement::Anywhere } => {
                 assert_eq!(speed, int(&carrier["speed"]));
                 assert_eq!(h.damage, int(&carrier["damage"]));
                 assert_eq!(h.radius, milli(want_disc));

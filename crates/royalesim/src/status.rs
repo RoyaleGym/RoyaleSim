@@ -202,6 +202,11 @@ pub struct BuffDeathSpawn {
     pub deploy_delay: bool,
     /// DeathSpawnSameLocation: the unit stands on the dead unit's point (status.BUFF_DEATH_SPAWN_POINT).
     pub same_location: bool,
+    /// OtherBuffDeathSpawnAllowed blank (the Goblin Party Rocket's curses): this unit takes the place of the carrier's own
+    /// death spawn, which does not come (state.rs `phase_reap`). False on a row that sets it (the Goblin Curse's mark,
+    /// the VoodooCurse), whose carrier's own death spawn comes beside it.
+    #[serde(default)]
+    pub suppresses_own: bool,
 }
 
 impl BuffDef {

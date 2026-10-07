@@ -150,7 +150,7 @@ fn shipped() -> Vec<(&'static str, CardDb)> {
 /// Every buff a shape's chain hangs, field by field (`buff`, then `buff2`, then the next object's), each once.
 fn shape_buffs(shape: &SpellShape, out: &mut Vec<u16>) {
     let (hit, next) = match shape {
-        SpellShape::Projectile { hit, .. } => (hit.as_ref(), None),
+        SpellShape::Projectile { hit, area, .. } => (hit.as_ref(), area.as_deref()),
         SpellShape::AreaEffect { hit } => (Some(hit), None),
         SpellShape::PulsingAreaEffect { hit, child, .. } => (Some(hit), child.as_deref()),
         SpellShape::Rolling { hit, .. } => (Some(hit), None),

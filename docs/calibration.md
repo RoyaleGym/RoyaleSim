@@ -94,7 +94,7 @@ ledger disagree, because these figures went stale twice in one afternoon before 
   another and carries its own `measured` status, so counting every status in the file gives 504
   and 391 measured. The tools agree on 503 by convention, and the convention undercounts by one. 444 name the rivals the
   value was chosen against and 458 state what would move it, and 437 do both. The gap is mostly
-  the 30 `datamined` keys, where the number was read out of a shipped table and no choice was
+  the 29 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 26 of
   the 390 `measured` entries name no rival at all, and 13 of those state no promotion criterion

@@ -4224,6 +4224,17 @@
       "promotion_rules": "Settled for the two rows loaded. A row without DeathSpawnDeployDelay, if one loads.",
       "engine": "state.rs phase_reap (the buff death-spawn loop)"
     },
+    "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY": {
+      "value": "zero",
+      "candidates": ["zero", "client15535_unit_deploy_time"],
+      "status": "measured",
+      "confidence": "LOW for client15535_unit_deploy_time on client 15.535.29: one cast, and the goblins are not in the capture's entity list; their walk is read off a tower's target pointer. A DeployTime + DeployDelay reading (28 ticks) fits only if the goblin stands on the victim's own point. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's raw frames (r57_event_census.py, sp-event-GoblinPartyRocket-s0, level 11): the four victims were gone on t294; side 1's right princess (gk 5000005) first took a goblin it could not see in the entity list on t334, 8906 from its centre, and dropped each of four after exactly two shots (t349 + t365, t381 + t397, t413 + t429, t445 + t461), the tower taking 119 per goblin hit (GoblinParty's 99 at level 11). From the nearest victim's point one radius-sum toward the victim's forward (status.BUFF_DEATH_SPAWN_POINT) the walk to that reach is about 19 ticks at ~120 per tick: a wait of about 21 ticks, GoblinParty's DeployTime 1000 (20 ticks). A zero deploy puts the first take near t305-t314.",
+      "meaning": "zero: the engine's; a buff death spawn whose row leaves DeathSpawnDeployDelay blank acts on the tick it appears (no deploy). client15535_unit_deploy_time: it deploys its unit's own DeployTime, as a row that sets DeathSpawnDeployDelay does under status.BUFF_DEATH_SPAWN_DEPLOY_TIME = unit_deploy_time.",
+      "open": "DeployTime against DeployTime + DeployDelay (20 against 28 ticks), which one cast does not separate; the release point; 16.402.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_unit_deploy_time (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_reap (the buff death spawn loop), selected by Calib::buff_death_spawn_undelayed; tests/goblin_party_rocket.rs."
+    },
     "BUFF_DEATH_SPAWN_LEVEL": {
       "value": "source_level",
       "candidates": ["source_level", "victim_level"],

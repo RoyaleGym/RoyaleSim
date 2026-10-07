@@ -1163,6 +1163,10 @@ pub struct Calib {
     /// what her windup does. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `AheadBelowMin`.
     #[serde(default = "snipe_lock_release_default")]
     pub snipe_lock_release: SnipeLockRelease,
+    /// status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY (`phase_reap`): how long a buff's death spawn deploys on a row that
+    /// leaves DeathSpawnDeployDelay blank. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Zero`.
+    #[serde(default = "buff_death_spawn_undelayed_default")]
+    pub buff_death_spawn_undelayed: BuffDeathSpawnUndelayed,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2913,6 +2917,10 @@ fn capture_route_default() -> CaptureRoute {
 
 fn snipe_lock_release_default() -> SnipeLockRelease {
     SnipeLockRelease::AheadBelowMin
+}
+
+fn buff_death_spawn_undelayed_default() -> BuffDeathSpawnUndelayed {
+    BuffDeathSpawnUndelayed::Zero
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7128,6 +7136,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY -- see `phase_reap`: a buff death spawn whose row leaves DeathSpawnDeployDelay
+    /// blank (the Goblin Party Rocket's curses).
+    BuffDeathSpawnUndelayed {
+        /// The engine's: it acts on the tick it appears.
+        Zero = "zero",
+        /// The unit's own DeployTime. Measured on client 15.535.29 (sp-event-GoblinPartyRocket-s0): the first GoblinParty
+        /// came into a tower's reach 40 ticks after its release, a walk of about 19; a zero deploy puts it there 20 or more
+        /// ticks early.
+        Client15535UnitDeployTime = "client15535_unit_deploy_time",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9151,6 +9171,7 @@ impl Calib {
             doomed_drop_spear_members: pick(&v, &["targeting", "DOOMED_DROP_SPEAR_MEMBERS", "value"], DoomedDropSpearMembers::from_calibration_name)?,
             capture_route: pick(&v, &["spells", "CAPTURE_ROUTE", "value"], CaptureRoute::from_calibration_name)?,
             snipe_lock_release: pick(&v, &["targeting", "SNIPE_LOCK_RELEASE", "value"], SnipeLockRelease::from_calibration_name)?,
+            buff_death_spawn_undelayed: pick(&v, &["status", "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "value"], BuffDeathSpawnUndelayed::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -27210,6 +27231,14 @@ impl BattleState {
         }
     }
 
+    /// Does a live buff on entity `i` take the place of its own death spawn (status.rs `BuffDeathSpawn::suppresses_own`)?
+    fn own_death_spawn_suppressed(&self, i: usize) -> bool {
+        let a = i * crate::status::MAX_BUFFS_PER_ENTITY;
+        self.ents.buffs[a..a + crate::status::MAX_BUFFS_PER_ENTITY]
+            .iter()
+            .any(|slot| !slot.is_empty() && self.cfg.cards.buffs.get(slot.id as usize - 1).and_then(|d| d.death_spawn).is_some_and(|ds| ds.suppresses_own))
+    }
+
     fn phase_reap(&mut self) {
         // spawner.SOUL_POINT_BASE = client15535_post_move: the Skeleton Kings' areas, after the tick's move (`soul_pass`).
         if self.soul_after_move() && !self.warps.soul_runs.is_empty() {
@@ -27257,6 +27286,15 @@ impl BattleState {
                 let i = id.index as usize;
                 let card = self.cfg.cards.get(self.ents.card[i]);
                 let Some(ds) = card.death_spawn else { continue };
+                // A BUFF THAT TAKES THE PLACE OF ITS CARRIER'S OWN DEATH SPAWN (status.rs `BuffDeathSpawn::suppresses_own`: a
+                // row that leaves OtherBuffDeathSpawnAllowed blank, the Goblin Party Rocket's curses): none of it comes.
+                #[cfg(not(clash_plant = "own_death_spawn_kept"))]
+                let suppressed = self.own_death_spawn_suppressed(i);
+                #[cfg(clash_plant = "own_death_spawn_kept")]
+                let suppressed = self.own_death_spawn_suppressed(i) && false; // PLANT: the carrier's own death spawn comes anyway.
+                if suppressed {
+                    continue;
+                }
                 let unit = self.cfg.cards.get(ds.unit);
                 let level = self.cfg.cards.death_spawn_level(self.ents.card[i], self.ents.level[i]).expect("death spawn level validated at deploy");
                 // A DEATH BOMB (card.rs `convert_death_bomb`: the Balloon's, the Giant
@@ -27510,13 +27548,15 @@ impl BattleState {
                 }
             }
             // THE DEATH SPAWN OF A BUFF THE DYING UNIT CARRIES (status.rs `BuffDeathSpawn`: the Mother Witch's VoodooCurse
-            // leaves a VoodooHog, the Goblin Curse's mark a GoblinCurseGoblin), beside the unit's own death spawn above,
-            // which still happens (the loader reads only rows that allow it). One unit per live slot whose buff has one:
+            // leaves a VoodooHog, the Goblin Curse's mark a GoblinCurseGoblin, the Goblin Party Rocket's curses a
+            // GoblinParty), beside the unit's own death spawn above, which still happens unless the buff's row leaves
+            // OtherBuffDeathSpawnAllowed blank (`BuffDeathSpawn::suppresses_own`). One unit per live slot whose buff has one:
             //   - for the side opposite the dead unit's when the row sets DeathSpawnIsEnemy (the caster's), else its own;
             //   - at the level status.BUFF_DEATH_SPAWN_LEVEL names (the slot's source level, or the dead unit's), skipped
             //     when the unit has no such level;
             //   - deploying its own DeployTime when the row sets DeathSpawnDeployDelay, under
-            //     status.BUFF_DEATH_SPAWN_DEPLOY_TIME = unit_deploy_time; else acting at once;
+            //     status.BUFF_DEATH_SPAWN_DEPLOY_TIME = unit_deploy_time, and when it leaves it blank, under
+            //     status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY = client15535_unit_deploy_time; else acting at once;
             //   - where status.BUFF_DEATH_SPAWN_POINT says, clamped to the arena and, for a ground unit, put on land;
             //   - an ordinary target from its first tick (measured on client 15.535.29: the towers target a curse goblin
             //     from the tick after it appears, where a unit's own death spawn waits out targeting.SPAWNED_UNIT_
@@ -27545,8 +27585,13 @@ impl BattleState {
                         continue;
                     }
                     let unit = self.cfg.cards.get(ds.unit);
-                    let deploy_ms = match (ds.deploy_delay, self.cfg.calib.buff_death_spawn_deploy) {
-                        (true, BuffDeathSpawnDeploy::UnitDeployTime) => Some(unit.deploy_time_ms),
+                    #[cfg(not(clash_plant = "party_goblin_deploys_at_once"))]
+                    let undelayed = self.cfg.calib.buff_death_spawn_undelayed;
+                    #[cfg(clash_plant = "party_goblin_deploys_at_once")]
+                    let undelayed = BuffDeathSpawnUndelayed::Zero; // PLANT: a blank DeathSpawnDeployDelay acts at once, whatever the key.
+                    let deploy_ms = match (ds.deploy_delay, self.cfg.calib.buff_death_spawn_deploy, undelayed) {
+                        (true, BuffDeathSpawnDeploy::UnitDeployTime, _) => Some(unit.deploy_time_ms),
+                        (false, _, BuffDeathSpawnUndelayed::Client15535UnitDeployTime) => Some(unit.deploy_time_ms),
                         _ => Some(0),
                     };
                     let pos = self.ents.pos[i];
@@ -33292,6 +33337,9 @@ impl BattleState {
 /// 20, unchanged, targeting.SNIPE_LOCK_RELEASE: Calib gained snipe_lock_release (serde default the old arm,
 ///    ahead_below_min), no new state (read each pass), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY: Calib gained buff_death_spawn_undelayed (serde default the
+///    old arm, zero), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, the Super Witch (card.rs `SpawnerDef::unit2`): Entities gained spawn_waves (`default`, sized on load at
 ///    0), hashed only on a spawner with a second unit, so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.EVO_CHAIN_HOP_FIRST_STEP gained client15535_shot_plus_two, no new state (EvoHop already
@@ -34379,6 +34427,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("capture_route".into(), serde_json::to_value(CaptureRoute::Kept).map_err(|e| e.to_string())?);
     // targeting.SNIPE_LOCK_RELEASE: a format-3 battle's Evo Musketeer let her snipe target go below SnipeMinRange (the same rule).
     sh.insert("snipe_lock_release".into(), serde_json::to_value(SnipeLockRelease::AheadBelowMin).map_err(|e| e.to_string())?);
+    // status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY: a format-3 battle had no buff death spawn with a blank DeathSpawnDeployDelay (the same rule).
+    sh.insert("buff_death_spawn_undelayed".into(), serde_json::to_value(BuffDeathSpawnUndelayed::Zero).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).

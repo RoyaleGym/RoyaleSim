@@ -1820,7 +1820,7 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
         let def = ctx.cards.get(s.card);
         let Some(shape) = shape_of(def).and_then(|d| shape_at(&d.shape, s.depth)) else { return false };
         match (&mut s.motion, shape) {
-            (SpellMotion::Flight { pos, aim, frac, delay_ms }, SpellShape::Projectile { speed, hit, spawn, .. }) => {
+            (SpellMotion::Flight { pos, aim, frac, delay_ms }, SpellShape::Projectile { speed, hit, spawn, area, .. }) => {
                 // A CONTAINER (a death bomb that carries a death spawn: card.rs `Hitpointless::BombWithDeathSpawn`, the
                 // Skeleton Barrel's) releases its units when its fuse ends (`FuseEnd`), and its hit and its units
                 // come on the ticks spawner.DEATH_BOMB_SPAWN_TIMING names. A plain bomb and every other flight keep
@@ -1913,6 +1913,17 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 if let Some(sp) = released {
                     release_units(ctx, s.team, s.card, s.level, sp, *aim, &mut out.released);
                 }
+                // A LANDING THAT MAKES AN AREA (card.rs `SpellShape::Projectile::area`, the Goblin Party Rocket): made on the
+                // aim on the landing tick, it acts from the next tick, as what a fuse releases does. Level validated when the
+                // cast was accepted.
+                #[cfg(not(clash_plant = "party_rocket_lands_nothing"))]
+                if let Some(a) = area {
+                    if let Ok(v) = objects_for(ctx.cards, ctx.calib, None, s.team, s.card, s.level, s.depth + 1, a, *aim, ctx.tick) {
+                        out.born.extend(v);
+                    }
+                }
+                #[cfg(clash_plant = "party_rocket_lands_nothing")]
+                let _ = area; // PLANT: the landing makes nothing.
                 false
             }
             // THE EVO GIANT SNOWBALL'S FLIGHT: as a projectile spell's (combat.PROJECTILE_STEP); on the tick it arrives the
