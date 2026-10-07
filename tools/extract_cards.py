@@ -5803,7 +5803,7 @@ def ghost_block(t: Tables, card: dict) -> dict:
     need(cr["Name"] == "Ghost" and inv is not None and inv["ClassType"] == "ActionSpawn"
          and inv["SpawnType"] == "BuffType" and inv["SpawnData"] == "Invisibility" and inv["SpawnTime"] == 999999,
          f"ClonedVersion {clone} is not a Ghost row that hangs the Invisibility for good")
-    return {
+    out = {
         "distance_milli": a["SummonDistance"],
         "left": sp["LeftSummonType"],
         "right": sp["RightSummonType"],
@@ -5812,6 +5812,12 @@ def ghost_block(t: Tables, card: dict) -> dict:
         "area_damage": hit["Damage"],
         "clone": clone,
     }
+    # 16.402: the damage area's 150 is a HitSpeedOffset with no HitSpeed (pinned above): its one hit comes an update
+    # later than 15.535's HitSpeed 150 (option B request 2: the hit + 7 where 15.535 measured + 6). Written only where
+    # the row carries it, so the 15.535 table stays as it was.
+    if new:
+        out["area_hit_speed_offset_ms"] = hit["HitSpeedOffset"]
+    return out
 
 
 def army_block(t: Tables, card: dict, s: dict) -> dict:

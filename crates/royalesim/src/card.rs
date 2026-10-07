@@ -5637,6 +5637,26 @@ struct RawGhost {
     area_radius_milli: Option<i32>,
     area_damage: Option<i32>,
     clone: Option<String>,
+    /// 16.402 on: the damage area's HitSpeedOffset (150, with no HitSpeed), absent on 15.535 (HitSpeed 150). Its one
+    /// hit comes an update later (`GHOST_OFFSET_HIT_LAG_MS`).
+    area_hit_speed_offset_ms: Option<i32>,
+}
+
+/// THE 16.402 EVO ROYAL GHOST'S LATER HIT: a damage area whose 150 is a HitSpeedOffset with no HitSpeed hits one update
+/// (50 ms) later than the 15.535 area of HitSpeed 150, so its strike delay (`GhostDef::strike_delay_ms`) gains a tick.
+/// Measured (option B request 2, Parity on Live's 2026-10-06 captures): the hit's tick + 7 where 15.535.29 gave + 6.
+const GHOST_OFFSET_HIT_LAG_MS: i32 = 50;
+
+/// `GHOST_OFFSET_HIT_LAG_MS` when the area carries a HitSpeedOffset, else 0.
+fn ghost_offset_lag(offset_ms: Option<i32>) -> i32 {
+    #[cfg(not(clash_plant = "ghost_offset_lag_unread"))]
+    return if offset_ms.is_some_and(|o| o > 0) { GHOST_OFFSET_HIT_LAG_MS } else { 0 };
+    // PLANT (tests/evo_royal_ghost.rs): the 16.402 area strikes on the 15.535 tick.
+    #[cfg(clash_plant = "ghost_offset_lag_unread")]
+    {
+        let _ = offset_ms;
+        0
+    }
 }
 
 /// THE PAIR'S DEF with its units' indices left at u16::MAX: `load_evolution` writes them once they load.
@@ -5662,7 +5682,8 @@ fn ghost_of(r: &RawGhost) -> Result<GhostDef, String> {
     Ok(GhostDef {
         distance: need(r.distance_milli, "distance")?,
         pair: [PairUnit { unit: u16::MAX }; 2],
-        strike_delay_ms: r.area_delay_ms.filter(|d| *d >= 0).ok_or("a ghost pair with no area delay")?,
+        strike_delay_ms: r.area_delay_ms.filter(|d| *d >= 0).ok_or("a ghost pair with no area delay")?
+            + ghost_offset_lag(r.area_hit_speed_offset_ms),
         strike: SpellDef { shape: SpellShape::Projectile { speed: 1, hit: Some(hit), waves: 1, wave_interval_ms: 0, spawn: None }, placement: SpellPlacement::Anywhere },
     })
 }

@@ -16,7 +16,8 @@
 //!   - ghost_pair_never -> `a_hit_while_hidden_puts_the_pair_down_on_the_next_tick` red;
 //!   - ghost_pair_every_hit -> `its_next_hits_make_none_until_it_has_hidden_again` red;
 //!   - ghost_strike_dropped -> `its_blow_strikes_what_it_hit_once_on_the_hits_tick_plus_6` red;
-//!   - pair_starts_hidden -> `the_pair_starts_visible` red.
+//!   - pair_starts_hidden -> `the_pair_starts_visible` red;
+//!   - ghost_offset_lag_unread -> `the_16402_area_strikes_on_the_hits_tick_plus_7` red (the 16.402 area at + 6).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -39,7 +40,11 @@ fn level11(mut cfg: BattleConfig) -> BattleConfig {
 }
 
 fn battle() -> BattleState {
-    let mut cfg = config();
+    battle_on(config())
+}
+
+/// `battle` on the card table `cfg` carries.
+fn battle_on(mut cfg: BattleConfig) -> BattleState {
     cfg.decks = [vec!["Ghost".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     let mut s = BattleState::new(7, level11(cfg));
@@ -59,7 +64,12 @@ struct Frame {
 /// The form at GHOST against the red tower at TOWER for `frames` frames; after its `after`-th hit it is held `ticks`
 /// ticks away out of reach, (3261, 17000), then put back.
 fn scene(frames: u32, away: Option<(usize, u32)>) -> Vec<Frame> {
-    let mut s = battle();
+    scene_on(config(), frames, away)
+}
+
+/// `scene` on the card table `cfg` carries.
+fn scene_on(cfg: BattleConfig, frames: u32, away: Option<(usize, u32)>) -> Vec<Frame> {
+    let mut s = battle_on(cfg);
     s.spawn_unit_resolved(Team::Blue, "Ghost_EV1", n(GHOST.0, GHOST.1), None).expect("the form");
     s.tick();
     let ghost = find_live(&s, Team::Blue, "Ghost_EV1")[0].id;
@@ -151,4 +161,22 @@ fn its_next_hits_make_none_until_it_has_hidden_again() {
     assert!(hits[2] - hits[1] > 45, "its third past its idle window: {hits:?}");
     let pairs_after = |k: usize| f[k + 1].pair.iter().filter(|x| !f[k].pair.iter().any(|y| y.0 == x.0)).count();
     assert_eq!((pairs_after(hits[0]), pairs_after(hits[1]), pairs_after(hits[2])), (2, 0, 2), "a pair on the first and the third hits");
+}
+
+/// Plant: ghost_offset_lag_unread.
+#[test]
+fn the_16402_area_strikes_on_the_hits_tick_plus_7() {
+    // The 16.402 table's damage area: its 150 a HitSpeedOffset with no HitSpeed (tools/extract_cards.py `ghost_block`'s
+    // area_hit_speed_offset_ms), edited onto the shipped row. Measured (option B request 2, Parity on Live's 2026-10-06
+    // captures): the blow on the hit + 7 where client 15.535.29 gave + 6.
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).expect("cards.json");
+    let mut v: serde_json::Value = serde_json::from_str(&text).expect("cards.json parses");
+    let form = v["evolutions"].as_array_mut().expect("evolutions").iter_mut().find(|e| e["name"] == "Ghost_EV1").expect("Ghost_EV1");
+    assert!(form["evo_ghost"].get("area_hit_speed_offset_ms").is_none(), "the 15.535 table carries no offset");
+    form["evo_ghost"]["area_hit_speed_offset_ms"] = serde_json::Value::from(150);
+    let db = royalesim::card::CardDb::from_json_str(&v.to_string(), royalesim::card::CardSource::DerivedJson).expect("the edited table loads");
+    let f = scene_on(BattleConfig::with_cards(db), 80, None);
+    let h = f.iter().position(|x| x.fired).expect("the form hits the tower");
+    let drops: Vec<i32> = (h + 1..h + 12).map(|k| f[k - 1].tower - f[k].tower).collect();
+    assert_eq!(drops, vec![0, 0, 0, 0, 0, 0, 81, 0, 0, 0, 0], "from the hit + 1: the blow alone, 81, on the hit + 7");
 }
