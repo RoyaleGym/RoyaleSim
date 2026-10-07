@@ -1162,7 +1162,10 @@ impl Arena {
         let row = (forward_y - 1).div_euclid(self.cell);
         let refused = match territory {
             Territory::OwnHalf => row >= water_lo,
-            Territory::EnemyTowerRects { open_bridge } => !open_bridge && row >= water_lo && row <= water_hi,
+            // The band stays closed here under both troop arms: a box has no enemy rects to judge a bridge by (a standing
+            // princess's rect is what keeps her bridge closed), so a relocated troop tap (state.rs `ring_nearest_fit`) is
+            // never moved onto a bridge. A tap on a fallen lane's bridge is judged by `deploy_zone`, which has them.
+            Territory::EnemyTowerRects { .. } => row >= water_lo && row <= water_hi,
             Territory::Anywhere | Territory::AnywhereButWater => false,
         };
         if refused {
