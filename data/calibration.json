@@ -4618,6 +4618,20 @@
       "promotion_rules": "The test file passes. The flip moves every scene where a Phoenix or a Goblin Party Hut dies, so replay reports can move; register the prediction before the flip. It also gives the Goblin Demolisher its blast, which it lacks under none. replay_parity runs a client 15.535.29 capture at client_projectile (examples/replay_parity/harness.rs CLIENT15535_ARMS, 2026-10-07, item 304); the 16.402 lane keeps none. Before it no death projectile fired on the 15.535 lane: sp-event-SuperLavaHound-s0 alone, hp exact 1,410 -> 1,682 of 1,682 (the two fire walls on the red Musketeer, 614, and the hops on the princess tower).",
       "engine": "tools/extract_cards.py (read the character's DeathSpawnProjectile, its damage and radius, and its SpawnCharacter), card.rs (the card row's death projectile, and a spawned unit's that only deals damage: the Goblin Demolisher's kamikaze form) and the death path in state.rs (the area damage and the spawn on the second tick after the last one)"
     },
+    "BARREL_DROP_POINT": {
+      "value": "status_phase",
+      "candidates": [
+            "status_phase",
+            "client15535_after_move"
+      ],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_after_move on client 15.535.29: one health-line drop, 7 of 7 Skeletons. 16.402 unread.",
+      "provenance": "MEASURED by parity (2026-10-07) on client 15.535.29's sp-form-SkeletonBalloon-evo-s0 (level 11) against the r58 stack's engine trace: the evolved barrel's hitpoints went 665 -> 448 (under 75 %) on t974 and its first seven Skeletons appeared on t987 in both; on t987 each of the seven stood 89 further along y in the client than in the engine (x within 2), 89 being the barrel's step a tick, flying +y, while its own points matched the client's to the unit. The engine made the drop when its Status phase of t975 saw the line, from the barrel's point before that tick's step; the client's is the point after it. The death drop (t1045) matched under both, so the rule is the health-line drop's.",
+      "meaning": "status_phase: the engine's; the health-line drop falls from the barrel's point when the Status phase sees it at or below the line, before its step that tick. client15535_after_move: from its point after that step (the drop made in the Status phase and placed at the Projectile phase's start, after the move), the fuse unchanged.",
+      "open": "One drop. A barrel that does not move on the drop's tick (diving, held) puts both arms on one point.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_after_move (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs barrel_pass and barrel_settle, selected by Calib::barrel_drop_point; tests/evo_skeleton_barrel.rs."
+    },
     "DEATH_PROJECTILE_COPIES": {
       "value": "one",
       "candidates": ["one", "client15535_per_death_spawn_member"],

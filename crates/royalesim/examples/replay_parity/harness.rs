@@ -1658,6 +1658,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   spawner.DEATH_SPAWN_PROJECTILE = client_projectile: a death whose row carries a DeathSpawnProjectile leaves it on the
 ///   death point, acting on the second tick after the unit's last (the Phoenix in 3 scenarios, the Goblin Demolisher in
 ///   5); none fired on this lane before, the Super Lava Hound's fire walls included.
+///   spawner.BARREL_DROP_POINT = client15535_after_move: the Evo Skeleton Barrel's health-line drop falls from its point
+///   after that tick's step (7 of 7 Skeletons of the one such drop).
 ///   spawner.EVO_COPY_POINT = client15535_ahead_outward_behind_clamped: an Evo Skeletons copy point past the last
 ///   row's centre is clamped to it (4 of 4).
 ///   knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: the Monk's third hit pushes a walking victim from its
@@ -1823,6 +1825,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "\"client15535_unit_deploy_time\""),
     ("spawner.DEATH_PROJECTILE_COPIES", "\"client15535_per_death_spawn_member\""),
     ("spawner.DEATH_SPAWN_PROJECTILE", "\"client_projectile\""),
+    ("spawner.BARREL_DROP_POINT", "\"client15535_after_move\""),
     ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind_clamped\""),
     ("movement.DEATH_BOMB_AVOIDANCE", "\"client15535_static_blocker\""),
     ("combat.RAMP_GRACE_MOVE", "\"client15535_own_walk\""),

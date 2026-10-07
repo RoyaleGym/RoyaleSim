@@ -1171,6 +1171,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `One`.
     #[serde(default = "death_projectile_copies_default")]
     pub death_projectile_copies: DeathProjectileCopies,
+    /// spawner.BARREL_DROP_POINT (`barrel_pass`, `barrel_settle`): where the Evo Skeleton Barrel's health-line drop falls
+    /// from. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `StatusPhase`.
+    #[serde(default = "barrel_drop_point_default")]
+    pub barrel_drop_point: BarrelDropPoint,
     /// combat.DASH_CHAIN_AIM (`phase_path16402_for`, the chain dash; `ChainRun::aim`): the point a dash chain's dash
     /// steps toward. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `TargetCentre`.
     #[serde(default = "dash_chain_aim_default")]
@@ -2929,6 +2933,10 @@ fn buff_death_spawn_undelayed_default() -> BuffDeathSpawnUndelayed {
 
 fn death_projectile_copies_default() -> DeathProjectileCopies {
     DeathProjectileCopies::One
+}
+
+fn barrel_drop_point_default() -> BarrelDropPoint {
+    BarrelDropPoint::StatusPhase
 }
 
 fn dash_chain_aim_default() -> DashChainAim {
@@ -7176,6 +7184,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.BARREL_DROP_POINT -- see `barrel_pass`: the point the Evo Skeleton Barrel's health-line drop falls from.
+    BarrelDropPoint {
+        /// The engine's: the barrel's point when the Status phase sees it at or below the line, before its step that tick.
+        StatusPhase = "status_phase",
+        /// Its point after that tick's step (`barrel_settle`, at the Projectile phase's start); the fuse and its tick are the
+        /// same. Measured on client 15.535.29 (sp-form-SkeletonBalloon-evo-s0): the barrel's 665 -> 448 on t974 and its
+        /// first seven Skeletons on t987 under both, each of the seven 89 further along y in the client (the barrel's step
+        /// a tick, flying +y), x within 2.
+        Client15535AfterMove = "client15535_after_move",
+    }
+);
+calib_enum!(
     /// targeting.SCAN_REACH -- see target.rs `scan_with`: the centre radius of a sight scan's broad phase
     /// (`SpatialHash::neighbours_within`), inside which the narrow test (`in_attack_range` at `sight_toward`: SightRange,
     /// plus EXTRA_SIGHT_RANGE_TO_CROWN_TOWERS toward a crown tower, plus both radii) picks the candidates.
@@ -9201,6 +9221,7 @@ impl Calib {
             snipe_lock_release: pick(&v, &["targeting", "SNIPE_LOCK_RELEASE", "value"], SnipeLockRelease::from_calibration_name)?,
             buff_death_spawn_undelayed: pick(&v, &["status", "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "value"], BuffDeathSpawnUndelayed::from_calibration_name)?,
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
+            barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
             dash_chain_aim: pick(&v, &["combat", "DASH_CHAIN_AIM", "value"], DashChainAim::from_calibration_name)?,
             kamikaze_launch_pass: pick(&v, &["combat", "KAMIKAZE_LAUNCH_PASS", "value"], KamikazeLaunchPass::from_calibration_name)?,
             straight_shot_building_reach: pick(&v, &["combat", "STRAIGHT_SHOT_BUILDING_REACH", "value"], StraightShotBuildingReach::from_calibration_name)?,
@@ -11371,6 +11392,9 @@ pub const SCHEDULED_EDGE_MARGIN: i32 = 250;
 
 #[derive(Default, Clone, Debug)]
 struct Scratch {
+    /// spawner.BARREL_DROP_POINT = client15535_after_move: the Evo Skeleton Barrels' drops `barrel_pass` made this tick,
+    /// with their offset from the barrel, placed on its point after the move (`barrel_settle`). Empty between ticks.
+    barrel_pending: Vec<(EntityId, Vec2, Spell)>,
     /// movement.CHAIN_LANDED_BODY: the champions whose dash chain `chain_pass` ended on this tick, read by this tick's move
     /// pass (`collidable`). Rebuilt every tick.
     chain_ended: Vec<EntityId>,
@@ -18458,8 +18482,20 @@ impl BattleState {
             let damage = self.cfg.cards.scaled(b.extra.unit, level, unit.death_damage).expect("the drop's level validated at deploy");
             let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
             let fwd = spell::forward_dy(team);
-            let at = Vec2::new(pos.x + fwd * b.extra_offset_x, pos.y + fwd * b.extra_offset_y);
-            made.push(Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick }, depth: 0, flown: 0 });
+            let offset = Vec2::new(fwd * b.extra_offset_x, fwd * b.extra_offset_y);
+            let at = Vec2::new(pos.x + offset.x, pos.y + offset.y);
+            let drop = Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick }, depth: 0, flown: 0 };
+            // spawner.BARREL_DROP_POINT = client15535_after_move: the drop waits for the barrel's step (`barrel_settle`).
+            // PLANT (regression) barrel_point_before_move: the new arm drops from the Status-phase point.
+            #[cfg(not(clash_plant = "barrel_point_before_move"))]
+            let after_move = self.cfg.calib.barrel_drop_point == BarrelDropPoint::Client15535AfterMove;
+            #[cfg(clash_plant = "barrel_point_before_move")]
+            let after_move = false;
+            if after_move {
+                self.scratch.barrel_pending.push((id, offset, drop));
+            } else {
+                made.push(drop);
+            }
             self.evo.barrel_drops.push(id);
         }
         self.spells.extend(made);
@@ -24239,6 +24275,23 @@ impl BattleState {
         self.phase_attack_for(None);
     }
 
+    /// spawner.BARREL_DROP_POINT = client15535_after_move: the drops `barrel_pass` held this tick fall from their barrel's
+    /// point after its step, its offset kept; one whose barrel is gone falls where it was made. At the Projectile phase's
+    /// start, after the Move phase under every match.TICK_ORDER, so the fuse counts this tick as under the old arm.
+    fn barrel_settle(&mut self) {
+        for (id, offset, mut drop) in std::mem::take(&mut self.scratch.barrel_pending) {
+            if self.ents.is_alive(id) {
+                let pos = self.ents.pos[id.index as usize];
+                let at = Vec2::new(pos.x + offset.x, pos.y + offset.y);
+                if let spell::SpellMotion::Flight { pos: p, aim, .. } = &mut drop.motion {
+                    *p = at;
+                    *aim = at;
+                }
+            }
+            self.spells.push(drop);
+        }
+    }
+
     /// THE OTHER BOLTS OF ONE ATTACK of unit `a` at `target` (combat.MULTIPLE_TARGETS =
     /// client_bolts_per_target): a card with MultipleTargets N and an instant single-target
     /// hit (no projectile, no splash) delivers N bolts, one at `target` (combat.rs `fire`)
@@ -25453,6 +25506,8 @@ impl BattleState {
     }
 
     fn phase_projectile(&mut self) {
+        // spawner.BARREL_DROP_POINT = client15535_after_move: the drops held this tick, from their barrels' points after the move.
+        self.barrel_settle();
         // No early return on an empty spell list: stepping no spell is a no-op, and what
         // the phase hands on (spell.rs `SpellOut`) need not come from a spell: a troop's shot
         // leaves its area (CardDef::projectile_area) in `out.areas`.
@@ -33460,6 +33515,9 @@ impl BattleState {
 /// 20, unchanged, spawner.DEATH_PROJECTILE_COPIES: Calib gained death_projectile_copies (serde default the old arm,
 ///    one), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
+/// 20, unchanged, spawner.BARREL_DROP_POINT: Calib gained barrel_drop_point (serde default the old arm, status_phase), no
+///    new state (the drop waits in `Scratch::barrel_pending` within its tick alone), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, the Super Witch (card.rs `SpawnerDef::unit2`): Entities gained spawn_waves (`default`, sized on load at
 ///    0), hashed only on a spawner with a second unit, so a blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, the Super Elite Archer's charm (status.rs `BuffDef::switch_team`): Entities gained home_team (`default`,
@@ -34557,6 +34615,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("buff_death_spawn_undelayed".into(), serde_json::to_value(BuffDeathSpawnUndelayed::Zero).map_err(|e| e.to_string())?);
     // spawner.DEATH_PROJECTILE_COPIES: a format-3 battle left one death projectile a death (the same rule).
     sh.insert("death_projectile_copies".into(), serde_json::to_value(DeathProjectileCopies::One).map_err(|e| e.to_string())?);
+    // spawner.BARREL_DROP_POINT: a format-3 battle's barrel dropped from its Status-phase point (the same rule).
+    sh.insert("barrel_drop_point".into(), serde_json::to_value(BarrelDropPoint::StatusPhase).map_err(|e| e.to_string())?);
     // combat.DASH_CHAIN_AIM: a format-3 battle's dash stepped at its target's centre (the same rule).
     sh.insert("dash_chain_aim".into(), serde_json::to_value(DashChainAim::TargetCentre).map_err(|e| e.to_string())?);
     // combat.KAMIKAZE_LAUNCH_PASS: a format-3 battle's kamikaze death waited for Resolve (the same rule).
