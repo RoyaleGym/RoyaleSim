@@ -1383,7 +1383,9 @@ impl Battle {
                     .ok_or_else(|| BuildError::Value(format!("tap_snap {name:?} has no engine implementation")))?,
             ),
         };
-        let db = CardDb::load_repo().map_err(|e| BuildError::Runtime(format!("cards.json: {e}")))?;
+        // cards.CARD_TABLE: the table this object's battles run, from the calibration they run under.
+        let table = calib.as_ref().map_or_else(|| crate::state::Calib::shipped().card_table, |c| c.card_table);
+        let db = CardDb::load_table(table).map_err(|e| BuildError::Runtime(format!("card table: {e}")))?;
         let is_tower = |n: &str| n == KING_TOWER || n == PRINCESS_TOWER;
         let catalogue: Vec<u16> = match card_names {
             Some(names) => names
@@ -1636,6 +1638,12 @@ impl Battle {
     /// The unified card level every battle from this object uses (the constructor's `level`).
     fn card_level(&self) -> i32 {
         self.level()
+    }
+
+    /// The `version` of the card table this object's battles run (calibration cards.CARD_TABLE): "cards-15535.1"
+    /// for the 15.535.29 table, "cards-160402017-20261006.1" for the 160402017 client's.
+    fn card_table(&self) -> String {
+        self.cards.version.clone()
     }
 
     /// The crown towers' level every battle from this object uses (the constructor's `tower_level`, else `level`).
@@ -2431,6 +2439,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("EMBEDDED_RARITIES_CSV", EMBEDDED_RARITIES_CSV)?;
     m.add("EMBEDDED_GLOBALS_CSV", EMBEDDED_GLOBALS_CSV)?;
     m.add("EMBEDDED_CARDS_JSON", crate::card::EMBEDDED_CARDS_JSON)?;
+    m.add("EMBEDDED_CARDS_160402017_JSON", crate::card::EMBEDDED_CARDS_160402017_JSON)?;
     #[cfg(feature = "checkout-data")]
     m.add("BUILD_DATA_DIR", BUILD_DATA_DIR)?;
     m.add_function(wrap_pyfunction!(card_table_source, m)?)?;

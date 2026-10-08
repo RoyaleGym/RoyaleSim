@@ -82,6 +82,14 @@ pub enum CardSource {
 /// as royalesim/data/derived/cards.json, so `royalesim.data_dir()` and the engine agree on one file.
 pub const EMBEDDED_CARDS_JSON: &str = include_str!("../../../data/derived/cards-15.535.json");
 
+/// THE 160402017 CLIENT'S TABLE, with its 2026-10-06 content update (tools/extract_cards.py `--vintage
+/// 160402017-20261006`), compiled in beside the 15.535.29 one: what a battle under calibration cards.CARD_TABLE =
+/// client160402017_20261006 loads away from a checkout (option B: the tables move to the current client).
+pub const EMBEDDED_CARDS_160402017_JSON: &str = include_str!("../../../data/derived/cards-160402017-20261006.json");
+
+/// The 160402017 table's file name under data/derived/ (`CardDb::load_table`).
+pub const CARDS_160402017_FILE: &str = "cards-160402017-20261006.json";
+
 /// A projectile an attack launches instead of hitting instantly.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ProjectileDef {
@@ -13920,6 +13928,28 @@ impl CardDb {
             return CardDb::load_repo_file("cards.json");
         }
         CardDb::from_json_str(EMBEDDED_CARDS_JSON, CardSource::Embedded)
+    }
+
+    /// THE CARD TABLE calibration cards.CARD_TABLE names (state.rs `CardTable`). The 15.535.29 table is `load_repo`.
+    /// The 160402017 table is data/derived/cards-160402017-20261006.json in a checkout build where that file exists,
+    /// else the compiled-in copy (`EMBEDDED_CARDS_160402017_JSON`); as with `load_repo`, a file that exists but does
+    /// not parse is an error.
+    pub fn load_table(t: crate::state::CardTable) -> Result<CardDb, String> {
+        #[cfg(clash_plant = "card_table_unread")]
+        let t = {
+            let _ = t;
+            crate::state::CardTable::Client15535 // PLANT (tests/card_table.rs): every arm loads the 15.535.29 table.
+        };
+        match t {
+            crate::state::CardTable::Client15535 => CardDb::load_repo(),
+            crate::state::CardTable::Client160402017 => {
+                #[cfg(feature = "checkout-data")]
+                if std::path::Path::new(&CardDb::repo_file_path(CARDS_160402017_FILE)).exists() {
+                    return CardDb::load_repo_file(CARDS_160402017_FILE);
+                }
+                CardDb::from_json_str(EMBEDDED_CARDS_160402017_JSON, CardSource::Embedded)
+            }
+        }
     }
 
     /// Where `load_repo_file(name)` reads: data/derived/<name> in the checkout this crate was built in.

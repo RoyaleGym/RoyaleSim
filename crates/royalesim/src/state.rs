@@ -406,6 +406,10 @@ pub struct Calib {
     /// and its card fingerprint then refuses it rather than running it on other data.
     #[serde(default)]
     pub card_values_table: String,
+    /// cards.CARD_TABLE: the card table a battle under this calibration loads (`CardTable`). Added after
+    /// SNAPSHOT_FORMAT 20; the `default` is the 15.535.29 table, the one every battle saved before it ran.
+    #[serde(default = "card_table_default")]
+    pub card_table: CardTable,
     /// movement.ATTACK_FACING: where a unit in its attack state faces (`phase_attack`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, what a battle saved before it actually ran.
     #[serde(default = "attack_facing_default")]
@@ -1865,6 +1869,10 @@ fn area_buff_source_binding_default() -> AreaBuffSourceBinding {
 
 fn card_values_arm_default() -> CardValuesArm {
     CardValuesArm::None
+}
+
+fn card_table_default() -> CardTable {
+    CardTable::Client15535
 }
 
 fn attack_facing_default() -> AttackFacing {
@@ -4420,6 +4428,21 @@ calib_enum!(
         /// The values measured on the 16.402 corpus, listed in value.values, replace the tables' when a
         /// battle is built, before any level scaling; cards.json is untouched.
         Client16402 = "client16402",
+    }
+);
+
+calib_enum!(
+    /// cards.CARD_TABLE (value) -- the card table a battle loads (card.rs `CardDb::load_table`): where the Python
+    /// binding builds one (py.rs `Battle::build`), where the replay harness starts a run, and where `BattleState::load`
+    /// restores one. A battle runs the CardDb its config carries; this key only says which table that is.
+    CardTable {
+        /// The 15.535.29 extraction (data/derived/cards-15.535.json, `EMBEDDED_CARDS_JSON`), every battle's table
+        /// before option B.
+        Client15535 = "client15535",
+        /// The 160402017 client with its 2026-10-06 content update (data/derived/cards-160402017-20261006.json,
+        /// `EMBEDDED_CARDS_160402017_JSON`). cards.CLIENT16402_VALUES does not apply to it: its value.table names the
+        /// 15.535.29 table, and this one carries the client's own values.
+        Client160402017 = "client160402017_20261006",
     }
 );
 
@@ -8923,6 +8946,7 @@ impl Calib {
             card_values: pick(&v, &["cards", "CLIENT16402_VALUES", "value", "arm"], CardValuesArm::from_calibration_name)?,
             card_value_overrides: crate::card::CardValue::list_from_ledger(&v)?,
             card_values_table: crate::card::CardValue::table_from_ledger(&v)?,
+            card_table: pick(&v, &["cards", "CARD_TABLE", "value"], CardTable::from_calibration_name)?,
             attack_facing: pick(&v, &["movement", "ATTACK_FACING", "value"], AttackFacing::from_calibration_name)?,
             projectile_step: pick(&v, &["combat", "PROJECTILE_STEP", "value"], ProjectileStep::from_calibration_name)?,
             range_projectile: pick(&v, &["combat", "RANGE_PROJECTILE", "value"], RangeProjectile::from_calibration_name)?,
@@ -33457,6 +33481,9 @@ impl BattleState {
 /// 20, unchanged, the Evo Baby Dragon (card.rs `WindDef`): EvoDef gained `wind` and the table an evolved form, so the
 ///    card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data.
 ///    EvoBoard gained `winds` (serde default empty, hashed only when not empty).
+/// 20, unchanged, the card table (cards.CARD_TABLE): Calib gained `card_table` (serde default client15535, the table
+///    every earlier blob ran), so a blob saved before it deserializes as it did; `load` reads it to pick the table it
+///    restores against. Not hashed: the card fingerprint already names the table a battle ran.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -34471,10 +34498,31 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     Ok(old.iter().map(|&i| i as u16).collect())
 }
 
-/// data/derived/cards.json, loaded once per process, for `BattleState::load`.
-fn repo_cards() -> Result<Arc<CardDb>, String> {
-    static CELL: OnceLock<Result<Arc<CardDb>, String>> = OnceLock::new();
-    CELL.get_or_init(|| CardDb::load_repo().map(Arc::new)).clone()
+/// The card table `t` names (cards.CARD_TABLE, card.rs `CardDb::load_table`), loaded once per process, for
+/// `BattleState::load`.
+fn repo_cards(t: CardTable) -> Result<Arc<CardDb>, String> {
+    static CELLS: [OnceLock<Result<Arc<CardDb>, String>>; 2] = [OnceLock::new(), OnceLock::new()];
+    let i = match t {
+        CardTable::Client15535 => 0,
+        CardTable::Client160402017 => 1,
+    };
+    CELLS[i].get_or_init(|| CardDb::load_table(t).map(Arc::new)).clone()
+}
+
+/// The card table a `save()` blob's own calibration names (cards.CARD_TABLE), read before the blob is: a blob saved
+/// before the key existed names none and ran the 15.535.29 table.
+fn saved_card_table(bytes: &[u8]) -> Result<CardTable, String> {
+    #[derive(serde::Deserialize)]
+    struct TableOnly {
+        #[serde(default = "card_table_default")]
+        card_table: CardTable,
+    }
+    #[derive(serde::Deserialize)]
+    struct CalibOnly {
+        calib: Option<TableOnly>,
+    }
+    let c = serde_json::from_slice::<CalibOnly>(bytes).map_err(|e| format!("snapshot: {e}"))?;
+    Ok(c.calib.map_or_else(card_table_default, |t| t.card_table))
 }
 
 impl BattleState {
@@ -34613,11 +34661,15 @@ impl BattleState {
         serde_json::to_vec(&snap).expect("snapshot serializes")
     }
 
-    /// Rebuild a battle from `save()` bytes against the repository's
-    /// data/derived/cards.json and the shipped arena. Errors (never guesses) on a
-    /// format mismatch, different card data or arena, or a failed hash self-check.
+    /// Rebuild a battle from `save()` bytes against the card table its own calibration names (cards.CARD_TABLE:
+    /// the repository's data/derived/cards.json unless it ran another) and the shipped arena. Errors (never guesses)
+    /// on a format mismatch, different card data or arena, or a failed hash self-check.
     pub fn load(bytes: &[u8]) -> Result<BattleState, String> {
-        BattleState::load_with(bytes, repo_cards()?, Arena::shipped())
+        #[cfg(not(clash_plant = "card_table_unread"))]
+        let table = saved_card_table(bytes)?;
+        #[cfg(clash_plant = "card_table_unread")]
+        let table = CardTable::Client15535; // PLANT (tests/card_table.rs): every blob restored on the 15.535.29 table.
+        BattleState::load_with(bytes, repo_cards(table)?, Arena::shipped())
     }
 
     /// `load` against explicit card data and arena.

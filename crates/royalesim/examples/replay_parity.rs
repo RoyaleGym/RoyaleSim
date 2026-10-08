@@ -115,7 +115,8 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         i += 1;
     }
-    let db = CardDb::load_repo()?;
+    // cards.CARD_TABLE: the run's table, from its overrides (the ledger's when it names none).
+    let db = CardDb::load_table(royalesim::state::Calib::shipped_with_overrides(&opts.calibration_overrides)?.0.card_table)?;
     if db.source != CardSource::DerivedJson {
         return Err("cards.json did not load from data/derived (fallback cards are not the game's)".into());
     }

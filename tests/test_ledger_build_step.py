@@ -153,6 +153,10 @@ EMBEDDED = [
     # so a stale copy here never shows on a developer's machine and is exactly what every installed user would get.
     ("EMBEDDED_CARDS_JSON", ("data", "derived", "cards-15.535.json"), "json",
      "card table in every wheel built from it, silently"),
+    # The 160402017 client's table (card.rs EMBEDDED_CARDS_160402017_JSON), what a wheel's battle under
+    # calibration cards.CARD_TABLE = client160402017_20261006 runs.
+    ("EMBEDDED_CARDS_160402017_JSON", ("data", "derived", "cards-160402017-20261006.json"), "json",
+     "160402017 card table in every wheel built from it, silently"),
 ]
 
 
