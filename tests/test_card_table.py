@@ -46,3 +46,16 @@ def test_the_override_runs_the_160402017_table():
 def test_a_table_the_key_does_not_list_is_refused():
     with pytest.raises(ValueError):
         battle("client9999")
+
+
+def test_the_160402017_table_keeps_every_card_id():
+    """CARD IDS ARE FIXED, APPEND ONLY (option B): the default catalogue's ids (`card_names` None, the positions every
+    trained policy and converted dataset reads) name the same cards on the 160402017 table as on the 15.535.29 one; a
+    card the newer table adds may only come after them."""
+    def names(table: str | None) -> list[str]:
+        over = None if table is None else {KEY: json.dumps(table)}
+        return [row[0] for row in json.loads(royalesim.Battle(None, SLOTS, calibration_overrides=over).catalogue_json())]
+
+    old, new = names(None), names("client160402017_20261006")
+    assert len(old) > 100, len(old)
+    assert new[: len(old)] == old, [(i, a, b) for i, (a, b) in enumerate(zip(old, new)) if a != b][:5]
