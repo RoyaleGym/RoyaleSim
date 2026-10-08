@@ -14,8 +14,9 @@ the same clock. The step that carries the play is k = 0, so D + n is k = n.
 
 THE THIRD STRIKE, inferred. The 500 row schedules strikes at 500, 1000 and 1500 ms; the third is due exactly at the
 1500 ms LifeDuration, on D + 30. The corpus cast had no enemy in reach then. Under spells.STRIKE_AREA_END =
-with_last_strike the area ends with its last scheduled strike and makes it; under the shipped at_life_end it ends on
-D + 29 and loses it. With the tables' 460 the third strike (D + 27) comes first, and the two arms run the same battle.
+with_last_strike (shipped since the 16.402 Vines measured it: a catch at its 1400 ms life) the area ends with its last
+scheduled strike and makes it; under the old at_life_end it ends on D + 29 and loses it. With the tables' 460 the
+third strike (D + 27) comes first, and the two arms run the same battle.
 The three-target scene: red Knights of 1200, 1400 and 1300 hp at (8000, 22000), (9000, 22000) and (10000, 22000),
 a Blue Lightning at (9000, 22000); struck highest hp first.
 
@@ -177,12 +178,12 @@ def test_the_tables_460_strike_three_times_under_either_end():
         assert_three_strikes(three(arms("none", end)), TABLES_460, f"none, {end}: D + 9, D + 18 and D + 27")
 
 
-def test_the_shipped_engine_runs_the_tables_lightning_and_at_life_end():
+def test_the_shipped_engine_runs_the_tables_lightning_and_with_last_strike():
     value = ledger_value()
     timings = {card: cols for card, cols in value["values"].items() if "AreaHitSpeed" in cols}
     assert not timings, f"{KEY} lists an AreaHitSpeed before it is scored: {timings}"
     end = ledger().get("spells", {}).get("STRIKE_AREA_END", {}).get("value")
-    assert end == "at_life_end", f"{END} ships {end!r}, not the old arm 'at_life_end'"
+    assert end == "with_last_strike", f"{END} ships {end!r}, not with_last_strike (the 16.402 Vines' measurement)"
     got = cast({})
     assert got == [(10, "tower", TOWER_SHARE), (19, "knight", STRIKE)], (
         f"the shipped engine: {got}; with the Lightning unlisted it strikes as the tables' 460 does, on D + 9 and "

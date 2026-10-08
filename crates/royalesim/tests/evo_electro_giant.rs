@@ -86,22 +86,23 @@ fn the_160402017_table_loads_the_evo_electro_giant() {
 
 #[test]
 fn each_pulse_takes_a_level_off_each_enemy_it_reaches() {
-    // The giant held at (9000, 10500); red Knights held 3000 and 5000 from him, past a Knight's attack reach (1200 plus
-    // both radii) and out of the crown towers'. The pulse is made on the 54th tick after his creation tick (2700 ms
+    // The giant (put down on his own half, then held at (9000, 20000) on the red half, the red towers' fire topped up);
+    // red Knights held 3000 and 5000 from him on the red half, past a Knight's attack reach (1200 plus both radii) and
+    // out of every blue crown tower's (7500 plus both radii). The pulse is made on the 54th tick after his creation tick (2700 ms
     // left after it, 50 a tick); its ring's first update is the next (age 0), and it reaches 3000 - 500 at age 250 (1 +
     // 5999 x 250 / 550 = 2727) and 5000 - 500 at age 450 (4909): ticks 60 and 64. The next pulse is 120 ticks on.
     let mut s = battle();
     let g = giant(&mut s, (9000, 10500));
-    let a = s.scenario_spawn_now(Team::Red, "Knight", n(9000, 13500), None).expect("Knight A");
-    let b = s.scenario_spawn_now(Team::Red, "Knight", n(12000, 14500), None).expect("Knight B");
+    let a = s.scenario_spawn_now(Team::Red, "Knight", n(9000, 23000), None).expect("Knight A");
+    let b = s.scenario_spawn_now(Team::Red, "Knight", n(12000, 24000), None).expect("Knight B");
     let (m11, m10, m9) = (max_hp("Knight", 11), max_hp("Knight", 10), max_hp("Knight", 9));
     assert_eq!(s.entity(a).expect("A").max_hp, m11, "a level-11 Knight to start");
     assert!(s.debug_set_hp(a, 1000));
     let mut drops: [Vec<(u32, i32, i32)>; 2] = [Vec::new(), Vec::new()];
     for k in 1..=200u32 {
         let top = s.entity(g).expect("the giant").max_hp;
-        assert!(s.debug_set_pos(g, n(9000, 10500)) && s.debug_set_hp(g, top));
-        assert!(s.debug_set_pos(a, n(9000, 13500)) && s.debug_set_pos(b, n(12000, 14500)));
+        assert!(s.debug_set_pos(g, n(9000, 20000)) && s.debug_set_hp(g, top));
+        assert!(s.debug_set_pos(a, n(9000, 23000)) && s.debug_set_pos(b, n(12000, 24000)));
         let before = [a, b].map(|id| s.entity(id).expect("a Knight").max_hp);
         s.tick();
         for (w, id) in [a, b].iter().enumerate() {

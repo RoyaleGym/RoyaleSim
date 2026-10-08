@@ -44,7 +44,7 @@ def test_the_override_runs_the_160402017_table():
 
 
 def test_a_table_the_key_does_not_list_is_refused():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"client9999|CARD_TABLE"):
         battle("client9999")
 
 
@@ -54,8 +54,9 @@ def test_the_160402017_table_keeps_every_card_id():
     card the newer table adds may only come after them."""
     def names(table: str | None) -> list[str]:
         over = None if table is None else {KEY: json.dumps(table)}
-        return [row[0] for row in json.loads(royalesim.Battle(None, SLOTS, calibration_overrides=over).catalogue_json())]
+        b = royalesim.Battle(None, SLOTS, calibration_overrides=over)
+        return [row[0] for row in json.loads(b.catalogue_json())]
 
     old, new = names(None), names("client160402017_20261006")
     assert len(old) > 100, len(old)
-    assert new[: len(old)] == old, [(i, a, b) for i, (a, b) in enumerate(zip(old, new)) if a != b][:5]
+    assert new[: len(old)] == old, [(i, a, b) for i, (a, b) in enumerate(zip(old, new, strict=False)) if a != b][:5]

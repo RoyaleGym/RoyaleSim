@@ -603,6 +603,7 @@ fn strike_gaps(hit_speed_ms: i32, life_ms: i32) -> Vec<i32> {
 ///     the first strike's k = 1 explicitly;
 ///   - 16.402, no HitSpeed and a HitSpeedOffset equal to the LifeDuration (the Royal Delivery's 2000 and 2000): one
 ///     strike at the life's end, which 15.535 wrote as a HitSpeed equal to the LifeDuration.
+///
 /// Any other HitSpeedOffset is refused by name (option B items 2 and 22).
 fn strike_clock(aeo: &RawAreaEffect) -> Result<(i32, i32), &'static str> {
     let life_ms = aeo.life_duration_ms.filter(|l| *l > 0).ok_or("no LifeDuration")?;
@@ -11953,8 +11954,18 @@ impl CardDb {
             if hi <= lo {
                 return refuse("a ring that does not grow");
             }
+            let first_ms = pos(p.first_ms, "first firing")?;
+            // Read for their shape only: the start delay is inside `first_ms`, and the debuff's name, its counter's delay
+            // and its give-back run nowhere in a battle (the give-back comes after `debuff_ms`).
+            if !p.start_delay_ms.is_some_and(|d| (0..=first_ms).contains(&d))
+                || p.debuff.as_deref().is_none_or(str::is_empty)
+                || p.count_delay_ms.is_none_or(|d| d < 0)
+                || p.restores_on_remove.is_none()
+            {
+                return refuse("a block without a start delay inside its first firing, a debuff, its counter's delay or its give-back");
+            }
             evo.delevel_pulse = Some(DelevelPulseDef {
-                first_ms: pos(p.first_ms, "first firing")?,
+                first_ms,
                 every_ms: pos(p.every_ms, "Interval")?,
                 hit_speed_scaled: p.hit_speed_scaled.unwrap_or(false),
                 min_radius: milli(lo),
