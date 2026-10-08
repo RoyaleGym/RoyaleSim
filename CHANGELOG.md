@@ -3,6 +3,18 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.22 (2026-10-07)
+
+- Battle logic: when the Evo Goblin Drill's building dies, its two Goblins come out to its left and right, 500 either
+  side, as the plain Goblin Drill's do. They came out above and below it.
+- Battle logic: the Evo Lumberjack's ghost is no longer sped up by his death Rage. Its row says it ignores Rage, and the
+  engine now reads that.
+- This release also adds settings used to measure upcoming fixes against the game (a sniper letting go of its target,
+  a captive's route and facing, spear throwers and doomed targets, an impact area's spot, a chain's first hop, a Goblin
+  Drill building going under and rising, a tomb on the path grid, a new unit's first target, a poison area's pulses, a
+  ring member on water, an uppercut's flight, routes during a knockback, a chase past a kill, a caged unit's avoidance,
+  an evolved copy's spot); every one defaults to the engine's current behaviour.
+
 ## 0.1.21 (2026-10-07)
 
 - Placement, as recorded in ladder battles and measured in the game: once a lane's enemy princess tower has fallen, a
