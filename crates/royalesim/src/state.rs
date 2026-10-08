@@ -9903,6 +9903,14 @@ pub struct EvoBoard {
     /// empty.
     #[serde(default)]
     pub rings: Vec<RingRun>,
+    /// Each Evo Electro Giant's pulse clock, the ms to his next firing (`pulse_pass`). `default` so a battle saved before
+    /// it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub pulse_clocks: Vec<(EntityId, i32)>,
+    /// Each Evo Electro Giant's pulse under way (`pulse_pass`): a ring on its giant's point. `default`; hashed only when
+    /// not empty.
+    #[serde(default)]
+    pub pulses: Vec<RingRun>,
     /// Each Evo Lumberjack's ghost, due or standing (`rage_ghost_pass`). `default` so a battle saved before it still loads;
     /// hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -10120,6 +10128,8 @@ impl EvoBoard {
             && self.barrel_drops.is_empty()
             && self.first_hits.is_empty()
             && self.rings.is_empty()
+            && self.pulse_clocks.is_empty()
+            && self.pulses.is_empty()
             && self.rage_ghosts.is_empty()
             && self.snipe_last.is_empty()
     }
@@ -12565,6 +12575,11 @@ impl BattleState {
         // THE EVO TESLA'S RING AT ITS CREATION (card.rs `RingDef::on_start`; `ring_pass`).
         if c.evo.as_ref().and_then(|v| v.ring).is_some_and(|r| r.on_start) {
             self.evo.rings.push(RingRun { id, team, card, level, at: pos, made: self.tick, taken: Vec::new() });
+        }
+        // THE EVO ELECTRO GIANT'S PULSE CLOCK (card.rs `DelevelPulseDef`; `pulse_pass`), armed at his creation: the
+        // creation tick is its first 50 ms, as the Evo Witch's waves count theirs.
+        if let Some(p) = c.evo.as_ref().and_then(|v| v.delevel_pulse) {
+            self.evo.pulse_clocks.push((id, p.first_ms - self.cfg.calib.tick_ms));
         }
         // StartWithBuffWhenNotAttacking false (card.rs `starts_visible`, the Evo Royal Ghost's pair): visible from its
         // creation, its idle time counted from now (target.rs `invisible_at`).
@@ -17491,6 +17506,10 @@ impl BattleState {
         if only.is_none() && !self.evo.rings.is_empty() {
             self.ring_pass();
         }
+        // THE EVO ELECTRO GIANTS' PULSES (`pulse_pass`), beside the Teslas' rings.
+        if only.is_none() && !(self.evo.pulse_clocks.is_empty() && self.evo.pulses.is_empty()) {
+            self.pulse_pass();
+        }
         // THE TAUNTS (`taunt_pass`): their areas take the enemies they reach, before any decision reads them.
         if only.is_none() && !self.taunts.is_empty() {
             self.taunt_pass();
@@ -20027,6 +20046,120 @@ impl BattleState {
             }
         }
         self.evo.rings = rings;
+    }
+
+    /// THE EVO ELECTRO GIANTS' PULSES (card.rs `DelevelPulseDef`), at the Target phase's start, on start-of-tick points:
+    ///   - each giant's clock runs down by a tick's time at his composed hit speed (AffectedByHitSpeed: 65 under a Rage)
+    ///     and not at all while he is held (PauseTag COMBAT_DISABLED: a stun or a freeze); at 0 a pulse is made on his
+    ///     point and the next is due `every_ms` on, the overshoot carried. A giant gone ends his clock;
+    ///   - a pulse rides its giant while he lives (FollowParent) and stays where he died (StayAfterParentDies). It is
+    ///     `age` = (this tick - the next after its making) x 50 ms old and gone past its life, and grows as the Evo
+    ///     Tesla's ring does: Radius + (MaxRadius - Radius) x age / LifeDuration, plus the enemy's own radius. It takes
+    ///     each enemy on its layers once, past CommonAreaDamageFilter (not hidden, under ground or dash-immune): no
+    ///     damage (its hit's 0), and every enemy but a crown tower drops a level (`level_down`).
+    ///
+    /// Read off the table, not measured (Oracle request 27): whether the clock runs through his deploy, the ring after
+    /// his death, a 0-damage hit's side effects (a king tower woken, a ghost's first hit).
+    fn pulse_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let cards = self.cfg.cards.clone();
+        let def = |card: u16| cards.get(card).evo.as_ref().and_then(|v| v.delevel_pulse);
+        let mut clocks = std::mem::take(&mut self.evo.pulse_clocks);
+        clocks.retain(|(id, _)| self.ents.is_alive(*id));
+        for (id, left) in clocks.iter_mut() {
+            let i = id.index as usize;
+            let Some(d) = def(self.ents.card[i]) else { continue };
+            if self.ents.held(&cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) {
+                continue;
+            }
+            let dt = if d.hit_speed_scaled { self.ents.buffed(&cards.buffs, i, Sel::HitSpeed, tick_ms) } else { tick_ms };
+            *left -= dt.max(0);
+            #[cfg(clash_plant = "pulse_never")]
+            {
+                *left = (*left).max(1); // PLANT: the clock never fires.
+            }
+            if *left <= 0 {
+                let (team, card, level, at) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
+                self.evo.pulses.push(RingRun { id: *id, team, card, level, at, made: tick, taken: Vec::new() });
+                *left += d.every_ms;
+            }
+        }
+        self.evo.pulse_clocks = clocks;
+        let mut pulses = std::mem::take(&mut self.evo.pulses);
+        pulses.retain(|r| def(r.card).is_some_and(|d| tick <= r.made || ((tick - r.made - 1) as i64) * (tick_ms as i64) <= d.life_ms as i64));
+        let mut drops = Vec::new();
+        for r in pulses.iter_mut().filter(|r| tick > r.made) {
+            let d = def(r.card).expect("kept above");
+            if self.ents.is_alive(r.id) {
+                r.at = self.ents.pos[r.id.index as usize];
+            }
+            let age = ((tick - r.made - 1) as i64) * (tick_ms as i64);
+            let radius = d.min_radius as i64 + (d.max_radius - d.min_radius) as i64 * age / d.life_ms as i64;
+            for j in 0..self.ents.capacity() {
+                let e = &self.ents;
+                if !e.alive[j] || e.team[j] == r.team || e.hp[j] <= 0 || r.taken.contains(&e.id_of(j)) {
+                    continue;
+                }
+                if e.underground(j) || e.hide[j] == HideState::Hidden || e.dash_immune(j, tick) {
+                    continue;
+                }
+                if !(if e.in_air(j) { d.hits_air } else { d.hits_ground }) {
+                    continue;
+                }
+                let reach = (radius + e.radius[j] as i64) / K as i64;
+                let (dx, dy) = ((e.pos[j].x / K - r.at.x / K) as i64, (e.pos[j].y / K - r.at.y / K) as i64);
+                if dx * dx + dy * dy > reach * reach {
+                    continue;
+                }
+                r.taken.push(e.id_of(j));
+                if !matches!(e.kind[j], EntityKind::KingTower | EntityKind::PrincessTower) {
+                    drops.push(j);
+                }
+            }
+        }
+        self.evo.pulses = pulses;
+        for j in drops {
+            self.level_down(j);
+        }
+    }
+
+    /// THE EVO ELECTRO GIANT'S DE-LEVEL of entity `i` (card.rs `DelevelPulseDef`: the debuff's ActionSetCharacterLevel of
+    /// -1, run while character_level >= 1): one level down, unless it stands on its card's first level (the lowest its
+    /// card's ladder has, so a level-11 Champion keeps its level and a level-11 Legendary drops two at most). Its max
+    /// hitpoints, damage and death damage become its card's on the new level, or, where one is not its card's on the old
+    /// level (a clone's 1 hitpoint), are scaled by the ladder's two multipliers; its hitpoints are kept in proportion
+    /// to the max (floor, never below 1), as the Hero Mini P.E.K.K.A.'s level set keeps them, and its shield by the
+    /// ladder's two multipliers. What reads the level at use follows: its spawns' level, its shots', areas' and charge's
+    /// damage, a building's decay (a share of its max hitpoints).
+    ///
+    /// Read off the table, not measured (Oracle request 27): the floor (what character_level counts) and the rescale.
+    fn level_down(&mut self, i: usize) {
+        let (card, from) = (self.ents.card[i], self.ents.level[i]);
+        let cards = self.cfg.cards.clone();
+        let to = from - 1;
+        let (Ok(m0), Ok(m1)) = (cards.level_multiplier(card, from), cards.level_multiplier(card, to)) else { return };
+        let c = cards.get(card);
+        let on = |base: i32, level: i32| cards.scaled(card, level, base).expect("the level checked above");
+        let by_ladder = |v: i32| ((v as i64) * (m1 as i64) / (m0.max(1) as i64)) as i32;
+        let rescale = |v: i32, base: i32| if v == on(base, from) { on(base, to) } else { by_ladder(v) };
+        let (old_max, hp) = (self.ents.max_hp[i], self.ents.hp[i]);
+        let new_max = rescale(old_max, c.hitpoints);
+        #[cfg(clash_plant = "delevel_keeps_stats")]
+        let new_max = {
+            let _ = new_max;
+            old_max // PLANT: the level drops and nothing it scales follows.
+        };
+        self.ents.level[i] = to;
+        self.ents.max_hp[i] = new_max;
+        #[cfg(not(clash_plant = "delevel_keeps_stats"))]
+        {
+            self.ents.damage[i] = rescale(self.ents.damage[i], c.damage);
+            self.ents.death_damage[i] = rescale(self.ents.death_damage[i], c.death_damage);
+            self.ents.shield[i] = by_ladder(self.ents.shield[i]);
+        }
+        let kept = ((hp as i64) * (new_max as i64) / (old_max.max(1) as i64)) as i32;
+        self.ents.hp[i] = kept.clamp(1, new_max.max(1));
     }
 
     /// THE TAUNT AREAS (card.rs `TauntDef`, the Hero Knight's), at the Target phase's start: a taunt ends at its time,
@@ -25024,6 +25157,9 @@ impl BattleState {
             {
                 if !self.evo.rings.is_empty() {
                     self.ring_pass();
+                }
+                if !(self.evo.pulse_clocks.is_empty() && self.evo.pulses.is_empty()) {
+                    self.pulse_pass();
                 }
                 if !self.taunts.is_empty() {
                     self.taunt_pass();
@@ -32261,6 +32397,28 @@ impl BattleState {
                     }
                 }
             }
+            // The Evo Electro Giants' pulse clocks and pulses, only when there are some.
+            if !b.pulse_clocks.is_empty() || !b.pulses.is_empty() {
+                h.u32(0x5055_4c53);
+                h.u32(b.pulse_clocks.len() as u32);
+                for (id, left) in &b.pulse_clocks {
+                    h.id(*id);
+                    h.i32(*left);
+                }
+                h.u32(b.pulses.len() as u32);
+                for r in &b.pulses {
+                    h.id(r.id);
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.card));
+                    h.i32(r.at.x);
+                    h.i32(r.at.y);
+                    h.u32(r.made);
+                    h.u32(r.taken.len() as u32);
+                    for t in &r.taken {
+                        h.id(*t);
+                    }
+                }
+            }
             // The Evo Goblin Cages' captures, only when there are some.
             if !b.cages.is_empty() {
                 h.u32(0x4341_4745);
@@ -33481,6 +33639,9 @@ impl BattleState {
 /// 20, unchanged, the Evo Baby Dragon (card.rs `WindDef`): EvoDef gained `wind` and the table an evolved form, so the
 ///    card fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data.
 ///    EvoBoard gained `winds` (serde default empty, hashed only when not empty).
+/// 20, unchanged, the Evo Electro Giant (card.rs `DelevelPulseDef`, 16.402 on): EvoDef gained `delevel_pulse`, so the card
+///    fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data. EvoBoard
+///    gained `pulse_clocks` and `pulses` (serde default empty, hashed only when not empty).
 /// 20, unchanged, the card table (cards.CARD_TABLE): Calib gained `card_table` (serde default client15535, the table
 ///    every earlier blob ran), so a blob saved before it deserializes as it did; `load` reads it to pick the table it
 ///    restores against. Not hashed: the card fingerprint already names the table a battle ran.

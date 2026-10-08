@@ -2389,6 +2389,8 @@ pub struct EvoDef {
     pub first_hit: Option<BuffApply>,
     /// Evo Tesla: the ring it makes at its creation and each time it comes up (`RingDef`).
     pub ring: Option<RingDef>,
+    /// Evo Electro Giant (16.402 on): the pulse that takes a level off each enemy it reaches (`DelevelPulseDef`).
+    pub delevel_pulse: Option<DelevelPulseDef>,
     /// Evo Wizard: the blast its shield's loss makes on it (state.rs `shield_blasts`; spell.rs `shape_of`), a one-hit
     /// area. Read off the table, not measured: the client's scene never broke the shield.
     pub shield_blast: Option<SpellDef>,
@@ -4814,6 +4816,8 @@ struct RawEvolution {
     evo_first_hit: Option<RawFirstHit>,
     /// The Evo Tesla's ring (`ring_block`).
     evo_ring: Option<RawRing>,
+    /// The Evo Electro Giant's pulse (`delevel_pulse_block`; 16.402 on).
+    evo_delevel_pulse: Option<RawDelevelPulse>,
     /// The Evo Royal Recruits' charge after the shield (`charge_after_shield_block`): the buff it spawns.
     evo_charge_after_shield: Option<RawChargeAfterShield>,
     /// The Evo Wizard's blast (`shield_blast_block`): the area and the buff that only shows.
@@ -5547,6 +5551,69 @@ pub struct RingDef {
     pub damage: i32,
     pub crown_hit: i32,
     pub stop: BuffApply,
+}
+
+/// cards.json `evolutions[].evo_delevel_pulse` (tools/extract_cards.py `delevel_pulse_block`; 16.402 on). Every key the
+/// block writes is declared; the ones the engine does not run on are checked or named in `DelevelPulseDef`'s doc.
+#[derive(Deserialize)]
+struct RawDelevelPulse {
+    start_delay_ms: Option<i32>,
+    first_ms: Option<i32>,
+    every_ms: Option<i32>,
+    hit_speed_scaled: Option<bool>,
+    paused_by: Option<String>,
+    area: Option<String>,
+    area_delay_ms: Option<i32>,
+    min_radius_milli: Option<i32>,
+    max_radius_milli: Option<i32>,
+    life_ms: Option<i32>,
+    hit_speed_ms: Option<i32>,
+    follow_parent: Option<bool>,
+    stay_after_parent_dies: Option<bool>,
+    hits_air: Option<bool>,
+    hits_ground: Option<bool>,
+    affects_hidden: Option<bool>,
+    filter: Option<serde_json::Value>,
+    hit_damage: Option<i32>,
+    hit_tower_damage: Option<i32>,
+    debuff: Option<String>,
+    debuff_ms: Option<i32>,
+    spares_crown_towers: Option<bool>,
+    stacks: Option<bool>,
+    levels_per_hit: Option<i32>,
+    down_while_level_at_least: Option<i32>,
+    count_delay_ms: Option<i32>,
+    restores_on_remove: Option<bool>,
+}
+
+/// A de-level that lasts this long outlasts every battle (regular time and overtime are 300 000 ms at most), so the
+/// debuff's give-back (OnRemoveAction) never runs in one; a shorter de-level is refused.
+pub const DELEVEL_OUTLASTS_A_BATTLE_MS: i32 = 600_000;
+
+/// THE EVO ELECTRO GIANT'S PULSE (tools/extract_cards.py `delevel_pulse_block`; state.rs `pulse_pass`, `level_down`), on
+/// the 16.402 table: a clock armed at the giant's creation fires first `first_ms` on (the interval's start delay and its
+/// StartCounterAt), then every `every_ms`, running at his hit speed (`hit_speed_scaled`, AffectedByHitSpeed) and held
+/// while he is (PauseTag COMBAT_DISABLED); each firing puts a ring on him that rides him (FollowParent), outlives him
+/// (StayAfterParentDies), grows from `min_radius` to `max_radius` over `life_ms`, and takes each enemy on its layers once
+/// past CommonAreaDamageFilter (not hidden, under ground or dash-immune): a hit of 0, and a debuff whose
+/// ActionSetCharacterLevel takes one level off while the target is above its card's first level, for 999 999 ms
+/// (outlasting the battle, so its give-back never runs). Crown towers are hit for 0 and keep their level. Radii in
+/// subtiles.
+///
+/// The loader refuses any other reading (a pulse that deals damage, a drop other than one level, a de-level that ends
+/// inside a battle, another filter or pause tag). Read off the table, not measured (Oracle request 27):
+/// the first firing's tick, the drop's arithmetic and floor, a 0-damage hit's side
+/// effects, the ring after the giant's death.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DelevelPulseDef {
+    pub first_ms: i32,
+    pub every_ms: i32,
+    pub hit_speed_scaled: bool,
+    pub min_radius: i32,
+    pub max_radius: i32,
+    pub life_ms: i32,
+    pub hits_air: bool,
+    pub hits_ground: bool,
 }
 
 /// cards.json `evolutions[].evo_first_hit` (tools/extract_cards.py `first_hit_block`): the buff and its time.
@@ -11204,6 +11271,7 @@ impl CardDb {
             extra.evo_fall.is_some(),
             extra.evo_first_hit.is_some(),
             extra.evo_ring.is_some(),
+            extra.evo_delevel_pulse.is_some(),
             extra.evo_charge_after_shield.is_some(),
             extra.evo_shield_blast.is_some(),
             extra.evo_data_only.is_some(),
@@ -11261,6 +11329,10 @@ impl CardDb {
         } else if extra.evo_ring.is_some() {
             // The ring's spawn and effects (`ring_block` reads them whole).
             &["ActionPlayEffect", "ActionSpawn"]
+        } else if extra.evo_delevel_pulse.is_some() {
+            // The pulse's interval, its firing's group, spawn and charge flag, and their effects (`delevel_pulse_block`
+            // reads them, the area's hit and the debuff whole).
+            &["ActionGroup", "ActionInterval", "ActionPlayEffect", "ActionSetVariable", "ActionSpawn"]
         } else if extra.evo_charge_after_shield.is_some() {
             // The shield's loss: the charge-range buff's spawn (`charge_after_shield_block` reads it whole).
             &["ActionSpawn"]
@@ -11391,6 +11463,10 @@ impl CardDb {
         let ring_spawns = |g: &RawActionGraph| {
             extra.evo_ring.as_ref().and_then(|r| r.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
+        // THE PULSE'S AREA is its block's too (`delevel_pulse_block` reads it whole).
+        let pulse_spawns = |g: &RawActionGraph| {
+            extra.evo_delevel_pulse.as_ref().and_then(|p| p.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
+        };
         // THE DECOY BARREL is its block's too (`mirror_block` reads it whole).
         let mirror_spawns = |g: &RawActionGraph| extra.evo_mirror.is_some() && g.spawns.iter().all(|s| s.starts_with("ProjectileType:"));
         // THE CHAIN'S LIGHTNINGS are its block's too (`evo_chain_block` reads them whole).
@@ -11402,7 +11478,7 @@ impl CardDb {
             })
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g) && !mirror_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str()) && !reads_16402(c)) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !pulse_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g) && !mirror_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str()) && !reads_16402(c)) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -11554,6 +11630,7 @@ impl CardDb {
                     fall: None,
                     first_hit: None,
                     ring: None,
+                    delevel_pulse: None,
                     shield_blast: None,
                     bounce: None,
                     attack_area: None,
@@ -11765,6 +11842,7 @@ impl CardDb {
             fall: None,
             first_hit: None,
             ring: None,
+            delevel_pulse: None,
             shield_blast: None,
             bounce: None,
             attack_area: None,
@@ -11839,6 +11917,51 @@ impl CardDb {
                 damage: pos(r.damage, "damage")?,
                 crown_hit: r.crown_hit.unwrap_or(0).max(0),
                 stop: buffs.apply(stop, Some(buff_ms), "the ring's stop")?,
+            });
+        }
+        // THE PULSE (the Evo Electro Giant's, 16.402 on): a clock on a troop, a growing ring riding it, a level off each
+        // enemy it takes. Every reading the engine does not make is refused by name (state.rs `pulse_pass`).
+        if let Some(p) = &extra.evo_delevel_pulse {
+            let what = "the pulse";
+            let pos = |v: Option<i32>, k: &str| v.filter(|x| *x > 0).ok_or_else(|| format!("{what}: no {k}"));
+            let refuse = |why: &str| Err(format!("{what}: {why}; not simulated"));
+            if c.kind != CardKind::Troop {
+                return refuse("on a card that is not a troop");
+            }
+            if p.paused_by.as_deref() != Some("COMBAT_DISABLED") || p.hit_speed_ms != Some(50) || p.area_delay_ms != Some(0) {
+                return refuse("a clock held by another tag, an area that looks other than every tick, or a delayed area");
+            }
+            if p.hit_damage != Some(0) || p.hit_tower_damage != Some(0) {
+                return refuse("a pulse that deals damage");
+            }
+            if p.follow_parent != Some(true) || p.stay_after_parent_dies != Some(true) {
+                return refuse("a ring that does not ride its giant and outlive him");
+            }
+            if p.stacks != Some(true) || p.spares_crown_towers != Some(true) || p.affects_hidden != Some(false) {
+                return refuse("a debuff that does not stack, that de-levels a crown tower, or a ring that takes the hidden");
+            }
+            if p.filter.as_ref().and_then(|f| f.get("name")).and_then(|n| n.as_str()) != Some("CommonAreaDamageFilter") {
+                return refuse("a filter other than CommonAreaDamageFilter");
+            }
+            if p.levels_per_hit != Some(1) || p.down_while_level_at_least != Some(1) {
+                return refuse("a drop other than one level while above the card's first");
+            }
+            if pos(p.debuff_ms, "debuff time")? < DELEVEL_OUTLASTS_A_BATTLE_MS {
+                return refuse("a de-level that ends inside a battle (its give-back)");
+            }
+            let (lo, hi) = (pos(p.min_radius_milli, "Radius")?, pos(p.max_radius_milli, "MaxRadius")?);
+            if hi <= lo {
+                return refuse("a ring that does not grow");
+            }
+            evo.delevel_pulse = Some(DelevelPulseDef {
+                first_ms: pos(p.first_ms, "first firing")?,
+                every_ms: pos(p.every_ms, "Interval")?,
+                hit_speed_scaled: p.hit_speed_scaled.unwrap_or(false),
+                min_radius: milli(lo),
+                max_radius: milli(hi),
+                life_ms: pos(p.life_ms, "LifeDuration")?,
+                hits_air: p.hits_air.unwrap_or(false),
+                hits_ground: p.hits_ground.unwrap_or(false),
             });
         }
         // THE BOUNCE (the Evo Bomber's): on a card whose shot splashes.
