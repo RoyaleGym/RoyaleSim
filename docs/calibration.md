@@ -92,12 +92,12 @@ ledger disagree, because these figures went stale twice in one afternoon before 
   universal, so check rather than assume.** All 502 carry a status. That 502 counts TOP-LEVEL
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
   another and carries its own `measured` status, so counting every status in the file gives 503
-  and 389 measured. The tools agree on 502 by convention, and the convention undercounts by one. 443 name the rivals the
+  and 390 measured. The tools agree on 502 by convention, and the convention undercounts by one. 443 name the rivals the
   value was chosen against and 457 state what would move it, and 436 do both. The gap is mostly
-  the 30 `datamined` keys, where the number was read out of a shipped table and no choice was
+  the 29 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 26 of
-  the 388 `measured` entries name no rival at all, and 13 of those state no promotion criterion
+  the 389 `measured` entries name no rival at all, and 13 of those state no promotion criterion
   either. This file's rule is that evidence is discrimination and never origin. A measured key
   with no candidate list has therefore recorded nothing that it was discriminated against. Some
   are harmless (`time.TICK_MS` has no plausible rival). `pathfinding.PATH_GOAL_RULE` and
@@ -152,7 +152,7 @@ Everything below is at `guess`, `hypothesis`, `community` or `datamined`-but-unv
 engine runs on a placeholder for these, so the behaviour it produces is not evidence about the
 real game. Each row names what a recording would have to show. The ledger is the authority; this
 table is a reading guide over it, and a key's own `status` and `promotion_rules` win where the two
-disagree. Of the 502 top-level keys with a status, 388 are `measured`; one more entry, nested inside another, is measured too (503 in all).
+disagree. Of the 502 top-level keys with a status, 389 are `measured`; one more entry, nested inside another, is measured too (503 in all).
 
 | Key | Value today | Status | Settled by |
 |---|---|---|---|
