@@ -2290,6 +2290,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_substeps_to_aim (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs guard_moves (`substeps`), card.rs GUARD_AIM_OFFSET, GUARD_SPEED, GUARD_STOP; selected by Calib::guard_charge_step; tests/little_prince.rs."
     },
+    "RAMP_GRACE_RESET": {
+      "value": "client16402_below_zero",
+      "candidates": ["at_zero", "client16402_below_zero"],
+      "status": "measured",
+      "confidence": "HIGH for client16402_below_zero on client 16.402: a sharp edge over the live population's Little Princes, 6 moving ticks kept 45 of 46, 7 reset 20 of 20, 8 reset 13 of 13. LOW for at_zero, the engine before this key, whose 6th tick reset is the client's 7th.",
+      "provenance": "MEASURED by parity (2026-10-09) on the live population (RoyaleLive/reports/replay-live: the bot's own battles on client builds 160402017/020; r4c/tools/lp_ramp_census.py over every LittlePrince unit's attack_progress_ms). An attack run is a stretch of frames whose progress rises; its rise per tick is the ramp rate (50, 100, 150); a gap between two runs whose first was ramped is read by its moving frames (the point changed) and whether the next run's rate (after its entry credit of LoadTime + 50) is ramped (kept) or 50 (reset). With the LP targeted through the gap: 4 moving ticks kept 25 of 25, 5 21 of 21, 6 45 of 46; 7 reset 20 of 20, 8 13 of 13, 9 20 of 20, and every longer walk. The engine's 300 ms grace reached zero on the 6th and reset the count there: the diagnostic triage's 144838 key 8, 082129 key 16 (6-tick walks), 152236 key 12 (7) shot x1 where the client shot x2.",
+      "meaning": "at_zero: the engine's; the grace runs down 50 a moving tick to zero and the count goes when it is zero. client16402_below_zero: it runs to one tick below zero and the count goes when it is below zero, one moving tick later.",
+      "open": "Client 15.535.29 (its six walk resets were not read by length; it runs the shipped arm). A gap with no movement that reset (44 of 143 one-tick gaps, the run before ramped): a target change, not the grace; not modelled here.",
+      "promotion_rules": "Shipped: every capture runs it.",
+      "engine": "state.rs BattleState::ramp_pass, selected by Calib::ramp_grace_reset; tests/little_prince.rs (his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh)."
+    },
     "RAMP_GRACE_MOVE": {
       "value": "point_changed",
       "candidates": ["point_changed", "client15535_own_walk"],

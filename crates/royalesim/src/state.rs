@@ -741,6 +741,10 @@ pub struct Calib {
     /// default is the old arm, `Closed`, what a battle saved before it ran.
     #[serde(default = "line_king_back_row_default")]
     pub line_king_back_row: LineKingBackRow,
+    /// combat.RAMP_GRACE_RESET (when the Little Prince's ramp count goes, `ramp_pass`). Added after SNAPSHOT_FORMAT 20; the
+    /// default is the old arm, `AtZero`, what a battle saved before it ran.
+    #[serde(default = "ramp_grace_reset_default")]
+    pub ramp_grace_reset: RampGraceReset,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2443,6 +2447,10 @@ fn release_ground_point_default() -> ReleaseGroundPoint {
 
 fn line_king_back_row_default() -> LineKingBackRow {
     LineKingBackRow::Closed
+}
+
+fn ramp_grace_reset_default() -> RampGraceReset {
+    RampGraceReset::AtZero
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -8957,6 +8965,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.RAMP_GRACE_RESET -- when the Little Prince's ramp count (card.rs `RampDef`) goes as his grace runs down
+    /// (`ramp_pass`; what runs it down is combat.RAMP_GRACE_MOVE).
+    RampGraceReset {
+        /// The engine before this key: when the grace reaches zero, the 6th moving tick on his 300 ms.
+        AtZero = "at_zero",
+        /// Measured on client 16.402 (the live population, lp_ramp_census.py: every gap between two of his attack runs,
+        /// the run before it ramped): a gap of 6 moving ticks kept his ramp 45 times of 46, 7 reset it 20 of 20, 8 13 of 13,
+        /// 9 and more every time: the count goes when the grace would go below zero, on the 7th.
+        Client16402BelowZero = "client16402_below_zero",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9455,6 +9475,7 @@ impl Calib {
             ring_point_bounds: pick(&v, &["spawner", "RING_POINT_BOUNDS", "value"], RingPointBounds::from_calibration_name)?,
             release_ground_point: pick(&v, &["spells", "RELEASE_GROUND_POINT", "value"], ReleaseGroundPoint::from_calibration_name)?,
             line_king_back_row: pick(&v, &["formation", "LINE_KING_BACK_ROW", "value"], LineKingBackRow::from_calibration_name)?,
+            ramp_grace_reset: pick(&v, &["combat", "RAMP_GRACE_RESET", "value"], RampGraceReset::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -19983,13 +20004,20 @@ impl BattleState {
             #[cfg(clash_plant = "ramp_grace_pushed")]
             let own_walk = false;
             let moved = if own_walk { self.scratch.walk_step.get(i).is_some_and(|&l| l > 0) } else { pos != r.at };
+            // combat.RAMP_GRACE_RESET = client16402_below_zero: the grace runs on below zero, and the count goes when it
+            // would (the 7th moving tick on 300 ms); under at_zero, when it reaches zero (the 6th).
+            #[cfg(not(clash_plant = "ramp_reset_at_zero"))]
+            let below = self.cfg.calib.ramp_grace_reset == RampGraceReset::Client16402BelowZero;
+            #[cfg(clash_plant = "ramp_reset_at_zero")]
+            let below = false; // PLANT (regression): the new arm still resets the count when the grace reaches zero.
             if moved {
-                r.grace_ms = (r.grace_ms - tick_ms).max(0);
+                r.grace_ms = (r.grace_ms - tick_ms).max(if below { -tick_ms } else { 0 });
             }
             r.at = pos;
             let disabled = self.ents.stun_ms[i] > 0 || self.ents.buffed(&self.cfg.cards.buffs, i, Sel::HitSpeed, 100) <= 0;
+            let spent = if below { r.grace_ms < 0 } else { r.grace_ms == 0 };
             #[cfg(not(clash_plant = "ramp_never_resets"))]
-            if (r.grace_ms == 0 && r.count > 0) || disabled {
+            if (spent && r.count > 0) || disabled {
                 r.count = 0;
                 self.ramp_clear(i, &ramp);
             }
@@ -34650,6 +34678,9 @@ impl BattleState {
 /// 20, unchanged, formation.LINE_KING_BACK_ROW: Calib gained line_king_back_row (serde default the old arm, closed), no
 ///    new state (it judges a line's place when it is laid), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RAMP_GRACE_RESET: Calib gained ramp_grace_reset (serde default the old arm, at_zero), no new
+///    state (the run's grace, already saved, may hold one tick below zero under the new arm), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35563,6 +35594,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("release_ground_point".into(), serde_json::to_value(ReleaseGroundPoint::None).map_err(|e| e.to_string())?);
     // formation.LINE_KING_BACK_ROW: a format-3 battle kept a line off the back row behind the king (the same rule).
     sh.insert("line_king_back_row".into(), serde_json::to_value(LineKingBackRow::Closed).map_err(|e| e.to_string())?);
+    // combat.RAMP_GRACE_RESET: a format-3 battle reset a ramp when its grace reached zero (the same rule).
+    sh.insert("ramp_grace_reset".into(), serde_json::to_value(RampGraceReset::AtZero).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

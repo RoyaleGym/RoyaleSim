@@ -12,7 +12,8 @@
 //! early_trigger_late, guard_lands_loaded, guard_push_once (`his_guards_charge_pushes_by_a_ladder_rearmed_every_tick`
 //! red), guard_charge_rescaled (`his_guards_charge_steps_as_the_client_steps_it_under_client15535_substeps_to_aim` red),
 //! ramp_grace_pushed (`his_ramp_holds_through_pushes_while_he_attacks_under_client15535_own_walk` red), ramp_stun_paused
-//! (`a_stun_restarts_his_attack_under_client15535_restart` red).
+//! (`a_stun_restarts_his_attack_under_client15535_restart` red), ramp_reset_at_zero
+//! (`his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -28,7 +29,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, GuardChargeStep, LoadTimerTargetLoss, RampGraceMove, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, GuardChargeStep, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampStunRestart};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -407,4 +408,61 @@ fn his_guards_charge_steps_as_the_client_steps_it_under_client15535_substeps_to_
     let (new, end) = charge_steps(GuardChargeStep::Client15535SubstepsToAim);
     assert_eq!(new, CLIENT_CHARGE.to_vec(), "client15535_substeps_to_aim: the steps");
     assert_eq!(end, (AT.0 + 239, AT.1 + 3083), "client15535_substeps_to_aim: its end");
+}
+
+/// His shots' gaps at a red Golem 5000 ahead after `walk` moving ticks with no target (the Golem far off, his point moved
+/// 30 a tick, combat.RAMP_GRACE_MOVE = point_changed), his ramp at its third speed before the walk, under
+/// combat.RAMP_GRACE_RESET = `arm`.
+fn walked_gaps(arm: RampGraceReset, walk: i32) -> Vec<u32> {
+    let (mut s, lp, _) = scene_cfg(
+        |c| {
+            c.calib.ramp_grace_reset = arm;
+            c.calib.ramp_grace_move = RampGraceMove::PointChanged;
+        },
+        &[],
+    );
+    let at = (AT.0, AT.1 + 5000);
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", n(at), None).expect("a red Golem");
+    let t = shots(&mut s, lp, &[(golem, n(at))], 160, None);
+    assert!(gaps(&t).ends_with(&[8, 8]), "the scene: his ramp at its third speed before the walk {t:?}");
+    let away = n((AT.0, 31000));
+    for k in 1..=walk {
+        assert!(s.debug_set_pos(lp, n((AT.0 + 30 * k, AT.1))));
+        assert!(s.debug_set_pos(golem, away));
+        s.tick();
+    }
+    let me = (AT.0 + 30 * walk, AT.1);
+    let back = (me.0, me.1 + 5000);
+    let mine = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(lp)).count();
+    let mut known = mine(&s);
+    let mut out = Vec::new();
+    for _ in 0..120 {
+        assert!(s.debug_set_pos(lp, n(me)));
+        if let Some(e) = s.entity(golem) {
+            let full = e.max_hp;
+            assert!(s.debug_set_pos(golem, n(back)));
+            assert!(s.debug_set_hp(golem, full));
+        }
+        s.tick();
+        let m = mine(&s);
+        if m > known {
+            out.push(s.tick_count() - 1);
+        }
+        known = m;
+    }
+    gaps(&out)
+}
+
+/// combat.RAMP_GRACE_RESET = client16402_below_zero (parity's r62, item D). Client 16.402 (the live population): a gap of
+/// 6 moving ticks keeps his ramp (45 of 46), 7 resets it (20 of 20). His grace is 300 ms, 50 a moving tick. Plant:
+/// ramp_reset_at_zero.
+#[test]
+fn his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh() {
+    // NOT VACUOUS: under at_zero six moving ticks reset it.
+    let old = walked_gaps(RampGraceReset::AtZero, 6);
+    assert!(old.len() >= 2 && old[..2] == [24, 24], "at_zero: six moving ticks reset his ramp {old:?}");
+    let six = walked_gaps(RampGraceReset::Client16402BelowZero, 6);
+    assert!(six.len() >= 2 && six[..2] == [8, 8], "client16402_below_zero: his ramp holds through six moving ticks {six:?}");
+    let seven = walked_gaps(RampGraceReset::Client16402BelowZero, 7);
+    assert!(seven.len() >= 2 && seven[..2] == [24, 24], "client16402_below_zero: the seventh resets it {seven:?}");
 }
