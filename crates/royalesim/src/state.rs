@@ -35850,6 +35850,9 @@ mod tests {
                         Some(SpellShape::AreaEffect { hit } | SpellShape::PulsingAreaEffect { hit, .. }) => hit.buff.map_or(0, |b| b.time_ms),
                         other => panic!("{}: not an area: {other:?}", v.card),
                     },
+                    // A unit's attack clock. No shipped value names one.
+                    CardColumn::HitSpeed => d.hit_speed_ms,
+                    CardColumn::LoadTime => d.load_time_ms,
                 }
             };
             assert_ne!(read(&shipped), v.value, "{}.{:?}: the table already holds the value, so this row checks nothing", v.card, v.column);
