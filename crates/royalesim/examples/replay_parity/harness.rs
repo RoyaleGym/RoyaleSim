@@ -2047,7 +2047,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         card_families: BTreeMap::new(),
         level_deviations: Vec::new(),
         cards_json_fixture: f.cards_json_fnv1a64.clone(),
-        cards_json_engine: cards_json_hash().ok(),
+        // The table this run LOADED (cards.CARD_TABLE: `table_hash`), not the checkout's cards.json: a 160402017 run
+        // compared the fixture with the 15.535.29 file and noted a false mismatch on every live fixture (Parity 10-09).
+        cards_json_engine: table_hash(db).ok(),
         notes: Vec::new(),
         calibration_overrides: BTreeMap::new(),
         card_values_client: None,
@@ -2055,7 +2057,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     };
     if let (Some(a), Some(b)) = (&report.cards_json_fixture, &report.cards_json_engine) {
         if a != b {
-            report.notes.push(format!("fixture classified against cards.json {a}, the engine loaded {b}: rerun tools/make_replay_fixture.py"));
+            report.notes.push(format!("fixture classified against card table {a}, the engine loaded {b} ({}): rerun tools/make_replay_fixture.py", table_file(db)));
         }
     }
     let mut cut: Option<u32> = None;

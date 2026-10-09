@@ -11,6 +11,7 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
   to the engine's current behaviour.
 - Tools: `tools/make_replay_fixture.py` reads an evolution's or a hero form's units as its card's (an Evo Bats deploy was
   read as an unknown object), reads the time stamp of a live capture's name, and gives a live capture no partner seat.
+  A `replay_parity` report names the card table it loaded, not the checkout's `cards.json`.
 
 ## 0.1.25 (2026-10-09)
 
