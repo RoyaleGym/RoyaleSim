@@ -12576,10 +12576,11 @@ impl BattleState {
         if c.evo.as_ref().and_then(|v| v.ring).is_some_and(|r| r.on_start) {
             self.evo.rings.push(RingRun { id, team, card, level, at: pos, made: self.tick, taken: Vec::new() });
         }
-        // THE EVO ELECTRO GIANT'S PULSE CLOCK (card.rs `DelevelPulseDef`; `pulse_pass`), armed at his creation: the
-        // creation tick is its first 50 ms, as the Evo Witch's waves count theirs.
+        // THE EVO ELECTRO GIANT'S PULSE CLOCK (card.rs `DelevelPulseDef`; `pulse_pass`), armed at his creation with
+        // `first_ms` whole: the Target phase runs after this Spawn phase, so its pass takes the creation tick's 50 ms
+        // (the creation tick is the clock's first 50 ms, as the Evo Witch's waves count theirs).
         if let Some(p) = c.evo.as_ref().and_then(|v| v.delevel_pulse) {
-            self.evo.pulse_clocks.push((id, p.first_ms - self.cfg.calib.tick_ms));
+            self.evo.pulse_clocks.push((id, p.first_ms));
         }
         // StartWithBuffWhenNotAttacking false (card.rs `starts_visible`, the Evo Royal Ghost's pair): visible from its
         // creation, its idle time counted from now (target.rs `invisible_at`).

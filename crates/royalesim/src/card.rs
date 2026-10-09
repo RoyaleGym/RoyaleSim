@@ -11958,8 +11958,8 @@ impl CardDb {
             // Read for their shape only: the start delay is inside `first_ms`, and the debuff's name, its counter's delay
             // and its give-back run nowhere in a battle (the give-back comes after `debuff_ms`).
             if !p.start_delay_ms.is_some_and(|d| (0..=first_ms).contains(&d))
-                || p.debuff.as_deref().is_none_or(str::is_empty)
-                || p.count_delay_ms.is_none_or(|d| d < 0)
+                || !p.debuff.as_deref().is_some_and(|d| !d.is_empty())
+                || !p.count_delay_ms.is_some_and(|d| d >= 0)
                 || p.restores_on_remove.is_none()
             {
                 return refuse("a block without a start delay inside its first firing, a debuff, its counter's delay or its give-back");
