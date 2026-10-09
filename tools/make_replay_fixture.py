@@ -297,6 +297,18 @@ AN UNLOGGED SIDE'S TROOP
     own plays on their logged taps instead scored 4,675 fewer within 250 (the game
     relocates some taps, 1,164 of 8,996 by more than 250).
 
+THE TOWER TROOP
+    A side's princess towers may hold a tower troop other than the Princess (the Dagger
+    Duchess, the Cannoneer, the Royal Chef: rows DaggerDuchess, Cannoneer, ChefTower), and
+    the capture names none. Each has its own hitpoints (1270, 1200, 1240 against the
+    PrincessTower's 1400), on the princess tower's ladder (`princess_tower_percent`, as
+    the engine scales it: globals HITPOINT_INCREASE_PERCENT_PER_TOWER_LEVEL to
+    combat.TOWER_HITPOINT_LADDER's cap level, _AFTER_TOURNAMENTCAP above it, compounded
+    and floored). So `tower_troops` names, per side, the one row whose hitpoints at the
+    side's tower level are its princess towers' max_hp, or null where none (or two)
+    fit or the towers disagree. Live (602 fixtures): 1152 sides the Princess, 22 the
+    Cannoneer, 18 the Dagger Duchess, 10 the Royal Chef, every side read.
+
 A SCHEDULED SPELL'S CAST
     The 16.402 Graveyard puts its skeletons down on its area's schedule (its action
     graph's ActionSpawnToLocation entries: the first 2200 ms after the cast, then 500 or
@@ -1731,6 +1743,47 @@ def evo_copy_of(members: list[dict], group_keys: set[int], before: dict[int, tup
     return f"{len(members)} copies of a living group (each {near} from its nearest living member)"
 
 
+#: THE TOWER TROOPS a princess tower slot can hold (module doc, THE TOWER TROOP): the table's rows.
+TOWER_TROOPS = ("PrincessTower", "DaggerDuchess", "Cannoneer", "ChefTower")
+#: The globals the engine reads its tower ladder from (state.rs GLOBALS_CSV) and the ledger that caps it.
+GLOBALS_2018 = os.path.join(ROOT, "data", "raw", "retroroyale-2018", "csv_logic", "globals.csv")
+CALIBRATION = os.path.join(ROOT, "data", "calibration.json")
+
+
+def princess_tower_percent(level: int) -> int:
+    """The princess tower's hitpoint multiplier at `level`, as the engine computes it (state.rs
+    `tower_multiplier_percent`): 100 at level 1, then each level compounded by its percent, floored."""
+    with open(GLOBALS_2018, encoding="utf-8", newline="") as fh:
+        rows = list(csv.reader(fh))
+    head = rows[0]
+    number = {r[head.index("Name")]: r[head.index("NumberValue")] for r in rows[2:] if len(r) == len(head)}
+    rate = int(number["HITPOINT_INCREASE_PERCENT_PER_TOWER_LEVEL"])
+    after = int(number["HITPOINT_INCREASE_PERCENT_PER_TOWER_LEVEL_AFTER_TOURNAMENTCAP"])
+    with open(CALIBRATION, encoding="utf-8") as fh:
+        cap = json.load(fh)["combat"]["TOWER_HITPOINT_LADDER"]["value"]["cap_level"]
+    p = 100
+    for lv in range(2, level + 1):
+        p = p * (100 + (rate if lv <= cap else after)) // 100
+    return p
+
+
+def tower_troops(towers: list[dict], doc: dict) -> dict[str, str | None]:
+    """Per side, the tower troop its princess towers hold (module doc, THE TOWER TROOP), or None."""
+    bases = {t["name"]: t["hitpoints"] for t in doc.get("towers") or [] if t["name"] in TOWER_TROOPS}
+    bases.update({n: u["hitpoints"] for n in TOWER_TROOPS if (u := doc["units"].get(n)) and u.get("hitpoints")})
+    out: dict[str, str | None] = {}
+    for side in (0, 1):
+        names = set()
+        for t in towers:
+            if t["side"] != side or t.get("slot") not in (1, 2) or not t.get("level"):
+                continue
+            pct = princess_tower_percent(t["level"])
+            fit = [n for n, b in bases.items() if b * pct // 100 == t["max_hp"]]
+            names.add(fit[0] if len(fit) == 1 else None)
+        out[str(side)] = names.pop() if len(names) == 1 else None
+    return out
+
+
 #: How many ticks after a cast its spawned units may first be seen (A SPELL'S LEVEL FROM ITS SPAWN): a Goblin
 #: Barrel's goblins land about 57 ticks after the cast from across the arena, a Barbarian Log's Barbarian about 31.
 SPELL_SPAWN_WINDOW = 200
@@ -3011,6 +3064,7 @@ def build(
                 for t in towers
             ],
             "tower_level": {str(s): tower_level[s] for s in (0, 1)},
+            "tower_troops": tower_troops(towers, doc),
             "card_levels": card_levels,
             "decks": script_decks,
             "forms_read": FORMS_READ if form_rows is not None else {},

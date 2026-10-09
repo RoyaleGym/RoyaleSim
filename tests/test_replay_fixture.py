@@ -2187,3 +2187,26 @@ def test_a_spells_level_is_its_spawns(m):
     far = cast("BarbLog", 131 - m.SPELL_SPAWN_WINDOW - 1)
     m.spell_levels_from_spawn([far], groups, ents)
     assert far["level"] == 11, "a spawn past the window is not the cast's"
+
+
+@needs_cards
+def test_a_sides_tower_troop_is_read_off_its_princess_towers(m):
+    """A capture names no tower troop; each has its own hitpoints on the princess tower's ladder (module doc, THE TOWER
+    TROOP), so the row whose hitpoints at the tower level are the princess towers' max_hp is the side's. Level 11
+    (218 %): the Princess 3052, the Cannoneer 2616, the Dagger Duchess 2768, the Royal Chef 2703. Two towers that
+    disagree, or a max_hp no row gives, name none."""
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    assert [m.princess_tower_percent(lv) for lv in (1, 9, 10, 11, 16)] == [100, 181, 199, 218, 347]
+
+    def side(s, hp, level=11):
+        return [{"side": s, "slot": 0, "max_hp": 5000, "level": level},
+                {"side": s, "slot": 1, "max_hp": hp, "level": level},
+                {"side": s, "slot": 2, "max_hp": hp, "level": level}]
+
+    assert m.tower_troops(side(0, 3052) + side(1, 2616), doc) == {"0": "PrincessTower", "1": "Cannoneer"}
+    assert m.tower_troops(side(0, 2768) + side(1, 2703), doc) == {"0": "DaggerDuchess", "1": "ChefTower"}
+    assert m.tower_troops(side(0, 1270 * 347 // 100, 16) + side(1, 3000), doc) == {"0": "DaggerDuchess", "1": None}
+    mixed = side(0, 3052)
+    mixed[2]["max_hp"] = 2616
+    assert m.tower_troops(mixed, doc)["0"] is None, "the two towers disagree"
