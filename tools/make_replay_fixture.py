@@ -277,6 +277,66 @@ CREATION POINT
     after its creation, already pushed. A unit that travels under ground keeps its row (it
     is played at its `destination`).
 
+AN UNLOGGED SIDE'S TROOP
+    A side no placement log covers (the opponent of a live capture: only our own taps are
+    logged) has no tap to play a troop on. A troop play of such a side that RECOVERED TILE,
+    CREATION POINT and LATE SINGLE all leave on its members' centroid is played on the
+    centre of the tile that centroid lies in (`source` `tile_centre`, x // 1000 * 1000 +
+    500, the same in y): the game puts a troop down around a tile centre, and the
+    centroid of members already pushed, or of a formation clamped at a river bank, is
+    off it. Only a play the capture shows deploying (every member's first frame in
+    behavior_state 4 or 11): a unit first seen walking is not at its creation point. And
+    not a centroid on a tile line (x or y a whole thousand): that is a point the game
+    relocated a tap to, on no tile's centre (a tower tap's troop on the king's back row
+    at y 31000, a line of three there at c and c +- 549).
+    Live (593 fixtures, the 10-06 table, measured before those two exclusions): 8,517
+    such plays moved, troops within 250 64.07 % -> 66.72 % of both-alive unit-ticks, 175
+    fixtures up and 47 down, the first divergence later in 59 and earlier in 5 (a
+    Skeleton Army tapped on the river edge at (3500, 14500) lies 330 low on its centroid,
+    and on its tile it is laid exactly). A logged side keeps what its units show: our
+    own plays on their logged taps instead scored 4,675 fewer within 250 (the game
+    relocates some taps, 1,164 of 8,996 by more than 250).
+
+A SCHEDULED SPELL'S CAST
+    The 16.402 Graveyard puts its skeletons down on its area's schedule (its action
+    graph's ActionSpawnToLocation entries: the first 2200 ms after the cast, then 500 or
+    600 ms apart, each at a fixed offset from the cast point), and a capture shows no
+    object for the cast itself, so the opponent's Graveyard has no cast row. Its
+    skeletons are its spawn (truth only; read as no object, each was a Graveyard cast of
+    its own: 126 of 168 rows in 8 live battles, 1.33M engine unit-ticks with no
+    counterpart). The cast is read off them (`schedule_casts`, `source` `schedule`): a
+    side's skeletons of the card that fall within the area's life of the first are one
+    cast; the k-th to appear is the schedule's k-th entry, so the cast's tick is the
+    earliest of each one's first tick less its entry's delay, its x the creation point of
+    the ones whose entry has no x offset, and its y that of the ones with no y offset
+    (each the median). A cast row of the card on that side already within
+    SCHEDULE_CAST_SLACK ticks (one from a tap) is kept instead.
+
+A SPELL'S LEVEL FROM ITS SPAWN
+    A spell that puts units down (the Goblin Barrel's goblins, the Barbarian Log's
+    Barbarian, the Graveyard's skeletons) records its level on them, so a cast whose
+    spawn is seen takes its units' level (`level_source` `spawn`), over the side mode,
+    the card level and a damage read alike: live 20261007-011702-A's Barbarian Log was
+    played at the side mode 11, where its Barbarian stood at 12. The spawn is the
+    earliest group of that side and card first seen within SPELL_SPAWN_WINDOW ticks after
+    the cast, each claimed once.
+
+EVO COPIES
+    An Evo Skeleton's hit makes a copy of it (its evolution's `evo_duplication`: up to the
+    group's GroupMaxSize living members, spawner.EVO_COPY_POINT for where). The capture shows
+    each copy as a new unit of the card, under the evolution's id, so a group of them read
+    as a deploy was played AGAIN: the engine makes its own copies too, and the harness
+    paired neither. Live 20261002-152325-A: side 0's Evo Skeletons of t1362 (count 3) were
+    followed by rows of 2, 1, 1, 1 on t1392 to t1419 (keys 55-59) and one on t2818 (key
+    122); with those rows out, unmatched engine units fell 55 -> 1 and the troops within
+    250 rose 3,871 -> 11,176 of 15,905 unit-ticks. A summon group under an evolution that
+    duplicates is its living group's copies, not a play, when no tap answers it, it has
+    fewer members than a play puts down (the evolution's `count`), and every member first
+    stands within EVO_COPY_REACH of a living member, on the frame before, of an earlier
+    group of the same side and id (a play's or a copy's) that has finished its deploy (a
+    hitter; a play whose members first show on two frames is not its own copies). Its entities are spawned (truth
+    only), listed in `spawned_groups` with `copy_of`, which says how near each stood.
+
 LATE SINGLE
     A single troop whose creation tick comes before its first frame (`tick` <
     `first_seen`: a missed frame, or a unit shown late) was pushed on the ticks the capture
@@ -445,6 +505,8 @@ REGISTER = os.path.join(ROOT, "data", "derived", "mechanic_register.json")
 FORMATIONS = os.path.join(ROOT, "crates", "royalesim", "tests", "fixtures", "formations", "measured.json")
 OUT_DEFAULT = os.path.join(ROOT, "data", "derived", "replay")
 CENSUS = "card_census.json"
+#: The `--table` CARDS, RAW and CENSUS are set for (`select_table`).
+TABLE = "15.535.29"
 
 #: THE CARD TABLES A FIXTURE CAN BE MADE AGAINST (calibration cards.CARD_TABLE), by `--table`: the derived card file,
 #: the raw pack whose csv names every client card id (the 160402017 base pack: the 2026-10-06 update folder is a toml
@@ -453,16 +515,49 @@ CENSUS = "card_census.json"
 TABLES = {
     "15.535.29": ("cards.json", "cr-15.535.29", "card_census.json"),
     "160402017-20261006": ("cards-160402017-20261006.json", "cr-160402017", "card_census-160402017-20261006.json"),
+    # The same client before its 2026-10-06 update (content 16.402.2): a capture recorded before the update.
+    "160402017": ("cards-160402017.json", "cr-160402017", "card_census-160402017.json"),
 }
 
 
 def select_table(name: str) -> None:
     """Point CARDS, RAW and CENSUS at table `name` (a TABLES key)."""
-    global CARDS, RAW, CENSUS
+    global CARDS, RAW, CENSUS, TABLE
     cards, raw, census = TABLES[name]
+    TABLE = name
     CARDS = os.path.join(ROOT, "data", "derived", cards)
     RAW = os.path.join(ROOT, "data", "raw", raw, "csv_logic")
     CENSUS = census
+
+#: THE 2026-10-06 UPDATE'S CONTENT (a capture header's `client.content_version`, which the live reader writes from that
+#: update on): 16.402.19, and the later stamps of the same build that changed no card (16.402.21: build 160402020 is
+#: 160402017's tables).
+UPDATE_20261006_CONTENT = (16, 402, 19)
+
+
+def content_refusal(table: str, content: str | None) -> str | None:
+    """Why a capture recorded on client content `content` (its header's stamp; None for a capture made before the
+    stamp, i.e. before the 2026-10-06 update) does not fit card table `table`, or None when it does. The table must be
+    the game the capture was played on: a stamp is per capture, since a device takes a content update when its game
+    starts, so no date decides it. The 15.535.29 table takes any capture (the 16.402 corpus is measured on it)."""
+    if table not in ("160402017", "160402017-20261006"):
+        return None
+    if content is None:
+        if table == "160402017-20261006":
+            return ("the capture has no content stamp, so it was recorded before the 2026-10-06 update: "
+                    "make it with --table 160402017")
+        return None
+    try:
+        v = tuple(int(x) for x in content.split("."))
+    except ValueError:
+        return f"the capture's content stamp {content!r} is not a version"
+    if table == "160402017":
+        return (f"the capture's content {content} is the 2026-10-06 update's or later: "
+                "make it with --table 160402017-20261006")
+    if v[:2] != UPDATE_20261006_CONTENT[:2] or v < UPDATE_20261006_CONTENT:
+        return f"the capture's content {content} is not the 2026-10-06 update's (16.402.19 on)"
+    return None
+
 
 FORMAT = "replay-fixture-1"
 #: The recording's five-digit tag at the end of a capture or placement-log file name
@@ -739,6 +834,12 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
 
     spell = card.get("spell") or {}
     proj = card.get("projectile") or {}
+    # a spell's area that puts units down: its own spawn, and its action graph's (the 16.402 Graveyard's skeletons are
+    # its schedule's ActionSpawnToLocation entries; read as no object, each was a Graveyard cast of its own)
+    area = spell.get("area_effect_object") or {}
+    area_units = [area.get("spawn_character")]
+    schedule = (area.get("schedule") or {}).get("entries") or []
+    area_units += [e.get("spawn") for e in schedule if e.get("spawn_type") == "CharacterType"]
     for ref in (
         card.get("summon_character"),
         (card.get("second_summon") or {}).get("character"),
@@ -749,6 +850,7 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
         (proj.get("spawn_projectile") or {}).get("spawn_character"),
         # the building a tunnel leaves (the Goblin Drill's), with its own spawner and death spawn below it
         (card.get("spawn_pathfind") or {}).get("morph"),
+        *area_units,
     ):
         add(ref)
     return out
@@ -784,7 +886,8 @@ def classify_unit(
     NEAREST_MAX_ERROR_PERCENT of the hp (the nearest and its error are in the string):
     the game put something on the board under this card's id that cards.json does not
     derive from the card (an action-graph spawner's emission, a form the loader has no
-    object for) -- truth only, never a deploy."""
+    object for) -- truth only, never a deploy. `no_object` (no object of the card has
+    hitpoints) is a deploy summon for a troop or a building, and truth only for a spell."""
     if card is None:
         return None, True, "no_card"
     # The card and its forms (an evolution's or a hero form's record, `form_of` the card): a deploy of a form is
@@ -805,7 +908,8 @@ def classify_unit(
         if best is None or err < best[0]:
             best = (err, unit, hp)
     if best is None:
-        return None, True, "no_object"
+        # a spell is cast, never summoned: an object of its id that no record derives is truth only
+        return None, card.get("kind") != "spell", "no_object"
     err, unit, hp = best
     if err > NEAREST_MAX_ERROR_PERCENT:
         return None, False, f"unknown_object (nearest {unit} {hp} at level {level}, {err}% off)"
@@ -1604,6 +1708,127 @@ SPELL_HIT_WINDOW = 120
 SPELL_HIT_SLACK = 2
 
 
+#: How far from a living member of its group an Evo Skeletons copy may first stand (module doc, EVO COPIES): the
+#: client makes it a tile from its hitter (spawner.EVO_COPY_POINT), and both may move a step before the frame shows it.
+EVO_COPY_REACH = 2000
+
+
+def evo_copy_of(members: list[dict], group_keys: set[int], before: dict[int, tuple], count: int | None) -> str | None:
+    """How a summon group with no tap is its living group's copies (module doc, EVO COPIES): fewer members than a play
+    puts down (`count`), each first standing within EVO_COPY_REACH of a living member (`before`: the frame before's
+    rows, x, y, hp first) of `group_keys`; None when it is not."""
+    if count is None or len(members) >= count:
+        return None
+    near = []
+    for e in members:
+        best = min(
+            (math.dist((e["x0"], e["y0"]), r[:2]) for k in group_keys if (r := before.get(k)) is not None and r[2] > 0),
+            default=None,
+        )
+        if best is None or best > EVO_COPY_REACH:
+            return None
+        near.append(round(best))
+    return f"{len(members)} copies of a living group (each {near} from its nearest living member)"
+
+
+#: How many ticks after a cast its spawned units may first be seen (A SPELL'S LEVEL FROM ITS SPAWN): a Goblin
+#: Barrel's goblins land about 57 ticks after the cast from across the arena, a Barbarian Log's Barbarian about 31.
+SPELL_SPAWN_WINDOW = 200
+#: How near a cast row already there must be to a scheduled cast read off its spawns to stand for it (A SCHEDULED
+#: SPELL'S CAST).
+SCHEDULE_CAST_SLACK = 20
+
+
+def spawn_schedule(card: dict) -> list[dict]:
+    """A spell area's unit spawns, by delay (A SCHEDULED SPELL'S CAST): its schedule's CharacterType entries."""
+    area = (card.get("spell") or {}).get("area_effect_object") or {}
+    entries = [e for e in (area.get("schedule") or {}).get("entries") or [] if e.get("spawn_type") == "CharacterType"]
+    return sorted(entries, key=lambda e: e.get("delay_ms") or 0)
+
+
+def schedule_casts(
+    spawned_groups: list[dict], ents: dict, ticks: list[int], cards_by_name: dict, deploys: list[dict]
+) -> list[dict]:
+    """The casts a scheduled spell's spawns give away (module doc, A SCHEDULED SPELL'S CAST): one row per cast no cast
+    row of the card on its side already stands for."""
+    members: dict[tuple, list[dict]] = defaultdict(list)
+    for g in spawned_groups:
+        card = cards_by_name.get(g["card"]) or {}
+        if card.get("kind") == "spell" and spawn_schedule(card):
+            members[(g["side"], g["card"])].extend(ents[k] for k in g["keys"] if k in ents)
+    def point(e):
+        return tuple(e["c0"]) if e.get("c0") is not None else (e["x0"], e["y0"])
+
+    out = []
+    for (side, name), es in sorted(members.items()):
+        card = cards_by_name[name]
+        entries = spawn_schedule(card)
+        life = ((card["spell"]["area_effect_object"].get("life_duration_ms") or 0) + 49) // 50
+        es.sort(key=lambda e: (e["first_index"], e["key"]))
+        while es:
+            start = ticks[es[0]["first_index"]]
+            cast = [e for e in es if ticks[e["first_index"]] <= start + life]
+            es = es[len(cast):]
+            pairs = list(zip(cast, entries, strict=False))  # a cast cut short by the battle's end shows fewer
+            tick = min(ticks[e["first_index"]] - (en.get("delay_ms") or 0) // 50 for e, en in pairs)
+            xs = [point(e)[0] for e, en in pairs if (en.get("x") or {}).get("offset_milli") == 0]
+            ys = [point(e)[1] for e, en in pairs if (en.get("y") or {}).get("offset_milli") == 0]
+            if not xs or not ys:
+                continue
+            if any(
+                d["kind"] == "spell" and d["side"] == side and d["card"] == name
+                and abs(d["tick"] - tick) <= SCHEDULE_CAST_SLACK
+                for d in deploys
+            ):
+                continue
+            out.append(
+                {
+                    "tick": tick,
+                    "first_seen": ticks[cast[0]["first_index"]],
+                    "tick_evidence": f"its first {len(pairs)} spawns less their schedule delays",
+                    "side": side,
+                    "card": name,
+                    "card_id": cast[0]["card_id"],
+                    "kind": "spell",
+                    "level": None,
+                    "count": 0,
+                    "keys": [],
+                    "pos": [int(statistics.median(xs)), int(statistics.median(ys))],
+                    "source": "schedule",
+                    "spawn_keys": [e["key"] for e in cast],
+                }
+            )
+    return out
+
+
+def spell_levels_from_spawn(deploys: list[dict], spawned_groups: list[dict], ents: dict) -> None:
+    """A spell's level off the units it put down (module doc, A SPELL'S LEVEL FROM ITS SPAWN)."""
+    claimed: set[int] = set()
+    for d in sorted((d for d in deploys if d["kind"] == "spell"), key=lambda d: d["tick"]):
+        if d.get("spawn_keys"):
+            levels = [ents[k]["level"] for k in d.pop("spawn_keys") if k in ents]
+        else:
+            group = next(
+                (
+                    g for i, g in enumerate(spawned_groups)
+                    if i not in claimed and g["side"] == d["side"] and g["card"] == d["card"]
+                    and d["tick"] <= g["tick"] <= d["tick"] + SPELL_SPAWN_WINDOW
+                ),
+                None,
+            )
+            if group is None:
+                continue
+            claimed.add(spawned_groups.index(group))
+            levels = [ents[k]["level"] for k in group["keys"] if k in ents]
+        if not levels:
+            continue
+        level = Counter(levels).most_common(1)[0][0]
+        if level != d.get("level"):
+            note = f"its spawn's level {level} (was {d.get('level')}, {d.get('level_source')})"
+            d["level_evidence"] = f"{d['level_evidence']}; {note}" if d.get("level_evidence") else note
+            d["level"], d["level_source"] = level, "spawn"
+
+
 def spell_damage_at(doc: dict, card: dict, level: int) -> int | None:
     """A damaging spell's hit on a troop or a building at a unified level, scaled as the engine scales it (card.rs
     `level_multiplier`: the ladder entered at level_scaling.base_level, truncating division). None for a card with no
@@ -1616,6 +1841,17 @@ def spell_damage_at(doc: dict, card: dict, level: int) -> int | None:
     table = ls["multiplier_percent_by_level"]
     step = level - first
     return base * table[step] // 100 if 0 <= step < len(table) else None
+
+
+def playable_levels(doc: dict, card: dict) -> range:
+    """The unified levels a card can be played at: its CARD rarity's ladder (card.rs `level_multiplier`: the local
+    level, level - relative_level, in 1..=level_count). A Log is a Legendary, 9 to 16, though its damage scales on the
+    Common ladder from 1: a hit that only a level-8 Log could land is not a Log's. The whole ladder for a card whose
+    rarity the table does not list."""
+    r = doc["rarities"].get(card.get("rarity") or "")
+    if not r:
+        return range(1, 17)
+    return range(r["relative_level"] + 1, r["relative_level"] + r["level_count"] + 1)
 
 
 def spell_levels_from_damage(
@@ -1632,16 +1868,18 @@ def spell_levels_from_damage(
     that last hp (item 58: 20260918-115249.b1's side-0 Fireballs of t2074 and t3183 kill a 358-hp Goblin Hut, its
     decay tick included, and a 351-hp Musketeer, where the side mode's level 3 lands 326; level 4's 357 covers both,
     and at level 4 the report reaches the bar). A kill another hit shares the tick with reads as the spell's alone.
-    One fitting level replaces the side mode
+    Only the levels the card can be played at are tried (`playable_levels`): a Log is a Legendary, so a drop that only
+    its level 8 lands (live 20261007-005625-A read Logs at 2, 6 and 8, and the harness dropped each row as a level the
+    card does not have) is no Log hit. One fitting level replaces the side mode
     (`level_source` "damage"); several are settled by the one nearest the side mode; none keep the side mode. The drops
     are in `level_evidence` either way.
 
     ONE LEVEL PER CARD PER SIDE: a cast whose hit is not read (no drop inside the window, or none any level fits) takes
     the level its side's other casts of the same card were read at (`level_source` "card level"; the most read, the
-    lowest on a tie), and the side mode only when none was read. 20260918-112751's side 0 cast three Fireballs: the
-    first two read level 4, and the third (tick 3032) fell to the side mode 3; at 4 the fixture gains 1,186 unit-ticks
-    within 250 and 1,130 hp exact (parity, round 9 item 39). It is the one card in the 73 fixtures cast at two levels by
-    one side."""
+    one nearest the side mode on a tie, then the lowest), and the side mode only when none was read. 20260918-112751's
+    side 0 cast three Fireballs: the first two read level 4, and the third (tick 3032) fell to the side mode 3; at 4 the
+    fixture gains 1,186 unit-ticks within 250 and 1,130 hp exact (parity, round 9 item 39). It is the one card in the 73
+    fixtures cast at two levels by one side."""
     ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
     index_of = {t: i for i, t in enumerate(ticks)}
     read: dict[tuple, Counter] = defaultdict(Counter)
@@ -1661,8 +1899,12 @@ def spell_levels_from_damage(
         if i0 is None:
             continue
         foes = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] >= 0]
-        # a drop below the spell's least damage is not its hit (a building's decay tick, a troop's chip)
-        least = min(x for lv in range(1, 17) if (x := spell_damage_at(doc, card, lv)) is not None)
+        # a drop below the spell's least damage is not its hit (a building's decay tick, a troop's chip); both the least
+        # damage and the fitting levels are over the levels the card can be played at (`playable_levels`)
+        playable = playable_levels(doc, card)
+        least = min((x for lv in playable if (x := spell_damage_at(doc, card, lv)) is not None), default=None)
+        if least is None:
+            continue
         hit = None
         for i in range(max(i0, 1), min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows))):
             drops, kills = [], []
@@ -1685,7 +1927,7 @@ def spell_levels_from_damage(
             d["level_evidence"] = "no enemy within its reach lost hp inside the window"
             continue
         fits = [
-            lv for lv in range(1, 17)
+            lv for lv in playable
             if (dmg := spell_damage_at(doc, card, lv)) is not None
             and all(dmg <= x <= dmg + SPELL_HIT_SLACK for x in hit[1])
             and all(dmg + SPELL_HIT_SLACK >= k for k in hit[2])
@@ -1707,7 +1949,7 @@ def spell_levels_from_damage(
         if not levels:
             continue
         top = max(levels.values())
-        level = min(lv for lv, n in levels.items() if n == top)
+        level = min((lv for lv, n in levels.items() if n == top), key=lambda lv: (abs(lv - d["level"]), lv))
         note = f"the side's read casts of {d['card']}: levels {dict(sorted(levels.items()))}"
         d["level_evidence"] = f"{d['level_evidence']}; {note}" if d.get("level_evidence") else note
         d["level"] = level
@@ -2039,6 +2281,12 @@ def build(
     }
     if late:
         fx["frames_relabelled_late"] = late
+    client = (header or {}).get("client")
+    why = content_refusal(TABLE, client.get("content_version") if isinstance(client, dict) else None)
+    if why:
+        fx["playable"] = False
+        fx["unplayable_reasons"] = [f"card table {TABLE}: {why}"]
+        return fx
     if not frames:
         fx["playable"] = False
         fx["unplayable_reasons"] = ["no frames"]
@@ -2217,6 +2465,12 @@ def build(
     used_taps: set[int] = set()
     deploys = []
     latencies = []
+    # the sides a placement log covers (module doc, AN UNLOGGED SIDE'S TROOP)
+    logged_sides = {t["side"] for t in taps}
+    # an Evo Skeletons group's own copies (module doc, EVO COPIES): the keys of each (side, id)'s duplicating groups
+    evolutions = {r["name"]: r for r in doc.get("evolutions") or []}
+    duplicating: dict[tuple, set[int]] = defaultdict(set)
+    copies_of: dict[tuple, str] = {}
     for (side, cid, fi), members in sorted(
         groups.items(), key=lambda kv: (kv[0][2], kv[0][0], kv[0][1])
     ):
@@ -2251,6 +2505,24 @@ def build(
                 break
         name = members[0]["card"]
         card = cards_by_name.get(name) or {}
+        form = deploy_form(cid, form_rows, name) if form_rows is not None else {}
+        evo = evolutions.get(form.get("form_row")) if form.get("form") == "ev1" else None
+        if evo and evo.get("evo_duplication"):
+            why = None
+            if tap_ix is None and fi > 0:
+                # a hitter is a member that has finished its deploy: a play's members first shown on two frames are
+                # not each other's copies
+                ready = {
+                    k for k in duplicating[(side, cid)]
+                    if ticks[ents[k]["first_index"]] + (evo.get("deploy_time_ms") or 0) // 50 <= ticks[fi]
+                }
+                why = evo_copy_of(members, ready, per_tick_rows[fi - 1], evo.get("count"))
+            duplicating[(side, cid)].update(e["key"] for e in members)
+            if why:
+                for e in members:
+                    e["role"] = "spawned"
+                copies_of[(side, cid, fi)] = why
+                continue
         d = {
             "tick": tick,
             "first_seen": first_seen,
@@ -2268,7 +2540,7 @@ def build(
             "families": sorted(
                 (register.get("cards", {}).get(name) or {}).get("families", {}).keys()
             ),
-            **(deploy_form(cid, form_rows, name) if form_rows is not None else {}),
+            **form,
         }
         if tap_ix is not None:
             t = taps[tap_ix]
@@ -2320,6 +2592,16 @@ def build(
                 laid, why = late_single_point(tuple(members[0]["c0"]), side, flying, first_seen - tick)
                 if laid is not None and laid != [cx, cy]:
                     d["pos"], d["source"], d["recovery"] = laid, "laid_point", why
+        if (
+            d["source"] == "centroid"
+            and d["kind"] == "troop"
+            and side not in logged_sides
+            and all((e.get("states") or [(0, None)])[0][1] in (4, STATE_STAGGER_WAIT) for e in members)
+            and cx % 1000
+            and cy % 1000
+        ):
+            # a side with no tap: the centroid's tile centre (module doc, AN UNLOGGED SIDE'S TROOP)
+            d["pos"], d["source"] = [cx // 1000 * 1000 + 500, cy // 1000 * 1000 + 500], "tile_centre"
         deploys.append(d)
 
     # spawned and unknown-object groups: truth only, cross-checked against the taps.
@@ -2361,6 +2643,7 @@ def build(
                 "keys": sorted(e["key"] for e in members),
                 "hp_match": hp_match,
                 "coincides_with_a_tap": bool(coincides),
+                **({"copy_of": copies_of[(side, cid, fi)]} if (side, cid, fi) in copies_of else {}),
             }
         )
         if role == "unknown_object" and coincides:
@@ -2600,6 +2883,8 @@ def build(
                 ),
             }
         )
+    # a scheduled spell's casts read off its spawns (module doc, A SCHEDULED SPELL'S CAST)
+    deploys.extend(schedule_casts(spawned_groups, ents, ticks, cards_by_name, deploys))
     deploys.sort(key=lambda d: (d["tick"], d["side"], d["card_id"]))
     mirror_plays(deploys, decks, id_table)
     # spells at the level of the side's units (a cast carries no level in the captures)
@@ -2611,6 +2896,7 @@ def build(
                 d["level"] = side_level
                 d["level_source"] = "side mode"
     spell_levels_from_damage(deploys, doc, cards_by_name, ents, per_tick_rows, ticks)
+    spell_levels_from_spawn(deploys, spawned_groups, ents)
     tunnel_destinations(deploys, ents, per_tick_rows, cards_by_name)
     tunnel_spawn_ticks(deploys, ents, ticks, towers, cards_by_name)
     # the battle's other seat dates the rows its own frames pin (module doc, PAIR DATING); after every other tick

@@ -1403,6 +1403,8 @@ def test_a_group_the_capture_shows_late_is_deployed_on_its_spawn(m, maker_inputs
         ("Knight", 41): (60, 60),
     }, got
     assert rows[("Goblins", 20)]["tick_evidence"].startswith("exact (deploy-end transition"), rows[("Goblins", 20)]
+    # side 1 is the log's side: its plays keep what their units show, never a tile centre (AN UNLOGGED SIDE'S TROOP)
+    assert (rows[("Goblins", 20)]["pos"], rows[("Goblins", 20)]["source"]) == ([8850, 30350], "centroid")
     assert [d["card"] for d in fx["deploys"] if d["kind"] == "spell"] == []
     assert [u["card"] for u in fx["unresolved"]] == ["Zap"], fx["unresolved"]
 
@@ -1527,8 +1529,9 @@ def _clamped_battle():
 @needs_modern_cards
 def test_a_group_with_no_tap_is_played_on_its_recovered_tile(m, maker_inputs, tmp_path):
     """Built end to end: a group with no tap whose members agree on one tile centre is played there (`source`
-    recovered_tile), its `centroid` kept as it was; a group whose members agree on none stays at its centroid, and
-    `recovery` says why. Before the recovery the left-edge group was played at its centroid, (755, 10500), and the
+    recovered_tile), its `centroid` kept as it was; a group whose members agree on none is left on its centroid,
+    `recovery` says why, and as no log covers its side it is played on that centroid's tile centre (module doc, AN
+    UNLOGGED SIDE'S TROOP). Before the recovery the left-edge group was played at its centroid, (755, 10500), and the
     engine laid the whole ring 255 to the right of where the game laid it."""
     _skip_without_the_id_table(m)
     header, frames = _clamped_battle()
@@ -1543,7 +1546,8 @@ def test_a_group_with_no_tap_is_played_on_its_recovered_tile(m, maker_inputs, tm
     assert edge["centroid"] == [755, 10500], edge
     assert (mid["pos"], mid["source"]) == ([3500, 8500], "recovered_tile"), mid
     assert mid["centroid"] == [(2738 - 150 + 2738 + 4260 + 4260) // 4, 8500], mid
-    assert (walking["pos"], walking["source"]) == (walking["centroid"], "centroid"), walking
+    assert walking["centroid"] == [6675, 20350], walking
+    assert (walking["pos"], walking["source"]) == ([6500, 20500], "tile_centre"), walking
     assert walking["recovery"].startswith("no member's creation point"), walking
 
 
@@ -1735,6 +1739,62 @@ def test_a_spells_level_is_read_off_its_first_hit(m):
     assert (far["level"], far["level_source"]) == (4, "card level"), far
     assert "levels {4: 2}" in far["level_evidence"], far["level_evidence"]
     assert (other["level"], other["level_source"]) == (2, "side mode"), "the other side's cast took side 0's level"
+
+
+@needs_cards
+def test_a_spells_level_is_one_its_card_can_be_played_at(m):
+    """A Log is a Legendary (unified 9 to 16) whose damage scales on the Common ladder from 1, so its level-8 damage
+    exists on the ladder but no Log lands it (live 20261007-005625-A read Logs at 2, 6 and 8, and the harness dropped
+    each row as a level the card does not have). Only the card's own levels are tried, and a drop below its least
+    playable damage is no hit. A tie between read levels goes to the one nearest the side mode."""
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    cards = {c["name"]: c for c in doc["cards"]}
+    log = cards["Log"]
+    assert m.playable_levels(doc, log) == range(9, 17)
+    assert m.playable_levels(doc, cards["Fireball"]) == range(3, 17)
+    at8, at11 = m.spell_damage_at(doc, log, 8), m.spell_damage_at(doc, log, 11)
+    assert at8 is not None, "the ladder holds a level 8 the card does not"
+    assert at8 < m.spell_damage_at(doc, log, 9)
+
+    def row(hp):
+        r = [0] * len(m.TRUTH_COLUMNS)
+        r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")], r[m.TRUTH_COLUMNS.index("hp")] = 6500, 17500, hp
+        return tuple(r)
+
+    ticks = [100, 101, 102]
+    ents = {7: {"key": 7, "side": 1, "card_id": 26000000}}
+
+    def rows(drop):
+        return [{7: row(2000)}, {7: row(2000)}, {7: row(2000 - drop)}]
+
+    def cast(level=11, pos=(6500, 17500)):
+        return {"tick": 100, "side": 0, "card": "Log", "kind": "spell", "level": level,
+                "level_source": "side mode", "pos": list(pos)}
+
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, rows(at8), ticks)
+    assert (d["level"], d["level_source"]) == (11, "side mode"), d
+    d = cast(level=12)
+    m.spell_levels_from_damage([d], doc, cards, ents, rows(at11), ticks)
+    assert (d["level"], d["level_source"]) == (11, "damage"), d
+
+    # One cast read at 10, one at 12 (two victims far apart), a third unread: it takes the read level nearest its side
+    # mode 12, not the lowest.
+    at10, at12 = m.spell_damage_at(doc, log, 10), m.spell_damage_at(doc, log, 12)
+
+    def row_at(x, hp):
+        r = list(row(hp))
+        r[m.TRUTH_COLUMNS.index("x")] = x
+        return tuple(r)
+
+    two = {**ents, 8: {"key": 8, "side": 1, "card_id": 26000000}}
+    still = {7: row_at(3500, 2000), 8: row_at(14500, 2000)}
+    hit = [still, still, {7: row_at(3500, 2000 - at10), 8: row_at(14500, 2000 - at12)}]
+    a, b, far = cast(12, (3500, 17500)), cast(12, (14500, 17500)), cast(12, (9000, 31000))
+    m.spell_levels_from_damage([a, b, far], doc, cards, two, hit, ticks)
+    assert (a["level"], b["level"]) == (10, 12), (a, b)
+    assert (far["level"], far["level_source"]) == (12, "card level"), far
 
 
 def test_a_key_the_capture_reused_for_another_unit_is_split(m):
@@ -1999,16 +2059,39 @@ def test_a_frame_read_a_tick_late_takes_the_tick_its_contents_show(m):
 def test_the_table_switch_sets_the_card_file_the_id_pack_and_the_census_together(m):
     """make_replay_fixture.py --table: one switch points CARDS, RAW and CENSUS at a table, so a fixture made on the
     160402017 table resolves its client ids from that pack and reads that table's census (harness.rs `census_file`)."""
-    saved = (m.CARDS, m.RAW, m.CENSUS)
+    saved = (m.CARDS, m.RAW, m.CENSUS, m.TABLE)
     try:
         m.select_table("160402017-20261006")
         assert m.CARDS.endswith(os.path.join("derived", "cards-160402017-20261006.json"))
         assert m.RAW.endswith(os.path.join("raw", "cr-160402017", "csv_logic"))
         assert m.CENSUS == "card_census-160402017-20261006.json"
+        assert m.TABLE == "160402017-20261006"
+        m.select_table("160402017")
+        assert m.CARDS.endswith(os.path.join("derived", "cards-160402017.json"))
+        assert m.RAW.endswith(os.path.join("raw", "cr-160402017", "csv_logic")), "both 160402017 tables name one pack"
+        assert m.CENSUS == "card_census-160402017.json"
         m.select_table("15.535.29")
-        assert saved == (m.CARDS, m.RAW, m.CENSUS), "the default table is the module's own constants"
+        assert saved == (m.CARDS, m.RAW, m.CENSUS, m.TABLE), "the default table is the module's own constants"
     finally:
-        m.CARDS, m.RAW, m.CENSUS = saved
+        m.CARDS, m.RAW, m.CENSUS, m.TABLE = saved
+
+
+def test_a_capture_is_made_on_the_table_of_its_own_content(m):
+    """A capture's header stamp (`client.content_version`, written from the 2026-10-06 update on) picks its table: the
+    update's table takes 16.402.19 and the later stamps of that build (16.402.21), never a capture with no stamp
+    (recorded before the update); the install-time table takes only an unstamped capture; the 15.535.29 table takes
+    any. A device takes an update when its game starts, so the stamp, not a date, decides."""
+    new, old = "160402017-20261006", "160402017"
+    assert m.content_refusal(new, "16.402.19") is None
+    assert m.content_refusal(new, "16.402.21") is None
+    assert "--table 160402017" in m.content_refusal(new, None)
+    assert m.content_refusal(new, "16.402.12") is not None, "an older content of the build is not the update's"
+    assert m.content_refusal(new, "16.403.1") is not None
+    assert m.content_refusal(old, None) is None
+    assert "--table 160402017-20261006" in m.content_refusal(old, "16.402.19")
+    assert m.content_refusal(new, "x.y") is not None
+    assert m.content_refusal("15.535.29", "16.402.19") is None
+    assert m.content_refusal("15.535.29", None) is None
 
 
 def test_a_forms_units_are_the_cards_objects(m):
@@ -2037,3 +2120,70 @@ def test_a_live_captures_stamp_is_read_and_it_has_no_partner(m, tmp_path):
     assert m.capture_stamp(str(a)) == ("20261007", 11 * 3600 + 42 * 60 + 36)
     assert m.capture_stamp(str(tmp_path / "frames-auto-20260920-003751-31.jsonl.gz")) == ("20260920", 37 * 60 + 51)
     assert m.battle_partners(str(a), [str(a), str(b)]) == []
+
+
+def test_an_evo_skeletons_copies_are_not_plays(m):
+    """An Evo Skeleton's hit makes a copy, which the capture shows as a new unit of the card (module doc, EVO COPIES).
+    A group of fewer members than a play's, each first standing within EVO_COPY_REACH of a living member of an earlier
+    group, is that group's copies (live 20261002-152325-A's keys 55-59 stood 826-925 off one); a full group, one too
+    far, or one whose only neighbour is dead is not."""
+    row = {10: (14500, 12500, 32), 11: (13600, 12400, 32), 12: (16000, 12500, 0)}
+    one = [{"key": 20, "x0": 14500, "y0": 13413}]
+    assert m.evo_copy_of(one, {10, 11}, row, 3) is not None
+    assert "[913]" in m.evo_copy_of(one, {10, 11}, row, 3)
+    assert m.evo_copy_of(one * 3, {10, 11}, row, 3) is None, "a full group is a play"
+    assert m.evo_copy_of([{"key": 21, "x0": 14500, "y0": 12500 + m.EVO_COPY_REACH + 1}], {10}, row, 3) is None
+    assert m.evo_copy_of([{"key": 22, "x0": 16000, "y0": 12600}], {12}, row, 3) is None, "a dead neighbour hits nobody"
+    assert m.evo_copy_of(one, set(), row, 3) is None, "no group to be a copy of"
+    assert m.evo_copy_of(one, {10}, row, None) is None
+
+
+def test_a_scheduled_spells_cast_is_read_off_its_spawns(m):
+    """The 16.402 Graveyard's skeletons come on its area's schedule and the capture shows no object for the cast
+    (module doc, A SCHEDULED SPELL'S CAST): one cast per run of spawns within the area's life, dated by the first
+    spawns less their delays, at the creation points of the spawns with no offset on that axis. A cast row already
+    near (a tap's) stands for it."""
+    entries = [
+        {"delay_ms": 2200, "spawn_type": "CharacterType", "x": {"offset_milli": -3500}, "y": {"offset_milli": 0}},
+        {"delay_ms": 2700, "spawn_type": "CharacterType", "x": {"offset_milli": -2500}, "y": {"offset_milli": 2500}},
+        {"delay_ms": 3300, "spawn_type": "CharacterType", "x": {"offset_milli": 0}, "y": {"offset_milli": -3500}},
+    ]
+    card = {"name": "Graveyard", "kind": "spell",
+            "spell": {"area_effect_object": {"life_duration_ms": 9000, "schedule": {"entries": entries}}}}
+    ticks = list(range(0, 400))
+
+    def ent(key, tick, x, y):
+        return {"key": key, "first_index": tick, "card_id": 28000010, "level": 11, "x0": x + 7, "y0": y + 7,
+                "c0": [x, y]}
+
+    ents = {1: ent(1, 144, 13000, 26500), 2: ent(2, 154, 14000, 29000), 3: ent(3, 166, 16500, 23000),
+            4: ent(4, 344, 1000, 20000)}
+    groups = [{"side": 0, "card": "Graveyard", "tick": e["first_index"], "keys": [k]} for k, e in ents.items()]
+    rows = m.schedule_casts(groups, ents, ticks, {"Graveyard": card}, [])
+    first = rows[0]
+    assert (first["tick"], first["pos"], first["source"]) == (100, [16500, 26500], "schedule"), first
+    assert first["spawn_keys"] == [1, 2, 3]
+    assert len(rows) == 1, "a lone spawn past the first cast's life pins no x and no y: no second cast"
+    tapped = [{"kind": "spell", "side": 0, "card": "Graveyard", "tick": 95}]
+    assert m.schedule_casts(groups, ents, ticks, {"Graveyard": card}, tapped) == [], "the tap's cast stands for it"
+
+
+def test_a_spells_level_is_its_spawns(m):
+    """A spell that puts units down records its level on them (module doc, A SPELL'S LEVEL FROM ITS SPAWN): live
+    20261007-011702-A's Barbarian Log was played at the side mode 11, its Barbarian at 12. The earliest group of that
+    side and card within SPELL_SPAWN_WINDOW after the cast, each claimed once; a cast with none keeps its level."""
+    ents = {5: {"level": 12}, 6: {"level": 13}, 7: {"level": 13}}
+    groups = [{"side": 0, "card": "BarbLog", "tick": 131, "keys": [5]},
+              {"side": 0, "card": "GoblinBarrel", "tick": 157, "keys": [6, 7]}]
+
+    def cast(card, tick, level=11):
+        return {"kind": "spell", "side": 0, "card": card, "tick": tick, "level": level, "level_source": "side mode"}
+
+    log, barrel, late = cast("BarbLog", 100), cast("GoblinBarrel", 100), cast("BarbLog", 120)
+    m.spell_levels_from_spawn([log, barrel, late], groups, ents)
+    assert (log["level"], log["level_source"]) == (12, "spawn"), log
+    assert (barrel["level"], barrel["level_source"]) == (13, "spawn"), barrel
+    assert (late["level"], late["level_source"]) == (11, "side mode"), "the Barbarian is the first cast's, claimed once"
+    far = cast("BarbLog", 131 - m.SPELL_SPAWN_WINDOW - 1)
+    m.spell_levels_from_spawn([far], groups, ents)
+    assert far["level"] == 11, "a spawn past the window is not the cast's"
