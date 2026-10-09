@@ -73,6 +73,10 @@ numbering.
 **Play delay.** `set_command_delay_ticks(blue, red)` makes a play land that many ticks after it is sent, like the
 real client. `pending_commands()` lists what is waiting.
 
+**Card table.** A Battle runs the 15.535.29 client's card table unless you pass
+`calibration_overrides={"cards.CARD_TABLE": '"client160402017_20261006"'}`, which runs the current client's table
+instead. `card_table()` names the table a Battle runs. Card ids are the same on both tables.
+
 ## Module-level helpers
 
 | Name | What it gives you |

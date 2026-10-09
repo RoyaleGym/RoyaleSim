@@ -3,6 +3,20 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.23 (2026-10-08)
+
+- New: the current client's card table. `Battle(..., calibration_overrides={"cards.CARD_TABLE":
+  json.dumps("client160402017_20261006")})` runs that Battle on the 160402017 client's table, with its 2026-10-06
+  update: its own hitpoints, damage and timings, the 2026-10-06 balance changes included. `Battle.card_table()` names
+  the table a Battle runs. The default is still the 15.535.29 table, and card ids are the same on both. The wheel
+  carries both tables.
+- On the current client's table the Evo Electro Giant runs too: every 6 seconds a ring grows out of him, and each enemy
+  it reaches drops a level. This is read off the table, not measured yet.
+- A few newer keys still play as on the older table, among them the Little Prince's ability and the Rune Giant's
+  enchant hold. `examples/table_census` lists them.
+- Battle logic: a strike due exactly at the end of an area's life now lands, as measured in the game. No area on the
+  default table has one.
+
 ## 0.1.22 (2026-10-07)
 
 - Battle logic: when the Evo Goblin Drill's building dies, its two Goblins come out to its left and right, 500 either
