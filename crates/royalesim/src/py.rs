@@ -221,8 +221,8 @@ pub const EMBEDDED_GLOBALS_CSV: &str = include_str!("../../../data/raw/retroroya
 /// protocol.py `DeployStatus` names, indexed by the reason codes this module
 /// returns. ENGINE_ERROR is not a protocol status: it marks a DeployError that a
 /// slot-indexed command cannot produce, and Python raises on it.
-/// THE DEFAULT CATALOGUE'S FIRST 136 CARDS: the first 133 in the order RoyaleSim 087c060 (ship20) listed them, then
-/// the three ship43 (0.1.16) gave ids 133 to 135. A catalogue id is a
+/// THE DEFAULT CATALOGUE'S FIRST 145 CARDS: the first 133 in the order RoyaleSim 087c060 (ship20) listed them, then
+/// the three ship43 (0.1.16) gave ids 133 to 135, then the nine event cards 0.1.24 made load, ids 136 to 144. A catalogue id is a
 /// card's place in the catalogue, so `Battle(card_names=None)` lists these first, in this order, and appends every other
 /// loadable card after them in card-table order: a card that begins to load (a row the loader used to refuse, or a new
 /// row) gets the next id and moves no other card's. A name here that no longer loads drops out, which does move the
@@ -251,6 +251,18 @@ pub const CATALOGUE_ORDER: &[&str] = &[
     "LittlePrince",
     "Goblinstein",
     "BossBandit",
+    // Grown 2026-10-09 (0.1.24): the nine event cards the r57 batch made load, in the 15.535.29 table's order but with
+    // the two the 160402017 table refuses (the Super Hog Rider's present, GlobalLightning's strike) last, so that
+    // table's catalogue is this one less those two at its end and every card it has keeps its id on both tables.
+    "SuperWitch",
+    "SuperLavaHound",
+    "SuperEliteArcher",
+    "SuperMiniPekka",
+    "GoblinRocketSilo",
+    "GlobalClone",
+    "GoblinPartyRocket",
+    "SuperHogRider",
+    "GlobalLightning",
 ];
 
 pub const DEPLOY_REASONS: [&str; 19] = [

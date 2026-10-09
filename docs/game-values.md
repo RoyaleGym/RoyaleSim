@@ -175,3 +175,12 @@ ability button costs, for a card with a hero form.
 | LittlePrince | 3 | troop | 1 |  | 698 |  |  |
 | Goblinstein | 5 | troop | 1 |  | 2,385 |  |  |
 | BossBandit | 6 | troop | 1 |  | 2,624 |  |  |
+| SuperWitch | 6 | troop | 1 |  | 1,064 |  |  |
+| SuperLavaHound | 8 | troop | 1 | yes | 7,168 |  |  |
+| SuperEliteArcher | 5 | troop | 1 |  | 701 |  |  |
+| SuperMiniPekka | 5 | troop | 1 |  | 1,573 |  |  |
+| GoblinRocketSilo | 7 | building | 1 |  | 1,999 |  |  |
+| GlobalClone | 3 | spell |  |  |  |  |  |
+| GoblinPartyRocket | 5 | spell |  |  |  |  |  |
+| SuperHogRider | 5 | troop | 1 |  | 1,694 |  |  |
+| GlobalLightning | 1 | spell |  |  |  |  |  |

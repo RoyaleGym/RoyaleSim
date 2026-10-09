@@ -464,7 +464,12 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # Cart, the Ram Rider, the Skeleton Barrel and the Suspicious Bush lose the key and stay for others. The WHOLE
     # delta, measured with one installed module on the parent's tree and on this one: the Elixir Golem alone, and the
     # 2018 table's set unchanged.
-    outside_by_vintage = {"2018": 40, "15.535": 97}
+    # 97 -> 105 on 2026-10-09 (0.1.24): THE EVENT CARDS. The r57 batch made the 15.535.29 table's event rows load, and
+    # eight of them join this population with what they carry unread (GlobalLightning, GoblinPartyRocket,
+    # GoblinRocketSilo, SuperEliteArcher, SuperHogRider, SuperLavaHound, SuperMiniPekka, SuperWitch; GlobalClone reads
+    # whole). The WHOLE delta: the outside sets of 0.1.23 (6e880ec) and of 0.1.24's head, each with its own module and
+    # register, differ by those eight added and none removed.
+    outside_by_vintage = {"2018": 40, "15.535": 105}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
     assert len(outside) == want, (

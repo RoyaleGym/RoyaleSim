@@ -50,8 +50,9 @@ def test_a_table_the_key_does_not_list_is_refused():
 
 def test_the_160402017_table_keeps_every_card_id():
     """CARD IDS ARE FIXED, APPEND ONLY (option B): the default catalogue's ids (`card_names` None, the positions every
-    trained policy and converted dataset reads) name the same cards on the 160402017 table as on the 15.535.29 one; a
-    card the newer table adds may only come after them."""
+    trained policy and converted dataset reads) name the same cards on the 160402017 table as on the 15.535.29 one. The
+    newer table refuses two event cards (the Super Hog Rider, GlobalLightning), which CATALOGUE_ORDER lists last, so
+    its catalogue is the older one's less those two at its end; a card either table adds may only come after them."""
     def names(table: str | None) -> list[str]:
         over = None if table is None else {KEY: json.dumps(table)}
         b = royalesim.Battle(None, SLOTS, calibration_overrides=over)
@@ -59,4 +60,5 @@ def test_the_160402017_table_keeps_every_card_id():
 
     old, new = names(None), names("client160402017_20261006")
     assert len(old) > 100, len(old)
-    assert new[: len(old)] == old, [(i, a, b) for i, (a, b) in enumerate(zip(old, new, strict=False)) if a != b][:5]
+    assert old[len(new) :] == ["SuperHogRider", "GlobalLightning"], old[len(new) :]
+    assert new == old[: len(new)], [(i, a, b) for i, (a, b) in enumerate(zip(old, new, strict=False)) if a != b][:5]
