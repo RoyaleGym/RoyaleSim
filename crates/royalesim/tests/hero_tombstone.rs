@@ -371,3 +371,32 @@ fn a_dead_hero_tombs_box_stays_in_the_path_grid_while_its_dummy_stands_under_cli
     let (old, inside) = route_past_dead_tomb(HeroTombDummyObstacle::None);
     assert!(inside, "none: the route goes round the freed box: {old:?}");
 }
+
+/// THE TOMB'S UNITS TAKE THE TOMB'S LEVEL (Oracle request 15, the 017 client with the 2026-10-06 content, game mode
+/// 72000006, a hero Tombstone at level 9 in a level-11 deck): the waiting monster 438, the active monster 3498 and the
+/// tomb's Skeletons 67, where the level-11 control reads 529, 4224 and 81 (the measurements at level 11 above). The
+/// engine plays them all at the tomb unit's own level (`fire_ability` reads `ents.level`; the Skeletons are its spawns).
+#[test]
+fn the_tombs_monster_and_skeletons_take_the_tombs_level() {
+    let mut cfg = config();
+    cfg.calib.tomb_monster_step_scope = TombMonsterStepScope::EveryPress;
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]];
+    cfg.card_level = [11, 11];
+    cfg.deck_levels = [vec![9, 11, 11, 11, 11, 11, 11, 11], vec![11; 8]];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    past_deploy_lockout(&mut s);
+    let (_, m) = play(&mut s, Team::Blue, n(14500, 11500));
+    assert_eq!(s.entity(m).expect("the monster").max_hp, 438, "the monster waiting at the tomb's level 9");
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut skel = Vec::new();
+    for _ in 0..6 {
+        s.tick();
+        skel.extend(skeletons(&s, Team::Blue).into_iter().map(|(id, _)| s.entity(id).expect("a Skeleton").max_hp));
+    }
+    assert_eq!(s.entity(m).expect("the monster").max_hp, 3498, "the active monster at the tomb's level 9");
+    assert!(!skel.is_empty() && skel.iter().all(|hp| *hp == 67), "the tomb's Skeletons at its level 9: {skel:?}");
+}
