@@ -1176,6 +1176,10 @@ pub struct Calib {
     /// building's box is moved off it. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Ignored`.
     #[serde(default = "enemy_building_taps_default")]
     pub placement_enemy_building_taps: EnemyBuildingTaps,
+    /// formation.ARMY_GENERAL_POINT (`enqueue_with`): what the Evo Skeleton Army's General's offset is taken from. Added
+    /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Tap`.
+    #[serde(default = "army_general_point_default")]
+    pub army_general_point: ArmyGeneralPoint,
     /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE (`phase_reap`): whether a buff's death spawn takes its first update on its
     /// creation tick. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
     #[serde(default = "buff_death_spawn_first_update_default")]
@@ -2966,6 +2970,10 @@ fn post_kill_doom_eta_default() -> PostKillDoomEta {
 
 fn enemy_building_taps_default() -> EnemyBuildingTaps {
     EnemyBuildingTaps::Ignored
+}
+
+fn army_general_point_default() -> ArmyGeneralPoint {
+    ArmyGeneralPoint::Tap
 }
 
 fn buff_death_spawn_first_update_default() -> BuffDeathSpawnFirstUpdate {
@@ -7286,6 +7294,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// formation.ARMY_GENERAL_POINT -- see `enqueue_with`: the point the Evo Skeleton Army's General's explicit offset is
+    /// taken from.
+    ArmyGeneralPoint {
+        /// The engine's: the play's point.
+        Tap = "tap",
+        /// The soldiers' ring centre: the play's point moved by formation.GROUND_DEPLOY_POINT (one native unit, x on the
+        /// arena's left half, y for side 1, in the owner's frame signed as the ring's). Measured on client 15.535.29 (the raw
+        /// frames' first points, 4 of 4 plays, 6 of 6 captures): sp-il-b5e2 t2981, side 1 tapped on (3500, 17500), the
+        /// General on (3499, 18499), where the engine laid it on (3500, 18500), 1001 from the three soldiers made on the
+        /// ring centre (3499, 17499) where the client's stood at exactly 1000, a contact in their first separation scan:
+        /// those soldiers 1 to 7 off, the General planning a path on t3001 (178 off) and the Log on t3021 killing another
+        /// set (the scene's 2,303 off unit-ticks t2981..t3200); sp-ec-SkeletonArmy t732, side 0 on the left half, on (3499,
+        /// 8500). The two right-half side-0 plays (sp-form t920, sp-esa t812) are the same point under either arm.
+        Client15535GroundPoint = "client15535_ground_point",
+    }
+);
+calib_enum!(
     /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE -- see `phase_reap`: whether a buff's death spawn (the Mother Witch's curse
     /// hog, the Goblin Curse's goblin) takes its first update on the tick it appears.
     BuffDeathSpawnFirstUpdate {
@@ -9424,6 +9449,7 @@ impl Calib {
             buff_death_spawn_undelayed: pick(&v, &["status", "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "value"], BuffDeathSpawnUndelayed::from_calibration_name)?,
             post_kill_doom_eta: pick(&v, &["combat", "POST_KILL_DOOM_ETA", "value"], PostKillDoomEta::from_calibration_name)?,
             placement_enemy_building_taps: pick(&v, &["placement", "ENEMY_BUILDING_TAPS", "value"], EnemyBuildingTaps::from_calibration_name)?,
+            army_general_point: pick(&v, &["formation", "ARMY_GENERAL_POINT", "value"], ArmyGeneralPoint::from_calibration_name)?,
             buff_death_spawn_first_update: pick(&v, &["status", "BUFF_DEATH_SPAWN_FIRST_UPDATE", "value"], BuffDeathSpawnFirstUpdate::from_calibration_name)?,
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
@@ -29001,12 +29027,25 @@ impl BattleState {
         // point, in the owner's frame and negated as the Three Musketeers' members are (formation.EXPLICIT_OFFSETS_FRAME).
         // Measured on client 15.535.29 (sp-form-SkeletonArmy-evo-s0, side 0): the tap (9500, 11500), the General at
         // (9500, 10500) on the play's first frame, created after the 15 soldiers. Unmeasured: the ring's clamps (the
-        // ground point, the column's y range, the water) on the General's point; none is taken.
+        // column's y range, the water) on the General's point; none is taken. formation.ARMY_GENERAL_POINT =
+        // client15535_ground_point: the offset is taken from the soldiers' ring centre, the play's point moved by
+        // formation.GROUND_DEPLOY_POINT as the ring's is (`formation_members_with`'s ground_delta), not from the play's point.
         #[cfg(not(clash_plant = "army_general_dropped"))]
         if let Some(a) = self.cfg.cards.get(idx).evo.as_ref().and_then(|v| v.army) {
             use crate::fixed::SUBTILE_PER_MILLITILE as K;
             let own = self.cfg.arena.to_frame(team, pos);
-            let at = self.cfg.arena.from_frame(team, Vec2::new(own.x - a.general_offset_x * K, own.y - a.general_offset_y * K));
+            #[cfg(not(clash_plant = "army_general_from_tap"))]
+            let from_ring = self.cfg.calib.army_general_point == ArmyGeneralPoint::Client15535GroundPoint
+                && self.cfg.calib.formation_ground_deploy_point == GroundDeployPoint::Client16402OneUnit
+                && !self.cfg.cards.get(a.general.unit).is_flying();
+            #[cfg(clash_plant = "army_general_from_tap")]
+            let from_ring = false; // PLANT: the General's offset is taken from the play's point, whatever the key.
+            let (dx, dy) = if from_ring {
+                (if pos.x < self.cfg.arena.width / 2 { if team == Team::Red { 1 } else { -1 } } else { 0 }, if team == Team::Red { 1 } else { 0 })
+            } else {
+                (0, 0)
+            };
+            let at = self.cfg.arena.from_frame(team, Vec2::new(own.x + (dx - a.general_offset_x) * K, own.y + (dy - a.general_offset_y) * K));
             let lvl = self.cfg.cards.unit_level(idx, a.general.unit, None, level).expect("the General's level is validated at try_new");
             self.spawn_queue.push(PendingSpawn { team, card: a.general.unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: idx });
         }
@@ -33967,6 +34006,9 @@ impl BattleState {
 /// 20, unchanged, placement.ENEMY_BUILDING_TAPS: Calib gained placement_enemy_building_taps (serde default the old arm,
 ///    ignored), no new state (read at each tap), so a blob saved before it deserializes and hashes as it did. migrate_v3
 ///    runs a migrated battle at the old arm.
+/// 20, unchanged, formation.ARMY_GENERAL_POINT: Calib gained army_general_point (serde default the old arm, tap), no new
+///    state (read at each play), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
 /// 20, unchanged, status.BUFF_DEATH_SPAWN_FIRST_UPDATE: Calib gained buff_death_spawn_first_update (serde default the old
 ///    arm, next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
@@ -35089,6 +35131,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("post_kill_doom_eta".into(), serde_json::to_value(PostKillDoomEta::Ignored).map_err(|e| e.to_string())?);
     // placement.ENEMY_BUILDING_TAPS: a format-3 battle's taps were moved off own boxes alone (the same rule).
     sh.insert("placement_enemy_building_taps".into(), serde_json::to_value(EnemyBuildingTaps::Ignored).map_err(|e| e.to_string())?);
+    // formation.ARMY_GENERAL_POINT: a format-3 battle's General was laid off the play's point (the same rule).
+    sh.insert("army_general_point".into(), serde_json::to_value(ArmyGeneralPoint::Tap).map_err(|e| e.to_string())?);
     // status.BUFF_DEATH_SPAWN_FIRST_UPDATE: a format-3 battle's buff death spawn first moved on the next tick (the same rule).
     sh.insert("buff_death_spawn_first_update".into(), serde_json::to_value(BuffDeathSpawnFirstUpdate::NextTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_PROJECTILE_COPIES: a format-3 battle left one death projectile a death (the same rule).

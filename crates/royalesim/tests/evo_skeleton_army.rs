@@ -18,13 +18,14 @@
 //!   - spectral_takes_damage -> `a_spectral_takes_no_damage` red;
 //!   - spectral_visible -> `nothing_targets_a_spectral` red;
 //!   - obstacle_tag_unread -> `the_general_stands_on_its_point_through_its_deploy` red;
-//!   - obstacle_tag_pushes_nothing -> `the_general_still_pushes_a_unit_off_it` red.
+//!   - obstacle_tag_pushes_nothing -> `the_general_still_pushes_a_unit_off_it` red;
+//!   - army_general_from_tap -> `the_general_is_laid_off_the_ring_centre` red (item 325, formation.ARMY_GENERAL_POINT).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AvoidanceObstacleTag, BattleConfig, BattleState};
+use royalesim::state::{ArmyGeneralPoint, AvoidanceObstacleTag, BattleConfig, BattleState};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -241,4 +242,32 @@ fn the_general_still_pushes_a_unit_off_it() {
     }
     assert_eq!(pushes[0].0, pushes[1].0 + 1, "the General is not among the probe's pushers (with, without): {pushes:?}");
     assert!(pushes[0].1.y < pushes[1].1.y, "the General's push does not point away from it (with, without): {pushes:?}");
+}
+
+/// formation.ARMY_GENERAL_POINT = client15535_ground_point (item 325): the General is laid off the soldiers' ring centre, the
+/// play's point moved one native unit by formation.GROUND_DEPLOY_POINT (x on the left half, y for side 1). Client 15.535.29:
+/// sp-il-b5e2 t2981, side 1 tapped on (3500, 17500), the General on (3499, 18499); sp-ec-SkeletonArmy t732, side 0 on the
+/// left half, on (3499, 8500). Read on the play's first frame with the General held (movement.AVOIDANCE_OBSTACLE_TAG's client
+/// arm: it stands on its point through its deploy). Plant: army_general_from_tap.
+#[test]
+fn the_general_is_laid_off_the_ring_centre() {
+    let general_at = |arm: ArmyGeneralPoint, team: Team, tap: (i32, i32)| -> (i32, i32) {
+        let mut cfg: BattleConfig = config();
+        cfg.calib.army_general_point = arm;
+        cfg.calib.avoidance_obstacle_tag = AvoidanceObstacleTag::Client15535UnpushedObstacle;
+        cfg.card_level = [11, 11];
+        cfg.tower_level = [11, 11];
+        let mut s = BattleState::new(7, cfg);
+        past_deploy_lockout(&mut s);
+        s.spawn_unit(team, "SkeletonArmy_EV1", n(tap.0, tap.1), None).expect("the play");
+        s.tick();
+        let g = find_live(&s, team, "SkeletonArmy_EV1_General")[0].pos;
+        (g.x / K, g.y / K)
+    };
+    let new = ArmyGeneralPoint::Client15535GroundPoint;
+    assert_eq!(general_at(new, Team::Red, (3500, 17500)), (3499, 18499), "side 1 on the left half (sp-il-b5e2 t2981)");
+    assert_eq!(general_at(new, Team::Blue, (3500, 9500)), (3499, 8500), "side 0 on the left half (sp-ec-SkeletonArmy t732)");
+    assert_eq!(general_at(new, Team::Blue, TAP), (9500, 10500), "side 0 on the right half: as off the tap");
+    // NOT VACUOUS: the old arm lays it off the play's point.
+    assert_eq!(general_at(ArmyGeneralPoint::Tap, Team::Red, (3500, 17500)), (3500, 18500), "tap: side 1 on the left half");
 }
