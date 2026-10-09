@@ -1783,6 +1783,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   35 crown-tower and 6 of 7 projectile-unit waits, 4,610 of 4,693 and 675 of 695 frees).
 ///   status.BUFF_DEATH_SPAWN_FIRST_UPDATE = client15535_doomed_parent: a buff's death spawn whose parent the move pass's
 ///   doomed mask held takes its first update on its creation tick, the parent a static blocker (the Super Witch's hog).
+///   placement.ENEMY_BUILDING_TAPS = client15535_half_tile_box_ring: a troop tap on an enemy building's box (a Hero
+///   Musketeer turret) is moved off it by the ring search, the box anchored at the point rounded down to the half-tile
+///   grid (2 of 2 taps).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1921,6 +1924,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.ILLEGAL_SPELL_TAP", "\"client16402_clamp_to_legal_edge\""),
     ("combat.POST_KILL_DOOM_ETA", "\"client_within_600\""),
     ("status.BUFF_DEATH_SPAWN_FIRST_UPDATE", "\"client15535_doomed_parent\""),
+    ("placement.ENEMY_BUILDING_TAPS", "\"client15535_half_tile_box_ring\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

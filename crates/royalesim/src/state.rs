@@ -1172,6 +1172,10 @@ pub struct Calib {
     /// the `default` is the old arm, `Ignored`.
     #[serde(default = "post_kill_doom_eta_default")]
     pub post_kill_doom_eta: PostKillDoomEta,
+    /// placement.ENEMY_BUILDING_TAPS (`relocate_off_own_crown_tower`, `building_box`): whether a troop tap on an enemy
+    /// building's box is moved off it. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Ignored`.
+    #[serde(default = "enemy_building_taps_default")]
+    pub placement_enemy_building_taps: EnemyBuildingTaps,
     /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE (`phase_reap`): whether a buff's death spawn takes its first update on its
     /// creation tick. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
     #[serde(default = "buff_death_spawn_first_update_default")]
@@ -2958,6 +2962,10 @@ fn buff_death_spawn_undelayed_default() -> BuffDeathSpawnUndelayed {
 
 fn post_kill_doom_eta_default() -> PostKillDoomEta {
     PostKillDoomEta::Ignored
+}
+
+fn enemy_building_taps_default() -> EnemyBuildingTaps {
+    EnemyBuildingTaps::Ignored
 }
 
 fn buff_death_spawn_first_update_default() -> BuffDeathSpawnFirstUpdate {
@@ -7252,6 +7260,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// placement.ENEMY_BUILDING_TAPS -- see `relocate_off_own_crown_tower` and `building_box`: a troop tap whose one-tile box
+    /// shares positive area with an ENEMY building's placement box (a Hero Musketeer's turret, which stands where the hero
+    /// did, in the placer's half or on a bridge).
+    EnemyBuildingTaps {
+        /// The engine's: only the placer's own towers and buildings move a tap; every box is centred on its building's point.
+        Ignored = "ignored",
+        /// The tap is moved off it as off an own building, by the ring search alone (no axis push), and every building's
+        /// box is anchored at its point rounded down to the half-tile grid (where a building laid on a tile already
+        /// stands). Measured on client 15.535.29 (sp-il-2c29, 2 of 2 taps on an enemy box, both moved; 229 of 229 on own
+        /// aligned boxes unchanged): side 0's Minions tapped on (4500, 14500) by side 1's turret on (3898, 13725) stood on
+        /// (5500, 14500), the box x 2000..5000 (a centred one, 2398..5398, would have pushed them to 6500); its Evo
+        /// Barbarians tapped on (3500, 14500) by the turret on (4269, 16457) (box y from 14500) were born round (3500,
+        /// 13500), where the axis push puts the tile on 14000.
+        Client15535HalfTileBoxRing = "client15535_half_tile_box_ring",
+    }
+);
+calib_enum!(
     /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE -- see `phase_reap`: whether a buff's death spawn (the Mother Witch's curse
     /// hog, the Goblin Curse's goblin) takes its first update on the tick it appears.
     BuffDeathSpawnFirstUpdate {
@@ -9389,6 +9414,7 @@ impl Calib {
             snipe_lock_release: pick(&v, &["targeting", "SNIPE_LOCK_RELEASE", "value"], SnipeLockRelease::from_calibration_name)?,
             buff_death_spawn_undelayed: pick(&v, &["status", "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "value"], BuffDeathSpawnUndelayed::from_calibration_name)?,
             post_kill_doom_eta: pick(&v, &["combat", "POST_KILL_DOOM_ETA", "value"], PostKillDoomEta::from_calibration_name)?,
+            placement_enemy_building_taps: pick(&v, &["placement", "ENEMY_BUILDING_TAPS", "value"], EnemyBuildingTaps::from_calibration_name)?,
             buff_death_spawn_first_update: pick(&v, &["status", "BUFF_DEATH_SPAWN_FIRST_UPDATE", "value"], BuffDeathSpawnFirstUpdate::from_calibration_name)?,
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
@@ -29695,14 +29721,20 @@ impl BattleState {
         let arena = &self.cfg.arena;
         let e = &self.ents;
         let calib = &self.cfg.calib;
-        // (centre, placement box, a building rather than a crown tower)
-        let block = |i: usize, building: bool| (e.pos[i], Arena::placement_box(e.pos[i], crate::arena::placement_tiles(e.radius[i])), building);
-        let mut own: Vec<(Vec2, Rect, bool)> = Vec::new();
+        // (centre, placement box, a building rather than a crown tower, an enemy's)
+        let block = |i: usize, building: bool| (e.pos[i], self.building_box(i), building, false);
+        let mut own: Vec<(Vec2, Rect, bool, bool)> = Vec::new();
         if calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate {
             own.extend(self.towers[team as usize].iter().flatten().filter(|id| e.is_alive(**id)).map(|id| block(id.index as usize, false)));
         }
         if calib.placement_troop_building_taps == TroopBuildingTaps::AsTowerTap {
             own.extend(e.live_indices().filter(|&i| e.kind[i] == EntityKind::Building && e.team[i] == team).map(|i| block(i, true)));
+        }
+        // placement.ENEMY_BUILDING_TAPS = client15535_half_tile_box_ring: an enemy building's box (a Hero Musketeer's turret)
+        // moves the tap too, by the ring search.
+        #[cfg(not(clash_plant = "enemy_building_taps_unread"))]
+        if calib.placement_enemy_building_taps == EnemyBuildingTaps::Client15535HalfTileBoxRing {
+            own.extend(e.live_indices().filter(|&i| e.kind[i] == EntityKind::Building && e.team[i] != team).map(|i| (e.pos[i], self.building_box(i), true, true)));
         }
         let snapped = match self.cfg.calib.placement_snap_even {
             PlacementSnapEven::PlacerFrame => arena.snap_placement(team, tap, 1),
@@ -29715,8 +29747,15 @@ impl BattleState {
         // PLANT (regression): an own building's box blocks a tile that only touches it.
         #[cfg(clash_plant = "troop_building_taps_touching")]
         let on = |t: &Rect, building: bool| tapped.overlaps_open(t) || (building && tapped.min.x <= t.max.x && t.min.x <= tapped.max.x && tapped.min.y <= t.max.y && t.min.y <= tapped.max.y);
-        let on_own_tower = own.iter().find(|(_, t, b)| on(t, *b)).map(|&(c, t, _)| (c, t));
-        let Some((centre, tower)) = on_own_tower else { return tap };
+        let on_own_tower = own.iter().find(|(_, t, b, _)| on(t, *b)).map(|&(c, t, _, enemy)| (c, t, enemy));
+        let Some((centre, tower, enemy)) = on_own_tower else { return tap };
+        #[cfg(not(clash_plant = "enemy_box_axis_push"))]
+        let ring_only = enemy;
+        #[cfg(clash_plant = "enemy_box_axis_push")]
+        let ring_only = {
+            let _ = enemy;
+            false // PLANT: an enemy box takes the axis push as an own one does.
+        };
         if self.cfg.calib.placement_illegal_tap == PlacementIllegalTap::Refuse {
             return tap;
         }
@@ -29725,7 +29764,7 @@ impl BattleState {
             let b = Arena::placement_box(c, 1);
             arena.box_zone(b, team, territory).is_ok() && !self.box_hits_a_building(b)
         };
-        if self.cfg.calib.placement_tower_tap_push == TowerTapPush::Client16402AxisPush {
+        if self.cfg.calib.placement_tower_tap_push == TowerTapPush::Client16402AxisPush && !ring_only {
             #[cfg(not(clash_plant = "tower_tap_push_snapped_tile"))]
             let from = raw;
             #[cfg(clash_plant = "tower_tap_push_snapped_tile")]
@@ -29978,12 +30017,24 @@ impl BattleState {
     /// Does `b` share positive area with an alive tower's or building's own box?
     fn box_hits_a_building(&self, b: Rect) -> bool {
         let e = &self.ents;
-        e.live_indices().any(|i| {
-            e.kind[i].is_building() && {
-                let n = crate::arena::placement_tiles(e.radius[i]);
-                b.overlaps_open(&Arena::placement_box(e.pos[i], n))
-            }
-        })
+        e.live_indices().any(|i| e.kind[i].is_building() && b.overlaps_open(&self.building_box(i)))
+    }
+
+    /// A BUILDING'S PLACEMENT BOX: `Arena::placement_box` of its CollisionRadius's tiles (`placement_tiles`), centred on its
+    /// point. Under placement.ENEMY_BUILDING_TAPS = client15535_half_tile_box_ring it is anchored at the point rounded down to
+    /// the half-tile grid, which a building laid on a tile already stands on (its box unchanged); a Hero Musketeer's turret
+    /// stands where the hero did, off the grid. Measured on client 15.535.29 (sp-il-2c29): a turret on (3898, 13725) took x
+    /// 2000..5000 (a troop tap moved off it stood on (5500, 14500), which the centred box, 2398..5398, covers), and one on
+    /// (4269, 16457) took y from 14500 (a tap on (3500, 14500) was moved off it).
+    fn building_box(&self, i: usize) -> Rect {
+        let (p, n) = (self.ents.pos[i], crate::arena::placement_tiles(self.ents.radius[i]));
+        #[cfg(not(clash_plant = "enemy_box_centred"))]
+        let anchored = self.cfg.calib.placement_enemy_building_taps == EnemyBuildingTaps::Client15535HalfTileBoxRing;
+        #[cfg(clash_plant = "enemy_box_centred")]
+        let anchored = false; // PLANT: every box centred on its building's point, whatever the key.
+        let h = crate::fixed::tiles(1) / 2;
+        let c = if anchored { Vec2::new(p.x.div_euclid(h) * h, p.y.div_euclid(h) * h) } else { p };
+        Arena::placement_box(c, n)
     }
 
     /// Elixir half of the verdict: can `team` pay `cost` whole elixir (a `Play`'s cost)?
@@ -33884,6 +33935,9 @@ impl BattleState {
 /// 20, unchanged, combat.POST_KILL_DOOM_ETA: Calib gained post_kill_doom_eta (serde default the old arm, ignored), no new
 ///    state (read each Target pass), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, placement.ENEMY_BUILDING_TAPS: Calib gained placement_enemy_building_taps (serde default the old arm,
+///    ignored), no new state (read at each tap), so a blob saved before it deserializes and hashes as it did. migrate_v3
+///    runs a migrated battle at the old arm.
 /// 20, unchanged, status.BUFF_DEATH_SPAWN_FIRST_UPDATE: Calib gained buff_death_spawn_first_update (serde default the old
 ///    arm, next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
@@ -35003,6 +35057,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("buff_death_spawn_undelayed".into(), serde_json::to_value(BuffDeathSpawnUndelayed::Zero).map_err(|e| e.to_string())?);
     // combat.POST_KILL_DOOM_ETA: a format-3 battle's doom ignored when the shots land (the same rule).
     sh.insert("post_kill_doom_eta".into(), serde_json::to_value(PostKillDoomEta::Ignored).map_err(|e| e.to_string())?);
+    // placement.ENEMY_BUILDING_TAPS: a format-3 battle's taps were moved off own boxes alone (the same rule).
+    sh.insert("placement_enemy_building_taps".into(), serde_json::to_value(EnemyBuildingTaps::Ignored).map_err(|e| e.to_string())?);
     // status.BUFF_DEATH_SPAWN_FIRST_UPDATE: a format-3 battle's buff death spawn first moved on the next tick (the same rule).
     sh.insert("buff_death_spawn_first_update".into(), serde_json::to_value(BuffDeathSpawnFirstUpdate::NextTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_PROJECTILE_COPIES: a format-3 battle left one death projectile a death (the same rule).
