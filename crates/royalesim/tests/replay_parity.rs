@@ -1216,7 +1216,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.clone_slide_route, CloneSlideRoute::Client15535Dropped, "a 15.535.29 capture's Clone slide drops the route");
     assert_eq!(cfg.calib.uppercut_stand, UppercutStand::Client15535UntilLoad100, "a 15.535.29 capture's Evo Mega Knight stands after his uppercut");
     assert_eq!(cfg.calib.dash_chain_aim, DashChainAim::Client15535GoalCell, "a 15.535.29 capture's dash heads for its goal cell");
-    assert_eq!(cfg.calib.kamikaze_launch_pass, KamikazeLaunchPass::Client15535LauncherReadsStart, "a 15.535.29 capture's kamikaze is gone at its launch but to a launching kamikaze");
+    assert_eq!(cfg.calib.kamikaze_launch_pass, KamikazeLaunchPass::Client15535LauncherReadsStartUndoomed, "a 15.535.29 capture's kamikaze is gone at its launch but to a launching kamikaze");
     assert_eq!(cfg.calib.straight_shot_building_reach, StraightShotBuildingReach::Client15535RoundedSquare, "a 15.535.29 capture's pellet reaches a building's square (the shipped arm)");
     assert_eq!(cfg.calib.press_route, PressRoute::Client15535ReplannedWithDash, "a 15.535.29 capture's hero and Golden Knight press replans its route");
     assert_eq!(cfg.calib.spin_begin, SpinBegin::Client15535NextTick, "a 15.535.29 capture's spin begins the tick after its press");

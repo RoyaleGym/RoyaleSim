@@ -15,6 +15,8 @@
 //!   3. buffered (the engine's): it is gone too;
 //!   4. a holder that is not a launching kamikaze still lets the launched one go under the new arm (the Knight of
 //!      tests/kamikaze_launch_pass.rs takes the Skeleton on the launch tick).
+//!   5. client15535_launcher_reads_start_undoomed (item 323; plant launcher_reads_doomed_launched): by a blue tower whose
+//!      arrow is in flight at the red spirit as it launches, the blue one walks off; with none in flight it launches.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -83,4 +85,57 @@ fn the_engines_arm_launches_both() {
 fn a_holder_that_is_no_launching_kamikaze_still_lets_it_go() {
     let (t, skeleton) = knight_target_on_launch(KamikazeLaunchPass::Client15535LauncherReadsStart);
     assert_eq!(t, Some(skeleton), "new: the Knight's target on the launch tick");
+}
+
+// ---------------------------------------------------------------------------
+// item 323: client15535_launcher_reads_start_undoomed (plant launcher_reads_doomed_launched). Client 15.535.29, sp-il-6a56
+// t873: of the 4 mutual due launches on record, the one where the later spirit walked off is the one where the first had a
+// homing shot in flight at it (a princess tower's arrow, 150 ms out). The scene: the pair moved by the blue right princess
+// tower (5,025 from the red spirit, its arrows landing within 600 ms), the red spirit's hitpoints put back each tick before
+// its launch so the arrows never kill it; the blue one set down `d` ticks after it, which moves the launch against the
+// tower's cycle.
+
+/// Under `arm`, the blue spirit set down `d` ticks after the red one: (the blue one stands on the red one's launch tick, a
+/// blue tower arrow at the red one was in flight as that tick began).
+fn tower_scene(arm: KamikazeLaunchPass, d: u32) -> (bool, bool) {
+    let mut cfg = config();
+    cfg.calib.kamikaze_launch_pass = arm;
+    cfg.calib.tick_order = TickOrder::ClientSequentialStrike;
+    let mut s = BattleState::new(3, cfg);
+    let red = s.scenario_spawn_now(Team::Red, "IceSpirits", n(14000, 11500), None).expect("the red Ice Spirit");
+    for _ in 0..d {
+        assert!(s.debug_set_hp(red, s.entity(red).expect("red").max_hp));
+        assert!(s.debug_set_pos(red, n(14000, 11500)));
+        s.tick();
+    }
+    let blue = s.scenario_spawn_now(Team::Blue, "IceSpirits", n(14000, 8400), None).expect("the blue Ice Spirit");
+    let mut held = false;
+    for _ in 0..200 {
+        let Some(r) = s.entity(red) else { break };
+        assert!(s.debug_set_hp(red, r.max_hp));
+        let arrow = s.projectiles().iter().any(|p| p.target == red && p.firer.is_some_and(|f| s.entity(f).is_some_and(|e| e.kind.is_crown_tower())));
+        s.tick();
+        if s.entity(red).is_none() {
+            assert!(held, "{arm:?} d {d}: the scene drifted: the spirits never held each other");
+            return (s.entity(blue).is_some(), arrow);
+        }
+        held |= s.entity(red).expect("red").target == Some(blue) && s.entity(blue).is_some_and(|b| b.target == Some(red));
+    }
+    panic!("{arm:?} d {d}: the scene drifted: the red Ice Spirit never launched");
+}
+
+/// Plant: launcher_reads_doomed_launched.
+#[test]
+fn a_launcher_walks_off_a_spirit_that_launched_with_a_tower_arrow_in_flight_at_it() {
+    let new = KamikazeLaunchPass::Client15535LauncherReadsStartUndoomed;
+    let runs: Vec<(u32, bool, bool)> = (0..24).map(|d| {
+        let (stands, arrow) = tower_scene(new, d);
+        (d, stands, arrow)
+    }).collect();
+    let doomed = runs.iter().find(|r| r.2).expect("the scene drifted: no launch with a tower arrow in flight");
+    let clear = runs.iter().find(|r| !r.2).expect("the scene drifted: no launch without a tower arrow in flight");
+    assert!(doomed.1, "undoomed: the blue spirit launched at a red one doomed by the tower's arrow (d {})", doomed.0);
+    assert!(!clear.1, "undoomed: the blue spirit did not launch at a red one nothing doomed (d {})", clear.0);
+    // NOT VACUOUS: client15535_launcher_reads_start launches at both.
+    assert!(!tower_scene(KamikazeLaunchPass::Client15535LauncherReadsStart, doomed.0).0, "launcher_reads_start: the blue spirit did not launch (d {})", doomed.0);
 }

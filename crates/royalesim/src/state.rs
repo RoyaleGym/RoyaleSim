@@ -6570,6 +6570,15 @@ calib_enum!(
         /// one walk off. Every holder that is not a launching kamikaze lets it go as under client15535_gone_at_launch (5 of
         /// 5 in the same census: an Inferno Dragon whose blow was due, a Musketeer, Skeleton Kings).
         Client15535LauncherReadsStart = "client15535_launcher_reads_start",
+        /// As client15535_launcher_reads_start, but not for a launched kamikaze the homing shots in flight at it doom (their
+        /// sum above 0 against its 0, the last landing within target.rs DOOMED_ETA_LIMIT_MS): that one is gone to the
+        /// launcher as to any holder, and, doomed, frees it from the post-kill wait (clause (c)), so it walks off. Measured
+        /// on client 15.535.29 (launch_doom_census.py, every mutual due launch of the 1,682 frame files, 4 of 4): sp-il-6a56
+        /// t873, a Blue Ice Spirit with a red princess tower's arrow 150 ms out (pending 173) launched first, and the red
+        /// one dropped its windup, took Blue's tower and walked (25 path nodes), where the engine launched it too, 108
+        /// ticks early; in the 3 where both launched (sp-il-2142 t1850, sp-ghost-ab-s0 and sp-ghost-summons-s0 t792) the
+        /// first had nothing in flight at it.
+        Client15535LauncherReadsStartUndoomed = "client15535_launcher_reads_start_undoomed",
     }
 );
 calib_enum!(
@@ -25067,7 +25076,10 @@ impl BattleState {
                     // in Resolve and Reap, as a strike's victim's does).
                     // PLANT (regression) kamikaze_launch_buffered: the new arm still buffers it to Resolve.
                     #[cfg(not(clash_plant = "kamikaze_launch_buffered"))]
-                    let gone_now = matches!(self.cfg.calib.kamikaze_launch_pass, KamikazeLaunchPass::Client15535GoneAtLaunch | KamikazeLaunchPass::Client15535LauncherReadsStart)
+                    let gone_now = matches!(
+                        self.cfg.calib.kamikaze_launch_pass,
+                        KamikazeLaunchPass::Client15535GoneAtLaunch | KamikazeLaunchPass::Client15535LauncherReadsStart | KamikazeLaunchPass::Client15535LauncherReadsStartUndoomed
+                    )
                         && self.tick_order() == TickOrder::ClientSequentialStrike;
                     #[cfg(clash_plant = "kamikaze_launch_buffered")]
                     let gone_now = false;
@@ -25756,14 +25768,31 @@ impl BattleState {
                 // 15.535.29: two enemy spirits launching at each other on one tick, 3 of 3; sp-il-2142 t1850).
                 // PLANT (regression) launcher_finds_launched_gone: the new arm's launcher still finds it gone.
                 #[cfg(not(clash_plant = "launcher_finds_launched_gone"))]
-                let launcher = self.cfg.calib.kamikaze_launch_pass == KamikazeLaunchPass::Client15535LauncherReadsStart && {
+                let launcher = matches!(self.cfg.calib.kamikaze_launch_pass, KamikazeLaunchPass::Client15535LauncherReadsStart | KamikazeLaunchPass::Client15535LauncherReadsStartUndoomed) && {
                     let c = self.cfg.cards.get(self.ents.card[i]);
                     c.kamikaze && self.ents.attack_phase[i] != AttackPhase::Idle && self.ents.attack_ms[i] + self.cfg.calib.tick_ms >= c.hit_speed_ms
                 };
                 #[cfg(clash_plant = "launcher_finds_launched_gone")]
                 let launcher = false;
+                // client15535_launcher_reads_start_undoomed: its own target, launched earlier in the pass, that the homing shots
+                // in flight at it doom (above 0, the last within DOOMED_ETA_LIMIT_MS) stays gone to it, and doomed (clause (c)).
+                #[cfg(not(clash_plant = "launcher_reads_doomed_launched"))]
+                let dropped: Option<usize> = if launcher && self.cfg.calib.kamikaze_launch_pass == KamikazeLaunchPass::Client15535LauncherReadsStartUndoomed {
+                    self.ents.target[i].map(|t| t.index as usize).filter(|&j| self.scratch.launched.contains(&j)).filter(|&j| {
+                        let calib = &self.cfg.calib;
+                        let (pending, last) = combat::shots_in_flight_at(&self.ents, &self.projectiles, calib.crown_rounding, calib.tick_ms, calib.projectile_step, self.homing_only(), self.spears_doom());
+                        pending.get(j).is_some_and(|&p| p > 0) && last.get(j).is_some_and(|&l| l <= target::DOOMED_ETA_LIMIT_MS)
+                    })
+                } else {
+                    None
+                };
+                #[cfg(clash_plant = "launcher_reads_doomed_launched")]
+                let dropped: Option<usize> = None; // PLANT: a launcher reads a doomed launched kamikaze at its start too.
+                if dropped.is_some() {
+                    self.ents.target_doomed[i] = true;
+                }
                 let changed: Vec<(usize, i32)> = (0..start_hp.len())
-                    .filter(|&j| self.ents.hp[j] != start_hp[j] && (j != i || self.ents.hp[i] <= 0) && (launcher || !self.scratch.launched.contains(&j)))
+                    .filter(|&j| self.ents.hp[j] != start_hp[j] && (j != i || self.ents.hp[i] <= 0) && ((launcher && dropped != Some(j)) || !self.scratch.launched.contains(&j)))
                     .map(|j| (j, self.ents.hp[j]))
                     .collect();
                 // combat.DOOMED_READ_IN_PASS = client15535_at_turn: its doomed test reads the hitpoints as the pass has left
@@ -34095,6 +34124,7 @@ impl BattleState {
 ///    arm, circle), no new state (the test reads the saved shot and building), so a blob saved before it deserializes and
 ///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.KAMIKAZE_LAUNCH_PASS gained client15535_launcher_reads_start (a third arm, no new state).
+/// 20, unchanged, combat.KAMIKAZE_LAUNCH_PASS gained client15535_launcher_reads_start_undoomed (a fourth arm, no new state).
 /// 20, unchanged, combat.KAMIKAZE_LAUNCH_PASS: Calib gained kamikaze_launch_pass (serde default the old arm, buffered),
 ///    no new state (Scratch::launched lives inside one tick's pass), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.

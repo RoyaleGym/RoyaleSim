@@ -1705,7 +1705,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   start-of-tick point with no walk on the hit's tick (2 of 2).
 ///   combat.DASH_CHAIN_AIM = client15535_goal_cell: a dash chain's dash steps toward its target's goal cell centre (43 of
 ///   45 steps exact).
-///   combat.KAMIKAZE_LAUNCH_PASS = client15535_launcher_reads_start: a kamikaze's launch removes it for every later unit of
+///   combat.KAMIKAZE_LAUNCH_PASS = client15535_launcher_reads_start_undoomed (a launched kamikaze the homing shots in flight
+///   doom stays gone to a launcher too, 4 of 4 mutual launches; otherwise client15535_launcher_reads_start): a kamikaze's
+///   launch removes it for every later unit of
 ///   the sequential pass (10 of 10 pickers, 7 of 7 walking holders) but a kamikaze whose own launch is due, which launches
 ///   at it too (3 of 3 pairs of spirits launching at each other).
 ///   pathfinding.PRESS_ROUTE = client15535_replanned_with_dash: a ground hero's press with CastTime 0 drops its route (22 of
@@ -1886,7 +1888,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.RAMP_STUN_RESTART", "\"client15535_restart\""),
     ("knockback.COMBO_PUSHBACK", "\"client15535_ladder_armed_at_hit\""),
     ("combat.DASH_CHAIN_AIM", "\"client15535_goal_cell\""),
-    ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start\""),
+    ("combat.KAMIKAZE_LAUNCH_PASS", "\"client15535_launcher_reads_start_undoomed\""),
     ("pathfinding.PRESS_ROUTE", "\"client15535_replanned_with_dash\""),
     ("combat.SPIN_BEGIN", "\"client15535_next_tick\""),
     ("formation.LINE_FRAME", "\"client15535_y_reflection\""),
