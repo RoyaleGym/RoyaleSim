@@ -13,7 +13,8 @@
 //!     first);
 //!   - line_footprint_unjudged -> `a_line_is_taken_on_its_own_princess_box_and_refused_on_an_enemy_building` red;
 //!   - line_centre_ring_walk -> `the_exact_ties_go_where_the_client_put_them_under_client15535_interleaved_first_ring`
-//!     red.
+//!     red;
+//!   - line_back_row_closed -> `a_line_tapped_on_the_back_row_stands_there` red (formation.LINE_KING_BACK_ROW).
 //!
 //! formation.LINE_CENTRE_SEARCH = client15535_interleaved_first_ring (the client's search, read by Oracle on client
 //! 15.535.29 and checked on the whole sweep, 245 of 246 runs) places the 13 exact ties where the client put them, which
@@ -23,7 +24,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, LineCentreSearch};
+use royalesim::state::{BattleConfig, BattleState, LineCentreSearch, LineKingBackRow};
 use royalesim::Team;
 
 /// (tap, the centre the client put the line on), native.
@@ -229,4 +230,36 @@ fn a_side_1_line_goes_where_the_client_put_it_under_client15535_interleaved_firs
         }
     }
     assert!(wrong.is_empty(), "side 1 taps whose line stands elsewhere (tap, client, here): {wrong:?}");
+}
+
+/// formation.LINE_KING_BACK_ROW = client16402_open (parity's r62, item C): a line tapped on the back row behind the king
+/// stands there. Client 16.402 (the live population): 10 of 10 Royal Recruits back-row taps, the six on y 250 / 750
+/// centred on the tap (9500: x 2500 to 16500; 8500: 1499 to 15499, the left half's ground offset), where the engine moved
+/// the line four tiles up. Under both searches; the closed arm moves it (vacuity). Plant: line_back_row_closed.
+#[test]
+fn a_line_tapped_on_the_back_row_stands_there() {
+    for search in [LineCentreSearch::RingCornerWalk, LineCentreSearch::Client15535InterleavedFirstRing] {
+        let centre = |arm: LineKingBackRow, (x, y): Point| -> Point {
+            let mut cfg: BattleConfig = config();
+            cfg.calib.line_centre_search = search;
+            cfg.calib.line_king_back_row = arm;
+            let s = BattleState::new(7, cfg);
+            let members = s.formation_preview(Team::Blue, "RoyalRecruits", Vec2::new(x * K, y * K)).expect("the line");
+            assert_eq!(members.len(), 6, "six recruits");
+            let mut xs: Vec<i32> = members.iter().map(|m| m.1.x / K).collect();
+            xs.sort();
+            ((xs[2] + xs[3]) / 2, members.iter().map(|m| m.1.y / K).sum::<i32>() / 6)
+        };
+        for (tap, want) in [((9500, 500), (9500, 500)), ((8500, 500), (8499, 500))] {
+            let closed = centre(LineKingBackRow::Closed, tap);
+            assert!(closed.1 >= 4000, "{search:?} closed: the line is moved off the back row (vacuity) {closed:?}");
+            assert_eq!(centre(LineKingBackRow::Client16402Open, tap), want, "{search:?} client16402_open: the line stands on the tap {tap:?}");
+        }
+        // the measured 15.535.29 taps (y 3500 up) stand where they stood
+        for ((x, y), want) in TAPS {
+            {
+                assert_eq!(centre(LineKingBackRow::Client16402Open, (x, y)), centre(LineKingBackRow::Closed, (x, y)), "{search:?}: tap {:?} (client {want:?}) moved by the back row", (x, y));
+            }
+        }
+    }
 }

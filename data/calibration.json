@@ -6293,6 +6293,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_line_centre (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs formation_members_with (`layout.lane` after line_centre), selected by Calib::line_lane; tests/line_lane.rs."
     },
+    "LINE_KING_BACK_ROW": {
+      "value": "client16402_open",
+      "candidates": ["closed", "client16402_open"],
+      "status": "measured",
+      "confidence": "HIGH for client16402_open on client 16.402: 10 of 10 Royal Recruits taps on the back row behind the king stand there in the live population, none moved. LOW for closed on the back row (no client tap ever moved off it); on the rows the 15.535.29 sweep measured the two arms agree.",
+      "provenance": "MEASURED by parity (2026-10-09) on the live population (RoyaleLive/reports/replay-live: the bot's own battles on client builds 160402017/020; parity's diagnostic triage, rr_class.py): every Royal Recruits tap on the king's back row, side 0 on (8500 | 9500, 500) and side 1 on its own back row, is laid there by the client: the six recruits on y 250 / 750 (side 0) or clamped to 31000 (side 1), centred on the tap (x 2500 to 16500, or 1499 to 15499 with the left half's ground offset). The engine's line search refused the tap tile and every back-row tile (formation.rs: a centre in the king's columns 7 to 10 below row 5, any member in x 7000 to 11000 below y 4000) and took (11500, 4500) or (7500, 4500), the members on y 4250 / 4750 with an end clamped at 17750 / 250: 4,190 to 4,803 native off on the deploy frame. 10 of the 121 spawn first divergences. The rule was fitted on Oracle's client 15.535.29 sp-rrtap-* taps at y 3500 to 11500, none on the back row; there a member below y 4000 is in the king's rows (1000 up), which the new arm keeps closed.",
+      "meaning": "closed: the engine's; no line centre in the king's columns below row 5 (line_centre_client: tiles; line_centre: its ground point's zone below 5000) and no member in x 7000 to 11000 below y 4000. client16402_open: the same zone and member rule from the second row up (y 1000, formation.rs LINE_KING_BACK_ROW_Y): the back row behind the king is open to the line, its centre on the tiles the arena's back row opens whole (x 6000 to 12000, LINE_BACK_ROW_OPEN_X; arena.json back_row_open_half_cols 11 to 24).",
+      "open": "Client 15.535.29 (no back-row tap measured; it runs the shipped arm). A tap on row 1 to 3 in the king's columns (the nearest open place: the back row or above the king). The Royal Hogs (the same law, no live back-row tap).",
+      "promotion_rules": "Shipped: every capture runs it.",
+      "engine": "formation.rs line_centre and line_centre_client (`back_open`), selected in state.rs formation_members_with by Calib::line_king_back_row; tests/line_placement.rs (a_line_tapped_on_the_back_row_stands_there)."
+    },
     "LINE_CENTRE_SEARCH": {
       "value": "ring_corner_walk",
       "candidates": ["ring_corner_walk", "client15535_interleaved_first_ring"],

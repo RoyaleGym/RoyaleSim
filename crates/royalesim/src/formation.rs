@@ -173,21 +173,29 @@ pub const LANE_NONE: u8 = 0;
 /// offset). Side 1's two taps are not fitted here. The other two are the exact ties of the princess rows, a tap on y 6500 with 4500 and 8500 equally
 /// near: (4500, 6500) went up and (13500, 6500) down, where this order takes the other; no ring order fits all five
 /// such taps. A tap in the king's zone itself was refused by the client (9000, 4000); here it is placed.
-pub fn line_centre(tap: Vec2, offsets: &[Vec2], ground: Vec2, width: i32) -> Option<Vec2> {
+///
+/// `back_open` (formation.LINE_KING_BACK_ROW = client16402_open): the back row behind the king (y below LINE_KING_BACK_ROW_Y)
+/// is open to the line: the king's zone and the members' king rule start there, and a centre on the back row stands on
+/// the tiles the arena opens there (LINE_BACK_ROW_OPEN_X).
+pub fn line_centre(tap: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, back_open: bool) -> Option<Vec2> {
     let cell = LINE_CELL;
     let half = offsets.iter().map(|o| o.x.abs()).max().unwrap_or(0);
+    let floor = if back_open { LINE_KING_BACK_ROW_Y } else { i32::MIN };
     let valid = |c: Vec2| {
         let e = c.add(ground);
         if c.x - half < -cell / 2 || c.x + half > width + cell / 2 || e.y >= LINE_OWN_HALF_Y {
             return false;
         }
-        if (LINE_KING_ZONE_X.0..LINE_KING_ZONE_X.1).contains(&e.x) && e.y < LINE_KING_ZONE_Y {
+        if back_open && c.y < LINE_KING_BACK_ROW_Y && !(LINE_BACK_ROW_OPEN_X.0..LINE_BACK_ROW_OPEN_X.1).contains(&c.x) {
+            return false;
+        }
+        if (LINE_KING_ZONE_X.0..LINE_KING_ZONE_X.1).contains(&e.x) && (floor..LINE_KING_ZONE_Y).contains(&e.y) {
             return false;
         }
         offsets.iter().all(|o| {
             let m = e.add(*o);
             let princess = (LINE_PRINCESS_Y.0..LINE_PRINCESS_Y.1).contains(&m.y) && LINE_PRINCESS_X.iter().any(|(a, b)| (*a..*b).contains(&m.x));
-            let king = (LINE_KING_COLUMNS.0..LINE_KING_COLUMNS.1).contains(&m.x) && m.y < LINE_KING_BACK_Y;
+            let king = (LINE_KING_COLUMNS.0..LINE_KING_COLUMNS.1).contains(&m.x) && (floor..LINE_KING_BACK_Y).contains(&m.y);
             !princess && !king
         })
     };
@@ -228,24 +236,30 @@ pub fn line_centre(tap: Vec2, offsets: &[Vec2], ground: Vec2, width: i32) -> Opt
 /// tap sweep (client 15.535.29, 246 runs): 245 reproduced, where `line_centre`'s order misses the 13 exact ties
 /// ((4500, 6500) up to (6499, 8500), (13500, 6500) down to (11500, 4500), (10000, 6250) to (10500, 8500)); the one miss,
 /// (9000, 4000), the client refused before any search.
-pub fn line_centre_client(tap_abs: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, height: i32, mirror_y: bool) -> Option<Vec2> {
+/// `back_open` as `line_centre`'s: the king's zone from the second row of tiles, the members' king rule from
+/// LINE_KING_BACK_ROW_Y.
+pub fn line_centre_client(tap_abs: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, height: i32, mirror_y: bool, back_open: bool) -> Option<Vec2> {
     let cell = LINE_CELL;
     let half = offsets.iter().map(|o| o.x.abs()).max().unwrap_or(0);
     let frame = |c: Vec2| if mirror_y { Vec2::new(c.x, height - c.y) } else { c };
+    let (floor, first_row) = if back_open { (LINE_KING_BACK_ROW_Y, LINE_KING_BACK_ROW_Y / cell) } else { (i32::MIN, i32::MIN) };
     let valid = |c_abs: Vec2| {
         let c = frame(c_abs);
         let e = c.add(ground);
         if c.x - half < -cell / 2 || c.x + half > width + cell / 2 || e.y >= LINE_OWN_HALF_Y {
             return false;
         }
+        if back_open && c.y < LINE_KING_BACK_ROW_Y && !(LINE_BACK_ROW_OPEN_X.0..LINE_BACK_ROW_OPEN_X.1).contains(&c.x) {
+            return false;
+        }
         let (col, row) = (c.x.div_euclid(cell), c.y.div_euclid(cell));
-        if (LINE_KING_TILE_COLS.0..LINE_KING_TILE_COLS.1).contains(&col) && row < LINE_KING_TILE_ROWS {
+        if (LINE_KING_TILE_COLS.0..LINE_KING_TILE_COLS.1).contains(&col) && (first_row..LINE_KING_TILE_ROWS).contains(&row) {
             return false;
         }
         offsets.iter().all(|o| {
             let m = e.add(*o);
             let princess = (LINE_PRINCESS_Y.0..LINE_PRINCESS_Y.1).contains(&m.y) && LINE_PRINCESS_X.iter().any(|(a, b)| (*a..*b).contains(&m.x));
-            let king = (LINE_KING_COLUMNS.0..LINE_KING_COLUMNS.1).contains(&m.x) && m.y < LINE_KING_BACK_Y;
+            let king = (LINE_KING_COLUMNS.0..LINE_KING_COLUMNS.1).contains(&m.x) && (floor..LINE_KING_BACK_Y).contains(&m.y);
             !princess && !king
         })
     };
@@ -288,6 +302,12 @@ pub const LINE_PRINCESS_Y: (i32, i32) = (5000, 8000);
 /// `line_centre`: the king's columns, behind whose LINE_KING_BACK_Y no member may stand, native, owner's frame.
 pub const LINE_KING_COLUMNS: (i32, i32) = (7000, 11000);
 pub const LINE_KING_BACK_Y: i32 = 4000;
+/// `line_centre`, `line_centre_client` under formation.LINE_KING_BACK_ROW = client16402_open: the back row behind the
+/// king, below this y (native, owner's frame), is open to a line; the king's tower stands from here.
+pub const LINE_KING_BACK_ROW_Y: i32 = 1000;
+/// Under client16402_open, a back-row centre's x span, native: the tiles the arena's back row opens whole (arena.json
+/// back_row_open_half_cols 11 to 24, x 5500 to 12500, behind the king; its ends half tiles).
+pub const LINE_BACK_ROW_OPEN_X: (i32, i32) = (6000, 12000);
 /// `line_centre`: the owner's half ends here (a ground point on or past it is the river's or the enemy's).
 pub const LINE_OWN_HALF_Y: i32 = 15000;
 /// `line_centre`: how many rings around the tap's tile it looks at.

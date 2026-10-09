@@ -737,6 +737,10 @@ pub struct Calib {
     /// default is the old arm, `None`, what a battle saved before it ran.
     #[serde(default = "release_ground_point_default")]
     pub release_ground_point: ReleaseGroundPoint,
+    /// formation.LINE_KING_BACK_ROW (a line's place on the back row behind the king). Added after SNAPSHOT_FORMAT 20; the
+    /// default is the old arm, `Closed`, what a battle saved before it ran.
+    #[serde(default = "line_king_back_row_default")]
+    pub line_king_back_row: LineKingBackRow,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2435,6 +2439,10 @@ fn ring_point_bounds_default() -> RingPointBounds {
 
 fn release_ground_point_default() -> ReleaseGroundPoint {
     ReleaseGroundPoint::None
+}
+
+fn line_king_back_row_default() -> LineKingBackRow {
+    LineKingBackRow::Closed
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -8933,6 +8941,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// formation.LINE_KING_BACK_ROW -- whether a line (the Royal Recruits', the Royal Hogs'; formation.rs `line_centre`,
+    /// `line_centre_client`) may stand on the back row behind its king tower.
+    LineKingBackRow {
+        /// The engine before this key, fitted on client 15.535.29's taps at y 3500 and up: no centre in the king's
+        /// columns below row 5 and no member in them below y 4000, the back row included.
+        Closed = "closed",
+        /// Measured on client 16.402 (the live population): the back row (owner's frame y below 1000) is open; the
+        /// king's zone and the members' king rule cover the king's own rows only. 10 of 10 Royal Recruits taps on the
+        /// back row ((8500 | 9500, 500) for side 0) stand there, the six on y 250 / 750 centred on the tap (x 2500 to
+        /// 16500, or 1499 to 15499 with the left half's ground offset), where the engine moved the line four tiles up
+        /// (y 4250 / 4750), an end clamped at the arena's edge: 4,190 to 4,803 native off on the deploy frame. The 15.535.29
+        /// fit is unchanged (its taps put no member below 1000).
+        Client16402Open = "client16402_open",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9430,6 +9454,7 @@ impl Calib {
             ring_creation_order: pick(&v, &["spawner", "RING_CREATION_ORDER", "value"], RingCreationOrder::from_calibration_name)?,
             ring_point_bounds: pick(&v, &["spawner", "RING_POINT_BOUNDS", "value"], RingPointBounds::from_calibration_name)?,
             release_ground_point: pick(&v, &["spells", "RELEASE_GROUND_POINT", "value"], ReleaseGroundPoint::from_calibration_name)?,
+            line_king_back_row: pick(&v, &["formation", "LINE_KING_BACK_ROW", "value"], LineKingBackRow::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -29435,23 +29460,28 @@ impl BattleState {
                     let client_search = calib.line_centre_search == LineCentreSearch::Client15535InterleavedFirstRing && (team == Team::Blue || reflect);
                     #[cfg(clash_plant = "line_centre_ring_walk")]
                     let client_search = false;
+                    // formation.LINE_KING_BACK_ROW = client16402_open: the back row behind the king is open to the line.
+                    #[cfg(not(clash_plant = "line_back_row_closed"))]
+                    let back_open = calib.line_king_back_row == LineKingBackRow::Client16402Open;
+                    #[cfg(clash_plant = "line_back_row_closed")]
+                    let back_open = false; // PLANT (regression): the new arm still keeps the line off the back row.
                     if client_search {
                         let h = arena.height / K;
                         let abs = Vec2::new(pos.x / K, pos.y / K);
                         if reflect {
                             let flip = |v: Vec2| Vec2::new(-v.x, v.y);
                             let offsets: Vec<Vec2> = offsets.iter().map(|o| flip(*o)).collect();
-                            crate::formation::line_centre_client(abs, &offsets, flip(ground_delta), w, h, true).map_or(tap, |c| Vec2::new(w - c.x, h - c.y))
+                            crate::formation::line_centre_client(abs, &offsets, flip(ground_delta), w, h, true, back_open).map_or(tap, |c| Vec2::new(w - c.x, h - c.y))
                         } else {
-                            crate::formation::line_centre_client(abs, &offsets, ground_delta, w, h, false).unwrap_or(tap)
+                            crate::formation::line_centre_client(abs, &offsets, ground_delta, w, h, false, back_open).unwrap_or(tap)
                         }
                     } else if reflect {
                         let flip = |v: Vec2| Vec2::new(-v.x, v.y);
                         let offsets: Vec<Vec2> = offsets.iter().map(|o| flip(*o)).collect();
                         let at = Vec2::new(w - tap.x, tap.y);
-                        crate::formation::line_centre(at, &offsets, flip(ground_delta), w).map_or(tap, |c| Vec2::new(w - c.x, c.y))
+                        crate::formation::line_centre(at, &offsets, flip(ground_delta), w, back_open).map_or(tap, |c| Vec2::new(w - c.x, c.y))
                     } else {
-                        crate::formation::line_centre(tap, &offsets, ground_delta, w).unwrap_or(tap)
+                        crate::formation::line_centre(tap, &offsets, ground_delta, w, back_open).unwrap_or(tap)
                     }
                 } else {
                     tap
@@ -34617,6 +34647,9 @@ impl BattleState {
 /// 20, unchanged, spells.RELEASE_GROUND_POINT: Calib gained release_ground_point (serde default the old arm, none), no
 ///    new state (it moves the point a release is laid around), so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, formation.LINE_KING_BACK_ROW: Calib gained line_king_back_row (serde default the old arm, closed), no
+///    new state (it judges a line's place when it is laid), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35528,6 +35561,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ring_point_bounds".into(), serde_json::to_value(RingPointBounds::None).map_err(|e| e.to_string())?);
     // spells.RELEASE_GROUND_POINT: a format-3 battle laid a release around the landing point itself (the same rule).
     sh.insert("release_ground_point".into(), serde_json::to_value(ReleaseGroundPoint::None).map_err(|e| e.to_string())?);
+    // formation.LINE_KING_BACK_ROW: a format-3 battle kept a line off the back row behind the king (the same rule).
+    sh.insert("line_king_back_row".into(), serde_json::to_value(LineKingBackRow::Closed).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
