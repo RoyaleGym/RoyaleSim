@@ -3,6 +3,15 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.25 (2026-10-09)
+
+- New: `cards.CLIENT16402_VALUES` can set a unit's `HitSpeed` and `LoadTime`, as it already sets hitpoints, damage and a
+  few area timings. Its `table` may name either card table, so one card's value can be moved on the current client's
+  table too. Defaults are unchanged.
+- Tools: `replay_parity --census` stamps the card table it loaded and, on the current client's table, writes its own
+  census file. `tools/make_replay_fixture.py --table 160402017-20261006` builds fixtures against that table, its card
+  ids and its census together.
+
 ## 0.1.24 (2026-10-09)
 
 - New: the event cards load. Global Clone, Super Witch, Goblin Party Rocket, Global Lightning, Super Mini P.E.K.K.A.,
