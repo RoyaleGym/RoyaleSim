@@ -2930,6 +2930,9 @@ pub struct CardDef {
     /// SCALING). None: the card's own rarity's local level 1 (RelativeLevel + 1),
     /// the 2018 convention.
     pub level_base: Option<i32>,
+    /// cards.json `level_scaling.rarity`: the rarity whose ladder `level_table` is, whose `tail` continues it one level
+    /// past the table (`LEVELS_PAST_COUNT`). None: no table (the card's own rarity's ladder, continued by its tail).
+    pub level_rarity: Option<String>,
     /// THE SUMMON LAYOUT AND STAGGER INPUTS: the spells_characters Summon* columns
     /// and the unit's SpawnRadius / SpawnAngleShift, read by state.rs
     /// `formation_members` under calibration formation.LAYOUT / DEPLOY_STAGGER.
@@ -6854,6 +6857,8 @@ struct RawRarity {
     relative_level: Option<i32>,
     /// Entry L-1 is the percent at rarity-local level L (entry 0 is 100).
     multiplier_percent_by_level: Option<Vec<i32>>,
+    /// The PowerLevelMultiplier entries past LevelCount (tools/extract_cards.py `rarity_table`).
+    unused_tail: Option<Vec<i32>>,
 }
 
 /// cards.json `level_scaling` block, the fields this loader reads.
@@ -6863,6 +6868,8 @@ struct RawLevelScaling {
     multiplier_percent_by_level: Option<Vec<i32>>,
     base_level: Option<i32>,
     reading: Option<String>,
+    /// The rarity whose ladder `multiplier_percent_by_level` is (its tail continues it: `LEVELS_PAST_COUNT`).
+    rarity: Option<String>,
 }
 
 /// The calibration.json combat.STAT_BASE_LEVEL candidates this loader implements
@@ -7674,7 +7681,20 @@ pub struct RarityRow {
     pub relative_level: i32,
     /// PowerLevelMultiplier column, percent. Entry i scales local level i + 2.
     pub multipliers: Vec<i32>,
+    /// The column's entries past LevelCount (cards.json `unused_tail`), percent: entry 0 scales local level
+    /// level_count + 1, the one level past the count a card is played at (`LEVELS_PAST_COUNT`). Empty on a table that
+    /// carries none (the 2018 one).
+    pub tail: Vec<i32>,
 }
+
+/// THE LEVELS PAST A RARITY'S COUNT A CARD IS PLAYED AT: one. The live 16.402 game's max-level cards stand one unified
+/// level above every rarity's LevelCount (17, the rarities.csv count caps each at 16), on their ladder's next
+/// multiplier, the PowerLevelMultiplier entry past the count (Common 450 after 409). Measured on the reader's own
+/// per-unit level of live 2026-10-08 battles: every level-17 unit's max_hp is exactly its base x 450 % (Minion 90 ->
+/// 405, P.E.K.K.A 1469 -> 6610, Lava Hound 1399 -> 6295, Golden Knight 703 -> 3163, Skeleton Balloon 936; 19 plays in
+/// 8 battles, all opponents with level-16 towers). The same continuation is what a Mirror of a max-level card plays
+/// at (calibration match.MIRROR_LEVEL_BEYOND_MAX), one level past; two past is still refused.
+pub const LEVELS_PAST_COUNT: i32 = 1;
 
 /// Minimal RFC-4180-ish splitter: Supercell CSVs quote strings and never embed
 /// newlines, which is all this needs to handle.
@@ -7722,6 +7742,8 @@ pub fn parse_rarities(text: &str) -> Result<Vec<RarityRow>, String> {
                 level_count: num(c_count)?,
                 relative_level: num(c_rel)?,
                 multipliers: Vec::new(),
+                // the column's entries past LevelCount stay in `multipliers` (the 2018 csv lists them on)
+                tail: Vec::new(),
             });
         }
         let m = get(c_mult);
@@ -7842,6 +7864,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         charge: None,
         jump: None,
         level_base: None,
+        level_rarity: None,
         formation: FormationDef::default(),
         projectile_start_radius: 0,
         kamikaze: false,
@@ -8845,7 +8868,7 @@ fn area_effect_shape_hits(aeo: &RawAreaEffect, buffs: &mut BuffTable, ctx: &Load
 fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(CardDef, UnitNeeds), String> {
     let mut spell = raw.spell.unwrap_or_default();
     let mut def = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, raw.elixir.unwrap_or(0));
-    (def.level_table, def.level_base) = level_table_of(raw.level_scaling)?;
+    (def.level_table, def.level_base, def.level_rarity) = level_table_of(raw.level_scaling)?;
     // OmitFromStartingHand (the Mirror): the deal rule reads the card (state.rs `try_new`, economy.OMIT_FROM_STARTING_HAND).
     #[cfg(not(clash_plant = "omit_spell_flag_dropped"))]
     {
@@ -9110,8 +9133,8 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
 /// (the ladder, the unified level it is entered from) of a cards.json
 /// `level_scaling` block (module doc, LEVEL SCALING). A `reading` this loader does
 /// not implement refuses the card; `object_rarity_local_1` needs its `base_level`.
-fn level_table_of(v: Option<serde_json::Value>) -> Result<(Option<Vec<i32>>, Option<i32>), String> {
-    let Some(v) = v.filter(|v| !v.is_null()) else { return Ok((None, None)) };
+fn level_table_of(v: Option<serde_json::Value>) -> Result<(Option<Vec<i32>>, Option<i32>, Option<String>), String> {
+    let Some(v) = v.filter(|v| !v.is_null()) else { return Ok((None, None, None)) };
     let ls: RawLevelScaling = serde_json::from_value(v).map_err(|e| format!("level_scaling: {e}"))?;
     let base = match ls.reading.as_deref() {
         None => None,
@@ -9124,7 +9147,7 @@ fn level_table_of(v: Option<serde_json::Value>) -> Result<(Option<Vec<i32>>, Opt
             return Err("level_scaling: an empty ladder".into());
         }
     }
-    Ok((ls.multiplier_percent_by_level, base))
+    Ok((ls.multiplier_percent_by_level, base, ls.rarity))
 }
 
 /// (card, display name, the units it needs loaded: which mechanic, unit name).
@@ -9644,7 +9667,7 @@ fn bottle_body(raw: &RawCard, fuse_ms: i32, area: &str, buffs: &mut BuffTable, c
     if !needs.is_empty() || !matches!(then, SpellShape::AreaEffect { .. } | SpellShape::Boost(_)) {
         return Err(format!("its area {area} is neither a one-shot nor a pickup area; not simulated"));
     }
-    let (level_table, level_base) = level_table_of(raw.level_scaling.clone())?;
+    let (level_table, level_base, level_rarity) = level_table_of(raw.level_scaling.clone())?;
     let mut c = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, 0);
     c.kind = CardKind::Building;
     c.hitpoints = 1;
@@ -9662,6 +9685,7 @@ fn bottle_body(raw: &RawCard, fuse_ms: i32, area: &str, buffs: &mut BuffTable, c
     c.untargetable = true;
     c.level_table = level_table;
     c.level_base = level_base;
+    c.level_rarity = level_rarity;
     c.death_area_effect = Some(SpellDef { shape: then, placement: SpellPlacement::Anywhere });
     Ok(c)
 }
@@ -9787,7 +9811,7 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
 fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i32, with_spawn: bool) -> Result<(CardDef, UnitNeeds), String> {
     let crown_pct = crown(raw.crown_tower_damage_percent);
     let radius = milli(radius_milli);
-    let (level_table, level_base) = level_table_of(raw.level_scaling.clone())?;
+    let (level_table, level_base, level_rarity) = level_table_of(raw.level_scaling.clone())?;
     let mut c = stat_less(raw.name.clone(), raw.rarity.clone().ok_or("missing rarity")?, 0);
     // The row IS a building row and says so; `summon_only` (set by the caller once
     // the unit is registered) is what keeps it out of every catalogue.
@@ -9801,6 +9825,7 @@ fn convert_death_bomb(raw: &RawCard, fuse_ms: i32, damage: i32, radius_milli: i3
     c.crown_tower_damage_percent = crown_pct;
     c.level_table = level_table;
     c.level_base = level_base;
+    c.level_rarity = level_rarity;
     c.death_pushback = match raw.death_pushback_milli {
         Some(x) if x < 0 => return Err(format!("death_pushback_milli {x} < 0")),
         Some(x) => milli(x),
@@ -10115,7 +10140,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         }
         Some(other) => return Err(format!("projectile given as {other} carries no speed; need an object")),
     };
-    let (level_table, level_base) = level_table_of(raw.level_scaling)?;
+    let (level_table, level_base, level_rarity) = level_table_of(raw.level_scaling)?;
     // THE CARD'S KIND IS THE ROW IT PUTS ON THE BOARD (cards.json `kind`), and the table it is listed in
     // (`card_table_kind`, written only where the two differ) is a record. The one pair the extractor writes is a
     // building card whose unit is a troop (the Furnace); any other pair is a shape nothing here was written for.
@@ -10534,6 +10559,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         self_as_aoe_center: raw.self_as_aoe_center.unwrap_or(false),
         lifetime_ms: raw.lifetime_ms,
         level_table,
+        level_rarity,
         no_deploy_size,
         stop_movement_after_ms: raw.stop_movement_after_ms.unwrap_or(0),
         wait_ms: raw.wait_ms.unwrap_or(0),
@@ -10831,6 +10857,7 @@ impl CardDb {
                         level_count,
                         relative_level: r.relative_level.filter(|l| *l >= 0).ok_or_else(|| format!("rarities.{name}: no relative_level"))?,
                         multipliers: table[1..].to_vec(),
+                        tail: r.unused_tail.clone().unwrap_or_default(),
                     })
                 })
                 .collect::<Result<Vec<_>, String>>()?
@@ -14665,10 +14692,15 @@ impl CardDb {
         let r = self.rarity(&c.rarity).ok_or_else(|| format!("{}: unknown rarity", c.name))?;
         // The CARD's rarity bounds the playable levels...
         let local = level - r.relative_level;
-        if local < 1 || local > r.level_count {
+        // ...one level past its count included (`LEVELS_PAST_COUNT`, the live max-level cards' 17).
+        #[cfg(not(clash_plant = "levels_past_count_refused"))]
+        let past = LEVELS_PAST_COUNT;
+        #[cfg(clash_plant = "levels_past_count_refused")]
+        let past = 0; // PLANT: a level past the rarity's count is refused, as before.
+        if local < 1 || local > r.level_count + past {
             return Err(format!(
                 "{} ({}) has no level {level} (local {local}, valid 1..={})",
-                c.name, c.rarity, r.level_count
+                c.name, c.rarity, r.level_count + past
             ));
         }
         // ...and the ladder is entered from the record's base level: the OBJECT's
@@ -14688,9 +14720,20 @@ impl CardDb {
             return Ok(PERCENT as i32);
         }
         let short = || format!("{}: multiplier table too short for level {level} (base {base})", c.name);
+        // Past the table, its ladder's tail (`RarityRow::tail`): the table's rarity's, else the card's own.
+        let tail = |past: usize| {
+            let ladder = c.level_rarity.as_deref().and_then(|n| self.rarity(n)).unwrap_or(r);
+            ladder.tail.get(past).copied().ok_or_else(short)
+        };
         match c.level_table.as_deref() {
-            Some(by_level) => by_level.get(step as usize).copied().ok_or_else(short),
-            None => r.multipliers.get((step - 1) as usize).copied().ok_or_else(short),
+            Some(by_level) => match by_level.get(step as usize) {
+                Some(m) => Ok(*m),
+                None => tail(step as usize - by_level.len()),
+            },
+            None => match r.multipliers.get((step - 1) as usize) {
+                Some(m) => Ok(*m),
+                None => tail((step - 1) as usize - r.multipliers.len()),
+            },
         }
     }
 
@@ -14700,10 +14743,19 @@ impl CardDb {
     pub fn rarity_scaled(&self, rarity: &str, level: i32, base: i32) -> Result<i32, String> {
         let r = self.rarity(rarity).ok_or_else(|| format!("unknown rarity {rarity}"))?;
         let step = level - (r.relative_level + 1);
-        if step < 0 || level - r.relative_level > r.level_count {
+        // one level past the count, as a card (`LEVELS_PAST_COUNT`), on the ladder's tail
+        if step < 0 || level - r.relative_level > r.level_count + LEVELS_PAST_COUNT {
             return Err(format!("a {rarity} row has no level {level}"));
         }
-        let m = if step == 0 { PERCENT as i32 } else { *r.multipliers.get((step - 1) as usize).ok_or_else(|| format!("{rarity}: multiplier table too short for level {level}"))? };
+        let short = || format!("{rarity}: multiplier table too short for level {level}");
+        let m = if step == 0 {
+            PERCENT as i32
+        } else {
+            match r.multipliers.get((step - 1) as usize) {
+                Some(m) => *m,
+                None => *r.tail.get((step - 1) as usize - r.multipliers.len()).ok_or_else(short)?,
+            }
+        };
         Ok(Self::scale(base, m))
     }
 

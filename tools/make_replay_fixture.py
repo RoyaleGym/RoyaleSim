@@ -1891,20 +1891,25 @@ def spell_damage_at(doc: dict, card: dict, level: int) -> int | None:
     if not base or not ls:
         return None
     first = ls.get("base_level", doc["rarities"][ls["rarity"]]["relative_level"] + 1)
-    table = ls["multiplier_percent_by_level"]
+    # the ladder continued one level past its count (card.rs LEVELS_PAST_COUNT: the rarity's unused_tail)
+    table = ls["multiplier_percent_by_level"] + doc["rarities"][ls["rarity"]].get("unused_tail", [])[:LEVELS_PAST_COUNT]
     step = level - first
     return base * table[step] // 100 if 0 <= step < len(table) else None
 
 
+#: The levels past a rarity's count a card is played at (card.rs LEVELS_PAST_COUNT): the live max-level cards' 17.
+LEVELS_PAST_COUNT = 1
+
+
 def playable_levels(doc: dict, card: dict) -> range:
     """The unified levels a card can be played at: its CARD rarity's ladder (card.rs `level_multiplier`: the local
-    level, level - relative_level, in 1..=level_count). A Log is a Legendary, 9 to 16, though its damage scales on the
-    Common ladder from 1: a hit that only a level-8 Log could land is not a Log's. The whole ladder for a card whose
-    rarity the table does not list."""
+    level, level - relative_level, in 1..=level_count + LEVELS_PAST_COUNT). A Log is a Legendary, 9 to 17, though its
+    damage scales on the Common ladder from 1: a hit that only a level-8 Log could land is not a Log's. The whole
+    ladder for a card whose rarity the table does not list."""
     r = doc["rarities"].get(card.get("rarity") or "")
     if not r:
-        return range(1, 17)
-    return range(r["relative_level"] + 1, r["relative_level"] + r["level_count"] + 1)
+        return range(1, 17 + LEVELS_PAST_COUNT)
+    return range(r["relative_level"] + 1, r["relative_level"] + r["level_count"] + LEVELS_PAST_COUNT + 1)
 
 
 def spell_levels_from_damage(
