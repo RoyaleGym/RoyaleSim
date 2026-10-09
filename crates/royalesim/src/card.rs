@@ -90,6 +90,9 @@ pub const EMBEDDED_CARDS_160402017_JSON: &str = include_str!("../../../data/deri
 /// The 160402017 table's file name under data/derived/ (`CardDb::load_table`).
 pub const CARDS_160402017_FILE: &str = "cards-160402017-20261006.json";
 
+/// The 160402017 table's `version` (its file's own), by which a loaded CardDb names the table it is.
+pub const CARDS_160402017_VERSION: &str = "cards-160402017-20261006.1";
+
 /// A projectile an attack launches instead of hitting instantly.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ProjectileDef {

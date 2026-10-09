@@ -446,6 +446,24 @@ FORMATIONS = os.path.join(ROOT, "crates", "royalesim", "tests", "fixtures", "for
 OUT_DEFAULT = os.path.join(ROOT, "data", "derived", "replay")
 CENSUS = "card_census.json"
 
+#: THE CARD TABLES A FIXTURE CAN BE MADE AGAINST (calibration cards.CARD_TABLE), by `--table`: the derived card file,
+#: the raw pack whose csv names every client card id (the 160402017 base pack: the 2026-10-06 update folder is a toml
+#: overlay without the spells csv), and the census file `replay_parity --census` writes under that table's arm
+#: (harness.rs `census_file`). One switch sets all three, so they cannot disagree.
+TABLES = {
+    "15.535.29": ("cards.json", "cr-15.535.29", "card_census.json"),
+    "160402017-20261006": ("cards-160402017-20261006.json", "cr-160402017", "card_census-160402017-20261006.json"),
+}
+
+
+def select_table(name: str) -> None:
+    """Point CARDS, RAW and CENSUS at table `name` (a TABLES key)."""
+    global CARDS, RAW, CENSUS
+    cards, raw, census = TABLES[name]
+    CARDS = os.path.join(ROOT, "data", "derived", cards)
+    RAW = os.path.join(ROOT, "data", "raw", raw, "csv_logic")
+    CENSUS = census
+
 FORMAT = "replay-fixture-1"
 #: The recording's five-digit tag at the end of a capture or placement-log file name
 #: (`...-NNNNN.jsonl`): one tag per seat of a battle, the same on that seat's capture and log.
@@ -2760,6 +2778,12 @@ def main() -> int:
         help="placement logs (default: the same-stamp files beside the capture)",
     )
     ap.add_argument("--out", default=OUT_DEFAULT)
+    ap.add_argument(
+        "--table",
+        choices=sorted(TABLES),
+        default="15.535.29",
+        help="the card table (calibration cards.CARD_TABLE): its card file, id pack and census together",
+    )
     ap.add_argument("--truth-stride", type=int, default=1)
     ap.add_argument(
         "--until-tick",
@@ -2780,6 +2804,7 @@ def main() -> int:
         help="compare with this existing fixture instead of writing (exit 1 if it differs)",
     )
     args = ap.parse_args()
+    select_table(args.table)
     if not args.capture and not args.all:
         ap.error("a capture or --all")
     if args.check and args.all:

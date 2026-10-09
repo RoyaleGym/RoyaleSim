@@ -206,6 +206,22 @@ fn group_pairing_prefers_the_same_size_inside_the_window_and_leaves_an_extra_wav
     assert!(got.contains(&(0, 0, 0, 0)) && got.contains(&(0, 3, 0, 1)), "{got:?}");
 }
 
+/// A CENSUS NAMES THE TABLE IT LOADED (cards.CARD_TABLE): its stamp is the hash of that table's own file and its
+/// file is named for it, so tools/make_replay_fixture.py `--table` reads a census of the card file it reads.
+#[test]
+fn a_census_names_the_table_it_loaded() {
+    use royalesim::card::{CardDb, CARDS_160402017_FILE};
+    use royalesim::state::CardTable;
+    let old = CardDb::load_table(CardTable::Client15535).expect("the 15.535.29 table");
+    let new = CardDb::load_table(CardTable::Client160402017).expect("the 160402017 table");
+    assert_eq!((table_file(&old), census_file(&old)), ("cards.json", "card_census.json".to_string()));
+    assert_eq!((table_file(&new), census_file(&new)), (CARDS_160402017_FILE, "card_census-160402017-20261006.json".to_string()));
+    let file = format!("{}/data/derived/{CARDS_160402017_FILE}", repo_root());
+    let want = fnv1a64(&std::fs::read(&file).expect("the 160402017 table on disk"));
+    assert_eq!(census(&new).cards_json_fnv1a64.as_deref(), Some(want.as_str()), "the census stamps the table it loaded");
+    assert_eq!(census(&old).cards_json_fnv1a64, cards_json_hash().ok(), "the 15.535.29 census stamps cards.json, as before");
+}
+
 #[test]
 fn the_cards_json_hash_is_fnv1a64_and_the_fixture_carries_the_engine_s() {
     // known answers (FNV-1a 64): "" and "a"

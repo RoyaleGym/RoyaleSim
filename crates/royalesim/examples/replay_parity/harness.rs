@@ -876,7 +876,7 @@ pub fn census(db: &CardDb) -> Census {
     }
     Census {
         cards_source: format!("{:?}", db.source),
-        cards_json_fnv1a64: cards_json_hash().ok(),
+        cards_json_fnv1a64: table_hash(db).ok(),
         loadable,
         rejected: db.rejected.iter().cloned().collect(),
         summon_only,
@@ -892,6 +892,33 @@ pub fn fnv1a64(bytes: &[u8]) -> String {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     format!("{h:016x}")
+}
+
+/// THE DERIVED FILE `db` WAS READ FROM (cards.CARD_TABLE): the 160402017 table's own file for that table, the
+/// checkout's data/derived/cards.json for every other.
+pub fn table_file(db: &CardDb) -> &'static str {
+    if db.version == royalesim::card::CARDS_160402017_VERSION {
+        royalesim::card::CARDS_160402017_FILE
+    } else {
+        "cards.json"
+    }
+}
+
+/// The census's own file under data/derived/replay/: card_census.json for the 15.535.29 table, and one named for any
+/// other, so the two tables' censuses never overwrite each other (tools/make_replay_fixture.py `--table` reads it).
+pub fn census_file(db: &CardDb) -> String {
+    match table_file(db) {
+        "cards.json" => "card_census.json".to_string(),
+        f => format!("card_census-{}", f.trim_start_matches("cards-")),
+    }
+}
+
+/// The hash of the derived file `db` was read from (`table_file`): what a census made under cards.CARD_TABLE
+/// stamps, so tools/make_replay_fixture.py `--table` compares it with the card file it reads.
+pub fn table_hash(db: &CardDb) -> Result<String, String> {
+    let path = format!("{}/data/derived/{}", repo_root(), table_file(db));
+    let bytes = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+    Ok(fnv1a64(&bytes))
 }
 
 /// The hash of the repo's data/derived/cards.json as it is on disk.

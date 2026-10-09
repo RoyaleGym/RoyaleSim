@@ -1994,3 +1994,18 @@ def test_a_frame_read_a_tick_late_takes_the_tick_its_contents_show(m):
     assert [f["tick"] for f in right] == [252, 253, 255]
     few = [frame(252, [0, 0]), frame(253, [180, 180]), frame(255, [270, 270])]
     assert m.relabel_late_reads(few) == [], "two voters are not enough"
+
+
+def test_the_table_switch_sets_the_card_file_the_id_pack_and_the_census_together(m):
+    """make_replay_fixture.py --table: one switch points CARDS, RAW and CENSUS at a table, so a fixture made on the
+    160402017 table resolves its client ids from that pack and reads that table's census (harness.rs `census_file`)."""
+    saved = (m.CARDS, m.RAW, m.CENSUS)
+    try:
+        m.select_table("160402017-20261006")
+        assert m.CARDS.endswith(os.path.join("derived", "cards-160402017-20261006.json"))
+        assert m.RAW.endswith(os.path.join("raw", "cr-160402017", "csv_logic"))
+        assert m.CENSUS == "card_census-160402017-20261006.json"
+        m.select_table("15.535.29")
+        assert saved == (m.CARDS, m.RAW, m.CENSUS), "the default table is the module's own constants"
+    finally:
+        m.CARDS, m.RAW, m.CENSUS = saved

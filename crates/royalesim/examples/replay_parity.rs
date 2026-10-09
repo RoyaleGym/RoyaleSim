@@ -123,9 +123,9 @@ fn run(args: &[String]) -> Result<(), String> {
     if census_only {
         std::fs::create_dir_all(&replay_dir).map_err(|e| e.to_string())?;
         let c = census(&db);
-        let path = format!("{replay_dir}/card_census.json");
+        let path = format!("{replay_dir}/{}", census_file(&db));
         std::fs::write(&path, serde_json::to_string_pretty(&c).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        println!("{path}: {} loadable, {} rejected, {} summon-only (cards.json {})", c.loadable.len(), c.rejected.len(), c.summon_only.len(), c.cards_json_fnv1a64.as_deref().unwrap_or("unhashed"));
+        println!("{path}: {} loadable, {} rejected, {} summon-only ({} {})", c.loadable.len(), c.rejected.len(), c.summon_only.len(), table_file(&db), c.cards_json_fnv1a64.as_deref().unwrap_or("unhashed"));
         return Ok(());
     }
     if all {
