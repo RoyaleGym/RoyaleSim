@@ -1,10 +1,10 @@
 {
- "version": "cards-160402017-20261006.1",
- "vintage_warning": "LIVE 2026 BUILD (the 160402017 client with its 2026-10-06 content update, content 16.402.19: the update's files over the install-time pack, decoded by tools/decode_sc_assets.py). Every number in this file is EVIDENCE, NOT SPEC: the columns are the client's, what the engine does with each is calibration.json's. Stats are UNIFIED LEVEL-1 base values (calibration.json combat.STAT_BASE_LEVEL). Effective row = the client's TOML rows; evolutions and hero forms are excluded from `cards`.",
+ "version": "cards-160402017.1",
+ "vintage_warning": "LIVE 2026 BUILD (the 160402017 client's install-time asset pack, content 16.402.2, decoded by tools/decode_sc_assets.py). Every number in this file is EVIDENCE, NOT SPEC: the columns are the client's, what the engine does with each is calibration.json's. Stats are UNIFIED LEVEL-1 base values (calibration.json combat.STAT_BASE_LEVEL). Effective row = the client's TOML rows (the per-character files over characters_base.toml); evolutions and hero forms are excluded from `cards`.",
  "provenance": {
-  "source": "Supercell csv_logic/ of the 160402017 client: the 2026-10-06 update folder over the install-time pack, decoded by tools/decode_sc_assets.py (each pack's MANIFEST.json carries its per-file hashes)",
-  "vintage": "160402017 client, content 16.402.19 (the 2026-10-06 balance update)",
-  "roster_dating": "The build and content are in the files (MANIFEST.json build 160402017, content_version 16.402.19).",
+  "source": "Supercell csv_logic/ of the 160402017 client's install-time asset pack, decoded by tools/decode_sc_assets.py (data/raw/cr-160402017/MANIFEST.json carries the per-file hashes)",
+  "vintage": "160402017 client, content 16.402.2 (2026-10-02 install)",
+  "roster_dating": "The build is in the file (MANIFEST.json build 160402017, content_version 16.402.2).",
   "files": {
    "actions.toml": {
     "sha256": "962d033eb575ce026d1175bab7787dce4a01f543c562d57eef5df88913358997"
@@ -13,7 +13,7 @@
     "sha256": "806eda84a7d9bd03228eddf0fffef481507b3782c907cc4f79a153254437a83f"
    },
    "characters/angry_barbarian_evo.toml": {
-    "sha256": "f250efae5437eec512713979cec3a0dca8a0cb58e0c8d202f05db1b428b7eb53"
+    "sha256": "24c930959f36182ca68a84408bf71a8669f012ac317c6b987f7017bb4d29dc3a"
    },
    "characters/archer.toml": {
     "sha256": "c5adc8791e19bc7bc0963e66718b7b16aaf39c4b886e5c6bdea0b60e55d2e280"
@@ -52,7 +52,7 @@
     "sha256": "de024b44fd046ab2c9be8076d53fef0039efa45542786636df4cad4d9cb3730f"
    },
    "characters/cannon_ev1.toml": {
-    "sha256": "3de410d1b1898ff9ca50ea0e28e275930bcaadf1d79b4146c46d57e750543e94"
+    "sha256": "e98a2a02c5c08bf119b3bd8d32d18c14abef441c6827916630c4e7e56d0fcee2"
    },
    "characters/chef_tower.toml": {
     "sha256": "5e999fe2524b3aa94ef8374f18028cf23295eb806c3e4eb74679f6b589906454"
@@ -115,19 +115,19 @@
     "sha256": "04541ef103db8beef26b1841d6cc63bf1e0f0ebafb2ebce5a9356a961d5fa184"
    },
    "characters/goblinbarrelspell_ev1.toml": {
-    "sha256": "3bef33f611cecd799c66a9cad2b637c9573efe8b46f4c2521aaace1abc6b002d"
+    "sha256": "7a11c5489ae8c6f843c7c4d941f925010416bd2b4ca1daaa1bd9eae1d1999140"
    },
    "characters/goblincage.toml": {
     "sha256": "baee620619fecae466ee1a0ef4586432322ba92d1ff20ed9cb32b61f32fef7a0"
    },
    "characters/goblindrilldig.toml": {
-    "sha256": "b4e09636208ce3905f65d81da5c2ff940ce39dae23f740c6b51bfdb30bd9bf65"
+    "sha256": "0e29461f8f07f42b07c9b11eda652ae24383f0b234f7539ff83121e9723dbc5c"
    },
    "characters/goblinstein.toml": {
     "sha256": "f1eb1c0627a74428804d4ed1dc285cd058908019ef465c00419fc7ea8426cba8"
    },
    "characters/golden_knight.toml": {
-    "sha256": "3a5def9ce00057f3272c3c03ddb64faefc44ca1ea27e5aa353589bea8169edc7"
+    "sha256": "38aa3e252b6cce6762a0678ba228745c982282ff07d3fd2b38b104db361c96be"
    },
    "characters/graveyard_rework.toml": {
     "sha256": "1d1a1eea0e4432bc59fd87c74f18cdedb4dadb197ca280a725373c95e41fc4a6"
@@ -193,7 +193,7 @@
     "sha256": "ccb424bc5913354b4dd762109e70209046ab21495488ae44f7aad70ca5f117b5"
    },
    "characters/hero_form/ice_wizard_hero.toml": {
-    "sha256": "5ff1a2901a258c820713c9cf13b1bbfe76c379ebdb8efafd5b3f2a925821dcd2"
+    "sha256": "f1bf61df103af81411698fc61dd7a2a343d3dd0fc9304ab482e76d98d6c5fd70"
    },
    "characters/hero_form/ice_wizard_hero_spell.toml": {
     "sha256": "4b529e4c7c9a533e2f4bbb9f12b2adaafd430837efced98dae7193dbeaca50dd"
@@ -223,7 +223,7 @@
     "sha256": "ffc16936932e0d67b36aa648f69890b99b27cea57a0ec420452e17bb16475d75"
    },
    "characters/hero_form/tombstone_hero.toml": {
-    "sha256": "fcfa6591807c9946a2f8e22790d49839e229c86900c026335064239d5aac3f0f"
+    "sha256": "b26903b87b1ee90a871943e114543cbbdc7810beb52dd6f38a74768e7cbf7388"
    },
    "characters/hero_form/tombstone_hero_spell.toml": {
     "sha256": "1ddcaa5de05a53f71a60ca404061f8d886bd14c5006f40b05e4f0937f59f5ce4"
@@ -268,7 +268,7 @@
     "sha256": "2af113bfe27e3c5059b2643e353624c7e4455eb65ca30c0afd27d9583b47f674"
    },
    "characters/minion_giant.toml": {
-    "sha256": "da0e88acc77f6cec82eaa8f0ef52bc1c124c7c45b3882a7210c9fbfee879ecfc"
+    "sha256": "ba689d31030d305fb738af05ff990b01911e9724a9559fe850dea5832e9ea888"
    },
    "characters/minion_giant_spell.toml": {
     "sha256": "b8358cd4c0ee0d748cd01c4a2eb6457f7aa63a0664482dc8d27555e4035deff2"
@@ -277,7 +277,7 @@
     "sha256": "364e22893184fb96eb295e763920e4ab26fa35bdc6af924a072e019a8a3a772a"
    },
    "characters/monk.toml": {
-    "sha256": "89d0334d0eb98373e872516b3e12a821d3edafc090aa3919bad3041f69804f3c"
+    "sha256": "c957b3949ae9d36ff0ac4da6a3546083a6f9c0d8cec6850fb56f230c1174091b"
    },
    "characters/musketeer_ev1.toml": {
     "sha256": "c1b1ccbc0857697fcf137b3a38ff0c55cb7412658bd5755fb8b1649d66c13bdc"
@@ -337,7 +337,7 @@
     "sha256": "e9200f9064e0678dc065748dcaecd59568def6d18a6fb592d0e21e8111509373"
    },
    "characters/three_musketeer_rework.toml": {
-    "sha256": "2bfb6931e5ed5803d528bea828f68e652483fb0027c65cd6698f54dc8d11c3c1"
+    "sha256": "8cc1e9f02da2cada43d54025f444090b389c78bbe6c0bf85cffe444aa6555a54"
    },
    "characters/triwizardspawn.toml": {
     "sha256": "0578c542c46432de937c062ed7862bd9f9eba6f2f1998ed14ff0f9858d877d40"
@@ -402,21 +402,21 @@
     "continuation_rows": 0
    },
    "spells_buildings.toml": {
-    "sha256": "167df0a8d887ac846b34c3fe119b665f4487eec65a48517b1d7523af7939bd31"
+    "sha256": "aff4bfa7befcfa60944c49cdd7d7b3381cc13b91c3964d70281aaddcc32ecf1e"
    },
    "spells_characters.csv": {
     "sha256": "2cd3effdcdb2c4247ea68b3ee29d8fb9a22da5db6afcd03206c15f36daec3f28",
     "continuation_rows": 1
    },
    "spells_characters.toml": {
-    "sha256": "160b0e4a0f55f0fa3e253cf33a2fa4d8eb6fee15b5d9997ad43d463ac3631aa0"
+    "sha256": "d04e666d2c48e4b4224d8ee656f59c18f02b1cf25b40e9c98ef21c516b134067"
    },
    "spells_evolved.csv": {
     "sha256": "84b03c91c1a90aae8c17d400c35cdd93e2a0b3e60e49f0f5243cb4eb16ba164f",
     "continuation_rows": 0
    },
    "spells_evolved.toml": {
-    "sha256": "21e931229889eb67b35e8eb4642fe178dd8a34e584f27c813bfbe5bebafd7fef"
+    "sha256": "714fb600378bf3eda76f31d87a52355432f7fc81083c3e19973ccb1b6042b00c"
    },
    "spells_other.csv": {
     "sha256": "ee21f208ec1fb1b6793d35e0d72a57e09be4b374998640e1087a6f3b99726fa9",
@@ -427,7 +427,7 @@
    }
   },
   "generated_by": "tools/extract_cards.py",
-  "vintage_key": "160402017-20261006",
+  "vintage_key": "160402017",
   "columns_absent": [
    "character_buffs.ImmuneToAntiMagic",
    "projectiles.SpawnCharacterLevelIndex"
@@ -1998,7 +1998,7 @@
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 3,
-   "summon_radius_milli": 400,
+   "summon_radius_milli": 700,
    "summon_width_milli": null,
    "summon_deploy_delay_ms": null,
    "summon_deploy_delay_second_ms": null,
@@ -4245,7 +4245,7 @@
    "elixir": 9,
    "rarity": "Rare",
    "summon_character": "ThreeMusketeer_Rework_Character_1",
-   "hitpoints": 354,
+   "hitpoints": 345,
    "damage": 80,
    "damage_source": "projectiles.ThreeMusketeer_Rework_Projectile.Damage",
    "hit_speed_ms": 1300,
@@ -4440,10 +4440,10 @@
    "rarity": "Legendary",
    "summon_character": "LavaHound",
    "hitpoints": 1399,
-   "damage": 28,
+   "damage": 21,
    "damage_source": "projectiles.LavaHoundProjectile.Damage",
-   "hit_speed_ms": 1500,
-   "load_time_ms": 500,
+   "hit_speed_ms": 1300,
+   "load_time_ms": 300,
    "load_first_hit": false,
    "speed": 45,
    "stop_movement_after_ms": null,
@@ -4463,7 +4463,7 @@
    "projectile": {
     "name": "LavaHoundProjectile",
     "speed": 400,
-    "damage": 28,
+    "damage": 21,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": true,
@@ -7132,8 +7132,8 @@
    "elixir": 3,
    "rarity": "Legendary",
    "summon_character": "Ghost",
-   "hitpoints": 450,
-   "damage": 103,
+   "hitpoints": 473,
+   "damage": 102,
    "damage_source": "characters.Ghost.Damage",
    "hit_speed_ms": 1800,
    "load_time_ms": 1200,
@@ -7246,7 +7246,7 @@
    "rarity": "Legendary",
    "summon_character": "Ram",
    "hitpoints": 690,
-   "damage": 106,
+   "damage": 98,
    "damage_source": "characters.Ram.Damage",
    "hit_speed_ms": 1700,
    "load_time_ms": 1100,
@@ -7293,7 +7293,7 @@
    "kamikaze_time_ms": null,
    "spawn_pathfind": null,
    "charge": {
-    "damage_special": 212,
+    "damage_special": 196,
     "charge_range_raw": 250,
     "charge_speed_multiplier_percent": 200
    },
@@ -8204,7 +8204,7 @@
    "rarity": "Epic",
    "summon_character": "Wallbreaker",
    "hitpoints": 129,
-   "damage": 118,
+   "damage": 110,
    "damage_source": "projectiles.WallbreakerProjectile.Damage",
    "hit_speed_ms": 1200,
    "load_time_ms": 1000,
@@ -8227,7 +8227,7 @@
    "projectile": {
     "name": "WallbreakerProjectile",
     "speed": 1000,
-    "damage": 118,
+    "damage": 110,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": false,
@@ -9898,7 +9898,7 @@
    "rarity": "Legendary",
    "summon_character": "SuperLavaHound",
    "hitpoints": 2800,
-   "damage": 28,
+   "damage": 21,
    "damage_source": "projectiles.LavaHoundProjectile.Damage",
    "hit_speed_ms": 1300,
    "load_time_ms": 300,
@@ -9921,7 +9921,7 @@
    "projectile": {
     "name": "LavaHoundProjectile",
     "speed": 400,
-    "damage": 28,
+    "damage": 21,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": true,
@@ -10501,7 +10501,7 @@
    "rarity": "Champion",
    "summon_character": "GoldenKnight",
    "hitpoints": 703,
-   "damage": 66,
+   "damage": 63,
    "damage_source": "characters.GoldenKnight.Damage",
    "hit_speed_ms": 900,
    "load_time_ms": 700,
@@ -10586,7 +10586,7 @@
     "is_champion": true,
     "effect": {
      "kind": "dash_chain",
-     "radius_milli": 5000,
+     "radius_milli": 5500,
      "target_filter": "GroundCharacterTargets",
      "filter": {
       "FilterCloning": true,
@@ -10608,7 +10608,7 @@
      "count": 10,
      "speed": 400,
      "damage": 131,
-     "secondary_range_milli": 5000,
+     "secondary_range_milli": 5500,
      "landing_time_ms": 200,
      "immune_ms": 100,
      "pushback_milli": 2000,
@@ -10828,8 +10828,8 @@
     "mana_cost": 1,
     "max_charges": 1,
     "cooldown_ms": null,
-    "cast_ms": 700,
-    "trigger_delay_ms": 700,
+    "cast_ms": 933,
+    "trigger_delay_ms": 933,
     "keep_current_target": false,
     "is_champion": true,
     "effect": {
@@ -14385,8 +14385,8 @@
    "hitpoints": 710,
    "damage": 66,
    "damage_source": "projectiles.MinionGiant_Projectile.Damage",
-   "hit_speed_ms": 1700,
-   "load_time_ms": 900,
+   "hit_speed_ms": 1500,
+   "load_time_ms": 700,
    "load_first_hit": false,
    "speed": 60,
    "stop_movement_after_ms": null,
@@ -15463,7 +15463,7 @@
    "projectile": null,
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
-   "lifetime_ms": 110000,
+   "lifetime_ms": 93000,
    "ignore_pushback": false,
    "death_damage": null,
    "death_damage_radius_milli": null,
@@ -15499,7 +15499,7 @@
    "action_graph": null,
    "mana": {
     "collect_amount": 1,
-    "generate_time_ms": 15000,
+    "generate_time_ms": 13000,
     "on_death": 1,
     "on_death_for_opponent": null
    },
@@ -15554,7 +15554,7 @@
    "rarity": "Epic",
    "summon_character": "Xbow",
    "hitpoints": 625,
-   "damage": 24,
+   "damage": 23,
    "damage_source": "projectiles.xbow_projectile.Damage",
    "hit_speed_ms": 400,
    "load_time_ms": 0,
@@ -15577,7 +15577,7 @@
    "projectile": {
     "name": "xbow_projectile",
     "speed": 1600,
-    "damage": 24,
+    "damage": 23,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": true,
@@ -17199,7 +17199,7 @@
     "projectile_radius_y_milli": null,
     "projectile_range_milli": null,
     "min_distance_milli": null,
-    "spawn_character": "BarrelGoblin",
+    "spawn_character": "Goblin",
     "spawn_character_count": 3,
     "spawn_character_deploy_time_ms": 1100,
     "spawn_character_level_index": null,
@@ -17254,7 +17254,7 @@
     "pushback_milli": null,
     "duration_seconds": null,
     "spawn": {
-     "character": "BarrelGoblin",
+     "character": "Goblin",
      "count": 3,
      "deploy_time_ms": 1100,
      "level_index": null,
@@ -19103,7 +19103,7 @@
    "elixir": 2,
    "rarity": "Epic",
    "hitpoints": null,
-   "damage": 84,
+   "damage": 91,
    "damage_source": "projectiles.BarbLogProjectileRolling.Damage",
    "hit_speed_ms": null,
    "load_time_ms": null,
@@ -19152,7 +19152,7 @@
     "spawn_projectile": {
      "name": "BarbLogProjectileRolling",
      "speed": 200,
-     "damage": 84,
+     "damage": 91,
      "crown_tower_damage_percent": 100,
      "crown_tower_damage_percent_raw": null,
      "homing": false,
@@ -21372,7 +21372,7 @@
     "NoDeploySizeW": 11,
     "NoDeploySizeH": 21
    },
-   "no_deploy_size_provenance": "buildings.csv PrincessTower.NoDeploySizeW/NoDeploySizeH (160402017-20261006 csv_logic/characters/*.toml overlay [BUILDING.PrincessTower], evidence not spec); unit TILES inferred from 4/4 arena landmarks, gated by tools/check_data.py",
+   "no_deploy_size_provenance": "buildings.csv PrincessTower.NoDeploySizeW/NoDeploySizeH (160402017 csv_logic/characters/*.toml overlay [BUILDING.PrincessTower], evidence not spec); unit TILES inferred from 4/4 arena landmarks, gated by tools/check_data.py",
    "level_scaling": {
     "rarity": "Common",
     "level_count": 16,
@@ -21519,7 +21519,7 @@
     "NoDeploySizeW": 18,
     "NoDeploySizeH": 16
    },
-   "no_deploy_size_provenance": "buildings.csv KingTower.NoDeploySizeW/NoDeploySizeH (160402017-20261006 csv_logic/characters/*.toml overlay [BUILDING.KingTower], evidence not spec); unit TILES inferred from 4/4 arena landmarks, gated by tools/check_data.py",
+   "no_deploy_size_provenance": "buildings.csv KingTower.NoDeploySizeW/NoDeploySizeH (160402017 csv_logic/characters/*.toml overlay [BUILDING.KingTower], evidence not spec); unit TILES inferred from 4/4 arena landmarks, gated by tools/check_data.py",
    "level_scaling": {
     "rarity": "Common",
     "level_count": 16,
@@ -22606,6 +22606,7 @@
      },
      {
       "CustomRange": 4500,
+      "CustomSightRange": 4500,
       "Projectile": "AngryBarbarian_EV1_RangedProjectile",
       "CustomProjectileStartZ": 1400,
       "CustomProjectileStartRadius": 200,
@@ -22790,6 +22791,7 @@
      },
      {
       "CustomRange": 4500,
+      "CustomSightRange": 4500,
       "Projectile": "AngryBarbarian_EV1_RangedProjectile",
       "CustomProjectileStartZ": 1400,
       "CustomProjectileStartRadius": 200,
@@ -28844,8 +28846,8 @@
    "name": "Ghost",
    "source_table": "characters",
    "rarity": "Common",
-   "hitpoints": 450,
-   "damage": 103,
+   "hitpoints": 473,
+   "damage": 102,
    "damage_source": "characters.Ghost.Damage",
    "hit_speed_ms": 1800,
    "load_time_ms": 1200,
@@ -28920,11 +28922,11 @@
     "BuffWhenNotAttackingTime": 2000,
     "BuffWhenNotAttackingUseAttackRange": true,
     "CollisionRadius": 600,
-    "Damage": 103,
+    "Damage": 102,
     "DeployTime": 1000,
     "HideTimeMs": 400,
     "HitSpeed": 1800,
-    "Hitpoints": 450,
+    "Hitpoints": 473,
     "Hovering": true,
     "LoadTime": 1200,
     "Mass": 3,
@@ -28942,8 +28944,8 @@
    "name": "GhostOverlay",
    "source_table": "characters",
    "rarity": "Common",
-   "hitpoints": 450,
-   "damage": 103,
+   "hitpoints": 473,
+   "damage": 102,
    "damage_source": "characters.GhostOverlay.Damage",
    "hit_speed_ms": 1800,
    "load_time_ms": 1200,
@@ -29016,11 +29018,11 @@
     "BuffWhenNotAttackingTime": 2000,
     "BuffWhenNotAttackingUseAttackRange": true,
     "CollisionRadius": 600,
-    "Damage": 103,
+    "Damage": 102,
     "DeployTime": 1000,
     "HideTimeMs": 400,
     "HitSpeed": 1800,
-    "Hitpoints": 450,
+    "Hitpoints": 473,
     "Hovering": true,
     "LoadTime": 1200,
     "Mass": 3,
@@ -29038,8 +29040,8 @@
    "name": "Ghost_EV1",
    "source_table": "characters",
    "rarity": "Common",
-   "hitpoints": 450,
-   "damage": 103,
+   "hitpoints": 473,
+   "damage": 102,
    "damage_source": "characters.Ghost_EV1.Damage",
    "hit_speed_ms": 1800,
    "load_time_ms": 1200,
@@ -29128,11 +29130,11 @@
     "BuffWhenNotAttackingTime": 2000,
     "BuffWhenNotAttackingUseAttackRange": true,
     "CollisionRadius": 600,
-    "Damage": 103,
+    "Damage": 102,
     "DeployTime": 1000,
     "HideTimeMs": 400,
     "HitSpeed": 1800,
-    "Hitpoints": 450,
+    "Hitpoints": 473,
     "Hovering": true,
     "LoadTime": 1200,
     "Mass": 3,
@@ -29156,8 +29158,8 @@
    "name": "Ghost_EV1_Clone",
    "source_table": "characters",
    "rarity": "Common",
-   "hitpoints": 450,
-   "damage": 103,
+   "hitpoints": 473,
+   "damage": 102,
    "damage_source": "characters.Ghost_EV1_Clone.Damage",
    "hit_speed_ms": 1800,
    "load_time_ms": 1200,
@@ -29245,11 +29247,11 @@
     "BuffWhenNotAttackingTime": 2000,
     "BuffWhenNotAttackingUseAttackRange": true,
     "CollisionRadius": 600,
-    "Damage": 103,
+    "Damage": 102,
     "DeployTime": 1000,
     "HideTimeMs": 400,
     "HitSpeed": 1800,
-    "Hitpoints": 450,
+    "Hitpoints": 473,
     "Hovering": true,
     "LoadTime": 1200,
     "Mass": 3,
@@ -31702,92 +31704,6 @@
     "characters/goblin_stab.toml [CHARACTER]"
    ]
   },
-  "BarrelGoblin": {
-   "name": "BarrelGoblin",
-   "source_table": "characters",
-   "rarity": "Common",
-   "hitpoints": 79,
-   "damage": 49,
-   "damage_source": "characters.BarrelGoblin.Damage",
-   "hit_speed_ms": 1100,
-   "load_time_ms": 800,
-   "load_first_hit": false,
-   "speed": 120,
-   "stop_movement_after_ms": null,
-   "wait_ms": null,
-   "range_milli": 500,
-   "minimum_range_milli": null,
-   "sight_range_milli": 5500,
-   "collision_radius_milli": 500,
-   "mass": 2,
-   "deploy_time_ms": 1000,
-   "attacks_air": false,
-   "attacks_ground": true,
-   "target_only_buildings": false,
-   "flying_height": 0,
-   "area_damage_radius_milli": 0,
-   "self_as_aoe_center": false,
-   "projectile": null,
-   "shield_hitpoints": 0,
-   "crown_tower_damage_percent": 100,
-   "lifetime_ms": null,
-   "ignore_pushback": false,
-   "tile_size_override": null,
-   "death_damage": null,
-   "death_damage_radius_milli": null,
-   "death_spawn": null,
-   "death_area_effect": null,
-   "death_spawn_projectile": null,
-   "spawner": null,
-   "spawn_area_object": null,
-   "spawn_radius_milli": null,
-   "spawn_angle_shift_deg": null,
-   "projectile_start_radius_milli": 350,
-   "kamikaze": false,
-   "kamikaze_time_ms": null,
-   "spawn_pathfind": null,
-   "charge": null,
-   "dash": null,
-   "jump": null,
-   "hovering": false,
-   "hides_when_not_attacking": false,
-   "hide_time_ms": null,
-   "up_time_ms": null,
-   "buff_on_damage": null,
-   "ignore_buffs": null,
-   "variable_damage": null,
-   "attack_pushback_milli": null,
-   "death_pushback_milli": null,
-   "special": null,
-   "attached_character": null,
-   "defaults_applied": [
-    "crown_tower_damage_percent",
-    "area_damage_radius_milli",
-    "flying_height",
-    "shield_hitpoints"
-   ],
-   "action_graph": null,
-   "death_spawn_pushback": false,
-   "raw": {
-    "LoadTime": 800,
-    "AttacksGround": true,
-    "CollisionRadius": 500,
-    "Damage": 49,
-    "DeployDelay": 400,
-    "DeployTime": 1000,
-    "HitSpeed": 1100,
-    "Hitpoints": 79,
-    "Mass": 2,
-    "Name": "Goblin",
-    "Range": 500,
-    "Rarity": "Common",
-    "SightRange": 5500,
-    "Speed": 120
-   },
-   "overlays": [
-    "characters/goblinbarrelspell.toml [EXT]"
-   ]
-  },
   "GoblinDummy": {
    "name": "GoblinDummy",
    "source_table": "characters",
@@ -31796,7 +31712,7 @@
    "damage": 26,
    "damage_source": "characters.GoblinDummy.Damage",
    "hit_speed_ms": 1100,
-   "load_time_ms": 800,
+   "load_time_ms": 700,
    "load_first_hit": false,
    "speed": 120,
    "stop_movement_after_ms": null,
@@ -31862,7 +31778,7 @@
     "DeployTime": 1000,
     "HitSpeed": 1100,
     "Hitpoints": 32,
-    "LoadTime": 800,
+    "LoadTime": 700,
     "Mass": 2,
     "Name": "GoblinDummy",
     "Range": 500,
@@ -32641,7 +32557,7 @@
    "source_table": "characters",
    "rarity": "Common",
    "hitpoints": 703,
-   "damage": 66,
+   "damage": 63,
    "damage_source": "characters.GoldenKnight.Damage",
    "hit_speed_ms": 900,
    "load_time_ms": 700,
@@ -32714,15 +32630,15 @@
    "raw": {
     "Ability": "GoldenKnightChain",
     "AttacksGround": true,
-    "BackDashRadius": 5000,
+    "BackDashRadius": 5500,
     "CollisionRadius": 800,
-    "Damage": 66,
+    "Damage": 63,
     "DashCount": 10,
     "DashDamage": 131,
     "DashImmuneToDamageTime": 100,
     "DashLandingTime": 200,
     "DashPushBack": 2000,
-    "DashSecondaryRange": 5000,
+    "DashSecondaryRange": 5500,
     "DashToTargetRadius": true,
     "DeployTime": 1000,
     "HitSpeed": 900,
@@ -34506,10 +34422,10 @@
    "source_table": "characters",
    "rarity": "Common",
    "hitpoints": 1399,
-   "damage": 28,
+   "damage": 21,
    "damage_source": "projectiles.LavaHoundProjectile.Damage",
-   "hit_speed_ms": 1500,
-   "load_time_ms": 500,
+   "hit_speed_ms": 1300,
+   "load_time_ms": 300,
    "load_first_hit": false,
    "speed": 45,
    "stop_movement_after_ms": null,
@@ -34529,7 +34445,7 @@
    "projectile": {
     "name": "LavaHoundProjectile",
     "speed": 400,
-    "damage": 28,
+    "damage": 21,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": true,
@@ -34621,12 +34537,12 @@
     "DeathSpawnRadius": 2500,
     "DeployTime": 1000,
     "FlyingHeight": 4000,
-    "HitSpeed": 1500,
+    "HitSpeed": 1300,
     "Hitpoints": 1399,
     "IgnoreBuff": "VoodooCurse",
     "IgnorePushback": true,
     "IgnoreResurrect": true,
-    "LoadTime": 500,
+    "LoadTime": 300,
     "Mass": 5,
     "Name": "LavaHound",
     "Projectile": "LavaHoundProjectile",
@@ -36040,8 +35956,8 @@
    "hitpoints": 710,
    "damage": 66,
    "damage_source": "projectiles.MinionGiant_Projectile.Damage",
-   "hit_speed_ms": 1700,
-   "load_time_ms": 900,
+   "hit_speed_ms": 1500,
+   "load_time_ms": 700,
    "load_first_hit": false,
    "speed": 60,
    "stop_movement_after_ms": null,
@@ -36137,8 +36053,8 @@
    "raw": {
     "Rarity": "Common",
     "Hitpoints": 710,
-    "HitSpeed": 1700,
-    "LoadTime": 900,
+    "HitSpeed": 1500,
+    "LoadTime": 700,
     "Speed": 60,
     "Range": 4000,
     "SightRange": 6500,
@@ -38398,7 +38314,7 @@
    "source_table": "characters",
    "rarity": "Common",
    "hitpoints": 690,
-   "damage": 106,
+   "damage": 98,
    "damage_source": "characters.Ram.Damage",
    "hit_speed_ms": 1700,
    "load_time_ms": 1100,
@@ -38448,7 +38364,7 @@
    "kamikaze_time_ms": null,
    "spawn_pathfind": null,
    "charge": {
-    "damage_special": 212,
+    "damage_special": 196,
     "charge_range_raw": 250,
     "charge_speed_multiplier_percent": 200
    },
@@ -38482,8 +38398,8 @@
     "ChargeRange": 250,
     "ChargeSpeedMultiplier": 200,
     "CollisionRadius": 600,
-    "Damage": 106,
-    "DamageSpecial": 212,
+    "Damage": 98,
+    "DamageSpecial": 196,
     "DeployTime": 1000,
     "HitSpeed": 1700,
     "Hitpoints": 690,
@@ -41932,7 +41848,7 @@
    "source_table": "characters",
    "rarity": "Common",
    "hitpoints": 2800,
-   "damage": 28,
+   "damage": 21,
    "damage_source": "projectiles.LavaHoundProjectile.Damage",
    "hit_speed_ms": 1300,
    "load_time_ms": 300,
@@ -41955,7 +41871,7 @@
    "projectile": {
     "name": "LavaHoundProjectile",
     "speed": 400,
-    "damage": 28,
+    "damage": 21,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": true,
@@ -42083,7 +41999,7 @@
    "source_table": "characters",
    "rarity": "Common",
    "hitpoints": 1500,
-   "damage": 28,
+   "damage": 21,
    "damage_source": "projectiles.LavaHoundProjectile.Damage",
    "hit_speed_ms": 900,
    "load_time_ms": 300,
@@ -42106,7 +42022,7 @@
    "projectile": {
     "name": "LavaHoundProjectile",
     "speed": 400,
-    "damage": 28,
+    "damage": 21,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": true,
@@ -42717,7 +42633,7 @@
    "name": "ThreeMusketeer_Rework",
    "source_table": "characters",
    "rarity": "Common",
-   "hitpoints": 354,
+   "hitpoints": 345,
    "damage": 80,
    "damage_source": "projectiles.ThreeMusketeer_Rework_Projectile.Damage",
    "hit_speed_ms": 1300,
@@ -42839,7 +42755,7 @@
    "raw": {
     "Rarity": "Common",
     "OnStartingClientActions": "Healthbar_Medium",
-    "Hitpoints": 354,
+    "Hitpoints": 345,
     "HitSpeed": 1300,
     "LoadTime": 700,
     "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
@@ -42879,7 +42795,7 @@
    "name": "ThreeMusketeer_Rework_Character_1",
    "source_table": "characters",
    "rarity": "Common",
-   "hitpoints": 354,
+   "hitpoints": 345,
    "damage": 80,
    "damage_source": "projectiles.ThreeMusketeer_Rework_Projectile.Damage",
    "hit_speed_ms": 1300,
@@ -43001,7 +42917,7 @@
    "raw": {
     "Rarity": "Common",
     "OnStartingClientActions": "Healthbar_Medium",
-    "Hitpoints": 354,
+    "Hitpoints": 345,
     "HitSpeed": 1300,
     "LoadTime": 700,
     "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
@@ -43041,7 +42957,7 @@
    "name": "ThreeMusketeer_Rework_Character_2",
    "source_table": "characters",
    "rarity": "Common",
-   "hitpoints": 354,
+   "hitpoints": 345,
    "damage": 80,
    "damage_source": "projectiles.ThreeMusketeer_Rework_Projectile.Damage",
    "hit_speed_ms": 1300,
@@ -43164,7 +43080,7 @@
     "LoadTime": 650,
     "Rarity": "Common",
     "OnStartingClientActions": "Healthbar_Medium",
-    "Hitpoints": 354,
+    "Hitpoints": 345,
     "HitSpeed": 1300,
     "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
     "AttackSequenceMode": "None",
@@ -43203,7 +43119,7 @@
    "name": "ThreeMusketeer_Rework_Character_3",
    "source_table": "characters",
    "rarity": "Common",
-   "hitpoints": 354,
+   "hitpoints": 345,
    "damage": 80,
    "damage_source": "projectiles.ThreeMusketeer_Rework_Projectile.Damage",
    "hit_speed_ms": 1300,
@@ -43326,7 +43242,7 @@
     "LoadTime": 700,
     "Rarity": "Common",
     "OnStartingClientActions": "Healthbar_Medium",
-    "Hitpoints": 354,
+    "Hitpoints": 345,
     "HitSpeed": 1300,
     "OnStartingAttackAction": "ThreeMusketeer_Rework_Select_Attack",
     "AttackSequenceMode": "None",
@@ -43679,7 +43595,7 @@
    "source_table": "characters",
    "rarity": "Common",
    "hitpoints": 129,
-   "damage": 118,
+   "damage": 110,
    "damage_source": "projectiles.WallbreakerProjectile.Damage",
    "hit_speed_ms": 1200,
    "load_time_ms": 1000,
@@ -43702,7 +43618,7 @@
    "projectile": {
     "name": "WallbreakerProjectile",
     "speed": 1000,
-    "damage": 118,
+    "damage": 110,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": false,
@@ -43803,7 +43719,7 @@
    "source_table": "characters",
    "rarity": "Common",
    "hitpoints": 129,
-   "damage": 118,
+   "damage": 110,
    "damage_source": "projectiles.WallbreakerProjectile_EV1.Damage",
    "hit_speed_ms": 1200,
    "load_time_ms": 1000,
@@ -43826,7 +43742,7 @@
    "projectile": {
     "name": "WallbreakerProjectile_EV1",
     "speed": 1000,
-    "damage": 118,
+    "damage": 110,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": false,
@@ -53333,7 +53249,7 @@
    "projectile": null,
    "shield_hitpoints": 0,
    "crown_tower_damage_percent": null,
-   "lifetime_ms": 110000,
+   "lifetime_ms": 93000,
    "ignore_pushback": false,
    "tile_size_override": null,
    "death_damage": null,
@@ -53364,7 +53280,7 @@
    "special": null,
    "mana": {
     "collect_amount": 1,
-    "generate_time_ms": 15000,
+    "generate_time_ms": 13000,
     "on_death": 1,
     "on_death_for_opponent": null
    },
@@ -53381,9 +53297,9 @@
     "DeployTime": 1000,
     "Hitpoints": 418,
     "IsBuilding": true,
-    "LifeTime": 110000,
+    "LifeTime": 93000,
     "ManaCollectAmount": 1,
-    "ManaGenerateTimeMs": 15000,
+    "ManaGenerateTimeMs": 13000,
     "ManaOnDeath": 1,
     "Name": "ElixirCollector",
     "Rarity": "Common"
@@ -55888,7 +55804,7 @@
    "source_table": "buildings",
    "rarity": "Common",
    "hitpoints": 625,
-   "damage": 24,
+   "damage": 23,
    "damage_source": "projectiles.xbow_projectile.Damage",
    "hit_speed_ms": 400,
    "load_time_ms": 0,
@@ -55911,7 +55827,7 @@
    "projectile": {
     "name": "xbow_projectile",
     "speed": 1600,
-    "damage": 24,
+    "damage": 23,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": true,
@@ -59294,7 +59210,7 @@
    "spawn_projectile": {
     "name": "BarbLogProjectileRolling",
     "speed": 200,
-    "damage": 84,
+    "damage": 91,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": false,
@@ -59341,7 +59257,7 @@
   "BarbLogProjectileRolling": {
    "name": "BarbLogProjectileRolling",
    "speed": 200,
-   "damage": 84,
+   "damage": 91,
    "crown_tower_damage_percent": 100,
    "crown_tower_damage_percent_raw": null,
    "homing": false,
@@ -59834,7 +59750,7 @@
     "speed_multiplier_raw": null,
     "hit_speed_multiplier_raw": null,
     "spawn_speed_multiplier_raw": null,
-    "damage_per_second": 102,
+    "damage_per_second": 110,
     "hit_frequency_ms": -1,
     "heal_per_second": null,
     "damage_reduction": null,
@@ -61157,7 +61073,7 @@
    "projectile_radius_y_milli": null,
    "projectile_range_milli": null,
    "min_distance_milli": null,
-   "spawn_character": "BarrelGoblin",
+   "spawn_character": "Goblin",
    "spawn_character_count": 3,
    "spawn_character_deploy_time_ms": 1100,
    "spawn_character_level_index": null,
@@ -61194,7 +61110,7 @@
    "projectile_radius_y_milli": null,
    "projectile_range_milli": null,
    "min_distance_milli": null,
-   "spawn_character": "BarrelGoblin",
+   "spawn_character": "Goblin",
    "spawn_character_count": 3,
    "spawn_character_deploy_time_ms": 1100,
    "spawn_character_level_index": null,
@@ -61844,7 +61760,7 @@
   "LavaHoundProjectile": {
    "name": "LavaHoundProjectile",
    "speed": 400,
-   "damage": 28,
+   "damage": 21,
    "crown_tower_damage_percent": 100,
    "crown_tower_damage_percent_raw": null,
    "homing": true,
@@ -63771,7 +63687,7 @@
   "WallbreakerProjectile": {
    "name": "WallbreakerProjectile",
    "speed": 1000,
-   "damage": 118,
+   "damage": 110,
    "crown_tower_damage_percent": 100,
    "crown_tower_damage_percent_raw": null,
    "homing": false,
@@ -63808,7 +63724,7 @@
   "WallbreakerProjectile_EV1": {
    "name": "WallbreakerProjectile_EV1",
    "speed": 1000,
-   "damage": 118,
+   "damage": 110,
    "crown_tower_damage_percent": 100,
    "crown_tower_damage_percent_raw": null,
    "homing": false,
@@ -64132,7 +64048,7 @@
   "xbow_projectile": {
    "name": "xbow_projectile",
    "speed": 1600,
-   "damage": 24,
+   "damage": 23,
    "crown_tower_damage_percent": 100,
    "crown_tower_damage_percent_raw": null,
    "homing": true,
@@ -68112,7 +68028,7 @@
    "spawn_initial_delay_ms": null,
    "cap_buff_time_to_area_effect_time": false,
    "affects_hidden": false,
-   "tower_damage": 8,
+   "tower_damage": 0,
    "hit_speed_offset_ms": null,
    "action_graph": null,
    "controls_buff": false,
@@ -73663,7 +73579,7 @@
    "speed_multiplier_raw": null,
    "hit_speed_multiplier_raw": null,
    "spawn_speed_multiplier_raw": null,
-   "damage_per_second": 102,
+   "damage_per_second": 110,
    "hit_frequency_ms": -1,
    "heal_per_second": null,
    "damage_reduction": null,
@@ -75713,7 +75629,7 @@
    "action_graph": null,
    "death_spawn_pushback": false,
    "count": 3,
-   "summon_radius_milli": 400,
+   "summon_radius_milli": 700,
    "summon_width_milli": null,
    "summon_deploy_delay_ms": null,
    "summon_deploy_delay_second_ms": null,
@@ -75990,7 +75906,7 @@
     "projectile_damage": 0,
     "buff": "Cannon_EV1_barrage_damage_buff",
     "buff_time_ms": 400,
-    "buff_damage_per_second": 102,
+    "buff_damage_per_second": 110,
     "buff_crown_tower_damage_per_hit": 21,
     "buff_hit_frequency_ms": -1
    },
@@ -76409,7 +76325,7 @@
    "evo_spear": {
     "min_range_milli": 3000,
     "max_range_milli": 4500,
-    "sight_range_milli": null,
+    "sight_range_milli": 4500,
     "start_radius_milli": 200,
     "spear": {
      "name": "AngryBarbarian_EV1_RangedProjectile",
@@ -77202,8 +77118,8 @@
    "elixir": 3,
    "rarity": "Legendary",
    "summon_character": "Ghost_EV1",
-   "hitpoints": 450,
-   "damage": 103,
+   "hitpoints": 473,
+   "damage": 102,
    "damage_source": "characters.Ghost_EV1.Damage",
    "hit_speed_ms": 1800,
    "load_time_ms": 1200,
@@ -80595,7 +80511,7 @@
    "rarity": "Epic",
    "summon_character": "Wallbreaker_EV1",
    "hitpoints": 129,
-   "damage": 118,
+   "damage": 110,
    "damage_source": "projectiles.WallbreakerProjectile_EV1.Damage",
    "hit_speed_ms": 1200,
    "load_time_ms": 1000,
@@ -80618,7 +80534,7 @@
    "projectile": {
     "name": "WallbreakerProjectile_EV1",
     "speed": 1000,
-    "damage": 118,
+    "damage": 110,
     "crown_tower_damage_percent": 100,
     "crown_tower_damage_percent_raw": null,
     "homing": false,
@@ -82958,7 +82874,7 @@
     "projectile_radius_y_milli": null,
     "projectile_range_milli": null,
     "min_distance_milli": null,
-    "spawn_character": "BarrelGoblin",
+    "spawn_character": "Goblin",
     "spawn_character_count": 3,
     "spawn_character_deploy_time_ms": 1100,
     "spawn_character_level_index": null,
@@ -83013,7 +82929,7 @@
     "pushback_milli": null,
     "duration_seconds": null,
     "spawn": {
-     "character": "BarrelGoblin",
+     "character": "Goblin",
      "count": 3,
      "deploy_time_ms": 1100,
      "level_index": null,
@@ -88633,7 +88549,7 @@
    "elixir": 2,
    "rarity": "Epic",
    "hitpoints": null,
-   "damage": 84,
+   "damage": 91,
    "damage_source": "projectiles.BarbLogHeroProjectileRolling.Damage",
    "hit_speed_ms": null,
    "load_time_ms": null,
@@ -88682,7 +88598,7 @@
     "spawn_projectile": {
      "name": "BarbLogHeroProjectileRolling",
      "speed": 200,
-     "damage": 84,
+     "damage": 91,
      "crown_tower_damage_percent": 100,
      "crown_tower_damage_percent_raw": null,
      "homing": false,
@@ -88815,7 +88731,7 @@
      "roll": {
       "name": "BarbLogHeroProjectileReRolling",
       "speed": 200,
-      "damage": 84,
+      "damage": 91,
       "crown_tower_damage_percent": 50,
       "crown_tower_damage_percent_raw": -50,
       "homing": false,
@@ -89584,7 +89500,6 @@
       "Tombstone",
       "Tombstone_hero"
      ],
-     "monster_level_from_tomb": true,
      "monster_no_collisions": true
     }
    },
@@ -90257,7 +90172,7 @@
       "area": "IceWizardHero_FreezeAeo",
       "radius_milli": 2500,
       "life_ms": 999999,
-      "damage": 18,
+      "damage": 35,
       "tower_damage": 15,
       "filter": {
        "name": "aeo_enemy_affects_hidden",
@@ -90699,7 +90614,7 @@
       "life_duration_ms": 999999,
       "radius_milli": 2500,
       "hit_speed_ms": null,
-      "damage": 18,
+      "damage": 35,
       "crown_tower_damage_percent": 100,
       "crown_tower_damage_percent_raw": null,
       "no_effect_to_crown_towers": false,

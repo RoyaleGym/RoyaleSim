@@ -93,6 +93,15 @@ pub const CARDS_160402017_FILE: &str = "cards-160402017-20261006.json";
 /// The 160402017 table's `version` (its file's own), by which a loaded CardDb names the table it is.
 pub const CARDS_160402017_VERSION: &str = "cards-160402017-20261006.1";
 
+/// THE SAME CLIENT'S INSTALL-TIME TABLE (tools/extract_cards.py `--vintage 160402017`, content 16.402.2: the game
+/// before the 2026-10-06 update), under data/derived/: what a capture recorded before that update is scored against
+/// (calibration cards.CARD_TABLE = client160402017). Read from a checkout only, as cards-2018.json is; a wheel
+/// carries no copy.
+pub const CARDS_160402017_INSTALL_FILE: &str = "cards-160402017.json";
+
+/// The install-time table's `version` (its file's own).
+pub const CARDS_160402017_INSTALL_VERSION: &str = "cards-160402017.1";
+
 /// A projectile an attack launches instead of hitting instantly.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ProjectileDef {
@@ -14562,7 +14571,8 @@ impl CardDb {
     /// THE CARD TABLE calibration cards.CARD_TABLE names (state.rs `CardTable`). The 15.535.29 table is `load_repo`.
     /// The 160402017 table is data/derived/cards-160402017-20261006.json in a checkout build where that file exists,
     /// else the compiled-in copy (`EMBEDDED_CARDS_160402017_JSON`); as with `load_repo`, a file that exists but does
-    /// not parse is an error.
+    /// not parse is an error. The install-time table (`CARDS_160402017_INSTALL_FILE`) is the checkout's file or an
+    /// error.
     pub fn load_table(t: crate::state::CardTable) -> Result<CardDb, String> {
         #[cfg(clash_plant = "card_table_unread")]
         let t = {
@@ -14577,6 +14587,16 @@ impl CardDb {
                     return CardDb::load_repo_file(CARDS_160402017_FILE);
                 }
                 CardDb::from_json_str(EMBEDDED_CARDS_160402017_JSON, CardSource::Embedded)
+            }
+            crate::state::CardTable::Client160402017Install => {
+                if cfg!(feature = "checkout-data") {
+                    CardDb::load_repo_file(CARDS_160402017_INSTALL_FILE)
+                } else {
+                    Err(format!(
+                        "cards.CARD_TABLE client160402017 ({CARDS_160402017_INSTALL_FILE}) is read from a checkout \
+                         only: a wheel carries no copy"
+                    ))
+                }
             }
         }
     }

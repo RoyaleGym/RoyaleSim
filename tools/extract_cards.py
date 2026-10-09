@@ -298,6 +298,9 @@ OVERLAYS_16402 = {
     "spells_characters": ["spells_characters.toml"],
     "spells_buildings": ["spells_buildings.toml"],
     "spells_other": ["spells_other.toml"],
+    # The evolved rows' flat sections over spells_evolved.csv: the 2026-10-06 update sets [Skeletons_EV1]
+    # SummonRadius=400 here alone (the CSV row keeps 700; the live Evo Skeletons ring is the plain 400 one).
+    "spells_evolved": ["spells_evolved.toml"],
     "actions": ["actions.toml"],
 }
 

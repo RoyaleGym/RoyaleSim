@@ -75,7 +75,8 @@ real client. `pending_commands()` lists what is waiting.
 
 **Card table.** A Battle runs the 15.535.29 client's card table unless you pass
 `calibration_overrides={"cards.CARD_TABLE": '"client160402017_20261006"'}`, which runs the current client's table
-instead. `card_table()` names the table a Battle runs. Card ids are the same on both tables.
+instead. `card_table()` names the table a Battle runs. Card ids are the same on both tables. A build from a checkout
+also takes `"client160402017"`, the current client's table from before its 2026-10-06 update; a wheel has no copy.
 
 ## Module-level helpers
 

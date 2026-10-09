@@ -7,10 +7,16 @@
 //!      15.535.29);
 //!   3. its compiled-in copy is the committed file, byte for byte, and loads the same cards;
 //!   4. a battle saved under the 160402017 arm restores on that table (`BattleState::load`), and one saved under the
-//!      shipped arm on the 15.535.29 table.
+//!      shipped arm on the 15.535.29 table;
+//!   5. the install-time arm (client160402017, content 16.402.2) loads that table, with the values from before the
+//!      2026-10-06 update (the Royal Ghost's 473, the Skeletons' 700 ring), the same cards as the updated table, and
+//!      a battle saved under it restores on it.
 //!
-//! Plant card_table_unread: every arm loads the 15.535.29 table and every blob restores on it, so 2 and 4 go red.
-use royalesim::card::{CardDb, CardSource, CARDS_160402017_FILE, EMBEDDED_CARDS_160402017_JSON};
+//! Plant card_table_unread: every arm loads the 15.535.29 table and every blob restores on it, so 2, 4 and 5 go red.
+use royalesim::card::{
+    CardDb, CardSource, CARDS_160402017_FILE, CARDS_160402017_INSTALL_VERSION, EMBEDDED_CARDS_160402017_JSON,
+};
+use royalesim::fixed::milli;
 use royalesim::state::{BattleConfig, BattleState, Calib, CardTable};
 use std::collections::BTreeMap;
 
@@ -61,7 +67,11 @@ fn the_compiled_in_160402017_table_is_the_committed_file() {
 
 #[test]
 fn a_saved_battle_restores_on_the_table_it_ran() {
-    for (name, version) in [("client15535", V15535), ("client160402017_20261006", V160402017)] {
+    for (name, version) in [
+        ("client15535", V15535),
+        ("client160402017_20261006", V160402017),
+        ("client160402017", CARDS_160402017_INSTALL_VERSION),
+    ] {
         let c = arm(name);
         let mut cfg = BattleConfig::with_cards(CardDb::load_table(c.card_table).expect("the table loads"));
         cfg.calib = c;
@@ -73,4 +83,18 @@ fn a_saved_battle_restores_on_the_table_it_ran() {
         assert_eq!(back.config().cards.version, version, "{name}");
         assert_eq!(back.state_hash(), s.state_hash(), "{name}");
     }
+}
+
+#[test]
+fn the_install_arm_loads_the_table_from_before_the_update() {
+    let c = arm("client160402017");
+    assert_eq!(c.card_table, CardTable::Client160402017Install);
+    let db = CardDb::load_table(c.card_table).expect("the install-time table loads");
+    assert_eq!(db.version, CARDS_160402017_INSTALL_VERSION, "the arm loads its own table");
+    assert_eq!(ghost_hitpoints(&db), 473, "the Royal Ghost before the 2026-10-06 update (450 after it)");
+    let radius = |db: &CardDb| db.get(db.index("Skeletons").expect("Skeletons load")).formation.summon_radius;
+    let updated = CardDb::load_table(CardTable::Client160402017).expect("the updated table");
+    assert_eq!((radius(&db), radius(&updated)), (milli(700), milli(400)), "the update's Skeletons ring");
+    let names = |db: &CardDb| db.cards.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&db), names(&updated), "the update changes values, not the roster");
 }

@@ -16,7 +16,7 @@ Python as the `royalesim` package through PyO3. RoyaleGym, the environment layer
 | `crates/royalesim/examples/replay_parity.rs` | Replays recorded battles and scores the engine against them. |
 | `python/royalesim/` | The Python package: re-exports the compiled `royalesim.royalesim` and adds `data_dir()`. |
 | `data/calibration.json` | Every engine constant, with its status (guess to measured) and its evidence. Read at build time. |
-| `data/derived/` | Generated tables. `cards-15.535.json` is committed. The rest are made by stage 3 (below). |
+| `data/derived/` | Generated tables. `cards-15.535.json` and the current client's two tables (`cards-160402017*.json`) are committed. The rest are made by stage 3 (below). |
 | `data/raw/retroroyale-2018/` | The 2018 game tables the 2018 card table is built from. |
 | `tools/` | Data extraction (`extract_*.py`), the wheel data stager, the cheatsheet generator, viewers. |
 | `tests/` | The Python suite: binding tests, doc gates and data gates. |

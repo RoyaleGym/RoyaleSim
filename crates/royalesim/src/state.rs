@@ -1180,6 +1180,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Tap`.
     #[serde(default = "army_general_point_default")]
     pub army_general_point: ArmyGeneralPoint,
+    /// match.BATTLE_END (`phase_judge`): what may end a battle before overtime's end. Added after SNAPSHOT_FORMAT 20;
+    /// the `default` is the old arm, `Rules`.
+    #[serde(default = "battle_end_default")]
+    pub battle_end: BattleEnd,
     /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE (`phase_reap`): whether a buff's death spawn takes its first update on its
     /// creation tick. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
     #[serde(default = "buff_death_spawn_first_update_default")]
@@ -2976,6 +2980,10 @@ fn army_general_point_default() -> ArmyGeneralPoint {
     ArmyGeneralPoint::Tap
 }
 
+fn battle_end_default() -> BattleEnd {
+    BattleEnd::Rules
+}
+
 fn buff_death_spawn_first_update_default() -> BuffDeathSpawnFirstUpdate {
     BuffDeathSpawnFirstUpdate::NextTick
 }
@@ -4537,6 +4545,10 @@ calib_enum!(
         /// `EMBEDDED_CARDS_160402017_JSON`). cards.CLIENT16402_VALUES does not apply to it: its value.table names the
         /// 15.535.29 table, and this one carries the client's own values.
         Client160402017 = "client160402017_20261006",
+        /// The same client's install-time table, content 16.402.2: the game before the 2026-10-06 update
+        /// (data/derived/cards-160402017.json, card.rs `CARDS_160402017_INSTALL_FILE`, read from a checkout only).
+        /// What a capture recorded before that update is scored against; cards.CLIENT16402_VALUES does not apply to it.
+        Client160402017Install = "client160402017",
     }
 );
 
@@ -7311,6 +7323,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// match.BATTLE_END -- see `phase_judge`: what may end a battle before overtime's end. NOT A CLAIM ABOUT THE GAME:
+    /// the game's end is `Rules` (match.THREE_CROWN_INSTANT_WIN, REGULAR_TIME_S, OVERTIME_S, OVERTIME_TIEBREAK).
+    BattleEnd {
+        /// The game's: a fallen King ends the battle at once (THREE_CROWN_INSTANT_WIN), a crown lead at regular time's
+        /// end or in overtime ends it, and overtime's end decides a level one.
+        Rules = "rules",
+        /// A replay's: nothing ends the battle before overtime's end. Regular time's end starts overtime whatever the
+        /// crowns, a fallen King leaves the battle running, and at overtime's end the rules decide as they would (the
+        /// crowns, else match.OVERTIME_TIEBREAK). A replay scored against a recorded battle plays on when the engine's
+        /// battle would have ended before the client's (a King the engine lost and the client did not): the
+        /// recorded plays after that point are still put down, and score as fresh units, where under `Rules` each was
+        /// refused (DeployError::GameOver) and the rest of the battle was scored against a frozen board.
+        OvertimeEnd = "overtime_end",
+    }
+);
+calib_enum!(
     /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE -- see `phase_reap`: whether a buff's death spawn (the Mother Witch's curse
     /// hog, the Goblin Curse's goblin) takes its first update on the tick it appears.
     BuffDeathSpawnFirstUpdate {
@@ -9450,6 +9478,7 @@ impl Calib {
             post_kill_doom_eta: pick(&v, &["combat", "POST_KILL_DOOM_ETA", "value"], PostKillDoomEta::from_calibration_name)?,
             placement_enemy_building_taps: pick(&v, &["placement", "ENEMY_BUILDING_TAPS", "value"], EnemyBuildingTaps::from_calibration_name)?,
             army_general_point: pick(&v, &["formation", "ARMY_GENERAL_POINT", "value"], ArmyGeneralPoint::from_calibration_name)?,
+            battle_end: pick(&v, &["match", "BATTLE_END", "value"], BattleEnd::from_calibration_name)?,
             buff_death_spawn_first_update: pick(&v, &["status", "BUFF_DEATH_SPAWN_FIRST_UPDATE", "value"], BuffDeathSpawnFirstUpdate::from_calibration_name)?,
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
@@ -28679,16 +28708,21 @@ impl BattleState {
             std::cmp::Ordering::Less => Some(Outcome::Winner(Team::Red)),
             std::cmp::Ordering::Equal => None,
         };
-        let king_down = self.towers_down[0][0] || self.towers_down[1][0];
-        if king_down && c.three_crown_instant_win {
-            self.outcome = Some(by_crowns(self.crowns).unwrap_or(Outcome::Draw));
-            return;
-        }
+        // match.BATTLE_END = overtime_end: nothing ends the battle before overtime's end (a replay plays on).
+        #[cfg(not(clash_plant = "battle_end_unread"))]
+        let plays_on = c.battle_end == BattleEnd::OvertimeEnd;
+        #[cfg(clash_plant = "battle_end_unread")]
+        let plays_on = false; // PLANT: every battle ends by the rules, whatever the key.
         let elapsed = self.elapsed_ms(self.tick + 1);
         let regular = (c.regular_time_s as i64) * 1000;
         let overtime_end = regular + (c.overtime_s as i64) * 1000;
+        let king_down = self.towers_down[0][0] || self.towers_down[1][0];
+        if king_down && c.three_crown_instant_win && !plays_on {
+            self.outcome = Some(by_crowns(self.crowns).unwrap_or(Outcome::Draw));
+            return;
+        }
         if self.overtime {
-            if let Some(o) = by_crowns(self.crowns) {
+            if let Some(o) = by_crowns(self.crowns).filter(|_| !plays_on || elapsed >= overtime_end) {
                 self.outcome = Some(o);
             } else if elapsed >= overtime_end {
                 // The tie-break past overtime: calibration match.OVERTIME_TIEBREAK.
@@ -28707,7 +28741,7 @@ impl BattleState {
                 // Otherwise the drain runs (`tiebreak_drain`) until a tower falls and the crowns decide above.
             }
         } else if elapsed >= regular {
-            if let Some(o) = by_crowns(self.crowns) {
+            if let Some(o) = by_crowns(self.crowns).filter(|_| !plays_on || c.overtime_s == 0) {
                 self.outcome = Some(o);
             } else if c.overtime_s > 0 {
                 self.overtime = true;
@@ -34009,6 +34043,9 @@ impl BattleState {
 /// 20, unchanged, formation.ARMY_GENERAL_POINT: Calib gained army_general_point (serde default the old arm, tap), no new
 ///    state (read at each play), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
+/// 20, unchanged, match.BATTLE_END: Calib gained battle_end (serde default the old arm, rules), no new state (read at
+///    each Judge phase), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle
+///    at the old arm.
 /// 20, unchanged, status.BUFF_DEATH_SPAWN_FIRST_UPDATE: Calib gained buff_death_spawn_first_update (serde default the old
 ///    arm, next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
@@ -35133,6 +35170,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("placement_enemy_building_taps".into(), serde_json::to_value(EnemyBuildingTaps::Ignored).map_err(|e| e.to_string())?);
     // formation.ARMY_GENERAL_POINT: a format-3 battle's General was laid off the play's point (the same rule).
     sh.insert("army_general_point".into(), serde_json::to_value(ArmyGeneralPoint::Tap).map_err(|e| e.to_string())?);
+    // match.BATTLE_END: a format-3 battle ended by the game's rules (the same rule).
+    sh.insert("battle_end".into(), serde_json::to_value(BattleEnd::Rules).map_err(|e| e.to_string())?);
     // status.BUFF_DEATH_SPAWN_FIRST_UPDATE: a format-3 battle's buff death spawn first moved on the next tick (the same rule).
     sh.insert("buff_death_spawn_first_update".into(), serde_json::to_value(BuffDeathSpawnFirstUpdate::NextTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_PROJECTILE_COPIES: a format-3 battle left one death projectile a death (the same rule).
@@ -35458,10 +35497,11 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
 /// The card table `t` names (cards.CARD_TABLE, card.rs `CardDb::load_table`), loaded once per process, for
 /// `BattleState::load`.
 fn repo_cards(t: CardTable) -> Result<Arc<CardDb>, String> {
-    static CELLS: [OnceLock<Result<Arc<CardDb>, String>>; 2] = [OnceLock::new(), OnceLock::new()];
+    static CELLS: [OnceLock<Result<Arc<CardDb>, String>>; 3] = [OnceLock::new(), OnceLock::new(), OnceLock::new()];
     let i = match t {
         CardTable::Client15535 => 0,
         CardTable::Client160402017 => 1,
+        CardTable::Client160402017Install => 2,
     };
     CELLS[i].get_or_init(|| CardDb::load_table(t).map(Arc::new)).clone()
 }

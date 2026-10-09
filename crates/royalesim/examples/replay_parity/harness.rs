@@ -469,7 +469,8 @@ pub fn issue_row(s: &mut BattleState, db: &CardDb, d: &Deploy, team: Team, name:
 /// is an observed point (the maker's "centroid" or "creation_point", or "laid_point", a single seen after its creation
 /// tick put back on the tile point it was created on), which the client already resolved; it goes down through
 /// `spawn_unit_resolved`. A corpus row played from its logged tap (source "tap_tile" or
-/// "recovered_tile": a group laid around the tile), a spell row (an approximate landing point, which the snap puts
+/// "recovered_tile": a group laid around the tile), an unlogged side's troop put on its centroid's tile ("tile_centre":
+/// the maker's AN UNLOGGED SIDE'S TROOP), a spell row (an approximate landing point, which the snap puts
 /// on the tile the cast was aimed at) and every scenario row (a tap) do not.
 pub fn observed_row(d: &Deploy, db: &CardDb) -> bool {
     let corpus_row = !d.tap.as_ref().is_some_and(|t| t.is_array());
@@ -894,11 +895,13 @@ pub fn fnv1a64(bytes: &[u8]) -> String {
     format!("{h:016x}")
 }
 
-/// THE DERIVED FILE `db` WAS READ FROM (cards.CARD_TABLE): the 160402017 table's own file for that table, the
+/// THE DERIVED FILE `db` WAS READ FROM (cards.CARD_TABLE): each 160402017 table's own file for that table, the
 /// checkout's data/derived/cards.json for every other.
 pub fn table_file(db: &CardDb) -> &'static str {
     if db.version == royalesim::card::CARDS_160402017_VERSION {
         royalesim::card::CARDS_160402017_FILE
+    } else if db.version == royalesim::card::CARDS_160402017_INSTALL_VERSION {
+        royalesim::card::CARDS_160402017_INSTALL_FILE
     } else {
         "cards.json"
     }
@@ -1170,8 +1173,8 @@ pub struct Report {
     pub per_card: BTreeMap<String, Score>,
     pub first_divergence: Option<Divergence>,
     pub card_families: BTreeMap<String, Vec<String>>,
-    /// Per-card level deviations from the side mode (the engine takes the per-call
-    /// level, so none is lost; listed so the report can say what it played).
+    /// Per-card level deviations from the side mode, listed so the report can say what it played: each deck entry
+    /// and each play is at its card's own level (`config_for_with`), not the mode.
     pub level_deviations: Vec<String>,
     /// The fixture's cards.json hash and the engine's; `notes` says when they differ.
     pub cards_json_fixture: Option<String>,
@@ -2001,6 +2004,28 @@ pub fn config_for_with(
             } else if !names.contains(n) {
                 notes.push(format!("side {side}: deck card {n} not loadable, left out of the engine deck"));
             }
+        }
+        // THE DECK'S OWN LEVELS: each card at the level its plays recorded (card_levels.per_card), the side mode for a
+        // card with none (a spell, a Mirror). The deck gate (`BattleState::try_new`) checks every entry at its own
+        // level, so a mode below one card's floor refused the whole battle: five Bats a deploy at level 10 outvote a
+        // level-12 Little Prince, whose Champion levels start at 11 (8 live fixtures; one more for a level-8 Baby Dragon
+        // under a level-3 mode). A per-card level the table does not load takes the mode; its rows are still dropped
+        // one by one, each at its own level.
+        #[cfg(not(clash_plant = "replay_deck_levels_unread"))]
+        {
+            let per_card = f.card_levels.get(&key).map(|c| &c.per_card);
+            let mut levels = Vec::with_capacity(names.len());
+            for n in &names {
+                let own = per_card.and_then(|p| p.get(n)).copied().unwrap_or(level);
+                let idx = cfg.cards.index(n).expect("a deck name loads");
+                if own != level && cfg.cards.check_levels(idx, own).is_err() {
+                    notes.push(format!("side {side} {n}: level {own} does not load, deck entry at side mode {level}"));
+                    levels.push(level);
+                } else {
+                    levels.push(own);
+                }
+            }
+            cfg.deck_levels[side] = levels;
         }
         let forms: Vec<u8> = names.iter().map(|n| deck_form(f, side, n, &cfg.cards)).collect();
         if forms.iter().any(|&m| m != 0) {

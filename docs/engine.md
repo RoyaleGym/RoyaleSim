@@ -142,7 +142,9 @@ script says so and exits non-zero.
 `cards.json` is the card table the engine loads, and the copy line is what puts the right one
 there. `cards-15.535.json` is committed to this repository: it is the table the simulator is
 calibrated against, derived from the 2026 client's own data and stored as numbers -- hitpoints,
-timers, radii. `extract_cards.py --vintage 2018` builds the older table beside it, which the
+timers, radii. The current client's tables are committed beside it: `cards-160402017-20261006.json`, and
+`cards-160402017.json` from before that client's 2026-10-06 update. Calibration `cards.CARD_TABLE` picks which one a
+battle runs. `extract_cards.py --vintage 2018` builds the older table beside it, which the
 engine does not run but which several tests load by name and the calibration registry cites as
 evidence of what shipped in 2018.
 

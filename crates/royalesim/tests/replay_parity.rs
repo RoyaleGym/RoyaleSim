@@ -1088,6 +1088,32 @@ fn an_evo_goblin_barrels_decoy_dummies_are_rooted_to_the_goblin_barrel() {
     assert!(barrels >= 6, "vacuous: the barrel's Goblins and the decoy's dummies did not all stand ({barrels} rooted to it)");
 }
 
+/// THE DECK'S OWN LEVELS (`config_for_with`): each deck entry is at the level its card's plays recorded, a card with
+/// none at the side mode, so a mode below one played card's floor no longer refuses the battle. Live
+/// 20261007-004819-A: five Bats a deploy at level 10 made the mode, and its level-12 Little Prince (a Champion, levels
+/// 11 to 16) refused the whole fixture. A recorded level the table does not load takes the mode, with a note.
+/// Plant: replay_deck_levels_unread.
+#[test]
+fn each_deck_card_takes_its_own_recorded_level() {
+    let level_of = |cfg: &royalesim::state::BattleConfig, n: &str| {
+        let k = cfg.decks[0].iter().position(|d| d == n).unwrap_or_else(|| panic!("{n} is in the deck"));
+        assert_eq!(cfg.deck_levels[0].len(), cfg.decks[0].len(), "one level per deck entry");
+        cfg.deck_levels[0][k]
+    };
+    let mut f = sample();
+    // Side 0's mode below the Epic floor (unified 6): the Prince and the Dark Prince, recorded at 11, do not load at 3.
+    f.card_levels.get_mut("0").expect("side 0 levels").mode = Some(3);
+    f.decks.get_mut("0").expect("side 0 deck").padding = ["HogRider", "RoyalHogs", "Zap", "Knight"].map(String::from).to_vec();
+    let (cfg, _) = config_for(&f, common::cards()).expect("the fixture configures");
+    assert_eq!((level_of(&cfg, "Prince"), level_of(&cfg, "DarkPrince"), level_of(&cfg, "Zap")), (11, 11, 3), "own levels; the mode for a card with none");
+    royalesim::state::BattleState::try_new(0, cfg).expect("the deck gate takes the battle");
+    let mut g = sample();
+    g.card_levels.get_mut("0").expect("side 0 levels").per_card.insert("Prince".to_string(), 2);
+    let (cfg, notes) = config_for(&g, common::cards()).expect("the fixture configures");
+    assert_eq!(level_of(&cfg, "Prince"), 11, "a recorded level the Epic ladder does not hold takes the mode");
+    assert!(notes.iter().any(|n| n.contains("Prince: level 2 does not load")), "{notes:?}");
+}
+
 /// A CAPTURE RUNS ITS CLIENT'S OWN MECHANICS (`CLIENT15535_ARMS`): a fixture naming client 15.535.29 runs
 /// movement.DYING_UNIT_VISIBILITY = client_doomed_static; one naming no client (the sample, a 16.402 corpus capture) or
 /// 16.402 runs the ledger's whole_tick; a run that overrides the key runs its override. Plant: replay_client_arms_unread.

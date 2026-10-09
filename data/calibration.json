@@ -3013,6 +3013,17 @@
       "engine": "state.rs Calib::overtime_tiebreak; `tiebreak_drain` (head of the upkeep phase) and phase_judge; BattleState::overtime_tiebreak for the older arms. Tests: crates/royalesim/tests/tiebreak.rs (the drain scenes); plant tiebreak_decided_at_overtime_end.",
       "why_it_matters": "On those episodes the only true objective term returned 0.0 to both seats; a stalling policy raises the rate."
     },
+    "BATTLE_END": {
+      "value": "rules",
+      "candidates": ["rules", "overtime_end"],
+      "status": "hypothesis",
+      "confidence": "NOT A CLAIM ABOUT THE GAME. `rules` is the game's end as the other match keys give it (THREE_CROWN_INSTANT_WIN, REGULAR_TIME_S, OVERTIME_S, OVERTIME_TIEBREAK); `overtime_end` is a replay setting, for scoring an engine battle against a recorded one past the point the engine's would have ended.",
+      "provenance": "REPLAY SETTING (2026-10-09). On the live replay set (593 fixtures, the 10-06 table) 6.45M of 16.7M troop unit-ticks were scored after the engine's battle had ended and the client's had not, against a frozen board, and every recorded play after that point was refused (DeployError::GameOver).",
+      "meaning": "rules: a fallen King ends the battle at once, a crown lead at regular time's end or in overtime ends it, and overtime's end decides a level one. overtime_end: nothing ends the battle before overtime's end; regular time's end starts overtime whatever the crowns, a fallen King leaves the battle running, and at overtime's end the rules decide as they would (the crowns, else match.OVERTIME_TIEBREAK).",
+      "open": "Nothing about the game. Under overtime_end a battle whose King fell plays on with that King gone, so its crowns are frozen at 3 and its units have no King to go for.",
+      "promotion_rules": "Stays rules: it is the game's. A replay_parity run picks overtime_end with --calibration-override match.BATTLE_END='\"overtime_end\"'.",
+      "engine": "state.rs Calib::battle_end, phase_judge; tests/battle_end.rs."
+    },
     "TICK_ORDER": {
       "value": "client16402",
       "status": "measured",
@@ -6640,15 +6651,15 @@
     },
     "CARD_TABLE": {
       "value": "client15535",
-      "candidates": ["client15535", "client160402017_20261006"],
+      "candidates": ["client15535", "client160402017_20261006", "client160402017"],
       "status": "datamined",
-      "confidence": "HIGH that each arm is its client's own table: both are tools/extract_cards.py extractions of the client's shipped data. The engine's measured mechanics were measured on client 15.535.29 (and on the 16.402 corpus), not on the 160402017 table.",
-      "provenance": "DATAMINED: client15535 is the 15.535.29 extraction (data/derived/cards-15.535.json, version cards-15535.1); client160402017_20261006 is the 160402017 client with its 2026-10-06 content update, content 16.402.19 (data/derived/cards-160402017-20261006.json, version cards-160402017-20261006.1). The second loads with the option B loader work (UNMODELLED_KEYS lists the keys it reads without modelling; table_census prints the rows it refuses).",
-      "vintage": "client15535: 15.535.29. client160402017_20261006: 160402017 with the 2026-10-06 update.",
-      "meaning": "The card table a battle loads (card.rs CardDb::load_table): through the Python binding (Battle(..., calibration_overrides={'cards.CARD_TABLE': '\"client160402017_20261006\"'}); Battle.card_table() names the table), in a replay_parity run (--calibration-override), and when a snapshot is restored (its own calibration's arm). cards.CLIENT16402_VALUES corrects the 15.535.29 table only.",
+      "confidence": "HIGH that each arm is its client's own table: all three are tools/extract_cards.py extractions of the client's shipped data. The engine's measured mechanics were measured on client 15.535.29 (and on the 16.402 corpus), not on the 160402017 table.",
+      "provenance": "DATAMINED: client15535 is the 15.535.29 extraction (data/derived/cards-15.535.json, version cards-15535.1); client160402017_20261006 is the 160402017 client with its 2026-10-06 content update, content 16.402.19 (data/derived/cards-160402017-20261006.json, version cards-160402017-20261006.1); client160402017 is the same client's install-time pack, content 16.402.2, the game before that update (data/derived/cards-160402017.json, version cards-160402017.1, read from a checkout only). The second loads with the option B loader work (UNMODELLED_KEYS lists the keys it reads without modelling; table_census prints the rows it refuses).",
+      "vintage": "client15535: 15.535.29. client160402017_20261006: 160402017 with the 2026-10-06 update. client160402017: 160402017 as installed (content 16.402.2).",
+      "meaning": "The card table a battle loads (card.rs CardDb::load_table): through the Python binding (Battle(..., calibration_overrides={'cards.CARD_TABLE': '\"client160402017_20261006\"'}); Battle.card_table() names the table), in a replay_parity run (--calibration-override), and when a snapshot is restored (its own calibration's arm). client160402017 is for a capture recorded before the 2026-10-06 update (a replay fixture made with tools/make_replay_fixture.py --table 160402017); a wheel carries no copy of it. cards.CLIENT16402_VALUES corrects the 15.535.29 table only.",
       "open": "Which cards the 160402017 table still refuses, and which of its keys are read without being modelled (table_census). Whether replay_parity's score on the 16.402 corpus holds under it.",
       "promotion_rules": "Option B (owner 2026-10-05): flips to client160402017_20261006 when replay_parity scores the 16.402 corpus under it at least as well as under client15535 with cards.CLIENT16402_VALUES, and the table refuses no card a deck in the corpus plays.",
-      "engine": "card.rs CardDb::load_table and EMBEDDED_CARDS_160402017_JSON; state.rs CardTable, Calib::card_table, BattleState::load (saved_card_table); py.rs Battle::build and Battle.card_table; examples/replay_parity.rs; tests/card_table.rs, tests/test_card_table.py."
+      "engine": "card.rs CardDb::load_table, EMBEDDED_CARDS_160402017_JSON and CARDS_160402017_INSTALL_FILE; state.rs CardTable, Calib::card_table, BattleState::load (saved_card_table); py.rs Battle::build and Battle.card_table; examples/replay_parity.rs; tests/card_table.rs, tests/test_card_table.py."
     }
   }
 }
