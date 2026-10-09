@@ -29300,9 +29300,9 @@ impl BattleState {
             self.cfg.arena.deploy_zone(pos, team, territory, &rects)
         };
         match zone {
-            // spells.ILLEGAL_SPELL_TAP = clamp: a spell outside its territory is clamped, not refused.
-            Err(crate::arena::ZoneError::OutOfTerritory)
-                if card.kind == CardKind::Spell && self.cfg.calib.illegal_spell_tap == IllegalSpellTap::ClampToLegalEdge && self.clamp_spell_tap(team, idx, pos).is_some() => {}
+            // spells.ILLEGAL_SPELL_TAP = clamp: a spell outside its territory, or on the water, is clamped, not refused
+            // (`clamps_spell_refusal`).
+            Err(e) if self.clamps_spell_refusal(card, e) && self.clamp_spell_tap(team, idx, pos).is_some() => {}
             // placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge: a troop outside its territory is moved back
             // (`resolve_point_judged`), not refused; on a bridge into an open lane it stands.
             Err(crate::arena::ZoneError::OutOfTerritory)
@@ -29436,7 +29436,7 @@ impl BattleState {
         if card.kind == CardKind::Spell && calib.illegal_spell_tap == IllegalSpellTap::ClampToLegalEdge {
             let (territory, _) = deploy_rule(calib, card);
             let rects = self.enemy_no_deploy_rects(team);
-            if matches!(self.cfg.arena.deploy_zone(p, team, territory, &rects), Err(crate::arena::ZoneError::OutOfTerritory)) {
+            if self.cfg.arena.deploy_zone(p, team, territory, &rects).is_err_and(|e| self.clamps_spell_refusal(card, e)) {
                 if let Some(c) = self.clamp_spell_tap(team, idx, p) {
                     p = c;
                 }
@@ -29500,6 +29500,23 @@ impl BattleState {
     /// column toward the caster, that the spell's territory accepts; None if none does.
     fn clamp_spell_tap(&self, team: Team, idx: u16, tap: Vec2) -> Option<Vec2> {
         self.clamp_to_legal_edge(team, idx, tap)
+    }
+
+    /// WHICH REFUSALS OF A SPELL'S TAP spells.ILLEGAL_SPELL_TAP = clamp pulls back from (`clamp_spell_tap`): beyond the
+    /// spell's territory, and, for a spell placed in troop territory (the Log among them), on a water tile, which
+    /// `deploy_zone` reports before the territory. Measured on client 15.535.29 (Oracle's log-reloc scenes): a
+    /// blue Log tapped on the water at (11156, 16000) rolls from (11500, 14500) and side 1's from (11500, 17500), as from a
+    /// tap on the own half's boundary row; refused as water, the cast went down on the water tile and hit a Knight 9 and 5
+    /// ticks early. A spell whose own rule refuses water (the Goblin Barrel, anywhere but water) is still refused there.
+    fn clamps_spell_refusal(&self, card: &CardDef, e: crate::arena::ZoneError) -> bool {
+        if card.kind != CardKind::Spell || self.cfg.calib.illegal_spell_tap != IllegalSpellTap::ClampToLegalEdge {
+            return false;
+        }
+        #[cfg(not(clash_plant = "spell_clamp_skips_water"))]
+        let water = e == crate::arena::ZoneError::Water && matches!(deploy_rule(&self.cfg.calib, card).0, Territory::EnemyTowerRects { .. });
+        #[cfg(clash_plant = "spell_clamp_skips_water")]
+        let water = false; // PLANT: a water tap is not clamped: refused by the play, cast on the water by a scenario.
+        e == crate::arena::ZoneError::OutOfTerritory || water
     }
 
     /// placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge selected for `card`, a troop (a line returns

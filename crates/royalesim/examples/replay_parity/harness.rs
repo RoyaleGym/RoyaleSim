@@ -1775,6 +1775,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   planning (3 of 3 routes round it).
 ///   combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_while_held: a unit stunned, frozen or knocked back holds its load
 ///   timer through the hold (10-tick stuns 33 of 33, 22-tick freezes 39 of 39); every unheld loss runs it on.
+///   spells.ILLEGAL_SPELL_TAP = client16402_clamp_to_legal_edge: a Log tapped beyond its legal area (the enemy half, the
+///   river, the water) is cast from the first legal tile back along its column, both seats (10 of 10 casts).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1910,6 +1912,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("formation.LINE_LANE", "\"client15535_line_centre\""),
     ("pathfinding.DEATH_BOMB_OBSTACLE", "\"client15535_fused_building\""),
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
+    ("spells.ILLEGAL_SPELL_TAP", "\"client16402_clamp_to_legal_edge\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
