@@ -10111,7 +10111,8 @@
      "controlled_by_parent": false,
      "death_spawn": null,
      "ignore_buildings": false,
-     "crown_tower_damage_per_hit": null
+     "crown_tower_damage_per_hit": null,
+     "switch_team": true
     },
     "buff_time_ms": 4000,
     "spawn_projectile": null,
@@ -16583,6 +16584,21 @@
     "spawns": [],
     "mechanic": true
    },
+   "stage_schedule": [
+    {
+     "at_ms": 6200,
+     "into": "GoblinRocketSilo1",
+     "reset_target": false,
+     "abort_if_dies": true
+    },
+    {
+     "at_ms": 12000,
+     "into": "GoblinRocketSilo2",
+     "reset_target": false,
+     "abort_if_dies": true
+    }
+   ],
+   "deploy_w_tile_margin": 5,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -41531,7 +41547,8 @@
      "controlled_by_parent": false,
      "death_spawn": null,
      "ignore_buildings": false,
-     "crown_tower_damage_per_hit": null
+     "crown_tower_damage_per_hit": null,
+     "switch_team": true
     },
     "buff_time_ms": 4000,
     "spawn_projectile": null,
@@ -42014,6 +42031,11 @@
     "area_damage_radius_milli",
     "shield_hitpoints"
    ],
+   "death_projectile_hops": {
+    "count": 2,
+    "axis_y": true,
+    "rarity": "Rare"
+   },
    "action_graph": null,
    "ignore_resurrect": true,
    "death_spawn_pushback": true,
@@ -57063,6 +57085,20 @@
     "flying_height",
     "shield_hitpoints"
    ],
+   "stage_schedule": [
+    {
+     "at_ms": 6200,
+     "into": "GoblinRocketSilo1",
+     "reset_target": false,
+     "abort_if_dies": true
+    },
+    {
+     "at_ms": 12000,
+     "into": "GoblinRocketSilo2",
+     "reset_target": false,
+     "abort_if_dies": true
+    }
+   ],
    "action_graph": {
     "roots": {
      "OnStartingAction": "GoblinRocketSilo_StageSwitcher"
@@ -57266,6 +57302,7 @@
     "flying_height",
     "shield_hitpoints"
    ],
+   "target_only_king_tower": true,
    "action_graph": null,
    "death_spawn_pushback": false,
    "raw": {
@@ -63529,7 +63566,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "switch_team": true
    },
    "buff_time_ms": 4000,
    "spawn_projectile": null,
@@ -64544,7 +64582,8 @@
     "controlled_by_parent": false,
     "death_spawn": null,
     "ignore_buildings": false,
-    "crown_tower_damage_per_hit": null
+    "crown_tower_damage_per_hit": null,
+    "switch_team": true
    },
    "buff_time_ms": 4000,
    "only_enemies": true,
@@ -64617,7 +64656,7 @@
     "root": "GlobalLightning_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 1000,
       "action": "GlobalLightning_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -64626,7 +64665,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -64680,7 +64719,7 @@
     "root": "GlobalRage_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalRage_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -64689,7 +64728,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -64743,7 +64782,7 @@
     "root": "GlobalHeal_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalHeal_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -64752,7 +64791,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -64806,7 +64845,7 @@
     "root": "GlobalFreeze_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalFreeze_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -64815,7 +64854,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -64869,7 +64908,7 @@
     "root": "GlobalInvisibility_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalInvisibility_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
@@ -64878,7 +64917,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -64932,17 +64971,14 @@
     "root": "GlobalClone_Action",
     "entries": [
      {
-      "delay_ms": 0,
+      "delay_ms": 500,
       "action": "GlobalClone_Action",
       "class": "ActionSpawn",
       "spawn_type": "AreaEffectType",
       "spawn": "GlobalClone",
       "use_deploy": false,
       "deploy_time_ms": null,
-      "spawn_time_ms": null,
-      "unread": [
-       "columns ActionDelay"
-      ]
+      "spawn_time_ms": null
      }
     ]
    },
@@ -69727,7 +69763,7 @@
       "deploy_time_ms": null,
       "spawn_time_ms": null,
       "unread": [
-       "columns ActionDelay, ParentGOAsSource"
+       "columns ParentGOAsSource"
       ]
      }
     ]
@@ -72358,7 +72394,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "switch_team": true
   },
   "ImmuneToWeakPushback": {
    "name": "ImmuneToWeakPushback",
@@ -74940,7 +74977,8 @@
    "controlled_by_parent": false,
    "death_spawn": null,
    "ignore_buildings": false,
-   "crown_tower_damage_per_hit": null
+   "crown_tower_damage_per_hit": null,
+   "switch_team": true
   },
   "DummyCollisionBoostEpic": {
    "name": "DummyCollisionBoostEpic",
