@@ -1780,6 +1780,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.POST_KILL_DOOM_ETA = client_within_600: a victim is doomed to its attackers' post-kill wait only when the last
 ///   homing shot at it lands within 600 ms (a tower's arrow launched on its last tick leaves every attacker waiting; 35 of
 ///   35 crown-tower and 6 of 7 projectile-unit waits, 4,610 of 4,693 and 675 of 695 frees).
+///   status.BUFF_DEATH_SPAWN_FIRST_UPDATE = client15535_doomed_parent: a buff's death spawn whose parent the move pass's
+///   doomed mask held takes its first update on its creation tick, the parent a static blocker (the Super Witch's hog).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1917,6 +1919,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.LOAD_TIMER_TARGET_LOSS", "\"client15535_stands_while_held\""),
     ("spells.ILLEGAL_SPELL_TAP", "\"client16402_clamp_to_legal_edge\""),
     ("combat.POST_KILL_DOOM_ETA", "\"client_within_600\""),
+    ("status.BUFF_DEATH_SPAWN_FIRST_UPDATE", "\"client15535_doomed_parent\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

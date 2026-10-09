@@ -4302,6 +4302,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_unit_deploy_time (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs phase_reap (the buff death spawn loop), selected by Calib::buff_death_spawn_undelayed; tests/goblin_party_rocket.rs."
     },
+    "BUFF_DEATH_SPAWN_FIRST_UPDATE": {
+      "value": "next_tick",
+      "candidates": ["next_tick", "client15535_doomed_parent"],
+      "status": "measured",
+      "confidence": "MEDIUM for client15535_doomed_parent on client 15.535.29: one decisive hog (an exact 15-step offset chain and its birth-tick push) and one control (a projectile kill after the move pass, offset 0); the Goblin Curse's goblin dies while deploying and does not decide it.",
+      "provenance": "MEASURED by parity (2026-10-09) on client 15.535.29 (sp-event-SuperWitch-s0): a Knight cursed by the Super Witch and killed on t408 by a Bat's direct hit (doomed before the move pass) left a Voodoo Hog at its point less 1100 on y, its first frame on t408 pushed (2, 12) off the Witch, and its walk t413..t427 fits the avoidance offset -140, -130, .. 0 exactly (15 of 15 steps; -200 set on t408, the Knight dead ahead, decaying 10 a tick through its deploy). The engine created it with no first update: its first scan, on t409, found the Knight gone (offset 0), and from its t416 replan it attacked the tower from x 14739 against the client's 14238 (sp-event-SuperWitch-s0 74.9 % within, the hog's 114 unit-ticks and the Skeletons steering round it after). sweep-WitchMother: a Knight killed by a princess tower's arrow after the move pass left its hog at offset 0, as the engine does.",
+      "meaning": "next_tick: the engine's; a buff's death spawn first moves on the tick after it appears. client15535_doomed_parent: when its parent died of the damage the move pass's doomed mask read, it takes its first update on its creation tick with the dying parent a static blocker in its avoidance scan, as a unit's own death spawn does (spawner.SPAWNED_FIRST_STEP); otherwise the next tick.",
+      "open": "16.402 (no cursed death read in its corpus); a projectile kill buffered before the move pass; whether the Goblin Curse's goblin follows it.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_doomed_parent (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs phase_reap (the buff death spawn loop), selected by Calib::buff_death_spawn_first_update; tests/buff_death_spawn_first_update.rs."
+    },
     "BUFF_DEATH_SPAWN_LEVEL": {
       "value": "source_level",
       "candidates": ["source_level", "victim_level"],

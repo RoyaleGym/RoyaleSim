@@ -1172,6 +1172,10 @@ pub struct Calib {
     /// the `default` is the old arm, `Ignored`.
     #[serde(default = "post_kill_doom_eta_default")]
     pub post_kill_doom_eta: PostKillDoomEta,
+    /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE (`phase_reap`): whether a buff's death spawn takes its first update on its
+    /// creation tick. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
+    #[serde(default = "buff_death_spawn_first_update_default")]
+    pub buff_death_spawn_first_update: BuffDeathSpawnFirstUpdate,
     /// spawner.DEATH_PROJECTILE_COPIES (`phase_reap`): how many death projectiles a death leaves. Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `One`.
     #[serde(default = "death_projectile_copies_default")]
@@ -2954,6 +2958,10 @@ fn buff_death_spawn_undelayed_default() -> BuffDeathSpawnUndelayed {
 
 fn post_kill_doom_eta_default() -> PostKillDoomEta {
     PostKillDoomEta::Ignored
+}
+
+fn buff_death_spawn_first_update_default() -> BuffDeathSpawnFirstUpdate {
+    BuffDeathSpawnFirstUpdate::NextTick
 }
 
 fn death_projectile_copies_default() -> DeathProjectileCopies {
@@ -7236,6 +7244,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE -- see `phase_reap`: whether a buff's death spawn (the Mother Witch's curse
+    /// hog, the Goblin Curse's goblin) takes its first update on the tick it appears.
+    BuffDeathSpawnFirstUpdate {
+        /// The engine's: never; its first update is the next tick's.
+        NextTick = "next_tick",
+        /// When its parent died of the damage the move pass's doomed mask read (movement.DYING_UNIT_VISIBILITY; empty
+        /// under whole_tick): it takes its first update on its creation tick, with the dying parent a static blocker in its
+        /// avoidance scan, as a unit's own death spawn does. Measured on client 15.535.29 (sp-event-SuperWitch-s0 t408): a
+        /// Knight cursed by the Super Witch and killed by a Bat's direct hit left a Voodoo Hog 1100 ahead of it whose first
+        /// frame took its separation push off the Witch and an avoidance offset of -200 off the Knight dead ahead (its walk
+        /// t413..t427 fits the offset decaying -140..0, 15 of 15 steps); the engine's hog first moved a tick later at
+        /// offset 0 and attacked the tower 501 off. A Knight killed by a princess tower's arrow after the move pass
+        /// (sweep-WitchMother) left its hog at offset 0, as under the old arm.
+        Client15535DoomedParent = "client15535_doomed_parent",
+    }
+);
+calib_enum!(
     /// spawner.DEATH_PROJECTILE_COPIES -- see `phase_reap`: the death projectiles one death leaves (spawner.DEATH_SPAWN_PROJECTILE).
     DeathProjectileCopies {
         /// The engine's: one.
@@ -9356,6 +9381,7 @@ impl Calib {
             snipe_lock_release: pick(&v, &["targeting", "SNIPE_LOCK_RELEASE", "value"], SnipeLockRelease::from_calibration_name)?,
             buff_death_spawn_undelayed: pick(&v, &["status", "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "value"], BuffDeathSpawnUndelayed::from_calibration_name)?,
             post_kill_doom_eta: pick(&v, &["combat", "POST_KILL_DOOM_ETA", "value"], PostKillDoomEta::from_calibration_name)?,
+            buff_death_spawn_first_update: pick(&v, &["status", "BUFF_DEATH_SPAWN_FIRST_UPDATE", "value"], BuffDeathSpawnFirstUpdate::from_calibration_name)?,
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
             launch_beyond_keep: pick(&v, &["targeting", "LAUNCH_BEYOND_KEEP", "value"], LaunchBeyondKeep::from_calibration_name)?,
@@ -28047,12 +28073,29 @@ impl BattleState {
                     let acquire_delay = false;
                     #[cfg(clash_plant = "buff_death_spawn_acquire_delayed")]
                     let acquire_delay = true; // PLANT: the curse's unit waits out the death spawn's acquire delay.
+                    // status.BUFF_DEATH_SPAWN_FIRST_UPDATE = client15535_doomed_parent: a parent the move pass's doomed mask
+                    // held gives the unit its first update on this tick, the parent a static blocker in its avoidance scan.
+                    #[cfg(not(any(clash_plant = "buff_spawn_first_update_next_tick", clash_plant = "buff_spawn_first_update_any_parent")))]
+                    let first_update = self.cfg.calib.buff_death_spawn_first_update == BuffDeathSpawnFirstUpdate::Client15535DoomedParent
+                        && self.scratch.doomed.get(i).copied().unwrap_or(false);
+                    #[cfg(clash_plant = "buff_spawn_first_update_next_tick")]
+                    let first_update = false; // PLANT: the unit first moves on the next tick, whatever the key.
+                    #[cfg(clash_plant = "buff_spawn_first_update_any_parent")]
+                    let first_update = self.cfg.calib.buff_death_spawn_first_update == BuffDeathSpawnFirstUpdate::Client15535DoomedParent; // PLANT: doomed or not.
+                    if first_update {
+                        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+                        let p = self.ents.pos[i];
+                        let blocker = (p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8, self.ents.flying[i], false);
+                        if !self.scratch.dying_blockers.contains(&blocker) {
+                            self.scratch.dying_blockers.push(blocker);
+                        }
+                    }
                     parents.push(i);
                     spawned.push((
                         team,
                         self.ents.team_seq[i],
                         256 + k as u32,
-                        PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: NO_CARD },
+                        PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: NO_CARD },
                     ));
                 }
             }
@@ -33826,6 +33869,9 @@ impl BattleState {
 /// 20, unchanged, combat.POST_KILL_DOOM_ETA: Calib gained post_kill_doom_eta (serde default the old arm, ignored), no new
 ///    state (read each Target pass), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, status.BUFF_DEATH_SPAWN_FIRST_UPDATE: Calib gained buff_death_spawn_first_update (serde default the old
+///    arm, next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_PROJECTILE_COPIES: Calib gained death_projectile_copies (serde default the old arm,
 ///    one), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
@@ -34942,6 +34988,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("buff_death_spawn_undelayed".into(), serde_json::to_value(BuffDeathSpawnUndelayed::Zero).map_err(|e| e.to_string())?);
     // combat.POST_KILL_DOOM_ETA: a format-3 battle's doom ignored when the shots land (the same rule).
     sh.insert("post_kill_doom_eta".into(), serde_json::to_value(PostKillDoomEta::Ignored).map_err(|e| e.to_string())?);
+    // status.BUFF_DEATH_SPAWN_FIRST_UPDATE: a format-3 battle's buff death spawn first moved on the next tick (the same rule).
+    sh.insert("buff_death_spawn_first_update".into(), serde_json::to_value(BuffDeathSpawnFirstUpdate::NextTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_PROJECTILE_COPIES: a format-3 battle left one death projectile a death (the same rule).
     sh.insert("death_projectile_copies".into(), serde_json::to_value(DeathProjectileCopies::One).map_err(|e| e.to_string())?);
     // spawner.BARREL_DROP_POINT: a format-3 battle's barrel dropped from its Status-phase point (the same rule).
