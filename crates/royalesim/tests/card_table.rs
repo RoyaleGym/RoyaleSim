@@ -8,6 +8,7 @@
 //!   3. its compiled-in copy is the committed file, byte for byte, and loads the same cards;
 //!   4. a battle saved under the 160402017 arm restores on that table (`BattleState::load`), and one saved under the
 //!      shipped arm on the 15.535.29 table.
+//!
 //! Plant card_table_unread: every arm loads the 15.535.29 table and every blob restores on it, so 2 and 4 go red.
 use royalesim::card::{CardDb, CardSource, CARDS_160402017_FILE, EMBEDDED_CARDS_160402017_JSON};
 use royalesim::state::{BattleConfig, BattleState, Calib, CardTable};
