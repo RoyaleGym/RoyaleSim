@@ -930,7 +930,10 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     // Sparky leave before a fire: sp-il-8b9b t880 (progress 3450, load -450 then 0; relocked on t891 with progress 3050),
     // sp-il-04cb t1870 (progress 1500, load 1500). Every other unit's timer runs on.
     #[cfg(not(clash_plant = "load_first_hit_leave_runs_on"))]
-    let refund = card.load_first_hit && calib.load_first_hit_leave == LoadFirstHitLeave::Client15535WindupRefunded && progress > 0 && progress < card.hit_speed_ms;
+    let refund = card.load_first_hit
+        && matches!(calib.load_first_hit_leave, LoadFirstHitLeave::Client15535WindupRefunded | LoadFirstHitLeave::Client15535RefundAtDeath)
+        && progress > 0
+        && progress < card.hit_speed_ms;
     #[cfg(clash_plant = "load_first_hit_leave_runs_on")]
     let refund = false; // PLANT (regression): the leaving Sparky's timer runs on from its entry's reset.
     let refunded = if refund { Some((card.load_time_ms.max(0) - progress).max(0)) } else { None };

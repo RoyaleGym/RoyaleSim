@@ -1538,8 +1538,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   movement.AVOIDANCE_OBSTACLE_TAG = client15535_unpushed_obstacle: a row's AVOIDANCE_AS_OBSTACLE tag (the Evo Skeleton
 ///   Army's General) makes its carrier unpushed, still pushing, and a static avoidance obstacle (93 of 93 deploy ticks
 ///   unmoved).
-///   combat.LOAD_FIRST_HIT_LEAVE = client15535_windup_refunded: a Sparky leaving its attack before it fires gets the
-///   entry's windup back (its load timer LoadTime less its progress; every Sparky leave on client 15.535.29).
+///   combat.LOAD_FIRST_HIT_LEAVE = client15535_refund_at_death: a Sparky leaving its attack before it fires gets the
+///   entry's windup back (its load timer LoadTime less its progress; every Sparky leave on client 15.535.29), on the death
+///   tick of a target that died after its turn (2 of 2: the engine's Sparky ran a tick late after them).
 ///   placement.ILLEGAL_TROOP_TAP = client15535_clamp_to_legal_edge: a troop tapped outside its territory goes down on the
 ///   first legal tile back along its column (4 of 4 bridge taps, 3 of 3 enemy-half singles on client 15.535.29).
 ///   spawner.DEATH_RING_AXIS = client15535_unit_heading: a death ring's degree is read off its members' heading, the
@@ -1800,7 +1801,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.CONTAINER_BURST_PUSH", "\"client15535_contact_push\""),
     ("movement.AVOIDANCE_OBSTACLE_TAG", "\"client15535_unpushed_obstacle\""),
     ("placement.ILLEGAL_TROOP_TAP", "\"client15535_clamp_to_legal_edge\""),
-    ("combat.LOAD_FIRST_HIT_LEAVE", "\"client15535_windup_refunded\""),
+    ("combat.LOAD_FIRST_HIT_LEAVE", "\"client15535_refund_at_death\""),
     ("spawner.DEATH_RING_AXIS", "\"client15535_unit_heading\""),
     ("combat.PASS_KILL_CHASE", "\"client15535_chaser_past_keep_reads_pass\""),
     ("movement.KNOCKED_DOOMED_AVOIDANCE", "\"client15535_knocked_mover\""),

@@ -4614,6 +4614,14 @@ calib_enum!(
         /// 15.535.29: every Sparky leave before a fire (sp-il-8b9b t880, sp-il-04cb t1870; t1761 a post-kill hold, 50
         /// lower).
         Client15535WindupRefunded = "client15535_windup_refunded",
+        /// client15535_windup_refunded, and a target that died after the unit's own turn on the last tick (the Target
+        /// phase finds it dead only now) gave the windup back on that death tick, so the timer has run a tick since: it
+        /// reads LoadTime less its progress less one tick. Client 15.535.29: sp-il-8b9b t959, the Sparky's Cannon killed
+        /// by the Hero Mini P.E.K.K.A (created after it) read progress 0 and load 500 = 3000 - 2500 on t959 itself and 450
+        /// on t960, where the engine read 500 on t960 and ran a tick late from there (100 of 100 attack rows t1000..t1100
+        /// shifted one tick); sp-il-04cb t1761, its Skeleton zapped after its turn: 400 on t1761, the engine's 400 on t1762.
+        /// A target lost before the unit's turn is read at its turn, as before (il-8b9b t880, il-04cb t1870).
+        Client15535RefundAtDeath = "client15535_refund_at_death",
     }
 );
 calib_enum!(
@@ -18290,8 +18298,15 @@ impl BattleState {
                 {
                     let c = cards.get(e.card[i]);
                     let p = e.attack_ms[i];
-                    if c.load_first_hit && calib.load_first_hit_leave == LoadFirstHitLeave::Client15535WindupRefunded && p > 0 && p < c.hit_speed_ms {
-                        e.attack_load_ms[i] = (c.load_time_ms.max(0) - p).max(0) + calib.tick_ms;
+                    let refunds = matches!(calib.load_first_hit_leave, LoadFirstHitLeave::Client15535WindupRefunded | LoadFirstHitLeave::Client15535RefundAtDeath);
+                    if c.load_first_hit && refunds && p > 0 && p < c.hit_speed_ms {
+                        // client15535_refund_at_death: a target it holds that is dead now died after its turn on the last
+                        // tick, where the windup came back: the timer has run that tick's 50 since.
+                        #[cfg(not(clash_plant = "refund_at_death_counts_now"))]
+                        let since_death = calib.load_first_hit_leave == LoadFirstHitLeave::Client15535RefundAtDeath && e.target[i].is_some_and(|t| !e.standing(t, struck));
+                        #[cfg(clash_plant = "refund_at_death_counts_now")]
+                        let since_death = false; // PLANT: the refund is counted from this tick, as under windup_refunded.
+                        e.attack_load_ms[i] = (c.load_time_ms.max(0) - p).max(0) + if since_death { 0 } else { calib.tick_ms };
                     }
                 }
                 e.attack_phase[i] = AttackPhase::Idle;

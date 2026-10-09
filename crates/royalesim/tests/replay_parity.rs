@@ -1122,7 +1122,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.container_burst_push, ContainerBurstPush::Client15535ContactPush, "a 15.535.29 capture's container is pushed on its burst");
     assert_eq!(cfg.calib.avoidance_obstacle_tag, AvoidanceObstacleTag::Client15535UnpushedObstacle, "a 15.535.29 capture reads the obstacle tag");
     assert_eq!(cfg.calib.illegal_troop_tap, IllegalTroopTap::Client15535ClampToLegalEdge, "a 15.535.29 capture's troop tap past its half is moved back");
-    assert_eq!(cfg.calib.load_first_hit_leave, LoadFirstHitLeave::Client15535WindupRefunded, "a 15.535.29 capture's leaving Sparky gets its windup back");
+    assert_eq!(cfg.calib.load_first_hit_leave, LoadFirstHitLeave::Client15535RefundAtDeath, "a 15.535.29 capture's leaving Sparky gets its windup back, on its target's death tick");
     assert_eq!(cfg.calib.random_delay_stream, RandomDelayStream::Client15535BattleStream, "a 15.535.29 capture's pellet delays draw from its stream (the shipped arm)");
     assert_eq!(cfg.calib.death_ring_axis, DeathRingAxis::Client15535UnitHeading, "a 15.535.29 capture reads its death ring off the members' heading");
     assert_eq!(cfg.calib.pass_kill_chase, PassKillChase::Client15535ChaserPastKeepReadsPass, "a 15.535.29 capture's chaser reads the pass past its keep reach");
