@@ -1460,3 +1460,36 @@ fn a_capture_runs_its_clients_own_mechanics() {
         "a run that overrides the key runs its override, whatever the fixture's client"
     );
 }
+
+/// A SIDE'S CROWN TOWER TROOP PAIRS AS ITS TOWER (harness.rs: a crown tower roots by its kind; the fixture's tower_troops,
+/// BattleConfig::tower_troops): the sample replayed with side 0 fielding the Dagger Duchess has its two princess towers
+/// paired with the truth's, made with the Duchess's record, and no tower unmatched on either side. Plant:
+/// replay_tower_rooted_by_record (r62 item G; 41 live first divergences were the unpaired troop tower).
+#[test]
+fn a_tower_troops_towers_pair_with_the_truths_princess_towers() {
+    let mut f = sample();
+    f.tower_troops.insert("0".into(), Some("DaggerDuchess".into()));
+    let r = play(&f);
+    let towers: Vec<_> = r.pairs.iter().filter(|p| p.root == "PrincessTower" && p.side == 0).collect();
+    assert_eq!(towers.len(), 2, "side 0's two princess towers paired: {:?}", r.pairs.iter().filter(|p| p.root.contains("Tower")).collect::<Vec<_>>());
+    assert!(towers.iter().all(|p| p.sim_card == "DaggerDuchess"), "made with the Duchess's record: {towers:?}");
+    assert!(r.unmatched_truth.iter().all(|(_, c)| !c.contains("Tower")), "no truth tower unmatched: {:?}", r.unmatched_truth);
+    assert!(r.unmatched_sim.iter().all(|(_, _, c)| !c.contains("Tower") && c != "DaggerDuchess"), "no sim tower unmatched: {:?}", r.unmatched_sim);
+}
+
+/// A SIDE'S TOWER LEVEL WITH NO tower_level RECORDED IS ITS TOWERS' (harness.rs config_for_with): the sample with its
+/// tower_level dropped and its cards moved to another level keeps its towers' recorded level, and says so. Oracle's 017
+/// scenario fixtures carry no tower_level and record every tower at 11 while the il scenes play their cards at 16, so the
+/// engine's towers fought at 16 (r62 item G). Plant: replay_tower_level_from_cards.
+#[test]
+fn a_missing_tower_level_is_read_from_the_recorded_towers() {
+    let mut f = sample();
+    let towers = f.towers.iter().find(|t| t.side == 0).map(|t| t.level).expect("the sample records side 0's towers");
+    f.tower_level.clear();
+    for cl in f.card_levels.values_mut() {
+        cl.mode = cl.mode.map(|m| m + 1);
+    }
+    let r = play(&f);
+    let note = format!("side 0 tower level {towers} read from its towers");
+    assert!(r.notes.iter().any(|n| *n == note), "the towers' level read: {:?}", r.notes);
+}

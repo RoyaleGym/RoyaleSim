@@ -7832,6 +7832,22 @@ pub const FORM_HERO: u8 = 2;
 
 pub const KING_TOWER: &str = "KingTower";
 pub const PRINCESS_TOWER: &str = "PrincessTower";
+/// The crown tower troops a side may field in place of the Princess (`CardDb::load_tower_troops`; their `units` rows).
+pub const TOWER_TROOPS: &[&str] = &["DaggerDuchess", "Cannoneer", "ChefTower"];
+/// The keys a tower troop's record takes from its `units` row; every other key is the PrincessTower's.
+const TOWER_TROOP_KEYS: &[&str] = &[
+    "hitpoints",
+    "damage",
+    "damage_source",
+    "hit_speed_ms",
+    "load_time_ms",
+    "load_first_hit",
+    "range_milli",
+    "minimum_range_milli",
+    "sight_range_milli",
+    "projectile",
+    "projectile_start_radius_milli",
+];
 
 /// A CardDef with every stat zeroed, for spells (which have no unit of their own).
 fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
@@ -11780,6 +11796,10 @@ impl CardDb {
         db.resolve_enchants(&ctx);
         // THE HERO FORMS, after every other record, unit and buff, so no index of a battle without one moves.
         db.load_hero_forms(hero_forms, &mut buffs, &ctx);
+        // THE CROWN TOWER TROOPS (`TOWER_TROOPS`), after the hero forms, so no index of a battle without one moves.
+        // PLANT (regression) tower_troops_unloaded: no troop loads, and a side that names one is refused.
+        #[cfg(not(clash_plant = "tower_troops_unloaded"))]
+        db.load_tower_troops(s, &mut buffs, &ctx);
         let (defs, names) = buffs.into_parts();
         db.buffs = defs;
         db.buff_names = names;
@@ -14610,6 +14630,34 @@ impl CardDb {
 
     /// Register a card under its internal name, and under its display name
     /// too when that does not collide ("Archers" and "Archer" both resolve).
+    /// THE CROWN TOWER TROOPS (`TOWER_TROOPS`: the Dagger Duchess, the Cannoneer, the Chef), a side's princess towers'
+    /// own record when the side fields one (state.rs `BattleConfig::tower_troops`). Each is the PrincessTower's tower
+    /// record (its footprint, its no-deploy box, its kind) with its attack -- hitpoints, damage, hit speed, load time,
+    /// range, projectile (`TOWER_TROOP_KEYS`) -- taken from the troop's `units` row (the buildings table's DaggerDuchess,
+    /// Cannoneer and ChefTower rows), registered under the row's name. The crown tower ladder scales it as it scales the
+    /// Princess (state.rs `spawn_with`). A troop whose row is missing or does not load is not registered. NOT modelled:
+    /// the Duchess's dagger charges (her row's 500 ms throughout), the Chef's cooking.
+    fn load_tower_troops(&mut self, s: &str, buffs: &mut BuffTable, ctx: &LoadCtx) {
+        let Ok(doc) = serde_json::from_str::<serde_json::Value>(s) else { return };
+        let Some(princess) = doc.get("towers").and_then(|t| t.as_array()).and_then(|t| t.iter().find(|r| r.get("name").and_then(|n| n.as_str()) == Some(PRINCESS_TOWER))) else { return };
+        for name in TOWER_TROOPS {
+            let Some(row) = doc.get("units").and_then(|u| u.get(*name)) else { continue };
+            let mut rec = princess.clone();
+            let Some(obj) = rec.as_object_mut() else { continue };
+            for key in TOWER_TROOP_KEYS {
+                if let Some(v) = row.get(*key) {
+                    obj.insert((*key).to_string(), v.clone());
+                }
+            }
+            obj.insert("name".to_string(), serde_json::Value::String((*name).to_string()));
+            obj.remove("display_name");
+            let Ok(raw) = serde_json::from_value::<RawCard>(rec) else { continue };
+            if let Ok((c, _, _)) = convert(raw, buffs, ctx) {
+                let _ = self.push(c, None);
+            }
+        }
+    }
+
     fn push(&mut self, c: CardDef, display: Option<String>) -> Result<(), String> {
         if self.by_name.contains_key(&c.name) {
             return Err(format!("duplicate card {}", c.name));

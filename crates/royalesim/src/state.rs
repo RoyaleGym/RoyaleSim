@@ -10016,6 +10016,10 @@ pub struct BattleConfig {
     /// always has. Measured on the live client by the device clock (238 taps): a tap runs 1072..1099 ms later (21-22
     /// ticks), the same for every player; the hand and the elixir change only when it runs.
     pub command_delay_ticks: [u32; 2],
+    /// THE CROWN TOWER TROOP per team (Blue, Red): a `card::TOWER_TROOPS` record name (the Dagger Duchess, the Cannoneer,
+    /// the Chef) whose record a side's two princess towers are made with, in place of the PrincessTower's; None (the
+    /// default) the Princess. Read at `try_new` alone: a battle restored from a snapshot has its towers' saved records.
+    pub tower_troops: [Option<String>; 2],
 }
 
 impl BattleConfig {
@@ -10065,6 +10069,7 @@ impl BattleConfig {
             bucket_subtiles: SUBTILE,
             forms: [Vec::new(), Vec::new()],
             command_delay_ticks: [0, 0],
+            tower_troops: [None, None],
         }
     }
 }
@@ -12850,8 +12855,23 @@ impl BattleState {
                 ));
             }
         }
+        // A SIDE'S CROWN TOWER TROOP (`BattleConfig::tower_troops`): its princess towers made with the troop's record.
+        let mut princess_of = [princess, princess];
+        for team in [Team::Blue, Team::Red] {
+            if let Some(name) = s.cfg.tower_troops[team as usize].as_deref() {
+                let idx = cards
+                    .index(name)
+                    .filter(|&i| crate::card::TOWER_TROOPS.contains(&cards.get(i).name.as_str()))
+                    .ok_or_else(|| format!("{team:?}'s tower troop {name} is not a loaded tower troop record"))?;
+                if cards.get(idx).no_deploy_size.is_none() {
+                    return Err(format!("{name} has no no_deploy_size_tiles (regenerate cards.json)"));
+                }
+                princess_of[team as usize] = idx;
+            }
+        }
         for team in [Team::Blue, Team::Red] {
             let lvl = s.cfg.tower_level[team as usize];
+            let princess = princess_of[team as usize];
             let kpos = arena.king_tower_pos(team);
             s.towers[team as usize][0] = Some(s.spawn_now(team, king, lvl, kpos, EntityKind::KingTower)?);
             // Princesses spawn OWN-LEFT FIRST, so a tower's team_seq names the same
@@ -36093,6 +36113,8 @@ impl BattleState {
             bucket_subtiles: snap.bucket_subtiles,
             forms: snap.forms,
             command_delay_ticks: snap.command_delay_ticks,
+            // read at try_new alone: the restored towers are the snapshot's own entities, their records saved with them
+            tower_troops: [None, None],
         };
         let mut s = BattleState {
             cfg,

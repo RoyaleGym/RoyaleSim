@@ -538,6 +538,11 @@ pub struct Fixture {
     pub tower_level: BTreeMap<String, Option<i32>>,
     #[serde(default)]
     pub card_levels: BTreeMap<String, CardLevels>,
+    /// A side's crown tower troop, by native side: the record name ("PrincessTower", "DaggerDuchess", "Cannoneer",
+    /// "ChefTower") whose hitpoints at the side's tower level are both princess towers' max_hp (the maker's read, Sim's
+    /// ob2), null when the towers disagree or no record fits. Absent on a fixture made before it: the Princess.
+    #[serde(default)]
+    pub tower_troops: BTreeMap<String, Option<String>>,
     #[serde(default)]
     pub decks: BTreeMap<String, Deck>,
     #[serde(default)]
@@ -1991,10 +1996,27 @@ pub fn config_for_with(
     for side in 0..2 {
         let key = side.to_string();
         let lv = f.card_levels.get(&key).and_then(|c| c.mode);
-        let tl = f.tower_level.get(&key).copied().flatten();
+        // THE SIDE'S TOWER LEVEL: the fixture's tower_level, else its own towers' recorded level (Oracle's scenario
+        // fixtures carry none and record each tower at its level), else the card level.
+        // PLANT replay_tower_level_from_cards: a missing tower_level falls back to the card level, the towers unread.
+        #[cfg(not(clash_plant = "replay_tower_level_from_cards"))]
+        let from_towers = f.towers.iter().find(|t| t.side == side as i32 && t.level > 0).map(|t| t.level);
+        #[cfg(clash_plant = "replay_tower_level_from_cards")]
+        let from_towers: Option<i32> = None;
+        let tl = f.tower_level.get(&key).copied().flatten().or(from_towers);
+        if f.tower_level.get(&key).copied().flatten().is_none() {
+            if let Some(l) = from_towers {
+                notes.push(format!("side {side} tower level {l} read from its towers"));
+            }
+        }
         let level = lv.or(tl).ok_or_else(|| format!("side {side}: no card level and no tower level recorded"))?;
         cfg.card_level[side] = level;
         cfg.tower_level[side] = tl.unwrap_or(level);
+        // THE SIDE'S CROWN TOWER TROOP (BattleConfig::tower_troops), the Princess's own record named or none.
+        if let Some(t) = f.tower_troops.get(&key).cloned().flatten().filter(|t| t != royalesim::card::PRINCESS_TOWER) {
+            notes.push(format!("side {side} fields the tower troop {t}"));
+            cfg.tower_troops[side] = Some(t);
+        }
         if let Some(cl) = f.card_levels.get(&key) {
             for (card, l) in &cl.per_card {
                 if *l != level {
@@ -2186,7 +2208,15 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             let (root, how): (String, &'static str) = if matches!(e.kind, EntityKind::KingTower | EntityKind::PrincessTower) {
                 let ids = s.tower_ids(e.team);
                 tower_slot = ids.iter().position(|t| *t == Some(e.id));
-                (e.card.to_string(), "tower")
+                // A CROWN TOWER ROOTS BY ITS KIND, the recording's name for it: a side's tower troop (BattleConfig::
+                // tower_troops: the Duchess's, the Cannoneer's, the Chef's record) is the truth's PrincessTower, paired by
+                // (side, slot) and kept out of score_no_towers.
+                // PLANT replay_tower_rooted_by_record: a tower roots by its record's name (a troop's tower unpaired).
+                #[cfg(not(clash_plant = "replay_tower_rooted_by_record"))]
+                let name = if e.kind == EntityKind::KingTower { royalesim::card::KING_TOWER } else { royalesim::card::PRINCESS_TOWER };
+                #[cfg(clash_plant = "replay_tower_rooted_by_record")]
+                let name = e.card;
+                (name.to_string(), "tower")
             } else if let Some(heroes) = roots.ability_of.get(&e.card_idx).filter(|_| {
                 // A SKELETON KING'S SOUL (state.rs `soul_pass`) is a copy (1 hitpoint) of the unit his button puts
                 // down, and the recording names it by the King's card, as any unit a button puts down: it roots to its
