@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.24 (2026-10-09)
+
+- New: the event cards load. Global Clone, Super Witch, Goblin Party Rocket, Global Lightning, Super Mini P.E.K.K.A.,
+  Super Elite Archer, Super Lava Hound, Super Hog Rider and the Goblin Rocket Silo now run, as recorded in the game.
+  Every card of the 15.535.29 table loads.
+- Battle logic: the Evo Hunter never casts his net at a building. A Golden Knight waiting to dash goes the tick after
+  his target comes in reach. A hero's turret pushes no one on the tick it is made.
+- This release also adds settings used to measure upcoming fixes against the game (a Clone's hold and slide, a death
+  spawn's deploy, death projectile copies, an Evo Skeleton Barrel's drop point, a chaser and a sliding target, a
+  launch from beyond reach, the Evo Mega Knight's uppercut); every one defaults to the engine's current behaviour.
+
 ## 0.1.23 (2026-10-08)
 
 - New: the current client's card table. `Battle(..., calibration_overrides={"cards.CARD_TABLE":
