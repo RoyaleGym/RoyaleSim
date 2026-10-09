@@ -2009,3 +2009,31 @@ def test_the_table_switch_sets_the_card_file_the_id_pack_and_the_census_together
         assert saved == (m.CARDS, m.RAW, m.CENSUS), "the default table is the module's own constants"
     finally:
         m.CARDS, m.RAW, m.CENSUS = saved
+
+
+def test_a_forms_units_are_the_cards_objects(m):
+    """classify_unit takes an evolution's or a hero form's objects for the card's (Live 2026-10-09: the Evo Bats'
+    Bat_EV1, 48 base, 122 at level 11, was an unknown_object against the plain Bat's 81)."""
+    with open(m.CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    bats = next(c for c in doc["cards"] if c["name"] == "Bats")
+    evo = next((r for r in doc.get("evolutions") or [] if r["name"] == "Bats_EV1"), None)
+    if evo is None:
+        pytest.skip("this cards.json carries no Bats_EV1")
+    hp = evo["hitpoints"] * m.ladder_percent(doc, evo, evo["summon_character"], 11) // 100
+    unit, own, how = m.classify_unit(doc, bats, 11, hp)
+    assert (unit, own, how) == (evo["summon_character"], True, "exact"), (unit, own, how, hp)
+    plain = bats["hitpoints"] * m.ladder_percent(doc, bats, bats["summon_character"], 11) // 100
+    assert m.classify_unit(doc, bats, 11, plain)[0] == bats["summon_character"], "the plain Bat still reads plain"
+
+
+def test_a_live_captures_stamp_is_read_and_it_has_no_partner(m, tmp_path):
+    """capture_stamp reads YYYYMMDD-HHMMSS after any prefix (frames-liveplay-...: it read 'liveplay'), and a live
+    capture is its battle's only seat: another account's live capture seconds later is no partner."""
+    a = tmp_path / "frames-liveplay-20261007-114236-40001.jsonl.gz"
+    b = tmp_path / "frames-liveplay-20261007-114240-40002.jsonl.gz"
+    for f in (a, b):
+        f.write_bytes(b"")
+    assert m.capture_stamp(str(a)) == ("20261007", 11 * 3600 + 42 * 60 + 36)
+    assert m.capture_stamp(str(tmp_path / "frames-auto-20260920-003751-31.jsonl.gz")) == ("20260920", 37 * 60 + 51)
+    assert m.battle_partners(str(a), [str(a), str(b)]) == []

@@ -787,10 +787,15 @@ def classify_unit(
     object for) -- truth only, never a deploy."""
     if card is None:
         return None, True, "no_card"
-    own = own_units(card)
+    # The card and its forms (an evolution's or a hero form's record, `form_of` the card): a deploy of a form is
+    # its own record's objects (the Evo Bats' Bat_EV1, 48 base where the Bat is 32), each on its record's ladder.
+    forms = [r for k in ("evolutions", "hero_forms") for r in doc.get(k) or [] if r.get("form_of") == card["name"]]
+    rows = [card, *forms]
+    own = set().union(*(own_units(r) for r in rows))
     best = None
-    for unit, base in reachable_units(doc, card).items():
-        pct = ladder_percent(doc, card, unit, level)
+    candidates = [(row, unit, base) for row in rows for unit, base in reachable_units(doc, row).items()]
+    for row, unit, base in candidates:
+        pct = ladder_percent(doc, row, unit, level)
         if pct is None:
             continue
         hp = base * pct // 100
@@ -1881,12 +1886,12 @@ def capture_stamp(path: str) -> tuple[str, int] | None:
     base = os.path.basename(path)
     if not base.startswith("frames-"):
         return None
-    stamp = SEAT_TAG.sub("", base)[len("frames-") :].split(".")[0]
-    stamp = stamp[len("auto-") :] if stamp.startswith("auto-") else stamp
-    hms = stamp[9:15]
-    if len(stamp) < 15 or not hms.isdigit():
+    # The stamp follows any name prefix (frames-auto-, frames-liveplay-): its first YYYYMMDD-HHMMSS.
+    m = re.search(r"(\d{8})-(\d{6})", SEAT_TAG.sub("", base)[len("frames-") :].split(".")[0])
+    if m is None:
         return None
-    return stamp[:8], int(hms[:2]) * 3600 + int(hms[2:4]) * 60 + int(hms[4:6])
+    hms = m.group(2)
+    return m.group(1), int(hms[:2]) * 3600 + int(hms[2:4]) * 60 + int(hms[4:6])
 
 
 def battle_partners(capture: str, pool: list[str]) -> list[str]:
@@ -1895,6 +1900,10 @@ def battle_partners(capture: str, pool: list[str]) -> list[str]:
     split into parts (.b1, .b2). A capture without a seat tag has no partner."""
     tag, stamp = SEAT_TAG.search(os.path.basename(capture)), capture_stamp(capture)
     if tag is None or stamp is None:
+        return []
+    # A LIVE capture (frames-liveplay-) is its battle's only seat: our client on the ladder, the opponent a stranger.
+    # Another live capture stamped within seconds is another account's battle, never the other seat of this one.
+    if os.path.basename(capture).startswith("frames-liveplay-"):
         return []
     out = []
     for p in pool:
