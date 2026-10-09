@@ -1167,6 +1167,11 @@ pub struct Calib {
     /// leaves DeathSpawnDeployDelay blank. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `Zero`.
     #[serde(default = "buff_death_spawn_undelayed_default")]
     pub buff_death_spawn_undelayed: BuffDeathSpawnUndelayed,
+    /// combat.POST_KILL_DOOM_ETA (`phase_target_with`'s doomed test, combat.POST_KILL_RETARGET_WAIT's clause (c)):
+    /// whether a victim doomed by homing shots in flight must also have them land soon. Added after SNAPSHOT_FORMAT 20;
+    /// the `default` is the old arm, `Ignored`.
+    #[serde(default = "post_kill_doom_eta_default")]
+    pub post_kill_doom_eta: PostKillDoomEta,
     /// spawner.DEATH_PROJECTILE_COPIES (`phase_reap`): how many death projectiles a death leaves. Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `One`.
     #[serde(default = "death_projectile_copies_default")]
@@ -2945,6 +2950,10 @@ fn snipe_lock_release_default() -> SnipeLockRelease {
 
 fn buff_death_spawn_undelayed_default() -> BuffDeathSpawnUndelayed {
     BuffDeathSpawnUndelayed::Zero
+}
+
+fn post_kill_doom_eta_default() -> PostKillDoomEta {
+    PostKillDoomEta::Ignored
 }
 
 fn death_projectile_copies_default() -> DeathProjectileCopies {
@@ -7210,6 +7219,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.POST_KILL_DOOM_ETA -- see `phase_target_with`: when clause (c) of combat.POST_KILL_RETARGET_WAIT counts a
+    /// victim as doomed by the homing shots in flight at it (which frees its attackers from the post-kill wait).
+    PostKillDoomEta {
+        /// The engine's: their summed damage covers its hitpoints, whenever they land.
+        Ignored = "ignored",
+        /// And the last of them lands within target.rs DOOMED_ETA_LIMIT_MS (600): a shot launched at the victim on its
+        /// last live tick (a crown tower's arrow, 650 to 700 out) leaves it undoomed, so every attacker serves the wait.
+        /// Measured on client 15.535.29's raw frames (8,261 target losses of attackers in their attack): doomed with the
+        /// last shot within 600, crown towers freed 4,610 of 4,693 and projectile units 675 of 695; doomed with it later,
+        /// 35 of 35 and 6 of 7 waited the 6 ticks (600: 31 freed, 0 waits; 650: 0 freed, 15 waits); who doomed it does not
+        /// split it (doomed by another unit's shots alone, freed 1,131 of 1,155). sp-h2-s0 t308: a Minion doomed by the
+        /// Hero Musketeer's shot (ETA 100) took a tower's arrow (ETA 700): tower and Musketeer held to t314. The 16.402
+        /// corpus agrees (7 of 7 later than 600 waited).
+        ClientWithin600 = "client_within_600",
+    }
+);
+calib_enum!(
     /// spawner.DEATH_PROJECTILE_COPIES -- see `phase_reap`: the death projectiles one death leaves (spawner.DEATH_SPAWN_PROJECTILE).
     DeathProjectileCopies {
         /// The engine's: one.
@@ -9329,6 +9355,7 @@ impl Calib {
             capture_route: pick(&v, &["spells", "CAPTURE_ROUTE", "value"], CaptureRoute::from_calibration_name)?,
             snipe_lock_release: pick(&v, &["targeting", "SNIPE_LOCK_RELEASE", "value"], SnipeLockRelease::from_calibration_name)?,
             buff_death_spawn_undelayed: pick(&v, &["status", "BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "value"], BuffDeathSpawnUndelayed::from_calibration_name)?,
+            post_kill_doom_eta: pick(&v, &["combat", "POST_KILL_DOOM_ETA", "value"], PostKillDoomEta::from_calibration_name)?,
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
             launch_beyond_keep: pick(&v, &["targeting", "LAUNCH_BEYOND_KEEP", "value"], LaunchBeyondKeep::from_calibration_name)?,
@@ -17891,15 +17918,26 @@ impl BattleState {
         // applied: untested, and immaterial on the corpus.
         let doomed_now: Vec<bool> = if wait_mode == PostKillWait::AttackFinish {
             let mut pending = vec![0i64; self.ents.capacity()];
+            let mut last_ms = vec![0i32; self.ents.capacity()];
             for p in in_flight {
                 if p.firer_card.is_some_and(|c| cards.get(c).projectile_homing) && self.ents.is_alive(p.target) {
-                    pending[p.target.index as usize] += p.damage as i64 + p.bonus as i64;
+                    let t = p.target.index as usize;
+                    pending[t] += p.damage as i64 + p.bonus as i64;
+                    last_ms[t] = last_ms[t].max(combat::ticks_to_land(&self.ents, p, calib.projectile_step) * calib.tick_ms);
                 }
             }
+            // combat.POST_KILL_DOOM_ETA = client_within_600: the last of those shots must land within DOOMED_ETA_LIMIT_MS
+            // too; one launched on the victim's last live tick (a crown tower's arrow, 650 to 700 out) leaves it undoomed.
+            #[cfg(not(clash_plant = "post_kill_doom_eta_ignored"))]
+            let eta_limit = (calib.post_kill_doom_eta == PostKillDoomEta::ClientWithin600).then_some(target::DOOMED_ETA_LIMIT_MS);
+            #[cfg(clash_plant = "post_kill_doom_eta_ignored")]
+            let eta_limit: Option<i32> = None; // PLANT: the doom ignores when the shots land, whatever the key.
             // combat.DOOMED_READ_IN_PASS = client15535_at_turn: an attacker deciding on the pass's start reads the doom
             // against the hitpoints the pass has left at its turn (`Scratch::turn_hp`, set for that turn alone).
             let turn = &self.scratch.turn_hp;
-            (0..self.ents.capacity()).map(|j| pending[j] > 0 && pending[j] >= turn.get(j).copied().unwrap_or(self.ents.hp[j]) as i64).collect()
+            (0..self.ents.capacity())
+                .map(|j| pending[j] > 0 && pending[j] >= turn.get(j).copied().unwrap_or(self.ents.hp[j]) as i64 && eta_limit.map_or(true, |l| last_ms[j] <= l))
+                .collect()
         } else {
             Vec::new()
         };
@@ -33785,6 +33823,9 @@ impl BattleState {
 /// 20, unchanged, status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY: Calib gained buff_death_spawn_undelayed (serde default the
 ///    old arm, zero), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, combat.POST_KILL_DOOM_ETA: Calib gained post_kill_doom_eta (serde default the old arm, ignored), no new
+///    state (read each Target pass), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 /// 20, unchanged, spawner.DEATH_PROJECTILE_COPIES: Calib gained death_projectile_copies (serde default the old arm,
 ///    one), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
@@ -34899,6 +34940,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("snipe_lock_release".into(), serde_json::to_value(SnipeLockRelease::AheadBelowMin).map_err(|e| e.to_string())?);
     // status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY: a format-3 battle had no buff death spawn with a blank DeathSpawnDeployDelay (the same rule).
     sh.insert("buff_death_spawn_undelayed".into(), serde_json::to_value(BuffDeathSpawnUndelayed::Zero).map_err(|e| e.to_string())?);
+    // combat.POST_KILL_DOOM_ETA: a format-3 battle's doom ignored when the shots land (the same rule).
+    sh.insert("post_kill_doom_eta".into(), serde_json::to_value(PostKillDoomEta::Ignored).map_err(|e| e.to_string())?);
     // spawner.DEATH_PROJECTILE_COPIES: a format-3 battle left one death projectile a death (the same rule).
     sh.insert("death_projectile_copies".into(), serde_json::to_value(DeathProjectileCopies::One).map_err(|e| e.to_string())?);
     // spawner.BARREL_DROP_POINT: a format-3 battle's barrel dropped from its Status-phase point (the same rule).
