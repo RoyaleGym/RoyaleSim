@@ -3,6 +3,15 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.26 (2026-10-09)
+
+- This release adds settings used to measure upcoming fixes against the game (a struck troop's last step, a Log tapped
+  on the water, a doomed target and its attackers' wait, a curse's first step, a Sparky's windup after its target dies,
+  a launcher and a kamikaze, a troop tapped on an enemy building, the Evo Skeleton Army's General); every one defaults
+  to the engine's current behaviour.
+- Tools: `tools/make_replay_fixture.py` reads an evolution's or a hero form's units as its card's (an Evo Bats deploy was
+  read as an unknown object), reads the time stamp of a live capture's name, and gives a live capture no partner seat.
+
 ## 0.1.25 (2026-10-09)
 
 - New: `cards.CLIENT16402_VALUES` can set a unit's `HitSpeed` and `LoadTime`, as it already sets hitpoints, damage and a
