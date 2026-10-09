@@ -5255,6 +5255,17 @@
       "promotion_rules": "Score every population with Evo Skeletons by override (the real-match replays and the sp scenes); 208a8647's first split at t1219 should go.",
       "engine": "read by crates/royalesim (state.rs Calib::from_json, calib_enum EvoCopyPoint); state.rs BattleState::evo_copy_point, used by evo_after_fire and evo_copies; tests/evolution.rs an_evo_copy_on_the_river_bank_goes_outward_then_behind_under_client15535_ahead_outward_behind (plant evo_copy_ahead_only)."
     },
+    "RING_POINT_BOUNDS": {
+      "value": "client16402_half_cell_clamp",
+      "candidates": ["none", "client16402_half_cell_clamp"],
+      "status": "measured",
+      "confidence": "HIGH for client16402_half_cell_clamp on client 16.402: 35 of 35 Witch first divergences with a ring point off the arena, the client's member first seen on the 250 bound (plus its same-tick step); the engine's off-arena Skeleton never targets and never moves. LOW for none, the engine before this key.",
+      "provenance": "MEASURED by parity (2026-10-09) on the live population (RoyaleLive/reports/replay-live: the bot's own battles on client builds 160402017/020, content 16.402.19/.21; parity's diagnostic triage of the 542 first divergences). The Witch emits four Skeletons on a 2000 ring at absolute angles; the bot plays her behind its own king tower, and one ring point then falls off the arena: (10226, -648) for side 0, (10373, 32694) for side 1. The client's Skeleton is first seen at (10230, 340) and (10352, 31663): the bound 250 inside the edge plus its same-tick first step (90 and 87). On the x axis it lands on exactly 250 (023746: the Witch on (2130, 2430), a member on (250, 2520)). 35 of the 44 Witch first divergences (own 15 of 15, opponent 20 of 29); 281 of the population's 1,767 Witch waves (105 of 593 battles) have a member first seen on an edge (y 300-349: 94, y 31650-31699: 44). The Witch's spawner fields are the same in both card tables.",
+      "meaning": "none: the engine's; the ring point is used where it falls, on or off the arena. client16402_half_cell_clamp: clamped into [cell / 2, width - cell / 2] x [cell / 2, height - cell / 2] (250 native from every edge), as formation_members_with clamps a summon's members.",
+      "open": "Client 15.535.29 (no capture of a Witch within SpawnRadius of an edge; it runs the shipped arm). A ring point on the river (the water's ejection) is not read here. Other spawner emission points (a formation spawner, a death spawn's ring) keep their own clamps.",
+      "promotion_rules": "Shipped: every capture runs it; a 15.535.29 batch that shows a ring point off the arena decides whether that client needs its own arm.",
+      "engine": "state.rs BattleState::measured_ring_points (the spawner pass's wave and the Evo Witch's soul-drain waves), selected by Calib::ring_point_bounds; tests/spawner.rs (a_witch_ring_point_off_the_arena_is_created_inside_its_edge)."
+    },
     "RING_CREATION_ORDER": {
       "value": "client_descending_angle",
       "candidates": [

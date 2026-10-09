@@ -78,7 +78,7 @@ use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
     BattleConfig, BattleState, BuffExpiry, Calib, DeathAtEmission, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnPushback, DeathSpawnRadius,
     FirstWave, PauseAnchor,
-    ReleaseTiming, RingCreationOrder, SpawnPoint, SpawnedDeploy, SpawnedFirstStep, SpawnerEmission, StartTimeOrigin, TimerLeftover,
+    ReleaseTiming, RingCreationOrder, RingPointBounds, SpawnPoint, SpawnedDeploy, SpawnedFirstStep, SpawnerEmission, StartTimeOrigin, TimerLeftover,
 };
 use royalesim::{EntityId, Team};
 use std::collections::BTreeSet;
@@ -411,6 +411,44 @@ fn witch_ring_in_creation_order(arm: RingCreationOrder) -> Vec<(i32, i32)> {
             }
         })
         .collect()
+}
+
+/// A lone Blue Witch in the arena's bottom-left corner under spawner.RING_POINT_BOUNDS `arm`: her first wave's Skeletons,
+/// native, where they are created (this file's config: SPAWNED_FIRST_STEP none, so a unit stands on its creation point).
+fn corner_witch_wave(arm: RingPointBounds) -> Vec<(i32, i32)> {
+    let mut s = bare(with_calib(|c| c.ring_point_bounds = arm));
+    let sp = spawner(&s, "Witch");
+    let unit = unit_name(&s, sp.unit);
+    s.scenario_spawn_now(Team::Blue, "Witch", Vec2::new(milli(600), milli(600)), None).unwrap();
+    let seen = first_seen(&mut s, first_wave_tick(&sp), Team::Blue, &unit);
+    assert_eq!(seen.len(), 4, "the first wave is four Skeletons, all new on one tick");
+    seen.iter()
+        .map(|(_, id)| {
+            let p = s.entity(*id).expect("a Skeleton of the wave lives").pos;
+            (p.x / SUBTILE_PER_MILLITILE, p.y / SUBTILE_PER_MILLITILE)
+        })
+        .collect()
+}
+
+#[test]
+fn a_witch_ring_point_off_the_arena_is_created_inside_its_edge() {
+    // spawner.RING_POINT_BOUNDS (parity's r62, item A). The Witch's wave is four Skeletons on a ring of SpawnRadius (2000)
+    // around her. Standing 600 from two edges, her west and south points fall off the arena. The engine created those
+    // Skeletons there, where they never target and never move. The client (16.402, the live population) creates them half
+    // a cell, 250 native, inside the edge: 35 of 44 Witch first divergences there. Plant: ring_point_unclamped.
+    let w = 18_000;
+    let none = corner_witch_wave(RingPointBounds::None);
+    assert!(none.iter().any(|&(x, y)| x < 0 || y < 0), "none: a Skeleton off the arena (vacuity: the scene puts a point off it) {none:?}");
+    let clamped = corner_witch_wave(RingPointBounds::Client16402HalfCellClamp);
+    assert!(clamped.iter().all(|&(x, y)| (250..=w - 250).contains(&x) && y >= 250), "client16402_half_cell_clamp: every Skeleton 250 or more inside {clamped:?}");
+    assert!(clamped.iter().any(|&(x, _)| x == 250), "the west point on x 250 {clamped:?}");
+    assert!(clamped.iter().any(|&(_, y)| y == 250), "the south point on y 250 {clamped:?}");
+    // the points the ring laid on the arena are not moved
+    let inside: Vec<_> = none.iter().filter(|&&(x, y)| x >= 250 && y >= 250).collect();
+    assert_eq!(inside.len(), 2, "two of the four points fall on the arena {none:?}");
+    for p in inside {
+        assert!(clamped.contains(p), "an on-arena point stays where the ring put it: {p:?} in {clamped:?}");
+    }
 }
 
 #[test]

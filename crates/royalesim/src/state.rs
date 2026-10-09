@@ -729,6 +729,10 @@ pub struct Calib {
     /// the old arm, `AscendingAngle`, what a battle saved before it ran.
     #[serde(default = "ring_creation_order_default")]
     pub ring_creation_order: RingCreationOrder,
+    /// spawner.RING_POINT_BOUNDS (a SpawnRadius spawner's ring point off the arena). Added after SNAPSHOT_FORMAT 20; the
+    /// default is the old arm, `None`, what a battle saved before it ran.
+    #[serde(default = "ring_point_bounds_default")]
+    pub ring_point_bounds: RingPointBounds,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2419,6 +2423,10 @@ fn evo_copy_count_default() -> EvoCopyCount {
 
 fn ring_creation_order_default() -> RingCreationOrder {
     RingCreationOrder::AscendingAngle
+}
+
+fn ring_point_bounds_default() -> RingPointBounds {
+    RingPointBounds::None
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -8881,6 +8889,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.RING_POINT_BOUNDS -- where a SpawnRadius spawner's ring point that falls off the arena is created
+    /// (`measured_ring_points`: the Witch's wave, the Evo Witch's soul-drain waves).
+    RingPointBounds {
+        /// The engine before this key: on the ring, wherever it falls; a Skeleton of a Witch standing within SpawnRadius
+        /// of an edge is created off the arena, never targets and never moves.
+        None = "none",
+        /// Measured on client 16.402 (the live population, the bot's own battles on builds 160402017/020): the point is
+        /// clamped half a cell (250 native) inside every edge, as a summon's members are (`formation_members_with`). The
+        /// bot plays the Witch behind its king tower ((10226, 1352), (7614, 30698)), one ring point falls at y -648 or
+        /// 32694, and the client's Skeleton is first seen at y 340 (250 + its same-tick step) or 31663 (31750 - 87); on
+        /// the x axis at exactly 250 (023746: the Witch on (2130, 2430), a member on (250, 2520)). 35 of the 44 Witch
+        /// first divergences of the live population; 281 of its 1,767 Witch waves (105 of 593 battles) have a member
+        /// first seen on an edge.
+        Client16402HalfCellClamp = "client16402_half_cell_clamp",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9376,6 +9401,7 @@ impl Calib {
             evo_copy_point: pick(&v, &["spawner", "EVO_COPY_POINT", "value"], EvoCopyPoint::from_calibration_name)?,
             evo_copy_count: pick(&v, &["spawner", "EVO_COPY_COUNT", "value"], EvoCopyCount::from_calibration_name)?,
             ring_creation_order: pick(&v, &["spawner", "RING_CREATION_ORDER", "value"], RingCreationOrder::from_calibration_name)?,
+            ring_point_bounds: pick(&v, &["spawner", "RING_POINT_BOUNDS", "value"], RingPointBounds::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -14651,6 +14677,15 @@ impl BattleState {
                 .unwrap_or(0)
         };
         let step = if n > 0 { 360 / n } else { 0 };
+        // spawner.RING_POINT_BOUNDS = client16402_half_cell_clamp: a point off the arena is created half a cell (250 native)
+        // inside the edge it fell past, as a summon's members are (`formation_members_with`).
+        #[cfg(not(clash_plant = "ring_point_unclamped"))]
+        let clamp = self.cfg.calib.ring_point_bounds == RingPointBounds::Client16402HalfCellClamp;
+        #[cfg(clash_plant = "ring_point_unclamped")]
+        let clamp = false; // PLANT (regression): the clamp arm leaves the point where the ring put it.
+        let arena = &self.cfg.arena;
+        let m = arena.cell / 2;
+        let bound = |p: Vec2| if clamp { Vec2::new(p.x.clamp(m, arena.width - m), p.y.clamp(m, arena.height - m)) } else { p };
         Some(
             (0..n.max(1))
                 .map(|k| {
@@ -14658,11 +14693,11 @@ impl BattleState {
                     // The rounded arm lays the offset in whole native units (formation.rs `ring_offset_native`);
                     // the measured arm keeps its subtile arithmetic.
                     if self.cfg.calib.spawner_spawn_point == SpawnPoint::ClientRoundedFacingDegree {
-                        return c.add(crate::formation::ring_offset_native(radius, a));
+                        return bound(c.add(crate::formation::ring_offset_native(radius, a)));
                     }
                     let x = c.x + (radius as i64 * crate::formation::sin1024(a + 90) as i64 / 1024) as i32;
                     let y = c.y + (radius as i64 * crate::formation::sin1024(a) as i64 / 1024) as i32;
-                    Vec2::new(x, y)
+                    bound(Vec2::new(x, y))
                 })
                 .collect(),
         )
@@ -34521,6 +34556,9 @@ impl BattleState {
 /// 20, unchanged, spawner.RING_CREATION_ORDER: Calib gained ring_creation_order (serde default the old arm,
 ///    ascending_angle), no new state (it orders the wave's creations within the tick), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.RING_POINT_BOUNDS: Calib gained ring_point_bounds (serde default the old arm, none), no new
+///    state (it moves a ring point when the wave is laid), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35428,6 +35466,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // spawner.RING_CREATION_ORDER: a format-3 battle created a ring wave in ascending angle; it keeps that whatever the
     // ledger ships (the same rule).
     sh.insert("ring_creation_order".into(), serde_json::to_value(RingCreationOrder::AscendingAngle).map_err(|e| e.to_string())?);
+    // spawner.RING_POINT_BOUNDS: a format-3 battle laid a ring point off the arena where it fell (the same rule).
+    sh.insert("ring_point_bounds".into(), serde_json::to_value(RingPointBounds::None).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
