@@ -6,7 +6,9 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_goblin_barrel`):
-//!   - barrel_decoy_never -> `its_decoy_barrel_lands_on_the_mirrored_point_with_three_goblin_dummies` red.
+//!   - barrel_decoy_never -> `its_decoy_barrel_lands_on_the_mirrored_point_with_three_goblin_dummies` red;
+//!   - release_ground_point_shifts_decoy -> the same red (spells.RELEASE_GROUND_POINT's one-unit shift taken by the decoy,
+//!     on the left half: its dummies one lower in x than the Goblins' points mirrored).
 #![allow(unexpected_cfgs)]
 mod common;
 

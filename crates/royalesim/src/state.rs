@@ -733,6 +733,10 @@ pub struct Calib {
     /// default is the old arm, `None`, what a battle saved before it ran.
     #[serde(default = "ring_point_bounds_default")]
     pub ring_point_bounds: RingPointBounds,
+    /// spells.RELEASE_GROUND_POINT (where a landing spell lays its ground units). Added after SNAPSHOT_FORMAT 20; the
+    /// default is the old arm, `None`, what a battle saved before it ran.
+    #[serde(default = "release_ground_point_default")]
+    pub release_ground_point: ReleaseGroundPoint,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2427,6 +2431,10 @@ fn ring_creation_order_default() -> RingCreationOrder {
 
 fn ring_point_bounds_default() -> RingPointBounds {
     RingPointBounds::None
+}
+
+fn release_ground_point_default() -> ReleaseGroundPoint {
+    ReleaseGroundPoint::None
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -8906,6 +8914,25 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.RELEASE_GROUND_POINT -- the point a landing spell's ground units are laid around (`release_ring_points`,
+    /// spells.PROJECTILE_SPAWN_FORMATION = count_ring_tight: the Goblin Barrel's Goblins).
+    ReleaseGroundPoint {
+        /// The engine before this key: the landing point itself (the snapped tap).
+        None = "none",
+        /// Measured on client 16.402 (the live population): the landing point moved as formation.GROUND_DEPLOY_POINT
+        /// moves a ground summon's (client16402_one_unit): absolute x one lower on the arena's left half, absolute y one
+        /// lower for a side-1 owner. A Goblin Barrel on a left princess tower releases around x 3499, not 3500 (the
+        /// fixture's effect point [3499, 25500]; the Goblins' first frames 3499 -/+ 629/628, the engine's 3500 -/+ 628);
+        /// on the right tower around 14500 (14500 -/+ 1403). An Evo Goblin Barrel's decoy, cast at the play's point mirrored,
+        /// is not moved (sp-form-GoblinBarrel-evo-s0, both clients: played on (14500, 13500), the decoy about (3500, 13500)).
+        /// Over the population (gb_release_census.py), every release on the left half of the enemy's side centres one
+        /// lower in x (141 tower landings, 12 open), every right-half one on the point. The engine's ring was exactly symmetric about the tower, its
+        /// nearest-target scan a tie its EQUAL_DISTANCE_TIE broke the other way (the client's Goblin 3-8 nearer): 13 of
+        /// the 144 attack-timing first divergences.
+        Client16402OneUnit = "client16402_one_unit",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9402,6 +9429,7 @@ impl Calib {
             evo_copy_count: pick(&v, &["spawner", "EVO_COPY_COUNT", "value"], EvoCopyCount::from_calibration_name)?,
             ring_creation_order: pick(&v, &["spawner", "RING_CREATION_ORDER", "value"], RingCreationOrder::from_calibration_name)?,
             ring_point_bounds: pick(&v, &["spawner", "RING_POINT_BOUNDS", "value"], RingPointBounds::from_calibration_name)?,
+            release_ground_point: pick(&v, &["spells", "RELEASE_GROUND_POINT", "value"], ReleaseGroundPoint::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -26154,7 +26182,20 @@ impl BattleState {
             let unit = self.cfg.cards.get(r.unit);
             let points = match self.cfg.calib.projectile_spawn_formation {
                 ProjectileSpawnFormation::EngineGrid => self.formation_points(r.team, r.count, unit.collision_radius, unit.is_flying(), r.pos),
-                ProjectileSpawnFormation::CountRingTight => self.release_ring_points(r.team, r.count, r.unit, r.pos),
+                ProjectileSpawnFormation::CountRingTight => {
+                    // spells.RELEASE_GROUND_POINT: a decoy (an Evo Goblin Barrel's, cast at the play's point mirrored) is laid
+                    // around its own landing point, unshifted; so is a rolling spell's release (the Barbarian Barrel's
+                    // Barbarian, at the log's end).
+                    #[cfg(not(clash_plant = "release_ground_point_shifts_decoy"))]
+                    let decoy = self.cfg.cards.cards.iter().any(|c| c.evo.as_ref().and_then(|v| v.mirror) == Some(r.source));
+                    #[cfg(clash_plant = "release_ground_point_shifts_decoy")]
+                    let decoy = false; // PLANT (regression): the decoy's release takes the one-unit shift too.
+                    #[cfg(not(clash_plant = "release_ground_point_shifts_rolling"))]
+                    let rolling = matches!(self.cfg.cards.get(r.source).spell, Some(crate::card::SpellDef { shape: crate::card::SpellShape::Rolling { .. }, .. }));
+                    #[cfg(clash_plant = "release_ground_point_shifts_rolling")]
+                    let rolling = false; // PLANT (regression): a rolling spell's release takes the one-unit shift too.
+                    self.release_ring_points(r.team, r.count, r.unit, r.pos, !decoy && !rolling)
+                }
             };
             for p in points {
                 self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: release_first, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: r.source });
@@ -29023,7 +29064,7 @@ impl BattleState {
     /// count_ring_tight): `count` members of `unit`, radius its collision radius, in the
     /// caster's frame and lane (the same `member_offset` a deploy uses), clamped half a cell
     /// inside the arena, and a ground member still on water put on the nearest land.
-    fn release_ring_points(&self, team: Team, count: i32, unit: u16, pos: Vec2) -> Vec<Vec2> {
+    fn release_ring_points(&self, team: Team, count: i32, unit: u16, pos: Vec2, shiftable: bool) -> Vec<Vec2> {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let arena = &self.cfg.arena;
         let u = self.cfg.cards.get(unit);
@@ -29038,6 +29079,20 @@ impl BattleState {
             lane_mirror: self.cfg.calib.lane_id_based_deploy_sequence,
         };
         let tap = Vec2::new(own.x / K, own.y / K);
+        // spells.RELEASE_GROUND_POINT = client16402_one_unit: a ground unit's ring is laid around the landing point moved as
+        // formation.GROUND_DEPLOY_POINT moves a ground summon's (absolute x one lower on the left half, absolute y one lower
+        // for side 1; in the owner's frame an absolute -1 is +1 for Red).
+        #[cfg(not(clash_plant = "release_ground_point_unread"))]
+        let moved = shiftable && !u.is_flying() && self.cfg.calib.release_ground_point == ReleaseGroundPoint::Client16402OneUnit;
+        #[cfg(clash_plant = "release_ground_point_unread")]
+        let moved = false; // PLANT (regression): the new arm still lays the ring around the landing point itself.
+        let tap = if moved {
+            let dy = if team == Team::Red { 1 } else { 0 };
+            let dx = if pos.x < arena.width / 2 { if team == Team::Red { 1 } else { -1 } } else { 0 };
+            tap.add(Vec2::new(dx, dy))
+        } else {
+            tap
+        };
         let (w, h) = (arena.width / K, arena.height / K);
         let margin = arena.cell / K / 2;
         (0..count.max(1))
@@ -34559,6 +34614,9 @@ impl BattleState {
 /// 20, unchanged, spawner.RING_POINT_BOUNDS: Calib gained ring_point_bounds (serde default the old arm, none), no new
 ///    state (it moves a ring point when the wave is laid), so a blob saved before it deserializes and hashes as it did.
 ///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.RELEASE_GROUND_POINT: Calib gained release_ground_point (serde default the old arm, none), no
+///    new state (it moves the point a release is laid around), so a blob saved before it deserializes and hashes as it
+///    did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35468,6 +35526,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ring_creation_order".into(), serde_json::to_value(RingCreationOrder::AscendingAngle).map_err(|e| e.to_string())?);
     // spawner.RING_POINT_BOUNDS: a format-3 battle laid a ring point off the arena where it fell (the same rule).
     sh.insert("ring_point_bounds".into(), serde_json::to_value(RingPointBounds::None).map_err(|e| e.to_string())?);
+    // spells.RELEASE_GROUND_POINT: a format-3 battle laid a release around the landing point itself (the same rule).
+    sh.insert("release_ground_point".into(), serde_json::to_value(ReleaseGroundPoint::None).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
