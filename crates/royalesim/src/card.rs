@@ -14714,8 +14714,9 @@ impl CardDb {
     /// never skipped: a card this data does not load, and a column the card does not carry
     /// (hitpoints on a spell, a projectile's damage on a card with no projectile, a crown-tower
     /// percent on a card with no hit to carry it, an area HitSpeed on a card that is not a striking
-    /// area). Setting a value twice gives the same data, so a battle built from data that already
-    /// carries the values is unchanged.
+    /// area, a HitSpeed or LoadTime on a row that does not attack). Setting a value twice gives the same data, so a
+    /// battle built from data that already carries the values is unchanged. value.table may name any table this data
+    /// is (the 160402017 one too, under cards.CARD_TABLE), so a single column of either can be moved for a measurement.
     pub fn with_values(&self, values: &[CardValue]) -> Result<CardDb, String> {
         let mut db = self.clone();
         for v in values {
@@ -14803,6 +14804,25 @@ impl CardDb {
                     #[cfg(clash_plant = "area_buff_time_unread")]
                     let _ = buff; // PLANT (regression): the column is accepted and the area keeps the tables' BuffTime.
                 }
+                // A UNIT'S ATTACK CLOCK, ms: the HitSpeed and LoadTime of the named row (a card's own or a unit's: the
+                // Minion Giant 1500 / 700 on client 16.402.12 and 1700 / 900 after the 2026-10-06 update; the Goblin
+                // Barrel's BarrelGoblin, LoadTime 800), which the attack cycle reads (combat.ATTACK_CYCLE). Refused on a
+                // row that does not attack, and for a value that is not a time.
+                CardColumn::HitSpeed | CardColumn::LoadTime => {
+                    if c.hit_speed_ms <= 0 {
+                        return Err(format!("{what}: the row does not attack"));
+                    }
+                    let ok = if v.column == CardColumn::HitSpeed { v.value > 0 } else { v.value >= 0 };
+                    if !ok {
+                        return Err(format!("{what}: {} is not a time", v.value));
+                    }
+                    #[cfg(not(clash_plant = "attack_clock_values_unread"))]
+                    if v.column == CardColumn::HitSpeed {
+                        c.hit_speed_ms = v.value;
+                    } else {
+                        c.load_time_ms = v.value;
+                    }
+                }
             }
         }
         Ok(db)
@@ -14832,6 +14852,10 @@ pub enum CardColumn {
     AreaHitSpeed,
     /// The BuffTime of the area a card puts down, ms: a spell's own area (the Freeze) or its death's (the Ice Golem).
     AreaBuffTime,
+    /// The HitSpeed of a card's or unit's own row, ms: its attack clock's period (combat.ATTACK_CYCLE).
+    HitSpeed,
+    /// The LoadTime of a card's or unit's own row, ms: its attack's load (combat.ATTACK_CYCLE).
+    LoadTime,
 }
 
 impl CardColumn {
@@ -14842,6 +14866,8 @@ impl CardColumn {
             "CrownTowerDamagePercent" => Some(CardColumn::CrownTowerDamagePercent),
             "AreaHitSpeed" => Some(CardColumn::AreaHitSpeed),
             "AreaBuffTime" => Some(CardColumn::AreaBuffTime),
+            "HitSpeed" => Some(CardColumn::HitSpeed),
+            "LoadTime" => Some(CardColumn::LoadTime),
             _ => None,
         }
     }
