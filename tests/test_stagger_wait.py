@@ -151,3 +151,49 @@ def test_the_old_arm_is_todays_engine():
     first = goblins(frames[0])[2]
     moved = moves_while(frames, 2, waiting) or (waiting(first) and at(first) != MEMBER_2)
     assert moved, "the old arm did not push the waiting member 2 off the Knight"
+
+
+#: the same tap with a Zap in hand: red's Zap cast on the members one tick after they land
+SPELL_DECK = ["Goblins", "Zap", "Knight", "Musketeer", "Archer", "Giant", "Minions", "Cannon"]
+ZAP = 1
+UNHITTABLE = "client16402_untargetable_immovable_unhittable"
+
+
+def zapped_goblins(arm: str) -> tuple[dict, dict]:
+    """({member k: its hp each tick}, {member k: whether it waits each tick}) for the blue Goblins' members over the 10
+    ticks after red's Zap on TAP, cast the tick after the tap resolves, under STAGGER_WAIT = `arm`."""
+    overrides = {KEY: json.dumps(arm), "placement.TAP_SNAP": json.dumps("none")}
+    b = royalesim.Battle(card_names=SPELL_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
+    hp = royalesim.ENTITY_FIELDS.index("hp")
+    b.reset(0, [IDS, IDS], 0, 200, [10_000, 10_000], None, [])
+    b.step([], 1)
+    played = b.step([(0, GOB, TAP[0] * SUB, TAP[1] * SUB)], 1)
+    assert played and played[0][0] == GOB, f"the Goblins tap did not resolve: {played}"
+    b.step([(1, ZAP, TAP[0] * SUB, TAP[1] * SUB)], 1)
+    hps, waits = {}, {}
+    for _ in range(10):
+        for k, e in enumerate(goblins(json.loads(b.state_json())["entities"])):
+            hps.setdefault(k, []).append(e[hp])
+            waits.setdefault(k, []).append(waiting(e))
+        b.step([], 1)
+    return hps, waits
+
+
+def hurt_while_waiting(hps: dict, waits: dict, k: int) -> bool:
+    """Member k's hp moved on a tick it waited (against the tick before)."""
+    h, w = hps.get(k, []), waits.get(k, [])
+    return any(w[j] and h[j] < h[j - 1] for j in range(1, len(h)))
+
+
+def test_a_waiting_member_takes_no_hit_under_the_unhittable_arm():
+    """formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable (client 16.402: 0 hp drops on about 30,000
+    waiting frames, 135 of 135 spared beside a hurt neighbour): red's Zap on the four Goblins hurts member 0 (deploying,
+    not waiting) and leaves members 2 and 3 whole while they wait; under client16402_untargetable_immovable the Zap hurts
+    a waiting member (the vacuity check). Plant: staggered_member_hit."""
+    hps, waits = zapped_goblins(UNHITTABLE)
+    assert 0 in hps and (hps[0][-1] < hps[0][0] or len(hps[0]) < 10), f"precondition: the Zap hurt member 0: {hps}"
+    assert all(any(waits[k]) for k in (2, 3)), f"precondition: members 2 and 3 waited: {waits}"
+    for k in (2, 3):
+        assert not hurt_while_waiting(hps, waits, k), f"member {k} lost hp while it waited: {hps[k]} / {waits[k]}"
+    hps, waits = zapped_goblins(NEW_ARM)
+    assert any(hurt_while_waiting(hps, waits, k) for k in (2, 3)), f"{NEW_ARM} (the vacuity check): no waiting member hurt: {hps} / {waits}"

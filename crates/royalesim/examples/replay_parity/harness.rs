@@ -1816,6 +1816,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   spells.PULSING_AREA_EFFECT = hit_speed_offset: a listed HitSpeedOffset is waited a tick short (the engine's pulses).
 ///   combat.GUARD_CHARGE_IMMUNITY = none: the Little Prince's guard takes hits in its charge (unread there).
 ///   knockback.GUARD_PUSH_ATTACK_RESET = frozen: the guard's push freezes the pushed troop's swing (unread there).
+///   formation.STAGGER_WAIT = client16402_untargetable_immovable: a waiting member takes hits (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1966,6 +1967,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.PULSING_AREA_EFFECT", "\"hit_speed_offset\""),
     ("combat.GUARD_CHARGE_IMMUNITY", "\"none\""),
     ("knockback.GUARD_PUSH_ATTACK_RESET", "\"frozen\""),
+    ("formation.STAGGER_WAIT", "\"client16402_untargetable_immovable\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

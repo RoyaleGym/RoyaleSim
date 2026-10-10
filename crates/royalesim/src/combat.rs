@@ -1945,7 +1945,7 @@ fn straight_hits(
         // movement.SPAWN_PATHFIND_BODY = untouchable and hide.HIDDEN_IMMUNE_TO_DAMAGE: it passes a unit
         // under ground and a hidden building too. A Hunter's pellet that met a tunnelling Miner or an idle
         // Tesla used to stop on it, and `resolve` then dropped the hit, so the pellet was spent on nothing.
-        if untouchable_now(ents, v, hidden_immune, underground_immune, false) {
+        if untouchable_now(ents, v, hidden_immune, underground_immune, false) || stagger_untouchable(calib, ents, v) {
             continue;
         }
         let reached = if square && ents.kind[v].is_building() {
@@ -2022,7 +2022,7 @@ fn straight_hits(
 /// pellets killing for pellets is measured. Whether a pellet passes a victim killed this tick by
 /// something else, and in which order the client runs the tick's other hits, are unmeasured.
 fn killed_this_tick(ents: &Entities, cards: &CardDb, calib: &Calib, dmg: &DamageBuffer, tick: u32, v: usize) -> bool {
-    if ents.shield[v] > 0 || ents.dash_immune(v, tick) {
+    if ents.shield[v] > 0 || ents.dash_immune(v, tick) || stagger_untouchable(calib, ents, v) {
         return false;
     }
     let id = ents.id_of(v);
@@ -2775,7 +2775,7 @@ pub fn resolve(
         // movement.SPAWN_PATHFIND_BODY = untouchable (the caller passes it): a unit under ground takes no
         // hit, whatever wrote it -- a splash, a death's damage, an area (entity.rs `underground`). And a
         // hidden building takes none but a hit that ignores the hide (`untouchable_now`).
-        if untouchable_now(ents, h.target.index as usize, hidden_immune, underground_immune, h.ignores_hide) {
+        if untouchable_now(ents, h.target.index as usize, hidden_immune, underground_immune, h.ignores_hide) || stagger_untouchable(calib, ents, h.target.index as usize) {
             continue;
         }
         #[cfg(not(clash_plant = "dash_not_immune"))]
@@ -2903,6 +2903,17 @@ fn shot_passes_hide(calib: &Calib) -> bool {
 /// ignore the hide (`ignores_hide`: the lifetime expiry). The one test `resolve` and `land_at_once`
 /// drop a hit by, and the one a straight shot passes a unit by (`straight_hits`).
 #[inline]
+/// formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable: a member still waiting out its deploy stagger
+/// (entity.rs `stagger_ms`) takes no hit, beside `untouchable_now`'s immunities on every path that lands one.
+pub fn stagger_untouchable(calib: &Calib, ents: &Entities, v: usize) -> bool {
+    // PLANT (regression) staggered_member_hit: the new arm still lets hits land on a waiting member.
+    #[cfg(not(clash_plant = "staggered_member_hit"))]
+    let on = calib.formation_stagger_wait == crate::state::StaggerWait::Client16402Unhittable;
+    #[cfg(clash_plant = "staggered_member_hit")]
+    let on = false;
+    on && ents.stagger_ms[v] > 0
+}
+
 pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, underground_immune: bool, ignores_hide: bool) -> bool {
     (underground_immune && ents.underground(v)) || (hidden_immune && !ignores_hide && ents.hide[v] == HideState::Hidden)
 }
@@ -2933,7 +2944,7 @@ pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[
         let t = h.target.index as usize;
         // `resolve`'s under-ground and hide immunities. The under-ground one was missing, so under this
         // order alone a melee strike or a spin took hp off a Miner still under ground.
-        if untouchable_now(ents, t, hidden_immune, underground_immune, h.ignores_hide) {
+        if untouchable_now(ents, t, hidden_immune, underground_immune, h.ignores_hide) || stagger_untouchable(calib, ents, t) {
             continue;
         }
         // `resolve`'s dash immunity (combat.DASH_ATTACK = client_dash), the same plant with it.

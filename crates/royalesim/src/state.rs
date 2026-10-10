@@ -8670,8 +8670,21 @@ calib_enum!(
         /// the 16.402 move pass leaves it where it is. Its body still stands in the way, so a unit
         /// overlapping it is pushed off it. When the wait ends it is an ordinary deploying unit.
         Client16402 = "client16402_untargetable_immovable",
+        /// client16402_untargetable_immovable, and no hit lands on it while it waits (combat.rs `stagger_untouchable`:
+        /// a splash, a spell's area, a death's damage, a strike). Client 16.402 (parity's r65 census over the ob5 live
+        /// set: waiting members took 0 hp drops on about 30,000 frames; in 135 cases a same-side unit within 1200 was
+        /// hurt on the frame and the waiting member was spared every time, where already-deploying units were hit in
+        /// 739 of 3,470).
+        Client16402Unhittable = "client16402_untargetable_immovable_unhittable",
     }
 );
+
+impl StaggerWait {
+    /// A waiting member is untargetable and left where it is (both 16.402 arms).
+    pub fn waits(self) -> bool {
+        matches!(self, StaggerWait::Client16402 | StaggerWait::Client16402Unhittable)
+    }
+}
 calib_enum!(
     /// formation.GROUND_Y_CLAMP -- see `BattleState::ground_y_range`.
     GroundYClamp {
@@ -13916,8 +13929,8 @@ impl BattleState {
             heading_counts: e.attack_phase[i] == AttackPhase::Idle
                 && serves_no_wait(e, i)
                 && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
-                && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0),
-            avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0,
+                && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait.waits() && e.stagger_ms[i] > 0),
+            avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle && calib.formation_stagger_wait.waits() && e.stagger_ms[i] > 0,
             group_walker: false,
             seq: e.creation_seq[i],
         }
@@ -23046,13 +23059,13 @@ impl BattleState {
                         heading_counts: e.attack_phase[i] == AttackPhase::Idle
                             && serves_no_wait(e, i)
                             && (e.deploy_ms[i] == 0 || calib.deploying_heading == DeployingHeading::Kept)
-                            && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0)
+                            && !(calib.waiting_heading == WaitingHeading::Zeroed && calib.formation_stagger_wait.waits() && e.stagger_ms[i] > 0)
                             && !cast_heading_off[i],
                         // movement.WAITING_HEADING = static_obstacle: a member still waiting out its
                         // stagger is static to the avoidance scan and the grouping, and a troop to
                         // separation.
                         avoid_static: (calib.waiting_heading == WaitingHeading::StaticObstacle
-                            && calib.formation_stagger_wait == StaggerWait::Client16402
+                            && calib.formation_stagger_wait.waits()
                             && e.stagger_ms[i] > 0)
                             // movement.DYING_UNIT_VISIBILITY = client_doomed_static: a troop whose death is
                             // settled before the pass (`doomed_mask`) is static to the avoidance scan too.
@@ -23631,7 +23644,7 @@ impl BattleState {
                 if e.walk_from[i] > self.tick {
                     continue;
                 }
-                if calib.formation_stagger_wait == StaggerWait::Client16402 && e.stagger_ms[i] > 0 {
+                if calib.formation_stagger_wait.waits() && e.stagger_ms[i] > 0 {
                     if attract[i] != (0, 0) {
                         let (nx, ny) = move16402::grid_move(bodies[i].x, bodies[i].y, attract[i].0, attract[i].1, (deploying || pull_edge) && !flying, &is_water, arena.cols, arena.rows);
                         bodies[i].x = nx;
@@ -33441,7 +33454,7 @@ impl BattleState {
                     h.u32(f.map_or(0, |t| t.index));
                     h.u32(f.map_or(0, |t| t.generation));
                 }
-                if self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402 {
+                if self.cfg.calib.formation_stagger_wait.waits() {
                     h.i32(e.stagger_ms[i]);
                 }
                 // spawner.DEATH_SPAWN_PUSHBACK: only while a slide runs, so a battle with none
@@ -33877,7 +33890,7 @@ impl BattleState {
             if !legacy_v3 {
                 h.i32(s.deploy_ms.unwrap_or(-1));
                 h.opt_id(s.owner);
-                if self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402 {
+                if self.cfg.calib.formation_stagger_wait.waits() {
                     h.i32(s.stagger_ms);
                 }
                 if s.slide_radius > 0 {

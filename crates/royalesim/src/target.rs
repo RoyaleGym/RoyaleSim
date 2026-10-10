@@ -414,7 +414,7 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     // formation.STAGGER_WAIT: a member still waiting out its deploy stagger is nobody's target
     // (0 of 972,681 corpus target rows point at one). The one definition, so the scan, a locked
     // target and a hidden building's wake all read it.
-    if ctx.calib.formation_stagger_wait == crate::state::StaggerWait::Client16402 && e.stagger_ms[c] > 0 {
+    if ctx.calib.formation_stagger_wait.waits() && e.stagger_ms[c] > 0 {
         return false;
     }
     // targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame: a troop a death spawn created is
