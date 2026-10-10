@@ -845,6 +845,16 @@
     }
   },
   "collision": {
+    "GUARD_PRESS_CONTACT": {
+      "value": "client16402_unpushed",
+      "status": "measured",
+      "candidates": ["pushed", "client16402_unpushed"],
+      "confidence": "HIGH for client16402_unpushed on client 16.402 (parity r69, 2026-10-10): parity's r69 contact study over the 634 fixtures of the ob6 live set (truth only): the Little Prince in his press's hold with a unit overlapping him stood still on 266 frames and moved on 4 (all 4 knockbacks), where other heroes in the same hold state are pushed (the Hero Dark Prince 18 of 18, the Hero Musketeer 13 of 13); liveplay-20261008-083101-A the engine's Little Prince pushed off his point in his press. Client 15.535.29 unread (CLIENT15535_ARMS keeps pushed).",
+      "provenance": "MEASURED by parity (2026-10-10, r69) on client 16.402: parity's r69 contact study over the 634 fixtures of the ob6 live set (truth only): the Little Prince in his press's hold with a unit overlapping him stood still on 266 frames and moved on 4 (all 4 knockbacks), where other heroes in the same hold state are pushed (the Hero Dark Prince 18 of 18, the Hero Musketeer 13 of 13); liveplay-20261008-083101-A the engine's Little Prince pushed off his point in his press.",
+      "meaning": "pushed: the engine's; under collision.HELD_UNIT_CONTACT = client16402_speed_zero_update the held Little Prince takes the contact update of any held unit. client16402_unpushed: under his press's hold (the guard's hold tag) he takes none; a knockback, a hook or a pull still moves him.",
+      "open": "Whether he pushes those overlapping him (unread: they are pushed as by any standing body); client 15.535.29 unread.",
+      "engine": "state.rs phase_path16402_for (held_walk, `press_held`); tests/little_prince.rs."
+    },
     "CONTACT_LAW": {
       "value": "client16402",
       "status": "measured",
@@ -6046,6 +6056,16 @@
     }
   },
   "movement": {
+    "DEPLOY_WATER_EDGE": {
+      "value": "client16402_ground_only",
+      "status": "measured",
+      "candidates": ["every_deploying_unit", "client16402_ground_only"],
+      "confidence": "HIGH for client16402_ground_only on client 16.402 (parity r69, 2026-10-10): parity's r69 contact study over the 634 fixtures of the ob6 live set (truth only): units deploying on both frames of a move into a water cell, flying 38 (25 fixtures), ground 6 of 101,000 moves; liveplay-20261007-162952-A's deploying flyer stopped on the bank in the engine. The engine's other branches (pushback, the clone's slide, a pull) already left a flyer out. Client 15.535.29 unread (CLIENT15535_ARMS keeps every_deploying_unit).",
+      "provenance": "MEASURED by parity (2026-10-10, r69) on client 16.402: parity's r69 contact study over the 634 fixtures of the ob6 live set (truth only): units deploying on both frames of a move into a water cell, flying 38 (25 fixtures), ground 6 of 101,000 moves; liveplay-20261007-162952-A's deploying flyer stopped on the bank in the engine.",
+      "meaning": "every_deploying_unit: the engine's; the walk branch's step of a deploying unit, a flyer's too, stops on the last dry cell's edge. client16402_ground_only: a deploying flyer's step crosses the water; a ground one stops as before.",
+      "open": "Client 15.535.29 unread; the 6 ground crossings of 101,000 (a pull or a knock).",
+      "engine": "state.rs phase_path16402_for (the walk branch's state4_ground); tests/deploy_water_edge.rs."
+    },
     "SPAWN_PATHFIND_MORPH_AREA": {
       "value": "client16402_two_ticks_late",
       "status": "measured",

@@ -1837,6 +1837,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.GUARD_LANDING_HITS = charge_steps_only: the Little Prince's guard hits on its charge's steps alone (unread there).
 ///   combat.GUARD_PRESS_HOLD = table_time: the Little Prince's press holds him for the hold's table time (unread there).
 ///   combat.BUILDING_DEPLOY_LAST_TICK = after_countdown: a building acts from the tick after its deploy ends (unread there).
+///   movement.DEPLOY_WATER_EDGE = every_deploying_unit: a deploying flyer stops at the water's edge (unread there).
+///   collision.GUARD_PRESS_CONTACT = pushed: the Little Prince is pushed in his press (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1995,6 +1997,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.GUARD_LANDING_HITS", "\"charge_steps_only\""),
     ("combat.GUARD_PRESS_HOLD", "\"table_time\""),
     ("combat.BUILDING_DEPLOY_LAST_TICK", "\"after_countdown\""),
+    ("movement.DEPLOY_WATER_EDGE", "\"every_deploying_unit\""),
+    ("collision.GUARD_PRESS_CONTACT", "\"pushed\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

@@ -841,6 +841,14 @@ pub struct Calib {
     /// `AfterCountdown`, what a battle saved before it ran.
     #[serde(default = "building_deploy_last_tick_default")]
     pub building_deploy_last_tick: BuildingDeployLastTick,
+    /// movement.DEPLOY_WATER_EDGE (which deploying units the move pass stops at a water cell's edge: every one, or ground ones alone). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `EveryDeployingUnit`, what a battle saved before it ran.
+    #[serde(default = "deploy_water_edge_default")]
+    pub deploy_water_edge: DeployWaterEdge,
+    /// collision.GUARD_PRESS_CONTACT (whether the Little Prince under his press's hold is pushed by contact (as a held unit is) or not). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Pushed`, what a battle saved before it ran.
+    #[serde(default = "guard_press_contact_default")]
+    pub guard_press_contact: GuardPressContact,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2643,6 +2651,14 @@ fn guard_press_hold_default() -> GuardPressHold {
 
 fn building_deploy_last_tick_default() -> BuildingDeployLastTick {
     BuildingDeployLastTick::AfterCountdown
+}
+
+fn deploy_water_edge_default() -> DeployWaterEdge {
+    DeployWaterEdge::EveryDeployingUnit
+}
+
+fn guard_press_contact_default() -> GuardPressContact {
+    GuardPressContact::Pushed
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9590,6 +9606,27 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.DEPLOY_WATER_EDGE -- the water clamp on a deploying unit's step in the 16.402 move pass's walk branch
+    /// (state.rs `phase_path16402_for`, `move_towards_extra`'s state4_ground; the pushback, slide and pull branches already
+    /// leave a flyer out).
+    DeployWaterEdge {
+        /// The engine's: a deploying flyer pushed by contact stops on the bank too.
+        EveryDeployingUnit = "every_deploying_unit",
+        /// Client 16.402: a deploying flyer crosses the water like any flyer; a ground one stops on the bank.
+        Client16402GroundOnly = "client16402_ground_only",
+    }
+);
+calib_enum!(
+    /// collision.GUARD_PRESS_CONTACT -- the Little Prince under his press's hold (the guard's hold tag, `guard_hold_on`) in
+    /// the 16.402 move pass's held branch (collision.HELD_UNIT_CONTACT's speed-zero update).
+    GuardPressContact {
+        /// The engine's: he takes the held unit's contact update, pushed off whoever overlaps him.
+        Pushed = "pushed",
+        /// Client 16.402: he stands, no contact moving him; a knockback still does.
+        Client16402Unpushed = "client16402_unpushed",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10113,6 +10150,8 @@ impl Calib {
             guard_landing_hits: pick(&v, &["combat", "GUARD_LANDING_HITS", "value"], GuardLandingHits::from_calibration_name)?,
             guard_press_hold: pick(&v, &["combat", "GUARD_PRESS_HOLD", "value"], GuardPressHold::from_calibration_name)?,
             building_deploy_last_tick: pick(&v, &["combat", "BUILDING_DEPLOY_LAST_TICK", "value"], BuildingDeployLastTick::from_calibration_name)?,
+            deploy_water_edge: pick(&v, &["movement", "DEPLOY_WATER_EDGE", "value"], DeployWaterEdge::from_calibration_name)?,
+            guard_press_contact: pick(&v, &["collision", "GUARD_PRESS_CONTACT", "value"], GuardPressContact::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -22850,6 +22889,17 @@ impl BattleState {
         };
         #[cfg(clash_plant = "uppercut_stand_unread")]
         let uppercut_stand: Vec<bool> = vec![false; cap];
+        // collision.GUARD_PRESS_CONTACT = client16402_unpushed: a Little Prince under his press's hold (`guard_hold_on`) takes
+        // no held unit's contact update (`held_walk` below).
+        // PLANT (regression) press_contact_pushed: the new arm still pushes him in his press.
+        #[cfg(not(clash_plant = "press_contact_pushed"))]
+        let press_held: Vec<bool> = if self.cfg.calib.guard_press_contact == GuardPressContact::Client16402Unpushed {
+            (0..cap).map(|i| self.ents.alive[i] && self.guard_hold_on(i)).collect()
+        } else {
+            vec![false; cap]
+        };
+        #[cfg(clash_plant = "press_contact_pushed")]
+        let press_held: Vec<bool> = vec![false; cap];
         // THE TORNADO'S ATTRACT (status.ATTRACT_LAW): one vector per entity, computed
         // from the START-OF-TICK positions, before anything moves and before the entity
         // arrays are borrowed.
@@ -24026,6 +24076,7 @@ impl BattleState {
                     && e.buff_slots(i).iter().any(|s| !s.is_empty() && self.cfg.cards.buffs.get(s.id as usize - 1).is_some_and(|d| d.clone_hold));
                 let held_walk = calib.held_unit_contact == HeldUnitContact::Client16402SpeedZeroUpdate
                     && !clone_held
+                    && !press_held[i]
                     && e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun)
                     && e.knock_ms[i] == 0
                     && !slap_flight[i]
@@ -24824,6 +24875,11 @@ impl BattleState {
                 } else {
                     pull
                 };
+                // PLANT (regression) deploy_flyer_clamped: the new arm still stops a deploying flyer on the bank.
+                #[cfg(not(clash_plant = "deploy_flyer_clamped"))]
+                let deploy_water_ground_only = calib.deploy_water_edge == DeployWaterEdge::Client16402GroundOnly;
+                #[cfg(clash_plant = "deploy_flyer_clamped")]
+                let deploy_water_ground_only = false;
                 let m = move16402::move_towards_extra(
                     actor,
                     aim.0,
@@ -24832,7 +24888,8 @@ impl BattleState {
                     set_dir,
                     &mut con,
                     (segs[i].x, segs[i].y),
-                    deploying || (pull_edge && pull != (0, 0)),
+                    // movement.DEPLOY_WATER_EDGE = client16402_ground_only: a deploying flyer's step crosses the water.
+                    (deploying && !(deploy_water_ground_only && flying)) || (pull_edge && pull != (0, 0)),
                     is_water,
                     arena.cols,
                     arena.rows,
@@ -36150,6 +36207,10 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.BUILDING_DEPLOY_LAST_TICK: Calib gained building_deploy_last_tick (serde default the old arm, after_countdown), no new state (it reads the deploy timer and the target),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.DEPLOY_WATER_EDGE: Calib gained deploy_water_edge (serde default the old arm, every_deploying_unit), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, collision.GUARD_PRESS_CONTACT: Calib gained guard_press_contact (serde default the old arm, pushed), no new state (it reads his hold's buff),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37113,6 +37174,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_press_hold".into(), serde_json::to_value(GuardPressHold::TableTime).map_err(|e| e.to_string())?);
     // combat.BUILDING_DEPLOY_LAST_TICK: a format-3 battle's building acted from the tick after its countdown.
     sh.insert("building_deploy_last_tick".into(), serde_json::to_value(BuildingDeployLastTick::AfterCountdown).map_err(|e| e.to_string())?);
+    // movement.DEPLOY_WATER_EDGE: a format-3 battle's deploying flyer stopped at the water's edge.
+    sh.insert("deploy_water_edge".into(), serde_json::to_value(DeployWaterEdge::EveryDeployingUnit).map_err(|e| e.to_string())?);
+    // collision.GUARD_PRESS_CONTACT: a format-3 battle's Little Prince was pushed in his press.
+    sh.insert("guard_press_contact".into(), serde_json::to_value(GuardPressContact::Pushed).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

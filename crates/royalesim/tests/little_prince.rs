@@ -18,7 +18,8 @@
 //! (`under_client16402_charge_immune_his_guard_takes_no_hit_in_its_charge` red), guard_push_swing_frozen
 //! (`under_client16402_reset_his_guards_push_resets_the_pushed_swing` red), landing_hits_end_at_arrival and
 //! landing_hits_unbounded (`under_client16402_through_landing_ticks_his_guard_hits_through_its_arrival_plus_three` red),
-//! press_hold_table_time (`under_client16402_three_ticks_longer_his_press_holds_him_three_ticks_past_its_time` red).
+//! press_hold_table_time (`under_client16402_three_ticks_longer_his_press_holds_him_three_ticks_past_its_time` red),
+//! press_contact_pushed (`under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -35,7 +36,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardLandingHits, GuardPressHold, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -804,4 +805,40 @@ fn under_client16402_three_ticks_longer_his_press_holds_him_three_ticks_past_its
     let new = first_step_after_press(GuardPressHold::Client16402ThreeTicksLonger);
     assert!((25..=35).contains(&old), "precondition: under table_time his hold of 1500 ms ends about 30 ticks on ({old})");
     assert_eq!(new, old + 3, "client16402_three_ticks_longer: his first step after the press (table_time's {old})");
+}
+
+/// The Little Prince pressed at AT (held there before), a Blue Knight put 400 ahead of him (overlapping) on the press's
+/// tick + 2 and held there, under collision.GUARD_PRESS_CONTACT = `arm`: his greatest distance from his press point over
+/// the press + 3 .. + 15 (his hold, before his guard appears), native.
+fn press_pushed(arm: GuardPressContact) -> i64 {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_press_contact = arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let p0 = s.entity(lp).expect("him").pos;
+    let knight_at = Vec2::new(p0.x, p0.y + 400 * K);
+    let mut knight = None;
+    let mut most = 0i64;
+    for k in 1..=15 {
+        if k == 2 {
+            knight = Some(s.scenario_spawn_now(Team::Blue, "Knight", knight_at, None).expect("the Knight"));
+        }
+        if let Some(id) = knight {
+            assert!(s.debug_set_pos(id, knight_at));
+        }
+        s.tick();
+        if k >= 3 {
+            let p = s.entity(lp).expect("him").pos;
+            let (dx, dy) = (((p.x - p0.x) / K) as i64, ((p.y - p0.y) / K) as i64);
+            most = most.max(dx.abs().max(dy.abs()));
+        }
+    }
+    most
+}
+
+/// collision.GUARD_PRESS_CONTACT = client16402_unpushed (client 16.402, parity's r69 contact study: in his press's hold with
+/// a unit overlapping him he stood still on 266 frames, moved on 4, all knockbacks): a Knight held on him does not move
+/// him in his hold; under pushed (the vacuity check) it pushes him. Plant: press_contact_pushed.
+#[test]
+fn under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press() {
+    assert_eq!(press_pushed(GuardPressContact::Client16402Unpushed), 0, "client16402_unpushed: he moved in his press");
+    assert!(press_pushed(GuardPressContact::Pushed) > 0, "pushed (the vacuity check): the Knight never moved him");
 }
