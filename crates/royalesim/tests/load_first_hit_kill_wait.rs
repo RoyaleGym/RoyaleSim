@@ -75,6 +75,6 @@ fn a_sparky_whose_target_dies_mid_swing_takes_the_next_at_once() {
 }
 
 #[test]
-fn the_shipped_arm_waits() {
-    assert_eq!(Calib::shipped().load_first_hit_kill_wait, LoadFirstHitKillWait::Waits);
+fn the_shipped_arm_client15535_skipped() {
+    assert_eq!(Calib::shipped().load_first_hit_kill_wait, LoadFirstHitKillWait::Client15535Skipped);
 }

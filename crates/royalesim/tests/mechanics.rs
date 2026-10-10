@@ -6,6 +6,8 @@
 //! data/derived/cards.json or calibration.json. Positions are scenario geometry.
 //! Each test names the plant that must turn it red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use royalesim::arena::Arena;
@@ -64,17 +66,17 @@ fn tick_n(s: &mut BattleState, n: u32) {
     }
 }
 
-/// `config()` with placement.TAP_SNAP's old arm, none, for a scene that spawns a troop on an exact point (an edge of
+/// `config_pre_flip()` with placement.TAP_SNAP's old arm, none, for a scene that spawns a troop on an exact point (an edge of
 /// range, the centre line): the shipped tile-centre snap would take it to its tile's centre.
 fn unsnapped() -> BattleConfig {
-    let mut c = config();
+    let mut c = config_pre_flip();
     c.calib.placement_tap_snap = TapSnap::None;
     c
 }
 
 /// Ticks of deploy time for a card, from the data.
 fn deploy_ticks(s: &BattleState, card: &str) -> u32 {
-    (card_stat(s, card).deploy_time_ms / s.config().calib.tick_ms) as u32
+    (card_stat(s, card).deploy_time_ms / s.config_pre_flip().calib.tick_ms) as u32
 }
 
 // ===========================================================================
@@ -133,7 +135,7 @@ fn melee_unit_attacks_from_range_plus_both_radii_without_moving() {
 #[test]
 fn giant_targets_only_buildings_and_never_hits_a_troop() {
     // Plant: remove target_only_buildings from can_target (giant_hits_troops).
-    let mut s = BattleState::new(1, config());
+    let mut s = BattleState::new(1, config_pre_flip());
     s.spawn_unit(Team::Blue, "Giant", t(900, 2000), None).unwrap();
     s.spawn_unit(Team::Red, "Knight", t(900, 2110), None).unwrap();
     s.spawn_unit(Team::Red, "Cannon", t(900, 2500), None).unwrap();
@@ -179,7 +181,7 @@ fn hog_rider_retargets_to_a_cannon_exactly_when_it_enters_sight() {
     // it stays outside, and becomes the target on the tick it enters.
     // Plant: sight_ignored (scan ignores sight).
     let base = {
-        let mut s = BattleState::new(3, config());
+        let mut s = BattleState::new(3, config_pre_flip());
         s.spawn_unit(Team::Blue, "HogRider", t(1450, 1000), None).unwrap();
         let n = deploy_ticks(&s, "HogRider") + 5;
         tick_n(&mut s, n);
@@ -187,7 +189,7 @@ fn hog_rider_retargets_to_a_cannon_exactly_when_it_enters_sight() {
     };
     let hog0 = find_live(&base, Team::Blue, "HogRider")[0];
     assert!(hog0.target.is_none(), "precondition: Hog has no target yet (towers out of sight)");
-    let calib = base.config().calib.clone();
+    let calib = base.config_pre_flip().calib.clone();
     // the sight scan sums SightRange + the extra + the HOG's own radius + the
     // candidate's (targeting.ATTACK_RANGE_RULE; `cannon_at_edge` adds the Cannon's)
     let sight = card_stat(&base, "HogRider").sight_range + calib.extra_sight_range_to_building + hog0.radius;
@@ -247,7 +249,7 @@ fn target_is_locked_once_the_windup_has_started() {
         // targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" a melee swing does
         // not lock (tests/reach_loss_switch.rs pins that), so this scene runs every attacker's lock, the
         // key's other value.
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.preserve_target_scope = royalesim::state::PreserveTargetScope::AllAttackers;
         let mut s = BattleState::new(1, cfg);
         // the reach is Range + the Knight's own radius + the target's
@@ -520,7 +522,7 @@ fn opposing_giants_pass_each_other_on_a_bridge() {
     // each team's rotated frame, so the two Giants pick mirror-image bridge columns
     // and never meet at all. The game's search is absolute-grid (path16402.rs), and
     // under it they do meet.
-    let mut s = BattleState::new(1, config());
+    let mut s = BattleState::new(1, config_pre_flip());
     s.spawn_unit(Team::Blue, "Giant", t(350, 1100), None).unwrap();
     tick_n(&mut s, 23);
     let p = same_lane_opposite(&s, t(350, 1100));
@@ -540,7 +542,7 @@ fn hog_rider_is_not_bulldozed_back_across_the_river_by_a_giant() {
     // nine tiles backwards. The Hog must never be driven more than 2 tiles back
     // from the farthest point it has reached, and must cross the river.
     // Plant: no_unit_avoidance (measured under it: pushed back 6.2 tiles by tick 600).
-    let mut s = BattleState::new(1, config());
+    let mut s = BattleState::new(1, config_pre_flip());
     s.spawn_unit(Team::Blue, "HogRider", t(350, 1100), None).unwrap();
     let p = same_lane_opposite(&s, t(350, 1100));
     s.spawn_unit(Team::Red, "Giant", p, None).unwrap();
@@ -594,7 +596,7 @@ fn a_unit_pushed_into_a_footprint_is_pushed_back_out() {
 // path.rs
 
 fn giant_track(model: PathModel, ticks: u32) -> Vec<Vec2> {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.path_model = model;
     let mut s = BattleState::new(1, cfg);
     s.spawn_unit(Team::Blue, "Giant", t(600, 900), None).unwrap();
@@ -644,7 +646,7 @@ fn no_path_model_ever_puts_a_ground_unit_on_water() {
     // 600 ticks, water / footprint / overlap invariants on every tick.
     // Plant: no_water_block.
     for model in [PathModel::LaneSnap, PathModel::GridAStar, PathModel::DiagonalLookahead] {
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.path_model = model;
         let mut s = BattleState::new(11, cfg);
         let mut rng = Rng::new(99);
@@ -674,7 +676,7 @@ fn air_units_ignore_the_grid() {
     // Minions from (9, 10) fly straight over the river; every model plans a single
     // waypoint for them and the track touches water cells. Plant: air_uses_grid.
     for model in [PathModel::LaneSnap, PathModel::GridAStar, PathModel::DiagonalLookahead] {
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.path_model = model;
         let mut s = BattleState::new(1, cfg);
         s.spawn_unit(Team::Blue, "Minions", t(900, 1000), None).unwrap();
@@ -756,7 +758,7 @@ fn ranged_damage_comes_from_the_projectile_and_lands_on_arrival() {
     cfg.tower_level = [cfg.card_level[0], cfg.card_level[1]];
     let mut s = BattleState::new(1, cfg);
     let a_idx = s.cards().index("TestArcher").unwrap();
-    let expected = s.cards().scaled(a_idx, s.config().card_level[0], 41).unwrap();
+    let expected = s.cards().scaled(a_idx, s.config_pre_flip().card_level[0], 41).unwrap();
     // Out of every tower's range (a princess tower reaches Range 7500 + its own
     // 1000 + the target's radius: 9 tiles from its centre for a 500-radius unit,
     // targeting.ATTACK_RANGE_RULE): archer on Red's side facing a dummy on Blue's,
@@ -793,7 +795,7 @@ fn two_units_that_kill_each_other_on_the_same_tick_both_die() {
     // Damage is buffered and applied in Resolve. Two Knights spawned on the same
     // tick facing each other wind up together; at 1 hp each, both must die on
     // the same tick. Plant: inline_damage.
-    let mut s = BattleState::new(1, config());
+    let mut s = BattleState::new(1, config_pre_flip());
     s.spawn_unit(Team::Blue, "Knight", t(900, 1350), None).unwrap();
     s.spawn_unit(Team::Red, "Knight", t(900, 1450), None).unwrap();
     let n = deploy_ticks(&s, "Knight") + 1;

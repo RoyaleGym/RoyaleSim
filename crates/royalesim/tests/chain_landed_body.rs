@@ -93,6 +93,6 @@ fn the_old_value_pushes_him_at_once() {
 }
 
 #[test]
-fn the_shipped_value_is_landed_body() {
-    assert_eq!(Calib::shipped().chain_landed_body, ChainLandedBody::LandedBody);
+fn the_shipped_value_is_client15535_no_body_to_end() {
+    assert_eq!(Calib::shipped().chain_landed_body, ChainLandedBody::Client15535NoBodyToEnd);
 }

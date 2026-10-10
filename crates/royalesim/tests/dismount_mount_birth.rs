@@ -92,8 +92,8 @@ fn the_old_value_takes_no_first_update() {
 }
 
 #[test]
-fn the_shipped_value_is_fitted_offset() {
-    assert_eq!(Calib::shipped().dismount_mount_birth, DismountMountBirth::FittedOffset);
+fn the_shipped_value_is_client15535_hero_point() {
+    assert_eq!(Calib::shipped().dismount_mount_birth, DismountMountBirth::Client15535HeroPoint);
 }
 
 /// The mount's first frame and the first tick an enemy may take it (EntityView::acquirable_from), under

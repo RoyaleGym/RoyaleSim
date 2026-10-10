@@ -95,6 +95,6 @@ fn the_old_value_and_the_new_agree_on_every_positive_axis() {
 }
 
 #[test]
-fn the_shipped_value_is_floor() {
-    assert_eq!(Calib::shipped().soul_offset_rounding, SoulOffsetRounding::Floor);
+fn the_shipped_value_is_client15535_toward_zero() {
+    assert_eq!(Calib::shipped().soul_offset_rounding, SoulOffsetRounding::Client15535TowardZero);
 }

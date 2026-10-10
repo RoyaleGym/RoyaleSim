@@ -10,6 +10,8 @@
 //! evo_archer`):
 //!   - far_shot_never -> every test red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -22,7 +24,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 }
 
 fn battle() -> BattleState {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["Archer".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];

@@ -1012,3 +1012,148 @@ pub fn assert_buttons_agree(s: &BattleState, team: Team) {
         }
     }
 }
+
+/// THE c4 FLIP'S OLD ARMS (parity r66): the 116 keys whose client 16.402 value the flip moved to the 15.535.29 arm the
+/// current client shares (examples/replay_parity/harness.rs CLIENT15535_ARMS), each at the value it shipped before. A test
+/// file written on the engine before the flip runs them (`config_pre_flip`), as an old-arm pin does; each key's own tests
+/// read both of its arms.
+pub const PRE_FLIP_ARMS: &[(&str, &str)] = &[
+    ("collision.ATTRACT_CONTACT_MEAN", "\"after_mean\""),
+    ("collision.CAGE_CAPTIVE_AVOIDANCE", "\"scanned\""),
+    ("collision.DRILL_RISE_BODY", "\"hide_time\""),
+    ("combat.CAGE_CAPTIVE_SHOTS", "\"after_shots_hidden_on_snap\""),
+    ("combat.CAGE_RELEASE_SCAN", "\"stunned\""),
+    ("combat.DART_POISON_PULSE", "\"single_take\""),
+    ("combat.DASH_CHAIN_AIM", "\"target_centre\""),
+    ("combat.DASH_CHAIN_IMMUNITY", "\"none\""),
+    ("combat.DASH_RANGE_TARGET_POINT", "\"start_of_tick\""),
+    ("combat.DEATH_BLOW_VICTIM_REAP", "\"next_tick\""),
+    ("combat.DIRECT_HIT_BUFF_COUNTDOWN", "\"resolve_landing\""),
+    ("combat.DOOMED_READ_IN_PASS", "\"start_of_pass\""),
+    ("combat.EVO_CHAIN_HOP_FIRST_STEP", "\"next_tick\""),
+    ("combat.EVO_CHAIN_HOP_WAIT", "\"at_once\""),
+    ("combat.EVO_CHAIN_SHOT_LAUNCH", "\"fire_tick\""),
+    ("combat.EVO_IMPACT_AREA_ANCHOR", "\"landing_point\""),
+    ("combat.FAR_SHOT_SELECT_MOMENT", "\"as_attack_select\""),
+    ("combat.HELD_SHOT_TEST", "\"tested\""),
+    ("combat.KAMIKAZE_LAUNCH_PASS", "\"buffered\""),
+    ("combat.LAUNCH_PAST_TARGET", "\"clamped\""),
+    ("combat.LOAD_FIRST_HIT_KILL_WAIT", "\"waits\""),
+    ("combat.LOAD_FIRST_HIT_LEAVE", "\"runs_on\""),
+    ("combat.LOAD_TIMER_TARGET_LOSS", "\"runs_on\""),
+    ("combat.LOST_TARGET_SWING", "\"cancelled\""),
+    ("combat.NET_CAST_WINDOW", "\"target_hold\""),
+    ("combat.NET_INITIAL_COOLDOWN", "\"after_deploy\""),
+    ("combat.NET_LAUNCH", "\"extra_and_wait\""),
+    ("combat.PASS_KILL_CHASE", "\"start_of_pass\""),
+    ("combat.POST_KILL_DOOM_ETA", "\"ignored\""),
+    ("combat.RAMP_GRACE_MOVE", "\"point_changed\""),
+    ("combat.RAMP_STUN_RESTART", "\"paused\""),
+    ("combat.RETARGET_WAIT_REACH_LOSS", "\"client_after_reach_loss\""),
+    ("combat.SIEGE_RESET_HOLD", "\"next_tick\""),
+    ("combat.SPIN_BEGIN", "\"press_tick\""),
+    ("combat.TIMED_JUMP_BLOW_STOP", "\"flies_to_goal\""),
+    ("combat.UPPERCUT_STAND", "\"none\""),
+    ("combat.WARP_HIDING", "\"arrival\""),
+    ("formation.ARMY_GENERAL_POINT", "\"tap\""),
+    ("formation.LINE_CENTRE_SEARCH", "\"ring_corner_walk\""),
+    ("formation.LINE_FRAME", "\"rotation\""),
+    ("formation.LINE_LANE", "\"tap\""),
+    ("hide.DRILL_UNDER_SHOT", "\"lands\""),
+    ("hide.SHOT_AT_HIDING_BUILDING", "\"dropped\""),
+    ("movement.AVOIDANCE_OBSTACLE_TAG", "\"not_read\""),
+    ("movement.CAPTURE_DRAG_FACING", "\"walk_facing\""),
+    ("movement.CAST_HOLD_HEADING", "\"counted\""),
+    ("movement.CHAIN_LANDED_BODY", "\"landed_body\""),
+    ("movement.DEATH_BOMB_AVOIDANCE", "\"none\""),
+    ("movement.DEFLECT_CONTACT", "\"hidden\""),
+    ("movement.DEFLECT_STAY_TIME", "\"active_time\""),
+    ("movement.DOOMED_OWN_UPDATE", "\"walks\""),
+    ("movement.HELD_FACING", "\"unchanged\""),
+    ("movement.HELD_WAYPOINT_TEST", "\"not_run\""),
+    ("movement.JUMP_LANDING_SCOPE", "\"move_pass\""),
+    ("movement.KAMIKAZE_DEATH_CONTACT", "\"as_doomed\""),
+    ("movement.KNOCKED_DOOMED_AVOIDANCE", "\"static\""),
+    ("movement.STRUCK_CONTACT_ORDER", "\"whole_pass\""),
+    ("placement.ENEMY_BUILDING_TAPS", "\"ignored\""),
+    ("placement.ILLEGAL_TROOP_TAP", "\"refuse\""),
+    ("placement.RELOCATION_TIE_ORDER", "\"placer_frame_first_found\""),
+    ("placement.TROOP_RELOCATION_TIE_ORDER", "\"placer_frame_first_found\""),
+    ("spawner.ACTION_GROUP_SPAWN_ORDER", "\"listed\""),
+    ("spawner.BARREL_DROP_POINT", "\"status_phase\""),
+    ("spawner.CONTAINER_BURST_PUSH", "\"none\""),
+    ("spawner.CONTAINER_RING_WATER", "\"eject_nearest_land\""),
+    ("spawner.DEATH_BOMB_TIMING_SCOPE", "\"containers\""),
+    ("spawner.DEATH_PROJECTILE_COPIES", "\"one\""),
+    ("spawner.DEATH_RING_DIRECTION", "\"target_first\""),
+    ("spawner.DEATH_SPAWN_PROJECTILE", "\"none\""),
+    ("spawner.EVO_COPY_COUNT", "\"after_reap\""),
+    ("spawner.EVO_COPY_POINT", "\"client15535_ahead_outward_behind\""),
+    ("spawner.FIRST_STEP_DYING_CONTACT", "\"pushed\""),
+    ("spawner.HERO_TOMB_EMISSION_NUDGE", "\"none\""),
+    ("spawner.SOUL_OFFSET_ROUNDING", "\"floor\""),
+    ("spawner.SOUL_POINT_BASE", "\"pre_move\""),
+    ("spawner.SPECTRAL_BIRTH_POINT", "\"soldier_point\""),
+    ("spawner.SPECTRAL_FIRST_UPDATE", "\"none\""),
+    ("spawner.SPECTRAL_PARENT_BLOCKER", "\"none\""),
+    ("spawner.THROWN_UNIT_DEATH_BLOW", "\"reached\""),
+    ("spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE", "\"post_move\""),
+    ("spells.CAPTURE_ROUTE", "\"kept\""),
+    ("spells.CLONE_HOLD_DEPLOY", "\"hold_time\""),
+    ("spells.CLONE_OFFSET", "\"owner_axis_slide_over_hold\""),
+    ("spells.CLONE_SLIDE_ROUTE", "\"kept\""),
+    ("spells.ILLEGAL_SPELL_TAP", "\"refuse\""),
+    ("status.ATTRACT_ONSET", "\"area_first_tick\""),
+    ("status.ATTRACT_WATER_EDGE", "\"walk_rule\""),
+    ("status.BUFF_DEATH_SPAWN_FIRST_UPDATE", "\"next_tick\""),
+    ("status.BUFF_DEATH_SPAWN_UNDELAYED_DEPLOY", "\"zero\""),
+    ("status.FIRST_HIT_BUFF_COUNTDOWN", "\"landing_tick\""),
+    ("status.HEAL_PULSE_LANDING", "\"after_hits\""),
+    ("targeting.CHASE_DROP_KNOCKED_TARGET", "\"client_holds_knocked\""),
+    ("targeting.CHASE_DROP_MEASURE", "\"max_abs\""),
+    ("targeting.CHASE_DROP_WALKING_AWAY", "\"any_target\""),
+    ("targeting.CHASE_HOLD_SCOPE", "\"every_holder\""),
+    ("targeting.DOOMED_DROP_SPEAR_MEMBERS", "\"melee\""),
+    ("targeting.DRILL_RISE_TARGETABLE", "\"hidden_through_rise\""),
+    ("targeting.EQUAL_DISTANCE_TIE", "\"own_frame_high_x\""),
+    ("targeting.GHOST_PAIR_FIRST_FRAME", "\"targetable\""),
+    ("targeting.KNOCKED_LOST_TARGET", "\"held_none\""),
+    ("targeting.KNOCKED_TARGET_HOLD", "\"held_while_knocked\""),
+    ("targeting.LAUNCH_BEYOND_KEEP", "\"rescan\""),
+    ("targeting.LAUNCH_BEYOND_POSITION", "\"start_of_tick\""),
+    ("targeting.NEWBORN_FIRST_TARGET", "\"scan_at_emission\""),
+    ("targeting.SLAP_FLIGHT_SIGHT_HOLD", "\"held\""),
+    ("targeting.SLAP_FLIGHT_TARGETABILITY", "\"ground\""),
+    ("targeting.SNIPE_LOCK_RELEASE", "\"ahead_below_min\""),
+    ("targeting.SNIPE_REPICK", "\"nearest_ahead\""),
+    ("targeting.UPPERCUT_FLIGHT_TARGETABILITY", "\"ground\""),
+    ("targeting.WALKING_KEEP_REACH", "\"own_radius\""),
+    ("transform.DISMOUNT_HOP_WATER", "\"keep_water\""),
+    ("transform.DISMOUNT_LEAP_STEP", "\"rebind_first\""),
+    ("transform.DISMOUNT_MOUNT_ACQUIRE", "\"at_once\""),
+    ("transform.DISMOUNT_MOUNT_BIRTH", "\"fitted_offset\""),
+    ("transform.DISMOUNT_MOUNT_HOLD_BODY", "\"collides\""),
+    ("transform.FALL_GROUNDING", "\"status_rebind\""),
+];
+
+/// `cfg`'s calib with PRE_FLIP_ARMS laid over it: every other setting it holds is kept.
+pub fn pre_flip(cfg: &mut BattleConfig) {
+    let ov: std::collections::BTreeMap<String, String> = PRE_FLIP_ARMS.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    let (old, _) = royalesim::state::Calib::shipped_with_overrides(&ov).expect("the pre-flip arms load");
+    let shipped = serde_json::to_value(royalesim::state::Calib::shipped()).expect("a calib serializes");
+    let old = serde_json::to_value(old).expect("a calib serializes");
+    let mut mine = serde_json::to_value(&cfg.calib).expect("a calib serializes");
+    for (k, v) in old.as_object().expect("a calib is an object") {
+        if shipped.get(k) != Some(v) {
+            mine[k] = v.clone();
+        }
+    }
+    cfg.set_calib(serde_json::from_value(mine).expect("the pinned calib deserializes"));
+}
+
+/// `config()` on the c4 flip's old arms (`pre_flip`).
+pub fn config_pre_flip() -> BattleConfig {
+    let mut cfg = config();
+    pre_flip(&mut cfg);
+    cfg
+}

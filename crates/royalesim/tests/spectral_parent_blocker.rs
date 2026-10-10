@@ -25,6 +25,8 @@
 //!   * `spectral_parent_unseen` -- the new arm's first update still meets none of them: (1) and (4) go red.
 //!   * `spectral_blocker_static_span` -- the new arm groups the dying soldiers by their radius: (4) goes red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -38,7 +40,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 
 /// The Spectral's avoidance offset on its first frame under `arm`.
 fn first_offset(arm: SpectralParentBlocker) -> i32 {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.calib.spectral_first_update = SpectralFirstUpdate::Client15535SameTick;
     cfg.calib.spectral_parent_blocker = arm;
     cfg.decks = [vec!["SkeletonArmy".into(), "Knight".into()], vec!["Knight".into(), "Zap".into()]];
@@ -77,14 +79,14 @@ fn the_old_value_walks_straight() {
 }
 
 #[test]
-fn the_shipped_value_is_none() {
-    assert_eq!(Calib::shipped().spectral_parent_blocker, SpectralParentBlocker::None);
+fn the_shipped_value_is_client15535_static_walker_group() {
+    assert_eq!(Calib::shipped().spectral_parent_blocker, SpectralParentBlocker::Client15535StaticWalkerGroup);
 }
 
 /// The first-frame avoidance offset of the Spectral made at (5000, y) under `arm`: two soldiers moved to (5000, y) and
 /// (5745, y + 856), a Blue Cannon at (4700, y + 1100), a red Knight 3,000 above, both soldiers set to 0 hp.
 fn pair_offset(arm: SpectralParentBlocker, b_at: (i32, i32)) -> Option<i32> {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.calib.spectral_first_update = SpectralFirstUpdate::Client15535SameTick;
     cfg.calib.spectral_parent_blocker = arm;
     cfg.decks = [vec!["SkeletonArmy".into(), "Knight".into(), "Cannon".into()], vec!["Knight".into(), "Zap".into()]];

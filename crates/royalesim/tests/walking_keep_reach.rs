@@ -95,6 +95,6 @@ fn the_old_value_keeps_the_far_target() {
 }
 
 #[test]
-fn the_shipped_value_is_own_radius() {
-    assert_eq!(Calib::shipped().walking_keep_reach, WalkingKeepReach::OwnRadius);
+fn the_shipped_value_is_client15535_walking_reach() {
+    assert_eq!(Calib::shipped().walking_keep_reach, WalkingKeepReach::Client15535WalkingReach);
 }

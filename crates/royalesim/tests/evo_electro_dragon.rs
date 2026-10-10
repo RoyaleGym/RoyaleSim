@@ -10,6 +10,8 @@
 //!   - evo_chain_never -> `his_chain_hops_by_its_last_two_hits_without_end_and_his_next_shot_starts_another` red;
 //!   - evo_chain_no_repeat -> the same red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -27,7 +29,7 @@ fn his_chain_hops_by_its_last_two_hits_without_end_and_his_next_shot_starts_anot
     // Oracle's sp-f4-ed3-s0 laid out: the form held at (14650, 15000), 3499 from a red Knight at (14650, 18499) (his
     // target: the closest); a red Ice Golem 1200 from the Knight, a red Valkyrie 3100 from the Ice Golem and 4260 from the
     // Knight; all held and topped up. Blue's princess towers down (no crown tower reaches the scene).
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["ElectroDragon".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];

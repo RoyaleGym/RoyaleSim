@@ -11,6 +11,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! held_facing`): held_facing_unchanged -> `a_held_unit_turns_its_facing_toward_its_waypoint` red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -25,7 +27,7 @@ fn at(x: i32, y: i32) -> Vec2 {
 /// The scene under `arm`: (the facing before the push, the facing on the held tick after it, the direction from the
 /// pushed point to the next waypoint).
 fn held_turn(arm: HeldFacing) -> ((i32, i32), (i32, i32), (i32, i32)) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     let deck: Vec<String> = ["HogRider", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.card_level = [11, 11];

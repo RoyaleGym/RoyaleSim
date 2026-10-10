@@ -136,5 +136,5 @@ fn a_leaving_sparky_gets_its_windup_back() {
 
 #[test]
 fn the_shipped_arm_runs_the_timer_on() {
-    assert_eq!(Calib::shipped().load_first_hit_leave, LoadFirstHitLeave::RunsOn);
+    assert_eq!(Calib::shipped().load_first_hit_leave, LoadFirstHitLeave::Client15535RefundAtDeath);
 }

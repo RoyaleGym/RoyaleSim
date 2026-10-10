@@ -67,5 +67,5 @@ fn a_shot_landing_in_his_chain_does_nothing() {
 
 #[test]
 fn the_shipped_arm_reads_no_immunity() {
-    assert_eq!(Calib::shipped().dash_chain_immunity, DashChainImmunity::None);
+    assert_eq!(Calib::shipped().dash_chain_immunity, DashChainImmunity::Client15535WholeChain);
 }

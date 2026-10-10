@@ -59,5 +59,5 @@ fn a_ghost_pair_is_no_target_on_its_first_frame() {
 
 #[test]
 fn the_shipped_arm_lets_it_be_taken() {
-    assert_eq!(Calib::shipped().ghost_pair_first_frame, GhostPairFirstFrame::Targetable);
+    assert_eq!(Calib::shipped().ghost_pair_first_frame, GhostPairFirstFrame::Client15535Untargetable);
 }

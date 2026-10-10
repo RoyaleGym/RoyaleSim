@@ -75,6 +75,6 @@ fn an_evo_electro_dragons_shot_lands_a_tick_later_under_client15535_next_tick() 
 }
 
 #[test]
-fn the_shipped_value_is_fire_tick() {
-    assert_eq!(Calib::shipped().evo_chain_shot_launch, EvoChainShotLaunch::FireTick);
+fn the_shipped_value_is_client15535_next_tick() {
+    assert_eq!(Calib::shipped().evo_chain_shot_launch, EvoChainShotLaunch::Client15535NextTick);
 }

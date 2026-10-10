@@ -75,6 +75,6 @@ fn the_old_value_holds_it() {
 }
 
 #[test]
-fn the_shipped_value_is_start_of_tick() {
-    assert_eq!(Calib::shipped().launch_beyond_position, LaunchBeyondPosition::StartOfTick);
+fn the_shipped_value_is_client15535_after_move() {
+    assert_eq!(Calib::shipped().launch_beyond_position, LaunchBeyondPosition::Client15535AfterMove);
 }

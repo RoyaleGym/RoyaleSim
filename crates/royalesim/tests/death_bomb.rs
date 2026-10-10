@@ -45,6 +45,8 @@
 //!   (6) give the impact an absolute-frame offset (aim at `pos.add(Vec2::new(0,
 //!       SUBTILE))` in `phase_reap` instead of `pos`): the seats stop agreeing.
 
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -151,7 +153,7 @@ fn every_death_bomb_row_loads_as_a_timed_impact_and_only_a_death_releases_one() 
 /// Kill a `team` `card` standing on the enemy's tower `k`: (ticks from the death
 /// tick to the hit, hitpoints the tower lost).
 fn fuse_and_amount(card: &str, team: Team, k: usize) -> (u32, i32) {
-    fuse_and_amount_in(config(), card, team, k)
+    fuse_and_amount_in(config_pre_flip(), card, team, k)
 }
 
 /// `fuse_and_amount` under `cfg`.
@@ -180,7 +182,7 @@ fn fuse_and_amount_in(cfg: BattleConfig, card: &str, team: Team, k: usize) -> (u
 fn a_death_bomb_lands_a_fuse_after_the_death_for_its_own_rows_damage() {
     let db = cards();
     let calib = Calib::shipped();
-    let level = config().card_level[0];
+    let level = config_pre_flip().card_level[0];
     for card in BOMB_CARDS {
         let (bomb_idx, bomb) = bomb_of(&db, card).unwrap_or_else(|| panic!("{card}: no bomb"));
         let fuse = bomb.deploy_time_ms;
@@ -206,7 +208,7 @@ fn a_death_bomb_lands_a_fuse_after_the_death_for_its_own_rows_damage() {
 #[test]
 fn a_death_bomb_never_becomes_an_entity_and_leaves_no_phantom_target() {
     let db = cards();
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let (tower, p) = tower_at(&s, Team::Red, 1);
     let max = s.entity(tower).expect("a live tower").max_hp;
     // A Red Knight two tiles off the death point: something that picks a target
@@ -245,7 +247,7 @@ fn a_death_bomb_never_becomes_an_entity_and_leaves_no_phantom_target() {
 /// anyone's `team_seq`, and it is flying, so no Knight can target it in the one
 /// tick it lives.
 fn two_knights(bomb: bool, n: u32) -> (i32, i32) {
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     // Mid-board, out of every crown tower's range, so the only damage in the battle
     // is the Knights' and the bomb's.
     let mid = t(900, 1300);
@@ -270,7 +272,7 @@ fn a_death_bomb_spares_its_own_side_and_costs_the_enemy_exactly_its_amount() {
     let (friend_with, foe_with) = two_knights(true, n);
     let (friend_without, foe_without) = two_knights(false, n);
     assert_eq!(friend_with, friend_without, "the bomb hit its own side");
-    let want = db.scaled(bomb_idx, config().card_level[0], bomb.death_damage).expect("a level");
+    let want = db.scaled(bomb_idx, config_pre_flip().card_level[0], bomb.death_damage).expect("a level");
     assert_eq!(foe_without - foe_with, want, "the enemy Knight is not exactly one bomb short");
     assert!(want > 0 && foe_with > 0, "vacuous: the bomb cost nothing or killed the Knight");
 }
@@ -296,7 +298,7 @@ fn the_bomb_is_the_same_on_both_seats() {
 #[test]
 fn a_bomb_still_counting_down_survives_a_save_and_goes_off_on_the_same_tick() {
     let db = cards();
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let (tower, p) = tower_at(&s, Team::Red, 1);
     let before = s.entity(tower).expect("a live tower").hp;
     let id = s.scenario_spawn_now(Team::Blue, "Balloon", p, None).expect("a Balloon");
@@ -327,7 +329,7 @@ fn the_plain_bombs_keep_their_fuse_under_every_container_timing() {
         for card in BOMB_CARDS {
             let (_, bomb) = bomb_of(&db, card).unwrap_or_else(|| panic!("{card}: no bomb"));
             assert!(bomb.death_spawn.is_none(), "{card}: its bomb carries a death spawn, so it is a container");
-            let mut cfg = config();
+            let mut cfg = config_pre_flip();
             cfg.calib.death_bomb_spawn_timing = arm;
             let (ticks, lost) = fuse_and_amount_in(cfg, card, Team::Blue, 1);
             assert_eq!(ticks, (bomb.deploy_time_ms / calib.tick_ms) as u32 + 1, "{card} under {arm:?}: the bomb landed {ticks} ticks after the death");

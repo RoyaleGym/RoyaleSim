@@ -19,6 +19,8 @@
 //! bridge_after_fall`):
 //!   * `bridge_closed_after_fall` -- the open arm keeps the river band closed: (2) goes red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -35,7 +37,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 /// A battle of Blue Knights against Red Knights under `model`, past the deploy lockout, Red's LEFT princess killed when
 /// `fallen`.
 fn battle(model: TerritoryModel, fallen: bool) -> BattleState {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["Knight".into()], vec!["Knight".into()]];
     cfg.card_level = [11, 11];
     cfg.calib.territory_model = model;
@@ -67,7 +69,7 @@ const RIGHT_BRIDGE: [(i32, i32); 2] = [(14500, 15500), (14500, 16500)];
 
 #[test]
 fn the_shipped_model_is_the_open_bridge() {
-    assert_eq!(config().calib.territory_model, SHIPPED, "calibration arena.TERRITORY_MODEL");
+    assert_eq!(config_pre_flip().calib.territory_model, SHIPPED, "calibration arena.TERRITORY_MODEL");
 }
 
 #[test]

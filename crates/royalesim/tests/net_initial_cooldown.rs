@@ -90,6 +90,6 @@ fn the_old_value_waits_out_the_deploy_first() {
 }
 
 #[test]
-fn the_shipped_value_is_after_deploy() {
-    assert_eq!(Calib::shipped().net_initial_cooldown, NetInitialCooldown::AfterDeploy);
+fn the_shipped_value_is_client15535_from_creation() {
+    assert_eq!(Calib::shipped().net_initial_cooldown, NetInitialCooldown::Client15535FromCreation);
 }

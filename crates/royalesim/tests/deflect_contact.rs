@@ -97,6 +97,6 @@ fn the_old_value_pushes_nothing() {
 }
 
 #[test]
-fn the_shipped_value_is_hidden() {
-    assert_eq!(Calib::shipped().deflect_contact, DeflectContact::Hidden);
+fn the_shipped_value_is_client15535_pushes() {
+    assert_eq!(Calib::shipped().deflect_contact, DeflectContact::Client15535Pushes);
 }

@@ -85,6 +85,6 @@ fn the_old_value_restarts_the_swing() {
 }
 
 #[test]
-fn the_shipped_value_is_cancelled() {
-    assert_eq!(Calib::shipped().lost_target_swing, LostTargetSwing::Cancelled);
+fn the_shipped_value_is_client15535_runs_on_in_reach() {
+    assert_eq!(Calib::shipped().lost_target_swing, LostTargetSwing::Client15535RunsOnInReach);
 }

@@ -100,5 +100,5 @@ fn a_target_updated_after_the_dasher_reads_alike_under_both_arms() {
 
 #[test]
 fn the_shipped_arm_reads_the_start_of_tick_point() {
-    assert_eq!(Calib::shipped().dash_range_target_point, DashRangeTargetPoint::StartOfTick);
+    assert_eq!(Calib::shipped().dash_range_target_point, DashRangeTargetPoint::Client15535PassPoint);
 }

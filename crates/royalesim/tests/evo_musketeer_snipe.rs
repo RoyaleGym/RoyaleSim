@@ -23,6 +23,8 @@
 //! Fireball put down 39 ticks after her lands on the 46th tick after her deploy end here, the 47th in the run, so her
 //! third snipe, at the Knight, leaves at +61 here and at +62 there.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -80,13 +82,13 @@ struct Frame {
 /// Her shots and her frames, `ticks` ticks after she is put down at `me`; each foe `(card, point, delay)` is put down
 /// `delay` ticks after her.
 fn scene(me: (i32, i32), foes: &[(&str, (i32, i32), u32)], ticks: u32) -> (Vec<Shot>, Vec<Frame>) {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let form = s.cards().index("Musketeer_EV1").expect("the evolved Musketeer loads");
-    let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
+    let mult = s.config_pre_flip().calib.projectile_speed_to_subtiles_per_tick;
     s.spawn_unit(Team::Blue, "Musketeer_EV1", n(me.0, me.1), None).unwrap();
     let (mut shots, mut frames) = (Vec::new(), Vec::new());
     let mut deploy_end: Option<u32> = None;
@@ -203,13 +205,13 @@ fn d_a_spell_in_flight_is_not_pending_damage() {
     // her; her side's Fireball cast at (3753, 18245) 39 ticks after her. Snipes at +15 and +34 at goblins, the second
     // at the goblin then at (3015, 16587), inside the Fireball's area while it flies; then the Knight, 1078 hp after
     // the Fireball's 688.
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let form = s.cards().index("Musketeer_EV1").expect("the evolved Musketeer loads");
-    let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
+    let mult = s.config_pre_flip().calib.projectile_speed_to_subtiles_per_tick;
     s.spawn_unit(Team::Blue, "Musketeer_EV1", n(3499, 9500), None).unwrap();
     let mut deploy_end: Option<u32> = None;
     // At each snipe: its tick, its target's card and position, the Knight's hp, the goblins alive.

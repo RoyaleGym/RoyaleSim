@@ -20,6 +20,8 @@
 //! 15.535.29 and checked on the whole sweep, 245 of 246 runs) places the 13 exact ties where the client put them, which
 //! the engine's ring_corner_walk does not.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -94,7 +96,7 @@ const TAPS: [((i32, i32), (i32, i32)); 57] = [
 fn a_line_put_down_stands_where_the_client_put_it() {
     let mut wrong = Vec::new();
     for ((x, y), want) in TAPS {
-        let mut s = BattleState::new(7, config());
+        let mut s = BattleState::new(7, config_pre_flip());
         past_deploy_lockout(&mut s);
         s.spawn_unit(Team::Blue, "RoyalRecruits", Vec2::new(x * K, y * K), None).expect("the line");
         s.tick();
@@ -113,7 +115,7 @@ fn a_line_put_down_stands_where_the_client_put_it() {
 
 #[test]
 fn the_royal_recruits_line_stands_where_the_client_put_it() {
-    let s = BattleState::new(7, config());
+    let s = BattleState::new(7, config_pre_flip());
     let mut wrong = Vec::new();
     for ((x, y), want) in TAPS {
         let members = s.formation_preview(Team::Blue, "RoyalRecruits", Vec2::new(x * K, y * K)).expect("the line");
@@ -135,7 +137,7 @@ fn the_royal_recruits_line_stands_where_the_client_put_it() {
 #[test]
 fn a_line_is_taken_on_its_own_princess_box_and_refused_on_an_enemy_building() {
     use royalesim::state::DeployError;
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     const DECK: [&str; 8] = ["RoyalRecruits", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
     let deck: Vec<String> = DECK.iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
@@ -180,7 +182,7 @@ const TIES: [Tap; 13] = [
 
 /// The line's centre for each of `taps` under `arm` (formation_preview), as the measurements read it.
 fn centres(arm: LineCentreSearch, taps: &[Tap]) -> Vec<(Point, Point, Point)> {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.calib.line_centre_search = arm;
     let s = BattleState::new(7, cfg);
     taps.iter()
@@ -214,7 +216,7 @@ fn the_exact_ties_go_where_the_client_put_them_under_client15535_interleaved_fir
 /// on these two taps: the pin guards that round trip (a wrong map back lays the line on the other half), not the order.
 #[test]
 fn a_side_1_line_goes_where_the_client_put_it_under_client15535_interleaved_first_ring() {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.calib.line_centre_search = LineCentreSearch::Client15535InterleavedFirstRing;
     cfg.calib.line_frame = royalesim::state::LineFrame::Client15535YReflection;
     let s = BattleState::new(7, cfg);
@@ -240,7 +242,7 @@ fn a_side_1_line_goes_where_the_client_put_it_under_client15535_interleaved_firs
 fn a_line_tapped_on_the_back_row_stands_there() {
     for search in [LineCentreSearch::RingCornerWalk, LineCentreSearch::Client15535InterleavedFirstRing] {
         let centre = |arm: LineKingBackRow, (x, y): Point| -> Point {
-            let mut cfg: BattleConfig = config();
+            let mut cfg: BattleConfig = config_pre_flip();
             cfg.calib.line_centre_search = search;
             cfg.calib.line_king_back_row = arm;
             let s = BattleState::new(7, cfg);

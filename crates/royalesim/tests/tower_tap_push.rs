@@ -23,6 +23,8 @@
 //!     `a_tap_on_a_tile_line_lands_on_the_lower_row` goes red.
 //!   * `ring_walks_the_snap_frame` (aimed at tests/live_bottle_taps.rs) -- the ring walks the arena's frame under
 //!     SNAP_EVEN_CORNER = absolute: (5) goes red, ring_nearest's misses move.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -127,7 +129,7 @@ fn team(side: u8) -> Team {
 }
 
 fn battle(push: TowerTapPush, snap: TapSnap) -> BattleState {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.placement_troop_tower_taps = TroopTowerTaps::HalfOpenRelocate;
     cfg.calib.placement_tower_tap_push = push;
     cfg.calib.placement_tap_snap = snap;

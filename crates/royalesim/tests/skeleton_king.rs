@@ -25,6 +25,8 @@
 //!   - copies_pushed_while_deploying -> `a_deploying_copy_is_out_of_the_contact_law` red.
 //!   - souls_land_at_once -> `a_16402_soul_counts_once_it_has_landed` red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -58,7 +60,7 @@ type Extra<'a> = (Team, &'a str, (i32, i32), Option<i32>);
 /// creation-tick update set aside (spawner.SCHEDULED_UNIT_FIRST_UPDATE = next_tick), so a copy's first frame is its
 /// draw even where it is born on a body.
 fn scene_with(victims: usize, at: (i32, i32), extra: &[Extra], push_aside: bool) -> (BattleState, EntityId, u32) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     if push_aside {
         cfg.calib.scheduled_unit_first_update = royalesim::state::ScheduledUnitFirstUpdate::NextTick;
     }
@@ -208,7 +210,7 @@ fn three_deaths_before_the_press_make_nine() {
 /// live through the window).
 #[test]
 fn an_ignore_resurrect_death_is_no_soul() {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -242,7 +244,7 @@ fn an_ignore_resurrect_death_is_no_soul() {
 /// His button is a champion's (state.rs `champion_button`): reported so, and charged, before the press.
 #[test]
 fn his_button_is_a_champions() {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -426,7 +428,7 @@ fn copies_with_deaths_at(table: Option<royalesim::state::CardTable>, kill_at: i3
             c.calib.card_table = t;
             c
         }
-        None => config(),
+        None => config_pre_flip(),
     };
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];

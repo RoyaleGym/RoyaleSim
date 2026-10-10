@@ -18,6 +18,8 @@
 //!   - drill_body_back_at_hide_time -> `its_body_returns_three_ticks_after_its_hide_time_under_client15535_hide_time_plus_3` red;
 //!   - drill_rise_hidden -> `a_rising_building_is_a_target_again_under_client15535_targetable_on_rise` red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -46,7 +48,7 @@ fn fresh(s: &BattleState, d: EntityId, seen: &mut Vec<EntityId>) -> Vec<((i32, i
 fn at_two_thirds_its_building_goes_under_39_ticks_unhurt_and_puts_down_two_goblins() {
     // The form's building put down on blue's side at (9000, 10000), nothing red near. After its first regular Goblin its
     // hitpoints are set to 67 % (880 of 1313): the drain takes it to 66 % on T.
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["GoblinDrill".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -95,7 +97,7 @@ fn at_two_thirds_its_building_goes_under_39_ticks_unhurt_and_puts_down_two_gobli
 /// its 2nd frame); the regular Goblins, a Spawn* spawner's, from their first. Plant: drill_hide_acquired_at_once.
 #[test]
 fn a_hides_goblins_are_targets_from_their_8th_frame() {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["GoblinDrill".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -136,7 +138,7 @@ fn a_hides_goblins_are_targets_from_their_8th_frame() {
 /// Plant: evo_drill_death_ring_unlisted.
 #[test]
 fn its_buildings_death_goblins_are_laid_on_the_x_axis_ring() {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["GoblinDrill".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -169,7 +171,7 @@ fn its_buildings_death_goblins_are_laid_on_the_x_axis_ring() {
 /// A level-11 battle with the Evo Goblin Drill's form, `set` applied to its config, its building put down at (9000, 10000)
 /// and three ticks run: the battle and the building.
 fn drill_battle(set: impl FnOnce(&mut BattleConfig)) -> (BattleState, EntityId) {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["GoblinDrill".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];

@@ -93,6 +93,6 @@ fn the_old_value_keeps_the_pulse_after_the_shot() {
 }
 
 #[test]
-fn the_shipped_value_is_after_hits() {
-    assert_eq!(Calib::shipped().heal_pulse_landing, HealPulseLanding::AfterHits);
+fn the_shipped_value_is_client15535_before_buffered_hits() {
+    assert_eq!(Calib::shipped().heal_pulse_landing, HealPulseLanding::Client15535BeforeBufferedHits);
 }

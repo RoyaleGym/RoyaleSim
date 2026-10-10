@@ -76,8 +76,8 @@ fn both_arms_are_seat_symmetric() {
 }
 
 #[test]
-fn the_shipped_arm_is_own_frame_high_x() {
-    assert_eq!(Calib::shipped().equal_distance_tie, EqualDistanceTie::OwnFrameHighX);
+fn the_shipped_arm_is_client15535_later_created() {
+    assert_eq!(Calib::shipped().equal_distance_tie, EqualDistanceTie::Client15535LaterCreated);
 }
 
 /// A `team` Musketeer on (9000, y0) and two enemy Knights 1,000 either side of its x and 4,000 ahead (in that team's

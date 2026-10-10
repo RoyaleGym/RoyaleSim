@@ -23,6 +23,8 @@
 //!   * `death_bomb_never_blocks` -- the new arm still plans through the bomb: (2) goes red.
 //!   * `bomb_never_restamps` -- the grid's key is the epochs alone: (3) and (4) go red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -36,7 +38,7 @@ fn at(p: (i32, i32)) -> Vec2 {
 
 /// Under `arm`: the Giant's largest |x - 3250| and its largest y over its first 50 ticks (native).
 fn giant(arm: DeathBombObstacle) -> (i32, i32) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.death_bomb_obstacle = arm;
     let mut s = BattleState::new(0, cfg);
     let tower = s.scenario_spawn_now(Team::Red, "BombTower", at((3500, 22500)), None).expect("the Bomb Tower");
@@ -70,7 +72,7 @@ fn a_route_planned_during_a_fuse_goes_round_the_bomb_under_client15535_fused_bui
 /// Giant put down on (3250, 19500) `wait` ticks after the kill: the Giant's largest |x - 3250| and its largest y over its
 /// first 50 ticks (native).
 fn giant_after(arm: DeathBombObstacle, parent: &str, wait: u32) -> (i32, i32) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.death_bomb_obstacle = arm;
     let mut s = BattleState::new(0, cfg);
     // Played, so it is killed in its deploy: a troop does not step there, and its bomb lies on its point, across the

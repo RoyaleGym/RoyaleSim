@@ -72,8 +72,8 @@ fn a_recoiling_sparky_lets_a_target_past_its_sight_go() {
 
 #[test]
 fn the_shipped_arm_keeps_a_knocked_units_target() {
-    assert_eq!(Calib::shipped().knocked_target_hold, KnockedTargetHold::HeldWhileKnocked);
-    let out = ladder(KnockedTargetHold::HeldWhileKnocked);
+    assert_eq!(Calib::shipped().knocked_target_hold, KnockedTargetHold::Client15535SightKeep);
+    let out = ladder(KnockedTargetHold::Client15535SightKeep);
     assert!(out.iter().all(|&(_, held)| held), "the shipped arm let the Knight go: {out:?}");
 }
 

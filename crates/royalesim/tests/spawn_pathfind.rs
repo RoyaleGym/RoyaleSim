@@ -52,6 +52,8 @@
 //! frame is not the measured one; the client arm's is, tests/spawn_pathfind_step.rs), which of the Drill's two Goblins
 //! takes -x, the Drill's periodic Goblin timing, and the push GoblinDrillDamage gives.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -98,12 +100,12 @@ fn board_with(cfg: BattleConfig) -> BattleState {
 }
 
 fn board() -> BattleState {
-    board_with(config())
+    board_with(config_pre_flip())
 }
 
 /// The shipped config with client 15.535.29's movement.SPAWN_PATHFIND_MORPH_AREA = at_surface, (10)'s scene's.
 fn at_surface() -> BattleConfig {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.spawn_pathfind_morph_area = SpawnPathfindMorphArea::AtSurface;
     cfg
 }
@@ -156,7 +158,7 @@ fn red_princess_near(s: &BattleState, p: Vec2) -> (EntityId, Vec2) {
 
 #[test]
 fn the_loader_reads_both_walks_and_the_drills_building_from_its_units_row() {
-    let s = BattleState::new(0, config());
+    let s = BattleState::new(0, config_pre_flip());
     let miner = card_stat(&s, "Miner");
     let sp = miner.spawn_pathfind.expect("the Miner tunnels");
     assert_eq!((sp.speed, sp.morph), (650, None), "SpawnPathfindSpeed, no morph");
@@ -218,7 +220,7 @@ fn the_loader_refuses_a_tunnelling_card_of_a_shape_nobody_measured() {
 #[test]
 fn a_miner_walks_under_ground_at_650_and_comes_up_on_the_tile_centre_it_was_played_at() {
     let mut s = board();
-    let king = s.config().arena.king_tower_pos(Team::Blue);
+    let king = s.config_pre_flip().arena.king_tower_pos(Team::Blue);
     let dest = s.deploy(Team::Blue, "Miner", at((3500, 1500))).expect("play the Miner");
     assert_eq!(dest, at((3500, 1500)), "the tap resolves to its own tile centre, with no single-troop x - 1");
     let frames = follow(&mut s, Team::Blue, "Miner", 60);
@@ -253,10 +255,10 @@ fn a_miner_walks_under_ground_at_650_and_comes_up_on_the_tile_centre_it_was_play
 #[test]
 fn the_creation_step_puts_the_first_frame_more_than_one_step_out() {
     let first = |start: SpawnPathfindStart| -> i64 {
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.spawn_pathfind_start = start;
         let mut s = board_with(cfg);
-        let king = s.config().arena.king_tower_pos(Team::Blue);
+        let king = s.config_pre_flip().arena.king_tower_pos(Team::Blue);
         s.deploy(Team::Blue, "Miner", at((3500, 1500))).expect("play the Miner");
         let f = follow(&mut s, Team::Blue, "Miner", 3);
         let f = f.first().expect("the Miner appeared");
@@ -313,7 +315,7 @@ fn a_tunnelling_card_goes_down_on_the_enemy_side_but_not_on_water() {
         s.check_deploy(Team::Blue, card, at(p)).unwrap_or_else(|e| panic!("{card} at {p:?} (enemy side, behind the enemy King, the bridge) refused: {e:?}"));
     }
     let water = at((9500, 16500));
-    assert!(!s.config().arena.is_passable_ground(water), "the scene drifted: (9500, 16500) is land");
+    assert!(!s.config_pre_flip().arena.is_passable_ground(water), "the scene drifted: (9500, 16500) is land");
     for card in ["Miner", "GoblinDrill"] {
         assert!(s.check_deploy(Team::Blue, card, water).is_err(), "{card} goes down on water");
     }
@@ -345,8 +347,8 @@ fn the_drills_destination_is_its_buildings_footprint() {
 fn the_digs_route_is_the_flat_cost_search_to_its_destinations_cell() {
     let mut s = board();
     let dest = s.deploy(Team::Blue, "GoblinDrill", at((3500, 23500))).expect("play the Drill");
-    let arena = s.config().arena.clone();
-    let calib = s.config().calib.clone();
+    let arena = s.config_pre_flip().arena.clone();
+    let calib = s.config_pre_flip().calib.clone();
     let king = arena.king_tower_pos(Team::Blue);
     let cell = |p: Vec2| ((p.x / K).div_euclid(CELL), (p.y / K).div_euclid(CELL));
     let (start, goal) = (cell(king), cell(dest));
@@ -602,7 +604,7 @@ fn a_save_mid_walk_replays_the_walk() {
 
 #[test]
 fn not_modelled_refuses_a_tunnelling_card_at_the_deck_and_at_every_play() {
-    let mut cfg = level11(config());
+    let mut cfg = level11(config_pre_flip());
     cfg.calib.spawn_pathfind = SpawnPathfind::NotModelled;
     let mut decked = cfg.clone();
     let deck: Vec<String> = DECK.iter().map(|s| s.to_string()).collect();

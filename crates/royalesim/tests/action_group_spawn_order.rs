@@ -61,6 +61,6 @@ fn the_old_value_creates_them_in_the_listed_order() {
 }
 
 #[test]
-fn the_shipped_value_is_listed() {
-    assert_eq!(Calib::shipped().action_group_spawn_order, ActionGroupSpawnOrder::Listed);
+fn the_shipped_value_is_client15535_reversed() {
+    assert_eq!(Calib::shipped().action_group_spawn_order, ActionGroupSpawnOrder::Client15535Reversed);
 }

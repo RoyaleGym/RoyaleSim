@@ -79,6 +79,8 @@
 //!   * `clone_late_walk_unread` -- client15535_covers_deploy_late_walk holds as client15535_covers_deploy: (17) goes red.
 //!   * `clone_walk_with_targets` -- the late-walk pair walks on its targets' tick: (17) goes red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -101,7 +103,7 @@ fn centre_distance(a: Vec2, b: Vec2) -> i64 {
 
 /// The shipped config, asserting the arms this file pins.
 fn shipped() -> BattleConfig {
-    let c = config();
+    let c = config_pre_flip();
     assert_eq!(c.calib.clone_level, CloneLevel::SpellLevel, "the shipped spells.CLONE_LEVEL this file pins");
     assert_eq!(c.calib.clone_copy_buffs, CloneCopyBuffs::CopiedExceptNotCloned, "the shipped spells.CLONE_COPY_BUFFS");
     assert_eq!(c.calib.clone_death_spawns, CloneDeathSpawns::ClonedAtCloneHitpoints, "the shipped spells.CLONE_DEATH_SPAWNS");
@@ -423,7 +425,7 @@ fn under_client15535_covers_deploy_late_walk_a_deploying_pair_targets_a_tick_lat
 fn the_sliding_pair_pushes_its_neighbours_and_is_not_pushed() {
     let giant_at = at((TAP.0, TAP.1 + 1900));
     let mut s = BattleState::new(0, shipped());
-    assert_eq!(s.config().calib.knock_duration_ms, 0, "the shipped knockback.DURATION_MS: no knockback slides");
+    assert_eq!(s.config_pre_flip().calib.knock_duration_ms, 0, "the shipped knockback.DURATION_MS: no knockback slides");
     let k = s.scenario_spawn_now(Team::Blue, "Knight", at(TAP), None).expect("spawn Knight");
     let g = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("spawn Giant");
     s.spawn_unit(Team::Blue, "Clone", at(TAP), None).expect("cast Clone");
@@ -560,7 +562,7 @@ fn copy_level(cfg: BattleConfig) -> i64 {
 #[test]
 fn the_copy_takes_the_clones_level() {
     assert_eq!(copy_level(shipped()), 11, "spell_level: a level-11 Clone on a level-12 Knight makes a level-11 copy");
-    let mut c = config();
+    let mut c = config_pre_flip();
     c.calib.clone_level = CloneLevel::OriginalLevel;
     assert_eq!(copy_level(c), 12, "original_level");
 }
@@ -710,7 +712,7 @@ fn raged_copy(cfg: BattleConfig) -> (Vec<u16>, Vec<u16>) {
 fn the_copy_takes_its_originals_buffs_under_each_arm() {
     let (before, copy) = raged_copy(shipped());
     assert!(before.iter().all(|b| copy.contains(b)), "copied_except_not_cloned: the copy carries {copy:?}, the original carried {before:?}");
-    let mut c = config();
+    let mut c = config_pre_flip();
     c.calib.clone_copy_buffs = CloneCopyBuffs::None;
     let (before, copy) = raged_copy(c);
     assert!(before.iter().all(|b| !copy.contains(b)), "none: the copy carries {copy:?}, the original carried {before:?}");

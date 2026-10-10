@@ -37,6 +37,8 @@
 //!   * `delivery_release_dropped` -- the delivery releases nothing: (5) goes red.
 //!   * `hash_skips_spell_depth` (tests/spell_summon.rs's) -- the chain depth is not hashed: (6) goes red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -66,7 +68,7 @@ fn delivery_damage(s: &BattleState, level: i32) -> i32 {
 
 /// The shipped config, asserting the arms this file pins.
 fn shipped() -> BattleConfig {
-    let c = config();
+    let c = config_pre_flip();
     assert_eq!(c.calib.strike_due, StrikeDue::ClockAtOrBelowZero, "the shipped spells.STRIKE_DUE this file pins");
     assert_eq!(c.calib.area_projectile_ignore_buildings, AreaProjectileIgnoreBuildings::ProjectileRow, "the shipped spells.AREA_PROJECTILE_IGNORE_BUILDINGS");
     c
@@ -74,7 +76,7 @@ fn shipped() -> BattleConfig {
 
 /// The config with spells.AREA_PROJECTILE_IGNORE_BUILDINGS at `rule`.
 fn with_building_rule(rule: AreaProjectileIgnoreBuildings) -> BattleConfig {
-    let mut c = config();
+    let mut c = config_pre_flip();
     c.calib.area_projectile_ignore_buildings = rule;
     c
 }
@@ -138,7 +140,7 @@ fn royal_delivery_loads_as_a_centre_strike_that_releases_one_recruit() {
     let doc: serde_json::Value = serde_json::from_str(&text).expect("cards.json parses");
     let row = doc["cards"].as_array().unwrap().iter().find(|c| c["name"] == "RoyalDelivery").expect("the RoyalDelivery row");
     let initial = row["spell"]["area_effect_object"]["spawn_initial_delay_ms"].as_i64().expect("SpawnInitialDelay") as i32;
-    let tick = s.config().calib.tick_ms;
+    let tick = s.config_pre_flip().calib.tick_ms;
     assert_eq!(initial / tick - 1, d.gaps_ms[0] / tick, "SpawnInitialDelay {initial} against the modelled landing tick");
     // The shapes it refuses, on a synthetic copy that loads.
     let one = r#","spawn_character_count":1"#;
@@ -226,7 +228,7 @@ fn the_crate_lands_on_c_plus_40() {
     }
     assert!(knight.is_some(), "the scene drifted: the Knight did not appear");
     assert_eq!(seen, vec![39], "the crate stands after C + 39 only");
-    let dmg = delivery_damage(&s, s.config().card_level[0]);
+    let dmg = delivery_damage(&s, s.config_pre_flip().card_level[0]);
     // the loss is the landing's, and stays: one entry per tick from C + 40 on, all of it the delivery's
     assert_eq!(lost.first(), Some(&(40, dmg)), "the delivery's damage lands on C + 40, against the control: {lost:?}");
 }
@@ -238,7 +240,7 @@ fn the_crate_lands_on_c_plus_40() {
 #[test]
 fn it_hits_by_the_edge_air_and_ground_and_not_its_own_side() {
     let (tx, ty) = TAP;
-    let s0 = BattleState::new(0, config());
+    let s0 = BattleState::new(0, config_pre_flip());
     let r_knight = card_stat(&s0, "Knight").collision_radius / K;
     let r_mega = card_stat(&s0, "MegaMinion").collision_radius / K;
     // (victim, hit?): the measured centre distances inside the edge, and misses a margin past it.
@@ -258,7 +260,7 @@ fn it_hits_by_the_edge_air_and_ground_and_not_its_own_side() {
     let (cast, ids) = scene(cfg.clone(), true, &victims);
     let (control, ids_c) = scene(cfg, false, &victims);
     assert_eq!(ids, ids_c, "the scene drifted: the two battles numbered their victims apart");
-    let dmg = delivery_damage(&cast, cast.config().card_level[0]);
+    let dmg = delivery_damage(&cast, cast.config_pre_flip().card_level[0]);
     let centre = at(TAP);
     for ((v, hit), id) in cases.iter().zip(&ids) {
         let e = cast.entity(*id).unwrap_or_else(|| panic!("{} {:?} died", v.1, v.2));
@@ -304,8 +306,8 @@ fn it_hits_an_enemy_building() {
         }
         hp
     };
-    let s = BattleState::new(0, config());
-    let dmg = delivery_damage(&s, s.config().card_level[0]);
+    let s = BattleState::new(0, config_pre_flip());
+    let dmg = delivery_damage(&s, s.config_pre_flip().card_level[0]);
     let control = run(shipped(), false);
     let projectile_row = run(shipped(), true);
     let area_row = run(with_building_rule(AreaProjectileIgnoreBuildings::AreaRow), true);
@@ -340,8 +342,8 @@ fn recruit_track(cfg: BattleConfig, team: Team, tap: Vec2) -> Vec<(Vec2, bool, i
 /// Plant: delivery_release_dropped.
 #[test]
 fn one_recruit_for_the_caster_on_the_landing_point() {
-    let s = BattleState::new(0, config());
-    let level = s.config().card_level[0];
+    let s = BattleState::new(0, config_pre_flip());
+    let level = s.config_pre_flip().card_level[0];
     let idx = s.cards().index("DeliveryRecruit").expect("the Recruit loads as a unit");
     let hp = s.cards().scaled(idx, level, s.cards().get(idx).hitpoints).expect("a valid level");
     if level == 11 {
@@ -351,7 +353,7 @@ fn one_recruit_for_the_caster_on_the_landing_point() {
     let (pos0, _, hp0, max0, facing0, team0) = blue[0];
     assert_eq!(team0, Team::Blue, "the Recruit is the caster's");
     // The tap is taken at its tile's centre (placement.TAP_SNAP = client16402_tile_centre), where the crate lands.
-    assert_eq!(s.config().calib.placement_tap_snap, TapSnap::TileCentre, "the shipped placement.TAP_SNAP this pins");
+    assert_eq!(s.config_pre_flip().calib.placement_tap_snap, TapSnap::TileCentre, "the shipped placement.TAP_SNAP this pins");
     let tile = 1000 * K;
     let landing = Vec2::new(at(TAP).x / tile * tile + tile / 2, at(TAP).y / tile * tile + tile / 2);
     assert_eq!(pos0, landing, "the Recruit stands on the tap's tile centre");

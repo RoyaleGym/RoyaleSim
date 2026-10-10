@@ -67,7 +67,7 @@ fn the_old_arm_lands_it_on_the_tick_after() {
 
 #[test]
 fn the_shipped_arm_times_containers_alone() {
-    assert_eq!(Calib::shipped().death_bomb_timing_scope, DeathBombTimingScope::Containers);
+    assert_eq!(Calib::shipped().death_bomb_timing_scope, DeathBombTimingScope::Client15535EveryBomb);
 }
 
 /// tests/mighty_miner.rs's scene under `arm`: the row (P + k) on which the held Knight first loses the bomb's 332 (441 with

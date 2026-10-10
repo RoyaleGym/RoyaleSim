@@ -69,6 +69,8 @@
 //! Witch's wave one post-tick late, the SpawnLimit refill at 62 instead of 61, and
 //! the candidate sweep's first_wave_after_one_pause row at 70 instead of 71.
 
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -88,7 +90,7 @@ use std::collections::BTreeSet;
 /// the shipped client16402_same_tick the unit has already taken its first step (or entered its attack)
 /// on its first frame. Under none it stands on the point it was created at. The first step is its own
 /// key, pinned in tests/spawned_first_step.rs.
-fn config() -> BattleConfig {
+fn config_pre_flip() -> BattleConfig {
     let mut cfg = common::config();
     cfg.calib.spawned_first_step = SpawnedFirstStep::None;
     // The Golem's and the Lava Hound's scenes here pin the facing ring at DeathSpawnRadius, the
@@ -131,7 +133,7 @@ fn bare(cfg: BattleConfig) -> BattleState {
 }
 
 fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     f(&mut cfg.calib);
     cfg
 }
@@ -233,7 +235,7 @@ fn first_seen(s: &mut BattleState, n: u32, team: Team, card: &str) -> Vec<(u32, 
 // (1), (2): the huts
 
 fn hut_spawns_on_the_predicted_ticks(hut: &str) {
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let sp = spawner(&s, hut);
     let unit = unit_name(&s, sp.unit);
     assert!(sp.start_time_ms.is_none(), "data: {hut} has a blank SpawnStartTime");
@@ -276,7 +278,7 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     assert_eq!(s.cards().get(u.card_idx).name, unit);
     assert_eq!(u.spawned_by, Some(hut_id));
     assert!(s.arena().is_passable_ground(u.pos), "{unit} at {:?} is on water", u.pos);
-    let lvl = s.config().card_level[Team::Blue as usize];
+    let lvl = s.config_pre_flip().card_level[Team::Blue as usize];
     let hp_at_level = s.cards().scaled(sp.unit, lvl, s.cards().get(sp.unit).hitpoints).unwrap();
     assert_eq!(u.max_hp, hp_at_level, "the {unit} is at the hut's unified level {lvl}");
     // "In front": the owner's forward axis is +y for Blue (spell.rs forward_dy).
@@ -352,7 +354,7 @@ fn a_hut_spawns_its_wave_per_pause_on_the_predicted_ticks() {
     // The 2018 Goblin Hut (one Spear Goblin per pause); in 15.535 the reworked hut
     // spawns from an action graph the loader refuses, and the Barbarian Hut (three
     // Barbarians 500 ms apart per pause) stands in.
-    let hut = plain_hut(&bare(config()));
+    let hut = plain_hut(&bare(config_pre_flip()));
     hut_spawns_on_the_predicted_ticks(hut);
 }
 
@@ -362,7 +364,7 @@ fn a_hut_spawns_its_wave_per_pause_on_the_predicted_ticks() {
 #[test]
 fn witch_spawns_a_wave_of_skeletons_interval_apart_starting_start_time_after_activation() {
     // Plant spawner_never_fires: no Skeleton.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let sp = spawner(&s, "Witch");
     let unit = unit_name(&s, sp.unit);
     // 2018: 3 Skeletons 300 ms apart; 15.535: 4 on one tick (a blank SpawnInterval).
@@ -535,7 +537,7 @@ fn assert_on_the_ring(members: &[Vec2], death_pos: Vec2, radius: i32, axis: Opti
 /// them, inert on the death frame; under next_spawn_phase they wait in the spawn queue. A
 /// death spawn owes nothing to a periodic spawner, which is how it is told from one.
 fn laid_points(s: &BattleState, unit: u16) -> Vec<Vec2> {
-    match s.config().calib.release_timing {
+    match s.config_pre_flip().calib.release_timing {
         ReleaseTiming::NextSpawnPhase => s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == unit).map(|(_, _, p)| *p).collect(),
         ReleaseTiming::EndOfEventPhase => {
             let mut laid: Vec<(u32, Vec2)> = s.entities().filter(|e| e.team == Team::Blue && e.card_idx == unit && e.spawned_by.is_none()).map(|e| (e.team_seq, e.pos)).collect();
@@ -567,7 +569,7 @@ fn kill_and_settle(s: &mut BattleState, victim: EntityId) -> (u32, Vec2) {
 #[test]
 fn golem_killed_leaves_two_golemites_on_the_radius_and_its_death_damage_lands() {
     // Plant death_spawn_dropped: no Golemite.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let ds = death_spawn(&s, "Golem");
     let unit = unit_name(&s, ds.unit);
     let radius = ds.radius.expect("data: the Golem has a DeathSpawnRadius");
@@ -592,7 +594,7 @@ fn golem_killed_leaves_two_golemites_on_the_radius_and_its_death_damage_lands() 
     s.tick();
     let pups = find_live(&s, Team::Blue, &unit);
     assert_eq!(pups.len(), ds.count as usize, "post-tick {}: {} {unit}s", k + 1, ds.count);
-    let lvl = s.config().card_level[Team::Blue as usize];
+    let lvl = s.config_pre_flip().card_level[Team::Blue as usize];
     // the ring only: this scene pushes the Golem off its own facing (a Red Knight
     // stands inside its radius for the death damage), and the AXIS is pinned on the
     // clean scene below, the one the corpus measured
@@ -615,7 +617,7 @@ fn golem_killed_leaves_two_golemites_on_the_radius_and_its_death_damage_lands() 
 
 #[test]
 fn lava_hound_killed_leaves_six_flying_pups() {
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let ds = death_spawn(&s, "LavaHound");
     let unit = unit_name(&s, ds.unit);
     let radius = ds.radius.expect("data: the Lava Hound has a DeathSpawnRadius");
@@ -647,7 +649,7 @@ fn a_battle_rams_barbarians_land_on_the_axis_to_the_tower_it_hit() {
     //
     // The ram is the clean scene: it dies on its own hit (combat.KAMIKAZE_DEATH), so
     // it is standing still in the tick it dies in and the death point is exact.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let ds = death_spawn(&s, "BattleRam");
     let unit = unit_name(&s, ds.unit);
     let radius = ds.radius.expect("data: the Battle Ram has a DeathSpawnRadius");
@@ -676,7 +678,7 @@ fn a_battle_rams_barbarians_land_on_the_axis_to_the_tower_it_hit() {
 #[test]
 fn tombstone_expiring_by_lifetime_leaves_its_death_spawn_skeletons() {
     // Plant death_spawn_dropped: no burst after the expiry.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let ds = death_spawn(&s, "Tombstone");
     let sp = spawner(&s, "Tombstone");
     let unit = unit_name(&s, ds.unit);
@@ -737,7 +739,7 @@ fn a_zap_on_a_tombstone_delays_its_next_wave_by_exactly_the_stun() {
     // Plant spawner_never_fires: neither battle spawns.
     assert!(calib().spawner_stun_pauses, "the shipped arm this test pins");
     assert_eq!(calib().buff_expiry, BuffExpiry::CeilFromNextTick, "the tick alignment the delay is derived under");
-    let zap = card_stat(&bare(config()), "Zap").spell.clone().unwrap();
+    let zap = card_stat(&bare(config_pre_flip()), "Zap").spell.clone().unwrap();
     let stun_ms = match zap.shape {
         royalesim::card::SpellShape::AreaEffect { hit } => hit.buff.map(|b| b.time_ms).unwrap_or(0),
         other => panic!("Zap is not an area effect: {other:?}"),
@@ -766,10 +768,10 @@ fn a_zap_on_a_tombstone_delays_its_next_wave_by_exactly_the_stun() {
         }
         (seen, s.entity(tomb).expect("the Tombstone survives a Zap").hp)
     };
-    let (control, full) = run(config(), None);
+    let (control, full) = run(config_pre_flip(), None);
     assert!(control.len() >= 3, "vacuous: control waves {control:?}");
     let zap_tick = control[0] + 5;
-    let (stunned, hp) = run(config(), Some(zap_tick));
+    let (stunned, hp) = run(config_pre_flip(), Some(zap_tick));
     assert!(hp < full, "the Zap hit the Tombstone");
     assert_eq!(stunned[0], control[0], "the wave before the Zap is untouched");
     assert_eq!(&stunned[1..], control[1..].iter().map(|k| k + held).collect::<Vec<_>>().as_slice(), "every later wave is late by exactly the stun's {held} ticks");
@@ -879,7 +881,7 @@ fn a_symmetric_tombstone_and_golem_scene_stays_its_own_mirror_every_tick() {
 fn a_snapshot_mid_countdown_and_mid_wave_resumes_hash_for_hash() {
     // Plant spawner_never_fires: the resumed battle never spawns (the test then
     // fails on vacuity, which is the point).
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     // The timed-wave card (2018: the Witch; 15.535: the Tombstone) beside a companion
     // spawner whose units are its own.
     let timed = timed_wave_card(&s);
@@ -936,7 +938,7 @@ fn a_snapshot_mid_countdown_and_mid_wave_resumes_hash_for_hash() {
 fn scripted_battle_with_tombstone_and_witch_keeps_every_invariant() {
     // Not a plant target: a dying Tombstone's death spawn puts Skeletons on the board
     // even with the periodic spawner planted out.
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [
         ["Tombstone", "Witch", "Knight", "Archer", "Giant", "Musketeer", "Minions", "Valkyrie"].iter().map(|s| s.to_string()).collect(),
         ["Knight", "Cannon", "Tombstone", "Witch", "Prince", "Wizard", "Giant", "Minions"].iter().map(|s| s.to_string()).collect(),
@@ -990,7 +992,7 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
             let seen = first_seen(&mut s, 80, Team::Blue, "Skeleton");
             seen.first().expect("the Witch never spawned").0
         };
-        let s0 = bare(config());
+        let s0 = bare(config_pre_flip());
         let (sp, deploy) = (spawner(&s0, "Witch"), card_stat(&s0, "Witch").deploy_time_ms);
         let start = sp.start_time_ms.expect("data: the Witch ships a SpawnStartTime");
         assert!(deploy > 0 && start >= deploy, "data: Witch DeployTime {deploy} / SpawnStartTime {start} cannot part the arms");
@@ -1028,7 +1030,7 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
         // quiet, which is the only reason it was noticed.
         let (_, ahead) = first_point(with_calib(|c| c.spawner_spawn_point = SpawnPoint::InFrontAtOwnRadius));
         let (tomb_r, skel_r) = {
-            let mut s = bare(config());
+            let mut s = bare(config_pre_flip());
             let id = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
             let r = s.entity(id).unwrap().radius;
             let sp = spawner(&s, "Tombstone");
@@ -1104,7 +1106,7 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
     // EMISSION_TIMING = spawn_phase_next_tick (the earlier arm): the first
     // Skeleton is queued, not created, and lands two post-ticks later.
     {
-        let sp = spawner(&bare(config()), "Tombstone");
+        let sp = spawner(&bare(config_pre_flip()), "Tombstone");
         let first = |cfg: BattleConfig| -> u32 {
             let mut s = bare(cfg);
             let pos = blue_spot(&s);
@@ -1112,7 +1114,7 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
             first_seen(&mut s, 10, Team::Blue, "Skeleton").first().expect("no Skeleton").0
         };
         assert!(sp.start_time_ms.is_none(), "data: the Tombstone's SpawnStartTime is blank");
-        let now = first(config());
+        let now = first(config_pre_flip());
         let queued = first(with_calib(|c| c.spawner_emission_timing = SpawnerEmission::SpawnPhaseNextTick));
         assert_eq!((now, queued), (1, 2), "move_phase_immediate {now} vs spawn_phase_next_tick {queued}");
     }
@@ -1139,7 +1141,7 @@ fn every_spawner_candidate_moves_a_measurable_behaviour() {
     // the facing axis, so the pair's axis turns by the angle between them.
     {
         let ring = {
-            let mut s = bare(config());
+            let mut s = bare(config_pre_flip());
             let pos = blue_spot(&s);
             let golem = s.scenario_spawn_now(Team::Blue, "Golem", pos, None).unwrap();
             let (_, death) = kill_and_settle(&mut s, golem);
@@ -1306,7 +1308,7 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
     // Plant spawner_never_fires: no Bat. The DarkWitch is the one 2018 row with
     // SpawnNumber > 1 and a blank SpawnInterval (both units in ONE pass, gridded
     // around the spawn point) and the one row with a SpawnRadius.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let sp = spawner(&s, "DarkWitch");
     let unit = unit_name(&s, sp.unit);
     assert!(sp.number > 1 && sp.interval_ms == 0, "data: the DarkWitch wave is not simultaneous ({sp:?})");
@@ -1411,7 +1413,7 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
             .collect();
         (own, block, took)
     };
-    let (own, block, took) = ram_barbarians(config());
+    let (own, block, took) = ram_barbarians(config_pre_flip());
     assert!(took.iter().all(|t| *t == block), "the Barbarians took {took:?} instead of the block's {block} (the shipped data: the unit's own is {own})");
     let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/derived/cards.json")).unwrap();
     let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -1433,7 +1435,7 @@ fn a_hut_with_goblins_inside_its_footprint_never_takes_a_target() {
     // target's radius, so a goblin released onto the Tombstone was in range; the
     // loader now forces attacks_ground / attacks_air off on a building with no
     // damage source.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let tomb = card_stat(&s, "Tombstone").clone();
     assert!(!tomb.attacks_ground && !tomb.attacks_air && tomb.damage == 0 && tomb.projectile.is_none(), "data: {tomb:?}");
     let pos = blue_spot(&s);
@@ -1551,7 +1553,7 @@ fn a_slowed_tombstone_waits_longer_under_the_shipped_buffed_and_on_time_under_ti
     use royalesim::state::SpawnSpawnerSpawnSpeed;
     assert_eq!(calib().spawn_spawner_spawn_speed, SpawnSpawnerSpawnSpeed::Buffed, "the shipped arm is buffed (the 2026-09-28 flip)");
     let arm = |a: SpawnSpawnerSpawnSpeed| with_calib(|c| c.spawn_spawner_spawn_speed = a);
-    let sp = spawner(&bare(config()), "Tombstone");
+    let sp = spawner(&bare(config_pre_flip()), "Tombstone");
     let (pause, slow_ticks) = (ticks_of(sp.pause_time_ms), ticks_of(GOLEM_SLOW_MS));
     // Four waves, and room for the fourth to come 15 ticks late.
     let horizon = first_wave_tick(&sp) + 3 * (pause + ticks_of(sp.interval_ms)) + 30;
@@ -1568,7 +1570,7 @@ fn a_slowed_tombstone_waits_longer_under_the_shipped_buffed_and_on_time_under_ti
     assert_eq!(slowed.len() as u32, slow_ticks, "the Tombstone carries the slow {slow_ticks} ticks: {slowed:?}");
     assert!(slowed[0] > last && *slowed.last().unwrap() < control[4], "the slow falls inside one pause: {slowed:?} between {last} and {}", control[4]);
     // 50 ticks at 70 % advance the clock 1,750 ms where 2,500 were due: 750 ms, 15 ticks, lost.
-    let pct = slow_buff(&bare(config())).1;
+    let pct = slow_buff(&bare(config_pre_flip())).1;
     assert!(pct < 0, "data: IceWizardSlowDown slows SpawnSpeed ({pct})");
     let lost = (slow_ticks as i32 * dt() - slow_ticks as i32 * (dt() * (100 + pct) / 100)) / dt();
     assert_eq!(lost, 15, "the arithmetic of the corpus's 95 against 80");
@@ -1620,8 +1622,8 @@ fn under_buffed_a_zap_holds_a_tombstone_by_its_stun_under_either_stun_pauses_arm
             c.spawner_stun_pauses = pauses;
         })
     };
-    let sp = spawner(&bare(config()), "Tombstone");
-    let zap = card_stat(&bare(config()), "Zap").spell.clone().unwrap();
+    let sp = spawner(&bare(config_pre_flip()), "Tombstone");
+    let zap = card_stat(&bare(config_pre_flip()), "Zap").spell.clone().unwrap();
     let stun_ms = match zap.shape {
         royalesim::card::SpellShape::AreaEffect { hit } => hit.buff.map(|b| b.time_ms).unwrap_or(0),
         other => panic!("Zap is not an area effect: {other:?}"),
@@ -1629,7 +1631,7 @@ fn under_buffed_a_zap_holds_a_tombstone_by_its_stun_under_either_stun_pauses_arm
     let held = ticks_of(stun_ms);
     assert!(held > 0, "data: Zap stuns");
     let horizon = first_wave_tick(&sp) + 2 * (ticks_of(sp.pause_time_ms) + ticks_of(sp.interval_ms)) + held + 2;
-    let control = zapped_tombstone(config(), None, horizon);
+    let control = zapped_tombstone(config_pre_flip(), None, horizon);
     assert!(control.len() >= 4, "vacuous: control waves {control:?}");
     let zap_at = Some(control[sp.number as usize - 1] + 5);
     let late: Vec<u32> = control.iter().enumerate().map(|(j, k)| if j < sp.number as usize { *k } else { k + held }).collect();

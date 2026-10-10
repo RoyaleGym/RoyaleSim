@@ -102,6 +102,6 @@ fn the_old_value_lets_the_blow_reach_it() {
 }
 
 #[test]
-fn the_shipped_value_is_reached() {
-    assert_eq!(Calib::shipped().thrown_unit_death_blow, ThrownUnitDeathBlow::Reached);
+fn the_shipped_value_is_client15535_unreached() {
+    assert_eq!(Calib::shipped().thrown_unit_death_blow, ThrownUnitDeathBlow::Client15535Unreached);
 }

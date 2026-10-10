@@ -22,6 +22,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test first_step_dying_bodies`):
 //!   * `first_step_dying_hidden` -- client16402_seen still hides the dying units from a first update: (1) and (2) go
 //!     red.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -75,7 +77,7 @@ fn tick_until_born(s: &mut BattleState, max: u32, pick: impl Fn(&royalesim::stat
 /// Skeleton takes its step and both die in one Reap. Returns the four death Skeletons' points on their first frame and
 /// the first Skeleton's point on its first frame (the last on which it is seen).
 fn death_beside_a_dying_skeleton(arm: FirstStepDying) -> (Vec<(i32, i32)>, (i32, i32)) {
-    let mut s = BattleState::new(7, with_arm(config(), arm));
+    let mut s = BattleState::new(7, with_arm(config_pre_flip(), arm));
     let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", at(TOMB), None).unwrap();
     let born = tick_until_born(&mut s, 40, |e| e.spawned_by.is_some());
     assert_eq!(born.len(), 1, "scene: one Skeleton per emission");
@@ -115,7 +117,7 @@ fn emission_beside(arm: FirstStepDying, blue_knight: (i32, i32)) -> (Option<u32>
     // Under movement.DYING_UNIT_VISIBILITY = creation_order_before_victim BY NAME: the two FIRST_STEP arms part only
     // where the dying unit is hidden from a later mover, which the shipped whole_tick (the 2026-09-28 round 7 flip)
     // never does.
-    let mut cfg = with_arm(config(), arm);
+    let mut cfg = with_arm(config_pre_flip(), arm);
     cfg.calib.dying_unit_visibility = royalesim::state::DyingUnitVisibility::CreationOrderBeforeVictim;
     let mut s = BattleState::new(7, cfg);
     let ids = s
@@ -178,7 +180,7 @@ fn with_nothing_dying_beside_it_the_first_step_is_the_same_under_both_values() {
 
 #[test]
 fn a_snapshot_under_the_new_value_resumes_hash_for_hash() {
-    let mut s = BattleState::new(7, with_arm(config(), NEW));
+    let mut s = BattleState::new(7, with_arm(config_pre_flip(), NEW));
     let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", at(TOMB), None).unwrap();
     let sk = tick_until_born(&mut s, 40, |e| e.spawned_by.is_some())[0];
     assert!(s.debug_set_hp(tomb, 0));

@@ -53,6 +53,8 @@
 //! deploy: (2), (4), both halves of (7) and (8) go red -- 5 of 10.
 //!     RUSTFLAGS='--cfg clash_plant="formation_grid_legacy"' CARGO_TARGET_DIR=target/plant cargo test --test formations
 
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -187,7 +189,7 @@ fn tolerance(group: &Group, overlaps: bool) -> i64 {
 
 /// The same, with formation.GROUND_Y_CLAMP forced to `arm` (None = the shipped one).
 fn try_preview_arm(group: &Group, shift: (i64, i64), arm: Option<GroundYClamp>) -> Result<Vec<(String, Vec2, i32)>, royalesim::state::DeployError> {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.formation_ground_deploy_point = deploy_point_arm(group);
     if let Some(a) = arm {
         cfg.calib.formation_ground_y_clamp = a;
@@ -269,7 +271,7 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
         // (the contact law moves those before the truth's first frame).
         let radius_of = |name: &str| db.get(db.index(name).unwrap()).collision_radius as i64 / K as i64;
         let towers: Vec<((i64, i64), i64)> = {
-            let mut s = BattleState::new(1, config());
+            let mut s = BattleState::new(1, config_pre_flip());
             for [side, slot] in &g.towers_down {
                 s.scenario_set_tower_hp(team_of(*side), *slot as usize, 0).unwrap();
             }
@@ -359,7 +361,7 @@ fn every_measured_corpus_formation_is_reproduced_member_by_member() {
 // 3. the stagger in the engine's own tick loop
 
 fn deploy_end_ticks(card: &str, pos: Vec2) -> (Vec<(String, u32)>, u32) {
-    let mut s = BattleState::new(3, config());
+    let mut s = BattleState::new(3, config_pre_flip());
     let spawn_call = s.tick_count();
     s.spawn_unit(Team::Blue, card, pos, None).unwrap();
     let mut ends: BTreeMap<(u32, u32), (String, u32)> = BTreeMap::new();
@@ -438,7 +440,7 @@ fn goblin_gang_and_rascals_summon_both_units_on_one_ring() {
         assert!(got[c.count as usize..].iter().all(|(n, _, _)| n == unit));
         // Live: the units exist, on the team, at the card's level, and the ring's
         // circumradius is one number for every member (a regular polygon around the tap).
-        let mut s = BattleState::new(5, config());
+        let mut s = BattleState::new(5, config_pre_flip());
         let pos = Vec2::new(g.tap[0] * K, g.tap[1] * K);
         s.spawn_unit(team_of(g.side), card, pos, None).unwrap();
         s.tick();
@@ -446,7 +448,7 @@ fn goblin_gang_and_rascals_summon_both_units_on_one_ring() {
         assert_eq!(live.len(), got.len());
         // The unit's level is the card's: its max hp is the unit's hitpoints scaled
         // like the card's own members at the deploying side's level.
-        let level = s.config().card_level[team_of(g.side) as usize];
+        let level = s.config_pre_flip().card_level[team_of(g.side) as usize];
         let want_hp = db.scaled(second.unit, level, db.get(second.unit).hitpoints).unwrap();
         assert_eq!(s.entities().find(|e| e.card == unit).unwrap().max_hp, want_hp, "{unit}: not at the card's level");
         // The preview's points (before the contact law touches anything: a Girl next
@@ -467,7 +469,7 @@ fn the_ring_is_seat_symmetric_under_the_rotation() {
     // which is not the rotation of itself at the back edge (the next test pins that);
     // the layout under it is compared here.
     let s = BattleState::new(7, symmetric_config());
-    assert_eq!(s.config().calib.formation_ground_y_clamp, GroundYClamp::DeployColumnRangeOwnFrame);
+    assert_eq!(s.config_pre_flip().calib.formation_ground_y_clamp, GroundYClamp::DeployColumnRangeOwnFrame);
     let a = s.arena().clone();
     let taps = [t(350, 500), t(900, 500), t(1450, 500), t(350, 1450), t(1450, 1450), t(900, 100), t(1750, 200), t(850, 1440)];
     let mut compared = 0;
@@ -496,8 +498,8 @@ fn the_shipped_ground_clamp_is_the_measured_per_side_formula() {
     // are one native unit apart, side 1's the LOOSER. Measured live on the Red
     // Goblins of capture 20260918-164951-B (the back edge) and of capture
     // 20260918-121158 t2439 (the river).
-    let s = BattleState::new(1, config());
-    assert_eq!(s.config().calib.formation_ground_y_clamp, GroundYClamp::Client16402DeployColumnRange);
+    let s = BattleState::new(1, config_pre_flip());
+    assert_eq!(s.config_pre_flip().calib.formation_ground_y_clamp, GroundYClamp::Client16402DeployColumnRange);
     let a = s.arena().clone();
     let tile = a.cell * 2;
     let back_blue = Vec2::new(a.width / 4, tile / 2); // row 0's centre
@@ -592,7 +594,7 @@ fn every_corpus_member_the_clamp_arms_separate_is_the_per_side_one_exactly() {
 
 #[test]
 fn nearest_lane_is_left_of_the_centre_column_and_swaps_under_the_rotation() {
-    let s = BattleState::new(1, config());
+    let s = BattleState::new(1, config_pre_flip());
     let a = s.arena();
     let mut left = 0;
     let mut right = 0;
@@ -625,7 +627,7 @@ fn the_ground_clamp_holds_a_bank_deploy_on_the_bank_and_the_bounds_clamp_the_edg
     let db = cards();
     let calib = royalesim::state::Calib::shipped();
     assert_eq!(calib.formation_ground_y_clamp, GroundYClamp::Client16402DeployColumnRange);
-    let s = BattleState::new(1, config());
+    let s = BattleState::new(1, config_pre_flip());
     let a = s.arena().clone();
     // Blue Skeletons on the last dry row before the river: the forward member
     // would land in the water; the game holds it on that row's centre.
@@ -650,7 +652,7 @@ fn the_ground_clamp_holds_a_bank_deploy_on_the_bank_and_the_bounds_clamp_the_edg
     }
     // Under the `none` arm the forward member is ejected to passable ground
     // instead, and lands somewhere else than the clamp put it.
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.formation_ground_y_clamp = GroundYClamp::None;
     let s2 = BattleState::new(1, cfg);
     let none = s2.formation_preview(Team::Blue, "Skeletons", tap).unwrap();
@@ -673,7 +675,7 @@ fn the_column_clamp_is_dropped_once_its_column_reaches_past_the_river() {
     // column whose far princess tower was down, stands its forward pair on absolute
     // 10738 -- its ring point -- where the undropped range would have held them on
     // the bank at 11499.
-    let s = BattleState::new(1, config());
+    let s = BattleState::new(1, config_pre_flip());
     let a = s.arena().clone();
     let tap = Vec2::from_tiles_100(1050, 1150); // (10500, 11500) native
     // Every tower standing: the forward pair cannot leave Red's own half.
@@ -682,10 +684,10 @@ fn the_column_clamp_is_dropped_once_its_column_reaches_past_the_river() {
     assert!(forward > a.water_y_max, "the clamp let a Red member onto the river or past it: {forward}");
     // The Blue princess tower on that column falls: the column now reaches past the
     // river, the pair is dropped, and the members are the ring's own points.
-    let mut open = BattleState::new(1, config());
+    let mut open = BattleState::new(1, config_pre_flip());
     open.scenario_set_tower_hp(Team::Blue, 2, 0).expect("a princess tower can start destroyed");
     let free = open.formation_preview(Team::Red, "Goblins", tap).unwrap();
-    let mut no_clamp_cfg = config();
+    let mut no_clamp_cfg = config_pre_flip();
     no_clamp_cfg.calib.formation_ground_y_clamp = GroundYClamp::None;
     let mut no_clamp = BattleState::new(1, no_clamp_cfg);
     no_clamp.scenario_set_tower_hp(Team::Blue, 2, 0).unwrap();
@@ -708,10 +710,10 @@ fn every_formation_candidate_moves_a_behaviour() {
     assert_eq!(calib.formation_layout, FormationLayout::Client16402);
     assert_eq!(calib.formation_deploy_stagger, DeployStagger::Client16402);
     let tap = t(1450, 800);
-    let ring = BattleState::new(1, config()).formation_preview(Team::Blue, "Skeletons", tap).unwrap();
+    let ring = BattleState::new(1, config_pre_flip()).formation_preview(Team::Blue, "Skeletons", tap).unwrap();
     // engine_grid: the old centred grid, one collision diameter apart, rows toward
     // the enemy first.
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.formation_layout = FormationLayout::EngineGrid;
     let grid = BattleState::new(1, cfg).formation_preview(Team::Blue, "Skeletons", tap).unwrap();
     let c = db.get(db.index("Skeletons").unwrap());
@@ -722,20 +724,20 @@ fn every_formation_candidate_moves_a_behaviour() {
     }
     assert!(ring.iter().zip(&grid).any(|(r, g)| r.1 != g.1), "the layout arm changed nothing");
     // The grid arm still spawns the second summon (on the same grid).
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.formation_layout = FormationLayout::EngineGrid;
     assert_eq!(BattleState::new(1, cfg).formation_preview(Team::Blue, "GoblinGang", tap).unwrap().len(), 6);
     // none: every member on one timer.
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.formation_deploy_stagger = DeployStagger::None;
     let flat = BattleState::new(1, cfg).formation_preview(Team::Blue, "Goblins", tap).unwrap();
     assert!(flat.iter().all(|m| m.2 == flat[0].2));
-    let staggered = BattleState::new(1, config()).formation_preview(Team::Blue, "Goblins", tap).unwrap();
+    let staggered = BattleState::new(1, config_pre_flip()).formation_preview(Team::Blue, "Goblins", tap).unwrap();
     assert!(staggered.iter().any(|m| m.2 != staggered[0].2), "the stagger arm changed nothing");
     // A single summon keeps the exact subtile tap under both layouts. An exact point: placement.TAP_SNAP's old arm,
     // none (under the shipped tile-centre arm a single ground unit takes formation.GROUND_DEPLOY_POINT, in native units).
     let odd = Vec2::new(tap.x + 7, tap.y + 5);
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.placement_tap_snap = TapSnap::None;
     assert_eq!(BattleState::new(1, cfg).formation_preview(Team::Blue, "Knight", odd).unwrap()[0].1, odd);
 }

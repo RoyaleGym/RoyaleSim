@@ -25,6 +25,8 @@
 //!                           an_evo_copy_on_the_river_bank_goes_outward_then_behind_under_client15535_ahead_outward_behind
 //!                           goes red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -61,7 +63,7 @@ fn idx(s: &BattleState, name: &str) -> u16 {
 
 #[test]
 fn a_deck_card_marked_evolved_plays_its_form_every_third_play() {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [vec!["Cannon".into(), "Knight".into(), "Mirror".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0, 0], Vec::new()];
     let mut s = battle(cfg);
@@ -124,7 +126,7 @@ fn a_deck_card_marked_evolved_plays_its_form_every_third_play() {
 fn evo_cannon_drops_its_barrage() {
     // The Golems and the Knights stand at measured distances from the bombs, exact points: placement.TAP_SNAP's old
     // arm, none (the shipped tile-centre snap would move each to its tile's centre).
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.placement_tap_snap = TapSnap::None;
     let mut s = battle(cfg);
     let form = idx(&s, "Cannon_EV1");
@@ -162,7 +164,7 @@ fn evo_cannon_drops_its_barrage() {
     assert_eq!(bombs, want);
     // Side 1's barrage: the same x, the y toward side 0.
     let def = s.cards().get(form).evo.as_ref().unwrap().barrage.as_ref().unwrap();
-    let red: Vec<i32> = barrage_spells(s.cards(), &s.config().calib, def, Team::Red, form, 11, n(9000, 22500)).iter().map(|sp| match sp.motion {
+    let red: Vec<i32> = barrage_spells(s.cards(), &s.config_pre_flip().calib, def, Team::Red, form, 11, n(9000, 22500)).iter().map(|sp| match sp.motion {
         royalesim::spell::SpellMotion::Flight { pos, .. } => pos.y / K,
         _ => unreachable!(),
     }).collect();
@@ -238,7 +240,7 @@ fn a_barrage_bomb_lands_before_the_move_pass() {
     // pushed straight out of that skeleton's stepped position on the landing tick: the skeleton took its first push
     // step in the tick's move pass, dying or not. The plant barrage_lands_after_the_move (the bomb lands after the move
     // pass, and only its survivors step) leaves the Knight where it stood.
-    let mut s = battle(config());
+    let mut s = battle(config_pre_flip());
     let play = s.tick_count();
     s.spawn_unit(Team::Blue, "Cannon_EV1", n(9000, 9500), None).unwrap();
     let bomb = n(9000, 18000);
@@ -285,7 +287,7 @@ fn a_barrage_bomb_lands_before_the_move_pass() {
 
 #[test]
 fn evo_skeletons_copy_on_every_group_hit() {
-    let mut s = battle(config());
+    let mut s = battle(config_pre_flip());
     let form = idx(&s, "Skeletons_EV1");
     s.spawn_unit(Team::Red, "Giant", n(9000, 13500), None).unwrap();
     s.spawn_unit(Team::Blue, "Skeletons_EV1", n(9000, 12000), None).unwrap();
@@ -338,7 +340,7 @@ fn an_evo_copy_is_made_exactly_ahead_of_its_hitter_after_the_move() {
     // update, so within one push. Under spawner.SPAWNED_FIRST_STEP = none no first update runs (a target, no step,
     // no push), and the first copy stands exactly 1000 ahead (toward side 1) of where a hitter stands after the
     // tick's move pass; the scene is the same Giant and group, and the hitter's point at its hit is elsewhere.
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.spawned_first_step = SpawnedFirstStep::None;
     let mut s = battle(cfg);
     let form = idx(&s, "Skeletons_EV1");
@@ -368,7 +370,7 @@ fn an_evo_copy_is_made_exactly_ahead_of_its_hitter_after_the_move() {
 /// `arm` and no first update (so a copy stands exactly where it was made): (copies, copies off every hitter's ahead
 /// point, copies standing where a ground unit cannot).
 fn copies_on_the_bank(arm: EvoCopyPoint) -> (usize, usize, usize) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.spawned_first_step = SpawnedFirstStep::None;
     cfg.calib.evo_copy_point = arm;
     let mut s = battle(cfg);
@@ -411,9 +413,9 @@ fn an_evo_copy_on_the_river_bank_goes_outward_then_behind_under_client15535_ahea
 
 #[test]
 fn evo_musketeer_spends_three_snipes() {
-    let mut s = battle(config());
+    let mut s = battle(config_pre_flip());
     let form = idx(&s, "Musketeer_EV1");
-    let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
+    let mult = s.config_pre_flip().calib.projectile_speed_to_subtiles_per_tick;
     // A Golem 12000 ahead of her in her lane, deploying 3000 ms: far past her Range of 6000.
     s.spawn_unit(Team::Blue, "Musketeer_EV1", n(3500, 9000), None).unwrap();
     s.spawn_unit(Team::Red, "Golem", n(3500, 21000), None).unwrap();
@@ -682,7 +684,7 @@ fn an_evo_copy_point_past_the_last_rows_centre_is_clamped_to_it_under_client1553
     // Red king at (6973, 30829): its ahead point (6973, 31829) is in bounds and dry, past the last row's centre. One at
     // (9579, 31071) has its ahead point off the arena and goes outward under both arms. Plant: evo_copy_unclamped.
     for (arm, y) in [(EvoCopyPoint::ClientAheadOutwardBehindClamped, 31750), (EvoCopyPoint::ClientAheadOutwardBehind, 31829)] {
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.evo_copy_point = arm;
         let s = battle(cfg);
         assert_eq!(s.evo_copy_point(n(6973, 30829), Team::Blue), n(6973, y), "{arm:?}: the copy point past the last row's centre");
@@ -696,13 +698,13 @@ fn an_evo_copy_point_past_the_last_rows_centre_is_clamped_to_it_under_client1553
 /// 1000 ahead of a hitter of the tick before, at its point after this tick's move. Plant: evo_copy_on_hit_tick.
 #[test]
 fn under_client16402_next_tick_an_evo_copy_is_made_the_tick_after_its_hit() {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.spawned_first_step = SpawnedFirstStep::None;
     cfg.calib.evo_copy_tick = EvoCopyTick::Client16402NextTick;
     // `battle`'s scene with the arm kept (`battle` pins the old one)
     let mut s = BattleState::new(7, level11(cfg));
     past_deploy_lockout(&mut s);
-    assert_eq!(s.config().calib.evo_copy_tick, EvoCopyTick::Client16402NextTick, "the scene's arm");
+    assert_eq!(s.config_pre_flip().calib.evo_copy_tick, EvoCopyTick::Client16402NextTick, "the scene's arm");
     let form = idx(&s, "Skeletons_EV1");
     s.spawn_unit(Team::Red, "Giant", n(9000, 13500), None).unwrap();
     s.spawn_unit(Team::Blue, "Skeletons_EV1", n(9000, 12000), None).unwrap();

@@ -72,6 +72,8 @@
 //!     are not listed.
 //!     RUSTFLAGS='--cfg clash_plant="buff_speed_unfloored"' CARGO_TARGET_DIR=target/plant cargo test --test status
 
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -94,7 +96,7 @@ fn calib() -> Calib {
 }
 
 /// `common::config` under the file's arms (`calib`).
-fn config() -> BattleConfig {
+fn config_pre_flip() -> BattleConfig {
     let mut cfg = common::config();
     cfg.calib.pulsing_area_effect = PulsingArea::HitSpeedOffset;
     cfg
@@ -112,7 +114,7 @@ fn bare(cfg: BattleConfig) -> BattleState {
 }
 
 fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     f(&mut cfg.calib);
     cfg
 }
@@ -201,7 +203,7 @@ fn want_compose(multipliers: &[i32], value: i32) -> i32 {
 #[test]
 fn the_composition_law_holds_on_every_walkers_speed() {
     assert_shipped_arms();
-    let s = bare(config());
+    let s = bare(config_pre_flip());
     let rage = 130;
     let slow = -30;
     let mut checked = 0;
@@ -231,7 +233,7 @@ fn the_composition_truncates_where_rounding_would_differ() {
     // the table, that one included, and at least one of them must separate
     // truncation from rounding or the test would pass under either.
     assert_shipped_arms();
-    let s = bare(config());
+    let s = bare(config_pre_flip());
     let rage = 130;
     let mut separators = 0;
     for (name, _speed, stomped) in walkers(&s) {
@@ -261,7 +263,7 @@ fn pos(s: &BattleState, id: EntityId) -> Vec2 {
 #[test]
 fn a_freeze_is_a_whole_unit_hold_of_its_bufftime() {
     assert_shipped_arms();
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let knight = placed(&mut s, Team::Blue, "Knight", spot());
     // Let it get walking, so a hold is visible as a standstill.
     for _ in 0..30 {
@@ -306,12 +308,12 @@ fn a_freeze_is_a_whole_unit_hold_of_its_bufftime() {
 fn an_ice_spirit_hands_its_victim_the_same_freeze() {
     assert_shipped_arms();
     let (probe, _) = {
-        let s = bare(config());
+        let s = bare(config_pre_flip());
         attack_buff_of(&s, "IceSpirits")
     };
     assert_eq!(compose([probe].iter(), Sel::Speed, 100), 0, "the Ice Spirit's TargetBuff is a full stop");
 
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let (def, time_ms) = attack_buff_of(&s, "IceSpirits");
     assert_eq!(def, probe);
     let knight = placed(&mut s, Team::Blue, "Knight", spot());
@@ -339,7 +341,7 @@ fn an_ice_spirit_hands_its_victim_the_same_freeze() {
 #[test]
 fn a_slow_scales_the_walk_and_the_attack_advance() {
     assert_shipped_arms();
-    let s0 = bare(config());
+    let s0 = bare(config_pre_flip());
     let (slow, _) = attack_buff_of(&s0, "IceWizard");
     assert!(slow.speed_pct < 0 && slow.hit_speed_pct < 0, "IceWizardSlowDown slows both columns");
     assert_ne!(compose([slow].iter(), Sel::Speed, 100), 0, "a slow is not a hold");
@@ -364,7 +366,7 @@ fn a_slow_scales_the_walk_and_the_attack_advance() {
 #[test]
 fn a_slowed_walker_actually_walks_slower_in_the_battle() {
     assert_shipped_arms();
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let (slow, _) = attack_buff_of(&s, "IceWizard");
     let giant = placed(&mut s, Team::Blue, "Giant", spot());
     for _ in 0..40 {
@@ -397,7 +399,7 @@ fn a_slowed_walker_actually_walks_slower_in_the_battle() {
 #[test]
 fn a_second_application_refreshes_the_slot_it_never_adds_one() {
     assert_shipped_arms();
-    let s = bare(config());
+    let s = bare(config_pre_flip());
     // The data DOES distinguish the two rows -- EnableStacking is on the Poison and
     // not on the Freeze -- and the engine carries the column without acting on it
     // (status.BUFF_STACKING = one_slot_per_buff_row, a named gap).
@@ -408,7 +410,7 @@ fn a_second_application_refreshes_the_slot_it_never_adds_one() {
 
     // Two Freezes on one Knight: one slot, the longer time (status.SAME_BUFF_REAPPLY
     // = refresh_max).
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let knight = placed(&mut s, Team::Blue, "Knight", spot());
     s.spawn_unit(Team::Red, "Freeze", pos(&s, knight), None).expect("cast Freeze");
     for _ in 0..40 {
@@ -445,7 +447,7 @@ fn a_pulsing_area_does_not_stack_with_itself() {
     // its buff every HitSpeed for its whole LifeDuration, and a per-application slot
     // would put LifeDuration / HitSpeed copies on one unit.
     assert_shipped_arms();
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let knight = placed(&mut s, Team::Blue, "Knight", spot());
     s.spawn_unit(Team::Red, "Poison", pos(&s, knight), None).expect("cast Poison");
     let mut seen = 0;
@@ -488,7 +490,7 @@ fn a_pulse_is_the_share_of_the_level_scaled_per_second_figure() {
 #[test]
 fn a_poison_pulses_its_per_second_damage_once_a_second() {
     assert_shipped_arms();
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let (poison, buff_time) = spell_buff_of(&s, "Poison");
     assert!(poison.damage_per_second > 0 && poison.hit_frequency_ms > 0, "the Poison row pulses");
     let want_pulse = poison.damage_per_second * poison.hit_frequency_ms / 1000;
@@ -524,7 +526,7 @@ fn a_poison_pulses_its_per_second_damage_once_a_second() {
     let total = last;
     // EVERY DROP IS ONE WHOLE PULSE, level-scaled by the caster. The Poison pulses once a
     // second, so both status.BUFF_PULSE_AMOUNT orders give this figure (test 12).
-    let scaled = s.cards().scaled(s.cards().index("Poison").expect("Poison loads"), config().card_level[Team::Red as usize], want_pulse).expect("level validated");
+    let scaled = s.cards().scaled(s.cards().index("Poison").expect("Poison loads"), config_pre_flip().card_level[Team::Red as usize], want_pulse).expect("level validated");
     assert_eq!(total, drops * scaled, "{drops} drops totalling {total}, one pulse is {scaled}");
     // status.BUFF_STACKING = one_slot_per_buff_row: ONE Poison on the unit however
     // often its area re-applies, so the count is bounded by the cloud's life over the
@@ -567,13 +569,13 @@ fn one_pulse_drop(mut s: BattleState, spell: &str, at: Vec2, victim: EntityId, t
 fn scaled_pulse(s: &BattleState, spell: &str) -> i32 {
     let (def, _) = spell_buff_of(s, spell);
     let idx = s.cards().index(spell).unwrap_or_else(|| panic!("{spell} loads"));
-    s.cards().scaled(idx, config().card_level[Team::Red as usize], def.pulse_base()).expect("level validated")
+    s.cards().scaled(idx, config_pre_flip().card_level[Team::Red as usize], def.pulse_base()).expect("level validated")
 }
 
 #[test]
 fn a_poison_leaves_a_crown_tower_its_own_percent() {
     assert_shipped_arms();
-    let s = bare(config());
+    let s = bare(config_pre_flip());
     // THE COLUMNS, as a data guard: what the rest of this test simulates against.
     let (poison, _) = spell_buff_of(&s, "Poison");
     assert!(poison.crown_pct < 100, "the Poison row reduces its crown-tower damage");
@@ -581,7 +583,7 @@ fn a_poison_leaves_a_crown_tower_its_own_percent() {
 
     // AND THE BEHAVIOUR. ~~the column assertions alone~~ -- they never ran a tick, so
     // they could not see `buff_pulse_pass` dropping the percent it had just computed.
-    let s = bare(config());
+    let s = bare(config_pre_flip());
     let (tower, tp) = s
         .entities()
         .find(|v| v.team == Team::Blue && v.kind == EntityKind::PrincessTower)
@@ -598,11 +600,11 @@ fn a_poison_leaves_a_crown_tower_its_own_percent() {
 #[test]
 fn an_earthquake_deals_a_building_its_own_percent() {
     assert_shipped_arms();
-    let s0 = bare(config());
+    let s0 = bare(config_pre_flip());
     let (eq, _) = spell_buff_of(&s0, "Earthquake");
     assert!(eq.building_pct > 100, "the Earthquake row multiplies its BUILDING damage");
 
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let cannon = placed(&mut s, Team::Blue, "Cannon", spot());
     assert_eq!(s.entity(cannon).unwrap().kind, EntityKind::Building, "the witness must be an ordinary building, not a crown tower");
     let at = pos(&s, cannon);
@@ -624,7 +626,7 @@ fn an_earthquake_deals_a_building_its_own_percent() {
 #[test]
 fn an_attack_buff_lands_on_the_splash_victims_only() {
     assert_shipped_arms();
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let splash_r = card_stat(&s, "IceWizard").area_damage_radius;
     assert!(splash_r > 0, "the Ice Wizard's shot splashes; without that this scene tests nothing");
 
@@ -679,7 +681,7 @@ fn a_held_unit_still_runs_its_load_timer_down() {
     // The load timer counts down FIRST THING in the attack step, unconditionally;
     // only the PROGRESS step is skipped when the composed advance is <= 0
     // (combat.ATTACK_CYCLE's boundary note). An earlier version held everything.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let knight = placed(&mut s, Team::Blue, "Knight", spot());
     let vp = pos(&s, knight);
     let foe = placed(&mut s, Team::Red, "Knight", Vec2::new(vp.x, vp.y + SUBTILE_PER_MILLITILE * 1100));
@@ -732,7 +734,7 @@ fn a_buff_expires_on_the_stuns_alignment() {
     assert_shipped_arms();
     // ceil_from_next_tick: a D-ms buff applied in tick N is gone after
     // ceil(D / TICK_MS) further ticks, and present on every one of them.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let knight = placed(&mut s, Team::Blue, "Knight", spot());
     let (_, time_ms) = spell_buff_of(&s, "Freeze");
     s.spawn_unit(Team::Red, "Freeze", pos(&s, knight), None).expect("cast Freeze");
@@ -808,7 +810,7 @@ fn every_switchable_candidate_moves_something() {
 
     // movement.STOMP_PAUSE_SCHEDULE: unbuffed the two agree tick for tick, and that
     // is the point -- the clock is the generalisation, not a different law.
-    let s = bare(config());
+    let s = bare(config_pre_flip());
     let golem = card_stat(&s, "Golem");
     assert!(golem.stop_movement_after_ms > 0, "the Golem stomps");
     let (stop, wait) = (golem.stop_movement_after_ms, golem.wait_ms);
@@ -911,7 +913,7 @@ fn poison_application_after_landing(cfg: BattleConfig) -> u32 {
 /// of tests/test_pulsing_area_offset.py and this one).
 #[test]
 fn the_offset_arm_waits_the_listed_value_not_one_hit_speed() {
-    let hit_speed_ms = match &card_stat(&bare(config()), "Poison").spell.as_ref().expect("Poison is a spell").shape {
+    let hit_speed_ms = match &card_stat(&bare(config_pre_flip()), "Poison").spell.as_ref().expect("Poison is a spell").shape {
         SpellShape::PulsingAreaEffect { hit_speed_ms, .. } => *hit_speed_ms,
         other => panic!("Poison loaded as {other:?}"),
     };
@@ -1000,7 +1002,7 @@ fn the_engine_runs_the_old_arms_too() {
             far_buffs: buffs(far),
         }
     };
-    let shipped = scene(config());
+    let shipped = scene(config_pre_flip());
     assert_eq!(shipped.near_buffs, 1, "the Snowball never slowed the near Knight; the scene proves nothing");
     assert_eq!(shipped.far_buffs, 1, "whole_splash must slow BOTH Knights in the disc");
     assert!(shipped.foe_hp > 0, "the Red Knight died before the read; every arm would read Idle at 0");

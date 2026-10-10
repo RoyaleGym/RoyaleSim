@@ -52,6 +52,8 @@
 //!     RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //!     retarget_wait_arms
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -76,7 +78,7 @@ type ReachRows = Vec<(Option<EntityId>, Vec2, bool)>;
 /// the Cannon's ids. The attacker stands on DRAGON; the Giant is held 1,500 south of it, then on MOVED_AT set down
 /// `giant_at` south of it, where it walks on south, away; the Cannon stands at `cannon`, an offset from the attacker.
 fn reach_scene(arm: RetargetWaitReachLoss, attacker: &str, giant_at: i32, cannon: (i32, i32)) -> (ReachRows, EntityId, EntityId) {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.calib.retarget_wait_reach_loss = arm;
     let mut s = BattleState::new(0, cfg);
     let d = s.scenario_spawn_now(Team::Blue, attacker, at(DRAGON), None).expect("the attacker");
@@ -154,7 +156,7 @@ fn a_unit_without_the_inferno_takes_the_cannon_at_once_under_both_arms() {
 
 /// Per tick after the tick: the Knight's target; and the ticks (k) the Knight is frozen.
 fn held_scene(arm: RetargetWaitWhileHeld) -> (Vec<Option<EntityId>>, u32, Vec<u32>) {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.calib.retarget_wait_while_held = arm;
     let mut s = BattleState::new(0, cfg);
     let ids = s

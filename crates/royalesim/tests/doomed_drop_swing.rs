@@ -25,6 +25,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test doomed_drop_swing`):
 //!   * `doomed_drop_cancels_swing` -- the new arm still cancels the swing of a doomed drop: (1) goes red.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -67,7 +69,7 @@ const CONTROL_HP: i32 = 2000;
 /// Spawn from tick 200 under `arm` and run `ticks` ticks; returns the ids, the state after each tick (index 0 is before
 /// the first) and the Minion's range.
 fn play(arm: DoomedDropSwing, spawns: &[Spawn], ticks: u32) -> (Vec<EntityId>, Vec<Tick>, i32) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.doomed_drop_swing = arm;
     // The Minion's two targets stand at one distance from it: the scenes were written on the tie by the lower
     // own-frame x (targeting.EQUAL_DISTANCE_TIE = own_frame_low_x), which picks X; the shipped higher-x tie picks Y.

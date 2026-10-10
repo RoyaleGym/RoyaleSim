@@ -116,5 +116,5 @@ fn a_newborn_passes_over_an_enemy_the_ticks_landing_shot_kills_under_client15535
 
 #[test]
 fn the_shipped_arm_scans_at_emission() {
-    assert_eq!(Calib::shipped().newborn_first_target, NewbornFirstTarget::ScanAtEmission);
+    assert_eq!(Calib::shipped().newborn_first_target, NewbornFirstTarget::Client15535TickSurvivors);
 }

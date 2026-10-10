@@ -17,6 +17,8 @@
 //! chase_hold`): chase_lost_past_round_sight -> `a_target_past_round_sight_inside_the_chase_limit_is_kept` red;
 //! chase_held_only_inside_limit -> `a_target_never_inside_the_limit_is_kept_past_round_sight` red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -30,7 +32,7 @@ fn at(x: i32, y: i32) -> Vec2 {
 
 #[test]
 fn a_target_past_round_sight_inside_the_chase_limit_is_kept() {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     let deck: Vec<String> = ["Knight", "Archers", "Giant", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.card_level = [11, 11];
@@ -74,7 +76,7 @@ fn the_shipped_arm_lets_a_never_inside_target_go_past_the_limit() {
 /// A blue Knight takes a red Knight 5,800 off along x (past the square limit, in the round sight), which then stands
 /// 6,700 off (past both) for 5 ticks: is it kept every tick (`kept`) or let go on the first?
 fn past_limit_scene(arm: royalesim::state::ChaseHoldPastLimit, kept: bool) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.chase_hold_past_limit = arm;
     let deck: Vec<String> = ["Knight", "Archers", "Giant", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];

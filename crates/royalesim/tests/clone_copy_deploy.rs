@@ -24,6 +24,8 @@
 //!     RUSTFLAGS='--cfg clash_plant="clone_copy_born_deployed"' CARGO_TARGET_DIR=target/plant cargo test --profile gate
 //!     --test clone_copy_deploy
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -40,7 +42,7 @@ const CLONE_AT: u32 = 6;
 const SLIDE: u32 = 10;
 
 fn with(arm: CloneCopyDeploy) -> BattleConfig {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.clone_copy_deploy = arm;
     cfg
 }

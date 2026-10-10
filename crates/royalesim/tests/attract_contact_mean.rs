@@ -69,5 +69,5 @@ fn a_pulled_unit_takes_the_pull_into_its_contact_mean_under_client15535_in_mean(
 
 #[test]
 fn the_shipped_arm_adds_the_pull_after_the_mean() {
-    assert_eq!(Calib::shipped().attract_contact_mean, AttractContactMean::AfterMean);
+    assert_eq!(Calib::shipped().attract_contact_mean, AttractContactMean::Client15535InMean);
 }

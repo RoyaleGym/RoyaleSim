@@ -59,6 +59,6 @@ fn the_old_arm_pulls_it_into_the_river() {
 }
 
 #[test]
-fn the_shipped_arm_is_the_walk_rule() {
-    assert_eq!(Calib::shipped().attract_water_edge, AttractWaterEdge::WalkRule);
+fn the_shipped_arm_is_the_client15535_pull_stops() {
+    assert_eq!(Calib::shipped().attract_water_edge, AttractWaterEdge::Client15535PullStops);
 }

@@ -17,6 +17,8 @@
 //! WHAT EACH TEST WOULD CATCH is stated on the test. To see one fail, revert
 //! `check_position`'s building branch in state.rs to the old tap-point check.
 
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -27,7 +29,7 @@ use royalesim::Team;
 
 /// A battle with nothing on the board but the six crown towers.
 fn board() -> BattleState {
-    BattleState::new(7, config())
+    BattleState::new(7, config_pre_flip())
 }
 
 fn tile_centre(x: i32, y: i32) -> Vec2 {
@@ -35,7 +37,7 @@ fn tile_centre(x: i32, y: i32) -> Vec2 {
 }
 
 fn place(s: &BattleState, team: Team, card: &str, p: Vec2) -> Option<(Vec2, royalesim::arena::Rect)> {
-    let idx = s.config().cards.index(card).expect("card in the catalogue");
+    let idx = s.config_pre_flip().cards.index(card).expect("card in the catalogue");
     s.building_placement(team, idx, p)
 }
 
@@ -127,14 +129,14 @@ fn flush_against_a_tower_is_legal_and_one_tile_in_is_not() {
 fn both_seats_place_a_rotated_tap_the_same_way() {
     use royalesim::state::PlacementSnapEven;
     for (even, cards) in [(PlacementSnapEven::PlacerFrame, &["Cannon", "Tesla", "Tombstone"][..]), (PlacementSnapEven::Absolute, &["Cannon"][..])] {
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.placement_snap_even = even;
         both_seats_rotate(&BattleState::new(7, cfg), cards);
     }
 }
 
 fn both_seats_rotate(s: &BattleState, cards: &[&str]) {
-    let arena = &s.config().arena;
+    let arena = &s.config_pre_flip().arena;
     for &card in cards {
         for (x, y) in [(9, 0), (0, 8), (9, 14), (6, 8), (5, 6), (3, 6), (17, 1)] {
             let tap = tile_centre(x, y);
@@ -170,7 +172,7 @@ fn odd_sizes_take_a_tile_centre_and_even_sizes_a_corner() {
 /// modelled, and what a snapshot from then restores into.
 #[test]
 fn the_refuse_arm_still_refuses() {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.placement_illegal_tap = PlacementIllegalTap::Refuse;
     let s = BattleState::new(7, cfg);
     assert!(place(&s, Team::Blue, "Cannon", tile_centre(9, 14)).is_none(), "the refuse arm placed a building anyway");
@@ -223,7 +225,7 @@ fn a_deploy_reports_the_point_the_building_took() {
     fn building_in_hand(s: &BattleState) -> Option<(usize, String, i32)> {
         (0..4).find_map(|k| {
             let idx = s.hand_card(Team::Blue, k).ok()?;
-            let card = s.config().cards.get(idx);
+            let card = s.config_pre_flip().cards.get(idx);
             let n = placement_tiles(card.collision_radius);
             (card.kind == royalesim::card::CardKind::Building).then(|| (k, card.name.clone(), n))
         })
@@ -236,7 +238,7 @@ fn a_deploy_reports_the_point_the_building_took() {
             .iter()
             .map(|x| x.to_string())
             .collect();
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.decks = [deck.clone(), deck];
         let mut s = BattleState::new(7, cfg);
         // every `deploy_slot` below is refused as TooEarly at tick 0
@@ -247,7 +249,7 @@ fn a_deploy_reports_the_point_the_building_took() {
 
     let s = dealt();
     let hand: Vec<String> = (0..4)
-        .filter_map(|k| s.hand_card(Team::Blue, k).ok().map(|i| s.config().cards.get(i).name.clone()))
+        .filter_map(|k| s.hand_card(Team::Blue, k).ok().map(|i| s.config_pre_flip().cards.get(i).name.clone()))
         .collect();
     let (slot, name, n) = building_in_hand(&s).unwrap_or_else(|| panic!("no building in the opening hand {hand:?}"));
     assert!(n >= 2, "{name} is a {n}x{n} building, which cannot be pushed off a wall tap");

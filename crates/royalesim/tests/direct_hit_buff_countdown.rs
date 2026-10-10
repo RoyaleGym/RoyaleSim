@@ -54,6 +54,6 @@ fn an_instant_hits_stun_holds_a_tick_fewer_under_client15535_landing_tick() {
 }
 
 #[test]
-fn the_shipped_value_is_resolve_landing() {
-    assert_eq!(Calib::shipped().direct_hit_buff_countdown, DirectHitBuffCountdown::ResolveLanding);
+fn the_shipped_value_is_client15535_landing_tick() {
+    assert_eq!(Calib::shipped().direct_hit_buff_countdown, DirectHitBuffCountdown::Client15535LandingTick);
 }

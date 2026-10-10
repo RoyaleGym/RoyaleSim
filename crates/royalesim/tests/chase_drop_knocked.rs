@@ -23,6 +23,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test chase_drop_knocked`):
 //!   * `chase_drop_knocked_dropped` -- client_holds_knocked still lets a sliding target go: (1) goes red.
 //!   * `knocked_hold_ignores_nearer` -- client15535_holds_unless_nearer holds against a nearer enemy: (5) goes red.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -42,7 +44,7 @@ const HOG_AT: (i32, i32) = (14500, 9500);
 const SHORT_OF_SIGHT: i64 = 1000;
 
 fn with_arm(arm: ChaseDropKnocked) -> BattleConfig {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.chase_drop_range = ChaseDropRange::ClientSightMinus1000;
     cfg.calib.range_projectile = RangeProjectile::StraightToRange;
     cfg.calib.chase_drop_knocked = arm;
@@ -56,7 +58,7 @@ fn at(p: (i32, i32)) -> Vec2 {
 /// The chase-drop limit of `holder` on `other`, subtiles: SightRange + both collision radii - 1000 native.
 fn limit(s: &BattleState, holder: EntityId, other: EntityId) -> i64 {
     let (h, o) = (s.entity(holder).unwrap(), s.entity(other).unwrap());
-    let sight = s.config().cards.get(h.card_idx).sight_range as i64;
+    let sight = s.config_pre_flip().cards.get(h.card_idx).sight_range as i64;
     sight + h.radius as i64 + o.radius as i64 - SHORT_OF_SIGHT * K as i64
 }
 

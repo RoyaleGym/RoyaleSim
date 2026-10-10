@@ -75,6 +75,8 @@
 //! No existing gate should go red under the first ten or the last two: no card loaded before this file carries a
 //! transformation.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -117,7 +119,7 @@ fn level11(mut cfg: BattleConfig) -> BattleConfig {
 
 /// The shipped transformation arms, asserted where a test says it pins them.
 fn shipped_arms() -> BattleConfig {
-    let cfg = level11(config());
+    let cfg = level11(config_pre_flip());
     let c = &cfg.calib;
     assert_eq!(c.transform_compare, TransformCompare::AtOrBelow, "the shipped transform.HEALTH_TRIGGER_COMPARE");
     assert_eq!(c.transform_timing, TransformTiming::OwnUpdate, "the shipped transform.HEALTH_TRIGGER_TIMING");
@@ -232,7 +234,7 @@ fn scheduled_for(s: &BattleState, id: EntityId) -> Vec<i32> {
 /// Plant: spawned_death_projectile_unread.
 #[test]
 fn the_loader_reads_both_transformations() {
-    let s = BattleState::new(0, level11(config()));
+    let s = BattleState::new(0, level11(config_pre_flip()));
     let db = s.cards();
     let cart = card_stat(&s, "MovingCannon").transform_at_hp.expect("the Cannon Cart carries its transformation");
     assert_eq!((cart.pct, cart.reset_target, cart.delay_ms), (50, false, 0));
@@ -832,7 +834,7 @@ fn only_the_demolishers_taunt_cancel_carries_an_action_taunt() {
 /// Plant: unit_refs_skips_new_paths.
 #[test]
 fn a_transformed_unit_reports_its_catalogue_card() {
-    let s = BattleState::new(0, level11(config()));
+    let s = BattleState::new(0, level11(config_pre_flip()));
     let db = s.cards();
     let catalogue = [db.index("MovingCannon").unwrap(), db.index("GoblinDemolisher").unwrap()];
     let ids = royalesim::py::ids_of_indices(db, &catalogue);

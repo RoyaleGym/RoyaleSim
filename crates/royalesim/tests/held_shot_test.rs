@@ -70,6 +70,6 @@ fn the_old_value_hits_from_where_it_stands() {
 }
 
 #[test]
-fn the_shipped_value_is_tested() {
-    assert_eq!(Calib::shipped().held_shot_test, HeldShotTest::Tested);
+fn the_shipped_value_is_client15535_untested() {
+    assert_eq!(Calib::shipped().held_shot_test, HeldShotTest::Client15535Untested);
 }

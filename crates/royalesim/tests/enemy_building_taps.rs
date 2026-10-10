@@ -77,7 +77,7 @@ fn a_tap_on_an_enemy_box_takes_the_ring_search_not_the_axis_push() {
 
 #[test]
 fn the_shipped_arm_reads_own_boxes_alone() {
-    assert_eq!(Calib::shipped().placement_enemy_building_taps, EnemyBuildingTaps::Ignored);
+    assert_eq!(Calib::shipped().placement_enemy_building_taps, EnemyBuildingTaps::Client15535TileBoxRing);
 }
 
 /// (3) placement.ENEMY_BUILDING_TAPS = client15535_tile_box_ring (client 15.535.29, Oracle's turret battery: 72 of 72 taps):

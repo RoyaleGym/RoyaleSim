@@ -86,6 +86,6 @@ fn the_old_value_starts_it_the_extra_out_and_waits() {
 }
 
 #[test]
-fn the_shipped_value_is_extra_and_wait() {
-    assert_eq!(Calib::shipped().net_launch, NetLaunch::ExtraAndWait);
+fn the_shipped_value_is_client15535_edge_next_tick() {
+    assert_eq!(Calib::shipped().net_launch, NetLaunch::Client15535EdgeNextTick);
 }

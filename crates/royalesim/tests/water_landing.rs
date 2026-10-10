@@ -8,6 +8,8 @@
 //! chain_hop_ends_on_water -> `a_golden_knights_hop_whose_blow_lands_over_the_river_ends_on_land` red;
 //! land_ties_own_frame -> `a_red_units_point_takes_the_arenas_ties` red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -30,7 +32,7 @@ const MEASURED: [((i32, i32), (i32, i32)); 5] = [
 
 #[test]
 fn each_measured_point_lands_where_the_clients_did() {
-    let s = BattleState::try_new(0, config()).expect("the battle");
+    let s = BattleState::try_new(0, config_pre_flip()).expect("the battle");
     let a = s.arena();
     for (w, want) in MEASURED {
         assert!(!a.is_passable_ground(n(w)), "{w:?} is on water");
@@ -58,7 +60,7 @@ const RED_MEASURED: [((i32, i32), (i32, i32)); 8] = [
 /// Red's ties are the arena's, as Blue's: toward -x, then -y (Red's own frame would take +x, +y in every one).
 #[test]
 fn a_red_units_point_takes_the_arenas_ties() {
-    let s = BattleState::try_new(0, config()).expect("the battle");
+    let s = BattleState::try_new(0, config_pre_flip()).expect("the battle");
     let a = s.arena();
     for (w, want) in RED_MEASURED {
         assert!(!a.is_passable_ground(n(w)), "{w:?} is on water");
@@ -72,7 +74,7 @@ fn a_red_units_point_takes_the_arenas_ties() {
 /// (10793, 14953) that tick).
 #[test]
 fn a_bandits_dash_that_ends_over_the_river_ends_on_land() {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     let deck: Vec<String> = ["Assassin", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.card_level = [11, 11];
@@ -109,7 +111,7 @@ fn a_bandits_dash_that_ends_over_the_river_ends_on_land() {
 fn a_golden_knights_hop_whose_blow_lands_over_the_river_ends_on_land() {
     const DECK: [&str; 8] = ["GoldenKnight", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
     const GIANT: (i32, i32) = (6500, 18000);
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];

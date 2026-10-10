@@ -33,6 +33,8 @@
 //! spawner.DEATH_RING_DIRECTION = client15535_facing (client 15.535.29, 13 of 13, one Evo Battle Ram sliding along the
 //! bridge's edge at t1147 of sp-form-BattleRam-evo-s0): it lies at the degree of the walker's heading after its death
 //! tick, which a walk pushed off its line steps away from.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -50,7 +52,7 @@ const TOWER: (i32, i32) = (14500, 25500);
 /// on their first frame. The death point is read off the ring: two members 180 degrees apart stand on exactly opposite
 /// offsets, truncation included, so their midpoint is the death point.
 fn ram_death(axis: DeathRingAxis, start: (i32, i32)) -> (Vec2, Vec2, Vec<(Vec2, Vec2)>) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.death_spawn_layout = DeathSpawnLayout::FacingRingRounded;
     cfg.calib.death_ring_axis = axis;
     // spawner.SPAWNED_FIRST_STEP at none: the scene reads where the Barbarians are CREATED.
@@ -100,7 +102,7 @@ fn sorted(kids: &[(Vec2, Vec2)]) -> Vec<Vec2> {
 
 #[test]
 fn a_death_ring_lies_at_its_members_heading_degree() {
-    let s = BattleState::new(0, config());
+    let s = BattleState::new(0, config_pre_flip());
     let ram = card_stat(&s, "BattleRam");
     let ds = ram.death_spawn.as_ref().expect("data: the Battle Ram has a death spawn");
     let r = ds.radius.expect("data: the Battle Ram's DeathSpawnRadius") as i64;
@@ -161,7 +163,7 @@ fn walking_heading(start: (i32, i32), knight: (i32, i32), walk: u32) -> (Vec2, V
 
 /// `walking_death`'s scene up to the tick its Ram dies on: the battle and the Ram.
 fn walking_scene(dir: DeathRingDirection, start: (i32, i32), knight: (i32, i32), walk: u32) -> (BattleState, EntityId) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.death_spawn_layout = DeathSpawnLayout::FacingRingRounded;
     cfg.calib.death_ring_axis = DeathRingAxis::Client15535UnitHeading;
     cfg.calib.death_ring_direction = dir;
@@ -198,7 +200,7 @@ fn heading_degree(v: Vec2) -> i32 {
 /// Plant: death_ring_step_unread.
 #[test]
 fn a_ram_dying_on_its_walk_lays_its_ring_on_its_step_under_client15535_walk_step() {
-    let s = BattleState::new(0, config());
+    let s = BattleState::new(0, config_pre_flip());
     let ram = card_stat(&s, "BattleRam");
     let ds = ram.death_spawn.as_ref().expect("data: the Battle Ram has a death spawn");
     let r = ds.radius.expect("data: the Battle Ram's DeathSpawnRadius") as i64;
@@ -228,7 +230,7 @@ fn a_ram_dying_on_its_walk_lays_its_ring_on_its_step_under_client15535_walk_step
 /// Plant: death_ring_facing_unread.
 #[test]
 fn a_ram_dying_on_its_walk_lays_its_ring_on_its_heading_under_client15535_facing() {
-    let s = BattleState::new(0, config());
+    let s = BattleState::new(0, config_pre_flip());
     let ram = card_stat(&s, "BattleRam");
     let ds = ram.death_spawn.as_ref().expect("data: the Battle Ram has a death spawn");
     let r = ds.radius.expect("data: the Battle Ram's DeathSpawnRadius") as i64;
@@ -294,7 +296,7 @@ fn the_octant_degree_is_the_measured_table() {
 /// heading's octant degree, and some of the row's headings round elsewhere. Plant: death_ring_octant_unread.
 #[test]
 fn a_death_ring_lies_at_its_heading_octant_degree_under_client16402_heading_octant128() {
-    let s = BattleState::new(0, config());
+    let s = BattleState::new(0, config_pre_flip());
     let ram = card_stat(&s, "BattleRam");
     let ds = ram.death_spawn.as_ref().expect("data: the Battle Ram has a death spawn");
     let r = ds.radius.expect("data: the Battle Ram's DeathSpawnRadius") as i64;

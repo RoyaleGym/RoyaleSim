@@ -22,6 +22,8 @@
 //!   - spin_rest_skipped -> `after_the_last_blow_she_rests_8_ticks_then_hits_from_her_load` red;
 //!   - finish_column_unread -> `without_a_press_a_kill_costs_her_no_retarget_wait` red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -37,14 +39,14 @@ fn n(x: i32, y: i32) -> Vec2 {
 const DECK: [&str; 8] = ["Valkyrie", "Knight", "Archer", "Giant", "Musketeer", "HogRider", "Fireball", "Zap"];
 
 fn battle() -> BattleState {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
-    let lockout = s.config().calib.deploy_lockout_ticks as u32;
+    let lockout = s.config_pre_flip().calib.deploy_lockout_ticks as u32;
     s.scenario_set_tick(lockout);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
     s.scenario_set_elixir_milli(Team::Red, 10_000);

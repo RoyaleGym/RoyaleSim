@@ -13,6 +13,8 @@
 //!   RUSTFLAGS='--cfg clash_plant="evo_hop_at_once"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //!   evo_chain_hop_wait
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -27,7 +29,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 
 /// The ticks of the chain's first four hits.
 fn hit_ticks(arm: EvoChainHopWait) -> Vec<u32> {
-    let mut cfg: BattleConfig = config();
+    let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["ElectroDragon".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -80,8 +82,8 @@ fn every_hop_after_the_first_waits_two_ticks() {
 }
 
 #[test]
-fn the_shipped_arm_hops_at_once() {
-    assert_eq!(Calib::shipped().evo_chain_hop_wait, EvoChainHopWait::AtOnce);
+fn the_shipped_arm_hops_client15535_two_ticks() {
+    assert_eq!(Calib::shipped().evo_chain_hop_wait, EvoChainHopWait::Client15535TwoTicks);
 }
 
 /// combat.EVO_CHAIN_HOP_WAIT = client16402_every_hop (client 16.402, parity's r63 census: each strong hop 1 + ceil(d / 2000)

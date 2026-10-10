@@ -73,6 +73,6 @@ fn the_old_value_picks_at_the_hit_before() {
 }
 
 #[test]
-fn the_shipped_value_is_as_attack_select() {
-    assert_eq!(Calib::shipped().far_shot_select_moment, FarShotSelectMoment::AsAttackSelect);
+fn the_shipped_value_is_client15535_at_load_start() {
+    assert_eq!(Calib::shipped().far_shot_select_moment, FarShotSelectMoment::Client15535AtLoadStart);
 }

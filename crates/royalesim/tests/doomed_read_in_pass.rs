@@ -105,5 +105,5 @@ fn an_attacker_whose_target_an_earlier_strike_felled_with_a_shot_in_flight_is_fr
 
 #[test]
 fn the_shipped_arm_reads_the_pass_start() {
-    assert_eq!(Calib::shipped().doomed_read_in_pass, DoomedReadInPass::StartOfPass);
+    assert_eq!(Calib::shipped().doomed_read_in_pass, DoomedReadInPass::Client15535AtTurn);
 }

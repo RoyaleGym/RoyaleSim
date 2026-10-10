@@ -118,6 +118,6 @@ fn a_hog_whose_parent_died_of_no_hit_waits_for_the_next_tick() {
 }
 
 #[test]
-fn the_shipped_arm_is_the_next_tick() {
-    assert_eq!(Calib::shipped().buff_death_spawn_first_update, BuffDeathSpawnFirstUpdate::NextTick);
+fn the_shipped_arm_is_the_client15535_doomed_parent() {
+    assert_eq!(Calib::shipped().buff_death_spawn_first_update, BuffDeathSpawnFirstUpdate::Client15535DoomedParent);
 }

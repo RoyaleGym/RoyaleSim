@@ -102,5 +102,5 @@ fn an_evo_hunters_net_is_cast_outside_his_shot_window_under_client15535_shot_win
 
 #[test]
 fn the_shipped_arm_holds_the_target() {
-    assert_eq!(Calib::shipped().net_cast_window, NetCastWindow::TargetHold);
+    assert_eq!(Calib::shipped().net_cast_window, NetCastWindow::Client15535ShotWindow);
 }

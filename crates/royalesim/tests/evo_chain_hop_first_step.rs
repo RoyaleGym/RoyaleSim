@@ -90,8 +90,8 @@ fn the_old_value_lands_it_a_tick_later() {
 }
 
 #[test]
-fn the_shipped_value_is_next_tick() {
-    assert_eq!(Calib::shipped().evo_chain_hop_first_step, EvoChainHopFirstStep::NextTick);
+fn the_shipped_value_is_client15535_shot_plus_two() {
+    assert_eq!(Calib::shipped().evo_chain_hop_first_step, EvoChainHopFirstStep::Client15535ShotPlusTwo);
 }
 
 /// Plant: evo_first_hop_same_pass.

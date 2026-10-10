@@ -73,6 +73,6 @@ fn his_copies_are_drawn_around_his_post_move_point_under_client15535_post_move()
 }
 
 #[test]
-fn the_shipped_value_is_pre_move() {
-    assert_eq!(Calib::shipped().soul_point_base, SoulPointBase::PreMove);
+fn the_shipped_value_is_client15535_post_move() {
+    assert_eq!(Calib::shipped().soul_point_base, SoulPointBase::Client15535PostMove);
 }

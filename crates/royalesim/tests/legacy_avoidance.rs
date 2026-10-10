@@ -19,6 +19,8 @@
 //!   * `legacy_walk_avoids_untouchable` -- the avoidance keeps a unit under ground and an attached rider as
 //!     blockers: (1) and (2) red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -45,7 +47,7 @@ fn level11(mut cfg: BattleConfig) -> BattleConfig {
 
 /// The shipped arm of the key the scenes stand on, asserted.
 fn shipped() -> BattleConfig {
-    let cfg = level11(config());
+    let cfg = level11(config_pre_flip());
     assert_eq!(cfg.calib.spawn_pathfind_body, SpawnPathfindBody::Untouchable, "the shipped movement.SPAWN_PATHFIND_BODY");
     cfg
 }

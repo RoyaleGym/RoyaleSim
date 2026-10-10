@@ -99,6 +99,6 @@ fn the_old_value_keeps_the_target_past_round_sight() {
 }
 
 #[test]
-fn the_shipped_value_is_every_holder() {
-    assert_eq!(Calib::shipped().chase_hold_scope, ChaseHoldScope::EveryHolder);
+fn the_shipped_value_is_client15535_walkers_only() {
+    assert_eq!(Calib::shipped().chase_hold_scope, ChaseHoldScope::Client15535WalkersOnly);
 }

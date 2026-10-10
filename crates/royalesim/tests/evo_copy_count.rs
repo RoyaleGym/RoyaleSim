@@ -77,7 +77,7 @@ fn a_hit_on_a_full_group_with_a_member_dying_makes_no_copy() {
 
 #[test]
 fn the_shipped_arm_counts_the_group_after_the_ticks_deaths() {
-    assert_eq!(Calib::shipped().evo_copy_count, EvoCopyCount::AfterReap);
-    let out = trials(EvoCopyCount::AfterReap);
+    assert_eq!(Calib::shipped().evo_copy_count, EvoCopyCount::Client15535AtHit);
+    let out = trials(EvoCopyCount::Client15535AtHit);
     assert!(out.iter().all(|&c| c >= 1), "the shipped arm made no copy on a full group's dying tick: {out:?}");
 }

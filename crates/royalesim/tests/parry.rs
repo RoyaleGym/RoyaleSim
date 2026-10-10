@@ -77,6 +77,8 @@
 //! above: no card loaded before this file carries a counter, and the Ronin's stun row is the only row the new arm of
 //! status.FULL_STOP_BUFF_IS_STUN reads differently.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -129,7 +131,7 @@ fn level11(mut cfg: BattleConfig) -> BattleConfig {
 
 /// The shipped arms, asserted where a test says it pins them.
 fn shipped() -> BattleConfig {
-    let cfg = level11(config());
+    let cfg = level11(config_pre_flip());
     let c = &cfg.calib;
     assert_eq!(c.parry_hits, ParryHits::GroundMelee, "the shipped parry.COUNTERED_HITS");
     assert_eq!(c.parry_pick, ParryPick::FirstCreatedAttacker, "the shipped parry.SAME_TICK_PICK");
@@ -150,7 +152,7 @@ fn hit_speed(s: &BattleState, card: &str) -> i32 {
 fn damage(s: &BattleState, card: &str, team: Team) -> i32 {
     let db = s.cards();
     let idx = db.index(card).unwrap_or_else(|| panic!("{card} loads"));
-    db.scaled(idx, s.config().card_level[team as usize], db.get(idx).damage).expect("a valid level")
+    db.scaled(idx, s.config_pre_flip().card_level[team as usize], db.get(idx).damage).expect("a valid level")
 }
 
 // ---------------------------------------------------------------------------
@@ -285,7 +287,7 @@ fn a_ready_counter_takes_nothing_and_the_attacker_takes_twice_its_hit_six_ticks_
 #[test]
 fn the_countered_attacker_keeps_its_target_and_swings_at_a_twentieth() {
     let (s, ids, tape, h) = duel_tape(shipped(), 70);
-    let (hs, dt) = (hit_speed(&s, "Knight"), s.config().calib.tick_ms);
+    let (hs, dt) = (hit_speed(&s, "Knight"), s.config_pre_flip().calib.tick_ms);
     // The stun row's composed hit speed on one tick: 5 % of 50, truncated.
     let p = card_stat(&s, "Ronin").parry.expect(REGENERATE);
     let step = compose([s.cards().buffs[p.stun.buff as usize]].iter(), Sel::HitSpeed, dt);
@@ -323,7 +325,7 @@ fn the_countered_attacker_keeps_its_target_and_swings_at_a_twentieth() {
 fn the_counter_restarts_the_ronins_own_swing() {
     let (s, ids, tape, h) = duel_tape(shipped(), 40);
     let c = card_stat(&s, "Ronin");
-    let (hs, lt, dt) = (c.hit_speed_ms, c.load_time_ms, s.config().calib.tick_ms);
+    let (hs, lt, dt) = (c.hit_speed_ms, c.load_time_ms, s.config_pre_flip().calib.tick_ms);
     let r = |t: u32| tape.at(RONIN, t);
     // Its progress reads 0 on H (measured: from 1450), then a fresh cycle: the entry LoadTime less the load timer,
     // plus 50, the load timer reloaded to LoadTime (measured: 200 with 1000 on H + 1).
@@ -660,7 +662,7 @@ fn the_next_counter_is_ready_seventy_ticks_after_the_counter() {
         (s, head, tail, h, ids[KNIGHT])
     };
     let (s, head, tail, h, knight) = scene(shipped());
-    let dt = s.config().calib.tick_ms;
+    let dt = s.config_pre_flip().calib.tick_ms;
     let p = card_stat(&s, "Ronin").parry.expect(REGENERATE);
     assert_eq!(p.cooldown_ms / dt, READY_AFTER as i32, "Cooldown 3500 is 70 ticks");
     // Every hit from H + 1 to H + 60 lands in full (measured: a hit on H + 1, and hits 34 and 58 ticks after).
@@ -795,7 +797,7 @@ fn a_row_that_stops_the_walk_but_not_the_clock_is_not_a_stun() {
         (s, ids, tape, f)
     };
     let (s, ids, tape, f) = run(FullStopBuff::SpeedAndHitSpeedZero);
-    let dt = s.config().calib.tick_ms;
+    let dt = s.config_pre_flip().calib.tick_ms;
     let step = compose([s.cards().buffs[s.cards().buffs.iter().position(|b| b.hit_speed_pct == -95).expect("the row")]].iter(), Sel::HitSpeed, dt);
     for t in f + 1..=f + 9 {
         let (a, b) = (tape.at(1, t - 1), tape.at(1, t));

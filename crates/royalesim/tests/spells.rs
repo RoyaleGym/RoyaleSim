@@ -97,6 +97,8 @@
 //! does under the shipped registry, and that the registry is READ; the two
 //! log_travel_arm_* tests pin a listed arm the registry does not ship, through the
 //! battle's calibration.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use royalesim::entity::{AttackPhase, EntityKind};
@@ -188,7 +190,7 @@ fn calib() -> Calib {
 /// inherits the rest): the Log's first step, push direction and hit shape, and the building reach. It shadows
 /// `common::config`. The tests of the flipped arms name theirs (`log_pair`, the max-y edge test, and
 /// tests/building_spell_reach.rs).
-fn config() -> BattleConfig {
+fn config_pre_flip() -> BattleConfig {
     let mut c = common::config();
     c.calib.roll_first_step = royalesim::state::RollFirstStep::TickAfterLanding;
     c.calib.knock_direction_rolling = RollDirection::RadialFromCentre;
@@ -357,7 +359,7 @@ fn fireball_flight_launches_from_the_caster_king_and_lands_on_distance_over_spee
     // tap is straight ahead of Blue's king, so the flight is an exact axis distance.
     // Plant: spell_launch_from_tap (lands on the cast tick).
     for mult in [calib().projectile_speed_to_subtiles_per_tick, calib().projectile_speed_to_subtiles_per_tick + 3] {
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.projectile_speed_to_subtiles_per_tick = mult;
         let mut s = bare(cfg);
         let tap = Vec2::new(king(&s, Team::Blue).x, stage().y);
@@ -414,7 +416,7 @@ fn fireball_damage_to_troop_building_and_crown_tower_scales_with_level_and_round
     assert_ne!(table_pct, measured_pct, "both arms give {table_pct}%: the arm is not exercised");
     for (arm, pct) in [(CardValuesArm::None, table_pct), (CardValuesArm::Client16402, measured_pct)] {
         let armed = || {
-            let mut cfg = config();
+            let mut cfg = config_pre_flip();
             cfg.calib.card_values = arm;
             cfg
         };
@@ -446,15 +448,15 @@ fn aoe_radius_edge_is_inclusive_to_the_subtile_under_the_registry() {
     // Zap. Then the other registry candidate, centre_in_radius, moves the boundary
     // to dist = R. Plant: aoe_centre_to_centre.
     assert_registry("spells.AOE_HIT_TEST", format!("{:?}", calib().aoe_hit_test), "EdgeInclusive");
-    let r_cannon = card_stat(&bare(config()), "Cannon").collision_radius;
+    let r_cannon = card_stat(&bare(config_pre_flip()), "Cannon").collision_radius;
     for (spell, radius) in [("Fireball", milli(int(&fireball_hit()["radius_milli"]))), ("Arrows", milli(arrows_disc_milli())), ("Zap", milli(int(&zap_aeo()["radius_milli"])))] {
         let tap = stage();
         let inside = Vec2::new(tap.x + radius + r_cannon, tap.y);
         let outside = Vec2::new(tap.x - radius - r_cannon - 1, tap.y);
-        let c = cast_scenario(config(), Team::Blue, spell, tap, None, &[(Team::Red, "Cannon", inside), (Team::Red, "Cannon", outside)], &[]);
+        let c = cast_scenario(config_pre_flip(), Team::Blue, spell, tap, None, &[(Team::Red, "Cannon", inside), (Team::Red, "Cannon", outside)], &[]);
         assert!(c.hp_loss(c.ids[0]) > 0, "{spell}: a Cannon whose edge touches the radius was missed");
         assert_eq!(c.hp_loss(c.ids[1]), 0, "{spell}: a Cannon one subtile beyond the radius was hit");
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.aoe_hit_test = royalesim::state::AoeHitTest::CentreInRadius;
         let centre_in = Vec2::new(tap.x + radius, tap.y);
         let c = cast_scenario(cfg, Team::Blue, spell, tap, None, &[(Team::Red, "Cannon", inside), (Team::Red, "Cannon", centre_in)], &[]);
@@ -473,7 +475,7 @@ fn area_spells_hit_air_and_ground_enemies_and_never_friends() {
         // The Minions' members 1 and 2 still wait out their stagger here; the shipped formation.STAGGER_WAIT =
         // client16402_untargetable_immovable_unhittable spares a waiting member (tests/test_stagger_wait.py), so this
         // test of a spell's victims runs the arm it was written on.
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.formation_stagger_wait = royalesim::state::StaggerWait::Client16402;
         let c = cast_scenario(
             cfg,
@@ -509,7 +511,7 @@ fn fireball_knockback_is_radial_fixed_distance_troops_only_and_respects_ignore_p
     assert!(!fireball_hit()["pushback_all"].as_bool().unwrap());
     let tap = stage();
     let c = cast_scenario(
-        config(),
+        config_pre_flip(),
         Team::Blue,
         "Fireball",
         tap,
@@ -552,7 +554,7 @@ fn fireball_knockback_is_radial_fixed_distance_troops_only_and_respects_ignore_p
     for caster in [Team::Blue, Team::Red] {
         let victim_team = caster.other();
         let at = if caster == Team::Blue { tap } else { t(900, 1300) };
-        let mut z = cast_scenario(config(), caster, "Fireball", at, None, &[], &[(victim_team, "Knight", at)]);
+        let mut z = cast_scenario(config_pre_flip(), caster, "Fireball", at, None, &[], &[(victim_team, "Knight", at)]);
         assert!(z.pushed(z.ids[0]), "{caster:?} caster: the on-centre Knight was not pushed");
         z.settle_pushes(40);
         assert!(z.deploying(z.ids[0]));
@@ -585,7 +587,7 @@ fn knockback_resets_a_windup() {
     let tap = stage();
     let musk_at = Vec2::new(tap.x + SUBTILE, tap.y);
     let cannon_at = Vec2::new(musk_at.x - milli(4000), musk_at.y);
-    let musk = card_stat(&bare(config()), "Musketeer").clone();
+    let musk = card_stat(&bare(config_pre_flip()), "Musketeer").clone();
     let (load, hs) = (musk.load_time_ms, musk.hit_speed_ms);
     let tick = calib().tick_ms;
     // "MID-SWING" in the shipped cycle (combat.ATTACK_CYCLE = progress_credit):
@@ -599,7 +601,7 @@ fn knockback_resets_a_windup() {
     };
     let mut found = 0;
     for delay in 0..40u32 {
-        let mut s = bare(config());
+        let mut s = bare(config_pre_flip());
         let m = s.scenario_spawn_now(Team::Red, "Musketeer", musk_at, Some(1_000_000)).unwrap();
         s.scenario_spawn_now(Team::Blue, "Cannon", cannon_at, None).unwrap();
         for _ in 0..delay {
@@ -661,9 +663,9 @@ fn knockback_interrupts_a_unit_between_shots_and_the_old_arm_freezes_its_cooldow
     let mut sooner = 0;
     for delay in 0..60u32 {
         let arms = [
-            ("shipped", config()),
+            ("shipped", config_pre_flip()),
             ("old", {
-                let mut c = config();
+                let mut c = config_pre_flip();
                 c.calib.knock_attack_reset = royalesim::state::KnockAttackReset::ResetWindupKeepTarget;
                 c
             }),
@@ -734,12 +736,12 @@ fn arrows_damage_scales_hits_once_per_wave_and_does_not_push() {
     // nothing; 15.535: the Projectile itself), each wave one hit per victim over the
     // spell's disc, no pushback. The scenario ends when the last wave has landed, so a
     // victim has taken exactly `waves` hits. Plants: ct_floor, crown_pct_ignored.
-    let s0 = bare(config());
+    let s0 = bare(config_pre_flip());
     let tower_pos = s0.arena().princess_tower_pos(Team::Red, royalesim::arena::Lane::Right);
     let tower = s0.tower_ids(Team::Red)[2].unwrap();
     let knight_at = Vec2::new(tower_pos.x - milli(3000), tower_pos.y - milli(2000));
-    let c = cast_scenario(config(), Team::Blue, "Arrows", tower_pos, None, &[], &[(Team::Red, "Knight", knight_at)]);
-    let level = c.s.config().card_level[0];
+    let c = cast_scenario(config_pre_flip(), Team::Blue, "Arrows", tower_pos, None, &[], &[(Team::Red, "Knight", knight_at)]);
+    let level = c.s.config_pre_flip().card_level[0];
     let dmg = scaled_from_json(&c.s, "Arrows", level, int(&arrows_hit()["damage"]));
     let pct = int(&arrows_hit()["crown_tower_damage_percent"]);
     let waves = arrows_waves();
@@ -809,11 +811,11 @@ fn arrows_waves_come_from_the_data() {
 #[test]
 fn zap_damage_scales_and_crown_towers_take_the_reduced_share() {
     // Plants: ct_floor, spell_damage_unscaled, crown_pct_ignored.
-    let s0 = bare(config());
+    let s0 = bare(config_pre_flip());
     let tower_pos = s0.arena().princess_tower_pos(Team::Red, royalesim::arena::Lane::Left);
     let tower = s0.tower_ids(Team::Red)[1].unwrap();
     for level in [9, 11] {
-        let c = cast_scenario(config(), Team::Blue, "Zap", tower_pos, Some(level), &[], &[(Team::Red, "Knight", Vec2::new(tower_pos.x + milli(1600), tower_pos.y))]);
+        let c = cast_scenario(config_pre_flip(), Team::Blue, "Zap", tower_pos, Some(level), &[], &[(Team::Red, "Knight", Vec2::new(tower_pos.x + milli(1600), tower_pos.y))]);
         assert_eq!(c.arrival, 1, "Zap applies on the tick it is cast (no flight)");
         let dmg = scaled_from_json(&c.s, "Zap", level, int(&zap_aeo()["damage"]));
         let pct = int(&zap_aeo()["crown_tower_damage_percent"]);
@@ -833,7 +835,7 @@ fn zap_damage_scales_and_crown_towers_take_the_reduced_share() {
 type KnightTrace = (u32, AttackPhase, i32, bool, bool, i32);
 
 fn knight_vs_cannon(zap: Option<u32>, ticks: u32) -> (Vec<u32>, Vec<KnightTrace>) {
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let k_at = stage();
     let kr = card_stat(&s, "Knight").collision_radius;
     let cr = card_stat(&s, "Cannon").collision_radius;
@@ -874,7 +876,7 @@ fn zap_stun_pauses_windup_and_cooldown_for_exactly_ceil_duration_ticks() {
     assert_registry("status.BUFF_EXPIRY_TICK_ALIGNMENT", format!("{:?}", calib().buff_expiry), "CeilFromNextTick");
     let buff = int(&zap_aeo()["buff_time_ms"]);
     let held = ((buff + calib().tick_ms - 1) / calib().tick_ms) as u32;
-    let knight = card_stat(&bare(config()), "Knight").clone();
+    let knight = card_stat(&bare(config_pre_flip()), "Knight").clone();
     let (hs, load) = (knight.hit_speed_ms, knight.load_time_ms);
     let (ctl, ctl_trace) = knight_vs_cannon(None, 120);
     assert!(ctl.len() >= 4, "vacuous: the Knight hit the Cannon only {} times", ctl.len());
@@ -924,7 +926,7 @@ fn zap_stun_freezes_movement_for_exactly_ceil_duration_ticks() {
     // again on N+held+1. Plant: stun_decrement_at_status_start (one tick short).
     let buff = int(&zap_aeo()["buff_time_ms"]);
     let held = ((buff + calib().tick_ms - 1) / calib().tick_ms) as u32;
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let knight = s.scenario_spawn_now(Team::Red, "Knight", t(900, 2100), None).unwrap();
     let n = 10u32;
     let mut pos = Vec::new();
@@ -955,7 +957,7 @@ fn zap_forces_a_retarget_on_resume() {
     let build = |zap: Option<u32>| {
         // The held Musketeer keeping Cannon A to its resume is status.STUN_CLEARS_TARGET = kept's; under the shipped
         // client_cleared it holds no target from the Zap's landing, and the resume rescan is the same.
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.stun_clears_target = StunClearsTarget::Kept;
         let mut s = bare(cfg);
         let m_at = stage();
@@ -1030,7 +1032,7 @@ fn log_tap() -> Vec2 {
 }
 
 fn log_numbers(s: &BattleState) -> (i32, i32, i32, i32, i32, i32) {
-    let k = s.config().calib.projectile_speed_to_subtiles_per_tick;
+    let k = s.config_pre_flip().calib.projectile_speed_to_subtiles_per_tick;
     (
         int(&log_air()["speed"]) * k,
         milli(int(&log_air()["min_distance_milli"])),
@@ -1072,7 +1074,7 @@ fn log_over_cannons(cfg: BattleConfig, cannons: &[Vec2], level: Option<i32>) -> 
 /// tick_after_landing takes it on the next tick, measured on the Barbarian Barrel in the 16.402 corpus
 /// (tests/barb_log.rs); the Log shares the arm, and its own casts have not been re-read.
 fn landing_tick_roll() -> BattleConfig {
-    let mut c = config();
+    let mut c = config_pre_flip();
     c.calib.roll_first_step = royalesim::state::RollFirstStep::OnLandingTick;
     c
 }
@@ -1114,13 +1116,13 @@ fn log_width_edge_is_rect_vs_circle_to_the_subtile() {
     // Lateral offsets: disc edge exactly on the half-width (hit), one subtile beyond
     // (miss). Registry spells.ROLLING_HIT_SHAPE = rect_vs_circle_edge. Plant:
     // rolling_centre_in_rect.
-    assert_registry("spells.ROLLING_HIT_SHAPE", format!("{:?}", config().calib.rolling_hit_shape), "RectVsCircleEdge");
-    let s0 = bare(config());
+    assert_registry("spells.ROLLING_HIT_SHAPE", format!("{:?}", config_pre_flip().calib.rolling_hit_shape), "RectVsCircleEdge");
+    let s0 = bare(config_pre_flip());
     let (_, _, _, _, hw, _) = log_numbers(&s0);
     let r = card_stat(&s0, "Cannon").collision_radius;
     let tap = log_tap();
     let y = s0.arena().water_y_max + 3 * SUBTILE;
-    let (hits, _) = log_over_cannons(config(), &[Vec2::new(tap.x + hw + r, y), Vec2::new(tap.x - hw - r - 1, y)], None);
+    let (hits, _) = log_over_cannons(config_pre_flip(), &[Vec2::new(tap.x + hw + r, y), Vec2::new(tap.x - hw - r - 1, y)], None);
     assert!(!hits[0].is_empty(), "a disc touching the half-width was missed");
     assert!(hits[1].is_empty(), "a disc one subtile outside the half-width was hit");
 }
@@ -1130,12 +1132,12 @@ fn log_pierces_hits_each_victim_once_and_damage_scales() {
     // Three Cannons along the axis (each overlapped by the swept rectangle for several
     // ticks) and a Red princess tower in the path: each loses exactly one hit. Plants:
     // rolling_rehit_every_tick, ct_floor, spell_damage_unscaled, crown_pct_ignored.
-    let s0 = bare(config());
+    let s0 = bare(config_pre_flip());
     let tap = log_tap();
     let y0 = s0.arena().water_y_max + 2 * SUBTILE;
     let cannons = [Vec2::new(tap.x, y0), Vec2::new(tap.x, y0 + 2 * SUBTILE), Vec2::new(tap.x, y0 + 4 * SUBTILE)];
     for level in [9, 10] {
-        let (hits, loss) = log_over_cannons(config(), &cannons, Some(level));
+        let (hits, loss) = log_over_cannons(config_pre_flip(), &cannons, Some(level));
         let dmg = scaled_from_json(&s0, "Log", level, int(&log_roll()["damage"]));
         for j in 0..3 {
             assert_eq!(hits[j].len(), 1, "level {level} Cannon {j}: hit on ticks {:?}", hits[j]);
@@ -1146,7 +1148,7 @@ fn log_pierces_hits_each_victim_once_and_damage_scales() {
     let tower_pos = s0.arena().princess_tower_pos(Team::Red, royalesim::arena::Lane::Left);
     let tower = s0.tower_ids(Team::Red)[1].unwrap();
     let level = 10;
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let full = s.entity(tower).unwrap().hp;
     s.spawn_unit(Team::Blue, "Log", Vec2::new(tower_pos.x, tower_pos.y - 3 * SUBTILE), Some(level)).unwrap();
     let mut drops = 0;
@@ -1194,7 +1196,7 @@ fn log_front_edge_touching_a_tower_hits_only_when_it_rolls_minus_y_under_client1
     // still hits on the touch. Measured on client 15.535.29: 10 of 10 and 3 of 3, the oracle's real-match replays.
     // Plant: rolling_max_y_edge_closed.
     let arm = |h| {
-        let mut c = config();
+        let mut c = config_pre_flip();
         c.calib.rolling_hit_shape = h;
         c
     };
@@ -1226,7 +1228,7 @@ fn log_hits_ground_enemies_only() {
     let row = stage().y - SUBTILE;
     let tap = Vec2::new(stage().x, row + 3 * SUBTILE / 2);
     let victims = [(Team::Blue, "Minions", Vec2::new(tap.x, row)), (Team::Red, "Knight", Vec2::new(tap.x - 3 * SUBTILE / 2, row)), (Team::Blue, "Knight", Vec2::new(tap.x + 3 * SUBTILE / 2, row))];
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let mut control = s.clone();
     s.spawn_unit(Team::Red, "Log", tap, None).unwrap();
     let mut enemy_hit = false;
@@ -1267,7 +1269,7 @@ fn log_hits_ground_enemies_only() {
 /// candidate the engine keeps implemented, and the log_travel_arm_* tests keep it
 /// what it says it is.
 fn travel_arm_config() -> BattleConfig {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.knock_direction_rolling = RollDirection::TravelDirection;
     cfg
 }
@@ -1427,9 +1429,9 @@ fn log_behind_the_tap_is_pushed_back_toward_the_caster_in_either_seat() {
     // is at the end of the landing tick, which is already past the Knight.
     // Plants: rolling_push_travel_direction (the Knights behind go forward),
     // rolling_push_from_tick_end (the Knight ahead goes back).
-    assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", config().calib.knock_direction_rolling), "RadialFromCentre");
+    assert_registry("knockback.DIRECTION_ROLLING", format!("{:?}", config_pre_flip().calib.knock_direction_rolling), "RadialFromCentre");
     assert_registry("placement.TAP_SNAP", format!("{:?}", calib().placement_tap_snap), "TileCentre");
-    let cfg = config();
+    let cfg = config_pre_flip();
     let s0 = bare(cfg.clone());
     let push = knock_carry(&cfg.calib, milli(int(&log_roll()["pushback_milli"])));
     let (_, _, step, _, _, _) = log_numbers(&s0);
@@ -1474,7 +1476,7 @@ fn barrel_flight_releases_nothing_until_it_lands_and_its_goblins_exist_on_the_la
     // No Blue Goblin exists before the arrival tick; on the arrival tick itself, the frame the
     // barrel vanishes, exactly SpawnCharacterCount do (spawner.RELEASE_TIMING =
     // end_of_event_phase). Plants: release_deferred, spell_launch_from_tap.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let tap = Vec2::new(king(&s, Team::Blue).x, stage().y);
     s.spawn_unit(Team::Blue, "GoblinBarrel", tap, None).unwrap();
     let step = int(&barrel_proj()["speed"]) * calib().projectile_speed_to_subtiles_per_tick;
@@ -1498,7 +1500,7 @@ fn barrel_releases_goblins_at_the_barrel_level_with_the_barrel_deploy_time() {
     let unit = spawn["character"].as_str().unwrap();
     let urec = &cards_doc()["units"][unit];
     for level in [9, 10] {
-        let mut s = bare(config());
+        let mut s = bare(config_pre_flip());
         let tap = stage();
         s.spawn_unit(Team::Blue, "GoblinBarrel", tap, Some(level)).unwrap();
         let mut seen = Vec::new();
@@ -1537,7 +1539,7 @@ fn barrel_near_the_river_never_releases_a_goblin_onto_water() {
     // engine grid formation puts a Goblin on water, which must be kept on land (the
     // formation fallback shared with troops, state.rs formation_grid), checked by the
     // every-tick invariants. Plant: formation_ignores_water.
-    let mut s = bare(config());
+    let mut s = bare(config_pre_flip());
     let a = s.arena().clone();
     let tap = Vec2::new(t(900, 0).x, a.water_y_min - milli(100));
     assert!(a.is_passable_ground(tap));
@@ -1562,7 +1564,7 @@ fn spell_placement_follows_the_card_data() {
     // but on buildings (CanPlaceOnBuildings). Goblin Barrel: anywhere but water.
     // Plants: log_territory_anywhere, barrel_anywhere_incl_water.
     let deck: Vec<String> = ["Fireball", "Arrows", "Zap", "Log", "GoblinBarrel", "Knight", "Giant", "Cannon"].iter().map(|x| x.to_string()).collect();
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [deck.clone(), deck];
     // The Knight control below needs a troop refused on its own tower: placement.TROOP_TOWER_TAPS's old
     // arm. The shipped half-open arm moves a troop tap off an own crown tower (tests/tower_tap_push.rs);
@@ -1705,7 +1707,7 @@ fn log_landing_hit_move(cfg: &BattleConfig, caster: Team, tap: Vec2, at: Vec2) -
 
 #[test]
 fn log_pair_hits_on_the_landing_tick_and_pushes_from_the_next() {
-    let cfg = config();
+    let cfg = config_pre_flip();
     let s0 = bare(cfg.clone());
     let (_, _, step, _, _, _) = log_numbers(&s0);
     let blue_tap = t(900, 1100);
@@ -1724,7 +1726,7 @@ fn log_pair_hits_on_the_landing_tick_and_pushes_from_the_next() {
 
 #[test]
 fn log_pair_keeps_the_axis_cases() {
-    let cfg = log_pair(config());
+    let cfg = log_pair(config_pre_flip());
     let s0 = bare(cfg.clone());
     let push = knock_carry(&cfg.calib, milli(int(&log_roll()["pushback_milli"])));
     let (_, _, step, _, _, _) = log_numbers(&s0);
@@ -1755,7 +1757,7 @@ fn sin_between(a: Vec2, b: Vec2) -> i64 {
 
 #[test]
 fn log_pair_pushes_a_mid_roll_hit_from_the_tick_end_centre() {
-    let s0 = bare(config());
+    let s0 = bare(config_pre_flip());
     let (_, _, step, _, _, hd) = log_numbers(&s0);
     let r = card_stat(&s0, "Knight").collision_radius;
     let blue_tap = t(900, 1100);
@@ -1773,7 +1775,7 @@ fn log_pair_pushes_a_mid_roll_hit_from_the_tick_end_centre() {
         let cur = Vec2::new(tap.x, tap.y + fwd * n * step);
         let contact = Vec2::new(tap.x, tap.y + fwd * (ahead - r - hd));
         assert!(contact != cur, "the scene drifted: the contact point is the tick-end centre");
-        let d = log_push_on(&log_pair(config()), caster, tap, "Knight", at).expect("pushed");
+        let d = log_push_on(&log_pair(config_pre_flip()), caster, tap, "Knight", at).expect("pushed");
         assert!(sin_between(d, at.sub(cur)) <= 50, "{caster:?}: the push {d:?} is not along the line from the tick-end centre");
         assert!(sin_between(at.sub(contact), at.sub(cur)) > 200, "the scene drifted: the two lines are too close to tell apart");
     }
@@ -1781,13 +1783,13 @@ fn log_pair_pushes_a_mid_roll_hit_from_the_tick_end_centre() {
 
 #[test]
 fn log_pair_arms_are_accepted_alone_and_together() {
-    let mut c = config();
+    let mut c = config_pre_flip();
     c.calib.roll_first_step = royalesim::state::RollFirstStep::HitOnLandingTickStepAfter;
     c.calib.knock_direction_rolling = RollDirection::RadialFromCentre;
     assert!(c.calib.validate().is_ok(), "the landing-tick hit alone was refused");
-    let mut c = config();
+    let mut c = config_pre_flip();
     c.calib.roll_first_step = royalesim::state::RollFirstStep::TickAfterLanding;
     c.calib.knock_direction_rolling = RollDirection::RadialFromTickEndCentre;
     assert!(c.calib.validate().is_ok(), "the tick-end push alone was refused");
-    assert!(log_pair(config()).calib.validate().is_ok(), "the pair is refused");
+    assert!(log_pair(config_pre_flip()).calib.validate().is_ok(), "the pair is refused");
 }

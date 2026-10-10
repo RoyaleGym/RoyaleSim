@@ -143,6 +143,6 @@ fn a_death_spawn_is_not_pushed_off_a_unit_dying_in_its_reap_under_client15535_av
 }
 
 #[test]
-fn the_shipped_value_is_pushed() {
-    assert_eq!(Calib::shipped().first_step_dying_contact, FirstStepDyingContact::Pushed);
+fn the_shipped_value_is_client15535_avoidance_only() {
+    assert_eq!(Calib::shipped().first_step_dying_contact, FirstStepDyingContact::Client15535AvoidanceOnly);
 }

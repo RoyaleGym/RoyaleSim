@@ -59,7 +59,7 @@ fn a_homing_shot_starts_its_radius_out_past_a_near_target() {
 
 #[test]
 fn the_shipped_arm_starts_it_no_farther_than_the_target() {
-    assert_eq!(Calib::shipped().launch_past_target, LaunchPastTarget::Clamped);
-    let d = first_shot(LaunchPastTarget::Clamped);
+    assert_eq!(Calib::shipped().launch_past_target, LaunchPastTarget::Client15535HomingUnclamped);
+    let d = first_shot(LaunchPastTarget::Client15535HomingUnclamped);
     assert!((298..=301).contains(&d), "clamped: the shot starts {d} out, not on the Knight's 300");
 }

@@ -35,6 +35,8 @@
 //! within his deflect area's Radius (1500), not at his centre. Measured on client 15.535.29 (sp-champ-Monk-s0): a
 //! Musketeer 5996 away, three shots of three a tick before a flight to his centre would land, their returns a tick
 //! earlier too.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -56,7 +58,7 @@ struct Row {
 }
 
 fn scene() -> (BattleState, EntityId, EntityId) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -170,7 +172,7 @@ fn a_shot_at_him_is_caught_at_his_deflect_areas_edge() {
 #[test]
 fn a_giant_walking_into_him_does_not_move_him_while_it_is_active() {
     const RED: [&str; 8] = ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), RED.iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -220,7 +222,7 @@ fn a_giant_walking_into_him_does_not_move_him_while_it_is_active() {
 #[test]
 fn a_giant_on_him_is_not_pushed_by_him_while_it_is_active() {
     const RED: [&str; 8] = ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), RED.iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -265,7 +267,7 @@ fn a_giant_on_him_is_not_pushed_by_him_while_it_is_active() {
 /// The Monk alone at (3500, 12500), under status.DEFLECT_BUFF_LANDING = `arm`, his button pressed on the fifth tick: the
 /// battle, his id, and the tick his Deflect triggers (T: the first tick after the press with a buff on him).
 fn lone_monk(arm: DeflectBuffLanding) -> (BattleState, EntityId, u32) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -297,7 +299,7 @@ fn zap_at(arm: DeflectBuffLanding, at: u32) -> (i32, i32) {
     let (mut s, monk, _) = lone_monk(arm);
     // the Zap's flight and full damage, on a battle where the Monk is never pressed
     let mut unpressed = {
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
         cfg.card_level = [11, 11];
         cfg.tower_level = [11, 11];

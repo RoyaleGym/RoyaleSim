@@ -84,6 +84,6 @@ fn the_pulse_lands_on_the_same_tick_under_both_arms() {
 }
 
 #[test]
-fn the_shipped_value_is_area_first_tick() {
-    assert_eq!(Calib::shipped().attract_onset, AttractOnset::AreaFirstTick);
+fn the_shipped_value_is_client_next_tick() {
+    assert_eq!(Calib::shipped().attract_onset, AttractOnset::ClientNextTick);
 }

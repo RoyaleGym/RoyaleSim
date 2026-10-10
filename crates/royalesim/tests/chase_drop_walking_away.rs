@@ -12,6 +12,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test chase_drop_walking_away`):
 //!   chase_drop_any_growth  every troop past the limit counts as walking away, whatever it does: (3) goes red under
 //!                          client_walking_away.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -22,7 +24,7 @@ use royalesim::Team;
 const ARMS: [ChaseDropWalkingAway; 2] = [ChaseDropWalkingAway::AnyTarget, ChaseDropWalkingAway::ClientWalkingAway];
 
 fn with_arm(arm: ChaseDropWalkingAway) -> BattleConfig {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.chase_drop_range = ChaseDropRange::ClientSightMinus1000;
     cfg.calib.chase_drop_walking_away = arm;
     cfg
@@ -34,7 +36,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 
 /// The Knight's chase-drop limit and plain sight on a Knight, native: SightRange + both radii (- 1000).
 fn knight_limits(s: &BattleState) -> (i32, i32) {
-    let cards = &s.config().cards;
+    let cards = &s.config_pre_flip().cards;
     let k = cards.get(cards.index("Knight").expect("Knight loads"));
     let sight = (k.sight_range + 2 * k.collision_radius) / K;
     (sight - 1000, sight)
@@ -109,6 +111,6 @@ fn a_rescan_takes_a_troop_past_the_limit_that_does_not_walk() {
 }
 
 #[test]
-fn the_shipped_arm_is_any_target() {
-    assert_eq!(Calib::shipped().chase_drop_walking_away, ChaseDropWalkingAway::AnyTarget);
+fn the_shipped_arm_is_client15535_growing_away() {
+    assert_eq!(Calib::shipped().chase_drop_walking_away, ChaseDropWalkingAway::Client15535GrowingAway);
 }

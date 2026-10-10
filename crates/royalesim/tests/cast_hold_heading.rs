@@ -69,5 +69,5 @@ fn the_old_arm_passes_her_by() {
 
 #[test]
 fn the_shipped_arm_counts_the_heading() {
-    assert_eq!(Calib::shipped().cast_hold_heading, CastHoldHeading::Counted);
+    assert_eq!(Calib::shipped().cast_hold_heading, CastHoldHeading::Client15535NotCounted);
 }

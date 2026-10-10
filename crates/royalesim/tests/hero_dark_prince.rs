@@ -13,6 +13,8 @@
 //! press_during_jump,
 //! early_trigger_late.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -32,7 +34,7 @@ const MOUNT: &str = "DarkPrinceHero_Mount";
 
 /// The hero Dark Prince played by `team` at `at` and let stand up there, held on it: the battle and the hero.
 fn hero(team: Team, at: Vec2) -> (BattleState, EntityId) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]];

@@ -39,6 +39,8 @@
 //! PLANT (`RUSTFLAGS='--cfg clash_plant="knockback_instant_slide"' CARGO_TARGET_DIR=target/plant
 //! cargo test --test knockback16402`): the whole length at once, no ladder -- red on
 //! (1), (2), (4) and every settled-carry assertion.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -56,7 +58,7 @@ fn calib() -> Calib {
 /// `common::config` with placement.TAP_SNAP's old arm, none: every scene here puts a spell's tap and its victims on
 /// exact points (a subtile off the impact, on it, a measured offset off the Log's axis), which the shipped tile-centre
 /// snap would move apart.
-fn config() -> BattleConfig {
+fn config_pre_flip() -> BattleConfig {
     let mut cfg = common::config();
     cfg.calib.placement_tap_snap = TapSnap::None;
     cfg
@@ -90,7 +92,7 @@ fn log_half_depth_and_knight_radius_native() -> (i32, i32) {
 }
 
 fn with_calib(f: impl FnOnce(&mut Calib)) -> BattleConfig {
-    let mut c = config();
+    let mut c = config_pre_flip();
     f(&mut c.calib);
     c
 }
@@ -294,7 +296,7 @@ fn a_victim_on_the_impact_goes_by_the_zero_vector_rule() {
             .collect()
     };
     assert_eq!(calib().knock_zero_vector, KnockZeroVector::Client16402XByIdParity, "re-point this test at the shipped zero-vector rule");
-    let got = run(config());
+    let got = run(config_pre_flip());
     assert_eq!(got.iter().map(|g| g.0 & 1).collect::<Vec<_>>(), vec![1, 0], "team_seq parity of the two Knights");
     assert_eq!(got[0].1, (-carry, 0), "odd team_seq: -x");
     assert_eq!(got[1].1, (carry, 0), "even team_seq: +x");
@@ -312,7 +314,7 @@ fn the_back_step_drops_the_path_and_the_next_tick_replans() {
     // heading (+y), the route is emptied on that tick and non-empty again one tick
     // later (the replan gate sees no path), and the walk resumes.
     let push = fireball_push_native();
-    let (mut s, knight) = walking_knight_hit(config(), (0, 300));
+    let (mut s, knight) = walking_knight_hit(config_pre_flip(), (0, 300));
     let route0 = s.entity(knight).unwrap().route.to_vec();
     assert!(!route0.is_empty());
     let (steps, routes, flags) = ladder_steps(&mut s, knight);
@@ -370,13 +372,13 @@ fn deploying_units_ignore_pushback_and_the_water_edge_under_the_ladder() {
         let n = native(e.pos);
         (armed, hp, (n.0 - before.0, n.1 - before.1), n.1)
     };
-    let (armed, hp, d, _) = deploying_knight(config(), stage, Vec2::new(stage.x + SUBTILE, stage.y));
+    let (armed, hp, d, _) = deploying_knight(config_pre_flip(), stage, Vec2::new(stage.x + SUBTILE, stage.y));
     assert!(armed && hp && d == (carry, 0), "shipped: a deploying Knight is pushed the whole carry ({armed}, {hp}, {d:?})");
     let (armed, hp, d, _) = deploying_knight(with_calib(|c| c.knock_affects_deploying = false), stage, Vec2::new(stage.x + SUBTILE, stage.y));
     assert!(!armed && hp && d == (0, 0), "AFFECTS_DEPLOYING_UNITS = false: damaged, not pushed ({armed}, {hp}, {d:?})");
 
     // IgnorePushback / PushbackAll
-    let mut s = BattleState::new(3, config());
+    let mut s = BattleState::new(3, config_pre_flip());
     s.spawn_unit(Team::Blue, "Fireball", stage, None).unwrap();
     let arrival = arrival_calls(&s);
     for k in 0..arrival {
@@ -387,7 +389,7 @@ fn deploying_units_ignore_pushback_and_the_water_edge_under_the_ladder() {
     }
     let g = find_live(&s, Team::Red, "Giant")[0];
     assert!(card_stat(&s, "Giant").ignore_pushback && g.hp < g.max_hp && !g.push_active, "a Fireball never arms a ladder on an IgnorePushback Giant");
-    let mut s = BattleState::new(3, config());
+    let mut s = BattleState::new(3, config_pre_flip());
     let tap = t(900, 1100);
     s.spawn_unit(Team::Blue, "Log", tap, None).unwrap();
     let mut armed = false;
@@ -407,7 +409,7 @@ fn deploying_units_ignore_pushback_and_the_water_edge_under_the_ladder() {
     let bank = Vec2::new(t(900, 0).x, a.water_y_min - milli(600));
     assert!(a.is_passable_ground(bank));
     let tap = Vec2::new(bank.x, bank.y - SUBTILE);
-    let (armed, _, d, y_end) = deploying_knight(config(), tap, bank);
+    let (armed, _, d, y_end) = deploying_knight(config_pre_flip(), tap, bank);
     // the last dry cell's edge (row x 500 + 499, the row before the river),
     // and the ladder's back-step from it
     let edge = a.water_y_min / K - 1;
@@ -419,7 +421,7 @@ fn deploying_units_ignore_pushback_and_the_water_edge_under_the_ladder() {
     // is on x = 9 tiles exactly, where a new unit's lane is a tie the two arms of
     // targeting.FIRST_TOWER_PICK break differently; this scene's walk is built on current_x's.
     let bank_hit = || -> (BattleState, EntityId) {
-        let mut cfg = config();
+        let mut cfg = config_pre_flip();
         cfg.calib.first_tower_pick = royalesim::state::FirstTowerPick::CurrentX;
         let mut s = BattleState::new(3, cfg);
         let mut tap = Vec2::new(bank.x, bank.y - 300 * K);
@@ -573,7 +575,7 @@ fn each_log_arm_pushes_an_off_axis_knight_from_its_own_source_where_a_fireball_p
     );
 
     let fb_carry = ladder_travel(fireball_push_native());
-    let mut s = BattleState::new(3, config());
+    let mut s = BattleState::new(3, config_pre_flip());
     let tap = Vec2::new(at.x - SUBTILE, at.y);
     s.spawn_unit(Team::Blue, "Fireball", tap, None).unwrap();
     let arrival = arrival_calls(&s);
@@ -588,7 +590,7 @@ fn each_log_arm_pushes_an_off_axis_knight_from_its_own_source_where_a_fireball_p
     let d = steps.iter().fold((0, 0), |a, s| (a.0 + s.0, a.1 + s.1));
     assert_eq!(d, (fb_carry, 0), "a Fireball one tile beside it on the axis: radial, +x, the carry");
     // and one that is diagonal: the impact a tile behind and a tile beside
-    let mut s = BattleState::new(3, config());
+    let mut s = BattleState::new(3, config_pre_flip());
     let tap = Vec2::new(at.x - SUBTILE, at.y - SUBTILE);
     s.spawn_unit(Team::Blue, "Fireball", tap, None).unwrap();
     let arrival = arrival_calls(&s);
@@ -656,7 +658,7 @@ fn the_charge_tail_runs_inside_the_ladder() {
     // (the game's charge event) and is un-charged on the zero tick, like a Prince
     // that was charged when hit. Plant knockback_instant_slide: no ladder, nothing
     // to add.
-    let (rows, range_raw) = prince_logged_mid_run_up(config(), 9600, false);
+    let (rows, range_raw) = prince_logged_mid_run_up(config_pre_flip(), 9600, false);
     let (v0, p0, c0) = rows[0];
     assert!(v0 > 0 && p0 == 9600 && !c0, "the landing tick: the ladder armed at {v0}, the run-up as set ({p0}, charged {c0})");
     let mut speed = v0;
@@ -688,7 +690,7 @@ fn the_charge_tail_runs_inside_the_ladder() {
 
     // A CHARGED Prince keeps its charge through the positive ticks and loses it on the
     // zero tick -- the landing itself does not clear it.
-    let (rows, _) = prince_logged_mid_run_up(config(), 0, true);
+    let (rows, _) = prince_logged_mid_run_up(config_pre_flip(), 0, true);
     let z = rows.iter().position(|r| r.0 == 0).expect("no zero tick");
     assert!(z >= 2, "vacuous: no positive ladder tick before the zero tick ({rows:?})");
     assert!(rows[..z].iter().all(|r| r.2), "charged on the landing tick and every positive ladder tick ({rows:?})");
@@ -708,7 +710,7 @@ fn the_ladder_is_deterministic_and_survives_a_save_mid_way() {
     // tick with a ladder half run (speed > 0, active) loads and reproduces every one of
     // the next 40 ticks. Plant save_drops_knockback (the ladder columns are on it).
     let build = || {
-        let mut s = BattleState::new(11, config());
+        let mut s = BattleState::new(11, config_pre_flip());
         let stage = t(900, 1900);
         s.spawn_unit(Team::Blue, "Fireball", stage, None).unwrap();
         let arrival = arrival_calls(&s);
@@ -750,7 +752,7 @@ fn a_rotation_symmetric_pair_of_pushes_keeps_the_battle_its_own_mirror() {
     // battle stays its own mirror image on every tick of both ladders -- checked with
     // common::check_mirror, which sees the ladder columns. The victims are OFF the
     // impact point: the zero-vector rule is the one absolute-frame point of the law.
-    let mut s = BattleState::new(5, config());
+    let mut s = BattleState::new(5, config_pre_flip());
     let a = s.arena().clone();
     let blue_tap = t(900, 1900);
     let red_tap = mirror(&s, blue_tap);

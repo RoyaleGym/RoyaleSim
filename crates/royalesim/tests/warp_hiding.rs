@@ -106,6 +106,6 @@ fn the_old_value_hides_it_on_its_arrival_alone() {
 }
 
 #[test]
-fn the_shipped_value_is_arrival() {
-    assert_eq!(Calib::shipped().warp_hiding, WarpHiding::Arrival);
+fn the_shipped_value_is_client15535_first_step() {
+    assert_eq!(Calib::shipped().warp_hiding, WarpHiding::Client15535FirstStep);
 }

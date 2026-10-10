@@ -110,6 +110,6 @@ fn a_victim_doomed_only_by_a_shot_landing_later_than_600_ms_leaves_its_attacker_
 
 #[test]
 fn the_shipped_arm_ignores_when_the_shots_land() {
-    assert_eq!(Calib::shipped().post_kill_doom_eta, PostKillDoomEta::Ignored);
+    assert_eq!(Calib::shipped().post_kill_doom_eta, PostKillDoomEta::ClientWithin600);
     assert_eq!(Calib::shipped().post_kill_wait, PostKillWait::AttackFinish, "the doomed test is the attack-finish wait's");
 }

@@ -69,6 +69,6 @@ fn both_arms_let_a_target_past_the_limit_up_the_lane_go() {
 }
 
 #[test]
-fn the_shipped_arm_is_max_abs() {
-    assert_eq!(Calib::shipped().chase_drop_measure, ChaseDropMeasure::MaxAbs);
+fn the_shipped_arm_is_client15535_lane_dy() {
+    assert_eq!(Calib::shipped().chase_drop_measure, ChaseDropMeasure::Client15535LaneDy);
 }

@@ -71,5 +71,5 @@ fn a_bomb_in_flight_lands_on_the_tesla_gone_under() {
 
 #[test]
 fn the_shipped_arm_drops_it() {
-    assert_eq!(Calib::shipped().shot_at_hiding_building, ShotAtHidingBuilding::Dropped);
+    assert_eq!(Calib::shipped().shot_at_hiding_building, ShotAtHidingBuilding::Client15535Lands);
 }

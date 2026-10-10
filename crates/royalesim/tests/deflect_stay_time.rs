@@ -87,6 +87,6 @@ fn the_old_value_pushes_him_on_p_plus_99() {
 }
 
 #[test]
-fn the_shipped_value_is_active_time() {
-    assert_eq!(Calib::shipped().deflect_stay_time, DeflectStayTime::ActiveTime);
+fn the_shipped_value_is_client15535_tick_short() {
+    assert_eq!(Calib::shipped().deflect_stay_time, DeflectStayTime::Client15535TickShort);
 }

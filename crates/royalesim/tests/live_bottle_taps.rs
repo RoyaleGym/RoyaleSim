@@ -22,6 +22,8 @@
 //! PLANT ring_walks_the_snap_frame (state.rs `ring_candidate`: the ring walks the arena's frame under the shipped
 //! placement.SNAP_EVEN_CORNER = absolute) turns (1) and (4) red on side 1, whose ring order is the placer's. It also
 //! turns placement.rs's rotation check of the Cannon under absolute and tower_tap_push.rs's ring_nearest table red.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -35,11 +37,11 @@ const OLD: LiveBottleTaps = LiveBottleTaps::NotBlocked;
 
 /// Own-frame native point `p` of `team`, in arena subtiles.
 fn own(s: &BattleState, team: Team, p: (i32, i32)) -> Vec2 {
-    s.config().arena.from_frame(team, Vec2::new(p.0 * K, p.1 * K))
+    s.config_pre_flip().arena.from_frame(team, Vec2::new(p.0 * K, p.1 * K))
 }
 
 fn battle(arm: LiveBottleTaps) -> BattleState {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.placement_live_bottle_taps = arm;
     BattleState::new(1, cfg)
 }
@@ -139,7 +141,7 @@ fn the_other_sides_bottle_is_not_read() {
     for team in [Team::Blue, Team::Red] {
         let s = battle(NEW);
         let enemy = team.other();
-        let p = s.config().arena.to_frame(enemy, own(&s, team, BOTTLE));
+        let p = s.config_pre_flip().arena.to_frame(enemy, own(&s, team, BOTTLE));
         let (resolved, _) = goblins(NEW, team, &[(enemy, (p.x / K, p.y / K))], 1, BOTTLE);
         assert_eq!(resolved, own(&s, team, BOTTLE), "{team:?}: moved off the enemy's bottle");
     }

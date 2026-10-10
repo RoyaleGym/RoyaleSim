@@ -32,6 +32,8 @@
 //! own king block's max edges in absolute coordinates (so it is not rotation-invariant)
 //! and moves a troop tapped on an own crown tower off it; tests/king_area_spawn_unit.rs,
 //! tests/tower_tap_push.rs and tests/test_king_area_placement.py pin that arm.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use royalesim::arena::{Rect, TerritoryModel};
@@ -45,7 +47,7 @@ use common::*;
 /// the given ENGINE tower slots (1 = engine-Left, 2 = engine-Right) of each team
 /// destroyed before the battle.
 fn board(down: &[(Team, usize)]) -> BattleState {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     // The closed block, the rule this file writes out (THE OWN TOWERS, above).
     cfg.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
     // The RAW tap, the point this file's model judges: placement.TAP_SNAP's old arm, none, by name. Under the shipped
@@ -112,7 +114,7 @@ fn expected(s: &BattleState, team: Team, p: Vec2) -> Result<(), DeployError> {
         return Err(DeployError::NoDeploy);
     }
     let (river_lo, river_hi) = (a.water_y_min / a.cell, a.water_y_max / a.cell - 1);
-    let band_closed = s.config().calib.territory_model == TerritoryModel::EnemyTowerNoDeployRects;
+    let band_closed = s.config_pre_flip().calib.territory_model == TerritoryModel::EnemyTowerNoDeployRects;
     if band_closed && (y0..=y1).any(|r| r >= river_lo && r <= river_hi) {
         return Err(DeployError::OutOfTerritory);
     }
@@ -246,7 +248,7 @@ fn buildings_stay_own_half_after_a_princess_falls() {
     let s = board(&[(Team::Red, 1)]);
     let pocket = t(350, 1900);
     assert_eq!(s.check_deploy_slot(Team::Blue, 0, pocket), Ok(()), "a troop may use the pocket");
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     let deck: Vec<String> = ["Cannon", "Tesla", "Cannon", "Tesla", "Cannon", "Tesla", "Cannon", "Tesla"].iter().map(|s| s.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     let mut b = BattleState::new(3, cfg);

@@ -22,6 +22,8 @@
 //!   * `death_ring_unrounded` -- the ring lies a degree off the rounding: (2) goes red on the positions.
 //!   * `death_ring_members_face_forward` -- the members face their side's forward: (2) goes red on the heading.
 //!   * `ring_offset_subtile` -- the ring keeps the subtile fraction: (2) goes red on the positions.
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -52,7 +54,7 @@ const RAM_AT: (i32, i32) = (3080, 10310);
 /// frame. The Ram still moves on the tick it is killed, so the death point is read off its ring: two members 180
 /// degrees apart stand on exactly opposite offsets, truncation included, so their midpoint is the death point.
 fn ram_death(layout: DeathSpawnLayout) -> (Vec2, Vec2, Vec<(Vec2, Vec2)>) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.death_spawn_layout = layout;
     // spawner.SPAWNED_FIRST_STEP at none: the scene reads where the Barbarians are CREATED and the heading they are
     // created with; under the shipped client16402_same_tick they have stepped on their first frame.
@@ -81,7 +83,7 @@ fn ram_death(layout: DeathSpawnLayout) -> (Vec2, Vec2, Vec<(Vec2, Vec2)>) {
 
 #[test]
 fn a_death_ring_lies_at_the_rounded_degree_and_its_members_keep_the_heading() {
-    let s = BattleState::new(0, config());
+    let s = BattleState::new(0, config_pre_flip());
     let ram = card_stat(&s, "BattleRam");
     let ds = ram.death_spawn.as_ref().expect("data: the Battle Ram has a death spawn");
     let r = ds.radius.expect("data: the Battle Ram's DeathSpawnRadius") as i64;

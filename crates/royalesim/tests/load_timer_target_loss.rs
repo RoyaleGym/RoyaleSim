@@ -157,8 +157,8 @@ fn a_dead_loss_runs_it_on_under_the_held_arm() {
 }
 
 #[test]
-fn the_shipped_arm_runs_on() {
-    assert_eq!(Calib::shipped().load_timer_target_loss, LoadTimerTargetLoss::RunsOn);
+fn the_shipped_arm_client15535_stands_while_held() {
+    assert_eq!(Calib::shipped().load_timer_target_loss, LoadTimerTargetLoss::Client15535StandsWhileHeld);
 }
 
 /// The blue Knight's load timer on each tick of the ladder a red Fireball knocks it on, cast `d` ticks after it has fought

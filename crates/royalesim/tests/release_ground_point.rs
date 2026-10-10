@@ -13,6 +13,8 @@
 //! release_ground_point_shifts_single -> `a_barbarian_barrels_barbarian_is_released_on_its_point` and
 //! `a_royal_deliverys_recruit_is_released_on_its_point` red.
 #![allow(unexpected_cfgs)]
+// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
+// (common::config_pre_flip); each flipped key's own tests read both arms.
 mod common;
 
 use common::*;
@@ -28,7 +30,7 @@ fn n(p: (i32, i32)) -> Vec2 {
 
 /// The Goblins of `team`'s Goblin Barrel landing on `at` (native), sorted, on their first frame, under `arm`.
 fn goblins(arm: ReleaseGroundPoint, team: Team, at: (i32, i32)) -> Vec<(i32, i32)> {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.release_ground_point = arm;
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
@@ -67,7 +69,7 @@ fn a_goblin_barrel_releases_one_unit_off_its_landing_point() {
 
 /// The Barbarian of `team`'s Barbarian Barrel rolled from `at` (native), on its first frame, under `arm`.
 fn barbarian(arm: ReleaseGroundPoint, team: Team, at: (i32, i32)) -> (i32, i32) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.release_ground_point = arm;
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
@@ -100,7 +102,7 @@ fn a_barbarian_barrels_barbarian_is_released_on_its_point() {
 
 /// The Recruit of `team`'s Royal Delivery cast on `at` (native), on its first frame, under `arm`.
 fn recruit(arm: ReleaseGroundPoint, team: Team, at: (i32, i32)) -> (i32, i32) {
-    let mut cfg = config();
+    let mut cfg = config_pre_flip();
     cfg.calib.release_ground_point = arm;
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
