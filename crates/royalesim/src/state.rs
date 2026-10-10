@@ -14736,6 +14736,9 @@ impl BattleState {
     ///     200, ... 25, from the tick after the strike; the Giant (IgnorePushback) never moves;
     ///   - OPEN: a Knight struck 576 from the point (sp-ram-side+-s0) is pushed along a turning line (18 to 70 degrees
     ///     from the ram's heading), which no rule here reproduces.
+    ///   - a member waiting out its stagger (formation.STAGGER_WAIT's waiting arms) is passed over: the tenth troop, the
+    ///     second of two Archers, struck two ticks after its first frame, is its 100 ms wait (the same on client 16.402,
+    ///     sp-ram-side+-s0 t968 / t970).
     fn ram_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let mut rams = std::mem::take(&mut self.evo.rams);
@@ -14774,9 +14777,21 @@ impl BattleState {
             let on = true;
             #[cfg(clash_plant = "ram_push_never")]
             let on = false; // PLANT (regression): the charge strikes and pushes nothing.
+            // formation.STAGGER_WAIT (its waiting arms): a member waiting out its stagger is passed over, neither struck
+            // nor counted struck, so it is struck on the first tick after its wait it stands in the area (client 15.535.29:
+            // the second of two Archers struck two ticks after its first frame; client 16.402, sp-ram-side+-s0 t970, the
+            // same 2 ticks: its 100 ms wait).
+            // PLANT (regression) ram_strikes_waiting_member: the ram still strikes a waiting member on its first frame.
+            #[cfg(not(clash_plant = "ram_strikes_waiting_member"))]
+            let passes_waiting = self.cfg.calib.formation_stagger_wait.waits();
+            #[cfg(clash_plant = "ram_strikes_waiting_member")]
+            let passes_waiting = false;
             for v in 0..self.ents.capacity() {
                 let e = &self.ents;
                 if !on || !e.alive[v] || e.team[v] == team || e.kind[v] != EntityKind::Troop || e.flying[v] || e.attached(v) {
+                    continue;
+                }
+                if passes_waiting && e.stagger_ms[v] > 0 {
                     continue;
                 }
                 let vid = e.id_of(v);

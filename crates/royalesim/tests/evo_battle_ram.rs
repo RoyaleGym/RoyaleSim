@@ -25,13 +25,14 @@
 //!     `a_struck_troop_steps_straight_off_the_rams_line` red;
 //!   - ram_charge_consumed and ram_recoil_clears_charge -> `the_ram_lives_through_its_hit_recoils_and_charges_on` red
 //!     (it walks after its recoil);
-//!   - hit_rage_never -> `its_barbarians_rage_from_the_tick_after_their_first_hit` red (their progress steps 50).
+//!   - hit_rage_never -> `its_barbarians_rage_from_the_tick_after_their_first_hit` red (their progress steps 50);
+//!   - ram_strikes_waiting_member -> `the_push_passes_over_a_member_waiting_out_its_stagger` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, StaggerWait};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -47,7 +48,13 @@ fn level11(mut cfg: BattleConfig) -> BattleConfig {
 /// A battle whose Blue deck is the Battle Ram, evolved, and a Knight; both sides at level 11, past the opening lockout,
 /// Blue's princess towers down.
 fn battle() -> BattleState {
+    battle_with(|_| {})
+}
+
+/// `battle` with `tweak` applied to the config first.
+fn battle_with(tweak: impl FnOnce(&mut BattleConfig)) -> BattleState {
     let mut cfg = config();
+    tweak(&mut cfg);
     cfg.decks = [vec!["BattleRam".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     let mut s = BattleState::new(7, level11(cfg));
@@ -60,7 +67,11 @@ fn battle() -> BattleState {
 /// The form put down at (3500, 12500) and run until the tick its charge starts (the first frame reading charged): the
 /// battle and the ram.
 fn charging_ram() -> (BattleState, EntityId) {
-    let mut s = battle();
+    charging_ram_in(battle())
+}
+
+/// `charging_ram` in the battle `s`.
+fn charging_ram_in(mut s: BattleState) -> (BattleState, EntityId) {
     s.spawn_unit(Team::Blue, "BattleRam_EV1", n(3500, 12500), None).expect("the form");
     s.tick();
     let ram = find_live(&s, Team::Blue, "BattleRam_EV1")[0].id;
@@ -228,4 +239,48 @@ fn its_barbarians_rage_from_the_tick_after_their_first_hit() {
     let hit = p.iter().position(|v| *v >= 1400).expect("the first Barbarian hits");
     assert_eq!(p[hit + 1] - p[hit], 65, "raged from the tick after its first hit (50 x 130 / 100): {:?}", &p[hit.saturating_sub(3)..hit + 3]);
     assert!(p[hit.saturating_sub(4)..hit].windows(2).all(|w| w[1] - w[0] == 50), "unraged before it: {:?}", &p[hit.saturating_sub(4)..hit + 1]);
+}
+
+/// Red Archers put down (`spawn_unit_resolved`) 1500 ahead of the charging ram on frame 20 of its charge (its push on since
+/// frame 16), under formation.STAGGER_WAIT = `arm`: for each member, by creation, (its deploy_ms on its first frame, the
+/// frames from its first to its first hp drop).
+fn archers_ahead(arm: StaggerWait) -> Vec<(i32, Option<u32>)> {
+    let (mut s, ram) = charging_ram_in(battle_with(|c| c.calib.formation_stagger_wait = arm));
+    let mut members: Vec<(EntityId, u32, i32, i32, Option<u32>)> = Vec::new();
+    for k in 1..=40u32 {
+        if k == 20 {
+            let p = s.entity(ram).expect("the ram lives").pos;
+            s.spawn_unit_resolved(Team::Red, "Archers", Vec2::new(p.x, p.y + 1500 * K), None).expect("the Archers");
+        }
+        s.tick();
+        let mut live: Vec<(EntityId, i32, i32)> = s.entities().filter(|e| e.team == Team::Red && e.card.starts_with("Archer")).map(|e| (e.id, e.hp, e.deploy_ms)).collect();
+        live.sort_by_key(|m| m.0.index);
+        for (id, hp, deploy) in live {
+            match members.iter_mut().find(|m| m.0 == id) {
+                Some(m) => {
+                    if m.4.is_none() && hp < m.3 {
+                        m.4 = Some(k - m.1);
+                    }
+                    m.3 = hp;
+                }
+                None => members.push((id, k, deploy, hp, None)),
+            }
+        }
+    }
+    members.iter().map(|m| (m.2, m.4)).collect()
+}
+
+/// formation.STAGGER_WAIT's waiting arms reach the ram's push (client 15.535.29: the second of two Archers struck two
+/// ticks after its first frame; client 16.402, sp-ram-side+-s0, the same): the first Archer is struck on its first frame,
+/// the second, waiting out its 100 ms stagger, two ticks later; under deploying (the vacuity check) both on their first
+/// frame. Plant: ram_strikes_waiting_member.
+#[test]
+fn the_push_passes_over_a_member_waiting_out_its_stagger() {
+    let waits = archers_ahead(StaggerWait::Client16402Unhittable);
+    assert_eq!(waits.len(), 2, "two Archers: {waits:?}");
+    assert!(waits[1].0 > waits[0].0, "precondition: the second Archer waits out a stagger on its first frame: {waits:?}");
+    assert_eq!(waits[0].1, Some(0), "the first Archer struck on its first frame: {waits:?}");
+    assert_eq!(waits[1].1, Some(2), "the second struck two ticks after its first frame, its wait over: {waits:?}");
+    let old = archers_ahead(StaggerWait::Deploying);
+    assert_eq!((old[0].1, old[1].1), (Some(0), Some(0)), "deploying (the vacuity check): both struck on their first frame: {old:?}");
 }
