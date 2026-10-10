@@ -643,18 +643,22 @@ fn pushed_swing(arm: GuardPushAttackReset) -> ((AttackPhase, i32), (AttackPhase,
     let knight = reds[0].0;
     let golem_at = n((AT.0 + 800, AT.1 + 2600));
     let golem = s.scenario_spawn_now(Team::Blue, "Golem", golem_at, None).expect("a blue Golem");
+    // Everyone's hp held full (the Knight swings at the Golem, the Little Prince shoots the Knight).
+    let full = |s: &BattleState, id: EntityId| s.entity(id).expect("a unit of the scene").max_hp;
+    let (lp_hp, knight_hp, golem_hp) = (full(&s, lp), full(&s, knight), full(&s, golem));
     // Let the Knight take the Golem and swing.
     for _ in 0..40 {
-        assert!(s.debug_set_pos(lp, n(AT)));
-        assert!(s.debug_set_pos(knight, reds[0].1));
-        assert!(s.debug_set_pos(golem, golem_at));
+        assert!(s.debug_set_pos(lp, n(AT)) && s.debug_set_hp(lp, lp_hp));
+        assert!(s.debug_set_pos(knight, reds[0].1) && s.debug_set_hp(knight, knight_hp));
+        assert!(s.debug_set_pos(golem, golem_at) && s.debug_set_hp(golem, golem_hp));
         s.tick();
     }
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let mut before = None;
     for _ in 0..70 {
-        assert!(s.debug_set_pos(lp, n(AT)));
-        assert!(s.debug_set_pos(golem, golem_at));
+        assert!(s.debug_set_pos(lp, n(AT)) && s.debug_set_hp(lp, lp_hp));
+        assert!(s.debug_set_pos(golem, golem_at) && s.debug_set_hp(golem, golem_hp));
+        assert!(s.debug_set_hp(knight, knight_hp));
         let k = s.entity(knight).expect("the Knight");
         let was = (k.attack_phase, k.attack_ms, k.push_active);
         if !was.2 {
