@@ -79,6 +79,18 @@ A DEPLOY'S FORM (`form`, `form_row`, and the fixture's `forms_read`)
     (Skeleton_EV1's SkeletonDuplication) carry the evolved id and the card's own hp, so they
     would be taken for untapped deploys; no 16.402 capture holds one to measure the rule.
 
+A HERO'S FLAG SPAWNS
+    The hero Goblins' ability plants a flag building (its effect `flag_spawns`:
+    GoblinHero_Flag_Building) that puts down Goblin_dummy units at fixed offsets from it,
+    (+-1000, -500) in its owner's frame, the second 200 ms after the first. They carry the
+    hero form's card id and a Goblin's hitpoints (79 at their base, as Goblin_Stab), so
+    each was read as a Goblins play of its own: live 20261002-092029 t632 and t635 at the
+    flag (8741, 20967) + (1000, -500) and + (-1000, -500), and 20261008-070739 t1031 and
+    t1035, played on tile centres deep in the enemy half (Parity's r68 trace). A unit of
+    a flag's card whose first point is a flag's point plus one of its spawn offsets
+    (within FLAG_SPAWN_TOLERANCE), while that flag stands, is the flag's spawn
+    (`flag_spawns`): role "spawned", its unit the spawn's; the engine's flag puts it down.
+
 DEPLOYS VERSUS SPAWNS
     A truth entity carries its CARD's id even when it was not deployed: Tombstone
     Skeletons carry 27000009, Golemites the Golem's id, a Battle Ram's Barbarians
@@ -329,6 +341,21 @@ THE TOWER TROOP
     side's tower level are its princess towers' max_hp, or null where none (or two)
     fit or the towers disagree. Live (602 fixtures): 1152 sides the Princess, 22 the
     Cannoneer, 18 the Dagger Duchess, 10 the Royal Chef, every side read.
+
+AN EVOLVED MIRROR CAST
+    The Evo Goblin Barrel throws its barrel and a decoy to the mirrored point (its
+    evolution's `evo_mirror`: GoblinBarrelSpell_EV1_Decoy, which drops GoblinDummy units),
+    and every object and unit of it carries the plain card id, so no class says the play
+    was evolved. Both objects are on the cast's first frame, their targets mirrored about
+    the arena's centre line, and the cast was read as one play at their mean: live
+    20261008-015445 t2092, (9000, 25500) for barrels to (14500, 25500) and (3500, 25500)
+    (Parity's r68 trace: 5000 off). Such a cast, of a card whose evolution has a mirror,
+    is one evolved play (`form` "ev1", `form_row` the evolution) at the real object's
+    target (`evo_mirror_cast`): the one the card's own units land under within
+    MIRROR_LANDING_TICKS (BarrelGoblin, 323 hp at 11), not the decoy's GoblinDummy (130);
+    the engine throws the decoy itself. With no unit to tell, the object the frame lists
+    first. The decoy's units are the evolution's (`reachable_units`), so they pair as
+    spawned units instead of unknown objects.
 
 A COST-ONLY SPELL
     A spell whose cast leaves no object the capture shows (the Zap: an area that lives one
@@ -987,6 +1014,9 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
         # a spawned unit, never a deploy summon. Unread, each guard was an unknown object (56% off the Prince's own
         # hp), never paired: 631 groups in the live set (2026-10-09)
         ((card.get("ability") or {}).get("effect") or {}).get("unit"),
+        # the unit an evolution's mirrored decoy drops (the Evo Goblin Barrel's GoblinDummy, AN EVOLVED MIRROR CAST):
+        # read as the play's, not an unknown object
+        (card.get("evo_mirror") or {}).get("unit"),
         *area_units,
     ):
         add(ref)
@@ -1709,6 +1739,63 @@ def battle_regen(frame_ticks: list, elixir_by_side: dict) -> int:
     return max([ELIXIR_REGEN_MAX_PER_TICK] + [r for r, n in modal if n >= REGEN_MIN_FRAMES])
 
 
+def evo_mirror_cast(cast: dict, ents: dict, ticks: list[int], evo: dict | None) -> tuple | None:
+    """AN EVOLVED MIRROR CAST (module doc): ((x, y) of the real object's target, why) when the cast's first frame shows
+    two of its objects whose targets mirror about the arena's centre line and the card's evolution throws a decoy
+    (`evo_mirror`); None otherwise. The real object is the one the card's own units (not the decoy's) land under."""
+    if not evo or not evo.get("evo_mirror"):
+        return None
+    tracks = cast.get("tracks") or []
+    first = [t for t in tracks if tracks and t["first"] == tracks[0]["first"]]
+    if len(first) != 2:
+        return None
+    (x1, y1), (x2, y2) = first[0]["target"], first[1]["target"]
+    if abs(x1 + x2 - ARENA_W_NATIVE) > MIRROR_TOLERANCE or abs(y1 - y2) > MIRROR_TOLERANCE:
+        return None
+    decoy = evo["evo_mirror"].get("unit")
+
+    def lands(pt) -> bool:
+        return any(
+            e["side"] == cast["side"] and e["card_id"] == cast["card_id"] and e.get("unit") not in (None, decoy)
+            and 0 <= ticks[e["first_index"]] - first[0]["first"] <= MIRROR_LANDING_TICKS
+            and math.dist((e["x0"], e["y0"]), pt) <= MIRROR_LANDING_REACH
+            for e in ents.values()
+        )
+
+    real = [t for t in first if lands(t["target"])]
+    if len(real) == 1:
+        return tuple(real[0]["target"]), (
+            f"an evolved mirror cast: its own units land under {list(real[0]['target'])}, its decoy's at the mirror"
+        )
+    return tuple(first[0]["target"]), "an evolved mirror cast: no unit tells its decoy apart; the object listed first"
+
+
+def flag_spawns(ents: dict, ticks: list[int], doc: dict) -> int:
+    """A HERO'S FLAG SPAWNS (module doc): marks each unit of a flag's card first seen on the flag's point plus one of
+    its spawn offsets (its owner's frame), while the flag stands, as the flag's spawn. Returns how many."""
+    n = 0
+    for h in doc.get("hero_forms") or []:
+        eff = (h.get("ability") or {}).get("effect") or {}
+        if eff.get("kind") != "flag_spawns" or not eff.get("unit"):
+            continue
+        for f in [e for e in ents.values() if e.get("unit") == eff["unit"]]:
+            sign = 1 if f["side"] == 0 else -1
+            for e in ents.values():
+                if e is f or e["side"] != f["side"] or e["card_id"] != f["card_id"] or e.get("role") != "summon":
+                    continue
+                if not ticks[f["first_index"]] <= ticks[e["first_index"]] <= ticks[f["last_index"]] + 1:
+                    continue
+                for s in eff.get("spawns") or []:
+                    ox, oy = sign * s["dx_milli"], sign * s["dy_milli"]
+                    near = abs(e["x0"] - f["x0"] - ox), abs(e["y0"] - f["y0"] - oy)
+                    if max(near) <= FLAG_SPAWN_TOLERANCE:
+                        e["role"], e["unit"] = "spawned", s["unit"]
+                        e["deploy_summon"], e["hp_match"] = False, "flag spawn"
+                        n += 1
+                        break
+    return n
+
+
 def effect_leads(card: dict | None) -> list[int]:
     """AN EFFECT THAT SHOWS ITS CAST LATE: the ticks from a cast to the first object the effects stream can show of
     it. [0] for a spell whose objects are its own. A spell whose area effect spawns the projectile the stream lists
@@ -1989,6 +2076,13 @@ LAUNCH_STEP_TOLERANCE = 0.05
 LAUNCH_POINT_TOLERANCE = 3
 #: How far past a damaging spell's radius a victim's centre may stand and still be read as hit (a unit's own radius).
 SPELL_VICTIM_MARGIN = 1500
+#: AN EVOLVED MIRROR CAST (module doc): how far off the centre line's mirror two targets may be, how long after the cast
+#: its units may land, and how far from a target they may first stand (a barrel's goblins: 700 from its point).
+MIRROR_TOLERANCE = 2
+MIRROR_LANDING_TICKS = 120
+MIRROR_LANDING_REACH = 1500
+#: A HERO'S FLAG SPAWNS (module doc): how far off a flag's spawn offset its unit may first stand.
+FLAG_SPAWN_TOLERANCE = 60
 #: How much farther than a spell's own reach a crown tower's centre may stand and still be hit by it (a tower's body).
 TOWER_REACH_MARGIN = 2000
 #: How many frames after a spell row's tick its first hit is looked for.
@@ -3265,6 +3359,8 @@ def build(
             e["role"] = "summon" if is_own else "spawned"
     for cid in sorted(unknown_ids):
         reasons.append(f"card id {cid} is not in the id table")
+    # a hero's flag puts its own units down (module doc, A HERO'S FLAG SPAWNS)
+    flag_spawns(ents, ticks, doc)
 
     # -- deploy groups: (side, card_id, first frame index) of deploy summons
     groups: dict[tuple, list[dict]] = defaultdict(list)
@@ -3512,6 +3608,7 @@ def build(
         return tk
 
     # -- spells: from the effects stream, else from taps with the measured latency
+    evo_by_card = {r["form_of"]: r for r in doc.get("evolutions") or [] if r.get("form_of")}
     for cast in spell_casts(frames, rotate):
         cid, fi = cast["card_id"], cast["first_index"]
         name = id_table.get(cid)
@@ -3520,6 +3617,11 @@ def build(
             reasons.append(f"spell id {cid} is not in the id table")
             continue
         ax, ay = cast["aim"]  # already in the fixture's frame
+        # AN EVOLVED MIRROR CAST (module doc): the real object's target, not the mean with its decoy's
+        evo_row = evo_by_card.get(name)
+        mirror = evo_mirror_cast(cast, ents, ticks, evo_row)
+        if mirror is not None:
+            (ax, ay), mirror_why = mirror
         tick = ticks[fi]
         side = cast["side"]
         # A KING-LAUNCHED CAST FIRST SEEN AFTER A FRAME GAP is dated by the steps it has flown (`launch_tick`).
@@ -3567,6 +3669,8 @@ def build(
                 (register.get("cards", {}).get(name) or {}).get("families", {}).keys()
             ),
         }
+        if mirror is not None:
+            d["form"], d["form_row"], d["aim"] = "ev1", evo_row["name"], mirror_why
         # AN EFFECT CAST IS BACKED BY ITS CASTER'S ELIXIR. On every corpus cast the cost leaves the pool
         # on the first projectile frame (94 of 98 effect casts, within EFFECT_DROP_SLACK). The other
         # four are two cases: (a) the drop is EARLIER, at the tap -- Lightning is an invisible area whose

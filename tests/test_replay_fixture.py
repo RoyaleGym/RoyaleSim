@@ -214,6 +214,54 @@ def test_a_unit_first_seen_out_of_its_deploy_after_a_long_gap_ends_its_deploy_th
     assert m.refine_spawn_tick(ticks, 1, [(1, 11), (2, 11)], 1000)[0] == 800, "still waiting its stagger"
 
 
+def test_an_evolved_mirror_cast_is_played_at_its_real_barrel(m):
+    """AN EVOLVED MIRROR CAST (module doc): two barrels on the first frame, mirrored about the centre line (14500 and
+    3500), of a card whose evolution throws a decoy: one evolved play at the barrel its own goblins land under
+    (live 20261008-015445 t2092, read at the mean (9000, 25500) before). With no unit to tell, the first object; a
+    plain cast (one object) or two that do not mirror are no mirror cast."""
+    mirror = {"projectile": "GoblinBarrelSpell_EV1_Decoy", "unit": "GoblinDummy"}
+    evo = {"name": "GoblinBarrel_EV1", "evo_mirror": mirror}
+    cast = {"side": 0, "card_id": 28000004, "tracks": [{"first": 2092, "target": [3500, 25500]},
+                                                       {"first": 2092, "target": [14500, 25500]}]}
+    ticks = list(range(2092, 2200))
+
+    def unit(key, name, x, y, t):
+        return {"key": key, "side": 0, "card_id": 28000004, "unit": name, "x0": x, "y0": y, "first_index": t - 2092}
+
+    ents = {1: unit(1, "BarrelGoblin", 14500, 26227, 2149), 2: unit(2, "GoblinDummy", 3500, 26227, 2149)}
+    pt, why = m.evo_mirror_cast(cast, ents, ticks, evo)
+    assert pt == (14500, 25500), why
+    pt, why = m.evo_mirror_cast(cast, {}, ticks, evo)
+    assert pt == (3500, 25500)
+    assert "listed first" in why
+    assert m.evo_mirror_cast({**cast, "tracks": cast["tracks"][:1]}, ents, ticks, evo) is None
+    assert m.evo_mirror_cast({**cast, "tracks": [cast["tracks"][0], {"first": 2092, "target": [9500, 25500]}]},
+                             ents, ticks, evo) is None
+    assert m.evo_mirror_cast(cast, ents, ticks, {"name": "GoblinBarrel_EV1"}) is None, "no mirror in the evolution"
+
+
+def test_a_heros_flag_spawns_are_no_plays(m):
+    """A HERO'S FLAG SPAWNS (module doc): the hero Goblins' flag at (8741, 20967) puts Goblin_dummy units at (+-1000,
+    -500) from it; the two of its card id first seen there while it stands (live 20261002-092029 t632, t635) are its
+    spawns, and one elsewhere, or after the flag fell, stays a summon."""
+    doc = {"hero_forms": [{"name": "Goblins_hero", "ability": {"effect": {
+        "kind": "flag_spawns", "unit": "GoblinHero_Flag_Building",
+        "spawns": [{"unit": "Goblin_dummy", "dx_milli": 1000, "dy_milli": -500},
+                   {"unit": "Goblin_dummy", "dx_milli": -1000, "dy_milli": -500}]}}}]}
+    ticks = list(range(546, 700))
+
+    def ent(key, unit, x, y, t0, t1, role="summon"):
+        return {"key": key, "side": 0, "card_id": 203000002, "unit": unit, "role": role, "x0": x, "y0": y,
+                "first_index": t0 - 546, "last_index": t1 - 546}
+
+    ents = {0: ent(0, "GoblinHero_Flag_Building", 8741, 20967, 546, 639, "spawned"),
+            1: ent(1, "Goblin_Stab", 9741, 20467, 632, 672), 2: ent(2, "Goblin_Stab", 7741, 20467, 635, 672),
+            3: ent(3, "Goblin_Stab", 5000, 20467, 632, 672), 4: ent(4, "Goblin_Stab", 9741, 20467, 660, 672)}
+    assert m.flag_spawns(ents, ticks, doc) == 2
+    assert [(e["role"], e["unit"]) for e in (ents[1], ents[2])] == [("spawned", "Goblin_dummy")] * 2
+    assert [e["role"] for e in (ents[3], ents[4])] == ["summon", "summon"]
+
+
 @needs_cards
 def test_a_two_part_play_is_recovered_from_its_cards_layout(m):
     """A TWO-PART PLAY (module doc, RECOVERED TILE): the Goblinstein's Doctor stands 3500 behind its Monster in its
