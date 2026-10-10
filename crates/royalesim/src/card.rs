@@ -1857,9 +1857,25 @@ pub struct WarpDef {
     pub strike: BuffApply,
     pub strike_damage: i32,
     pub strike_crown_pct: i32,
-    pub after_crown_pct: i32,
+    /// The crown share of every shot after the strike (from `after_delay_ms`); None: no after share, a shot keeps its
+    /// projectile's own (the 160402017 row).
+    pub after_crown_pct: Option<i32>,
     pub after_delay_ms: i32,
     pub available_after_ms: i32,
+    /// THE RETURN (the 160402017 row's return block; combat.WARP_LAW = client16402_brake_and_return): None for a row with none.
+    pub ret: Option<WarpReturn>,
+}
+
+/// A WARP'S RETURN (card.rs `WarpDef::ret`; state.rs `WarpBack`): `delay_ms` after the strike frame, or on the target's
+/// death when `on_target_death`, the hero warps back to where it was pressed at `speed` / `accel`. Measured on client
+/// 16.402 (parity's r63 census): the first step back the tick after the first frame without the target, 7 of 7; 3500 ms
+/// from the strike frame with the target alive, 1 case.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct WarpReturn {
+    pub delay_ms: i32,
+    pub on_target_death: bool,
+    pub speed: i32,
+    pub accel: i32,
 }
 
 /// THE WARP'S FIRST STEP, native: measured on client 15.535.29, 343 (one warp; the steps after it follow the table's
@@ -6354,6 +6370,15 @@ struct RawAbility {
     effect: RawAbilityEffect,
 }
 
+/// A warp's return block (`RawAbilityEffect::ret`).
+#[derive(Deserialize)]
+struct RawWarpReturn {
+    delay_ms: Option<i32>,
+    on_target_death: Option<bool>,
+    speed: Option<i32>,
+    accel: Option<i32>,
+}
+
 /// The ability's `effect`: `spawn_ahead` (relative_x, relative_y, unit, use_deploy) or `parent_areas` (areas).
 #[derive(Deserialize)]
 struct RawAbilityEffect {
@@ -6442,6 +6467,9 @@ struct RawAbilityEffect {
     after_crown_pct: Option<i32>,
     after_delay_ms: Option<i32>,
     available_after_ms: Option<i32>,
+    /// `warp`'s return block (tools/extract_cards.py; the 160402017 row's): delay_ms, on_target_death, speed, accel.
+    #[serde(rename = "return")]
+    ret: Option<RawWarpReturn>,
     /// `decoy_warp` (tools/extract_cards.py `decoy_warp_effect`; `buff`, `buff_ms`, `unit` and `use_deploy` above).
     buff_delay_ms: Option<i32>,
     warp_y_milli: Option<i32>,
@@ -13643,9 +13671,22 @@ impl CardDb {
                     strike: BuffApply { buff: strike, time_ms: strike_ms },
                     strike_damage: pos(e.strike_damage, "strike damage")?,
                     strike_crown_pct: pct(e.strike_crown_pct, "strike crown share")?,
-                    after_crown_pct: pct(e.after_crown_pct, "crown share")?,
+                    // the 160402017 row sets none: no after share (a shot keeps its projectile's own)
+                    after_crown_pct: match e.after_crown_pct {
+                        None => None,
+                        v => Some(pct(v, "crown share")?),
+                    },
                     after_delay_ms: e.after_delay_ms.unwrap_or(0).max(0),
                     available_after_ms: e.available_after_ms.unwrap_or(0).max(0),
+                    ret: match &e.ret {
+                        None => None,
+                        Some(r) => Some(WarpReturn {
+                            delay_ms: pos(r.delay_ms, "return delay")?,
+                            on_target_death: r.on_target_death.unwrap_or(false),
+                            speed: pos(r.speed.or(e.speed), "return speed")?,
+                            accel: pos(r.accel.or(e.accel), "return acceleration")?,
+                        }),
+                    },
                 })
             }
             // THE DECOY AND WARP (the Hero Magic Archer's): its decoy loads as the ability's unit, standing still; its buff,

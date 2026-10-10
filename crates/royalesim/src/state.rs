@@ -765,6 +765,10 @@ pub struct Calib {
     /// `AtTrigger`, what a battle saved before it ran.
     #[serde(default = "deflect_buff_landing_default")]
     pub deflect_buff_landing: DeflectBuffLanding,
+    /// combat.WARP_LAW (the Hero Mega Minion's warp: its steps and its return, `warp_pass`, the move pass, `land_warps`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Client15535Ladder`, what a battle saved before it ran.
+    #[serde(default = "warp_law_default")]
+    pub warp_law: WarpLaw,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2491,6 +2495,10 @@ fn ability_bomb_fuse_default() -> AbilityBombFuse {
 
 fn deflect_buff_landing_default() -> DeflectBuffLanding {
     DeflectBuffLanding::AtTrigger
+}
+
+fn warp_law_default() -> WarpLaw {
+    WarpLaw::Client15535Ladder
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9103,6 +9111,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.WARP_LAW -- see `warp_pass`, the 16.402 move pass's warp and `land_warps` (card.rs `WarpDef`): how the
+    /// Hero Mega Minion's warp steps, and whether it warps back (`WarpDef::ret`).
+    WarpLaw {
+        /// The engine before this key: WARP_FIRST_STEP, then `accel` more a tick while under `speed` and `accel` less while
+        /// over; the landing when the step covers the rest; no return. Client 15.535.29 (sp-form-MegaMinion-hero-s0: 343,
+        /// 742, 1144, 1557, 1159, 1548, 682).
+        Client15535Ladder = "client15535_ladder",
+        /// V from 0: each tick V - accel when the distance left D < V (V + accel) / (2 accel), else min(V + accel, speed);
+        /// the landing on the goal when D <= V or V <= 0. And the row's return (`WarpDef::ret`): the tick after its
+        /// target's death, or delay_ms after its strike frame, it warps back by the same law to where it was pressed
+        /// (`WarpBack`). Client 16.402 (parity's r63 census: 154 of 154 warp ticks of 10 presses, 9 of 9 returns).
+        Client16402BrakeAndReturn = "client16402_brake_and_return",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9607,6 +9630,7 @@ impl Calib {
             reflect_ranged: pick(&v, &["combat", "REFLECT_RANGED", "value"], ReflectRanged::from_calibration_name)?,
             ability_bomb_fuse: pick(&v, &["spawner", "ABILITY_BOMB_FUSE", "value"], AbilityBombFuse::from_calibration_name)?,
             deflect_buff_landing: pick(&v, &["status", "DEFLECT_BUFF_LANDING", "value"], DeflectBuffLanding::from_calibration_name)?,
+            warp_law: pick(&v, &["combat", "WARP_LAW", "value"], WarpLaw::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -11050,6 +11074,9 @@ pub struct WarpBoard {
     /// The Skeleton Kings' areas under way (`SoulRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub soul_runs: Vec<SoulRun>,
+    /// The warped heroes waiting to warp back (`WarpBack`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub backs: Vec<WarpBack>,
 }
 
 /// A SKELETON KING'S SOULS (card.rs `SoulSummonDef`; `count_souls`): the troops' deaths since his last trigger.
@@ -11181,7 +11208,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -11211,6 +11238,26 @@ pub struct WarpRun {
     pub step: i32,
     pub moves: u32,
     pub arrived: bool,
+    /// combat.WARP_LAW = client16402_brake_and_return: a RETURN (its goal `origin`, its target unread). Absent in older
+    /// snapshots; hashed only when set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub back: bool,
+    /// Where the hero was pressed (the return's goal), under a row with a return. Absent in older snapshots; hashed only
+    /// when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Vec2>,
+}
+
+/// A WARPED HERO WAITING TO WARP BACK (card.rs `WarpReturn`; `warp_pass`): its id, its home (where it was pressed), the
+/// target it struck, whether the target's death sends it back, and the tick its wait runs out (its strike frame +
+/// delay_ms + a tick).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WarpBack {
+    pub id: EntityId,
+    pub home: Vec2,
+    pub target: EntityId,
+    pub on_death: bool,
+    pub due: u32,
 }
 
 /// A WARPED HERO'S SHOTS: the tick its strike buff ends and the tick from which its shots take the after share on a
@@ -20013,12 +20060,44 @@ impl BattleState {
     /// arrived on the tick before ends (its hero free from this tick); one whose target is gone ends where it is, with no
     /// target (unmeasured). Each other takes this tick's step: WARP_FIRST_STEP on the first, then `accel` more while under
     /// `speed` and `accel` less while over.
+    /// combat.WARP_LAW = client16402_brake_and_return in force.
+    fn warp_brakes(&self) -> bool {
+        // PLANT (regression) warp_law_unread: the new arm still steps on the ladder, with no return.
+        #[cfg(not(clash_plant = "warp_law_unread"))]
+        let brakes = self.cfg.calib.warp_law == WarpLaw::Client16402BrakeAndReturn;
+        #[cfg(clash_plant = "warp_law_unread")]
+        let brakes = false;
+        brakes
+    }
+
     fn warp_pass(&mut self) {
         let cards = self.cfg.cards.clone();
+        let brakes = self.warp_brakes();
+        // combat.WARP_LAW = client16402_brake_and_return: a waiting hero warps back the tick after its target's first frame
+        // gone (with on_target_death), or once its wait runs out; its first step back in this tick's move.
+        // PLANT (regression) warp_return_never: no hero warps back.
+        #[cfg(not(clash_plant = "warp_return_never"))]
+        if !self.warps.backs.is_empty() {
+            let tick = self.tick;
+            let backs = std::mem::take(&mut self.warps.backs);
+            let mut keep = Vec::new();
+            for b in backs {
+                if !self.ents.is_alive(b.id) {
+                    continue;
+                }
+                if (b.on_death && !self.ents.is_alive(b.target)) || tick >= b.due {
+                    self.warps.runs.retain(|r| r.id != b.id);
+                    self.warps.runs.push(WarpRun { id: b.id, target: b.id, made: tick.saturating_sub(1), step: 0, moves: 0, arrived: false, back: true, origin: Some(b.home) });
+                } else {
+                    keep.push(b);
+                }
+            }
+            self.warps.backs = keep;
+        }
         let mut runs = std::mem::take(&mut self.warps.runs);
         runs.retain(|r| {
             let alive = self.ents.is_alive(r.id) && !r.arrived;
-            if alive && !self.ents.is_alive(r.target) {
+            if alive && !r.back && !self.ents.is_alive(r.target) {
                 self.ents.target[r.id.index as usize] = None;
                 return false;
             }
@@ -20032,19 +20111,22 @@ impl BattleState {
                 r.step = 0;
                 continue;
             }
-            #[cfg(not(clash_plant = "warp_full_speed"))]
-            {
-                r.step = if r.moves == 0 {
-                    crate::card::WARP_FIRST_STEP
-                } else if r.step < w.speed {
-                    r.step + w.accel
-                } else {
-                    r.step - w.accel
-                };
-            }
-            #[cfg(clash_plant = "warp_full_speed")]
-            {
-                r.step = w.speed; // PLANT: the warp runs at its Speed from its first step.
+            // Under the braking law the move pass sets the step (it reads the distance left where the pass has the goal).
+            if !brakes {
+                #[cfg(not(clash_plant = "warp_full_speed"))]
+                {
+                    r.step = if r.moves == 0 {
+                        crate::card::WARP_FIRST_STEP
+                    } else if r.step < w.speed {
+                        r.step + w.accel
+                    } else {
+                        r.step - w.accel
+                    };
+                }
+                #[cfg(clash_plant = "warp_full_speed")]
+                {
+                    r.step = w.speed; // PLANT: the warp runs at its Speed from its first step.
+                }
             }
             r.moves += 1;
             // combat.WARP_HIDING = client15535_first_step: the hero takes its strike buff (invisible) on the warp's first
@@ -20055,7 +20137,7 @@ impl BattleState {
             let early = self.cfg.calib.warp_hiding == WarpHiding::Client15535FirstStep;
             #[cfg(clash_plant = "warp_hidden_on_arrival")]
             let early = false;
-            if early && r.moves == 1 {
+            if early && r.moves == 1 && !r.back {
                 let h = crate::status::BuffHit::plain(r.id, w.strike.buff, w.strike.time_ms, 0);
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, r.id.index as usize, &h);
             }
@@ -20071,8 +20153,16 @@ impl BattleState {
         for (i, t) in arrivals {
             let id = self.ents.id_of(i);
             let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Warp(w), .. }) = self.cfg.cards.get(self.ents.card[i]).ability else { continue };
+            let mut origin = None;
             if let Some(r) = self.warps.runs.iter_mut().find(|r| r.id == id) {
                 r.arrived = true;
+                origin = r.origin;
+            }
+            // combat.WARP_LAW = client16402_brake_and_return: the wait to warp back, its strike frame (the next tick) +
+            // delay_ms + a tick (the first step back the tick after its wait).
+            if let (Some(home), Some(ret)) = (origin, w.ret) {
+                self.warps.backs.retain(|b| b.id != id);
+                self.warps.backs.push(WarpBack { id, home, target: t, on_death: ret.on_target_death, due: tick + 1 + (ret.delay_ms / tick_ms) as u32 + 1 });
             }
             self.ents.target[i] = Some(t);
             let h = crate::status::BuffHit::plain(id, w.strike.buff, w.strike.time_ms, 0);
@@ -20818,8 +20908,11 @@ impl BattleState {
         }
         let from = *self.warps.strikes[k].crown_from.get_or_insert(s.until + delay);
         if tick >= from {
-            for p in self.projectiles[shots_from..].iter_mut().filter(|p| p.firer == Some(id)) {
-                p.crown_pct = w.after_crown_pct;
+            // a row with no after share (the 160402017 one): its shots keep their projectile's own
+            if let Some(pct) = w.after_crown_pct {
+                for p in self.projectiles[shots_from..].iter_mut().filter(|p| p.firer == Some(id)) {
+                    p.crown_pct = pct;
+                }
             }
         }
     }
@@ -22254,11 +22347,18 @@ impl BattleState {
             }
         }
         // THE WARPS this tick (`warp_pass` set their steps): per entity, (target, step); and the arrivals.
+        // Under combat.WARP_LAW = client16402_brake_and_return also: whether it moves this tick (not on its trigger's),
+        // and a return's goal.
         let mut warp_at: Vec<Option<(EntityId, i32)>> = vec![None; self.ents.capacity()];
+        let mut warp_more: Vec<Option<(bool, Option<Vec2>)>> = vec![None; self.ents.capacity()];
         for r in self.warps.runs.iter().filter(|r| !r.arrived) {
             warp_at[r.id.index as usize] = Some((r.target, r.step));
+            warp_more[r.id.index as usize] = Some((self.tick > r.made, if r.back { r.origin } else { None }));
         }
+        let brakes = self.warp_brakes();
         let mut warp_arrivals: Vec<(usize, EntityId)> = Vec::new();
+        let mut warp_steps: Vec<(EntityId, i32)> = Vec::new();
+        let mut warp_homes: Vec<EntityId> = Vec::new();
         {
             let e = &self.ents;
             let arena = &self.cfg.arena;
@@ -23090,13 +23190,37 @@ impl BattleState {
                 // client 15.535.29, each step aimed at the Skeleton's centre after its own move, within 1 degree); the
                 // tick the step covers the rest, the hero stands on that centre (`land_warps`, after the pass). No scan:
                 // a warping hero is no body.
-                if let Some((t, step)) = warp_at[i].filter(|(t, _)| e.is_alive(*t)) {
-                    let ti = t.index as usize;
-                    let tp = (bodies[ti].x, bodies[ti].y);
+                let home = warp_more[i].and_then(|m| m.1);
+                if let Some((t, step)) = warp_at[i].filter(|(t, _)| home.is_some() || e.is_alive(*t)) {
+                    let tp = match home {
+                        Some(h) => (h.x / K, h.y / K),
+                        None => (bodies[t.index as usize].x, bodies[t.index as usize].y),
+                    };
                     let (dx, dy) = ((tp.0 - actor.0) as i64, (tp.1 - actor.1) as i64);
                     let left = isqrt(dx * dx + dy * dy);
-                    let p = if step > 0 && left <= step as i64 {
-                        warp_arrivals.push((i, t));
+                    // combat.WARP_LAW = client16402_brake_and_return: V from its last, braking when the distance left is
+                    // under V (V + accel) / (2 accel); the landing when it covers the rest (or V reaches 0).
+                    let (step, lands) = match (brakes, card.ability.as_ref().map(|a| &a.effect)) {
+                        (true, Some(crate::card::AbilityEffect::Warp(w))) if warp_more[i].is_some_and(|m| m.0) => {
+                            let (speed, accel) = match (home, w.ret) {
+                                (Some(_), Some(r)) => (r.speed, r.accel),
+                                _ => (w.speed, w.accel),
+                            };
+                            let accel = accel.max(1);
+                            let brake = (step as i64) * ((step + accel) as i64) / (2 * accel as i64);
+                            let v = if left < brake { step - accel } else { (step + accel).min(speed) };
+                            warp_steps.push((e.id_of(i), v));
+                            (v, left <= v as i64 || v <= 0)
+                        }
+                        (true, _) => (0, false),
+                        _ => (step, step > 0 && left <= step as i64),
+                    };
+                    let p = if lands {
+                        if home.is_some() {
+                            warp_homes.push(e.id_of(i));
+                        } else {
+                            warp_arrivals.push((i, t));
+                        }
                         tp
                     } else if step > 0 {
                         (actor.0 + (dx * step as i64 / left) as i32, actor.1 + (dy * step as i64 / left) as i32)
@@ -23933,6 +24057,17 @@ impl BattleState {
             }
         }
         self.land_chain_hits(chain_hits);
+        for (id, v) in warp_steps {
+            if let Some(r) = self.warps.runs.iter_mut().find(|r| r.id == id && !r.arrived) {
+                r.step = v;
+            }
+        }
+        // A RETURN'S ARRIVAL: on its home; the run holds through this tick and ends on the next Path phase, the hero free.
+        for id in warp_homes {
+            if let Some(r) = self.warps.runs.iter_mut().find(|r| r.id == id && r.back) {
+                r.arrived = true;
+            }
+        }
         if !warp_arrivals.is_empty() {
             self.land_warps(warp_arrivals);
         }
@@ -31200,11 +31335,14 @@ impl BattleState {
             }
             // THE WARP (the Hero Mega Minion's; `WarpRun`): its pick now, its first step in this tick's move pass. With no
             // pick it does nothing.
-            crate::card::AbilityEffect::Warp(_) => {
+            crate::card::AbilityEffect::Warp(w) => {
                 #[cfg(not(clash_plant = "warp_never"))]
                 if let Some(t) = self.warp_pick(i) {
+                    // combat.WARP_LAW = client16402_brake_and_return, a row with a return: it will warp back here.
+                    let origin = (self.warp_brakes() && w.ret.is_some()).then_some(self.ents.pos[i]);
                     self.warps.runs.retain(|r| r.id != hero);
-                    self.warps.runs.push(WarpRun { id: hero, target: t, made: self.tick, step: 0, moves: 0, arrived: false });
+                    self.warps.backs.retain(|b| b.id != hero);
+                    self.warps.runs.push(WarpRun { id: hero, target: t, made: self.tick, step: 0, moves: 0, arrived: false, back: false, origin });
                     self.ents.target[i] = Some(t);
                 }
                 let _ = (team, level, pos);
@@ -33330,6 +33468,24 @@ impl BattleState {
                 h.i32(r.step);
                 h.u32(r.moves);
                 h.bool(r.arrived);
+                if r.back || r.origin.is_some() {
+                    h.u32(0x4241_434b);
+                    h.bool(r.back);
+                    let o = r.origin.unwrap_or_default();
+                    h.i32(o.x);
+                    h.i32(o.y);
+                }
+            }
+            if !self.warps.backs.is_empty() {
+                h.u32(self.warps.backs.len() as u32);
+                for b in &self.warps.backs {
+                    h.id(b.id);
+                    h.i32(b.home.x);
+                    h.i32(b.home.y);
+                    h.id(b.target);
+                    h.bool(b.on_death);
+                    h.u32(b.due);
+                }
             }
             h.u32(self.warps.strikes.len() as u32);
             for s in &self.warps.strikes {
@@ -34944,6 +35100,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.DEFLECT_BUFF_LANDING: Calib gained deflect_buff_landing (serde default the old arm, at_trigger), no new state (the buff's saved slot carries its time),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.WARP_LAW: Calib gained warp_law (serde default the old arm, client15535_ladder), the warps' new saved fields (a run's `back` and `origin`, the board's `backs`) default empty and are hashed only when set,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35869,6 +36027,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ability_bomb_fuse".into(), serde_json::to_value(AbilityBombFuse::Client15535TickAfterFuse).map_err(|e| e.to_string())?);
     // status.DEFLECT_BUFF_LANDING: a format-3 battle's Deflect buff landed at the trigger for its BuffTime (the same rule).
     sh.insert("deflect_buff_landing".into(), serde_json::to_value(DeflectBuffLanding::AtTrigger).map_err(|e| e.to_string())?);
+    // combat.WARP_LAW: a format-3 battle warped on the ladder, with no return (the same rule).
+    sh.insert("warp_law".into(), serde_json::to_value(WarpLaw::Client15535Ladder).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

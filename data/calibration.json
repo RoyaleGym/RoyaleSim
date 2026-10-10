@@ -1794,6 +1794,17 @@
     }
   },
   "combat": {
+    "WARP_LAW": {
+      "value": "client16402_brake_and_return",
+      "status": "measured",
+      "candidates": ["client15535_ladder", "client16402_brake_and_return"],
+      "confidence": "HIGH for client16402_brake_and_return on client 16.402 for the step law (154 of 154 warp ticks, both clients' presses) and the return on a target's death (7 of 7); LOW for the return's timeout (1 case). The unit's own walk step during the warp (about 59 a tick, 0 attacking) is not modelled: a step is off by it, the landings are exact.",
+      "provenance": "MEASURED by parity (2026-10-09, r63 census) on every Hero Mega Minion press in the ob3 live set (8), Oracle's 160402017 scene sp-form-MegaMinion-hero-s0 and the 15.535.29 one: the cast frozen at its point C on P .. P + 4, the first warp step on P + 5 (10 of 10). The steps follow V from 0, + 400 a tick to 1500 unless the distance left D is under V (V + 400) / 800, then - 400; the landing on the goal when D <= V: 154 of 154 warp ticks within 62 (each step V toward the goal plus the unit's own walk step, about 59 or 0 attacking, UNMODELLED here): 160402017's 342, 742, 1143, 1558, 1157, 751, 1088, 229 (V 400, 800, 1200, 1500, 1100, 700, 1100, landing), the engine's ladder (WARP_FIRST_STEP 343, then + / - 400 about Speed) 1543 where the client's 751. It strikes on the target's point on the arrival A (10 of 10), its strike frame A + 1. THE RETURN (the 160402017 row's return block: delay_ms 3500, on_target_death, speed 1500, accel 400; 15.535.29 none): the first step back the tick after the first frame without its target, 7 of 7 clean (t215 -> t216 in the scene), or, the target alive, on A + 72 (the strike frame + 70 + 1; liveplay-20261007-013601-A P 2152, 1 case); back to C by the same law, 9 of 9 (391, 789, 1186, 1476, 1152, 757, 1157, 123 in the scene); there its normal behaviour again.",
+      "meaning": "client15535_ladder: the engine's; WARP_FIRST_STEP then + / - accel about speed, no return. client16402_brake_and_return: the braking law above, and the row's return block (the 160402017 row's; a row with none warps out alone).",
+      "open": "The walk step added to each warp step (its goal: the hero's walk target, not the warp's); the timeout's anchor (one case); a return whose point is blocked.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_ladder (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs warp_pass (`WarpBack`), the 16.402 move pass's warp, land_warps; card.rs WarpDef::ret, WarpReturn; tests/hero_mega_minion.rs."
+    },
     "LEVEL_SCALING": {
       "value": "per_rarity_powerLevelMultiplier_table",
       "status": "datamined",

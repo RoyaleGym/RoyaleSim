@@ -17,14 +17,23 @@
 //!   - warp_never -> `the_warp_steps_up_to_its_speed_and_stands_on_its_pick` and `its_strike_shot_takes_156` red;
 //!   - warp_full_speed -> `the_warp_steps_up_to_its_speed_and_stands_on_its_pick` red;
 //!   - warp_no_instant_hit -> the same red (the kill's tick);
-//!   - strike_shot_unread -> `its_strike_shot_takes_156` red.
+//!   - strike_shot_unread -> `its_strike_shot_takes_156` red;
+//!   - warp_law_unread -> `under_client16402_brake_and_return_the_warp_brakes_before_its_pick` and the return tests red;
+//!   - warp_return_never -> `on_the_160402017_table_it_warps_back_the_tick_after_its_target_dies` red.
+//!
+//! combat.WARP_LAW = client16402_brake_and_return (client 16.402, parity's r63 census: 154 of 154 warp ticks of 10
+//! presses): V from 0, + 400 a tick to 1500 unless the distance left is under V (V + 400) / 800, then - 400; the landing
+//! when it covers the rest. The 160402017 row's return block: the tick after its target's first frame gone (7 of 7), or
+//! its strike frame + 3500 ms + a tick with the target alive (1 case), it warps back by the same law to where it was
+//! pressed (9 of 9).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DeployError};
+use royalesim::card::CardDb;
+use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpLaw};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -37,6 +46,13 @@ const AT: (i32, i32) = (9000, 9000);
 
 fn battle() -> BattleState {
     let mut cfg: BattleConfig = config();
+    // The 15.535.29 scene's warp (combat.WARP_LAW's old arm; the new one below).
+    cfg.calib.warp_law = WarpLaw::Client15535Ladder;
+    battle_on(cfg)
+}
+
+/// `battle` on `cfg` (its table, its arms).
+fn battle_on(mut cfg: BattleConfig) -> BattleState {
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
@@ -53,7 +69,11 @@ fn battle() -> BattleState {
 /// Red `units` (card, point) put and held on their points, then the hero put at AT (created after them, so in the move
 /// pass they step before it, as the client's Skeleton did) and held there for 40 ticks.
 fn start(units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
-    let mut s = battle();
+    start_in(battle(), units)
+}
+
+/// `start` in the battle `s`.
+fn start_in(mut s: BattleState, units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
     // Blue's princess towers down (its king wakes; its reach stops short of y 12000): no crown tower reaches the scene.
     let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
     for t in towers {
@@ -174,4 +194,94 @@ fn its_button_waits_1500_ms_and_a_pick() {
     }
     assert!(matches!(t.check_ability_button(Team::Blue, 0), Err(DeployError::AbilityNotReady)), "no enemy troop to pick");
     assert!(!t.ability_buttons(Team::Blue)[0].available, "the row: no enemy troop to pick");
+}
+
+/// A warp's run: the hero's steps from the press (native) and its points, `frames` ticks, the reds held until it stands on
+/// `target` (then let go).
+fn run_warp(s: &mut BattleState, hero: EntityId, reds: &[(EntityId, Vec2)], target: EntityId, frames: usize) -> (Vec<i64>, Vec<Vec2>, Option<usize>, Option<usize>) {
+    let mut steps = Vec::new();
+    let mut points = Vec::new();
+    let mut prev = s.entity(hero).expect("the hero").pos;
+    let (mut arrived, mut gone) = (None, None);
+    for f in 0..frames {
+        for (id, p) in reds.iter().filter(|_| arrived.is_none()) {
+            if s.entity(*id).is_some() {
+                assert!(s.debug_set_pos(*id, *p));
+            }
+        }
+        s.tick();
+        let now = s.entity(hero).expect("the hero").pos;
+        let (dx, dy) = (((now.x - prev.x) / K) as i64, ((now.y - prev.y) / K) as i64);
+        steps.push(isqrt(dx * dx + dy * dy));
+        points.push(now);
+        prev = now;
+        match s.entity(target) {
+            Some(t) if arrived.is_none() && t.pos == now => arrived = Some(f),
+            None if gone.is_none() => gone = Some(f),
+            _ => {}
+        }
+    }
+    (steps, points, arrived, gone)
+}
+
+/// combat.WARP_LAW = client16402_brake_and_return on `the_warp_steps_up_to_its_speed_and_stands_on_its_pick`'s scene (the
+/// Skeleton 7200 off): 400, 800, 1200, 1500, then 1100 (under 3562 left at 1500), 1500 (2200 left, over 2062 at 1100),
+/// and the landing (700 left, under 3562). Plant: warp_law_unread.
+#[test]
+fn under_client16402_brake_and_return_the_warp_brakes_before_its_pick() {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.warp_law = WarpLaw::Client16402BrakeAndReturn;
+    let minion = (AT.0 - 4320, AT.1 + 5760);
+    let (mut s, hero, reds) = start_in(battle_on(cfg), &[("Knight", (AT.0, AT.1 + 3000)), ("Skeleton", minion)]);
+    let target = reds[1].0;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (steps, _, arrived, _) = run_warp(&mut s, hero, &reds, target, 30);
+    let first = steps.iter().position(|d| *d > 0).expect("the hero warps");
+    let want = [400, 800, 1200, 1500, 1100, 1500];
+    for (k, w) in want.iter().enumerate() {
+        assert!((steps[first + k] - w).abs() <= 3, "step {k}: {} for {w}: {steps:?}", steps[first + k]);
+    }
+    assert_eq!(arrived, Some(first + want.len()), "the seventh step lands it: {steps:?}");
+}
+
+/// The 160402017 table's battle (its Hero Mega Minion row carries the return block, and no after crown share).
+fn battle_017() -> BattleState {
+    let db = CardDb::load_table(CardTable::Client160402017).expect("the 160402017 table");
+    let mut cfg = BattleConfig::with_cards(db);
+    cfg.calib.card_table = CardTable::Client160402017;
+    cfg.calib.warp_law = WarpLaw::Client16402BrakeAndReturn;
+    battle_on(cfg)
+}
+
+/// The return on the target's death (client 16.402, sp-form-MegaMinion-hero-s0 on 160402017: the Skeleton gone on t215,
+/// the first step back on t216, back on its press point by the same law): the Skeleton struck, the first step back
+/// (400) the tick after its first frame gone, and the hero on AT, its press point. Plants: warp_return_never,
+/// warp_law_unread.
+#[test]
+fn on_the_160402017_table_it_warps_back_the_tick_after_its_target_dies() {
+    let minion = (AT.0 - 4320, AT.1 + 5760);
+    let (mut s, hero, reds) = start_in(battle_017(), &[("Knight", (AT.0, AT.1 + 3000)), ("Skeleton", minion)]);
+    let target = reds[1].0;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (steps, points, arrived, gone) = run_warp(&mut s, hero, &reds, target, 60);
+    let (a, g) = (arrived.expect("it stands on the Skeleton"), gone.expect("the Skeleton dies"));
+    assert!(g > a, "the Skeleton gone after the arrival: {a}, {g}");
+    assert!((steps[g + 1] - 400).abs() <= 3, "the first step back, 400, on the tick after its first frame gone ({g}): {steps:?}");
+    assert!(steps[g] < 100, "no step back on the first frame gone: {steps:?}");
+    let home = n(AT.0, AT.1);
+    assert!(points[g + 1..].iter().any(|p| *p == home), "back on its press point {home:?}: {points:?}");
+}
+
+/// The return with its target alive (client 16.402, liveplay-20261007-013601-A: the first step back on the strike frame
+/// + 71): a lone Knight (1766) struck and alive; the first step back on the arrival + 72.
+#[test]
+fn on_the_160402017_table_it_warps_back_on_its_strike_frame_plus_3500_ms_with_its_target_alive() {
+    let (mut s, hero, reds) = start_in(battle_017(), &[("Knight", (AT.0, AT.1 + 3000))]);
+    let target = reds[0].0;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (steps, _, arrived, gone) = run_warp(&mut s, hero, &reds, target, 110);
+    let a = arrived.expect("it stands on the Knight");
+    assert!(gone.is_none_or(|g| g > a + 72), "the scene drifted: the Knight died ({gone:?})");
+    let back = (a + 2..steps.len()).find(|&f| steps[f] >= 350).expect("it warps back");
+    assert_eq!(back, a + 72, "the first step back on the arrival + 72: {steps:?}");
 }
