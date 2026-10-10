@@ -22,6 +22,11 @@
 //!   3. the Giant held BEHIND the walking Knight past its limit, |dy| as the tick before: client15535_receding_lane_walk
 //!      (the vacuity check) takes it, client15535_receding_or_behind holds no target;
 //!   4. the same Giant AHEAD of the Knight: both take it.
+//!
+//! client16402_receding_or_behind_every_rescan (parity's r63 drop-tick census: 4 of 4 behind passed over; sp-hogs-cannon-s0
+//! on 160402017 t344) -- plant rescan_behind_drop_tick_taken:
+//!   6. on the drop tick's own rescan (the Knight letting an Archer go past its limit), the Giant held behind past the limit:
+//!      client15535_receding_or_behind (the vacuity check) takes it, the new arm does not.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -93,7 +98,7 @@ fn a_first_pick_takes_a_receding_troop_under_client15535_receding_lane_walk() {
 
 #[test]
 fn the_shipped_value_is_drop_tick() {
-    assert_eq!(Calib::shipped().chase_rescan_pass_over, ChaseRescanPassOver::DropTick);
+    assert_eq!(Calib::shipped().chase_rescan_pass_over, ChaseRescanPassOver::Client16402RecedingOrBehindEveryRescan);
 }
 
 /// The walking Red Knight's target after the decisive tick, the Blue Giant held `dy` (native, arena y; Red walks to -y,
@@ -172,4 +177,42 @@ fn a_troop_born_the_tick_before_never_recedes() {
         let (took, giant) = ahead_rescan(arm, true);
         assert_eq!(took, Some(giant), "{arm:?}: the Knight passed over a Giant born the tick before");
     }
+}
+
+/// (6) The Red Knight's target after the decisive tick: it holds a Blue Archer ahead of it (taken while both were held), and
+/// on that tick the Archer is put past its limit ahead (the chase drop) while a Blue Giant stands BEHIND it past its own,
+/// |dy| as the tick before, in round sight.
+fn drop_tick_rescan(arm: ChaseRescanPassOver) -> (Option<EntityId>, EntityId, EntityId) {
+    let mut s = BattleState::new(0, with_arm(arm));
+    past_deploy_lockout(&mut s);
+    let (lim_g, lim_a) = (limit_on(&s, "Giant"), limit_on(&s, "Archer"));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", n(KNIGHT.0, KNIGHT.1), None).expect("the Knight");
+    let near = n(KNIGHT.0, KNIGHT.1 - 2500);
+    let archer = s.scenario_spawn_now(Team::Blue, "Archer", near, None).expect("the Archer");
+    let behind = n(KNIGHT.0 + 400, KNIGHT.1 + lim_g + 300);
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", n(KNIGHT.0 + 9000, KNIGHT.1 + lim_g + 300), None).expect("the Giant");
+    for _ in 0..12 {
+        assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && s.debug_set_pos(archer, near) && s.debug_set_pos(giant, n(KNIGHT.0 + 9000, KNIGHT.1 + lim_g + 300)));
+        s.tick();
+    }
+    assert_eq!(s.entity(knight).expect("the Knight").target, Some(archer), "the scene drifted: the Knight does not hold the Archer");
+    // The Giant behind in round sight one tick before (its |dy| unchanged on the decisive tick).
+    assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && s.debug_set_pos(archer, near) && s.debug_set_pos(giant, behind));
+    s.tick();
+    assert_eq!(s.entity(knight).expect("the Knight").target, Some(archer), "the scene drifted: the Knight let the Archer go early");
+    assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && s.debug_set_pos(giant, behind));
+    assert!(s.debug_set_pos(archer, n(KNIGHT.0, KNIGHT.1 - lim_a - 300)));
+    s.tick();
+    (s.entity(knight).expect("the Knight").target, giant, archer)
+}
+
+/// Plant: rescan_behind_drop_tick_taken.
+#[test]
+fn on_the_drop_ticks_own_rescan_a_troop_behind_past_the_limit_is_passed_over_under_the_every_rescan_arm() {
+    let (old, giant, archer) = drop_tick_rescan(ChaseRescanPassOver::Client15535RecedingOrBehind);
+    // NOT VACUOUS: the drop tick's own rescan takes the Giant behind under the 15.535.29 arm.
+    assert_eq!(old, Some(giant), "client15535_receding_or_behind: the Knight did not take the Giant behind on the drop tick");
+    let (new, giant, archer2) = drop_tick_rescan(ChaseRescanPassOver::Client16402RecedingOrBehindEveryRescan);
+    assert!(new != Some(giant) && new != Some(archer2), "client16402_receding_or_behind_every_rescan: the Knight took {new:?}");
+    let _ = archer;
 }

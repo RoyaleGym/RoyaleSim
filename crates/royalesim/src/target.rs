@@ -728,8 +728,10 @@ fn recedes_from_lane_walk(ctx: &TargetCtx, a: usize, c: usize) -> bool {
         // PLANT (regression) recede_reads_newborn: a troop born the tick before recedes from its birth point.
         #[cfg(clash_plant = "recede_reads_newborn")]
         let seen_before = true;
-        matches!(ctx.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind)
-            && e.chase_lane_walk.get(a).copied().unwrap_or(false)
+        matches!(
+            ctx.calib.chase_rescan_pass_over,
+            ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind | ChaseRescanPassOver::Client16402RecedingOrBehindEveryRescan
+        ) && e.chase_lane_walk.get(a).copied().unwrap_or(false)
             && seen_before
             && chase_measure(ctx.calib, e.pos[c].sub(e.pos[a])) > chase_measure(ctx.calib, e.chase_last_pos[c].sub(e.chase_last_pos[a]))
     }
@@ -749,7 +751,15 @@ fn behind_on_rescan(ctx: &TargetCtx, a: usize, c: usize, dropped: Option<EntityI
         let e = ctx.ents;
         let dy = e.pos[c].y as i64 - e.pos[a].y as i64;
         let behind = if e.team[a] == Team::Blue { dy < 0 } else { dy > 0 };
-        ctx.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client15535RecedingOrBehind && dropped.is_none() && !after_drop && behind
+        // client16402_receding_or_behind_every_rescan: the chase drop's own rescan too (client 16.402: sp-hogs-cannon-s0
+        // t344, 4 of 4 drop ticks with the troop behind).
+        // PLANT (regression) rescan_behind_drop_tick_taken: the new arm still exempts the drop tick.
+        #[cfg(not(clash_plant = "rescan_behind_drop_tick_taken"))]
+        let every = ctx.calib.chase_rescan_pass_over == ChaseRescanPassOver::Client16402RecedingOrBehindEveryRescan;
+        #[cfg(clash_plant = "rescan_behind_drop_tick_taken")]
+        let every = false;
+        let old = matches!(ctx.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingOrBehind | ChaseRescanPassOver::Client16402RecedingOrBehindEveryRescan);
+        behind && (every || (old && dropped.is_none() && !after_drop))
     }
 }
 

@@ -6550,6 +6550,12 @@ calib_enum!(
         /// and took it at 5,693; t2931, skeletons out of their deploy, took a Hog Rider behind at 5,160 to 5,492, limit
         /// 5,600, and passed over it at 5,660 to 6,164).
         Client15535RecedingOrBehind = "client15535_receding_or_behind",
+        /// client15535_receding_or_behind, its behind rule on EVERY rescan, the chase drop's own included. Measured
+        /// (parity's r63 drop-tick census over every fixture's truth, the nearest other enemy troop in round sight past
+        /// the limit on a drop tick's rescan): behind the unit passed over 4 of 4 (Oracle's 160402017 sp-hogs-cannon-s0
+        /// t344: the Valkyrie letting Hog 7 go passed over Hog 9 standing behind it at |dy| 5,895, limit 5,600, and took
+        /// Blue's princess tower, where the engine took the Hog; the other three walked away), ahead taken 15 of 15.
+        Client16402RecedingOrBehindEveryRescan = "client16402_receding_or_behind_every_rescan",
     }
 );
 calib_enum!(
@@ -18245,7 +18251,10 @@ impl BattleState {
         if self.cfg.calib.chase_drop_walking_away == ChaseDropWalkingAway::Client15535GrowingAway {
             // targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: the phase's lane-walk marks, each unit
             // that walked into it (`chase_walked`) and leaves it holding no target.
-            let lane = matches!(self.cfg.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind);
+            let lane = matches!(
+                self.cfg.calib.chase_rescan_pass_over,
+                ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind | ChaseRescanPassOver::Client16402RecedingOrBehindEveryRescan
+            );
             for (i, p) in self.scratch.chase_start_pos.iter().enumerate() {
                 if self.ents.alive[i] {
                     self.ents.chase_last_pos[i] = *p;
@@ -32822,7 +32831,10 @@ impl BattleState {
                     h.i32(e.chase_last_pos[i].y);
                     // targeting.CHASE_RESCAN_PASS_OVER = client15535_receding_lane_walk: the lane-walk mark, written under
                     // that arm alone.
-                    if matches!(self.cfg.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind) {
+                    if matches!(
+                        self.cfg.calib.chase_rescan_pass_over,
+                        ChaseRescanPassOver::Client15535RecedingLaneWalk | ChaseRescanPassOver::Client15535RecedingOrBehind | ChaseRescanPassOver::Client16402RecedingOrBehindEveryRescan
+                    ) {
                         h.bool(e.chase_lane_walk[i]);
                     }
                 }

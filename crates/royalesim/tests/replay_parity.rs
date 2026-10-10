@@ -1414,7 +1414,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.troop_relocation_tie_order, TroopRelocationTieOrder::PlacerFrameFirstFound, "a 16.402 capture");
     assert_eq!(cfg.calib.first_step_dying_contact, FirstStepDyingContact::Pushed, "a 16.402 capture");
     assert_eq!(cfg.calib.chain_landed_body, ChainLandedBody::LandedBody, "a 16.402 capture");
-    assert_eq!(cfg.calib.chase_rescan_pass_over, ChaseRescanPassOver::DropTick, "a 16.402 capture");
+    assert_eq!(cfg.calib.chase_rescan_pass_over, ChaseRescanPassOver::Client16402RecedingOrBehindEveryRescan, "a 16.402 capture");
     assert_eq!(cfg.calib.direct_hit_buff_countdown, DirectHitBuffCountdown::ResolveLanding, "a 16.402 capture");
     assert_eq!(cfg.calib.soul_point_base, SoulPointBase::PreMove, "a 16.402 capture");
     assert_eq!(cfg.calib.walking_keep_reach, WalkingKeepReach::OwnRadius, "a 16.402 capture");
