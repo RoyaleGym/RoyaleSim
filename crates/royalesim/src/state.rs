@@ -781,6 +781,10 @@ pub struct Calib {
     /// `EngineReading`, what a battle saved before it ran.
     #[serde(default = "lift_timing_default")]
     pub lift_timing: LiftTiming,
+    /// combat.TOWER_TROOP_DAMAGE_LADDER (the ladder a crown tower troop's damage scales on, `spawn_with`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `TowerLadder`, what a battle saved before it ran.
+    #[serde(default = "tower_troop_damage_ladder_default")]
+    pub tower_troop_damage_ladder: TowerTroopDamageLadder,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2523,6 +2527,10 @@ fn evo_barrel_drop_tick_default() -> EvoBarrelDropTick {
 
 fn lift_timing_default() -> LiftTiming {
     LiftTiming::EngineReading
+}
+
+fn tower_troop_damage_ladder_default() -> TowerTroopDamageLadder {
+    TowerTroopDamageLadder::TowerLadder
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9207,6 +9215,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.TOWER_TROOP_DAMAGE_LADDER -- see `spawn_with` (card.rs TOWER_TROOPS): the ladder a crown tower troop's
+    /// damage scales on at the tower level (its hitpoints are on the crown tower ladder under either arm).
+    TowerTroopDamageLadder {
+        /// Parity's r62 reading: every troop's damage on the crown tower ladder, as the Princess's.
+        TowerLadder = "tower_ladder",
+        /// The Dagger Duchess's and the Cannoneer's on their record's card ladder (Common, the table's rarities), the Chef's
+        /// on the tower ladder. Client 16.402 (parity's r63 census over the ob3 live set, single-attacker hp drops): the
+        /// Duchess's dagger 97 / 107 / 118 / 156 / 171 at tower level 10 / 11 / 12 / 15 / 16 (42 x the Common ladder), the
+        /// Cannoneer's 200 ... 511 (125 x it), the Chef's 99 ... 173 (the tower ladder).
+        Client16402CardLadder = "client16402_card_ladder",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9715,6 +9736,7 @@ impl Calib {
             attached_area_timing: pick(&v, &["spells", "ATTACHED_AREA_TIMING", "value"], AttachedAreaTiming::from_calibration_name)?,
             evo_barrel_drop_tick: pick(&v, &["spawner", "EVO_BARREL_DROP_TICK", "value"], EvoBarrelDropTick::from_calibration_name)?,
             lift_timing: pick(&v, &["status", "LIFT_TIMING", "value"], LiftTiming::from_calibration_name)?,
+            tower_troop_damage_ladder: pick(&v, &["combat", "TOWER_TROOP_DAMAGE_LADDER", "value"], TowerTroopDamageLadder::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -13179,11 +13201,22 @@ impl BattleState {
             && self.cfg.calib.tower_ladder == TowerLadder::GlobalsPercentPerLevelCompoundFloor;
         #[cfg(clash_plant = "tower_card_ladder")]
         let tower = false; // PLANT (regression): the earlier engine's towers on the card ladder (6144 / 3584 at 11).
+        // combat.TOWER_TROOP_DAMAGE_LADDER = client16402_card_ladder: the Dagger Duchess's and the Cannoneer's damage on
+        // their record's card ladder at the tower level (client 16.402: 42 x 409 % = 171 a dagger at 16), their hitpoints on
+        // the tower ladder; the Chef's damage on the tower ladder.
+        // PLANT (regression) tower_troop_damage_tower_ladder: the new arm still scales every troop's damage on the tower ladder.
+        #[cfg(not(clash_plant = "tower_troop_damage_tower_ladder"))]
+        let card_damage = tower
+            && kind == EntityKind::PrincessTower
+            && self.cfg.calib.tower_troop_damage_ladder == TowerTroopDamageLadder::Client16402CardLadder
+            && matches!(c.name.as_str(), "DaggerDuchess" | "Cannoneer");
+        #[cfg(clash_plant = "tower_troop_damage_tower_ladder")]
+        let card_damage = false;
         let (hp, damage) = if tower {
             let calib = &self.cfg.calib;
             (
                 CardDb::scale(c.hitpoints, tower_multiplier_percent(calib, kind, level, calib.tower_hp_pct)?),
-                CardDb::scale(c.damage, tower_multiplier_percent(calib, kind, level, calib.tower_dmg_pct)?),
+                if card_damage { scaled(c.damage)? } else { CardDb::scale(c.damage, tower_multiplier_percent(calib, kind, level, calib.tower_dmg_pct)?) },
             )
         } else {
             (scaled(c.hitpoints)?, scaled(c.damage)?)
@@ -35258,6 +35291,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.LIFT_TIMING: Calib gained lift_timing (serde default the old arm, engine_reading), no new state (it reads the saved lift's trigger tick),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.TOWER_TROOP_DAMAGE_LADDER: Calib gained tower_troop_damage_ladder (serde default the old arm, tower_ladder), no new state (it sets a new tower's saved damage),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36191,6 +36226,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_barrel_drop_tick".into(), serde_json::to_value(EvoBarrelDropTick::Client15535Fuse).map_err(|e| e.to_string())?);
     // status.LIFT_TIMING: a format-3 battle's lift ran the engine's reading (the same rule).
     sh.insert("lift_timing".into(), serde_json::to_value(LiftTiming::EngineReading).map_err(|e| e.to_string())?);
+    // combat.TOWER_TROOP_DAMAGE_LADDER: a format-3 battle fielded no tower troop (the same rule).
+    sh.insert("tower_troop_damage_ladder".into(), serde_json::to_value(TowerTroopDamageLadder::TowerLadder).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

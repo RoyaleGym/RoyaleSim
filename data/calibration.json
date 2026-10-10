@@ -1794,6 +1794,16 @@
     }
   },
   "combat": {
+    "TOWER_TROOP_DAMAGE_LADDER": {
+      "value": "client16402_card_ladder",
+      "status": "measured",
+      "candidates": ["tower_ladder", "client16402_card_ladder"],
+      "confidence": "HIGH for client16402_card_ladder on client 16.402: every single-attacker hit of a tower troop in the ob3 live set (the Duchess at levels 10-16, 42 drops at L10-L15 and 249 at L16; the Cannoneer 93 drops, 6 levels; the Chef 174 drops on the tower ladder); the eight Barbarian Barrel Barbarians 26 too strong a dagger at L16 (5 battles). Unexplained: two Cannoneer L13 drops of 216.",
+      "provenance": "MEASURED by parity (2026-10-09, r63 law census tt.py): liveplay-20261008-040815-A, a level-13 Barbarian (865) under a level-16 Duchess: truth 694, 523, 352, 181, 10 on t300, 309, 319, 328, 338, the engine 26 more each hit (145 a dagger, the tower ladder's 42 x 345 %, where the client's 171 = 42 x 409 %, the Common card ladder at 16). The troops' hitpoints follow the tower ladder at every level (the engine's, unchanged).",
+      "meaning": "tower_ladder: parity's r62 reading; a tower troop's damage on the crown tower ladder. client16402_card_ladder: the Dagger Duchess's and the Cannoneer's on their record's card ladder at the tower level; the Chef's on the tower ladder.",
+      "open": "Why the Chef's damage stays on the tower ladder; two Cannoneer L13 drops of 216.",
+      "engine": "state.rs spawn_with, selected by Calib::tower_troop_damage_ladder; tests/tower_troops.rs."
+    },
     "WARP_LAW": {
       "value": "client16402_brake_and_return",
       "status": "measured",

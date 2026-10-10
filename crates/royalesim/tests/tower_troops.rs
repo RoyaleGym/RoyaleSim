@@ -80,3 +80,46 @@ fn a_tower_troop_that_is_not_a_record_is_refused() {
     cfg.tower_troops = [None, Some("Knight".into())];
     assert!(BattleState::try_new(0, cfg).is_err(), "a troop that is not a tower troop record is refused");
 }
+
+/// combat.TOWER_TROOP_DAMAGE_LADDER = client16402_card_ladder (client 16.402, parity's r63 census: the Duchess's dagger 171
+/// at tower level 16 = 42 x 409 %, the Cannoneer's 511 = 125 x 409 %, the Chef's on the tower ladder): at tower level 16 a
+/// Dagger Duchess tower's damage is its record's card-ladder value, a Chef's the tower ladder's; tower_ladder (the vacuity
+/// check) scales the Duchess on the tower ladder. Plant: tower_troop_damage_tower_ladder.
+#[test]
+fn the_duchess_and_the_cannoneer_hit_on_their_card_ladder() {
+    use royalesim::state::TowerTroopDamageLadder as L;
+    // The damage of the first shot Blue's left tower fires at a red Golem held in its reach, and the record's card-ladder
+    // value at 16.
+    let damage = |troop: &str, arm: L| -> (i32, i32) {
+        let mut cfg = config();
+        cfg.tower_troops = [Some(troop.to_string()), None];
+        cfg.tower_level = [16, 16];
+        cfg.card_level = [16, 16];
+        cfg.calib.tower_troop_damage_ladder = arm;
+        let mut s = BattleState::try_new(0, cfg).unwrap_or_else(|e| panic!("{troop}: {e}"));
+        let tid = s.entities().find(|e| e.team == Team::Blue && e.pos == n((3500, 6500))).map(|e| e.id).expect("Blue's left tower");
+        let at = n((3500, 12000));
+        let golem = s.scenario_spawn_now(Team::Red, "Golem", at, None).expect("a red Golem");
+        let mut shot = None;
+        for _ in 0..240 {
+            assert!(s.debug_set_pos(golem, at));
+            s.tick();
+            if let Some(q) = s.projectiles().iter().find(|q| q.firer == Some(tid)) {
+                shot = Some(q.damage);
+                break;
+            }
+        }
+        let card = s.cards().index(troop).expect("the troop's record");
+        (shot.expect("the tower never fired"), s.cards().scaled(card, 16, s.cards().get(card).damage).expect("the card ladder at 16"))
+    };
+    for troop in ["DaggerDuchess", "Cannoneer"] {
+        let (got, card_ladder) = damage(troop, L::Client16402CardLadder);
+        assert_eq!(got, card_ladder, "{troop}: its damage on its card ladder at 16");
+        let (old, _) = damage(troop, L::TowerLadder);
+        assert_ne!(old, card_ladder, "{troop}: tower_ladder gives the card ladder's value too (the vacuity check)");
+    }
+    let (chef, chef_card) = damage("ChefTower", L::Client16402CardLadder);
+    let (chef_old, _) = damage("ChefTower", L::TowerLadder);
+    assert_eq!(chef, chef_old, "the Chef's damage stays on the tower ladder");
+    assert_ne!(chef, chef_card, "the scene: the Chef's two ladders part at 16");
+}
