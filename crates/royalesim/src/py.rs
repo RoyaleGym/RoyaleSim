@@ -204,6 +204,20 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // swept rectangle's max-y edge in ARENA coordinates (client 15.535.29), so a Log touching a victim exactly with its
     // front edge misses it rolling +y and hits it rolling -y; rect_vs_circle_edge is the same for both seats.
     "rolling_hit_shape",
+    // THE c4 FLIP'S ASYMMETRIC ARMS (parity r66 shipped the 15.535.29 arms for client 16.402; parity's r68 probe; tests/common
+    // `symmetric_config` says what each does to a seat). No kwarg for any: `calibration_overrides` reaches each.
+    // {"targeting.EQUAL_DISTANCE_TIE": "own_frame_high_x"}: client15535_later_created breaks a tie by creation order.
+    "equal_distance_tie",
+    // {"formation.LINE_FRAME": "rotation"}: client15535_y_reflection reflects a Red line in y.
+    "line_frame",
+    // {"formation.LINE_CENTRE_SEARCH": "ring_corner_walk"}: client15535_interleaved_first_ring searches in arena order.
+    "line_centre_search",
+    // {"placement.RELOCATION_TIE_ORDER": "placer_frame_first_found"}: client15535_interleaved_ring ties in arena order.
+    "relocation_tie_order",
+    // {"placement.TROOP_RELOCATION_TIE_ORDER": "placer_frame_first_found"}: client15535_arena_clockwise, the same.
+    "troop_relocation_tie_order",
+    // {"placement.ENEMY_BUILDING_TAPS": "ignored"}: client15535_tile_box_ring floors a box's corner in arena coordinates.
+    "placement_enemy_building_taps",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 

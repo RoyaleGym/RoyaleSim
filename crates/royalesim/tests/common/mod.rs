@@ -117,6 +117,27 @@ pub fn symmetric_config() -> BattleConfig {
     // one unit as formation.GROUND_DEPLOY_POINT moves a summon's, a seat asymmetry in y and an absolute one in x. none,
     // the old arm, lays it on the landing point for both seats. No kwarg: {"spells.RELEASE_GROUND_POINT": "none"}.
     c.calib.release_ground_point = royalesim::state::ReleaseGroundPoint::None;
+    // THE c4 FLIP'S ASYMMETRIC ARMS (parity r66 shipped the 15.535.29 arms for client 16.402; parity's r68 probe ran each
+    // flipped key alone under the pre-flip symmetric config over every file that calls this). An equal-distance tie
+    // (targeting.EQUAL_DISTANCE_TIE): the shipped client15535_later_created breaks it by creation order, which a mirrored
+    // scene's seats do not share (mirror.rs's equidistant and Zap / Arrows / Barrel scenes); own_frame_high_x keys it in
+    // the attacker's frame.
+    c.calib.equal_distance_tie = royalesim::state::EqualDistanceTie::OwnFrameHighX;
+    // A line formation (formation.LINE_FRAME, formation.LINE_CENTRE_SEARCH): the shipped client15535_y_reflection lays a
+    // Red line as Blue's reflected in y, not rotated, and client15535_interleaved_first_ring searches its centre in the
+    // arena's order (formations.rs's ring rotation, the Royal Hogs); rotation and ring_corner_walk are the same for both
+    // seats.
+    c.calib.line_frame = royalesim::state::LineFrame::Rotation;
+    c.calib.line_centre_search = royalesim::state::LineCentreSearch::RingCornerWalk;
+    // A building or troop tap relocated off a box with two equally near fits (placement.RELOCATION_TIE_ORDER,
+    // placement.TROOP_RELOCATION_TIE_ORDER): the shipped client15535_interleaved_ring and client15535_arena_clockwise take
+    // the tie in the ARENA's order; placer_frame_first_found takes it in the placer's frame, so the seats mirror.
+    c.calib.relocation_tie_order = royalesim::state::RelocationTieOrder::PlacerFrameFirstFound;
+    c.calib.troop_relocation_tie_order = royalesim::state::TroopRelocationTieOrder::PlacerFrameFirstFound;
+    // A tap on a building's box (placement.ENEMY_BUILDING_TAPS): the shipped client15535_tile_box_ring floors every box's
+    // low corner to the tile grid in ARENA coordinates, which moves an off-grid building's box (a hero's turret) one way
+    // for Blue and the other for its rotated twin; ignored centres every box on its building's point.
+    c.calib.placement_enemy_building_taps = royalesim::state::EnemyBuildingTaps::Ignored;
     c.calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
     c
 }
