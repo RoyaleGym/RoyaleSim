@@ -41,7 +41,8 @@
 //! tesla_surface_tick_targetable, tesla_hide_wait_hidetime. hide_kill_tick_uncounted ->
 //! `under_the_shipped_rise_law_losing_its_target_sends_the_tesla_under_six_ticks_later` red;
 //! hide_despite_enemy_in_reach ->
-//! `under_the_shipped_rise_law_an_enemy_in_reach_at_the_waits_end_is_taken_without_going_under` red.
+//! `under_the_shipped_rise_law_an_enemy_in_reach_at_the_waits_end_is_taken_without_going_under` red;
+//! held_tesla_dropped -> `under_client16402_kept_a_giant_keeps_a_tesla_that_goes_under` red.
 
 mod common;
 
@@ -50,7 +51,7 @@ use royalesim::arena::Lane;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind, HideState};
 use royalesim::fixed::{Vec2, SUBTILE};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HideDelayMeaning, RiseLaw, RiseTrigger, TapSnap};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HeldThroughHide, HideDelayMeaning, RiseLaw, RiseTrigger, TapSnap};
 use royalesim::{EntityId, Team};
 
 // ---------------------------------------------------------------------------
@@ -996,4 +997,42 @@ fn under_the_rising_phase_arm_a_knight_targets_a_rising_tesla_before_it_is_up() 
         }
     }
     panic!("the Knight never targeted the Tesla in 400 ticks; the scene measures nothing");
+}
+
+/// A Blue Tesla up on a Red Knight beside it, a Red Giant held 7000 below it (it takes the Tesla, its nearest building,
+/// and is out of the Tesla's wake reach), the Knight killed, under hide.HELD_THROUGH_HIDE = `arm`: per tick after the
+/// kill, (the Tesla under, the Giant's target is the Tesla).
+fn giant_on_a_hiding_tesla(arm: HeldThroughHide) -> Vec<(bool, bool)> {
+    let mut s = bare(with_calib(|c| c.hide_held_through = arm));
+    let at = Vec2::new(9 * SUBTILE, 12 * SUBTILE);
+    let tesla = s.scenario_spawn_now(Team::Blue, "Tesla", at, None).expect("the Tesla");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", Vec2::new(9 * SUBTILE, 14 * SUBTILE), None).expect("the Knight");
+    let giant_at = Vec2::new(9 * SUBTILE, 19 * SUBTILE);
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("the Giant");
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(giant, giant_at));
+        s.tick();
+    }
+    assert_eq!(hide_of(&s, tesla).0, HideState::Up, "precondition: the Tesla is up on the Knight");
+    assert_eq!(s.entity(giant).expect("the Giant").target, Some(tesla), "precondition: the Giant holds the Tesla");
+    assert!(s.debug_set_hp(knight, 0));
+    (0..30)
+        .map(|_| {
+            assert!(s.debug_set_pos(giant, giant_at));
+            s.tick();
+            (hide_of(&s, tesla).0 == HideState::Hidden, s.entity(giant).expect("the Giant").target == Some(tesla))
+        })
+        .collect()
+}
+
+/// hide.HELD_THROUGH_HIDE = client16402_kept (client 16.402, parity's r67 census of the ob6 live set: 16 of 21 holders kept
+/// it, buildings-only walkers 7 of 9): the Giant keeps the Tesla on every tick it is under; under dropped it lets it go
+/// (the vacuity check). Plant: held_tesla_dropped.
+#[test]
+fn under_client16402_kept_a_giant_keeps_a_tesla_that_goes_under() {
+    let kept = giant_on_a_hiding_tesla(HeldThroughHide::Client16402Kept);
+    assert!(kept.iter().any(|r| r.0), "precondition: the Tesla went under: {kept:?}");
+    assert!(kept.iter().filter(|r| r.0).all(|r| r.1), "client16402_kept: the Giant let the Tesla go under ground: {kept:?}");
+    let dropped = giant_on_a_hiding_tesla(HeldThroughHide::Dropped);
+    assert!(dropped.iter().any(|r| r.0 && !r.1), "dropped (the vacuity check): the Giant kept it: {dropped:?}");
 }

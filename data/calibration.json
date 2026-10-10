@@ -4570,6 +4570,16 @@
     }
   },
   "hide": {
+    "HELD_THROUGH_HIDE": {
+      "value": "client16402_kept",
+      "status": "measured",
+      "candidates": ["dropped", "client16402_kept"],
+      "confidence": "HIGH that holders keep it and that no unit acquires one under ground, on client 16.402: parity's r67 census of the ob6 live set (43 playable Tesla fixtures, 21 holders naming the Tesla on its last up frame): 16 of 21 kept it for the whole hidden run (14 until it rose, 2 until it died under ground); buildings-only walkers 7 of 9 (Rune Giants 10, 14, 19 and 19 ticks, a Minion Giant, a Hog Rider), melee 2 of 2, projectile attackers 8 of 11 (the 2 that let go were outside their attack reach: a Witch at 6892 against 6500, a Firecracker at 7223). Never acquired under ground: 4 of 1,505 frames (2 hero Musketeers, a Hog on a fresh Tesla, a one-frame Minion Giant). LOW on when a walker's hold ends (a Rune Giant and a Minion Giant switched to their princess tower after 16 and 20 hidden ticks, unexplained). Client 15.535.29 keeps dropped (CLIENT15535_ARMS).",
+      "provenance": "MEASURED by parity (2026-10-10, r67 Tesla census of the ob6 live set, the truth alone; the engine's hide timing matches the truth's state 0): liveplay-20261007-124948-A Rune Giant 79 on Tesla 66, under at t2838 7265 away, kept through t2847 and at its rise t2848, where the engine drops it for princess tower 2 at t2838 (its error to about 700); 20261008-153824-A Rune Giant 53 on an Evo Tesla, 19 ticks under, kept throughout; 20261007-005625-A Rune Giant 62 kept t2716-2731, then the tower at t2732.",
+      "meaning": "dropped: a held Tesla is let go when it goes under. client16402_kept: kept through the hide by a walker always, by a projectile attacker within its keep reach; never acquired under ground.",
+      "open": "When a walker's hold ends (2 unexplained switches after 16 and 20 ticks); arriving at a Tesla still under (none did: it rose first); whether a ranged holder's shots land on it under ground.",
+      "engine": "target.rs can_target (`keeping`), decide (`held_through_hide`), selected by Calib::hide_held_through; tests/hide.rs."
+    },
     "$comment": [
       "Buildings that hide when not attacking (buildings.csv HidesWhenNotAttacking / HideTimeMs /",
       "UpTimeMs; Tesla true / 800 / 800 in both the 2018 data and 15.535). The timers are card data",

@@ -817,6 +817,10 @@ pub struct Calib {
     /// `CentrePlusRadius`, what a battle saved before it ran.
     #[serde(default = "dash_trigger_building_default")]
     pub dash_trigger_building: DashTriggerBuilding,
+    /// hide.HELD_THROUGH_HIDE (whether a unit keeps its current target when that hiding building goes under, target.rs `decide`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Dropped`, what a battle saved before it ran.
+    #[serde(default = "hide_held_through_default")]
+    pub hide_held_through: HeldThroughHide,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2595,6 +2599,10 @@ fn dash_chain_targets_default() -> DashChainTargets {
 
 fn dash_trigger_building_default() -> DashTriggerBuilding {
     DashTriggerBuilding::CentrePlusRadius
+}
+
+fn hide_held_through_default() -> HeldThroughHide {
+    HeldThroughHide::Dropped
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9469,6 +9477,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// hide.HELD_THROUGH_HIDE -- see target.rs `can_target` and `decide`: what a unit holding a hiding building (the
+    /// Tesla) does when it goes under.
+    HeldThroughHide {
+        /// The engine before this key: a building under ground is nobody's target, a kept one included; the holder rescans.
+        Dropped = "dropped",
+        /// The holder keeps it through its hide and its rise: a melee or buildings-only walker always, a projectile
+        /// attacker while it stays within its keep reach; a scan never takes a building that is under. Client 16.402
+        /// (parity's r67 census of the ob6 live set: 16 of 21 holders kept it for the whole hidden run, 14 to its rise;
+        /// a walking enemy with it in sight and no nearer target named it on 4 of 1,505 frames).
+        Client16402Kept = "client16402_kept",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9986,6 +10007,7 @@ impl Calib {
             guard_push_attack_reset: pick(&v, &["knockback", "GUARD_PUSH_ATTACK_RESET", "value"], GuardPushAttackReset::from_calibration_name)?,
             dash_chain_targets: pick(&v, &["combat", "DASH_CHAIN_TARGETS", "value"], DashChainTargets::from_calibration_name)?,
             dash_trigger_building: pick(&v, &["combat", "DASH_TRIGGER_BUILDING", "value"], DashTriggerBuilding::from_calibration_name)?,
+            hide_held_through: pick(&v, &["hide", "HELD_THROUGH_HIDE", "value"], HeldThroughHide::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -35875,6 +35897,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_TRIGGER_BUILDING: Calib gained dash_trigger_building (serde default the old arm, centre_plus_radius), no new state (it reads the saved positions and radii),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, hide.HELD_THROUGH_HIDE: Calib gained hide_held_through (serde default the old arm, dropped), no new state (it reads the saved hide states and targets),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36826,6 +36850,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_chain_targets".into(), serde_json::to_value(DashChainTargets::Troops).map_err(|e| e.to_string())?);
     // combat.DASH_TRIGGER_BUILDING: a format-3 battle's chain triggered on every kind's circle (the same rule).
     sh.insert("dash_trigger_building".into(), serde_json::to_value(DashTriggerBuilding::CentrePlusRadius).map_err(|e| e.to_string())?);
+    // hide.HELD_THROUGH_HIDE: a format-3 battle dropped a held Tesla when it went under (the same rule).
+    sh.insert("hide_held_through".into(), serde_json::to_value(HeldThroughHide::Dropped).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

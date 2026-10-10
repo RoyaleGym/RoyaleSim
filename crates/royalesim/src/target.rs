@@ -382,6 +382,17 @@ pub fn hide_acts(calib: &Calib, e: &Entities, i: usize) -> bool {
     }
 }
 
+/// hide.HELD_THROUGH_HIDE = client16402_kept in force.
+#[inline]
+pub fn held_through_hide(calib: &Calib) -> bool {
+    // PLANT (regression) held_tesla_dropped: the new arm still drops a held Tesla when it goes under.
+    #[cfg(not(clash_plant = "held_tesla_dropped"))]
+    let on = calib.hide_held_through == crate::state::HeldThroughHide::Client16402Kept;
+    #[cfg(clash_plant = "held_tesla_dropped")]
+    let on = false;
+    on
+}
+
 /// Can attacker `a` ever target `c` (ignoring distance)? `keeping` is true when `c` is `a`'s current
 /// target being kept (`decide`), false when `c` is a candidate of a scan or a wake test.
 #[inline]
@@ -390,8 +401,10 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     if !e.alive[c] || e.team[c] == e.team[a] || e.hp[c] <= 0 {
         return false;
     }
+    // hide.HELD_THROUGH_HIDE = client16402_kept: a kept target that goes under stays one (`decide` says who keeps it); a
+    // scan's candidate under ground never is.
     #[cfg(not(clash_plant = "hidden_targetable"))]
-    if hidden_from_targeting(ctx.calib, e, c) {
+    if hidden_from_targeting(ctx.calib, e, c) && !(keeping && held_through_hide(ctx.calib)) {
         return false;
     }
     // targeting.INVISIBILITY = client_until_hit: an invisible unit (the Royal Ghost) is nobody's target, a kept one
@@ -1196,6 +1209,16 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
         let too_close = targetable && inside_minimum_range(ctx, a, t.index as usize);
         if targetable && !too_close {
             let ti = t.index as usize;
+            // hide.HELD_THROUGH_HIDE = client16402_kept: a current target under ground is kept by a melee or buildings-only
+            // walker, and by a projectile attacker within its keep reach; a projectile attacker past it lets it go (the
+            // rescan below finds no building under ground).
+            if held_through_hide(ctx.calib) && hidden_from_targeting(ctx.calib, e, ti) {
+                let keep = card.range + ctx.calib.range_extension_to_keep_target;
+                if card.projectile.is_none() || in_attack_range(ctx.calib, e.pos[a], keep, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
+                    return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
+                }
+                return TargetDecision { target: scan(ctx, a, scratch), cancel_attack: cancel, resumed: false, chase_dropped: None };
+            }
             #[cfg(not(clash_plant = "no_target_lock"))]
             let locked = e.target_locked[a];
             #[cfg(clash_plant = "no_target_lock")]

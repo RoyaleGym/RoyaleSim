@@ -1832,6 +1832,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   formation.STAGGER_WAIT = client16402_untargetable_immovable: a waiting member takes hits (unread there).
 ///   combat.DASH_CHAIN_TARGETS = troops: the Golden Knight's later hops take troops alone (its battery's targets).
 ///   combat.DASH_TRIGGER_BUILDING = centre_plus_radius: his first dash reads every kind's circle (buildings unread).
+///   hide.HELD_THROUGH_HIDE = dropped: a held Tesla is let go when it goes under (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1985,6 +1986,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("formation.STAGGER_WAIT", "\"client16402_untargetable_immovable\""),
     ("combat.DASH_CHAIN_TARGETS", "\"troops\""),
     ("combat.DASH_TRIGGER_BUILDING", "\"centre_plus_radius\""),
+    ("hide.HELD_THROUGH_HIDE", "\"dropped\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
