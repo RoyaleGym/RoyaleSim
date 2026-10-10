@@ -16743,8 +16743,9 @@ impl BattleState {
                     if !self.spins.is_empty() {
                         self.spin_seek();
                     }
-                    // The Hero Mega Minion's warps' steps for this tick's move pass (`warp_pass`).
-                    if !self.warps.runs.is_empty() {
+                    // The Hero Mega Minion's warps' steps for this tick's move pass (`warp_pass`), a hero waiting to warp back
+                    // (`WarpBack`, combat.WARP_LAW = client16402_brake_and_return) included.
+                    if !self.warps.runs.is_empty() || !self.warps.backs.is_empty() {
                         self.warp_pass();
                     }
                     // An Evo Cannon bomb due this tick lands before anything moves (`land_barrage_early`).

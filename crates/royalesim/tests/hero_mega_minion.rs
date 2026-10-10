@@ -268,7 +268,8 @@ fn on_the_160402017_table_it_warps_back_the_tick_after_its_target_dies() {
     assert!(g > a, "the Skeleton gone after the arrival: {a}, {g}");
     assert!((steps[g + 1] - 400).abs() <= 3, "the first step back, 400, on the tick after its first frame gone ({g}): {steps:?}");
     assert!(steps[g] < 100, "no step back on the first frame gone: {steps:?}");
-    let home = n(AT.0, AT.1);
+    // its press point: where it stood when pressed (the first frames, before its first step out)
+    let home = points[0];
     assert!(points[g + 1..].iter().any(|p| *p == home), "back on its press point {home:?}: {points:?}");
 }
 

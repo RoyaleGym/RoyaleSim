@@ -483,15 +483,29 @@ fn charge_end_at(arm: GuardChargeStep, at: (i32, i32)) -> (i32, i32) {
         s.tick();
     }
     s.press_ability_button(Team::Blue, 0).expect("the press");
-    let mut end = None;
+    let mut pts: Vec<(i32, i32)> = Vec::new();
     for _ in 0..60 {
         assert!(s.debug_set_pos(lp, n(at)));
         s.tick();
         if let Some(e) = find_live(&s, Team::Blue, "ChampionGuard").first() {
-            end = Some((e.pos.x / K, e.pos.y / K));
+            pts.push((e.pos.x / K, e.pos.y / K));
         }
     }
-    end.expect("a guard")
+    // the charge's end: the point after its last charge step (pieces of 250 and 150, over 150 a tick), before the guard
+    // walks on at its own speed
+    let mut end = *pts.first().expect("a guard");
+    let mut charging = false;
+    for w in pts.windows(2) {
+        let (dx, dy) = ((w[1].0 - w[0].0) as i64, (w[1].1 - w[0].1) as i64);
+        let big = dx * dx + dy * dy > 150 * 150;
+        if big {
+            charging = true;
+            end = w[1];
+        } else if charging {
+            break;
+        }
+    }
+    end
 }
 
 /// combat.GUARD_CHARGE_STEP = client16402_cell_aim (client 16.402, parity's r63 census: the truth's path cell 697 of 697, the
