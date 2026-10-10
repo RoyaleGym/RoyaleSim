@@ -16,6 +16,7 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_wizard`):
 //!   - lift_never -> `a_ground_only_attacker_drops_it_on_the_trigger` red;
+//!   - lift_timing_unread -> `under_client_next_tick_late_descent_the_knight_keeps_it_through_p_plus_4` red;
 //!   - instant_hit_dropped -> `its_first_shot_after_the_cast_hits_on_p_plus_25` red;
 //!   - ally_push_kept -> `the_unit_its_shot_strikes_is_not_pushed_by_its_own_side` red.
 #![allow(unexpected_cfgs)]
@@ -24,7 +25,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, LiftTiming};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -34,8 +35,16 @@ fn n(x: i32, y: i32) -> Vec2 {
 const DECK: [&str; 8] = ["Wizard", "Knight", "Archer", "Giant", "Musketeer", "HogRider", "Fireball", "Zap"];
 const WIZARD: (i32, i32) = (9500, 11500);
 
+thread_local! {
+    /// `under_client_next_tick_late_descent_...`'s arm for `battle` (None: the shipped one).
+    static LIFT_ARM: std::cell::Cell<Option<LiftTiming>> = const { std::cell::Cell::new(None) };
+}
+
 fn battle() -> BattleState {
     let mut cfg: BattleConfig = config();
+    if let Some(a) = LIFT_ARM.with(|a| a.get()) {
+        cfg.calib.lift_timing = a;
+    }
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
@@ -202,4 +211,21 @@ fn the_unit_its_shot_strikes_is_not_pushed_by_its_own_side() {
     let (alone, beside) = (run(false), run(true));
     assert_ne!(alone[at(27)], alone[at(34)], "the Knight is pulled");
     assert_eq!(alone[at(27)..at(35)], beside[at(27)..at(35)], "its own side does not push it while the buff lasts");
+}
+
+/// status.LIFT_TIMING = client_next_tick_late_descent (client 16.402 and 15.535.29: ground-only attackers let the lifted
+/// hero go on P + 5, 7 of 7): `a_ground_only_attacker_drops_it_on_the_trigger`'s Knight keeps the Wizard through P + 4 and
+/// lets it go on P + 5; under engine_reading (the vacuity check) on P + 4. Plant: lift_timing_unread.
+#[test]
+fn under_client_next_tick_late_descent_the_knight_keeps_it_through_p_plus_4() {
+    let keeps = |arm: LiftTiming| -> Vec<bool> {
+        LIFT_ARM.with(|a| a.set(Some(arm)));
+        let (hero, _, f) = scene(WIZARD, &[("Knight", (9500, 12800))], 8, None, true);
+        LIFT_ARM.with(|a| a.set(None));
+        (0..8).map(|d| f[at(d)].reds[0].unwrap().2 == Some(hero)).collect()
+    };
+    let new = keeps(LiftTiming::ClientNextTickLateDescent);
+    assert!(new[..5].iter().all(|k| *k) && !new[5], "client_next_tick_late_descent: kept through P + 4, let go on P + 5: {new:?}");
+    let old = keeps(LiftTiming::EngineReading);
+    assert!(!old[4], "engine_reading: kept on P + 4: {old:?}");
 }

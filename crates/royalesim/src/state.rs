@@ -777,6 +777,10 @@ pub struct Calib {
     /// `Client15535Fuse`, what a battle saved before it ran.
     #[serde(default = "evo_barrel_drop_tick_default")]
     pub evo_barrel_drop_tick: EvoBarrelDropTick,
+    /// status.LIFT_TIMING (the Hero Wizard's lift: its onset in the air and its descent, `lift_pass`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `EngineReading`, what a battle saved before it ran.
+    #[serde(default = "lift_timing_default")]
+    pub lift_timing: LiftTiming,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2515,6 +2519,10 @@ fn attached_area_timing_default() -> AttachedAreaTiming {
 
 fn evo_barrel_drop_tick_default() -> EvoBarrelDropTick {
     EvoBarrelDropTick::Client15535Fuse
+}
+
+fn lift_timing_default() -> LiftTiming {
+    LiftTiming::EngineReading
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9182,6 +9190,23 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.LIFT_TIMING -- see `fire_ability` (`AbilityEffect::GroundToAir`), `lift_pass` and `lift_descending`: when
+    /// the Hero Wizard's lift puts him in the air and when its descent and its attack hold run.
+    LiftTiming {
+        /// The engine before this key: in the air on the trigger T itself (a ground-only attacker drops him in that tick's
+        /// Target phase); his own row again and his attack held from T + (total - transition), the lift's end T + total.
+        EngineReading = "engine_reading",
+        /// In the air from T + 1; his descent from T + total / tick - 1: his own row again, his attack reset and held to
+        /// T + (total + transition) / tick - 2, its fresh cycle from the tick after; out of the air on T + total / tick as
+        /// before. Measured (parity's r63 census, 47 Hero Wizard presses in the ob3 live set and the 160402017 scenes):
+        /// ground-only attackers let him go on T + 1, 7 of 7 (P + 5 by the fixture's press frame P); the descent's step and
+        /// attack reset on T + 69, the hold to T + 72, the next swing's cycle from T + 73, 22 of 24 (TotalTime 3500,
+        /// TransitionTime 200); taken back by ground attackers on T + 70, 2 of 2. Client 15.535.29's scene: let go on T + 1
+        /// too (sp-form-Wizard-hero-s0 t220).
+        ClientNextTickLateDescent = "client_next_tick_late_descent",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9689,6 +9714,7 @@ impl Calib {
             warp_law: pick(&v, &["combat", "WARP_LAW", "value"], WarpLaw::from_calibration_name)?,
             attached_area_timing: pick(&v, &["spells", "ATTACHED_AREA_TIMING", "value"], AttachedAreaTiming::from_calibration_name)?,
             evo_barrel_drop_tick: pick(&v, &["spawner", "EVO_BARREL_DROP_TICK", "value"], EvoBarrelDropTick::from_calibration_name)?,
+            lift_timing: pick(&v, &["status", "LIFT_TIMING", "value"], LiftTiming::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -21430,12 +21456,27 @@ impl BattleState {
         self.quests = keep;
     }
 
-    /// Is lift `l` in its descent (`AbilityEffect::GroundToAir`: its last `transition_ms`)?
+    /// status.LIFT_TIMING = client_next_tick_late_descent in force.
+    fn lift_late(&self) -> bool {
+        // PLANT (regression) lift_timing_unread: the new arm still lifts on the trigger and descends early.
+        #[cfg(not(clash_plant = "lift_timing_unread"))]
+        let late = self.cfg.calib.lift_timing == LiftTiming::ClientNextTickLateDescent;
+        #[cfg(clash_plant = "lift_timing_unread")]
+        let late = false;
+        late
+    }
+
+    /// Is lift `l` in its descent (`AbilityEffect::GroundToAir`: its last `transition_ms`)? Under status.LIFT_TIMING =
+    /// client_next_tick_late_descent from the lift's last tick (T + total / tick - 1) to T + (total + transition) / tick - 2.
     fn lift_descending(&self, l: &LiftRun) -> bool {
         let Some(crate::card::AbilityEffect::GroundToAir { transition_ms, total_ms, .. }) = self.cfg.cards.get(l.ground).ability.as_ref().map(|a| &a.effect) else {
             return false;
         };
         let tick = self.cfg.calib.tick_ms.max(1);
+        if self.lift_late() {
+            let (from, to) = (l.fired + (*total_ms / tick) as u32 - 1, l.fired + ((total_ms + transition_ms) / tick) as u32 - 1);
+            return self.tick >= from && self.tick < to;
+        }
         self.tick >= l.fired + ((total_ms - transition_ms) / tick) as u32
     }
 
@@ -21457,6 +21498,32 @@ impl BattleState {
                 continue;
             };
             let at = |ms: i32| l.fired + (ms / tick) as u32;
+            // status.LIFT_TIMING = client_next_tick_late_descent: in the air from the trigger + 1; the descent from the lift's
+            // last tick (his own row, his attack reset: the hold, `lift_descending`, runs TransitionTime on), out of the air on
+            // its end as before, the run kept to the hold's end. Client 16.402: let go on T + 1 (7 of 7), the descent on
+            // T + 69 and the next cycle from T + 73 (22 of 24).
+            if self.lift_late() {
+                if self.tick == l.fired + 1 {
+                    self.ents.flying[i] = true;
+                }
+                if self.tick == at(transition_ms) {
+                    self.rebind_unit(i, air_unit, false);
+                }
+                if self.tick + 1 == at(total_ms) {
+                    self.rebind_unit(i, l.ground, false);
+                    self.ents.flying[i] = true;
+                    self.ents.attack_phase[i] = AttackPhase::Idle;
+                    self.ents.attack_ms[i] = 0;
+                }
+                if self.tick == at(total_ms) {
+                    self.ents.flying[i] = self.cfg.cards.get(self.ents.card[i]).is_flying();
+                }
+                if self.tick + 1 >= at(total_ms + transition_ms) {
+                    continue;
+                }
+                keep.push(l);
+                continue;
+            }
             if self.tick == at(transition_ms) {
                 self.rebind_unit(i, air_unit, false);
             }
@@ -31386,7 +31453,10 @@ impl BattleState {
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
                 #[cfg(not(clash_plant = "lift_never"))]
                 {
-                    self.ents.flying[i] = true;
+                    // status.LIFT_TIMING = client_next_tick_late_descent: in the air from the next tick (`lift_pass`).
+                    if !self.lift_late() {
+                        self.ents.flying[i] = true;
+                    }
                     self.lifts.retain(|l| l.id != hero);
                     self.lifts.push(LiftRun { id: hero, fired: self.tick, ground: card });
                 }
@@ -35186,6 +35256,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.EVO_BARREL_DROP_TICK: Calib gained evo_barrel_drop_tick (serde default the old arm, client15535_fuse), no new state (it sets a new drop's saved delay),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.LIFT_TIMING: Calib gained lift_timing (serde default the old arm, engine_reading), no new state (it reads the saved lift's trigger tick),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36117,6 +36189,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("attached_area_timing".into(), serde_json::to_value(AttachedAreaTiming::FirstMsOffset).map_err(|e| e.to_string())?);
     // spawner.EVO_BARREL_DROP_TICK: a format-3 battle's evo barrel drops landed on the fuse (the same rule).
     sh.insert("evo_barrel_drop_tick".into(), serde_json::to_value(EvoBarrelDropTick::Client15535Fuse).map_err(|e| e.to_string())?);
+    // status.LIFT_TIMING: a format-3 battle's lift ran the engine's reading (the same rule).
+    sh.insert("lift_timing".into(), serde_json::to_value(LiftTiming::EngineReading).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

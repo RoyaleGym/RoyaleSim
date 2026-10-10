@@ -4108,6 +4108,16 @@
     }
   },
   "status": {
+    "LIFT_TIMING": {
+      "value": "client_next_tick_late_descent",
+      "status": "measured",
+      "candidates": ["engine_reading", "client_next_tick_late_descent"],
+      "confidence": "HIGH for client_next_tick_late_descent on client 16.402: the onset 7 of 7 (both clients' scenes and the live set: a Knight, two Cannons, a Miner, a Barbarian Barrel's Barbarian, two Little Princes), the descent 22 of 24 (19 exact, 2 with the frame before the press missing, 1 a gap of 2; 2 unexplained at (74, 78) and (73, 78)). The descent's own step (one walk step at the buffed speed, about 89) is left to the unit's walk.",
+      "provenance": "MEASURED by parity (2026-10-09, r63 lift census, lift_census.py / land_census.py over the ob3 live set and the 160402017 scenes). P the fixture's first frame of state 10 (the press's first frame), the trigger T = P + 4. Onset: sp-form-Wizard-hero-s0 on both clients, the red Knight let him go on t220 = P + 5, the engine on t219; 6 more live attackers on P + 5. Descent: state 1 on P + 73 with the attack progress reset to 0 and one step of 88.7 to 89.8 (speed 60 x the buff's 150 %), held P + 73 .. P + 76, attacking again on P + 77 in a fresh cycle (progress 950, load 900); ground attackers took him back on P + 74. The engine held his progress at 3900 from P + 70 (`at(total - transition)`), never reset it and resumed on P + 74.",
+      "meaning": "engine_reading: the engine's; in the air from the trigger, descending from TotalTime - TransitionTime. client_next_tick_late_descent: in the air from the trigger + 1, descending (own row, attack reset and held) from the lift's last tick, the hold TransitionTime long.",
+      "open": "The descent's own step; the Little Prince letting a lifted hero go (2 of 2) though he attacks air; the lift's tornado pull a tick longer (11 against 10).",
+      "engine": "state.rs fire_ability (`AbilityEffect::GroundToAir`), lift_pass, lift_descending, selected by Calib::lift_timing; tests/hero_wizard.rs."
+    },
     "DEFLECT_BUFF_LANDING": {
       "value": "client_after_hits_tick_short",
       "status": "measured",
