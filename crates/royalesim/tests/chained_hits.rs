@@ -107,9 +107,10 @@ fn an_electro_spirit_hits_nine_along_a_line_of_skeletons() {
     assert!(last.contains(&Some(0)), "one untouched (9 targets): {last:?}");
 }
 
-/// A blue Electro Dragon (3 targets) at (6500, 14500) and four red Knights on a row 2000 apart from (6500, 18000), held
-/// and topped up, but the second is killed on the tick after the first is hit, while the shot's hop to it waits on the
-/// first (CHAIN_HOP_WAIT_TICKS). Under combat.CHAIN_HOP_DEAD_TARGET = `arm`: the frames (counted from the first hit) on
+/// A blue Electro Dragon (3 targets) at (6500, 14500) and four red Knights on a row from (6500, 18000), the second 2000 on,
+/// the third 1800 past it and the fourth 2000 past that (a hop from the dead Knight's frozen point to the walking third is
+/// one 2000 step), held and topped up, but the second is killed on the tick after the first is hit, while the shot's hop
+/// to it waits on the first (CHAIN_HOP_WAIT_TICKS). Under combat.CHAIN_HOP_DEAD_TARGET = `arm`: the frames (counted from the first hit) on
 /// which the first, third and fourth Knight lost hp, in the 40 ticks after the first hit.
 fn dead_hop_scene(arm: ChainHopDeadTarget) -> [Vec<usize>; 3] {
     let mut cfg: BattleConfig = config();
@@ -121,7 +122,7 @@ fn dead_hop_scene(arm: ChainHopDeadTarget) -> [Vec<usize>; 3] {
     past_deploy_lockout(&mut s);
     let at = n(6500, 14500);
     let dragon = s.scenario_spawn_now(Team::Blue, "ElectroDragon", at, None).expect("the dragon");
-    let knights: Vec<(EntityId, Vec2, i32)> = [(6500, 18000), (8500, 18000), (10500, 18000), (12500, 18000)]
+    let knights: Vec<(EntityId, Vec2, i32)> = [(6500, 18000), (8500, 18000), (10300, 18000), (12300, 18000)]
         .iter()
         .map(|p| {
             let id = s.scenario_spawn_now(Team::Red, "Knight", n(p.0, p.1), None).expect("a Knight");
@@ -162,7 +163,7 @@ fn dead_hop_scene(arm: ChainHopDeadTarget) -> [Vec<usize>; 3] {
 #[test]
 fn under_client16402_hops_on_a_hop_whose_target_died_goes_on_from_its_point() {
     // The hop to the second Knight lands on its point 3 + 1 ticks after the first hit; from there it goes on to the third
-    // (2000 on) 3 + 1 ticks later, frame 8. The dead Knight counts as the chain's second hit, so the third is its last:
+    // (1800 on) 3 + 1 ticks later, frame 8. The dead Knight counts as the chain's second hit, so the third is its last:
     // the fourth is never hit.
     let [_, third, fourth] = dead_hop_scene(ChainHopDeadTarget::Client16402HopsOnFromLastPoint);
     assert_eq!(third, [8], "the third Knight hit once, 8 ticks after the first: {third:?}");

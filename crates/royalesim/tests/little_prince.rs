@@ -688,13 +688,13 @@ fn under_client16402_reset_his_guards_push_resets_the_pushed_swing() {
     assert!(now.0 != AttackPhase::Idle && now.1 > 0, "frozen (the vacuity check): the swing stands on the push's frame: {now:?} (before {was:?})");
 }
 
-/// The guard charging with a red Knight held 6000 right of the Little Prince and 3000 ahead (out of the guard's reach all
+/// The guard charging with a red Knight held 8000 left of the Little Prince and 3000 ahead (out of the guard's reach all
 /// through its charge), Blue's princess towers down, under combat.GUARD_LANDING_HITS = `arm`. With `enter` = Some(k) the
 /// Knight is put 1500 ahead of the guard's end point on the guard's arrival + k (its last step's tick, `a`) and held
 /// there. Returns `a`, the guard's end point and the ticks after `a`, through `a` + 8, on which the Knight lost the
 /// guard's hit (256 or more: the push damage, 256 at level 11, or it and one of his shots).
 fn landing_scene(arm: GuardLandingHits, enter: Option<(u32, Vec2)>) -> (u32, Vec2, Vec<u32>) {
-    let far = (AT.0 + 6000, AT.1 + 3000);
+    let far = (AT.0 - 8000, AT.1 + 3000);
     let (mut s, lp, reds) = scene_cfg(|c| c.calib.guard_landing_hits = arm, &[("Knight", far)]);
     let knight = reds[0].0;
     let towers: Vec<EntityId> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
