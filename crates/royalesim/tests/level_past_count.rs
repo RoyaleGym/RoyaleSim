@@ -50,6 +50,7 @@ fn a_deck_at_seventeen_builds_and_its_unit_stands_at_its_hitpoints() {
     cfg.deck_levels = [vec![17], vec![16]];
     let mut s = BattleState::try_new(1, cfg).expect("a level-17 deck builds");
     s.spawn_unit(Team::Blue, "Knight", common::t(850, 1050), Some(17)).expect("a level-17 Knight goes down");
+    s.tick(); // a play's units exist from the next tick
     let knight = common::find_live(&s, Team::Blue, "Knight");
     let base = s.cards().get(s.cards().index("Knight").unwrap()).hitpoints;
     assert_eq!(knight.first().map(|k| k.max_hp), Some(base * 450 / 100), "the Knight at 17");

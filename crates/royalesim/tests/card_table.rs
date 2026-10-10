@@ -95,6 +95,8 @@ fn the_install_arm_loads_the_table_from_before_the_update() {
     let radius = |db: &CardDb| db.get(db.index("Skeletons").expect("Skeletons load")).formation.summon_radius;
     let updated = CardDb::load_table(CardTable::Client160402017).expect("the updated table");
     assert_eq!((radius(&db), radius(&updated)), (milli(700), milli(400)), "the update's Skeletons ring");
-    let names = |db: &CardDb| db.cards.iter().map(|c| c.name.clone()).collect::<Vec<_>>();
-    assert_eq!(names(&db), names(&updated), "the update changes values, not the roster");
+    // the catalogue, the records ahead of the towers (the units after them differ: the update's BarrelGoblin)
+    let names = |db: &CardDb| db.cards.iter().take_while(|c| c.name != "PrincessTower").map(|c| c.name.clone()).collect::<Vec<_>>();
+    assert!(names(&db).len() > 100, "the catalogue: {}", names(&db).len());
+    assert_eq!(names(&db), names(&updated), "the update changes values, not the catalogue");
 }

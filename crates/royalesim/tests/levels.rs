@@ -159,12 +159,14 @@ fn the_loader_takes_its_rarities_from_the_file_and_refuses_an_unknown_reading() 
         assert_eq!(row.relative_level as i64, r["relative_level"].as_i64().unwrap(), "{name}");
         assert_eq!(row.multipliers.len() + 1, r["multiplier_percent_by_level"].as_array().unwrap().len(), "{name}");
     }
-    // A card at the top of its rarity's range loads a multiplier; one past it is refused.
+    // A card at the top of its rarity's range loads a multiplier, and one level past it (card.rs `LEVELS_PAST_COUNT`, the
+    // live max-level 17); two past is refused.
     let hog = db.index("HogRider").unwrap();
     let rare = db.rarity(&db.get(hog).rarity).unwrap();
     let top = rare.relative_level + rare.level_count;
     assert!(db.level_multiplier(hog, top).is_ok(), "HogRider at {top}");
-    assert!(db.level_multiplier(hog, top + 1).is_err());
+    assert!(db.level_multiplier(hog, top + 1).is_ok(), "HogRider one past the count");
+    assert!(db.level_multiplier(hog, top + 2).is_err());
     assert!(db.level_multiplier(hog, rare.relative_level).is_err(), "below the card's range");
     // A Champion card is a card of the file's table (rejected for its mechanic, never
     // for its rarity): none is rejected with "rarity ... not in".

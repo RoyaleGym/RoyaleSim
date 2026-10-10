@@ -1753,7 +1753,7 @@ def test_a_spells_level_is_one_its_card_can_be_played_at(m):
     log = cards["Log"]
     assert m.playable_levels(doc, log) == range(9, 18), "9 to 16, and one past the count (the live 17)"
     assert m.playable_levels(doc, cards["Fireball"]) == range(3, 18)
-    ladder = doc["rarities"][log["level_scaling"]["rarity"]]
+    ladder = doc["rarities"][log["level_scaling"].get("ladder_rarity") or log["level_scaling"]["rarity"]]
     assert m.spell_damage_at(doc, log, 17) == log["damage"] * ladder["unused_tail"][0] // 100, "17 on its ladder's next"
     assert m.spell_damage_at(doc, log, 18) is None
     at8, at11 = m.spell_damage_at(doc, log, 8), m.spell_damage_at(doc, log, 11)

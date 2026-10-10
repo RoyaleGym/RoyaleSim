@@ -1892,7 +1892,8 @@ def spell_damage_at(doc: dict, card: dict, level: int) -> int | None:
         return None
     first = ls.get("base_level", doc["rarities"][ls["rarity"]]["relative_level"] + 1)
     # the ladder continued one level past its count (card.rs LEVELS_PAST_COUNT: the rarity's unused_tail)
-    table = ls["multiplier_percent_by_level"] + doc["rarities"][ls["rarity"]].get("unused_tail", [])[:LEVELS_PAST_COUNT]
+    ladder = doc["rarities"][ls.get("ladder_rarity") or ls["rarity"]]
+    table = ls["multiplier_percent_by_level"] + ladder.get("unused_tail", [])[:LEVELS_PAST_COUNT]
     step = level - first
     return base * table[step] // 100 if 0 <= step < len(table) else None
 

@@ -2930,8 +2930,10 @@ pub struct CardDef {
     /// SCALING). None: the card's own rarity's local level 1 (RelativeLevel + 1),
     /// the 2018 convention.
     pub level_base: Option<i32>,
-    /// cards.json `level_scaling.rarity`: the rarity whose ladder `level_table` is, whose `tail` continues it one level
-    /// past the table (`LEVELS_PAST_COUNT`). None: no table (the card's own rarity's ladder, continued by its tail).
+    /// cards.json `level_scaling.ladder_rarity` (else `.rarity`): the rarity whose ladder `level_table` is, whose `tail`
+    /// continues it one level past the table (`LEVELS_PAST_COUNT`): Common for every card of the 15.535 and 160402017
+    /// tables, whose stats ride their object's Common ladder whatever the card's rarity (a P.E.K.K.A at 17 is 1469 x 450 %
+    /// = 6610, not its Epic tail's 281 %). None: no table (the card's own rarity's ladder, continued by its tail).
     pub level_rarity: Option<String>,
     /// THE SUMMON LAYOUT AND STAGGER INPUTS: the spells_characters Summon* columns
     /// and the unit's SpawnRadius / SpawnAngleShift, read by state.rs
@@ -6868,8 +6870,11 @@ struct RawLevelScaling {
     multiplier_percent_by_level: Option<Vec<i32>>,
     base_level: Option<i32>,
     reading: Option<String>,
-    /// The rarity whose ladder `multiplier_percent_by_level` is (its tail continues it: `LEVELS_PAST_COUNT`).
+    /// The CARD's rarity, and the rarity whose ladder `multiplier_percent_by_level` is (its tail continues it:
+    /// `LEVELS_PAST_COUNT`): `ladder_rarity` where the file names one (an Epic card's stats on the Common ladder from its
+    /// object's local 1), else the card's.
     rarity: Option<String>,
+    ladder_rarity: Option<String>,
 }
 
 /// The calibration.json combat.STAT_BASE_LEVEL candidates this loader implements
@@ -9147,7 +9152,7 @@ fn level_table_of(v: Option<serde_json::Value>) -> Result<(Option<Vec<i32>>, Opt
             return Err("level_scaling: an empty ladder".into());
         }
     }
-    Ok((ls.multiplier_percent_by_level, base, ls.rarity))
+    Ok((ls.multiplier_percent_by_level, base, ls.ladder_rarity.or(ls.rarity)))
 }
 
 /// (card, display name, the units it needs loaded: which mechanic, unit name).
@@ -15252,7 +15257,10 @@ mod tests {
             (3..=10).map(|lvl| db.scaled(i, lvl, 800).unwrap()).collect();
         assert_eq!(got, vec![800, 880, 968, 1064, 1168, 1280, 1408, 1544]);
         assert!(db.level_multiplier(i, 2).is_err(), "rares do not exist below unified level 3");
-        assert!(db.level_multiplier(i, 14).is_err());
+        // one level past the count (11 rare levels: 3 to 13) is played on the column's next entry (`LEVELS_PAST_COUNT`);
+        // two past is refused
+        assert!(db.level_multiplier(i, 14).is_ok());
+        assert!(db.level_multiplier(i, 15).is_err());
     }
 
     #[test]
