@@ -3227,6 +3227,10 @@ pub struct CardDef {
     /// THE ENCHANT (the Rune Giant; `EnchantDef`, state.rs `enchant_pass`, combat.rs `enchant_bonus`). None on every
     /// other card.
     pub enchant: Option<EnchantDef>,
+    /// THE ENCHANT'S HOLD ON ITS RUNE GIANT (cards.json `enchant_friends.on_buff_hold`, the 16.402 rows' ActionWithDuration:
+    /// NO_ATTACK and a conditional NO_MOVE): read under enchant.ON_BUFF_PAUSE = client16402_conditional_no_move (state.rs
+    /// `enchant_pass`). False on every card whose block carries none (every 15.535.29 row).
+    pub enchant_hold: bool,
     /// THE HEALTH-THRESHOLD TRANSFORMATION (the Cannon Cart, the Goblin Demolisher; `TransformDef`, state.rs
     /// `health_triggers` and `rebind_unit`): at its threshold the unit becomes another row in place, the same
     /// entity. None on every other card.
@@ -6563,8 +6567,6 @@ pub const UNMODELLED_KEYS: &[(&str, &str)] = &[
     ("cards[].ramp.grace_held_while", "the Little Prince's ramp grace held while tagged; unmeasured"),
     ("cards[].ability.effect.soul_if", "the Skeleton King's soul gate (charges left); unmeasured"),
     ("cards[].ability.effect.soul_filter_excludes", "the Skeleton King's soul filter (buildings, clones); unmeasured"),
-    ("cards[].enchant_friends.on_buff_hold", "the Rune Giant's pause while he enchants (calibration ON_BUFF_PAUSE)"),
-    ("units{}.enchant_friends.on_buff_hold", "the Rune Giant's pause while he enchants (calibration ON_BUFF_PAUSE)"),
     ("cards[].jump_ignores_pushback", "a jumping hog takes no pushback; unmeasured"),
     ("units{}.jump_ignores_pushback", "a jumping hog takes no pushback; unmeasured"),
     ("evolutions[].evo_fall.jump_ignores_pushback", "a jumping Evo Royal Hog takes no pushback; unmeasured"),
@@ -7994,6 +7996,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         ignore_buffs: Vec::new(),
         attack_buff_first: false,
         enchant: None,
+        enchant_hold: false,
         transform_at_hp: None,
         stages: Vec::new(),
         target_only_king_tower: false,
@@ -10118,6 +10121,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let interval = raw.interval_spawner.as_ref().map(|iv| interval_spawner_of(iv, &raw.action_graph)).transpose()?;
     let attack_select = raw.attack_select.as_ref().map(|sel| attack_select_of(sel, &raw.action_graph)).transpose()?;
     let enchant = raw.enchant_friends.as_ref().map(|ef| enchant_of(ef, &raw.action_graph)).transpose()?;
+    let enchant_hold = enchant.is_some() && raw.enchant_friends.as_ref().is_some_and(|ef| ef.on_buff_hold.as_ref().is_some_and(|h| !h.is_null()));
     let transform = raw.transform_at_hp.as_ref().map(|tr| transform_of(tr, &raw.action_graph)).transpose()?;
     // PLANT (regression) stages_refused: the timed transformation is not read, and the card is refused again.
     #[cfg(clash_plant = "stages_refused")]
@@ -10727,6 +10731,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         attack_buff_first,
         // Its multipliers and exclusions are resolved against the loaded cards by `CardDb::from_json_str`.
         enchant,
+        enchant_hold,
         // Resolved by `CardDb::from_json_str` (the row's name pushed on `units` above).
         transform_at_hp: transform.map(|(d, _)| d),
         stages: stages.map(|(d, _)| d).unwrap_or_default(),

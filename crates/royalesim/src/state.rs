@@ -793,6 +793,10 @@ pub struct Calib {
     /// `ToTarget`, what a battle saved before it ran.
     #[serde(default = "range_point_shot_default")]
     pub range_point_shot: RangePointShot,
+    /// enchant.ON_BUFF_PAUSE (the 16.402 Rune Giant's hold on each enchant launch, `enchant_pass`). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `None`, what a battle saved before it ran.
+    #[serde(default = "enchant_on_buff_pause_default")]
+    pub enchant_on_buff_pause: EnchantOnBuffPause,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2547,6 +2551,10 @@ fn spawn_pathfind_morph_area_default() -> SpawnPathfindMorphArea {
 
 fn range_point_shot_default() -> RangePointShot {
     RangePointShot::ToTarget
+}
+
+fn enchant_on_buff_pause_default() -> EnchantOnBuffPause {
+    EnchantOnBuffPause::None
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9304,6 +9312,24 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// enchant.ON_BUFF_PAUSE -- see `enchant_pass` and `launch_due_enchants`: what an enchant launch does to the Rune
+    /// Giant whose row carries the 16.402 hold (card.rs `CardDef::enchant_hold`; a 15.535.29 row carries none, so it
+    /// runs `None` under either arm).
+    EnchantOnBuffPause {
+        /// The engine before this key: he walks and attacks on through his enchants (client 15.535.29: his step stays 59
+        /// around every launch).
+        None = "none",
+        /// No attack on the launch tick L .. L + 13 (ENCHANT_HOLD_TICKS): a swing under way at L is dropped (progress 0,
+        /// the target and the phase kept, so he stands, his load timer running), one not started is not started, so a
+        /// walking Rune Giant walks on past his reach; his Cooldown runs from the hold's end (the launches 81 ticks
+        /// apart). Client 16.402 (parity's r65 census over 321 Rune Giant fixtures of the ob3 live set, every enchant
+        /// launch read off the captures' effects): swings dropped and restarted on L + 14 in 130 of 136 (3 more held 10 to
+        /// 16 ticks, 3 had their target die), walking ones never stopped (1867 of 1867) and attacked nothing before
+        /// L + 14, launch gaps of 81 ticks 569 of 1207 (none within 68 +- 3; the rest frame gaps and empty looks).
+        Client16402ConditionalNoMove = "client16402_conditional_no_move",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9815,6 +9841,7 @@ impl Calib {
             tower_troop_damage_ladder: pick(&v, &["combat", "TOWER_TROOP_DAMAGE_LADDER", "value"], TowerTroopDamageLadder::from_calibration_name)?,
             spawn_pathfind_morph_area: pick(&v, &["movement", "SPAWN_PATHFIND_MORPH_AREA", "value"], SpawnPathfindMorphArea::from_calibration_name)?,
             range_point_shot: pick(&v, &["combat", "RANGE_POINT_SHOT", "value"], RangePointShot::from_calibration_name)?,
+            enchant_on_buff_pause: pick(&v, &["enchant", "ON_BUFF_PAUSE", "value"], EnchantOnBuffPause::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -10202,11 +10229,9 @@ impl Calib {
         only(&v, &["match", "MIRROR_LEVEL_BEYOND_MAX", "value"], "refuse_play")?;
         only(&v, &["match", "MIRROR_OF_VARIANT", "value"], "played_form")?;
         only(&v, &["match", "VARIANT_ELIXIR_MOMENT", "value"], "command")?;
-        // The Rune Giant's enchant: the pick's filter has one reading, and he does not stop when he enchants (measured
-        // on client 15.535.29). The 16.402 client's tables add a pause on each enchant; that arm is a candidate the
-        // engine does not run.
+        // The Rune Giant's enchant: the pick's filter has one reading (measured on client 15.535.29). His pause on each
+        // enchant (16.402's) is enchant.ON_BUFF_PAUSE, `enchant_pass`.
         only(&v, &["enchant", "PICK_FILTER", "value"], "own_troops_unenchanted")?;
-        only(&v, &["enchant", "ON_BUFF_PAUSE", "value"], "none")?;
         // THE TRANSFORMATION'S ONE-ARM KEYS (`rebind_unit`, `phase_status`): the same entity with its hp and max hp
         // kept, the unit acting as before between its trigger and its change, and a drain whose base is the max hp
         // (`lifetime_drain_per_tick` reads it). Their other candidates have no code and are refused here.
@@ -15934,6 +15959,7 @@ impl BattleState {
         let dt = self.cfg.calib.tick_ms;
         let c = &self.cfg.calib;
         let (origin, stun, empty, slots) = (c.enchant_collect_delay_origin, c.enchant_stun_at_pick, c.enchant_empty_pick, c.enchant_slots);
+        let hold_arm = c.enchant_on_buff_pause == EnchantOnBuffPause::Client16402ConditionalNoMove;
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] {
                 continue;
@@ -15966,6 +15992,22 @@ impl BattleState {
                     // `launch_due_enchants` sends the projectiles in the Projectile phase of the tick this reaches 0
                     if self.ents.enchant_ms[i] > 0 && !paused {
                         self.ents.enchant_ms[i] -= dt;
+                    }
+                    // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: from this launch tick L, no attack through
+                    // L + 13; a swing under way is dropped (progress 0), its phase kept, so he stands; a walking one walks on.
+                    // PLANT (regression) enchant_hold_unread: the new arm's Rune Giant attacks on through his launch.
+                    #[cfg(not(clash_plant = "enchant_hold_unread"))]
+                    let holds = hold_arm && cards.get(self.ents.card[i]).enchant_hold;
+                    #[cfg(clash_plant = "enchant_hold_unread")]
+                    let holds = {
+                        let _ = hold_arm;
+                        false
+                    };
+                    if holds && self.ents.enchant_ms[i] <= 0 {
+                        self.ents.enchant_hold[i] = self.tick + Self::ENCHANT_HOLD_TICKS - 1;
+                        if self.ents.attack_phase[i] != AttackPhase::Idle {
+                            self.ents.attack_ms[i] = 0;
+                        }
                     }
                     continue;
                 }
@@ -16122,6 +16164,10 @@ impl BattleState {
         !self.ents.underground(j) && !self.ents.attached(j) && !target::invisible_at(&self.cfg.calib, &self.cfg.cards, &self.ents, self.tick, j)
     }
 
+    /// enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: the ticks a Rune Giant attacks nothing from each launch's
+    /// tick on (L .. L + 13), its row's 600 ms NO_ATTACK hold as measured (130 of 136 dropped swings restarting on L + 14).
+    const ENCHANT_HOLD_TICKS: u32 = 14;
+
     /// THE RUNE GIANT'S LAUNCH (enchant.LAUNCH_DELAY), at the top of the Projectile phase: every Rune Giant whose launch
     /// clock ran out this tick sends each friend he picked (a dead one skipped) a homing projectile from where he stands
     /// after his move, first stepping the next tick. Measured on client 15.535.29: it appears at his position on the 7th
@@ -16183,6 +16229,11 @@ impl BattleState {
             #[cfg(clash_plant = "enchant_cooldown_from_pick")]
             let from_pick = true; // PLANT: the Cooldown counts from the pick.
             self.ents.enchant_ms[i] = if from_pick { def.cooldown_ms - self.enchant_launch_ms(def) } else { def.cooldown_ms };
+            // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: the Cooldown runs from the hold's end (the
+            // launches 81 ticks apart, the measured gap, against 68).
+            if self.cfg.calib.enchant_on_buff_pause == EnchantOnBuffPause::Client16402ConditionalNoMove && cards.get(self.ents.card[i]).enchant_hold {
+                self.ents.enchant_ms[i] += (Self::ENCHANT_HOLD_TICKS as i32 - 1) * self.cfg.calib.tick_ms;
+            }
             #[cfg(clash_plant = "enchant_pause_on_launch")]
             {
                 self.ents.stun_ms[i] = self.ents.stun_ms[i].max(600); // PLANT: he stands for 600 ms on each launch.
@@ -25648,8 +25699,11 @@ impl BattleState {
                 || self.lifts.iter().any(|l| l.id == e.id_of(i) && self.lift_descending(l))
                 // A warp holds it too, until it arrives (`WarpBoard::warp_holds_swing`).
                 || self.warps.warp_holds_swing(e.id_of(i));
+            // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: a Rune Giant inside his launch's hold.
+            let enchant_held = e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i];
             let can_act = e.deploy_ms[i] == 0
                 && !held
+                && !enchant_held
                 && !chaining
                 && !e.jumping[i]
                 && e.dash_state[i] != DashState::Dashing
@@ -33191,6 +33245,10 @@ impl BattleState {
                 if matches!(self.cfg.calib.load_timer_target_loss, LoadTimerTargetLoss::Client15535StandsAfterWalkLoss | LoadTimerTargetLoss::Client16402HitHoldLag) {
                     h.u32(e.load_hold[i] as u32);
                 }
+                // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: a Rune Giant's hold, under that arm alone.
+                if self.cfg.calib.enchant_on_buff_pause == EnchantOnBuffPause::Client16402ConditionalNoMove {
+                    h.u32(e.enchant_hold[i]);
+                }
                 // combat.RETARGET_WAIT_WHILE_HELD = client16402_first_held_counts: the wait's held mark, under that arm alone.
                 if self.cfg.calib.retarget_wait_while_held == RetargetWaitWhileHeld::Client16402FirstHeldCounts {
                     h.bool(e.wait_held[i]);
@@ -35508,6 +35566,9 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RANGE_POINT_SHOT: Calib gained range_point_shot (serde default the old arm, to_target), no new state (a shot in flight keeps its saved aim),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, enchant.ON_BUFF_PAUSE: Calib gained enchant_on_buff_pause (serde default the old arm, none) and Entities enchant_hold
+///    (`default`, sized on load at 0, written and hashed under the new arm alone), so a blob saved before it
+///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36447,6 +36508,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_pathfind_morph_area".into(), serde_json::to_value(SpawnPathfindMorphArea::AtSurface).map_err(|e| e.to_string())?);
     // combat.RANGE_POINT_SHOT: a format-3 battle aimed every shot at its target (the same rule).
     sh.insert("range_point_shot".into(), serde_json::to_value(RangePointShot::ToTarget).map_err(|e| e.to_string())?);
+    // enchant.ON_BUFF_PAUSE: a format-3 battle's Rune Giant walked and attacked on through his enchants (the same rule).
+    sh.insert("enchant_on_buff_pause".into(), serde_json::to_value(EnchantOnBuffPause::None).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -36850,6 +36913,7 @@ impl BattleState {
         snap.ents.source.resize(n, NO_CARD);
         snap.ents.load_hold.resize(n, 0);
         snap.ents.wait_held.resize(n, false);
+        snap.ents.enchant_hold.resize(n, 0);
         snap.ents.landed_at.resize(n, 0);
         // A blob saved before chase_last_pos reads each unit's last Target-phase position as where it stands.
         for i in snap.ents.chase_last_pos.len()..n {

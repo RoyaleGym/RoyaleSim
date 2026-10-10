@@ -6769,15 +6769,15 @@
       "engine": "state.rs apply_effects"
     },
     "ON_BUFF_PAUSE": {
-      "value": "none",
-      "candidates": ["none", "client16402_no_attack_no_move", "client16402_conditional_no_move", "ability_cast_time"],
+      "value": "client16402_conditional_no_move",
+      "candidates": ["none", "client16402_conditional_no_move"],
       "status": "measured",
-      "confidence": "HIGH for client 15.535.29. The 16.402 client is not measured: the corpus has no Rune Giant.",
+      "confidence": "HIGH for client16402_conditional_no_move on client 16.402 (parity r65, 2026-10-10): every enchant launch of the 321 Rune Giant fixtures of the ob3 live set read off the captures' effects: swings under way dropped and restarted on L + 14 in 130 of 136 (3 held 10 to 16 ticks, 3 lost their target), walking ones never stopped (1867 of 1867) and started no attack before L + 14, launch gaps 81 ticks 569 of 1207 (none within 68 +- 3). Client 15.535.29's rows carry no hold, so they run none under either arm. The refuted readings are dropped from the candidates: client16402_no_attack_no_move (a walking Rune Giant never stops) and ability_cast_time (15.535.29).",
       "provenance": "Measured on client 15.535.29: the Rune Giant's step stays 59 on every tick around the launch, so he does not stop walking when he enchants; the ability's CastTime 933 does not stop him either, and ability_cast_time is refuted. The 16.402 client's tables add, on each enchant, a 600 ms NO_ATTACK and a NO_MOVE that runs only under a condition on a value the tables use nowhere else. Those two candidates are not implemented; they wait for a 16.402 measurement.",
-      "meaning": "none: the Rune Giant walks and attacks on through his enchants. client16402_no_attack_no_move: each enchant stops his attack and his walk for 600 ms. client16402_conditional_no_move: it stops his attack for 600 ms and his walk only under that condition. ability_cast_time: he stands for his ability's CastTime.",
-      "open": "The 16.402 client.",
+      "meaning": "none: he walks and attacks on through his enchants. client16402_conditional_no_move: from each launch's tick L he attacks nothing through L + 13; a swing under way is dropped and he stands (the conditional NO_MOVE), a walking one walks on; his Cooldown runs from the hold's end.",
+      "open": "The far and out-of-order picks (113 of 2310 beyond 7550); whether the 14 ticks are the 600 ms hold plus a tick.",
       "promotion_rules": "A Rune Giant recorded on the 16.402 client.",
-      "engine": "state.rs Calib::from_json (only); launch_due_enchants runs no pause"
+      "engine": "state.rs enchant_pass (the hold), launch_due_enchants (the Cooldown), the attack gate (phase_attack's can_act), Entities::enchant_hold; card.rs CardDef::enchant_hold; tests/enchant.rs."
     }
   },
   "cards": {

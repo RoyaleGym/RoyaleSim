@@ -363,6 +363,10 @@ pub struct Entities {
     /// unit under the other arms. `default` and sized on load at false.
     #[serde(default)]
     pub wait_held: Vec<bool>,
+    /// enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: the last tick of this Rune Giant's hold from his latest enchant
+    /// launch (state.rs `enchant_pass`), 0 for none; written under that arm alone. `default` and sized on load at 0.
+    #[serde(default)]
+    pub enchant_hold: Vec<u32>,
     /// movement.JUMP_LANDING_SCOPE = client15535_whole_tick: the tick this unit's river leap last ended, plus one (state.rs
     /// `phase_path16402_for`); the later contact passes of that tick leave it out. 0 otherwise and on every unit under the
     /// old arm. `default` and sized on load at 0.
@@ -922,6 +926,7 @@ impl Entities {
             self.chase_inside[i] = None;
             self.load_hold[i] = 0;
             self.wait_held[i] = false;
+            self.enchant_hold[i] = 0;
             self.landed_at[i] = 0;
             self.combo_ix[i] = 0;
             self.spawn_lane[i] = 0;
@@ -1028,6 +1033,7 @@ impl Entities {
             self.chase_inside.push(None);
             self.load_hold.push(0);
             self.wait_held.push(false);
+            self.enchant_hold.push(0);
             self.landed_at.push(0);
             self.combo_ix.push(0);
             self.spawn_lane.push(0);
@@ -1196,6 +1202,7 @@ impl Entities {
         self.chase_inside[i] = None;
         self.load_hold[i] = 0;
         self.wait_held[i] = false;
+        self.enchant_hold[i] = 0;
         self.landed_at[i] = 0;
         self.attack_seq[i] = 0;
     }

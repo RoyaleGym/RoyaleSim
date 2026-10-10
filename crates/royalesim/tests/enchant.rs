@@ -77,6 +77,7 @@
 //!   * `enchant_repicks_enchanted` -- an enchanted friend is picked again: (15) goes red.
 //!   * `enchant_stun_pauses_timer` -- a stun stops his clocks: (16) goes red.
 //!   * `enchant_stun_ignored` -- he looks while held: (16) goes red.
+//!   * `enchant_hold_unread` -- client16402_conditional_no_move's Rune Giant attacks on through his launch: (20) goes red.
 //!   * `enchant_pause_on_launch` -- he stands 600 ms on each launch: (17) goes red.
 //!   * `save_drops_enchant` -- the enchants are lost across a save: (18) goes red.
 //!   * `hash_skips_enchant` -- the look and the enchant are not hashed: (18) goes red.
@@ -941,4 +942,54 @@ fn the_16402_rune_giant_loads_with_the_same_enchant() {
     let bare = rune_giant_16402(false);
     let why = bare.rejected.iter().find(|(n, _)| n == "GiantBuffer").map(|(_, w)| w.clone()).unwrap_or_default();
     assert!(why.contains("ActionWithDuration"), "an ActionWithDuration with no hold is refused: {why:?}");
+}
+
+/// (20) enchant.ON_BUFF_PAUSE = client16402_conditional_no_move on the 16.402 shape (client 16.402, parity's r65 census: 130
+/// of 136 swings dropped and restarted on L + 14, launches 81 ticks apart): the re-pick scene's second launch comes 81 ticks
+/// after the first, not 68; and a Rune Giant swinging at a red Cannon when his first launch leaves (L = F + 27) reads no
+/// progress L .. L + 13 and swings again on L + 14, where under none (the vacuity check) his swing runs on. Plant:
+/// enchant_hold_unread.
+#[test]
+fn under_client16402_conditional_no_move_each_launch_holds_his_attack_fourteen_ticks() {
+    use royalesim::state::EnchantOnBuffPause as P;
+    let cfg = |arm: P| {
+        let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+        c.calib.enchant_on_buff_pause = arm;
+        c
+    };
+    assert!(cfg(P::None).cards.get(cfg(P::None).cards.index("GiantBuffer").expect("the Rune Giant")).enchant_hold, "the scene: the 16.402 shape's hold");
+    assert_eq!(repick_scene(cfg(P::Client16402ConditionalNoMove)), vec![(27, true), (108, false)], "client16402_conditional_no_move: 81 ticks after the first");
+    assert_eq!(repick_scene(cfg(P::None)), vec![(27, true), (95, false)], "none: 68 ticks after the first");
+    // The hold: his progress on each tick from F + 20, the Cannon held in his reach and a friend in his pick's.
+    let swing = |arm: P| -> (u32, Vec<i32>) {
+        let mut s = BattleState::new(0, cfg(arm));
+        let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 13600)), None).expect("a red Cannon");
+        let full = s.entity(cannon).expect("the Cannon").max_hp;
+        s.scenario_spawn_now(Team::Blue, "Knight", at((9000, 10500)), None).expect("a blue Knight");
+        let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", at((9000, 12000)), None).expect("the Rune Giant");
+        let f = s.tick_count();
+        let mut out = Vec::new();
+        let mut launch = None;
+        let mut prev: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+        for _ in 0..60 {
+            assert!(s.debug_set_hp(cannon, full), "the Cannon stands");
+            let k = s.tick_count();
+            s.tick();
+            let now: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+            if launch.is_none() && now.iter().any(|t| !prev.contains(t)) {
+                launch = Some(k - f);
+            }
+            prev = now;
+            out.push(s.entity(giant).map_or(-1, |v| v.attack_ms));
+        }
+        (launch.expect("no launch"), out)
+    };
+    let (l, p) = swing(P::Client16402ConditionalNoMove);
+    assert_eq!(l, 27, "the scene: the first launch on F + 27");
+    let at_k = |p: &[i32], k: u32| p[k as usize];
+    assert!(at_k(&p, l - 1) > 0, "the scene: his swing under way when the launch leaves: {p:?}");
+    assert!((l..l + 14).all(|k| at_k(&p, k) == 0), "client16402_conditional_no_move: progress through L + 13: {p:?}");
+    assert!(at_k(&p, l + 14) > 0, "client16402_conditional_no_move: no swing on L + 14: {p:?}");
+    let (_, q) = swing(P::None);
+    assert!((l..l + 14).any(|k| at_k(&q, k) > 0), "none: his swing held through the launch: {q:?}");
 }
