@@ -270,7 +270,7 @@ fn on_the_160402017_table_it_warps_back_the_tick_after_its_target_dies() {
     assert!(steps[g] < 100, "no step back on the first frame gone: {steps:?}");
     // its press point: where it stood when pressed (the first frames, before its first step out)
     let home = points[0];
-    assert!(points[g + 1..].iter().any(|p| *p == home), "back on its press point {home:?}: {points:?}");
+    assert!(points[g + 1..].contains(&home), "back on its press point {home:?}: {points:?}");
 }
 
 /// The return with its target alive (client 16.402, liveplay-20261007-013601-A: the first step back on the strike frame
