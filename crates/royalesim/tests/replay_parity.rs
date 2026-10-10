@@ -1490,7 +1490,7 @@ fn a_side_s_king_is_at_its_recorded_level() {
     assert_eq!(cfg.king_level, [None, Some(king)], "the kings' levels: {notes:?}");
     assert_eq!(cfg.tower_level[1], king - 2, "side 1's towers moved with the king");
     let note = format!("side 1 king tower at level {king} (towers {})", king - 2);
-    assert!(notes.iter().any(|n| *n == note), "the king's level not noted: {notes:?}");
+    assert!(notes.contains(&note), "the king's level not noted: {notes:?}");
 }
 
 /// A SIDE'S TOWER LEVEL WITH NO tower_level RECORDED IS ITS TOWERS' (harness.rs config_for_with): the sample with its
@@ -1507,5 +1507,5 @@ fn a_missing_tower_level_is_read_from_the_recorded_towers() {
     }
     let r = play(&f);
     let note = format!("side 0 tower level {towers} read from its towers");
-    assert!(r.level_deviations.iter().any(|n| *n == note), "the towers' level read: {:?}", r.level_deviations);
+    assert!(r.level_deviations.contains(&note), "the towers' level read: {:?}", r.level_deviations);
 }
