@@ -400,3 +400,28 @@ fn the_tombs_monster_and_skeletons_take_the_tombs_level() {
     assert_eq!(s.entity(m).expect("the monster").max_hp, 3498, "the active monster at the tomb's level 9");
     assert!(!skel.is_empty() && skel.iter().all(|hp| *hp == 67), "the tomb's Skeletons at its level 9: {skel:?}");
 }
+
+/// transform.TOMB_MONSTER_STEP_SCOPE = client16402_until_kill (client 16.402, parity's r63 census: 6 of 6 presses beside a
+/// standing tomb stepped (-106, -106) on P + 1 and P + 2; the 2 presses after the tomb's death none): beside the standing
+/// tomb, two steps by P + 3; pressed 10 ticks after the tomb's death, none. Plant: tomb_step_once.
+#[test]
+fn a_monster_pressed_beside_its_standing_tomb_steps_until_the_tombs_kill_under_client16402_until_kill() {
+    let mut s = battle_with(TombMonsterStepScope::Client16402UntilKill);
+    let (_, m) = play(&mut s, Team::Blue, n(14500, 11500));
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let a = s.entity(m).expect("the monster").pos;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut moves = Vec::new();
+    let mut at = a;
+    for _ in 0..5 {
+        s.tick();
+        let b = s.entity(m).expect("the monster").pos;
+        moves.push(((b.x - at.x) / K, (b.y - at.y) / K));
+        at = b;
+    }
+    let steps = moves.iter().filter(|d| **d == (-106, -106)).count();
+    assert_eq!(steps, 2, "client16402_until_kill: two steps of (-106, -106): {moves:?}");
+    let total = ((at.x - a.x) / K, (at.y - a.y) / K);
+    assert_eq!(total, (-212, -212), "client16402_until_kill: (-212, -212) in all: {moves:?}");
+    assert_eq!(pressed_after_the_tomb(TombMonsterStepScope::Client16402UntilKill), (0, 0), "client16402_until_kill: a press after the tomb's death moved it");
+}

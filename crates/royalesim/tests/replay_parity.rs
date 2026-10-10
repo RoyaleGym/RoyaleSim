@@ -1376,7 +1376,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.doomed_read_in_pass, DoomedReadInPass::StartOfPass, "a 16.402 capture");
     assert_eq!(cfg.calib.net_cast_window, NetCastWindow::TargetHold, "a 16.402 capture");
     assert_eq!(cfg.calib.attract_contact_mean, AttractContactMean::AfterMean, "a 16.402 capture");
-    assert_eq!(cfg.calib.tomb_monster_step_scope, TombMonsterStepScope::EveryPress, "a 16.402 capture");
+    assert_eq!(cfg.calib.tomb_monster_step_scope, TombMonsterStepScope::Client16402UntilKill, "a 16.402 capture");
     assert_eq!(cfg.calib.tomb_press_spawn_first_update, TombPressSpawnFirstUpdate::PostMove, "a 16.402 capture");
     assert_eq!(cfg.calib.dash_range_target_point, DashRangeTargetPoint::StartOfTick, "a 16.402 capture");
     assert_eq!(cfg.calib.hero_tomb_emission_nudge, HeroTombEmissionNudge::None, "a 16.402 capture");

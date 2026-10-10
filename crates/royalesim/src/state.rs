@@ -7095,6 +7095,12 @@ calib_enum!(
         /// -106) (red (+106, +106)); the one press after the tomb's death (sp-hero2-Tombstone-window-s0 t320) stood on the
         /// trigger's tick and took a Skeleton's contact push alone on the two after.
         Client15535TombStanding = "client15535_tomb_standing",
+        /// As client15535_tomb_standing, the step on every tick from the trigger's next through the tomb's kill (card.rs
+        /// TOMB_KILL_TICKS: P + 1 and P + 2, the tomb still standing in the kill tick's Status). Client 16.402 (parity's
+        /// r63 census, the 160402017 scenes): 6 of 6 presses beside a standing tomb stepped (-106, -106) on P + 1 and
+        /// again on P + 2 (side 1 (+106, +106)), then held to P + 39; the 2 presses after the tomb's death (the window
+        /// scene, one live) took no step.
+        Client16402UntilKill = "client16402_until_kill",
     }
 );
 calib_enum!(
@@ -22079,7 +22085,7 @@ impl BattleState {
         // meets none while its tomb stands (measured: still beside the standing tomb after its one step, TOMB_MONSTER_STEP).
         // transform.TOMB_MONSTER_STEP_SCOPE = client15535_tomb_standing: pressed with its tomb gone, it meets none on the
         // trigger's tick either (sp-hero2-Tombstone-window-s0 t320: no move on it, a Skeleton's push from the next).
-        let press_tick_off = self.cfg.calib.tomb_monster_step_scope == TombMonsterStepScope::Client15535TombStanding;
+        let press_tick_off = matches!(self.cfg.calib.tomb_monster_step_scope, TombMonsterStepScope::Client15535TombStanding | TombMonsterStepScope::Client16402UntilKill);
         for r in self
             .warps
             .tombs
@@ -27659,11 +27665,19 @@ impl BattleState {
             // of 6 with the tomb standing stepped; pressed after the tomb's death, sp-hero2-Tombstone-window-s0, none).
             // PLANT (regression) tomb_step_every_press: the new arm steps a monster whose tomb is gone.
             #[cfg(not(clash_plant = "tomb_step_every_press"))]
-            let standing = self.cfg.calib.tomb_monster_step_scope != TombMonsterStepScope::Client15535TombStanding || self.ents.is_alive(r.tomb);
+            let standing = !matches!(self.cfg.calib.tomb_monster_step_scope, TombMonsterStepScope::Client15535TombStanding | TombMonsterStepScope::Client16402UntilKill)
+                || self.ents.is_alive(r.tomb);
             #[cfg(clash_plant = "tomb_step_every_press")]
             let standing = true;
+            // transform.TOMB_MONSTER_STEP_SCOPE = client16402_until_kill: the step on every tick through the tomb's kill.
+            // PLANT (regression) tomb_step_once: the new arm still steps once.
+            #[cfg(not(clash_plant = "tomb_step_once"))]
+            let until_kill = self.cfg.calib.tomb_monster_step_scope == TombMonsterStepScope::Client16402UntilKill;
+            #[cfg(clash_plant = "tomb_step_once")]
+            let until_kill = false;
+            let stepping = |p: u32| if until_kill { self.tick > p && self.tick <= p + crate::card::TOMB_KILL_TICKS } else { self.tick == p + 1 };
             #[cfg(not(clash_plant = "tomb_monster_unstepped"))]
-            if r.pressed.is_some_and(|p| self.tick == p + 1) && self.ents.is_alive(r.monster) && standing {
+            if r.pressed.is_some_and(stepping) && self.ents.is_alive(r.monster) && standing {
                 let mi = r.monster.index as usize;
                 self.ents.pos[mi] = guard_point(r.team, self.ents.pos[mi], crate::card::TOMB_MONSTER_STEP);
                 self.hash.rebuild(&self.ents);
