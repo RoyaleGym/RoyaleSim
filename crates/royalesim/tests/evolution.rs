@@ -665,12 +665,14 @@ fn forms_take_slots_after_every_existing_card() {
     assert!(db.cards[n0 + 7].summon_only && db.cards[n0 + 7].evo.as_ref().is_some_and(|e| e.hit_rage.is_some()));
     assert_eq!(db.cards[n0 + 6].death_spawn.map(|d| d.unit), Some((n0 + 7) as u16));
     // The whole table: the hero pass leaves every one of those slots where it was, the forms included, and loads only
-    // after them.
+    // after them; the crown tower troops (db's last slots) load after the hero pass, last.
     let full = cards();
-    let n = db.cards.len();
+    let n = db.cards.len() - troops;
     assert_eq!(names(&full, n), names(&db, n), "the hero pass moved a slot");
     assert_eq!(full.forms, db.forms);
-    assert!((n..full.cards.len()).all(|k| full.is_hero_record(k as u16)), "a slot after the evolved forms that the hero pass did not load");
+    let end = full.cards.len() - troops;
+    assert!((n..end).all(|k| full.is_hero_record(k as u16)), "a slot after the evolved forms that the hero pass did not load");
+    assert_eq!(full.cards[end..].iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), royalesim::card::TOWER_TROOPS, "the full table's last slots");
 }
 
 #[test]

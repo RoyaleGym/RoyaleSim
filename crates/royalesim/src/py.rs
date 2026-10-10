@@ -2649,7 +2649,9 @@ mod tests {
             .cards
             .iter()
             .enumerate()
-            .filter(|(i, c)| ids[*i] == -1 && c.name != KING_TOWER && c.name != PRINCESS_TOWER && !rejected(*i, c))
+            // A crown tower troop (card.rs TOWER_TROOPS, a side's princess towers' record) is a crown tower, as the
+            // PrincessTower's own record: no deck plays it, so no catalogue names it.
+            .filter(|(i, c)| ids[*i] == -1 && c.name != KING_TOWER && c.name != PRINCESS_TOWER && !crate::card::TOWER_TROOPS.contains(&c.name.as_str()) && !rejected(*i, c))
             .map(|(_, c)| c.name.as_str())
             .collect();
         assert_eq!(missing, Vec::<&str>::new(), "{} rows report -1", missing.len());
