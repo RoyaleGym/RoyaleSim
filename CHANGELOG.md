@@ -3,6 +3,33 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.28 (2026-10-10)
+
+- Two new `BattleConfig` fields. `tower_troops` names each side's crown tower troop: `"DaggerDuchess"`, `"Cannoneer"`
+  or `"ChefTower"`. The default, `[None, None]`, keeps the Princess. `king_level` sets each King Tower's own level; the
+  default uses `tower_level`, as before. Both are read when the battle is made. The tower troops load as the last three
+  card slots, so no deck, catalogue or existing index moves.
+- Twenty-five settings now default to the current client's behaviour, each measured against its recorded battles.
+  Among them: a dying troop's death push, the ring a death spawn is laid on, a Witch's ring point at the arena's edge,
+  the Hero Mega Minion's warp and return, the Little Prince's guard, the Mighty Miner's bomb, the tower troops' damage,
+  an Evo Skeletons copy (now on the tick after its hit), and a Poison's first pulse (now 25 ticks after its cast). Each
+  older behaviour stays available as that setting's old value, and `replay_parity` uses the old values for the older
+  client's battles. The full list is in the release notes on GitHub.
+- `spells.RELEASE_GROUND_POINT` treats the two sides differently, as the game does. A seat-symmetry check can turn it off
+  with `calibration_overrides={"spells.RELEASE_GROUND_POINT": "none"}`.
+- On the current client's card tables, a Skeleton King counts a soul once it lands, 1.45 s after the death, not at the
+  death.
+- A hero's level-up can take it past level 17 along its rarity's level ladder (the client's Hero Mini P.E.K.K.A went
+  from 16 to 18 in one level-up). A card is still played at 17 at most.
+- The card tables carry a new field, `sight_clip_side_milli`: how far a unit's sight is cut at its sides (the Hog
+  Rider's 4000, the Giant's 2000). The engine does not read it yet. The tables' hashes change with it.
+- Tools: `tools/make_replay_fixture.py` reads more of a live capture. It recovers casts the elixir check had dropped,
+  Poison and Earthquake levels, a hero's or a champion's ability presses and the game mode. It also reads a Zap that
+  leaves no object (from the capture's header), a Rage whose area shows after its elixir drop, a Lightning or a Royal
+  Delivery from its area (dated on its cast, its level from its bolt or crate), and a spell's level from what it took
+  off a crown tower. A Poison or an Earthquake first seen after missing frames is dated by its pulses, and a Hero
+  Musketeer's turret is read as its card's.
+
 ## 0.1.27 (2026-10-09)
 
 - The 2026-10-06 card table now has that update's Evo Skeletons summon ring (400, was 700). The extractor read the
