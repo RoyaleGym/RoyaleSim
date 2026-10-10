@@ -10794,6 +10794,10 @@ pub struct WarpBoard {
 pub struct SoulKing {
     pub id: EntityId,
     pub souls: i32,
+    /// 16.402: the ticks his souls still in flight land on (card.rs `SoulSummonDef::flight_ms`); empty with no flight,
+    /// and in a blob saved before it.
+    #[serde(default)]
+    pub landing: Vec<u32>,
 }
 
 /// A SKELETON KING'S AREA UNDER WAY (card.rs `SoulSummonDef`; `soul_pass`): its King, side, form and level, the trigger's
@@ -20335,10 +20339,10 @@ impl BattleState {
     /// before his deploy count, fliers, crown towers.
     fn count_souls(&mut self, deaths: &[EntityId]) {
         let e = &self.ents;
-        let kings: Vec<(EntityId, i32)> = (0..e.capacity())
+        let kings: Vec<(EntityId, i32, i32)> = (0..e.capacity())
             .filter(|&i| e.alive[i] && !deaths.contains(&e.id_of(i)))
             .filter_map(|i| match self.cfg.cards.get(e.card[i]).ability.as_ref().map(|a| &a.effect) {
-                Some(crate::card::AbilityEffect::SoulSummon(sd)) => Some((e.id_of(i), sd.limit - sd.base)),
+                Some(crate::card::AbilityEffect::SoulSummon(sd)) => Some((e.id_of(i), sd.limit - sd.base, sd.flight_ms)),
                 _ => None,
             })
             .collect();
@@ -20358,10 +20362,32 @@ impl BattleState {
         if troops == 0 {
             return;
         }
-        for (id, cap) in kings {
-            match self.warps.souls.iter_mut().find(|k| k.id == id) {
-                Some(k) => k.souls = (k.souls + troops).min(cap),
-                None => self.warps.souls.push(SoulKing { id, souls: troops.min(cap) }),
+        // 16.402: each soul flies `flight_ms` to him and counts once it lands (`SoulKing::landing`).
+        #[cfg(not(clash_plant = "souls_land_at_once"))]
+        let tick_ms = self.cfg.calib.tick_ms as i32;
+        for (id, cap, flight_ms) in kings {
+            #[cfg(clash_plant = "souls_land_at_once")]
+            let flight_ms = {
+                let _ = flight_ms;
+                0 // PLANT: every soul counts at its death, as on 15.535.
+            };
+            let k = match self.warps.souls.iter().position(|k| k.id == id) {
+                Some(k) => k,
+                None => {
+                    self.warps.souls.push(SoulKing { id, souls: 0, landing: Vec::new() });
+                    self.warps.souls.len() - 1
+                }
+            };
+            let k = &mut self.warps.souls[k];
+            if flight_ms > 0 {
+                #[cfg(not(clash_plant = "souls_land_at_once"))]
+                let at = self.tick + (flight_ms / tick_ms) as u32;
+                #[cfg(clash_plant = "souls_land_at_once")]
+                let at = self.tick;
+                let room = (cap - k.souls - k.landing.len() as i32).max(0);
+                k.landing.extend(std::iter::repeat(at).take(troops.min(room) as usize));
+            } else {
+                k.souls = (k.souls + troops).min(cap);
             }
         }
         self.warps.souls.retain(|k| self.ents.is_alive(k.id));
@@ -30841,7 +30867,11 @@ impl BattleState {
             crate::card::AbilityEffect::SoulSummon(sd) => {
                 #[cfg(not(clash_plant = "soul_summon_never"))]
                 {
-                    let souls = self.warps.souls.iter().find(|k| k.id == hero).map_or(0, |k| k.souls);
+                    // his souls, and of those in flight the ones landed by now (`SoulKing::landing`)
+                    let now = self.tick;
+                    let souls = self.warps.souls.iter().find(|k| k.id == hero).map_or(0, |k| {
+                        k.souls + k.landing.iter().filter(|&&t| t <= now).count() as i32
+                    });
                     self.warps.souls.retain(|k| k.id != hero);
                     #[cfg(not(clash_plant = "souls_unread"))]
                     let count = (sd.base + souls).min(sd.limit);
@@ -32977,6 +33007,14 @@ impl BattleState {
                 for k in &self.warps.souls {
                     h.id(k.id);
                     h.i32(k.souls);
+                    // souls in flight (16.402), hashed only when there are any, so a battle without a flight hashes
+                    // as it did
+                    if !k.landing.is_empty() {
+                        h.u32(k.landing.len() as u32);
+                        for t in &k.landing {
+                            h.u32(*t);
+                        }
+                    }
                 }
                 h.u32(self.warps.soul_runs.len() as u32);
                 for r in &self.warps.soul_runs {

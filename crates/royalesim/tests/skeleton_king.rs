@@ -23,6 +23,7 @@
 //!   - souls_bomb_not_a_building -> `a_copy_drawn_onto_a_bomb_on_its_fuse_is_drawn_anew` red;
 //!   - souls_first_update_next_tick -> `a_copy_born_on_a_unit_is_pushed_on_its_first_frame` red;
 //!   - copies_pushed_while_deploying -> `a_deploying_copy_is_out_of_the_contact_law` red.
+//!   - souls_land_at_once -> `a_16402_soul_counts_once_it_has_landed` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -414,4 +415,60 @@ fn a_deploying_copy_is_out_of_the_contact_law() {
     }
     assert!(track.len() >= 7, "the scene drifted: the copy deployed {} frames", track.len());
     assert!(track.iter().all(|q| *q == track[0]), "the copy moved while it deployed: {track:?}");
+}
+
+/// Copies his press puts down when three red Skeletons are killed `kill_at` ticks from the press (P), on `table` (None:
+/// the 15.535.29 one), the King held on AT. Counts every blue copy seen in the 70 ticks after the press.
+fn copies_with_deaths_at(table: Option<royalesim::state::CardTable>, kill_at: i32) -> usize {
+    let mut cfg = match table {
+        Some(t) => {
+            let mut c = royalesim::state::BattleConfig::with_cards(royalesim::card::CardDb::load_table(t).expect("the table"));
+            c.calib.card_table = t;
+            c
+        }
+        None => config(),
+    };
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let king = s.scenario_spawn_now(Team::Blue, "SkeletonKing", n(AT), None).expect("the Skeleton King");
+    let press = 60i32;
+    let mut seen: Vec<EntityId> = Vec::new();
+    for k in 0..press + 70 {
+        assert!(s.debug_set_pos(king, n(AT)));
+        if k == press + kill_at {
+            for j in 0..3 {
+                let v = s.scenario_spawn_now(Team::Red, "Skeletons", n((3000 + 400 * j, 20000)), None).expect("a red Skeleton");
+                assert!(s.debug_set_hp(v, 0));
+            }
+        }
+        if k == press {
+            s.press_ability_button(Team::Blue, 0).expect("the press");
+        }
+        s.tick();
+        for e in s.entities().filter(|e| e.team == Team::Blue && e.cloned) {
+            if !seen.contains(&e.id) {
+                seen.push(e.id);
+            }
+        }
+    }
+    seen.len()
+}
+
+/// 16.402: A SOUL COUNTS ONCE IT HAS LANDED (card.rs `SoulSummonDef::flight_ms`, the 160402017 table's 1450 = 29 ticks;
+/// state.rs `SoulKing::landing`). Three red Skeletons killed 5 ticks after the press (his trigger is P + 10): on the
+/// 160402017 table their souls land on P + 34, after the trigger, so the press puts down his base 6; on 15.535.29 (no
+/// flight) they count at their deaths, 9. Killed 40 ticks before the press, they have landed by the trigger on both: 9.
+/// Measured on client 160402017 (Oracle's 017 specials, each count read off the recorded generator's shuffle):
+/// -late-s0 counted a death 56 ticks before the trigger and not two 25 before. Plant souls_land_at_once.
+#[test]
+fn a_16402_soul_counts_once_it_has_landed() {
+    use royalesim::state::CardTable;
+    assert_eq!(copies_with_deaths_at(None, 5), 9, "15.535.29: a death before the trigger counts at once");
+    assert_eq!(copies_with_deaths_at(None, -40), 9);
+    assert_eq!(copies_with_deaths_at(Some(CardTable::Client160402017), -40), 9, "160402017: landed by the trigger");
+    assert_eq!(copies_with_deaths_at(Some(CardTable::Client160402017), 5), 6, "160402017: still in flight at the trigger");
 }

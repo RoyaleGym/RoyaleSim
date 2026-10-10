@@ -1682,6 +1682,13 @@ pub struct SoulSummonDef {
     pub area_radius: i32,
     /// The area's LifeDuration: a copy due after it is never put down.
     pub life_ms: i32,
+    /// 16.402: A SOUL FLIES TO HIM (its ActionSoulDrain's ConstantFlightDuration, 1450) and counts only once it has
+    /// landed: a death counts at the trigger when it came at least flight_ms before it (state.rs `count_souls`,
+    /// `SoulKing::landing`). 0 (15.535, which has no flight): a death counts at once. Measured on client 160402017
+    /// (Oracle's 017 specials, the copies' count read off the recorded generator's shuffle): own, spawned and window
+    /// counted 6 where the engine counted 7, 8 and 9 at the death; -late-s0 counted a death 56 ticks before the
+    /// trigger and not two 25 before.
+    pub flight_ms: i32,
 }
 
 /// THE LANE SWITCH (the Mighty Miner's MightyMinerLaneSwitch; tools/extract_cards.py `champion_lane_switch`; state.rs
@@ -6486,6 +6493,8 @@ struct RawAbilityEffect {
     max_count: Option<i32>,
     min_radius_milli: Option<i32>,
     max_radius_milli: Option<i32>,
+    /// 16.402's soul script: a soul's flight to him (`SoulSummonDef::flight_ms`).
+    soul_flight_ms: Option<i32>,
 }
 
 /// THE 16.402 KEYS A RECORD MAY CARRY THAT NO MODEL READS YET (option B), as (path, what it is). The record loads with
@@ -6503,7 +6512,6 @@ pub const UNMODELLED_KEYS: &[(&str, &str)] = &[
     ("cards[].ability.effect.hold_tag", "the Little Prince's guard holds its target while tagged; unmeasured"),
     ("cards[].ability.effect.cleave", "the Little Prince's guard's cleave area; unmeasured"),
     ("cards[].ramp.grace_held_while", "the Little Prince's ramp grace held while tagged; unmeasured"),
-    ("cards[].ability.effect.soul_flight_ms", "the Skeleton King's souls in flight; unmeasured"),
     ("cards[].ability.effect.soul_if", "the Skeleton King's soul gate (charges left); unmeasured"),
     ("cards[].ability.effect.soul_filter_excludes", "the Skeleton King's soul filter (buildings, clones); unmeasured"),
     ("cards[].enchant_friends.on_buff_hold", "the Rune Giant's pause while he enchants (calibration ON_BUFF_PAUSE)"),
@@ -9545,6 +9553,7 @@ fn convert_champion_ability(raw: Option<RawAbility>, kind: CardKind, buffs: &mut
             max_radius,
             area_radius: milli(pos(e.radius_milli, "area radius")?),
             life_ms: pos(e.duration_ms, "life")?,
+            flight_ms: e.soul_flight_ms.filter(|x| *x >= 0).unwrap_or(0),
         });
         return Ok(Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect }));
     }
