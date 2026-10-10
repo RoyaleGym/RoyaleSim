@@ -8,7 +8,8 @@
 //!     troop itself would, a river tap is refused;
 //!   - a Mirror's own play is not recorded, a refused play is not recorded, and before any play there is nothing to
 //!     copy;
-//!   - a copy past the rarity's last level: the client plays it (16 + 16 stood at 17); this engine refuses it
+//!   - a copy past the rarity's last level: the client plays it (16 + 16 stood at 17), and so does this engine, one
+//!     level past the count (card.rs `LEVELS_PAST_COUNT`); two past is refused
 //!     (match.MIRROR_LEVEL_BEYOND_MAX = refuse_play, marked refuted in the ledger). Pinned here as shipped.
 //!
 //! WHAT IS PINNED, each with its precondition:
@@ -20,7 +21,8 @@
 //!   4. with nothing to copy the Mirror is refused NothingToMirror, and a refused play is not recorded;
 //!   5. the copy's tap is judged and resolved exactly as the copied Knight's own play would be;
 //!   6. a Fireball copy is the Fireball cast one level up;
-//!   7. a copy past the last level is refused and debits nothing;
+//!   7. a copy one past the last level plays at it (a Knight 16's copy stands at 17, 3105 hp); two past is refused
+//!      and debits nothing;
 //!   8. the record survives a save and load, and is state where a Mirror is in the deck (and only there).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test mirror_card`):
@@ -223,11 +225,19 @@ fn a_fireball_copy_is_the_fireball_cast_one_level_up() {
 // 7. past the last level
 
 #[test]
-fn a_copy_past_the_last_level_is_refused_and_debits_nothing() {
-    // SHIPPED ARM, NOT THE CLIENT: client 15.535.29 put a Knight 16 copied by a Mirror 16 down at level 17 (3105 hp =
-    // 690 x 450 %, the multiplier list running past the rarity's LevelCount). match.MIRROR_LEVEL_BEYOND_MAX is marked
-    // refuted; this pins what the engine does until it is implemented.
+fn a_copy_one_past_the_last_level_plays_there_and_two_past_is_refused() {
+    // THE CLIENT'S: client 15.535.29 put a Knight 16 copied by a Mirror 16 down at level 17 (3105 hp = 690 x 450 %, the
+    // multiplier list running past the rarity's LevelCount), and the engine plays one level past the count
+    // (card.rs `LEVELS_PAST_COUNT`, the live max-level cards' 17).
     let mut s = after_playing("Knight", OWN, 16);
+    let play = s.resolve_play(Team::Blue, 0).expect("the copy one past the count");
+    assert_eq!(play.level, 17, "{play:?}");
+    s.deploy_slot(Team::Blue, 0, at(OWN2)).expect("the copy goes down");
+    run_until(&mut s, 10, |s| find_live(s, Team::Blue, "Knight").len() == 2);
+    let hps: Vec<i32> = find_live(&s, Team::Blue, "Knight").iter().map(|k| k.max_hp).collect();
+    assert!(hps.contains(&3105), "the copy at 17, 690 x 450 %: {hps:?}");
+    // Two past the count (a Knight 17's copy at 18) is refused, debits nothing and leaves the Mirror in hand.
+    let mut s = after_playing("Knight", OWN, 17);
     assert!(matches!(s.resolve_play(Team::Blue, 0), Err(DeployError::InvalidLevel(_))), "{:?}", s.resolve_play(Team::Blue, 0));
     assert_eq!(s.hand_costs(Team::Blue)[0], -1);
     let before = s.elixir_raw(Team::Blue);

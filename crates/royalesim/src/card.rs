@@ -9135,10 +9135,14 @@ fn convert_spell(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(
     Ok((def, units))
 }
 
+/// A record's level ladder: its multipliers, the unified level they start at, and the rarity whose ladder they are
+/// (`level_table_of`).
+type LevelTable = (Option<Vec<i32>>, Option<i32>, Option<String>);
+
 /// (the ladder, the unified level it is entered from) of a cards.json
 /// `level_scaling` block (module doc, LEVEL SCALING). A `reading` this loader does
 /// not implement refuses the card; `object_rarity_local_1` needs its `base_level`.
-fn level_table_of(v: Option<serde_json::Value>) -> Result<(Option<Vec<i32>>, Option<i32>, Option<String>), String> {
+fn level_table_of(v: Option<serde_json::Value>) -> Result<LevelTable, String> {
     let Some(v) = v.filter(|v| !v.is_null()) else { return Ok((None, None, None)) };
     let ls: RawLevelScaling = serde_json::from_value(v).map_err(|e| format!("level_scaling: {e}"))?;
     let base = match ls.reading.as_deref() {
