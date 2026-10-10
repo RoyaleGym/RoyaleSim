@@ -809,6 +809,14 @@ pub struct Calib {
     /// `Frozen`, what a battle saved before it ran.
     #[serde(default = "guard_push_attack_reset_default")]
     pub guard_push_attack_reset: GuardPushAttackReset,
+    /// combat.DASH_CHAIN_TARGETS (what a dash chain's later hop may take, `chain_pick`, and its end on a crown tower, `chain_pass`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Troops`, what a battle saved before it ran.
+    #[serde(default = "dash_chain_targets_default")]
+    pub dash_chain_targets: DashChainTargets,
+    /// combat.DASH_TRIGGER_BUILDING (how far the dash chain's pending run reads a building or a crown tower, `chain_pass`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `CentrePlusRadius`, what a battle saved before it ran.
+    #[serde(default = "dash_trigger_building_default")]
+    pub dash_trigger_building: DashTriggerBuilding,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2579,6 +2587,14 @@ fn guard_charge_immunity_default() -> GuardChargeImmunity {
 
 fn guard_push_attack_reset_default() -> GuardPushAttackReset {
     GuardPushAttackReset::Frozen
+}
+
+fn dash_chain_targets_default() -> DashChainTargets {
+    DashChainTargets::Troops
+}
+
+fn dash_trigger_building_default() -> DashTriggerBuilding {
+    DashTriggerBuilding::CentrePlusRadius
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9427,6 +9443,32 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_CHAIN_TARGETS -- see `chain_pick` and `chain_pass`: what the Golden Knight's later hops may take.
+    DashChainTargets {
+        /// The engine before this key: an enemy ground troop within DashSecondaryRange, centre to centre, not yet hit.
+        Troops = "troops",
+        /// An enemy ground unit of any kind (a troop, a building, a crown tower) within DashSecondaryRange centre to
+        /// centre, the nearest; never air, never one this chain hit, and only a targetable one (not hidden, not waiting out
+        /// a stagger, not before its acquire tick; a deploying one is taken).
+        /// Client 16.402 (parity's r67 census of the ob6 live set: 232 of 232 later picks, 207 of 208 chain ends; 19
+        /// buildings and 15 princess towers among them, which `troops` never takes).
+        Client16402GroundTargetable = "client16402_ground_targetable",
+    }
+);
+calib_enum!(
+    /// combat.DASH_TRIGGER_BUILDING -- see `chain_pass` (DASH_CHAIN_PENDING's run): the distance the Golden Knight's
+    /// first dash reads to a building or a crown tower.
+    DashTriggerBuilding {
+        /// The engine before this key: DashRange + the target's radius, centre to centre, for every kind.
+        CentrePlusRadius = "centre_plus_radius",
+        /// A building's or a crown tower's distance is to its square (half-side its collision radius, axis-aligned):
+        /// hypot(max(|dx| - r, 0), max(|dy| - r, 0)) <= DashRange; a troop's stays DashRange + its radius. Client 16.402
+        /// (parity's r67 census of the ob6 live set: buildings 12 of 12, crown towers 21 of 21, where the circle fits 1
+        /// and 15; troops 33 of 34 on the circle).
+        Client16402Square = "client16402_square",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9942,6 +9984,8 @@ impl Calib {
             ramp_press_hold: pick(&v, &["combat", "RAMP_PRESS_HOLD", "value"], RampPressHold::from_calibration_name)?,
             guard_charge_immunity: pick(&v, &["combat", "GUARD_CHARGE_IMMUNITY", "value"], GuardChargeImmunity::from_calibration_name)?,
             guard_push_attack_reset: pick(&v, &["knockback", "GUARD_PUSH_ATTACK_RESET", "value"], GuardPushAttackReset::from_calibration_name)?,
+            dash_chain_targets: pick(&v, &["combat", "DASH_CHAIN_TARGETS", "value"], DashChainTargets::from_calibration_name)?,
+            dash_trigger_building: pick(&v, &["combat", "DASH_TRIGGER_BUILDING", "value"], DashTriggerBuilding::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -22156,12 +22200,20 @@ impl BattleState {
     fn chain_pick(&self, i: usize, range: i32, hit: &[EntityId]) -> Option<EntityId> {
         let e = &self.ents;
         let r2 = (range as i64) * (range as i64);
+        let any_ground = self.chain_takes_any_ground();
+        let calib = &self.cfg.calib;
+        let tick = self.tick;
         (0..e.capacity())
             .filter(|&j| {
                 e.alive[j]
                     && e.hp[j] > 0
                     && e.team[j] != e.team[i]
-                    && e.kind[j] == EntityKind::Troop
+                    // combat.DASH_CHAIN_TARGETS = client16402_ground_targetable: any ground kind, a targetable one.
+                    && (e.kind[j] == EntityKind::Troop
+                        || (any_ground
+                            && !crate::target::hidden_from_targeting(calib, e, j)))
+                    && !(any_ground && calib.formation_stagger_wait.waits() && e.stagger_ms[j] > 0)
+                    && !(any_ground && e.acquirable_from[j] > tick)
                     && !e.in_air(j)
                     && !e.jumping[j]
                     && e.hooked_by[j].is_none()
@@ -22172,6 +22224,24 @@ impl BattleState {
             .filter(|(d2, _, _)| *d2 <= r2)
             .min()
             .map(|(_, _, j)| e.id_of(j))
+    }
+
+    /// combat.DASH_CHAIN_TARGETS = client16402_ground_targetable in force.
+    fn chain_takes_any_ground(&self) -> bool {
+        // PLANT (regression) chain_takes_troops_only: the new arm still takes troops alone.
+        #[cfg(not(clash_plant = "chain_takes_troops_only"))]
+        let on = self.cfg.calib.dash_chain_targets == DashChainTargets::Client16402GroundTargetable;
+        #[cfg(clash_plant = "chain_takes_troops_only")]
+        let on = false;
+        on
+    }
+
+    /// combat.DASH_TRIGGER_BUILDING = client16402_square: a building's or a crown tower's distance from `p` to its square
+    /// (half-side its collision radius `r`), within `range`.
+    fn square_within(p: Vec2, q: Vec2, r: i32, range: i32) -> bool {
+        let dx = ((p.x - q.x).abs() - r).max(0) as i64;
+        let dy = ((p.y - q.y).abs() - r).max(0) as i64;
+        dx * dx + dy * dy <= (range as i64) * (range as i64)
     }
 
     /// THE DASH CHAINS' PHASES FOR THIS TICK (`ChainRun`, `ChainPhase`), at the top of the Path phase, before the move
@@ -22228,7 +22298,18 @@ impl BattleState {
                         let reach = (radius + self.ents.radius[ti]) as i64;
                         #[cfg(clash_plant = "pending_trigger_without_radius")]
                         let reach = radius as i64; // PLANT (regression): DashRange alone, centre to centre.
-                        if self.ents.pos[i].dist2(self.ents.pos[ti]) <= reach * reach {
+                        // combat.DASH_TRIGGER_BUILDING = client16402_square: a building or a crown tower by its square.
+                        // PLANT (regression) dash_trigger_circle: the new arm still reads every kind's circle.
+                        #[cfg(not(clash_plant = "dash_trigger_circle"))]
+                        let square = self.cfg.calib.dash_trigger_building == DashTriggerBuilding::Client16402Square && self.ents.kind[ti] != EntityKind::Troop;
+                        #[cfg(clash_plant = "dash_trigger_circle")]
+                        let square = false;
+                        let within = if square {
+                            Self::square_within(self.ents.pos[i], self.ents.pos[ti], self.ents.radius[ti], radius)
+                        } else {
+                            self.ents.pos[i].dist2(self.ents.pos[ti]) <= reach * reach
+                        };
+                        if within {
                             c.phase = ChainPhase::Dash;
                             c.mark = tick;
                             c.target = Some(t);
@@ -35790,6 +35871,10 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.GUARD_PUSH_ATTACK_RESET: Calib gained guard_push_attack_reset (serde default the old arm, frozen), no new state (it changes the saved swing at the push),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_CHAIN_TARGETS: Calib gained dash_chain_targets (serde default the old arm, troops), no new state (it reads the saved entities and the chain's hit list),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_TRIGGER_BUILDING: Calib gained dash_trigger_building (serde default the old arm, centre_plus_radius), no new state (it reads the saved positions and radii),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36737,6 +36822,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_charge_immunity".into(), serde_json::to_value(GuardChargeImmunity::None).map_err(|e| e.to_string())?);
     // knockback.GUARD_PUSH_ATTACK_RESET: a format-3 battle froze the pushed troop's swing (the same rule).
     sh.insert("guard_push_attack_reset".into(), serde_json::to_value(GuardPushAttackReset::Frozen).map_err(|e| e.to_string())?);
+    // combat.DASH_CHAIN_TARGETS: a format-3 battle's chain took troops alone (the same rule).
+    sh.insert("dash_chain_targets".into(), serde_json::to_value(DashChainTargets::Troops).map_err(|e| e.to_string())?);
+    // combat.DASH_TRIGGER_BUILDING: a format-3 battle's chain triggered on every kind's circle (the same rule).
+    sh.insert("dash_trigger_building".into(), serde_json::to_value(DashTriggerBuilding::CentrePlusRadius).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

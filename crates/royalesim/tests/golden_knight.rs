@@ -48,7 +48,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashChainAttackCycle, DashChainEnd, DashChainPending, DeployError, PostKillWait};
+use royalesim::state::{BattleConfig, BattleState, DashChainAttackCycle, DashChainEnd, DashChainPending, DashChainTargets, DashTriggerBuilding, DeployError, PostKillWait};
 use royalesim::{EntityId, Team};
 
 const GK_AT: (i32, i32) = (3500, 9000);
@@ -421,4 +421,68 @@ fn under_the_measured_cycle_his_first_ordinary_hit_lands_on_h_plus_19() {
     assert_eq!(first_hit_after_the_chain(DashChainAttackCycle::ClientRestartFromLoad), 19, "client15535_restart_from_load: H + 19");
     let kept = first_hit_after_the_chain(DashChainAttackCycle::Kept);
     assert!(kept < 19, "vacuous: under kept the first ordinary hit is not early (H + {kept})");
+}
+
+/// combat.DASH_CHAIN_TARGETS = client16402_ground_targetable (client 16.402, parity's r67 census of the ob6 live set: 232
+/// of 232 later picks, 19 of them buildings): after the Giant's blow the chain takes a Red Cannon in DashSecondaryRange;
+/// under troops it ends on the Giant (the vacuity check). Plant: chain_takes_troops_only.
+#[test]
+fn under_client16402_ground_targetable_a_later_hop_takes_a_building() {
+    let hop = |arm: DashChainTargets| {
+        let mut cfg = cfg_with(Some(11_000));
+        cfg.calib.dash_chain_targets = arm;
+        let (mut s, gk, reds) = scene_in(cfg, &[("Giant", GIANT_AT), ("Cannon", (5500, 14500))]);
+        let (giant_hp, cannon_hp) = (s.entity(reds[0]).unwrap().hp, s.entity(reds[1]).unwrap().hp);
+        let rows = run(&mut s, gk, &reds, 24);
+        let h1 = rows.iter().position(|r| r.hp[0] < giant_hp).expect("the Giant was hit first");
+        assert!(rows[..h1].iter().all(|r| r.hp[1] == cannon_hp), "precondition: the Cannon was hit before the Giant");
+        (rows[h1 + 2].target, rows.iter().skip(h1 + 2).any(|r| r.hp[1] < cannon_hp), reds)
+    };
+    let (target, hit, reds) = hop(DashChainTargets::Client16402GroundTargetable);
+    assert_eq!(target, Some(reds[1]), "client16402_ground_targetable: H + 2 takes the Cannon");
+    assert!(hit, "client16402_ground_targetable: the Cannon takes the next blow");
+    let (target, _, reds) = hop(DashChainTargets::Troops);
+    assert_eq!(target, Some(reds[0]), "troops (the vacuity check): the chain ends on the Giant");
+}
+
+/// A lone Golden Knight pressed off a Red princess tower's line (his run to the tower is diagonal) under
+/// combat.DASH_TRIGGER_BUILDING = `arm`: on the tick before his first dash, (his centre distance to the tower, his
+/// distance to its square, the tower's radius), native.
+fn diagonal_trigger(arm: DashTriggerBuilding) -> (i64, i64, i64) {
+    let mut cfg = cfg_with(Some(11_000));
+    cfg.calib.dash_chain_pending = DashChainPending::ClientRunToCurrentTarget;
+    cfg.calib.dash_trigger_building = arm;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let gk = s.scenario_spawn_now(Team::Blue, "GoldenKnight", n((8000, 18000)), None).expect("the Golden Knight");
+    s.tick();
+    s.press_ability_button(Team::Blue, 0).expect("the press is taken with nothing in reach");
+    let t = s.entity(gk).unwrap().target.expect("he targets a tower");
+    let (tp, r) = (s.entity(t).unwrap().pos, (s.entity(t).unwrap().radius / K) as i64);
+    let mut prev = s.entity(gk).unwrap().pos;
+    for _ in 0..80 {
+        s.tick();
+        let g = s.entity(gk).expect("he lives").pos;
+        if dist(prev, g) >= 390 {
+            let (dx, dy) = ((((prev.x - tp.x) / K) as i64).abs(), (((prev.y - tp.y) / K) as i64).abs());
+            assert!(dx > r && dy > r, "precondition: a diagonal run ({dx}, {dy}, radius {r})");
+            let sq = royalesim::fixed::isqrt((dx - r).max(0).pow(2) + (dy - r).max(0).pow(2));
+            return (dist(prev, tp), sq, r);
+        }
+        prev = g;
+    }
+    panic!("he never dashed");
+}
+
+/// combat.DASH_TRIGGER_BUILDING = client16402_square (client 16.402, parity's r67 census of the ob6 live set: crown towers
+/// 21 of 21, buildings 12 of 12): on a diagonal run his dash at a princess tower starts with its square within 5,500 and
+/// its centre past 5,500 + its radius; under centre_plus_radius only within that (the vacuity check). Plant:
+/// dash_trigger_circle.
+#[test]
+fn under_client16402_square_his_dash_reads_a_towers_square() {
+    let (centre, square, r) = diagonal_trigger(DashTriggerBuilding::Client16402Square);
+    assert!(square <= 5500 && centre > 5500 + r, "client16402_square: centre {centre}, square {square}, radius {r}");
+    let (centre, _, r) = diagonal_trigger(DashTriggerBuilding::CentrePlusRadius);
+    assert!(centre <= 5500 + r, "centre_plus_radius (the vacuity check): centre {centre} past {}", 5500 + r);
 }

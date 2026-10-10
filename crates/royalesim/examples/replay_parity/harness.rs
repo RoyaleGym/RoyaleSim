@@ -1830,6 +1830,8 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.GUARD_CHARGE_IMMUNITY = none: the Little Prince's guard takes hits in its charge (unread there).
 ///   knockback.GUARD_PUSH_ATTACK_RESET = frozen: the guard's push freezes the pushed troop's swing (unread there).
 ///   formation.STAGGER_WAIT = client16402_untargetable_immovable: a waiting member takes hits (unread there).
+///   combat.DASH_CHAIN_TARGETS = troops: the Golden Knight's later hops take troops alone (its battery's targets).
+///   combat.DASH_TRIGGER_BUILDING = centre_plus_radius: his first dash reads every kind's circle (buildings unread).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1981,6 +1983,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.GUARD_CHARGE_IMMUNITY", "\"none\""),
     ("knockback.GUARD_PUSH_ATTACK_RESET", "\"frozen\""),
     ("formation.STAGGER_WAIT", "\"client16402_untargetable_immovable\""),
+    ("combat.DASH_CHAIN_TARGETS", "\"troops\""),
+    ("combat.DASH_TRIGGER_BUILDING", "\"centre_plus_radius\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

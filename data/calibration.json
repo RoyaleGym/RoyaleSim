@@ -1794,6 +1794,26 @@
     }
   },
   "combat": {
+    "DASH_TRIGGER_BUILDING": {
+      "value": "client16402_square",
+      "status": "measured",
+      "candidates": ["centre_plus_radius", "client16402_square"],
+      "confidence": "HIGH for client16402_square on client 16.402: parity's r67 census of the ob6 live set, the first dash's trigger holding on the frame before its first step and failing on the one before: buildings (9 Cannons, 2 Teslas, a Bomb Tower) 12 of 12 under the square, 1 of 12 under the circle; crown towers 21 of 21, the circle 15; troops 33 of 34 on the circle, 10 of 34 on a square. Every Cannon was approached on the diagonal, where the square's corner puts the centre near 5000 + 600 x 1.414 = 5849 (the 5844-5894 the earlier triage saw). Client 15.535.29 keeps centre_plus_radius (CLIENT15535_ARMS).",
+      "provenance": "MEASURED by parity (2026-10-10, r67 Golden Knight census, the ob6 truth): liveplay-20261007-014440-A GK 16 dashed on t492 at a Cannon offset (4543, 3628), centre 5814, square 4971 (the frame before 5932 / about 5090); 20261008-155746-A GK 84 t1362, offset (5218, 2232), centre 5675, square 4898; princess towers straight on at 5913-5996 centre and diagonally (20261007-225659-A GK 99) at 6334, all 4914-4991 on the square.",
+      "meaning": "centre_plus_radius: DashRange + the target's radius for every kind. client16402_square: a building or a crown tower by its square.",
+      "open": "Other dashers' triggers on buildings (the Bandit, the Mega Knight's jump) unread; collision.BUILDING_FOOTPRINT_MODEL's circle for this reach only.",
+      "engine": "state.rs chain_pass (DASH_CHAIN_PENDING's run, `square_within`), selected by Calib::dash_trigger_building; tests/golden_knight.rs."
+    },
+    "DASH_CHAIN_TARGETS": {
+      "value": "client16402_ground_targetable",
+      "status": "measured",
+      "candidates": ["troops", "client16402_ground_targetable"],
+      "confidence": "HIGH for client16402_ground_targetable's pick on client 16.402: parity's r67 census of the ob6 live set (46 fixtures, 208 chains, 232 later picks, the picks read by target naming: 26 hops were blows with no dash), the pick on H + 2 from his standing landing point on H + 1's positions: 232 of 232 picks and 207 of 208 ends (the miss a frame-timing edge, a Giant Buffer at 4978 on the last captured frame); troops alone 198 of 232; no princess towers 217; earlier targets not excluded 90 / 85 ends; air allowed 208 / 176; deploying units excluded 194; the edge distance 225; reach + target radius 173 ends. Never the King tower (none in reach). The end on a crown tower is NOT in this arm (open). Client 15.535.29 keeps troops (CLIENT15535_ARMS).",
+      "provenance": "MEASURED by parity (2026-10-10, r67 Golden Knight census of the ob6 live set, the truth alone): liveplay-20261007-114701-A GK 7 t508 took Tesla 8 at 4895 past a Baby Dragon (air) at 4884, the Witch at 5109 out of reach; 20261008-165815-A GK 312 t2823 passed over Barbarian 326 at 2116 (waiting, state 11) for Barbarian 325 at 3650 (deploying); 20261002-172509-A GK 20 ended on t655 after a princess-tower blow with a Musketeer at 4000 and a Cannon at 4065 in reach.",
+      "meaning": "troops: a later hop takes troops alone. client16402_ground_targetable: any targetable ground enemy, the nearest by centre.",
+      "open": "The chain's end after a blow on a crown tower (42 chains named one, always last; 8 ended there with a ground enemy in reach, 6 of them one 10-02 battle): MEDIUM, not modelled. A hidden Tesla in reach (FilterHidden says no; unmeasured); the King tower (never in reach).",
+      "engine": "state.rs chain_pick (`chain_takes_any_ground`), selected by Calib::dash_chain_targets; tests/golden_knight.rs."
+    },
     "GUARD_CHARGE_IMMUNITY": {
       "value": "client16402_charge_immune",
       "status": "measured",
