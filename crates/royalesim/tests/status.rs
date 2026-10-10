@@ -85,8 +85,26 @@ use royalesim::state::{
 use royalesim::status::{compose, BuffDef, Sel, MAX_BUFFS_PER_ENTITY};
 use royalesim::{EntityId, Team};
 
+/// The file's arms: the shipped ones but spells.PULSING_AREA_EFFECT = hit_speed_offset (client 15.535.29's, the arm its
+/// pulse numbers were measured under; client 16.402 ships hit_speed_offset_full_wait, `the_shipped_pulsing_arm_waits_in_full`).
 fn calib() -> Calib {
-    Calib::shipped()
+    let mut c = Calib::shipped();
+    c.pulsing_area_effect = PulsingArea::HitSpeedOffset;
+    c
+}
+
+/// `common::config` under the file's arms (`calib`).
+fn config() -> BattleConfig {
+    let mut cfg = common::config();
+    cfg.calib.pulsing_area_effect = PulsingArea::HitSpeedOffset;
+    cfg
+}
+
+/// The shipped spells.PULSING_AREA_EFFECT is client 16.402's: a listed offset above a tick waited in full (Poison on the drop
+/// + 5, its pulses on + 25: the r63 census, 161 of 161, and Oracle's clean 10-06 scene).
+#[test]
+fn the_shipped_pulsing_arm_waits_in_full() {
+    assert_eq!(Calib::shipped().pulsing_area_effect, PulsingArea::HitSpeedOffsetFullWait);
 }
 
 fn bare(cfg: BattleConfig) -> BattleState {
