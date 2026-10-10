@@ -10,11 +10,14 @@
 //!   1. a Blue Knight that strikes it dead is pushed on the death tick, straight out of the death point, a ladder step
 //!      (more than 200), and again on the next;
 //!   2. a Blue Musketeer whose shot kills it is not moved on the death tick and pushed from the next, straight out;
-//!   3. under not_read neither moves on either tick.
+//!   3. under not_read neither moves on either tick;
+//!   4. under client16402_with_blow (client 16.402: armed with the blow at the next tick's Resolve) every first step a tick
+//!      later: the Musketeer's from T + 2, the Knight's from T + 1.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! troop_death_pushback`):
 //!   * `troop_death_pushback_unread` -- no dying troop pushes under the new arm: (1) and (2) go red.
+//!   * `troop_death_push_armed_in_reap` -- client16402_with_blow arms the pushes on the death tick: (4) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -32,6 +35,12 @@ fn n(x: i32, y: i32) -> Vec2 {
 /// The attacker's moves on the Golem's death tick and the next, each projected on the line out of the death point
 /// (native, outward positive), with the death tick's step length.
 fn scene(arm: TroopDeathPushback, attacker: &str, at: (i32, i32)) -> (i32, i32) {
+    let (t, t1, _) = scene3(arm, attacker, at);
+    (t, t1)
+}
+
+/// `scene`'s moves on the death tick, the next and the one after.
+fn scene3(arm: TroopDeathPushback, attacker: &str, at: (i32, i32)) -> (i32, i32, i32) {
     let mut cfg = config();
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
@@ -57,12 +66,14 @@ fn scene(arm: TroopDeathPushback, attacker: &str, at: (i32, i32)) -> (i32, i32) 
     let p1 = s.entity(a).expect("the attacker").pos;
     s.tick();
     let p2 = s.entity(a).expect("the attacker").pos;
+    s.tick();
+    let p3 = s.entity(a).expect("the attacker").pos;
     let out = |from: Vec2, to: Vec2| -> i32 {
         let (ox, oy) = ((from.x - death.x) as i64, (from.y - death.y) as i64);
         let len = royalesim::fixed::isqrt(ox * ox + oy * oy).max(1);
         ((((to.x - from.x) as i64) * ox + ((to.y - from.y) as i64) * oy) / len / K as i64) as i32
     };
-    (out(p0, p1), out(p1, p2))
+    (out(p0, p1), out(p1, p2), out(p2, p3))
 }
 
 #[test]
@@ -80,4 +91,18 @@ fn a_golem_shot_dead_pushes_from_the_next_tick() {
     assert!(t == 0 && t1 > 200, "client15535_ladder: the Musketeer's moves out of the death point on T and T + 1: {t}, {t1}");
     let (ot, ot1) = scene(TroopDeathPushback::NotRead, "Musketeer", (9000, 17500));
     assert!(ot <= 0 && ot1 <= 0, "not_read: the Musketeer was pushed: {ot}, {ot1}");
+}
+
+/// client16402_with_blow: the pushes are armed with the death blow at the next tick's Resolve, so each first step comes a
+/// tick later than client15535_ladder's (client 16.402, sp-f4-hunterG0 / G40 / G80: the blow on T + 1, the shot-dead
+/// Golem's victim stepping out from T + 2, 3 of 3). Plant: troop_death_push_armed_in_reap.
+#[test]
+fn under_client16402_with_blow_every_first_step_comes_a_tick_later() {
+    let (t, t1, t2) = scene3(TroopDeathPushback::Client16402WithBlow, "Musketeer", (9000, 17500));
+    assert!(t == 0 && t1.abs() < 100 && t2 > 200, "client16402_with_blow: the Musketeer's moves out on T, T + 1, T + 2: {t}, {t1}, {t2}");
+    let (k, k1, k2) = scene3(TroopDeathPushback::Client16402WithBlow, "Knight", (9000, 18300));
+    assert!(k < 50 && k1 > 200 && k2 > 200, "client16402_with_blow: the Knight's moves out on T, T + 1, T + 2: {k}, {k1}, {k2}");
+    // the old arm on the same scenes: the Musketeer from T + 1 (the vacuity check)
+    let (_, o1, _) = scene3(TroopDeathPushback::Client15535Ladder, "Musketeer", (9000, 17500));
+    assert!(o1 > 200, "client15535_ladder: the Musketeer's move out on T + 1: {o1}");
 }

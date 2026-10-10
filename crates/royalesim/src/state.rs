@@ -8733,6 +8733,13 @@ calib_enum!(
         /// 225 ... for the Golem; 174, 149 ... for the Golemite); the first step on the death tick 27 of 29 times the
         /// troop was struck in the pass, on the next tick 14 of 14 times a shot killed it.
         Client15535Ladder = "client15535_ladder",
+        /// client15535_ladder's pushes, armed WITH THE DEATH BLOW: queued in the death tick's Reap and armed at the next
+        /// tick's Resolve, after the buffered blow lands there (combat.DEATH_DAMAGE_TICK = next_tick), so every first step
+        /// comes a tick later than client15535_ladder's: on T + 2 for a troop a shot killed (T the first frame without
+        /// it), on T + 1 for one struck down in the sequential pass. Client 16.402 (Oracle's 160402017 scenes
+        /// sp-f4-hunterG0 / G40 / G80): a Golem shot dead by the Evo Hunter's volley; its blow took the Hunter 885 -> 660
+        /// on T + 1 and the Hunter stepped 248, 248, 223, 198 ... straight out of the death point from T + 2, 3 of 3.
+        Client16402WithBlow = "client16402_with_blow",
     }
 );
 calib_enum!(
@@ -28764,7 +28771,10 @@ impl BattleState {
                     // move pass), else on the next. Client 15.535.29: 43 of 43 enemies in reach of a dying Golem or Golemite
                     // pushed (sp-f2-cagefb-s0 t928: a Goblin Brawler 1,342 from the Golem stepped 248, 249, 223 ... away).
                     #[cfg(not(clash_plant = "troop_death_pushback_unread"))]
-                    if self.cfg.calib.troop_death_pushback == TroopDeathPushback::Client15535Ladder && card.death_pushback > 0 && self.ents.kind[i] == EntityKind::Troop {
+                    if matches!(self.cfg.calib.troop_death_pushback, TroopDeathPushback::Client15535Ladder | TroopDeathPushback::Client16402WithBlow)
+                        && card.death_pushback > 0
+                        && self.ents.kind[i] == EntityKind::Troop
+                    {
                         let now = self.scratch.pass_struck.contains(id);
                         let victims: Vec<usize> = self.dmg.hits[blow_from..].iter().map(|h| h.target.index as usize).collect();
                         let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[], tick: self.tick };
@@ -28790,7 +28800,16 @@ impl BattleState {
                 }
             }
             // knockback.TROOP_DEATH_PUSHBACK: arm the death blows' pushes (their first step now for a troop struck in the pass).
-            if !death_pushes.knocks.is_empty() {
+            // Under client16402_with_blow they are queued with the tick's effects instead and armed at the next tick's
+            // Resolve, after the buffered death blow lands there (`phase_resolve`: the hits, then `apply_effects`).
+            // PLANT (regression) troop_death_push_armed_in_reap: the new arm still arms them here, on the death tick.
+            #[cfg(not(clash_plant = "troop_death_push_armed_in_reap"))]
+            let with_blow = self.cfg.calib.troop_death_pushback == TroopDeathPushback::Client16402WithBlow;
+            #[cfg(clash_plant = "troop_death_push_armed_in_reap")]
+            let with_blow = false;
+            if with_blow {
+                self.effects.knocks.append(&mut death_pushes.knocks);
+            } else if !death_pushes.knocks.is_empty() {
                 let later = std::mem::replace(&mut self.effects, death_pushes);
                 self.apply_effects();
                 self.effects = later;

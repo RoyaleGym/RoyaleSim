@@ -1325,7 +1325,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.death_ring_axis, DeathRingAxis::RawDirection, "a 16.402 capture");
     assert_eq!(cfg.calib.pass_kill_chase, PassKillChase::StartOfPass, "a 16.402 capture");
     assert_eq!(cfg.calib.knocked_doomed_avoidance, KnockedDoomedAvoidance::Static, "a 16.402 capture");
-    assert_eq!(cfg.calib.troop_death_pushback, TroopDeathPushback::NotRead, "a 16.402 capture");
+    assert_eq!(cfg.calib.troop_death_pushback, TroopDeathPushback::Client16402WithBlow, "a 16.402 capture");
     assert_eq!(cfg.calib.struck_contact_order, StruckContactOrder::WholePass, "a 16.402 capture");
     assert_eq!(cfg.calib.fall_grounding, FallGrounding::StatusRebind, "a 16.402 capture");
     assert_eq!(cfg.calib.cage_captive_shots, CageCaptiveShots::AfterShotsHiddenOnSnap, "a 16.402 capture");
