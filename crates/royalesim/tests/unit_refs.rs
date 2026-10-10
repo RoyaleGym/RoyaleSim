@@ -435,8 +435,11 @@ fn every_registered_cards_units_pass_their_level_checks() {
                 continue; // rejected after its push: unregistered, its blocks dropped
             }
             for level in 1..=20 {
-                if db.level_multiplier(i, level).is_err() {
-                    continue; // not a level this card has
+                // the levels the card is PLAYED at: its ladder has them (`level_multiplier`) and a play may take them
+                // (`check_play_level`, one past the count). A level past those is a hero's level-up's, which the ladder
+                // runs on to, never a play, so it has no play check to pass.
+                if db.level_multiplier(i, level).is_err() || db.check_play_level(i, level).is_err() {
+                    continue; // not a level this card is played at
                 }
                 db.check_levels(i, level).unwrap_or_else(|e| panic!("{file} {} at {level}: {e}", c.name));
                 for (path, u, ix) in db.unit_refs(i) {
