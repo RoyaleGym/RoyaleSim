@@ -31673,7 +31673,7 @@ impl BattleState {
     /// stands where the hero did, off the grid. Measured on client 15.535.29 (sp-il-2c29): a turret on (3898, 13725) took x
     /// 2000..5000 (a troop tap moved off it stood on (5500, 14500), which the centred box, 2398..5398, covers), and one on
     /// (4269, 16457) took y from 14500 (a tap on (3500, 14500) was moved off it).
-    fn building_box(&self, i: usize) -> Rect {
+    pub(crate) fn building_box(&self, i: usize) -> Rect {
         let (p, n) = (self.ents.pos[i], crate::arena::placement_tiles(self.ents.radius[i]));
         #[cfg(not(clash_plant = "enemy_box_centred"))]
         let anchored = self.cfg.calib.placement_enemy_building_taps == EnemyBuildingTaps::Client15535HalfTileBoxRing;

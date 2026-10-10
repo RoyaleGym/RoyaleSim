@@ -1212,10 +1212,17 @@ pub fn state_json_text_with(
         // [x0, y0, x1, y1] in subtiles, or null for anything that is not a
         // building or a crown tower. It is where the thing was PUT, not a
         // collision shape: troops stand inside these boxes routinely
-        // (calibration placement.FOOTPRINT_TILES).
+        // (calibration placement.FOOTPRINT_TILES). It is the box the play path
+        // judges a tap against (state.rs `building_box`): under
+        // placement.ENEMY_BUILDING_TAPS's anchored arms its low corner sits on the
+        // tile grid, which leaves the box of a building standing on the grid (every
+        // play-path building) where a centred box has it, and moves an off-grid one's
+        // (a hero's turret).
         let footprint = if e.kind.is_building() {
-            let n = crate::arena::placement_tiles(e.radius);
-            let b = crate::arena::Arena::placement_box(e.pos, n);
+            #[cfg(not(clash_plant = "footprint_centred"))]
+            let b = s.building_box(e.id.index as usize);
+            #[cfg(clash_plant = "footprint_centred")]
+            let b = crate::arena::Arena::placement_box(e.pos, crate::arena::placement_tiles(e.radius)); // PLANT: centred on the point.
             format!("[{},{},{},{}]", b.min.x, b.min.y, b.max.x, b.max.y)
         } else {
             "null".to_string()
@@ -2520,6 +2527,51 @@ mod tests {
 
     fn cards() -> Arc<CardDb> {
         Arc::new(CardDb::load_repo().expect("data/derived/cards.json (run tools/extract_cards.py)"))
+    }
+
+    /// THE FOOTPRINT IS THE BOX THE PLAY PATH JUDGES A TAP AGAINST (state.rs `building_box`). A Cannon (3x3) set down on a
+    /// tile corner, off the grid its play would put it on (a scenario spawn; in a battle a hero's turret stands off it):
+    /// under placement.ENEMY_BUILDING_TAPS = client15535_tile_box_ring (shipped) its box's low corner is on the tile grid,
+    /// half a tile below the centred box in both axes; under ignored the box is centred on its point. A Cannon on a tile
+    /// centre has the centred box under both. Plant: footprint_centred.
+    #[test]
+    fn the_footprint_is_the_box_a_tap_is_judged_against() {
+        use crate::state::EnemyBuildingTaps;
+        let db = cards();
+        let catalogue: Vec<u16> = (0..db.cards.len() as u16).filter(|i| db.get(*i).name != KING_TOWER && db.get(*i).name != PRINCESS_TOWER && !db.get(*i).summon_only).collect();
+        let ids = ids_of_indices(&db, &catalogue);
+        let cannon = catalogue.iter().position(|i| db.get(*i).name == "Cannon").unwrap() as i64;
+        let tile = crate::fixed::tiles(1);
+        assert_eq!(crate::state::Calib::shipped().placement_enemy_building_taps, EnemyBuildingTaps::Client15535TileBoxRing, "the shipped arm");
+        // (the footprint row's box, the box centred on the Cannon's point)
+        let boxes = |arm: EnemyBuildingTaps, at: Vec2| -> (Vec<i64>, crate::arena::Rect) {
+            let mut cfg = battle_config(&db, &["Cannon", "Knight", "Archer", "Giant", "Knight", "Archer", "Knight", "Archer"]);
+            cfg.calib.placement_enemy_building_taps = arm;
+            let mut s = BattleState::new(7, cfg);
+            let id = s.scenario_spawn_now(Team::Blue, "Cannon", at, None).unwrap();
+            let e = s.entity(id).unwrap();
+            assert_eq!(e.pos, at, "the scenario Cannon stands where it was set down");
+            let n = crate::arena::placement_tiles(e.radius);
+            assert_eq!(n, 3, "the scene's Cannon is 3x3");
+            let centred = crate::arena::Arena::placement_box(e.pos, n);
+            let v: serde_json::Value = serde_json::from_str(&state_json_text(&s, &db, &ids, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap()).unwrap();
+            let rows: Vec<_> = v["entities"].as_array().unwrap().iter().filter(|r| r[3].as_i64() == Some(cannon)).cloned().collect();
+            assert_eq!(rows.len(), 1, "one Cannon row");
+            (rows[0][14].as_array().expect("a building's footprint").iter().map(|x| x.as_i64().unwrap()).collect(), centred)
+        };
+        let corner = Vec2::new(9 * tile, 8 * tile);
+        let centre = Vec2::new(9 * tile + tile / 2, 8 * tile + tile / 2);
+        let as_row = |b: crate::arena::Rect| vec![b.min.x as i64, b.min.y as i64, b.max.x as i64, b.max.y as i64];
+        let (got, centred) = boxes(EnemyBuildingTaps::Client15535TileBoxRing, corner);
+        let h = (tile / 2) as i64;
+        let c = as_row(centred);
+        assert_eq!(got, vec![c[0] - h, c[1] - h, c[2] - h, c[3] - h], "client15535_tile_box_ring: the low corner on the tile grid");
+        let (got, centred) = boxes(EnemyBuildingTaps::Ignored, corner);
+        assert_eq!(got, as_row(centred), "ignored: the box centred on the point");
+        for arm in [EnemyBuildingTaps::Client15535TileBoxRing, EnemyBuildingTaps::Ignored] {
+            let (got, centred) = boxes(arm, centre);
+            assert_eq!(got, as_row(centred), "{arm:?}: a Cannon on a tile centre keeps the centred box");
+        }
     }
 
     /// id_of_idx for a catalogue of every simulable non-tower card except `missing`.
