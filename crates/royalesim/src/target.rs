@@ -143,6 +143,12 @@ pub const BUILDING_SCAN_DX: i32 = 6750;
 /// PLANT (regression) building_scan_dx_7000: the value before the Hog Rider's band, which took its Cannon at 6972.
 #[cfg(clash_plant = "building_scan_dx_7000")]
 pub const BUILDING_SCAN_DX: i32 = 7000;
+/// targeting.BUILDING_SCAN_X_CUT = client16402_edge_6700_melee: a melee buildings-only walker ignores a building when
+/// |dx| + its radius - the building's radius passes this, native. Measured on client 16.402 (the live population, parity's
+/// bscan census, truth only): the Royal Hog (r 600) takes a Cannon (600) at |dx| 6700 and keeps its tower from 6704; the
+/// Balloon (500) at 6793 / 6802; the Skeleton Balloon (500) at 6800 / 6816: 6700, 6693 / 6702, 6700 / 6716 by the rule.
+/// Client 15.535.29's Hog Rider (600, a Cannon) took at 6697 and kept at 6811.
+pub const BUILDING_SCAN_EDGE_DX: i32 = 6700;
 
 /// targeting.FIRST_TOWER_PICK = client_spawn_lane: how long after its deploy ends a troop's default tower still comes
 /// from its spawn lane, ms (state.rs `on_deployed`). Measured on client 15.535.29: 6 of 6 re-picks by x fall 10
@@ -972,12 +978,24 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
         if !in_attack_range(ctx.calib, e.pos[a], sight_toward(ctx, a, c), e.radius[a], e.pos[c], e.radius[c]) {
             continue;
         }
-        // A buildings-only walker ignores a player building more than BUILDING_SCAN_DX across in x.
+        // A buildings-only walker ignores a player building too far across in x (targeting.BUILDING_SCAN_X_CUT): under
+        // centre_6750 more than BUILDING_SCAN_DX centre to centre; under client16402_edge_6700_melee a walker that attacks
+        // with a projectile has no cut, and a melee one ignores it past BUILDING_SCAN_EDGE_DX of |dx| + its radius - the
+        // building's.
         #[cfg(not(clash_plant = "building_scan_dx_unbounded"))]
-        if card.target_only_buildings
-            && e.kind[c] == EntityKind::Building
-            && (e.pos[c].x - e.pos[a].x).abs() > BUILDING_SCAN_DX * crate::fixed::SUBTILE_PER_MILLITILE
-        {
+        if card.target_only_buildings && e.kind[c] == EntityKind::Building && {
+            let dx = (e.pos[c].x - e.pos[a].x).abs();
+            let k = crate::fixed::SUBTILE_PER_MILLITILE;
+            #[cfg(not(clash_plant = "building_scan_cut_centre"))]
+            let edge = ctx.calib.building_scan_x_cut == crate::state::BuildingScanXCut::Client16402Edge6700Melee;
+            #[cfg(clash_plant = "building_scan_cut_centre")]
+            let edge = false; // PLANT (regression): the new arm still cuts every walker at 6750 centre to centre.
+            if edge {
+                card.projectile.is_none() && dx + e.radius[a] - e.radius[c] > BUILDING_SCAN_EDGE_DX * k
+            } else {
+                dx > BUILDING_SCAN_DX * k
+            }
+        } {
             continue;
         }
         // targeting.MINIMUM_RANGE = client16402_edge_distance: never TAKE a target inside the minimum range.
