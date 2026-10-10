@@ -1677,7 +1677,15 @@ def effect_leads(card: dict | None) -> list[int]:
     `hit_speed_offset_ms` after the cast, or one `hit_speed_ms` later for each hit that found no target, while the
     effect lives. Measured on the 2026-10 live set: of 65 Lightning casts with no tap the caster's elixir drops 10
     ticks before the first strike on 62 and 20 on 3 (each with no strike on the first hit); of 85 Royal Deliveries,
-    40 ticks before the box on all 85."""
+    40 ticks before the box on all 85.
+
+    A CAPTURE THAT LISTS AREA OBJECTS (an effect with `area` true: the live reader's, header `areas_in_effects`) shows
+    the effect itself first, on its drop's own frame and at the cast point, and its strikes after it: the dating takes
+    no lead for such a cast (`spell_casts` `first_area`). Live, over the 634 ob5 captures: the Royal Delivery's crate 40
+    ticks after its area (91 casts; 39 on 4), the Lightning's bolts 10, 20 and 30 ticks after (75; 10 and 20 on 30, 10
+    on 6); the opponent's area is on the payment the header names (opponent_plays evidence "area") on 63 of 65
+    Lightnings and 90 of 93 Royal Deliveries. Dated by the lead, each such cast looked for its drop 10 or 40 ticks
+    before the area and found none (live 20261008-005831: three Lightnings, each "not played")."""
     ae = ((card or {}).get("spell") or {}).get("area_effect_object") or {}
     if not ae.get("projectile") or ae.get("hit_speed_offset_ms") is None:
         return [0]
@@ -1903,6 +1911,8 @@ def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
                     "aim_rule": "the object's projectile target"
                     if len(pts) == 1
                     else f"mean of {len(pts)} objects' projectile targets on the first frame",
+                    # the cast's area object is its first sighting (`effect_leads`: A CAPTURE THAT LISTS AREA OBJECTS)
+                    "first_area": any(e.get("area") for e in effs),
                 }
             c["last_index"] = fi
             c["last_tick"] = tick
@@ -3458,7 +3468,9 @@ def build(
         d = {
             "tick": tick,
             "first_seen": ticks[fi],
-            "tick_evidence": "first frame of the projectile"
+            "tick_evidence": (
+                "first frame of its area object" if cast.get("first_area") else "first frame of the projectile"
+            )
             + (
                 f" (frame gap {ticks[fi] - ticks[fi - 1]})"
                 if fi > 0 and ticks[fi] - ticks[fi - 1] > 1
@@ -3545,7 +3557,8 @@ def build(
                 )
                 d["_mirror_of"] = mirror_of
         played = cards_by_name.get(mirror_of["card"] if mirror_of else name)
-        leads = effect_leads(played)
+        # a cast first seen as its area object shows on its drop's frame, whatever its strikes' lead (`effect_leads`)
+        leads = [0] if cast.get("first_area") else effect_leads(played)
         if has_elixir and isinstance(cost, int):
             if leads == [0]:
                 # the slack runs from the first frame that shows the object, which a launch dating (`flown`) may

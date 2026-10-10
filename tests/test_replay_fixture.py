@@ -380,6 +380,16 @@ def test_one_spell_cast_is_one_run_of_objects_not_one_deploy_per_frame(m):
     ]
     # non-spell effects are not casts
     assert m.spell_casts([{"tick": 5, "effects": [_eff(0, 26000000, "0x1", 1, 1)]}]) == []
+    # a cast whose first sighting is its AREA object (a live capture's Lightning: the area on its drop's frame at the
+    # cast point, the bolts 10 ticks on) is marked so the dating takes no strike lead (`effect_leads`)
+    lightning = 28000007
+    area = {**_eff(0, lightning, "0xA", 0, 0), "x": 15500, "y": 18500, "area": True}
+    del area["projectile_x"], area["projectile_y"]
+    bolt = _eff(0, lightning, "0xB", 14181, 15215)
+    (cast,) = m.spell_casts([{"tick": 562, "effects": [area]}, {"tick": 572, "effects": [area, bolt]}])
+    assert (cast["first_area"], cast["aim"]) == (True, [15500, 18500]), cast
+    (late,) = m.spell_casts([{"tick": 572, "effects": [bolt]}])
+    assert not late["first_area"], "a capture with no area objects: the bolt first, dated by the lead"
 
 
 def test_a_tap_of_a_spell_card_is_a_cast_whatever_the_log_record_says(m, tmp_path):
