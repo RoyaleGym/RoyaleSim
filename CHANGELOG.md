@@ -3,6 +3,18 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.29 (2026-10-10)
+
+- Six settings now default to the current client's behaviour, each measured against its recorded battles: a Rune
+  Giant holds his attack for 14 ticks after each enchant; a buildings-only troop ignores a building farther across the
+  board than its sight allows (`targeting.BUILDING_SCAN_X_CUT` now reads the card tables' `sight_clip_side_milli`, on
+  both clients); the Little Prince's ramp holds through his own press; his guard takes no hit while it charges, and
+  its push resets the pushed troop's swing; and a formation member waiting to step in takes no hit and no area. Each
+  older behaviour stays available as that setting's old value, and `replay_parity` uses the old values for the older
+  client's battles.
+- The card tables carry the Dagger Duchess's burst attack (`burst_attack` on her unit: her charges, their recharge
+  and the order of her attacks). The engine does not read it yet. The tables' hashes change with it.
+
 ## 0.1.28 (2026-10-10)
 
 - Two new `BattleConfig` fields. `tower_troops` names each side's crown tower troop: `"DaggerDuchess"`, `"Cannoneer"`
