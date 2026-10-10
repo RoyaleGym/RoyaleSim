@@ -16,7 +16,8 @@
 //! (`his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh` red), ramp_press_resets and
 //! ramp_held_by_press_unread (`under_client16402_tag_held_his_press_keeps_his_ramp` red), guard_charge_hit
 //! (`under_client16402_charge_immune_his_guard_takes_no_hit_in_its_charge` red), guard_push_swing_frozen
-//! (`under_client16402_reset_his_guards_push_resets_the_pushed_swing` red).
+//! (`under_client16402_reset_his_guards_push_resets_the_pushed_swing` red), landing_hits_end_at_arrival and
+//! landing_hits_unbounded (`under_client16402_through_landing_ticks_his_guard_hits_through_its_arrival_plus_three` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -33,7 +34,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardLandingHits, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -685,4 +686,78 @@ fn under_client16402_reset_his_guards_push_resets_the_pushed_swing() {
     let (was, now) = pushed_swing(GuardPushAttackReset::Frozen);
     assert!(was.0 != AttackPhase::Idle, "precondition (frozen): the Knight was swinging before the push: {was:?}");
     assert!(now.0 != AttackPhase::Idle && now.1 > 0, "frozen (the vacuity check): the swing stands on the push's frame: {now:?} (before {was:?})");
+}
+
+/// The guard charging with a red Knight held 6000 right of the Little Prince and 3000 ahead (out of the guard's reach all
+/// through its charge), Blue's princess towers down, under combat.GUARD_LANDING_HITS = `arm`. With `enter` = Some(k) the
+/// Knight is put 1500 ahead of the guard's end point on the guard's arrival + k (its last step's tick, `a`) and held
+/// there. Returns `a`, the guard's end point and the ticks after `a`, through `a` + 8, on which the Knight lost the
+/// guard's hit (256 or more: the push damage, 256 at level 11, or it and one of his shots).
+fn landing_scene(arm: GuardLandingHits, enter: Option<(u32, Vec2)>) -> (u32, Vec2, Vec<u32>) {
+    let far = (AT.0 + 6000, AT.1 + 3000);
+    let (mut s, lp, reds) = scene_cfg(|c| c.calib.guard_landing_hits = arm, &[("Knight", far)]);
+    let knight = reds[0].0;
+    let towers: Vec<EntityId> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut first, mut last, mut arrived, mut end): (Option<u32>, Option<Vec2>, Option<u32>, Option<Vec2>) = (None, None, None, None);
+    let mut spot = n(far);
+    let mut hits = Vec::new();
+    for _ in 0..90 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        // `enter`'s tick k is the one about to run: the Knight stands in the guard's reach through tick k.
+        if let Some((k, at)) = enter {
+            if s.tick_count() == k {
+                spot = at;
+            }
+        }
+        let full = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(knight, spot));
+        assert!(s.debug_set_hp(knight, full));
+        s.tick();
+        let t = s.tick_count() - 1;
+        let lost = full - s.entity(knight).expect("the Knight").hp;
+        // The guard's arrival: past its dash start, the first tick it stood still; its last step was the tick before.
+        let p = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos);
+        if p.is_some() && first.is_none() {
+            first = Some(t);
+        }
+        if arrived.is_none() && p.is_some() && last == p && first.is_some_and(|f| t > f + crate_dash_start()) {
+            arrived = Some(t - 1);
+            end = p;
+        }
+        last = p;
+        if let Some(a) = arrived {
+            if lost >= 256 && t <= a + 8 {
+                hits.push(t - a);
+            }
+        }
+    }
+    let a = arrived.expect("the guard arrived");
+    (a, end.expect("its end point"), hits)
+}
+
+/// combat.GUARD_LANDING_HITS = client16402_through_landing_ticks (client 16.402, parity's r68 census over the ob6 live
+/// set's 737 guards: entrants on its last dash frame, the arrival + 1, and the two after hit 10 of 10, on the third after
+/// 1 of 10, later none): a Knight put in the guard's reach on its arrival + 1, + 2 or + 3 takes its hit on that tick; one
+/// put there on its arrival + 4 is not hit. Under charge_steps_only the Knight put there on the arrival + 1 is not hit (the
+/// vacuity check). Plants: landing_hits_end_at_arrival, landing_hits_unbounded.
+#[test]
+fn under_client16402_through_landing_ticks_his_guard_hits_through_its_arrival_plus_three() {
+    let arm = GuardLandingHits::Client16402ThroughLandingTicks;
+    let (a, end, none) = landing_scene(arm, None);
+    assert!(none.is_empty(), "precondition: the Knight out of the guard's reach all through its charge: {none:?}");
+    let spot = Vec2::new(end.x, end.y + 1500 * K);
+    for k in 1..=3 {
+        let (a2, _, hits) = landing_scene(arm, Some((a + k, spot)));
+        assert_eq!(a2, a, "the scene's arrival moved");
+        assert_eq!(hits, [k], "put in reach on the arrival + {k}: hit on that tick, once (arrival {a})");
+    }
+    let (_, _, hits) = landing_scene(arm, Some((a + 4, spot)));
+    assert!(hits.is_empty(), "put in reach on the arrival + 4: not hit (arrival {a}): {hits:?}");
+    let (a1, _, hits) = landing_scene(GuardLandingHits::ChargeStepsOnly, Some((a + 1, spot)));
+    assert_eq!(a1, a, "the old arm's arrival moved");
+    assert!(hits.is_empty(), "charge_steps_only (the vacuity check): hit after the arrival: {hits:?}");
 }

@@ -1834,6 +1834,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.DASH_TRIGGER_BUILDING = centre_plus_radius: his first dash reads every kind's circle (buildings unread).
 ///   hide.HELD_THROUGH_HIDE = dropped: a held Tesla is let go when it goes under (unread there).
 ///   combat.CHAIN_HOP_DEAD_TARGET = ends: a chain hop whose target died before it landed ends the chain (unread there).
+///   combat.GUARD_LANDING_HITS = charge_steps_only: the Little Prince's guard hits on its charge's steps alone (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1989,6 +1990,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.DASH_TRIGGER_BUILDING", "\"centre_plus_radius\""),
     ("hide.HELD_THROUGH_HIDE", "\"dropped\""),
     ("combat.CHAIN_HOP_DEAD_TARGET", "\"ends\""),
+    ("combat.GUARD_LANDING_HITS", "\"charge_steps_only\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

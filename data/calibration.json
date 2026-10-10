@@ -1794,6 +1794,16 @@
     }
   },
   "combat": {
+    "GUARD_LANDING_HITS": {
+      "value": "client16402_through_landing_ticks",
+      "status": "measured",
+      "candidates": ["charge_steps_only", "client16402_through_landing_ticks"],
+      "confidence": "HIGH for client16402_through_landing_ticks on client 16.402 (parity r68, 2026-10-10): parity's r68 census over the ob6 live set, 737 guards: an enemy ground troop entering its reach (2500 + its radius) on its last dash frame (the arrival + 1) or the two after was hit on that frame 10 of 10 (351, 423, 595: its push damage at the side's level), on the third after 1 of 10, later 0 of 60 (other attackers' drops only); entrants in the charge itself 83 to 95 % per frame. 715 of the 737 are free on the frame after their last dash frame (GUARD_LANDING_TICKS). The window's last tick (the arrival + 3) rests on 6 entrants, its end on 10 (1 hit, 356). LOW for charge_steps_only on 16.402.",
+      "provenance": "MEASURED by parity (2026-10-10, r68) on client 16.402: parity's r68 census over the ob6 live set, 737 guards: an enemy ground troop entering its reach (2500 + its radius) on its last dash frame (the arrival + 1) or the two after was hit on that frame 10 of 10 (351, 423, 595: its push damage at the side's level), on the third after 1 of 10, later 0 of 60 (other attackers' drops only); entrants in the charge itself 83 to 95 % per frame. 715 of the 737 are free on the frame after their last dash frame (GUARD_LANDING_TICKS). The death divergences that led there, traced on 0.1.28: liveplay-20261008-063837-A (the guard's last dash frame t1239; a Tombstone 3039 off dies on t1239 in the truth, the engine's stands), 073328-A (a Goblin entering on t720, the last dash frame t719 + 1, dies on t721), 20261007-194937-A (a Witch walking to about 3000 dies on t731). The truth's last dash frame is the engine's arrival + 1: both take their last, partial, step on the frame before it (3 of 3 traced).",
+      "meaning": "charge_steps_only: the engine's; the guard hits each enemy ground troop within its reach once, on its charge's steps (its arrival's included). client16402_through_landing_ticks: the same, and on each tick after its arrival through GUARD_LANDING_HIT_TICKS (3) it hits an enemy ground troop in its reach that it has not hit (its push, the ladder, stops at the arrival as before); free on its arrival + GUARD_LANDING_TICKS as before.",
+      "open": "Whether the landing's push goes on too (no push measured after the arrival); the window's end on 10 entrants (1 hit on the arrival + 4, 356: the side's level or another attacker); client 15.535.29 unread (CLIENT15535_ARMS keeps charge_steps_only).",
+      "engine": "state.rs guard_moves (the arrival's branch, `landing`), card.rs GUARD_LANDING_HIT_TICKS; tests/little_prince.rs."
+    },
     "CHAIN_HOP_DEAD_TARGET": {
       "value": "client16402_hops_on_from_last_point",
       "status": "measured",

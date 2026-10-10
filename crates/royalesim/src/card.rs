@@ -1674,6 +1674,11 @@ pub const GUARD_LANDING_TICKS: u32 = 2;
 /// arrival's tick and the next; hits back on the second after): measured on client 16.402, 0 of 715 on the frame after,
 /// 7 of 711 on the second.
 pub const GUARD_IMMUNE_AFTER_ARRIVAL_TICKS: u32 = 2;
+/// combat.GUARD_LANDING_HITS = client16402_through_landing_ticks: the guard's hit goes on through its arrival + this many
+/// ticks (its landing's and its first free tick's). Measured on client 16.402 (parity r68, 737 guards of the ob6 live set):
+/// troops entering its reach on its last dash frame (the arrival + 1) or the two after hit on that frame 10 of 10, on the
+/// third after 1 of 10, later 0.
+pub const GUARD_LANDING_HIT_TICKS: u32 = 3;
 
 /// THE FLAG'S SPAWNS (the Hero Goblins'; tools/extract_cards.py `flag_button`; state.rs `FlagRun`, `flag_pass`, the
 /// flag's release in `phase_reap`, `note_flag_play`). The form's units hold no button: when one dies, untagged, with no

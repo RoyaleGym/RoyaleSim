@@ -829,6 +829,10 @@ pub struct Calib {
     /// `Ends`, what a battle saved before it ran.
     #[serde(default = "chain_hop_dead_target_default")]
     pub chain_hop_dead_target: ChainHopDeadTarget,
+    /// combat.GUARD_LANDING_HITS (the Little Prince's guard's hit after its arrival: on its charge's steps only, or on through its arrival + 3). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `ChargeStepsOnly`, what a battle saved before it ran.
+    #[serde(default = "guard_landing_hits_default")]
+    pub guard_landing_hits: GuardLandingHits,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2619,6 +2623,10 @@ fn tower_troop_burst_default() -> TowerTroopBurst {
 
 fn chain_hop_dead_target_default() -> ChainHopDeadTarget {
     ChainHopDeadTarget::Ends
+}
+
+fn guard_landing_hits_default() -> GuardLandingHits {
+    GuardLandingHits::ChargeStepsOnly
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9532,6 +9540,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_LANDING_HITS -- when the Little Prince's guard's hit (its push damage, once per enemy ground troop in
+    /// its reach) is dealt (state.rs `guard_moves`).
+    GuardLandingHits {
+        /// The engine's: on each of its charge's steps, its arrival's included, and never after.
+        ChargeStepsOnly = "charge_steps_only",
+        /// Client 16.402: on its charge's steps and on each tick after its arrival through GUARD_LANDING_HIT_TICKS (its
+        /// landing and its first free ticks), on any enemy ground troop in its reach it has not hit; its push stops at its
+        /// arrival as before.
+        Client16402ThroughLandingTicks = "client16402_through_landing_ticks",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10052,6 +10072,7 @@ impl Calib {
             hide_held_through: pick(&v, &["hide", "HELD_THROUGH_HIDE", "value"], HeldThroughHide::from_calibration_name)?,
             tower_troop_burst: pick(&v, &["combat", "TOWER_TROOP_BURST", "value"], TowerTroopBurst::from_calibration_name)?,
             chain_hop_dead_target: pick(&v, &["combat", "CHAIN_HOP_DEAD_TARGET", "value"], ChainHopDeadTarget::from_calibration_name)?,
+            guard_landing_hits: pick(&v, &["combat", "GUARD_LANDING_HITS", "value"], GuardLandingHits::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -20936,18 +20957,53 @@ impl BattleState {
                 if immune {
                     self.ents.dash_immune_until[gi] = a + crate::card::GUARD_IMMUNE_AFTER_ARRIVAL_TICKS;
                 }
+                // combat.GUARD_LANDING_HITS = client16402_through_landing_ticks: its hit goes on through its arrival +
+                // GUARD_LANDING_HIT_TICKS, on enemies in its reach it has not hit (below); its push stops at the arrival.
+                // PLANT (regression) landing_hits_end_at_arrival: the new arm still hits on the charge's steps alone.
+                #[cfg(not(clash_plant = "landing_hits_end_at_arrival"))]
+                let through = self.cfg.calib.guard_landing_hits == GuardLandingHits::Client16402ThroughLandingTicks;
+                #[cfg(clash_plant = "landing_hits_end_at_arrival")]
+                let through = false;
+                // PLANT (regression) landing_hits_unbounded: the new arm's landing hits never end.
+                #[cfg(not(clash_plant = "landing_hits_unbounded"))]
+                let landing = through && tick <= a + crate::card::GUARD_LANDING_HIT_TICKS;
+                #[cfg(clash_plant = "landing_hits_unbounded")]
+                let landing = through && tick <= a + 60;
                 if tick >= a + crate::card::GUARD_LANDING_TICKS {
                     // FREE, its load timer full and its swing at 0: its first hit a whole HitSpeed on. Measured on client
                     // 15.535.29 (Oracle's sp-lp-far-s0): free on P + 39, attacking a Knight at its end from P + 40, its
-                    // first hit on P + 62.
+                    // first hit on P + 62. Once: the run is kept past this tick only for the landing's hits.
                     #[cfg(not(clash_plant = "guard_lands_loaded"))]
-                    {
+                    if tick == a + crate::card::GUARD_LANDING_TICKS || !through {
                         self.ents.attack_load_ms[gi] = self.cfg.cards.get(self.ents.card[gi]).load_time_ms.max(0);
                         self.ents.attack_ms[gi] = 0;
                     }
-                    continue;
+                    if !landing {
+                        continue;
+                    }
+                } else {
+                    self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(dt);
+                    if !landing {
+                        keep.push(r);
+                        continue;
+                    }
                 }
-                self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(dt);
+                // THE LANDING'S HITS (client16402_through_landing_ticks): once each, ground troops of the other side within
+                // the reach of the guard's centre (its push radius and their own) that it has not hit; no push.
+                let at = self.ents.pos[gi];
+                let dmg = self.cfg.cards.scaled(r.card, r.level, g.push_damage).expect("the Little Prince's level is validated at try_new");
+                for j in 0..self.ents.capacity() {
+                    let e = &self.ents;
+                    if !e.alive[j] || e.team[j] == r.team || e.flying[j] || e.kind[j] != EntityKind::Troop {
+                        continue;
+                    }
+                    let id = e.id_of(j);
+                    let reach = (g.push_radius + e.radius[j]) as i64;
+                    if e.pos[j].dist2(at) <= reach * reach && !r.hit.contains(&id) {
+                        r.hit.push(id);
+                        self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false });
+                    }
+                }
                 keep.push(r);
                 continue;
             }
@@ -36017,6 +36073,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.CHAIN_HOP_DEAD_TARGET: Calib gained chain_hop_dead_target (serde default the old arm, ends), no new state (a hop already carries its hits and its aim),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_LANDING_HITS: Calib gained guard_landing_hits (serde default the old arm, charge_steps_only), no new state (the guard's run already carries its arrival and its hits),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36974,6 +37032,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("tower_troop_burst".into(), serde_json::to_value(TowerTroopBurst::RowHitSpeed).map_err(|e| e.to_string())?);
     // combat.CHAIN_HOP_DEAD_TARGET: a format-3 battle's chain ended on a dead target.
     sh.insert("chain_hop_dead_target".into(), serde_json::to_value(ChainHopDeadTarget::Ends).map_err(|e| e.to_string())?);
+    // combat.GUARD_LANDING_HITS: a format-3 battle's guard hit on its charge's steps only.
+    sh.insert("guard_landing_hits".into(), serde_json::to_value(GuardLandingHits::ChargeStepsOnly).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
