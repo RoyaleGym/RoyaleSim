@@ -82,8 +82,8 @@ fn every_hop_after_the_first_waits_two_ticks() {
 }
 
 #[test]
-fn the_shipped_arm_hops_client15535_two_ticks() {
-    assert_eq!(Calib::shipped().evo_chain_hop_wait, EvoChainHopWait::Client15535TwoTicks);
+fn the_shipped_arm_hops_client16402_every_hop() {
+    assert_eq!(Calib::shipped().evo_chain_hop_wait, EvoChainHopWait::Client16402EveryHop, "client 16.402's (parity r69)");
 }
 
 /// combat.EVO_CHAIN_HOP_WAIT = client16402_every_hop (client 16.402, parity's r63 census: each strong hop 1 + ceil(d / 2000)
