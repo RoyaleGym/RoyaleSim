@@ -588,9 +588,15 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
             let wait_ms = match arm {
                 PulsingArea::FromLanding => 0,
                 PulsingArea::Delayed => *hit_speed_ms,
-                PulsingArea::HitSpeedOffset => offset_of(cards.get(card).name.as_str()),
+                PulsingArea::HitSpeedOffset | PulsingArea::HitSpeedOffsetFullWait => offset_of(cards.get(card).name.as_str()),
             };
-            let next_ms = (wait_ms - calib.tick_ms).max(0);
+            // hit_speed_offset_full_wait: an offset above a tick waited in full (its first application on L + offset / TICK_MS).
+            // PLANT (regression) pulsing_offset_full_wait_unread: the new arm still waits a tick less.
+            #[cfg(not(clash_plant = "pulsing_offset_full_wait_unread"))]
+            let full = arm == PulsingArea::HitSpeedOffsetFullWait && wait_ms > calib.tick_ms;
+            #[cfg(clash_plant = "pulsing_offset_full_wait_unread")]
+            let full = false;
+            let next_ms = if full { wait_ms } else { (wait_ms - calib.tick_ms).max(0) };
             out.push(Spell {
                 team,
                 card,

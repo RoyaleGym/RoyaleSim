@@ -3973,6 +3973,13 @@ calib_enum!(
         FromLanding = "hit_speed_period_from_landing",
         Delayed = "hit_speed_period_delayed",
         HitSpeedOffset = "hit_speed_offset",
+        /// hit_speed_offset with the offset waited in full: a listed offset above a tick puts the first application on
+        /// L + offset / TICK_MS (the Poison's 250: L + 5, its pulses on L + 25 + 20k), 50 or less on L. Measured (parity's
+        /// r63 census over 161 Poison casts in the traced ob3 live battles, both trains found): the client's pulses on
+        /// L + 25, the engine's on L + 24, 161 of 161, the slow from L + 6 where the engine's L + 5 (73 units); the
+        /// Earthquake (no offset) and the Lightning match under either. NOT shipped: an older reading put the shift in the
+        /// fixtures' cast tick (tests/test_pulsing_area_offset.py, natural play's cast -> pulse 25); scored first.
+        HitSpeedOffsetFullWait = "hit_speed_offset_full_wait",
     }
 );
 calib_enum!(

@@ -919,6 +919,11 @@ fn the_offset_arm_waits_the_listed_value_not_one_hit_speed() {
         c.pulsing_area_offsets = vec![("Tornado".to_string(), 50)];
     }));
     assert_eq!(unlisted, 0, "a Poison the list leaves out applies on L");
+    // hit_speed_offset_full_wait (parity's r63 census: the client's Poison pulses on L + 25, 161 of 161): the ledger's 250
+    // on L + 5, 100 on L + 2, 50 (a tick) on L. Plant: pulsing_offset_full_wait_unread.
+    assert_eq!(after(PulsingArea::HitSpeedOffsetFullWait, None), 5, "hit_speed_offset_full_wait: the ledger's offset 250");
+    assert_eq!(after(PulsingArea::HitSpeedOffsetFullWait, Some(100)), 2, "hit_speed_offset_full_wait: an offset of 100");
+    assert_eq!(after(PulsingArea::HitSpeedOffsetFullWait, Some(50)), 0, "hit_speed_offset_full_wait: an offset of a tick");
 }
 
 /// What one run of the foil scene leaves behind: the two Snowballed Knights' walk
