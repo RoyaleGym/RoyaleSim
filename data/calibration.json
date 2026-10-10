@@ -3275,6 +3275,17 @@
     ]
   },
   "spells": {
+    "ATTACHED_AREA_TIMING": {
+      "value": "client16402_offsetless_first_update",
+      "status": "measured",
+      "candidates": ["first_ms_offset", "client16402_offsetless_first_update"],
+      "confidence": "HIGH for client16402_offsetless_first_update on client 16.402 for the Hero Ice Golem storm (3 scenes, every wave on every enemy in reach: the Knight 4307 away, the Goblins, a Minion); the other offsetless hero areas that pulse slower than every tick unread (none else in the 160402017 table's hero rows read so far). 15.535.29's rows carry the offset: unchanged under either arm (CLIENT15535_ARMS keeps first_ms_offset).",
+      "provenance": "MEASURED by parity (2026-10-09, r63 triage) on Oracle's 160402017 scenes: sp-h10-s0 / sp-h10k-s0, the storm pressed t379, 69 on every enemy within 4000 + its radius of the Golem on t380, t410, t440 (press + 1, + 31, + 61), the Knight 4307 away included; the engine's on t409 and t439 only (first_ms 1500 on a 3000 life), so three Goblins lived on 49 past the Golem's death blow (t430, the scene's reported divergence); sp-scene-e-s0, pressed t142, the client's first wave on t143 (the engine's on t172). The 15.535.29 table's row (life 3050, HitSpeed 1500, offset 1450) times the same three waves (the scene on that table: tick for tick).",
+      "meaning": "first_ms_offset: the engine's; the first hit HitSpeed - HitSpeedOffset of the area's age away, its life LifeDuration. client16402_offsetless_first_update: a hero area with no offset pulsing slower than every tick hits on its first update and lives LifeDuration + a tick (its last update inclusive).",
+      "open": "Other offsetless hero areas; whether a standing area (spells.PULSING_AREA_EFFECT) counts its life inclusive too.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at first_ms_offset (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "spell.rs attached_area, card.rs push_hero_area (`AttachedArea::hero_offsetless`), selected by Calib::attached_area_timing; tests/hero_forms.rs."
+    },
     "$comment": [
       "Spell mechanics that NO shipped column settles (docs/spell-spec.md, PARTIALLY VERIFIED).",
       "Card STATS for spells (damage, radius, pushback distance, crown percent, waves, roll",

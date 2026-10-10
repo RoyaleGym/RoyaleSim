@@ -471,7 +471,16 @@ pub fn attached_area(cards: &CardDb, calib: &Calib, team: Team, card: u16, level
         None => 0,
         Some(b) => cards.buffs[b.buff as usize].pulse_amount(calib.buff_pulse_amount, |m| cards.scaled(card, level, m))?,
     };
-    let motion = SpellMotion::Attached { parent, pos, part, life_ms: a.life_ms, next_ms: a.first_ms - calib.tick_ms };
+    // spells.ATTACHED_AREA_TIMING = client16402_offsetless_first_update: a hero area with no offset pulsing slower than
+    // every tick hits on its first update and lives to its last inclusive (client 16.402: the Hero Ice Golem storm on
+    // press + 1, + 31, + 61).
+    // PLANT (regression) attached_area_offsetless_unread: the new arm still times it from HitSpeed, for LifeDuration.
+    #[cfg(not(clash_plant = "attached_area_offsetless_unread"))]
+    let first_update = a.hero_offsetless && calib.attached_area_timing == crate::state::AttachedAreaTiming::Client16402OffsetlessFirstUpdate;
+    #[cfg(clash_plant = "attached_area_offsetless_unread")]
+    let first_update = false;
+    let (first_ms, life_ms) = if first_update { (calib.tick_ms, a.life_ms + calib.tick_ms) } else { (a.first_ms, a.life_ms) };
+    let motion = SpellMotion::Attached { parent, pos, part, life_ms, next_ms: first_ms - calib.tick_ms };
     Ok(Spell { team, card, level, damage, pulse, motion, depth: 0, flown: 0 })
 }
 

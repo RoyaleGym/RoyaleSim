@@ -747,3 +747,44 @@ fn the_turret_is_at_the_heros_level() {
         assert_eq!(got, hp, "the turret's max_hp at level {level}");
     }
 }
+
+/// `hero_ice_golem_storm_rides_on_the_golem`'s scene on the 160402017 table under spells.ATTACHED_AREA_TIMING = `arm`: the
+/// ticks (k from the press, as there) a Red Knight 2500 from the golem loses a wave on.
+fn storm_waves_017(arm: royalesim::state::AttachedAreaTiming) -> Vec<u32> {
+    let db = CardDb::load_table(royalesim::state::CardTable::Client160402017).expect("the 160402017 table");
+    let mut cfg = BattleConfig::with_cards(db);
+    cfg.calib.card_table = royalesim::state::CardTable::Client160402017;
+    cfg.calib.attached_area_timing = arm;
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = battle_on(cfg, vec![0, FORM_HERO, 0, 0, 0, 0, 0, 0]);
+    s.deploy(Team::Blue, "IceGolemite", t(900, 1200)).expect("the play");
+    s.tick();
+    let gid = find_live(&s, Team::Blue, "IceGolemite_hero")[0].id;
+    run_until(&mut s, 40, |s| s.entity(gid).is_some_and(|e| e.deploy_ms == 0));
+    let g = s.entity(gid).unwrap().pos;
+    s.spawn_unit(Team::Red, "Knight", g.add(native(2500, 0)), None).unwrap();
+    s.tick();
+    let knight = find_live(&s, Team::Red, "Knight")[0].id;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut waves = Vec::new();
+    for k in 0..=64u32 {
+        let hp = s.entity(knight).map_or(0, |e| e.hp);
+        s.tick();
+        let now = s.entity(knight).map_or(0, |e| e.hp);
+        if now < hp {
+            waves.push(k);
+        }
+    }
+    waves
+}
+
+/// spells.ATTACHED_AREA_TIMING = client16402_offsetless_first_update (client 16.402, sp-h10-s0: the storm pressed t379, its
+/// waves t380, t410, t440): the 160402017 row (life 3000, HitSpeed 1500, no offset) waves on k = 1, 31 and 61, as the
+/// 15.535.29 row does; first_ms_offset (the vacuity check) on 30 and 60 alone. Plant: attached_area_offsetless_unread.
+#[test]
+fn on_the_160402017_table_the_storm_waves_from_its_first_update() {
+    use royalesim::state::AttachedAreaTiming as A;
+    assert_eq!(storm_waves_017(A::Client16402OffsetlessFirstUpdate), vec![1, 31, 61], "client16402_offsetless_first_update");
+    assert_eq!(storm_waves_017(A::FirstMsOffset), vec![30, 60], "first_ms_offset");
+}

@@ -2018,6 +2018,10 @@ pub struct AttachedArea {
     pub stay: bool,
     /// OnLifeTimeEndAction: the index in `AbilityEffect::Areas::areas` of the area made when this one's life ends.
     pub end: Option<u8>,
+    /// A hero's ability area (`push_hero_area`) whose row sets no HitSpeedOffset and pulses slower than every tick:
+    /// spells.ATTACHED_AREA_TIMING = client16402_offsetless_first_update times it from its first update (spell.rs
+    /// `attached_area`). False for every other area.
+    pub hero_offsetless: bool,
 }
 
 /// A building that hides when it is not attacking (buildings.csv
@@ -6801,6 +6805,7 @@ fn push_hero_area(r: &RawHeroArea, areas: &mut Vec<AttachedArea>, buffs: &mut Bu
         follow: r.follow_parent,
         stay: r.stay_after_parent_dies.unwrap_or(false),
         end,
+        hero_offsetless: r.hit_speed_offset_ms.is_none() && hit_speed_ms > 50,
     });
     u8::try_from(areas.len() - 1).map(Some).map_err(|_| format!("{what}: too many areas"))
 }
@@ -12187,7 +12192,7 @@ impl CardDb {
                     return Err(format!("impact area {u} releases units or does not hit once at its life's end; not simulated"));
                 }
                 c.projectile_area = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
-                impact = Some(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: false, stay: true, end: None });
+                impact = Some(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: false, stay: true, end: None, hero_offsetless: false });
                 continue;
             }
             if let (Some(r), UnitUse::DeathSpawn) = (extra.evo_ram.as_ref(), &which) {
@@ -12600,7 +12605,7 @@ impl CardDb {
                 Some(b) => Some(buffs.apply(b, aa.self_buff_ms, "the attack area's own buff")?),
                 None => None,
             };
-            let area = AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: aa.follow, stay: false, end: None };
+            let area = AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: aa.follow, stay: false, end: None, hero_offsetless: false };
             evo.attack_area = Some(AttackAreaDef { area, self_buff });
         }
         // THE POWER SHOT (the Evo Archer's): on a card whose attack is a projectile, and with no selector of its own.
@@ -12846,7 +12851,7 @@ impl CardDb {
             if !aneeds.is_empty() {
                 return Err(format!("the freezing arrow's area {aname} releases units; not simulated"));
             }
-            let area = AttachedArea { hit, level_scaled: false, life_ms, hit_speed_ms, first_ms: FREEZE_AREA_FIRST_MS, follow: false, stay: true, end: None };
+            let area = AttachedArea { hit, level_scaled: false, life_ms, hit_speed_ms, first_ms: FREEZE_AREA_FIRST_MS, follow: false, stay: true, end: None, hero_offsetless: false };
             evo.freeze_volley = Some(FreezeVolleyDef { every, freeze: shot(&freezing, "freezing arrow")?, buff, area });
         }
         // THE INTERVAL UNDER A HEALTH SHARE (the Evo Goblin Giant's): the card's spawner carries it.
@@ -12897,7 +12902,7 @@ impl CardDb {
                 let (shape, aneeds) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("fireworks {name}: {e}"))?;
                 match shape {
                     SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None } if aneeds.is_empty() && hit_speed_ms > 0 && hit.buff.is_some() => {
-                        Ok(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: false, stay: true, end: None })
+                        Ok(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms: hit_speed_ms, follow: false, stay: true, end: None, hero_offsetless: false })
                     }
                     _ => Err(format!("fireworks {name} is not a plain pulsing area that hangs a buff; not simulated")),
                 }
@@ -13528,7 +13533,7 @@ impl CardDb {
                     caps_buff_time: false,
                     controls_buff: false,
                 };
-                let area = AttachedArea { hit, level_scaled: true, life_ms: r.life_ms, hit_speed_ms: 0, first_ms: 0, follow: false, stay: true, end: None };
+                let area = AttachedArea { hit, level_scaled: true, life_ms: r.life_ms, hit_speed_ms: 0, first_ms: 0, follow: false, stay: true, end: None, hero_offsetless: false };
                 AbilityEffect::SpinChain {
                     radius: milli(e.radius_milli.filter(|r| *r > 0).ok_or_else(|| format!("{what}: a spin with no radius"))?),
                     count: e.count.filter(|c| *c > 0).ok_or_else(|| format!("{what}: a spin with no chain count"))?,

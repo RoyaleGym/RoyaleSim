@@ -1808,6 +1808,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   spawner.EVO_COPY_TICK = hit_tick: an Evo Skeletons copy is made on its hit's tick.
 ///   combat.WARP_LAW = client15535_ladder: the Hero Mega Minion's warp steps on its ladder (343, then + / - its
 ///   acceleration about its speed), with no return (the 15.535.29 row has none).
+///   spells.ATTACHED_AREA_TIMING = first_ms_offset: a hero area hits HitSpeed - HitSpeedOffset of its age away.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1950,6 +1951,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("formation.ARMY_GENERAL_POINT", "\"client15535_ground_point\""),
     ("spawner.EVO_COPY_TICK", "\"hit_tick\""),
     ("combat.WARP_LAW", "\"client15535_ladder\""),
+    ("spells.ATTACHED_AREA_TIMING", "\"first_ms_offset\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

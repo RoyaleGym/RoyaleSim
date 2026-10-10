@@ -769,6 +769,10 @@ pub struct Calib {
     /// `Client15535Ladder`, what a battle saved before it ran.
     #[serde(default = "warp_law_default")]
     pub warp_law: WarpLaw,
+    /// spells.ATTACHED_AREA_TIMING (a hero's ability area with no HitSpeedOffset: its first hit and its life, spell.rs `attached_area`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `FirstMsOffset`, what a battle saved before it ran.
+    #[serde(default = "attached_area_timing_default")]
+    pub attached_area_timing: AttachedAreaTiming,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2499,6 +2503,10 @@ fn deflect_buff_landing_default() -> DeflectBuffLanding {
 
 fn warp_law_default() -> WarpLaw {
     WarpLaw::Client15535Ladder
+}
+
+fn attached_area_timing_default() -> AttachedAreaTiming {
+    AttachedAreaTiming::FirstMsOffset
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9126,6 +9134,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.ATTACHED_AREA_TIMING -- see spell.rs `attached_area` (card.rs `AttachedArea::hero_offsetless`): when a
+    /// hero's ability area whose row sets no HitSpeedOffset, and that pulses slower than every tick, first hits, and
+    /// how long it lasts.
+    AttachedAreaTiming {
+        /// The engine before this key: its first hit HitSpeed - HitSpeedOffset (HitSpeed with none) of its age away, its
+        /// first update 50 ms old, for LifeDuration (the 160402017 Hero Ice Golem storm: press + 30 and + 60 only).
+        FirstMsOffset = "first_ms_offset",
+        /// Its first hit on its first update, every HitSpeed after, its life to its last update inclusive (LifeDuration +
+        /// a tick). Client 16.402 (Oracle's 160402017 scenes sp-h10-s0, sp-h10k-s0, sp-scene-e-s0): the Hero Ice Golem
+        /// storm (life 3000, HitSpeed 1500, no offset) dealt its 69 on press + 1, + 31 and + 61, as 15.535.29's row (life
+        /// 3050, offset 1450) does under either arm.
+        Client16402OffsetlessFirstUpdate = "client16402_offsetless_first_update",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9631,6 +9654,7 @@ impl Calib {
             ability_bomb_fuse: pick(&v, &["spawner", "ABILITY_BOMB_FUSE", "value"], AbilityBombFuse::from_calibration_name)?,
             deflect_buff_landing: pick(&v, &["status", "DEFLECT_BUFF_LANDING", "value"], DeflectBuffLanding::from_calibration_name)?,
             warp_law: pick(&v, &["combat", "WARP_LAW", "value"], WarpLaw::from_calibration_name)?,
+            attached_area_timing: pick(&v, &["spells", "ATTACHED_AREA_TIMING", "value"], AttachedAreaTiming::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -35102,6 +35126,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.WARP_LAW: Calib gained warp_law (serde default the old arm, client15535_ladder), the warps' new saved fields (a run's `back` and `origin`, the board's `backs`) default empty and are hashed only when set,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.ATTACHED_AREA_TIMING: Calib gained attached_area_timing (serde default the old arm, first_ms_offset), no new state (it sets a new area's saved clock and life),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36029,6 +36055,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("deflect_buff_landing".into(), serde_json::to_value(DeflectBuffLanding::AtTrigger).map_err(|e| e.to_string())?);
     // combat.WARP_LAW: a format-3 battle warped on the ladder, with no return (the same rule).
     sh.insert("warp_law".into(), serde_json::to_value(WarpLaw::Client15535Ladder).map_err(|e| e.to_string())?);
+    // spells.ATTACHED_AREA_TIMING: a format-3 battle's ability areas hit at HitSpeed - HitSpeedOffset for their LifeDuration (the same rule).
+    sh.insert("attached_area_timing".into(), serde_json::to_value(AttachedAreaTiming::FirstMsOffset).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
