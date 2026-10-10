@@ -213,6 +213,9 @@ pub struct SparkDef {
     /// ProjectileRadius, SUBTILES: an enemy is hit when its centre comes within this plus its
     /// own radius.
     pub reach: i32,
+    /// ProjectileStartExtraRadius, SUBTILES (0 when blank): on the landing tick a spark tests the landing point with
+    /// `reach` + this (combat.SPARK_LANDING_REACH = client16402_start_extra).
+    pub start_extra: i32,
     /// AoeToAir / AoeToGround.
     pub hits_air: bool,
     pub hits_ground: bool,
@@ -6923,6 +6926,8 @@ struct RawSpellProjectile {
     /// (`spark_of`). Written by tools/extract_cards.py on the 15.535 rows only.
     spawn_count: Option<i32>,
     scatter: Option<String>,
+    /// ProjectileStartExtraRadius, read on a spark row (`spark_of`, combat.SPARK_LANDING_REACH).
+    projectile_start_extra_radius_milli: Option<i32>,
     action_graph: Option<RawActionGraph>,
 }
 
@@ -10806,6 +10811,7 @@ fn spark_of(v: &serde_json::Value) -> Option<SparkDef> {
         crown_pct: crown(p.crown_tower_damage_percent),
         range: milli(p.projectile_range_milli.filter(|r| *r > 0)?),
         reach: milli(p.projectile_radius_milli.filter(|r| *r > 0)?),
+        start_extra: milli(p.projectile_start_extra_radius_milli.unwrap_or(0).max(0)),
         hits_air: p.aoe_to_air.unwrap_or(false),
         hits_ground: p.aoe_to_ground.unwrap_or(false),
         only_enemies: p.only_enemies.unwrap_or(false),

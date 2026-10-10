@@ -749,6 +749,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the default is the old arm, `Centre6750`, what a battle saved before it ran.
     #[serde(default = "building_scan_x_cut_default")]
     pub building_scan_x_cut: BuildingScanXCut,
+    /// combat.SPARK_LANDING_REACH (a Firecracker spark's test of its landing point, combat.rs `release_sparks`). Added
+    /// after SNAPSHOT_FORMAT 20; the default is the old arm, `ProjectileRadius`, what a battle saved before it ran.
+    #[serde(default = "spark_landing_reach_default")]
+    pub spark_landing_reach: SparkLandingReach,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2459,6 +2463,10 @@ fn ramp_grace_reset_default() -> RampGraceReset {
 
 fn building_scan_x_cut_default() -> BuildingScanXCut {
     BuildingScanXCut::Centre6750
+}
+
+fn spark_landing_reach_default() -> SparkLandingReach {
+    SparkLandingReach::ProjectileRadius
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -8999,6 +9007,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.SPARK_LANDING_REACH -- how far from the landing point a spark hits on the tick its rocket lands
+    /// (combat.rs `release_sparks`; combat.SPAWN_PROJECTILE = client_spark_fan).
+    SparkLandingReach {
+        /// The engine before this key: ProjectileRadius (400) + the victim's radius, as in flight.
+        ProjectileRadius = "projectile_radius",
+        /// Measured on client 16.402 (the live population, 455 Firecracker shots): ProjectileRadius + the spark row's
+        /// ProjectileStartExtraRadius (650) + the victim's radius on the landing tick, every spark: an enemy 1000-1500
+        /// from the landing point loses spark damage on that tick 83 times of 92, five sparks' worth; past 1750, 4 of 204.
+        Client16402StartExtra = "client16402_start_extra",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9499,6 +9519,7 @@ impl Calib {
             line_king_back_row: pick(&v, &["formation", "LINE_KING_BACK_ROW", "value"], LineKingBackRow::from_calibration_name)?,
             ramp_grace_reset: pick(&v, &["combat", "RAMP_GRACE_RESET", "value"], RampGraceReset::from_calibration_name)?,
             building_scan_x_cut: pick(&v, &["targeting", "BUILDING_SCAN_X_CUT", "value"], BuildingScanXCut::from_calibration_name)?,
+            spark_landing_reach: pick(&v, &["combat", "SPARK_LANDING_REACH", "value"], SparkLandingReach::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -34727,6 +34748,9 @@ impl BattleState {
 /// 20, unchanged, targeting.BUILDING_SCAN_X_CUT: Calib gained building_scan_x_cut (serde default the old arm,
 ///    centre_6750), no new state (it judges a scan's candidate), so a blob saved before it deserializes and hashes as it
 ///    did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.SPARK_LANDING_REACH: Calib gained spark_landing_reach (serde default the old arm,
+///    projectile_radius), no new state (a spark's saved reach is its flight's), so a blob saved before it deserializes
+///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35644,6 +35668,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ramp_grace_reset".into(), serde_json::to_value(RampGraceReset::AtZero).map_err(|e| e.to_string())?);
     // targeting.BUILDING_SCAN_X_CUT: a format-3 battle cut every buildings-only walker at 6750 (the same rule).
     sh.insert("building_scan_x_cut".into(), serde_json::to_value(BuildingScanXCut::Centre6750).map_err(|e| e.to_string())?);
+    // combat.SPARK_LANDING_REACH: a format-3 battle's sparks tested the landing point with ProjectileRadius (the same rule).
+    sh.insert("spark_landing_reach".into(), serde_json::to_value(SparkLandingReach::ProjectileRadius).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

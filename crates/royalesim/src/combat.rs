@@ -2587,7 +2587,21 @@ fn release_sparks(
             chain: None,
             bounce: None,
         };
+        // combat.SPARK_LANDING_REACH = client16402_start_extra: on the landing tick the spark reaches ProjectileRadius +
+        // ProjectileStartExtraRadius about the landing point; in flight, ProjectileRadius.
+        #[cfg(not(clash_plant = "spark_landing_reach_narrow"))]
+        let wide = calib.spark_landing_reach == crate::state::SparkLandingReach::Client16402StartExtra;
+        #[cfg(clash_plant = "spark_landing_reach_narrow")]
+        let wide = false; // PLANT (regression): the new arm still tests the landing point with ProjectileRadius alone.
+        if wide {
+            if let Some(s) = spark.straight.as_mut() {
+                s.reach = sp.reach + sp.start_extra;
+            }
+        }
         straight_hits(ents, hash, cards, calib, &mut spark, at, dmg, fx, nb, tick);
+        if let Some(s) = spark.straight.as_mut() {
+            s.reach = sp.reach;
+        }
         out.push(spark);
     }
 }

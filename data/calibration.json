@@ -2606,6 +2606,17 @@
       "promotion_rules": "The test files (crates/royalesim/tests/projectile_y_offset.rs, tests/test_projectile_y_offset.py) pass. Then score the corpus with this arm switched on alone; the registered prediction: a report in which no king tower fires does not move, and the king hits the flight replay marks late (122757.b1 t2434 among them) land on the client's tick.",
       "engine": "card.rs CardDef::projectile_y_offset from cards.json projectile_y_offset_milli (tools/extract_cards.py, the ProjectileYOffset column, written only on the 15.535 rows that set it); combat.rs launch_point, read by fire and launch_hook, under combat.PROJECTILE_LAUNCH = start_radius_next_tick."
     },
+    "SPARK_LANDING_REACH": {
+      "value": "client16402_start_extra",
+      "candidates": ["projectile_radius", "client16402_start_extra"],
+      "status": "measured",
+      "confidence": "HIGH for client16402_start_extra on client 16.402: 455 Firecracker shots, the landing tick's losses ending between 1500 and 1750 of the landing point, ProjectileRadius 400 + ProjectileStartExtraRadius 650 + a victim radius 500 = 1550; five sparks' worth each. LOW for projectile_radius, the engine before this key.",
+      "provenance": "MEASURED by parity (2026-10-09) on the live population (RoyaleLive/reports/replay-live, the bot's battles on client builds 160402017/020; parity's second diagnostic triage, fc_census.py over 455 truth Firecracker shots in 356 fixtures: the aim the target's position before the fire tick, the landing fire + ceil(dist / 500)). Enemies losing spark damage on the landing tick, by distance from the landing point: 250-1000 154 of 160, 1000-1250 47 of 52, 1250-1500 36 of 40, 1500-1750 13 of 42, 1750-2000 3 of 37, past 2000 1 of 167; the losses at 1000-1500 are five sparks' (163343 a GiantBuffer at 1394: 320 = 5 x 64; 150057 a Minion Giant at 1500: 420 = 5 x 84). The engine tested 400 + the victim's radius: 001532's Skeleton 1080-1170 from the aim, 071118's Bat 1469 off every spark line, 230604's Skeleton at 1086-1160 died in the truth only (3 own-death first divergences).",
+      "meaning": "projectile_radius: the engine's; on the landing tick each spark hits an enemy within ProjectileRadius + its radius of the landing point, as in flight. client16402_start_extra: on the landing tick within ProjectileRadius + the spark row's ProjectileStartExtraRadius + its radius; in flight ProjectileRadius + its radius, as before.",
+      "open": "Client 15.535.29 (its spark row carries the same 650; it runs the shipped arm). The Evo Firecracker's Circle row. Whether the wider reach is a disc or the spark's own start segment (the fan's lines within 650 of the point: off-line victims at 1469 say a disc).",
+      "promotion_rules": "Shipped: every capture runs it.",
+      "engine": "combat.rs release_sparks (card.rs SparkDef::start_extra), selected by Calib::spark_landing_reach; tests/spark_landing_reach.rs."
+    },
     "SPAWN_PROJECTILE": {
       "value": "client_spark_fan",
       "candidates": ["not_read", "client_spark_fan"],
