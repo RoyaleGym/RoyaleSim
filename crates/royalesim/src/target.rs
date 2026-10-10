@@ -1202,7 +1202,11 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     if let Some(t) = cur {
         // targeting.DOOMED_TARGET_DROP = projectile_attackers_walk_drop: a walking attacker beyond its keep reach no
         // longer keeps a doomed target through the fired-at exemption (`keeps_fired`); true under every other arm.
-        let targetable = e.is_alive(t) && can_target(ctx, a, t.index as usize, keeps_fired(ctx, a, t.index as usize));
+        // hide.HELD_THROUGH_HIDE = client16402_kept: a current target under ground is judged as one being kept, whatever
+        // keeps_fired (the doomed target's exemption) says, so the keep below decides it: a walking Giant out of its keep
+        // reach keeps a Tesla gone under.
+        let held_hidden = e.is_alive(t) && held_through_hide(ctx.calib) && hidden_from_targeting(ctx.calib, e, t.index as usize);
+        let targetable = e.is_alive(t) && can_target(ctx, a, t.index as usize, held_hidden || keeps_fired(ctx, a, t.index as usize));
         // targeting.MINIMUM_RANGE = client16402_edge_distance: a target inside the attacker's MinimumRange is dropped
         // on this tick with its swing cancelled (idle, progress 0), as a lost target and not a kill, so no post-kill
         // wait follows; the rescan below does not take it back while it stands there. Always false under not_read.

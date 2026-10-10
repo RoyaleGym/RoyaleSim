@@ -560,6 +560,8 @@ fn under_the_shipped_rise_law_a_knight_mid_swing_on_a_deploying_tesla_drops_it_o
 }
 
 fn knight_mid_swing_on_a_deploying_tesla(law: RiseLaw) {
+    // hide.HELD_THROUGH_HIDE = dropped, the arm this scene was written on: the shipped client16402_kept has the Knight keep
+    // the Tesla that goes under (tests below), where this scene measures the drop, the cancelled windup and the reacquire.
     // The Tesla is deployed WITH its deploy time (spawn_unit), and is Up -- targetable
     // -- while deploying, like any deploying building. The adjacent Knight locks on and
     // starts swinging. On the tick the deploy timer ends the Tesla goes under
@@ -572,7 +574,9 @@ fn knight_mid_swing_on_a_deploying_tesla(law: RiseLaw) {
     // in COOLDOWN at deploy end, and the lock-drop path (target.rs decide's
     // `target_locked` cancel; phase_target's cancel of a hidden target) is never
     // exercised. ~~`if in_windup { .. }`~~: the windup is asserted, not tested for.
-    let mut s = bare(with_rise_law(law, rising_untargetable()));
+    let mut cfg = with_rise_law(law, rising_untargetable());
+    cfg.calib.hide_held_through = HeldThroughHide::Dropped;
+    let mut s = bare(cfg);
     let tesla_at = t(900, 1400);
     let knight_at = Vec2::new(tesla_at.x, tesla_at.y - 3 * SUBTILE / 2);
     s.spawn_unit(Team::Blue, "Tesla", tesla_at, None).unwrap();
