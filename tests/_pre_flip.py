@@ -1,4 +1,4 @@
-"""THE c4 FLIP'S OLD ARMS (parity r66): the 115 keys whose client 16.402 value the flip moved to the 15.535.29 arm the
+"""THE c4 FLIP'S OLD ARMS (parity r66): the 114 keys whose client 16.402 value the flip moved to the 15.535.29 arm the
 current client shares, each at the value it shipped before (crates/royalesim/tests/common's PRE_FLIP_ARMS). A test
 file written on the engine before the flip runs them through `pre_flip`, as an old-arm pin does; each key's own tests
 read both of its arms."""
@@ -66,7 +66,6 @@ PRE_FLIP = {
     "movement.KNOCKED_DOOMED_AVOIDANCE": json.dumps("static"),
     "movement.STRUCK_CONTACT_ORDER": json.dumps("whole_pass"),
     "placement.ENEMY_BUILDING_TAPS": json.dumps("ignored"),
-    "placement.ILLEGAL_TROOP_TAP": json.dumps("refuse"),
     "placement.RELOCATION_TIE_ORDER": json.dumps("placer_frame_first_found"),
     "placement.TROOP_RELOCATION_TIE_ORDER": json.dumps("placer_frame_first_found"),
     "spawner.ACTION_GROUP_SPAWN_ORDER": json.dumps("listed"),

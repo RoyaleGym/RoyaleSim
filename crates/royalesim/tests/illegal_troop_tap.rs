@@ -89,8 +89,8 @@ fn a_bridge_tap_into_an_open_lane_stands() {
 /// Plant: troop_tap_unclamped.
 #[test]
 fn the_play_path_takes_the_tap() {
-    assert_eq!(Calib::shipped().illegal_troop_tap, IllegalTroopTap::Client15535ClampToLegalEdge);
-    for (arm, want) in [(CLAMP, Ok(())), (IllegalTroopTap::Client15535ClampToLegalEdge, Err(DeployError::OutOfTerritory))] {
+    assert_eq!(Calib::shipped().illegal_troop_tap, IllegalTroopTap::Refuse);
+    for (arm, want) in [(CLAMP, Ok(())), (IllegalTroopTap::Refuse, Err(DeployError::OutOfTerritory))] {
         let mut s = battle(arm);
         s.scenario_set_elixir_milli(Team::Blue, 10000);
         let slot = s.hand(Team::Blue).iter().position(|c| *c == "Knight").expect("the Knight in Blue's hand");

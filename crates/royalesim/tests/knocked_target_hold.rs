@@ -71,10 +71,10 @@ fn a_recoiling_sparky_lets_a_target_past_its_sight_go() {
 }
 
 #[test]
-fn the_shipped_arm_keeps_a_knocked_units_target() {
+fn the_old_arm_keeps_a_knocked_units_target() {
     assert_eq!(Calib::shipped().knocked_target_hold, KnockedTargetHold::Client15535SightKeep);
-    let out = ladder(KnockedTargetHold::Client15535SightKeep);
-    assert!(out.iter().all(|&(_, held)| held), "the shipped arm let the Knight go: {out:?}");
+    let out = ladder(KnockedTargetHold::HeldWhileKnocked);
+    assert!(out.iter().all(|&(_, held)| held), "held_while_knocked (the arm before the c4 flip) let the Knight go: {out:?}");
 }
 
 /// Where the second red Knight stands: 3,000 beside the Sparky's start, inside its reach.

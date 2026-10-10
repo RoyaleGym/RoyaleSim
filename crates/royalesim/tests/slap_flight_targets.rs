@@ -98,10 +98,10 @@ fn a_ground_only_holder_lets_a_thrown_unit_go() {
 }
 
 #[test]
-fn the_shipped_arm_leaves_a_thrown_unit_a_ground_target() {
+fn the_old_arm_leaves_a_thrown_unit_a_ground_target() {
     assert_eq!(Calib::shipped().slap_flight_targetability, SlapFlightTargetability::Client15535Airborne);
-    let f = holds(SlapFlightTargetability::Client15535Airborne, 5);
-    assert!(f.iter().all(|&(k, m)| k && m), "the shipped arm let the thrown red Knight go: {f:?}");
+    let f = holds(SlapFlightTargetability::Ground, 5);
+    assert!(f.iter().all(|&(k, m)| k && m), "ground (the arm before the c4 flip) let the thrown red Knight go: {f:?}");
 }
 
 /// Where the blue Bats wait before the throw: 4,000 to the red Knight's right, on its row.

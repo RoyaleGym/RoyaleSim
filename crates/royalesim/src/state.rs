@@ -37869,8 +37869,8 @@ mod tests {
         // The old arm of placement.TROOP_TOWER_TAPS: the shipped half-open arm moves a troop tapped on its
         // own princess tower off it instead of refusing it (tests/tower_tap_push.rs pins where it goes).
         cfg.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
-        // The old arm of placement.ILLEGAL_TROOP_TAP: the shipped client15535_clamp_to_legal_edge (the c4 flip) casts a
-        // troop tapped in the enemy's pocket from its own edge, where this test asks the refusal's reason.
+        // placement.ILLEGAL_TROOP_TAP = refuse (the shipped arm, pinned): its clamp, a 15.535.29 capture's, casts a troop
+        // tapped in the enemy's pocket from its own edge, where this test asks the refusal's reason.
         cfg.calib.illegal_troop_tap = IllegalTroopTap::Refuse;
         let mut s = BattleState::new(1, cfg);
         // past match.DEPLOY_LOCKOUT_TICKS: before it every slot answers TooEarly and none of
