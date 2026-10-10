@@ -1813,9 +1813,9 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   35 crown-tower and 6 of 7 projectile-unit waits, 4,610 of 4,693 and 675 of 695 frees).
 ///   status.BUFF_DEATH_SPAWN_FIRST_UPDATE = client15535_doomed_parent: a buff's death spawn whose parent the move pass's
 ///   doomed mask held takes its first update on its creation tick, the parent a static blocker (the Super Witch's hog).
-///   placement.ENEMY_BUILDING_TAPS = client15535_tile_box_ring: a troop tap on an enemy building's box (a Hero Musketeer
-///   Musketeer turret) is moved off it by the ring search, the box anchored at the point rounded down to the half-tile
-///   grid (2 of 2 taps).
+///   placement.ENEMY_BUILDING_TAPS = client15535_tile_box_ring: a troop tap on an enemy building's box (a Hero Musketeer's
+///   turret) is moved off it by the ring search, the box's low corner rounded down to the tile grid (Oracle's turret
+///   battery, 72 of 72 taps).
 ///   formation.ARMY_GENERAL_POINT = client15535_ground_point: the Evo Skeleton Army's General is laid off the soldiers'
 ///   ring centre, the play's point moved by formation.GROUND_DEPLOY_POINT (4 of 4 plays).
 ///   spawner.EVO_COPY_TICK = hit_tick: an Evo Skeletons copy is made on its hit's tick.
