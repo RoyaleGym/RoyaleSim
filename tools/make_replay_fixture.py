@@ -332,6 +332,24 @@ AN AREA SHOWN AFTER ITS DROP
     EFFECT_DROP_SLACK of its first frame takes one up to AREA_DROP_LOOKBACK ticks before
     it, on a frame no unit deploy explains, and is dated there.
 
+A PULSING SPELL FIRST SEEN AFTER A FRAME GAP
+    A Poison's or an Earthquake's area appears on its elixir drop's frame, so a cast first
+    seen after missing frames was dated on the first frame after them, up to the gap late,
+    and its drop (read on that same frame) cannot say better. Its pulses can: on the current
+    client the first falls PULSE_AFTER_DROP ticks after the drop (Oracle, 2026-10-10, 10-06
+    content: a Poison dropped on t102 pulses on t127, 147, 167, 187, 207; an Earthquake
+    dropped on t102 on t121, 141, 161), then one every HitFrequency. Each pulse a victim
+    shows (`spell_pulse_at` at the row's read level, on an enemy within the area's radius +
+    SPELL_VICTIM_MARGIN) fell somewhere between the frame before it and its own; the cast
+    tick inside the gap that the most of them fit is the cast's (`pulse_dates`, `timing`
+    "pulse_train"), when it is the only one and at least PULSE_DATING_MIN fit. Live, 248
+    fixtures (ob4 maker): on the rows dated on a frame with no gap before it, the trains put
+    730 of 734 Poisons and 35 of 35 Earthquakes on their own tick; a two-tick gap laid over
+    those rows dates 1,486 right, 1 wrong, and leaves 221 alone. Of the 33 rows first seen
+    after a gap, 14 Poisons move 1 to 17 ticks earlier (20261007-161446: first seen 810
+    after 18 missing ticks, its train's drop 793), 12 rows keep their tick, and 7 have no
+    train to read. A 15.535.29 capture is left alone (its pulses were not measured).
+
 A SCHEDULED SPELL'S CAST
     The 16.402 Graveyard puts its skeletons down on its area's schedule (its action
     graph's ActionSpawnToLocation entries: the first 2200 ms after the cast, then 500 or
@@ -1990,6 +2008,12 @@ def tower_troops(towers: list[dict], doc: dict) -> dict[str, str | None]:
     return out
 
 
+#: A PULSING SPELL FIRST SEEN AFTER A FRAME GAP (module doc): the ticks from a cast's elixir drop to its first pulse,
+#: on the current client's tables (Oracle's REQUEST 33, 2026-10-10: Poison 25, the Earthquake 19; Parity's r63 census
+#: of 161 live Poisons, the client's pulses on the drop + 25).
+PULSE_AFTER_DROP = {"Poison": 25, "Earthquake": 19}
+#: ...and the least pulses the one cast tick inside the gap must explain.
+PULSE_DATING_MIN = 2
 #: AN AREA SHOWN AFTER ITS DROP (module doc): how far before an area's first frame its elixir drop may be.
 AREA_DROP_LOOKBACK = 12
 #: A COST-ONLY SPELL (module doc): the frames from its drop on which its damage is looked for.
@@ -2298,6 +2322,60 @@ def spell_pulse_votes(d: dict, doc: dict, card: dict, ents: dict, per_tick_rows:
             at = [t for t, x in seen if pulse is not None and pulse <= x <= pulse + SPELL_HIT_SLACK]
             votes[lv] += sum(1 for t in at if any(abs(abs(t - u) - every) <= SPELL_PULSE_TOLERANCE for u in at))
     return +votes
+
+
+def pulse_dates(
+    deploys: list[dict], doc: dict, cards_by_name: dict, ents: dict, per_tick_rows: list, ticks: list, table: str
+) -> bool:
+    """A PULSING SPELL FIRST SEEN AFTER A FRAME GAP (module doc): such a Poison or Earthquake row takes the one cast
+    tick inside the gap its pulse train fits. True when a row moved."""
+    if table == "15.535.29":
+        return False
+    ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
+    index_of = {t: i for i, t in enumerate(ticks)}
+    moved = False
+    for d in deploys:
+        first = PULSE_AFTER_DROP.get(d["card"])
+        if first is None or d["kind"] != "spell" or d.get("level") is None or d.get("first_seen") != d["tick"]:
+            continue
+        i0 = index_of.get(d["tick"])
+        if not i0 or ticks[i0] - ticks[i0 - 1] <= 1:
+            continue
+        card = cards_by_name.get(d["card"]) or {}
+        area = (card.get("spell") or {}).get("area_effect_object") or {}
+        every = ((area.get("buff") or {}).get("hit_frequency_ms") or 0) // TICK_MS
+        if every <= 0:
+            continue
+        reach = (area.get("radius_milli") or 0) + SPELL_VICTIM_MARGIN
+        foes = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] >= 0]
+        # each pulse a victim shows: (the frame before it, its own frame)
+        seen = []
+        for i in range(i0, min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows))):
+            for e in foes:
+                a, b = per_tick_rows[i - 1].get(e["key"]), per_tick_rows[i].get(e["key"])
+                if a is None or b is None or b[ihp] <= 0 or a[ihp] <= b[ihp]:
+                    continue
+                if math.dist((a[ix], a[iy]), d["pos"]) > reach:
+                    continue
+                pulse = spell_pulse_at(doc, card, d["level"], e.get("kind_first") in BUILDING_KINDS)
+                if pulse is not None and pulse <= a[ihp] - b[ihp] <= pulse + SPELL_HIT_SLACK:
+                    seen.append((ticks[i - 1], ticks[i]))
+        span = ticks[i0] - ticks[i0 - 1]
+        fits = {
+            t: sum(1 for lo, hi in seen if any(lo < t + first + every * k <= hi for k in range(SPELL_HIT_WINDOW)))
+            for t in range(ticks[i0 - 1] + 1, ticks[i0] + 1)
+        }
+        top = max(fits.values())
+        best = [t for t, n in fits.items() if n == top]
+        if top < PULSE_DATING_MIN or len(best) != 1 or best[0] == d["tick"]:
+            continue
+        d["tick_evidence"] = (
+            f"its pulse train: {top} of the {len(seen)} pulses its victims show fall on {best[0]} + {first} +"
+            f" {every}k (first frame {d['tick']}, after a frame gap of {span})"
+        )
+        d["tick"], d["timing"] = best[0], "pulse_train"
+        moved = True
+    return moved
 
 
 def spell_levels_from_damage(
@@ -3655,6 +3733,9 @@ def build(
                 d["level"] = side_level
                 d["level_source"] = "side mode"
     spell_levels_from_damage(deploys, doc, cards_by_name, ents, per_tick_rows, ticks)
+    # a pulsing spell first seen after a frame gap, dated by its train at its read level (module doc)
+    if pulse_dates(deploys, doc, cards_by_name, ents, per_tick_rows, ticks, TABLE):
+        deploys.sort(key=lambda d: (d["tick"], d["side"], d["card_id"]))
     spell_levels_from_spawn(deploys, spawned_groups, ents)
     for d in deploys:
         src = d.pop("_mirror_of", None)

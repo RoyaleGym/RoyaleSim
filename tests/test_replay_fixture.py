@@ -2253,6 +2253,60 @@ def test_a_cost_only_spell_is_read_off_the_header_and_its_victims(m):
 
 
 @needs_cards
+def test_a_pulsing_spell_first_seen_after_a_gap_is_dated_by_its_train(m):
+    """A Poison first seen after missing frames (module doc, A PULSING SPELL FIRST SEEN AFTER A FRAME GAP) is cast on
+    the one tick inside the gap whose drop + 25 + 20k its victims' pulses fall on (live 20261007-161446: first seen 810
+    after 18 missing ticks, its train's drop 793). A train that fits two ticks, or one pulse, moves nothing, nor does a
+    15.535.29 capture."""
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    cards = {c["name"]: c for c in doc["cards"]}
+    pulse = m.spell_pulse_at(doc, cards["Poison"], 11, False)
+    assert pulse
+    assert m.PULSE_AFTER_DROP == {"Poison": 25, "Earthquake": 19}
+
+    def row(hp):
+        r = [0] * len(m.TRUTH_COLUMNS)
+        r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")], r[m.TRUTH_COLUMNS.index("hp")] = 9000, 22000, hp
+        return tuple(r)
+
+    def battle(drop, frames):
+        # a Knight under the area from the start, losing a pulse on drop + 25 + 20k
+        hp, rows = 1500, []
+        for t in frames:
+            hp_now = hp - pulse * sum(1 for k in range(8) if drop + 25 + 20 * k <= t)
+            rows.append({5: row(hp_now)})
+        return rows
+
+    ents = {5: {"key": 5, "side": 1, "card_id": 26000000, "kind_first": 1}}
+
+    def cast(seen):
+        return {"tick": seen, "first_seen": seen, "side": 0, "card": "Poison", "kind": "spell", "level": 11,
+                "pos": [9000, 22000], "card_id": 28000009}
+
+    # first seen 810 after a gap from 792; the drop 793; every frame from 810 on
+    frames = [790, 792, *range(810, 900)]
+    d = cast(810)
+    assert m.pulse_dates([d], doc, cards, ents, battle(793, frames), frames, "160402017-20261006")
+    assert (d["tick"], d["timing"]) == (793, "pulse_train"), d
+    assert "first frame 810, after a frame gap of 18" in d["tick_evidence"]
+    # one pulse only (the train cut at its first): no move
+    short = [790, 792, *range(810, 820)]
+    d = cast(810)
+    assert not m.pulse_dates([d], doc, cards, ents, battle(793, short), short, "160402017-20261006")
+    assert d["tick"] == 810
+    # a drop on 800 whose pulses (825, 845, ...) each fall between frames a tick either side fits 800 and 801: no move
+    sparse = [790, 792, *range(810, 900, 2)]
+    d = cast(810)
+    assert not m.pulse_dates([d], doc, cards, ents, battle(800, sparse), sparse, "160402017-20261006")
+    assert d["tick"] == 810
+    # a 15.535.29 capture is left alone
+    d = cast(810)
+    assert not m.pulse_dates([d], doc, cards, ents, battle(793, frames), frames, "15.535.29")
+    assert d["tick"] == 810
+
+
+@needs_cards
 def test_a_spells_level_is_read_off_a_crown_towers_drop(m):
     """A crown tower is a victim too, its drop the spell's damage less the crown share, floored
     (`spell_tower_damage_at`: a Fireball at 11 takes 159 off a tower; rounding to nearest would give 158). A cast whose
