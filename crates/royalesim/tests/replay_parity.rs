@@ -1198,7 +1198,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(Calib::shipped().illegal_spell_tap, IllegalSpellTap::Refuse, "the ledger ships refuse; this test reads a client that differs");
     assert_eq!(cfg.calib.post_kill_doom_eta, PostKillDoomEta::ClientWithin600, "a 15.535.29 capture's doom needs its last shot within 600 ms");
     assert_eq!(cfg.calib.buff_death_spawn_first_update, BuffDeathSpawnFirstUpdate::Client15535DoomedParent, "a 15.535.29 capture's curse hog steps on its birth tick");
-    assert_eq!(cfg.calib.placement_enemy_building_taps, EnemyBuildingTaps::Client15535HalfTileBoxRing, "a 15.535.29 capture's tap on an enemy turret's box is moved");
+    assert_eq!(cfg.calib.placement_enemy_building_taps, EnemyBuildingTaps::Client15535TileBoxRing, "a 15.535.29 capture's tap on an enemy turret's box is moved");
     assert_eq!(cfg.calib.army_general_point, ArmyGeneralPoint::Client15535GroundPoint, "a 15.535.29 capture's General is laid off the ring centre");
     assert_eq!(cfg.calib.jump_landing_scope, JumpLandingScope::Client15535WholeTick, "a 15.535.29 capture's lander is out of its landing tick's first updates");
     assert_eq!(cfg.calib.held_waypoint_test, HeldWaypointTest::Client15535Run, "a 15.535.29 capture's held unit runs its waypoint test");

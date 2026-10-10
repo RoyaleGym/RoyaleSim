@@ -19,6 +19,7 @@
 //!   * `enemy_building_taps_unread` -- an enemy box moves nothing: (1) and (2) go red;
 //!   * `enemy_box_centred` -- every box centred on its point: (1) goes red (the Knight on 6500);
 //!   * `enemy_box_axis_push` -- an enemy box takes the axis push: (2) goes red (the Knight on 14000).
+//!   * `tile_box_half_tile_anchor` -- client15535_tile_box_ring anchors at the half-tile: (3) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -77,4 +78,19 @@ fn a_tap_on_an_enemy_box_takes_the_ring_search_not_the_axis_push() {
 #[test]
 fn the_shipped_arm_reads_own_boxes_alone() {
     assert_eq!(Calib::shipped().placement_enemy_building_taps, EnemyBuildingTaps::Ignored);
+}
+
+/// (3) placement.ENEMY_BUILDING_TAPS = client15535_tile_box_ring (client 15.535.29, Oracle's turret battery: 72 of 72 taps):
+/// a red Cannon on (3302, 14725) takes x 1000..4000 (its low corner floor1000(3302 - 1500)), so a Knight tapped on (4500, 14500)
+/// stands where tapped; the half-tile anchor (3000) takes 1500..4500 and moves him off. sp-il-2c29's two taps (1) and (2) land
+/// as under client15535_half_tile_box_ring. Plant: tile_box_half_tile_anchor.
+#[test]
+fn under_client15535_tile_box_ring_a_box_takes_its_tiles_from_the_grid() {
+    let (cannon, tap) = ((3302, 14725), (4500, 14500));
+    let new = knight_at(EnemyBuildingTaps::Client15535TileBoxRing, cannon, tap);
+    assert!(about(new, tap), "client15535_tile_box_ring: the Knight stood on {new:?}, not where tapped");
+    let old = knight_at(EnemyBuildingTaps::Client15535HalfTileBoxRing, cannon, tap);
+    assert!(!about(old, tap), "client15535_half_tile_box_ring (the vacuity check): the Knight stood where tapped too ({old:?})");
+    assert!(near(knight_at(EnemyBuildingTaps::Client15535TileBoxRing, (3898, 13725), (4500, 14500)), (5500, 14500)), "(1) under the new arm");
+    assert!(near(knight_at(EnemyBuildingTaps::Client15535TileBoxRing, (4269, 16457), (3500, 14500)), (3500, 13500)), "(2) under the new arm");
 }

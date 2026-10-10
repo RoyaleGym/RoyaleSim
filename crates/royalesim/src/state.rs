@@ -7495,6 +7495,14 @@ calib_enum!(
         /// Barbarians tapped on (3500, 14500) by the turret on (4269, 16457) (box y from 14500) were born round (3500,
         /// 13500), where the axis push puts the tile on 14000.
         Client15535HalfTileBoxRing = "client15535_half_tile_box_ring",
+        /// client15535_half_tile_box_ring's ring search, but every building's box has its low corner rounded down to the
+        /// tile grid, in arena coordinates for both seats: min = floor1000(p - n x 1000 / 2) on each axis (a building laid
+        /// on its tiles keeps its box). Measured on client 15.535.29 (Oracle's turret battery, parity's r65 analysis: 72
+        /// taps of a Knight around a Hero Musketeer turret, both seats, 4 turret points, 9 tiles each): 72 of 72, where
+        /// the half-tile anchor fits 35 (it agrees only when p mod 1000 >= 500: a turret on x 3302 takes x 1000..4000, the
+        /// half-tile box 1500..4500, so every left-lane tap on x 4500 stood where tapped); a seat-frame rounding 37; a
+        /// centred box 26. sp-il-2c29's two taps fit too.
+        Client15535TileBoxRing = "client15535_tile_box_ring",
     }
 );
 calib_enum!(
@@ -30851,7 +30859,7 @@ impl BattleState {
         // placement.ENEMY_BUILDING_TAPS = client15535_half_tile_box_ring: an enemy building's box (a Hero Musketeer's turret)
         // moves the tap too, by the ring search.
         #[cfg(not(clash_plant = "enemy_building_taps_unread"))]
-        if calib.placement_enemy_building_taps == EnemyBuildingTaps::Client15535HalfTileBoxRing {
+        if matches!(calib.placement_enemy_building_taps, EnemyBuildingTaps::Client15535HalfTileBoxRing | EnemyBuildingTaps::Client15535TileBoxRing) {
             own.extend(e.live_indices().filter(|&i| e.kind[i] == EntityKind::Building && e.team[i] != team).map(|i| (e.pos[i], self.building_box(i), true, true)));
         }
         let snapped = match self.cfg.calib.placement_snap_even {
@@ -31150,8 +31158,21 @@ impl BattleState {
         let anchored = self.cfg.calib.placement_enemy_building_taps == EnemyBuildingTaps::Client15535HalfTileBoxRing;
         #[cfg(clash_plant = "enemy_box_centred")]
         let anchored = false; // PLANT: every box centred on its building's point, whatever the key.
-        let h = crate::fixed::tiles(1) / 2;
-        let c = if anchored { Vec2::new(p.x.div_euclid(h) * h, p.y.div_euclid(h) * h) } else { p };
+        // client15535_tile_box_ring: the box's low corner rounded down to the tile grid (arena coordinates).
+        // PLANT (regression) tile_box_half_tile_anchor: the new arm still anchors at the point's half-tile.
+        #[cfg(not(clash_plant = "tile_box_half_tile_anchor"))]
+        let corner = self.cfg.calib.placement_enemy_building_taps == EnemyBuildingTaps::Client15535TileBoxRing;
+        #[cfg(clash_plant = "tile_box_half_tile_anchor")]
+        let corner = false;
+        let (tile, h) = (crate::fixed::tiles(1), crate::fixed::tiles(1) / 2);
+        let half = n * tile / 2;
+        let c = if corner {
+            Vec2::new((p.x - half).div_euclid(tile) * tile + half, (p.y - half).div_euclid(tile) * tile + half)
+        } else if anchored || self.cfg.calib.placement_enemy_building_taps == EnemyBuildingTaps::Client15535TileBoxRing {
+            Vec2::new(p.x.div_euclid(h) * h, p.y.div_euclid(h) * h)
+        } else {
+            p
+        };
         Arena::placement_box(c, n)
     }
 
