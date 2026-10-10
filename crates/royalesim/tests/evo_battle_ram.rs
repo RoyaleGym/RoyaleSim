@@ -246,6 +246,7 @@ fn its_barbarians_rage_from_the_tick_after_their_first_hit() {
 /// frames from its first to its first hp drop).
 fn archers_ahead(arm: StaggerWait) -> Vec<(i32, Option<u32>)> {
     let (mut s, ram) = charging_ram_in(battle_with(|c| c.calib.formation_stagger_wait = arm));
+    // (id, its first frame, its deploy_ms then, its hp, the frames to its first hp drop)
     let mut members: Vec<(EntityId, u32, i32, i32, Option<u32>)> = Vec::new();
     for k in 1..=40u32 {
         if k == 20 {
@@ -253,9 +254,9 @@ fn archers_ahead(arm: StaggerWait) -> Vec<(i32, Option<u32>)> {
             s.spawn_unit_resolved(Team::Red, "Archers", Vec2::new(p.x, p.y + 1500 * K), None).expect("the Archers");
         }
         s.tick();
-        let mut live: Vec<(EntityId, i32, i32)> = s.entities().filter(|e| e.team == Team::Red && e.card.starts_with("Archer")).map(|e| (e.id, e.hp, e.deploy_ms)).collect();
+        let mut live: Vec<(EntityId, i32, i32, i32)> = s.entities().filter(|e| e.team == Team::Red && e.card.starts_with("Archer")).map(|e| (e.id, e.hp, e.deploy_ms, e.max_hp)).collect();
         live.sort_by_key(|m| m.0.index);
-        for (id, hp, deploy) in live {
+        for (id, hp, deploy, max) in live {
             match members.iter_mut().find(|m| m.0 == id) {
                 Some(m) => {
                     if m.4.is_none() && hp < m.3 {
@@ -263,7 +264,8 @@ fn archers_ahead(arm: StaggerWait) -> Vec<(i32, Option<u32>)> {
                     }
                     m.3 = hp;
                 }
-                None => members.push((id, k, deploy, hp, None)),
+                // struck on its first frame: created with the strike in its hp
+                None => members.push((id, k, deploy, hp, (hp < max).then_some(0))),
             }
         }
     }
