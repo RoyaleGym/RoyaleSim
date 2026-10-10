@@ -34,6 +34,10 @@ fn with_arm(arm: ChaseDropWalkingAway) -> BattleConfig {
     cfg.calib.chase_drop_measure = ChaseDropMeasure::Client15535LaneDy;
     cfg.calib.chase_drop_walking_away = arm;
     cfg.calib.tick_order = TickOrder::ClientSequentialStrike;
+    // The file's scenes are client 15.535.29's, measured under drop_tick's rescans (no pass-over on the drop tick); the
+    // shipped client16402_receding_or_behind_every_rescan (r63 R10, client 16.402) passes over there too:
+    // tests/chase_rescan_pass_over.rs holds it.
+    cfg.calib.chase_rescan_pass_over = royalesim::state::ChaseRescanPassOver::DropTick;
     cfg
 }
 
