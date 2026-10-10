@@ -2250,3 +2250,45 @@ def test_a_cost_only_spell_is_read_off_the_header_and_its_victims(m):
     quiet = [before] * 4
     assert m.cost_only_casts(header, [], doc, cards, {"Zap": 28000008}, ents, quiet, ticks, unresolved) == []
     assert any("no victim" in u["why"] for u in unresolved)
+
+
+@needs_cards
+def test_a_spells_level_is_read_off_a_crown_towers_drop(m):
+    """A crown tower is a victim too, its drop the spell's damage less the crown share, floored
+    (`spell_tower_damage_at`: a Fireball at 11 takes 159 off a tower; rounding to nearest would give 158). A cast whose
+    kills fit several levels
+    is no read: it takes the side's read level of the card where that is one of its own fits (live 20261008-051029)."""
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    cards = {c["name"]: c for c in doc["cards"]}
+    fb = cards["Fireball"]
+    t11 = m.spell_tower_damage_at(doc, fb, 11)
+    dmg11 = m.spell_damage_at(doc, fb, 11)
+    assert t11 == dmg11 - dmg11 * (100 - fb["crown_tower_damage_percent"]) // 100
+    assert m.spell_tower_damage_at(doc, cards["Zap"], 11) is None, "a Zap's tower hit is its own TowerDamage"
+
+    def row(x, y, hp):
+        r = [0] * len(m.TRUTH_COLUMNS)
+        r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")], r[m.TRUTH_COLUMNS.index("hp")] = x, y, hp
+        return tuple(r)
+
+    ticks = [100, 101, 102, 103]
+    ents = {1: {"key": 1, "side": 1, "card_id": -1}, 9: {"key": 9, "side": 1, "card_id": 26000000}}
+
+    def cast(level=13, pos=(3500, 25500)):
+        return {"tick": 100, "side": 0, "card": "Fireball", "kind": "spell", "level": level,
+                "level_source": "side mode", "pos": list(pos)}
+
+    tower_only = [{1: row(3500, 25500, 3000)}, {1: row(3500, 25500, 3000)}, {1: row(3500, 25500, 3000 - t11)},
+                  {1: row(3500, 25500, 3000 - t11)}]
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, tower_only, ticks)
+    assert (d["level"], d["level_source"]) == (11, "damage"), d
+    assert f"crown towers took [{t11}]" in d["level_evidence"]
+    # a second cast that only killed a 400-hp unit (several levels fit) takes the side's read 11, one of its fits
+    kill = [{**r, 9: row(9000, 22000, 400)} for r in tower_only[:2]] + [dict(r) for r in tower_only[2:]]
+    a, b = cast(), cast(pos=(9000, 22000))
+    m.spell_levels_from_damage([a, b], doc, cards, ents, kill, ticks)
+    assert (a["level"], a["level_source"]) == (11, "damage"), a
+    assert "fitting levels [" in b["level_evidence"]
+    assert (b["level"], b["level_source"]) == (11, "card level"), b

@@ -1911,6 +1911,8 @@ LAUNCH_STEP_TOLERANCE = 0.05
 LAUNCH_POINT_TOLERANCE = 3
 #: How far past a damaging spell's radius a victim's centre may stand and still be read as hit (a unit's own radius).
 SPELL_VICTIM_MARGIN = 1500
+#: How much farther than a spell's own reach a crown tower's centre may stand and still be hit by it (a tower's body).
+TOWER_REACH_MARGIN = 2000
 #: How many frames after a spell row's tick its first hit is looked for.
 SPELL_HIT_WINDOW = 120
 #: How much more than its damage a victim may lose on the hit frame (a building's decay tick, a concurrent chip).
@@ -2246,6 +2248,19 @@ def scaled_at(doc: dict, card: dict, base: int | None, level: int) -> int | None
 LEVELS_PAST_COUNT = 1
 
 
+def spell_tower_damage_at(doc: dict, card: dict, level: int) -> int | None:
+    """What a projectile spell's hit takes off a crown tower at `level`: its damage less the part its crown share
+    (cards.json `crown_tower_damage_percent`) removes, floored as the engine floors it (`damage - floor(damage x (100 -
+    share) / 100)`). Measured on the 2026-10 live set (Parity, r64): a Fireball at 11 takes 159 off a tower (690 at
+    23 %; rounding to nearest gives 158), a Rocket at 16 546 three times. None for a spell with no projectile (a Zap's
+    tower hit is its own TowerDamage) or no share."""
+    pct = card.get("crown_tower_damage_percent")
+    dmg = spell_damage_at(doc, card, level)
+    if not card.get("projectile") or pct is None or dmg is None:
+        return None
+    return dmg - dmg * (100 - pct) // 100
+
+
 def playable_levels(doc: dict, card: dict) -> range:
     """The unified levels a card can be played at: its CARD rarity's ladder (card.rs `level_multiplier`: the local
     level, level - relative_level, in 1..=level_count + LEVELS_PAST_COUNT). A Log is a Legendary, 9 to 17, though its
@@ -2327,6 +2342,7 @@ def spell_levels_from_damage(
     index_of = {t: i for i, t in enumerate(ticks)}
     read: dict[tuple, Counter] = defaultdict(Counter)
     read_rows: set[int] = set()
+    ambiguous: dict[int, list[int]] = {}
     for d in deploys:
         if d["kind"] != "spell" or d.get("level_source") != "side mode" or d.get("level") is None:
             continue
@@ -2358,17 +2374,40 @@ def spell_levels_from_damage(
                     d["level"], d["level_source"] = best, "damage"
             continue
         foes = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] >= 0]
+        # A CROWN TOWER IS A VICTIM TOO (`spell_tower_damage_at`): a spell that only hit a tower read no level, and 17
+        # of 25 tower hits of Rockets and Fireballs read on the side mode missed the level (Parity, r64)
+        towers = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] < 0]
         # a drop below the spell's least damage is not its hit (a building's decay tick, a troop's chip); both the least
         # damage and the fitting levels are over the levels the card can be played at (`playable_levels`)
         playable = playable_levels(doc, card)
         least = min((x for lv in playable if (x := spell_damage_at(doc, card, lv)) is not None), default=None)
         if least is None:
             continue
+        least_tower = min(
+            (x for lv in playable if (x := spell_tower_damage_at(doc, card, lv)) is not None), default=None
+        )
+
+        def before(key, i):
+            # the victim's last frame present before frame i (a frame that lost the entity does not hide the drop)
+            for j in range(i - 1, max(i - 4, -1), -1):
+                r = per_tick_rows[j].get(key)
+                if r is not None:
+                    return r
+            return None
+
         hit = None
         for i in range(max(i0, 1), min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows))):
-            drops, kills = [], []
+            drops, kills, tower_drops = [], [], []
+            if least_tower is not None:
+                for e in towers:
+                    a, b = before(e["key"], i), per_tick_rows[i].get(e["key"])
+                    if a is None or b is None or a[ihp] <= 0 or b[ihp] <= 0:
+                        continue
+                    near = math.dist((a[ix], a[iy]), d["pos"]) <= reach + TOWER_REACH_MARGIN
+                    if near and a[ihp] - b[ihp] >= least_tower:
+                        tower_drops.append(a[ihp] - b[ihp])
             for e in foes:
-                a, b = per_tick_rows[i - 1].get(e["key"]), per_tick_rows[i].get(e["key"])
+                a, b = before(e["key"], i), per_tick_rows[i].get(e["key"])
                 if a is None or a[ihp] <= 0 or math.dist((a[ix], a[iy]), d["pos"]) > reach:
                     continue
                 # A KILL BOUNDS THE LEVEL (item 58): an enemy in reach whose last hp is at least the spell's least
@@ -2379,36 +2418,58 @@ def spell_levels_from_damage(
                     continue
                 if a[ihp] - b[ihp] >= least:
                     drops.append(a[ihp] - b[ihp])
-            if drops or kills:
-                hit = (ticks[i], sorted(drops), sorted(kills))
+            if drops or kills or tower_drops:
+                hit = (ticks[i], sorted(drops), sorted(kills), sorted(tower_drops))
                 break
         if hit is None:
             d["level_evidence"] = "no enemy within its reach lost hp inside the window"
             continue
-        fits = [
-            lv for lv in playable
-            if (dmg := spell_damage_at(doc, card, lv)) is not None
-            and all(dmg <= x <= dmg + SPELL_HIT_SLACK for x in hit[1])
-            and all(dmg + SPELL_HIT_SLACK >= k for k in hit[2])
-        ]
+
+        def fitting(with_towers, hit=hit, card=card, playable=playable):
+            return [
+                lv for lv in playable
+                if (dmg := spell_damage_at(doc, card, lv)) is not None
+                and all(dmg <= x <= dmg + SPELL_HIT_SLACK for x in hit[1])
+                and all(dmg + SPELL_HIT_SLACK >= k for k in hit[2])
+                and (not with_towers or all(spell_tower_damage_at(doc, card, lv) == t for t in hit[3]))
+            ]
+
+        # a tower's drop is the crown share exactly; one that another hit shares the frame with fits no level, and the
+        # troops' drops decide alone
+        fits = fitting(True) if (hit[1] or hit[2]) or hit[3] else []
+        if not fits and hit[3] and (hit[1] or hit[2]):
+            fits = fitting(False)
         kill_note = f"; kills of last hp {hit[2]}" if hit[2] else ""
-        d["level_evidence"] = f"hit on {hit[0]}: drops {hit[1]}{kill_note}; fitting levels {fits}"
-        if fits:
-            best = min(fits, key=lambda lv: (abs(lv - d["level"]), lv))
+        tower_note = f"; crown towers took {hit[3]}" if hit[3] else ""
+        d["level_evidence"] = f"hit on {hit[0]}: drops {hit[1]}{kill_note}{tower_note}; fitting levels {fits}"
+        if len(fits) > 1:
+            # AN AMBIGUOUS HIT (kills bound a level only from below) is no read: the cast takes its side's read level
+            # of the card where that is one of its fits (live 20261008-051029: Rockets whose kills fit 13 to 17 beside
+            # three tower hits of 546, level 16 exactly)
+            ambiguous[id(d)] = fits
+            if d["level"] not in fits:
+                d["level"], d["level_source"] = min(fits, key=lambda lv: (abs(lv - d["level"]), lv)), "damage"
+        elif fits:
+            best = fits[0]
             read[(d["side"], d["card"])][best] += 1
             read_rows.add(id(d))
             if best != d["level"]:
                 d["level"] = best
                 d["level_source"] = "damage"
-    # one level per card per side: an unread cast takes its side's read level of that card
+    # one level per card per side: an unread cast takes its side's read level of that card (an ambiguous one only when
+    # that level is one of its own fits)
     for d in deploys:
-        if d["kind"] != "spell" or d.get("level_source") != "side mode" or id(d) in read_rows:
+        if d["kind"] != "spell" or id(d) in read_rows:
+            continue
+        if d.get("level_source") != "side mode" and id(d) not in ambiguous:
             continue
         levels = read.get((d["side"], d["card"]))
         if not levels:
             continue
         top = max(levels.values())
         level = min((lv for lv, n in levels.items() if n == top), key=lambda lv: (abs(lv - d["level"]), lv))
+        if id(d) in ambiguous and level not in ambiguous[id(d)]:
+            continue
         note = f"the side's read casts of {d['card']}: levels {dict(sorted(levels.items()))}"
         d["level_evidence"] = f"{d['level_evidence']}; {note}" if d.get("level_evidence") else note
         d["level"] = level
