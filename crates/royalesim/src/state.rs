@@ -785,6 +785,10 @@ pub struct Calib {
     /// `TowerLadder`, what a battle saved before it ran.
     #[serde(default = "tower_troop_damage_ladder_default")]
     pub tower_troop_damage_ladder: TowerTroopDamageLadder,
+    /// movement.SPAWN_PATHFIND_MORPH_AREA (when the building a tunneller leaves puts its spawn area down, `surface` and `morph_areas_due`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `AtSurface`, what a battle saved before it ran.
+    #[serde(default = "spawn_pathfind_morph_area_default")]
+    pub spawn_pathfind_morph_area: SpawnPathfindMorphArea,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2531,6 +2535,10 @@ fn lift_timing_default() -> LiftTiming {
 
 fn tower_troop_damage_ladder_default() -> TowerTroopDamageLadder {
     TowerTroopDamageLadder::TowerLadder
+}
+
+fn spawn_pathfind_morph_area_default() -> SpawnPathfindMorphArea {
+    SpawnPathfindMorphArea::AtSurface
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9241,6 +9249,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// movement.SPAWN_PATHFIND_MORPH_AREA -- see `surface` and `morph_areas_due`: when the building a tunneller leaves
+    /// (the Goblin Drill's) puts its spawn area (GoblinDrillDamageArea) down.
+    SpawnPathfindMorphArea {
+        /// On the tick the dig comes up (`surface`, the Path phase): its hit lands on the building's first frame F. Client
+        /// 15.535.29 (tests/spawn_pathfind.rs (10): 84 from a Knight on F at level 11).
+        AtSurface = "at_surface",
+        /// Two ticks later, in the same pass (`morph_areas_due`), at the building's point while it stands: its hit on
+        /// F + 2. Client 16.402 (parity's r64 census over the ob3 live set: every Goblin Drill rise beside a crown tower,
+        /// the tower's drop on F + 2 in 20 of 21 paired rises, the engine's on F; the building's record names its area
+        /// through an OnStartingAction, GoblinDrillDamage, where 15.535.29's names a SpawnAreaObject).
+        Client16402TwoTicksLate = "client16402_two_ticks_late",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9750,6 +9772,7 @@ impl Calib {
             evo_barrel_drop_tick: pick(&v, &["spawner", "EVO_BARREL_DROP_TICK", "value"], EvoBarrelDropTick::from_calibration_name)?,
             lift_timing: pick(&v, &["status", "LIFT_TIMING", "value"], LiftTiming::from_calibration_name)?,
             tower_troop_damage_ladder: pick(&v, &["combat", "TOWER_TROOP_DAMAGE_LADDER", "value"], TowerTroopDamageLadder::from_calibration_name)?,
+            spawn_pathfind_morph_area: pick(&v, &["movement", "SPAWN_PATHFIND_MORPH_AREA", "value"], SpawnPathfindMorphArea::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -17954,6 +17977,9 @@ impl BattleState {
     /// (`surface`). No other unit's move reads a unit under ground and it reads none, so stepping it before
     /// the arm's own pass is the same as stepping it at its own place in that pass.
     fn phase_tunnel(&mut self) {
+        if self.morph_area_late() {
+            self.morph_areas_due();
+        }
         if !self.ents.tunnel_dest.iter().any(Option::is_some) {
             return;
         }
@@ -17967,6 +17993,40 @@ impl BattleState {
             if self.tunnel_step(i) {
                 self.surface(i);
             }
+        }
+    }
+
+    /// movement.SPAWN_PATHFIND_MORPH_AREA = client16402_two_ticks_late in force.
+    fn morph_area_late(&self) -> bool {
+        // PLANT (regression) morph_area_at_surface: the new arm still puts the area down on the surfacing tick.
+        #[cfg(not(clash_plant = "morph_area_at_surface"))]
+        let late = self.cfg.calib.spawn_pathfind_morph_area == SpawnPathfindMorphArea::Client16402TwoTicksLate;
+        #[cfg(clash_plant = "morph_area_at_surface")]
+        let late = false;
+        late
+    }
+
+    /// movement.SPAWN_PATHFIND_MORPH_AREA = client16402_two_ticks_late: every standing building a tunneller left (a morph
+    /// target, `CardDb::is_morph_target`, with a spawn area) whose creation was two ticks ago puts its spawn area down at
+    /// its point, at its level, in the tunnel pass's place (the Path phase, where `surface` put it down on the surfacing
+    /// tick). Client 16.402: the Goblin Drill's GoblinDrillDamageArea hits on F + 2, F the building's first frame (20 of
+    /// 21 rises beside a crown tower). A morph target made otherwise (a scenario's own spawn of the building) is read the
+    /// same way.
+    fn morph_areas_due(&mut self) {
+        const MORPH_AREA_DELAY_TICKS: u32 = 2;
+        let due: Vec<usize> = self
+            .ents
+            .live_indices()
+            .filter(|&i| self.ents.kind[i] == EntityKind::Building && self.ents.spawn_tick[i] + MORPH_AREA_DELAY_TICKS == self.tick)
+            .collect();
+        for i in due {
+            let card = self.ents.card[i];
+            if self.cfg.cards.get(card).spawn_area_effect.is_none() || !self.cfg.cards.is_morph_target(card) {
+                continue;
+            }
+            let (team, level, pos) = (self.ents.team[i], self.ents.level[i], self.ents.pos[i]);
+            let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, card, level, pos, self.tick).expect("the spawn area's level is validated at the play");
+            self.spells.extend(area);
         }
     }
 
@@ -18154,7 +18214,8 @@ impl BattleState {
                     cloned: false,
                     action_made: false, source: self.ents.producer(i),
                 });
-                if self.cfg.cards.get(m).spawn_area_effect.is_some() {
+                // movement.SPAWN_PATHFIND_MORPH_AREA = client16402_two_ticks_late: the area two ticks on (`morph_areas_due`).
+                if self.cfg.cards.get(m).spawn_area_effect.is_some() && !self.morph_area_late() {
                     let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, m, level, dest, self.tick).expect("the spawn area's level is validated at the play");
                     self.spells.extend(area);
                 }
@@ -35348,6 +35409,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.TOWER_TROOP_DAMAGE_LADDER: Calib gained tower_troop_damage_ladder (serde default the old arm, tower_ladder), no new state (it sets a new tower's saved damage),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.SPAWN_PATHFIND_MORPH_AREA: Calib gained spawn_pathfind_morph_area (serde default the old arm, at_surface), no new state (it reads the saved building's spawn tick),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36283,6 +36346,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("lift_timing".into(), serde_json::to_value(LiftTiming::EngineReading).map_err(|e| e.to_string())?);
     // combat.TOWER_TROOP_DAMAGE_LADDER: a format-3 battle fielded no tower troop (the same rule).
     sh.insert("tower_troop_damage_ladder".into(), serde_json::to_value(TowerTroopDamageLadder::TowerLadder).map_err(|e| e.to_string())?);
+    // movement.SPAWN_PATHFIND_MORPH_AREA: a format-3 battle put the area down on the surfacing tick (the same rule).
+    sh.insert("spawn_pathfind_morph_area".into(), serde_json::to_value(SpawnPathfindMorphArea::AtSurface).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

@@ -11,7 +11,8 @@
 //!   - the Drill's dig leaves its BUILDING on the frame after its last one, on the building's 2x2 footprint
 //!     ((3500, 23500) -> (3000, 23000)), at 1307 of 1313 hitpoints at level 11 (one drain step at its creation), and
 //!     that building deploys 20 frames, drains from F + 21 and is gone on F + 220, leaving two Goblins at +-(500, 0);
-//!   - its GoblinDrillDamage lands on the building's first frame: 84 at level 11;
+//!   - its GoblinDrillDamage lands on the building's first frame: 84 at level 11 (client 15.535.29; client 16.402 two
+//!     frames later, movement.SPAWN_PATHFIND_MORPH_AREA = client16402_two_ticks_late, (10b));
 //!   - a tunnelling card goes down on the enemy side, never on water.
 //!
 //! WHAT IS PINNED, each with its precondition:
@@ -30,7 +31,8 @@
 //!   8. the dig and its building never share a frame; the building stands on the destination at 1307 / 1313;
 //!   9. the building deploys 20 frames at 1307, loses its first drain step on F + 21, is gone on F + 220 and leaves its
 //!      two Goblins on the x axis;
-//!  10. GoblinDrillDamage takes 84 from a Knight within its reach on the building's first frame;
+//!  10. GoblinDrillDamage takes 84 from a Knight within its reach on the building's first frame (at_surface), on F + 2
+//!      under the shipped client16402_two_ticks_late (10b);
 //!  11. a tunneller's destination is state, and a save mid-walk replays the walk;
 //!  12. under not_modelled a tunnelling card is refused at the deck and at every play.
 //!
@@ -44,6 +46,7 @@
 //!   * `morph_birth_full_hp` -- the building comes up at full hitpoints: (8) and (9) go red.
 //!   * `death_ring_facing` -- the listed units keep the facing ring: (9) goes red.
 //!   * `hash_skips_tunnel` -- the destination is not hashed: (11) goes red.
+//!   * `morph_area_at_surface` -- client16402_two_ticks_late puts the area down on the surfacing tick: (10b) goes red.
 //!
 //! OPEN, not pinned: the first step's geometry under the shipped movement.SPAWN_PATHFIND_STEP = one_step (its first
 //! frame is not the measured one; the client arm's is, tests/spawn_pathfind_step.rs), which of the Drill's two Goblins
@@ -56,7 +59,7 @@ use royalesim::card::{CardDb, CardKind, CardSource};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::path16402::{self, PathFinder, CELL};
 use royalesim::path2026;
-use royalesim::state::{BattleConfig, BattleState, DeployError, SpawnPathfind, SpawnPathfindStart};
+use royalesim::state::{BattleConfig, BattleState, DeployError, SpawnPathfind, SpawnPathfindMorphArea, SpawnPathfindStart};
 use royalesim::{EntityId, Team};
 
 /// Native units to a world point.
@@ -96,6 +99,13 @@ fn board_with(cfg: BattleConfig) -> BattleState {
 
 fn board() -> BattleState {
     board_with(config())
+}
+
+/// The shipped config with client 15.535.29's movement.SPAWN_PATHFIND_MORPH_AREA = at_surface, (10)'s scene's.
+fn at_surface() -> BattleConfig {
+    let mut cfg = config();
+    cfg.calib.spawn_pathfind_morph_area = SpawnPathfindMorphArea::AtSurface;
+    cfg
 }
 
 /// One live unit read after a tick.
@@ -465,7 +475,7 @@ fn the_building_deploys_20_frames_drains_from_f_plus_21_and_leaves_its_pair_on_t
 fn goblin_drill_damage_lands_on_the_buildings_first_frame() {
     // run 1: the building's first frame F
     let first_frame = || -> u32 {
-        let mut s = board();
+        let mut s = board_with(at_surface());
         s.deploy(Team::Blue, "GoblinDrill", at((3500, 23500))).expect("play the Drill");
         let bname = drill_building(&s);
         for _ in 0..200 {
@@ -479,7 +489,7 @@ fn goblin_drill_damage_lands_on_the_buildings_first_frame() {
     let f = first_frame();
     // run 2, the same battle: a red Knight put down on F - 5 beside the destination, still deploying on F, where the
     // dig cannot see it (it is under ground and untouchable)
-    let mut s = board();
+    let mut s = board_with(at_surface());
     let dest = s.deploy(Team::Blue, "GoblinDrill", at((3500, 23500))).expect("play the Drill");
     while s.tick_count() < f - 5 {
         s.tick();
@@ -499,6 +509,49 @@ fn goblin_drill_damage_lands_on_the_buildings_first_frame() {
     assert!(d <= 2000, "the scene drifted: the Knight stands {d} from the destination");
     // Damage 33 at the building's level, 11: floor(33 x 256%) = 84 (client 15.535.29; 58 at level 7)
     assert_eq!(max - h, 84, "GoblinDrillDamage on the building's first frame");
+}
+
+/// (10b) movement.SPAWN_PATHFIND_MORPH_AREA = client16402_two_ticks_late (client 16.402, parity's r64 census: the Drill's
+/// surfacing hit on a crown tower on F + 2, 20 of 21 rises): (10)'s Knight is untouched through F + 1 and takes the 84 on
+/// F + 2; under at_surface (the vacuity check) on F. Plant: morph_area_at_surface.
+#[test]
+fn under_client16402_two_ticks_late_the_drill_damage_lands_on_f_plus_2() {
+    let knight = |cfg: fn() -> BattleConfig| -> (u32, Vec<(u32, i32, i32)>) {
+        let mut s = board_with(cfg());
+        s.deploy(Team::Blue, "GoblinDrill", at((3500, 23500))).expect("play the Drill");
+        let bname = drill_building(&s);
+        let mut f = None;
+        for _ in 0..200 {
+            s.tick();
+            if snap(&s, Team::Blue, &bname).is_some() {
+                f = Some(s.tick_count());
+                break;
+            }
+        }
+        let f = f.expect("the building never came up");
+        let mut s = board_with(cfg());
+        s.deploy(Team::Blue, "GoblinDrill", at((3500, 23500))).expect("play the Drill");
+        while s.tick_count() < f - 5 {
+            s.tick();
+        }
+        s.spawn_unit(Team::Red, "Knight", at((4500, 22000)), None).expect("put the Knight down");
+        let mut hp = Vec::new();
+        while s.tick_count() < f + 3 {
+            s.tick();
+            let k = snap(&s, Team::Red, "Knight").expect("the Knight stands");
+            hp.push((s.tick_count(), k.hp, k.max_hp));
+        }
+        (f, hp)
+    };
+    let on = |hp: &[(u32, i32, i32)], t: u32| -> (i32, i32) { hp.iter().find(|h| h.0 == t).map(|h| (h.1, h.2)).expect("a frame") };
+    let (f, hp) = knight(config);
+    let (h1, max) = on(&hp, f + 1);
+    assert_eq!(h1, max, "client16402_two_ticks_late: the Knight hit by F + 1: {hp:?}");
+    let (h2, _) = on(&hp, f + 2);
+    assert_eq!(max - h2, 84, "client16402_two_ticks_late: GoblinDrillDamage not on F + 2: {hp:?}");
+    let (f, hp) = knight(at_surface);
+    let (h0, max) = on(&hp, f);
+    assert_eq!(max - h0, 84, "at_surface: GoblinDrillDamage not on F: {hp:?}");
 }
 
 // ---------------------------------------------------------------------------

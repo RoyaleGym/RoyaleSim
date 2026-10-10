@@ -5926,6 +5926,16 @@
     }
   },
   "movement": {
+    "SPAWN_PATHFIND_MORPH_AREA": {
+      "value": "client16402_two_ticks_late",
+      "status": "measured",
+      "candidates": ["at_surface", "client16402_two_ticks_late"],
+      "confidence": "HIGH for client16402_two_ticks_late on client 16.402: 20 of 21 paired Goblin Drill rises beside a crown tower in the ob3 live set (the 21st unexplained), the tower's drop the area's crown share (8 x the card ladder: 32 at level 16). Client 15.535.29 keeps at_surface (CLIENT15535_ARMS): its scene's Knight took the 84 on the building's first frame.",
+      "provenance": "MEASURED by parity (2026-10-09, r64 tower-hp triage over 122 traced ob3 battles): liveplay-20261008-021724-A's first parting is a Goblin Drill's +32 on a princess tower, the engine's two ticks before the client's; the census over every drill rise beside a tower: truth at rise + 2, the engine at rise + 0, 20 of 21. The 160402017 table's GoblinDrill building carries OnStartingAction GoblinDrillDamage (an action), where 15.535.29's carried SpawnAreaObject GoblinDrillDamage; the action's own delay is not in the derived table.",
+      "meaning": "at_surface: the area on the tick the dig comes up, its hit on the building's first frame. client16402_two_ticks_late: two ticks later, at the building's point while it stands.",
+      "open": "The OnStartingAction's own timing fields (not derived); the 21st rise; the Evo Goblin Drill's relocating start action (GoblinDrill_EV1_start).",
+      "engine": "state.rs surface, morph_areas_due (from phase_tunnel), selected by Calib::spawn_pathfind_morph_area; tests/spawn_pathfind.rs."
+    },
     "$comment": [
       "THE PER-TICK LOCOMOTION LAW OF A GROUND TROOP, measured from the 15.535.29 traces on",
       "2026-09-18. Order matters: re-derive the goal cell, replan if it moved, apply the",

@@ -1811,6 +1811,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   spells.ATTACHED_AREA_TIMING = first_ms_offset: a hero area hits HitSpeed - HitSpeedOffset of its age away.
 ///   spawner.EVO_BARREL_DROP_TICK = client15535_fuse: the Evo Skeleton Barrel's drops land on their fuse.
 ///   spawner.DEATH_BOMB_SPAWN_TIMING = at_fuse_end: a container's units and its hit both on T + 12 (18 of 18, 7 of 7).
+///   movement.SPAWN_PATHFIND_MORPH_AREA = at_surface: the Goblin Drill's surfacing hit on the building's first frame.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1956,6 +1957,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.ATTACHED_AREA_TIMING", "\"first_ms_offset\""),
     ("spawner.EVO_BARREL_DROP_TICK", "\"client15535_fuse\""),
     ("spawner.DEATH_BOMB_SPAWN_TIMING", "\"at_fuse_end\""),
+    ("movement.SPAWN_PATHFIND_MORPH_AREA", "\"at_surface\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
