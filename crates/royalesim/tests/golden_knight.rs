@@ -48,7 +48,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashChainAttackCycle, DashChainEnd, DashChainPending, DashChainTargets, DashTriggerBuilding, DeployError, PostKillWait};
+use royalesim::state::{BattleConfig, BattleState, DashChainAim, DashChainAttackCycle, DashChainEnd, DashChainPending, DashChainTargets, DashRangeTargetPoint, DashTriggerBuilding, DeployError, PostKillWait};
 use royalesim::{EntityId, Team};
 
 const GK_AT: (i32, i32) = (3500, 9000);
@@ -134,7 +134,12 @@ fn moves(start: Vec2, rows: &[Row]) -> Vec<i64> {
 
 #[test]
 fn the_press_row_walks_and_the_dash_moves_400_a_tick_to_a_250_hit_with_the_blow() {
-    let (mut s, gk, reds) = scene(Some(11_000), &[("Giant", GIANT_AT)]);
+    // The dash's geometry this scene was written on: combat.DASH_CHAIN_AIM = target_centre and
+    // combat.DASH_RANGE_TARGET_POINT = start_of_tick (the c4 flip ships the 15.535.29 arms, whose last step is 249).
+    let mut cfg = cfg_with(Some(11_000));
+    cfg.calib.dash_chain_aim = DashChainAim::TargetCentre;
+    cfg.calib.dash_range_target_point = DashRangeTargetPoint::StartOfTick;
+    let (mut s, gk, reds) = scene_in(cfg, &[("Giant", GIANT_AT)]);
     let start = s.entity(gk).unwrap().pos;
     let giant_hp = s.entity(reds[0]).unwrap().hp;
     assert!(s.entity(reds[0]).unwrap().deploy_ms > 200, "the scene drifted: the Giant is not deploying");
@@ -250,6 +255,11 @@ fn under_the_measured_end_he_holds_no_target_for_two_ticks_then_takes_one_by_the
 fn lone_press(pending: DashChainPending) -> (Vec<(i64, i64)>, i64) {
     let mut cfg = cfg_with(Some(11_000));
     cfg.calib.dash_chain_pending = pending;
+    // The old pending arm is the engine before both keys: its wait is for a ground CHARACTER, which
+    // combat.DASH_CHAIN_TARGETS = client16402_ground_targetable widens to the tower he runs at.
+    if pending == DashChainPending::WaitForGroundCharacter {
+        cfg.calib.dash_chain_targets = DashChainTargets::Troops;
+    }
     let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
