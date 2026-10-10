@@ -2333,6 +2333,47 @@ def test_a_pulsing_spell_first_seen_after_a_gap_is_dated_by_its_train(m):
 
 
 @needs_cards
+def test_a_lightnings_level_is_read_off_its_bolt(m):
+    """A spell whose area strikes with a projectile (`area_strike`: the Lightning's bolt) hits with that projectile's
+    damage, anywhere in its area, from its first strike on (`effect_leads`: the 2026-10-06 table's bolt 500 ms after the
+    cast): a drop on a victim 3000 from the cast point 10 ticks on reads the level, and a bigger chip on the same victim
+    3 ticks after the cast is not taken for it. A crown tower takes the bolt's crown share."""
+    path = os.path.join(ROOT, "data", "derived", "cards-160402017-20261006.json")
+    if not os.path.exists(path):
+        pytest.skip(f"{path} is absent (the 2026-10-06 table) -- a skip here is not a pass")
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    cards = {c["name"]: c for c in doc["cards"]}
+    lt = cards["Lightning"]
+    bolt = m.area_strike(lt)
+    assert lt.get("damage") is None, "the card carries no damage of its own"
+    assert bolt.get("damage"), "the bolt carries the damage"
+    assert m.effect_leads(lt)[0] == 10
+    ls = lt["level_scaling"]
+    table = ls["multiplier_percent_by_level"]
+    first = ls.get("base_level", doc["rarities"][ls["rarity"]]["relative_level"] + 1)
+    dmg11 = bolt["damage"] * table[11 - first] // 100
+    assert m.spell_damage_at(doc, lt, 11) == dmg11
+    pct = bolt["crown_tower_damage_percent"]
+    assert m.spell_tower_damage_at(doc, lt, 11) == dmg11 - dmg11 * (100 - pct) // 100
+
+    def row(x, y, hp):
+        r = [0] * len(m.TRUTH_COLUMNS)
+        r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")], r[m.TRUTH_COLUMNS.index("hp")] = x, y, hp
+        return tuple(r)
+
+    ticks = list(range(100, 116))
+    ents = {9: {"key": 9, "side": 1, "card_id": 26000000}}
+    hp = [3000] * 3 + [3000 - 900] * 7 + [3000 - 900 - dmg11] * 6  # a 900 chip on 103, the bolt on 110
+    rows = [{9: row(9000, 25000, h)} for h in hp]
+    d = {"tick": 100, "side": 0, "card": "Lightning", "kind": "spell", "level": 13, "level_source": "side mode",
+         "pos": [9000, 22000]}
+    m.spell_levels_from_damage([d], doc, cards, ents, rows, ticks)
+    assert (d["level"], d["level_source"]) == (11, "damage"), d
+    assert d["level_evidence"].startswith(f"hit on 110: drops [{dmg11}]"), d["level_evidence"]
+
+
+@needs_cards
 def test_a_spells_level_is_read_off_a_crown_towers_drop(m):
     """A crown tower is a victim too, its drop the spell's damage less the crown share, floored
     (`spell_tower_damage_at`: a Fireball at 11 takes 159 off a tower; rounding to nearest would give 158). A cast whose

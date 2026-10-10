@@ -2250,9 +2250,20 @@ def spell_levels_from_spawn(deploys: list[dict], spawned_groups: list[dict], ent
 
 def spell_damage_at(doc: dict, card: dict, level: int) -> int | None:
     """A damaging spell's hit on a troop or a building at a unified level, scaled as the engine scales it (card.rs
-    `level_multiplier`: the ladder entered at level_scaling.base_level, truncating division). None for a card with no
-    damage, and for a level its ladder does not have."""
-    return scaled_at(doc, card, card.get("damage"), level)
+    `level_multiplier`: the ladder entered at level_scaling.base_level, truncating division). A spell with no damage of
+    its own whose area strikes with a projectile (`area_strike`: the Lightning's bolt, 413 at its base; the Royal
+    Delivery's crate, 150) hits with that projectile's. None for a card with neither, and for a level its ladder does
+    not have."""
+    base = card.get("damage")
+    if base is None:
+        base = area_strike(card).get("damage")
+    return scaled_at(doc, card, base, level)
+
+
+def area_strike(card: dict) -> dict:
+    """The projectile a spell's area effect strikes with (cards.json `spell.area_effect_object.projectile`: the
+    Lightning's bolt, the Royal Delivery's crate), or {}. Its hits come `effect_leads` after the cast."""
+    return ((card.get("spell") or {}).get("area_effect_object") or {}).get("projectile") or {}
 
 
 def spell_pulse_at(doc: dict, card: dict, level: int, building: bool) -> int | None:
@@ -2299,9 +2310,11 @@ def spell_tower_damage_at(doc: dict, card: dict, level: int) -> int | None:
     share) / 100)`). Measured on the 2026-10 live set (Parity, r64): a Fireball at 11 takes 159 off a tower (690 at
     23 %; rounding to nearest gives 158), a Rocket at 16 546 three times. None for a spell with no projectile (a Zap's
     tower hit is its own TowerDamage) or no share."""
-    pct = card.get("crown_tower_damage_percent")
+    # the card's own projectile, else the one its area strikes with (`area_strike`: the Lightning's bolt, 25 %)
+    strike = card if card.get("projectile") else area_strike(card)
+    pct = strike.get("crown_tower_damage_percent")
     dmg = spell_damage_at(doc, card, level)
-    if not card.get("projectile") or pct is None or dmg is None:
+    if not strike or pct is None or dmg is None:
         return None
     return dmg - dmg * (100 - pct) // 100
 
@@ -2450,6 +2463,11 @@ def spell_levels_from_damage(
         if not pulsing and spell_damage_at(doc, card, d["level"]) is None:
             continue
         reach = (card.get("area_damage_radius_milli") or (card.get("projectile") or {}).get("radius_milli") or 0)
+        if not reach and area_strike(card):
+            # a spell whose area strikes with a projectile hits anywhere in its area (the Lightning's bolts, 3500) or
+            # where its projectile splashes (the Royal Delivery's crate, 3000)
+            area = card["spell"]["area_effect_object"]
+            reach = area_strike(card).get("radius_milli") or area.get("radius_milli") or 0
         reach += SPELL_VICTIM_MARGIN
         i0 = index_of.get(d["tick"])
         if i0 is None and d.get("source") == "effect":
@@ -2495,6 +2513,11 @@ def spell_levels_from_damage(
             return None
 
         hit = None
+        # a spell whose area strikes later (`effect_leads`: the Lightning's first bolt 10 ticks after its cast, the
+        # Royal Delivery's crate 40) is looked for from that strike on, so no earlier drop passes for it
+        lead = effect_leads(card)[0]
+        if lead:
+            i0 = next((j for j in range(i0, len(ticks)) if ticks[j] >= d["tick"] + lead), len(ticks))
         for i in range(max(i0, 1), min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows))):
             drops, kills, tower_drops = [], [], []
             if least_tower is not None:
