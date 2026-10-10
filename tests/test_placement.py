@@ -17,6 +17,11 @@ import json
 
 import pytest
 
+from _pre_flip import pre_flip
+
+# THE c4 FLIP (parity r66): this file's battles were written on the engine before it, so they run its old arms
+# (tests/_pre_flip.py); each flipped key's own tests read both arms.
+
 royalesim = pytest.importorskip("royalesim")
 
 TILE = 18_000
@@ -125,7 +130,7 @@ def test_the_two_seats_agree_on_rotated_taps(battle):
     # Tesla is not the rotation of its twin there. The odd Cannon agrees under both arms.
     battle = royalesim.Battle(
         card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]],
-        calibration_overrides={"placement.SNAP_EVEN_CORNER": json.dumps("placer_frame")},
+        calibration_overrides=pre_flip({"placement.SNAP_EVEN_CORNER": json.dumps("placer_frame")}),
     )
     ids = list(range(len(DECK)))
     battle.reset(0, [ids, ids], 0, 0, [10000, 10000], None, [])

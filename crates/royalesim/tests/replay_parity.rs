@@ -1195,7 +1195,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.hook_release, HookRelease::ClientIdleTick, "a 15.535.29 capture's hook victim idles a tick after its drag");
     assert_eq!(cfg.calib.snipe_repick, SnipeRepick::Client15535LastTargetFirst, "a 15.535.29 capture's Evo Musketeer snipes her last target first");
     assert_eq!(cfg.calib.illegal_spell_tap, IllegalSpellTap::ClampToLegalEdge, "a 15.535.29 capture's Log tapped past its half or on the water is cast from the edge");
-    assert_eq!(Calib::shipped().illegal_spell_tap, IllegalSpellTap::ClampToLegalEdge, "the c4 flip ships the clamp for client 16.402 too");
+    assert_eq!(Calib::shipped().illegal_spell_tap, IllegalSpellTap::Refuse, "the ledger ships refuse (out of the c4 flip: the gym's mask implements it alone); this test reads a client that differs");
     assert_eq!(cfg.calib.post_kill_doom_eta, PostKillDoomEta::ClientWithin600, "a 15.535.29 capture's doom needs its last shot within 600 ms");
     assert_eq!(cfg.calib.buff_death_spawn_first_update, BuffDeathSpawnFirstUpdate::Client15535DoomedParent, "a 15.535.29 capture's curse hog steps on its birth tick");
     assert_eq!(cfg.calib.placement_enemy_building_taps, EnemyBuildingTaps::Client15535TileBoxRing, "a 15.535.29 capture's tap on an enemy turret's box is moved");

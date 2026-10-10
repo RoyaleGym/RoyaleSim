@@ -30,6 +30,11 @@ import json
 
 import pytest
 
+from _pre_flip import pre_flip
+
+# THE c4 FLIP (parity r66): this file's battles were written on the engine before it, so they run its old arms
+# (tests/_pre_flip.py); each flipped key's own tests read both arms.
+
 royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
@@ -59,7 +64,7 @@ def overrides(arm) -> dict:
 def run(arm, cards, holder_team, holder_at, other_at, ticks):
     """Per tick t (1..): (holder row, other row, start-of-tick max(|dx|, |dy|) native). The holder is `cards[0]` on
     team `holder_team`, the other `cards[1]` on the other team; both spawned standing, not deploying."""
-    b = royalesim.Battle(cards, [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
+    b = royalesim.Battle(cards, [[0, 1, 2], [0, 1, 2]], calibration_overrides=pre_flip(overrides(arm)))
     spawns = [
         (holder_team, 0, holder_at[0] * SUB, holder_at[1] * SUB, -1),
         (1 - holder_team, 1, other_at[0] * SUB, other_at[1] * SUB, -1),

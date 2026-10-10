@@ -29,6 +29,11 @@ import pathlib
 
 import pytest
 
+from _pre_flip import pre_flip
+
+# THE c4 FLIP (parity r66): this file's battles were written on the engine before it, so they run its old arms
+# (tests/_pre_flip.py); each flipped key's own tests read both arms.
+
 royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
@@ -55,7 +60,7 @@ def play(arm, scene, x_hp, ticks=45):
     # The Minion's two targets stand at one distance: the scenes were written on the tie by the lower own-frame x
     # (targeting.EQUAL_DISTANCE_TIE = own_frame_low_x), and the shipped higher-x tie picks the other one.
     overrides["targeting.EQUAL_DISTANCE_TIE"] = json.dumps("own_frame_low_x")
-    b = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
+    b = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]], calibration_overrides=pre_flip(overrides))
     b.reset(0, [[0] * 8, [0] * 8], 0, 200, [10_000, 10_000], None,
             [(0, 0, minion[0] * SUB, minion[1] * SUB, -1), (1, 1, X_AT[0] * SUB, X_AT[1] * SUB, x_hp),
              (1, 1, y[0] * SUB, y[1] * SUB, Y_HP), (0, 2, MUSKETEER_AT[0] * SUB, MUSKETEER_AT[1] * SUB, -1)])

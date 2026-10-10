@@ -37,6 +37,11 @@ import math
 
 import pytest
 
+from _pre_flip import pre_flip
+
+# THE c4 FLIP (parity r66): this file's battles were written on the engine before it, so they run its old arms
+# (tests/_pre_flip.py); each flipped key's own tests read both arms.
+
 royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
@@ -66,7 +71,7 @@ def at(e) -> tuple:
 def death_scene(arm):
     """The four death Skeletons' points on their first frame (a set), and the first Skeleton's position on the frame
     before, the last on which it was seen."""
-    b = royalesim.Battle(["Tombstone", "Zap"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=overrides(arm))
+    b = royalesim.Battle(["Tombstone", "Zap"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=pre_flip(overrides(arm)))
     b.reset(0, [[0] * 8, [1] * 8], 0, 100, [10_000, 10_000], None, [(0, 0, TOMB[0] * SUB, TOMB[1] * SUB, 50)])
     _, before = blue_units(b)
     assert len(before) == 1, "the scene drifted: the Tombstone is not alone"
@@ -124,7 +129,7 @@ def emission_scene(arm, knight=BLUE_KNIGHT):
     # Under movement.DYING_UNIT_VISIBILITY = creation_order_before_victim BY NAME: the two arms part only where the
     # dying unit is hidden from a later mover, which the shipped whole_tick (the 2026-09-28 round 7 flip) never does.
     ov = {**overrides(arm), "movement.DYING_UNIT_VISIBILITY": json.dumps("creation_order_before_victim")}
-    b = royalesim.Battle(["Tombstone", "Knight"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=ov)
+    b = royalesim.Battle(["Tombstone", "Knight"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=pre_flip(ov))
     spawns = [
         (0, 0, TOMB[0] * SUB, TOMB[1] * SUB, -1),
         (0, 1, knight[0] * SUB, knight[1] * SUB, 1),

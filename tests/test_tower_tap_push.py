@@ -26,6 +26,11 @@ import pathlib
 
 import pytest
 
+from _pre_flip import pre_flip
+
+# THE c4 FLIP (parity r66): this file's battles were written on the engine before it, so they run its old arms
+# (tests/_pre_flip.py); each flipped key's own tests read both arms.
+
 royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
@@ -87,7 +92,7 @@ def land(side, tap, arm, downed=None, tap_snap=None):
         overrides[KEY] = json.dumps(arm)
     if tap_snap is not None:
         overrides["placement.TAP_SNAP"] = json.dumps(tap_snap)
-    b = royalesim.Battle(DECK, [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
+    b = royalesim.Battle(DECK, [[0, 1, 2], [0, 1, 2]], calibration_overrides=pre_flip(overrides))
     hp = None
     if downed is not None:
         towers = b.tower_positions()

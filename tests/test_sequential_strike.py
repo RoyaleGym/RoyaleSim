@@ -33,6 +33,11 @@ import math
 
 import pytest
 
+from _pre_flip import pre_flip
+
+# THE c4 FLIP (parity r66): this file's battles were written on the engine before it, so they run its old arms
+# (tests/_pre_flip.py); each flipped key's own tests read both arms.
+
 royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
@@ -55,7 +60,7 @@ def overrides(arm) -> dict:
 
 def play(arm, striker_first):
     """(the tick the Cannon is gone, the walker's positions by tick, the striker's and walker's uids)."""
-    b = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
+    b = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]], calibration_overrides=pre_flip(overrides(arm)))
     b.reset(
         0,
         [[0] * 8, [1] * 8],
