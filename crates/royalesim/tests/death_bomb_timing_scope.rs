@@ -73,6 +73,8 @@ fn miner_bomb_row(arm: DeathBombTimingScope) -> u32 {
     let deck: Vec<String> = ["MightyMiner", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|s| s.to_string()).collect();
     let mut cfg = config();
     cfg.calib.death_bomb_timing_scope = arm;
+    // the 15.535.29 scene's fuse (spawner.ABILITY_BOMB_FUSE's old arm; tests/mighty_miner.rs holds the new one)
+    cfg.calib.ability_bomb_fuse = royalesim::state::AbilityBombFuse::Client15535TickAfterFuse;
     cfg.decks = [deck.clone(), deck];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];

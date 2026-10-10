@@ -4575,6 +4575,16 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at hit_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs evo_after_fire (`EvoCopy`), evo_copies, EvoBoard::copies_due; tests/evolution.rs."
     },
+    "ABILITY_BOMB_FUSE": {
+      "value": "client16402_two_ticks_after_fuse",
+      "status": "measured",
+      "candidates": ["client15535_tick_after_fuse", "client16402_two_ticks_after_fuse"],
+      "confidence": "MEDIUM for client16402_two_ticks_after_fuse on client 16.402: 2 of 2 presses whose blow is seen (the bomb is never a truth entity; the Mighty Miner's own timeline, the cast P..P + 8 and the drop on P + 9, is the same on both clients, so the fuse is read longer, not the drop later). 15.535.29: the drop + 20, 1 of 1.",
+      "provenance": "MEASURED by parity (2026-10-09, r63 census) on client 16.402: every Mighty Miner press in the ob3 live set and the 160402017 scenes (5; 3 with no enemy in reach or no hp to read). sp-champ-MightyMiner-s0 on 160402017: the cast t197-205, the drop and the jump from t206, the Knight -332 on t227 (15.535.29's scene: t226), its first ladder step t228; liveplay-20261007-192911-A (P 1579): the drop on t1588 at (5743, 8227), a princess tower 2,830 off -365 on t1609, its only drop in the window.",
+      "meaning": "client15535_tick_after_fuse: the engine's; the dropped bomb strikes the tick after its fuse runs out. client16402_two_ticks_after_fuse: its fuse a tick longer, so it strikes on the drop + DeployTime / 50 + 1.",
+      "open": "Two cases; whether every plain bomb's fuse is a tick longer on 16.402 (the Balloon's, the Giant Skeleton's: spawner.DEATH_BOMB_TIMING_SCOPE).",
+      "engine": "state.rs fire_ability (`AbilityEffect::LaneSwitch`'s bomb), selected by Calib::ability_bomb_fuse; tests/mighty_miner.rs."
+    },
     "$comment": [
       "PERIODIC SPAWNERS AND DEATH SPAWN (characters.csv / buildings.csv Spawn* and DeathSpawn*",
       "columns; 2018: Tombstone, GoblinHut, BarbarianHut, FirespiritHut, Witch, DarkWitch spawn;",

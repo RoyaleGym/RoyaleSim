@@ -757,6 +757,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the default is the old arm, `MeleeOnly`, what a battle saved before it ran.
     #[serde(default = "reflect_ranged_default")]
     pub reflect_ranged: ReflectRanged,
+    /// spawner.ABILITY_BOMB_FUSE (the fuse of the bomb a lane switch drops, the Mighty Miner's, `fire_ability`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Client15535TickAfterFuse`, what a battle saved before it ran.
+    #[serde(default = "ability_bomb_fuse_default")]
+    pub ability_bomb_fuse: AbilityBombFuse,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2475,6 +2479,10 @@ fn spark_landing_reach_default() -> SparkLandingReach {
 
 fn reflect_ranged_default() -> ReflectRanged {
     ReflectRanged::MeleeOnly
+}
+
+fn ability_bomb_fuse_default() -> AbilityBombFuse {
+    AbilityBombFuse::Client15535TickAfterFuse
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9059,6 +9067,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.ABILITY_BOMB_FUSE -- see `fire_ability` (`AbilityEffect::LaneSwitch`): when the bomb a champion's button
+    /// drops (the Mighty Miner's, card.rs `CardDef::dropped_by_ability`) strikes, from its drop.
+    AbilityBombFuse {
+        /// The engine before this key: the tick after its fuse (spell.rs `step_spells`, a plain bomb's arrival): client
+        /// 15.535.29, sp-champ-MightyMiner-s0, the drop on t206 and the blow on t226 (332 and the 1800 ladder on a Knight).
+        Client15535TickAfterFuse = "client15535_tick_after_fuse",
+        /// A tick later: its fuse runs a tick longer. Client 16.402 (parity's r63 census, the ob3 live set and the 160402017
+        /// scenes): the blow on the drop + 21, 2 of 2 (sp-champ-MightyMiner-s0 on 160402017, t227 on the Knight, its push
+        /// the tick after; liveplay-20261007-192911-A t1609, 365 on a princess tower), where 15.535.29's came on the drop + 20.
+        Client16402TwoTicksAfterFuse = "client16402_two_ticks_after_fuse",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9561,6 +9582,7 @@ impl Calib {
             building_scan_x_cut: pick(&v, &["targeting", "BUILDING_SCAN_X_CUT", "value"], BuildingScanXCut::from_calibration_name)?,
             spark_landing_reach: pick(&v, &["combat", "SPARK_LANDING_REACH", "value"], SparkLandingReach::from_calibration_name)?,
             reflect_ranged: pick(&v, &["combat", "REFLECT_RANGED", "value"], ReflectRanged::from_calibration_name)?,
+            ability_bomb_fuse: pick(&v, &["spawner", "ABILITY_BOMB_FUSE", "value"], AbilityBombFuse::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -31272,6 +31294,10 @@ impl BattleState {
                     let lvl = self.cfg.cards.unit_level(card, l.bomb, None, level).expect("the ability unit's level is validated at try_new");
                     let bomb = self.cfg.cards.get(l.bomb);
                     let fuse_ms = bomb.death_bomb_fuse_ms().expect("a lane switch's bomb is a death bomb (card.rs `UnitUse::LaneSwitchBomb`)");
+                    // spawner.ABILITY_BOMB_FUSE = client16402_two_ticks_after_fuse: its fuse runs a tick longer.
+                    // PLANT (regression) ability_bomb_fuse_unread: the new arm's bomb still strikes the tick after its fuse.
+                    #[cfg(not(clash_plant = "ability_bomb_fuse_unread"))]
+                    let fuse_ms = fuse_ms + if self.cfg.calib.ability_bomb_fuse == AbilityBombFuse::Client16402TwoTicksAfterFuse { self.cfg.calib.tick_ms } else { 0 };
                     let damage = self.cfg.cards.scaled(l.bomb, lvl, bomb.death_damage).expect("the bomb's level is validated at try_new");
                     self.spells.push(Spell { team, card: l.bomb, level: lvl, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos, aim: pos, frac: Vec2::default(), delay_ms: fuse_ms }, depth: 0, flown: 0 });
                     self.warps.lanes.retain(|r| r.id != hero);
@@ -34877,6 +34903,8 @@ impl BattleState {
 /// 20, unchanged, combat.REFLECT_RANGED: Calib gained reflect_ranged (serde default the old arm, melee_only), no new
 ///    state (the shots landing are read from the saved projectiles), so a blob saved before it deserializes and hashes as
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.ABILITY_BOMB_FUSE: Calib gained ability_bomb_fuse (serde default the old arm, client15535_tick_after_fuse), no new state (it sets a new bomb's saved delay),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35798,6 +35826,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spark_landing_reach".into(), serde_json::to_value(SparkLandingReach::ProjectileRadius).map_err(|e| e.to_string())?);
     // combat.REFLECT_RANGED: a format-3 battle's reflect answered melee hits only (the same rule).
     sh.insert("reflect_ranged".into(), serde_json::to_value(ReflectRanged::MeleeOnly).map_err(|e| e.to_string())?);
+    // spawner.ABILITY_BOMB_FUSE: a format-3 battle's dropped bomb struck the tick after its fuse (the same rule).
+    sh.insert("ability_bomb_fuse".into(), serde_json::to_value(AbilityBombFuse::Client15535TickAfterFuse).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

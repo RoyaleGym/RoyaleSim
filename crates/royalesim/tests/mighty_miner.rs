@@ -23,6 +23,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::BattleState;
+use royalesim::state::AbilityBombFuse;
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["MightyMiner", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -47,7 +48,13 @@ struct Row {
 
 /// The scene, `ticks` rows from P + 1; the Knight held on its point through P + `hold_knight`.
 fn scene(ticks: u32, hold_knight: u32) -> (Vec<Row>, EntityId) {
+    scene_at(ticks, hold_knight, AbilityBombFuse::Client15535TickAfterFuse)
+}
+
+/// `scene` under spawner.ABILITY_BOMB_FUSE = `fuse`.
+fn scene_at(ticks: u32, hold_knight: u32, fuse: AbilityBombFuse) -> (Vec<Row>, EntityId) {
     let mut cfg = config();
+    cfg.calib.ability_bomb_fuse = fuse;
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
@@ -135,4 +142,19 @@ fn his_button_is_a_champions() {
     let b = s.ability_buttons(Team::Blue);
     assert_eq!(b.len(), 1, "one button: his");
     assert!(b[0].champion && b[0].available, "a champion's button, charged: {:?}", b[0]);
+}
+
+/// spawner.ABILITY_BOMB_FUSE = client16402_two_ticks_after_fuse (client 16.402, parity's r63 census: the blow on the drop +
+/// 21, 2 of 2, where 15.535.29's came on the drop + 20): the bomb's 332 on P + 31, its ladder's first step on P + 32.
+/// Plant: ability_bomb_fuse_unread.
+#[test]
+fn under_client16402_two_ticks_after_fuse_his_bomb_strikes_a_tick_later() {
+    let (rows, _) = scene_at(35, 31, AbilityBombFuse::Client16402TwoTicksAfterFuse);
+    let row = |k: usize| rows[k - 1];
+    let lost: Vec<(usize, i32)> = (12..=35).map(|k| (k, row(k - 1).knight_hp - row(k).knight_hp)).filter(|(_, d)| *d != 0).collect();
+    let at31 = lost.iter().find(|r| r.0 == 31).map(|r| r.1);
+    assert!(matches!(at31, Some(332) | Some(441)), "the bomb's 332 on P + 31: {lost:?}");
+    assert!(lost.iter().all(|&(k, d)| k >= 31 || d == 109), "nothing but the towers' arrows before P + 31: {lost:?}");
+    let step = (row(32).knight.0 - row(31).knight.0, row(32).knight.1 - row(31).knight.1);
+    assert_eq!(step, (-250, 0), "P + 32: the ladder of 1800's first step, 250 capped, away from the bomb");
 }
