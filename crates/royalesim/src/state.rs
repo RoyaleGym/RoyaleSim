@@ -8734,11 +8734,11 @@ calib_enum!(
         /// troop was struck in the pass, on the next tick 14 of 14 times a shot killed it.
         Client15535Ladder = "client15535_ladder",
         /// client15535_ladder's pushes, armed WITH THE DEATH BLOW: queued in the death tick's Reap and armed at the next
-        /// tick's Resolve, after the buffered blow lands there (combat.DEATH_DAMAGE_TICK = next_tick), so every first step
-        /// comes a tick later than client15535_ladder's: on T + 2 for a troop a shot killed (T the first frame without
-        /// it), on T + 1 for one struck down in the sequential pass. Client 16.402 (Oracle's 160402017 scenes
-        /// sp-f4-hunterG0 / G40 / G80): a Golem shot dead by the Evo Hunter's volley; its blow took the Hunter 885 -> 660
-        /// on T + 1 and the Hunter stepped 248, 248, 223, 198 ... straight out of the death point from T + 2, 3 of 3.
+        /// tick's Resolve, after the buffered blow lands there (combat.DEATH_DAMAGE_TICK = next_tick), the first step in
+        /// the move after (T + 2, T the first frame without the troop) however it died. Client 16.402 (parity's r63
+        /// census over the ob3 live set and the 160402017 scenes, every Golem and Golemite death with a victim in reach):
+        /// the blow on T + 1 and the first ladder step on T + 2, 72 of 72 (15 of 15 ground victims of a troop struck down
+        /// by a melee hit landing on T, 15 of 15 of a shot-only kill), air victims too (the Evo Bats).
         Client16402WithBlow = "client16402_with_blow",
     }
 );
@@ -28808,6 +28808,11 @@ impl BattleState {
             #[cfg(clash_plant = "troop_death_push_armed_in_reap")]
             let with_blow = false;
             if with_blow {
+                for kn in death_pushes.knocks.iter_mut() {
+                    if let spell::Knock::Push { now, .. } = kn {
+                        *now = false;
+                    }
+                }
                 self.effects.knocks.append(&mut death_pushes.knocks);
             } else if !death_pushes.knocks.is_empty() {
                 let later = std::mem::replace(&mut self.effects, death_pushes);

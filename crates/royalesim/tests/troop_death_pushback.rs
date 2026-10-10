@@ -11,8 +11,8 @@
 //!      (more than 200), and again on the next;
 //!   2. a Blue Musketeer whose shot kills it is not moved on the death tick and pushed from the next, straight out;
 //!   3. under not_read neither moves on either tick;
-//!   4. under client16402_with_blow (client 16.402: armed with the blow at the next tick's Resolve) every first step a tick
-//!      later: the Musketeer's from T + 2, the Knight's from T + 1.
+//!   4. under client16402_with_blow (client 16.402: armed with the blow at the next tick's Resolve) every first step on
+//!      T + 2, the Knight's (struck down in the pass) as the Musketeer's (a shot kill).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! troop_death_pushback`):
@@ -93,15 +93,15 @@ fn a_golem_shot_dead_pushes_from_the_next_tick() {
     assert!(ot <= 0 && ot1 <= 0, "not_read: the Musketeer was pushed: {ot}, {ot1}");
 }
 
-/// client16402_with_blow: the pushes are armed with the death blow at the next tick's Resolve, so each first step comes a
-/// tick later than client15535_ladder's (client 16.402, sp-f4-hunterG0 / G40 / G80: the blow on T + 1, the shot-dead
-/// Golem's victim stepping out from T + 2, 3 of 3). Plant: troop_death_push_armed_in_reap.
+/// client16402_with_blow: the pushes are armed with the death blow at the next tick's Resolve, every first step on T + 2
+/// however the troop died (client 16.402, parity's r63 census: 72 of 72 Golem and Golemite deaths, 15 of 15 melee kills
+/// and 15 of 15 shot kills). Plant: troop_death_push_armed_in_reap.
 #[test]
-fn under_client16402_with_blow_every_first_step_comes_a_tick_later() {
+fn under_client16402_with_blow_every_first_step_comes_on_t_plus_2() {
     let (t, t1, t2) = scene3(TroopDeathPushback::Client16402WithBlow, "Musketeer", (9000, 17500));
     assert!(t == 0 && t1.abs() < 100 && t2 > 200, "client16402_with_blow: the Musketeer's moves out on T, T + 1, T + 2: {t}, {t1}, {t2}");
     let (k, k1, k2) = scene3(TroopDeathPushback::Client16402WithBlow, "Knight", (9000, 18300));
-    assert!(k < 50 && k1 > 200 && k2 > 200, "client16402_with_blow: the Knight's moves out on T, T + 1, T + 2: {k}, {k1}, {k2}");
+    assert!(k < 50 && k1.abs() < 100 && k2 > 200, "client16402_with_blow: the Knight's moves out on T, T + 1, T + 2: {k}, {k1}, {k2}");
     // the old arm on the same scenes: the Musketeer from T + 1 (the vacuity check)
     let (_, o1, _) = scene3(TroopDeathPushback::Client15535Ladder, "Musketeer", (9000, 17500));
     assert!(o1 > 200, "client15535_ladder: the Musketeer's move out on T + 1: {o1}");
