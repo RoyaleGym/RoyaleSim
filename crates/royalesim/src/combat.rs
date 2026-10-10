@@ -1526,11 +1526,23 @@ pub fn fire(
             let _ = calib.non_homing_aim;
             false // PLANT (regression): the new arm's non-homing splash shot follows its target, as follows_target.
         };
+        // combat.RANGE_POINT_SHOT = client_range_point: a shot whose row carries a ProjectileRange and no ProjectileRadius
+        // (`CardDef::range_point`, the Wall Breakers') is aimed that far from the attacker's own point toward its target
+        // (truncated: on the point but for an axis-aligned bearing), fixed, so it lands and splashes there on the tick
+        // after the fire. Measured on clients 16.402 and 15.535.29: every Wall Breaker blast on a building on F + 1, 62 of
+        // 62, its aim the Wall Breaker's own point.
+        // PLANT (regression) range_point_aims_target: the new arm still aims at the target's centre.
+        #[cfg(not(clash_plant = "range_point_aims_target"))]
+        let point = card.range_point.filter(|_| calib.range_point_shot == crate::state::RangePointShot::ClientRangePoint);
+        #[cfg(clash_plant = "range_point_aims_target")]
+        let point: Option<i32> = None;
+        let aim = point.map_or(ents.pos[ti], |r| toward_native(ents.pos[a], ents.pos[ti], r, ents.team[a]));
+        let fixed = fixed || point.is_some();
         projectiles.push(Projectile {
             team: ents.team[a],
             pos,
             target,
-            aim: ents.pos[ti],
+            aim,
             fixed,
             // Every projectile reads time.PROJECTILE_SPEED_TO_SUBTILES_PER_TICK, its
             // own key, NOT the troop key `calib.speed_to_subtiles_per_tick` (the two

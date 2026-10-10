@@ -789,6 +789,10 @@ pub struct Calib {
     /// `AtSurface`, what a battle saved before it ran.
     #[serde(default = "spawn_pathfind_morph_area_default")]
     pub spawn_pathfind_morph_area: SpawnPathfindMorphArea,
+    /// combat.RANGE_POINT_SHOT (where a shot with a ProjectileRange and no ProjectileRadius is aimed, combat.rs `fire`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `ToTarget`, what a battle saved before it ran.
+    #[serde(default = "range_point_shot_default")]
+    pub range_point_shot: RangePointShot,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2539,6 +2543,10 @@ fn tower_troop_damage_ladder_default() -> TowerTroopDamageLadder {
 
 fn spawn_pathfind_morph_area_default() -> SpawnPathfindMorphArea {
     SpawnPathfindMorphArea::AtSurface
+}
+
+fn range_point_shot_default() -> RangePointShot {
+    RangePointShot::ToTarget
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9263,6 +9271,22 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.RANGE_POINT_SHOT -- see combat.rs `fire` (`CardDef::range_point`): where a troop's shot whose row carries a
+    /// ProjectileRange and no ProjectileRadius (the Wall Breakers' WallbreakerProjectile, range 1) is aimed.
+    RangePointShot {
+        /// The engine before this key: at its target's centre, like any shot: a Wall Breaker's blast flies 1,348 to 1,897
+        /// at 1,000 a tick and lands two ticks after the fire, splashing on the target's centre.
+        ToTarget = "to_target",
+        /// ProjectileRange along the bearing from the attacker's own point to its target (truncated: on that point but
+        /// for an axis-aligned bearing), fixed there: it lands and splashes there on the tick after the fire. Measured
+        /// (parity's r64 census over the ob3 live set, client 16.402): every Wall Breaker blast on a building, 62 of 62
+        /// on F + 1 (F the fire, the tick it is gone), its aim the Wall Breaker's point 63 of 64 (the 64th 1 off on an
+        /// axis); Bats and a Barbarian within 1,500 of the Wall Breaker but past 1,500 from the tower hit. Client
+        /// 15.535.29 the same (sp-f2-wb-s0: last frames 198 and 211, the tower's 281 drops on 200 and 213).
+        ClientRangePoint = "client_range_point",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9773,6 +9797,7 @@ impl Calib {
             lift_timing: pick(&v, &["status", "LIFT_TIMING", "value"], LiftTiming::from_calibration_name)?,
             tower_troop_damage_ladder: pick(&v, &["combat", "TOWER_TROOP_DAMAGE_LADDER", "value"], TowerTroopDamageLadder::from_calibration_name)?,
             spawn_pathfind_morph_area: pick(&v, &["movement", "SPAWN_PATHFIND_MORPH_AREA", "value"], SpawnPathfindMorphArea::from_calibration_name)?,
+            range_point_shot: pick(&v, &["combat", "RANGE_POINT_SHOT", "value"], RangePointShot::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -35411,6 +35436,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, movement.SPAWN_PATHFIND_MORPH_AREA: Calib gained spawn_pathfind_morph_area (serde default the old arm, at_surface), no new state (it reads the saved building's spawn tick),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RANGE_POINT_SHOT: Calib gained range_point_shot (serde default the old arm, to_target), no new state (a shot in flight keeps its saved aim),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36348,6 +36375,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("tower_troop_damage_ladder".into(), serde_json::to_value(TowerTroopDamageLadder::TowerLadder).map_err(|e| e.to_string())?);
     // movement.SPAWN_PATHFIND_MORPH_AREA: a format-3 battle put the area down on the surfacing tick (the same rule).
     sh.insert("spawn_pathfind_morph_area".into(), serde_json::to_value(SpawnPathfindMorphArea::AtSurface).map_err(|e| e.to_string())?);
+    // combat.RANGE_POINT_SHOT: a format-3 battle aimed every shot at its target (the same rule).
+    sh.insert("range_point_shot".into(), serde_json::to_value(RangePointShot::ToTarget).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

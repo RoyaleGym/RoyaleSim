@@ -1794,6 +1794,16 @@
     }
   },
   "combat": {
+    "RANGE_POINT_SHOT": {
+      "value": "client_range_point",
+      "status": "measured",
+      "candidates": ["to_target", "client_range_point"],
+      "confidence": "HIGH for client_range_point on clients 16.402 and 15.535.29: the 62 gapless Wall Breaker blasts on a building in the ob3 live set (39 Cannons, 24 princess towers) on F + 1, the engine's in step on F + 2 (21 of 21); the aim the Wall Breaker's own point 63 of 64; sp-f2-wb-s0 (15.535.29) L + 2 both. Not separated: the splash radius 1,500 against 1,500 + the victim's radius.",
+      "provenance": "MEASURED by parity (2026-10-09, r64 Wall Breakers census, agents8/wallbreakers): the capture's effects stream shows each WallbreakerProjectile born on F on the Wall Breaker's own point, its aim (projectile_x / y) that point, seen on F only, the target's hp dropping on F + 1 = L + 2 (L the Wall Breaker's last frame, an attack frame at progress 1150). The engine aimed it at the target's centre (combat.rs fire `aim: ents.pos[ti]`): the row's ProjectileRange 1 went unread, card.rs range_shot_of needing a ProjectileRadius. liveplay-20261008-015445-A's -438 on a tower and 154147's Bats (inside 1,500 of the Wall Breaker, outside it from the tower) are this.",
+      "meaning": "to_target: aimed at the target's centre. client_range_point: ProjectileRange from the attacker's own point toward the target, fixed; it lands there the tick after the fire.",
+      "open": "The splash radius (1,500 or + the victim's radius); whether the range point reads the start-of-tick position (they stand still when they fire); a King Tower blast (none in the set).",
+      "engine": "combat.rs fire (CardDef::range_point), selected by Calib::range_point_shot; card.rs range_point_of; tests/range_point_shot.rs."
+    },
     "TOWER_TROOP_DAMAGE_LADDER": {
       "value": "client16402_card_ladder",
       "status": "measured",

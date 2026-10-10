@@ -3055,6 +3055,11 @@ pub struct CardDef {
     /// The row's straight-to-range projectile (`RangeShotDef`): its projectile carries a
     /// ProjectileRange and a ProjectileRadius. None on every other card.
     pub range_shot: Option<RangeShotDef>,
+    /// THE RANGE POINT of the row's shot, subtiles (`range_point_of`): its projectile carries a ProjectileRange and no
+    /// ProjectileRadius (the Wall Breakers' WallbreakerProjectile, range 1). Read under combat.RANGE_POINT_SHOT =
+    /// client_range_point (combat.rs `fire`: the shot aimed that far from the attacker toward its target, fixed). None on
+    /// every other card.
+    pub range_point: Option<i32>,
     /// MultipleProjectiles (cards.json `units.<unit>.raw`): the projectiles one shot fires
     /// under calibration combat.MULTIPLE_PROJECTILES = client_fan (the Hunter 10, the
     /// Princess 5). 1 when blank.
@@ -7952,6 +7957,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         dash: None,
         reflect: None,
         range_shot: None,
+        range_point: None,
         multiple_projectiles: 1,
         custom_first_projectile: None,
         multiple_targets: 1,
@@ -10170,6 +10176,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     let mut projectile_homing = false;
     let mut projectile_name: Option<String> = None;
     let mut range_shot: Option<RangeShotDef> = None;
+    let mut range_point: Option<i32> = None;
     let mut spark: Option<SparkDef> = None;
     let mut chain_hit: Option<ChainHitDef> = None;
     let mut projectile_area_need: Option<String> = None;
@@ -10209,6 +10216,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             projectile_homing = p.homing.unwrap_or(true);
             projectile_name = p.name.clone();
             range_shot = range_shot_of(&p);
+            range_point = range_point_of(&p);
             chain_hit = p.chained_hit_count.filter(|c| *c > 1).map(|count| ChainHitDef { count, radius: milli(p.chained_hit_radius_milli.unwrap_or(0).max(0)) });
             spark = p.spawn_projectile.as_ref().and_then(spark_of);
             #[cfg(not(clash_plant = "projectile_area_unread"))]
@@ -10670,6 +10678,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         dash,
         reflect,
         range_shot,
+        range_point,
         multiple_projectiles,
         custom_first_projectile,
         multiple_targets,
@@ -10774,6 +10783,20 @@ fn range_shot_of(p: &RawProjectileObj) -> Option<RangeShotDef> {
         start_extra: milli(p.projectile_start_extra_radius_milli.unwrap_or(0).max(0)),
         random_delay_ms: p.random_delay_ms.unwrap_or(0).max(0),
     })
+}
+
+/// THE RANGE POINT of a projectile object (`CardDef::range_point`), subtiles: its ProjectileRange when it carries one and no
+/// ProjectileRadius (a straight shot to a range has both, `range_shot_of`). The Wall Breakers' rows (range 1) alone among
+/// the troops' own shots.
+fn range_point_of(p: &RawProjectileObj) -> Option<i32> {
+    // PLANT (regression) range_point_unread: the loader drops the column, so every shot is aimed at its target.
+    #[cfg(clash_plant = "range_point_unread")]
+    {
+        let _ = p;
+        return None;
+    }
+    #[allow(unreachable_code)]
+    p.projectile_range_milli.filter(|r| *r > 0 && p.projectile_radius_milli.filter(|q| *q > 0).is_none()).map(milli)
 }
 
 /// One arrow of a power shot (`PowerArrow`) off its projectile object: a straight shot to a range with a speed and a
