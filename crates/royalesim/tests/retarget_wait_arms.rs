@@ -44,7 +44,8 @@
 //! PLANTS (regression):
 //!   * `reach_loss_no_wait` -- the new arm retargets at once after a reach loss: (2) goes red.
 //!   * `reach_loss_any_unit` -- every unit waits after a reach loss, not the inferno's alone: (4) goes red.
-//!   * `retarget_wait_runs_while_held` -- the new arm counts the held ticks: (6) goes red.
+//!   * `retarget_wait_runs_while_held` -- the new arm counts the held ticks: (6) and (6b) go red.
+//!   * `first_held_phase_paused` -- client16402_first_held_counts pauses the hold's first phase too: (6b) goes red.
 //!   * `reach_loss_variable_rows_exempt` -- client15535_after_reach_loss_variable_rows takes an enemy already in the
 //!     inferno's reach at once: (8) goes red.
 //!   * `reach_loss_kept_within_keep_lost` -- the new arm loses a kept target inside the keep reach: (9) goes red.
@@ -206,11 +207,19 @@ fn the_new_arm_serves_the_rest_of_the_wait_after_the_freeze() {
     assert_eq!(held_timeline(RetargetWaitWhileHeld::ClientPaused), (9, 10, 79, 85), "client_paused: (kill, frozen, next target)");
 }
 
+/// (6b) combat.RETARGET_WAIT_WHILE_HELD = client16402_first_held_counts (client 16.402, parity's r64 tower-clock census): the
+/// wait counts k 10 and the freeze's first phase k 11, pauses k 12 .. k 80 and counts k 81 .. 83: the next target on k 84,
+/// a tick before client_paused's k 85. Plants: first_held_phase_paused, retarget_wait_runs_while_held.
+#[test]
+fn under_client16402_first_held_counts_the_holds_first_phase_counts() {
+    assert_eq!(held_timeline(RetargetWaitWhileHeld::Client16402FirstHeldCounts), (9, 10, 79, 84), "client16402_first_held_counts: (kill, frozen, next target)");
+}
+
 #[test]
 fn the_shipped_values_are_the_new_arms() {
     let c = Calib::shipped();
     assert_eq!(c.retarget_wait_reach_loss, RetargetWaitReachLoss::ClientAfterReachLoss);
-    assert_eq!(c.retarget_wait_while_held, RetargetWaitWhileHeld::ClientPaused);
+    assert_eq!(c.retarget_wait_while_held, RetargetWaitWhileHeld::Client16402FirstHeldCounts, "the shipped arm: client 16.402's");
 }
 
 /// (8) combat.RETARGET_WAIT_REACH_LOSS = client15535_after_reach_loss_variable_rows (client 15.535.29: 4 of 4 Inferno

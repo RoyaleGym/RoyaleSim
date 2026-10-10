@@ -358,6 +358,11 @@ pub struct Entities {
     /// `default` and sized on load at 0.
     #[serde(default)]
     pub load_hold: Vec<u8>,
+    /// combat.RETARGET_WAIT_WHILE_HELD = client16402_first_held_counts: this unit was held (`held`) on its post-kill wait's
+    /// previous Target phase (state.rs `phase_target`), so a held phase now pauses the wait; false otherwise and on every
+    /// unit under the other arms. `default` and sized on load at false.
+    #[serde(default)]
+    pub wait_held: Vec<bool>,
     /// movement.JUMP_LANDING_SCOPE = client15535_whole_tick: the tick this unit's river leap last ended, plus one (state.rs
     /// `phase_path16402_for`); the later contact passes of that tick leave it out. 0 otherwise and on every unit under the
     /// old arm. `default` and sized on load at 0.
@@ -916,6 +921,7 @@ impl Entities {
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
             self.load_hold[i] = 0;
+            self.wait_held[i] = false;
             self.landed_at[i] = 0;
             self.combo_ix[i] = 0;
             self.spawn_lane[i] = 0;
@@ -1021,6 +1027,7 @@ impl Entities {
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
             self.load_hold.push(0);
+            self.wait_held.push(false);
             self.landed_at.push(0);
             self.combo_ix.push(0);
             self.spawn_lane.push(0);
@@ -1188,6 +1195,7 @@ impl Entities {
         self.chase_dropped[i] = None;
         self.chase_inside[i] = None;
         self.load_hold[i] = 0;
+        self.wait_held[i] = false;
         self.landed_at[i] = 0;
         self.attack_seq[i] = 0;
     }

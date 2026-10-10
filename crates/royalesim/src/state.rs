@@ -5019,6 +5019,14 @@ calib_enum!(
         /// frozen t317..t338, reads progress 0 on t343 and takes its next target on t344, the loss + 6 in unfrozen
         /// ticks; the engine took it on t340, the first tick after the freeze.
         ClientPaused = "client_paused",
+        /// client_paused, but the FIRST Target phase of a hold still counts; the wait pauses from the hold's second phase
+        /// (entity.rs `wait_held`). Client 16.402 (parity's r64 tower-clock census over the 160402017 scenes): an Electro
+        /// Spirit's stun landing on a princess tower's wait on D + 4 reads its progress 0 on D + 5, inside the stun, and
+        /// the tower takes its next target on the resume tick D + 15 (client 15.535.29: 0 on D + 15, the target on D + 16,
+        /// client_paused, 67 cases); an Ice Spirit's freeze landing on D + 1 still pauses it (sp-scene-b-s1,
+        /// sp-form-Zap-evo-s0, sp-form-Snowball-evo-s0). Replayed offline on the 017 scenes: 45 waits take their next
+        /// target a tick earlier, on the truth's, none later: 166 of the 348 shifted tower shots.
+        Client16402FirstHeldCounts = "client16402_first_held_counts",
     }
 );
 calib_enum!(
@@ -18699,12 +18707,26 @@ impl BattleState {
             if wait_arm {
                 // combat.RETARGET_WAIT_WHILE_HELD = client_paused: a Target phase on which the unit is held (a stun, a
                 // freeze) does not count toward its wait; it holds with no target and the count resumes after.
+                // client16402_first_held_counts: a hold's first phase counts; the wait pauses from its second.
+                let held_now = e.retarget_wait[i] > 0 && e.held(&cards.buffs, i, calib.full_stop_buff_is_stun);
+                let first_counts = calib.retarget_wait_while_held == RetargetWaitWhileHeld::Client16402FirstHeldCounts;
+                // PLANT (regression) first_held_phase_paused: the new arm pauses the hold's first phase too.
+                #[cfg(not(clash_plant = "first_held_phase_paused"))]
+                let counted = first_counts && !e.wait_held[i];
+                #[cfg(clash_plant = "first_held_phase_paused")]
+                let counted = false;
+                if first_counts {
+                    e.wait_held[i] = held_now;
+                }
                 #[cfg(not(clash_plant = "retarget_wait_runs_while_held"))]
-                let paused = calib.retarget_wait_while_held == RetargetWaitWhileHeld::ClientPaused
-                    && e.retarget_wait[i] > 0
-                    && e.held(&cards.buffs, i, calib.full_stop_buff_is_stun);
+                let paused = matches!(calib.retarget_wait_while_held, RetargetWaitWhileHeld::ClientPaused | RetargetWaitWhileHeld::Client16402FirstHeldCounts)
+                    && held_now
+                    && !counted;
                 #[cfg(clash_plant = "retarget_wait_runs_while_held")]
-                let paused = false; // PLANT (regression): the new arm counts the held ticks too.
+                let paused = {
+                    let _ = (held_now, counted);
+                    false // PLANT (regression): the new arm counts the held ticks too.
+                };
                 if paused {
                     e.target[i] = None;
                     continue;
@@ -33168,6 +33190,10 @@ impl BattleState {
                 if matches!(self.cfg.calib.load_timer_target_loss, LoadTimerTargetLoss::Client15535StandsAfterWalkLoss | LoadTimerTargetLoss::Client16402HitHoldLag) {
                     h.u32(e.load_hold[i] as u32);
                 }
+                // combat.RETARGET_WAIT_WHILE_HELD = client16402_first_held_counts: the wait's held mark, under that arm alone.
+                if self.cfg.calib.retarget_wait_while_held == RetargetWaitWhileHeld::Client16402FirstHeldCounts {
+                    h.bool(e.wait_held[i]);
+                }
                 // movement.JUMP_LANDING_SCOPE = client15535_whole_tick: the lander's stamp, written under that arm alone.
                 if self.cfg.calib.jump_landing_scope == JumpLandingScope::Client15535WholeTick {
                     h.u32(e.landed_at[i]);
@@ -35245,6 +35271,9 @@ impl BattleState {
 ///    gained drag_idle (`default`, sized on load false), written and hashed under the new arm alone (its hooked_by held
 ///    a tick longer is hashed as before), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
 ///    a migrated battle at the old arm.
+/// 20, unchanged, combat.RETARGET_WAIT_WHILE_HELD's client16402_first_held_counts: a new arm of an existing key; Entities
+///    gained wait_held (`default`, sized on load at false), written and hashed under the new arm alone, so a blob saved
+///    before it deserializes and hashes as it did (its Calib reads client_paused, its saved value).
 /// 20, unchanged, combat.LOAD_TIMER_TARGET_LOSS's client16402_hit_hold_lag: a new arm of an existing key; BuffHit gained
 ///    by_hit (`default` false) and entity.rs load_hold its value 3 (written and hashed under the new arm alone), so a blob
 ///    saved before it deserializes and hashes as it did.
@@ -36819,6 +36848,7 @@ impl BattleState {
         snap.ents.chase_inside.resize(n, None);
         snap.ents.source.resize(n, NO_CARD);
         snap.ents.load_hold.resize(n, 0);
+        snap.ents.wait_held.resize(n, false);
         snap.ents.landed_at.resize(n, 0);
         // A blob saved before chase_last_pos reads each unit's last Target-phase position as where it stands.
         for i in snap.ents.chase_last_pos.len()..n {
