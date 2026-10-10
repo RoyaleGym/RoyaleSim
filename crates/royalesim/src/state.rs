@@ -837,6 +837,10 @@ pub struct Calib {
     /// `TableTime`, what a battle saved before it ran.
     #[serde(default = "guard_press_hold_default")]
     pub guard_press_hold: GuardPressHold,
+    /// combat.BUILDING_DEPLOY_LAST_TICK (whether a building acts on its deploy's last tick (the countdown ending this tick) or from the tick after). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `AfterCountdown`, what a battle saved before it ran.
+    #[serde(default = "building_deploy_last_tick_default")]
+    pub building_deploy_last_tick: BuildingDeployLastTick,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2635,6 +2639,10 @@ fn guard_landing_hits_default() -> GuardLandingHits {
 
 fn guard_press_hold_default() -> GuardPressHold {
     GuardPressHold::TableTime
+}
+
+fn building_deploy_last_tick_default() -> BuildingDeployLastTick {
+    BuildingDeployLastTick::AfterCountdown
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9570,6 +9578,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.BUILDING_DEPLOY_LAST_TICK -- the first tick a deployed building (EntityKind::Building) targets and attacks
+    /// (target.rs `acts_on_last_deploy_tick`; decide's and phase_attack's deploy gates).
+    BuildingDeployLastTick {
+        /// The engine's: from the tick after its countdown (end of Move) reaches 0.
+        AfterCountdown = "after_countdown",
+        /// Client 16.402: on its countdown's last tick too (its timer at one tick, no stun pause, not under ground); a
+        /// hiding building with a target when the countdown ends starts up (`hide_on_deployed`). Its drain, its hide start
+        /// otherwise and its spawner keep the deploy end at the end of Move.
+        Client16402ActsOnLastTick = "client16402_acts_on_last_tick",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10092,6 +10112,7 @@ impl Calib {
             chain_hop_dead_target: pick(&v, &["combat", "CHAIN_HOP_DEAD_TARGET", "value"], ChainHopDeadTarget::from_calibration_name)?,
             guard_landing_hits: pick(&v, &["combat", "GUARD_LANDING_HITS", "value"], GuardLandingHits::from_calibration_name)?,
             guard_press_hold: pick(&v, &["combat", "GUARD_PRESS_HOLD", "value"], GuardPressHold::from_calibration_name)?,
+            building_deploy_last_tick: pick(&v, &["combat", "BUILDING_DEPLOY_LAST_TICK", "value"], BuildingDeployLastTick::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -16986,7 +17007,14 @@ impl BattleState {
         let starts_hidden = self.cfg.calib.hide_starts_hidden;
         #[cfg(clash_plant = "tesla_always_up")]
         let starts_hidden = false; // PLANT (regression): the earlier engine, never under.
-        if starts_hidden {
+        // combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick: a hiding building that took a target on its
+        // deploy's last tick stays up, its wait full (the client's Teslas attack on their first free frame and stay up).
+        // PLANT (regression) tesla_hides_with_target: the new arm's Tesla still goes under with its target.
+        #[cfg(not(clash_plant = "tesla_hides_with_target"))]
+        let attacking = self.cfg.calib.building_deploy_last_tick == BuildingDeployLastTick::Client16402ActsOnLastTick && self.ents.target[i].is_some();
+        #[cfg(clash_plant = "tesla_hides_with_target")]
+        let attacking = false;
+        if starts_hidden && !attacking {
             self.ents.hide[i] = HideState::Hidden;
             self.ents.hide_ms[i] = 0;
         } else {
@@ -26149,7 +26177,8 @@ impl BattleState {
                 || self.warps.warp_holds_swing(e.id_of(i));
             // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: a Rune Giant inside his launch's hold.
             let enchant_held = e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i];
-            let can_act = e.deploy_ms[i] == 0
+            // combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick: a building on its deploy's last tick acts.
+            let can_act = (e.deploy_ms[i] == 0 || target::acts_on_last_deploy_tick(&self.cfg.calib, e, i))
                 && !held
                 && !enchant_held
                 && !chaining
@@ -36104,6 +36133,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_PRESS_HOLD: Calib gained guard_press_hold (serde default the old arm, table_time), no new state (the hold is a buff with its own time),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.BUILDING_DEPLOY_LAST_TICK: Calib gained building_deploy_last_tick (serde default the old arm, after_countdown), no new state (it reads the deploy timer and the target),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37065,6 +37096,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_landing_hits".into(), serde_json::to_value(GuardLandingHits::ChargeStepsOnly).map_err(|e| e.to_string())?);
     // combat.GUARD_PRESS_HOLD: a format-3 battle's press held him for the hold's table time.
     sh.insert("guard_press_hold".into(), serde_json::to_value(GuardPressHold::TableTime).map_err(|e| e.to_string())?);
+    // combat.BUILDING_DEPLOY_LAST_TICK: a format-3 battle's building acted from the tick after its countdown.
+    sh.insert("building_deploy_last_tick".into(), serde_json::to_value(BuildingDeployLastTick::AfterCountdown).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

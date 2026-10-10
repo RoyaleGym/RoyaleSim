@@ -1836,6 +1836,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.CHAIN_HOP_DEAD_TARGET = ends: a chain hop whose target died before it landed ends the chain (unread there).
 ///   combat.GUARD_LANDING_HITS = charge_steps_only: the Little Prince's guard hits on its charge's steps alone (unread there).
 ///   combat.GUARD_PRESS_HOLD = table_time: the Little Prince's press holds him for the hold's table time (unread there).
+///   combat.BUILDING_DEPLOY_LAST_TICK = after_countdown: a building acts from the tick after its deploy ends (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1993,6 +1994,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.CHAIN_HOP_DEAD_TARGET", "\"ends\""),
     ("combat.GUARD_LANDING_HITS", "\"charge_steps_only\""),
     ("combat.GUARD_PRESS_HOLD", "\"table_time\""),
+    ("combat.BUILDING_DEPLOY_LAST_TICK", "\"after_countdown\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

@@ -382,6 +382,24 @@ pub fn hide_acts(calib: &Calib, e: &Entities, i: usize) -> bool {
     }
 }
 
+/// combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick: is building `i` on its deploy's last tick (its timer
+/// at one tick or less, and its countdown runs this tick: no stun pause, not under ground)? Such a building takes its
+/// Target and Attack phases as a deployed one; its countdown still ends at the end of Move (the drain, the hide start, the
+/// spawner as before).
+#[inline]
+pub fn acts_on_last_deploy_tick(calib: &Calib, e: &Entities, i: usize) -> bool {
+    // PLANT (regression) building_waits_countdown: the new arm's building still waits for its countdown's end.
+    #[cfg(not(clash_plant = "building_waits_countdown"))]
+    let on = calib.building_deploy_last_tick == crate::state::BuildingDeployLastTick::Client16402ActsOnLastTick;
+    #[cfg(clash_plant = "building_waits_countdown")]
+    let on = false;
+    on && e.kind[i] == crate::entity::EntityKind::Building
+        && e.deploy_ms[i] > 0
+        && e.deploy_ms[i] <= calib.tick_ms
+        && !(calib.stun_pauses_deploy && e.stun_ms[i] > 0)
+        && !e.underground(i)
+}
+
 /// hide.HELD_THROUGH_HIDE = client16402_kept in force.
 #[inline]
 pub fn held_through_hide(calib: &Calib) -> bool {
@@ -1147,7 +1165,7 @@ fn keep_own_radius(ctx: &TargetCtx, a: usize, card: &CardDef) -> i32 {
 pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecision {
     let e = ctx.ents;
     let cur = e.target[a];
-    if e.deploy_ms[a] > 0 {
+    if e.deploy_ms[a] > 0 && !acts_on_last_deploy_tick(ctx.calib, e, a) {
         return TargetDecision { target: None, cancel_attack: false, resumed: false, chase_dropped: None };
     }
     // Under ground or still coming up: no target at all, and any windup it had is

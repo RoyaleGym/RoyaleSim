@@ -576,6 +576,9 @@ fn knight_mid_swing_on_a_deploying_tesla(law: RiseLaw) {
     // exercised. ~~`if in_windup { .. }`~~: the windup is asserted, not tested for.
     let mut cfg = with_rise_law(law, rising_untargetable());
     cfg.calib.hide_held_through = HeldThroughHide::Dropped;
+    // combat.BUILDING_DEPLOY_LAST_TICK = after_countdown: under the shipped arm the Tesla takes the Knight on its deploy's
+    // last tick and stays up (tests/building_deploy_last_tick.rs), where this scene measures it going under.
+    cfg.calib.building_deploy_last_tick = royalesim::state::BuildingDeployLastTick::AfterCountdown;
     let mut s = bare(cfg);
     let tesla_at = t(900, 1400);
     let knight_at = Vec2::new(tesla_at.x, tesla_at.y - 3 * SUBTILE / 2);
