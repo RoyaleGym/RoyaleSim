@@ -99,13 +99,16 @@ fn shipped() -> BattleConfig {
     cfg.card_level = [LEVEL, LEVEL];
     let c = &cfg.calib;
     assert_eq!(c.kamikaze_time, KamikazeTime::FlatDrainToZero, "the shipped combat.KAMIKAZE_TIME");
-    assert_eq!(c.death_bomb_spawn_timing, DeathBombSpawnTiming::AtFuseEnd, "the shipped spawner.DEATH_BOMB_SPAWN_TIMING");
+    assert_eq!(c.death_bomb_spawn_timing, DeathBombSpawnTiming::UnitsAtFuseEnd, "the shipped spawner.DEATH_BOMB_SPAWN_TIMING (client 16.402)");
     assert_eq!(c.death_pushback, DeathPushbackScope::ContainersLadder, "the shipped knockback.DEATH_PUSHBACK");
     assert_eq!(c.death_spawn_pushback, DeathSpawnPushback::ClientRingSlide, "the shipped spawner.DEATH_SPAWN_PUSHBACK");
     assert_eq!(c.attack_cycle, AttackCycle::ProgressCredit, "the shipped combat.ATTACK_CYCLE, whose counter the fire is read on");
     // The ring points were pinned with the members born through the sine table (spawner.DEATH_SLIDE_BIRTH =
     // sine_table); the shipped birth one step toward the end point moves the diagonal ones by a unit.
     cfg.calib.death_slide_birth = DeathSlideBirth::SineTable;
+    // The file's scenes are client 15.535.29's: a container's units and its hit both on T + 12 (at_fuse_end, a 15.535.29
+    // capture's arm; the shipped units_at_fuse_end, client 16.402's, is `under_units_at_fuse_end_...`'s).
+    cfg.calib.death_bomb_spawn_timing = DeathBombSpawnTiming::AtFuseEnd;
     cfg
 }
 
