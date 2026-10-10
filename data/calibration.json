@@ -4086,6 +4086,16 @@
     }
   },
   "status": {
+    "DEFLECT_BUFF_LANDING": {
+      "value": "client_after_hits_tick_short",
+      "status": "measured",
+      "candidates": ["at_trigger", "client_after_hits_tick_short"],
+      "confidence": "HIGH for client_after_hits_tick_short on client 16.402 (parity's r63 census): every hit on 12 Monk presses read against the attacker's full damage (floor 35 %: 217 -> 75, 81 -> 28, 173 -> 60, 255 -> 89, 379 -> 132 ...): on T = P + 13 (his first active frame) 2 of 2 full, on T + 1 .. T + 79 78 of 78 reduced, on T + 80 .. T + 82 4 of 4 full. Client 15.535.29's one scene fits it too (T = P + 17 full, T + 79 reduced, T + 81 full): no CLIENT15535_ARMS entry. The reduction is decided where the hit lands, not where it was fired (a shot fired in the cast, caught on P + 16, did 75).",
+      "provenance": "MEASURED by parity (2026-10-09, r63 census) on the ob3 live set (11 Monk presses, one cut short by his death in the cast) and Oracle's 160402017 scenes sp-champ-Monk-s0 and sp-champ-Monk-recharge-q20-s0: state 10 on P .. P + 12, 16 on P + 13 .. P + 91, 0 on P + 92, walking from P + 93; the full hits on T: liveplay-20261008-011309-A t3686 (173, a level-16 tower's shot; 60 inside the window after), 065646-A t2605 (173); the reduced on T + 79: 134051-A t1212 (40), 200514-A t5341 (89), 011309-A t3296 (48), 065646-A t2684 (60); the full after: sp-champ-Monk-s0 t290 = T + 80 (81, where the engine took 28: its whole hp loss in the scene), 200514-A T + 81 (81, 255), 011309-A T + 82 (111).",
+      "meaning": "at_trigger: the engine's; the buff lands at the trigger (Status) for its BuffTime, so the trigger tick's hits and one tick past the client's window are reduced. client_after_hits_tick_short: it lands after the trigger tick's hits, for BuffTime less a tick.",
+      "open": "Hits that land in the sequential pass on T (a melee hit before the Resolve): unread; read as the tick's other hits.",
+      "engine": "state.rs fire_ability (`AbilityEffect::Deflect`), selected by Calib::deflect_buff_landing; tests/monk_deflect.rs."
+    },
     "ATTRACT_LAW": {
       "value": "base_speed",
       "status": "measured",

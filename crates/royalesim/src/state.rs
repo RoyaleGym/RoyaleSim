@@ -761,6 +761,10 @@ pub struct Calib {
     /// `Client15535TickAfterFuse`, what a battle saved before it ran.
     #[serde(default = "ability_bomb_fuse_default")]
     pub ability_bomb_fuse: AbilityBombFuse,
+    /// status.DEFLECT_BUFF_LANDING (when and for how long the Monk's Deflect buff lands, `fire_ability`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `AtTrigger`, what a battle saved before it ran.
+    #[serde(default = "deflect_buff_landing_default")]
+    pub deflect_buff_landing: DeflectBuffLanding,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2483,6 +2487,10 @@ fn reflect_ranged_default() -> ReflectRanged {
 
 fn ability_bomb_fuse_default() -> AbilityBombFuse {
     AbilityBombFuse::Client15535TickAfterFuse
+}
+
+fn deflect_buff_landing_default() -> DeflectBuffLanding {
+    DeflectBuffLanding::AtTrigger
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9080,6 +9088,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.DEFLECT_BUFF_LANDING -- see `fire_ability` (`AbilityEffect::Deflect`): when the Monk's Deflect buff (its
+    /// DamageReduction) lands on him, and for how long.
+    DeflectBuffLanding {
+        /// The engine before this key: at the trigger, in the Status phase, for its BuffTime: the trigger tick's hits land at
+        /// 35 % too, and the buff outlasts the client's window by a tick.
+        AtTrigger = "at_trigger",
+        /// With the trigger tick's effects (Resolve, after its hits) for its BuffTime less a tick: a hit on the trigger tick
+        /// T in full, every hit on T + 1 .. T + 79 at 35 %, one on T + 80 in full. Client 16.402 (parity's r63 census, 12
+        /// Monk presses in the ob3 live set and the 160402017 scenes): 2 of 2 hits on T full, 74 of 74 on T + 1 .. T + 78
+        /// and 4 of 4 on T + 79 reduced, 4 of 4 from T + 80 full; client 15.535.29's scene the same (T full, T + 79
+        /// reduced, T + 81 full).
+        ClientAfterHitsTickShort = "client_after_hits_tick_short",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9583,6 +9606,7 @@ impl Calib {
             spark_landing_reach: pick(&v, &["combat", "SPARK_LANDING_REACH", "value"], SparkLandingReach::from_calibration_name)?,
             reflect_ranged: pick(&v, &["combat", "REFLECT_RANGED", "value"], ReflectRanged::from_calibration_name)?,
             ability_bomb_fuse: pick(&v, &["spawner", "ABILITY_BOMB_FUSE", "value"], AbilityBombFuse::from_calibration_name)?,
+            deflect_buff_landing: pick(&v, &["status", "DEFLECT_BUFF_LANDING", "value"], DeflectBuffLanding::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -31098,8 +31122,21 @@ impl BattleState {
             // both, and every hit on him in the active window lands at 35 % (217 -> 75, 202 -> 70, 81 -> 28).
             crate::card::AbilityEffect::Deflect { buff, active_ms, stay, .. } => {
                 // His hold through the active state was set at the cast's start (`start_ability`).
-                let h = crate::status::BuffHit::plain(hero, buff.buff, buff.time_ms, 0);
-                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                // status.DEFLECT_BUFF_LANDING = client_after_hits_tick_short: the buff lands with this tick's effects (in
+                // Resolve, after its hits) for its BuffTime less a tick: the trigger tick's hits land in full, every hit on
+                // T + 1 .. T + 79 at 35 % (client 16.402: 2 of 2 full on T, 78 of 78 reduced, 4 of 4 full from T + 80).
+                // PLANT (regression) deflect_buff_at_trigger: the new arm still lands it now, for its whole BuffTime.
+                #[cfg(not(clash_plant = "deflect_buff_at_trigger"))]
+                let after_hits = self.cfg.calib.deflect_buff_landing == DeflectBuffLanding::ClientAfterHitsTickShort;
+                #[cfg(clash_plant = "deflect_buff_at_trigger")]
+                let after_hits = false;
+                if after_hits {
+                    let ms = (buff.time_ms - self.cfg.calib.tick_ms).max(0);
+                    self.effects.buffs.push(crate::status::BuffHit::plain(hero, buff.buff, ms, 0));
+                } else {
+                    let h = crate::status::BuffHit::plain(hero, buff.buff, buff.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                }
                 // AND NO ONE PUSHES HIM while it is active (`stay`, his ability's NO_MOVE_ALLOW_ATTRACT). Measured on
                 // client 15.535.29 (sp-champ-Monk-recharge-q20-s0): a Giant walking into him from t228 left him on
                 // (3273, 12402) to the end of his deflect, where the engine's moved him 1,108 back.
@@ -34905,6 +34942,8 @@ impl BattleState {
 ///    it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spawner.ABILITY_BOMB_FUSE: Calib gained ability_bomb_fuse (serde default the old arm, client15535_tick_after_fuse), no new state (it sets a new bomb's saved delay),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.DEFLECT_BUFF_LANDING: Calib gained deflect_buff_landing (serde default the old arm, at_trigger), no new state (the buff's saved slot carries its time),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35828,6 +35867,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("reflect_ranged".into(), serde_json::to_value(ReflectRanged::MeleeOnly).map_err(|e| e.to_string())?);
     // spawner.ABILITY_BOMB_FUSE: a format-3 battle's dropped bomb struck the tick after its fuse (the same rule).
     sh.insert("ability_bomb_fuse".into(), serde_json::to_value(AbilityBombFuse::Client15535TickAfterFuse).map_err(|e| e.to_string())?);
+    // status.DEFLECT_BUFF_LANDING: a format-3 battle's Deflect buff landed at the trigger for its BuffTime (the same rule).
+    sh.insert("deflect_buff_landing".into(), serde_json::to_value(DeflectBuffLanding::AtTrigger).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

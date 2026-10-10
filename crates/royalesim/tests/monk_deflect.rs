@@ -28,6 +28,8 @@
 //!                             `a_giant_walking_into_him_does_not_move_him_while_it_is_active` goes red.
 //!   deflect_contact_kept      the active window leaves him in his neighbours' separation scans (and their avoidance
 //!                             meets him as a mover): `a_giant_on_him_is_not_pushed_by_him_while_it_is_active` red.
+//!   deflect_buff_at_trigger   status.DEFLECT_BUFF_LANDING's new arm lands the buff at the trigger for its whole time:
+//!                             `a_hit_on_the_trigger_tick_and_one_past_the_window_land_in_full` red.
 //!
 //! THE CATCH (combat.rs `step_projectiles`): a shot at him while his deflect is active lands on the tick its step brings it
 //! within his deflect area's Radius (1500), not at his centre. Measured on client 15.535.29 (sp-champ-Monk-s0): a
@@ -37,7 +39,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, DeployError};
+use royalesim::state::{BattleState, DeflectBuffLanding, DeployError};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["Monk", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -258,4 +260,101 @@ fn a_giant_on_him_is_not_pushed_by_him_while_it_is_active() {
     for r in &on_him {
         assert!(r.2 == 0 && (r.3, r.4) == (0, 0), "P + {}: the Giant, {} from him, was pushed: {on_him:?}", r.0, r.1);
     }
+}
+
+/// The Monk alone at (3500, 12500), under status.DEFLECT_BUFF_LANDING = `arm`, his button pressed on the fifth tick: the
+/// battle, his id, and the tick his Deflect triggers (T: the first tick after the press with a buff on him).
+fn lone_monk(arm: DeflectBuffLanding) -> (BattleState, EntityId, u32) {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.deflect_buff_landing = arm;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let monk = s.scenario_spawn_now(Team::Blue, "Monk", n((3500, 12500)), None).expect("the Monk");
+    for _ in 0..5 {
+        s.tick();
+    }
+    let mut twin = s.clone();
+    twin.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut t = None;
+    for _ in 0..60 {
+        twin.tick();
+        if twin.entity(monk).is_some_and(|e| e.buffs.iter().any(|b| !b.is_empty())) {
+            t = Some(twin.tick_count() - 1);
+            break;
+        }
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    (s, monk, t.expect("the Deflect never landed"))
+}
+
+/// The hp the Monk loses to a Red Zap landing on tick `at` (after `lone_monk`'s press), and the Zap's full damage on him
+/// unpressed. The Zap's flight read off a twin: cast before tick c, it lands on c + d.
+fn zap_at(arm: DeflectBuffLanding, at: u32) -> (i32, i32) {
+    let (mut s, monk, _) = lone_monk(arm);
+    // the Zap's flight and full damage, on a battle where the Monk is never pressed
+    let mut unpressed = {
+        let mut cfg = config();
+        cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+        cfg.card_level = [11, 11];
+        cfg.tower_level = [11, 11];
+        let mut u = BattleState::try_new(0, cfg).expect("the decks load");
+        past_deploy_lockout(&mut u);
+        u
+    };
+    let um = unpressed.scenario_spawn_now(Team::Blue, "Monk", n((3500, 12500)), None).expect("the Monk");
+    for _ in 0..5 {
+        unpressed.tick();
+    }
+    let c = unpressed.tick_count();
+    let hp0 = unpressed.entity(um).expect("the Monk").hp;
+    unpressed.spawn_unit(Team::Red, "Zap", n((3500, 12500)), None).expect("the Zap");
+    let mut d = None;
+    for _ in 0..20 {
+        let before = unpressed.entity(um).expect("the Monk").hp;
+        unpressed.tick();
+        if unpressed.entity(um).expect("the Monk").hp < before {
+            d = Some(unpressed.tick_count() - 1 - c);
+            break;
+        }
+    }
+    let d = d.expect("the Zap never landed");
+    let full = hp0 - unpressed.entity(um).expect("the Monk").hp;
+    while s.tick_count() < at - d {
+        s.tick();
+    }
+    s.spawn_unit(Team::Red, "Zap", n((3500, 12500)), None).expect("the Zap");
+    while s.tick_count() < at {
+        s.tick();
+    }
+    let before = s.entity(monk).expect("the Monk").hp;
+    s.tick();
+    assert_eq!(s.tick_count() - 1, at, "the row's tick");
+    (before - s.entity(monk).expect("the Monk").hp, full)
+}
+
+/// status.DEFLECT_BUFF_LANDING = client_after_hits_tick_short (client 16.402, parity's r63 census over 12 presses: the
+/// trigger tick's hits full 2 of 2, T + 1 .. T + 79 reduced 78 of 78, T + 80 on full 4 of 4): Zaps landing on T, T + 1,
+/// T + 79 and T + 80. Plant: deflect_buff_at_trigger.
+#[test]
+fn a_hit_on_the_trigger_tick_and_one_past_the_window_land_in_full() {
+    let (_, _, t) = lone_monk(DeflectBuffLanding::ClientAfterHitsTickShort);
+    let row = |k: u32| zap_at(DeflectBuffLanding::ClientAfterHitsTickShort, t + k);
+    let (on_t, full) = row(0);
+    assert!(full > 0, "the scene drifted: the Zap took nothing off the unpressed Monk");
+    assert_eq!(on_t, full, "client_after_hits_tick_short: the Zap on the trigger tick T = {t} lands in full");
+    let (on_1, _) = row(1);
+    assert!(on_1 > 0 && on_1 < full, "client_after_hits_tick_short: the Zap on T + 1 lands at 35 % ({on_1} of {full})");
+    let (on_79, _) = row(79);
+    assert!(on_79 > 0 && on_79 < full, "client_after_hits_tick_short: the Zap on T + 79 lands at 35 % ({on_79} of {full})");
+    let (on_80, _) = row(80);
+    assert_eq!(on_80, full, "client_after_hits_tick_short: the Zap on T + 80 lands in full");
+    // NOT VACUOUS: at_trigger cuts the trigger tick's hit or the one past the window.
+    let (_, _, t0) = lone_monk(DeflectBuffLanding::AtTrigger);
+    let (a0, f0) = zap_at(DeflectBuffLanding::AtTrigger, t0);
+    let (a80, _) = zap_at(DeflectBuffLanding::AtTrigger, t0 + 80);
+    assert!(a0 < f0 || a80 < f0, "at_trigger: the same window as the new arm ({a0}, {a80} of {f0})");
 }
