@@ -1509,3 +1509,22 @@ fn a_missing_tower_level_is_read_from_the_recorded_towers() {
     let note = format!("side 0 tower level {towers} read from its towers");
     assert!(r.level_deviations.contains(&note), "the towers' level read: {:?}", r.level_deviations);
 }
+
+/// A GROUP ROW SEEN AS ITS CENTROID IS PLAYED FROM ITS TILE (`observed_row`): the client lays a ring on the tap's tile and
+/// then clamps and pushes its members, so a ring around their centroid misses (parity's r66 census of the ob5 live set:
+/// 28 of 32 Skeletons centroid rows, their tile found by the snap 32 of 32). A single unit's centroid row stays observed,
+/// as does a group's laid point. Plant: replay_group_centroid_resolved.
+#[test]
+fn a_group_centroid_row_is_played_from_its_tile() {
+    let db = common::cards();
+    let row = |card: &str, source: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 185, "side": 1, "card": "{card}", "card_id": 26000010, "kind": "troop", "level": 11, "count": 1,
+                "pos": [8499, 31000], "source": "{source}"}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    assert!(!observed_row(&row("Skeletons", "centroid"), &db), "a group's centroid row is played from its tile");
+    assert!(observed_row(&row("Knight", "centroid"), &db), "a single unit's centroid row stays observed");
+    assert!(observed_row(&row("Skeletons", "laid_point"), &db), "a group's laid point stays observed");
+}

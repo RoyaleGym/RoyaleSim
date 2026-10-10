@@ -472,10 +472,23 @@ pub fn issue_row(s: &mut BattleState, db: &CardDb, d: &Deploy, team: Team, name:
 /// "recovered_tile": a group laid around the tile), an unlogged side's troop put on its centroid's tile ("tile_centre":
 /// the maker's AN UNLOGGED SIDE'S TROOP), a spell row (an approximate landing point, which the snap puts
 /// on the tile the cast was aimed at) and every scenario row (a tap) do not.
+///
+/// NOR DOES A GROUP'S CENTROID ("centroid" on a card of more than one member): the client lays the ring on the tap's tile
+/// and then clamps and pushes its members, so their centroid is no ring's centre, and a ring laid around it misses (the
+/// back row: Skeletons tapped on (8500, 31500) stand around (8499, 31000), member 0 laid 462 off). It is played from its
+/// tile through `spawn_unit`, as a "tile_centre" row is. Parity's r66 census of the ob5 live set: 28 of 32 Skeletons
+/// centroid rows misfit as observed, their tile found by the snap 32 of 32; 8 early-game first divergences ("position
+/// error 1012"). Plant: replay_group_centroid_resolved.
 pub fn observed_row(d: &Deploy, db: &CardDb) -> bool {
     let corpus_row = !d.tap.as_ref().is_some_and(|t| t.is_array());
     let seen = matches!(d.source.as_str(), "centroid" | "creation_point" | "laid_point");
-    corpus_row && seen && db.index(&deploy_play(d, db)).is_some_and(|i| db.get(i).kind == CardKind::Troop)
+    let Some(i) = db.index(&deploy_play(d, db)) else { return false };
+    let c = db.get(i);
+    #[cfg(not(clash_plant = "replay_group_centroid_resolved"))]
+    let group_centroid = d.source == "centroid" && c.count > 1;
+    #[cfg(clash_plant = "replay_group_centroid_resolved")]
+    let group_centroid = false; // PLANT (regression): a group's centroid row still laid as seen.
+    corpus_row && seen && c.kind == CardKind::Troop && !group_centroid
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
