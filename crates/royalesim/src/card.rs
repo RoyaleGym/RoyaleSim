@@ -1564,6 +1564,58 @@ pub struct RampLevel {
     pub buff: BuffApply,
 }
 
+/// cards.json `units.<row>.burst_attack` (tools/extract_cards.py: the ActionBurstAttack of the Dagger Duchess's row).
+#[derive(Deserialize, Clone, Debug)]
+struct RawBurst {
+    max_charges: i32,
+    recharge_ms: i32,
+    recharge_increment: i32,
+    sequence: Vec<i32>,
+    depleted_index: i32,
+    hit_speed_multipliers: Vec<i32>,
+}
+
+/// THE DAGGER DUCHESS'S BURST ATTACK (her ActionBurstAttack; state.rs `burst_step`, entity.rs `BurstState`): `max_charges`
+/// daggers, one charge spent at each launch; the dagger thrown with `c` charges in hand runs at the HitSpeedMultiplier of
+/// slot `sequence[c - 1]` (`hit_speed_multipliers`, percent of her clock's advance), a depleted one at slot
+/// `depleted_index`'s; `recharge_increment` charges come back every `recharge_ms` of ticks with no attack in progress.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BurstDef {
+    pub max_charges: u8,
+    pub recharge_ms: i32,
+    pub recharge_increment: u8,
+    pub sequence: Vec<u8>,
+    pub depleted_index: u8,
+    pub hit_speed_multipliers: Vec<i32>,
+}
+
+impl BurstDef {
+    fn from_raw(r: &RawBurst) -> Option<BurstDef> {
+        let n = r.hit_speed_multipliers.len() as i32;
+        let ok = r.max_charges > 0
+            && r.max_charges as usize == r.sequence.len()
+            && r.recharge_ms > 0
+            && r.recharge_increment > 0
+            && (0..n).contains(&r.depleted_index)
+            && r.sequence.iter().all(|i| (0..n).contains(i))
+            && r.hit_speed_multipliers.iter().all(|m| *m > 0);
+        ok.then(|| BurstDef {
+            max_charges: r.max_charges as u8,
+            recharge_ms: r.recharge_ms,
+            recharge_increment: r.recharge_increment as u8,
+            sequence: r.sequence.iter().map(|i| *i as u8).collect(),
+            depleted_index: r.depleted_index as u8,
+            hit_speed_multipliers: r.hit_speed_multipliers.clone(),
+        })
+    }
+
+    /// The advance percent of the dagger thrown with `charges` in hand (1 ..= max), or in depleted mode.
+    pub fn slot_pct(&self, charges: u8, depleted: bool) -> i32 {
+        let slot = if depleted || charges == 0 { self.depleted_index } else { self.sequence[(charges.min(self.max_charges) - 1) as usize] };
+        self.hit_speed_multipliers[slot as usize]
+    }
+}
+
 /// THE GUARD'S CHARGE (the Little Prince's; tools/extract_cards.py `champion_guard`; state.rs `GuardRun`,
 /// `guard_release`, `guard_bind`, `guard_moves`). At the trigger `hold` (NO_MOVE, speed -100) lands on him for its time;
 /// `spawn_delay_ms` on, `unit` is put down deploying at his point + GUARD_SPAWN_OFFSET (his side's frame), and from
@@ -3293,6 +3345,9 @@ pub struct CardDef {
     /// targeting.BUILDING_SCAN_X_CUT = client_sight_clip_side a buildings-only walker ignores a player building more than
     /// SightRange - this + both radii across in x (target.rs `scan_with`). None on a row that sets none: no x cut.
     pub sight_clip_side: Option<i32>,
+    /// THE ROW'S BURST ATTACK (cards.json `burst_attack`: the Dagger Duchess's ActionBurstAttack), read under
+    /// combat.TOWER_TROOP_BURST = client16402_burst_attack (state.rs `burst_step`). None on every other row.
+    pub burst: Option<BurstDef>,
     /// AN EVOLVED FORM (`EvoDef`; cards.json `evolutions`): the base card it evolves and the mechanic it adds. None on
     /// every card of the `cards` list; only a form loaded from `evolutions` carries one.
     pub evo: Option<EvoDef>,
@@ -3677,6 +3732,8 @@ struct RawCard {
     /// Giant 2000; the Golem 1900): `CardDef::sight_clip_side`. Written on the rows that set it only (Sim's extractor,
     /// 0.1.28), so absent (a blank: no x cut) everywhere else.
     sight_clip_side_milli: Option<i32>,
+    /// units.DaggerDuchess.burst_attack (Sim's extractor, optb-6): `CardDef::burst`; absent on every other row.
+    burst_attack: Option<RawBurst>,
     /// `CardDef::override_attack_finish`. Written on the 15.535 rows that set it true only.
     override_attack_finish: Option<bool>,
     /// `CardDef::avoidance_as_obstacle`. Written on the 15.535 rows whose GameTagsToSet carries the tag only.
@@ -7908,6 +7965,7 @@ pub const PRINCESS_TOWER: &str = "PrincessTower";
 pub const TOWER_TROOPS: &[&str] = &["DaggerDuchess", "Cannoneer", "ChefTower"];
 /// The keys a tower troop's record takes from its `units` row; every other key is the PrincessTower's.
 const TOWER_TROOP_KEYS: &[&str] = &[
+    "burst_attack",
     "hitpoints",
     "damage",
     "damage_source",
@@ -8028,6 +8086,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         fly_direct_paths: false,
         projectile_y_offset: 0,
         sight_clip_side: None,
+        burst: None,
         override_attack_finish: false,
         chain_hit: None,
         ramp: None,
@@ -10778,6 +10837,12 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         sight_clip_side: raw.sight_clip_side_milli.map(milli),
         #[cfg(clash_plant = "sight_clip_side_unread")]
         sight_clip_side: None,
+        // A burst block that does not read whole (an index past its list, a count of 0) is none.
+        // PLANT (regression) burst_unread: the loader drops the block, so the Duchess fires at her row's HitSpeed.
+        #[cfg(not(clash_plant = "burst_unread"))]
+        burst: raw.burst_attack.as_ref().and_then(BurstDef::from_raw),
+        #[cfg(clash_plant = "burst_unread")]
+        burst: None,
         #[cfg(not(clash_plant = "finish_column_unread"))]
         override_attack_finish: raw.override_attack_finish.unwrap_or(false),
         #[cfg(clash_plant = "finish_column_unread")]

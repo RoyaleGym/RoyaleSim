@@ -821,6 +821,10 @@ pub struct Calib {
     /// `Dropped`, what a battle saved before it ran.
     #[serde(default = "hide_held_through_default")]
     pub hide_held_through: HeldThroughHide,
+    /// combat.TOWER_TROOP_BURST (whether a tower troop's burst attack is run (the Dagger Duchess's charges), `burst_step`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `RowHitSpeed`, what a battle saved before it ran.
+    #[serde(default = "tower_troop_burst_default")]
+    pub tower_troop_burst: TowerTroopBurst,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2603,6 +2607,10 @@ fn dash_trigger_building_default() -> DashTriggerBuilding {
 
 fn hide_held_through_default() -> HeldThroughHide {
     HeldThroughHide::Dropped
+}
+
+fn tower_troop_burst_default() -> TowerTroopBurst {
+    TowerTroopBurst::RowHitSpeed
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9490,6 +9498,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.TOWER_TROOP_BURST -- see `burst_step` (card.rs `BurstDef`, entity.rs `BurstState`): whether the Dagger
+    /// Duchess runs her burst attack.
+    TowerTroopBurst {
+        /// The engine before this key: her row's HitSpeed (500 ms), one dagger every 10 ticks for good.
+        RowHitSpeed = "row_hit_speed",
+        /// Her ActionBurstAttack (card.rs `BurstDef`): a charge spent at each launch; her clock's advance scaled by the
+        /// slot's HitSpeedMultiplier (seven daggers 10 ticks apart, the eighth 15 on; depleted, one every 31); no fresh
+        /// cycle at 0 charges; depleted until an attack starts with 2 or more; a charge back every RechargeTime of ticks
+        /// with no attack in progress. Client 16.402 (parity's r67 fit: Oracle's batteries 11,392 of 11,392 tower-ticks, 207
+        /// of 207 daggers; the ob6 live set 99.58 % of 106,324 tower-ticks).
+        Client16402BurstAttack = "client16402_burst_attack",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10008,6 +10030,7 @@ impl Calib {
             dash_chain_targets: pick(&v, &["combat", "DASH_CHAIN_TARGETS", "value"], DashChainTargets::from_calibration_name)?,
             dash_trigger_building: pick(&v, &["combat", "DASH_TRIGGER_BUILDING", "value"], DashTriggerBuilding::from_calibration_name)?,
             hide_held_through: pick(&v, &["hide", "HELD_THROUGH_HIDE", "value"], HeldThroughHide::from_calibration_name)?,
+            tower_troop_burst: pick(&v, &["combat", "TOWER_TROOP_BURST", "value"], TowerTroopBurst::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -22248,6 +22271,58 @@ impl BattleState {
             .map(|(_, _, j)| e.id_of(j))
     }
 
+    /// combat.TOWER_TROOP_BURST = client16402_burst_attack, before unit `i`'s attack step: None for a unit with no burst
+    /// (or under row_hit_speed); else (the advance percent of the dagger under way or about to start, her mode for it,
+    /// no cycle may start). Her state is made full on her first pass; a rest owed from a depleting launch is taken here
+    /// (idle, progress 0). A fresh cycle at 0 charges cannot start; one with 2 or more ends depleted mode.
+    fn burst_prepare(&mut self, i: usize) -> Option<(i32, bool, bool)> {
+        // PLANT (regression) burst_never: the new arm still fires at her row's HitSpeed.
+        #[cfg(not(clash_plant = "burst_never"))]
+        let on = self.cfg.calib.tower_troop_burst == TowerTroopBurst::Client16402BurstAttack;
+        #[cfg(clash_plant = "burst_never")]
+        let on = false;
+        if !on {
+            return None;
+        }
+        let b = self.cfg.cards.get(self.ents.card[i]).burst.clone()?;
+        let st = self.ents.burst[i].get_or_insert(crate::entity::BurstState { charges: b.max_charges, recharge_ms: 0, depleted: false, rest: false });
+        if st.rest {
+            st.rest = false;
+            self.ents.attack_phase[i] = AttackPhase::Idle;
+            self.ents.attack_ms[i] = 0;
+        }
+        let st = self.ents.burst[i].expect("set above");
+        let fresh = self.ents.attack_ms[i] == 0;
+        let depleted = st.depleted && !(fresh && st.charges >= 2);
+        let blocked = fresh && st.charges == 0;
+        Some((b.slot_pct(st.charges, depleted), depleted, blocked))
+    }
+
+    /// combat.TOWER_TROOP_BURST = client16402_burst_attack, after unit `i`'s attack step `step`, `depleted` its mode for the
+    /// step: a fresh cycle started with 2 or more charges leaves depleted mode; a launch spends a charge, puts the recharge
+    /// counter at -TICK_MS, and leaves her depleted (and resting from the next tick) when she was depleted or it was her
+    /// last; a tick with no attack in progress (progress 0) and no launch counts toward the next charge.
+    fn burst_step(&mut self, i: usize, step: &combat::AttackStep, depleted: bool) {
+        let Some(b) = self.cfg.cards.get(self.ents.card[i]).burst.clone() else { return };
+        let dt = self.cfg.calib.tick_ms;
+        let Some(st) = self.ents.burst[i].as_mut() else { return };
+        st.depleted = depleted;
+        if step.fired_at.is_some() {
+            st.charges = st.charges.saturating_sub(1);
+            st.recharge_ms = -dt;
+            if depleted || st.charges == 0 {
+                st.depleted = true;
+                st.rest = true;
+            }
+        } else if step.ms == 0 && st.charges < b.max_charges {
+            st.recharge_ms += dt;
+            if st.recharge_ms >= b.recharge_ms {
+                st.charges = (st.charges + b.recharge_increment).min(b.max_charges);
+                st.recharge_ms -= b.recharge_ms;
+            }
+        }
+    }
+
     /// combat.DASH_CHAIN_TARGETS = client16402_ground_targetable in force.
     fn chain_takes_any_ground(&self) -> bool {
         // PLANT (regression) chain_takes_troops_only: the new arm still takes troops alone.
@@ -25998,7 +26073,16 @@ impl BattleState {
             if !can_act && self.keep_cast_holds(i) {
                 continue;
             }
-            let step = combat::attack_step(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act);
+            // combat.TOWER_TROOP_BURST = client16402_burst_attack: the Dagger Duchess's charges (`burst_step`).
+            let burst = self.burst_prepare(i);
+            let step = match burst {
+                Some((_, _, true)) => combat::AttackStep { phase: AttackPhase::Idle, ms: 0, load_ms: self.ents.attack_load_ms[i], fired_at: None, charge_snapped: false },
+                Some((pct, _, false)) => combat::attack_step_scaled(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act, pct),
+                None => combat::attack_step(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act),
+            };
+            if let Some((_, depleted_now, _)) = burst {
+                self.burst_step(i, &step, depleted_now);
+            }
             // combat.LOAD_TIMER_TARGET_LOSS: the loss tick's step ran the timer down; the hold starts with the next.
             if self.ents.load_hold[i] == 1 {
                 self.ents.load_hold[i] = 2;
@@ -33571,6 +33655,15 @@ impl BattleState {
                 if self.cfg.calib.retarget_wait_while_held == RetargetWaitWhileHeld::Client16402FirstHeldCounts {
                     h.bool(e.wait_held[i]);
                 }
+                // combat.TOWER_TROOP_BURST = client16402_burst_attack: a Duchess's burst state, under that arm alone.
+                if self.cfg.calib.tower_troop_burst == TowerTroopBurst::Client16402BurstAttack {
+                    if let Some(b) = e.burst[i] {
+                        h.u32(b.charges as u32);
+                        h.i32(b.recharge_ms);
+                        h.bool(b.depleted);
+                        h.bool(b.rest);
+                    }
+                }
                 // movement.JUMP_LANDING_SCOPE = client15535_whole_tick: the lander's stamp, written under that arm alone.
                 if self.cfg.calib.jump_landing_scope == JumpLandingScope::Client15535WholeTick {
                     h.u32(e.landed_at[i]);
@@ -35899,6 +35992,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, hide.HELD_THROUGH_HIDE: Calib gained hide_held_through (serde default the old arm, dropped), no new state (it reads the saved hide states and targets),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.TOWER_TROOP_BURST: Calib gained tower_troop_burst (serde default the old arm, row_hit_speed), Entities gained burst (`default`, sized on load at None), written and hashed under the new arm alone,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36852,6 +36947,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_trigger_building".into(), serde_json::to_value(DashTriggerBuilding::CentrePlusRadius).map_err(|e| e.to_string())?);
     // hide.HELD_THROUGH_HIDE: a format-3 battle dropped a held Tesla when it went under (the same rule).
     sh.insert("hide_held_through".into(), serde_json::to_value(HeldThroughHide::Dropped).map_err(|e| e.to_string())?);
+    // combat.TOWER_TROOP_BURST: a format-3 battle's Duchess fired at her row's HitSpeed (the same rule).
+    sh.insert("tower_troop_burst".into(), serde_json::to_value(TowerTroopBurst::RowHitSpeed).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -37255,6 +37352,7 @@ impl BattleState {
         snap.ents.source.resize(n, NO_CARD);
         snap.ents.load_hold.resize(n, 0);
         snap.ents.wait_held.resize(n, false);
+        snap.ents.burst.resize(n, None);
         snap.ents.enchant_hold.resize(n, 0);
         snap.ents.landed_at.resize(n, 0);
         // A blob saved before chase_last_pos reads each unit's last Target-phase position as where it stands.

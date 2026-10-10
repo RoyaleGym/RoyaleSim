@@ -7,7 +7,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! tower_troops`): tower_troops_unloaded -> `a_side_fields_its_tower_troop` red; king_level_unread ->
-//! `a_side_s_king_stands_at_its_own_level` red.
+//! `a_side_s_king_stands_at_its_own_level` red; burst_never and burst_unread ->
+//! `under_client16402_burst_attack_the_duchess_throws_her_charges_then_one_each_31_ticks` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -147,4 +148,49 @@ fn a_side_s_king_stands_at_its_own_level() {
     assert_eq!(k[1], k13[1], "Red's king not at its own level 13");
     assert_eq!(k[0], k10[0], "Blue's king (None) not at its tower level");
     assert_eq!(p, p10, "the princess towers moved off their tower level");
+}
+
+/// The ticks of a Dagger Duchess tower's daggers at a red Golem held in her reach, under combat.TOWER_TROOP_BURST = `arm`.
+fn duchess_daggers(arm: royalesim::state::TowerTroopBurst) -> Vec<u32> {
+    let mut cfg = config();
+    cfg.tower_level = [11, 11];
+    cfg.card_level = [11, 11];
+    cfg.tower_troops = [Some("DaggerDuchess".to_string()), None];
+    cfg.calib.tower_troop_burst = arm;
+    let mut s = BattleState::try_new(0, cfg).expect("the battle");
+    let tid = s.entities().find(|e| e.team == Team::Blue && e.pos == n((3500, 6500))).map(|e| e.id).expect("Blue's left tower");
+    assert!(s.cards().get(s.entity(tid).expect("her tower").card_idx).burst.is_some(), "precondition: her row carries its burst");
+    let at = n((3500, 12000));
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", at, None).expect("a red Golem");
+    let mine = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(tid)).count();
+    let mut known = mine(&s);
+    let mut out = Vec::new();
+    for _ in 0..240 {
+        if let Some(e) = s.entity(golem) {
+            let full = e.max_hp;
+            assert!(s.debug_set_pos(golem, at));
+            assert!(s.debug_set_hp(golem, full));
+        }
+        s.tick();
+        let m = mine(&s);
+        if m > known {
+            out.push(s.tick_count() - 1);
+        }
+        known = m;
+    }
+    out
+}
+
+/// combat.TOWER_TROOP_BURST = client16402_burst_attack (client 16.402, Oracle's 017 batteries: 207 of 207 daggers on their
+/// tick, parity's r67 fit): eight daggers, seven 10 ticks apart and the eighth 15 on, then one every 31 ticks; under
+/// row_hit_speed one every 10 for good (the vacuity check). Plants: burst_never, burst_unread.
+#[test]
+fn under_client16402_burst_attack_the_duchess_throws_her_charges_then_one_each_31_ticks() {
+    use royalesim::state::TowerTroopBurst as B;
+    let g = gaps(&duchess_daggers(B::Client16402BurstAttack));
+    assert!(g.len() >= 10, "her daggers: {g:?}");
+    assert_eq!(&g[..7], &[10, 10, 10, 10, 10, 10, 15], "the burst: seven at 10, the eighth 15 on: {g:?}");
+    assert!(g[7..10].iter().all(|x| *x == 31), "depleted: one every 31 ticks: {g:?}");
+    let g = gaps(&duchess_daggers(B::RowHitSpeed));
+    assert!(g.len() >= 10 && g[..10].iter().all(|x| *x == 10), "row_hit_speed (the vacuity check): every 10 ticks: {g:?}");
 }

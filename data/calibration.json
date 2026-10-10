@@ -1794,6 +1794,16 @@
     }
   },
   "combat": {
+    "TOWER_TROOP_BURST": {
+      "value": "client16402_burst_attack",
+      "status": "measured",
+      "candidates": ["row_hit_speed", "client16402_burst_attack"],
+      "confidence": "HIGH for client16402_burst_attack on client 16.402: parity's r67 fit of the Dagger Duchess's charges, exact on Oracle's 017 batteries (sp-duchess-golem-s0 and sp-duchess-<gap>-s0 for gaps 20, 45, 90, 180, 400: 11,392 of 11,392 tower-ticks of both towers, state and progress, 207 of 207 daggers on their tick) and 105,876 of 106,324 live tower-ticks (99.58 %, 24 of 32 towers on every tick; the rest the battle's end, a raged tower, frame glitches). A full burst: daggers at progress 500 .. 3500 every 10 ticks, the eighth (charges 1, slot 2, 70 %) at 4025, 15 on; depleted: 19 ticks at rest, then 12 at 45 a tick, one every 31. The charges come back on ticks with no attack in progress, the first 19 after the last launch, then every 18: gaps 20 / 45 / 90 give bursts of 4 / 5 / 8. Damage the row's, every slot (107 at level 11 on 207 of 207). The 15.535.29 row carries the same block (Sim, 2026-10-10): no CLIENT15535_ARMS entry.",
+      "provenance": "MEASURED by parity (2026-10-10, r67) on Oracle's two 017 Duchess batteries (windows 9 and 10) and the ob6 live set's 32 Duchess towers; the table's ActionBurstAttack read by Sim's extractor (optb-6): MaxChargeCount 8, RechargeTime 900, RechargeIncrement 1, AttackSequenceIndices [2,0,1,0,1,0,1,0], DepletedAttackSequenceIndex 3, the sequence rows' HitSpeedMultiplier [100,100,70,90].",
+      "meaning": "row_hit_speed: her row's HitSpeed for good. client16402_burst_attack: the burst, charges and recharge as the client runs them.",
+      "open": "How a hit-speed buff (Rage) speeds the recharge (a raged tower recharged in 16 then 15 ticks); a stunned or frozen Duchess; the later recharge period (17 and 18 both fit; 18 from RechargeTime).",
+      "engine": "state.rs burst_step (the attack pass), combat.rs attack_step's advance_pct, card.rs BurstDef, entity.rs BurstState; tests/tower_troops.rs."
+    },
     "DASH_TRIGGER_BUILDING": {
       "value": "client16402_square",
       "status": "measured",

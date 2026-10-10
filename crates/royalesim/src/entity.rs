@@ -146,6 +146,17 @@ pub struct RebindInit {
     pub tick: u32,
 }
 
+/// A DAGGER DUCHESS TOWER'S BURST STATE (combat.TOWER_TROOP_BURST = client16402_burst_attack; state.rs `burst_step`):
+/// her charges in hand, her recharge counter (ms; -TICK_MS from each launch), her depleted mode, and a rest owed from a
+/// launch that left her depleted (idle at progress 0 from the next tick).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BurstState {
+    pub charges: u8,
+    pub recharge_ms: i32,
+    pub depleted: bool,
+    pub rest: bool,
+}
+
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Entities {
     pub generation: Vec<u32>,
@@ -363,6 +374,11 @@ pub struct Entities {
     /// unit under the other arms. `default` and sized on load at false.
     #[serde(default)]
     pub wait_held: Vec<bool>,
+    /// combat.TOWER_TROOP_BURST = client16402_burst_attack: a Dagger Duchess tower's charges, recharge counter and mode
+    /// (state.rs `burst_step`), None until her first attack pass under that arm and on every other unit. `default` and
+    /// sized on load at None.
+    #[serde(default)]
+    pub burst: Vec<Option<BurstState>>,
     /// enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: the last tick of this Rune Giant's hold from his latest enchant
     /// launch (state.rs `enchant_pass`), 0 for none; written under that arm alone. `default` and sized on load at 0.
     #[serde(default)]
@@ -926,6 +942,7 @@ impl Entities {
             self.chase_inside[i] = None;
             self.load_hold[i] = 0;
             self.wait_held[i] = false;
+            self.burst[i] = None;
             self.enchant_hold[i] = 0;
             self.landed_at[i] = 0;
             self.combo_ix[i] = 0;
@@ -1033,6 +1050,7 @@ impl Entities {
             self.chase_inside.push(None);
             self.load_hold.push(0);
             self.wait_held.push(false);
+            self.burst.push(None);
             self.enchant_hold.push(0);
             self.landed_at.push(0);
             self.combo_ix.push(0);
@@ -1202,6 +1220,7 @@ impl Entities {
         self.chase_inside[i] = None;
         self.load_hold[i] = 0;
         self.wait_held[i] = false;
+        self.burst[i] = None;
         self.enchant_hold[i] = 0;
         self.landed_at[i] = 0;
         self.attack_seq[i] = 0;

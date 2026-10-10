@@ -840,8 +840,14 @@ pub struct AttackStep {
 /// Advance entity a's attack state by one tick, reading only. Dispatches on
 /// calibration combat.ATTACK_CYCLE.
 pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
+    attack_step_scaled(ents, cards, calib, a, can_act, 100)
+}
+
+/// `attack_step` with the progress advance scaled to `advance_pct` percent (combat.TOWER_TROOP_BURST: the Dagger
+/// Duchess's slot multiplier, state.rs `burst_step`); 100 is `attack_step`. The windup cycle ignores it.
+pub fn attack_step_scaled(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool, advance_pct: i32) -> AttackStep {
     match calib.attack_cycle {
-        AttackCycle::ProgressCredit => attack_step_progress(ents, cards, calib, a, can_act),
+        AttackCycle::ProgressCredit => attack_step_progress(ents, cards, calib, a, can_act, advance_pct),
         AttackCycle::WindupLoadTime => attack_step_windup(ents, cards, calib, a, can_act),
     }
 }
@@ -882,7 +888,7 @@ pub fn attack_step(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can
 /// `load_first_hit_on_deployed`) and this same entry formula times the first launch from the
 /// deploy end. SpecialRange (the Fisherman's hook) is combat.SPECIAL_HOOK's, which runs in
 /// place of this step while the special is under way (state.rs `special_step`).
-fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
+fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool, advance_pct: i32) -> AttackStep {
     let card = cards.get(ents.card[a]);
     let target = ents.target[a].filter(|t| ents.is_alive(*t));
     // THE PROGRESS ADVANCE (combat.HIT_SPEED_BUFF = progress_scaled): the counter
@@ -894,6 +900,8 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
         HitSpeedBuff::ProgressScaled => ents.buffed(&cards.buffs, a, Sel::HitSpeed, calib.tick_ms),
         HitSpeedBuff::None => calib.tick_ms,
     };
+    // combat.TOWER_TROOP_BURST: the slot's multiplier on the composed advance, floored (Rage: 65 x 90 % = 58).
+    let tick = if advance_pct == 100 { tick } else { tick * advance_pct / 100 };
     let hs = card.hit_speed_ms;
     let lt = card.load_time_ms.max(0);
     // combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: a unit holding after a walking loss keeps its
