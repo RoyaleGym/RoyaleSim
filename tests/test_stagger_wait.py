@@ -168,7 +168,8 @@ def zapped_goblins(arm: str) -> tuple[dict, dict]:
     b.reset(0, [IDS, IDS], 0, 200, [10_000, 10_000], None, [])
     b.step([], 1)
     played = b.step([(0, GOB, TAP[0] * SUB, TAP[1] * SUB)], 1)
-    assert played and played[0][0] == GOB, f"the Goblins tap did not resolve: {played}"
+    assert played, "the Goblins tap did not resolve"
+    assert played[0][0] == GOB, f"another card resolved: {played}"
     b.step([(1, ZAP, TAP[0] * SUB, TAP[1] * SUB)], 1)
     hps, waits = {}, {}
     for _ in range(10):
@@ -187,13 +188,15 @@ def hurt_while_waiting(hps: dict, waits: dict, k: int) -> bool:
 
 def test_a_waiting_member_takes_no_hit_under_the_unhittable_arm():
     """formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable (client 16.402: 0 hp drops on about 30,000
-    waiting frames, 135 of 135 spared beside a hurt neighbour): red's Zap on the four Goblins hurts member 0 (deploying,
-    not waiting) and leaves members 2 and 3 whole while they wait; under client16402_untargetable_immovable the Zap hurts
-    a waiting member (the vacuity check). Plant: staggered_member_hit."""
+    waiting frames, 135 of 135 spared beside a hurt neighbour): red's Zap on the four Goblins hurts member 0
+    (deploying, not waiting) and leaves members 2 and 3 whole while they wait; under client16402_untargetable_immovable
+    the Zap hurts a waiting member (the vacuity check). Plant: staggered_member_hit."""
     hps, waits = zapped_goblins(UNHITTABLE)
-    assert 0 in hps and (hps[0][-1] < hps[0][0] or len(hps[0]) < 10), f"precondition: the Zap hurt member 0: {hps}"
+    assert 0 in hps, f"precondition: member 0 stands: {hps}"
+    assert hps[0][-1] < hps[0][0] or len(hps[0]) < 10, f"precondition: the Zap hurt member 0: {hps}"
     assert all(any(waits[k]) for k in (2, 3)), f"precondition: members 2 and 3 waited: {waits}"
     for k in (2, 3):
-        assert not hurt_while_waiting(hps, waits, k), f"member {k} lost hp while it waited: {hps[k]} / {waits[k]}"
+        assert not hurt_while_waiting(hps, waits, k), f"member {k} lost hp waiting: {hps[k]} / {waits[k]}"
     hps, waits = zapped_goblins(NEW_ARM)
-    assert any(hurt_while_waiting(hps, waits, k) for k in (2, 3)), f"{NEW_ARM} (the vacuity check): no waiting member hurt: {hps} / {waits}"
+    hurt = [k for k in (2, 3) if hurt_while_waiting(hps, waits, k)]
+    assert hurt, f"{NEW_ARM} (the vacuity check): no waiting member hurt: {hps} / {waits}"

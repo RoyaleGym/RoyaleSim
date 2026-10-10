@@ -474,8 +474,9 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # Rider). The Ice Golem and the Super Ice Golemite join with that key alone; the other cards that carry it were in
     # the set already. The WHOLE delta: the outside sets of the committed table before the key and after it, each run
     # by the same module, differ by those two added and none removed.
-    # 107 -> 105 (parity r65, targeting.BUILDING_SCAN_X_CUT = client_sight_clip_side): card.rs reads sight_clip_side_milli
-    # (CardDef::sight_clip_side), so the Ice Golem and the Super Ice Golemite, outside by that key alone, are in again.
+    # 107 -> 105 (parity r65, targeting.BUILDING_SCAN_X_CUT = client_sight_clip_side): card.rs reads
+    # sight_clip_side_milli (CardDef::sight_clip_side), so the Ice Golem and the Super Ice Golemite, outside by that key
+    # alone, are in again.
     outside_by_vintage = {"2018": 40, "15.535": 105}
     want = outside_by_vintage.get(vintage)
     assert want is not None, f"no catalogue-gap count recorded for the {vintage} table"
