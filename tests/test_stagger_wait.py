@@ -160,8 +160,9 @@ UNHITTABLE = "client16402_untargetable_immovable_unhittable"
 
 
 def zapped_goblins(arm: str, delay: int = 0) -> tuple[dict, dict]:
-    """({member k: its hp each tick}, {member k: whether it waits each tick}) for the blue Goblins' members over the 10
-    ticks after red's Zap on TAP, cast the tick after the tap resolves, under STAGGER_WAIT = `arm`."""
+    """({member k: its hp each tick}, {member k: whether it waits each tick}) for the blue Goblins' members on the frame
+    before red's Zap on TAP (cast `delay` ticks after the tick after the tap resolves) and the 10 frames from the cast's
+    own, under STAGGER_WAIT = `arm`. The Zap lands on its cast's tick, so the frame before it is the baseline."""
     overrides = {KEY: json.dumps(arm), "placement.TAP_SNAP": json.dumps("none")}
     b = royalesim.Battle(card_names=SPELL_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
     hp = royalesim.ENTITY_FIELDS.index("hp")
@@ -172,12 +173,17 @@ def zapped_goblins(arm: str, delay: int = 0) -> tuple[dict, dict]:
     assert played[0][0] == GOB, f"another card resolved: {played}"
     for _ in range(delay):
         b.step([], 1)
-    b.step([(1, ZAP, TAP[0] * SUB, TAP[1] * SUB)], 1)
     hps, waits = {}, {}
-    for _ in range(10):
+
+    def record() -> None:
         for k, e in enumerate(goblins(json.loads(b.state_json())["entities"])):
             hps.setdefault(k, []).append(e[hp])
             waits.setdefault(k, []).append(waiting(e))
+
+    record()
+    b.step([(1, ZAP, TAP[0] * SUB, TAP[1] * SUB)], 1)
+    for _ in range(10):
+        record()
         b.step([], 1)
     return hps, waits
 
@@ -195,7 +201,7 @@ def test_a_waiting_member_takes_no_hit_under_the_unhittable_arm():
     the Zap hurts a waiting member (the vacuity check). Plant: staggered_member_hit."""
     hps, waits = zapped_goblins(UNHITTABLE)
     assert 0 in hps, f"precondition: member 0 stands: {hps}"
-    assert hps[0][-1] < hps[0][0] or len(hps[0]) < 10, f"precondition: the Zap hurt member 0: {hps}"
+    assert hps[0][-1] < hps[0][0] or len(hps[0]) < 11, f"precondition: the Zap hurt member 0: {hps}"
     assert all(any(waits[k]) for k in (2, 3)), f"precondition: members 2 and 3 waited: {waits}"
     for k in (2, 3):
         assert not hurt_while_waiting(hps, waits, k), f"member {k} lost hp waiting: {hps[k]} / {waits[k]}"
