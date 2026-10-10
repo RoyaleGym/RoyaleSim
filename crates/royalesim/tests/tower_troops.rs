@@ -6,7 +6,8 @@
 //! Cannoneer fired 125 every 44: 28 first divergences (the tower troop shot the first diverging unit).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! tower_troops`): tower_troops_unloaded -> `a_side_fields_its_tower_troop` red.
+//! tower_troops`): tower_troops_unloaded -> `a_side_fields_its_tower_troop` red; king_level_unread ->
+//! `a_side_s_king_stands_at_its_own_level` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -122,4 +123,28 @@ fn the_duchess_and_the_cannoneer_hit_on_their_card_ladder() {
     let (chef_old, _) = damage("ChefTower", L::TowerLadder);
     assert_eq!(chef, chef_old, "the Chef's damage stays on the tower ladder");
     assert_ne!(chef, chef_card, "the scene: the Chef's two ladders part at 16");
+}
+
+/// BattleConfig::king_level (client 16.402, parity's r64 census: 19 sides of the ob3 live set field a king above their
+/// princess towers): Red's king at its own level 13 beside level-10 towers has the level-13 king's hitpoints, Blue's (None)
+/// its tower level's; the princesses stay at 10. Plant: king_level_unread.
+#[test]
+fn a_side_s_king_stands_at_its_own_level() {
+    let kings = |tower: i32, king: [Option<i32>; 2]| -> ([i32; 2], [i32; 2]) {
+        let mut cfg = config();
+        cfg.tower_level = [tower, tower];
+        cfg.card_level = [tower, tower];
+        cfg.king_level = king;
+        let s = BattleState::try_new(0, cfg).expect("the battle");
+        let hp = |t: Team| s.tower_hp(t);
+        let (b, r) = (hp(Team::Blue), hp(Team::Red));
+        ([b[0], r[0]], [b[1], r[1]])
+    };
+    let (k13, _) = kings(13, [None, None]);
+    let (k10, p10) = kings(10, [None, None]);
+    assert_ne!(k13[1], k10[1], "the scene: a level-13 king's hitpoints are a level-10 king's");
+    let (k, p) = kings(10, [None, Some(13)]);
+    assert_eq!(k[1], k13[1], "Red's king not at its own level 13");
+    assert_eq!(k[0], k10[0], "Blue's king (None) not at its tower level");
+    assert_eq!(p, p10, "the princess towers moved off their tower level");
 }

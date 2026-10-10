@@ -2021,6 +2021,16 @@ pub fn config_for_with(
         let level = lv.or(tl).ok_or_else(|| format!("side {side}: no card level and no tower level recorded"))?;
         cfg.card_level[side] = level;
         cfg.tower_level[side] = tl.unwrap_or(level);
+        // THE SIDE'S KING LEVEL (BattleConfig::king_level): its king tower's recorded level (slot 0), where it is not the
+        // side's tower level (client 16.402: 19 sides in the ob3 live set, a king above its crown tower troop).
+        // PLANT replay_king_at_tower_level: every king at its side's tower level.
+        #[cfg(not(clash_plant = "replay_king_at_tower_level"))]
+        if let Some(k) = f.towers.iter().find(|t| t.side == side as i32 && t.slot == 0 && t.level > 0).map(|t| t.level) {
+            if k != cfg.tower_level[side] {
+                notes.push(format!("side {side} king tower at level {k} (towers {})", cfg.tower_level[side]));
+                cfg.king_level[side] = Some(k);
+            }
+        }
         // THE SIDE'S CROWN TOWER TROOP (BattleConfig::tower_troops), the Princess's own record named or none.
         if let Some(t) = f.tower_troops.get(&key).cloned().flatten().filter(|t| t != royalesim::card::PRINCESS_TOWER) {
             notes.push(format!("side {side} fields the tower troop {t}"));

@@ -10294,6 +10294,12 @@ pub struct BattleConfig {
     /// the Chef) whose record a side's two princess towers are made with, in place of the PrincessTower's; None (the
     /// default) the Princess. Read at `try_new` alone: a battle restored from a snapshot has its towers' saved records.
     pub tower_troops: [Option<String>; 2],
+    /// THE KING TOWER'S OWN LEVEL per team (Blue, Red); None (the default) `tower_level`. A side's king can stand above
+    /// its princess towers (their level the crown tower troop's). Read at `try_new` alone, as `tower_troops`: a battle
+    /// restored from a snapshot has its king's saved values. Measured on client 16.402 (parity's r64 census over the ob3
+    /// live set): 19 sides field a king above their princesses; liveplay-20261007-155154-A's level-13 king (5832) beside
+    /// level-10 princesses hit a Barbarian for 131 (50 x 262 %, level 13), the engine's king at 10 for 99.
+    pub king_level: [Option<i32>; 2],
 }
 
 impl BattleConfig {
@@ -10344,6 +10350,7 @@ impl BattleConfig {
             forms: [Vec::new(), Vec::new()],
             command_delay_ticks: [0, 0],
             tower_troops: [None, None],
+            king_level: [None, None],
         }
     }
 }
@@ -13170,7 +13177,13 @@ impl BattleState {
             let lvl = s.cfg.tower_level[team as usize];
             let princess = princess_of[team as usize];
             let kpos = arena.king_tower_pos(team);
-            s.towers[team as usize][0] = Some(s.spawn_now(team, king, lvl, kpos, EntityKind::KingTower)?);
+            // THE KING'S OWN LEVEL (`BattleConfig::king_level`), else the side's tower level.
+            // PLANT (regression) king_level_unread: the king at the side's tower level whatever its own.
+            #[cfg(not(clash_plant = "king_level_unread"))]
+            let king_lvl = s.cfg.king_level[team as usize].unwrap_or(lvl);
+            #[cfg(clash_plant = "king_level_unread")]
+            let king_lvl = lvl;
+            s.towers[team as usize][0] = Some(s.spawn_now(team, king, king_lvl, kpos, EntityKind::KingTower)?);
             // Princesses spawn OWN-LEFT FIRST, so a tower's team_seq names the same
             // own-frame tower for both seats (Blue's own-left is engine Left, Red's
             // is engine Right). The table slot stays the ENGINE lane (k 1 = Left).
@@ -36769,6 +36782,7 @@ impl BattleState {
             command_delay_ticks: snap.command_delay_ticks,
             // read at try_new alone: the restored towers are the snapshot's own entities, their records saved with them
             tower_troops: [None, None],
+            king_level: [None, None],
         };
         let mut s = BattleState {
             cfg,

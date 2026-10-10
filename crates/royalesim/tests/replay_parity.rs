@@ -1477,6 +1477,22 @@ fn a_tower_troops_towers_pair_with_the_truths_princess_towers() {
     assert!(r.unmatched_sim.iter().all(|(_, _, c)| !c.contains("Tower") && c != "DaggerDuchess"), "no sim tower unmatched: {:?}", r.unmatched_sim);
 }
 
+/// A SIDE'S KING STANDS AT ITS OWN RECORDED LEVEL (harness.rs config_for_with, BattleConfig::king_level): the sample with
+/// side 1's king tower recorded 2 levels above its tower level fields that king, and says so; side 0's, at its tower
+/// level, takes none (client 16.402: 19 sides of the ob3 live set). Plant: replay_king_at_tower_level.
+#[test]
+fn a_side_s_king_is_at_its_recorded_level() {
+    let mut f = sample();
+    let k = f.towers.iter_mut().find(|t| t.side == 1 && t.slot == 0).expect("the sample records side 1's king");
+    k.level += 2;
+    let king = k.level;
+    let (cfg, notes) = config_for(&f, common::cards()).expect("the config");
+    assert_eq!(cfg.king_level, [None, Some(king)], "the kings' levels: {notes:?}");
+    assert_eq!(cfg.tower_level[1], king - 2, "side 1's towers moved with the king");
+    let note = format!("side 1 king tower at level {king} (towers {})", king - 2);
+    assert!(notes.iter().any(|n| *n == note), "the king's level not noted: {notes:?}");
+}
+
 /// A SIDE'S TOWER LEVEL WITH NO tower_level RECORDED IS ITS TOWERS' (harness.rs config_for_with): the sample with its
 /// tower_level dropped and its cards moved to another level keeps its towers' recorded level, and says so. Oracle's 017
 /// scenario fixtures carry no tower_level and record every tower at 11 while the il scenes play their cards at 16, so the
