@@ -470,8 +470,13 @@ fn area_spells_hit_air_and_ground_enemies_and_never_friends() {
     // TRUE and OnlyEnemies TRUE. Plants: spells_never_hit_air, spell_friendly_fire.
     for spell in ["Fireball", "Arrows", "Zap"] {
         let tap = stage();
+        // The Minions' members 1 and 2 still wait out their stagger here; the shipped formation.STAGGER_WAIT =
+        // client16402_untargetable_immovable_unhittable spares a waiting member (tests/test_stagger_wait.py), so this
+        // test of a spell's victims runs the arm it was written on.
+        let mut cfg = config();
+        cfg.calib.formation_stagger_wait = royalesim::state::StaggerWait::Client16402;
         let c = cast_scenario(
-            config(),
+            cfg,
             Team::Blue,
             spell,
             tap,

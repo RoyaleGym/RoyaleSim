@@ -39,6 +39,10 @@ fn battle() -> BattleState {
 fn battle_at(arm: FirstHitBuffCountdown) -> BattleState {
     let mut cfg: BattleConfig = config();
     cfg.calib.first_hit_buff_countdown = arm;
+    // The scene's Zaps land while minions 1 to 5 still wait out their stagger; under the shipped
+    // formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable a waiting member takes no hit (tests/
+    // test_stagger_wait.py), so the file runs the arm it was written on: its subject is the ghost.
+    cfg.calib.formation_stagger_wait = royalesim::state::StaggerWait::Client16402;
     cfg.decks = [vec!["MinionHorde".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
