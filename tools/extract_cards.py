@@ -3373,6 +3373,12 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # set it, so no other row and nothing in the 2018 file changes. The column also stays out of
         # `raw` (COSMETIC), which is why it is read here by name.
         "projectile_y_offset_milli": c.get("ProjectileYOffset"),
+        # SightClipSide: how far a unit's sight is cut at its sides (the Hog Rider's 4000, the Giant's 2000, the Golem's
+        # 1900). A buildings-only walker ignores a building farther off across the board than its SightRange less this
+        # (Parity's far-building law, for targeting.BUILDING_SCAN_X_CUT). Both packs carry it in their character rows'
+        # overlays (the 15.535.29 csv column is blank but for four event units), with the same values. Read by name;
+        # 15.535 rows that set it only, so no other row and nothing in the 2018 file changes.
+        "sight_clip_side_milli": c.get("SightClipSide"),
         # OverrideAttackFinishTime: the row's attack ends with its hit, so a kill costs it no retarget wait
         # (calibration combat.POST_KILL_RETARGET_WAIT's clause (a)). Read by name so an [EXT] row that inherits it (the
         # Hero Valkyrie's) carries it; 15.535 rows that set it true only, so every other row is unchanged.
@@ -3447,6 +3453,8 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         del u["mana"]
     if u["projectile_y_offset_milli"] is None or not isinstance(c, Row):
         del u["projectile_y_offset_milli"]
+    if u["sight_clip_side_milli"] is None or not isinstance(c, Row):
+        del u["sight_clip_side_milli"]
     if u["override_attack_finish"] is not True or not isinstance(c, Row):
         del u["override_attack_finish"]
     if u["avoidance_as_obstacle"] is not True or not isinstance(c, Row):
@@ -4792,6 +4800,9 @@ def summon_card(t, rarities, kind, key, s) -> dict:
     # Only on a row that sets ProjectileYOffset (norm_unit), so every other card row is unchanged.
     if "projectile_y_offset_milli" in u:
         card["projectile_y_offset_milli"] = u["projectile_y_offset_milli"]
+    # Only on a row that sets SightClipSide (norm_unit).
+    if "sight_clip_side_milli" in u:
+        card["sight_clip_side_milli"] = u["sight_clip_side_milli"]
     # Only on a row whose OverrideAttackFinishTime is true (norm_unit).
     if "override_attack_finish" in u:
         card["override_attack_finish"] = u["override_attack_finish"]

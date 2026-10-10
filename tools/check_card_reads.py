@@ -297,6 +297,12 @@ KNOWN_SLICE_GAPS = {
         "range); it has no clipped sight shape",
     ),
     "SightClipSide": ("2018", "Giant, Hog Rider. The same shape the engine does not have"),
+    "sight_clip_side_milli": (
+        "15.535",
+        "Giant, Hog Rider: the row's SightClipSide, which the extractor carries from the 15.535 and 16.402 packs. "
+        "The engine's building scan has no x cut yet (targeting.BUILDING_SCAN_X_CUT, to come). Both tables carry the "
+        "key, so it is a gap here and not one of card.rs UNMODELLED_KEYS (the 16.402-only register)",
+    ),
     "projectile.homing": (
         "both",
         "Archer, Musketeer, Minions, Wizard, Baby Dragon, Cannon (true) and the "

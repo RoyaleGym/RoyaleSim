@@ -1429,6 +1429,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -1792,6 +1793,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -2168,6 +2170,7 @@
    ],
    "death_pushback_milli": 1800,
    "action_graph": null,
+   "sight_clip_side_milli": 1900,
    "ignore_resurrect": true,
    "death_spawn_pushback": true,
    "count": 1,
@@ -3656,6 +3659,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 4000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -4113,6 +4117,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -5992,6 +5997,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -8310,6 +8316,7 @@
     "spawns": [],
     "mechanic": false
    },
+   "sight_clip_side_milli": 2000,
    "ignore_resurrect": true,
    "fly_direct_paths": true,
    "death_spawn_pushback": false,
@@ -8709,6 +8716,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 4000,
    "death_spawn_pushback": false,
    "count": 4,
    "summon_radius_milli": 1,
@@ -8827,6 +8835,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -10772,6 +10781,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 4000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -11036,6 +11046,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -11705,6 +11716,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 4000,
    "death_spawn_pushback": false,
    "triggered_dash": {
     "damage": 500,
@@ -12327,6 +12339,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "reflected_attack": {
     "damage": 75,
@@ -13351,6 +13364,7 @@
    ],
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "idle_invisibility": {
     "buff": "BushInvisibility",
     "time_ms": null,
@@ -13604,6 +13618,7 @@
    "ignore_buffs": null,
    "death_pushback_milli": null,
    "action_graph": null,
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "ability": {
     "name": "goblinstein_ability",
@@ -13860,6 +13875,7 @@
     "spawns": [],
     "mechanic": true
    },
+   "sight_clip_side_milli": 2000,
    "enchant_friends": {
     "collect": {
      "action": "giantbuffer_collect_friend_troops",
@@ -22172,6 +22188,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22476,6 +22493,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22879,6 +22897,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": 1800,
+   "sight_clip_side_milli": 1900,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -22986,6 +23005,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": 900,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -23934,6 +23954,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 4000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -24449,6 +24470,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -25826,6 +25848,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -27854,6 +27877,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -28212,6 +28236,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 4000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -28400,6 +28425,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -30890,6 +30916,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 4000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -31108,6 +31135,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "reflected_attack": {
     "damage": 75,
@@ -32002,6 +32030,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 4000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32094,6 +32123,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -32932,6 +32962,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 4000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -34972,6 +35003,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 4000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -36336,6 +36368,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -39976,6 +40009,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -40772,6 +40806,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -41691,6 +41726,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43694,6 +43730,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 4000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -43810,6 +43847,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 4000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44332,6 +44370,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -44455,6 +44494,7 @@
    "variable_damage": null,
    "attack_pushback_milli": null,
    "death_pushback_milli": null,
+   "sight_clip_side_milli": 2000,
    "special": null,
    "attached_character": null,
    "defaults_applied": [
@@ -80114,6 +80154,7 @@
     "spawns": [],
     "mechanic": true
    },
+   "sight_clip_side_milli": 2000,
    "ignore_resurrect": true,
    "fly_direct_paths": true,
    "death_spawn_pushback": false,
@@ -80553,6 +80594,7 @@
     ],
     "mechanic": true
    },
+   "sight_clip_side_milli": 4000,
    "death_spawn_pushback": false,
    "count": 4,
    "summon_radius_milli": 1,
@@ -80659,6 +80701,7 @@
      "variable_damage": null,
      "attack_pushback_milli": null,
      "death_pushback_milli": null,
+     "sight_clip_side_milli": 4000,
      "special": null,
      "attached_character": null,
      "defaults_applied": [
@@ -82260,6 +82303,7 @@
     ],
     "mechanic": true
    },
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -83986,6 +84030,7 @@
     ],
     "mechanic": true
    },
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -86117,6 +86162,7 @@
     "spawns": [],
     "mechanic": false
    },
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -86404,6 +86450,7 @@
       "variable_damage": null,
       "attack_pushback_milli": null,
       "death_pushback_milli": null,
+      "sight_clip_side_milli": 2000,
       "special": null,
       "attached_character": null,
       "defaults_applied": [
@@ -86878,6 +86925,7 @@
     "spawns": [],
     "mechanic": false
    },
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -87052,6 +87100,7 @@
       "variable_damage": null,
       "attack_pushback_milli": null,
       "death_pushback_milli": null,
+      "sight_clip_side_milli": 2000,
       "special": null,
       "attached_character": null,
       "defaults_applied": [
@@ -89093,6 +89142,7 @@
     "spawns": [],
     "mechanic": false
    },
+   "sight_clip_side_milli": 2000,
    "death_spawn_pushback": false,
    "count": 1,
    "summon_radius_milli": null,
@@ -89237,6 +89287,7 @@
       "variable_damage": null,
       "attack_pushback_milli": null,
       "death_pushback_milli": null,
+      "sight_clip_side_milli": 2000,
       "special": null,
       "attached_character": null,
       "defaults_applied": [
