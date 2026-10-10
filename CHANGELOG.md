@@ -3,6 +3,37 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.30 (2026-10-10)
+
+- 114 more settings now default to the current client's behaviour. These are the settings where the current client
+  behaves as the older client (15.535.29) does, so battles recorded on the current client replay more closely. Each
+  older behaviour stays available as that setting's old value, and `replay_parity` uses the old values for the older
+  client's battles.
+- More settings default to the current client's behaviour, each measured against its recorded battles. The Dagger
+  Duchess throws her daggers in bursts and recharges when she is not attacking (the engine now reads the card tables'
+  `burst_attack`). The Golden Knight's dash chain can pick any enemy ground unit near him, buildings and towers
+  included. A unit attacking a Tesla keeps it as its target while the Tesla hides. An Electro Spirit's chain goes on
+  when its target dies before the hop lands. The Little Prince's guard also hits units that walk into it just after it
+  lands, and his press holds him 3 ticks longer. A building can attack on the last tick of its deploy. A unit stunned
+  or frozen by a hit keeps its reload timer still from one tick later. The Evo Witch's waves are made in the game's
+  order, and the Evo Battle Ram's charge skips a unit that is still waiting to appear.
+- Illegal taps are still refused by default: `placement.ILLEGAL_TROOP_TAP` and `spells.ILLEGAL_SPELL_TAP` ship
+  `refuse`, and will keep doing so. A tap outside the legal area is usually a bug in the caller, and a refusal shows
+  it. The game's clamp, which moves the tap to the edge of the legal area, is a setting you can turn on with
+  `calibration_overrides`: `{"placement.ILLEGAL_TROOP_TAP": "client15535_clamp_to_legal_edge"}` or
+  `{"spells.ILLEGAL_SPELL_TAP": "client16402_clamp_to_legal_edge"}`.
+- Six settings treat the two sides differently, as the game does. A seat-symmetry check can switch each to a symmetric
+  version with `calibration_overrides`: `targeting.EQUAL_DISTANCE_TIE` to `own_frame_high_x`, `formation.LINE_FRAME`
+  to `rotation`, `formation.LINE_CENTRE_SEARCH` to `ring_corner_walk`, `placement.RELOCATION_TIE_ORDER` and
+  `placement.TROOP_RELOCATION_TIE_ORDER` to `placer_frame_first_found`, and `placement.ENEMY_BUILDING_TAPS` to
+  `ignored`.
+- The state's building footprint (the 15th element of each row) is the box a tap is checked against. A building on the
+  tile grid is unchanged; a building off the grid (a hero's turret) is reported where it blocks taps.
+- Tools: `tools/make_replay_fixture.py` reads more of a live capture. A unit first seen after missing frames, already
+  walking, is dated so its deploy ends where it was first seen. A Goblinstein is placed from its card's own layout. An
+  Evo Goblin Barrel's decoy and the Hero Goblins' flag spawns are no longer read as plays. `replay_parity` plays a
+  group row given only as its centre point from its tile.
+
 ## 0.1.29 (2026-10-10)
 
 - Six settings now default to the current client's behaviour, each measured against its recorded battles: a Rune
