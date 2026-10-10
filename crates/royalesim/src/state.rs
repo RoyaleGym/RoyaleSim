@@ -8583,6 +8583,12 @@ calib_enum!(
         /// the ring's degree read off that. Client 15.535.29: 7 of 7 Battle Ram deaths where the two round apart
         /// (sp-ram-w-Knight-3500-s0 t308: (-287, 2146) at 97.62 degrees, (-33, 253) at 97.43, the ring at 97).
         Client15535UnitHeading = "client15535_unit_heading",
+        /// That heading, its degree read through the octant table of step 128 (formation.rs `octant_degree`), not rounded.
+        /// Client 16.402 (parity's r63 census: the ob3 live set and the 160402017 scenes, every Battle Ram death ring laid
+        /// by a standing Ram): 97 of 97 (70 live), client15535_unit_heading's rounding 72; the heading (-29, 254) at 96.51
+        /// degrees lays its ring at 96 (sp-ram-alone-s0 t308, 5 scenes and 2 live deaths), (202, 156) at 37.68 at 37 (6
+        /// live Rams on a Cannon).
+        Client16402HeadingOctant128 = "client16402_heading_octant128",
     }
 );
 calib_enum!(
@@ -16210,8 +16216,14 @@ impl BattleState {
                 } else {
                     facing
                 };
+                // spawner.DEATH_RING_AXIS = client16402_heading_octant128: the heading's degree through the octant table.
+                // PLANT (regression) death_ring_octant_unread: the new arm still rounds the heading's degree.
+                #[cfg(not(clash_plant = "death_ring_octant_unread"))]
+                let octant = self.cfg.calib.death_ring_axis == DeathRingAxis::Client16402HeadingOctant128;
+                #[cfg(clash_plant = "death_ring_octant_unread")]
+                let octant = false;
                 #[cfg(not(clash_plant = "death_ring_unrounded"))]
-                let a = crate::formation::rounded_degree(u);
+                let a = if octant { crate::formation::octant_degree(u) } else { crate::formation::rounded_degree(u) };
                 #[cfg(clash_plant = "death_ring_unrounded")]
                 let a = crate::formation::rounded_degree(u) + 1; // PLANT (regression): a degree off the rounding.
                 let on = self.ring_step_on();
@@ -28345,7 +28357,7 @@ impl BattleState {
                 // degrees, its Barbarians' heading (-33, 253) at 97.43, the ring at 97, where the raw direction rounds to 98).
                 #[cfg(not(clash_plant = "death_ring_axis_raw"))]
                 let axis = match heading256 {
-                    Some(h) if self.cfg.calib.death_ring_axis == DeathRingAxis::Client15535UnitHeading => h,
+                    Some(h) if matches!(self.cfg.calib.death_ring_axis, DeathRingAxis::Client15535UnitHeading | DeathRingAxis::Client16402HeadingOctant128) => h,
                     _ => facing,
                 };
                 #[cfg(clash_plant = "death_ring_axis_raw")]

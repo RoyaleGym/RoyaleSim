@@ -1322,7 +1322,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.illegal_troop_tap, IllegalTroopTap::Refuse, "a 16.402 capture");
     assert_eq!(cfg.calib.load_first_hit_leave, LoadFirstHitLeave::RunsOn, "a 16.402 capture");
     assert_eq!(cfg.calib.random_delay_stream, RandomDelayStream::Client15535BattleStream, "a 16.402 capture: the shipped arm (9 of 9 volleys on client 16.402)");
-    assert_eq!(cfg.calib.death_ring_axis, DeathRingAxis::RawDirection, "a 16.402 capture");
+    assert_eq!(cfg.calib.death_ring_axis, DeathRingAxis::Client16402HeadingOctant128, "a 16.402 capture");
     assert_eq!(cfg.calib.pass_kill_chase, PassKillChase::StartOfPass, "a 16.402 capture");
     assert_eq!(cfg.calib.knocked_doomed_avoidance, KnockedDoomedAvoidance::Static, "a 16.402 capture");
     assert_eq!(cfg.calib.troop_death_pushback, TroopDeathPushback::Client16402WithBlow, "a 16.402 capture");

@@ -117,6 +117,45 @@ pub fn rounded_degree(v: crate::fixed::Vec2) -> i32 {
     (0..360).max_by_key(|d| (score(*d), -d)).unwrap_or(0)
 }
 
+/// round(atan(i / 128)) in whole degrees for i = 0..=128: the octant table `octant_degree` reads a heading through.
+pub const RING_OCTANT_128: [u8; 129] = [
+    0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5, 5, 6, 6, 7,
+    7, 8, 8, 8, 9, 9, 10, 10, 11, 11, 11, 12, 12, 13, 13, 14,
+    14, 14, 15, 15, 16, 16, 17, 17, 17, 18, 18, 19, 19, 19, 20, 20,
+    21, 21, 21, 22, 22, 22, 23, 23, 24, 24, 24, 25, 25, 25, 26, 26,
+    27, 27, 27, 28, 28, 28, 29, 29, 29, 30, 30, 30, 31, 31, 31, 32,
+    32, 32, 33, 33, 33, 34, 34, 34, 35, 35, 35, 35, 36, 36, 36, 37,
+    37, 37, 37, 38, 38, 38, 39, 39, 39, 39, 40, 40, 40, 40, 41, 41,
+    41, 41, 42, 42, 42, 42, 43, 43, 43, 43, 44, 44, 44, 44, 45, 45,
+    45,
+];
+
+/// A HEADING'S RING DEGREE AS CLIENT 16.402 READS IT (spawner.DEATH_RING_AXIS = client16402_heading_octant128), 0..360 in
+/// the ring convention (angle a points at (cos a, sin a)): its minor axis over its major, times 128, truncated, looked up
+/// in RING_OCTANT_128 (b), then 90 - b past the diagonal and the result placed in the heading's quadrant. Measured on
+/// client 16.402 (parity's r63 census, the ob3 live set and the 160402017 scenes): every Battle Ram death ring laid by a
+/// standing Ram, 97 of 97 (70 live), where `rounded_degree` fits 72 and a step of 256 82: the heading (-29, 254),
+/// 96.51 degrees, rings at 96 (the table's 6 at i = 14; rounding gives 97); (202, 156), 37.68, at 37. A zero vector gives 0.
+pub fn octant_degree(v: crate::fixed::Vec2) -> i32 {
+    let (ax, ay) = (v.x.unsigned_abs() as i64, v.y.unsigned_abs() as i64);
+    if ax == 0 && ay == 0 {
+        return 0;
+    }
+    let (minor, major) = (ax.min(ay), ax.max(ay));
+    #[cfg(not(clash_plant = "ring_octant_rounded"))]
+    let i = (minor * 128 / major) as usize;
+    #[cfg(clash_plant = "ring_octant_rounded")]
+    let i = ((minor * 128 + major / 2) / major) as usize; // PLANT (regression): the index rounded, not truncated.
+    let b = RING_OCTANT_128[i.min(128)] as i32;
+    let a = if ax >= ay { b } else { 90 - b };
+    match (v.x >= 0, v.y >= 0) {
+        (true, true) => a % 360,
+        (false, true) => 180 - a,
+        (false, false) => 180 + a,
+        (true, false) => (360 - a) % 360,
+    }
+}
+
 /// A RING MEMBER'S OFFSET IN WHOLE NATIVE UNITS, in subtiles: each axis of `radius` (subtiles) x the sine table at
 /// `deg` / 1024, computed in native units and truncated toward zero, then scaled back. Measured on client 15.535.29:
 /// the Battle Ram's Barbarians stand at (-62, +596) and (+62, -596) from its death point (radius 600), the Night

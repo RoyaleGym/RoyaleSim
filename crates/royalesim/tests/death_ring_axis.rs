@@ -15,7 +15,13 @@
 //!      the raw direction's, each worked here from the sine table; both arms give the members that heading;
 //!   3. where they agree, both arms lay the same points.
 //!
+//! client16402_heading_octant128 (client 16.402, parity's r63 census: 97 of 97 standing Battle Ram rings): the heading's
+//! degree read through the octant table of step 128 (formation.rs `octant_degree`), not rounded.
+//!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test death_ring_axis`):
+//!   * `death_ring_octant_unread` -- client16402_heading_octant128 still rounds the heading's degree:
+//!     `a_death_ring_lies_at_its_heading_octant_degree_under_client16402_heading_octant128` goes red.
+//!   * `ring_octant_rounded` -- the octant table's index rounded: `the_octant_degree_is_the_measured_table` goes red.
 //!   * `death_ring_axis_raw` -- the ring's angle off the raw direction under the new arm too: (2) goes red.
 //!   * `death_ring_step_unread` -- spawner.DEATH_RING_DIRECTION's new arm still lays a walker's ring toward its target:
 //!     `a_ram_dying_on_its_walk_lays_its_ring_on_its_step_under_client15535_walk_step` goes red.
@@ -31,7 +37,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::formation::{rounded_degree, sin1024};
+use royalesim::formation::{octant_degree, rounded_degree, sin1024};
 use royalesim::move16402::normalize_to;
 use royalesim::state::{BattleState, DeathRingAxis, DeathRingDirection, DeathSpawnLayout, SpawnedFirstStep};
 use royalesim::{EntityId, Team};
@@ -254,4 +260,55 @@ fn a_ram_dying_on_its_walk_lays_its_ring_on_its_heading_under_client15535_facing
     assert!(walked > 0, "precondition: no start point kills the Ram on a step");
     assert!(apart > 0, "precondition: no start point kills the Ram on a heading whose degree differs from the tower's");
     assert!(slid > 0, "precondition: no start point kills the Ram on a step off its heading");
+}
+
+/// The octant table's degrees on the measured headings (client 16.402, parity's r63 census): (-29, 254) at 96.51 rings at
+/// 96, (202, 156) at 37.68 at 37 and its mirrors 323, 143, 217, (222, 126) at 29, (126, 222) at 61, (238, 94) at 21,
+/// (220, 130) at 30, (220, -130) at 330, (60, 249) at 77. Plant: ring_octant_rounded.
+#[test]
+fn the_octant_degree_is_the_measured_table() {
+    for (h, deg) in [
+        ((-29, 254), 96),
+        ((202, 156), 37),
+        ((202, -156), 323),
+        ((-202, 156), 143),
+        ((-202, -156), 217),
+        ((222, 126), 29),
+        ((126, 222), 61),
+        ((238, 94), 21),
+        ((220, 130), 30),
+        ((220, -130), 330),
+        ((60, 249), 77),
+        ((256, 0), 0),
+        ((0, 256), 90),
+        ((-256, 0), 180),
+        ((0, -256), 270),
+    ] {
+        assert_eq!(octant_degree(Vec2::new(h.0, h.1)), deg, "the heading {h:?}");
+    }
+    // NOT VACUOUS: rounding parts from it on (-29, 254) and (202, 156).
+    assert_eq!((rounded_degree(Vec2::new(-29, 254)), rounded_degree(Vec2::new(202, 156))), (97, 38), "the rounded degrees");
+}
+
+/// client16402_heading_octant128: on the row of `a_death_ring_lies_at_its_members_heading_degree`, each ring lies at its
+/// heading's octant degree, and some of the row's headings round elsewhere. Plant: death_ring_octant_unread.
+#[test]
+fn a_death_ring_lies_at_its_heading_octant_degree_under_client16402_heading_octant128() {
+    let s = BattleState::new(0, config());
+    let ram = card_stat(&s, "BattleRam");
+    let ds = ram.death_spawn.as_ref().expect("data: the Battle Ram has a death spawn");
+    let r = ds.radius.expect("data: the Battle Ram's DeathSpawnRadius") as i64;
+    let shift = ram.formation.spawn_angle_shift_deg;
+    let mut apart = 0;
+    for k in 0..41 {
+        let start = (14200 + 20 * k, 22800);
+        let (death, raw, kids) = ram_death(DeathRingAxis::Client16402HeadingOctant128, start);
+        let mut h = (raw.x / K, raw.y / K);
+        normalize_to(&mut h, 256);
+        let heading = Vec2::new(h.0, h.1);
+        let a = octant_degree(heading);
+        apart += i32::from(a != rounded_degree(heading));
+        assert_eq!(sorted(&kids), ring(death, a, r, shift), "client16402_heading_octant128 from {start:?}: the ring is not at the heading {heading:?}'s octant degree {a}");
+    }
+    assert!(apart > 0, "precondition: no start point's heading rounds apart from its octant degree");
 }
