@@ -27,6 +27,9 @@ use royalesim::Team;
 fn scene(arm: DeathBombTimingScope) -> (u32, u32) {
     let mut cfg = config();
     cfg.calib.death_bomb_timing_scope = arm;
+    // The file's scenes are client 15.535.29's: a container's units and its hit on T + 12 (at_fuse_end, the 15.535.29
+    // capture's arm; the shipped units_at_fuse_end is client 16.402's, tests/skeleton_barrel.rs).
+    cfg.calib.death_bomb_spawn_timing = royalesim::state::DeathBombSpawnTiming::AtFuseEnd;
     let tick = cfg.calib.tick_ms;
     let mut s = BattleState::new(11, cfg);
     let tower = s.tower_ids(Team::Red)[1].expect("the tower stands at setup");

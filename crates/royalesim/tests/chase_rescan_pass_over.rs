@@ -179,27 +179,28 @@ fn a_troop_born_the_tick_before_never_recedes() {
     }
 }
 
-/// (6) The Red Knight's target after the decisive tick: it holds a Blue Archer ahead of it (taken while both were held), and
-/// on that tick the Archer is put past its limit ahead (the chase drop) while a Blue Giant stands BEHIND it past its own,
-/// |dy| as the tick before, in round sight.
+/// (6) The Red Knight's target after the decisive tick: it holds a Blue Giant ahead of it (taken while both were held; a
+/// buildings-only walker, so it walks as the Target phase begins, client15535_growing_away's mark), and on that tick the
+/// Giant is put past its limit ahead (its step away: the chase drop) while a second Blue Giant stands BEHIND the Knight past
+/// its own, |dy| as the tick before, in round sight.
 fn drop_tick_rescan(arm: ChaseRescanPassOver) -> (Option<EntityId>, EntityId, EntityId) {
     let mut s = BattleState::new(0, with_arm(arm));
     past_deploy_lockout(&mut s);
-    let (lim_g, lim_a) = (limit_on(&s, "Giant"), limit_on(&s, "Archer"));
+    let (lim_g, lim_a) = (limit_on(&s, "Giant"), limit_on(&s, "Giant"));
     let knight = s.scenario_spawn_now(Team::Red, "Knight", n(KNIGHT.0, KNIGHT.1), None).expect("the Knight");
     let near = n(KNIGHT.0, KNIGHT.1 - 2500);
-    let archer = s.scenario_spawn_now(Team::Blue, "Archer", near, None).expect("the Archer");
+    let archer = s.scenario_spawn_now(Team::Blue, "Giant", near, None).expect("the Giant ahead");
     let behind = n(KNIGHT.0 + 400, KNIGHT.1 + lim_g + 300);
     let giant = s.scenario_spawn_now(Team::Blue, "Giant", n(KNIGHT.0 + 9000, KNIGHT.1 + lim_g + 300), None).expect("the Giant");
     for _ in 0..12 {
         assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && s.debug_set_pos(archer, near) && s.debug_set_pos(giant, n(KNIGHT.0 + 9000, KNIGHT.1 + lim_g + 300)));
         s.tick();
     }
-    assert_eq!(s.entity(knight).expect("the Knight").target, Some(archer), "the scene drifted: the Knight does not hold the Archer");
+    assert_eq!(s.entity(knight).expect("the Knight").target, Some(archer), "the scene drifted: the Knight does not hold the Giant ahead");
     // The Giant behind in round sight one tick before (its |dy| unchanged on the decisive tick).
     assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && s.debug_set_pos(archer, near) && s.debug_set_pos(giant, behind));
     s.tick();
-    assert_eq!(s.entity(knight).expect("the Knight").target, Some(archer), "the scene drifted: the Knight let the Archer go early");
+    assert_eq!(s.entity(knight).expect("the Knight").target, Some(archer), "the scene drifted: the Knight let the Giant ahead go early");
     assert!(s.debug_set_pos(knight, n(KNIGHT.0, KNIGHT.1)) && s.debug_set_pos(giant, behind));
     assert!(s.debug_set_pos(archer, n(KNIGHT.0, KNIGHT.1 - lim_a - 300)));
     s.tick();
