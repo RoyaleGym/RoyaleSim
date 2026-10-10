@@ -21074,7 +21074,7 @@ impl BattleState {
         }
         // 16.402: each soul flies `flight_ms` to him and counts once it lands (`SoulKing::landing`).
         #[cfg(not(clash_plant = "souls_land_at_once"))]
-        let tick_ms = self.cfg.calib.tick_ms as i32;
+        let tick_ms = self.cfg.calib.tick_ms;
         for (id, cap, flight_ms) in kings {
             #[cfg(clash_plant = "souls_land_at_once")]
             let flight_ms = {
