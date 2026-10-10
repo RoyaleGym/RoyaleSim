@@ -466,6 +466,19 @@ ELIXIR
     encoding would be 203 bytes, and was not taken for the same one-decoder reason as the
     timers.
 
+AN ABILITY PRESS
+    A press of a champion's or hero's button is a row of kind "ability" (the harness's
+    KIND_ABILITY: `card` the base card, `form` "hero" for a hero form, issued at tick - 1
+    as a deploy), read off the capture for both sides (`ability_presses`): an elixir drop
+    no deploy or cast row explains, of the ability's `mana_cost`, with a unit of that
+    side's champion or hero alive; an ability with a cast hold must also show it (its unit
+    enters behaviour state 10, CAST_STATE, from one frame before the drop to
+    PRESS_ONSET_TICKS after it, or its own unit appears). Measured on the live replay set
+    (2026-10-09, 603 fixtures): 902 state-10 onsets of champions and heroes, 896 on the
+    frame their side's pool fell by exactly the ability's cost; the Little Prince's
+    ChampionGuard 17 ticks after the drop on 579 of 604; our own press receipts at the
+    drop's tick for 795 of 797.
+
 PLAYABILITY
     Unplayable, with the reason in the fixture and the manifest: a deploy card whose id
     the id table (Supercell's global ids: class x 1_000_000 + the row index of the
@@ -476,7 +489,26 @@ PLAYABILITY
     `cargo run --example replay_parity -- --census`; the engine's loader is the only
     authority on that list, so it is not re-derived here); a tapped deploy whose entity
     is an unknown object (above); a capture that starts mid-battle with non-tower
-    entities already on the board; a capture with no frames.
+    entities already on the board; a capture with no frames; a battle of a game mode that
+    buffs every unit (GAME MODE).
+
+GAME MODE
+    The capture's header names no game mode, so the fixture's `battle_rates` measures what a
+    mode changes, on the frame pairs one tick apart. `unit_rate_percent`: the modal step of
+    `attack_progress_ms` of entities attacking on both frames, over 50, in percent (null under
+    20 steps); `attack_steps` the counts behind it. 100 on a ladder battle. 130 under the Rage
+    modes' global buff RageModeRage (game_modes.csv GlobalBuff; HitSpeed, Speed and SpawnSpeed
+    multipliers 130), which the engine does not apply: 20261006-172724, -173137 and -173334
+    step 65 on 7,943 of 9,345, 2,381 of 2,493 and 8,927 of 9,695 one-tick steps and 50 on
+    none (every ladder battle's modal step is 50), walk 1.29-1.32x the same unit's ladder
+    step (a Hog Rider 155 a tick, 119 on ladder), and space a Witch's Skeletons 107-109
+    ticks, not 140; deploys still take 19-20 ticks and the load and event timers still count
+    down 50 a tick. Such a battle is unplayable. `global_buff` names the
+    buff when the rate is a known one. `elixir_per_tick`: [first tick, elixir_raw a tick] per
+    regeneration section, i.e. floor(5,000,000 / the battle timeline's ElixirFullBarMS):
+    178, 357, 537 on Default (28000, 14000, 9300 ms), 240, 473, 714 on RageMode (20750,
+    10550, 7000), 537 throughout on TripleElixir, 1,250 on 7xElixir. The engine plays no
+    elixir (deploys are spawned), so the elixir sections are recorded, not refused.
 
     Needs data/derived/cards.json; data/derived/mechanic_register.json
     (tools/mechanic_register.py) is read for the family labels and only warned about
@@ -580,6 +612,22 @@ ELIXIR_UNIT = 10_000
 #: The most elixir a side regenerates in one tick (triple elixir: one elixir per ~0.93 s), so a
 #: drop measured across a frame gap is still recognised as a card's cost.
 ELIXIR_REGEN_MAX_PER_TICK = 540
+#: THE BATTLE'S RATES (module doc, GAME MODE). An attacking unit's `attack_progress_ms` grows this much on a one-tick
+#: step at 100 % (one tick is 50 ms; module doc, ATTACK TIMERS).
+ATTACK_STEP_AT_100 = 50
+#: The fewest one-tick attack steps that measure a battle's unit rate; with fewer, `unit_rate_percent` is null. A
+#: ladder battle's steps are 50 on 83 % or more of them (20261007-130902 the least), a Rage battle's 65 on 85 % or more.
+UNIT_RATE_MIN_STEPS = 20
+#: The global buff a game mode lays on every unit, by the unit rate it gives: game_modes.csv's GlobalBuff column names
+#: RageModeRage on the Rage modes (Rage_Ladder, Rage_Friendly, the RampUpElixirRageJacks modes, ...), and its
+#: character_buffs row is HitSpeedMultiplier, SpeedMultiplier and SpawnSpeedMultiplier 130.
+GLOBAL_BUFF_BY_UNIT_RATE = {130: "RageModeRage"}
+#: An elixir section is at least this many one-tick rises of one size, give or take ELIXIR_STEP_SLACK.
+ELIXIR_SECTION_MIN_STEPS = 20
+ELIXIR_STEP_SLACK = 2
+#: A one-tick rise above this is a grant (an Elixir Collector's, an Elixir Golem's), not regeneration: the largest
+#: regeneration step is the 7xElixir timeline's 1,250.
+ELIXIR_REGEN_STEP_MAX = 2000
 #: How far after its tap a cast's elixir drop is looked for, ticks: a stale log tick put one
 #: 167 ticks before its cast (181741).
 CAST_DROP_WINDOW = 400
@@ -666,6 +714,15 @@ TUNNEL_SURFACE_MAX = 2000
 #: How far an effect cast's first frame may sit from its caster's elixir drop, ticks: the drop
 #: lands on the first projectile frame, and a frame gap can put the sighting a tick or two off.
 EFFECT_DROP_SLACK = 3
+#: Milliseconds per game tick (cards.json times / TICK_MS = ticks).
+TICK_MS = 50
+#: THE BATTLE'S OWN ELIXIR RATE (`battle_regen`): the one-tick rise below the cap that a stretch of this many ticks
+#: shows most often, on at least this many frames.
+REGEN_STRETCH_TICKS, REGEN_MIN_FRAMES = 600, 5
+#: A UNIT'S RELEASE (`released_by_unit`): how far from a unit of its side that carries its card id a flying effect
+#: object may leave, native. Measured on the 2026-10 live set: a Clone copy's shot leaves 400-1,200 from the copy's
+#: centre, the Heal Spirit's jump and the Barbarian Barrel barbarian's roll from the unit's own point.
+RELEASE_REACH = 1500
 #: The Barbarian Barrel's airborne object (BarbLogProjectile): created MinDistance 3000 short of
 #: the landing on the caster's forward axis, moving 360 a tick. Where a capture missed its first
 #: frame it is first seen a step or more in, and the cast tick is that many steps earlier.
@@ -862,6 +919,10 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
         (proj.get("spawn_projectile") or {}).get("spawn_character"),
         # the building a tunnel leaves (the Goblin Drill's), with its own spawner and death spawn below it
         (card.get("spawn_pathfind") or {}).get("morph"),
+        # the unit the card's ability button puts down (the Little Prince's ChampionGuard, 625 on the Common ladder):
+        # a spawned unit, never a deploy summon. Unread, each guard was an unknown object (56% off the Prince's own
+        # hp), never paired: 631 groups in the live set (2026-10-09)
+        ((card.get("ability") or {}).get("effect") or {}).get("unit"),
         *area_units,
     ):
         add(ref)
@@ -1339,6 +1400,53 @@ def elixir_columns(frames: list[dict]) -> dict | None:
     return out
 
 
+def battle_rates(frames: list[dict]) -> dict:
+    """THE BATTLE'S RATES (module doc, GAME MODE), measured on the pairs of frames one tick apart: the units' rate
+    (`attack_progress_ms` steps of entities in behavior_state 2 on both frames, buildings and troops) and the elixir
+    regeneration per tick by section (one-tick rises below the cap, of either side, that are not grants)."""
+    steps: Counter = Counter()
+    runs: list[list[int]] = []  # [first tick, rise, count]
+    for i in range(1, len(frames)):
+        a, b = frames[i - 1], frames[i]
+        if b["tick"] - a["tick"] != 1:
+            continue
+        before = {e["generation_key"]: e for e in a.get("entities") or []}
+        for e in b.get("entities") or []:
+            p = before.get(e["generation_key"])
+            if p is None or p.get("behavior_state") != 2 or e.get("behavior_state") != 2:
+                continue
+            p0, p1 = p.get("attack_progress_ms"), e.get("attack_progress_ms")
+            if isinstance(p0, int) and isinstance(p1, int) and 0 < p1 - p0 <= 4 * ATTACK_STEP_AT_100:
+                steps[p1 - p0] += 1
+        pa, pb = a.get("elixir_raw"), b.get("elixir_raw")
+        if not (isinstance(pa, list) and isinstance(pb, list) and len(pa) == len(pb) == 2):
+            continue
+        for s in (0, 1):
+            if not (isinstance(pa[s], int) and isinstance(pb[s], int)):
+                continue
+            d = pb[s] - pa[s]
+            if not 0 < d <= ELIXIR_REGEN_STEP_MAX or pb[s] >= 10 * ELIXIR_UNIT:
+                continue
+            if runs and abs(runs[-1][1] - d) <= ELIXIR_STEP_SLACK:
+                runs[-1][2] += 1
+            else:
+                runs.append([b["tick"], d, 1])
+    sections: list[list[int]] = []
+    for tick, d, n in runs:
+        if n >= ELIXIR_SECTION_MIN_STEPS and not (sections and abs(sections[-1][1] - d) <= ELIXIR_STEP_SLACK):
+            sections.append([tick, d])
+    n = sum(steps.values())
+    modal = steps.most_common(1)[0][0] if steps else None
+    rate = round(100 * modal / ATTACK_STEP_AT_100) if modal is not None and n >= UNIT_RATE_MIN_STEPS else None
+    return {
+        "unit_rate_percent": rate,
+        "attack_steps": {"modal": modal, "modal_count": steps[modal] if modal is not None else 0,
+                         f"at_{ATTACK_STEP_AT_100}": steps[ATTACK_STEP_AT_100], "all": n},
+        "global_buff": GLOBAL_BUFF_BY_UNIT_RATE.get(rate) if rate not in (None, 100) else None,
+        "elixir_per_tick": sections,
+    }
+
+
 def snap_troop_tap(native: list) -> list:
     """A troop tap's native point as the game places it. A log's `requested` tile is almost
     always a tile centre (x.5 -> ...500); one on a tile BOUNDARY on x (9.0 -> 9000, the centre
@@ -1470,11 +1578,13 @@ def late_single_point(c0: tuple[int, int], side: int, flying: bool, late_ticks: 
     return None, f"its first frame's creation point {where} its tile's laid point ({lx}, {ly}), beyond {reach}"
 
 
-def first_cast_drop(frame_ticks: list, elixir: list, tap_tick: int, cost: int, skip: set) -> int | None:
+def first_cast_drop(
+    frame_ticks: list, elixir: list, tap_tick: int, cost: int, skip: set, regen: int = ELIXIR_REGEN_MAX_PER_TICK
+) -> int | None:
     """The first frame tick at or after `tap_tick`, inside CAST_DROP_WINDOW ticks, on which one
     side's `elixir` (per frame, aligned with `frame_ticks`; None where the capture has none) falls
-    by `cost` elixir -- within what the frame gap could regenerate -- on a tick not in `skip`
-    (frames a matched deploy already explains, drops an earlier cast claimed); None if none."""
+    by `cost` elixir -- within what the frame gap could regenerate at `regen` a tick (`battle_regen`) -- on a tick
+    not in `skip` (frames a matched deploy already explains, drops an earlier cast claimed); None if none."""
     for i in range(1, len(frame_ticks)):
         tk = frame_ticks[i]
         if tk < tap_tick:
@@ -1485,8 +1595,72 @@ def first_cast_drop(frame_ticks: list, elixir: list, tap_tick: int, cost: int, s
         if a is None or b is None or tk in skip:
             continue
         gap = tk - frame_ticks[i - 1]
-        if abs((a - b) - cost * ELIXIR_UNIT) <= ELIXIR_REGEN_MAX_PER_TICK * gap + ELIXIR_UNIT // 10:
+        if abs((a - b) - cost * ELIXIR_UNIT) <= regen * gap + ELIXIR_UNIT // 10:
             return tk
+    return None
+
+
+def battle_regen(frame_ticks: list, elixir_by_side: dict) -> int:
+    """THE BATTLE'S OWN ELIXIR RATE, raw per tick: the largest of the one-tick rises below the cap that each
+    REGEN_STRETCH_TICKS stretch shows most often (on at least REGEN_MIN_FRAMES frames), never below
+    ELIXIR_REGEN_MAX_PER_TICK. A special mode regenerates faster than triple elixir: 20261002-172509-A rises 1,250
+    a tick from its first frame (an elixir every 8 ticks), so a Log cast across a two-tick frame gap falls by 17,500,
+    outside the triple-elixir tolerance (2 x 540 + 1,000), and 8 of the 2026-10 live battles lost their casts so."""
+    by: dict[int, Counter] = defaultdict(Counter)
+    for col in elixir_by_side.values():
+        for i in range(1, len(frame_ticks)):
+            a, b = col[i - 1], col[i]
+            if frame_ticks[i] - frame_ticks[i - 1] != 1 or a is None or b is None:
+                continue
+            if a < b < 10 * ELIXIR_UNIT:
+                by[frame_ticks[i] // REGEN_STRETCH_TICKS][b - a] += 1
+    modal = [c.most_common(1)[0] for c in by.values()]
+    return max([ELIXIR_REGEN_MAX_PER_TICK] + [r for r, n in modal if n >= REGEN_MIN_FRAMES])
+
+
+def effect_leads(card: dict | None) -> list[int]:
+    """AN EFFECT THAT SHOWS ITS CAST LATE: the ticks from a cast to the first object the effects stream can show of
+    it. [0] for a spell whose objects are its own. A spell whose area effect spawns the projectile the stream lists
+    (cards.json `spell.area_effect_object.projectile`: Lightning, Royal Delivery) shows it on the effect's first hit,
+    `hit_speed_offset_ms` after the cast, or one `hit_speed_ms` later for each hit that found no target, while the
+    effect lives. Measured on the 2026-10 live set: of 65 Lightning casts with no tap the caster's elixir drops 10
+    ticks before the first strike on 62 and 20 on 3 (each with no strike on the first hit); of 85 Royal Deliveries,
+    40 ticks before the box on all 85."""
+    ae = ((card or {}).get("spell") or {}).get("area_effect_object") or {}
+    if not ae.get("projectile") or ae.get("hit_speed_offset_ms") is None:
+        return [0]
+    step, life = ae.get("hit_speed_ms") or 0, ae.get("life_duration_ms") or 0
+    leads = [ae["hit_speed_offset_ms"]]
+    while step > 0 and leads[-1] + step <= life:
+        leads.append(leads[-1] + step)
+    return [ms // TICK_MS for ms in leads]
+
+
+def released_by_unit(frames: list[dict], fi: int, side: int, cid: int) -> str | None:
+    """How an effect object first seen on frames[fi] is A UNIT'S RELEASE, not a cast; None when it is not. A unit
+    carries the card id of the play that made it, and what it launches carries that id too: the Heal Spirit (card Heal)
+    jumps as a Heal object, a Clone copy shoots Clone objects, the Barbarian Barrel's barbarian rolls a BarbLog. So an
+    object that flies (its launch point is not its target) from within RELEASE_REACH of a unit of its side carrying its
+    card id, on the frame before or its own, is that unit's. A cast's object leaves the caster's king, rolls from its
+    landing, or stands where it strikes (a Lightning bolt, a Royal Delivery's box). 2026-10 live set: 59 such objects
+    (Heal 30, Clone 26, BarbLog 3), each with no drop of its card's cost; none of the 189 other dropped objects is
+    one."""
+    if fi == 0:
+        return None
+    units = [
+        e for j in (fi - 1, fi) for e in frames[j].get("entities") or []
+        if e.get("side") == side and e.get("card_id") == cid
+    ]
+    for o in frames[fi].get("effects") or []:
+        if o.get("card_id") != cid or o.get("side") != side:
+            continue
+        launch = (o.get("x2", o["x"]), o.get("y2", o["y"]))
+        if launch == projectile_target(o):
+            continue
+        for u in units:
+            off = math.dist((u["x"], u["y"]), launch)
+            if off <= RELEASE_REACH:
+                return f"launched {off:.0f} from its side's unit at ({u['x']}, {u['y']}) that carries its card id"
     return None
 
 
@@ -1718,6 +1892,13 @@ SPELL_VICTIM_MARGIN = 1500
 SPELL_HIT_WINDOW = 120
 #: How much more than its damage a victim may lose on the hit frame (a building's decay tick, a concurrent chip).
 SPELL_HIT_SLACK = 2
+#: A PULSING SPELL'S LEVEL (spell_levels_from_damage): how many ticks off its buff's HitFrequency two pulses on one
+#: victim may fall and still be one train (live Poison, a victim's consecutive pulses: 3,137 20 ticks apart, 37 at 19
+#: and 33 at 21, a frame read a tick late or early).
+SPELL_PULSE_TOLERANCE = 1
+#: The capture's building kinds (module doc: 12 deploying or inactive, 13 up); a pulse takes the buff's
+#: BuildingDamagePercent on one (state.rs, the Earthquake's 350).
+BUILDING_KINDS = (12, 13)
 
 
 #: How far from a living member of its group an Evo Skeletons copy may first stand (module doc, EVO COPIES): the
@@ -1886,7 +2067,32 @@ def spell_damage_at(doc: dict, card: dict, level: int) -> int | None:
     """A damaging spell's hit on a troop or a building at a unified level, scaled as the engine scales it (card.rs
     `level_multiplier`: the ladder entered at level_scaling.base_level, truncating division). None for a card with no
     damage, and for a level its ladder does not have."""
-    base = card.get("damage")
+    return scaled_at(doc, card, card.get("damage"), level)
+
+
+def spell_pulse_at(doc: dict, card: dict, level: int, building: bool) -> int | None:
+    """One pulse of a spell whose area's buff deals damage over time, at a unified level, as the engine deals it
+    (status.rs `pulse_amount`, calibration status.BUFF_PULSE_AMOUNT scaled_per_second_times_frequency: the level-scaled
+    DamagePerSecond's HitFrequency share, truncated; state.rs: times the buff's BuildingDamagePercent on a building,
+    truncated). Poison, 36 a second at 1000 ms: 83 at level 10, 92 at 11, 111 at 13. The Earthquake, 32 at 1000 ms and
+    350 % on a building: 81 on a troop and 283 on a building at 11. None for a card whose area does not pulse twice in
+    its life (a train needs two pulses: the Tornado's 550 ms in a 1050 ms area), and for a level its ladder lacks."""
+    area = (card.get("spell") or {}).get("area_effect_object") or {}
+    buff = area.get("buff") or {}
+    dps, every = buff.get("damage_per_second"), buff.get("hit_frequency_ms")
+    if not dps or not every or every <= 0 or (area.get("life_duration_ms") or 0) < 2 * every:
+        return None
+    per_second = scaled_at(doc, card, dps, level)
+    if per_second is None:
+        return None
+    pulse = per_second * every // 1000
+    if building and buff.get("building_damage_percent"):
+        pulse = pulse * buff["building_damage_percent"] // 100
+    return pulse
+
+
+def scaled_at(doc: dict, card: dict, base: int | None, level: int) -> int | None:
+    """`base` at a unified level on `card`'s ladder (`spell_damage_at`); None for no base, or a level it lacks."""
     ls = card.get("level_scaling")
     if not base or not ls:
         return None
@@ -1913,6 +2119,34 @@ def playable_levels(doc: dict, card: dict) -> range:
     return range(r["relative_level"] + 1, r["relative_level"] + r["level_count"] + LEVELS_PAST_COUNT + 1)
 
 
+def spell_pulse_votes(d: dict, doc: dict, card: dict, ents: dict, per_tick_rows: list, ticks: list, i0: int) -> Counter:
+    """A PULSING SPELL'S LEVEL (spell_levels_from_damage): per playable level, how many drops inside SPELL_HIT_WINDOW
+    frames from `i0`, on enemies that are not towers, stood within the area's radius + SPELL_VICTIM_MARGIN of the cast
+    point and lived, are that level's pulse (`spell_pulse_at`, up to SPELL_HIT_SLACK more) on a victim that takes the
+    same pulse again one HitFrequency (SPELL_PULSE_TOLERANCE) before or after."""
+    ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
+    area = card["spell"]["area_effect_object"]
+    every = area["buff"]["hit_frequency_ms"] // 50  # 50 ms a tick
+    reach = (area.get("radius_milli") or 0) + SPELL_VICTIM_MARGIN
+    foes = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] >= 0]
+    drops: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    for i in range(max(i0, 1), min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows))):
+        for e in foes:
+            a, b = per_tick_rows[i - 1].get(e["key"]), per_tick_rows[i].get(e["key"])
+            if a is None or b is None or b[ihp] <= 0 or a[ihp] <= b[ihp]:
+                continue
+            if math.dist((a[ix], a[iy]), d["pos"]) <= reach:
+                drops[e["key"]].append((ticks[i], a[ihp] - b[ihp]))
+    votes: Counter = Counter()
+    for key, seen in drops.items():
+        building = ents[key].get("kind_first") in BUILDING_KINDS
+        for lv in playable_levels(doc, card):
+            pulse = spell_pulse_at(doc, card, lv, building)
+            at = [t for t, x in seen if pulse is not None and pulse <= x <= pulse + SPELL_HIT_SLACK]
+            votes[lv] += sum(1 for t in at if any(abs(abs(t - u) - every) <= SPELL_PULSE_TOLERANCE for u in at))
+    return +votes
+
+
 def spell_levels_from_damage(
     deploys: list[dict], doc: dict, cards_by_name: dict, ents: dict, per_tick_rows: list, ticks: list
 ) -> None:
@@ -1933,6 +2167,18 @@ def spell_levels_from_damage(
     (`level_source` "damage"); several are settled by the one nearest the side mode; none keep the side mode. The drops
     are in `level_evidence` either way.
 
+    A PULSING SPELL'S LEVEL: a spell whose area's buff deals damage over time (Poison, the Earthquake: `spell_pulse_at`)
+    has no `damage`, so no hit of it was read and every cast kept the side mode; live, our Poison at the side mode 12
+    dealt level 11's 92 a pulse and at 14 level 13's 111. Nor is its first drop its hit: its first pulse falls 25 ticks
+    after the elixir drop and other damage lands before it (the first-drop rule fits no level on 243 of the 637 live
+    casts). Its PULSE TRAINS vote instead (`spell_pulse_votes`): a drop inside the window on an enemy within the area's
+    radius + SPELL_VICTIM_MARGIN that a level's pulse explains (up to SPELL_HIT_SLACK more) votes for that level when
+    the same victim takes that pulse again one HitFrequency (SPELL_PULSE_TOLERANCE) before or after; the most votes
+    win, a tie the one nearest the side mode, and an unread cast takes its card level (below). Live, 248 fixtures: 584
+    of 637 Poison casts read off their trains, no cast's votes split, and 597 change level (12 -> 11 on 285, 12 -> 10
+    on 6, 14 -> 13 on 306, by train or card level); the Earthquake reads 9, 11 and 12 in different battles (troops 67,
+    81, 89 a pulse; buildings 234, 283, 311 and their decay tick), and 11 of its 27 casts change.
+
     ONE LEVEL PER CARD PER SIDE: a cast whose hit is not read (no drop inside the window, or none any level fits) takes
     the level its side's other casts of the same card were read at (`level_source` "card level"; the most read, the
     one nearest the side mode on a tie, then the lowest), and the side mode only when none was read. 20260918-112751's
@@ -1947,7 +2193,8 @@ def spell_levels_from_damage(
         if d["kind"] != "spell" or d.get("level_source") != "side mode" or d.get("level") is None:
             continue
         card = cards_by_name.get(d["card"]) or {}
-        if spell_damage_at(doc, card, d["level"]) is None:
+        pulsing = spell_pulse_at(doc, card, d["level"], False) is not None
+        if not pulsing and spell_damage_at(doc, card, d["level"]) is None:
             continue
         reach = (card.get("area_damage_radius_milli") or (card.get("projectile") or {}).get("radius_milli") or 0)
         reach += SPELL_VICTIM_MARGIN
@@ -1956,6 +2203,21 @@ def spell_levels_from_damage(
             # a cast dated before its first sighting (`launch_tick`): its hit is looked for from that sighting on
             i0 = index_of.get(d.get("first_seen"))
         if i0 is None:
+            continue
+        if pulsing:
+            # A PULSING SPELL'S LEVEL: its pulse trains vote (`spell_pulse_votes`); the most votes win
+            votes = spell_pulse_votes(d, doc, card, ents, per_tick_rows, ticks, i0)
+            fits = [lv for lv, n in votes.items() if n == max(votes.values())]
+            d["level_evidence"] = (
+                f"pulse trains: level votes {dict(sorted(votes.items()))}; fitting levels {sorted(fits)}"
+                if votes else "no pulse train on an enemy within its reach inside the window"
+            )
+            if fits:
+                best = min(fits, key=lambda lv: (abs(lv - d["level"]), lv))
+                read[(d["side"], d["card"])][best] += 1
+                read_rows.add(id(d))
+                if best != d["level"]:
+                    d["level"], d["level_source"] = best, "damage"
             continue
         foes = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] >= 0]
         # a drop below the spell's least damage is not its hit (a building's decay tick, a troop's chip); both the least
@@ -2283,6 +2545,138 @@ def pair_date(deploys: list[dict], ticks: list[int], partners: list[tuple[str, l
 # the fixture
 
 
+#: AN ABILITY PRESS (module doc, AN ABILITY PRESS): the behaviour state of a champion or hero in its ability's cast
+#: hold.
+CAST_STATE = 10
+#: How long after its elixir leaves the pool a pressed hero may enter its cast hold, ticks: on the drop's own frame in
+#: 896 of the live set's 902 confirmed presses (2026-10-09), 8 and 14 ticks later behind a hit in progress, 90 ticks
+#: later under a Freeze (20261008-031035, press 3363, both Princes held until 3453); one frame BEFORE the drop on 4.
+PRESS_ONSET_TICKS = 120
+
+
+def ability_presses(
+    deploys: list[dict],
+    claimed: set,
+    ents: dict,
+    per_tick_rows: list,
+    ticks: list[int],
+    elixir_by_side: dict[int, list],
+    doc: dict,
+    cards_by_name: dict,
+    name_to_id: dict[str, int],
+) -> list[dict]:
+    """THE ABILITY PRESSES (kind "ability", the harness's KIND_ABILITY), read off the capture for both sides alike: one
+    row per elixir drop that no deploy or cast row explains, whose amount is the ability cost (`mana_cost`) of a
+    champion or hero of that side alive on the frame before the drop's. An ability with a cast hold (`cast_ms` > 0:
+    the Little Prince, the hero Wizard, the hero Bowler) must also show its press: its unit enters CAST_STATE from one
+    frame before the drop until PRESS_ONSET_TICKS after it (and before the side's next drop of that cost), or the
+    ability's own unit appears within PRESS_ONSET_TICKS (a Prince whose last frame was the press's still put its guard
+    down: 20261007-181010, 5193). One without a cast hold (the Golden Knight's dash, held until a target is in reach)
+    is read off the drop alone. The row's tick is the drop's frame, as a deploy's is the frame its cost leaves the pool;
+    the harness issues it a tick earlier, as a deploy. Our own tap log is not read: its press receipts are these drops
+    (795 of 797 at the same tick, 2026-10-09), and the capture also holds the presses no tap of ours made."""
+    hero_rows = {r["form_of"]: r for r in doc.get("hero_forms") or [] if r.get("form_of")}
+    explained = {(d["side"], t) for d in deploys for t in (d["tick"], d.get("first_seen")) if t is not None}
+    explained |= set(claimed)
+    buttons = []
+    for e in ents.values():
+        card = cards_by_name.get(e.get("card") or "")
+        if e.get("role") != "summon" or card is None:
+            continue
+        hero = e["card_id"] // 1_000_000 == HERO_CLASS
+        row = hero_rows.get(card["name"]) if hero else card
+        ability = (row or {}).get("ability")
+        if ability and ability.get("mana_cost"):
+            buttons.append((e, card, row if hero else None, ability))
+
+    def state(e, i):
+        r = per_tick_rows[i].get(e["key"]) if 0 <= i < len(per_tick_rows) else None
+        return r[5] if r is not None else None
+
+    out = []
+    for side in (0, 1):
+        pool = elixir_by_side.get(side) or []
+        # the side's regeneration per tick: ELIXIR_REGEN_MAX_PER_TICK is triple elixir's, and an event's pool gains up
+        # to 1,250 a tick (20261008-155251), which put a 1-cost press 2,500 off its cost after a frame gap
+        steps = sorted(
+            (pool[k] - pool[k - 1]) / (ticks[k] - ticks[k - 1])
+            for k in range(1, len(pool))
+            if pool[k] is not None and pool[k - 1] is not None and 0 < pool[k] - pool[k - 1] < ELIXIR_UNIT // 2
+        )
+        regen = max(ELIXIR_REGEN_MAX_PER_TICK, steps[len(steps) * 95 // 100] if steps else 0)
+        drops = [
+            i
+            for i in range(1, len(pool))
+            if pool[i] is not None
+            and pool[i - 1] is not None
+            and pool[i - 1] - pool[i] > ELIXIR_UNIT // 2
+            and (side, ticks[i]) not in explained
+        ]
+
+        def pays(i, cost, pool=pool, regen=regen):
+            tolerance = regen * (ticks[i] - ticks[i - 1]) + ELIXIR_UNIT // 10
+            return abs((pool[i - 1] - pool[i]) - cost * ELIXIR_UNIT) <= tolerance
+
+        for n, i in enumerate(drops):
+            gap = ticks[i] - ticks[i - 1]
+            found = []
+            for e, card, hero_row, ab in buttons:
+                # pressed on the tick before the drop's frame: alive on the frame before it
+                alive = e["first_index"] <= i - 1 <= e["last_index"]
+                if e["side"] != side or not alive or not pays(i, ab["mana_cost"]):
+                    continue
+                if not ab.get("cast_ms"):
+                    found.append((PRESS_ONSET_TICKS + 1, -e["first_index"], e, card, hero_row, ab,
+                                  f"elixir drop of {ab['mana_cost']}; no cast hold"))
+                    continue
+                later = [j for j in drops[n + 1:] if pays(j, ab["mana_cost"])]
+                until = min(ticks[i] + PRESS_ONSET_TICKS, ticks[later[0]] - 1 if later else ticks[-1])
+                onset = next(
+                    (j for j in range(i - 1, e["last_index"] + 1)
+                     if ticks[j] <= until and state(e, j) == CAST_STATE and state(e, j - 1) != CAST_STATE),
+                    None,
+                )
+                if onset is not None:
+                    why = f"elixir drop of {ab['mana_cost']}; cast state {CAST_STATE} at {ticks[onset] - ticks[i]:+d}"
+                    found.append((max(ticks[onset] - ticks[i], 0), -e["first_index"], e, card, hero_row, ab, why))
+                    continue
+                unit = (ab.get("effect") or {}).get("unit")
+                put = next(
+                    (o for o in ents.values() if unit and o["side"] == side and o.get("unit") == unit
+                     and 0 <= ticks[o["first_index"]] - ticks[i] <= PRESS_ONSET_TICKS),
+                    None,
+                )
+                if put is not None:
+                    after = ticks[put["first_index"]] - ticks[i]
+                    why = f"elixir drop of {ab['mana_cost']}; its {unit} at +{after}"
+                    found.append((after, -e["first_index"], e, card, hero_row, ab, why))
+            if not found:
+                continue
+            found.sort(key=lambda c: (c[0], c[1]))
+            _, _, e, card, hero_row, ab, why = found[0]
+            out.append(
+                {
+                    "tick": ticks[i],
+                    "first_seen": ticks[i],
+                    "tick_evidence": "exact" if gap == 1 else "frame_gap",
+                    "first_seen_gap": gap,
+                    "side": side,
+                    "card": card["name"],
+                    "card_id": name_to_id.get(card["name"], e["card_id"]),
+                    "kind": "ability",
+                    "level": e["level"],
+                    "count": 0,
+                    "keys": [e["key"]],
+                    "pos": [0, 0],
+                    "source": "ability_press",
+                    "form": "hero" if hero_row else "base",
+                    "form_row": hero_row["name"] if hero_row else card["name"],
+                    "press": {"ability": ab.get("name"), "cost": ab["mana_cost"], "evidence": why},
+                }
+            )
+    return out
+
+
 def build(
     capture: str,
     placements: list[str],
@@ -2350,6 +2744,17 @@ def build(
         fx["playable"] = False
         fx["unplayable_reasons"] = ["no frames"]
         return fx
+    # -- THE BATTLE'S RATES (module doc, GAME MODE): a mode that buffs every unit is a battle the engine cannot play
+    rates = battle_rates(frames)
+    fx["battle_rates"] = rates
+    if rates["unit_rate_percent"] not in (None, 100):
+        att = rates["attack_steps"]
+        reasons.append(
+            f"game mode: every unit runs at {rates['unit_rate_percent']} % (attack_progress_ms grows {att['modal']} a"
+            f" tick on {att['modal_count']} of {att['all']} one-tick steps, {att[f'at_{ATTACK_STEP_AT_100}']} at"
+            f" {ATTACK_STEP_AT_100}; global buff {rates['global_buff'] or 'not recognised'}), and the engine has no"
+            " game-mode buff"
+        )
 
     # -- side convention: side 0 must defend low y; else turn the capture's positions back,
     # keeping its sides (module doc, THE SIDE CONVENTION)
@@ -2721,6 +3126,7 @@ def build(
             elixir_by_side[es].append(v if isinstance(v, int) and not isinstance(v, bool) else None)
     has_elixir = any(v is not None for col in elixir_by_side.values() for v in col)
     frame_ticks = [f["tick"] for f in frames]
+    regen = battle_regen(frame_ticks, elixir_by_side)
     # a unit deploy's cost leaves the pool on the frame the capture first SHOWS the group: `first_seen`, later
     # than `tick` after a frame gap or where the group was shown late (shown_late_spawn)
     explained = {(d["side"], t) for d in deploys for t in (d["tick"], d["first_seen"])}
@@ -2731,7 +3137,7 @@ def build(
         # `seen`: the cast's own objects are on the frame, so a unit deploy on that tick does not explain the
         # drop away; only another cast's claim does
         skip = {tk for (s2, tk) in (claimed if seen else explained | claimed) if s2 == side}
-        tk = first_cast_drop(frame_ticks, elixir_by_side.get(side) or [], tap_tick, cost, skip)
+        tk = first_cast_drop(frame_ticks, elixir_by_side.get(side) or [], tap_tick, cost, skip, regen)
         if tk is None or (latest is not None and tk > latest):
             return None
         claimed.add((side, tk))
@@ -2799,8 +3205,89 @@ def build(
         # NO drop -- the spell object is a unit's release, not a cast (090204: the Heal Spirit's
         # kamikaze projectile at 1589, card 28000016) -- so it is not played.
         cost = (cards_by_name.get(name) or {}).get("elixir")
+        # A UNIT'S RELEASE is not a cast (`released_by_unit`), whatever the elixir did meanwhile.
+        released = released_by_unit(frames, fi, side, cid)
+        if released:
+            unresolved.append(
+                {
+                    "tick": tick,
+                    "side": side,
+                    "card": name,
+                    "why": f"a {name} object {released}: released by a unit, not cast",
+                }
+            )
+            continue
+        # A MIRROR PLAY's objects carry the Mirror's id: it copies its side's last play, for that card's cost plus its
+        # own (2026-10 live set: 9 of 9 Mirror objects fall on a drop of the previous card's cost + 1). A copy that is a
+        # unit has its own deploy row on the object's frame (061817 t629: a Mega Knight, drop 8): that row is the Mirror
+        # play and the object is its own. A copied spell is this row, cast as the card it copies (`mirrored`).
+        mirror_of = None
+        if ((cards_by_name.get(name) or {}).get("spell") or {}).get("mirror") and isinstance(cost, int):
+            lo = ticks[fi - 1] if fi else tick - 1
+            shown = {id(x): x["first_seen"] if x.get("first_seen") is not None else x["tick"] for x in deploys}
+            mine = sorted((x for x in deploys if x["side"] == side and shown[id(x)] <= lo), key=lambda x: x["tick"])
+            if mine and isinstance((cards_by_name.get(mine[-1]["card"]) or {}).get("elixir"), int):
+                mirror_of = mine[-1]
+                cost += cards_by_name[mirror_of["card"]]["elixir"]
+                twin = next(
+                    (
+                        x for x in deploys
+                        if x["side"] == side and x["kind"] not in ("spell", "mirror") and x["card"] == mirror_of["card"]
+                        and lo < shown[id(x)] <= ticks[fi]
+                    ),
+                    None,
+                )
+                if twin is not None and (
+                    not has_elixir
+                    or cast_drop(side, lo + 1, cost, ticks[fi] + EFFECT_DROP_SLACK, seen=True) is not None
+                ):
+                    if tap_ix is not None:
+                        used_taps.add(tap_ix)
+                    twin["mirrored"] = {"card": twin["card"], "card_id": twin["card_id"]}
+                    twin["mirror_evidence"] = (
+                        f"a Mirror object on its first frame {ticks[fi]}, and a drop of {cost} (its {twin['card']}"
+                        f" + 1): a copy of the side's {mirror_of['card']} at {mirror_of['tick']}"
+                    )
+                    twin["card"], twin["card_id"], twin["kind"] = name, cid, "mirror"
+                    continue
+                d["kind"] = "mirror"
+                d["mirrored"] = {"card": mirror_of["card"], "card_id": mirror_of["card_id"]}
+                d["mirror_evidence"] = (
+                    f"copies the side's {mirror_of['card']} at {mirror_of['tick']}, for {cost} elixir"
+                )
+                d["_mirror_of"] = mirror_of
+        played = cards_by_name.get(mirror_of["card"] if mirror_of else name)
+        leads = effect_leads(played)
         if has_elixir and isinstance(cost, int):
-            drop = cast_drop(side, tick - EFFECT_DROP_SLACK, cost, tick + EFFECT_DROP_SLACK, seen=True)
+            if leads == [0]:
+                # the slack runs from the first frame that shows the object, which a launch dating (`flown`) may
+                # put several ticks after `tick` (080246: a Fireball dated 3513, first seen 3519 after a 7-tick gap)
+                drop = cast_drop(side, tick - EFFECT_DROP_SLACK, cost, ticks[fi] + EFFECT_DROP_SLACK, seen=True)
+            else:
+                # AN EFFECT THAT SHOWS ITS CAST LATE (`effect_leads`): its drop is looked for only where its hits
+                # put the cast, on a frame no unit deploy explains (a drop on the first object's frame is another
+                # play's: 150503 t3759, a Royal Delivery's box on a Knight's drop, its own 40 ticks before)
+                drop = None
+                for lead in leads:
+                    drop = cast_drop(side, tick - lead - EFFECT_DROP_SLACK, cost, tick - lead + EFFECT_DROP_SLACK)
+                    if drop is not None:
+                        break
+                if drop is not None:
+                    d["tick"] = drop
+                    d["timing"] = "elixir_drop"
+                    d["tick_evidence"] = (
+                        f"elixir drop of {cost} on side {side} at {drop}, {tick - drop} ticks before its first object"
+                        f" on {tick} (its area effect's hits come {', '.join(map(str, leads))} ticks after the cast)"
+                    )
+                    ae = ((played or {}).get("spell") or {}).get("area_effect_object") or {}
+                    if tap_ix is not None:
+                        d["pos"] = list(taps[tap_ix]["native"])
+                    elif ae.get("hit_biggest_targets") and cast["tracks"]:
+                        # its bolts stand on what they strike, not on the cast point: the mean of every strike's point
+                        pts = [t["target"] for t in cast["tracks"]]
+                        d["pos"] = [sum(p[0] for p in pts) // len(pts), sum(p[1] for p in pts) // len(pts)]
+                        d["source"] = "strike_mean"
+                        d["aim"] = f"mean of the {len(pts)} strike points (estimated; no tap)"
             if drop is None and tap_ix is not None:
                 drop = cast_drop(side, taps[tap_ix]["tick"], cost, tick)
                 if drop is not None:
@@ -2817,8 +3304,8 @@ def build(
                         "tick": tick,
                         "side": side,
                         "card": name,
-                        "why": f"a {name} object with no elixir drop of its cost ({cost}) on its side:"
-                        " released by a unit, not cast",
+                        "why": f"a {name} object with no elixir drop of its cost ({cost}) on its side where"
+                        " its cast would be: not played",
                     }
                 )
                 continue
@@ -2956,6 +3443,10 @@ def build(
                 d["level_source"] = "side mode"
     spell_levels_from_damage(deploys, doc, cards_by_name, ents, per_tick_rows, ticks)
     spell_levels_from_spawn(deploys, spawned_groups, ents)
+    for d in deploys:
+        src = d.pop("_mirror_of", None)
+        if src is not None and src.get("level") is not None:
+            d["level"], d["level_source"] = src["level"] + 1, "mirrored row + 1"
     tunnel_destinations(deploys, ents, per_tick_rows, cards_by_name)
     tunnel_spawn_ticks(deploys, ents, ticks, towers, cards_by_name)
     # the battle's other seat dates the rows its own frames pin (module doc, PAIR DATING); after every other tick
@@ -2986,6 +3477,15 @@ def build(
             "mode": mode,
             "per_card": {c: cnt.most_common(1)[0][0] for c, cnt in sorted(per_card.items())},
         }
+
+    # -- ability presses (module doc, AN ABILITY PRESS)
+    if has_elixir:
+        presses = ability_presses(
+            deploys, claimed, ents, per_tick_rows, ticks, elixir_by_side, doc, cards_by_name, name_to_id
+        )
+        if presses:
+            deploys.extend(presses)
+            deploys.sort(key=lambda d: (d["tick"], d["side"], d["card_id"]))
 
     # -- engine loadability (the census, when present)
     if census is not None:
