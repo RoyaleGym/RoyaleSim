@@ -1839,6 +1839,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   combat.BUILDING_DEPLOY_LAST_TICK = after_countdown: a building acts from the tick after its deploy ends (unread there).
 ///   movement.DEPLOY_WATER_EDGE = every_deploying_unit: a deploying flyer stops at the water's edge (unread there).
 ///   collision.GUARD_PRESS_CONTACT = pushed: the Little Prince is pushed in his press (unread there).
+///   combat.GUARD_BIRTH_POINT = client15535_fixed_offset: his guard is born at (18, -1944), no step (six runs).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1999,6 +2000,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.BUILDING_DEPLOY_LAST_TICK", "\"after_countdown\""),
     ("movement.DEPLOY_WATER_EDGE", "\"every_deploying_unit\""),
     ("collision.GUARD_PRESS_CONTACT", "\"pushed\""),
+    ("combat.GUARD_BIRTH_POINT", "\"client15535_fixed_offset\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

@@ -849,6 +849,10 @@ pub struct Calib {
     /// `Pushed`, what a battle saved before it ran.
     #[serde(default = "guard_press_contact_default")]
     pub guard_press_contact: GuardPressContact,
+    /// combat.GUARD_BIRTH_POINT (where the Little Prince's guard is born and whether it steps on its birth tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Client15535FixedOffset`, what a battle saved before it ran.
+    #[serde(default = "guard_birth_point_default")]
+    pub guard_birth_point: GuardBirthPoint,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2659,6 +2663,10 @@ fn deploy_water_edge_default() -> DeployWaterEdge {
 
 fn guard_press_contact_default() -> GuardPressContact {
     GuardPressContact::Pushed
+}
+
+fn guard_birth_point_default() -> GuardBirthPoint {
+    GuardBirthPoint::Client15535FixedOffset
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9627,6 +9635,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_BIRTH_POINT -- the Little Prince's guard's first point (state.rs `guard_release`; card.rs
+    /// GUARD_SPAWN_OFFSET, GUARD_BIRTH_BEHIND).
+    GuardBirthPoint {
+        /// The engine's: born at his point + GUARD_SPAWN_OFFSET (18, -1944) in his side's frame, no step (client 15.535.29, six runs).
+        Client15535FixedOffset = "client15535_fixed_offset",
+        /// Client 16.402: born at his point + GUARD_BIRTH_BEHIND (0, -2000) in his side's frame, then its first update on that
+        /// tick (`first_update`: its target and its move pass), so its first frame shows one walk step on its route.
+        Client16402Behind2000FirstStep = "client16402_behind_2000_first_step",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10152,6 +10171,7 @@ impl Calib {
             building_deploy_last_tick: pick(&v, &["combat", "BUILDING_DEPLOY_LAST_TICK", "value"], BuildingDeployLastTick::from_calibration_name)?,
             deploy_water_edge: pick(&v, &["movement", "DEPLOY_WATER_EDGE", "value"], DeployWaterEdge::from_calibration_name)?,
             guard_press_contact: pick(&v, &["collision", "GUARD_PRESS_CONTACT", "value"], GuardPressContact::from_calibration_name)?,
+            guard_birth_point: pick(&v, &["combat", "GUARD_BIRTH_POINT", "value"], GuardBirthPoint::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -21000,10 +21020,29 @@ impl BattleState {
             if self.tick != r.made + g.spawn_delay_ms as u32 / tick_ms {
                 continue;
             }
-            let pos = guard_point(r.team, r.from, crate::card::GUARD_SPAWN_OFFSET);
+            // combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step: born 2000 behind him, and its first update on
+            // this tick (the released units' `first_update`), so its first frame shows one step of the move pass.
+            let behind = self.guard_birth_behind();
+            let pos = guard_point(r.team, r.from, if behind { crate::card::GUARD_BIRTH_BEHIND } else { crate::card::GUARD_SPAWN_OFFSET });
             let level = self.cfg.cards.unit_level(r.card, g.unit, None, r.level).expect("the guard's level is validated at try_new");
-            self.release(PendingSpawn { team: r.team, card: g.unit, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+            self.release(PendingSpawn { team: r.team, card: g.unit, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: behind && self.guard_birth_steps(), facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
         }
+    }
+
+    /// combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step selected: the guard is born at GUARD_BIRTH_BEHIND.
+    fn guard_birth_behind(&self) -> bool {
+        #[cfg(not(clash_plant = "guard_birth_fixed"))]
+        return self.cfg.calib.guard_birth_point == GuardBirthPoint::Client16402Behind2000FirstStep;
+        #[cfg(clash_plant = "guard_birth_fixed")]
+        false // PLANT (regression): the new arm still births the guard at the fixed offset.
+    }
+
+    /// Under combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step the guard takes its first update on its birth tick.
+    fn guard_birth_steps(&self) -> bool {
+        #[cfg(not(clash_plant = "guard_birth_no_step"))]
+        return true;
+        #[cfg(clash_plant = "guard_birth_no_step")]
+        false // PLANT (regression): the new arm births it 2000 behind and does not step it.
     }
 
     /// EACH GUARD MADE THIS TICK (`guard_release`), right after the released units: its run takes it (the guard of its
@@ -21019,7 +21058,7 @@ impl BattleState {
             if tick != r.made + g.spawn_delay_ms as u32 / tick_ms {
                 return tick < r.made + g.spawn_delay_ms as u32 / tick_ms;
             }
-            let at = guard_point(r.team, r.from, crate::card::GUARD_SPAWN_OFFSET);
+            let at = guard_point(r.team, r.from, if self.guard_birth_behind() { crate::card::GUARD_BIRTH_BEHIND } else { crate::card::GUARD_SPAWN_OFFSET });
             let e = &self.ents;
             let found = (0..e.capacity()).filter(|&j| e.alive[j] && e.card[j] == g.unit && e.team[j] == r.team && e.spawn_tick[j] == tick).min_by_key(|&j| (e.pos[j].dist2(at), j));
             let Some(j) = found else { return false };
@@ -36211,6 +36250,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, collision.GUARD_PRESS_CONTACT: Calib gained guard_press_contact (serde default the old arm, pushed), no new state (it reads his hold's buff),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_BIRTH_POINT: Calib gained guard_birth_point (serde default the old arm, client15535_fixed_offset), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37178,6 +37219,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("deploy_water_edge".into(), serde_json::to_value(DeployWaterEdge::EveryDeployingUnit).map_err(|e| e.to_string())?);
     // collision.GUARD_PRESS_CONTACT: a format-3 battle's Little Prince was pushed in his press.
     sh.insert("guard_press_contact".into(), serde_json::to_value(GuardPressContact::Pushed).map_err(|e| e.to_string())?);
+    // combat.GUARD_BIRTH_POINT: a format-3 battle's guard was born at the fixed offset, no step.
+    sh.insert("guard_birth_point".into(), serde_json::to_value(GuardBirthPoint::Client15535FixedOffset).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

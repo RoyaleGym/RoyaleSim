@@ -1642,6 +1642,10 @@ pub struct GuardDef {
 /// The guard's first point from the Little Prince's (native, his side's frame: +x his right, +y his forward): measured,
 /// (18, -1944) on six runs (AppearBehindAtDistance 2000).
 pub const GUARD_SPAWN_OFFSET: (i32, i32) = (18, -1944);
+/// The guard's birth point from the Little Prince's under combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step
+/// (native, his side's frame): his AppearBehindAtDistance, 2000 behind him, before its first update's step (parity r69, client
+/// 16.402: 689 of 694 stepping births).
+pub const GUARD_BIRTH_BEHIND: (i32, i32) = (0, -2000);
 /// The guard's charge's end from the Little Prince's point (native, his side's frame): measured, (239, 3083) on six runs.
 pub const GUARD_END_OFFSET: (i32, i32) = (239, 3083);
 /// Ticks from the guard's first frame to its charge's first step: measured, 7 (6 deploying frames and one in its dash

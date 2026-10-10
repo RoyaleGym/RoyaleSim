@@ -19,7 +19,8 @@
 //! (`under_client16402_reset_his_guards_push_resets_the_pushed_swing` red), landing_hits_end_at_arrival and
 //! landing_hits_unbounded (`under_client16402_through_landing_ticks_his_guard_hits_through_its_arrival_plus_three` red),
 //! press_hold_table_time (`under_client16402_three_ticks_longer_his_press_holds_him_three_ticks_past_its_time` red),
-//! press_contact_pushed (`under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press` red).
+//! press_contact_pushed (`under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press` red),
+//! guard_birth_fixed and guard_birth_no_step (`under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_steps` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -36,7 +37,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -237,7 +238,8 @@ fn a_stun_starts_his_ramp_again() {
 
 #[test]
 fn his_guard_appears_behind_him_and_charges_to_a_fixed_point_ahead() {
-    let (mut s, lp, _) = scene(&[]);
+    // The 15.535.29 scene (six runs): combat.GUARD_BIRTH_POINT's old arm, client15535_fixed_offset.
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_birth_point = GuardBirthPoint::Client15535FixedOffset, &[]);
     // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
     let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
@@ -841,4 +843,36 @@ fn press_pushed(arm: GuardPressContact) -> i64 {
 fn under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press() {
     assert_eq!(press_pushed(GuardPressContact::Client16402Unpushed), 0, "client16402_unpushed: he moved in his press");
     assert!(press_pushed(GuardPressContact::Pushed) > 0, "pushed (the vacuity check): the Knight never moved him");
+}
+
+/// The guard's first frame under combat.GUARD_BIRTH_POINT = `arm`: (ticks from the press, its point less his, native, in his
+/// side's frame; Blue's frame is the arena's).
+fn guard_birth(arm: GuardBirthPoint) -> (u32, (i32, i32)) {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_birth_point = arm, &[]);
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        s.tick();
+        if let Some(e) = find_live(&s, Team::Blue, "ChampionGuard").first() {
+            return (s.tick_count() - 1 - p, ((e.pos.x / K) - AT.0, (e.pos.y / K) - AT.1));
+        }
+    }
+    panic!("no guard in 30 ticks")
+}
+
+/// combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step (client 16.402, parity's r69 contact study: 689 of 694 stepping
+/// births at his point + (0, -2000) and one walk step of 59-60): the guard's first frame, on the press + 18 as before, stands
+/// one step (55 to 61 native) from 2000 behind him, not on the fixed (18, -1944); under client15535_fixed_offset (the
+/// vacuity check) it stands on (18, -1944). Plants: guard_birth_fixed, guard_birth_no_step.
+#[test]
+fn under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_steps() {
+    let (t, (dx, dy)) = guard_birth(GuardBirthPoint::Client16402Behind2000FirstStep);
+    assert_eq!(t, 18, "its first frame, from the press");
+    let (sx, sy) = (i64::from(dx), i64::from(dy + 2000));
+    let step = ((sx * sx + sy * sy) as f64).sqrt();
+    assert!((55.0..=61.0).contains(&step), "client16402_behind_2000_first_step: its first frame is {step:.0} from 2000 behind him ({dx}, {dy})");
+    assert_ne!((dx, dy), (18, -1944), "client16402_behind_2000_first_step: born on the fixed offset");
+    let (t, off) = guard_birth(GuardBirthPoint::Client15535FixedOffset);
+    assert_eq!((t, off), (18, (18, -1944)), "client15535_fixed_offset (the vacuity check)");
 }
