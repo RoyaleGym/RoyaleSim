@@ -18,9 +18,9 @@ was on client 15.535.29, and every member's first-frame position must match with
 positions include waiting members holding still, so formation.STAGGER_WAIT rides at its measured arm too. Where a
 moved tap lands on a tie is placement.TOWER_TAP_PUSH's, so every cast runs under both of its values: all 48 must land
 under both. Under ring_nearest the six side-1 ties land as the client's since the c4 flip (parity r66): the shipped
-placement.TROOP_RELOCATION_TIE_ORDER, client15535_arena_clockwise, takes them in the client's arena order -y, -x, +y, +x,
-where the old placer_frame_first_found's column-major placer frame missed them (side 0's tie at own (7500, 1499) lands
-as the client's since r20).
+placement.TROOP_RELOCATION_TIE_ORDER, client15535_arena_clockwise, takes them in the client's arena order -y, -x, +y,
++x, where the old placer_frame_first_found's column-major placer frame missed them (side 0's tie at own (7500, 1499)
+lands as the client's since r20).
 """
 
 from __future__ import annotations
