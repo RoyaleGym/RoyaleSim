@@ -719,6 +719,12 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit, calib: &Calib
     if !ents.alive[v] || ents.hp[v] <= 0 {
         return false;
     }
+    // formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable: no area reaches a member still waiting out
+    // its stagger -- its damage, its buff, its pulse clock (combat.rs `stagger_untouchable`). Measured on client 16.402:
+    // 0 of 23 waiting members inside an area on a hit tick hit; the Poison buff from the first application after the wait.
+    if crate::combat::stagger_untouchable(calib, ents, v) {
+        return false;
+    }
     // movement.SPAWN_PATHFIND_BODY = untouchable: no area, roll or strike reaches a unit under ground
     // (entity.rs `underground`; client 15.535.29: Zap and Arrows left a Miner and a dig as in the control).
     #[cfg(not(clash_plant = "tunnel_targetable"))]

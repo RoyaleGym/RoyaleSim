@@ -159,7 +159,7 @@ ZAP = 1
 UNHITTABLE = "client16402_untargetable_immovable_unhittable"
 
 
-def zapped_goblins(arm: str) -> tuple[dict, dict]:
+def zapped_goblins(arm: str, delay: int = 0) -> tuple[dict, dict]:
     """({member k: its hp each tick}, {member k: whether it waits each tick}) for the blue Goblins' members over the 10
     ticks after red's Zap on TAP, cast the tick after the tap resolves, under STAGGER_WAIT = `arm`."""
     overrides = {KEY: json.dumps(arm), "placement.TAP_SNAP": json.dumps("none")}
@@ -170,6 +170,8 @@ def zapped_goblins(arm: str) -> tuple[dict, dict]:
     played = b.step([(0, GOB, TAP[0] * SUB, TAP[1] * SUB)], 1)
     assert played, "the Goblins tap did not resolve"
     assert played[0][0] == GOB, f"another card resolved: {played}"
+    for _ in range(delay):
+        b.step([], 1)
     b.step([(1, ZAP, TAP[0] * SUB, TAP[1] * SUB)], 1)
     hps, waits = {}, {}
     for _ in range(10):
@@ -200,3 +202,24 @@ def test_a_waiting_member_takes_no_hit_under_the_unhittable_arm():
     hps, waits = zapped_goblins(NEW_ARM)
     hurt = [k for k in (2, 3) if hurt_while_waiting(hps, waits, k)]
     assert hurt, f"{NEW_ARM} (the vacuity check): no waiting member hurt: {hps} / {waits}"
+
+
+def test_a_member_whose_wait_ends_on_the_hit_tick_is_spared():
+    """THE WAIT'S END TICK (client 16.402: 3 of 3 members whose wait ended on a Poison application tick skipped
+    there): the wait is judged as it stood at the tick's start. Red's Zap is cast 0 to 13 ticks after the tap; its hit
+    tick is the frame member 0 first loses hp; a member whose wait ends on that frame (its first frame not waiting)
+    loses no hp. At least one cast lands on a wait's end (the vacuity check). Plant: stagger_judged_after_move."""
+    boundary = 0
+    for delay in range(14):
+        hps, waits = zapped_goblins(UNHITTABLE, delay)
+        hit = next((j for j in range(1, len(hps.get(0, []))) if hps[0][j] < hps[0][j - 1]), None)
+        if hit is None:
+            continue
+        for k in (1, 2, 3):
+            w = waits.get(k, [])
+            end = next((j for j in range(1, len(w)) if w[j - 1] and not w[j]), None)
+            if end == hit:
+                boundary += 1
+                spared = hps[k][hit] == hps[k][hit - 1]
+                assert spared, f"delay {delay}: member {k} hit on its wait's end tick {hit}"
+    assert boundary, "the sweep put no Zap hit on a wait's end tick"

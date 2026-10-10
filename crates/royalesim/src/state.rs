@@ -12287,6 +12287,10 @@ pub const SCHEDULED_EDGE_MARGIN: i32 = 250;
 
 #[derive(Default, Clone, Debug)]
 struct Scratch {
+    /// formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable: the members whose deploy timer ran this tick
+    /// with a stagger left (`deploy_countdown`); their stagger steps down at the start of Reap (`phase_reap`), so this
+    /// tick's areas and hits judge the wait as it stood at the tick's start. Empty between ticks.
+    stagger_step: Vec<usize>,
     /// spawner.BARREL_DROP_POINT = client15535_after_move: the Evo Skeleton Barrels' drops `barrel_pass` made this tick,
     /// with their offset from the barrel, placed on its point after the move (`barrel_settle`). Empty between ticks.
     barrel_pending: Vec<(EntityId, Vec2, Spell)>,
@@ -17144,6 +17148,14 @@ impl BattleState {
         // rider.DEPLOY = mirror_mount: a rider's timer is its mount's, copied after the loop
         // (`rider_deploy_lockstep`), not counted down on its own.
         let mirror = self.cfg.calib.rider_deploy == RiderDeploy::MirrorMount;
+        // formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable: the stagger steps down at the start of
+        // Reap (`phase_reap`), so this tick's areas and hits see the wait as it stood at the tick's start.
+        // PLANT (regression) stagger_judged_after_move: the new arm still counts the stagger down here.
+        #[cfg(not(clash_plant = "stagger_judged_after_move"))]
+        let defer = self.cfg.calib.formation_stagger_wait == StaggerWait::Client16402Unhittable;
+        #[cfg(clash_plant = "stagger_judged_after_move")]
+        let defer = false;
+        self.scratch.stagger_step.clear();
         for i in 0..self.ents.capacity() {
             if mirror && self.ents.attached(i) {
                 continue;
@@ -17151,7 +17163,13 @@ impl BattleState {
             // A unit under ground (movement.SPAWN_PATHFIND_STATES) holds its timer until it comes up (`surface`).
             if self.ents.alive[i] && self.ents.deploy_ms[i] > 0 && !(paused_by_stun && self.ents.stun_ms[i] > 0) && !self.ents.underground(i) {
                 self.ents.deploy_ms[i] = (self.ents.deploy_ms[i] - dt).max(0);
-                self.ents.stagger_ms[i] = (self.ents.stagger_ms[i] - dt).max(0);
+                if defer {
+                    if self.ents.stagger_ms[i] > 0 {
+                        self.scratch.stagger_step.push(i);
+                    }
+                } else {
+                    self.ents.stagger_ms[i] = (self.ents.stagger_ms[i] - dt).max(0);
+                }
                 if self.ents.deploy_ms[i] == 0 {
                     self.on_deployed(i);
                 }
@@ -28968,6 +28986,13 @@ impl BattleState {
     }
 
     fn phase_reap(&mut self) {
+        // formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable: the stagger `deploy_countdown` held over.
+        if !self.scratch.stagger_step.is_empty() {
+            let dt = self.cfg.calib.tick_ms;
+            for i in std::mem::take(&mut self.scratch.stagger_step) {
+                self.ents.stagger_ms[i] = (self.ents.stagger_ms[i] - dt).max(0);
+            }
+        }
         // spawner.SOUL_POINT_BASE = client15535_post_move: the Skeleton Kings' areas, after the tick's move (`soul_pass`).
         if self.soul_after_move() && !self.warps.soul_runs.is_empty() {
             self.soul_pass();
