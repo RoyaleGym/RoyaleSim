@@ -563,15 +563,22 @@ pub struct RngColumn {
     pub note: Option<String>,
 }
 
-/// The one algorithm the engine's client generator runs (state.rs `client_rnd`, client 15.535.29's xorshift32), named
-/// in a fixture's `rng.algorithm` by its tail: the generator and the client version.
-pub const RNG_ALGORITHM_TAIL: &str = "_xorshift32_v150535029";
+/// The algorithm the engine's client generator runs (state.rs `client_rnd`, the client's xorshift32), named in a
+/// fixture's `rng.algorithm` by its tail: the generator and the client version. Client 160402017 runs the same generator:
+/// its recorded states replay exactly under it (Oracle's 017 specials: the Skeleton King's soul ring, 7 of 7 state
+/// changes in every sk-souls scene, every copy not moved off the river on its point). Until this listed it, every 017
+/// fixture's column was read as another algorithm and its draws were the engine's own.
+pub const RNG_ALGORITHM_TAILS: [&str; 2] = ["_xorshift32_v150535029", "_xorshift32_v160402017"];
 
 impl RngColumn {
     /// The state after frame `tick`: the latest recorded at or before it; None before the first frame or under another
     /// algorithm.
     pub fn state_after(&self, tick: u32) -> Option<u32> {
-        if !self.algorithm.ends_with(RNG_ALGORITHM_TAIL) || tick < self.first[0] {
+        #[cfg(not(clash_plant = "replay_rng_017_unread"))]
+        let tails = &RNG_ALGORITHM_TAILS[..];
+        #[cfg(clash_plant = "replay_rng_017_unread")]
+        let tails = &RNG_ALGORITHM_TAILS[..1]; // PLANT: the 15.535.29 tail alone, as before.
+        if !tails.iter().any(|t| self.algorithm.ends_with(t)) || tick < self.first[0] {
             return None;
         }
         let mut st = self.first[1];

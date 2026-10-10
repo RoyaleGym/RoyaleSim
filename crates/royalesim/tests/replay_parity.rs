@@ -1088,6 +1088,24 @@ fn an_evo_goblin_barrels_decoy_dummies_are_rooted_to_the_goblin_barrel() {
     assert!(barrels >= 6, "vacuous: the barrel's Goblins and the decoy's dummies did not all stand ({barrels} rooted to it)");
 }
 
+/// THE CLIENT'S GENERATOR, RECORDED (`RngColumn::state_after`): a fixture's column is read under both clients' tails, the
+/// 15.535.29 one and 160402017's (the same xorshift32: Oracle's 017 specials replay under it exactly), and refused under
+/// any other algorithm or before its first frame. Plant: replay_rng_017_unread.
+#[test]
+fn the_017_clients_recorded_generator_is_read() {
+    let column = |algorithm: &str| RngColumn {
+        algorithm: algorithm.to_string(),
+        first: [100, 7],
+        changes: vec![[105, 9], [120, 11]],
+        note: None,
+    };
+    for alg in ["client_xorshift32_v150535029", "client_xorshift32_v160402017"] {
+        let c = column(alg);
+        assert_eq!((c.state_after(99), c.state_after(100), c.state_after(110), c.state_after(130)), (None, Some(7), Some(9), Some(11)), "{alg}");
+    }
+    assert_eq!(column("client_mt19937").state_after(110), None, "another algorithm is not the engine's");
+}
+
 /// THE DECK'S OWN LEVELS (`config_for_with`): each deck entry is at the level its card's plays recorded, a card with
 /// none at the side mode, so a mode below one played card's floor no longer refuses the battle. Live
 /// 20261007-004819-A: five Bats a deploy at level 10 made the mode, and its level-12 Little Prince (a Champion, levels
