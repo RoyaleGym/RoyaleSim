@@ -37790,6 +37790,9 @@ mod tests {
         // The old arm of placement.TROOP_TOWER_TAPS: the shipped half-open arm moves a troop tapped on its
         // own princess tower off it instead of refusing it (tests/tower_tap_push.rs pins where it goes).
         cfg.calib.placement_troop_tower_taps = TroopTowerTaps::ClosedBlock;
+        // The old arm of placement.ILLEGAL_TROOP_TAP: the shipped client15535_clamp_to_legal_edge (the c4 flip) casts a
+        // troop tapped in the enemy's pocket from its own edge, where this test asks the refusal's reason.
+        cfg.calib.illegal_troop_tap = IllegalTroopTap::Refuse;
         let mut s = BattleState::new(1, cfg);
         // past match.DEPLOY_LOCKOUT_TICKS: before it every slot answers TooEarly and none of
         // the reasons this test is about -- Occupied, BadSlot -- is ever reached
@@ -37944,7 +37947,11 @@ mod tests {
     #[test]
     fn a_heal_pulse_lands_after_the_ticks_hits() {
         let k = crate::fixed::SUBTILE_PER_MILLITILE;
-        let mut s = BattleState::new(1, BattleConfig::with_cards(CardDb::load_repo().expect("cards.json")));
+        let mut cfg = BattleConfig::with_cards(CardDb::load_repo().expect("cards.json"));
+        // status.HEAL_PULSE_LANDING's after_hits, the arm this item measured: the shipped client15535_before_buffered_hits
+        // (the c4 flip) lands the heal first.
+        cfg.calib.heal_pulse_landing = HealPulseLanding::AfterHits;
+        let mut s = BattleState::new(1, cfg);
         let spirit = s.cards().index("HealSpirit").expect("the Heal Spirit loads");
         let area = s.cards().get(spirit).projectile_area.as_ref().expect("the Heal Spirit's shot carries its heal area");
         let SpellShape::AreaEffect { hit } = &area.shape else { panic!("the heal area: {:?}", area.shape) };
