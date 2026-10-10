@@ -915,9 +915,14 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     let knock_holds = ents.knocked(a) && !ents.push_active[a];
     #[cfg(clash_plant = "ladder_load_stands")]
     let knock_holds = ents.knocked(a);
+    // combat.LOAD_TIMER_TARGET_LOSS = client16402_hit_hold_lag: the same hold, but the first tick of a hold a hit's buff
+    // landed (entity.rs `load_hold` 3, state.rs `apply_effects`) runs the timer once more.
     #[cfg(not(clash_plant = "held_load_runs_on"))]
-    let stands = calib.load_timer_target_loss == crate::state::LoadTimerTargetLoss::Client15535StandsWhileHeld
-        && (ents.held(&cards.buffs, a, calib.full_stop_buff_is_stun) || knock_holds);
+    let stands = matches!(
+        calib.load_timer_target_loss,
+        crate::state::LoadTimerTargetLoss::Client15535StandsWhileHeld | crate::state::LoadTimerTargetLoss::Client16402HitHoldLag
+    ) && (ents.held(&cards.buffs, a, calib.full_stop_buff_is_stun) || knock_holds)
+        && !(calib.load_timer_target_loss == crate::state::LoadTimerTargetLoss::Client16402HitHoldLag && ents.load_hold[a] == 3);
     #[cfg(clash_plant = "held_load_runs_on")]
     let stands = false;
     let held = held || stands;
@@ -1275,7 +1280,7 @@ pub fn fire(
             let amount = cards.scaled(ents.card[a], ents.level[a], sel.melee_damage).expect("level validated at spawn");
             dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false });
             if let Some(b) = direct_buff {
-                fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
+                fx.buffs.push(BuffHit { by_hit: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
             return;
         }
@@ -1620,7 +1625,7 @@ pub fn fire(
         if !void {
             dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false });
             if let Some(b) = direct_buff {
-                fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
+                fx.buffs.push(BuffHit { by_hit: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
             // knockback.COMBO_PUSHBACK = client15535_ladder_from_attacker_hit_tick: a combo hit whose entry carries a
             // melee pushback (card.rs `ComboStage::pushback`; the Monk's third, 1800) pushes its target straight away
@@ -1655,7 +1660,7 @@ pub fn fire(
             let bi = b.index as usize;
             dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding) + direct.on(ents.kind[bi]), ignores_hide: false, own: false });
             if let Some(bf) = direct_buff {
-                fx.buffs.push(BuffHit { src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
+                fx.buffs.push(BuffHit { by_hit: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
             }
         }
     }
@@ -1863,11 +1868,11 @@ fn apply_attack_buff(
     match calib.target_buff_on_splash {
         TargetBuffScope::WholeSplash => {
             for &v in scratch {
-                fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(ents.id_of(v as usize), b.buff, b.time_ms, pulse) });
+                fx.buffs.push(BuffHit { by_hit: true, src_level, before_damage, ..BuffHit::plain(ents.id_of(v as usize), b.buff, b.time_ms, pulse) });
             }
         }
         TargetBuffScope::PrimaryTargetOnly => {
-            fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(target, b.buff, b.time_ms, pulse) });
+            fx.buffs.push(BuffHit { by_hit: true, src_level, before_damage, ..BuffHit::plain(target, b.buff, b.time_ms, pulse) });
         }
     }
 }
@@ -1989,7 +1994,7 @@ fn straight_hits(
         }
         dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], hit_damage, crown_pct, calib.crown_rounding) + bonus.on(ents.kind[v]), ignores_hide: false, own: false });
         if let Some(b) = buff {
-            fx.buffs.push(BuffHit { src_level, before_damage, ..BuffHit::plain(id, b.buff, b.time_ms, pulse) });
+            fx.buffs.push(BuffHit { by_hit: true, src_level, before_damage, ..BuffHit::plain(id, b.buff, b.time_ms, pulse) });
         }
         #[cfg(not(clash_plant = "range_shot_unpushed"))]
         if s.push > 0 {
@@ -2412,7 +2417,7 @@ pub fn step_projectiles(
                 // The shot's buff rides its arrival. A row that sets ApplyBuffBeforeDamage (the Mother Witch's) says so
                 // on the application, and Resolve lands a death-spawning buff on a unit this same hit kills
                 // (status.APPLY_BUFF_BEFORE_DAMAGE, state.rs `apply_effects`).
-                fx.buffs.push(BuffHit { src_level: p.src_level, before_damage: p.buff_first, ..BuffHit::plain(p.target, b.buff, b.time_ms, p.pulse) });
+                fx.buffs.push(BuffHit { by_hit: true, src_level: p.src_level, before_damage: p.buff_first, ..BuffHit::plain(p.target, b.buff, b.time_ms, p.pulse) });
             }
             // A CHAINED SHOT (`Projectile::chain`, card.rs `ChainHitDef`): it goes on from the target it landed on to
             // the next (`chain_next`), a new shot from that target's point with the same speed, damage and buff, which

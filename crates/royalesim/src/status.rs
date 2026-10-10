@@ -448,6 +448,11 @@ pub struct BuffHit {
     /// passes a hidden building by. False on every other application.
     #[serde(default)]
     pub reach_hidden: bool,
+    /// THE BUFF RIDES A HIT (combat.rs: a projectile's, a chain's, an attack buff's), not an area's (spell.rs): under
+    /// combat.LOAD_TIMER_TARGET_LOSS = client16402_hit_hold_lag the hold it lands lets the unit's load timer run one more
+    /// tick (state.rs `apply_effects`). `default` false.
+    #[serde(default)]
+    pub by_hit: bool,
 }
 
 impl BuffHit {
@@ -455,7 +460,7 @@ impl BuffHit {
     /// source level, no crown-tower pulse and no before-damage flag. What every hit that is not an area's,
     /// a curse's or the Mother Witch's hangs.
     pub fn plain(target: crate::EntityId, buff: u16, time_ms: i32, pulse_amount: i32) -> BuffHit {
-        BuffHit { target, buff, time_ms, pulse_amount, first_pulse_ms: None, source: None, src_level: 0, before_damage: false, crown_amount: 0, reach_hidden: false }
+        BuffHit { target, buff, time_ms, pulse_amount, first_pulse_ms: None, source: None, src_level: 0, before_damage: false, crown_amount: 0, reach_hidden: false, by_hit: false }
     }
 }
 

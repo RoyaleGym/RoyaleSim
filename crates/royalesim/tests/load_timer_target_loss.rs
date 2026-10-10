@@ -18,6 +18,7 @@
 //!   RUSTFLAGS='--cfg clash_plant="load_hold_unread"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //!   load_timer_target_loss
 //! PLANT (regression): held_load_runs_on -> `a_stunned_unit_keeps_its_load_timer` red.
+//! PLANT (regression): hit_hold_lag_unread -> `under_client16402_hit_hold_lag_a_freeze_runs_the_timer_once_more` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -212,3 +213,52 @@ fn a_knockback_ladder_runs_the_load_timer_under_client15535_stands_while_held() 
     assert!(during[0] < before && during[1] < during[0], "new: the timer stood through the ladder ({before} then {during:?})");
 }
 
+/// Under `arm`: a Blue Valkyrie swinging at a Red Golem held beside her is frozen by a Red Ice Spirit's hit; her load timer
+/// on the tick the freeze is first seen on her (L) and on each of the 5 ticks after, the freeze still on her on each.
+fn frozen(arm: LoadTimerTargetLoss) -> Vec<i32> {
+    let mut cfg = config();
+    cfg.calib.load_timer_target_loss = arm;
+    let mut s = BattleState::new(0, cfg);
+    past_deploy_lockout(&mut s);
+    let blue = s.scenario_spawn_now(Team::Blue, "Valkyrie", n(9000, 12000), None).expect("the Valkyrie");
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", n(9000, 13200), None).expect("the Golem");
+    let mut waited = 0;
+    while s.entity(blue).unwrap().target != Some(golem) || s.entity(blue).unwrap().attack_phase == AttackPhase::Idle {
+        assert!(waited < 120, "the scene drifted: the Valkyrie never swung at the Golem");
+        assert!(s.debug_set_pos(golem, n(9000, 13200)));
+        s.tick();
+        waited += 1;
+    }
+    s.scenario_spawn_now(Team::Red, "IceSpirits", n(11500, 12000), None).expect("the Ice Spirit");
+    while s.entity(blue).unwrap().stun_ms == 0 {
+        assert!(waited < 260, "the scene drifted: the Ice Spirit never froze the Valkyrie");
+        assert!(s.debug_set_pos(golem, n(9000, 13200)));
+        s.tick();
+        waited += 1;
+    }
+    let mut out = vec![s.entity(blue).unwrap().attack_load_ms];
+    for _ in 0..5 {
+        assert!(s.debug_set_pos(golem, n(9000, 13200)));
+        s.tick();
+        let b = s.entity(blue).unwrap();
+        assert!(b.stun_ms > 0, "the scene drifted: the freeze ended within 5 ticks");
+        out.push(b.attack_load_ms);
+    }
+    out
+}
+
+/// combat.LOAD_TIMER_TARGET_LOSS = client16402_hit_hold_lag (client 16.402, parity's r64 census: 46 of 46 hit-delivered
+/// holds): the Ice Spirit's frozen Valkyrie runs her timer once more on L + 1 and holds it from there; under
+/// client15535_stands_while_held (the vacuity check) it stands from L + 1; a Zap's hold (an area's) stands at once under
+/// either. Plant: hit_hold_lag_unread.
+#[test]
+fn under_client16402_hit_hold_lag_a_freeze_runs_the_timer_once_more() {
+    let l = frozen(LoadTimerTargetLoss::Client16402HitHoldLag);
+    assert!(l[0] >= 100, "the scene drifted: the timer read {} on the freeze's first tick", l[0]);
+    assert_eq!(l[1], l[0] - 50, "client16402_hit_hold_lag: the timer did not run once more: {l:?}");
+    assert!(l[1..].iter().all(|x| *x == l[1]), "client16402_hit_hold_lag: the timer moved after its lag tick: {l:?}");
+    let old = frozen(LoadTimerTargetLoss::Client15535StandsWhileHeld);
+    assert!(old.iter().all(|x| *x == old[0]), "client15535_stands_while_held: the timer moved through the freeze: {old:?}");
+    let z = zapped(LoadTimerTargetLoss::Client16402HitHoldLag);
+    assert!(z.iter().all(|x| *x == z[0]), "client16402_hit_hold_lag: an area's hold (the Zap's) lagged: {z:?}");
+}

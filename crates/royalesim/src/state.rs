@@ -6048,6 +6048,15 @@ calib_enum!(
         /// t928, a Brawler losing its kill, ran on (the walking arm above held it). sp-f2-ice-s0 t275: an Electro
         /// Spirit's stun took a walking Valkyrie's target and her timer stood at 1,150 through t285.
         Client15535StandsWhileHeld = "client15535_stands_while_held",
+        /// client15535_stands_while_held, but a hold a HIT's buff lands (a projectile's, a chain's or an attack buff's:
+        /// `BuffHit::by_hit`; not an area's, a Zap's or a deploy zap's) on an unheld unit runs its load timer once more on
+        /// the next tick (entity.rs `load_hold` 3) before it stands, to the same end. Client 16.402 (parity's r64 census
+        /// over the 160402017 scenes and the ob3 live set, every hold start in step): hit-delivered stuns and freezes 46 of
+        /// 46 (31 Ice Spirit freezes, 15 Electro Dragon, Electro Wizard and Electro Spirit stuns), the Electro Wizard's
+        /// deploy zap 4 of 4 and 9 holds with no damage (knockback, hook, slam) as client15535_stands_while_held; the
+        /// 15.535.29 truth of the same scenes holds from the hit's next tick (sp-il-2c295ac9: an Elite Barbarian's
+        /// first blow t462 against the old arm's t463, its entry 850 for 800).
+        Client16402HitHoldLag = "client16402_hit_hold_lag",
     }
 );
 calib_enum!(
@@ -25640,6 +25649,10 @@ impl BattleState {
             if self.ents.load_hold[i] == 1 {
                 self.ents.load_hold[i] = 2;
             }
+            // client16402_hit_hold_lag: the lag tick's step ran the timer; the hold stands from the next.
+            if self.ents.load_hold[i] == 3 {
+                self.ents.load_hold[i] = 0;
+            }
             // combat.ATTACK_SELECT_MOMENT (card.rs `AttackSelectDef`; the Three Musketeers): the selector picks the
             // swing's entry when the swing starts -- a fresh cycle's first tick here, and the hit that ends a swing for
             // the next one (below, after `fire`) -- or, under at_fire, at the hit itself. Written only for a card that
@@ -27414,6 +27427,16 @@ impl BattleState {
         let mut hold_new = vec![0i32; cap];
         // targeting.DEPRIORITIZED_TARGET_BUFF: every (victim, buff) this Resolve applies.
         let mut landed: Vec<(EntityId, u16)> = Vec::new();
+        // combat.LOAD_TIMER_TARGET_LOSS = client16402_hit_hold_lag: who stood unheld before this tick's holds, and whom a
+        // hit's buff (`BuffHit::by_hit`) or an area's holds now (both: no lag).
+        let lag_arm = c.load_timer_target_loss == LoadTimerTargetLoss::Client16402HitHoldLag && fx.buffs.iter().any(|b| b.by_hit);
+        let pre_held: Vec<bool> = if lag_arm {
+            (0..cap).map(|i| self.ents.alive[i] && self.ents.held(&self.cfg.cards.buffs, i, c.full_stop_buff_is_stun)).collect()
+        } else {
+            Vec::new()
+        };
+        let mut hit_hold = vec![false; pre_held.len()];
+        let mut area_hold = vec![false; pre_held.len()];
         for b in &fx.buffs {
             let i = b.target.index as usize;
             // status.APPLY_BUFF_BEFORE_DAMAGE = lands_on_a_unit_the_hit_kills: a buff whose carrier releases a unit
@@ -27461,6 +27484,13 @@ impl BattleState {
                     hold_new[i] = hold_new[i].max(b.time_ms);
                 } else {
                     stun_new[i] = stun_new[i].max(b.time_ms);
+                    if lag_arm {
+                        if b.by_hit {
+                            hit_hold[i] = true;
+                        } else {
+                            area_hold[i] = true;
+                        }
+                    }
                 }
             }
             if charm && self.ents.buff_slots(i).iter().any(|sl| sl.id == b.buff + 1) {
@@ -27515,6 +27545,13 @@ impl BattleState {
                 continue;
             }
             land_stun(&mut self.ents, &self.cfg.cards, &c, i, ms);
+            // combat.LOAD_TIMER_TARGET_LOSS = client16402_hit_hold_lag: a hold a hit's buff alone landed on an unheld unit
+            // lets its timer run on the next tick (combat.rs `attack_step_progress`; cleared after that step).
+            // PLANT (regression) hit_hold_lag_unread: the new arm's hit-delivered hold stands at once.
+            #[cfg(not(clash_plant = "hit_hold_lag_unread"))]
+            if lag_arm && hit_hold[i] && !area_hold[i] && !pre_held[i] {
+                self.ents.load_hold[i] = 3;
+            }
         }
         // Knockbacks. fixed_distance: sum per target, then one move per unit.
         // client16402: arm the ladder on the first push per unit (the
@@ -33128,7 +33165,7 @@ impl BattleState {
                 }
                 // combat.LOAD_TIMER_TARGET_LOSS = client15535_stands_after_walk_loss: the load timer's hold, written under
                 // that arm alone (client15535_stands_while_held reads the unit's hold, nothing of its own).
-                if self.cfg.calib.load_timer_target_loss == LoadTimerTargetLoss::Client15535StandsAfterWalkLoss {
+                if matches!(self.cfg.calib.load_timer_target_loss, LoadTimerTargetLoss::Client15535StandsAfterWalkLoss | LoadTimerTargetLoss::Client16402HitHoldLag) {
                     h.u32(e.load_hold[i] as u32);
                 }
                 // movement.JUMP_LANDING_SCOPE = client15535_whole_tick: the lander's stamp, written under that arm alone.
@@ -35208,6 +35245,9 @@ impl BattleState {
 ///    gained drag_idle (`default`, sized on load false), written and hashed under the new arm alone (its hooked_by held
 ///    a tick longer is hashed as before), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs
 ///    a migrated battle at the old arm.
+/// 20, unchanged, combat.LOAD_TIMER_TARGET_LOSS's client16402_hit_hold_lag: a new arm of an existing key; BuffHit gained
+///    by_hit (`default` false) and entity.rs load_hold its value 3 (written and hashed under the new arm alone), so a blob
+///    saved before it deserializes and hashes as it did.
 /// 20, unchanged, combat.LOAD_TIMER_TARGET_LOSS's client15535_stands_while_held: a new arm of an existing key, no new
 ///    state (it reads the unit's stun, freeze and knockback), so a blob saved before it deserializes and hashes as it
 ///    did.
