@@ -1814,6 +1814,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   movement.SPAWN_PATHFIND_MORPH_AREA = at_surface: the Goblin Drill's surfacing hit on the building's first frame.
 ///   combat.RETARGET_WAIT_WHILE_HELD = client_paused: every held Target phase pauses the post-kill wait (67 stuns).
 ///   spells.PULSING_AREA_EFFECT = hit_speed_offset: a listed HitSpeedOffset is waited a tick short (the engine's pulses).
+///   combat.GUARD_CHARGE_IMMUNITY = none: the Little Prince's guard takes hits in its charge (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1962,6 +1963,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.SPAWN_PATHFIND_MORPH_AREA", "\"at_surface\""),
     ("combat.RETARGET_WAIT_WHILE_HELD", "\"client_paused\""),
     ("spells.PULSING_AREA_EFFECT", "\"hit_speed_offset\""),
+    ("combat.GUARD_CHARGE_IMMUNITY", "\"none\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

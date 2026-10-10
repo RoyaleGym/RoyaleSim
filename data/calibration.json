@@ -1794,6 +1794,16 @@
     }
   },
   "combat": {
+    "GUARD_CHARGE_IMMUNITY": {
+      "value": "client16402_charge_immune",
+      "status": "measured",
+      "candidates": ["none", "client16402_charge_immune"],
+      "confidence": "HIGH for client16402_charge_immune on client 16.402: parity's r65 census over the ob5 live set, 0 hp drops on 10,464 charge frames across 740 guards although an enemy targeted the guard on 3,078 of them (401 guards); 0 of 715 on the frame after the charge; hits back on the second frame after (7 of 711) and at the usual rate on; 10 drops on its 6 deploying frames. No burst of delayed damage after the charge (no reader artefact). Replayed: 38 engine hits on the truth's charge frames in 27 of 125 traced fixtures. Client 15.535.29 keeps none (CLIENT15535_ARMS): unread there.",
+      "provenance": "MEASURED by parity (2026-10-10, r65 Little Prince triage of the ob5 live set on the rob4 head): liveplay-20261007-165551-A guard 20 (charge t336-350; the engine's took 945 on t346, the truth's first hit t360), 082129-A guard 23 (216 on t774), 195106-A guard 25 (532 on t705); in 084642-A the truth's Bowler fired on t649 inside the charge and nothing landed, the engine's guard took 462 on t646. 4 of the 25 Little Prince first divergences.",
+      "meaning": "none: the guard takes every hit in its charge. client16402_charge_immune: no hit from its first charge frame through the tick after its arrival.",
+      "open": "Whether a hit that ignores dash immunity elsewhere (none known) passes; 15.535.29 unread.",
+      "engine": "state.rs guard_moves (`guard_charge_immune`), entity.rs dash_immune; tests/little_prince.rs."
+    },
     "RAMP_PRESS_HOLD": {
       "value": "client16402_tag_held",
       "status": "measured",

@@ -1618,6 +1618,10 @@ pub const GUARD_CELL_STOP: i32 = 400;
 /// Ticks after the guard's arrival before it is free: measured, 2 (DashLandingTime 200 less a tick... in its dash state
 /// the arrival's frame and the next, walking on the one after).
 pub const GUARD_LANDING_TICKS: u32 = 2;
+/// combat.GUARD_CHARGE_IMMUNITY = client16402_charge_immune: ticks from the guard's arrival its immunity holds (its
+/// arrival's tick and the next; hits back on the second after): measured on client 16.402, 0 of 715 on the frame after,
+/// 7 of 711 on the second.
+pub const GUARD_IMMUNE_AFTER_ARRIVAL_TICKS: u32 = 2;
 
 /// THE FLAG'S SPAWNS (the Hero Goblins'; tools/extract_cards.py `flag_button`; state.rs `FlagRun`, `flag_pass`, the
 /// flag's release in `phase_reap`, `note_flag_play`). The form's units hold no button: when one dies, untagged, with no

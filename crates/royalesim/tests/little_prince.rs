@@ -14,7 +14,8 @@
 //! ramp_grace_pushed (`his_ramp_holds_through_pushes_while_he_attacks_under_client15535_own_walk` red), ramp_stun_paused
 //! (`a_stun_restarts_his_attack_under_client15535_restart` red), ramp_reset_at_zero
 //! (`his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh` red), ramp_press_resets and
-//! ramp_held_by_press_unread (`under_client16402_tag_held_his_press_keeps_his_ramp` red).
+//! ramp_held_by_press_unread (`under_client16402_tag_held_his_press_keeps_his_ramp` red), guard_charge_hit
+//! (`under_client16402_charge_immune_his_guard_takes_no_hit_in_its_charge` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -31,7 +32,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::{CardDb, CardTable};
-use royalesim::state::{BattleConfig, BattleState, GuardChargeStep, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, GuardChargeImmunity, GuardChargeStep, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -582,4 +583,52 @@ fn under_client16402_tag_held_his_press_keeps_his_ramp() {
     assert_eq!(&kept[..3], &[8, 8, 8], "client16402_tag_held: still x3 after the press: {kept:?}");
     let reset = gaps_after(RampPressHold::Reset);
     assert_eq!(&reset[..3], &[24, 24, 12], "reset (the vacuity check): x1 again after the press: {reset:?}");
+}
+
+/// The guard's hp losses by its age (ticks from its first frame), a red Zap cast on its point at each age in `zaps`,
+/// under combat.GUARD_CHARGE_IMMUNITY = `arm`: the losses and its arrival's age (its last step).
+fn guard_zapped(arm: GuardChargeImmunity, zaps: &[u32]) -> (Vec<(u32, i32)>, u32) {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_charge_immunity = arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut first, mut last, mut arrived, mut hp_was): (Option<u32>, Option<Vec2>, Option<u32>, Option<i32>) = (None, None, None, None);
+    let mut losses = Vec::new();
+    for _ in 0..90 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        if let (Some(f), Some(p)) = (first, find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos)) {
+            if zaps.contains(&(s.tick_count() - f)) {
+                s.spawn_unit(Team::Red, "Zap", p, None).expect("the Zap");
+            }
+        }
+        s.tick();
+        let Some((p, hp)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.hp)) else { continue };
+        let f = *first.get_or_insert(s.tick_count() - 1);
+        let age = s.tick_count() - 1 - f;
+        if let Some(h) = hp_was.filter(|h| hp < *h) {
+            losses.push((age, h - hp));
+        }
+        if arrived.is_none() && age > crate_dash_start() && last == Some(p) {
+            arrived = Some(age - 1);
+        }
+        (last, hp_was) = (Some(p), Some(hp));
+    }
+    (losses, arrived.expect("the guard arrived"))
+}
+
+fn crate_dash_start() -> u32 {
+    royalesim::card::GUARD_DASH_START_TICKS
+}
+
+/// combat.GUARD_CHARGE_IMMUNITY = client16402_charge_immune (client 16.402, parity's r65 census over the ob5 live set: 0
+/// hp drops on 10,464 charge frames, 0 of 715 on the frame after, back on the second after): a Zap cast on the charging
+/// guard (its age 10) takes nothing; one cast after its arrival + 5 takes hp; under none the first Zap takes hp too (the
+/// vacuity check). Plant: guard_charge_hit.
+#[test]
+fn under_client16402_charge_immune_his_guard_takes_no_hit_in_its_charge() {
+    let (losses, a) = guard_zapped(GuardChargeImmunity::Client16402ChargeImmune, &[10, 40]);
+    assert!(a + 6 <= 40, "precondition: the second Zap after its arrival + 5 ({a})");
+    let window = |l: &(u32, i32)| l.0 + 1 >= crate_dash_start() && l.0 <= a + 1;
+    assert!(!losses.iter().any(window), "client16402_charge_immune: a loss in the charge (arrival {a}): {losses:?}");
+    assert!(losses.iter().any(|l| l.0 >= 40), "client16402_charge_immune: the Zap after its arrival takes hp: {losses:?}");
+    let (old, _) = guard_zapped(GuardChargeImmunity::None, &[10, 40]);
+    assert!(old.iter().any(|l| (10..=12).contains(&l.0)), "none (the vacuity check): the Zap in the charge takes hp: {old:?}");
 }

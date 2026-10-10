@@ -801,6 +801,10 @@ pub struct Calib {
     /// `Reset`, what a battle saved before it ran.
     #[serde(default = "ramp_press_hold_default")]
     pub ramp_press_hold: RampPressHold,
+    /// combat.GUARD_CHARGE_IMMUNITY (whether the Little Prince's guard takes hits in its charge, `guard_moves`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `None`, what a battle saved before it ran.
+    #[serde(default = "guard_charge_immunity_default")]
+    pub guard_charge_immunity: GuardChargeImmunity,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2563,6 +2567,10 @@ fn enchant_on_buff_pause_default() -> EnchantOnBuffPause {
 
 fn ramp_press_hold_default() -> RampPressHold {
     RampPressHold::Reset
+}
+
+fn guard_charge_immunity_default() -> GuardChargeImmunity {
+    GuardChargeImmunity::None
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9370,6 +9378,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_CHARGE_IMMUNITY -- see `guard_moves` (entity.rs `dash_immune`): whether the Little Prince's guard
+    /// takes hits while it charges.
+    GuardChargeImmunity {
+        /// The engine before this key: the charge only holds the guard in place; every hit lands.
+        None = "none",
+        /// No hit lands on it from its first charge frame (its first frame + GUARD_DASH_START_TICKS - 1, the frame its dash
+        /// state starts) through the tick after its arrival (`dash_immune_until` = the arrival + GUARD_IMMUNE_AFTER_ARRIVAL_TICKS);
+        /// it stays targetable, and its deploying frames take hits. Client 16.402 (parity's r65 census over the ob5 live
+        /// set: 0 hp drops on 10,464 charge frames of 740 guards, 3,078 of them with an enemy targeting it; 0 of 715 on
+        /// the frame after; hits back on the second frame after, 7 of 711).
+        Client16402ChargeImmune = "client16402_charge_immune",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9883,6 +9905,7 @@ impl Calib {
             range_point_shot: pick(&v, &["combat", "RANGE_POINT_SHOT", "value"], RangePointShot::from_calibration_name)?,
             enchant_on_buff_pause: pick(&v, &["enchant", "ON_BUFF_PAUSE", "value"], EnchantOnBuffPause::from_calibration_name)?,
             ramp_press_hold: pick(&v, &["combat", "RAMP_PRESS_HOLD", "value"], RampPressHold::from_calibration_name)?,
+            guard_charge_immunity: pick(&v, &["combat", "GUARD_CHARGE_IMMUNITY", "value"], GuardChargeImmunity::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -20652,6 +20675,16 @@ impl BattleState {
         self.warps.ramps = keep;
     }
 
+    /// combat.GUARD_CHARGE_IMMUNITY = client16402_charge_immune in force.
+    fn guard_charge_immune(&self) -> bool {
+        // PLANT (regression) guard_charge_hit: the new arm still lets every hit land in the charge.
+        #[cfg(not(clash_plant = "guard_charge_hit"))]
+        let immune = self.cfg.calib.guard_charge_immunity == GuardChargeImmunity::Client16402ChargeImmune;
+        #[cfg(clash_plant = "guard_charge_hit")]
+        let immune = false;
+        immune
+    }
+
     /// Unit `i` carries its own guard's hold (card.rs `GuardDef::hold`, the NO_MOVE buff its press lands on it for the
     /// ability's hold time): the tag the 160402017 row's ramp holds its grace by (`RampDef::held_by_press`).
     fn guard_hold_on(&self, i: usize) -> bool {
@@ -20721,7 +20754,13 @@ impl BattleState {
             }
             let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Guard(g), .. }) = self.cfg.cards.get(r.card).ability else { continue };
             let gi = gid.index as usize;
+            // combat.GUARD_CHARGE_IMMUNITY = client16402_charge_immune: no hit from its first charge frame through the tick
+            // after its arrival (entity.rs `dash_immune`).
+            let immune = self.guard_charge_immune();
             if let Some(a) = r.arrived {
+                if immune {
+                    self.ents.dash_immune_until[gi] = a + crate::card::GUARD_IMMUNE_AFTER_ARRIVAL_TICKS;
+                }
                 if tick >= a + crate::card::GUARD_LANDING_TICKS {
                     // FREE, its load timer full and its swing at 0: its first hit a whole HitSpeed on. Measured on client
                     // 15.535.29 (Oracle's sp-lp-far-s0): free on P + 39, attacking a Knight at its end from P + 40, its
@@ -20740,6 +20779,9 @@ impl BattleState {
             // Held from its first frame to its charge's end: its own walk and swing wait. Two ticks: this pass runs after
             // Move, and the next Status spends one before that tick's walk.
             self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(2 * dt);
+            if immune && tick + 1 >= r.born + crate::card::GUARD_DASH_START_TICKS {
+                self.ents.dash_immune_until[gi] = u32::MAX;
+            }
             if tick < r.born + crate::card::GUARD_DASH_START_TICKS {
                 keep.push(r);
                 continue;
@@ -35642,6 +35684,8 @@ impl BattleState {
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RAMP_PRESS_HOLD: Calib gained ramp_press_hold (serde default the old arm, reset), no new state (it reads the saved buffs and hero entries),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_CHARGE_IMMUNITY: Calib gained guard_charge_immunity (serde default the old arm, none), no new state (the saved dash immunity carries it),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36585,6 +36629,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("enchant_on_buff_pause".into(), serde_json::to_value(EnchantOnBuffPause::None).map_err(|e| e.to_string())?);
     // combat.RAMP_PRESS_HOLD: a format-3 battle reset the ramp on the press (the same rule).
     sh.insert("ramp_press_hold".into(), serde_json::to_value(RampPressHold::Reset).map_err(|e| e.to_string())?);
+    // combat.GUARD_CHARGE_IMMUNITY: a format-3 battle's guard took every hit in its charge (the same rule).
+    sh.insert("guard_charge_immunity".into(), serde_json::to_value(GuardChargeImmunity::None).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
