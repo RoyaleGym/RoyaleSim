@@ -16,7 +16,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, RingCreationOrder};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -172,4 +172,56 @@ fn a_skeleton_of_her_interval_waves_sends_no_soul() {
     assert!(hp.iter().all(|h| *h == top), "an interval wave's Skeleton healed her: {hp:?}");
     let hp = kill(&mut s, w, at, row[0], &hold);
     assert_eq!(hp[21], top + 153, "the control: her row's Skeleton heals her 153 on its death + 21: {hp:?}");
+}
+
+/// Her first interval wave (her creation + 179) under spawner.RING_CREATION_ORDER = `arm`: each Skeleton's direction from
+/// her, in creation (index) order.
+fn interval_wave_order(arm: RingCreationOrder) -> Vec<(i32, i32)> {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.ring_creation_order = arm;
+    cfg.decks = [vec!["Witch".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let at = n(2500, 2500);
+    s.spawn_unit(Team::Blue, "Witch_EV1", at, None).expect("the Witch");
+    s.tick();
+    let w = find_live(&s, Team::Blue, "Witch_EV1").first().expect("the Witch").id;
+    let mut seen: Vec<EntityId> = hers(&s, w);
+    for k in 1..=179 {
+        assert!(s.debug_set_pos(w, at));
+        s.tick();
+        let mut fresh: Vec<EntityId> = hers(&s, w).into_iter().filter(|id| !seen.contains(id)).collect();
+        if k == 179 {
+            assert_eq!(fresh.len(), 4, "precondition: her first interval wave on + 179");
+            fresh.sort_by_key(|id| id.index);
+            let p = s.entity(w).expect("the Witch").pos;
+            return fresh
+                .iter()
+                .map(|id| {
+                    let q = s.entity(*id).expect("a Skeleton").pos;
+                    let (dx, dy) = (q.x - p.x, q.y - p.y);
+                    if dx.abs() > dy.abs() {
+                        (dx.signum(), 0)
+                    } else {
+                        (0, dy.signum())
+                    }
+                })
+                .collect();
+        }
+        seen.extend(fresh);
+    }
+    unreachable!()
+}
+
+/// spawner.RING_CREATION_ORDER = client_descending_angle reaches her interval waves (state.rs `witch_wave_pass`): south,
+/// west, north, east, as her row's wave (client 16.402, parity's r66 census of the ob5 live set: 1253 of 1253 Witch
+/// waves, 415 of them Evo interval waves); under ascending_angle east, north, west, south (the vacuity check). Plant:
+/// ring_created_ascending.
+#[test]
+fn her_interval_waves_are_created_south_west_north_east_under_client_descending_angle() {
+    assert_eq!(interval_wave_order(RingCreationOrder::ClientDescendingAngle), vec![(0, -1), (-1, 0), (0, 1), (1, 0)], "client_descending_angle");
+    assert_eq!(interval_wave_order(RingCreationOrder::AscendingAngle), vec![(1, 0), (0, 1), (-1, 0), (0, -1)], "ascending_angle");
 }

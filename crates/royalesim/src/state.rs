@@ -15744,7 +15744,18 @@ impl BattleState {
             let unit = cards.get(sp.unit);
             let level = cards.spawner_level(self.ents.card[i], self.ents.level[i]).expect("spawner level validated at deploy");
             let points = match self.measured_ring_points(i, &sp, sd.waves.count) {
-                Some(p) => p,
+                // spawner.RING_CREATION_ORDER = client_descending_angle: the same points, created last angle first, as
+                // `spawner_pass` creates her row's wave (the wave's k follows this list).
+                Some(mut p) => {
+                    #[cfg(not(clash_plant = "ring_created_ascending"))]
+                    let descending = self.cfg.calib.ring_creation_order == RingCreationOrder::ClientDescendingAngle;
+                    #[cfg(clash_plant = "ring_created_ascending")]
+                    let descending = false; // PLANT: the new arm still creates the ring in ascending angle.
+                    if descending {
+                        p.reverse();
+                    }
+                    p
+                }
                 None => {
                     let at = self.spawn_point(i, &sp);
                     self.formation_points(self.ents.team[i], sd.waves.count, unit.collision_radius, unit.is_flying(), at)
