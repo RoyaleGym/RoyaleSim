@@ -9161,6 +9161,15 @@ calib_enum!(
         /// 118 takes past 6750; a Wallbreaker at 7593), and a melee one ignores a building past 6700 of |dx| + its radius
         /// - the building's (the Royal Hog 6700 / 6704, the Balloon 6793 / 6802, the Skeleton Balloon 6800 / 6816).
         Client16402Edge6700Melee = "client16402_edge_6700_melee",
+        /// The walker's own SightClipSide (card.rs `CardDef::sight_clip_side`): it ignores a building when, on start-of-tick
+        /// points, |dx| > SightRange - SightClipSide + its radius + the building's (strict); a row with none has no x cut.
+        /// One law on both clients (parity's r65 analysis): client 15.535.29, Oracle's farbld and farbld2 batteries, 222
+        /// runs and 4755 scans with the building in sight and nearer than the walker's target, 0 wrong (the Hog Rider and
+        /// the Royal Hogs 6700, the Balloon 6800, the Royal Giant 6850, the Ram Rider's Ram, the Battle Ram and the Lava
+        /// Hound no cut; the 15.535 Hog witnesses sp-il-925e / il-db5f too); client 16.402, parity's bscan census (861
+        /// decisive rows), 0 takes past the clip, right on the 5 rows client16402_edge_6700_melee gets wrong (the Rune
+        /// Giant taking at 6827 / 6831 / 6800, a Battle Ram at 6687).
+        ClientSightClipSide = "client_sight_clip_side",
     }
 );
 calib_enum!(

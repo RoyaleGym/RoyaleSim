@@ -1000,7 +1000,10 @@ fn scan_with(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>, dropped: Option<
             let edge = ctx.calib.building_scan_x_cut == crate::state::BuildingScanXCut::Client16402Edge6700Melee;
             #[cfg(clash_plant = "building_scan_cut_centre")]
             let edge = false; // PLANT (regression): the new arm still cuts every walker at 6750 centre to centre.
-            if edge {
+            // client_sight_clip_side: the walker's own SightClipSide, |dx| past SightRange - it + both radii.
+            if ctx.calib.building_scan_x_cut == crate::state::BuildingScanXCut::ClientSightClipSide {
+                card.sight_clip_side.is_some_and(|cs| dx > card.sight_range - cs + e.radius[a] + e.radius[c])
+            } else if edge {
                 card.projectile.is_none() && dx + e.radius[a] - e.radius[c] > BUILDING_SCAN_EDGE_DX * k
             } else {
                 dx > BUILDING_SCAN_DX * k

@@ -3281,6 +3281,10 @@ pub struct CardDef {
     /// client_forward_y (the King Tower's 400; measured on the 16.402 corpus, every king shot's first frame), and
     /// ignores it under the old arm.
     pub projectile_y_offset: i32,
+    /// THE ROW'S SIGHT CLIP SIDE, subtiles (characters / buildings SightClipSide; cards.json `sight_clip_side_milli`): under
+    /// targeting.BUILDING_SCAN_X_CUT = client_sight_clip_side a buildings-only walker ignores a player building more than
+    /// SightRange - this + both radii across in x (target.rs `scan_with`). None on a row that sets none: no x cut.
+    pub sight_clip_side: Option<i32>,
     /// AN EVOLVED FORM (`EvoDef`; cards.json `evolutions`): the base card it evolves and the mechanic it adds. None on
     /// every card of the `cards` list; only a form loaded from `evolutions` carries one.
     pub evo: Option<EvoDef>,
@@ -3661,6 +3665,10 @@ struct RawCard {
     /// `CardDef::projectile_y_offset`. Written on the 15.535 rows that set it only, so absent (a blank, 0) everywhere
     /// else and in the 2018 file.
     projectile_y_offset_milli: Option<i32>,
+    /// characters / buildings SightClipSide, millitiles (the Hogs 4000; the Giants, the Balloons, the Golemites, the Rune
+    /// Giant 2000; the Golem 1900): `CardDef::sight_clip_side`. Written on the rows that set it only (Sim's extractor,
+    /// 0.1.28), so absent (a blank: no x cut) everywhere else.
+    sight_clip_side_milli: Option<i32>,
     /// `CardDef::override_attack_finish`. Written on the 15.535 rows that set it true only.
     override_attack_finish: Option<bool>,
     /// `CardDef::avoidance_as_obstacle`. Written on the 15.535 rows whose GameTagsToSet carries the tag only.
@@ -8009,6 +8017,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         ignore_resurrect: false,
         fly_direct_paths: false,
         projectile_y_offset: 0,
+        sight_clip_side: None,
         override_attack_finish: false,
         chain_hit: None,
         ramp: None,
@@ -10748,6 +10757,12 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         // column may point backwards (an event row ships -800), so it is not `nonneg`.
         #[cfg(not(clash_plant = "projectile_y_offset_unread"))]
         projectile_y_offset: milli(raw.projectile_y_offset_milli.unwrap_or(0)),
+        // SightClipSide: a blank is none (no x cut).
+        // PLANT (regression) sight_clip_side_unread: the loader drops the column, so no walker cuts by it.
+        #[cfg(not(clash_plant = "sight_clip_side_unread"))]
+        sight_clip_side: raw.sight_clip_side_milli.map(milli),
+        #[cfg(clash_plant = "sight_clip_side_unread")]
+        sight_clip_side: None,
         #[cfg(not(clash_plant = "finish_column_unread"))]
         override_attack_finish: raw.override_attack_finish.unwrap_or(false),
         #[cfg(clash_plant = "finish_column_unread")]
