@@ -309,6 +309,29 @@ THE TOWER TROOP
     fit or the towers disagree. Live (602 fixtures): 1152 sides the Princess, 22 the
     Cannoneer, 18 the Dagger Duchess, 10 the Royal Chef, every side read.
 
+A COST-ONLY SPELL
+    A spell whose cast leaves no object the capture shows (the Zap: an area that lives one
+    millisecond) is seen only as its caster's elixir drop and what it hits. A live capture's
+    header carries the results screen's decks (`reveal`, by native side) and every enemy
+    payment the live reader saw (`opponent_plays`: tick = the drop's frame, side, card or
+    null, cost, evidence). A payment with evidence "elixir" (nothing readable) that no row
+    of its side explains within a tick, whose cost fits exactly one INSTANT spell (no
+    projectile, an area of at most a tick) in the side's revealed deck, is that spell
+    (`cost_only_casts`, `source` `cost_only`): dated at the drop, aimed at the centroid of
+    the enemy units its damage hit within COST_ONLY_HIT_FRAMES frames (a drop of its damage
+    at a level it can be played at, up to SPELL_HIT_SLACK more, or a kill of no more), its
+    level the one most victims fit (nearest the side mode on a tie). With no victim it is
+    not played (`unresolved` says so). Live 20261007-141917: the opponent revealed Zap and
+    paid 2 with nothing readable on t282 (five Bats died together) and t2744. "ability"
+    payments (a hero's or a champion's press) are no card and are never matched.
+
+AN AREA SHOWN AFTER ITS DROP
+    Live's measurement over 580 area plays (2026-10-09): 532 areas appear on their elixir
+    drop's own frame and 5 a tick or two later behind a frame skip, but every Rage 8 to 10
+    ticks after (43 of 43). An area spell (no projectile) with no drop within
+    EFFECT_DROP_SLACK of its first frame takes one up to AREA_DROP_LOOKBACK ticks before
+    it, on a frame no unit deploy explains, and is dated there.
+
 A SCHEDULED SPELL'S CAST
     The 16.402 Graveyard puts its skeletons down on its area's schedule (its action
     graph's ActionSpawnToLocation entries: the first 2200 ms after the cast, then 500 or
@@ -1965,6 +1988,121 @@ def tower_troops(towers: list[dict], doc: dict) -> dict[str, str | None]:
     return out
 
 
+#: AN AREA SHOWN AFTER ITS DROP (module doc): how far before an area's first frame its elixir drop may be.
+AREA_DROP_LOOKBACK = 12
+#: A COST-ONLY SPELL (module doc): the frames from its drop on which its damage is looked for.
+COST_ONLY_HIT_FRAMES = 4
+
+
+def instant_spell(card: dict) -> bool:
+    """A spell whose cast leaves no object a capture shows (A COST-ONLY SPELL): no projectile, and an area that lives at
+    most one tick (the Zap's lives one millisecond)."""
+    if card.get("kind") != "spell" or card.get("projectile"):
+        return False
+    sp = card.get("spell") or {}
+    ae = sp.get("area_effect_object") or {}
+    if sp.get("first_projectile") or ae.get("projectile") or not ae:
+        return False
+    life = ae.get("life_duration_ms")
+    return life is not None and life <= TICK_MS
+
+
+def cost_only_casts(
+    header: dict | None,
+    deploys: list[dict],
+    doc: dict,
+    cards_by_name: dict,
+    name_to_id: dict[str, int],
+    ents: dict,
+    per_tick_rows: list,
+    ticks: list[int],
+    unresolved: list[dict],
+) -> list[dict]:
+    """The casts a live capture's header gives away that no object shows (module doc, A COST-ONLY SPELL)."""
+    plays = (header or {}).get("opponent_plays") or []
+    reveal = (header or {}).get("reveal") or {}
+    if not plays or not reveal:
+        return []
+    ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
+    index_of = {t: i for i, t in enumerate(ticks)}
+    out = []
+    for p in plays:
+        if p.get("evidence") != "elixir" or p.get("side") not in (0, 1) or not isinstance(p.get("cost"), int):
+            continue
+        side, tick, cost = p["side"], p["tick"], p["cost"]
+        if any(
+            d["side"] == side and any(t is not None and abs(t - tick) <= 1 for t in (d["tick"], d.get("first_seen")))
+            for d in deploys + out
+        ):
+            continue
+        fits = sorted({
+            n for n in reveal.get(str(side)) or []
+            if (c := cards_by_name.get(n)) and c.get("elixir") == cost and instant_spell(c)
+        })
+        if len(fits) != 1:
+            continue
+        name = fits[0]
+        card = cards_by_name[name]
+        i0 = index_of.get(tick)
+        if i0 is None or i0 == 0:
+            continue
+        levels = [lv for lv in playable_levels(doc, card) if spell_damage_at(doc, card, lv) is not None]
+        foes = [e for e in ents.values() if e["side"] != side and e["card_id"] >= 0]
+        best = None
+        for i in range(i0, min(i0 + COST_ONLY_HIT_FRAMES, len(per_tick_rows))):
+            hit = []
+            for e in foes:
+                a, b = per_tick_rows[i - 1].get(e["key"]), per_tick_rows[i].get(e["key"])
+                if a is None or a[ihp] <= 0:
+                    continue
+                took = a[ihp] - (b[ihp] if b is not None and b[ihp] > 0 else 0)
+                killed = b is None or b[ihp] <= 0
+                hit.append(((a[ix], a[iy]), took, killed))
+            votes = {}
+            for lv in levels:
+                dmg = spell_damage_at(doc, card, lv)
+                ok = [
+                    h for h in hit
+                    if (dmg <= h[1] <= dmg + SPELL_HIT_SLACK) or (h[2] and h[1] <= dmg + SPELL_HIT_SLACK)
+                ]
+                if ok:
+                    votes[lv] = ok
+            if votes:
+                best = (i, votes)
+                break
+        if best is None:
+            why = f"a cost-only {name} (elixir drop of {cost}) with no victim to aim it: not played"
+            unresolved.append({"tick": tick, "side": side, "card": name, "why": why})
+            continue
+        i, votes = best
+        top = max(len(v) for v in votes.values())
+        side_lv = [d["level"] for d in deploys if d["side"] == side and d.get("level") is not None]
+        mode = Counter(side_lv).most_common(1)[0][0] if side_lv else None
+        level = min((lv for lv, v in votes.items() if len(v) == top),
+                    key=lambda lv: (abs(lv - mode) if mode is not None else 0, lv))
+        pts = [h[0] for h in votes[level]]
+        out.append(
+            {
+                "tick": tick,
+                "first_seen": tick,
+                "tick_evidence": f"the caster's elixir drop of {cost} (header opponent_plays: nothing readable)",
+                "side": side,
+                "card": name,
+                "card_id": name_to_id.get(name, cards_by_name[name].get("id", -1)),
+                "kind": "spell",
+                "level": level,
+                "level_source": "damage",
+                "level_evidence": f"cost-only cast: {len(pts)} victims took its level-{level} damage on {ticks[i]}",
+                "count": 0,
+                "keys": [],
+                "pos": [sum(q[0] for q in pts) // len(pts), sum(q[1] for q in pts) // len(pts)],
+                "source": "cost_only",
+                "aim": f"centroid of the {len(pts)} units its damage hit",
+            }
+        )
+    return out
+
+
 #: How many ticks after a cast its spawned units may first be seen (A SPELL'S LEVEL FROM ITS SPAWN): a Goblin
 #: Barrel's goblins land about 57 ticks after the cast from across the arena, a Barbarian Log's Barbarian about 31.
 SPELL_SPAWN_WINDOW = 200
@@ -3263,6 +3401,16 @@ def build(
                 # the slack runs from the first frame that shows the object, which a launch dating (`flown`) may
                 # put several ticks after `tick` (080246: a Fireball dated 3513, first seen 3519 after a 7-tick gap)
                 drop = cast_drop(side, tick - EFFECT_DROP_SLACK, cost, ticks[fi] + EFFECT_DROP_SLACK, seen=True)
+                if drop is None and not (played or {}).get("projectile"):
+                    # AN AREA SHOWN AFTER ITS DROP (module doc): a Rage's area exists 8 to 10 ticks after its cast
+                    drop = cast_drop(side, tick - AREA_DROP_LOOKBACK, cost, tick - EFFECT_DROP_SLACK - 1)
+                    if drop is not None:
+                        d["tick"] = drop
+                        d["timing"] = "elixir_drop"
+                        d["tick_evidence"] = (
+                            f"elixir drop of {cost} on side {side} at {drop}, {tick - drop} ticks before its area's"
+                            f" first frame {tick}"
+                        )
             else:
                 # AN EFFECT THAT SHOWS ITS CAST LATE (`effect_leads`): its drop is looked for only where its hits
                 # put the cast, on a frame no unit deploy explains (a drop on the first object's frame is another
@@ -3429,6 +3577,10 @@ def build(
                 ),
             }
         )
+    # the casts no object shows, off a live capture's header (module doc, A COST-ONLY SPELL)
+    deploys.extend(
+        cost_only_casts(header, deploys, doc, cards_by_name, name_to_id, ents, per_tick_rows, ticks, unresolved)
+    )
     # a scheduled spell's casts read off its spawns (module doc, A SCHEDULED SPELL'S CAST)
     deploys.extend(schedule_casts(spawned_groups, ents, ticks, cards_by_name, deploys))
     deploys.sort(key=lambda d: (d["tick"], d["side"], d["card_id"]))

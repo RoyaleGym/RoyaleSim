@@ -2213,3 +2213,40 @@ def test_a_sides_tower_troop_is_read_off_its_princess_towers(m):
     mixed = side(0, 3052)
     mixed[2]["max_hp"] = 2616
     assert m.tower_troops(mixed, doc)["0"] is None, "the two towers disagree"
+
+
+@needs_cards
+def test_a_cost_only_spell_is_read_off_the_header_and_its_victims(m):
+    """A Zap leaves no object a capture shows (module doc, A COST-ONLY SPELL): a live header's payment with nothing
+    readable, whose cost fits exactly one instant spell of the side's revealed deck, is that spell, dated at the drop
+    and aimed at the units its damage hit (live 20261007-141917 t282: five Bats at once). A payment a row explains, an
+    "ability" press and one no victim answers are not played."""
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    cards = {c["name"]: c for c in doc["cards"]}
+    assert m.instant_spell(cards["Zap"])
+    assert not m.instant_spell(cards["Fireball"])
+    assert not m.instant_spell(cards["Knight"])
+    dmg = m.spell_damage_at(doc, cards["Zap"], 11)
+
+    def row(x, y, hp):
+        r = [0] * len(m.TRUTH_COLUMNS)
+        r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")], r[m.TRUTH_COLUMNS.index("hp")] = x, y, hp
+        return tuple(r)
+
+    ticks = [280, 281, 282, 283]
+    ents = {k: {"key": k, "side": 1, "card_id": 26000005} for k in (7, 8)}
+    before = {7: row(14000, 17000, 300), 8: row(14400, 17200, dmg)}
+    rows = [before, before, {7: row(14000, 17000, 300 - dmg)}, {7: row(14000, 17000, 300 - dmg)}]
+    header = {"reveal": {"0": ["Zap", "Knight"], "1": []},
+              "opponent_plays": [{"tick": 282, "side": 0, "card": None, "cost": 2, "evidence": "elixir"},
+                                 {"tick": 283, "side": 0, "card": "Knight", "cost": 3, "evidence": "ability"}]}
+    unresolved = []
+    got = m.cost_only_casts(header, [], doc, cards, {"Zap": 28000008}, ents, rows, ticks, unresolved)
+    assert [(d["tick"], d["card"], d["source"], d["pos"]) for d in got] == [(282, "Zap", "cost_only", [14200, 17100])]
+    assert got[0]["level"] in m.playable_levels(doc, cards["Zap"])
+    explained = [{"tick": 282, "side": 0, "first_seen": 282}]
+    assert m.cost_only_casts(header, explained, doc, cards, {"Zap": 28000008}, ents, rows, ticks, []) == []
+    quiet = [before] * 4
+    assert m.cost_only_casts(header, [], doc, cards, {"Zap": 28000008}, ents, quiet, ticks, unresolved) == []
+    assert any("no victim" in u["why"] for u in unresolved)
