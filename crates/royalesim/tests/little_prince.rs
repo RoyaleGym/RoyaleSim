@@ -15,7 +15,8 @@
 //! (`a_stun_restarts_his_attack_under_client15535_restart` red), ramp_reset_at_zero
 //! (`his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh` red), ramp_press_resets and
 //! ramp_held_by_press_unread (`under_client16402_tag_held_his_press_keeps_his_ramp` red), guard_charge_hit
-//! (`under_client16402_charge_immune_his_guard_takes_no_hit_in_its_charge` red).
+//! (`under_client16402_charge_immune_his_guard_takes_no_hit_in_its_charge` red), guard_push_swing_frozen
+//! (`under_client16402_reset_his_guards_push_resets_the_pushed_swing` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -32,7 +33,8 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::{CardDb, CardTable};
-use royalesim::state::{BattleConfig, BattleState, GuardChargeImmunity, GuardChargeStep, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, GuardChargeImmunity, GuardChargeStep, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -631,4 +633,52 @@ fn under_client16402_charge_immune_his_guard_takes_no_hit_in_its_charge() {
     assert!(losses.iter().any(|l| l.0 >= 40), "client16402_charge_immune: the Zap after its arrival takes hp: {losses:?}");
     let (old, _) = guard_zapped(GuardChargeImmunity::None, &[10, 40]);
     assert!(old.iter().any(|l| (10..=12).contains(&l.0)), "none (the vacuity check): the Zap in the charge takes hp: {old:?}");
+}
+
+/// A red Knight swinging at a blue Golem (both held) beside the guard's path, let go when the guard first comes within
+/// 2500 of it, under knockback.GUARD_PUSH_ATTACK_RESET = `arm`: the Knight's (attack phase, swing ms) on the frame before
+/// its first push and on the push's frame.
+fn pushed_swing(arm: GuardPushAttackReset) -> ((AttackPhase, i32), (AttackPhase, i32)) {
+    let (mut s, lp, reds) = scene_cfg(|c| c.calib.guard_push_attack_reset = arm, &[("Knight", (AT.0 + 800, AT.1 + 1500))]);
+    let knight = reds[0].0;
+    let golem_at = n((AT.0 + 800, AT.1 + 2600));
+    let golem = s.scenario_spawn_now(Team::Blue, "Golem", golem_at, None).expect("a blue Golem");
+    // Let the Knight take the Golem and swing.
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        assert!(s.debug_set_pos(knight, reds[0].1));
+        assert!(s.debug_set_pos(golem, golem_at));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut before = None;
+    for _ in 0..70 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        assert!(s.debug_set_pos(golem, golem_at));
+        let k = s.entity(knight).expect("the Knight");
+        let was = (k.attack_phase, k.attack_ms, k.push_active);
+        if !was.2 {
+            assert!(s.debug_set_pos(knight, reds[0].1));
+        }
+        s.tick();
+        let k = s.entity(knight).expect("the Knight");
+        if k.push_active && !was.2 {
+            before = Some((was.0, was.1));
+            return (before.expect("the frame before"), (k.attack_phase, k.attack_ms));
+        }
+    }
+    panic!("the scene drifted: the guard never pushed the Knight ({before:?})");
+}
+
+/// knockback.GUARD_PUSH_ATTACK_RESET = client16402_reset (client 16.402, parity's r65 census over the ob5 live set: 143 of
+/// 147 attacking ground troops lost their swing): the Knight swinging at the Golem goes Idle at 0 on the push's frame;
+/// under frozen its swing stands (the vacuity check). Plant: guard_push_swing_frozen.
+#[test]
+fn under_client16402_reset_his_guards_push_resets_the_pushed_swing() {
+    let (was, now) = pushed_swing(GuardPushAttackReset::Client16402Reset);
+    assert!(was.0 != AttackPhase::Idle, "precondition: the Knight was swinging before the push: {was:?}");
+    assert_eq!(now, (AttackPhase::Idle, 0), "client16402_reset: the swing on the push's frame (before {was:?})");
+    let (was, now) = pushed_swing(GuardPushAttackReset::Frozen);
+    assert!(was.0 != AttackPhase::Idle, "precondition (frozen): the Knight was swinging before the push: {was:?}");
+    assert!(now.0 != AttackPhase::Idle && now.1 > 0, "frozen (the vacuity check): the swing stands on the push's frame: {now:?} (before {was:?})");
 }

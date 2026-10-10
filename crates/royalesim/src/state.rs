@@ -805,6 +805,10 @@ pub struct Calib {
     /// `None`, what a battle saved before it ran.
     #[serde(default = "guard_charge_immunity_default")]
     pub guard_charge_immunity: GuardChargeImmunity,
+    /// knockback.GUARD_PUSH_ATTACK_RESET (whether the Little Prince's guard's push interrupts the pushed troop's attack, `guard_moves`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Frozen`, what a battle saved before it ran.
+    #[serde(default = "guard_push_attack_reset_default")]
+    pub guard_push_attack_reset: GuardPushAttackReset,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2571,6 +2575,10 @@ fn ramp_press_hold_default() -> RampPressHold {
 
 fn guard_charge_immunity_default() -> GuardChargeImmunity {
     GuardChargeImmunity::None
+}
+
+fn guard_push_attack_reset_default() -> GuardPushAttackReset {
+    GuardPushAttackReset::Frozen
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9392,6 +9400,20 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.GUARD_PUSH_ATTACK_RESET -- see `guard_moves` and `guard_push_reset`: what the Little Prince's guard's
+    /// push does to an attacking troop's swing.
+    GuardPushAttackReset {
+        /// The engine before this key: the push only starts the knockback ladder (`rearm_ladder`); the swing freezes
+        /// through it (`Entities::knocked`) and runs on after.
+        Frozen = "frozen",
+        /// A push that lands (a ladder armed) interrupts the attack as a landed knock does (`guard_push_reset`:
+        /// knockback.ATTACK_RESET's rule, the swing to Idle at 0 and the lock let go, the load timer by
+        /// knockback.PUSH_LOAD_TIMER). Client 16.402 (parity's r65 census over the ob5 live set: 143 of 147 attacking
+        /// ground troops the push did not kill lost their swing).
+        Client16402Reset = "client16402_reset",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9906,6 +9928,7 @@ impl Calib {
             enchant_on_buff_pause: pick(&v, &["enchant", "ON_BUFF_PAUSE", "value"], EnchantOnBuffPause::from_calibration_name)?,
             ramp_press_hold: pick(&v, &["combat", "RAMP_PRESS_HOLD", "value"], RampPressHold::from_calibration_name)?,
             guard_charge_immunity: pick(&v, &["combat", "GUARD_CHARGE_IMMUNITY", "value"], GuardChargeImmunity::from_calibration_name)?,
+            guard_push_attack_reset: pick(&v, &["knockback", "GUARD_PUSH_ATTACK_RESET", "value"], GuardPushAttackReset::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -20901,9 +20924,18 @@ impl BattleState {
                     }
                 }
             }
+            // knockback.GUARD_PUSH_ATTACK_RESET = client16402_reset: a push that lands interrupts the attack (`guard_push_reset`).
+            // PLANT (regression) guard_push_swing_frozen: the new arm still leaves the pushed troop's swing frozen.
+            #[cfg(not(clash_plant = "guard_push_swing_frozen"))]
+            let reset = self.cfg.calib.guard_push_attack_reset == GuardPushAttackReset::Client16402Reset;
+            #[cfg(clash_plant = "guard_push_swing_frozen")]
+            let reset = false;
             for (j, m) in pushes {
                 if m > 0 && self.rearm_ladder(j, at, m, r.team) {
                     moved = true;
+                    if reset {
+                        self.guard_push_reset(j);
+                    }
                 }
             }
             #[cfg(clash_plant = "guard_push_once")]
@@ -28053,6 +28085,27 @@ impl BattleState {
             e.push_speed[i] = start.speed;
             e.push_active[i] = true;
             true
+        }
+    }
+
+    /// knockback.GUARD_PUSH_ATTACK_RESET = client16402_reset: the guard's push that landed on unit `i` interrupts its attack as
+    /// a landed knock does (`phase_resolve`'s knock landing): under knockback.ATTACK_RESET's rule the swing goes to Idle at 0
+    /// and the lock goes, the load timer by knockback.PUSH_LOAD_TIMER (client_runs_on: it runs on).
+    fn guard_push_reset(&mut self, i: usize) {
+        let c = &self.cfg.calib;
+        let e = &mut self.ents;
+        let resets = match c.knock_attack_reset {
+            KnockAttackReset::ResetAttackKeepTarget => e.attack_phase[i] != AttackPhase::Idle,
+            KnockAttackReset::ResetWindupKeepTarget | KnockAttackReset::ResetWindupClearTarget => e.attack_phase[i] == AttackPhase::Windup,
+        };
+        if !resets {
+            return;
+        }
+        e.attack_phase[i] = AttackPhase::Idle;
+        e.attack_ms[i] = 0;
+        e.target_locked[i] = false;
+        if c.push_load_timer != PushLoadTimer::ClientRunsOn {
+            e.attack_load_ms[i] = self.cfg.cards.get(e.card[i]).load_time_ms.max(0);
         }
     }
 
@@ -35686,6 +35739,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_CHARGE_IMMUNITY: Calib gained guard_charge_immunity (serde default the old arm, none), no new state (the saved dash immunity carries it),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.GUARD_PUSH_ATTACK_RESET: Calib gained guard_push_attack_reset (serde default the old arm, frozen), no new state (it changes the saved swing at the push),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36631,6 +36686,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ramp_press_hold".into(), serde_json::to_value(RampPressHold::Reset).map_err(|e| e.to_string())?);
     // combat.GUARD_CHARGE_IMMUNITY: a format-3 battle's guard took every hit in its charge (the same rule).
     sh.insert("guard_charge_immunity".into(), serde_json::to_value(GuardChargeImmunity::None).map_err(|e| e.to_string())?);
+    // knockback.GUARD_PUSH_ATTACK_RESET: a format-3 battle froze the pushed troop's swing (the same rule).
+    sh.insert("guard_push_attack_reset".into(), serde_json::to_value(GuardPushAttackReset::Frozen).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

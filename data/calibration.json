@@ -3898,6 +3898,16 @@
     }
   },
   "knockback": {
+    "GUARD_PUSH_ATTACK_RESET": {
+      "value": "client16402_reset",
+      "status": "measured",
+      "candidates": ["frozen", "client16402_reset"],
+      "confidence": "HIGH for client16402_reset on client 16.402 that the swing resets: parity's r65 census over the ob5 live set, 143 of 147 attacking ground troops the guard's push did not kill went Idle with progress 0 while their load timer ran on (the 4 that kept it: 2 Ram Riders, a Ronin, a Mega Knight); flying units and buildings are not pushed. Replayed where truth and engine stood alike: the truth reset 33 times, the engine froze 24, ran on 8, reset 1. MEDIUM on the details after the reset (the client retargets too, the guard in liveplay-20261007-002546-A). Client 15.535.29 keeps frozen (CLIENT15535_ARMS): unread there.",
+      "provenance": "MEASURED by parity (2026-10-10, r65 Little Prince triage of the ob5 live set on the rob4 head): liveplay-20261008-055001-A P.E.K.K.A key 7 pushed on t662, the client reset and hit the guard on t694, the engine held 1450 and hit on t685; 002546-A Angry Barbarians 10 and 11 on t598 / 599 (the engine froze 1100 / 1050 and hit early); 192911-A Prince key 7 on t305 (the engine froze 1000 and hit on t321 for the client's t330). 5 of the 25 Little Prince first divergences.",
+      "meaning": "frozen: the push only starts the ladder; the swing freezes through it. client16402_reset: the push that lands resets the swing as a landed knock does.",
+      "open": "The 4 that kept their swing (2 Ram Riders, a Ronin, a Mega Knight: no shared row flag; the Prince, IgnorePushback too, reset); the retarget after the reset; 15.535.29 unread.",
+      "engine": "state.rs guard_moves (`guard_push_reset`), rearm_ladder; tests/little_prince.rs."
+    },
     "$comment": [
       "Knockback (Pushback) from spells. The DISTANCE is card data (projectiles.csv Pushback,",
       "millitiles; Fireball 1800 <-> Supercell '1.8 tile', Log 1000 <-> wiki '1 tile'), and",
