@@ -2120,6 +2120,17 @@
       "promotion_rules": "The test file passes; the corpus has one Princess, in an unplayable battle, so it flips on the client 15.535.29 evidence.",
       "engine": "the card extractor must carry the CustomFirstProjectile row into cards.json (it takes only the Projectile column today), and the attack path must fire it"
     },
+    "REFLECT_RANGED": {
+      "value": "client16402_landing_edge",
+      "candidates": ["melee_only", "client16402_landing_edge"],
+      "status": "measured",
+      "confidence": "HIGH for client16402_landing_edge on client 16.402: 136 truth reflect events, 103 on projectile attackers and crown towers, the edge gap topping out at 1943-2008 for every attacker kind. MEDIUM on the landing tick versus the launch (the answer's tick read against the hit's on the Cannon cases). LOW for melee_only, the engine before this key.",
+      "provenance": "MEASURED by parity (2026-10-09) on the live population (RoyaleLive/reports/replay-live, the bot's battles on client builds 160402017/020; parity's second diagnostic triage, eg_reflect2.py over every truth reflect event: an attacker losing 100-400 on a hit's tick, then holding with no target and its progress frozen). 136 events: 103 on projectile attackers and crown towers (Cannons at 2020-3293 centre to centre, Witches at 1767-2973, crown towers at 2910-3758), 8 melee ones beyond 2000 + the attacker's radius, 25 the engine answered. The edge gap (distance - the attacker's radius - 750) tops out at 1943-2008: ReflectedAttackRadius 2000 between the two edges. Crown towers take ReflectAttackCrownTowerDamage (117 / 128 / 155 = 38 at the Giant's level). 134051: the bot's Cannon at (9500, 22500), the Electro Giant 3271 away (beyond the engine's 2600): at t601 the truth's Cannon takes -231 (75 at L13), loses its target and holds its progress over 602-611, again at 630; the engine's took decay only.",
+      "meaning": "melee_only: the engine's; a melee hit is answered when the attacker's edge is within ReflectedAttackRadius of the reflecting unit's centre; a shot is never answered. client16402_landing_edge: a homing shot is answered when it lands on the reflecting unit and a melee hit when it lands, each when the attacker's edge is within ReflectedAttackRadius of the reflecting unit's edge; a crown tower takes ReflectAttackCrownTowerDamage, every other attacker ReflectedAttackDamage, both at the reflecting unit's level, with the ZapFreeze stun.",
+      "open": "A splash shot that lands on the Giant without targeting him (the Witch's, when she shot another); client 15.535.29 (no capture reads it; it runs the shipped arm).",
+      "promotion_rules": "Shipped: every capture runs it.",
+      "engine": "state.rs BattleState::reflect_landed_shot (the projectile phase, before and after combat::step_projectiles) and reflect_melee_hit's reach, selected by Calib::reflect_ranged; tests/reflect_ranged.rs."
+    },
     "REFLECT_ATTACK": {
       "value": "client_reflect_stun",
       "candidates": ["not_read", "client_reflect_stun"],

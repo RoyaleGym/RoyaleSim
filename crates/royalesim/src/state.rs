@@ -753,6 +753,10 @@ pub struct Calib {
     /// after SNAPSHOT_FORMAT 20; the default is the old arm, `ProjectileRadius`, what a battle saved before it ran.
     #[serde(default = "spark_landing_reach_default")]
     pub spark_landing_reach: SparkLandingReach,
+    /// combat.REFLECT_RANGED (the Electro Giant's reflect on a shot's landing and its edge-to-edge reach). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `MeleeOnly`, what a battle saved before it ran.
+    #[serde(default = "reflect_ranged_default")]
+    pub reflect_ranged: ReflectRanged,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2467,6 +2471,10 @@ fn building_scan_x_cut_default() -> BuildingScanXCut {
 
 fn spark_landing_reach_default() -> SparkLandingReach {
     SparkLandingReach::ProjectileRadius
+}
+
+fn reflect_ranged_default() -> ReflectRanged {
+    ReflectRanged::MeleeOnly
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9019,6 +9027,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.REFLECT_RANGED -- what the Electro Giant's reflect answers beyond a melee hit, and from how far
+    /// (`reflect_melee_hit`, `reflect_landed_shot`; combat.REFLECT_ATTACK says what the answer is).
+    ReflectRanged {
+        /// The engine before this key: a melee hit only, the attacker's edge within ReflectedAttackRadius of his centre.
+        MeleeOnly = "melee_only",
+        /// Measured on client 16.402 (the live population, 136 truth reflect events): a homing shot is answered when it
+        /// lands, a crown tower's with ReflectAttackCrownTowerDamage, and every answer reaches the attacker's edge within
+        /// ReflectedAttackRadius (2000) of his edge: 103 events on Cannons (2020-3293 centre to centre), Witches
+        /// (1767-2973) and crown towers (2910-3758), 8 melee ones past 2000 + the attacker's radius.
+        Client16402LandingEdge = "client16402_landing_edge",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9520,6 +9541,7 @@ impl Calib {
             ramp_grace_reset: pick(&v, &["combat", "RAMP_GRACE_RESET", "value"], RampGraceReset::from_calibration_name)?,
             building_scan_x_cut: pick(&v, &["targeting", "BUILDING_SCAN_X_CUT", "value"], BuildingScanXCut::from_calibration_name)?,
             spark_landing_reach: pick(&v, &["combat", "SPARK_LANDING_REACH", "value"], SparkLandingReach::from_calibration_name)?,
+            reflect_ranged: pick(&v, &["combat", "REFLECT_RANGED", "value"], ReflectRanged::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -25589,6 +25611,32 @@ impl BattleState {
     /// which the measurement refutes (plant `reflect_stun_buffered`). The attacker's own pass for
     /// tick N is over by now, and no other unit's attack step reads its hold, so landing it here
     /// changes nothing else this pass computes.
+    /// combat.REFLECT_RANGED = client16402_landing_edge: a homing shot `firer` fired has landed on `victim`, who reflects
+    /// (card.rs `ReflectDef`): the firer is answered as a melee attacker is (`reflect_melee_hit`) when its edge is within
+    /// ReflectedAttackRadius of the victim's edge, a crown tower with ReflectAttackCrownTowerDamage, at the victim's level,
+    /// the stun landed here and now. Measured on client 16.402 (the live population, parity's eg_reflect2.py: 136 truth
+    /// reflect events, 103 on projectile attackers and crown towers, the edge gap topping out at 1943-2008).
+    fn reflect_landed_shot(&mut self, firer: EntityId, victim: EntityId) {
+        if !self.ents.is_alive(firer) || !self.ents.is_alive(victim) {
+            return;
+        }
+        let (a, v) = (firer.index as usize, victim.index as usize);
+        let Some(r) = self.cfg.cards.get(self.ents.card[v]).reflect else { return };
+        let e = &self.ents;
+        if e.hide[v] == HideState::Hidden || !crate::fixed::in_range_edge(e.pos[v], e.pos[a], r.radius + e.radius[v], e.radius[a]) {
+            return;
+        }
+        let tower = matches!(e.kind[a], EntityKind::KingTower | EntityKind::PrincessTower);
+        let base = if tower { r.crown_tower_damage.unwrap_or(r.damage) } else { r.damage };
+        let amount = self.cfg.cards.scaled(e.card[v], e.level[v], base).expect("level validated at spawn");
+        self.dmg.hits.push(Hit { target: firer, amount, ignores_hide: false, own: false });
+        if let Some(b) = r.buff {
+            if land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, &crate::status::BuffHit::plain(victim, b.buff, b.time_ms, 0)) {
+                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, b.time_ms);
+            }
+        }
+    }
+
     fn reflect_melee_hit(&mut self, a: usize, target: EntityId) {
         let card = self.cfg.cards.get(self.ents.card[a]);
         // PLANTS (regression): reflect_answers_shots drops this return alone, so a shot is
@@ -25617,9 +25665,11 @@ impl BattleState {
             let Some(r) = reflect else { continue };
             // PLANTS (regression): reflect_ignores_reach drops this test alone, so a hit from any
             // distance is answered; reflect_every_attack drops it and the shot return above.
+            // combat.REFLECT_RANGED = client16402_landing_edge: the attacker's edge within the radius of the reflecting
+            // unit's EDGE (both radii); the old arm reads it from the reflecting unit's centre.
             #[cfg(not(clash_plant = "reflect_ignores_reach"))]
             #[cfg(not(clash_plant = "reflect_every_attack"))]
-            if !crate::fixed::in_range_edge(e.pos[v], e.pos[a], r.radius, e.radius[a]) {
+            if !crate::fixed::in_range_edge(e.pos[v], e.pos[a], r.radius + if self.cfg.calib.reflect_ranged == ReflectRanged::Client16402LandingEdge { e.radius[v] } else { 0 }, e.radius[a]) {
                 continue;
             }
             #[cfg(not(clash_plant = "reflect_damage_unscaled"))]
@@ -26218,7 +26268,28 @@ impl BattleState {
         if cages_first && !self.evo.cages.is_empty() {
             self.cage_pass();
         }
+        // combat.REFLECT_RANGED = client16402_landing_edge: the homing shots that land this tick on a unit that reflects
+        // (`reflect_landed_shot`, after the step).
+        #[cfg(not(clash_plant = "reflect_ranged_unread"))]
+        let ranged_reflect = self.cfg.calib.reflect_ranged == ReflectRanged::Client16402LandingEdge;
+        #[cfg(clash_plant = "reflect_ranged_unread")]
+        let ranged_reflect = false; // PLANT (regression): a shot that lands on an Electro Giant is answered by nothing.
+        let landing_on_reflect: Vec<(EntityId, EntityId)> = if ranged_reflect {
+            let step = self.cfg.calib.projectile_step;
+            self.projectiles
+                .iter()
+                .filter(|p| !p.fresh && p.straight.is_none() && p.carrier.is_none() && p.hook.is_none())
+                .filter(|p| self.ents.is_alive(p.target) && self.cfg.cards.get(self.ents.card[p.target.index as usize]).reflect.is_some())
+                .filter(|p| combat::ticks_to_land(&self.ents, p, step) == 1)
+                .filter_map(|p| p.firer.map(|f| (f, p.target)))
+                .collect()
+        } else {
+            Vec::new()
+        };
         combat::step_projectiles(&self.ents, &self.hash, &self.cfg.cards, &self.cfg.calib, &mut self.projectiles, &mut self.dmg, &mut self.effects, &mut out.areas, &mut out.released, &mut self.scratch.nb, self.tick, &deflecting);
+        for (firer, victim) in landing_on_reflect {
+            self.reflect_landed_shot(firer, victim);
+        }
         // The Hero Balloon's throws, before the spells step, so a landing's blow strikes on its own tick (`throw_pass`).
         self.scratch.thrown.clear();
         if !self.throws.is_empty() {
@@ -34751,6 +34822,9 @@ impl BattleState {
 /// 20, unchanged, combat.SPARK_LANDING_REACH: Calib gained spark_landing_reach (serde default the old arm,
 ///    projectile_radius), no new state (a spark's saved reach is its flight's), so a blob saved before it deserializes
 ///    and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.REFLECT_RANGED: Calib gained reflect_ranged (serde default the old arm, melee_only), no new
+///    state (the shots landing are read from the saved projectiles), so a blob saved before it deserializes and hashes as
+///    it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -35670,6 +35744,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("building_scan_x_cut".into(), serde_json::to_value(BuildingScanXCut::Centre6750).map_err(|e| e.to_string())?);
     // combat.SPARK_LANDING_REACH: a format-3 battle's sparks tested the landing point with ProjectileRadius (the same rule).
     sh.insert("spark_landing_reach".into(), serde_json::to_value(SparkLandingReach::ProjectileRadius).map_err(|e| e.to_string())?);
+    // combat.REFLECT_RANGED: a format-3 battle's reflect answered melee hits only (the same rule).
+    sh.insert("reflect_ranged".into(), serde_json::to_value(ReflectRanged::MeleeOnly).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

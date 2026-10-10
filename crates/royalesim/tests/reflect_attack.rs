@@ -18,6 +18,8 @@
 //!      the Knight's HitSpeed / TICK_MS plus the buff's ticks less the hit's own, read from the data;
 //!   2. each answer is 192, and 192 is ReflectedAttackDamage scaled at the battle's level;
 //!   3. a princess tower's shot at him from beyond the reach is not answered (the measured case);
+//!      3, 4 and 5 run under combat.REFLECT_RANGED = melee_only, the engine before it: client 16.402 answers a shot on its
+//!      landing and reads the reach between the two edges (tests/reflect_ranged.rs pins that arm);
 //!   4. a Musketeer's shot launched from INSIDE the reach is not answered either: the engine answers
 //!      a hit that lands in the attacker's own pass, never a shot. The measurement has no shot from
 //!      inside the reach, so this pins the engine's reading of the ledger key's open item;
@@ -48,7 +50,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, ReflectAttack};
+use royalesim::state::{BattleState, ReflectAttack, ReflectRanged};
 use royalesim::status::{compose, Sel};
 use royalesim::Team;
 
@@ -135,6 +137,7 @@ fn each_answer_is_192_the_reflected_attack_damage_at_the_battles_level() {
 fn a_princess_towers_shot_from_beyond_the_reach_is_not_answered() {
     let mut cfg = config();
     cfg.calib.reflect_attack = ReflectAttack::ClientReflectStun;
+    cfg.calib.reflect_ranged = ReflectRanged::MeleeOnly;
     let mut s = BattleState::new(0, cfg);
     s.scenario_set_tick(200);
     let tower = s.tower_ids(Team::Red)[1].expect("Red's engine-left princess tower");
@@ -185,6 +188,7 @@ fn a_princess_towers_shot_from_beyond_the_reach_is_not_answered() {
 fn attacks_on_the_electro_giant(attacker: &str, at: Vec2, ticks: u32) -> (Vec<i64>, i32, i32) {
     let mut cfg = config();
     cfg.calib.reflect_attack = ReflectAttack::ClientReflectStun;
+    cfg.calib.reflect_ranged = ReflectRanged::MeleeOnly;
     let mut s = BattleState::new(0, cfg);
     s.scenario_set_tick(200);
     let ids = s
