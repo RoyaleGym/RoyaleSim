@@ -2252,6 +2252,22 @@ def test_a_cost_only_spell_is_read_off_the_header_and_its_victims(m):
     assert any("no victim" in u["why"] for u in unresolved)
 
 
+def test_a_hero_forms_own_objects_are_its_cards(m):
+    """An object only a hero form's own table holds (`form_units`) is its card's: the Hero Musketeer's turret,
+    MusketeerTurret, 600 base on the Common ladder, is in no other table, and live all 67 turrets of 25 fixtures (level
+    11, 1536 hp) were unknown objects the harness skipped. It is a spawned object, not a deploy summon."""
+    path = os.path.join(ROOT, "data", "derived", "cards-160402017-20261006.json")
+    if not os.path.exists(path):
+        pytest.skip(f"{path} is absent (the 2026-10-06 table) -- a skip here is not a pass")
+    with open(path, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    musketeer = next(c for c in doc["cards"] if c["name"] == "Musketeer")
+    assert "MusketeerTurret" not in doc["units"], "the turret row is the hero form's alone"
+    common = doc["rarities"]["Common"]
+    assert 600 * common["multiplier_percent_by_level"][11 - common["relative_level"] - 1] // 100 == 1536
+    assert m.classify_unit(doc, musketeer, 11, 1536) == ("MusketeerTurret", False, "exact")
+
+
 @needs_cards
 def test_a_pulsing_spell_first_seen_after_a_gap_is_dated_by_its_train(m):
     """A Poison first seen after missing frames (module doc, A PULSING SPELL FIRST SEEN AFTER A FRAME GAP) is cast on

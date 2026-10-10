@@ -925,14 +925,16 @@ def capture_named(name: str, reports: str | None) -> str | None:
 
 
 def reachable_units(doc: dict, card: dict) -> dict[str, int]:
-    """name -> base hitpoints of every object of `card` with hitpoints."""
+    """name -> base hitpoints of every object of `card` with hitpoints. An object no other table holds is looked up in
+    the record's own (`form_units`: the Hero Musketeer's MusketeerTurret is in its hero form's alone)."""
     units = doc["units"]
+    own_table = form_units(card)
     out: dict[str, int] = {}
     if card.get("hitpoints") is not None:
         out[card.get("summon_character") or card["name"]] = card["hitpoints"]
 
     def add(name, depth=0):
-        u = units.get(name) if name else None
+        u = (units.get(name) or own_table.get(name)) if name else None
         if u is None:
             return
         if u.get("hitpoints") is not None:
@@ -970,6 +972,15 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
     return out
 
 
+def form_units(card: dict) -> dict:
+    """A form record's own objects (a hero form's `tables.units`), by name. Only these hold some of a form's objects:
+    the Hero Musketeer's turret (MusketeerTurret, 600 base on the Common ladder) is in no other table, so its ability's
+    unit was found nowhere and every turret was an unknown object, which the harness skips (live, 2026-10-10: all 67
+    turrets of 25 fixtures, level 11 at 1536; read as the card's, 20 of 20 pair with the engine's on the press + 4,
+    Parity)."""
+    return (card.get("tables") or {}).get("units") or {}
+
+
 def own_units(card: dict) -> set[str]:
     """The objects a DEPLOY of `card` puts on the board: its summon and second summon."""
     out = {card.get("summon_character") or card["name"]}
@@ -985,7 +996,7 @@ def ladder_percent(doc: dict, card: dict, unit: str, level: int):
         base_level = ls.get("base_level", doc["rarities"][ls["rarity"]]["relative_level"] + 1)
         table = ls["multiplier_percent_by_level"]
     else:
-        r = doc["rarities"][doc["units"][unit]["rarity"]]
+        r = doc["rarities"][(doc["units"].get(unit) or form_units(card)[unit])["rarity"]]
         base_level = r["relative_level"] + 1
         table = r["multiplier_percent_by_level"]
     ix = level - base_level
