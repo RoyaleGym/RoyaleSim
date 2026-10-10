@@ -3,6 +3,27 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.27 (2026-10-09)
+
+- The 2026-10-06 card table now has that update's Evo Skeletons summon ring (400, was 700). The extractor read the
+  update's evolution overrides for no other row, and this is the only value that moves.
+- A third card table: `cards.CARD_TABLE = "client160402017"` is the same client before its 2026-10-06 update (content
+  16.402.2). It is read from a checkout (`data/derived/cards-160402017.json`); a wheel carries no copy.
+- A card can be played one level past its rarity's level count: level 17, which max-level players reach in the live
+  game, on the next multiplier of its level ladder (a Common's 450 %). Levels 1 to 16 are unchanged, and so are the
+  card tables. A Mirror of a level-16 card now plays at 17.
+- A new setting, `match.BATTLE_END`. The default, `rules`, is the game's end. `overtime_end` lets nothing end a battle
+  before overtime's end, for scoring a replay past the point where the engine's battle would have ended and the
+  recorded one did not.
+- `replay_parity` puts each deck card at the level its plays recorded, not at the side's most common level. A
+  battle whose most common level was below one card's lowest level was refused whole. It also reads the random
+  generator that the current client's recorded battles carry; it used to read only the older client's.
+- Tools: `tools/make_replay_fixture.py` takes `--table 160402017`, and refuses a capture whose content stamp is not
+  its table's. It reads an Evo Skeletons copy as that group's spawn, not as a new play, and a Graveyard's cast off its
+  skeletons. It takes a spell's level from the units it puts down where it can, and only ever a level the card can
+  be played at. An opponent's troop seen only as its members' centroid is played on that point's tile centre. It
+  names each side's tower troop (`tower_troops`: the Princess, the Dagger Duchess, the Cannoneer or the Royal Chef).
+
 ## 0.1.26 (2026-10-09)
 
 - This release adds settings used to measure upcoming fixes against the game (a struck troop's last step, a Log tapped
