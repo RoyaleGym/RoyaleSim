@@ -825,6 +825,10 @@ pub struct Calib {
     /// `RowHitSpeed`, what a battle saved before it ran.
     #[serde(default = "tower_troop_burst_default")]
     pub tower_troop_burst: TowerTroopBurst,
+    /// combat.CHAIN_HOP_DEAD_TARGET (a chained shot's hop whose target died before it landed: the chain ends, or goes on from the target's last point). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Ends`, what a battle saved before it ran.
+    #[serde(default = "chain_hop_dead_target_default")]
+    pub chain_hop_dead_target: ChainHopDeadTarget,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2611,6 +2615,10 @@ fn hide_held_through_default() -> HeldThroughHide {
 
 fn tower_troop_burst_default() -> TowerTroopBurst {
     TowerTroopBurst::RowHitSpeed
+}
+
+fn chain_hop_dead_target_default() -> ChainHopDeadTarget {
+    ChainHopDeadTarget::Ends
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9512,6 +9520,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.CHAIN_HOP_DEAD_TARGET -- a chained shot's hop (combat.rs `ChainHop`, card.rs `ChainHitDef`: the Electro
+    /// Spirit's, the Electro Dragon's) whose target died before it landed (combat.rs `step_projectiles`).
+    ChainHopDeadTarget {
+        /// The engine's: it lands on nothing and the chain ends.
+        Ends = "ends",
+        /// Client 16.402: it lands on the target's last point and goes on from there to the closest enemy it has not hit
+        /// within the chain's radius (`chain_next`), waiting and flying as any hop does; the dead target counts as one of
+        /// the chain's hits. The fired shot, and the Evo Electro Dragon's own chain, are unchanged.
+        Client16402HopsOnFromLastPoint = "client16402_hops_on_from_last_point",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10031,6 +10051,7 @@ impl Calib {
             dash_trigger_building: pick(&v, &["combat", "DASH_TRIGGER_BUILDING", "value"], DashTriggerBuilding::from_calibration_name)?,
             hide_held_through: pick(&v, &["hide", "HELD_THROUGH_HIDE", "value"], HeldThroughHide::from_calibration_name)?,
             tower_troop_burst: pick(&v, &["combat", "TOWER_TROOP_BURST", "value"], TowerTroopBurst::from_calibration_name)?,
+            chain_hop_dead_target: pick(&v, &["combat", "CHAIN_HOP_DEAD_TARGET", "value"], ChainHopDeadTarget::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -35994,6 +36015,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.TOWER_TROOP_BURST: Calib gained tower_troop_burst (serde default the old arm, row_hit_speed), Entities gained burst (`default`, sized on load at None), written and hashed under the new arm alone,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.CHAIN_HOP_DEAD_TARGET: Calib gained chain_hop_dead_target (serde default the old arm, ends), no new state (a hop already carries its hits and its aim),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36949,6 +36972,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("hide_held_through".into(), serde_json::to_value(HeldThroughHide::Dropped).map_err(|e| e.to_string())?);
     // combat.TOWER_TROOP_BURST: a format-3 battle's Duchess fired at her row's HitSpeed (the same rule).
     sh.insert("tower_troop_burst".into(), serde_json::to_value(TowerTroopBurst::RowHitSpeed).map_err(|e| e.to_string())?);
+    // combat.CHAIN_HOP_DEAD_TARGET: a format-3 battle's chain ended on a dead target.
+    sh.insert("chain_hop_dead_target".into(), serde_json::to_value(ChainHopDeadTarget::Ends).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

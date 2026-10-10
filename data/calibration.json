@@ -1794,6 +1794,16 @@
     }
   },
   "combat": {
+    "CHAIN_HOP_DEAD_TARGET": {
+      "value": "client16402_hops_on_from_last_point",
+      "status": "measured",
+      "candidates": ["ends", "client16402_hops_on_from_last_point"],
+      "confidence": "MEDIUM-HIGH for client16402_hops_on_from_last_point on client 16.402 (parity r68, 2026-10-10): every Electro Spirit chain hop whose target died before it landed went on in the ob6 live set's death divergences, 5 of 5 (no counter-case among the 12 Electro Spirit chains in their windows), where the engine ended all 5 chains; each next hit 3 + ceil(hop / speed) ticks after the landing, as a hop from a live target. LOW for ends on 16.402.",
+      "provenance": "MEASURED by parity (2026-10-10, r68) on client 16.402: the death first divergences of the ob6 live set that 0.1.28 shares with the dev stack, traced on 0.1.28. liveplay-20261002-022500-A: the chain 19, 9, 17, its unit 17 killed by a Musketeer's shot before the hop landed; the truth went on to 8 on t402 and the P.E.K.K.A on t407, the engine stopped at 17. 050224-A (a tower shot killed hop 5's target; the truth hit 15, 13, 16, 22 after it), 052245-A (a Valkyrie's swing killed the target the tick before the hop was due), 055156-A (the next hop stunned the Musketeer, whose shot was then 7 ticks late), 100800-A (a 2892 hop on to the Witch, whose stun pushed her spawner back 10 ticks).",
+      "meaning": "ends: the engine's; a chained shot whose target died before it landed lands on nothing and the chain ends. client16402_hops_on_from_last_point: a hop (not the fired shot) whose target died before it landed lands on the target's last point (where its aim stopped following) and goes on from there to the closest enemy it has not hit within the chain's radius, waiting CHAIN_HOP_WAIT_TICKS and flying at the shot's speed as any hop; the dead target counts as one of the chain's hits.",
+      "open": "The fired shot whose first target dies in flight (unmeasured: it lands on nothing under both arms); the Electro Dragon's chain (the same rule in the engine; measured on the Electro Spirit's alone); the Evo Electro Dragon's own chain (unchanged); whether the next target is ranked on the point's start-of-tick positions (1 case, liveplay-20261002-092845-A, fits start-of-tick 8 of 8, after-move 6 of 8: a later key); client 15.535.29 unread (CLIENT15535_ARMS keeps ends).",
+      "engine": "combat.rs step_projectiles (the landing's dead-hop branch, `dead_hop_goes_on`), chain_next (now from a point); tests/chained_hits.rs."
+    },
     "TOWER_TROOP_BURST": {
       "value": "client16402_burst_attack",
       "status": "measured",

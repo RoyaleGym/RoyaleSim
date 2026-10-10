@@ -436,17 +436,18 @@ pub const CHAIN_HOP_WAIT_TICKS: u8 = 3;
 /// starts 2 ticks after the last one's landing, 67 of 77.
 pub const EVO_CHAIN_HOP_WAIT_TICKS: u8 = 2;
 
-/// THE NEXT TARGET OF A CHAINED SHOT (card.rs `ChainHitDef`): the closest enemy of `team` to unit `from`, centre to
-/// centre and within the chain's radius, that the shot has not hit: alive, visible, above the ground, in the air or on
-/// it as the shot hits (a crown tower included, as the default targets are). Ties by creation order.
+/// THE NEXT TARGET OF A CHAINED SHOT (card.rs `ChainHitDef`): the closest enemy of `team` to the point `at` (the unit
+/// the shot landed on, or under combat.CHAIN_HOP_DEAD_TARGET = client16402_hops_on_from_last_point the dead target's last
+/// point), centre to centre and within the chain's radius, that the shot has not hit: alive, visible, above the ground,
+/// in the air or on it as the shot hits (a crown tower included, as the default targets are). Ties by creation order.
 #[allow(clippy::too_many_arguments)]
-pub fn chain_next(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, team: Team, from: usize, hop: &ChainHop, hits_air: bool, hits_ground: bool) -> Option<EntityId> {
+pub fn chain_next(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, team: Team, at: Vec2, hop: &ChainHop, hits_air: bool, hits_ground: bool) -> Option<EntityId> {
     let r2 = (hop.radius as i64) * (hop.radius as i64);
     (0..ents.capacity())
         .filter(|&j| ents.alive[j] && ents.hp[j] > 0 && ents.team[j] != team && !hop.hit.contains(&ents.id_of(j)))
         .filter(|&j| if ents.in_air(j) { hits_air } else { hits_ground })
         .filter(|&j| !ents.underground(j) && !crate::target::invisible_at(calib, cards, ents, tick, j))
-        .map(|j| (ents.pos[j].dist2(ents.pos[from]), ents.creation_seq[j], j))
+        .map(|j| (ents.pos[j].dist2(at), ents.creation_seq[j], j))
         .filter(|(d2, _, _)| *d2 <= r2)
         .min()
         .map(|(_, _, j)| ents.id_of(j))
@@ -2331,6 +2332,15 @@ pub fn step_projectiles(
         }
         // The enchant bonus the shot was fired with (`enchant_bonus`): on each splash victim, or on the one target.
         let bonus = Bonus { hit: p.bonus, crown: p.bonus_crown };
+        // combat.CHAIN_HOP_DEAD_TARGET = client16402_hops_on_from_last_point: a hop (not the fired shot: it has hit one
+        // unit before this one) of a plain chain whose target died before it landed goes on from the target's last point.
+        // PLANT (regression) dead_hop_ends: the new arm's chain still ends on a dead target.
+        #[cfg(not(clash_plant = "dead_hop_ends"))]
+        let dead_hop_goes_on = !alive
+            && calib.chain_hop_dead_target == crate::state::ChainHopDeadTarget::Client16402HopsOnFromLastPoint
+            && p.chain.as_ref().is_some_and(|c| c.left > 0 && c.evo.is_none() && c.hit.len() >= 2);
+        #[cfg(clash_plant = "dead_hop_ends")]
+        let dead_hop_goes_on = false;
         if p.splash > 0 {
             let from = dmg.hits.len();
             splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
@@ -2468,7 +2478,7 @@ pub fn step_projectiles(
                     released.borrow_mut().push(q);
                 }
             } else if let Some(c) = p.chain.as_ref().filter(|c| c.left > 0) {
-                if let Some(next) = chain_next(ents, cards, calib, tick, p.team, ti, c, p.hits_air, p.hits_ground) {
+                if let Some(next) = chain_next(ents, cards, calib, tick, p.team, ents.pos[ti], c, p.hits_air, p.hits_ground) {
                     let mut hit = c.hit.clone();
                     hit.push(next);
                     #[cfg(not(clash_plant = "chain_hop_no_wait"))]
@@ -2477,6 +2487,25 @@ pub fn step_projectiles(
                     let wait = 0; // PLANT: the hop steps on the tick after the hit.
                     let hop = ChainHop { left: c.left - 1, radius: c.radius, hit, wait, evo: None };
                     released.borrow_mut().push(Projectile { pos: ents.pos[ti], target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() });
+                }
+            }
+        } else if dead_hop_goes_on {
+            // A HOP WHOSE TARGET DIED BEFORE IT LANDED (combat.CHAIN_HOP_DEAD_TARGET = client16402_hops_on_from_last_point):
+            // it lands on the target's last point (its aim stopped following the target when it died) and goes on from
+            // there as a hop from a live target does: the closest enemy it has not hit, the same wait and speed. The dead
+            // target is one of the chain's hits (it is in `hit`), so the hop counts.
+            // Measured on client 16.402 (parity r68, the ob6 live set's Electro Spirit chains): 5 of 5 went on.
+            if let Some(c) = p.chain.as_ref() {
+                if let Some(next) = chain_next(ents, cards, calib, tick, p.team, p.aim, c, p.hits_air, p.hits_ground) {
+                    let mut hit = c.hit.clone();
+                    hit.push(next);
+                    // PLANT (regression) dead_hop_uncounted: the dead target's hop does not count toward the chain's hits.
+                    #[cfg(not(clash_plant = "dead_hop_uncounted"))]
+                    let left = c.left - 1;
+                    #[cfg(clash_plant = "dead_hop_uncounted")]
+                    let left = c.left;
+                    let hop = ChainHop { left, radius: c.radius, hit, wait: CHAIN_HOP_WAIT_TICKS, evo: None };
+                    released.borrow_mut().push(Projectile { pos: p.aim, target: next, aim: ents.pos[next.index as usize], frac: Vec2::default(), fresh: false, chain: Some(hop), ..p.clone() });
                 }
             }
         }

@@ -9,13 +9,18 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! chained_hits`):
 //!   - chain_never -> every test red;
-//!   - chain_hop_no_wait -> `each_hop_waits_three_ticks_then_flies_at_the_shot_s_speed` red.
+//!   - chain_hop_no_wait -> `each_hop_waits_three_ticks_then_flies_at_the_shot_s_speed` red;
+//!   - dead_hop_ends -> `under_client16402_hops_on_a_hop_whose_target_died_goes_on_from_its_point` red;
+//!   - dead_hop_uncounted -> `under_client16402_hops_on_a_hop_whose_target_died_goes_on_from_its_point` red.
+//!
+//! combat.CHAIN_HOP_DEAD_TARGET (client 16.402, parity r68: 5 of 5 Electro Spirit hops whose target died before they
+//! landed went on): such a hop lands on the dead target's last point and goes on from there; the dead target counts.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, ChainHopDeadTarget};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -100,4 +105,69 @@ fn an_electro_spirit_hits_nine_along_a_line_of_skeletons() {
     let dead = last.iter().filter(|x| x.is_none()).count();
     assert_eq!(dead, 9, "nine killed: {last:?}");
     assert!(last.contains(&Some(0)), "one untouched (9 targets): {last:?}");
+}
+
+/// A blue Electro Dragon (3 targets) at (6500, 14500) and four red Knights on a row 2000 apart from (6500, 18000), held
+/// and topped up, but the second is killed on the tick after the first is hit, while the shot's hop to it waits on the
+/// first (CHAIN_HOP_WAIT_TICKS). Under combat.CHAIN_HOP_DEAD_TARGET = `arm`: the frames (counted from the first hit) on
+/// which the first, third and fourth Knight lost hp, in the 40 ticks after the first hit.
+fn dead_hop_scene(arm: ChainHopDeadTarget) -> [Vec<usize>; 3] {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["ElectroDragon".into(), "ElectroSpirit".into()], vec!["Knight".into()]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.chain_hop_dead_target = arm;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let at = n(6500, 14500);
+    let dragon = s.scenario_spawn_now(Team::Blue, "ElectroDragon", at, None).expect("the dragon");
+    let knights: Vec<(EntityId, Vec2, i32)> = [(6500, 18000), (8500, 18000), (10500, 18000), (12500, 18000)]
+        .iter()
+        .map(|p| {
+            let id = s.scenario_spawn_now(Team::Red, "Knight", n(p.0, p.1), None).expect("a Knight");
+            (id, n(p.0, p.1), s.entity(id).expect("the Knight").max_hp)
+        })
+        .collect();
+    let mut hits: [Vec<usize>; 3] = Default::default();
+    let mut first: Option<usize> = None;
+    for f in 0..200 {
+        if s.entity(dragon).is_some() {
+            assert!(s.debug_set_pos(dragon, at));
+        }
+        for (k, (id, p, top)) in knights.iter().enumerate() {
+            if s.entity(*id).is_some() {
+                assert!(s.debug_set_pos(*id, *p));
+                assert!(s.debug_set_hp(*id, if k == 1 && first.is_some_and(|a| f == a + 1) { 0 } else { *top }));
+            }
+        }
+        s.tick();
+        for (slot, k) in [0usize, 2, 3].into_iter().enumerate() {
+            let (id, _, top) = knights[k];
+            if s.entity(id).is_some_and(|e| e.hp < top) {
+                hits[slot].push(f - first.unwrap_or(f));
+            }
+        }
+        if first.is_none() && !hits[0].is_empty() {
+            first = Some(f);
+        }
+        if first.is_some_and(|a| f >= a + 40) {
+            break;
+        }
+    }
+    assert!(first.is_some(), "precondition: the dragon's shot hit the first Knight");
+    assert!(s.entity(knights[1].0).is_none(), "precondition: the second Knight was killed");
+    hits
+}
+
+#[test]
+fn under_client16402_hops_on_a_hop_whose_target_died_goes_on_from_its_point() {
+    // The hop to the second Knight lands on its point 3 + 1 ticks after the first hit; from there it goes on to the third
+    // (2000 on) 3 + 1 ticks later, frame 8. The dead Knight counts as the chain's second hit, so the third is its last:
+    // the fourth is never hit.
+    let [_, third, fourth] = dead_hop_scene(ChainHopDeadTarget::Client16402HopsOnFromLastPoint);
+    assert_eq!(third, [8], "the third Knight hit once, 8 ticks after the first: {third:?}");
+    assert!(fourth.is_empty(), "the fourth Knight never hit (the dead hop counted): {fourth:?}");
+    // ends (the vacuity check): the chain ends on the dead Knight.
+    let [_, third, fourth] = dead_hop_scene(ChainHopDeadTarget::Ends);
+    assert!(third.is_empty() && fourth.is_empty(), "ends: the chain went past the dead Knight: {third:?} {fourth:?}");
 }
