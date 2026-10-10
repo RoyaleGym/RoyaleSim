@@ -220,7 +220,7 @@ fn the_loader_refuses_a_tunnelling_card_of_a_shape_nobody_measured() {
 #[test]
 fn a_miner_walks_under_ground_at_650_and_comes_up_on_the_tile_centre_it_was_played_at() {
     let mut s = board();
-    let king = s.config_pre_flip().arena.king_tower_pos(Team::Blue);
+    let king = s.config().arena.king_tower_pos(Team::Blue);
     let dest = s.deploy(Team::Blue, "Miner", at((3500, 1500))).expect("play the Miner");
     assert_eq!(dest, at((3500, 1500)), "the tap resolves to its own tile centre, with no single-troop x - 1");
     let frames = follow(&mut s, Team::Blue, "Miner", 60);
@@ -258,7 +258,7 @@ fn the_creation_step_puts_the_first_frame_more_than_one_step_out() {
         let mut cfg = config_pre_flip();
         cfg.calib.spawn_pathfind_start = start;
         let mut s = board_with(cfg);
-        let king = s.config_pre_flip().arena.king_tower_pos(Team::Blue);
+        let king = s.config().arena.king_tower_pos(Team::Blue);
         s.deploy(Team::Blue, "Miner", at((3500, 1500))).expect("play the Miner");
         let f = follow(&mut s, Team::Blue, "Miner", 3);
         let f = f.first().expect("the Miner appeared");
@@ -315,7 +315,7 @@ fn a_tunnelling_card_goes_down_on_the_enemy_side_but_not_on_water() {
         s.check_deploy(Team::Blue, card, at(p)).unwrap_or_else(|e| panic!("{card} at {p:?} (enemy side, behind the enemy King, the bridge) refused: {e:?}"));
     }
     let water = at((9500, 16500));
-    assert!(!s.config_pre_flip().arena.is_passable_ground(water), "the scene drifted: (9500, 16500) is land");
+    assert!(!s.config().arena.is_passable_ground(water), "the scene drifted: (9500, 16500) is land");
     for card in ["Miner", "GoblinDrill"] {
         assert!(s.check_deploy(Team::Blue, card, water).is_err(), "{card} goes down on water");
     }
@@ -347,8 +347,8 @@ fn the_drills_destination_is_its_buildings_footprint() {
 fn the_digs_route_is_the_flat_cost_search_to_its_destinations_cell() {
     let mut s = board();
     let dest = s.deploy(Team::Blue, "GoblinDrill", at((3500, 23500))).expect("play the Drill");
-    let arena = s.config_pre_flip().arena.clone();
-    let calib = s.config_pre_flip().calib.clone();
+    let arena = s.config().arena.clone();
+    let calib = s.config().calib.clone();
     let king = arena.king_tower_pos(Team::Blue);
     let cell = |p: Vec2| ((p.x / K).div_euclid(CELL), (p.y / K).div_euclid(CELL));
     let (start, goal) = (cell(king), cell(dest));

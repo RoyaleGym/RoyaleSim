@@ -88,7 +88,7 @@ fn scene(me: (i32, i32), foes: &[(&str, (i32, i32), u32)], ticks: u32) -> (Vec<S
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let form = s.cards().index("Musketeer_EV1").expect("the evolved Musketeer loads");
-    let mult = s.config_pre_flip().calib.projectile_speed_to_subtiles_per_tick;
+    let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
     s.spawn_unit(Team::Blue, "Musketeer_EV1", n(me.0, me.1), None).unwrap();
     let (mut shots, mut frames) = (Vec::new(), Vec::new());
     let mut deploy_end: Option<u32> = None;
@@ -211,7 +211,7 @@ fn d_a_spell_in_flight_is_not_pending_damage() {
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let form = s.cards().index("Musketeer_EV1").expect("the evolved Musketeer loads");
-    let mult = s.config_pre_flip().calib.projectile_speed_to_subtiles_per_tick;
+    let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
     s.spawn_unit(Team::Blue, "Musketeer_EV1", n(3499, 9500), None).unwrap();
     let mut deploy_end: Option<u32> = None;
     // At each snipe: its tick, its target's card and position, the Knight's hp, the goblins alive.

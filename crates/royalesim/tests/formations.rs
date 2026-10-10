@@ -448,7 +448,7 @@ fn goblin_gang_and_rascals_summon_both_units_on_one_ring() {
         assert_eq!(live.len(), got.len());
         // The unit's level is the card's: its max hp is the unit's hitpoints scaled
         // like the card's own members at the deploying side's level.
-        let level = s.config_pre_flip().card_level[team_of(g.side) as usize];
+        let level = s.config().card_level[team_of(g.side) as usize];
         let want_hp = db.scaled(second.unit, level, db.get(second.unit).hitpoints).unwrap();
         assert_eq!(s.entities().find(|e| e.card == unit).unwrap().max_hp, want_hp, "{unit}: not at the card's level");
         // The preview's points (before the contact law touches anything: a Girl next
@@ -469,7 +469,7 @@ fn the_ring_is_seat_symmetric_under_the_rotation() {
     // which is not the rotation of itself at the back edge (the next test pins that);
     // the layout under it is compared here.
     let s = BattleState::new(7, symmetric_config());
-    assert_eq!(s.config_pre_flip().calib.formation_ground_y_clamp, GroundYClamp::DeployColumnRangeOwnFrame);
+    assert_eq!(s.config().calib.formation_ground_y_clamp, GroundYClamp::DeployColumnRangeOwnFrame);
     let a = s.arena().clone();
     let taps = [t(350, 500), t(900, 500), t(1450, 500), t(350, 1450), t(1450, 1450), t(900, 100), t(1750, 200), t(850, 1440)];
     let mut compared = 0;
@@ -499,7 +499,7 @@ fn the_shipped_ground_clamp_is_the_measured_per_side_formula() {
     // Goblins of capture 20260918-164951-B (the back edge) and of capture
     // 20260918-121158 t2439 (the river).
     let s = BattleState::new(1, config_pre_flip());
-    assert_eq!(s.config_pre_flip().calib.formation_ground_y_clamp, GroundYClamp::Client16402DeployColumnRange);
+    assert_eq!(s.config().calib.formation_ground_y_clamp, GroundYClamp::Client16402DeployColumnRange);
     let a = s.arena().clone();
     let tile = a.cell * 2;
     let back_blue = Vec2::new(a.width / 4, tile / 2); // row 0's centre

@@ -278,7 +278,7 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
     assert_eq!(s.cards().get(u.card_idx).name, unit);
     assert_eq!(u.spawned_by, Some(hut_id));
     assert!(s.arena().is_passable_ground(u.pos), "{unit} at {:?} is on water", u.pos);
-    let lvl = s.config_pre_flip().card_level[Team::Blue as usize];
+    let lvl = s.config().card_level[Team::Blue as usize];
     let hp_at_level = s.cards().scaled(sp.unit, lvl, s.cards().get(sp.unit).hitpoints).unwrap();
     assert_eq!(u.max_hp, hp_at_level, "the {unit} is at the hut's unified level {lvl}");
     // "In front": the owner's forward axis is +y for Blue (spell.rs forward_dy).
@@ -537,7 +537,7 @@ fn assert_on_the_ring(members: &[Vec2], death_pos: Vec2, radius: i32, axis: Opti
 /// them, inert on the death frame; under next_spawn_phase they wait in the spawn queue. A
 /// death spawn owes nothing to a periodic spawner, which is how it is told from one.
 fn laid_points(s: &BattleState, unit: u16) -> Vec<Vec2> {
-    match s.config_pre_flip().calib.release_timing {
+    match s.config().calib.release_timing {
         ReleaseTiming::NextSpawnPhase => s.pending_spawns().iter().filter(|(t, c, _)| *t == Team::Blue && *c == unit).map(|(_, _, p)| *p).collect(),
         ReleaseTiming::EndOfEventPhase => {
             let mut laid: Vec<(u32, Vec2)> = s.entities().filter(|e| e.team == Team::Blue && e.card_idx == unit && e.spawned_by.is_none()).map(|e| (e.team_seq, e.pos)).collect();
@@ -594,7 +594,7 @@ fn golem_killed_leaves_two_golemites_on_the_radius_and_its_death_damage_lands() 
     s.tick();
     let pups = find_live(&s, Team::Blue, &unit);
     assert_eq!(pups.len(), ds.count as usize, "post-tick {}: {} {unit}s", k + 1, ds.count);
-    let lvl = s.config_pre_flip().card_level[Team::Blue as usize];
+    let lvl = s.config().card_level[Team::Blue as usize];
     // the ring only: this scene pushes the Golem off its own facing (a Red Knight
     // stands inside its radius for the death damage), and the AXIS is pinned on the
     // clean scene below, the one the corpus measured

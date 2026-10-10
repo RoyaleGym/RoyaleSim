@@ -76,7 +76,7 @@ fn unsnapped() -> BattleConfig {
 
 /// Ticks of deploy time for a card, from the data.
 fn deploy_ticks(s: &BattleState, card: &str) -> u32 {
-    (card_stat(s, card).deploy_time_ms / s.config_pre_flip().calib.tick_ms) as u32
+    (card_stat(s, card).deploy_time_ms / s.config().calib.tick_ms) as u32
 }
 
 // ===========================================================================
@@ -189,7 +189,7 @@ fn hog_rider_retargets_to_a_cannon_exactly_when_it_enters_sight() {
     };
     let hog0 = find_live(&base, Team::Blue, "HogRider")[0];
     assert!(hog0.target.is_none(), "precondition: Hog has no target yet (towers out of sight)");
-    let calib = base.config_pre_flip().calib.clone();
+    let calib = base.config().calib.clone();
     // the sight scan sums SightRange + the extra + the HOG's own radius + the
     // candidate's (targeting.ATTACK_RANGE_RULE; `cannon_at_edge` adds the Cannon's)
     let sight = card_stat(&base, "HogRider").sight_range + calib.extra_sight_range_to_building + hog0.radius;
@@ -758,7 +758,7 @@ fn ranged_damage_comes_from_the_projectile_and_lands_on_arrival() {
     cfg.tower_level = [cfg.card_level[0], cfg.card_level[1]];
     let mut s = BattleState::new(1, cfg);
     let a_idx = s.cards().index("TestArcher").unwrap();
-    let expected = s.cards().scaled(a_idx, s.config_pre_flip().card_level[0], 41).unwrap();
+    let expected = s.cards().scaled(a_idx, s.config().card_level[0], 41).unwrap();
     // Out of every tower's range (a princess tower reaches Range 7500 + its own
     // 1000 + the target's radius: 9 tiles from its centre for a 500-radius unit,
     // targeting.ATTACK_RANGE_RULE): archer on Red's side facing a dummy on Blue's,

@@ -37,7 +37,7 @@ const OLD: LiveBottleTaps = LiveBottleTaps::NotBlocked;
 
 /// Own-frame native point `p` of `team`, in arena subtiles.
 fn own(s: &BattleState, team: Team, p: (i32, i32)) -> Vec2 {
-    s.config_pre_flip().arena.from_frame(team, Vec2::new(p.0 * K, p.1 * K))
+    s.config().arena.from_frame(team, Vec2::new(p.0 * K, p.1 * K))
 }
 
 fn battle(arm: LiveBottleTaps) -> BattleState {
@@ -141,7 +141,7 @@ fn the_other_sides_bottle_is_not_read() {
     for team in [Team::Blue, Team::Red] {
         let s = battle(NEW);
         let enemy = team.other();
-        let p = s.config_pre_flip().arena.to_frame(enemy, own(&s, team, BOTTLE));
+        let p = s.config().arena.to_frame(enemy, own(&s, team, BOTTLE));
         let (resolved, _) = goblins(NEW, team, &[(enemy, (p.x / K, p.y / K))], 1, BOTTLE);
         assert_eq!(resolved, own(&s, team, BOTTLE), "{team:?}: moved off the enemy's bottle");
     }

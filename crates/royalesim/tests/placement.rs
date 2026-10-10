@@ -37,7 +37,7 @@ fn tile_centre(x: i32, y: i32) -> Vec2 {
 }
 
 fn place(s: &BattleState, team: Team, card: &str, p: Vec2) -> Option<(Vec2, royalesim::arena::Rect)> {
-    let idx = s.config_pre_flip().cards.index(card).expect("card in the catalogue");
+    let idx = s.config().cards.index(card).expect("card in the catalogue");
     s.building_placement(team, idx, p)
 }
 
@@ -136,7 +136,7 @@ fn both_seats_place_a_rotated_tap_the_same_way() {
 }
 
 fn both_seats_rotate(s: &BattleState, cards: &[&str]) {
-    let arena = &s.config_pre_flip().arena;
+    let arena = &s.config().arena;
     for &card in cards {
         for (x, y) in [(9, 0), (0, 8), (9, 14), (6, 8), (5, 6), (3, 6), (17, 1)] {
             let tap = tile_centre(x, y);
@@ -225,7 +225,7 @@ fn a_deploy_reports_the_point_the_building_took() {
     fn building_in_hand(s: &BattleState) -> Option<(usize, String, i32)> {
         (0..4).find_map(|k| {
             let idx = s.hand_card(Team::Blue, k).ok()?;
-            let card = s.config_pre_flip().cards.get(idx);
+            let card = s.config().cards.get(idx);
             let n = placement_tiles(card.collision_radius);
             (card.kind == royalesim::card::CardKind::Building).then(|| (k, card.name.clone(), n))
         })
@@ -249,7 +249,7 @@ fn a_deploy_reports_the_point_the_building_took() {
 
     let s = dealt();
     let hand: Vec<String> = (0..4)
-        .filter_map(|k| s.hand_card(Team::Blue, k).ok().map(|i| s.config_pre_flip().cards.get(i).name.clone()))
+        .filter_map(|k| s.hand_card(Team::Blue, k).ok().map(|i| s.config().cards.get(i).name.clone()))
         .collect();
     let (slot, name, n) = building_in_hand(&s).unwrap_or_else(|| panic!("no building in the opening hand {hand:?}"));
     assert!(n >= 2, "{name} is a {n}x{n} building, which cannot be pushed off a wall tap");

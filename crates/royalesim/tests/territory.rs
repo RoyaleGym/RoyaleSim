@@ -114,7 +114,7 @@ fn expected(s: &BattleState, team: Team, p: Vec2) -> Result<(), DeployError> {
         return Err(DeployError::NoDeploy);
     }
     let (river_lo, river_hi) = (a.water_y_min / a.cell, a.water_y_max / a.cell - 1);
-    let band_closed = s.config_pre_flip().calib.territory_model == TerritoryModel::EnemyTowerNoDeployRects;
+    let band_closed = s.config().calib.territory_model == TerritoryModel::EnemyTowerNoDeployRects;
     if band_closed && (y0..=y1).any(|r| r >= river_lo && r <= river_hi) {
         return Err(DeployError::OutOfTerritory);
     }

@@ -46,7 +46,7 @@ fn battle() -> BattleState {
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
-    let lockout = s.config_pre_flip().calib.deploy_lockout_ticks as u32;
+    let lockout = s.config().calib.deploy_lockout_ticks as u32;
     s.scenario_set_tick(lockout);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
     s.scenario_set_elixir_milli(Team::Red, 10_000);

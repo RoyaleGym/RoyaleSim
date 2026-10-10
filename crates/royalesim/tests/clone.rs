@@ -425,7 +425,7 @@ fn under_client15535_covers_deploy_late_walk_a_deploying_pair_targets_a_tick_lat
 fn the_sliding_pair_pushes_its_neighbours_and_is_not_pushed() {
     let giant_at = at((TAP.0, TAP.1 + 1900));
     let mut s = BattleState::new(0, shipped());
-    assert_eq!(s.config_pre_flip().calib.knock_duration_ms, 0, "the shipped knockback.DURATION_MS: no knockback slides");
+    assert_eq!(s.config().calib.knock_duration_ms, 0, "the shipped knockback.DURATION_MS: no knockback slides");
     let k = s.scenario_spawn_now(Team::Blue, "Knight", at(TAP), None).expect("spawn Knight");
     let g = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("spawn Giant");
     s.spawn_unit(Team::Blue, "Clone", at(TAP), None).expect("cast Clone");

@@ -164,7 +164,7 @@ fn evo_cannon_drops_its_barrage() {
     assert_eq!(bombs, want);
     // Side 1's barrage: the same x, the y toward side 0.
     let def = s.cards().get(form).evo.as_ref().unwrap().barrage.as_ref().unwrap();
-    let red: Vec<i32> = barrage_spells(s.cards(), &s.config_pre_flip().calib, def, Team::Red, form, 11, n(9000, 22500)).iter().map(|sp| match sp.motion {
+    let red: Vec<i32> = barrage_spells(s.cards(), &s.config().calib, def, Team::Red, form, 11, n(9000, 22500)).iter().map(|sp| match sp.motion {
         royalesim::spell::SpellMotion::Flight { pos, .. } => pos.y / K,
         _ => unreachable!(),
     }).collect();
@@ -415,7 +415,7 @@ fn an_evo_copy_on_the_river_bank_goes_outward_then_behind_under_client15535_ahea
 fn evo_musketeer_spends_three_snipes() {
     let mut s = battle(config_pre_flip());
     let form = idx(&s, "Musketeer_EV1");
-    let mult = s.config_pre_flip().calib.projectile_speed_to_subtiles_per_tick;
+    let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
     // A Golem 12000 ahead of her in her lane, deploying 3000 ms: far past her Range of 6000.
     s.spawn_unit(Team::Blue, "Musketeer_EV1", n(3500, 9000), None).unwrap();
     s.spawn_unit(Team::Red, "Golem", n(3500, 21000), None).unwrap();
@@ -704,7 +704,7 @@ fn under_client16402_next_tick_an_evo_copy_is_made_the_tick_after_its_hit() {
     // `battle`'s scene with the arm kept (`battle` pins the old one)
     let mut s = BattleState::new(7, level11(cfg));
     past_deploy_lockout(&mut s);
-    assert_eq!(s.config_pre_flip().calib.evo_copy_tick, EvoCopyTick::Client16402NextTick, "the scene's arm");
+    assert_eq!(s.config().calib.evo_copy_tick, EvoCopyTick::Client16402NextTick, "the scene's arm");
     let form = idx(&s, "Skeletons_EV1");
     s.spawn_unit(Team::Red, "Giant", n(9000, 13500), None).unwrap();
     s.spawn_unit(Team::Blue, "Skeletons_EV1", n(9000, 12000), None).unwrap();

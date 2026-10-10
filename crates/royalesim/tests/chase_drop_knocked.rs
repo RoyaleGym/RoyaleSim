@@ -58,7 +58,7 @@ fn at(p: (i32, i32)) -> Vec2 {
 /// The chase-drop limit of `holder` on `other`, subtiles: SightRange + both collision radii - 1000 native.
 fn limit(s: &BattleState, holder: EntityId, other: EntityId) -> i64 {
     let (h, o) = (s.entity(holder).unwrap(), s.entity(other).unwrap());
-    let sight = s.config_pre_flip().cards.get(h.card_idx).sight_range as i64;
+    let sight = s.config().cards.get(h.card_idx).sight_range as i64;
     sight + h.radius as i64 + o.radius as i64 - SHORT_OF_SIGHT * K as i64
 }
 

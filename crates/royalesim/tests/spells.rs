@@ -741,7 +741,7 @@ fn arrows_damage_scales_hits_once_per_wave_and_does_not_push() {
     let tower = s0.tower_ids(Team::Red)[2].unwrap();
     let knight_at = Vec2::new(tower_pos.x - milli(3000), tower_pos.y - milli(2000));
     let c = cast_scenario(config_pre_flip(), Team::Blue, "Arrows", tower_pos, None, &[], &[(Team::Red, "Knight", knight_at)]);
-    let level = c.s.config_pre_flip().card_level[0];
+    let level = c.s.config().card_level[0];
     let dmg = scaled_from_json(&c.s, "Arrows", level, int(&arrows_hit()["damage"]));
     let pct = int(&arrows_hit()["crown_tower_damage_percent"]);
     let waves = arrows_waves();
@@ -1032,7 +1032,7 @@ fn log_tap() -> Vec2 {
 }
 
 fn log_numbers(s: &BattleState) -> (i32, i32, i32, i32, i32, i32) {
-    let k = s.config_pre_flip().calib.projectile_speed_to_subtiles_per_tick;
+    let k = s.config().calib.projectile_speed_to_subtiles_per_tick;
     (
         int(&log_air()["speed"]) * k,
         milli(int(&log_air()["min_distance_milli"])),

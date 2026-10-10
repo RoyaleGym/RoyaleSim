@@ -36,7 +36,7 @@ fn n(x: i32, y: i32) -> Vec2 {
 
 /// The Knight's chase-drop limit and plain sight on a Knight, native: SightRange + both radii (- 1000).
 fn knight_limits(s: &BattleState) -> (i32, i32) {
-    let cards = &s.config_pre_flip().cards;
+    let cards = &s.config().cards;
     let k = cards.get(cards.index("Knight").expect("Knight loads"));
     let sight = (k.sight_range + 2 * k.collision_radius) / K;
     (sight - 1000, sight)
