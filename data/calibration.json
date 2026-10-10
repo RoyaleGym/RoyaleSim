@@ -4596,6 +4596,17 @@
     }
   },
   "spawner": {
+    "EVO_BARREL_DROP_TICK": {
+      "value": "client16402_tick_later",
+      "status": "measured",
+      "candidates": ["client15535_fuse", "client16402_tick_later"],
+      "confidence": "MEDIUM for client16402_tick_later on client 16.402: one scene, both drops a tick later (sp-form-SkeletonBalloon-evo-s0 on 160402017); the 160402017 table makes both drops area effect objects (SkeletonBalloonEvoDummyAeO_EXTRA / _DEATH, HitSpeedOffset 600) where 15.535.29's were the container's fuse. 15.535.29: client15535_fuse (CLIENT15535_ARMS).",
+      "provenance": "MEASURED by parity (2026-10-09, r63 triage) on Oracle's 160402017 sp-form-SkeletonBalloon-evo-s0: the barrel 665 -> 448 on t974, the health line's seven Skeletons first on t988 (the engine's t987, 15.535.29's t987); the barrel gone on t1033, the death's seven on t1046 (T + 13; the engine's and 15.535.29's T + 12). Knock-ons in the scene: 7 Skeletons a tick early twice, their lifetimes (key 40 dead t1028 in the client, t1055 in the engine), an enemy Skeleton alive 134 ticks too long.",
+      "meaning": "client15535_fuse: the engine's; the health line's drop on its fuse + a tick, the death's on its fuse. client16402_tick_later: each a tick later.",
+      "open": "The 160402017 area objects' own timing (HitSpeedOffset 600) read as the fuse plus a tick; the drops' blow; the base container on 16.402 (T + 12 here).",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_fuse (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs barrel_pass, phase_reap (the evo barrel's death bomb), selected by Calib::evo_barrel_drop_tick; tests/evo_skeleton_barrel.rs."
+    },
     "EVO_COPY_TICK": {
       "value": "client16402_next_tick",
       "status": "measured",

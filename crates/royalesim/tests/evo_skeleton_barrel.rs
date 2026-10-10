@@ -15,6 +15,10 @@
 //! evo_skeleton_barrel`):
 //!   - barrel_drop_never -> `under_75_percent_it_drops_seven_skeletons_13_ticks_on` red.
 //!   - barrel_point_before_move -> `under_client15535_after_move_the_drop_falls_a_step_further` red.
+//!   - evo_barrel_drop_on_fuse -> `under_client16402_tick_later_both_drops_land_a_tick_later` red.
+//!
+//! spawner.EVO_BARREL_DROP_TICK = client16402_tick_later (client 16.402, sp-form-SkeletonBalloon-evo-s0 on 160402017: t974 ->
+//! t988, t1033 -> t1046): both drops a tick later.
 //!
 //! spawner.BARREL_DROP_POINT = client15535_after_move (item 306; sp-form-SkeletonBalloon-evo-s0 t987): the health-line
 //! drop falls from the barrel's point after its step on the tick it is made, its seven Skeletons on the same tick, one
@@ -38,8 +42,14 @@ fn battle() -> BattleState {
 }
 
 fn battle_with(arm: royalesim::state::BarrelDropPoint) -> BattleState {
+    battle_at(arm, royalesim::state::EvoBarrelDropTick::Client15535Fuse)
+}
+
+/// `battle_with` under spawner.EVO_BARREL_DROP_TICK = `drop` (the 15.535.29 scenes run client15535_fuse).
+fn battle_at(arm: royalesim::state::BarrelDropPoint, drop: royalesim::state::EvoBarrelDropTick) -> BattleState {
     let mut cfg: BattleConfig = config();
     cfg.calib.barrel_drop_point = arm;
+    cfg.calib.evo_barrel_drop_tick = drop;
     cfg.decks = [vec!["SkeletonBalloon".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -56,8 +66,12 @@ fn scene(frames: usize, before: impl FnMut(usize, &mut BattleState, EntityId)) -
 }
 
 /// `scene` under spawner.BARREL_DROP_POINT = `arm`.
-fn scene_with(arm: royalesim::state::BarrelDropPoint, frames: usize, mut before: impl FnMut(usize, &mut BattleState, EntityId)) -> (EntityId, Vec<Vec<Vec2>>, Vec<Option<i32>>) {
-    let mut s = battle_with(arm);
+fn scene_with(arm: royalesim::state::BarrelDropPoint, frames: usize, before: impl FnMut(usize, &mut BattleState, EntityId)) -> (EntityId, Vec<Vec<Vec2>>, Vec<Option<i32>>) {
+    scene_at(battle_with(arm), frames, before)
+}
+
+/// `scene` in the battle `s`.
+fn scene_at(mut s: BattleState, frames: usize, mut before: impl FnMut(usize, &mut BattleState, EntityId)) -> (EntityId, Vec<Vec<Vec2>>, Vec<Option<i32>>) {
     s.spawn_unit(Team::Blue, "SkeletonBalloon_EV1", n(AT.0, AT.1), None).expect("the barrel");
     s.tick();
     let barrel = find_live(&s, Team::Blue, "SkeletonBalloon_EV1")[0].id;
@@ -161,3 +175,27 @@ fn under_client15535_after_move_the_drop_falls_a_step_further() {
     assert!(dy > 0 && (85 * 85..=95 * 95).contains(&step2), "client15535_after_move: the ring's centre moved ({dx}, {dy}), not one step on ({xo}, {yo} -> {xn}, {yn})");
 }
 
+/// spawner.EVO_BARREL_DROP_TICK = client16402_tick_later: the health line's Skeletons on the 14th frame from the hit's, the
+/// death's 13 frames after its last (client 16.402: t974 -> t988, t1033 -> t1046). Plant: evo_barrel_drop_on_fuse.
+#[test]
+fn under_client16402_tick_later_both_drops_land_a_tick_later() {
+    use royalesim::state::{BarrelDropPoint, EvoBarrelDropTick};
+    let (_, skel, _) = scene_at(battle_at(BarrelDropPoint::StatusPhase, EvoBarrelDropTick::Client16402TickLater), 30, |k, s, b| {
+        if k == 5 {
+            assert!(s.debug_set_hp(b, 448));
+        }
+    });
+    let first = skel.iter().position(|v| !v.is_empty()).expect("a drop");
+    assert_eq!(first, 5 + 13, "the Skeletons on the 14th frame from the hit's (t974 -> t988)");
+    let (_, skel, hp) = scene_at(battle_at(BarrelDropPoint::StatusPhase, EvoBarrelDropTick::Client16402TickLater), 40, |k, s, b| {
+        if k == 2 {
+            assert!(s.debug_set_hp(b, 400));
+        }
+        if k == 20 {
+            assert!(s.debug_set_hp(b, 0));
+        }
+    });
+    let gone = hp.iter().position(|h| h.is_none()).expect("the barrel dies");
+    let more = (gone..skel.len()).find(|&k| skel[k].len() > skel[k - 1].len()).expect("the death drop");
+    assert_eq!(more, gone + 13, "its Skeletons 13 frames after (t1033 -> t1046)");
+}

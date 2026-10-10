@@ -773,6 +773,10 @@ pub struct Calib {
     /// `FirstMsOffset`, what a battle saved before it ran.
     #[serde(default = "attached_area_timing_default")]
     pub attached_area_timing: AttachedAreaTiming,
+    /// spawner.EVO_BARREL_DROP_TICK (when the Evo Skeleton Barrel's drops land, `barrel_pass`, `phase_reap`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Client15535Fuse`, what a battle saved before it ran.
+    #[serde(default = "evo_barrel_drop_tick_default")]
+    pub evo_barrel_drop_tick: EvoBarrelDropTick,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2507,6 +2511,10 @@ fn warp_law_default() -> WarpLaw {
 
 fn attached_area_timing_default() -> AttachedAreaTiming {
     AttachedAreaTiming::FirstMsOffset
+}
+
+fn evo_barrel_drop_tick_default() -> EvoBarrelDropTick {
+    EvoBarrelDropTick::Client15535Fuse
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9155,6 +9163,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.EVO_BARREL_DROP_TICK -- see `barrel_pass` and `phase_reap`'s death bomb (card.rs `BarrelDef`): when the
+    /// Evo Skeleton Barrel's two drops (at its health line, at its death) land.
+    EvoBarrelDropTick {
+        /// The engine before this key: the health line's on its fuse + a tick (13 frames from the hit), the death's on its
+        /// fuse (12 frames from its last). Client 15.535.29, sp-form-SkeletonBalloon-evo-s0: t974 -> t987, t1033 -> t1045.
+        Client15535Fuse = "client15535_fuse",
+        /// Each a tick later (14 and 13 frames). Client 16.402 (Oracle's 160402017 sp-form-SkeletonBalloon-evo-s0): the
+        /// line crossed on t974, its Skeletons on t988; the barrel gone on t1033, its Skeletons on t1046; the base
+        /// Skeleton Barrel's container unchanged (12 frames).
+        Client16402TickLater = "client16402_tick_later",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9661,6 +9682,7 @@ impl Calib {
             deflect_buff_landing: pick(&v, &["status", "DEFLECT_BUFF_LANDING", "value"], DeflectBuffLanding::from_calibration_name)?,
             warp_law: pick(&v, &["combat", "WARP_LAW", "value"], WarpLaw::from_calibration_name)?,
             attached_area_timing: pick(&v, &["spells", "ATTACHED_AREA_TIMING", "value"], AttachedAreaTiming::from_calibration_name)?,
+            evo_barrel_drop_tick: pick(&v, &["spawner", "EVO_BARREL_DROP_TICK", "value"], EvoBarrelDropTick::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -19172,6 +19194,16 @@ impl BattleState {
     /// it in the owner's frame: the death bomb a death leaves (`phase_reap`), made here, a tick before a death's would be,
     /// so its fuse carries that tick (measured on client 15.535.29: the hit that took the barrel under the line on t974,
     /// its Skeletons on t987; a death on t1033, its Skeletons on t1045).
+    /// spawner.EVO_BARREL_DROP_TICK = client16402_tick_later in force.
+    fn evo_barrel_later(&self) -> bool {
+        // PLANT (regression) evo_barrel_drop_on_fuse: the new arm's drops still land on the fuse.
+        #[cfg(not(clash_plant = "evo_barrel_drop_on_fuse"))]
+        let later = self.cfg.calib.evo_barrel_drop_tick == EvoBarrelDropTick::Client16402TickLater;
+        #[cfg(clash_plant = "evo_barrel_drop_on_fuse")]
+        let later = false;
+        later
+    }
+
     fn barrel_pass(&mut self) {
         let tick = self.cfg.calib.tick_ms;
         let mut made = Vec::new();
@@ -19196,7 +19228,9 @@ impl BattleState {
             let fwd = spell::forward_dy(team);
             let offset = Vec2::new(fwd * b.extra_offset_x, fwd * b.extra_offset_y);
             let at = Vec2::new(pos.x + offset.x, pos.y + offset.y);
-            let drop = Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick }, depth: 0, flown: 0 };
+            // spawner.EVO_BARREL_DROP_TICK = client16402_tick_later: a tick later (client 16.402: t974 -> t988).
+            let later = if self.evo_barrel_later() { tick } else { 0 };
+            let drop = Spell { team, card: b.extra.unit, level, damage, pulse: 0, motion: spell::SpellMotion::Flight { pos: at, aim: at, frac: Vec2::default(), delay_ms: fuse_ms + tick + later }, depth: 0, flown: 0 };
             // spawner.BARREL_DROP_POINT = client15535_after_move: the drop waits for the barrel's step (`barrel_settle`).
             // PLANT (regression) barrel_point_before_move: the new arm drops from the Status-phase point.
             #[cfg(not(clash_plant = "barrel_point_before_move"))]
@@ -28486,13 +28520,17 @@ impl BattleState {
                     let damage = self.cfg.cards.scaled(ds.unit, level, base).expect("death bomb level validated at deploy");
                     let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
                     // An Evo Skeleton Barrel's death drop falls `death_offset` from it in the owner's frame (`BarrelDef`).
-                    let pos = match self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.barrel) {
+                    let evo_barrel = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.barrel);
+                    let pos = match evo_barrel {
                         Some(b) => {
                             let fwd = spell::forward_dy(team);
                             Vec2::new(pos.x + fwd * b.death_offset_x, pos.y + fwd * b.death_offset_y)
                         }
                         None => pos,
                     };
+                    // spawner.EVO_BARREL_DROP_TICK = client16402_tick_later: the evo barrel's a tick later (client 16.402: T +
+                    // 13 where 15.535.29's T + 12); every other death bomb unchanged.
+                    let fuse_ms = fuse_ms + if evo_barrel.is_some() && self.evo_barrel_later() { self.cfg.calib.tick_ms } else { 0 };
                     self.spells.push(Spell {
                         team,
                         card: ds.unit,
@@ -35140,6 +35178,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.ATTACHED_AREA_TIMING: Calib gained attached_area_timing (serde default the old arm, first_ms_offset), no new state (it sets a new area's saved clock and life),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spawner.EVO_BARREL_DROP_TICK: Calib gained evo_barrel_drop_tick (serde default the old arm, client15535_fuse), no new state (it sets a new drop's saved delay),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36069,6 +36109,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("warp_law".into(), serde_json::to_value(WarpLaw::Client15535Ladder).map_err(|e| e.to_string())?);
     // spells.ATTACHED_AREA_TIMING: a format-3 battle's ability areas hit at HitSpeed - HitSpeedOffset for their LifeDuration (the same rule).
     sh.insert("attached_area_timing".into(), serde_json::to_value(AttachedAreaTiming::FirstMsOffset).map_err(|e| e.to_string())?);
+    // spawner.EVO_BARREL_DROP_TICK: a format-3 battle's evo barrel drops landed on the fuse (the same rule).
+    sh.insert("evo_barrel_drop_tick".into(), serde_json::to_value(EvoBarrelDropTick::Client15535Fuse).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
