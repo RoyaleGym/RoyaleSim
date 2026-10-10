@@ -197,6 +197,9 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // No kwarg: {"placement.TROOP_BUILDING_TAPS": "not_relocated"}. The shipped as_tower_tap moves a tap off an own
     // building by the axis push, measured in arena coordinates; not_relocated is symmetric.
     "placement_troop_building_taps",
+    // No kwarg: {"spells.RELEASE_GROUND_POINT": "none"}. The shipped client16402_one_unit moves a landing spell's ring one
+    // unit, lower x on the left half and lower y for side 1; none lays it on the landing point for both seats.
+    "release_ground_point",
     // No kwarg: {"spells.ROLLING_HIT_SHAPE": "rect_vs_circle_edge"}. The shipped client15535_max_y_edge_open opens the
     // swept rectangle's max-y edge in ARENA coordinates (client 15.535.29), so a Log touching a victim exactly with its
     // front edge misses it rolling +y and hits it rolling -y; rect_vs_circle_edge is the same for both seats.

@@ -1491,5 +1491,5 @@ fn a_missing_tower_level_is_read_from_the_recorded_towers() {
     }
     let r = play(&f);
     let note = format!("side 0 tower level {towers} read from its towers");
-    assert!(r.notes.iter().any(|n| *n == note), "the towers' level read: {:?}", r.notes);
+    assert!(r.level_deviations.iter().any(|n| *n == note), "the towers' level read: {:?}", r.level_deviations);
 }

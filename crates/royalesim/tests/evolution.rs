@@ -458,7 +458,12 @@ fn forms_take_slots_after_every_existing_card() {
     let (db, db0) = (without(&["hero_forms"]), without(&["evolutions", "hero_forms"]));
     assert_eq!(db.rejected_evolutions, Vec::<(String, String)>::new());
     assert_eq!(db0.forms.len(), 0);
-    let n0 = db0.cards.len();
+    // The crown tower troops (card.rs `load_tower_troops`) load last whatever the table holds: db0's last slots, db's
+    // after the forms. Both are left out here.
+    let troops = royalesim::card::TOWER_TROOPS.len();
+    let n0 = db0.cards.len() - troops;
+    assert_eq!(db0.cards[n0..].iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), royalesim::card::TOWER_TROOPS, "db0's last slots");
+    assert_eq!(db.cards[db.cards.len() - troops..].iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), royalesim::card::TOWER_TROOPS, "db's last slots");
     // An enchant's attacker list may reach the forms too (the Rune Giant's: the Evo Firecracker and the Evo Hunter fire
     // their bases' listed rows): its entries past the parent build's slots are left out here, as a buff's added names are.
     let names = |d: &CardDb, n: usize| {
@@ -538,10 +543,10 @@ fn forms_take_slots_after_every_existing_card() {
     // Evo Witch, then the Evo Goblin Cage with its Brawler, the Evo Executioner, the Evo Goblin Giant, the Evo Princess,
     // the Evo Hunter, the Evo Dart Goblin, the Evo Furnace, the Evo Electro Dragon, the Evo Goblin Drill with its
     // building, the Evo Goblin Barrel with its GoblinDummy and its decoy barrel, and the Evo Lumberjack with its ghost.
-    assert_eq!(db.cards.len(), n0 + 57);
+    assert_eq!(db.cards.len(), n0 + 57 + troops);
     let barrel: Vec<&str> = db.cards[n0 + 52..n0 + 55].iter().map(|c| c.name.as_str()).collect();
     assert_eq!(barrel, ["GoblinBarrel_EV1", "GoblinDummy", "GoblinBarrel_EV1_Decoy"]);
-    let lumberjack: Vec<&str> = db.cards[n0 + 55..].iter().map(|c| c.name.as_str()).collect();
+    let lumberjack: Vec<&str> = db.cards[n0 + 55..n0 + 57].iter().map(|c| c.name.as_str()).collect();
     assert_eq!(lumberjack, ["RageBarbarian_EV1", "RageBarbarianEvoGhost"]);
     assert_eq!(db.cards[n0 + 52].evo.as_ref().and_then(|e| e.mirror), Some((n0 + 54) as u16), "the form casts its decoy");
     assert!(db.cards[n0 + 54].summon_only && db.cards[n0 + 54].evo.is_none() && db.cards[n0 + 53].hitpoints == 32);

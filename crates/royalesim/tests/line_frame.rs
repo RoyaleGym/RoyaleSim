@@ -15,13 +15,17 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, LineFrame};
+use royalesim::state::{BattleConfig, BattleState, LineFrame, LineKingBackRow};
 use royalesim::Team;
 
-/// The Royal Recruits' ys (native) after Red's play on (15500, 28500).
-fn ys(arm: LineFrame) -> Vec<i32> {
+/// The Royal Recruits' ys (native) after Red's play on (15500, 28500); `back` the back row's arm (formation.LINE_KING_BACK_ROW),
+/// None the shipped one.
+fn ys(arm: LineFrame, back: Option<LineKingBackRow>) -> Vec<i32> {
     let mut cfg: BattleConfig = config();
     cfg.calib.line_frame = arm;
+    if let Some(b) = back {
+        cfg.calib.line_king_back_row = b;
+    }
     let deck: Vec<String> = ["RoyalRecruits", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|s| s.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.card_level = [11, 11];
@@ -45,9 +49,12 @@ fn ys(arm: LineFrame) -> Vec<i32> {
 /// Plant: line_frame_rotation.
 #[test]
 fn a_side_1_line_is_placed_in_the_y_reflection_under_client15535_y_reflection() {
-    let rot = ys(LineFrame::Rotation);
-    // NOT VACUOUS: the rotation lays the line 4000 back.
+    // NOT VACUOUS: the rotation lays the line 4000 back, with the back row closed as when the scene was measured (the open
+    // back row, formation.LINE_KING_BACK_ROW = client16402_open, takes it onto the back row instead, own y 1000).
+    let rot = ys(LineFrame::Rotation, Some(LineKingBackRow::Closed));
     assert!(rot.iter().all(|y| (y - 23500).abs() <= 300), "rotation: {rot:?}");
-    let refl = ys(LineFrame::Client15535YReflection);
+    let rot_open = ys(LineFrame::Rotation, Some(LineKingBackRow::Client16402Open));
+    assert!(rot_open.iter().all(|y| (y - 31000).abs() <= 300), "rotation, the back row open: {rot_open:?}");
+    let refl = ys(LineFrame::Client15535YReflection, None);
     assert!(refl.iter().all(|y| (y - 27500).abs() <= 300), "client15535_y_reflection: {refl:?}");
 }

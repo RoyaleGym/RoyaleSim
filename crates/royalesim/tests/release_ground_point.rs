@@ -1,13 +1,17 @@
-//! A LANDING SPELL'S GROUND UNITS ARE LAID AROUND THE LANDING POINT MOVED ONE NATIVE UNIT (state.rs
+//! A LANDING SPELL'S GROUND RING IS LAID AROUND THE LANDING POINT MOVED ONE NATIVE UNIT (state.rs
 //! `release_ring_points`; spells.RELEASE_GROUND_POINT = client16402_one_unit), as formation.GROUND_DEPLOY_POINT moves a ground
 //! summon's: absolute x one lower on the arena's left half, absolute y one lower for a side-1 owner. Measured on client 16.402
 //! (the live population, parity's r62 item B): a Goblin Barrel on a left princess tower releases around x 3499, not 3500.
+//! A single released unit is laid on its point: the Royal Delivery's Recruit on the tap's tile centre (57 of 57 read on
+//! their first frame, both halves and both sides), the Barbarian Barrel's Barbarian at the log's end.
 //!
 //! The scene: one Goblin Barrel per seat and half, on open ground, the Goblins' first frame read under both arms. With no
 //! other unit near, the new arm's three Goblins are the old arm's moved by exactly that unit.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! release_ground_point`): release_ground_point_unread -> `a_goblin_barrel_releases_one_unit_off_its_landing_point` red.
+//! release_ground_point`): release_ground_point_unread -> `a_goblin_barrel_releases_one_unit_off_its_landing_point` red;
+//! release_ground_point_shifts_single -> `a_barbarian_barrels_barbarian_is_released_on_its_point` and
+//! `a_royal_deliverys_recruit_is_released_on_its_point` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -16,7 +20,7 @@ use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleState, ReleaseGroundPoint};
 use royalesim::Team;
 
-const DECK: [&str; 8] = ["GoblinBarrel", "BarbLog", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Zap"];
+const DECK: [&str; 8] = ["GoblinBarrel", "BarbLog", "RoyalDelivery", "Knight", "Archers", "Musketeer", "Fireball", "Zap"];
 
 fn n(p: (i32, i32)) -> Vec2 {
     Vec2::new(p.0 * K, p.1 * K)
@@ -80,9 +84,9 @@ fn barbarian(arm: ReleaseGroundPoint, team: Team, at: (i32, i32)) -> (i32, i32) 
     panic!("the scene drifted: no Barbarian appeared");
 }
 
-/// A ROLLING spell's release is not shifted (r62 item B; client 16.402, the live population: the Barbarian Barrel's Barbarian
+/// A SINGLE released unit is not shifted (r62 item B; client 16.402, the live population: the Barbarian Barrel's Barbarian
 /// at the log's end to the native unit on the left half, 54 of 54, where the shifted engine stood one off). Plant:
-/// release_ground_point_shifts_rolling.
+/// release_ground_point_shifts_single.
 #[test]
 fn a_barbarian_barrels_barbarian_is_released_on_its_point() {
     for (team, at) in [(Team::Blue, (3500, 9500)), (Team::Red, (3500, 22500))] {
@@ -91,5 +95,36 @@ fn a_barbarian_barrels_barbarian_is_released_on_its_point() {
             barbarian(ReleaseGroundPoint::None, team, at),
             "{team:?} on {at:?}: the Barbarian where the unshifted arm puts it"
         );
+    }
+}
+
+/// The Recruit of `team`'s Royal Delivery cast on `at` (native), on its first frame, under `arm`.
+fn recruit(arm: ReleaseGroundPoint, team: Team, at: (i32, i32)) -> (i32, i32) {
+    let mut cfg = config();
+    cfg.calib.release_ground_point = arm;
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.spawn_unit(team, "RoyalDelivery", n(at), None).expect("the crate");
+    for _ in 0..200 {
+        s.tick();
+        if let Some(e) = s.entities().find(|e| e.team == team && e.card == "DeliveryRecruit") {
+            return (e.pos.x / K, e.pos.y / K);
+        }
+    }
+    panic!("the scene drifted: no Recruit appeared");
+}
+
+/// THE ROYAL DELIVERY'S ONE RECRUIT STANDS ON THE TAP'S TILE CENTRE on both halves and for both sides (client 16.402, the
+/// live population: 57 of 57 Recruits read on their first frame, left half side 0 18 / side 1 8, right half 19 / 12; the
+/// rest had stepped or been pushed). The left half is where the ring's shift would move it. Plant:
+/// release_ground_point_shifts_single.
+#[test]
+fn a_royal_deliverys_recruit_is_released_on_its_point() {
+    for (team, at) in [(Team::Blue, (4500, 20500)), (Team::Red, (4500, 11500)), (Team::Red, (13500, 11500))] {
+        assert_eq!(recruit(ReleaseGroundPoint::Client16402OneUnit, team, at), at, "{team:?} on {at:?}: the Recruit on the tile centre");
+        assert_eq!(recruit(ReleaseGroundPoint::None, team, at), at, "{team:?} on {at:?}: the old arm's Recruit (the scene)");
     }
 }

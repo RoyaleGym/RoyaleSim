@@ -14641,8 +14641,9 @@ impl CardDb {
     /// record (its footprint, its no-deploy box, its kind) with its attack -- hitpoints, damage, hit speed, load time,
     /// range, projectile (`TOWER_TROOP_KEYS`) -- taken from the troop's `units` row (the buildings table's DaggerDuchess,
     /// Cannoneer and ChefTower rows), registered under the row's name. The crown tower ladder scales it as it scales the
-    /// Princess (state.rs `spawn_with`). A troop whose row is missing or does not load is not registered. NOT modelled:
-    /// the Duchess's dagger charges (her row's 500 ms throughout), the Chef's cooking.
+    /// Princess (state.rs `spawn_with`). A troop whose row is missing or does not load is not registered. Each record is
+    /// spawn-only (`summon_only`), so no deck, catalogue (py.rs) or census names one; the records load after every other
+    /// slot, so no index moves. NOT modelled: the Duchess's dagger charges (her row's 500 ms throughout), the Chef's cooking.
     fn load_tower_troops(&mut self, s: &str, buffs: &mut BuffTable, ctx: &LoadCtx) {
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(s) else { return };
         let Some(princess) = doc.get("towers").and_then(|t| t.as_array()).and_then(|t| t.iter().find(|r| r.get("name").and_then(|n| n.as_str()) == Some(PRINCESS_TOWER))) else { return };
@@ -14658,7 +14659,8 @@ impl CardDb {
             obj.insert("name".to_string(), serde_json::Value::String((*name).to_string()));
             obj.remove("display_name");
             let Ok(raw) = serde_json::from_value::<RawCard>(rec) else { continue };
-            if let Ok((c, _, _)) = convert(raw, buffs, ctx) {
+            if let Ok((mut c, _, _)) = convert(raw, buffs, ctx) {
+                c.summon_only = true;
                 let _ = self.push(c, None);
             }
         }

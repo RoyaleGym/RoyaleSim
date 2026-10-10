@@ -26371,18 +26371,20 @@ impl BattleState {
             let points = match self.cfg.calib.projectile_spawn_formation {
                 ProjectileSpawnFormation::EngineGrid => self.formation_points(r.team, r.count, unit.collision_radius, unit.is_flying(), r.pos),
                 ProjectileSpawnFormation::CountRingTight => {
-                    // spells.RELEASE_GROUND_POINT: a decoy (an Evo Goblin Barrel's, cast at the play's point mirrored) is laid
-                    // around its own landing point, unshifted; so is a rolling spell's release (the Barbarian Barrel's
-                    // Barbarian, at the log's end).
+                    // spells.RELEASE_GROUND_POINT: the shift is a RING's (two or more units, the Goblin Barrel's three). A single
+                    // released unit is laid on its point (the Royal Delivery's Recruit on the tap's tile centre, 57 of 57
+                    // read on their first frame; the Barbarian Barrel's Barbarian at the log's end, 54 of 54 on the left
+                    // half). A decoy (an Evo Goblin Barrel's, cast at the play's point mirrored) is laid around its own
+                    // landing point, unshifted.
                     #[cfg(not(clash_plant = "release_ground_point_shifts_decoy"))]
                     let decoy = self.cfg.cards.cards.iter().any(|c| c.evo.as_ref().and_then(|v| v.mirror) == Some(r.source));
                     #[cfg(clash_plant = "release_ground_point_shifts_decoy")]
                     let decoy = false; // PLANT (regression): the decoy's release takes the one-unit shift too.
-                    #[cfg(not(clash_plant = "release_ground_point_shifts_rolling"))]
-                    let rolling = matches!(self.cfg.cards.get(r.source).spell, Some(crate::card::SpellDef { shape: crate::card::SpellShape::Rolling { .. }, .. }));
-                    #[cfg(clash_plant = "release_ground_point_shifts_rolling")]
-                    let rolling = false; // PLANT (regression): a rolling spell's release takes the one-unit shift too.
-                    self.release_ring_points(r.team, r.count, r.unit, r.pos, !decoy && !rolling)
+                    #[cfg(not(clash_plant = "release_ground_point_shifts_single"))]
+                    let single = r.count <= 1;
+                    #[cfg(clash_plant = "release_ground_point_shifts_single")]
+                    let single = false; // PLANT (regression): a single released unit takes the one-unit shift too.
+                    self.release_ring_points(r.team, r.count, r.unit, r.pos, !decoy && !single)
                 }
             };
             for p in points {

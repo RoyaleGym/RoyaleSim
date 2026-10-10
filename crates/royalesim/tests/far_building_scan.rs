@@ -37,6 +37,10 @@ fn targets_at(giant: (i32, i32), cannon: (i32, i32), ticks: u32) -> (Vec<Option<
     cfg.decks = [BLUE.iter().map(|c| c.to_string()).collect(), RED.iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
+    // The cut these 15.535 scenes measure, at the centre (targeting.BUILDING_SCAN_X_CUT = centre_6750, the value the plants
+    // move). The shipped client16402_edge_6700_melee cuts a melee walker at its edge, which moves a Giant's band (radius
+    // 750 on a Cannon's 600) by 150: tests/building_scan_x_cut.rs pins it, with this file's Hog Rider band.
+    cfg.calib.building_scan_x_cut = royalesim::state::BuildingScanXCut::Centre6750;
     let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
     let c = s.scenario_spawn_now(Team::Red, "Cannon", n(cannon), None).expect("the Cannon");

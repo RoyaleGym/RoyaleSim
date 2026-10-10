@@ -92,10 +92,16 @@ fn the_forms_load_after_every_other_slot() {
     let mut doc: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert!(doc.as_object_mut().unwrap().remove("hero_forms").is_some(), "the table carries no hero_forms");
     let bare = CardDb::from_json_str(&doc.to_string(), CardSource::DerivedJson).expect("the table without its forms loads");
+    // THE CROWN TOWER TROOPS (card.rs `load_tower_troops`) load last whatever the table holds: the bare table's last
+    // slots, the full table's after the forms. They are left out of the slot comparison.
+    let troops = royalesim::card::TOWER_TROOPS.len();
+    let tail = |d: &CardDb| d.cards[d.cards.len() - troops..].iter().map(|c| c.name.clone()).collect::<Vec<_>>();
+    assert_eq!(tail(&bare), royalesim::card::TOWER_TROOPS, "the bare table's last slots are not the tower troops");
+    assert_eq!(tail(&full), royalesim::card::TOWER_TROOPS, "the table's last slots are not the tower troops");
     // Every slot and buff the table has without its forms is where it was, record for record.
-    let n = bare.cards.len();
-    assert!(full.cards.len() > n, "no hero form loaded: {:?}", full.rejected_forms);
-    for (k, c) in bare.cards.iter().enumerate() {
+    let n = bare.cards.len() - troops;
+    assert!(full.cards.len() > n + troops, "no hero form loaded: {:?}", full.rejected_forms);
+    for (k, c) in bare.cards[..n].iter().enumerate() {
         assert_eq!(format!("{c:?}"), format!("{:?}", full.cards[k]), "slot {k} ({}) moved or changed", c.name);
     }
     assert_eq!(bare.buffs[..], full.buffs[..bare.buffs.len()], "a buff index moved");
@@ -106,7 +112,7 @@ fn the_forms_load_after_every_other_slot() {
     // Prince's walking row and mount, the Hero Tombstone's two monsters); every one summon-only, so no deck or catalogue
     // names one.
     assert!(full.rejected_forms.is_empty(), "refused forms: {:?}", full.rejected_forms);
-    let names: Vec<&str> = full.cards[n..].iter().map(|c| c.name.as_str()).collect();
+    let names: Vec<&str> = full.cards[n..full.cards.len() - troops].iter().map(|c| c.name.as_str()).collect();
     assert_eq!(
         names,
         [

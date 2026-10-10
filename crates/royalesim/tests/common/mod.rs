@@ -113,6 +113,10 @@ pub fn symmetric_config() -> BattleConfig {
     // roll and a hit for its rotated twin. rect_vs_circle_edge, the old arm, closes every edge for both seats. No
     // kwarg: {"spells.ROLLING_HIT_SHAPE": "rect_vs_circle_edge"} (py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS).
     c.calib.rolling_hit_shape = royalesim::state::RollHitShape::RectVsCircleEdge;
+    // A landing spell's ring (spells.RELEASE_GROUND_POINT): the shipped client16402_one_unit moves the Goblin Barrel's ring
+    // one unit as formation.GROUND_DEPLOY_POINT moves a summon's, a seat asymmetry in y and an absolute one in x. none,
+    // the old arm, lays it on the landing point for both seats. No kwarg: {"spells.RELEASE_GROUND_POINT": "none"}.
+    c.calib.release_ground_point = royalesim::state::ReleaseGroundPoint::None;
     c.calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
     c
 }
