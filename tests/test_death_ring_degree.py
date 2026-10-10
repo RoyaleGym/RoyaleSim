@@ -15,7 +15,9 @@ lies at -84. On the client the Barbarians' first frames are (3199, 9261) and (33
 The engine lays them along the exact heading, at (3195, 9261) and (3326, 8068), facing (0, -256).
 
 WHICH ARM. facing_ring is the shipped arm; facing_ring_rounded is the proposed arm. The tests pin each arm BY NAME
-through the battle's calibration.
+through the battle's calibration. The exact heading is spawner.DEATH_RING_AXIS = raw_direction: the facing_ring test pins
+it by name too, since the shipped client16402_heading_octant128 (parity's r63, client 16.402) rounds the axis and lays
+each Barbarian one subtile over, at (3195, 9262) and (3326, 8067).
 """
 
 from __future__ import annotations
@@ -36,16 +38,21 @@ CLIENT_POINTS = sorted([(3199, 9261), (3323, 8069)])
 CLIENT_HEADING = (28, -254)
 ENGINE_POINTS = sorted([(3195, 9261), (3326, 8068)])
 ENGINE_HEADING = (0, -256)
+AXIS_KEY, RAW_AXIS = "spawner.DEATH_RING_AXIS", "raw_direction"
+OCTANT_POINTS = sorted([(3195, 9262), (3326, 8067)])
 
 
-def overrides(arm) -> dict:
-    """The battle's calibration pinning `arm` BY NAME."""
-    return {KEY: json.dumps(arm)}
+def overrides(arm, axis=None) -> dict:
+    """The battle's calibration pinning `arm` (and the ring's axis, when given) BY NAME."""
+    o = {KEY: json.dumps(arm)}
+    if axis is not None:
+        o[AXIS_KEY] = json.dumps(axis)
+    return o
 
 
-def barbarians(arm):
+def barbarians(arm, axis=None):
     """(the step the Barbarians appear, their first positions, their first headings)."""
-    b = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
+    b = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm, axis))
     b.reset(0, [[1] * 8, [0] * 8], 0, 200, [100_000, 100_000], None, [])
     ram = None
     for t in range(1, 400):
@@ -79,6 +86,8 @@ def test_the_ring_lands_on_the_clients_exact_points():
 
 
 def test_the_shipped_arm_lays_the_ring_along_the_exact_heading_facing_forward():
-    _, pts, heads = barbarians(OLD_ARM)
+    _, pts, heads = barbarians(OLD_ARM, RAW_AXIS)
     assert pts == ENGINE_POINTS, f"facing_ring: the Barbarians stand at {pts}, not {ENGINE_POINTS}"
     assert heads == {ENGINE_HEADING}, f"facing_ring: the Barbarians face {heads}, not {ENGINE_HEADING}"
+    _, pts, _ = barbarians(OLD_ARM)
+    assert pts == OCTANT_POINTS, f"facing_ring on the shipped ring axis: the Barbarians stand at {pts}, not {OCTANT_POINTS}"

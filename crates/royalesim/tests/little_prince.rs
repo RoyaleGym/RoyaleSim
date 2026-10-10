@@ -517,9 +517,9 @@ fn under_client16402_cell_aim_the_charge_ends_by_the_cell_centre_ahead() {
     let (steps, end) = charge_steps(GuardChargeStep::Client16402CellAim);
     assert_eq!(steps, CLIENT_CHARGE.to_vec(), "client16402_cell_aim on a tile centre: the client's steps");
     assert_eq!(end, (AT.0 + 239, AT.1 + 3083), "client16402_cell_aim on a tile centre: its end");
-    let d = |p: (i32, i32), q: (i32, i32)| (((p.0 - q.0) as i64).pow(2) + ((p.1 - q.1) as i64).pow(2)) as f64;
+    let d2 = |p: (i32, i32), q: (i32, i32)| ((p.0 - q.0) as i64).pow(2) + ((p.1 - q.1) as i64).pow(2);
     let new = charge_end_at(GuardChargeStep::Client16402CellAim, (14120, 10620));
-    assert!(d(new, (14250, 13750)).sqrt() < 400.0, "client16402_cell_aim: the end {new:?} not within 400 of (14250, 13750)");
+    assert!(d2(new, (14250, 13750)) < 400 * 400, "client16402_cell_aim: the end {new:?} not within 400 of (14250, 13750)");
     let old = charge_end_at(GuardChargeStep::Client15535SubstepsToAim, (14120, 10620));
     assert!(old != new, "the vacuity check: the 15.535.29 arm ends where the new one does ({old:?})");
 }
