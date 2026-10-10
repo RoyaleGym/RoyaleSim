@@ -1549,6 +1549,10 @@ pub const TETHER_FIRST_HIT_TICKS: u32 = 19;
 pub struct RampDef {
     pub grace_ms: i32,
     pub levels: Vec<RampLevel>,
+    /// THE ROW HOLDS ITS GRACE WHILE TAGGED (cards.json `ramp.grace_held_while`, the guard's hold tag; the 160402017 Little
+    /// Prince's): under combat.RAMP_PRESS_HOLD = client16402_tag_held his own press keeps the count and the level
+    /// (state.rs `ramp_pass`). False on a row that sets none (the 15.535.29 table's).
+    pub held_by_press: bool,
 }
 
 /// One step of the ramp (`RampDef::levels`): the count it starts at, the last count it lives at (None: for good), and
@@ -6572,7 +6576,6 @@ pub const UNMODELLED_KEYS: &[(&str, &str)] = &[
     ("cards[].ability.held_until_dashing", "the Golden Knight's cooldown held until his dash starts; unmeasured"),
     ("cards[].ability.effect.hold_tag", "the Little Prince's guard holds its target while tagged; unmeasured"),
     ("cards[].ability.effect.cleave", "the Little Prince's guard's cleave area; unmeasured"),
-    ("cards[].ramp.grace_held_while", "the Little Prince's ramp grace held while tagged; unmeasured"),
     ("cards[].ability.effect.soul_if", "the Skeleton King's soul gate (charges left); unmeasured"),
     ("cards[].ability.effect.soul_filter_excludes", "the Skeleton King's soul filter (buildings, clones); unmeasured"),
     ("cards[].jump_ignores_pushback", "a jumping hog takes no pushback; unmeasured"),
@@ -6644,6 +6647,9 @@ fn unmodelled_in(file: &serde_json::Value) -> Vec<(String, String)> {
 struct RawRamp {
     grace_ms: i32,
     levels: Vec<RawRampLevel>,
+    /// The tag whose holder's grace is held (the guard's hold tag; tools/extract_cards.py checks they are one):
+    /// `RampDef::held_by_press`.
+    grace_held_while: Option<String>,
 }
 
 /// One level of a `ramp`: its count, its last count and its buff.
@@ -10370,7 +10376,12 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
             if r.grace_ms <= 0 || levels.is_empty() {
                 return Err("a ramp with no grace or no level".into());
             }
-            Some(RampDef { grace_ms: r.grace_ms, levels })
+            // PLANT (regression) ramp_held_by_press_unread: the loader drops grace_held_while, so no press holds a ramp.
+            #[cfg(not(clash_plant = "ramp_held_by_press_unread"))]
+            let held_by_press = r.grace_held_while.is_some();
+            #[cfg(clash_plant = "ramp_held_by_press_unread")]
+            let held_by_press = false;
+            Some(RampDef { grace_ms: r.grace_ms, levels, held_by_press })
         }
     };
     let attack_pushback = match raw.attack_pushback_milli {

@@ -1794,6 +1794,16 @@
     }
   },
   "combat": {
+    "RAMP_PRESS_HOLD": {
+      "value": "client16402_tag_held",
+      "status": "measured",
+      "candidates": ["reset", "client16402_tag_held"],
+      "confidence": "HIGH for client16402_tag_held on client 16.402: parity's r65 census over the ob5 live set, every press that shows the ramp (the cast's hold, the truth's state 10, 17 frames): the count kept 322 of 324 (the client at x2 on the 3rd shot and x3 on the 6th counted across the press), 305 of them against the engine's reset, 17 at count 0 (both arms); the 2 misses had his target cleared in the hold and the same target taken back (liveplay-20261007-130902-A key 62 t2023, 133612-A key 66 t2222). Replayed: 132 presses the truth kept and the engine restarted at x1, 53 both at x1 (all from count 0, none lost). The 160402017 row sets ramp.grace_held_while = the guard's hold tag (UNIT_CUSTOM_TAG_1); the 15.535.29 row sets none, so its ramp is unchanged under either arm.",
+      "provenance": "MEASURED by parity (2026-10-10, r65 Little Prince attack-timing triage of the ob5 live set on the rob4 head, 126 replays): liveplay-20261007-012846-A key 13: shot t540, press t562-578, back t580; the client at x2 from t612, the engine from t636 (client t623 / 635 / 647 / 655, engine t635 / 647 / 659 / 671, his point identical). 235430-A key 14: x2 from t590, press t602-618, the client back at x2 and x3 from t636, the engine back at x1: its hit on Little Prince 10 on t631 for t635, the first divergence. 040815-A key 9: client t663 / 675 / 687, engine t675 / 687 / 699.",
+      "meaning": "reset: his own press resets the ramp as a stun does. client16402_tag_held: a ramp held while tagged keeps its count and its level through his own press.",
+      "open": "A stun from elsewhere landing inside his own cast's hold (read as the cast: no reset); the 2 presses whose target was cleared and taken back; client 15.535.29's row (no grace_held_while) unread.",
+      "engine": "state.rs ramp_pass (`guard_hold_on`, HeroUnit::casting), card.rs RampDef::held_by_press; tests/little_prince.rs."
+    },
     "RANGE_POINT_SHOT": {
       "value": "client_range_point",
       "status": "measured",

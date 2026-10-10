@@ -797,6 +797,10 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the default is the old arm, `None`, what a battle saved before it ran.
     #[serde(default = "enchant_on_buff_pause_default")]
     pub enchant_on_buff_pause: EnchantOnBuffPause,
+    /// combat.RAMP_PRESS_HOLD (whether the Little Prince's own press resets his ramp, `ramp_pass`). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Reset`, what a battle saved before it ran.
+    #[serde(default = "ramp_press_hold_default")]
+    pub ramp_press_hold: RampPressHold,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2555,6 +2559,10 @@ fn range_point_shot_default() -> RangePointShot {
 
 fn enchant_on_buff_pause_default() -> EnchantOnBuffPause {
     EnchantOnBuffPause::None
+}
+
+fn ramp_press_hold_default() -> RampPressHold {
+    RampPressHold::Reset
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9347,6 +9355,21 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.RAMP_PRESS_HOLD -- see `ramp_pass` (card.rs `RampDef::held_by_press`): what the Little Prince's own guard
+    /// press does to his ramp (his shot count and its level buff).
+    RampPressHold {
+        /// The engine before this key: his own cast's hold (the stun timer) disables him as a stun does, so the count goes
+        /// to 0 and the level buff comes off; after the press he shoots at x1 again.
+        Reset = "reset",
+        /// A ramp whose row holds its grace while tagged (`RampDef::held_by_press`: cards.json ramp.grace_held_while, the
+        /// guard's hold tag) is held through his own press: the grace does not run while the guard's hold is on him, and
+        /// his own cast's hold (his entry casting) is no stun to it; a stun from elsewhere, a freeze and the grace still
+        /// reset it. Client 16.402 (parity's r65 census over the ob5 live set: 322 of the 324 presses that show the ramp
+        /// kept the count, 305 of them against the engine's reset).
+        Client16402TagHeld = "client16402_tag_held",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -9859,6 +9882,7 @@ impl Calib {
             spawn_pathfind_morph_area: pick(&v, &["movement", "SPAWN_PATHFIND_MORPH_AREA", "value"], SpawnPathfindMorphArea::from_calibration_name)?,
             range_point_shot: pick(&v, &["combat", "RANGE_POINT_SHOT", "value"], RangePointShot::from_calibration_name)?,
             enchant_on_buff_pause: pick(&v, &["enchant", "ON_BUFF_PAUSE", "value"], EnchantOnBuffPause::from_calibration_name)?,
+            ramp_press_hold: pick(&v, &["combat", "RAMP_PRESS_HOLD", "value"], RampPressHold::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -20601,11 +20625,21 @@ impl BattleState {
             let below = self.cfg.calib.ramp_grace_reset == RampGraceReset::Client16402BelowZero;
             #[cfg(clash_plant = "ramp_reset_at_zero")]
             let below = false; // PLANT (regression): the new arm still resets the count when the grace reaches zero.
-            if moved {
+            // combat.RAMP_PRESS_HOLD = client16402_tag_held: a ramp whose row holds its grace while tagged
+            // (`RampDef::held_by_press`) is held through his own press: no grace runs while the guard's hold is on him,
+            // and his own cast's hold (his entry casting) is no stun to it.
+            // PLANT (regression) ramp_press_resets: the new arm still resets the ramp on his own press.
+            #[cfg(not(clash_plant = "ramp_press_resets"))]
+            let press_held = ramp.held_by_press && self.cfg.calib.ramp_press_hold == RampPressHold::Client16402TagHeld;
+            #[cfg(clash_plant = "ramp_press_resets")]
+            let press_held = false;
+            let tagged = press_held && self.guard_hold_on(i);
+            let own_cast = press_held && self.hero_units.iter().any(|u| u.casting && u.id == r.id);
+            if moved && !tagged {
                 r.grace_ms = (r.grace_ms - tick_ms).max(if below { -tick_ms } else { 0 });
             }
             r.at = pos;
-            let disabled = self.ents.stun_ms[i] > 0 || self.ents.buffed(&self.cfg.cards.buffs, i, Sel::HitSpeed, 100) <= 0;
+            let disabled = (self.ents.stun_ms[i] > 0 && !own_cast) || self.ents.buffed(&self.cfg.cards.buffs, i, Sel::HitSpeed, 100) <= 0;
             let spent = if below { r.grace_ms < 0 } else { r.grace_ms == 0 };
             #[cfg(not(clash_plant = "ramp_never_resets"))]
             if (spent && r.count > 0) || disabled {
@@ -20616,6 +20650,13 @@ impl BattleState {
             keep.push(r);
         }
         self.warps.ramps = keep;
+    }
+
+    /// Unit `i` carries its own guard's hold (card.rs `GuardDef::hold`, the NO_MOVE buff its press lands on it for the
+    /// ability's hold time): the tag the 160402017 row's ramp holds its grace by (`RampDef::held_by_press`).
+    fn guard_hold_on(&self, i: usize) -> bool {
+        let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Guard(g), .. }) = self.cfg.cards.get(self.ents.card[i]).ability else { return false };
+        self.ents.buff_slots(i).iter().any(|s| s.id == g.hold.buff + 1)
     }
 
     /// THE LITTLE PRINCE'S GUARDS DUE (card.rs `GuardDef`), in Reap before the released units are made: each guard
@@ -35599,6 +35640,8 @@ impl BattleState {
 /// 20, unchanged, enchant.ON_BUFF_PAUSE: Calib gained enchant_on_buff_pause (serde default the old arm, none) and Entities enchant_hold
 ///    (`default`, sized on load at 0, written and hashed under the new arm alone), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RAMP_PRESS_HOLD: Calib gained ramp_press_hold (serde default the old arm, reset), no new state (it reads the saved buffs and hero entries),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -36540,6 +36583,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("range_point_shot".into(), serde_json::to_value(RangePointShot::ToTarget).map_err(|e| e.to_string())?);
     // enchant.ON_BUFF_PAUSE: a format-3 battle's Rune Giant walked and attacked on through his enchants (the same rule).
     sh.insert("enchant_on_buff_pause".into(), serde_json::to_value(EnchantOnBuffPause::None).map_err(|e| e.to_string())?);
+    // combat.RAMP_PRESS_HOLD: a format-3 battle reset the ramp on the press (the same rule).
+    sh.insert("ramp_press_hold".into(), serde_json::to_value(RampPressHold::Reset).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

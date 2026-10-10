@@ -13,7 +13,8 @@
 //! red), guard_charge_rescaled (`his_guards_charge_steps_as_the_client_steps_it_under_client15535_substeps_to_aim` red),
 //! ramp_grace_pushed (`his_ramp_holds_through_pushes_while_he_attacks_under_client15535_own_walk` red), ramp_stun_paused
 //! (`a_stun_restarts_his_attack_under_client15535_restart` red), ramp_reset_at_zero
-//! (`his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh` red).
+//! (`his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh` red), ramp_press_resets and
+//! ramp_held_by_press_unread (`under_client16402_tag_held_his_press_keeps_his_ramp` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -29,7 +30,8 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, GuardChargeStep, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampStunRestart};
+use royalesim::card::{CardDb, CardTable};
+use royalesim::state::{BattleConfig, BattleState, GuardChargeStep, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -522,4 +524,62 @@ fn under_client16402_cell_aim_the_charge_ends_by_the_cell_centre_ahead() {
     assert!(d2(new, (14250, 13750)) < 400 * 400, "client16402_cell_aim: the end {new:?} not within 400 of (14250, 13750)");
     let old = charge_end_at(GuardChargeStep::Client15535SubstepsToAim, (14120, 10620));
     assert!(old != new, "the vacuity check: the 15.535.29 arm ends where the new one does ({old:?})");
+}
+
+/// The 160402017 table's battle config (its Little Prince's ramp row sets grace_held_while, the guard's hold tag).
+fn config_160402017() -> BattleConfig {
+    let db = CardDb::load_table(CardTable::Client160402017).expect("the 160402017 table");
+    let mut cfg = BattleConfig::with_cards(db);
+    cfg.calib.card_table = CardTable::Client160402017;
+    cfg
+}
+
+/// His shots at a red Golem held 5000 ahead over 260 ticks on the 160402017 table, his guard pressed `press_at` ticks
+/// in, under combat.RAMP_PRESS_HOLD = `arm`: the shots' ticks and the press's.
+fn pressed_shots(arm: RampPressHold, press_at: u32) -> (Vec<u32>, u32) {
+    let (mut s, lp, reds) = scene_cfg(
+        |c| {
+            let mut k = config_160402017();
+            k.calib.ramp_press_hold = arm;
+            *c = k;
+        },
+        &[("Golem", (AT.0, AT.1 + 5000))],
+    );
+    assert!(s.config().cards.get(s.entity(lp).expect("him").card_idx).ramp.as_ref().is_some_and(|r| r.held_by_press), "precondition: the 160402017 row holds its ramp while tagged");
+    let mine = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(lp)).count();
+    let mut known = mine(&s);
+    let (mut out, mut pressed) = (Vec::new(), 0);
+    for k in 0..260 {
+        hold(&mut s, lp, &reds);
+        if k == press_at {
+            pressed = s.tick_count();
+            s.press_ability_button(Team::Blue, 0).expect("the press");
+        }
+        s.tick();
+        let m = mine(&s);
+        if m > known {
+            out.push(s.tick_count() - 1);
+        }
+        known = m;
+    }
+    (out, pressed)
+}
+
+/// combat.RAMP_PRESS_HOLD = client16402_tag_held (client 16.402, parity's r65 census over the ob5 live set: 322 of 324
+/// presses kept the count): pressed at his top level (x3, 8 ticks a shot), he comes back from the cast's hold still at
+/// x3; under reset he starts again at x1 (24, 24, 12). Plants: ramp_press_resets, ramp_held_by_press_unread.
+#[test]
+fn under_client16402_tag_held_his_press_keeps_his_ramp() {
+    let gaps_after = |arm: RampPressHold| {
+        let (t, p) = pressed_shots(arm, 150);
+        let before = gaps(&t.iter().copied().filter(|x| *x < p).collect::<Vec<_>>());
+        assert!(before.last() == Some(&8), "precondition ({arm:?}): at x3 before the press: {before:?} (all {t:?})");
+        let after: Vec<u32> = t.iter().copied().filter(|x| *x > p).collect();
+        assert!(after.len() >= 4, "{arm:?}: shots after the press: {t:?}");
+        gaps(&after)
+    };
+    let kept = gaps_after(RampPressHold::Client16402TagHeld);
+    assert_eq!(&kept[..3], &[8, 8, 8], "client16402_tag_held: still x3 after the press: {kept:?}");
+    let reset = gaps_after(RampPressHold::Reset);
+    assert_eq!(&reset[..3], &[24, 24, 12], "reset (the vacuity check): x1 again after the press: {reset:?}");
 }
