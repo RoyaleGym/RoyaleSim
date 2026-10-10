@@ -5912,6 +5912,12 @@ calib_enum!(
         /// s0): 67 of the 77 tracks that followed a hop started 2 ticks after its landing (the rest are new shots and
         /// their first hops, which start on the landing tick); the engine's hits came 2, 3, then 5 ticks early.
         Client15535TwoTicks = "client15535_two_ticks",
+        /// Every hop, the FIRST included, waits EVO_CHAIN_HOP_WAIT_TICKS on the unit it hit. Client 16.402 (parity's r63
+        /// census over the ob3 live set and the 160402017 scenes: each strong hop lands 1 + ceil(d / 2000) ticks after the
+        /// last hit, d the two victims' distance then: first hops 19 of 20, second 9 of 9; sp-f4-ed-s0's chains 3, 2, 2, 2
+        /// ticks to the first hop where the engine's 1). Read with combat.EVO_CHAIN_HOP_FIRST_STEP = client15535_creation_tick
+        /// (the first hop's step in the pass that makes it; not yet scored as shipped).
+        Client16402EveryHop = "client16402_every_hop",
     }
 );
 calib_enum!(

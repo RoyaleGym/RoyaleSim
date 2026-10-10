@@ -2422,7 +2422,14 @@ pub fn step_projectiles(
                     let n = e.n.saturating_add(1);
                     // combat.EVO_CHAIN_HOP_WAIT = client15535_two_ticks: every hop after the first waits on the unit hit.
                     #[cfg(not(clash_plant = "evo_hop_at_once"))]
-                    let wait = if n >= 2 && calib.evo_chain_hop_wait == crate::state::EvoChainHopWait::Client15535TwoTicks { EVO_CHAIN_HOP_WAIT_TICKS } else { 0 };
+                    // client16402_every_hop: the first hop too.
+                    // PLANT (regression) evo_first_hop_unwaited: the new arm's first hop still flies at once.
+                    #[cfg(not(clash_plant = "evo_first_hop_unwaited"))]
+                    let every = calib.evo_chain_hop_wait == crate::state::EvoChainHopWait::Client16402EveryHop;
+                    #[cfg(clash_plant = "evo_first_hop_unwaited")]
+                    let every = false;
+                    let waits = (n >= 2 && matches!(calib.evo_chain_hop_wait, crate::state::EvoChainHopWait::Client15535TwoTicks | crate::state::EvoChainHopWait::Client16402EveryHop)) || (n >= 1 && every);
+                    let wait = if waits { EVO_CHAIN_HOP_WAIT_TICKS } else { 0 };
                     #[cfg(clash_plant = "evo_hop_at_once")]
                     let wait = 0; // PLANT (regression): the new arm's hops fly at once, as the old one's do.
                     let hop = ChainHop { left: c.left, radius: c.radius, hit, wait, evo: Some(EvoHop { n, shot: e.shot }) };

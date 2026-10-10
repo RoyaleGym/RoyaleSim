@@ -8,7 +8,8 @@
 //! 1200 from it, a Valkyrie 3100 from the Ice Golem, all held and topped up. Pinned: the gaps between the chain's first
 //! four hits; under client15535_two_ticks the first hop's gap is the old arm's and each later one 2 longer.
 //!
-//! PLANT (regression): evo_hop_at_once -> `every_hop_after_the_first_waits_two_ticks` red.
+//! PLANT (regression): evo_hop_at_once -> `every_hop_after_the_first_waits_two_ticks` red; evo_first_hop_unwaited ->
+//! `under_client16402_every_hop_the_first_hop_waits_too` red.
 //!   RUSTFLAGS='--cfg clash_plant="evo_hop_at_once"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //!   evo_chain_hop_wait
 #![allow(unexpected_cfgs)]
@@ -81,4 +82,15 @@ fn every_hop_after_the_first_waits_two_ticks() {
 #[test]
 fn the_shipped_arm_hops_at_once() {
     assert_eq!(Calib::shipped().evo_chain_hop_wait, EvoChainHopWait::AtOnce);
+}
+
+/// combat.EVO_CHAIN_HOP_WAIT = client16402_every_hop (client 16.402, parity's r63 census: each strong hop 1 + ceil(d / 2000)
+/// ticks after the last hit, the first included): each of the first three gaps 2 longer than at_once's. Plant:
+/// evo_first_hop_unwaited.
+#[test]
+fn under_client16402_every_hop_the_first_hop_waits_too() {
+    let gaps = |t: &[u32]| -> Vec<u32> { t.windows(2).map(|w| w[1] - w[0]).collect() };
+    let old = gaps(&hit_ticks(EvoChainHopWait::AtOnce));
+    let new = gaps(&hit_ticks(EvoChainHopWait::Client16402EveryHop));
+    assert_eq!(new, vec![old[0] + 2, old[1] + 2, old[2] + 2], "the gaps between the first four hits, client16402_every_hop against at_once {old:?}");
 }
