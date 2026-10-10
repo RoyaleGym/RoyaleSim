@@ -15,9 +15,9 @@ lies at -84. On the client the Barbarians' first frames are (3199, 9261) and (33
 The engine lays them along the exact heading, at (3195, 9261) and (3326, 8068), facing (0, -256).
 
 WHICH ARM. facing_ring is the shipped arm; facing_ring_rounded is the proposed arm. The tests pin each arm BY NAME
-through the battle's calibration. The exact heading is spawner.DEATH_RING_AXIS = raw_direction: the facing_ring test pins
-it by name too, since the shipped client16402_heading_octant128 (parity's r63, client 16.402) rounds the axis and lays
-each Barbarian one subtile over, at (3195, 9262) and (3326, 8067).
+through the battle's calibration. The exact heading is spawner.DEATH_RING_AXIS = raw_direction: the facing_ring test
+pins it by name too, since the shipped client16402_heading_octant128 (parity's r63, client 16.402) rounds the axis and
+lays each Barbarian one subtile over, at (3195, 9262) and (3326, 8067).
 """
 
 from __future__ import annotations
@@ -90,4 +90,6 @@ def test_the_shipped_arm_lays_the_ring_along_the_exact_heading_facing_forward():
     assert pts == ENGINE_POINTS, f"facing_ring: the Barbarians stand at {pts}, not {ENGINE_POINTS}"
     assert heads == {ENGINE_HEADING}, f"facing_ring: the Barbarians face {heads}, not {ENGINE_HEADING}"
     _, pts, _ = barbarians(OLD_ARM)
-    assert pts == OCTANT_POINTS, f"facing_ring on the shipped ring axis: the Barbarians stand at {pts}, not {OCTANT_POINTS}"
+    assert pts == OCTANT_POINTS, (
+        f"facing_ring on the shipped ring axis: the Barbarians stand at {pts}, not {OCTANT_POINTS}"
+    )
