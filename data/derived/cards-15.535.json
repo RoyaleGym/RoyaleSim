@@ -56053,6 +56053,28 @@
     "shield_hitpoints"
    ],
    "action_graph": null,
+   "burst_attack": {
+    "max_charges": 8,
+    "recharge_ms": 900,
+    "recharge_increment": 1,
+    "sequence": [
+     2,
+     0,
+     1,
+     0,
+     1,
+     0,
+     1,
+     0
+    ],
+    "depleted_index": 3,
+    "hit_speed_multipliers": [
+     100,
+     100,
+     70,
+     90
+    ]
+   },
    "death_spawn_pushback": false,
    "raw": {
     "Name": "DaggerDuchess",

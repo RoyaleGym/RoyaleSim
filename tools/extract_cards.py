@@ -2969,8 +2969,53 @@ def combo(t: dict, table: str, name: str, c: dict) -> dict | None:
 
 # The named blocks that read a record's own action graph whole (the census's GAINED check lists a graph one of them
 # reads apart): a champion's button, the Little Prince's ramp, the Three Musketeers' select, the Rune Giant's enchant,
-# the health transformation, the counter, the idle buff.
-GRAPH_BLOCKS = ("ability", "ramp", "attack_select", "enchant_friends", "transform_at_hp", "parry", "idle_buff")
+# the health transformation, the counter, the idle buff, the Dagger Duchess's burst.
+GRAPH_BLOCKS = ("ability", "ramp", "attack_select", "enchant_friends", "transform_at_hp", "parry", "idle_buff",
+                "burst_attack")
+# THE BURST ATTACK (`burst_attack`): the keys its ActionBurstAttack may set (the charge counter's art, its offsets and
+# the AI state's name are cosmetic) and those it must.
+BURST_ATTACK_REQUIRED = {"ClassType", "MaxChargeCount", "RechargeTime", "RechargeIncrement", "AttackSequenceIndices",
+                         "DepletedAttackSequenceIndex"}
+BURST_ATTACK_KEYS = BURST_ATTACK_REQUIRED | {"IndicatorFileName", "IndicatorExportName", "IndicatorOffsetYBlue",
+                                            "IndicatorOffsetYRed", "AIStateName", "StatsTags"}
+
+
+def burst_attack(t: dict, table: str, name: str, rec: dict) -> dict | None:
+    """THE BURST ATTACK as a named block: a row whose OnStartingAction is an inline ActionBurstAttack (the Dagger
+    Duchess, the same in the 15.535.29 and 160402017 packs). Its charges (`max_charges` 8), their recharge
+    (`recharge_ms` 900, `recharge_increment` 1), the AttackSequenceList entry each charged attack takes in turn
+    (`sequence` [2, 0, 1, 0, 1, 0, 1, 0]) and the one a depleted tower takes (`depleted_index` 3), and each entry's
+    HitSpeedMultiplier in list order (`hit_speed_multipliers` [100, 100, 70, 90]). For combat.TOWER_TROOP_BURST: the
+    loader does not read it yet. None for every other row. Fail-closed: a key outside BURST_ATTACK_KEYS, a value that
+    is not a whole number, or an index past the row's AttackSequenceList gives None."""
+    if not isinstance(rec, Row):
+        return None
+    a = rec.get("OnStartingAction")
+    if not isinstance(a, dict) or a.get("ClassType") != "ActionBurstAttack":
+        return None
+    if not BURST_ATTACK_REQUIRED <= {k.split(".")[0] for k in a} <= BURST_ATTACK_KEYS:
+        return None
+    seq = t[table].arrays.get(name, {}).get("AttackSequenceList")
+    if not isinstance(seq, list) or not seq or not all(isinstance(e, dict) for e in seq):
+        return None
+    mult = [e.get("HitSpeedMultiplier") for e in seq]
+    order = a["AttackSequenceIndices"]
+    if not isinstance(order, list) or not order:
+        return None
+    nums = [*mult, *order, a["DepletedAttackSequenceIndex"], a["MaxChargeCount"], a["RechargeTime"],
+            a["RechargeIncrement"]]
+    if not all(isinstance(x, int) and not isinstance(x, bool) for x in nums):
+        return None
+    if not all(0 <= i < len(seq) for i in [*order, a["DepletedAttackSequenceIndex"]]):
+        return None
+    return {
+        "max_charges": a["MaxChargeCount"],
+        "recharge_ms": a["RechargeTime"],
+        "recharge_increment": a["RechargeIncrement"],
+        "sequence": list(order),
+        "depleted_index": a["DepletedAttackSequenceIndex"],
+        "hit_speed_multipliers": mult,
+    }
 # 16.402: a death bomb's area (`death_bomb_area`): the keys it may set, those it must, and its one filter.
 DEATH_BOMB_AREA_KEYS = {"Name", "Rarity", "Radius", "Damage", "Pushback", "Filter", "StatsTags"}
 DEATH_BOMB_FILTER = "CommonAreaDamageFilter"
@@ -3495,6 +3540,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         sel = attack_select(t, table, name, c)
         if sel is not None:
             u["attack_select"] = sel
+        # The Dagger Duchess's burst attack (`burst_attack`); written only there.
+        burst = burst_attack(t, table, name, c)
+        if burst is not None:
+            u["burst_attack"] = burst
         # The Rune Giant's enchant, when the row's graph is one (`enchant_friends`); written only
         # there, so every other row is unchanged.
         ef = enchant_friends(t, c)
