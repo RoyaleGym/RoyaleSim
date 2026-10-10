@@ -166,7 +166,10 @@ fn the_loader_takes_its_rarities_from_the_file_and_refuses_an_unknown_reading() 
     let top = rare.relative_level + rare.level_count;
     assert!(db.level_multiplier(hog, top).is_ok(), "HogRider at {top}");
     assert!(db.level_multiplier(hog, top + 1).is_ok(), "HogRider one past the count");
-    assert!(db.level_multiplier(hog, top + 2).is_err());
+    assert!(db.check_levels(hog, top + 2).is_err(), "two past the count is no play");
+    let tail = rare.tail.len() as i32;
+    assert!(db.level_multiplier(hog, top + tail).is_ok(), "a level-up runs on to the ladder's last entry");
+    assert!(db.level_multiplier(hog, top + tail + 1).is_err(), "and no further");
     assert!(db.level_multiplier(hog, rare.relative_level).is_err(), "below the card's range");
     // A Champion card is a card of the file's table (rejected for its mechanic, never
     // for its rarity): none is rejected with "rarity ... not in".

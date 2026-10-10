@@ -6,7 +6,8 @@
 //! its base x 450 % -- a Minion 90 -> 405, a P.E.K.K.A 1469 -> 6610, a Golden Knight 703 -> 3163. Pinned:
 //!   1. a Common, an Epic and a Champion card each load at 17 and scale by 450 %, on both 160402017 tables and the
 //!      15.535.29 one;
-//!   2. two past the count is still refused, and nothing below 17 moves;
+//!   2. two past the count is still refused as a PLAY (`check_levels`), though the ladder runs on for a level the
+//!      battle reaches itself (a hero's level-up: 18 on 495 %); nothing below 17 moves;
 //!   3. a battle whose deck is at 17 builds, and its unit stands at its level-17 hitpoints.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test level_past_count`):
@@ -32,7 +33,8 @@ fn a_card_plays_one_level_past_its_count_on_its_ladders_next_multiplier() {
             assert_eq!(db.get(i).hitpoints, base, "{table:?} {name}: the measured base");
             assert_eq!(hp_at(&db, name, 16), Ok(base * 409 / 100), "{table:?} {name}: level 16 unchanged");
             assert_eq!(hp_at(&db, name, 17), Ok(base * 450 / 100), "{table:?} {name}: level 17 on 450 %");
-            assert!(hp_at(&db, name, 18).is_err(), "{table:?} {name}: two past the count is refused");
+            assert!(db.check_levels(i, 18).is_err(), "{table:?} {name}: two past the count is no play");
+            assert_eq!(hp_at(&db, name, 18), Ok(base * 495 / 100), "{table:?} {name}: a level-up's 18, the tail's next");
         }
     }
     let db = CardDb::load_table(CardTable::Client160402017).expect("the 10-06 table");

@@ -7700,7 +7700,8 @@ pub struct RarityRow {
     pub tail: Vec<i32>,
 }
 
-/// THE LEVELS PAST A RARITY'S COUNT A CARD IS PLAYED AT: one. The live 16.402 game's max-level cards stand one unified
+/// THE LEVELS PAST A RARITY'S COUNT A CARD IS PLAYED AT (`CardDb::check_play_level`): one. A level the battle reaches
+/// on its own (a hero's level-up) runs on along the ladder's tail (`CardDb::level_multiplier`). The live 16.402 game's max-level cards stand one unified
 /// level above every rarity's LevelCount (17, the rarities.csv count caps each at 16), on their ladder's next
 /// multiplier, the PowerLevelMultiplier entry past the count (Common 450 after 409). Measured on the reader's own
 /// per-unit level of live 2026-10-08 battles: every level-17 unit's max_hp is exactly its base x 450 % (Minion 90 ->
@@ -14291,8 +14292,30 @@ impl CardDb {
     /// a level. A record already checked at a level is not checked again, so a chain that
     /// comes back on itself ends.
     pub fn check_levels(&self, idx: u16, level: i32) -> Result<(), String> {
+        self.check_play_level(idx, level)?;
         let mut seen: Vec<(u16, i32)> = Vec::new();
         self.check_levels_at(idx, level, &mut seen)
+    }
+
+    /// THE LEVELS A CARD IS PLAYED AT: its CARD rarity's range, 1..=level_count local, and `LEVELS_PAST_COUNT` past it
+    /// (the live max-level cards' 17). A deck entry, a play and a Mirror's copy are checked here (`check_levels`); a level
+    /// the battle reaches on its own, a hero's level-up stack, is not a play and runs on along the ladder's tail
+    /// (`level_multiplier`).
+    pub fn check_play_level(&self, idx: u16, level: i32) -> Result<(), String> {
+        let c = self.get(idx);
+        let r = self.rarity(&c.rarity).ok_or_else(|| format!("{}: unknown rarity", c.name))?;
+        #[cfg(not(clash_plant = "levels_past_count_refused"))]
+        let past = LEVELS_PAST_COUNT;
+        #[cfg(clash_plant = "levels_past_count_refused")]
+        let past = 0; // PLANT: a level past the rarity's count is refused, as before.
+        let local = level - r.relative_level;
+        if local < 1 || local > r.level_count + past {
+            return Err(format!(
+                "{} ({}) has no level {level} (local {local}, valid 1..={})",
+                c.name, c.rarity, r.level_count + past
+            ));
+        }
+        Ok(())
     }
 
     /// `check_levels` below one record: its level, then each unit it names at the level it gives
@@ -14710,9 +14733,12 @@ impl CardDb {
         let r = self.rarity(&c.rarity).ok_or_else(|| format!("{}: unknown rarity", c.name))?;
         // The CARD's rarity bounds the playable levels...
         let local = level - r.relative_level;
-        // ...one level past its count included (`LEVELS_PAST_COUNT`, the live max-level cards' 17).
+        // ...past its count as far as its ladder runs on (`RarityRow::tail`; at least `LEVELS_PAST_COUNT`, which a play
+        // may take: `check_play_level`). A hero's level-up stack climbs it: client 160402017's Hero Mini Pekka went 16 ->
+        // 18 in one level-up (a stack of 1, levels[1] = 2) and hit a tower for 295 x 495 % = 1460, Common's second
+        // entry past 409 (Parity, il-8b9bda33 t1044).
         #[cfg(not(clash_plant = "levels_past_count_refused"))]
-        let past = LEVELS_PAST_COUNT;
+        let past = (r.tail.len() as i32).max(LEVELS_PAST_COUNT);
         #[cfg(clash_plant = "levels_past_count_refused")]
         let past = 0; // PLANT: a level past the rarity's count is refused, as before.
         if local < 1 || local > r.level_count + past {
@@ -14761,8 +14787,8 @@ impl CardDb {
     pub fn rarity_scaled(&self, rarity: &str, level: i32, base: i32) -> Result<i32, String> {
         let r = self.rarity(rarity).ok_or_else(|| format!("unknown rarity {rarity}"))?;
         let step = level - (r.relative_level + 1);
-        // one level past the count, as a card (`LEVELS_PAST_COUNT`), on the ladder's tail
-        if step < 0 || level - r.relative_level > r.level_count + LEVELS_PAST_COUNT {
+        // past the count as far as the ladder's tail runs (`level_multiplier`)
+        if step < 0 || level - r.relative_level > r.level_count + (r.tail.len() as i32).max(LEVELS_PAST_COUNT) {
             return Err(format!("a {rarity} row has no level {level}"));
         }
         let short = || format!("{rarity}: multiplier table too short for level {level}");

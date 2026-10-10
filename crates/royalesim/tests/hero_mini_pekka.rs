@@ -20,7 +20,8 @@
 //!   - level_set_on_trigger -> `the_press_sets_it_one_level_up_and_heals_30_percent_of_what_it_misses_on_p_plus_4` red;
 //!   - level_set_heals_after -> `the_heal_comes_before_the_level_as_six_scenes_measure` red;
 //!   - quest_hits_unread -> `each_hit_fills_8_seconds_of_its_bar` red;
-//!   - keep_target_cast_resets -> `its_cast_keeps_its_target_and_freezes_its_swing` red.
+//!   - keep_target_cast_resets -> `its_cast_keeps_its_target_and_freezes_its_swing` red;
+//!   - levels_past_count_refused -> `a_level_up_climbs_the_ladder_past_the_last_level` red.
 //!
 //! ITS CAST KEEPS ITS SWING (its row sets KeepCurrentTarget; state.rs `start_ability`): measured on Oracle's
 //! sp-mph-hp-784-Knight-s0, pressed on t260 mid-swing, progress 3750 and load 550 through t261..t279, 3800 and 500 on
@@ -242,4 +243,39 @@ fn its_cast_keeps_its_target_and_freezes_its_swing() {
     }
     let next = rows.iter().find(|r| (r.0, r.1) != before).expect("the swing never ran on after the cast");
     assert_eq!(next.0, before.0 + 50, "the swing runs on from where it stood: {rows:?}");
+}
+
+/// PAST THE LAST LEVEL (card.rs `level_multiplier`, the ladder's tail; client 160402017, il-8b9bda33): a level-16 hero
+/// whose stack is 1 (25 s in: levels[1], +2) goes to 18, though no card is PLAYED past 17 (`check_play_level`). The
+/// client's went 16 -> 18 in one level-up and hit a tower for 295 x 495 % = 1460, Common's second entry past 409; its
+/// max hitpoints there are 543 x 495 % = 2687.
+#[test]
+fn a_level_up_climbs_the_ladder_past_the_last_level() {
+    use royalesim::card::CardDb;
+    use royalesim::state::CardTable;
+    let mut cfg = BattleConfig::with_cards(CardDb::load_table(CardTable::Client160402017).expect("the 160402017 table"));
+    cfg.calib.card_table = CardTable::Client160402017;
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
+    cfg.card_level = [16, 16];
+    cfg.tower_level = [16, 16];
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    let lockout = s.config().calib.deploy_lockout_ticks as u32;
+    s.scenario_set_tick(lockout);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    blue_towers_down(&mut s);
+    s.spawn_unit(Team::Blue, "MiniPekka_hero", n(AT.0, AT.1), None).expect("the hero");
+    s.tick();
+    let hero = find_live(&s, Team::Blue, "MiniPekka_hero")[0].id;
+    assert_eq!(s.entity(hero).expect("the hero").level, 16);
+    for _ in 0..500 {
+        step(&mut s, hero, &[]);
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..6 {
+        step(&mut s, hero, &[]);
+    }
+    let h = s.entity(hero).expect("the hero");
+    assert_eq!((h.level, h.max_hp), (18, 543 * 495 / 100), "16 + 2 on the ladder's tail");
 }
