@@ -1800,6 +1800,7 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 ///   grid (2 of 2 taps).
 ///   formation.ARMY_GENERAL_POINT = client15535_ground_point: the Evo Skeleton Army's General is laid off the soldiers'
 ///   ring centre, the play's point moved by formation.GROUND_DEPLOY_POINT (4 of 4 plays).
+///   spawner.EVO_COPY_TICK = hit_tick: an Evo Skeletons copy is made on its hit's tick.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -1940,6 +1941,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("status.BUFF_DEATH_SPAWN_FIRST_UPDATE", "\"client15535_doomed_parent\""),
     ("placement.ENEMY_BUILDING_TAPS", "\"client15535_half_tile_box_ring\""),
     ("formation.ARMY_GENERAL_POINT", "\"client15535_ground_point\""),
+    ("spawner.EVO_COPY_TICK", "\"hit_tick\""),
 ];
 
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.

@@ -1184,6 +1184,10 @@ pub struct Calib {
     /// the `default` is the old arm, `Rules`.
     #[serde(default = "battle_end_default")]
     pub battle_end: BattleEnd,
+    /// spawner.EVO_COPY_TICK (the tick an Evo Skeletons copy is made on, `evo_copies`). Added after SNAPSHOT_FORMAT 20;
+    /// the default is the old arm, `HitTick`, what a battle saved before it ran.
+    #[serde(default = "evo_copy_tick_default")]
+    pub evo_copy_tick: EvoCopyTick,
     /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE (`phase_reap`): whether a buff's death spawn takes its first update on its
     /// creation tick. Added after SNAPSHOT_FORMAT 20; the `default` is the old arm, `NextTick`.
     #[serde(default = "buff_death_spawn_first_update_default")]
@@ -2982,6 +2986,10 @@ fn army_general_point_default() -> ArmyGeneralPoint {
 
 fn battle_end_default() -> BattleEnd {
     BattleEnd::Rules
+}
+
+fn evo_copy_tick_default() -> EvoCopyTick {
+    EvoCopyTick::HitTick
 }
 
 fn buff_death_spawn_first_update_default() -> BuffDeathSpawnFirstUpdate {
@@ -7339,6 +7347,19 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.EVO_COPY_TICK -- see `evo_after_fire` and `evo_copies`: the tick an Evo Skeletons copy a hit earned is
+    /// made on.
+    EvoCopyTick {
+        /// The engine before this key: in the hit's own Reap (client 15.535.29: sp-scene-b-s0, the hit on t796, the copy's
+        /// first frame t796).
+        HitTick = "hit_tick",
+        /// In the Reap of the tick after (`EvoBoard::copies_due`), ahead of its hitter's point after that tick's move.
+        /// Client 16.402 (Oracle's 160402017 scenes): the copies' first frames the hit + 1, 15 of 15 (sp-scene-b-s0 and s1
+        /// 5 each, sp-m5-clone-s0 3 + 2), each 1000 ahead of its hitter where it stands on that tick (then pushed).
+        Client16402NextTick = "client16402_next_tick",
+    }
+);
+calib_enum!(
     /// status.BUFF_DEATH_SPAWN_FIRST_UPDATE -- see `phase_reap`: whether a buff's death spawn (the Mother Witch's curse
     /// hog, the Goblin Curse's goblin) takes its first update on the tick it appears.
     BuffDeathSpawnFirstUpdate {
@@ -9479,6 +9500,7 @@ impl Calib {
             placement_enemy_building_taps: pick(&v, &["placement", "ENEMY_BUILDING_TAPS", "value"], EnemyBuildingTaps::from_calibration_name)?,
             army_general_point: pick(&v, &["formation", "ARMY_GENERAL_POINT", "value"], ArmyGeneralPoint::from_calibration_name)?,
             battle_end: pick(&v, &["match", "BATTLE_END", "value"], BattleEnd::from_calibration_name)?,
+            evo_copy_tick: pick(&v, &["spawner", "EVO_COPY_TICK", "value"], EvoCopyTick::from_calibration_name)?,
             buff_death_spawn_first_update: pick(&v, &["status", "BUFF_DEATH_SPAWN_FIRST_UPDATE", "value"], BuffDeathSpawnFirstUpdate::from_calibration_name)?,
             death_projectile_copies: pick(&v, &["spawner", "DEATH_PROJECTILE_COPIES", "value"], DeathProjectileCopies::from_calibration_name)?,
             barrel_drop_point: pick(&v, &["spawner", "BARREL_DROP_POINT", "value"], BarrelDropPoint::from_calibration_name)?,
@@ -10255,6 +10277,10 @@ pub struct EvoBoard {
     /// only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub snipe_last: Vec<(EntityId, EntityId)>,
+    /// spawner.EVO_COPY_TICK = client16402_next_tick: the copies the last tick's hits earned, made in this tick's Reap
+    /// (`evo_copies`). `default` so a battle saved before it still loads; hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub copies_due: Vec<EvoCopy>,
 }
 
 /// AN EVO LUMBERJACK'S GHOST (card.rs `RageGhostDef`): his side, his card and level, his death point (the Rage's) and
@@ -10467,6 +10493,7 @@ impl EvoBoard {
             && self.pulses.is_empty()
             && self.rage_ghosts.is_empty()
             && self.snipe_last.is_empty()
+            && self.copies_due.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -10482,17 +10509,17 @@ impl EvoBoard {
 }
 
 /// A COPY AN EVO SKELETON'S GROUP HAS EARNED THIS TICK (`evo_after_fire`), made at the end of the tick's Reap
-/// (`evo_copies`).
-#[derive(Clone, Copy, Debug)]
-struct EvoCopy {
-    hitter: EntityId,
-    group: u32,
-    team: Team,
-    card: u16,
-    level: i32,
-    pos: Vec2,
+/// (`evo_copies`), or of the next tick's under spawner.EVO_COPY_TICK = client16402_next_tick (`EvoBoard::copies_due`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EvoCopy {
+    pub hitter: EntityId,
+    pub group: u32,
+    pub team: Team,
+    pub card: u16,
+    pub level: i32,
+    pub pos: Vec2,
     /// spawner.EVO_COPY_COUNT = client15535_at_hit: the group had room for it at the hit (`evo_after_fire`).
-    room: bool,
+    pub room: bool,
 }
 
 /// THE EVO ROYAL GHOST'S DAMAGE AREA lands this many ticks past its DamageAEOSpawnDelay after the hit (state.rs
@@ -13510,7 +13537,8 @@ impl BattleState {
                     // spawner.EVO_COPY_COUNT = client15535_at_hit: the room as the hit finds it, the members alive now (a
                     // member dying on this tick is reaped later) and the copies this tick's earlier hits earned the group.
                     let alive = self.evo.members.iter().filter(|(m, k)| *k == g && self.ents.is_alive(*m)).count() as i32;
-                    let earned = self.scratch.evo_copies.iter().filter(|c| c.group == g && c.room).count() as i32;
+                    // (and, under spawner.EVO_COPY_TICK = client16402_next_tick, the copies due from the last tick's hits)
+                    let earned = self.scratch.evo_copies.iter().chain(self.evo.copies_due.iter()).filter(|c| c.group == g && c.room).count() as i32;
                     let room = alive + earned < d.group_max;
                     self.scratch.evo_copies.push(EvoCopy { hitter: id, group: g, team, card: self.ents.card[i], level: self.ents.level[i], pos, room });
                 }
@@ -13730,7 +13758,21 @@ impl BattleState {
     /// 32071, and the copy's first frame is (937, -1062) from it. `spawn_now` puts it where it puts any point off the
     /// board.
     fn evo_copies(&mut self) {
-        let copies = std::mem::take(&mut self.scratch.evo_copies);
+        // spawner.EVO_COPY_TICK = client16402_next_tick: this tick makes the copies the last tick's hits earned, and this
+        // tick's wait for the next (client 16.402: the copies' first frames the hit + 1, 15 of 15).
+        // PLANT (regression) evo_copy_on_hit_tick: the new arm still makes them on the hit's tick.
+        #[cfg(not(clash_plant = "evo_copy_on_hit_tick"))]
+        let next_tick = self.cfg.calib.evo_copy_tick == EvoCopyTick::Client16402NextTick;
+        #[cfg(clash_plant = "evo_copy_on_hit_tick")]
+        let next_tick = false;
+        let copies = if next_tick {
+            let now = std::mem::take(&mut self.scratch.evo_copies);
+            std::mem::replace(&mut self.evo.copies_due, now)
+        } else {
+            let mut c = std::mem::take(&mut self.evo.copies_due);
+            c.extend(std::mem::take(&mut self.scratch.evo_copies));
+            c
+        };
         let mut fresh: Vec<usize> = Vec::new();
         for c in copies {
             let Some(d) = self.cfg.cards.get(c.card).evo.as_ref().and_then(|v| v.duplication) else { continue };
@@ -33323,6 +33365,20 @@ impl BattleState {
                     h.u32(r.last_in);
                 }
             }
+            if !b.copies_due.is_empty() {
+                h.u32(0x4556_4344);
+                h.u32(b.copies_due.len() as u32);
+                for c in &b.copies_due {
+                    h.id(c.hitter);
+                    h.u32(c.group);
+                    h.u32(c.team as u32);
+                    h.u32(u32::from(c.card));
+                    h.i32(c.level);
+                    h.i32(c.pos.x);
+                    h.i32(c.pos.y);
+                    h.bool(c.room);
+                }
+            }
             // The Evo Goblin Drills' hides, only when there are some.
             if !b.drills.is_empty() {
                 h.u32(0x4452_4c4c);
@@ -34084,6 +34140,9 @@ impl BattleState {
 /// 20, unchanged, match.BATTLE_END: Calib gained battle_end (serde default the old arm, rules), no new state (read at
 ///    each Judge phase), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle
 ///    at the old arm.
+/// 20, unchanged, spawner.EVO_COPY_TICK: Calib gained evo_copy_tick (serde default the old arm, hit_tick), the copies due
+///    (EvoBoard::copies_due) default empty and are hashed only when not empty, so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.BUFF_DEATH_SPAWN_FIRST_UPDATE: Calib gained buff_death_spawn_first_update (serde default the old
 ///    arm, next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
@@ -35210,6 +35269,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("army_general_point".into(), serde_json::to_value(ArmyGeneralPoint::Tap).map_err(|e| e.to_string())?);
     // match.BATTLE_END: a format-3 battle ended by the game's rules (the same rule).
     sh.insert("battle_end".into(), serde_json::to_value(BattleEnd::Rules).map_err(|e| e.to_string())?);
+    // spawner.EVO_COPY_TICK: a format-3 battle made its copies on the hit's tick (the same rule).
+    sh.insert("evo_copy_tick".into(), serde_json::to_value(EvoCopyTick::HitTick).map_err(|e| e.to_string())?);
     // status.BUFF_DEATH_SPAWN_FIRST_UPDATE: a format-3 battle's buff death spawn first moved on the next tick (the same rule).
     sh.insert("buff_death_spawn_first_update".into(), serde_json::to_value(BuffDeathSpawnFirstUpdate::NextTick).map_err(|e| e.to_string())?);
     // spawner.DEATH_PROJECTILE_COPIES: a format-3 battle left one death projectile a death (the same rule).

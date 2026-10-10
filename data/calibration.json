@@ -4509,6 +4509,17 @@
     }
   },
   "spawner": {
+    "EVO_COPY_TICK": {
+      "value": "client16402_next_tick",
+      "status": "measured",
+      "candidates": ["hit_tick", "client16402_next_tick"],
+      "confidence": "HIGH for client16402_next_tick on client 16.402: 15 of 15 copies in Oracle's 160402017 scenes (sp-scene-b-s0, -s1, sp-m5-clone-s0), the point law unchanged a tick later; 15.535.29 made them on the hit's tick (CLIENT15535_ARMS keeps hit_tick). The room (spawner.EVO_COPY_COUNT) is still read at the hit, the copies due counted with the tick's (not separable until the ring radius is the client's: ob2's Skeletons_EV1 SummonRadius 400).",
+      "provenance": "MEASURED by parity (2026-10-09, r63 triage) on Oracle's 160402017 scenes: the hits on the Giant and the copies' first frames, sp-scene-b-s0 796, 806, 815, 818, 823 -> 797, 807, 816, 819, 824; -s1 796, 806, 813, 818, 823 -> 797, 807, 814, 819, 824; sp-m5-clone-s0 837 (3 hits) -> 3 copies on 838, 847 -> 2 on 848. The point a tick later: clone t838, copy 27 (3939, 13295) for its hitter 21 (3939, 12294), +1001; copy 29 (+149, +1015) and 28 (+98, +888), pushed. The engine made them on the hit's tick (796, 805, 809, 815, 818). Client 15.535.29's scene: the hit 796, the copy 796.",
+      "meaning": "hit_tick: the engine's; the copy in the hit's own Reap. client16402_next_tick: in the next tick's Reap, ahead of the hitter's point then (the earned copy saved over the tick).",
+      "open": "Whether the group's room is read at the hit or at the copy's tick; a hitter dying on the tick between.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at hit_tick (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
+      "engine": "state.rs evo_after_fire (`EvoCopy`), evo_copies, EvoBoard::copies_due; tests/evolution.rs."
+    },
     "$comment": [
       "PERIODIC SPAWNERS AND DEATH SPAWN (characters.csv / buildings.csv Spawn* and DeathSpawn*",
       "columns; 2018: Tombstone, GoblinHut, BarbarianHut, FirespiritHut, Witch, DarkWitch spawn;",

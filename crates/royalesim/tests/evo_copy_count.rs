@@ -31,6 +31,8 @@ fn n(x: i32, y: i32) -> Vec2 {
 fn trials(arm: EvoCopyCount) -> Vec<usize> {
     let mut cfg = config();
     cfg.calib.evo_copy_count = arm;
+    // the 15.535.29 scenes' copies, on the hit's tick (spawner.EVO_COPY_TICK's old arm)
+    cfg.calib.evo_copy_tick = royalesim::state::EvoCopyTick::HitTick;
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     let mut s = BattleState::new(7, cfg);

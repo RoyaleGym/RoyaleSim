@@ -31,7 +31,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{barrage_spells, BattleConfig, BattleState, EvoCopyPoint, SpawnedFirstStep, TapSnap, EVO_BASIC_PLAYS};
+use royalesim::state::{barrage_spells, BattleConfig, BattleState, EvoCopyPoint, EvoCopyTick, SpawnedFirstStep, TapSnap, EVO_BASIC_PLAYS};
 use royalesim::Team;
 
 /// A native point, in subtiles.
@@ -47,7 +47,9 @@ fn level11(mut cfg: BattleConfig) -> BattleConfig {
 }
 
 /// A battle at level 11 with the clock past the opening lockout.
-fn battle(cfg: BattleConfig) -> BattleState {
+fn battle(mut cfg: BattleConfig) -> BattleState {
+    // The 15.535.29 scenes' copies, on the hit's tick (spawner.EVO_COPY_TICK's old arm; the new one's test below).
+    cfg.calib.evo_copy_tick = EvoCopyTick::HitTick;
     let mut s = BattleState::new(7, level11(cfg));
     past_deploy_lockout(&mut s);
     s
@@ -679,4 +681,38 @@ fn an_evo_copy_point_past_the_last_rows_centre_is_clamped_to_it_under_client1553
         assert_eq!(s.evo_copy_point(n(6973, 30829), Team::Blue), n(6973, y), "{arm:?}: the copy point past the last row's centre");
         assert_eq!(s.evo_copy_point(n(9579, 31071), Team::Blue), n(10579, 31071), "{arm:?}: an ahead point off the arena goes outward");
     }
+}
+
+/// spawner.EVO_COPY_TICK = client16402_next_tick (client 16.402, Oracle's 160402017 scenes: the copies' first frames the
+/// hit + 1, 15 of 15, 1000 ahead of the hitter where it stands then): `an_evo_copy_is_made_exactly_ahead_of_its_hitter_
+/// after_the_move`'s scene; every copy appears on the tick after a hit, none on a tick with no hit before it, exactly
+/// 1000 ahead of a hitter of the tick before, at its point after this tick's move. Plant: evo_copy_on_hit_tick.
+#[test]
+fn under_client16402_next_tick_an_evo_copy_is_made_the_tick_after_its_hit() {
+    let mut cfg = config();
+    cfg.calib.spawned_first_step = SpawnedFirstStep::None;
+    cfg.calib.evo_copy_tick = EvoCopyTick::Client16402NextTick;
+    // `battle`'s scene with the arm kept (`battle` pins the old one)
+    let mut s = BattleState::new(7, level11(cfg));
+    past_deploy_lockout(&mut s);
+    assert_eq!(s.config().calib.evo_copy_tick, EvoCopyTick::Client16402NextTick, "the scene's arm");
+    let form = idx(&s, "Skeletons_EV1");
+    s.spawn_unit(Team::Red, "Giant", n(9000, 13500), None).unwrap();
+    s.spawn_unit(Team::Blue, "Skeletons_EV1", n(9000, 12000), None).unwrap();
+    let (mut copies, mut last_hitters): (usize, Vec<royalesim::EntityId>) = (0, Vec::new());
+    for _ in 0..400 {
+        let before: Vec<_> = s.entities().filter(|e| e.card_idx == form).map(|e| e.id).collect();
+        s.tick();
+        if before.is_empty() {
+            continue;
+        }
+        let made: Vec<Vec2> = last_hitters.iter().filter_map(|id| s.entity(*id)).map(|h| Vec2::new(h.pos.x, h.pos.y + 1000 * K)).collect();
+        for copy in s.entities().filter(|e| e.card_idx == form && !before.contains(&e.id)) {
+            assert!(!last_hitters.is_empty(), "a copy on a tick with no hit before it");
+            assert!(made.contains(&copy.pos), "a copy at {:?}, not 1000 ahead of a hitter of the tick before, after this tick's move: {made:?}", copy.pos);
+            copies += 1;
+        }
+        last_hitters = s.entities().filter(|e| e.card_idx == form && e.attack_phase == royalesim::entity::AttackPhase::Cooldown).map(|e| e.id).collect();
+    }
+    assert!(copies >= 5, "{copies} copies");
 }
