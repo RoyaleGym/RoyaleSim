@@ -1794,6 +1794,16 @@
     }
   },
   "combat": {
+    "GUARD_PRESS_HOLD": {
+      "value": "client16402_three_ticks_longer",
+      "status": "measured",
+      "candidates": ["table_time", "client16402_three_ticks_longer"],
+      "confidence": "HIGH for client16402_three_ticks_longer on client 16.402 (parity r69, 2026-10-10): parity's r69 census over the ob6 live set (the r68 attack-timing study's 180 Little Prince presses): of the presses he walked after, his first step came on the press + 33 in 39 and + 32 in 1, never earlier than + 32 save three presses made mid-walk or mid-dash (+ 1, + 18, + 26); the later ones (+ 35 to + 58) follow an attack. The 9 clean presses: + 33 in 6, + 32 in 1, + 58 in 2 (both attacking, the engine agreeing). The engine (0.1.28, the hold landed on the press with its 1500 ms) steps on the press + 30: liveplay-20261007-151841-A key 16, pressed on t722, walks again on t752 in the engine and on t755 in the truth, his first attack after a press agreeing (the press + 18 in both); pathfinding.HELD_PRESS_ROUTE = client15535_replanned leaves the engine's + 30 unchanged. The three extra ticks are a fit to the release, not a reading of the client's code; the hold's tag (combat.RAMP_PRESS_HOLD reads it) lasts as long. LOW for table_time on 16.402.",
+      "provenance": "MEASURED by parity (2026-10-10, r69) on client 16.402: parity's r69 census over the ob6 live set (the r68 attack-timing study's 180 Little Prince presses): of the presses he walked after, his first step came on the press + 33 in 39 and + 32 in 1, never earlier than + 32 save three presses made mid-walk or mid-dash (+ 1, + 18, + 26); the later ones (+ 35 to + 58) follow an attack. The 9 clean presses: + 33 in 6, + 32 in 1, + 58 in 2 (both attacking, the engine agreeing). The engine (0.1.28, the hold landed on the press with its 1500 ms) steps on the press + 30: liveplay-20261007-151841-A key 16, pressed on t722, walks again on t752 in the engine and on t755 in the truth, his first attack after a press agreeing (the press + 18 in both); pathfinding.HELD_PRESS_ROUTE = client15535_replanned leaves the engine's + 30 unchanged.",
+      "meaning": "table_time: the engine's; the press lands his hold (its buff, the guard's hold tag) for the hold's table time. client16402_three_ticks_longer: the same hold for GUARD_PRESS_HOLD_EXTRA_TICKS (3) ticks more, so his first step after it is on the press + 33.",
+      "open": "Where the three ticks come from (a later landing, or a release that waits; the hold's other readers, his ramp's tag, last the three ticks too); client 15.535.29 unread (CLIENT15535_ARMS keeps table_time).",
+      "engine": "state.rs, the press's AbilityEffect::Guard (the hold's BuffHit), card.rs GUARD_PRESS_HOLD_EXTRA_TICKS; tests/little_prince.rs."
+    },
     "GUARD_LANDING_HITS": {
       "value": "client16402_through_landing_ticks",
       "status": "measured",

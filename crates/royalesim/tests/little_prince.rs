@@ -17,7 +17,8 @@
 //! ramp_held_by_press_unread (`under_client16402_tag_held_his_press_keeps_his_ramp` red), guard_charge_hit
 //! (`under_client16402_charge_immune_his_guard_takes_no_hit_in_its_charge` red), guard_push_swing_frozen
 //! (`under_client16402_reset_his_guards_push_resets_the_pushed_swing` red), landing_hits_end_at_arrival and
-//! landing_hits_unbounded (`under_client16402_through_landing_ticks_his_guard_hits_through_its_arrival_plus_three` red).
+//! landing_hits_unbounded (`under_client16402_through_landing_ticks_his_guard_hits_through_its_arrival_plus_three` red),
+//! press_hold_table_time (`under_client16402_three_ticks_longer_his_press_holds_him_three_ticks_past_its_time` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -34,7 +35,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardLandingHits, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardLandingHits, GuardPressHold, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -760,4 +761,47 @@ fn under_client16402_through_landing_ticks_his_guard_hits_through_its_arrival_pl
     let (a1, _, hits) = landing_scene(GuardLandingHits::ChargeStepsOnly, Some((a + 1, spot)));
     assert_eq!(a1, a, "the old arm's arrival moved");
     assert!(hits.is_empty(), "charge_steps_only (the vacuity check): hit after the arrival: {hits:?}");
+}
+
+/// The Little Prince let walk (no enemy in sight) 10 ticks after `scene`'s hold, then pressed, under combat.GUARD_PRESS_HOLD
+/// = `arm`: the ticks from the press's tick (the last one run before it) to his first tick of moving after it.
+fn first_step_after_press(arm: GuardPressHold) -> u32 {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_press_hold = arm, &[]);
+    let mut last = s.entity(lp).expect("him").pos;
+    let mut walked = 0;
+    for _ in 0..10 {
+        s.tick();
+        let p = s.entity(lp).expect("him").pos;
+        walked += u32::from(p != last);
+        last = p;
+    }
+    assert!(walked >= 5, "precondition: he walks before the press ({walked} moving ticks of 10)");
+    let p0 = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    // The press's first tick holds him: skip the ticks he still walks on before it lands, then find his first step after.
+    let mut held = false;
+    for _ in 0..80 {
+        s.tick();
+        let p = s.entity(lp).expect("him").pos;
+        let moving = p != last;
+        last = p;
+        if !moving {
+            held = true;
+        } else if held {
+            return s.tick_count() - 1 - p0;
+        }
+    }
+    panic!("he never walked again after the press");
+}
+
+/// combat.GUARD_PRESS_HOLD = client16402_three_ticks_longer (client 16.402, parity's r69 census over the ob6 live set: his
+/// first step after a press on the press + 33 in 39 presses, never + 30; the engine's table time stepped on + 30): his
+/// first step comes three ticks later than under table_time (the vacuity check: the old arm's own step). Plant:
+/// press_hold_table_time.
+#[test]
+fn under_client16402_three_ticks_longer_his_press_holds_him_three_ticks_past_its_time() {
+    let old = first_step_after_press(GuardPressHold::TableTime);
+    let new = first_step_after_press(GuardPressHold::Client16402ThreeTicksLonger);
+    assert!((25..=35).contains(&old), "precondition: under table_time his hold of 1500 ms ends about 30 ticks on ({old})");
+    assert_eq!(new, old + 3, "client16402_three_ticks_longer: his first step after the press (table_time's {old})");
 }

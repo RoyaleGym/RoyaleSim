@@ -1679,6 +1679,10 @@ pub const GUARD_IMMUNE_AFTER_ARRIVAL_TICKS: u32 = 2;
 /// troops entering its reach on its last dash frame (the arrival + 1) or the two after hit on that frame 10 of 10, on the
 /// third after 1 of 10, later 0.
 pub const GUARD_LANDING_HIT_TICKS: u32 = 3;
+/// combat.GUARD_PRESS_HOLD = client16402_three_ticks_longer: the ticks the Little Prince's press holds him past the hold's
+/// table time. Measured on client 16.402 (parity r69, the ob6 live set): his first step after a press on the press + 33 in
+/// 39 of the presses he walked after (+ 32 in 1), the engine's + 30.
+pub const GUARD_PRESS_HOLD_EXTRA_TICKS: i32 = 3;
 
 /// THE FLAG'S SPAWNS (the Hero Goblins'; tools/extract_cards.py `flag_button`; state.rs `FlagRun`, `flag_pass`, the
 /// flag's release in `phase_reap`, `note_flag_play`). The form's units hold no button: when one dies, untagged, with no

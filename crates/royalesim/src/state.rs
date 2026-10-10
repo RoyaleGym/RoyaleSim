@@ -833,6 +833,10 @@ pub struct Calib {
     /// `ChargeStepsOnly`, what a battle saved before it ran.
     #[serde(default = "guard_landing_hits_default")]
     pub guard_landing_hits: GuardLandingHits,
+    /// combat.GUARD_PRESS_HOLD (how long the Little Prince's press holds him: the hold's table time, or three ticks longer). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `TableTime`, what a battle saved before it ran.
+    #[serde(default = "guard_press_hold_default")]
+    pub guard_press_hold: GuardPressHold,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2627,6 +2631,10 @@ fn chain_hop_dead_target_default() -> ChainHopDeadTarget {
 
 fn guard_landing_hits_default() -> GuardLandingHits {
     GuardLandingHits::ChargeStepsOnly
+}
+
+fn guard_press_hold_default() -> GuardPressHold {
+    GuardPressHold::TableTime
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9552,6 +9560,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_PRESS_HOLD -- the hold the Little Prince's press lands on him (card.rs `GuardDef::hold`, the
+    /// ChampGuardianAbility's 1500 ms; state.rs, the press's AbilityEffect::Guard).
+    GuardPressHold {
+        /// The engine's: the hold lasts its table time from the press.
+        TableTime = "table_time",
+        /// Client 16.402: it lasts GUARD_PRESS_HOLD_EXTRA_TICKS (3) longer, so he walks again on the press + 33, not + 30.
+        Client16402ThreeTicksLonger = "client16402_three_ticks_longer",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10073,6 +10091,7 @@ impl Calib {
             tower_troop_burst: pick(&v, &["combat", "TOWER_TROOP_BURST", "value"], TowerTroopBurst::from_calibration_name)?,
             chain_hop_dead_target: pick(&v, &["combat", "CHAIN_HOP_DEAD_TARGET", "value"], ChainHopDeadTarget::from_calibration_name)?,
             guard_landing_hits: pick(&v, &["combat", "GUARD_LANDING_HITS", "value"], GuardLandingHits::from_calibration_name)?,
+            guard_press_hold: pick(&v, &["combat", "GUARD_PRESS_HOLD", "value"], GuardPressHold::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -32325,7 +32344,15 @@ impl BattleState {
             crate::card::AbilityEffect::Guard(g) => {
                 #[cfg(not(clash_plant = "guard_never"))]
                 {
-                    let h = crate::status::BuffHit::plain(hero, g.hold.buff, g.hold.time_ms, 0);
+                    // combat.GUARD_PRESS_HOLD = client16402_three_ticks_longer: the hold lasts GUARD_PRESS_HOLD_EXTRA_TICKS
+                    // past its table time (his first step after the press on the press + 33, the table's + 30).
+                    // PLANT (regression) press_hold_table_time: the new arm still holds him for the table time.
+                    #[cfg(not(clash_plant = "press_hold_table_time"))]
+                    let longer = self.cfg.calib.guard_press_hold == GuardPressHold::Client16402ThreeTicksLonger;
+                    #[cfg(clash_plant = "press_hold_table_time")]
+                    let longer = false;
+                    let extra = if longer { crate::card::GUARD_PRESS_HOLD_EXTRA_TICKS * self.cfg.calib.tick_ms } else { 0 };
+                    let h = crate::status::BuffHit::plain(hero, g.hold.buff, g.hold.time_ms + extra, 0);
                     land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
                     self.warps.guards.push(GuardRun { team, card, level, made: self.tick, from: pos, guard: None, born: 0, arrived: None, hit: Vec::new() });
                 }
@@ -36075,6 +36102,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_LANDING_HITS: Calib gained guard_landing_hits (serde default the old arm, charge_steps_only), no new state (the guard's run already carries its arrival and its hits),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_PRESS_HOLD: Calib gained guard_press_hold (serde default the old arm, table_time), no new state (the hold is a buff with its own time),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37034,6 +37063,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("chain_hop_dead_target".into(), serde_json::to_value(ChainHopDeadTarget::Ends).map_err(|e| e.to_string())?);
     // combat.GUARD_LANDING_HITS: a format-3 battle's guard hit on its charge's steps only.
     sh.insert("guard_landing_hits".into(), serde_json::to_value(GuardLandingHits::ChargeStepsOnly).map_err(|e| e.to_string())?);
+    // combat.GUARD_PRESS_HOLD: a format-3 battle's press held him for the hold's table time.
+    sh.insert("guard_press_hold".into(), serde_json::to_value(GuardPressHold::TableTime).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
