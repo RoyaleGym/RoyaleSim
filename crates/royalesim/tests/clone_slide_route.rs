@@ -66,6 +66,6 @@ fn kept_walks_the_old_route_on() {
 }
 
 #[test]
-fn the_shipped_value_is_kept() {
-    assert_eq!(royalesim::state::Calib::shipped().clone_slide_route, CloneSlideRoute::Kept);
+fn the_shipped_value_is_client15535_dropped() {
+    assert_eq!(royalesim::state::Calib::shipped().clone_slide_route, CloneSlideRoute::Client15535Dropped, "the c4 flip ships the 15.535.29 arm");
 }

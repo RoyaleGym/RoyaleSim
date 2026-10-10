@@ -187,11 +187,11 @@ fn calib() -> Calib {
 }
 
 /// THE ARMS THIS FILE'S SPELL TESTS WERE WRITTEN ON, pinned since the round-12 flip (a test that names one arm
-/// inherits the rest): the Log's first step, push direction and hit shape, and the building reach. It shadows
-/// `common::config`. The tests of the flipped arms name theirs (`log_pair`, the max-y edge test, and
+/// inherits the rest): the Log's first step, push direction and hit shape, and the building reach, over the c4 flip's
+/// old arms. It shadows `common::config_pre_flip`. The tests of the flipped arms name theirs (`log_pair`, the max-y edge test, and
 /// tests/building_spell_reach.rs).
 fn config_pre_flip() -> BattleConfig {
-    let mut c = common::config();
+    let mut c = common::config_pre_flip();
     c.calib.roll_first_step = royalesim::state::RollFirstStep::TickAfterLanding;
     c.calib.knock_direction_rolling = RollDirection::RadialFromCentre;
     c.calib.rolling_hit_shape = royalesim::state::RollHitShape::RectVsCircleEdge;

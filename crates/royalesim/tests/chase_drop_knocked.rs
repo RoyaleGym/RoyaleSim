@@ -153,8 +153,8 @@ fn a_runner_that_is_not_sliding_is_let_go_on_the_edge() {
 }
 
 #[test]
-fn the_shipped_value_is_the_new_one() {
-    assert_eq!(Calib::shipped().chase_drop_knocked, NEW);
+fn the_shipped_value_is_client15535_holds_unless_nearer() {
+    assert_eq!(Calib::shipped().chase_drop_knocked, ChaseDropKnocked::Client15535HoldsUnlessNearer, "the c4 flip ships the 15.535.29 arm");
 }
 
 /// (5) A red Giant held at (16235, 22326), farther from the Bowler than the Bomber until the Bomber's slide: per tick

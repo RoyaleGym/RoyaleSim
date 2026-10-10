@@ -95,9 +95,9 @@ fn calib() -> Calib {
     c
 }
 
-/// `common::config` under the file's arms (`calib`).
+/// `common::config_pre_flip` (the c4 flip's old arms) under the file's arms (`calib`).
 fn config_pre_flip() -> BattleConfig {
-    let mut cfg = common::config();
+    let mut cfg = common::config_pre_flip();
     cfg.calib.pulsing_area_effect = PulsingArea::HitSpeedOffset;
     cfg
 }

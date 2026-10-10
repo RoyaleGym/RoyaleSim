@@ -5,7 +5,7 @@
 //! box overlaps the corner's NO_DEPLOY tile, is moved one tile in one of two directions equally near the tap. Blue
 //! (1500, 13500) -> (1500, 12500) and (16500, 13500) -> (16500, 12500), both -y; Red (1500, 18500) -> (1500, 19500), +y,
 //! and (16500, 18500) -> (15500, 18500), -x. All four are the first in the fixed arena order -y, -x, +y, +x (the order
-//! placement.TOWER_TAP_PUSH measured on troop taps); the shipped ring order, built in the placer's frame so the seats
+//! placement.TOWER_TAP_PUSH measured on troop taps); the old ring order (shipped until the c4 flip), built in the placer's frame so the seats
 //! mirror, takes +y for the last. The order is seen from the TAP: a Blue Cannon (3x3) tapped on a tile edge,
 //! (9000, 14500), its box over the river, between (8500, 13500) and (9500, 13500) took (8500, 13500) in 10 of 10 captures
 //! (the bldtaps scenes, sp-m3-barrage2-s0); seen from the snapped tile (9500, 14500) the order takes -y, (9500, 13500).
@@ -57,8 +57,13 @@ fn the_client_arm_ties_in_the_arena_order() {
 }
 
 #[test]
-fn the_shipped_arm_mirrors_the_seats() {
-    assert_eq!(Calib::shipped().relocation_tie_order, RelocationTieOrder::PlacerFrameFirstFound);
+fn the_shipped_arm_is_the_clients_ring() {
+    assert_eq!(Calib::shipped().relocation_tie_order, RelocationTieOrder::Client15535InterleavedRing, "the c4 flip ships the 15.535.29 arm");
+}
+
+/// The old arm, placer_frame_first_found: the seats mirror (the symmetric arm, tests/common `symmetric_config`).
+#[test]
+fn the_old_arm_mirrors_the_seats() {
     let arm = RelocationTieOrder::PlacerFrameFirstFound;
     assert_eq!(landing(arm, Team::Blue, (16500, 13500)), (16500, 12500));
     assert_eq!(landing(arm, Team::Red, (16500, 18500)), (16500, 19500), "the placer's frame takes its back, +y");

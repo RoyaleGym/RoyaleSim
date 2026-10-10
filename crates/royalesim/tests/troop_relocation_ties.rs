@@ -5,8 +5,8 @@
 //! by the river, where the axis push (placement.TOWER_TAP_PUSH) runs into the water, is moved by the ring search to one
 //! of two fits equally near the tap, two tiles to -x and +x. All 10 such taps, both seats, went to arena -x: side 1's
 //! (14500, 17500) by a Cannon on (14500, 18500) stood on (12500, 17499), and (3500, 18500), a Collector's centre, on
-//! (1499, 18499), over +y and +x; side 0's (14500, 14500) by a Cannon on (14500, 13500) on (12500, 14500). The shipped
-//! ring walk, built in the placer's frame, takes side 1's +x.
+//! (1499, 18499), over +y and +x; side 0's (14500, 14500) by a Cannon on (14500, 13500) on (12500, 14500). The old
+//! ring walk (shipped until the c4 flip), built in the placer's frame, takes side 1's +x.
 //!
 //! PLANT (regression): troop_relocation_ties_walked -> `the_client_arm_ties_in_the_arena_order` red.
 //!   RUSTFLAGS='--cfg clash_plant="troop_relocation_ties_walked"' CARGO_TARGET_DIR=target/plant cargo test --profile gate
@@ -48,8 +48,13 @@ fn the_client_arm_ties_in_the_arena_order() {
 }
 
 #[test]
-fn the_shipped_arm_mirrors_the_seats() {
-    assert_eq!(Calib::shipped().troop_relocation_tie_order, TroopRelocationTieOrder::PlacerFrameFirstFound);
+fn the_shipped_arm_ties_in_the_arena_order() {
+    assert_eq!(Calib::shipped().troop_relocation_tie_order, TroopRelocationTieOrder::Client15535ArenaClockwise, "the c4 flip ships the 15.535.29 arm");
+}
+
+/// The old arm, placer_frame_first_found: the seats mirror (the symmetric arm, tests/common `symmetric_config`).
+#[test]
+fn the_old_arm_mirrors_the_seats() {
     let arm = TroopRelocationTieOrder::PlacerFrameFirstFound;
     // NOT VACUOUS: the placer's frame takes side 1's +x.
     assert_eq!(landing(arm, Team::Red, ("Cannon", (14500, 18500)), (14500, 17500)).0, 16500, "side 1 by its Cannon: the placer's -x");

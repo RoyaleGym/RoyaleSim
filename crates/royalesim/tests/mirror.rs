@@ -63,8 +63,8 @@
 //! still assign team_seq in CALL order; setup-spawn order is gated by
 //! tests/setup_spawn_order.rs.
 #![allow(unexpected_cfgs)]
-// THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
-// (common::config_pre_flip); each flipped key's own tests read both arms.
+// THE c4 FLIP (parity r66): these scenes run symmetric_config(), the SHIPPED arms with the symmetric arm of every
+// seat-asymmetric key, the flip's own among them; each flipped key's own tests read both arms.
 mod common;
 
 use royalesim::entity::EntityKind;
@@ -818,7 +818,7 @@ fn a_summon_on_the_flip_band_is_symmetric_only_in_its_own_frame() {
 /// green and RoyaleGym's rotation gate went red, in another repo, hours later.
 ///
 /// This asserts the property rather than auditing it once: the `Calib` fields where
-/// `symmetric_config()` differs from `config_pre_flip()` must be EXACTLY the fields
+/// `symmetric_config()` differs from `config()` must be EXACTLY the fields
 /// `py::SYMMETRY_SELECTABLE_CALIB_FIELDS` declares the constructor can reach. Adding
 /// an asymmetric key without its selector fails here, in this repo, immediately.
 #[test]
@@ -826,7 +826,7 @@ fn every_asymmetric_calib_key_is_selectable_from_python() {
     let to_map = |c: &royalesim::state::Calib| -> serde_json::Map<String, serde_json::Value> {
         serde_json::to_value(c).expect("Calib serializes").as_object().expect("to an object").clone()
     };
-    let shipped = to_map(&config_pre_flip().calib);
+    let shipped = to_map(&config().calib);
     let symmetric = to_map(&symmetric_config().calib);
     assert_eq!(shipped.len(), symmetric.len(), "the two configs disagree on which fields exist");
     let mut overridden: Vec<String> = shipped.iter().filter(|(k, v)| symmetric.get(*k) != Some(*v)).map(|(k, _)| k.clone()).collect();
@@ -870,7 +870,7 @@ fn the_symmetric_config_is_a_calibration_the_loader_accepts() {
         }
         (ladder, hit)
     };
-    let (shipped, hit) = run(config_pre_flip());
+    let (shipped, hit) = run(config());
     assert!(hit && shipped > 0, "vacuous: under the shipped arms the Sparky hit the Giant: {hit}, recoiled for {shipped} ticks");
     let (symmetric, hit) = run(symmetric_config());
     assert!(hit, "vacuous: under the symmetric arms the Sparky never hit the Giant");

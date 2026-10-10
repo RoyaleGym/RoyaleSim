@@ -29,10 +29,10 @@ import pathlib
 
 import pytest
 
-from _pre_flip import pre_flip
+from pre_flip_arms import pre_flip
 
 # THE c4 FLIP (parity r66): this file's battles were written on the engine before it, so they run its old arms
-# (tests/_pre_flip.py); each flipped key's own tests read both arms.
+# (tests/pre_flip_arms.py); each flipped key's own tests read both arms.
 
 royalesim = pytest.importorskip("royalesim")
 

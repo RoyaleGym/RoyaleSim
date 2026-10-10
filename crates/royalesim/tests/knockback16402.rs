@@ -55,11 +55,11 @@ fn calib() -> Calib {
     Calib::shipped()
 }
 
-/// `common::config` with placement.TAP_SNAP's old arm, none: every scene here puts a spell's tap and its victims on
+/// `common::config_pre_flip` (the c4 flip's old arms) with placement.TAP_SNAP's old arm, none: every scene here puts a spell's tap and its victims on
 /// exact points (a subtile off the impact, on it, a measured offset off the Log's axis), which the shipped tile-centre
 /// snap would move apart.
 fn config_pre_flip() -> BattleConfig {
-    let mut cfg = common::config();
+    let mut cfg = common::config_pre_flip();
     cfg.calib.placement_tap_snap = TapSnap::None;
     cfg
 }

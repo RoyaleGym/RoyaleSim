@@ -91,7 +91,8 @@ use std::collections::BTreeSet;
 /// on its first frame. Under none it stands on the point it was created at. The first step is its own
 /// key, pinned in tests/spawned_first_step.rs.
 fn config_pre_flip() -> BattleConfig {
-    let mut cfg = common::config();
+    // common::config_pre_flip: the c4 flip's old arms, which this file's scenes were written on.
+    let mut cfg = common::config_pre_flip();
     cfg.calib.spawned_first_step = SpawnedFirstStep::None;
     // The Golem's and the Lava Hound's scenes here pin the facing ring at DeathSpawnRadius, the
     // old arm of spawner.DEATH_SPAWN_PUSHBACK. The shipped slide (client_ring_slide) is

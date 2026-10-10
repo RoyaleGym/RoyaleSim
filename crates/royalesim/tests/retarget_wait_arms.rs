@@ -39,7 +39,8 @@
 //!      reach, takes the Cannon out of its reach on L under both arms;
 //!   5. held, runs_through: the Knight's next target lands on the first tick after the freeze;
 //!   6. held, client_paused: it lands the unfrozen ticks the wait still owed later, pinned on the tick;
-//!   7. both shipped values are the new arms.
+//!   7. both shipped values are the new arms (the reach loss's since the c4 flip, parity r66:
+//!      client15535_after_reach_loss_variable_rows).
 //!
 //! PLANTS (regression):
 //!   * `reach_loss_no_wait` -- the new arm retargets at once after a reach loss: (2) goes red.
@@ -220,7 +221,7 @@ fn under_client16402_first_held_counts_the_holds_first_phase_counts() {
 #[test]
 fn the_shipped_values_are_the_new_arms() {
     let c = Calib::shipped();
-    assert_eq!(c.retarget_wait_reach_loss, RetargetWaitReachLoss::ClientAfterReachLoss);
+    assert_eq!(c.retarget_wait_reach_loss, RetargetWaitReachLoss::Client15535AfterReachLossVariableRows, "the c4 flip ships the 15.535.29 arm");
     assert_eq!(c.retarget_wait_while_held, RetargetWaitWhileHeld::Client16402FirstHeldCounts, "the shipped arm: client 16.402's");
 }
 

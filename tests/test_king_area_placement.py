@@ -17,8 +17,10 @@ THE TEST. Each cast is played through the engine's own play path; the play must 
 was on client 15.535.29, and every member's first-frame position must match within 20 native. The recorded
 positions include waiting members holding still, so formation.STAGGER_WAIT rides at its measured arm too. Where a
 moved tap lands on a tie is placement.TOWER_TAP_PUSH's, so every cast runs under both of its values: all 48 must land
-under client16402_axis_push, and under ring_nearest the six side-1 ties are strict xfail
-(side 0's tie at own (7500, 1499) lands as the client's since r20).
+under both. Under ring_nearest the six side-1 ties land as the client's since the c4 flip (parity r66): the shipped
+placement.TROOP_RELOCATION_TIE_ORDER, client15535_arena_clockwise, takes them in the client's arena order -y, -x, +y, +x,
+where the old placer_frame_first_found's column-major placer frame missed them (side 0's tie at own (7500, 1499) lands
+as the client's since r20).
 """
 
 from __future__ import annotations
@@ -54,11 +56,6 @@ PUSH_NEW, PUSH_OLD = "client16402_axis_push", "ring_nearest"
 #: (0, (7500, 1499)) left the set at r20: ring_nearest now lands its three casts as the client does, since a ring
 #: relocation off an own building measures nearness from the raw tap, not the snapped one (the tie between its two
 #: ring tiles breaks the client's way; plant ring_nearest_snapped_tap). The shipped arm is unaffected.
-TIE_CASTS = {(1, (7500, 1500)), (1, (10500, 1500))}
-TIE_ORDER = pytest.mark.xfail(
-    strict=True,
-    reason="ring_nearest's tie order: the engine's column-major placer frame, not the client's arena -y, -x, +y, +x",
-)
 #: (side, card, own tile tapped, accepted, members' first-frame own positions, sorted) -- the 15.535.29 battery
 CASTS_15535 = [
     (0, "Knight", (8500, 1500), False, []),
@@ -136,11 +133,10 @@ def play(side: int, card: str, tile: tuple, arm: str, push: str | None = None) -
 
 
 def cases():
-    """Every cast under both TOWER_TAP_PUSH values; the six side-1 tie casts are strict xfail, under ring_nearest."""
+    """Every cast under both TOWER_TAP_PUSH values."""
     for push in (PUSH_NEW, PUSH_OLD):
         for side, card, tile, accepted, members in CASTS_15535:
-            marks = [TIE_ORDER] if push == PUSH_OLD and (side, tile) in TIE_CASTS else []
-            yield pytest.param(push, side, card, tile, accepted, members, marks=marks)
+            yield pytest.param(push, side, card, tile, accepted, members)
 
 
 @pytest.mark.parametrize(("push", "side", "card", "tile", "accepted", "members"), list(cases()))
