@@ -1361,7 +1361,7 @@ fn a_capture_runs_its_clients_own_mechanics() {
     assert_eq!(cfg.calib.retarget_wait_reach_loss, RetargetWaitReachLoss::ClientAfterReachLoss, "a 16.402 capture: the shipped arm");
     assert_eq!(cfg.calib.line_centre_search, LineCentreSearch::RingCornerWalk, "a 16.402 capture");
     assert_eq!(cfg.calib.cage_release_scan, CageReleaseScan::Stunned, "a 16.402 capture");
-    assert_eq!(cfg.calib.guard_charge_step, GuardChargeStep::Rescaled, "a 16.402 capture");
+    assert_eq!(cfg.calib.guard_charge_step, GuardChargeStep::Client16402CellAim, "a 16.402 capture");
     assert_eq!(cfg.calib.siege_reset_hold, SiegeResetHold::NextTick, "a 16.402 capture");
     assert_eq!(cfg.calib.death_ring_direction, DeathRingDirection::TargetFirst, "a 16.402 capture");
     assert_eq!(cfg.calib.dismount_mount_acquire, DismountMountAcquire::AtOnce, "a 16.402 capture");

@@ -466,3 +466,46 @@ fn his_ramp_holds_through_six_moving_ticks_and_goes_on_the_seventh() {
     let seven = walked_gaps(RampGraceReset::Client16402BelowZero, 7);
     assert!(seven.len() >= 2 && seven[..2] == [24, 24], "client16402_below_zero: the seventh resets it {seven:?}");
 }
+
+/// Where the guard's charge ends under `arm`, the Little Prince held on `at` (native) and pressed alone.
+fn charge_end_at(arm: GuardChargeStep, at: (i32, i32)) -> (i32, i32) {
+    let mut cfg = config();
+    cfg.calib.guard_charge_step = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let lp = s.scenario_spawn_now(Team::Blue, "LittlePrince", n(at), None).expect("the Little Prince");
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(lp, n(at)));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut end = None;
+    for _ in 0..60 {
+        assert!(s.debug_set_pos(lp, n(at)));
+        s.tick();
+        if let Some(e) = find_live(&s, Team::Blue, "ChampionGuard").first() {
+            end = Some((e.pos.x / K, e.pos.y / K));
+        }
+    }
+    end.expect("a guard")
+}
+
+/// combat.GUARD_CHARGE_STEP = client16402_cell_aim (client 16.402, parity's r63 census: the truth's path cell 697 of 697, the
+/// dash 660 of 697 exact): on a tile centre the client's charge (as client15535_substeps_to_aim's); off it, the charge ends
+/// within 400 of the 500 cell's centre ahead of him ((14120, 10620): the cell holding (14121, 13820), centre (14250, 13750)),
+/// where the 15.535.29 arm aims at his point + (250, 3250). Plant: guard_cell_aim_unread.
+#[test]
+fn under_client16402_cell_aim_the_charge_ends_by_the_cell_centre_ahead() {
+    let (steps, end) = charge_steps(GuardChargeStep::Client16402CellAim);
+    assert_eq!(steps, CLIENT_CHARGE.to_vec(), "client16402_cell_aim on a tile centre: the client's steps");
+    assert_eq!(end, (AT.0 + 239, AT.1 + 3083), "client16402_cell_aim on a tile centre: its end");
+    let d = |p: (i32, i32), q: (i32, i32)| (((p.0 - q.0) as i64).pow(2) + ((p.1 - q.1) as i64).pow(2)) as f64;
+    let new = charge_end_at(GuardChargeStep::Client16402CellAim, (14120, 10620));
+    assert!(d(new, (14250, 13750)).sqrt() < 400.0, "client16402_cell_aim: the end {new:?} not within 400 of (14250, 13750)");
+    let old = charge_end_at(GuardChargeStep::Client15535SubstepsToAim, (14120, 10620));
+    assert!(old != new, "the vacuity check: the 15.535.29 arm ends where the new one does ({old:?})");
+}

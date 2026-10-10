@@ -6936,6 +6936,12 @@ calib_enum!(
         /// (19, 399), (13, 250), ending on his point + (239, 3083) as measured; the rescaled line steps (17, 397) and
         /// drifts up to 4 across and 13 along.
         Client15535SubstepsToAim = "client15535_substeps_to_aim",
+        /// client15535_substeps_to_aim's pieces, aimed at the centre of the 500 cell holding his point + (a native toward the
+        /// guard's side, 3200 ahead) (card.rs GUARD_AIM_CELL), ending before a piece that starts within 400 of it, its
+        /// arrival the tick it comes within 400. Client 16.402 (parity's r63 census over 697 Little Prince presses in the
+        /// ob3 live set): the truth's path cell 697 of 697, the whole dash 660 of 697 exact (10 under the 15.535.29 aim).
+        /// On a tile centre it is client15535_substeps_to_aim's charge (sp-champ-LittlePrince-s0, both clients).
+        Client16402CellAim = "client16402_cell_aim",
     }
 );
 calib_enum!(
@@ -20498,10 +20504,39 @@ impl BattleState {
             // GUARD_STOP of it (native units, as the walk's).
             // PLANT (regression) guard_charge_rescaled: the new arm still steps the rescaled line to its end.
             #[cfg(not(clash_plant = "guard_charge_rescaled"))]
-            let substeps = self.cfg.calib.guard_charge_step == GuardChargeStep::Client15535SubstepsToAim;
+            let substeps = matches!(self.cfg.calib.guard_charge_step, GuardChargeStep::Client15535SubstepsToAim | GuardChargeStep::Client16402CellAim);
             #[cfg(clash_plant = "guard_charge_rescaled")]
             let substeps = false;
-            if substeps {
+            // combat.GUARD_CHARGE_STEP = client16402_cell_aim: the 500 cell's centre ahead of him, the stop at 400.
+            // PLANT (regression) guard_cell_aim_unread: the new arm still aims at his point + GUARD_AIM_OFFSET.
+            #[cfg(not(clash_plant = "guard_cell_aim_unread"))]
+            let cell = self.cfg.calib.guard_charge_step == GuardChargeStep::Client16402CellAim;
+            #[cfg(clash_plant = "guard_cell_aim_unread")]
+            let cell = false;
+            if substeps && cell {
+                let k = crate::fixed::SUBTILE_PER_MILLITILE;
+                let sg = if r.team == Team::Blue { 1 } else { -1 };
+                let (lx, ly) = (r.from.x / k, r.from.y / k);
+                let mut q = (p.x / k, p.y / k);
+                let c = crate::card::GUARD_AIM_CELL;
+                let tx = lx + (q.0 - lx).signum() * crate::card::GUARD_AIM_NUDGE;
+                let ty = ly + sg * crate::card::GUARD_AIM_AHEAD;
+                let a = (tx.div_euclid(c) * c + c / 2, ty.div_euclid(c) * c + c / 2);
+                for piece in [crate::move16402::TUNNEL_SUBSTEP, crate::card::GUARD_SPEED - crate::move16402::TUNNEL_SUBSTEP] {
+                    if crate::move16402::distance(q.0, q.1, a.0, a.1) < crate::card::GUARD_CELL_STOP {
+                        break;
+                    }
+                    q = crate::move16402::tunnel_step(q, a, piece).0;
+                }
+                #[cfg(not(clash_plant = "guard_never_charges"))]
+                {
+                    self.ents.pos[gi] = Vec2::new(q.0 * k, q.1 * k);
+                    moved = true;
+                }
+                if crate::move16402::distance(q.0, q.1, a.0, a.1) < crate::card::GUARD_CELL_STOP {
+                    r.arrived = Some(tick);
+                }
+            } else if substeps {
                 let k = crate::fixed::SUBTILE_PER_MILLITILE;
                 let aim = guard_point(r.team, r.from, crate::card::GUARD_AIM_OFFSET);
                 let a = (aim.x / k, aim.y / k);

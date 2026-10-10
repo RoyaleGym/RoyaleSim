@@ -1602,6 +1602,15 @@ pub const GUARD_SPEED: i32 = 400;
 /// combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim: the charge ends before a piece that starts within this of its
 /// aim, native (measured: it stopped 167 short; 250 is the piece's cap).
 pub const GUARD_STOP: i32 = 250;
+/// combat.GUARD_CHARGE_STEP = client16402_cell_aim: the charge aims at the centre of the GUARD_AIM_CELL cell holding his
+/// point + (GUARD_AIM_NUDGE toward the guard's side, GUARD_AIM_AHEAD ahead) (native, his side's frame in y, the world's in x),
+/// and ends before a piece that starts within GUARD_CELL_STOP of it (strictly). Client 16.402 (parity's r63 census, 697
+/// presses in the ob3 live set): the truth's state-3 path cell 697 of 697; the whole dash 660 of 697 exact from the truth's
+/// start (the rest: 23 river landings, about 8 reader gaps); the stop taken at 400 and more, never below.
+pub const GUARD_AIM_AHEAD: i32 = 3200;
+pub const GUARD_AIM_CELL: i32 = 500;
+pub const GUARD_AIM_NUDGE: i32 = 1;
+pub const GUARD_CELL_STOP: i32 = 400;
 /// Ticks after the guard's arrival before it is free: measured, 2 (DashLandingTime 200 less a tick... in its dash state
 /// the arrival's frame and the next, walking on the one after).
 pub const GUARD_LANDING_TICKS: u32 = 2;
