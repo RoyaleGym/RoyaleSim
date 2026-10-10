@@ -244,6 +244,16 @@ RECOVERED TILE
     Otherwise the centroid stays. `recovery` says what decided, on every row that tried.
     The group's `centroid` is kept as it was.
 
+    A TWO-PART PLAY the measurement has no group of (the Goblinstein: one Monster, and
+    its Doctor as the second summon) takes its card's own layout as the offsets
+    (`layout_offsets`): the first summon on the tap, the second SummonRadius behind it in
+    its owner's frame and |SummonWidth| toward the arena's centre line from the first
+    summon's own point. Live (the 2026-10 set's Goblinsteins): the Doctor stands 3500
+    behind the Monster and 1000 toward the centre, +1000 on the left half and -1000 on the
+    right, 31 of 32 for both sides; the Monster's first point is its tile's laid point on
+    27 of 33; read at the members' centroid, each was played 1750 off (Parity's r68
+    trace).
+
     The recovery reads the client's measured offsets, not the engine's formation law, so
     a group it places is still evidence against that law. tools/replay_formations.py
     reports such a group at its centroid, so the formation measurement never reads a tile
@@ -276,6 +286,17 @@ CREATION POINT
     Otherwise the unit keeps its first frame (but see LATE SINGLE): its x2, y2 may be a tick
     after its creation, already pushed. A unit that travels under ground keeps its row (it
     is played at its `destination`).
+
+A UNIT FIRST SEEN OUT OF ITS DEPLOY
+    A play first seen after a frame gap could have been made on any tick of the gap, and
+    without a deploy-end transition the earliest is taken. But a unit first seen walking
+    or attacking (behavior_state neither 4 nor 11) has finished its deploy, and it stands
+    where it walked to: played on the gap's earliest tick at that point, the engine's
+    unit waited out a deploy there and then walked on from a point the client's had
+    already reached (Parity's r68 trace, 7 battles of the 2026-10 live set: 1 to 73
+    ticks too far). So such a play, after a gap at least a deploy long, is dated to end
+    its deploy on its first frame (first seen - DeployTime / 50): the tick and the point
+    from one frame (`refine_spawn_tick`). A shorter gap keeps the earliest tick.
 
 AN UNLOGGED SIDE'S TROOP
     A side no placement log covers (the opponent of a live capture: only our own taps are
@@ -1325,6 +1346,9 @@ def refine_spawn_tick(
                 f"first-seen tick: the deploy-end transition [{a}, {b}] contradicts the frame gap"
                 f" [{lo}, {hi}]",
             )
+    if d >= 1 and states and states[0][1] not in (4, STATE_STAGGER_WAIT) and hi - d >= lo:
+        # A UNIT FIRST SEEN OUT OF ITS DEPLOY (module doc): its deploy ends on its first frame, where it stands
+        return hi - d, hi, f"range [{lo}, {hi}] (frame gap), first seen out of its deploy: its deploy ends on {hi}"
     return lo, hi, f"range [{lo}, {hi}] (frame gap, no transition seen), earliest used"
 
 
@@ -1531,6 +1555,21 @@ def nominal_offsets(doc: dict) -> dict[tuple[str, int], list[tuple[int, int]]]:
             out[(g["card"], g["side"])].add((ox, oy))
             out[(g["card"], 1 - g["side"])].add((-ox, -oy))
     return {k: sorted(v) for k, v in out.items()}
+
+
+def layout_offsets(card: dict, side: int, x: int) -> list[tuple[int, int]]:
+    """A TWO-PART PLAY'S offsets from its tap, from the card's own layout (module doc, RECOVERED TILE): a card with one
+    first summon and one second summon at a SummonRadius and SummonWidth (the Goblinstein: its Doctor 3500 behind its
+    Monster and 1000 toward the centre line) lays the first on the tap and the second behind it in its owner's frame
+    (side 1's turned a half-turn), toward the arena's centre line from the first summon's point `x`. [] for every
+    other card."""
+    second = card.get("second_summon") or {}
+    r, w = card.get("summon_radius_milli"), card.get("summon_width_milli")
+    if card.get("count") != 1 or second.get("count") != 1 or not r or not w:
+        return []
+    behind = -r if side == 0 else r
+    toward = abs(w) if x < ARENA_W_NATIVE // 2 else -abs(w)
+    return [(0, 0), (toward, behind)]
 
 
 def load_nominal_offsets(path: str = FORMATIONS) -> dict[tuple[str, int], list[tuple[int, int]]]:
@@ -3344,7 +3383,15 @@ def build(
                 # the tile the members agree the game laid them around (module doc, RECOVERED TILE)
                 if all(e.get("c0") is not None for e in members):
                     points = [tuple(e["c0"]) for e in members]
-                    tile, d["recovery"] = recovered_tile(points, nominal.get((name, side), []))
+                    offsets = nominal.get((name, side))
+                    if not offsets:
+                        # a two-part play the measurement lacks: its card's layout, from its first summon's point
+                        card_row = cards_by_name.get(name) or {}
+                        first = [e for e in members if e.get("unit") == card_row.get("summon_character")]
+                        offsets = layout_offsets(card_row, side, first[0]["c0"][0]) if len(first) == 1 else []
+                    tile, d["recovery"] = recovered_tile(points, offsets)
+                    if tile is not None and not nominal.get((name, side)):
+                        d["recovery"] += " (the card's layout: no measured group)"
                     if tile is None and d["recovery"] == "no nominal offsets for this card and side":
                         flying = bool((cards_by_name.get(name) or {}).get("flying_height"))
                         tile, why = laid_tile(points, side, flying)

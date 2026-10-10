@@ -203,6 +203,34 @@ def test_spawn_tick_takes_the_gap_s_earliest_tick_without_a_transition(m):
     assert "no transition" in why
 
 
+def test_a_unit_first_seen_out_of_its_deploy_after_a_long_gap_ends_its_deploy_there(m):
+    """A UNIT FIRST SEEN OUT OF ITS DEPLOY (module doc): first seen walking (state 1) on 872 after a gap from 799, a
+    1000 ms deploy: played on 852, its deploy ending where it stands (live 20261002-142800.b1's Giant, 72 ticks
+    early before). A gap shorter than its deploy keeps the earliest tick, and so does a unit first seen deploying."""
+    ticks = [799, 872, 873]
+    assert m.refine_spawn_tick(ticks, 1, [(1, 1), (2, 1)], 1000)[:2] == (852, 872)
+    assert "first seen out of its deploy" in m.refine_spawn_tick(ticks, 1, [(1, 1), (2, 1)], 1000)[2]
+    assert m.refine_spawn_tick([860, 872, 873], 1, [(1, 2), (2, 2)], 1000)[:2] == (861, 872), "a gap under a deploy"
+    assert m.refine_spawn_tick(ticks, 1, [(1, 11), (2, 11)], 1000)[0] == 800, "still waiting its stagger"
+
+
+@needs_cards
+def test_a_two_part_play_is_recovered_from_its_cards_layout(m):
+    """A TWO-PART PLAY (module doc, RECOVERED TILE): the Goblinstein's Doctor stands 3500 behind its Monster in its
+    owner's frame and 1000 toward the centre line, so a side-1 play whose Monster stood on (11500, 23499) and Doctor on
+    (10500, 26999) (live 20261007-005625 t697, played 1750 off at the centroid before) was laid on the tile (11500,
+    23500). A Monster pushed off its point is still placed by its Doctor (t2762: (14650, 17497) and (13500, 20999))."""
+    card = {"count": 1, "second_summon": {"character": "goblinstein_doctor", "count": 1},
+            "summon_radius_milli": 3500, "summon_width_milli": -1000}
+    assert m.layout_offsets(card, 0, 3500) == [(0, 0), (1000, -3500)], "left half: toward the centre is +x"
+    assert m.layout_offsets(card, 1, 14500) == [(0, 0), (-1000, 3500)], "right half, side 1: -x and +y"
+    assert m.layout_offsets({**card, "summon_width_milli": None}, 0, 3500) == [], "a ring (the Rascals) has no width"
+    tile, why = m.recovered_tile([(11500, 23499), (10500, 26999)], m.layout_offsets(card, 1, 11500))
+    assert tile == [11500, 23500], why
+    tile, why = m.recovered_tile([(14650, 17497), (13500, 20999)], m.layout_offsets(card, 1, 14650))
+    assert tile == [14500, 17500], why
+
+
 def test_a_one_frame_range_is_the_missed_frame(m):
     # 20260919-143305-A's Tombstone: frames 302 and 304 (303 missed); in state 4 through 321, 322 missed, state 0 on
     # 323. The frame gap leaves [303, 304] and the deploy end (spawn + 19 in (321, 323]) the same range. Seat B of the
