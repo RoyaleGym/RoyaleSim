@@ -9,7 +9,12 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! building_deploy_last_tick`):
 //!   - building_waits_countdown -> every test red;
-//!   - tesla_hides_with_target -> `under_client16402_acts_on_last_tick_a_tesla_with_a_target_at_its_deploy_end_stays_up` red.
+//!   - tesla_hides_with_target -> `under_client16402_acts_on_last_tick_a_tesla_with_a_target_at_its_deploy_end_stays_up` red;
+//!   - hiders_arm_reads_every_building -> `under_client16402_hiders_only_a_cannon_waits_and_a_tesla_acts` red.
+//!
+//! client16402_hiders_only (parity r71, the live8 set): first attack on the deploy end E + 1 for the Cannon 541 of 568, the
+//! Inferno Tower 44 of 44, the X-Bow 23 of 23, the Mortar 18 of 18, the Bomb Tower 27 of 29, the Goblin Cage 22 of 23; the
+//! Tesla, the hiding building, on E 133 of 137.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -93,4 +98,13 @@ fn under_client16402_acts_on_last_tick_a_tesla_with_a_target_at_its_deploy_end_s
     }
     let (old, _) = first_target("Tesla", BuildingDeployLastTick::AfterCountdown);
     assert!(old > 19, "after_countdown (the vacuity check): the Tesla took the Knight on + {old}");
+}
+
+/// client16402_hiders_only: the Cannon takes the Knight on its first frame + 20, as under after_countdown, and the Tesla (a
+/// hiding building) on + 19, as under client16402_acts_on_last_tick. Plant: hiders_arm_reads_every_building.
+#[test]
+fn under_client16402_hiders_only_a_cannon_waits_and_a_tesla_acts() {
+    let arm = BuildingDeployLastTick::Client16402HidersOnly;
+    assert_eq!(first_target("Cannon", arm).0, 20, "client16402_hiders_only: the Cannon's first target on its first frame + 20");
+    assert_eq!(first_target("Tesla", arm).0, 19, "client16402_hiders_only: the Tesla's first target on its first frame + 19");
 }

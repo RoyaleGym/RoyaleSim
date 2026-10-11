@@ -385,14 +385,27 @@ pub fn hide_acts(calib: &Calib, e: &Entities, i: usize) -> bool {
 /// combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick: is building `i` on its deploy's last tick (its timer
 /// at one tick or less, and its countdown runs this tick: no stun pause, not under ground)? Such a building takes its
 /// Target and Attack phases as a deployed one; its countdown still ends at the end of Move (the drain, the hide start, the
-/// spawner as before).
+/// spawner as before). Under client16402_hiders_only only a building whose card hides (`hides`: the Tesla) does.
 #[inline]
-pub fn acts_on_last_deploy_tick(calib: &Calib, e: &Entities, i: usize) -> bool {
+pub fn acts_on_last_deploy_tick(calib: &Calib, e: &Entities, i: usize, hides: bool) -> bool {
     // PLANT (regression) building_waits_countdown: the new arm's building still waits for its countdown's end.
-    #[cfg(not(clash_plant = "building_waits_countdown"))]
-    let on = calib.building_deploy_last_tick == crate::state::BuildingDeployLastTick::Client16402ActsOnLastTick;
+    // PLANT (regression) hiders_arm_reads_every_building: client16402_hiders_only still lets every building act.
+    #[cfg(not(any(clash_plant = "building_waits_countdown", clash_plant = "hiders_arm_reads_every_building")))]
+    let on = match calib.building_deploy_last_tick {
+        crate::state::BuildingDeployLastTick::Client16402ActsOnLastTick => true,
+        crate::state::BuildingDeployLastTick::Client16402HidersOnly => hides,
+        crate::state::BuildingDeployLastTick::AfterCountdown => false,
+    };
+    #[cfg(clash_plant = "hiders_arm_reads_every_building")]
+    let on = {
+        let _ = hides;
+        calib.building_deploy_last_tick != crate::state::BuildingDeployLastTick::AfterCountdown
+    };
     #[cfg(clash_plant = "building_waits_countdown")]
-    let on = false;
+    let on = {
+        let _ = hides;
+        false
+    };
     on && e.kind[i] == crate::entity::EntityKind::Building
         && e.deploy_ms[i] > 0
         && e.deploy_ms[i] <= calib.tick_ms
@@ -1176,7 +1189,7 @@ fn keep_own_radius(ctx: &TargetCtx, a: usize, card: &CardDef) -> i32 {
 pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecision {
     let e = ctx.ents;
     let cur = e.target[a];
-    if e.deploy_ms[a] > 0 && !acts_on_last_deploy_tick(ctx.calib, e, a) {
+    if e.deploy_ms[a] > 0 && !acts_on_last_deploy_tick(ctx.calib, e, a, ctx.cards.get(e.card[a]).hide.is_some()) {
         return TargetDecision { target: None, cancel_attack: false, resumed: false, chase_dropped: None };
     }
     // Under ground or still coming up: no target at all, and any windup it had is

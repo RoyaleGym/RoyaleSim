@@ -9616,6 +9616,9 @@ calib_enum!(
         /// hiding building with a target when the countdown ends starts up (`hide_on_deployed`). Its drain, its hide start
         /// otherwise and its spawner keep the deploy end at the end of Move.
         Client16402ActsOnLastTick = "client16402_acts_on_last_tick",
+        /// client16402_acts_on_last_tick for a hiding building alone (card.rs HideDef: the Tesla); every other building
+        /// from the tick after its countdown, as after_countdown (parity's r71 census of the live8 set (client 16.402): a building's first attack on its deploy end E + 1 for the Cannon 541 of 568 (on E 1), the Inferno Tower 44 of 44, the X-Bow 23 of 23, the Mortar 18 of 18, the Bomb Tower 27 of 29, the Goblin Cage 22 of 23; the Tesla on E 133 of 137).
+        Client16402HidersOnly = "client16402_hiders_only",
     }
 );
 calib_enum!(
@@ -26658,7 +26661,7 @@ impl BattleState {
             // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: a Rune Giant inside his launch's hold.
             let enchant_held = e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i];
             // combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick: a building on its deploy's last tick acts.
-            let can_act = (e.deploy_ms[i] == 0 || target::acts_on_last_deploy_tick(&self.cfg.calib, e, i))
+            let can_act = (e.deploy_ms[i] == 0 || target::acts_on_last_deploy_tick(&self.cfg.calib, e, i, self.cfg.cards.get(e.card[i]).hide.is_some()))
                 && !held
                 && !enchant_held
                 && !chaining
