@@ -859,6 +859,24 @@ pub(crate) fn push_from(ctx: &SpellCtx, team: Team, v: usize, centre: Vec2, k: &
 
 /// status.ATTRACT_ONSET = client_next_tick, and `hit` pulls (one of its buffs carries an AttractPercentage): the area is
 /// kept one tick past its life for its last pull (`step_spells`). False under area_first_tick and for every other area.
+/// spells.PULSING_AREA_LIFE: the life a standing pulsing area runs down to, exclusive -- 0 (life_exclusive), or one tick
+/// below it under client16402_last_update_inclusive for an area pulsing slower than every tick that pulls nothing: its
+/// update on which its life reads 0 runs too (and applies when due), so it lives LifeDuration + a tick. Measured on client
+/// 16.402's Poison (parity r71): its 33rd application on its first frame + 160, the slow through + 180 and a pulse there.
+pub fn area_life_floor(calib: &crate::state::Calib, cards: &CardDb, hit: &SpellHit, hit_speed_ms: i32) -> i32 {
+    // PLANT (regression) pulsing_area_life_exclusive: the new arm still ends the area on its last whole update.
+    #[cfg(not(clash_plant = "pulsing_area_life_exclusive"))]
+    let inclusive = calib.pulsing_area_life == crate::state::PulsingAreaLife::Client16402LastUpdateInclusive;
+    #[cfg(clash_plant = "pulsing_area_life_exclusive")]
+    let inclusive = false;
+    let pulls = [hit.buff, hit.buff2].into_iter().flatten().any(|b| cards.buffs.get(b.buff as usize).is_some_and(|d| d.attract_pct != 0));
+    if inclusive && hit_speed_ms > calib.tick_ms && !pulls {
+        -calib.tick_ms
+    } else {
+        0
+    }
+}
+
 fn attract_lags(ctx: &SpellCtx, hit: &SpellHit) -> bool {
     ctx.calib.attract_onset == crate::state::AttractOnset::ClientNextTick
         && [hit.buff, hit.buff2].into_iter().flatten().any(|b| ctx.cards.buffs.get(b.buff as usize).is_some_and(|d| d.attract_pct != 0))
@@ -2139,7 +2157,8 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             // A PULSING AREA EFFECT (Poison, Earthquake; calibration
             // spells.PULSING_AREA_EFFECT = hit_speed_period_from_landing): it lands,
             // applies at once, and re-applies every HitSpeed ms until LifeDuration is
-            // spent (under hit_speed_period_delayed the first application waits, `cast`).
+            // spent (under hit_speed_period_delayed the first application waits, `cast`; under
+            // spells.PULSING_AREA_LIFE = client16402_last_update_inclusive one update more, `area_life_floor`).
             // Every application is one `impact`, so the buff refresh, the eligibility
             // filters and the hit test are the one-shot ones. The area's clock rides
             // along for status.AREA_BUFF_SOURCE_BINDING (`area_bound`): TICK_MS old on
@@ -2156,13 +2175,17 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                         out.born.extend(v);
                     }
                 }
-                while p.next_ms <= 0 && p.life_ms > 0 {
+                let floor = area_life_floor(ctx.calib, ctx.cards, hit, *hit_speed_ms);
+                while p.next_ms <= 0 && p.life_ms > floor {
                     let clock = AreaClock { pos: p.pos, age_ms: *total_ms - p.life_ms + tick, left_ms: p.life_ms, hit_speed_ms: *hit_speed_ms };
                     impact(ctx, s.team, s.card, s.level, p.pos, hit, s.damage, s.pulse, dmg, fx, nb, Some(clock));
                     p.next_ms += (*hit_speed_ms).max(tick);
                 }
                 p.next_ms -= tick;
                 p.life_ms -= tick;
+                if floor < 0 {
+                    return p.life_ms > floor;
+                }
                 // status.ATTRACT_ONSET = client_next_tick: a pulling area stays one tick past its life, applying nothing
                 // (the loop above needs life left), so that its last update's pull moves its victims on the next tick
                 // (state.rs `phase_path16402`); it goes on that tick's update.

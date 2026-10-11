@@ -3425,6 +3425,16 @@
     ]
   },
   "spells": {
+    "PULSING_AREA_LIFE": {
+      "value": "life_exclusive",
+      "status": "measured",
+      "candidates": ["life_exclusive", "client16402_last_update_inclusive"],
+      "confidence": "HIGH for client16402_last_update_inclusive on client 16.402's Poison (parity r71, 2026-10-11): parity's r71 census of the live8 set (client 16.402), C a Poison's first frame: every unit still in the cloud at its end took one more pulse on C + 180, one HitFrequency after the cloud's last on C + 160, and walked slowed through C + 180, unslowed from C + 181 (22 of 22 clean ends; princess towers left out, their drops there are not the Poison's); the 3 that took none had walked out (unslowed from C + 166 .. C + 171, in the engine too); the engine's last application lands on C + 155 (its slow over from C + 176) and the client's on C + 160. A candidate until scored. The other areas it reaches (the Earthquake, the Warmth, a death area that pulses slower than every tick) unread; the Earthquake's capped buff ends on the same tick under either arm (its last application's cap shrinks by the extra update). Client 15.535.29 keeps life_exclusive (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-11, r71) on client 16.402: parity's r71 census of the live8 set (client 16.402), C a Poison's first frame: every unit still in the cloud at its end took one more pulse on C + 180, one HitFrequency after the cloud's last on C + 160, and walked slowed through C + 180, unslowed from C + 181 (22 of 22 clean ends; princess towers left out, their drops there are not the Poison's); the 3 that took none had walked out (unslowed from C + 166 .. C + 171, in the engine too); the engine's last application lands on C + 155 (its slow over from C + 176) and the client's on C + 160.",
+      "meaning": "life_exclusive: the engine's; a standing pulsing area applies while its life left is above 0 and goes after the update that spends it. client16402_last_update_inclusive: an area pulsing slower than every tick that pulls nothing updates once more, on which its life reads 0, and applies there when its HitSpeed is due (the Poison's 33rd application, on its first frame + 160), as the hero areas do under spells.ATTACHED_AREA_TIMING = client16402_offsetless_first_update. An every-tick area (the Tornado) and a pulling one keep the old life.",
+      "open": "The Earthquake, the Warmth and the pulsing death areas (Rage); the every-tick and pulling areas; client 15.535.29.",
+      "engine": "spell.rs area_life_floor (step_spells' Pulsing update), state.rs release_orphaned_buffs, selected by Calib::pulsing_area_life; tests/pulsing_area_life.rs."
+    },
     "ATTACHED_AREA_TIMING": {
       "value": "client16402_offsetless_first_update",
       "status": "measured",

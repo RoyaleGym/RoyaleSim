@@ -333,6 +333,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.GUARD_BIRTH_POINT = client15535_fixed_offset: his guard is born at (18, -1944), no step (six runs).
 ///   combat.GUARD_FREE_TICK = client15535_arrival_plus_2: his guard is free on its arrival + 2 (sp-lp-far-s0).
 ///   targeting.SUMMON_LANE_FLIP_SCOPE = every_summon: a line member's lane flipped as a ring member's (unread there).
+///   spells.PULSING_AREA_LIFE = life_exclusive: a pulsing area ends on its last whole update (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -496,6 +497,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.GUARD_BIRTH_POINT", "\"client15535_fixed_offset\""),
     ("combat.GUARD_FREE_TICK", "\"client15535_arrival_plus_2\""),
     ("targeting.SUMMON_LANE_FLIP_SCOPE", "\"every_summon\""),
+    ("spells.PULSING_AREA_LIFE", "\"life_exclusive\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

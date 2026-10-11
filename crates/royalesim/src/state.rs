@@ -861,6 +861,10 @@ pub struct Calib {
     /// `EverySummon`, what a battle saved before it ran.
     #[serde(default = "summon_lane_flip_scope_default")]
     pub summon_lane_flip_scope: SummonLaneFlipScope,
+    /// spells.PULSING_AREA_LIFE (whether a standing pulsing area also updates on the update its life reads 0). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `LifeExclusive`, what a battle saved before it ran.
+    #[serde(default = "pulsing_area_life_default")]
+    pub pulsing_area_life: PulsingAreaLife,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2683,6 +2687,10 @@ fn guard_free_tick_default() -> GuardFreeTick {
 
 fn summon_lane_flip_scope_default() -> SummonLaneFlipScope {
     SummonLaneFlipScope::EverySummon
+}
+
+fn pulsing_area_life_default() -> PulsingAreaLife {
+    PulsingAreaLife::LifeExclusive
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9691,6 +9699,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.PULSING_AREA_LIFE -- the last update of a standing pulsing area that pulses slower than every tick and pulls
+    /// nothing (spell.rs `area_life_floor`, `step_spells`; state.rs `release_orphaned_buffs`).
+    PulsingAreaLife {
+        /// The engine's: it updates while its life left is above 0, LifeDuration / TICK_MS updates.
+        LifeExclusive = "life_exclusive",
+        /// Client 16.402: one update more, on which its life reads 0 (LifeDuration + a tick), applying when due.
+        Client16402LastUpdateInclusive = "client16402_last_update_inclusive",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10219,6 +10237,7 @@ impl Calib {
             guard_birth_point: pick(&v, &["combat", "GUARD_BIRTH_POINT", "value"], GuardBirthPoint::from_calibration_name)?,
             guard_free_tick: pick(&v, &["combat", "GUARD_FREE_TICK", "value"], GuardFreeTick::from_calibration_name)?,
             summon_lane_flip_scope: pick(&v, &["targeting", "SUMMON_LANE_FLIP_SCOPE", "value"], SummonLaneFlipScope::from_calibration_name)?,
+            pulsing_area_life: pick(&v, &["spells", "PULSING_AREA_LIFE", "value"], PulsingAreaLife::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -29810,13 +29829,14 @@ impl BattleState {
                     return Some([a.hit.buff, a.hit.buff2].into_iter().flatten().map(|b| (*pos, b.buff + 1)).collect::<Vec<_>>());
                 }
                 let spell::SpellMotion::Pulsing(p) = &s.motion else { return None };
+                let def = spell::shape_of(self.cfg.cards.get(s.card))?;
+                let crate::card::SpellShape::PulsingAreaEffect { hit, hit_speed_ms, .. } = &def.shape else { return None };
                 // An area kept one tick past its life for its last pull (status.ATTRACT_ONSET = client_next_tick) has
-                // ended: its bound buffs go as they did before that key.
-                if p.life_ms <= 0 {
+                // ended: its bound buffs go as they did before that key. One kept for its last update under
+                // spells.PULSING_AREA_LIFE = client16402_last_update_inclusive (`area_life_floor`) still stands.
+                if p.life_ms <= spell::area_life_floor(&self.cfg.calib, &self.cfg.cards, hit, *hit_speed_ms) {
                     return None;
                 }
-                let def = spell::shape_of(self.cfg.cards.get(s.card))?;
-                let crate::card::SpellShape::PulsingAreaEffect { hit, .. } = &def.shape else { return None };
                 Some([hit.buff, hit.buff2].into_iter().flatten().map(|b| (p.pos, b.buff + 1)).collect::<Vec<_>>())
             })
             .flatten()
@@ -36740,6 +36760,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.SUMMON_LANE_FLIP_SCOPE: Calib gained summon_lane_flip_scope (serde default the old arm, every_summon), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.PULSING_AREA_LIFE: Calib gained pulsing_area_life (serde default the old arm, life_exclusive), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37713,6 +37735,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_free_tick".into(), serde_json::to_value(GuardFreeTick::Client15535ArrivalPlus2).map_err(|e| e.to_string())?);
     // targeting.SUMMON_LANE_FLIP_SCOPE: a format-3 battle flipped a line member's lane.
     sh.insert("summon_lane_flip_scope".into(), serde_json::to_value(SummonLaneFlipScope::EverySummon).map_err(|e| e.to_string())?);
+    // spells.PULSING_AREA_LIFE: a format-3 battle's pulsing areas ended on their last whole update.
+    sh.insert("pulsing_area_life".into(), serde_json::to_value(PulsingAreaLife::LifeExclusive).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
