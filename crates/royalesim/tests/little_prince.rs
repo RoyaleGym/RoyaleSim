@@ -868,11 +868,14 @@ fn guard_birth(arm: GuardBirthPoint, reds: &[(&str, (i32, i32))]) -> (u32, (i32,
     panic!("no guard in 30 ticks")
 }
 
-/// The guard's first step from 2000 behind him, native: (dx, dy, its length).
-fn birth_step(off: (i32, i32)) -> (i32, i32, f64) {
+/// The guard's first step from 2000 behind him, native: (dx, dy, its squared length).
+fn birth_step(off: (i32, i32)) -> (i32, i32, i64) {
     let (sx, sy) = (off.0, off.1 + 2000);
-    (sx, sy, ((i64::from(sx).pow(2) + i64::from(sy).pow(2)) as f64).sqrt())
+    (sx, sy, i64::from(sx).pow(2) + i64::from(sy).pow(2))
 }
+
+/// One walk step's length, 55 to 61 native, squared.
+const STEP2: std::ops::RangeInclusive<i64> = 55 * 55..=61 * 61;
 
 /// combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step (client 16.402, parity's r69 contact study: 689 of 694 stepping
 /// births at his point + (0, -2000) and one walk step of 59-60 toward a neighbouring cell's centre): the guard's first frame,
@@ -886,13 +889,13 @@ fn under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_st
     let (t, off) = guard_birth(new, &[]);
     assert_eq!(t, 18, "its first frame, from the press");
     let (sx, sy, len) = birth_step(off);
-    assert!((55.0..=61.0).contains(&len), "client16402_behind_2000_first_step: its first frame is {len:.0} from 2000 behind him ({off:?})");
+    assert!(STEP2.contains(&len), "client16402_behind_2000_first_step: its first frame is sqrt({len}) from 2000 behind him ({off:?})");
     assert_eq!((sx, sy), (18, 56), "nothing about: the step ahead and a little right ({off:?})");
     let knight = ("Knight", (AT.0 - 3500, AT.1 - 1500));
     let (t, off) = guard_birth(new, &[knight]);
     assert_eq!(t, 18, "its first frame, from the press (the Knight's scene)");
     let (sx, _, len) = birth_step(off);
-    assert!((55.0..=61.0).contains(&len) && sx < 0, "client16402_behind_2000_first_step: the step toward the Knight front-left is not leftward ({off:?}, {len:.0})");
+    assert!(STEP2.contains(&len) && sx < 0, "client16402_behind_2000_first_step: the step toward the Knight front-left is not leftward ({off:?}, squared {len})");
     for reds in [&[][..], &[knight][..]] {
         assert_eq!(guard_birth(GuardBirthPoint::Client15535FixedOffset, reds), (18, (18, -1944)), "client15535_fixed_offset (the vacuity check)");
     }
