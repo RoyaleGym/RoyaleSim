@@ -18,7 +18,8 @@ use royalesim::state::{BattleState, PulsingAreaLife};
 use royalesim::Team;
 
 /// A Blue Knight held 6000 off a Red `spell` cast on (900, 1000) until `enter` ticks after the cast, then on its centre, under
-/// spells.PULSING_AREA_LIFE = `arm`: (the last tick, counted from the cast's, its buff slot stood, the ticks its hp dropped).
+/// spells.PULSING_AREA_LIFE = `arm`: (the last tick, counted from the cast's, its buff slot was seen after, the ticks its hp
+/// dropped). A slot applied on tick N is last seen after N + 19 and still pulses on N + 20, before that tick's countdown.
 fn tail(spell: &str, arm: PulsingAreaLife, enter: u32) -> (u32, Vec<u32>) {
     let mut cfg = config();
     cfg.calib.pulsing_area_life = arm;
@@ -48,8 +49,8 @@ fn tail(spell: &str, arm: PulsingAreaLife, enter: u32) -> (u32, Vec<u32>) {
 /// spells.PULSING_AREA_LIFE = client16402_last_update_inclusive (client 16.402, parity's r71 census: a unit in the cloud at
 /// its end whose pulse falls one HitFrequency after the cloud's last takes it and stays slowed through it, 22 of 22): the
 /// Poison's last application comes one HitSpeed (5 ticks) later than under life_exclusive, so its slot stands 5 ticks
-/// longer; a Knight that entered on the phase whose pulse falls on that new last tick takes one pulse more there, and on
-/// every other phase the pulses are the same. Plant: pulsing_area_life_exclusive.
+/// longer; a Knight that entered on the phase whose pulse falls on the tick after that slot's last sight takes one pulse
+/// more there, and on every other phase the pulses are the same. Plant: pulsing_area_life_exclusive.
 #[test]
 fn under_client16402_last_update_inclusive_a_poison_applies_once_more_and_pulses_on_its_tail() {
     let mut tails = 0;
@@ -59,8 +60,8 @@ fn under_client16402_last_update_inclusive_a_poison_applies_once_more_and_pulses
         assert_eq!(last_new, last_old + 5, "enter {enter}: the slot's last tick one HitSpeed later ({last_old} -> {last_new})");
         assert!(drops_new.len() >= drops_old.len() && drops_new[..drops_old.len()] == drops_old[..], "enter {enter}: the earlier pulses the same ({drops_old:?} -> {drops_new:?})");
         let extra = &drops_new[drops_old.len()..];
-        if (last_new - drops_old[0]) % 20 == 0 {
-            assert_eq!(extra, &[last_new][..], "enter {enter}: the tail pulse on the slot's last tick ({drops_old:?} -> {drops_new:?})");
+        if (last_new + 1 - drops_old[0]) % 20 == 0 {
+            assert_eq!(extra, &[last_new + 1][..], "enter {enter}: the tail pulse on the tick after the slot's last sight ({drops_old:?} -> {drops_new:?})");
             tails += 1;
         } else {
             assert!(extra.is_empty(), "enter {enter}: a pulse off the tail's phase ({drops_old:?} -> {drops_new:?})");

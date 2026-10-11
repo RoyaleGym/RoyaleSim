@@ -21319,7 +21319,18 @@ impl BattleState {
                         continue;
                     }
                 } else {
-                    self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(dt);
+                    // combat.GUARD_FREE_TICK = client16402_held_through_arrival_plus_1: the hold put on the arrival + 1 outlives
+                    // that tick's countdown, so the arrival + 2's Target and step are held too: the guard's first target and
+                    // step come on the arrival + 3, free_on_arrival_plus_1's on the arrival + 2. Measured on client 16.402
+                    // (parity r71, L its last dash frame, the arrival + 1): the first target on L + 2 in 621 of 628 landings
+                    // and never on L + 1, the first step on L + 2 in 403 of 434 that walk; the engine's on L + 1.
+                    // PLANT (regression) guard_free_on_arrival_plus_1: the new arm still lets it act on the arrival + 2.
+                    #[cfg(not(clash_plant = "guard_free_on_arrival_plus_1"))]
+                    let held_late = self.cfg.calib.guard_free_tick == GuardFreeTick::Client16402HeldThroughArrivalPlus1;
+                    #[cfg(clash_plant = "guard_free_on_arrival_plus_1")]
+                    let held_late = false;
+                    let hold = if held_late && tick + 1 == a + crate::card::GUARD_LANDING_TICKS { 2 * dt } else { dt };
+                    self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(hold);
                     if !landing {
                         keep.push(r);
                         continue;
@@ -21439,19 +21450,6 @@ impl BattleState {
                 if self.ents.pos[gi] == end {
                     r.arrived = Some(tick);
                 }
-            }
-            // combat.GUARD_FREE_TICK = client16402_held_through_arrival_plus_1: landed, the guard holds through its arrival
-            // + 1 (no Target, no step: a hold that outlives this tick's countdown), so its first target and step come on the
-            // arrival + 2; free_on_arrival_plus_1 takes both on the arrival + 1. Measured on client 16.402 (parity r71, L its
-            // last dash frame): the first target on L + 2 in 621 of 628 landings and never on L + 1, the first step on L + 2
-            // in 403 of 434 that walk; the engine's on L + 1 (82 of 97 targets).
-            // PLANT (regression) guard_free_on_arrival_plus_1: the new arm still lets it target and step on the arrival + 1.
-            #[cfg(not(clash_plant = "guard_free_on_arrival_plus_1"))]
-            let held_late = self.cfg.calib.guard_free_tick == GuardFreeTick::Client16402HeldThroughArrivalPlus1;
-            #[cfg(clash_plant = "guard_free_on_arrival_plus_1")]
-            let held_late = false;
-            if held_late && r.arrived == Some(tick) {
-                self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(2 * dt);
             }
             // The hit: once each, ground troops of the other side within the reach of the guard's centre (its push
             // radius and their own). THE PUSH: on every tick of the charge, each of them whose CENTRE lies within the
