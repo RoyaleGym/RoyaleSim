@@ -23,7 +23,7 @@ mod common;
 use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, EvoChainHopFirstStep};
+use royalesim::state::{BattleConfig, BattleState, Calib, EvoChainHopFirstStep, EvoChainHopWait};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -43,6 +43,9 @@ fn first_hits_at(arm: EvoChainHopFirstStep, dy: i32) -> (u32, u32) {
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     cfg.calib.evo_chain_hop_first_step = arm;
+    // The scenes were written on combat.EVO_CHAIN_HOP_WAIT = client15535_two_ticks (the first hop flies at once); the
+    // shipped client16402_every_hop makes it wait too (tests/evo_chain_hop_wait.rs).
+    cfg.calib.evo_chain_hop_wait = EvoChainHopWait::Client15535TwoTicks;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == EntityKind::PrincessTower).map(|e| e.id).collect();
