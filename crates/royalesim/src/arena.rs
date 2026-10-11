@@ -711,6 +711,18 @@ impl Arena {
         self.touching_bits(p) & self.bit_water != 0
     }
 
+    /// THE CLIENT'S is_valid_position (client 16.402; the Hero Ice Wizard's cube point, state.rs `ice_point`): inside
+    /// the arena with its far edges open (0 <= x < width, 0 <= y < height), on a half-cell (half-open, `subtile_to_half`)
+    /// that is not water. Nothing else refuses a point: no tower, building or king block. Measured on 34 live cubes: the
+    /// far point was refused on water (4 of 4) and kept on a bridge's cells (3 of 3).
+    pub fn is_valid_position(&self, p: Vec2) -> bool {
+        if p.x < 0 || p.y < 0 || p.x >= self.width || p.y >= self.height {
+            return false;
+        }
+        let (col, row) = self.subtile_to_half(p);
+        self.cell_bits(col, row) & self.bit_water == 0
+    }
+
     /// Can a ground unit's centre be here? In bounds and touching no water.
     /// Water is hard-blocked (calibration pathfinding.PATHFINDING_COSTS: no cost
     /// table is shipped because none can be sourced).

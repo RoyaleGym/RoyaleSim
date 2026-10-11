@@ -456,6 +456,9 @@ pub(crate) fn attached_def(cards: &CardDb, card: u16, part: u8) -> Option<&Attac
         Some(AbilityEffect::Areas { areas, .. }) => areas.get(part as usize),
         // The Hero Valkyrie's blow (`AbilityEffect::SpinChain`): her spin's one area.
         Some(AbilityEffect::SpinChain { area, .. }) if part == 0 => Some(area),
+        // The Hero Ice Wizard's bridge and freeze (`AbilityEffect::IceCube`).
+        Some(AbilityEffect::IceCube(d)) if part == crate::card::ICE_BRIDGE => Some(&d.bridge),
+        Some(AbilityEffect::IceCube(d)) if part == crate::card::ICE_FREEZE => Some(&d.freeze),
         _ => None,
     }
 }

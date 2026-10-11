@@ -1411,7 +1411,53 @@ pub enum AbilityEffect {
     Dismount(DismountDef),
     /// THE TOMB'S MONSTER (the Hero Tombstone's; `TombMonsterDef`).
     TombMonster(TombMonsterDef),
+    /// THE ICE CUBE (the Hero Ice Wizard's; `IceCubeDef`).
+    IceCube(IceCubeDef),
 }
+
+/// The parts of an ice cube's areas (spell.rs `attached_def`): the bridge, then the freeze.
+pub const ICE_BRIDGE: u8 = 0;
+pub const ICE_FREEZE: u8 = 1;
+
+/// THE ICE CUBE (the Hero Ice Wizard's; tools/extract_cards.py `ice_cube_button`; state.rs `IceRun`, `ice_finds`,
+/// `ice_pass`, `ice_kills`, `ice_reap`). The press waits for the closest enemy, from the hero, that carries one of
+/// `marks` (the card's deploy chill, the hero's shot slow). Behind it, its own radius + `ahead` on from its point toward
+/// its own king (the fallback: its radius alone where that point is not a valid position), `bridge` lands (a short
+/// freeze, no damage), and at the bridge's end `unit` (the cube: it stands, holds no target, never attacks) is put down
+/// there. On the cube's first update `freeze` is made on it: one hit of damage and `freeze_buff`, held while the cube
+/// lives. When the cube dies each freeze ends and leaves `after`. With no enemy left frozen the cube dies `linger_ms`
+/// on, and `life_ms` after its creation at the latest. `on_kill`: a kill by the hero while the press waits puts the
+/// bridge behind the killed unit. `on_death`: the hero's death while the press waits puts the cube itself behind the
+/// closest mark.
+///
+/// Measured on client 16.402 (34 live cubes in 16 battles, 2026-10-02 to 10-10, the find tick F): the press costs 2;
+/// the find runs every tick after the move pass and reads the target's point of that tick (9 moving targets); the
+/// closest mark is found from the pressing hero (the newest one alive); the cube's point is the target's x and its y +
+/// (radius + 1000) toward its own king, else + radius where that point is on water (34 of 34, 4 fallbacks); victims
+/// stand from F + 5, the cube's first frame; the freeze's damage (18 level-scaled; a crown tower 15 level-scaled) on
+/// F + 7; the cube deploys 20 ticks, drains from its deploy's end, is gone 100 ticks after its creation; frozen units
+/// walk again 2 ticks after the cube's last frame, slowed 30 % for 40 ticks. Unmeasured: the kill and the death paths.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct IceCubeDef {
+    /// Own buff indices (never merged by value): the deploy chill, the shot slow.
+    pub marks: [u16; 2],
+    /// Native millitiles past the target's radius.
+    pub ahead: i32,
+    pub bridge: AttachedArea,
+    pub unit: u16,
+    pub life_ms: i32,
+    pub linger_ms: i32,
+    pub freeze: AttachedArea,
+    /// The freeze's own buff index (its victims are told apart by it).
+    pub freeze_buff: u16,
+    pub after: BuffApply,
+    pub on_kill: bool,
+    pub on_death: bool,
+}
+
+/// THE ICE CUBE'S CLOCK (`IceCubeDef`), the table values the live timings were measured on; the loader refuses others:
+/// (find_every_ms, spawn_delay_ms, bridge life_ms, check_first_ms, check_every_ms).
+pub const ICE_CUBE_CLOCK: [(&str, i32); 5] = [("find_every_ms", 50), ("spawn_delay_ms", 100), ("bridge.life_ms", 50), ("cube.check_first_ms", 100), ("cube.check_every_ms", 50)];
 
 /// THE HERO TOMBSTONE'S MONSTER (tools/extract_cards.py `tomb_group`, `tomb_button`; state.rs `TombRun`, `tomb_status`,
 /// `tomb_resolve`). The form is the tomb (its base's building, its skeletons the base's). Its play puts `passive` down right
@@ -6634,6 +6680,60 @@ struct RawAbilityEffect {
     max_radius_milli: Option<i32>,
     /// 16.402's soul script: a soul's flight to him (`SoulSummonDef::flight_ms`).
     soul_flight_ms: Option<i32>,
+    /// `ice_cube` (tools/extract_cards.py `ice_cube_button`; `spawn_delay_ms` above): the marks, the find, the cube's
+    /// point, the bridge, the cube, the freeze, and the kill and death branches.
+    marks: Option<Vec<String>>,
+    target: Option<RawIceTarget>,
+    find_every_ms: Option<i32>,
+    find_first_ms: Option<i32>,
+    ahead_milli: Option<i32>,
+    on_kill: Option<bool>,
+    on_death: Option<bool>,
+    bridge: Option<RawIceArea>,
+    cube: Option<RawIceCube>,
+    freeze: Option<RawIceArea>,
+}
+
+/// An `ice_cube` find's resolver (tools/extract_cards.py `ice_cube_button`).
+#[derive(Deserialize)]
+struct RawIceTarget {
+    shape: String,
+    strategy: String,
+    filter: RawTargetFilter,
+}
+
+/// One of an `ice_cube`'s two areas: the bridge, the freeze.
+#[derive(Deserialize)]
+struct RawIceArea {
+    radius_milli: i32,
+    life_ms: i32,
+    damage: i32,
+    tower_damage: i32,
+    filter: RawTargetFilter,
+    buff_time_ms: i32,
+    buff: RawBuff,
+    after: Option<RawIceAfter>,
+    damage_level_scaling: Option<bool>,
+}
+
+/// The buff a freeze leaves when it ends (its OnRemoveAction).
+#[derive(Deserialize)]
+struct RawIceAfter {
+    buff: RawBuff,
+    time_ms: i32,
+}
+
+/// An `ice_cube`'s cube.
+#[derive(Deserialize)]
+struct RawIceCube {
+    unit: String,
+    use_deploy: bool,
+    life_ms: i32,
+    linger_ms: i32,
+    check_first_ms: i32,
+    check_every_ms: i32,
+    no_move: bool,
+    no_attack: bool,
 }
 
 /// THE 16.402 KEYS A RECORD MAY CARRY THAT NO MODEL READS YET (option B), as (path, what it is). The record loads with
@@ -7663,6 +7763,9 @@ struct RawTargetFilter {
     filter_cloning: Option<bool>,
     filter_dash_immune: Option<bool>,
     tags: Option<Vec<String>>,
+    /// FilterIfNotBuffedByChecker: only units carrying one of these buffs (the Hero Ice Wizard's find).
+    only_buffed_by: Option<Vec<String>>,
+    filter_if_no_hitpoint_component: Option<bool>,
 }
 
 /// cards.json `clone_action` (tools/extract_cards.py `clone_action_block`). Its card_data_for_stats (the card whose
@@ -13424,6 +13527,12 @@ impl CardDb {
     /// 2 (state.rs `BattleConfig::forms`), never the form.
     fn load_hero_form(&mut self, v: serde_json::Value, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<(), String> {
         let extra: RawHeroForm = serde_json::from_value(v.clone()).map_err(|e| format!("hero form: {e}"))?;
+        // An ice cube's second mark: its shot's TargetBuff, as a row of its own (`IceCubeDef::marks`).
+        let shot_buff: Option<RawBuff> = if extra.ability.effect.kind == "ice_cube" {
+            v.pointer("/projectile/target_buff").cloned().map(serde_json::from_value).transpose().map_err(|e| format!("hero form: its shot's buff: {e}"))?
+        } else {
+            None
+        };
         let mut raw: RawCard = serde_json::from_value(v).map_err(|e| format!("hero form: {e}"))?;
         // Its button is this pass's (`RawHeroForm::ability`, below), not a champion's (`convert_champion_ability`).
         raw.ability = None;
@@ -13513,6 +13622,22 @@ impl CardDb {
                 }
                 d.summon_only = true;
                 death = Some(d);
+                continue;
+            }
+            // THE FORM'S OWN DEPLOY AREA (the Hero Ice Wizard's chill, IceWizardColdHero, a row of the form's own tables): cast
+            // where the form is put down, as a card's own is (state.rs `phase_spawn`), on a one-unit form alone.
+            // PLANT hero_form_deploy_area_refused (tests/hero_ice_wizard.rs): the form's deploy area is refused as before.
+            #[cfg(not(clash_plant = "hero_form_deploy_area_refused"))]
+            if which == UnitUse::DeployAreaEffect && c.deploy_area_effect.is_none() {
+                if c.count != 1 {
+                    return Err(format!("a deploy area effect on a form of {} units is not simulated", c.count));
+                }
+                let aeo = extra.tables.area_effect_objects.get(&name).or_else(|| ctx.aeos.get(&name)).ok_or_else(|| format!("deploy area effect {name}: no record"))?;
+                let (shape, more) = convert_deploy_area_effect(aeo, &c.unit_name, buffs, &fctx).map_err(|e| format!("deploy area effect {name}: {e}"))?;
+                if !more.is_empty() {
+                    return Err(format!("deploy area effect {name} releases units; not simulated on a hero form"));
+                }
+                c.deploy_area_effect = Some(SpellDef { shape, placement: SpellPlacement::Anywhere });
                 continue;
             }
             if which != UnitUse::DeathAreaEffect {
@@ -14169,6 +14294,154 @@ impl CardDb {
                 flag_units.push(mount);
                 effect
             }
+            // THE ICE CUBE (the Hero Ice Wizard's; `IceCubeDef`): the clock the live timings were measured on
+            // (`ICE_CUBE_CLOCK`), its two marks as rows of their own (the deploy chill on the form's deploy area, the slow on
+            // its shot), its bridge and freeze as two areas, its cube loaded after the form.
+            "ice_cube" => {
+                let e = &a.effect;
+                let t = e.target.as_ref().ok_or_else(|| format!("{what}: an ice cube with no find"))?;
+                let f = &t.filter;
+                if t.shape != "global" || t.strategy != "closest" || f.match_team_enemy != Some(true) || f.match_type_characters != Some(true) {
+                    return Err(format!("{what}: a find of {} {} is not simulated", t.shape, t.strategy));
+                }
+                if f.match_team_own == Some(true) || f.filter_buildings == Some(true) || f.filter_princess_towers == Some(true) || f.filter_flying == Some(true) || f.filter_summoner == Some(true) || f.filter_invisible == Some(true) {
+                    return Err(format!("{what}: its find's filter {:?} drops a kind the engine's find does not", f.name));
+                }
+                // The engine's find skips hidden, underground and cloned units, and every unit has hitpoints (state.rs
+                // `ice_pick`): the filter must say so.
+                if f.filter_hidden != Some(true) || f.filter_underground != Some(true) || f.filter_cloning != Some(true) || f.filter_if_no_hitpoint_component == Some(false) {
+                    return Err(format!("{what}: its find's filter {:?} keeps hidden, underground or cloned units", f.name));
+                }
+                let marks = e.marks.clone().unwrap_or_default();
+                if f.only_buffed_by.as_ref() != Some(&marks) || marks.len() != 2 {
+                    return Err(format!("{what}: its find's marks {:?} are not its two marks {marks:?}", f.only_buffed_by));
+                }
+                let (bridge, freeze, cube) = (
+                    e.bridge.as_ref().ok_or_else(|| format!("{what}: no bridge"))?,
+                    e.freeze.as_ref().ok_or_else(|| format!("{what}: no freeze"))?,
+                    e.cube.as_ref().ok_or_else(|| format!("{what}: no cube"))?,
+                );
+                let got = [e.find_every_ms, e.spawn_delay_ms, Some(bridge.life_ms), Some(cube.check_first_ms), Some(cube.check_every_ms)];
+                for ((key, want), v) in ICE_CUBE_CLOCK.iter().zip(got) {
+                    if v != Some(*want) {
+                        return Err(format!("{what}: {key} {v:?}, where the ice cube was measured at {want}"));
+                    }
+                }
+                if e.find_first_ms.is_some_and(|x| x != 0) {
+                    return Err(format!("{what}: a first find {:?} ms on is not simulated", e.find_first_ms));
+                }
+                if !cube.use_deploy || !cube.no_move || !cube.no_attack || cube.life_ms <= 0 || cube.linger_ms <= 0 {
+                    return Err(format!("{what}: a cube that is put down without its deploy, walks, attacks or has no life"));
+                }
+                // The marks: the deploy chill (the form's deploy area's buff) and the shot's slow, each a row of its own, so a
+                // buff of the same columns (the base Ice Wizard's chill, the freeze's after-slow) is no mark.
+                let chill = match c.deploy_area_effect.as_mut().map(|d| &mut d.shape) {
+                    Some(SpellShape::AreaEffect { hit }) => hit.buff.as_mut(),
+                    _ => None,
+                };
+                let chill_apply = chill.ok_or_else(|| format!("{what}: its card's deploy area hangs no buff"))?;
+                let chill_row = extra.tables.area_effect_objects.values().find(|r| r.buff.as_ref().and_then(|b| b.name.as_deref()) == Some(marks[0].as_str())).and_then(|r| r.buff.as_ref());
+                let chill_row = chill_row.ok_or_else(|| format!("{what}: its first mark {} is not its deploy area's buff", marks[0]))?;
+                let slow_row = shot_buff.as_ref().filter(|b| b.name.as_deref() == Some(marks[1].as_str())).ok_or_else(|| format!("{what}: its second mark {} is not its shot's buff", marks[1]))?;
+                // PLANT ice_marks_interned (tests/hero_ice_wizard.rs): the marks keep the indices they interned to.
+                #[cfg(not(clash_plant = "ice_marks_interned"))]
+                {
+                    chill_apply.buff = buffs.push_own(chill_row.convert(&format!("{what} mark {}", marks[0]))?, &marks[0])?;
+                    let shot = c.attack_buff.as_mut().ok_or_else(|| format!("{what}: its shot hangs no buff"))?;
+                    shot.buff = buffs.push_own(slow_row.convert(&format!("{what} mark {}", marks[1]))?, &marks[1])?;
+                }
+                let mark_ids = [chill_apply.buff, c.attack_buff.map(|b| b.buff).ok_or_else(|| format!("{what}: its shot hangs no buff"))?];
+                let area = |r: &RawIceArea, buff: BuffApply, controls: bool| -> Result<AttachedArea, String> {
+                    if r.radius_milli <= 0 || r.life_ms <= 0 || r.damage < 0 || r.tower_damage < 0 {
+                        return Err(format!("{what}: an area of radius {} life {}", r.radius_milli, r.life_ms));
+                    }
+                    if r.filter.match_team_enemy != Some(true) || r.filter.match_type_characters != Some(true) {
+                        return Err(format!("{what}: an area whose filter {:?} is not the enemy's characters", r.filter.name));
+                    }
+                    let hit = SpellHit {
+                        damage: r.damage,
+                        crown_pct: 100,
+                        tower_damage: Some(r.tower_damage),
+                        radius: milli(r.radius_milli),
+                        hits_air: true,
+                        hits_ground: true,
+                        only_enemies: true,
+                        only_own_troops: false,
+                        ignore_buildings: false,
+                        no_effect_to_crown_towers: false,
+                        knockback: None,
+                        buff: Some(buff),
+                        buff2: None,
+                        caps_buff_time: false,
+                        controls_buff: controls,
+                    };
+                    // One hit, on the area's first update (no HitSpeed): the bridge goes with it; the freeze stands while
+                    // its cube lives (its hit clock set past its life).
+                    let hit_speed_ms = if controls { r.life_ms } else { 0 };
+                    Ok(AttachedArea { hit, level_scaled: r.damage_level_scaling.unwrap_or(true), life_ms: r.life_ms, hit_speed_ms, first_ms: 0, follow: false, stay: !controls, end: None, hero_offsetless: false })
+                };
+                if bridge.buff.controlled_by_parent == Some(true) || bridge.damage != 0 || bridge.tower_damage != 0 || bridge.after.is_some() {
+                    return Err(format!("{what}: a bridge that does more than hold"));
+                }
+                let bridge_apply = buffs.apply(&bridge.buff, Some(bridge.buff_time_ms), &format!("{what} bridge"))?;
+                if freeze.buff.controlled_by_parent != Some(true) || freeze.buff_time_ms < cube.life_ms || freeze.life_ms < cube.life_ms {
+                    return Err(format!("{what}: a freeze that is not held by its cube"));
+                }
+                let freeze_buff = buffs.push_own(freeze.buff.convert(&format!("{what} freeze"))?, freeze.buff.name.as_deref().unwrap_or("ice freeze"))?;
+                let after = freeze.after.as_ref().ok_or_else(|| format!("{what}: a freeze that leaves nothing"))?;
+                let after = buffs.apply(&after.buff, Some(after.time_ms), &format!("{what} after-slow"))?;
+                let name = cube.unit.clone();
+                let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("{what}: no units record {name}"))?;
+                let obj = uv.as_object_mut().ok_or_else(|| format!("{what}: units.{name} is not an object"))?;
+                obj.insert("kind".into(), serde_json::Value::String("troop".into()));
+                obj.entry("count").or_insert(serde_json::Value::from(1));
+                let ignore: Vec<String> = obj.get("ignore_buffs").cloned().map(serde_json::from_value).transpose().map_err(|x| format!("{what}: units.{name}.ignore_buffs: {x}"))?.unwrap_or_default();
+                let ur: RawCard = serde_json::from_value(uv).map_err(|x| format!("{what}: units.{name}: {x}"))?;
+                let (mut u, _, uneeds) = convert(ur, buffs, &fctx).map_err(|x| format!("{what}: units.{name}: {x}"))?;
+                if let Some((w, n)) = uneeds.first() {
+                    return Err(format!("{what}: units.{name} needs {n} ({w:?}); not simulated on a cube"));
+                }
+                if u.damage != 0 || u.projectile.is_some() {
+                    return Err(format!("{what}: a cube that deals damage is not simulated"));
+                }
+                if !self.rarities.iter().any(|r| r.name == u.rarity) {
+                    return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
+                }
+                // NO_MOVE_ALLOW_ATTRACT: it stands where it is put. PLANT ice_cube_walks: its Speed 40 walks.
+                #[cfg(not(clash_plant = "ice_cube_walks"))]
+                {
+                    u.speed = 0;
+                }
+                // NO_ATTACK: no target, no swing (the flag's way). PLANT ice_cube_attacks: its HitSpeed 1000 swings.
+                #[cfg(not(clash_plant = "ice_cube_attacks"))]
+                {
+                    u.hit_speed_ms = 0;
+                }
+                // Its IgnoreBuff (the Voodoo and Goblin curses), resolved as the ghost's is.
+                // PLANT ice_cube_ignore_buffs_unread: the curses land on it.
+                #[cfg(not(clash_plant = "ice_cube_ignore_buffs_unread"))]
+                {
+                    u.ignore_buffs = buffs.ignore_ids(&ignore)?;
+                }
+                #[cfg(clash_plant = "ice_cube_ignore_buffs_unread")]
+                let _ = &ignore;
+                u.lifetime_ms = Some(cube.life_ms);
+                u.summon_only = true;
+                unit = Some(u);
+                AbilityEffect::IceCube(IceCubeDef {
+                    marks: mark_ids,
+                    ahead: e.ahead_milli.filter(|x| *x > 0).ok_or_else(|| format!("{what}: an ice cube with no ahead distance"))?,
+                    bridge: area(bridge, bridge_apply, false)?,
+                    unit: u16::MAX,
+                    life_ms: cube.life_ms,
+                    linger_ms: cube.linger_ms,
+                    freeze: area(freeze, BuffApply { buff: freeze_buff, time_ms: freeze.buff_time_ms }, true)?,
+                    freeze_buff,
+                    after,
+                    on_kill: e.on_kill == Some(true),
+                    on_death: e.on_death == Some(true),
+                })
+            }
             other => return Err(format!("{what}: effect {other} is not simulated")),
         };
         c.ability = Some(AbilityDef { cost: a.mana_cost, cast_ms: a.cast_ms, trigger_ms: a.trigger_delay_ms, keep_target: a.keep_current_target, effect });
@@ -14203,6 +14476,9 @@ impl CardDb {
             }
             if let Some(AbilityDef { effect: AbilityEffect::DecoyWarp(d), .. }) = self.cards[form as usize].ability.as_mut() {
                 d.decoy = ui;
+            }
+            if let Some(AbilityDef { effect: AbilityEffect::IceCube(d), .. }) = self.cards[form as usize].ability.as_mut() {
+                d.unit = ui;
             }
             if let Some(AbilityDef { effect: AbilityEffect::Siege(sg), .. }) = self.cards[form as usize].ability.as_mut() {
                 sg.unit = ui;
@@ -14685,7 +14961,7 @@ impl CardDb {
         // (state.rs `try_new` checks its levels, py.rs `ids_of_indices` reports it under the base).
         if let Some(AbilityDef {
             effect: AbilityEffect::SpawnAhead { unit, .. } | AbilityEffect::Throw { unit, .. } | AbilityEffect::GroundToAir { unit, .. } | AbilityEffect::DecoyWarp(DecoyWarpDef { decoy: unit, .. })
-                | AbilityEffect::Siege(SiegeDef { unit, .. }),
+                | AbilityEffect::Siege(SiegeDef { unit, .. }) | AbilityEffect::IceCube(IceCubeDef { unit, .. }),
             ..
         }) = &c.ability
         {

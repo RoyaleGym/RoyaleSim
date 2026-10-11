@@ -11628,6 +11628,9 @@ pub struct WarpBoard {
     /// The warped heroes waiting to warp back (`WarpBack`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub backs: Vec<WarpBack>,
+    /// The Hero Ice Wizards' buttons under way (`IceRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ices: Vec<IceRun>,
 }
 
 /// A SKELETON KING'S SOULS (card.rs `SoulSummonDef`; `count_souls`): the troops' deaths since his last trigger.
@@ -11759,7 +11762,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -11828,6 +11831,46 @@ pub struct SiegeRun {
     pub form: u16,
     pub made: u32,
 }
+
+/// A HERO ICE WIZARD'S BUTTON UNDER WAY (card.rs `IceCubeDef`; `ice_finds`, `ice_pass`, `ice_kills`, `ice_reap`): its
+/// hero, side, form and level, the hero's last point (its death's find looks from there), and its phase.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct IceRun {
+    pub hero: EntityId,
+    pub team: Team,
+    pub form: u16,
+    pub level: i32,
+    pub hero_at: Vec2,
+    pub phase: IcePhase,
+}
+
+/// Where a Hero Ice Wizard's button is (`IceRun`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum IcePhase {
+    /// The press waits for a mark (`ice_finds`, every tick after the move pass).
+    Pending,
+    /// A mark found, or a kill: the bridge lands on tick `bridge` and the cube is put down on tick `cube`, both at `at`.
+    Fired { at: Vec2, bridge: u32, cube: u32 },
+    /// The cube stands (`cube`, bound at the end of its first Reap): put down on `born`, killed on `kill` (its life, or
+    /// its linger once a check found no enemy frozen: `empty`).
+    Standing { cube: Option<EntityId>, at: Vec2, born: u32, kill: u32, empty: bool },
+}
+
+/// THE ICE CUBE'S TICKS (card.rs `IceCubeDef`), measured on client 16.402 (34 live cubes) from the find's tick F: the
+/// bridge's hold lands on F + ICE_BRIDGE_TICKS (its victims take their last step that tick), the cube's first frame is
+/// F + ICE_CUBE_TICKS, and its freeze lands ICE_FREEZE_TICKS after that (the cube's first update makes it).
+const ICE_BRIDGE_TICKS: u32 = 4;
+const ICE_CUBE_TICKS: u32 = 5;
+const ICE_FREEZE_TICKS: u32 = 2;
+/// A KILL while the press waits fires at once (the table's kill branch has no SubActionsDelay): the bridge on the kill's
+/// tick K + ICE_KILL_BRIDGE_TICKS, the cube on K + ICE_KILL_CUBE_TICKS, the find's chain without its 100 ms. Unmeasured on
+/// client 16.402 (no kill-fired cube in the live set).
+const ICE_KILL_BRIDGE_TICKS: u32 = 2;
+const ICE_KILL_CUBE_TICKS: u32 = 3;
+/// THE CUBE'S CHECK for an enemy still frozen starts after its freeze landed (born + 3). A check that finds none kills the
+/// cube `linger_ms` / 50 + 1 ticks on: its wait reads the check on its next update. Measured on one live cube
+/// (20261008-152744: gone on its only victim's death tick + 42).
+const ICE_CHECK_FIRST_TICKS: u32 = 3;
 
 /// A HERO MAGIC ARCHER'S BUTTON UNDER WAY (card.rs `DecoyWarpDef`; `magic_pass`, `magic_warps`): its hero, side and form
 /// (its decoy is killed on its own clock, the hero alive or not), and the trigger's tick, which every step counts from.
@@ -17203,6 +17246,10 @@ impl BattleState {
                     if !self.warps.dismounts.is_empty() {
                         self.dismount_hops();
                     }
+                    // The Hero Ice Wizards' finds, bridges, cubes and freezes, after the tick's walks (`ice_finds`).
+                    if !self.warps.ices.is_empty() {
+                        self.ice_finds();
+                    }
                 }
                 Phase::Attack => self.phase_attack(),
                 Phase::Projectile => self.phase_projectile(),
@@ -18080,6 +18127,10 @@ impl BattleState {
         // The Hero Magic Archer's buttons (`magic_pass`).
         if !self.warps.magic.is_empty() {
             self.magic_pass();
+        }
+        // The Hero Ice Wizards' cubes: their checks and their ends (`ice_pass`).
+        if !self.warps.ices.is_empty() {
+            self.ice_pass();
         }
         // The Hero Bowler's sieges (`siege_pass`).
         if !self.warps.sieges.is_empty() {
@@ -21460,6 +21511,266 @@ impl BattleState {
             }
         }
         self.warps.magic = keep;
+    }
+
+    /// The form's ice cube (card.rs `IceCubeDef`), or None.
+    fn ice_def(&self, form: u16) -> Option<crate::card::IceCubeDef> {
+        match self.cfg.cards.get(form).ability.as_ref().map(|a| &a.effect) {
+            Some(crate::card::AbilityEffect::IceCube(d)) => Some(*d),
+            _ => None,
+        }
+    }
+
+    /// THE ICE CUBE'S FIND (card.rs `IceCubeDef::marks`; the table's resolver: Global, CLOSEST, enemy characters
+    /// carrying a mark): the closest enemy to `from` (centre distance) that carries either mark, hidden, underground,
+    /// cloned and riding units skipped; troops, buildings and crown towers alike. At one distance the later created
+    /// (targeting.EQUAL_DISTANCE_TIE's measured arm; unmeasured here). Measured on client 16.402: the closest marked
+    /// enemy to the pressing hero in 34 of 34 live cubes, a crown tower once.
+    fn ice_pick(&self, team: Team, from: Vec2, marks: [u16; 2]) -> Option<usize> {
+        let e = &self.ents;
+        #[cfg(not(clash_plant = "ice_find_ignores_marks"))]
+        let marked = |j: usize| e.buff_slots(j).iter().any(|s| s.id == marks[0] + 1 || s.id == marks[1] + 1);
+        #[cfg(clash_plant = "ice_find_ignores_marks")]
+        let marked = |_j: usize| {
+            let _ = marks;
+            true // PLANT: the find takes the closest enemy, marked or not.
+        };
+        (0..e.capacity())
+            .filter(|&j| e.alive[j] && e.hp[j] > 0 && e.team[j] != team && !e.underground(j) && e.hide[j] != HideState::Hidden && !e.cloned[j] && !e.attached(j) && marked(j))
+            .map(|j| (e.pos[j].dist2(from), u32::MAX - e.creation_seq[j], j))
+            .min()
+            .map(|(_, _, j)| j)
+    }
+
+    /// THE ICE CUBE'S POINT behind unit `j` (card.rs `IceCubeDef::ahead`), in native millitiles as the client's expression
+    /// is: its x; its y + (its radius + `ahead`) x team_y_direction(its side) (actions.TEAM_Y_DIRECTION: toward its own
+    /// king), or + its radius alone where that point is not a valid position (`Arena::is_valid_position`; the fallback is
+    /// not checked). Measured on client 16.402: 34 of 34 live cubes within 1 native, 4 fallbacks, all on water.
+    fn ice_point(&self, j: usize, ahead: i32) -> Vec2 {
+        const K: i32 = crate::fixed::SUBTILE_PER_MILLITILE;
+        let p = self.ents.pos[j];
+        let (x, y, r) = (p.x.div_euclid(K), p.y.div_euclid(K), self.ents.radius[j] / K);
+        let t = match self.cfg.calib.team_y_direction {
+            TeamYDirection::AgainstForward => -spell::forward_dy(self.ents.team[j]),
+            TeamYDirection::Forward => spell::forward_dy(self.ents.team[j]),
+        };
+        #[cfg(clash_plant = "ice_ahead_unread")]
+        return Vec2::new(x * K, y * K); // PLANT: the cube on the target's own point.
+        #[allow(unreachable_code)]
+        let far = Vec2::new(x * K, (y + (r + ahead) * t) * K);
+        #[cfg(not(clash_plant = "ice_valid_position_unread"))]
+        let valid = self.cfg.arena.is_valid_position(far);
+        #[cfg(clash_plant = "ice_valid_position_unread")]
+        let valid = true; // PLANT: the far point is taken on water too.
+        if valid {
+            far
+        } else {
+            Vec2::new(x * K, (y + r * t) * K)
+        }
+    }
+
+    /// THE HERO ICE WIZARDS' FINDS AND FIRES (card.rs `IceCubeDef`, `IceRun`), after the tick's move: a waiting press
+    /// takes the closest marked enemy from its hero (`ice_pick`) and fires behind it (`ice_point`); the bridge lands on
+    /// the fire's tick + ICE_BRIDGE_TICKS (one hit, this tick's Projectile phase, so its victims took this tick's step) and
+    /// the cube is put down on + ICE_CUBE_TICKS (made at the end of the tick's Reap: its first frame); the cube's freeze
+    /// is made ICE_FREEZE_TICKS after its birth on it (one hit, this tick's Projectile phase), held while the cube lives.
+    fn ice_finds(&mut self) {
+        let tick = self.tick;
+        for k in 0..self.warps.ices.len() {
+            let r = self.warps.ices[k].clone();
+            let Some(d) = self.ice_def(r.form) else { continue };
+            let alive = self.ents.is_alive(r.hero) && self.ents.hp[r.hero.index as usize] > 0;
+            if alive {
+                self.warps.ices[k].hero_at = self.ents.pos[r.hero.index as usize];
+            }
+            match r.phase {
+                IcePhase::Pending if alive => {
+                    if let Some(j) = self.ice_pick(r.team, self.ents.pos[r.hero.index as usize], d.marks) {
+                        let at = self.ice_point(j, d.ahead);
+                        self.warps.ices[k].phase = IcePhase::Fired { at, bridge: tick + ICE_BRIDGE_TICKS, cube: tick + ICE_CUBE_TICKS };
+                    }
+                }
+                IcePhase::Fired { at, bridge, cube } => {
+                    #[cfg(not(clash_plant = "ice_bridge_never"))]
+                    if tick == bridge {
+                        if let Ok(s) = spell::attached_area(&self.cfg.cards, &self.cfg.calib, r.team, r.form, r.level, r.hero, at, crate::card::ICE_BRIDGE) {
+                            self.spells.push(s);
+                        }
+                    }
+                    #[cfg(clash_plant = "ice_bridge_never")]
+                    let _ = bridge; // PLANT: no bridge; the cube still comes.
+                    if tick == cube {
+                        self.ice_release_cube(&r, &d, at);
+                        self.warps.ices[k].phase = IcePhase::Standing { cube: None, at, born: tick, kill: tick + (d.life_ms / self.cfg.calib.tick_ms.max(1)) as u32, empty: false };
+                    }
+                }
+                IcePhase::Standing { cube: Some(c), at, born, .. } if tick == born + ICE_FREEZE_TICKS && self.ents.is_alive(c) => {
+                    if let Ok(s) = spell::attached_area(&self.cfg.cards, &self.cfg.calib, r.team, r.form, r.level, c, at, crate::card::ICE_FREEZE) {
+                        self.spells.push(s);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The cube of run `r` put down at `at`, deploying its own DeployTime, acquirable as an action's unit is
+    /// (targeting.SPAWNED_UNIT_ACQUIRE_DELAY: measured, enemies first took a live cube on its creation + 7).
+    fn ice_release_cube(&mut self, r: &IceRun, d: &crate::card::IceCubeDef, at: Vec2) {
+        let Ok(lvl) = self.cfg.cards.unit_level(r.form, d.unit, None, r.level) else { return };
+        self.release(PendingSpawn { team: r.team, card: d.unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: true, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+    }
+
+    /// THE HERO ICE WIZARDS' CUBES (card.rs `IceCubeDef`), in the Status phase: a cube is killed on its `kill` tick (a hit
+    /// of everything it has, so it dies in this tick's Reap): `life_ms` after its birth (measured: gone on its creation +
+    /// 100, 7 of 7 live cubes left alone), or its linger's end. From ICE_CHECK_FIRST_TICKS after its birth, each tick, a
+    /// check looks for any enemy still frozen by a cube (its freeze buff on it); the first that finds none sets the
+    /// linger: the kill `linger_ms` / 50 + 1 ticks on.
+    fn ice_pass(&mut self) {
+        let tick = self.tick;
+        let dt = self.cfg.calib.tick_ms.max(1);
+        for k in 0..self.warps.ices.len() {
+            let r = self.warps.ices[k].clone();
+            let IcePhase::Standing { cube: Some(c), at, born, kill, empty } = r.phase else { continue };
+            let Some(d) = self.ice_def(r.form) else { continue };
+            if !self.ents.is_alive(c) {
+                continue;
+            }
+            let ci = c.index as usize;
+            #[cfg(not(clash_plant = "ice_life_unread"))]
+            let due = tick == kill;
+            #[cfg(clash_plant = "ice_life_unread")]
+            let due = false; // PLANT: the cube is never killed; its row's LifeTime drains it.
+            if due {
+                let amount = self.ents.hp[ci].max(0).saturating_add(self.ents.shield[ci].max(0)).max(1);
+                self.dmg.hits.push(Hit { target: c, amount, ignores_hide: false, own: true });
+                continue;
+            }
+            #[cfg(not(clash_plant = "ice_linger_unread"))]
+            if !empty && tick >= born + ICE_CHECK_FIRST_TICKS {
+                let e = &self.ents;
+                let frozen = (0..e.capacity()).any(|j| e.alive[j] && e.team[j] != r.team && e.buff_slots(j).iter().any(|s| s.id == d.freeze_buff + 1));
+                if !frozen {
+                    let linger = tick + (d.linger_ms / dt) as u32 + 1;
+                    self.warps.ices[k].phase = IcePhase::Standing { cube: Some(c), at, born, kill: kill.min(linger), empty: true };
+                }
+            }
+            #[cfg(clash_plant = "ice_linger_unread")]
+            let _ = (empty, born, at);
+        }
+    }
+
+    /// THE HERO ICE WIZARDS' KILLS (card.rs `IceCubeDef::on_kill`), in Resolve once the tick's dead are known: a waiting
+    /// press whose hero's shot killed a unit this tick fires behind the first such unit at once (the table's kill
+    /// branch: no 100 ms), ICE_KILL_BRIDGE_TICKS and ICE_KILL_CUBE_TICKS on. Unmeasured on client 16.402.
+    fn ice_kills(&mut self, firers: &[(EntityId, EntityId)]) {
+        let tick = self.tick;
+        for k in 0..self.warps.ices.len() {
+            let r = self.warps.ices[k].clone();
+            if r.phase != IcePhase::Pending || !self.ents.is_alive(r.hero) || self.ents.hp[r.hero.index as usize] <= 0 {
+                continue;
+            }
+            let Some(d) = self.ice_def(r.form) else { continue };
+            #[cfg(not(clash_plant = "ice_kill_unread"))]
+            let on = d.on_kill;
+            #[cfg(clash_plant = "ice_kill_unread")]
+            let on = false; // PLANT: a kill fires nothing.
+            if !on {
+                continue;
+            }
+            let Some(&(_, v)) = firers.iter().find(|(f, v)| *f == r.hero && self.death_queue.contains(v)) else { continue };
+            let at = self.ice_point(v.index as usize, d.ahead);
+            self.warps.ices[k].phase = IcePhase::Fired { at, bridge: tick + ICE_KILL_BRIDGE_TICKS, cube: tick + ICE_KILL_CUBE_TICKS };
+        }
+    }
+
+    /// THE HERO ICE WIZARDS' ENDS, in Reap after the dead are gone: a cube that died lets its victims go (`ice_let_go`) and
+    /// its run ends; a hero that died with its press waiting puts the cube itself (no bridge) behind the closest mark to
+    /// its last point (the table's death branch; unmeasured on client 16.402), made with this tick's released units, or,
+    /// with no mark, its press is lost. A cube in flight comes whatever its hero does.
+    fn ice_reap(&mut self) {
+        let tick = self.tick;
+        let runs = std::mem::take(&mut self.warps.ices);
+        let mut keep = Vec::new();
+        for r in runs {
+            let Some(d) = self.ice_def(r.form) else { continue };
+            match r.phase {
+                IcePhase::Standing { cube: Some(c), at, .. } if !self.ents.is_alive(c) => {
+                    self.ice_let_go(&d, r.team, at);
+                    continue;
+                }
+                IcePhase::Standing { cube: None, born, .. } if born < tick => continue,
+                IcePhase::Pending if !self.ents.is_alive(r.hero) => {
+                    #[cfg(not(clash_plant = "ice_death_unread"))]
+                    if d.on_death {
+                        if let Some(j) = self.ice_pick(r.team, r.hero_at, d.marks) {
+                            let at = self.ice_point(j, d.ahead);
+                            self.ice_release_cube(&r, &d, at);
+                            let kill = tick + (d.life_ms / self.cfg.calib.tick_ms.max(1)) as u32;
+                            keep.push(IceRun { phase: IcePhase::Standing { cube: None, at, born: tick, kill, empty: false }, ..r });
+                        }
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            keep.push(r);
+        }
+        self.warps.ices = keep;
+    }
+
+    /// Each cube made just now is its run's (`ice_reap`, `ice_finds`): the run's unit of its side made this tick on its
+    /// point.
+    fn ice_bind(&mut self) {
+        let tick = self.tick;
+        let (ents, cards) = (&self.ents, &self.cfg.cards);
+        for r in self.warps.ices.iter_mut() {
+            let IcePhase::Standing { cube, at, born, .. } = &mut r.phase else { continue };
+            if cube.is_some() || *born != tick {
+                continue;
+            }
+            let unit = match cards.get(r.form).ability.as_ref().map(|a| &a.effect) {
+                Some(crate::card::AbilityEffect::IceCube(d)) => d.unit,
+                _ => continue,
+            };
+            *cube = (0..ents.capacity()).find(|&j| ents.alive[j] && ents.card[j] == unit && ents.team[j] == r.team && ents.spawn_tick[j] == tick && ents.pos[j] == *at).map(|j| ents.id_of(j));
+        }
+    }
+
+    /// A DEAD CUBE LETS ITS VICTIMS GO (card.rs `IceCubeDef`: its freeze ControlledByParent, its area LinkToInstigatorLife;
+    /// the buff's OnRemoveAction), in the Reap of the tick it died: each enemy carrying its freeze from its point loses it,
+    /// its hold timer is what is left of its other full stops, and it takes `after`. Measured on client 16.402: the
+    /// victims' first step on the cube's last frame + 2 (40 of 47), already slowed, for 40 ticks (7 of 7).
+    fn ice_let_go(&mut self, d: &crate::card::IceCubeDef, team: Team, at: Vec2) {
+        #[cfg(clash_plant = "ice_freeze_kept")]
+        {
+            let _ = (d, team, at);
+            return; // PLANT: no release at the cube's death; the area's orphan release lets go a tick later, the hold kept.
+        }
+        #[allow(unreachable_code)]
+        for j in 0..self.ents.capacity() {
+            if !self.ents.alive[j] || self.ents.team[j] == team {
+                continue;
+            }
+            let mut had = false;
+            for s in self.ents.buff_slots_mut(j) {
+                if s.id == d.freeze_buff + 1 && s.source == Some(at) {
+                    *s = BuffSlot::default();
+                    had = true;
+                }
+            }
+            if !had {
+                continue;
+            }
+            let cards = &self.cfg.cards;
+            let left = self.ents.buff_slots(j).iter().filter(|s| s.id != 0).filter(|s| cards.buffs.get(s.id as usize - 1).is_some_and(|b| crate::status::compose([*b].iter(), Sel::Speed, 100) == 0)).map(|s| s.ms).max().unwrap_or(0);
+            self.ents.stun_ms[j] = left;
+            #[cfg(not(clash_plant = "ice_after_slow_never"))]
+            {
+                let h = crate::status::BuffHit::plain(self.ents.id_of(j), d.after.buff, d.after.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, j, &h);
+            }
+        }
     }
 
     /// THE SKELETON KINGS' AREAS (card.rs `SoulSummonDef`), in the Status phase after the tick's presses fired: the
@@ -28720,6 +29031,11 @@ impl BattleState {
         if !self.scratch.kills.is_empty() {
             self.kill_heals();
         }
+        // THE HERO ICE WIZARDS' KILLS (`ice_kills`): its shots' hits this tick that killed.
+        let firers = std::mem::take(&mut self.dmg.firers);
+        if !firers.is_empty() && !self.warps.ices.is_empty() {
+            self.ice_kills(&firers);
+        }
         // THE EVO MINION HORDE'S GHOST (card.rs `EvoDef::first_hit`): the first damage a minion survives lands its buff.
         if !out.hurt.is_empty() {
             self.first_hit(out.hurt);
@@ -30235,7 +30551,15 @@ impl BattleState {
         // RELEASED UNITS (spawner.RELEASE_TIMING = end_of_event_phase): after the dead
         // are despawned, so a freed slot can be reused without any later read of it, and
         // before the rebuild, so the hash holds them.
+        // The Hero Ice Wizards' cubes that died (their victims let go) and heroes that died waiting (`ice_reap`).
+        if !self.warps.ices.is_empty() {
+            self.ice_reap();
+        }
         self.materialise_released();
+        // Each cube made just now is its run's (`ice_bind`).
+        if !self.warps.ices.is_empty() {
+            self.ice_bind();
+        }
         // Each guard made just now is its run's (`guard_bind`).
         if !self.warps.guards.is_empty() {
             self.guard_bind();
@@ -32493,6 +32817,16 @@ impl BattleState {
                 self.warps.magic.retain(|r| r.id != hero);
                 self.warps.magic.push(MagicRun { id: hero, team, card, made: self.tick });
             }
+            // THE ICE CUBE (the Hero Ice Wizard's; `IceRun`): the press waits for a mark, found after the move pass
+            // (`ice_finds`), from this tick on.
+            crate::card::AbilityEffect::IceCube(_) => {
+                #[cfg(not(clash_plant = "ice_cube_never"))]
+                {
+                    self.warps.ices.retain(|r| r.hero != hero);
+                    self.warps.ices.push(IceRun { hero, team, form: card, level, hero_at: pos, phase: IcePhase::Pending });
+                }
+                let _ = (team, level, pos);
+            }
             // THE SIEGE (the Hero Bowler's; `SiegeRun`): its two buffs land now, its attack is held NO_ATTACK's time (as a
             // cast holds a hero: the stun timer), and it becomes its siege form, target and swing kept, on its entry 1;
             // its target's reset and its end run on the trigger's clock (`siege_pass`).
@@ -33545,7 +33879,8 @@ impl BattleState {
             || self.warps.rerolls.iter().any(|r| r.id == id)
             || self.warps.dismounts.iter().any(|r| r.id == id)
             || self.warps.lanes.iter().any(|r| r.id == id)
-            || self.warps.soul_runs.iter().any(|r| r.id == id);
+            || self.warps.soul_runs.iter().any(|r| r.id == id)
+            || self.warps.ices.iter().any(|r| r.hero == id && !matches!(r.phase, IcePhase::Standing { .. }));
         (windup, active, if active || windup { ticks } else { 0 })
     }
 
@@ -34785,6 +35120,40 @@ impl BattleState {
                     h.u32(r.order.len() as u32);
                     for o in &r.order {
                         h.u32(u32::from(*o));
+                    }
+                }
+            }
+            if !self.warps.ices.is_empty() {
+                h.u32(0x4943_4543);
+                h.u32(self.warps.ices.len() as u32);
+                for r in &self.warps.ices {
+                    h.id(r.hero);
+                    h.u32(r.team as u32);
+                    h.u32(u32::from(r.form));
+                    h.i32(r.level);
+                    h.i32(r.hero_at.x);
+                    h.i32(r.hero_at.y);
+                    match r.phase {
+                        IcePhase::Pending => h.u32(0),
+                        IcePhase::Fired { at, bridge, cube } => {
+                            h.u32(1);
+                            h.i32(at.x);
+                            h.i32(at.y);
+                            h.u32(bridge);
+                            h.u32(cube);
+                        }
+                        IcePhase::Standing { cube, at, born, kill, empty } => {
+                            h.u32(2);
+                            h.u32(u32::from(cube.is_some()));
+                            if let Some(c) = cube {
+                                h.id(c);
+                            }
+                            h.i32(at.x);
+                            h.i32(at.y);
+                            h.u32(born);
+                            h.u32(kill);
+                            h.bool(empty);
+                        }
                     }
                 }
             }

@@ -91,6 +91,15 @@ A HERO'S FLAG SPAWNS
     (within FLAG_SPAWN_TOLERANCE), while that flag stands, is the flag's spawn
     (`flag_spawns`): role "spawned", its unit the spawn's; the engine's flag puts it down.
 
+A HERO'S DISPLAY TWIN
+    The Hero Ice Wizard carries a floating ice (its hero form's `display_attached`,
+    IceWizardHeroFloatingCube): a second object under the hero's card id with the hero's
+    hitpoints, made with the hero (on its point, or 150 behind it toward its own king on the
+    first frame), sitting on it and gone with it, never damaged (live, the 2026-10 set: 96 of
+    96). Read by its hitpoints, every hero deploy was a group of two Ice Wizards. The engine
+    has no object for it (display only), so the twin of each hero (`display_twins`) is role
+    "display", which the harness pairs with nothing.
+
 DEPLOYS VERSUS SPAWNS
     A truth entity carries its CARD's id even when it was not deployed: Tombstone
     Skeletons carry 27000009, Golemites the Golem's id, a Battle Ram's Barbarians
@@ -1014,6 +1023,9 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
         # a spawned unit, never a deploy summon. Unread, each guard was an unknown object (56% off the Prince's own
         # hp), never paired: 631 groups in the live set (2026-10-09)
         ((card.get("ability") or {}).get("effect") or {}).get("unit"),
+        # the Hero Ice Wizard's cube (its ice_cube effect keeps its unit under `cube`, 104 base on the Common ladder):
+        # unread, each of the 25 cubes of the 2026-10 live set was an unknown object
+        (((card.get("ability") or {}).get("effect") or {}).get("cube") or {}).get("unit"),
         # the unit an evolution's mirrored decoy drops (the Evo Goblin Barrel's GoblinDummy, AN EVOLVED MIRROR CAST):
         # read as the play's, not an unknown object
         (card.get("evo_mirror") or {}).get("unit"),
@@ -1793,6 +1805,46 @@ def flag_spawns(ents: dict, ticks: list[int], doc: dict) -> int:
                         e["deploy_summon"], e["hp_match"] = False, "flag spawn"
                         n += 1
                         break
+    return n
+
+
+def display_twins(ents: dict, per_tick_rows: list[dict], doc: dict) -> int:
+    """A HERO'S DISPLAY TWIN (module doc): the Hero Ice Wizard's floating ice (its hero form's `display_attached`) is a
+    second object under the hero's card id with the hero's hitpoints, made with the hero, sitting on it and gone with
+    it, never damaged (live, the 2026-10 set: 96 of 96). Display only: the engine has no object for it. Each pair of a
+    hero's deploy group (its members by key) holds one; the twin is the undamaged one, or with both undamaged the one
+    that first stood behind the other (toward its own king: 79 of 96 by 150), else the later key. Marks each twin role
+    "display" (the harness pairs it with nothing) and returns how many."""
+    heroes = {
+        h.get("summon_character") or h["name"]
+        for h in doc.get("hero_forms") or []
+        if ((h.get("ability") or {}).get("effect") or {}).get("display_attached")
+    }
+    if not heroes:
+        return 0
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for e in ents.values():
+        if e.get("role") == "summon" and e.get("unit") in heroes:
+            groups[(e["side"], e["card_id"], e["first_index"])].append(e)
+
+    def undamaged(e: dict) -> bool:
+        return all(
+            (row := per_tick_rows[fi].get(e["key"])) is None or row[2] >= e["max_hp"]
+            for fi in range(e["first_index"], e["last_index"] + 1)
+        )
+
+    n = 0
+    for members in groups.values():
+        members.sort(key=lambda e: e["key"])
+        for a, b in zip(members[0::2], members[1::2], strict=False):
+            clean = [e for e in (a, b) if undamaged(e)]
+            if len(clean) == 1:
+                twin = clean[0]
+            else:
+                behind = -1 if a["side"] == 0 else 1
+                twin = b if (b["y0"] - a["y0"]) * behind > 0 else a if (a["y0"] - b["y0"]) * behind > 0 else b
+            twin["role"], twin["deploy_summon"], twin["hp_match"] = "display", False, "display twin"
+            n += 1
     return n
 
 
@@ -3361,6 +3413,8 @@ def build(
         reasons.append(f"card id {cid} is not in the id table")
     # a hero's flag puts its own units down (module doc, A HERO'S FLAG SPAWNS)
     flag_spawns(ents, ticks, doc)
+    # a hero's floating ice is display only (module doc, A HERO'S DISPLAY TWIN)
+    display_twins(ents, per_tick_rows, doc)
 
     # -- deploy groups: (side, card_id, first frame index) of deploy summons
     groups: dict[tuple, list[dict]] = defaultdict(list)

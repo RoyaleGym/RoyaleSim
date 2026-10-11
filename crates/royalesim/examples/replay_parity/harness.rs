@@ -2110,6 +2110,11 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             // docstring): the engine has nothing to pair it with; it scores as missing
             continue;
         }
+        // A hero's display twin (the maker's `display_twins`: the Hero Ice Wizard's floating ice), display only: the engine
+        // makes no object for it.
+        if e.role == "display" {
+            continue;
+        }
         // An entity with no hitpoints at all (max_hp below 0; 0 is "not in this source"): the Hero Tombstone's visual
         // dummy, NO_DAMAGE, UNTARGETABLE and NO_CHECKCOLLISIONS, a controller the engine runs as code. It is paired
         // with nothing, as an unknown object is: paired, it took the pair of its form's first Skeleton and shifted

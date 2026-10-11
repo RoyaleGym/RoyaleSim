@@ -2338,6 +2338,30 @@ def test_a_cost_only_spell_is_read_off_the_header_and_its_victims(m):
     assert any("no victim" in u["why"] for u in unresolved)
 
 
+def test_a_heros_display_twin_is_display_only(m):
+    """A HERO'S DISPLAY TWIN (module doc): a Hero Ice Wizard deploy is two objects of its card with its hitpoints; the
+    undamaged one is its floating ice, role "display". With both undamaged, the one first seen behind the other (toward
+    its own king: side 1, + y) is the twin. A form with no display twin is left alone."""
+    effect = {"kind": "ice_cube", "display_attached": "IceWizardHeroFloatingCube"}
+    hero_form = {"name": "IceWizard_hero", "summon_character": "IceWizardHero", "ability": {"effect": effect}}
+    doc = {"hero_forms": [hero_form]}
+
+    def ent(key, y0, first=0, last=2):
+        return {"key": key, "side": 1, "card_id": 203000023, "unit": "IceWizardHero", "role": "summon", "max_hp": 688,
+                "x0": 13500, "y0": y0, "first_index": first, "last_index": last}
+
+    hero, twin = ent(7, 20000), ent(8, 20000)
+    rows = [{7: (0, 0, 688), 8: (0, 0, 688)}, {7: (0, 0, 600), 8: (0, 0, 688)}, {7: (0, 0, 511), 8: (0, 0, 688)}]
+    assert m.display_twins({7: hero, 8: twin}, rows, doc) == 1
+    assert (hero["role"], twin["role"]) == ("summon", "display"), "the undamaged one"
+    # both undamaged: the one behind (side 1: the larger y)
+    a, b = ent(7, 20150), ent(8, 20000)
+    clean = [{7: (0, 0, 688), 8: (0, 0, 688)}] * 3
+    assert m.display_twins({7: a, 8: b}, clean, doc) == 1
+    assert (a["role"], b["role"]) == ("display", "summon"), "the one behind its hero"
+    assert m.display_twins({7: ent(7, 20000), 8: ent(8, 20000)}, clean, {"hero_forms": []}) == 0
+
+
 def test_a_hero_forms_own_objects_are_its_cards(m):
     """An object only a hero form's own table holds (`form_units`) is its card's: the Hero Musketeer's turret,
     MusketeerTurret, 600 base on the Common ladder, is in no other table, and live all 67 turrets of 25 fixtures (level
@@ -2347,6 +2371,8 @@ def test_a_hero_forms_own_objects_are_its_cards(m):
         pytest.skip(f"{path} is absent (the 2026-10-06 table) -- a skip here is not a pass")
     with open(path, encoding="utf-8") as fh:
         doc = json.load(fh)
+    ice = next(h for h in doc["hero_forms"] if h["name"] == "IceWizard_hero")
+    assert m.reachable_units(doc, ice).get("IceWizardHero_IceCube") == 104, "the Hero Ice Wizard's cube is its card's"
     musketeer = next(c for c in doc["cards"] if c["name"] == "Musketeer")
     assert "MusketeerTurret" not in doc["units"], "the turret row is the hero form's alone"
     common = doc["rarities"]["Common"]

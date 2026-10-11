@@ -97,6 +97,15 @@ pub struct Hit {
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct DamageBuffer {
     pub hits: Vec<Hit>,
+    /// THE HERO ICE WIZARD'S SHOTS' HITS this tick, as (firer, victim) (`step_projectiles`), for its kill branch (state.rs
+    /// `ice_kills`, which empties it each Resolve). Empty in every saved buffer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub firers: Vec<(EntityId, EntityId)>,
+}
+
+/// Is `firer_card` a Hero Ice Wizard (card.rs `AbilityEffect::IceCube`), whose kills its button reads?
+fn ice_firer(cards: &CardDb, firer_card: Option<u16>) -> bool {
+    firer_card.is_some_and(|c| matches!(cards.get(c).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::IceCube(_))))
 }
 
 /// An in-flight projectile: a homing shot, or a straight one (`straight`).
@@ -2357,6 +2366,10 @@ pub fn step_projectiles(
                 }
             }
             add_splash_bonus(ents, calib, &mut dmg.hits[from..], bonus, p.target);
+            if let Some(f) = p.firer.filter(|_| ice_firer(cards, p.firer_card)) {
+                let victims: Vec<EntityId> = dmg.hits[from..].iter().map(|h| h.target).collect();
+                dmg.firers.extend(victims.into_iter().map(|v| (f, v)));
+            }
             // hide.SHOT_AT_HIDING_BUILDING = client15535_lands: the splash's hit on the building the shot was fired at
             // passes its hide (`shot_passes_hide`).
             if shot_passes_hide(calib) {
@@ -2389,6 +2402,9 @@ pub fn step_projectiles(
         } else if alive {
             let ti = p.target.index as usize;
             dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: shot_passes_hide(calib), own: false });
+            if let Some(f) = p.firer.filter(|_| ice_firer(cards, p.firer_card)) {
+                dmg.firers.push((f, p.target));
+            }
             // A DEFLECT (card.rs `AbilityEffect::Deflect`, the Monk's): an enemy shot landing on a champion whose deflect
             // is active also goes back at its firer, for its full damage, from where he stands; the hit on him stands
             // (his buff's DamageReduction cuts it, combat.rs `reduce_hit`). Measured on client 15.535.29: a level-11
