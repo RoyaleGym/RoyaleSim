@@ -16,12 +16,14 @@
 //!   * `line_lane_from_tap` -- the new arm still lays the line on the tap's lane: (2) goes red.
 //!   * `line_members_flipped` -- targeting.SUMMON_LANE_FLIP_SCOPE = client16402_rings_only still flips a line member's lane:
 //!     `under_client16402_rings_only_a_line_member_keeps_its_own_lane` goes red.
+//!   * `line_territory_own_half` -- formation.LINE_TERRITORY = client16402_troop_territory still keeps a line on the owner's
+//!     half: `under_client16402_troop_territory_a_line_tapped_into_an_opened_pocket_stands_there` goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, LineLane, SummonLaneFlipScope};
+use royalesim::state::{BattleConfig, BattleState, LineLane, LineTerritory, SummonLaneFlipScope};
 use royalesim::Team;
 
 /// The Royal Recruits' (x, y) (native, by x) after Blue's play on `at` under `arm`.
@@ -94,4 +96,40 @@ fn under_client16402_rings_only_a_line_member_keeps_its_own_lane() {
     assert!(x_new > x0 + 500, "client16402_rings_only: the recruit from x {x0} walked to x {x_new}, not to its own right lane");
     let (_, x_old) = leftmost_recruit_walk(SummonLaneFlipScope::EverySummon);
     assert!(x_old < x0 - 500, "every_summon (the vacuity check): the recruit from x {x0} walked to x {x_old}, not to the left lane");
+}
+
+/// Blue's Royal Hogs played on `at` (native) with Red's engine-left princess down (Blue's pocket open on that side), under
+/// formation.LINE_TERRITORY = `arm`: the hogs' y (native) on their first frame.
+fn pocket_hogs(arm: LineTerritory, at: (i32, i32)) -> Vec<i32> {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.line_territory = arm;
+    let deck: Vec<String> = ["RoyalHogs", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|s| s.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(15, cfg).expect("the decks load");
+    s.scenario_set_tower_hp(Team::Red, 1, 0).expect("Red's engine-left princess down");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.deploy(Team::Blue, "RoyalHogs", Vec2::new(at.0 * K, at.1 * K)).expect("the play in the pocket");
+    for _ in 0..30 {
+        s.tick();
+        let hogs: Vec<i32> = s.entities().filter(|e| e.team == Team::Blue && e.card == "RoyalHog").map(|e| e.pos.y / K).collect();
+        if !hogs.is_empty() {
+            return hogs;
+        }
+    }
+    panic!("{arm:?}: no Royal Hog came out")
+}
+
+/// formation.LINE_TERRITORY = client16402_troop_territory (client 16.402, parity's r71 census: all 7 Royal Hogs lines tapped
+/// into an opened pocket stood on the tap's tile, y 20500): the line tapped on (3500, 20500) with the pocket open stands
+/// there; under own_half (the vacuity check) it is moved back to the owner's half. Plant: line_territory_own_half.
+#[test]
+fn under_client16402_troop_territory_a_line_tapped_into_an_opened_pocket_stands_there() {
+    let at = (3500, 20500);
+    let new = pocket_hogs(LineTerritory::Client16402TroopTerritory, at);
+    assert!(new.iter().all(|y| (19500..=21500).contains(y)), "client16402_troop_territory: the hogs stand on y {new:?}, not on the pocket's 20500");
+    let old = pocket_hogs(LineTerritory::OwnHalf, at);
+    assert!(old.iter().all(|y| *y < 15500), "own_half (the vacuity check): the hogs stand on y {old:?}, not back on the owner's half");
 }

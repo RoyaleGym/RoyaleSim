@@ -6531,6 +6531,16 @@
     }
   },
   "formation": {
+    "LINE_TERRITORY": {
+      "value": "own_half",
+      "status": "measured",
+      "candidates": ["own_half", "client16402_troop_territory"],
+      "confidence": "HIGH for client16402_troop_territory on client 16.402 (parity r71, 2026-10-11): parity's r71 contact census of the live8 set (client 16.402): all 7 Royal Hogs lines tapped into an opened pocket (6 battles) stood on the tap's tile, y 20499 or 20500, where the engine moved them back to its own half (row 012106 t2288: y 14500, 6000 off). A candidate until scored. The Royal Recruits' pocket taps unread (none in the set). Client 15.535.29 keeps own_half (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-11, r71) on client 16.402: parity's r71 contact census of the live8 set (client 16.402): all 7 Royal Hogs lines tapped into an opened pocket (6 battles) stood on the tap's tile, y 20499 or 20500, where the engine moved them back to its own half (row 012106 t2288: y 14500, 6000 off).",
+      "meaning": "own_half: the engine's; a line's ground point stands short of LINE_OWN_HALF_Y in the owner's frame, so a line tapped into an opened pocket is laid on the nearest own-half tile. client16402_troop_territory: it stands wherever its card's troop territory reaches (arena.rs `territory_zone`: the river band closed, the enemy towers' rects; an opened pocket included), so a line tapped into a pocket stands on the tap's tile.",
+      "open": "The Royal Recruits' pocket taps; whether a line's members (not its ground point alone) are held to the pocket; client 15.535.29.",
+      "engine": "formation.rs line_centre and line_centre_client (`may_stand`), state.rs formation_members_with, selected by Calib::line_territory; tests/line_lane.rs."
+    },
     "$comment": [
       "THE SUMMON FORMATION: where a card's N summons stand around the tap and when each",
       "leaves its deploy state (spells_characters.csv SummonNumber / SummonRadius / SummonWidth /",

@@ -202,7 +202,8 @@ pub const LANE_NONE: u8 = 0;
 /// line may stand there, else the nearest one (to the tap) where it may, looked for ring by ring around the tap's tile
 /// (each ring from its top-left corner down its left edge, along its bottom, up its right edge and back along its top;
 /// the first of equals kept). It may stand on a tile centre `c` whose ground point `e` (`c` + `ground`, the
-/// formation.GROUND_DEPLOY_POINT offset) is out of the king's zone (LINE_KING_ZONE_*) and on the owner's half, whose ends
+/// formation.GROUND_DEPLOY_POINT offset) is out of the king's zone (LINE_KING_ZONE_*) and where `may_stand` lets it (the
+/// owner's half, or under formation.LINE_TERRITORY = client16402_troop_territory the card's troop territory), whose ends
 /// stand no more than half a tile off the arena, and none of whose members (`e` + its offset) stands on a princess
 /// tower's rows (LINE_PRINCESS_*) or behind the king (LINE_KING_*). None when no tile within LINE_SEARCH_RINGS rings is
 /// one: the tap stands.
@@ -216,13 +217,13 @@ pub const LANE_NONE: u8 = 0;
 /// `back_open` (formation.LINE_KING_BACK_ROW = client16402_open): the back row behind the king (y below LINE_KING_BACK_ROW_Y)
 /// is open to the line: the king's zone and the members' king rule start there, and a centre on the back row stands on
 /// the tiles the arena opens there (LINE_BACK_ROW_OPEN_X).
-pub fn line_centre(tap: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, back_open: bool) -> Option<Vec2> {
+pub fn line_centre(tap: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, back_open: bool, may_stand: &dyn Fn(Vec2) -> bool) -> Option<Vec2> {
     let cell = LINE_CELL;
     let half = offsets.iter().map(|o| o.x.abs()).max().unwrap_or(0);
     let floor = if back_open { LINE_KING_BACK_ROW_Y } else { i32::MIN };
     let valid = |c: Vec2| {
         let e = c.add(ground);
-        if c.x - half < -cell / 2 || c.x + half > width + cell / 2 || e.y >= LINE_OWN_HALF_Y {
+        if c.x - half < -cell / 2 || c.x + half > width + cell / 2 || !may_stand(e) {
             return false;
         }
         if back_open && c.y < LINE_KING_BACK_ROW_Y && !(LINE_BACK_ROW_OPEN_X.0..LINE_BACK_ROW_OPEN_X.1).contains(&c.x) {
@@ -276,8 +277,9 @@ pub fn line_centre(tap: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, back_o
 /// ((4500, 6500) up to (6499, 8500), (13500, 6500) down to (11500, 4500), (10000, 6250) to (10500, 8500)); the one miss,
 /// (9000, 4000), the client refused before any search.
 /// `back_open` as `line_centre`'s: the king's zone from the second row of tiles, the members' king rule from
-/// LINE_KING_BACK_ROW_Y.
-pub fn line_centre_client(tap_abs: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, height: i32, mirror_y: bool, back_open: bool) -> Option<Vec2> {
+/// LINE_KING_BACK_ROW_Y. `may_stand` as `line_centre`'s, given the ground point in the owner's frame.
+#[allow(clippy::too_many_arguments)]
+pub fn line_centre_client(tap_abs: Vec2, offsets: &[Vec2], ground: Vec2, width: i32, height: i32, mirror_y: bool, back_open: bool, may_stand: &dyn Fn(Vec2) -> bool) -> Option<Vec2> {
     let cell = LINE_CELL;
     let half = offsets.iter().map(|o| o.x.abs()).max().unwrap_or(0);
     let frame = |c: Vec2| if mirror_y { Vec2::new(c.x, height - c.y) } else { c };
@@ -285,7 +287,7 @@ pub fn line_centre_client(tap_abs: Vec2, offsets: &[Vec2], ground: Vec2, width: 
     let valid = |c_abs: Vec2| {
         let c = frame(c_abs);
         let e = c.add(ground);
-        if c.x - half < -cell / 2 || c.x + half > width + cell / 2 || e.y >= LINE_OWN_HALF_Y {
+        if c.x - half < -cell / 2 || c.x + half > width + cell / 2 || !may_stand(e) {
             return false;
         }
         if back_open && c.y < LINE_KING_BACK_ROW_Y && !(LINE_BACK_ROW_OPEN_X.0..LINE_BACK_ROW_OPEN_X.1).contains(&c.x) {
@@ -347,7 +349,8 @@ pub const LINE_KING_BACK_ROW_Y: i32 = 1000;
 /// Under client16402_open, a back-row centre's x span, native: the tiles the arena's back row opens whole (arena.json
 /// back_row_open_half_cols 11 to 24, x 5500 to 12500, behind the king; its ends half tiles).
 pub const LINE_BACK_ROW_OPEN_X: (i32, i32) = (6000, 12000);
-/// `line_centre`: the owner's half ends here (a ground point on or past it is the river's or the enemy's).
+/// `line_centre` under formation.LINE_TERRITORY = own_half: the owner's half ends here (a ground point on or past it is the
+/// river's or the enemy's).
 pub const LINE_OWN_HALF_Y: i32 = 15000;
 /// `line_centre`: how many rings around the tap's tile it looks at.
 pub const LINE_SEARCH_RINGS: i32 = 18;

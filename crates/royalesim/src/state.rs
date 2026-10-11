@@ -865,6 +865,10 @@ pub struct Calib {
     /// `LifeExclusive`, what a battle saved before it ran.
     #[serde(default = "pulsing_area_life_default")]
     pub pulsing_area_life: PulsingAreaLife,
+    /// formation.LINE_TERRITORY (where a line's ground point may stand: the owner's half, or the card's troop territory). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `OwnHalf`, what a battle saved before it ran.
+    #[serde(default = "line_territory_default")]
+    pub line_territory: LineTerritory,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2691,6 +2695,10 @@ fn summon_lane_flip_scope_default() -> SummonLaneFlipScope {
 
 fn pulsing_area_life_default() -> PulsingAreaLife {
     PulsingAreaLife::LifeExclusive
+}
+
+fn line_territory_default() -> LineTerritory {
+    LineTerritory::OwnHalf
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9709,6 +9717,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// formation.LINE_TERRITORY -- the ground the place of a line may stand on (formation.rs `line_centre`, `line_centre_client`,
+    /// their `may_stand`; state.rs `formation_members_with`).
+    LineTerritory {
+        /// The engine's: the owner's half (a ground point short of LINE_OWN_HALF_Y).
+        OwnHalf = "own_half",
+        /// Client 16.402: wherever the card's territory reaches (arena.rs `territory_zone`), an opened pocket included.
+        Client16402TroopTerritory = "client16402_troop_territory",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10238,6 +10256,7 @@ impl Calib {
             guard_free_tick: pick(&v, &["combat", "GUARD_FREE_TICK", "value"], GuardFreeTick::from_calibration_name)?,
             summon_lane_flip_scope: pick(&v, &["targeting", "SUMMON_LANE_FLIP_SCOPE", "value"], SummonLaneFlipScope::from_calibration_name)?,
             pulsing_area_life: pick(&v, &["spells", "PULSING_AREA_LIFE", "value"], PulsingAreaLife::from_calibration_name)?,
+            line_territory: pick(&v, &["formation", "LINE_TERRITORY", "value"], LineTerritory::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -31377,23 +31396,43 @@ impl BattleState {
                     let back_open = calib.line_king_back_row == LineKingBackRow::Client16402Open;
                     #[cfg(clash_plant = "line_back_row_closed")]
                     let back_open = false; // PLANT (regression): the new arm still keeps the line off the back row.
+                    // formation.LINE_TERRITORY = client16402_troop_territory: the line's ground point may stand wherever the
+                    // card's troop territory reaches (arena.rs `territory_zone`, an opened pocket included); own_half keeps
+                    // it short of LINE_OWN_HALF_Y. `reflected` reads a point of side 1's y-reflection, `rotated` one of the
+                    // owner's own frame (the rotation; Blue's is the arena's).
+                    // PLANT (regression) line_territory_own_half: the new arm still keeps the line on the owner's half.
+                    #[cfg(not(clash_plant = "line_territory_own_half"))]
+                    let by_territory = calib.line_territory == LineTerritory::Client16402TroopTerritory;
+                    #[cfg(clash_plant = "line_territory_own_half")]
+                    let by_territory = false;
+                    let h = arena.height / K;
+                    let (territory, _) = deploy_rule(calib, card);
+                    let rects = if by_territory { self.enemy_no_deploy_rects(team) } else { Vec::new() };
+                    let in_territory = |abs: Vec2| arena.territory_zone(Vec2::new(abs.x * K, abs.y * K), team, territory, &rects).is_ok();
+                    let reflected = |e: Vec2| if by_territory { in_territory(Vec2::new(e.x, h - e.y)) } else { e.y < crate::formation::LINE_OWN_HALF_Y };
+                    let rotated = |e: Vec2| {
+                        if by_territory {
+                            in_territory(if team == Team::Red { Vec2::new(w - e.x, h - e.y) } else { e })
+                        } else {
+                            e.y < crate::formation::LINE_OWN_HALF_Y
+                        }
+                    };
                     if client_search {
-                        let h = arena.height / K;
                         let abs = Vec2::new(pos.x / K, pos.y / K);
                         if reflect {
                             let flip = |v: Vec2| Vec2::new(-v.x, v.y);
                             let offsets: Vec<Vec2> = offsets.iter().map(|o| flip(*o)).collect();
-                            crate::formation::line_centre_client(abs, &offsets, flip(ground_delta), w, h, true, back_open).map_or(tap, |c| Vec2::new(w - c.x, h - c.y))
+                            crate::formation::line_centre_client(abs, &offsets, flip(ground_delta), w, h, true, back_open, &reflected).map_or(tap, |c| Vec2::new(w - c.x, h - c.y))
                         } else {
-                            crate::formation::line_centre_client(abs, &offsets, ground_delta, w, h, false, back_open).unwrap_or(tap)
+                            crate::formation::line_centre_client(abs, &offsets, ground_delta, w, h, false, back_open, &rotated).unwrap_or(tap)
                         }
                     } else if reflect {
                         let flip = |v: Vec2| Vec2::new(-v.x, v.y);
                         let offsets: Vec<Vec2> = offsets.iter().map(|o| flip(*o)).collect();
                         let at = Vec2::new(w - tap.x, tap.y);
-                        crate::formation::line_centre(at, &offsets, flip(ground_delta), w, back_open).map_or(tap, |c| Vec2::new(w - c.x, c.y))
+                        crate::formation::line_centre(at, &offsets, flip(ground_delta), w, back_open, &reflected).map_or(tap, |c| Vec2::new(w - c.x, c.y))
                     } else {
-                        crate::formation::line_centre(tap, &offsets, ground_delta, w, back_open).unwrap_or(tap)
+                        crate::formation::line_centre(tap, &offsets, ground_delta, w, back_open, &rotated).unwrap_or(tap)
                     }
                 } else {
                     tap
@@ -36762,6 +36801,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.PULSING_AREA_LIFE: Calib gained pulsing_area_life (serde default the old arm, life_exclusive), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, formation.LINE_TERRITORY: Calib gained line_territory (serde default the old arm, own_half), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37737,6 +37778,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("summon_lane_flip_scope".into(), serde_json::to_value(SummonLaneFlipScope::EverySummon).map_err(|e| e.to_string())?);
     // spells.PULSING_AREA_LIFE: a format-3 battle's pulsing areas ended on their last whole update.
     sh.insert("pulsing_area_life".into(), serde_json::to_value(PulsingAreaLife::LifeExclusive).map_err(|e| e.to_string())?);
+    // formation.LINE_TERRITORY: a format-3 battle kept a line on its owner's half.
+    sh.insert("line_territory".into(), serde_json::to_value(LineTerritory::OwnHalf).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
