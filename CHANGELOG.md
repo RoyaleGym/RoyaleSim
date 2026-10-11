@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.31 (2026-10-11)
+
+- Four settings now default to the current client's behaviour, each measured against its recorded battles. A flying
+  unit that is still deploying can be pushed over the river; a ground one still stops at the bank
+  (`movement.DEPLOY_WATER_EDGE`). The Little Prince is not pushed by other units while he holds his press
+  (`collision.GUARD_PRESS_CONTACT`); a knockback, a hook or a pull still moves him. The Evo Electro Dragon's chain hops
+  are timed as on the current client: every hop waits, the first one too (`combat.EVO_CHAIN_HOP_WAIT` and
+  `combat.EVO_CHAIN_HOP_FIRST_STEP`). Each older behaviour stays available as that setting's old value, and
+  `replay_parity` uses the old values for the older client's battles.
+- New setting `combat.GUARD_BIRTH_POINT`: where the Little Prince's guard appears. The default is unchanged.
+
 ## 0.1.30 (2026-10-10)
 
 - 114 more settings now default to the current client's behaviour. These are the settings where the current client
