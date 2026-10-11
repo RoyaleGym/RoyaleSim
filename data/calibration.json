@@ -219,6 +219,16 @@
     }
   },
   "targeting": {
+    "SUMMON_LANE_FLIP_SCOPE": {
+      "value": "every_summon",
+      "status": "measured",
+      "candidates": ["every_summon", "client16402_rings_only"],
+      "confidence": "HIGH for client16402_rings_only on client 16.402 (parity r71, 2026-10-11): parity's r71 contact census of the live8 set (client 16.402): every line member the flip rule names kept its own lane (3 of 3: a Royal Recruit at x 9100 of a line centred on 10500 went right, where the engine flipped it left; 20260920-060354 t1728, -065445 t208, -025309 t2400), and 1,031 of the other 1,041 line members took their own lane (the 10 Royal Hogs in a pocket after a princess tower fell). A candidate until scored. Client 15.535.29 keeps every_summon (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-11, r71) on client 16.402: parity's r71 contact census of the live8 set (client 16.402): every line member the flip rule names kept its own lane (3 of 3: a Royal Recruit at x 9100 of a line centred on 10500 went right, where the engine flipped it left; 20260920-060354 t1728, -065445 t208, -025309 t2400), and 1,031 of the other 1,041 line members took their own lane (the 10 Royal Hogs in a pocket after a princess tower fell).",
+      "meaning": "every_summon: the engine's; a member of any troop card of two or more members carries the deploy point's x and has its lane flipped against it when created (`summon_lane_flip`). client16402_rings_only: a line card's members (SummonWidth, one kind, `lays_a_line`) carry no deploy x and keep the lane of their own point.",
+      "open": "The 10 Royal Hogs in a pocket after a princess tower fell; client 15.535.29.",
+      "engine": "state.rs formation_members_with (summon_x), selected by Calib::summon_lane_flip_scope; tests/line_lane.rs."
+    },
     "DOOMED_SET_SHOTS": {
       "value": "client_homing_only",
       "candidates": ["every_shot", "client_homing_only"],

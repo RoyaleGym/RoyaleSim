@@ -857,6 +857,10 @@ pub struct Calib {
     /// `Client15535ArrivalPlus2`, what a battle saved before it ran.
     #[serde(default = "guard_free_tick_default")]
     pub guard_free_tick: GuardFreeTick,
+    /// targeting.SUMMON_LANE_FLIP_SCOPE (which multi-unit troop cards' members have their spawn lane flipped against the deploy point). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `EverySummon`, what a battle saved before it ran.
+    #[serde(default = "summon_lane_flip_scope_default")]
+    pub summon_lane_flip_scope: SummonLaneFlipScope,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2675,6 +2679,10 @@ fn guard_birth_point_default() -> GuardBirthPoint {
 
 fn guard_free_tick_default() -> GuardFreeTick {
     GuardFreeTick::Client15535ArrivalPlus2
+}
+
+fn summon_lane_flip_scope_default() -> SummonLaneFlipScope {
+    SummonLaneFlipScope::EverySummon
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9673,6 +9681,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.SUMMON_LANE_FLIP_SCOPE -- the members targeting.FIRST_TOWER_PICK's spawn-lane flip reaches (state.rs
+    /// `formation_members_with`'s summon_x, `summon_lane_flip`).
+    SummonLaneFlipScope {
+        /// The engine's: every troop card of two or more members, a line's too.
+        EverySummon = "every_summon",
+        /// Client 16.402: a line card's members (`lays_a_line`) keep their own lane.
+        Client16402RingsOnly = "client16402_rings_only",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10200,6 +10218,7 @@ impl Calib {
             guard_press_contact: pick(&v, &["collision", "GUARD_PRESS_CONTACT", "value"], GuardPressContact::from_calibration_name)?,
             guard_birth_point: pick(&v, &["combat", "GUARD_BIRTH_POINT", "value"], GuardBirthPoint::from_calibration_name)?,
             guard_free_tick: pick(&v, &["combat", "GUARD_FREE_TICK", "value"], GuardFreeTick::from_calibration_name)?,
+            summon_lane_flip_scope: pick(&v, &["targeting", "SUMMON_LANE_FLIP_SCOPE", "value"], SummonLaneFlipScope::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -31200,7 +31219,14 @@ impl BattleState {
         // targeting.FIRST_TOWER_PICK = client_spawn_lane: a member of a troop card that deploys two or more units
         // carries the deploy point's x, which its lane is flipped against when it is created (`summon_lane_flip`).
         // Not written under the old arm.
-        let summon_x = (calib.first_tower_pick.spawn_lane() && total >= 2 && card.kind == CardKind::Troop).then_some(pos.x);
+        // targeting.SUMMON_LANE_FLIP_SCOPE = client16402_rings_only: a line card's members keep their own lane.
+        // PLANT (regression) line_members_flipped: the new arm still flips a line member's lane.
+        #[cfg(not(clash_plant = "line_members_flipped"))]
+        let rings_only = calib.summon_lane_flip_scope == SummonLaneFlipScope::Client16402RingsOnly;
+        #[cfg(clash_plant = "line_members_flipped")]
+        let rings_only = false;
+        let summon_x = (calib.first_tower_pick.spawn_lane() && total >= 2 && card.kind == CardKind::Troop && !(rings_only && self.lays_a_line(idx)))
+            .then_some(pos.x);
         let member = |k: i32, p: Vec2| {
             let unit = unit_of(k);
             let delay = stagger(k);
@@ -36712,6 +36738,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_FREE_TICK: Calib gained guard_free_tick (serde default the old arm, client15535_arrival_plus_2), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.SUMMON_LANE_FLIP_SCOPE: Calib gained summon_lane_flip_scope (serde default the old arm, every_summon), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37683,6 +37711,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_birth_point".into(), serde_json::to_value(GuardBirthPoint::Client15535FixedOffset).map_err(|e| e.to_string())?);
     // combat.GUARD_FREE_TICK: a format-3 battle's guard came free on its arrival + 2.
     sh.insert("guard_free_tick".into(), serde_json::to_value(GuardFreeTick::Client15535ArrivalPlus2).map_err(|e| e.to_string())?);
+    // targeting.SUMMON_LANE_FLIP_SCOPE: a format-3 battle flipped a line member's lane.
+    sh.insert("summon_lane_flip_scope".into(), serde_json::to_value(SummonLaneFlipScope::EverySummon).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
