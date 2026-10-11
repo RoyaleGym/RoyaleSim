@@ -331,7 +331,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   movement.DEPLOY_WATER_EDGE = every_deploying_unit: a deploying flyer stops at the water's edge (unread there).
 ///   collision.GUARD_PRESS_CONTACT = pushed: the Little Prince is pushed in his press (unread there).
 ///   combat.GUARD_BIRTH_POINT = client15535_fixed_offset: his guard is born at (18, -1944), no step (six runs).
-///   combat.GUARD_FREE_TICK = client15535_arrival_plus_2: his guard is free on its arrival + 2 (sp-lp-far-s0).
+///   combat.GUARD_FREE_TICK = free_on_arrival_plus_1: his guard targets and steps on its arrival + 1 (unread there).
 ///   targeting.SUMMON_LANE_FLIP_SCOPE = every_summon: a line member's lane flipped as a ring member's (unread there).
 ///   spells.PULSING_AREA_LIFE = life_exclusive: a pulsing area ends on its last whole update (unread there).
 ///   formation.LINE_TERRITORY = own_half: a line's place on its owner's half (unread there).
@@ -497,7 +497,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DEPLOY_WATER_EDGE", "\"every_deploying_unit\""),
     ("collision.GUARD_PRESS_CONTACT", "\"pushed\""),
     ("combat.GUARD_BIRTH_POINT", "\"client15535_fixed_offset\""),
-    ("combat.GUARD_FREE_TICK", "\"client15535_arrival_plus_2\""),
+    ("combat.GUARD_FREE_TICK", "\"free_on_arrival_plus_1\""),
     ("targeting.SUMMON_LANE_FLIP_SCOPE", "\"every_summon\""),
     ("spells.PULSING_AREA_LIFE", "\"life_exclusive\""),
     ("formation.LINE_TERRITORY", "\"own_half\""),

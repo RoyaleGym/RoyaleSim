@@ -853,8 +853,8 @@ pub struct Calib {
     /// `Client15535FixedOffset`, what a battle saved before it ran.
     #[serde(default = "guard_birth_point_default")]
     pub guard_birth_point: GuardBirthPoint,
-    /// combat.GUARD_FREE_TICK (the tick after its arrival the Little Prince's guard is free (its first Target and Move, its immunity's end)). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
-    /// `Client15535ArrivalPlus2`, what a battle saved before it ran.
+    /// combat.GUARD_FREE_TICK (the tick after its arrival the Little Prince's guard takes its first target and step). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `FreeOnArrivalPlus1`, what a battle saved before it ran.
     #[serde(default = "guard_free_tick_default")]
     pub guard_free_tick: GuardFreeTick,
     /// targeting.SUMMON_LANE_FLIP_SCOPE (which multi-unit troop cards' members have their spawn lane flipped against the deploy point). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
@@ -2690,7 +2690,7 @@ fn guard_birth_point_default() -> GuardBirthPoint {
 }
 
 fn guard_free_tick_default() -> GuardFreeTick {
-    GuardFreeTick::Client15535ArrivalPlus2
+    GuardFreeTick::FreeOnArrivalPlus1
 }
 
 fn summon_lane_flip_scope_default() -> SummonLaneFlipScope {
@@ -9694,14 +9694,14 @@ calib_enum!(
     }
 );
 calib_enum!(
-    /// combat.GUARD_FREE_TICK -- when the Little Prince's guard comes free after its charge (state.rs `guard_moves`; card.rs
-    /// GUARD_LANDING_TICKS, GUARD_IMMUNE_AFTER_ARRIVAL_TICKS).
+    /// combat.GUARD_FREE_TICK -- when the Little Prince's guard takes its first target and step after its charge (state.rs
+    /// `guard_moves`).
     GuardFreeTick {
-        /// The engine's: free on its arrival + GUARD_LANDING_TICKS (2), immune through the arrival + 1.
-        Client15535ArrivalPlus2 = "client15535_arrival_plus_2",
-        /// Client 16.402: free one tick later, on the arrival + 3, and immune through the arrival + 2; its load timer is
-        /// reset on the arrival + 2 as before.
-        Client16402ArrivalPlus3 = "client16402_arrival_plus_3",
+        /// The engine's: its first target and step on its arrival + 1.
+        FreeOnArrivalPlus1 = "free_on_arrival_plus_1",
+        /// Client 16.402: held through the arrival + 1, its first target and step on the arrival + 2 (its immunity, its
+        /// load timer's reset and its run's end as before).
+        Client16402HeldThroughArrivalPlus1 = "client16402_held_through_arrival_plus_1",
     }
 );
 calib_enum!(
@@ -21289,15 +21289,8 @@ impl BattleState {
             // after its arrival (entity.rs `dash_immune`).
             let immune = self.guard_charge_immune();
             if let Some(a) = r.arrived {
-                // combat.GUARD_FREE_TICK = client16402_arrival_plus_3: free (and its immunity over) one tick later; the load
-                // timer's reset stays on the arrival + GUARD_LANDING_TICKS.
-                // PLANT (regression) guard_free_at_arrival_plus_2: the new arm still frees it on the arrival + 2.
-                #[cfg(not(clash_plant = "guard_free_at_arrival_plus_2"))]
-                let late = u32::from(self.cfg.calib.guard_free_tick == GuardFreeTick::Client16402ArrivalPlus3);
-                #[cfg(clash_plant = "guard_free_at_arrival_plus_2")]
-                let late = 0u32;
                 if immune {
-                    self.ents.dash_immune_until[gi] = a + crate::card::GUARD_IMMUNE_AFTER_ARRIVAL_TICKS + late;
+                    self.ents.dash_immune_until[gi] = a + crate::card::GUARD_IMMUNE_AFTER_ARRIVAL_TICKS;
                 }
                 // combat.GUARD_LANDING_HITS = client16402_through_landing_ticks: its hit goes on through its arrival +
                 // GUARD_LANDING_HIT_TICKS, on enemies in its reach it has not hit (below); its push stops at the arrival.
@@ -21311,16 +21304,15 @@ impl BattleState {
                 let landing = through && tick <= a + crate::card::GUARD_LANDING_HIT_TICKS;
                 #[cfg(clash_plant = "landing_hits_unbounded")]
                 let landing = through && tick <= a + 60;
-                // Its load timer full and its swing at 0 on the arrival + GUARD_LANDING_TICKS: its first hit a whole HitSpeed
-                // on. Measured on client 15.535.29 (Oracle's sp-lp-far-s0): free on P + 39, attacking a Knight at its end from
-                // P + 40, its first hit on P + 62.
-                #[cfg(not(clash_plant = "guard_lands_loaded"))]
-                if tick == a + crate::card::GUARD_LANDING_TICKS {
-                    self.ents.attack_load_ms[gi] = self.cfg.cards.get(self.ents.card[gi]).load_time_ms.max(0);
-                    self.ents.attack_ms[gi] = 0;
-                }
-                if tick >= a + crate::card::GUARD_LANDING_TICKS + late {
-                    // FREE. Once: the run is kept past this tick only for the landing's hits.
+                if tick >= a + crate::card::GUARD_LANDING_TICKS {
+                    // FREE, its load timer full and its swing at 0: its first hit a whole HitSpeed on. Measured on client
+                    // 15.535.29 (Oracle's sp-lp-far-s0): free on P + 39, attacking a Knight at its end from P + 40, its
+                    // first hit on P + 62. Once: the run is kept past this tick only for the landing's hits.
+                    #[cfg(not(clash_plant = "guard_lands_loaded"))]
+                    if tick == a + crate::card::GUARD_LANDING_TICKS || !through {
+                        self.ents.attack_load_ms[gi] = self.cfg.cards.get(self.ents.card[gi]).load_time_ms.max(0);
+                        self.ents.attack_ms[gi] = 0;
+                    }
                     if !landing {
                         continue;
                     }
@@ -21445,6 +21437,19 @@ impl BattleState {
                 if self.ents.pos[gi] == end {
                     r.arrived = Some(tick);
                 }
+            }
+            // combat.GUARD_FREE_TICK = client16402_held_through_arrival_plus_1: landed, the guard holds through its arrival
+            // + 1 (no Target, no step: a hold that outlives this tick's countdown), so its first target and step come on the
+            // arrival + 2; free_on_arrival_plus_1 takes both on the arrival + 1. Measured on client 16.402 (parity r71, L its
+            // last dash frame): the first target on L + 2 in 621 of 628 landings and never on L + 1, the first step on L + 2
+            // in 403 of 434 that walk; the engine's on L + 1 (82 of 97 targets).
+            // PLANT (regression) guard_free_on_arrival_plus_1: the new arm still lets it target and step on the arrival + 1.
+            #[cfg(not(clash_plant = "guard_free_on_arrival_plus_1"))]
+            let held_late = self.cfg.calib.guard_free_tick == GuardFreeTick::Client16402HeldThroughArrivalPlus1;
+            #[cfg(clash_plant = "guard_free_on_arrival_plus_1")]
+            let held_late = false;
+            if held_late && r.arrived == Some(tick) {
+                self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(2 * dt);
             }
             // The hit: once each, ground troops of the other side within the reach of the guard's centre (its push
             // radius and their own). THE PUSH: on every tick of the charge, each of them whose CENTRE lies within the
@@ -36834,7 +36839,7 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_BIRTH_POINT: Calib gained guard_birth_point (serde default the old arm, client15535_fixed_offset), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
-/// 20, unchanged, combat.GUARD_FREE_TICK: Calib gained guard_free_tick (serde default the old arm, client15535_arrival_plus_2), no new state,
+/// 20, unchanged, combat.GUARD_FREE_TICK: Calib gained guard_free_tick (serde default the old arm, free_on_arrival_plus_1), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.SUMMON_LANE_FLIP_SCOPE: Calib gained summon_lane_flip_scope (serde default the old arm, every_summon), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37813,8 +37818,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_press_contact".into(), serde_json::to_value(GuardPressContact::Pushed).map_err(|e| e.to_string())?);
     // combat.GUARD_BIRTH_POINT: a format-3 battle's guard was born at the fixed offset, no step.
     sh.insert("guard_birth_point".into(), serde_json::to_value(GuardBirthPoint::Client15535FixedOffset).map_err(|e| e.to_string())?);
-    // combat.GUARD_FREE_TICK: a format-3 battle's guard came free on its arrival + 2.
-    sh.insert("guard_free_tick".into(), serde_json::to_value(GuardFreeTick::Client15535ArrivalPlus2).map_err(|e| e.to_string())?);
+    // combat.GUARD_FREE_TICK: a format-3 battle's guard targeted and stepped on its arrival + 1.
+    sh.insert("guard_free_tick".into(), serde_json::to_value(GuardFreeTick::FreeOnArrivalPlus1).map_err(|e| e.to_string())?);
     // targeting.SUMMON_LANE_FLIP_SCOPE: a format-3 battle flipped a line member's lane.
     sh.insert("summon_lane_flip_scope".into(), serde_json::to_value(SummonLaneFlipScope::EverySummon).map_err(|e| e.to_string())?);
     // spells.PULSING_AREA_LIFE: a format-3 battle's pulsing areas ended on their last whole update.

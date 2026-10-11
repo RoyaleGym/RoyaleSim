@@ -1815,14 +1815,14 @@
   },
   "combat": {
     "GUARD_FREE_TICK": {
-      "value": "client15535_arrival_plus_2",
+      "value": "free_on_arrival_plus_1",
       "status": "measured",
-      "candidates": ["client15535_arrival_plus_2", "client16402_arrival_plus_3"],
-      "confidence": "HIGH for client16402_arrival_plus_3 on client 16.402 (parity r71, 2026-10-11): parity's r71 census of the live8 set (client 16.402), L the guard's last dash frame: its first target on L + 2 in 621 of 628 landings and never on L + 1, its first step on L + 2 in 403 of 434 that walk, its load timer already reset on L + 1; hits on it 0 of 636 landings on L - 1 .. L + 1, then 6 on L + 2, 7 on L + 3; the engine's target on L + 1 in 82 of 97 comparable landings. A candidate until scored. Client 15.535.29 keeps client15535_arrival_plus_2 (CLIENT15535_ARMS; Oracle's sp-lp-far-s0, free on P + 39).",
-      "provenance": "MEASURED by parity (2026-10-11, r71) on client 16.402: parity's r71 census of the live8 set (client 16.402), L the guard's last dash frame: its first target on L + 2 in 621 of 628 landings and never on L + 1, its first step on L + 2 in 403 of 434 that walk, its load timer already reset on L + 1; hits on it 0 of 636 landings on L - 1 .. L + 1, then 6 on L + 2, 7 on L + 3; the engine's target on L + 1 in 82 of 97 comparable landings.",
-      "meaning": "client15535_arrival_plus_2: the engine's; the guard is free on its arrival + 2 (GUARD_LANDING_TICKS), its load timer reset then, immune through the arrival + 1. client16402_arrival_plus_3: free on the arrival + 3 and immune through the arrival + 2; the load timer is reset on the arrival + 2 as before.",
-      "open": "The 7 landings targeting later than L + 2; client 15.535.29 (its one measured run reads the old arm).",
-      "engine": "state.rs guard_moves (the free tick, dash_immune_until), selected by Calib::guard_free_tick; tests/little_prince.rs."
+      "candidates": ["free_on_arrival_plus_1", "client16402_held_through_arrival_plus_1"],
+      "confidence": "HIGH for client16402_held_through_arrival_plus_1 on client 16.402 (parity r71, 2026-10-11): parity's r71 census of the live8 set (client 16.402), L the guard's last dash frame: its first target on L + 2 in 621 of 628 landings and never on L + 1, its first step on L + 2 in 403 of 434 that walk; hits on it 0 of 636 landings on L - 1 .. L + 1, then 6 on L + 2, 7 on L + 3 (the engine's immunity, through its arrival + 1, already); the engine's first target and step on L + 1 (82 of 97 comparable landings). A candidate until scored. Client 15.535.29 keeps free_on_arrival_plus_1 (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-11, r71) on client 16.402: parity's r71 census of the live8 set (client 16.402), L the guard's last dash frame: its first target on L + 2 in 621 of 628 landings and never on L + 1, its first step on L + 2 in 403 of 434 that walk; hits on it 0 of 636 landings on L - 1 .. L + 1, then 6 on L + 2, 7 on L + 3 (the engine's immunity, through its arrival + 1, already); the engine's first target and step on L + 1 (82 of 97 comparable landings).",
+      "meaning": "free_on_arrival_plus_1: the engine's; landed, the guard takes its first target and step on its arrival + 1 (its immunity through the arrival + 1, its load timer reset and its run ended on the arrival + 2). client16402_held_through_arrival_plus_1: it holds through the arrival + 1 (no target, no step), so both come on the arrival + 2; the rest as before.",
+      "open": "The 7 landings targeting later than L + 2; client 15.535.29.",
+      "engine": "state.rs guard_moves (the hold on the arrival), selected by Calib::guard_free_tick; tests/little_prince.rs."
     },
     "GUARD_BIRTH_POINT": {
       "value": "client16402_behind_2000_first_step",

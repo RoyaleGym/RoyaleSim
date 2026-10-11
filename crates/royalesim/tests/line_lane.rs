@@ -69,8 +69,8 @@ fn a_line_kept_in_its_lane_is_laid_alike() {
     assert_eq!(line(LineLane::Client15535LineCentre, (9000, 8500)), line(LineLane::Tap, (9000, 8500)));
 }
 
-/// Blue's Royal Recruits played on (10500, 8500) under targeting.SUMMON_LANE_FLIP_SCOPE = `arm`: the leftmost member's x on
-/// its first frame and 80 ticks later (native).
+/// Blue's Royal Recruits played on (10500, 8500) under targeting.SUMMON_LANE_FLIP_SCOPE = `arm`: the x (native) of the member
+/// nearest x 9100 (the census's, just right of the middle) on its first frame and 80 ticks later.
 fn leftmost_recruit_walk(arm: SummonLaneFlipScope) -> (i32, i32) {
     let mut cfg: BattleConfig = config();
     cfg.calib.summon_lane_flip_scope = arm;
@@ -78,7 +78,12 @@ fn leftmost_recruit_walk(arm: SummonLaneFlipScope) -> (i32, i32) {
     past_deploy_lockout(&mut s);
     s.spawn_unit(Team::Blue, "RoyalRecruits", Vec2::new(10500 * K, 8500 * K), None).expect("the play");
     s.tick();
-    let first = s.entities().filter(|e| e.team == Team::Blue && e.card.starts_with("RoyalRecruit")).min_by_key(|e| e.pos.x).map(|e| (e.id, e.pos.x / K)).expect("a recruit");
+    let first = s
+        .entities()
+        .filter(|e| e.team == Team::Blue && e.card.starts_with("RoyalRecruit"))
+        .min_by_key(|e| (e.pos.x / K - 9100).abs())
+        .map(|e| (e.id, e.pos.x / K))
+        .expect("a recruit");
     for _ in 0..80 {
         s.tick();
     }
@@ -86,13 +91,13 @@ fn leftmost_recruit_walk(arm: SummonLaneFlipScope) -> (i32, i32) {
 }
 
 /// targeting.SUMMON_LANE_FLIP_SCOPE = client16402_rings_only (client 16.402, parity's r71 census: the line members the flip
-/// rule names kept their own lane, 3 of 3; 1,031 of the other 1,041 too): the leftmost Royal Recruit of a line centred on
-/// x 10500, standing just right of the middle (x 9100), walks to its own right lane; under every_summon (the vacuity check)
+/// rule names kept their own lane, 3 of 3; 1,031 of the other 1,041 too): the Royal Recruit of a line centred on x 10500
+/// that stands just right of the middle (x 9100) walks to its own right lane; under every_summon (the vacuity check)
 /// its lane is flipped and it walks left. Plant: line_members_flipped.
 #[test]
 fn under_client16402_rings_only_a_line_member_keeps_its_own_lane() {
     let (x0, x_new) = leftmost_recruit_walk(SummonLaneFlipScope::Client16402RingsOnly);
-    assert!((9050..=9150).contains(&x0), "the scene: the leftmost recruit stands at x {x0}, not on the flip band (9100)");
+    assert!((9050..=9150).contains(&x0), "the scene: the recruit nearest x 9100 stands at x {x0}");
     assert!(x_new > x0 + 500, "client16402_rings_only: the recruit from x {x0} walked to x {x_new}, not to its own right lane");
     let (_, x_old) = leftmost_recruit_walk(SummonLaneFlipScope::EverySummon);
     assert!(x_old < x0 - 500, "every_summon (the vacuity check): the recruit from x {x0} walked to x {x_old}, not to the left lane");
@@ -114,7 +119,7 @@ fn pocket_hogs(arm: LineTerritory, at: (i32, i32)) -> Vec<i32> {
     s.deploy(Team::Blue, "RoyalHogs", Vec2::new(at.0 * K, at.1 * K)).expect("the play in the pocket");
     for _ in 0..30 {
         s.tick();
-        let hogs: Vec<i32> = s.entities().filter(|e| e.team == Team::Blue && e.card == "RoyalHog").map(|e| e.pos.y / K).collect();
+        let hogs: Vec<i32> = s.entities().filter(|e| e.team == Team::Blue && e.card.starts_with("RoyalHog")).map(|e| e.pos.y / K).collect();
         if !hogs.is_empty() {
             return hogs;
         }
