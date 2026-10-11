@@ -21020,12 +21020,12 @@ impl BattleState {
             if self.tick != r.made + g.spawn_delay_ms as u32 / tick_ms {
                 continue;
             }
-            // combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step: born 2000 behind him, and its first update on
-            // this tick (the released units' `first_update`), so its first frame shows one step of the move pass.
+            // combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step: born 2000 behind him; its first update on this
+            // tick runs in `guard_bind`, as a walking unit's.
             let behind = self.guard_birth_behind();
             let pos = guard_point(r.team, r.from, if behind { crate::card::GUARD_BIRTH_BEHIND } else { crate::card::GUARD_SPAWN_OFFSET });
             let level = self.cfg.cards.unit_level(r.card, g.unit, None, r.level).expect("the guard's level is validated at try_new");
-            self.release(PendingSpawn { team: r.team, card: g.unit, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: behind && self.guard_birth_steps(), facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
+            self.release(PendingSpawn { team: r.team, card: g.unit, level, pos, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: true, source: NO_CARD });
         }
     }
 
@@ -21050,6 +21050,7 @@ impl BattleState {
     fn guard_bind(&mut self) {
         let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1) as u32);
         let mut runs = std::mem::take(&mut self.warps.guards);
+        let mut born: Vec<usize> = Vec::new();
         runs.retain_mut(|r| {
             if r.guard.is_some() {
                 return true;
@@ -21064,9 +21065,23 @@ impl BattleState {
             let Some(j) = found else { return false };
             r.guard = Some(self.ents.id_of(j));
             r.born = tick;
+            born.push(j);
             true
         });
         self.warps.guards = runs;
+        // combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step: each guard born this tick takes its first update now
+        // (`first_update`: its target, its attack, its move pass), as a walking unit's -- client 16.402 reads it on its birth
+        // frame in state 10, not deploying -- and then deploys as before (its deploy timer put back).
+        if self.guard_birth_behind() && self.guard_birth_steps() {
+            for j in born {
+                let d = self.ents.deploy_ms[j];
+                self.ents.deploy_ms[j] = 0;
+                self.first_update(&[j], true, &[], &[]);
+                if self.ents.alive[j] {
+                    self.ents.deploy_ms[j] = d;
+                }
+            }
+        }
     }
 
     /// THE GUARDS' CHARGES (card.rs `GuardDef`), after the move pass: from GUARD_DASH_START_TICKS after its first frame
