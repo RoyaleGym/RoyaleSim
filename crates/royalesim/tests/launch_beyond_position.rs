@@ -94,7 +94,8 @@ fn cannon_holds(arm: LaunchBeyondPosition) -> bool {
     cfg.tower_level = [11, 11];
     let mut s = BattleState::new(3, cfg);
     past_deploy_lockout(&mut s);
-    let at = n(9000, 8500);
+    // On Blue's half, its reach straight ahead short of the river (y 15000).
+    let at = n(12000, 6000);
     let cannon = s.scenario_spawn_now(Team::Blue, "Cannon", at, None).expect("the Cannon");
     let reach = card_stat(&s, "Cannon").range + s.entity(cannon).expect("the Cannon").radius + card_stat(&s, "Knight").collision_radius;
     let (inside, past) = (Vec2::new(at.x, at.y + reach - 80 * K), Vec2::new(at.x, at.y + reach + 40 * K));

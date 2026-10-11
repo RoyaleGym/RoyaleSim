@@ -852,20 +852,41 @@ fn under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press() {
     assert!(press_pushed(GuardPressContact::Pushed) > 0, "pushed (the vacuity check): the Knight never moved him");
 }
 
-/// The guard's first frame under combat.GUARD_BIRTH_POINT = `arm`, red `reds` put and held: (ticks from the press, its point
-/// less his, native, in his side's frame; Blue's frame is the arena's).
-fn guard_birth(arm: GuardBirthPoint, reds: &[(&str, (i32, i32))]) -> (u32, (i32, i32)) {
-    let (mut s, lp, held) = scene_cfg(|c| c.calib.guard_birth_point = arm, reds);
+/// The guard's first frame under combat.GUARD_BIRTH_POINT = `arm`, the Little Prince pressed at `at` (held there): (ticks
+/// from the press, its point less his, native, in his side's frame; Blue's frame is the arena's), and the route it holds on
+/// its first dash frame (its birth + GUARD_DASH_START_TICKS).
+fn guard_birth_at(arm: GuardBirthPoint, at: (i32, i32)) -> (u32, (i32, i32), usize) {
+    let mut cfg = config();
+    cfg.calib.guard_birth_point = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let lp = s.scenario_spawn_now(Team::Blue, "LittlePrince", n(at), None).expect("the Little Prince");
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(lp, n(at)));
+        s.tick();
+    }
     let p = s.tick_count() - 1;
     s.press_ability_button(Team::Blue, 0).expect("the press");
-    for _ in 0..30 {
-        hold(&mut s, lp, &held);
+    let mut first: Option<(u32, (i32, i32))> = None;
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(lp, n(at)));
         s.tick();
+        let age = s.tick_count() - 1 - p;
         if let Some(e) = find_live(&s, Team::Blue, "ChampionGuard").first() {
-            return (s.tick_count() - 1 - p, ((e.pos.x / K) - AT.0, (e.pos.y / K) - AT.1));
+            if first.is_none() {
+                first = Some((age, ((e.pos.x / K) - at.0, (e.pos.y / K) - at.1)));
+            }
+            let (born, _) = first.expect("its first frame");
+            if age == born + 7 {
+                return (born, first.expect("its first frame").1, e.route.len());
+            }
         }
     }
-    panic!("no guard in 30 ticks")
+    panic!("no guard's first dash frame in 40 ticks")
 }
 
 /// The guard's first step from 2000 behind him, native: (dx, dy, its squared length).
@@ -878,25 +899,29 @@ fn birth_step(off: (i32, i32)) -> (i32, i32, i64) {
 const STEP2: std::ops::RangeInclusive<i64> = 55 * 55..=61 * 61;
 
 /// combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step (client 16.402, parity's r69 contact study: 689 of 694 stepping
-/// births at his point + (0, -2000) and one walk step of 59-60 toward a neighbouring cell's centre): the guard's first frame,
-/// on the press + 18 as before, stands one step (55 to 61) from 2000 behind him. With nothing about, its route heads ahead and
-/// a little right, and the step is (18, 56): client 15.535.29's measured (18, -1944) is this birth and this step. With a red
-/// Knight front-left of it (3500 left, 500 ahead), the step heads left, where client15535_fixed_offset (the vacuity check)
-/// stands on (18, -1944) in both. Plants: guard_birth_fixed (the second scene), guard_birth_no_step (both).
+/// births at his point + (0, -2000) and one walk step of 59-60 toward a neighbouring cell's centre; parity's agents11 trace:
+/// no target on the birth frame, its route dropped as the dash starts): the guard's first frame, on the press + 18 as
+/// before, stands one step (55 to 61) from 2000 behind him, and it holds no route on its first dash frame. At his usual
+/// point the step is (18, 56): client 15.535.29's measured (18, -1944) is this birth and this step. Near the arena's left
+/// edge (x 1500) the route to the lane heads right, and the step is not (18, 56), where client15535_fixed_offset (the
+/// vacuity check) stands on (18, -1944) in both. Plants: guard_birth_fixed (the edge scene), guard_birth_no_step (both),
+/// guard_route_kept (the dash frame's route).
 #[test]
 fn under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_steps() {
     let new = GuardBirthPoint::Client16402Behind2000FirstStep;
-    let (t, off) = guard_birth(new, &[]);
+    let (t, off, route) = guard_birth_at(new, AT);
     assert_eq!(t, 18, "its first frame, from the press");
     let (sx, sy, len) = birth_step(off);
     assert!(STEP2.contains(&len), "client16402_behind_2000_first_step: its first frame is sqrt({len}) from 2000 behind him ({off:?})");
-    assert_eq!((sx, sy), (18, 56), "nothing about: the step ahead and a little right ({off:?})");
-    let knight = ("Knight", (AT.0 - 3500, AT.1 - 1500));
-    let (t, off) = guard_birth(new, &[knight]);
-    assert_eq!(t, 18, "its first frame, from the press (the Knight's scene)");
-    let (sx, _, len) = birth_step(off);
-    assert!(STEP2.contains(&len) && sx < 0, "client16402_behind_2000_first_step: the step toward the Knight front-left is not leftward ({off:?}, squared {len})");
-    for reds in [&[][..], &[knight][..]] {
-        assert_eq!(guard_birth(GuardBirthPoint::Client15535FixedOffset, reds), (18, (18, -1944)), "client15535_fixed_offset (the vacuity check)");
+    assert_eq!((sx, sy), (18, 56), "at his usual point: the step ahead and a little right ({off:?})");
+    assert_eq!(route, 0, "client16402_behind_2000_first_step: its first dash frame holds the birth step's route");
+    let edge = (1500, AT.1);
+    let (t, off, _) = guard_birth_at(new, edge);
+    assert_eq!(t, 18, "its first frame, from the press (the edge scene)");
+    let (sx, sy, len) = birth_step(off);
+    assert!(STEP2.contains(&len) && (sx, sy) != (18, 56), "client16402_behind_2000_first_step: by the edge the step is not its route's ({off:?}, squared {len})");
+    for at in [AT, edge] {
+        let (t, off, _) = guard_birth_at(GuardBirthPoint::Client15535FixedOffset, at);
+        assert_eq!((t, off), (18, (18, -1944)), "client15535_fixed_offset (the vacuity check) at {at:?}");
     }
 }

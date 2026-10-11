@@ -21074,18 +21074,43 @@ impl BattleState {
             true
         });
         self.warps.guards = runs;
-        // combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step: each guard born this tick takes its first update now
-        // (`first_update`: its target, its attack, its move pass), as a walking unit's -- client 16.402 reads it on its birth
-        // frame in state 10, not deploying -- and then deploys as before (its deploy timer put back).
+        // combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step: each guard born this tick takes one move pass now, as
+        // a walking unit's -- client 16.402 reads it on its birth frame in state 10, not deploying -- and then deploys as
+        // before (its deploy timer put back): `guard_birth_step`.
         if self.guard_birth_behind() && self.guard_birth_steps() {
             for j in born {
-                let d = self.ents.deploy_ms[j];
-                self.ents.deploy_ms[j] = 0;
-                self.first_update(&[j], true, &[], &[]);
-                if self.ents.alive[j] {
-                    self.ents.deploy_ms[j] = d;
-                }
+                self.guard_birth_step(j);
             }
+        }
+    }
+
+    /// THE GUARD'S BIRTH STEP (combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step): the 16.402 move pass for guard
+    /// `j` alone, its deploy timer at 0 for it, every other unit unseen, and no target or attack pass. Parity's agents11 trace
+    /// of the live8 births (client 16.402): the truth's guard has no target on its birth frame (381 of 381 clean births) and
+    /// steps straight toward its route's first cell; the engine's full first update had picked a target on 193 and run an
+    /// attack clock on 12, and its avoidance scan steered round the guard's own crown tower on 35 of 43 step mismatches.
+    fn guard_birth_step(&mut self, j: usize) {
+        if !self.ents.alive[j] || !self.arm16402() {
+            return;
+        }
+        let d = self.ents.deploy_ms[j];
+        self.ents.deploy_ms[j] = 0;
+        // PLANT (regression) guard_birth_sees_all: the birth step still meets every other unit (its avoidance scan).
+        #[cfg(not(clash_plant = "guard_birth_sees_all"))]
+        let others: Vec<usize> = (0..self.ents.capacity()).filter(|&k| k != j && self.ents.alive[k]).collect();
+        #[cfg(clash_plant = "guard_birth_sees_all")]
+        let others: Vec<usize> = Vec::new();
+        self.hash.rebuild(&self.ents);
+        self.phase_path16402_for(Some(&[j]), &others, &[], &[]);
+        let (w, h) = (self.cfg.arena.width, self.cfg.arena.height);
+        let step = self.scratch.deltas.get(j).copied().unwrap_or_default();
+        if step != Vec2::default() {
+            let old = self.ents.pos[j];
+            self.ents.pos[j] = Vec2::new((old.x + step.x).clamp(0, w), (old.y + step.y).clamp(0, h));
+        }
+        self.hash.rebuild(&self.ents);
+        if self.ents.alive[j] {
+            self.ents.deploy_ms[j] = d;
         }
     }
 
@@ -21172,6 +21197,19 @@ impl BattleState {
             self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(2 * dt);
             if immune && tick + 1 >= r.born + crate::card::GUARD_DASH_START_TICKS {
                 self.ents.dash_immune_until[gi] = u32::MAX;
+            }
+            // combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step: the route its birth step planned is dropped as its
+            // dash starts (client 16.402: path_n 0 or 1 on all 8,804 dash frames), so after the charge it plans afresh from
+            // where it landed (parity's agents11 trace: the kept route was walked after the landing on 357 of 558 births).
+            // PLANT (regression) guard_route_kept: the new arm keeps the birth step's route through the charge.
+            #[cfg(not(clash_plant = "guard_route_kept"))]
+            let drop_route = self.guard_birth_behind() && tick + 1 == r.born + crate::card::GUARD_DASH_START_TICKS;
+            #[cfg(clash_plant = "guard_route_kept")]
+            let drop_route = false;
+            if drop_route {
+                self.ents.route[gi].clear();
+                self.ents.route_goal[gi] = None;
+                self.ents.seg_dir[gi] = Vec2::default();
             }
             if tick < r.born + crate::card::GUARD_DASH_START_TICKS {
                 keep.push(r);
