@@ -52,6 +52,7 @@ pub mod spell;
 pub mod formation;
 pub mod status;
 pub mod state;
+pub mod client_arms;
 pub mod py;
 
 use pyo3::prelude::*;

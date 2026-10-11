@@ -32,7 +32,7 @@ const B: (i32, i32) = (9000, 11600);
 fn scene(arm: LoadFirstHitKillWait) -> usize {
     let mut cfg = config();
     cfg.calib.load_first_hit_kill_wait = arm;
-    // the 15.535.29 harness's match.TICK_ORDER (examples/replay_parity/harness.rs CLIENT15535_ARMS), where the corpus
+    // the 15.535.29 harness's match.TICK_ORDER (src/client_arms.rs CLIENT15535_ARMS), where the corpus
     // Sparkies waited; under the shipped order the debug fall starts no wait under either arm
     cfg.calib.tick_order = TickOrder::ClientSequentialStrike;
     let mut s = BattleState::new(3, cfg);

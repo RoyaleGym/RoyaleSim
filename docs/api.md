@@ -78,12 +78,21 @@ real client. `pending_commands()` lists what is waiting.
 instead. `card_table()` names the table a Battle runs. Card ids are the same on both tables. A build from a checkout
 also takes `"client160402017"`, the current client's table from before its 2026-10-06 update; a wheel has no copy.
 
+**Overrides are JSON.** Each value in `calibration_overrides` is JSON text: pass `json.dumps("none")`, which is
+`'"none"'`. A bare `"none"` raises ValueError.
+
+**The older client.** The engine runs the current client's (16.402) mechanics and card values. For a battle on the
+older client's rules, pass `calibration_overrides=royalesim.client_arms("15.535.29")`. That is the 15.535.29 client's
+measured mechanics and the card tables' own values: the same setup `replay_parity` runs for a battle recorded on that
+client. Any `"15.535.<build>"` gets the same setup; it was measured on 15.535.29. `client_arms("16.402")` is `{}`.
+
 ## Module-level helpers
 
 | Name | What it gives you |
 |---|---|
 | `royalesim.data_dir()` | The folder with the engine's data files: calibration, arena and card table. |
 | `royalesim.card_table_source()` | `"embedded"` for an installed wheel, or `"file:<path>"` in a source checkout. |
+| `royalesim.client_arms(client)` | The `calibration_overrides` that run one client's measured setup: `"15.535.29"` or `"16.402"`. |
 | `Battle.provenance()` | The commit the engine was built from, and whether that tree was clean. |
 | `DEPLOY_REASONS` | Names for the reason codes a command returns. |
 | `ENTITY_FIELDS` | Names for the values in each unit's row of `state_json()`, in order. |

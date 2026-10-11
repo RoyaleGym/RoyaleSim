@@ -2455,6 +2455,15 @@ fn card_table_source() -> PyResult<String> {
     })
 }
 
+/// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP (client_arms.rs `client_overrides`): a dict of
+/// `section.KEY` -> JSON value to pass as a Battle's `calibration_overrides`. "15.535.29" (or any "15.535.<build>")
+/// gives the older client's measured mechanics and the card tables' own values, what a replay of its capture runs;
+/// "16.402" gives {} (the ledger is the current client's). ValueError for any other client.
+#[pyfunction]
+fn client_arms(client: &str) -> PyResult<BTreeMap<String, String>> {
+    crate::client_arms::client_overrides(client).map_err(PyValueError::new_err)
+}
+
 /// Register the bindings on the `royalesim` module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Battle>()?;
@@ -2479,6 +2488,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[cfg(feature = "checkout-data")]
     m.add("BUILD_DATA_DIR", BUILD_DATA_DIR)?;
     m.add_function(wrap_pyfunction!(card_table_source, m)?)?;
+    m.add_function(wrap_pyfunction!(client_arms, m)?)?;
     m.add("SNAPSHOT_FORMAT", crate::state::SNAPSHOT_FORMAT)?;
     m.add("HAND_SIZE", HAND_SIZE)?;
     m.add("ABILITY_BUTTONS", ABILITY_BUTTONS)?;

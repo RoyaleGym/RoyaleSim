@@ -1035,7 +1035,7 @@ pub fn assert_buttons_agree(s: &BattleState, team: Team) {
 }
 
 /// THE c4 FLIP'S OLD ARMS (parity r66): the 114 keys whose client 16.402 value the flip moved to the 15.535.29 arm the
-/// current client shares (examples/replay_parity/harness.rs CLIENT15535_ARMS), each at the value it shipped before. A test
+/// current client shares (src/client_arms.rs CLIENT15535_ARMS), each at the value it shipped before. A test
 /// file written on the engine before the flip runs them (`config_pre_flip`), as an old-arm pin does; each key's own tests
 /// read both of its arms.
 pub const PRE_FLIP_ARMS: &[(&str, &str)] = &[

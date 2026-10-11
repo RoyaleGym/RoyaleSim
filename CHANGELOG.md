@@ -40,8 +40,8 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
 - Illegal taps are still refused by default: `placement.ILLEGAL_TROOP_TAP` and `spells.ILLEGAL_SPELL_TAP` ship
   `refuse`, and will keep doing so. A tap outside the legal area is usually a bug in the caller, and a refusal shows
   it. The game's clamp, which moves the tap to the edge of the legal area, is a setting you can turn on with
-  `calibration_overrides`: `{"placement.ILLEGAL_TROOP_TAP": "client15535_clamp_to_legal_edge"}` or
-  `{"spells.ILLEGAL_SPELL_TAP": "client16402_clamp_to_legal_edge"}`.
+  `calibration_overrides`: `{"placement.ILLEGAL_TROOP_TAP": '"client15535_clamp_to_legal_edge"'}` or
+  `{"spells.ILLEGAL_SPELL_TAP": '"client16402_clamp_to_legal_edge"'}` (each value is JSON).
 - Six settings treat the two sides differently, as the game does. A seat-symmetry check can switch each to a symmetric
   version with `calibration_overrides`: `targeting.EQUAL_DISTANCE_TIE` to `own_frame_high_x`, `formation.LINE_FRAME`
   to `rotation`, `formation.LINE_CENTRE_SEARCH` to `ring_corner_walk`, `placement.RELOCATION_TIE_ORDER` and
@@ -79,7 +79,7 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
   older behaviour stays available as that setting's old value, and `replay_parity` uses the old values for the older
   client's battles. The full list is in the release notes on GitHub.
 - `spells.RELEASE_GROUND_POINT` treats the two sides differently, as the game does. A seat-symmetry check can turn it off
-  with `calibration_overrides={"spells.RELEASE_GROUND_POINT": "none"}`.
+  with `calibration_overrides={"spells.RELEASE_GROUND_POINT": '"none"'}` (the value is JSON).
 - On the current client's card tables, a Skeleton King counts a soul once it lands, 1.45 s after the death, not at the
   death.
 - A hero's level-up can take it past level 17 along its rarity's level ladder (the client's Hero Mini P.E.K.K.A went
