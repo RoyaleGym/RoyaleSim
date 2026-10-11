@@ -904,8 +904,11 @@ const STEP2: std::ops::RangeInclusive<i64> = 55 * 55..=61 * 61;
 /// before, stands one step (55 to 61) from 2000 behind him, and it holds no route on its first dash frame. At his usual
 /// point the step is (18, 56): client 15.535.29's measured (18, -1944) is this birth and this step. Near the arena's left
 /// edge (x 1500) the route to the lane heads right, and the step is not (18, 56), where client15535_fixed_offset (the
-/// vacuity check) stands on (18, -1944) in both. Plants: guard_birth_fixed (the edge scene), guard_birth_no_step (both),
-/// guard_route_kept (the dash frame's route).
+/// vacuity check) stands on (18, -1944) in both. Pressed at (14500, 9000) his guard is born 500 from his own princess
+/// tower's centre: its step is its route's, (18, 56), unsteered (client 16.402 steps straight toward its waypoint; the
+/// engine's avoidance scan had steered round the tower on 35 of 43 step mismatches). Plants: guard_birth_fixed (the edge
+/// scene), guard_birth_no_step (both), guard_route_kept (the dash frame's route), guard_birth_sees_all (by the tower: its
+/// step steered to (-49, 35)).
 #[test]
 fn under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_steps() {
     let new = GuardBirthPoint::Client16402Behind2000FirstStep;
@@ -920,6 +923,10 @@ fn under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_st
     assert_eq!(t, 18, "its first frame, from the press (the edge scene)");
     let (sx, sy, len) = birth_step(off);
     assert!(STEP2.contains(&len) && (sx, sy) != (18, 56), "client16402_behind_2000_first_step: by the edge the step is not its route's ({off:?}, squared {len})");
+    let (t, off, _) = guard_birth_at(new, (14500, 9000));
+    assert_eq!(t, 18, "its first frame, from the press (by his princess tower)");
+    let (sx, sy, _) = birth_step(off);
+    assert_eq!((sx, sy), (18, 56), "by his own princess tower: the step is its route's, unsteered ({off:?})");
     for at in [AT, edge] {
         let (t, off, _) = guard_birth_at(GuardBirthPoint::Client15535FixedOffset, at);
         assert_eq!((t, off), (18, (18, -1944)), "client15535_fixed_offset (the vacuity check) at {at:?}");
