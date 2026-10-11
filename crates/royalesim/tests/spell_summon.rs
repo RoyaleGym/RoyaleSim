@@ -66,7 +66,7 @@ mod common;
 use common::*;
 use royalesim::card::{SpellDef, SpellPlacement, SpellShape};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AreaBuffSourceBinding, BattleConfig, BattleState, Calib, OwnSideScope, PulseAmount, TapSnap};
+use royalesim::state::{AreaBuffSourceBinding, BattleConfig, BattleState, Calib, OwnSideScope, PulseAmount, PulsingAreaLife, TapSnap};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -215,9 +215,11 @@ fn the_rage_buffs_an_own_building_inside_it() {
 
 /// A Blue Knight walking up the left lane into a Rage cast 5,500 ahead of it, and per tick after the cast (k = 0 is
 /// the cast tick C) its step: it enters the area about 35 ticks in and is still inside, raged, when the area ends.
-fn late_raged_walk(binding: AreaBuffSourceBinding) -> Vec<i64> {
+/// Under spells.PULSING_AREA_LIFE = `life`.
+fn late_raged_walk(binding: AreaBuffSourceBinding, life: PulsingAreaLife) -> Vec<i64> {
     let mut cfg: BattleConfig = config();
     cfg.calib.area_buff_source_binding = binding;
+    cfg.calib.pulsing_area_life = life;
     let mut s = BattleState::new(0, cfg);
     let k = s.scenario_spawn_now(Team::Blue, "Knight", at((3500, 9000)), None).expect("spawn");
     for _ in 0..3 {
@@ -236,8 +238,8 @@ fn late_raged_walk(binding: AreaBuffSourceBinding) -> Vec<i64> {
 
 /// The last k whose step is raged (74..=79; a Knight walks 55..=61), after checking that every later step is an
 /// unraged walk.
-fn last_raged_step(binding: AreaBuffSourceBinding) -> usize {
-    let steps = late_raged_walk(binding);
+fn last_raged_step(binding: AreaBuffSourceBinding, life: PulsingAreaLife) -> usize {
+    let steps = late_raged_walk(binding, life);
     let last = steps.iter().rposition(|x| (74..=79).contains(x)).unwrap_or_else(|| panic!("the scene drifted: the Knight was never raged: {steps:?}"));
     assert!(steps[..30].iter().all(|x| (55..=61).contains(x)), "the scene drifted: the Knight was raged before it reached the area: {steps:?}");
     assert!(steps[last + 1..].iter().all(|x| (55..=61).contains(x)), "the scene drifted: the Knight's steps after its last raged one: {steps:?}");
@@ -247,12 +249,19 @@ fn last_raged_step(binding: AreaBuffSourceBinding) -> usize {
 /// Plants: area_cap_unread, area_cap_one_tick.
 #[test]
 fn the_rage_buff_ends_sooner_when_bound_to_its_area() {
-    let bound = last_raged_step(AreaBuffSourceBinding::ClientSourceBound);
-    let unbound = last_raged_step(AreaBuffSourceBinding::NotRead);
+    // Under spells.PULSING_AREA_LIFE = life_exclusive, the life these numbers were read under.
+    let bound = last_raged_step(AreaBuffSourceBinding::ClientSourceBound, PulsingAreaLife::LifeExclusive);
+    let unbound = last_raged_step(AreaBuffSourceBinding::NotRead, PulsingAreaLife::LifeExclusive);
     // The area's last application is on C + 94 with 300 ms of life left this tick included: bound, it lasts 250 + 300
     // ms and the last raged step is C + 105; unbound, its 1,000 ms BuffTime gives C + 114.
     assert_eq!(bound, 105, "client_source_bound: the last raged step (not_read {unbound})");
     assert_eq!(unbound, 114, "not_read: the last raged step, the full BuffTime");
+    // client16402_last_update_inclusive (shipped since r71): the area applies once more, on C + 100, its life left 0, so
+    // the bound buff is capped to 250 ms and still ends where it did; unbound, it runs its full BuffTime from there.
+    let bound_new = last_raged_step(AreaBuffSourceBinding::ClientSourceBound, PulsingAreaLife::Client16402LastUpdateInclusive);
+    let unbound_new = last_raged_step(AreaBuffSourceBinding::NotRead, PulsingAreaLife::Client16402LastUpdateInclusive);
+    assert_eq!(bound_new, 105, "client16402_last_update_inclusive: the bound Rage ends where it did");
+    assert_eq!(unbound_new, 120, "client16402_last_update_inclusive, not_read: the full BuffTime from the extra application");
 }
 
 /// A Blue Knight walking up the left lane through a Rage cast 3,000 ahead of it, which it walks out of after the
