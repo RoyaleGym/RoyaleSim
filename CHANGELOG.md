@@ -3,6 +3,28 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.33 (2026-10-11)
+
+- The Hero Ice Wizard plays on the current client's card table (`calibration_overrides={"cards.CARD_TABLE":
+  '"client160402017_20261006"'}`, the Ice Wizard marked as form 2 in `reset(..., forms=)`). Its button waits for the
+  closest enemy its deploy chill or its shots slowed, then puts an ice cube down behind that enemy. Every enemy around
+  the cube is frozen and takes a hit, and stays frozen while the cube stands: 5 seconds at most, and 2 seconds after
+  nothing is left frozen. When the cube is gone they move again, slowed for 2 seconds. The timings are measured
+  against 34 recorded cubes. What the button does when the hero's shot kills a unit, or the hero dies, while it waits
+  is read off the game's data, not measured.
+- Four more settings default to the current client's behaviour, each measured against its recorded battles. Only a
+  Tesla acts on the last tick of its deploy; every other building waits for its countdown to end
+  (`combat.BUILDING_DEPLOY_LAST_TICK`). A Royal Recruit or Royal Hog keeps the lane of the point it stands on
+  (`targeting.SUMMON_LANE_FLIP_SCOPE`), and Royal Hogs and Royal Recruits tapped into an opened pocket stand there
+  (`formation.LINE_TERRITORY`). A Poison cloud applies once more as it ends, so a unit still in it takes one more pulse
+  (`spells.PULSING_AREA_LIFE`). Each older behaviour stays available as that setting's old value, and `replay_parity`
+  uses the old values for the older client's battles.
+- New: `royalesim.client_arms(client)`. `client_arms("15.535.29")` gives the `calibration_overrides` that run the older
+  client's measured mechanics and the card tables' own values, the setup `replay_parity` uses for that client's
+  battles. Any 15.535 build gets the same; `client_arms("16.402")` is `{}`.
+- Each value in `calibration_overrides` is JSON text: `'"none"'` or `json.dumps("none")`, not `"none"`. The 0.1.28 and
+  0.1.30 entries below now say so.
+
 ## 0.1.32 (2026-10-11)
 
 - Two settings now default to the current client's behaviour, each measured against its recorded battles. A building
