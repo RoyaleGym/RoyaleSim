@@ -3,6 +3,15 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.32 (2026-10-11)
+
+- Two settings now default to the current client's behaviour, each measured against its recorded battles. A building
+  lets go of a target that has moved out of its reach after it fires, as a crown tower does
+  (`targeting.LAUNCH_BEYOND_POSITION`). The Little Prince's guard appears 2000 behind him and takes its first step on
+  the tick it appears, and after its charge it finds a fresh path (`combat.GUARD_BIRTH_POINT`). Each older behaviour
+  stays available as that setting's old value, and `replay_parity` uses the old values for the older client's
+  battles.
+
 ## 0.1.31 (2026-10-11)
 
 - Four settings now default to the current client's behaviour, each measured against its recorded battles. A flying
