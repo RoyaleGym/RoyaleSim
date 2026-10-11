@@ -6,13 +6,14 @@
 //! target dropped; the button back on t238, the cast's start + 60, with one charge left.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! boss_bandit`): warp_back_never, champion_charges_unread, early_trigger_late, press_during_dash.
+//! boss_bandit`): warp_back_never, champion_charges_unread, early_trigger_late, press_during_dash, warp_cloak_on_trigger
+//! (`under_client16402_trigger_plus_1_her_holder_lets_her_go_a_tick_later` red).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, DeployError};
+use royalesim::state::{BattleState, DeployError, WarpBackCloak};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["BossBandit", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -148,4 +149,54 @@ fn it_has_two_charges_the_second_after_a_3000_ms_cooldown() {
         s.tick();
     }
     assert_eq!(s.check_ability_button(Team::Blue, 0), Err(DeployError::AbilitySpent), "two charges, both used");
+}
+
+/// The Boss Bandit at AT under status.WARP_BACK_CLOAK = `arm`, a Red Knight held 1500 ahead of her and holding her, pressed
+/// free: (the tick, from the press, the Knight first holds another target or none, the tick she warps).
+fn holder_lets_go(arm: WarpBackCloak) -> (u32, u32) {
+    let mut cfg = config();
+    cfg.calib.warp_back_cloak = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let bb = s.scenario_spawn_now(Team::Blue, "BossBandit", n(AT), None).expect("the Boss Bandit");
+    let at_k = (AT.0, AT.1 + 1500);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", n(at_k), None).expect("the Knight");
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(bb, n(AT)) && s.debug_set_pos(knight, n(at_k)));
+        s.tick();
+    }
+    assert_eq!(s.entity(knight).expect("the Knight").target, Some(bb), "the scene: the Knight holds the Boss Bandit at the press");
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut let_go, mut warp) = (None, None);
+    for _ in 0..24 {
+        if warp.is_none() {
+            assert!(s.debug_set_pos(knight, n(at_k)));
+        }
+        s.tick();
+        let age = s.tick_count() - 1 - p;
+        if let_go.is_none() && s.entity(knight).expect("the Knight").target != Some(bb) {
+            let_go = Some(age);
+        }
+        if warp.is_none() && s.entity(bb).expect("the Boss Bandit").pos.y / K < AT.1 - 3000 {
+            warp = Some(age);
+        }
+    }
+    (let_go.expect("the Knight never let her go"), warp.expect("she never warped"))
+}
+
+/// status.WARP_BACK_CLOAK = client16402_trigger_plus_1 (client 16.402, parity's r71 census: her holders let her go on the
+/// press + 4, 19 of 21, the engine's on + 3; her warp on + 17 in both): the Knight holding her lets her go a tick later
+/// than under with_the_trigger, and she warps on the same tick. Plant: warp_cloak_on_trigger.
+#[test]
+fn under_client16402_trigger_plus_1_her_holder_lets_her_go_a_tick_later() {
+    let (old_go, old_warp) = holder_lets_go(WarpBackCloak::WithTheTrigger);
+    let (new_go, new_warp) = holder_lets_go(WarpBackCloak::Client16402TriggerPlus1);
+    assert_eq!(new_go, old_go + 1, "client16402_trigger_plus_1: the holder lets her go a tick later ({old_go} -> {new_go})");
+    assert_eq!(new_warp, old_warp, "the warp's tick is the same under both arms");
+    assert!(new_go < new_warp, "the cloak drops the holder before the warp ({new_go}, {new_warp})");
 }

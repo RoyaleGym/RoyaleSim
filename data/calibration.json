@@ -4278,6 +4278,16 @@
     }
   },
   "status": {
+    "WARP_BACK_CLOAK": {
+      "value": "with_the_trigger",
+      "status": "measured",
+      "candidates": ["with_the_trigger", "client16402_trigger_plus_1"],
+      "confidence": "HIGH for client16402_trigger_plus_1 on client 16.402 (parity r71, 2026-10-11): parity's r71 census of the live8 set (client 16.402), P the press: enemies holding the Boss Bandit let her go on P + 4 in 19 of 21 holds over 6 presses (the other 2 on P + 5, across frame gaps), the engine's on P + 3 (12 of 12 traced); her warp on P + 17 in both (6 of 6 in the truth, 1 of 1 traced); the Archer Queen's cloak drops her holders on P + 4 in both (35 of 38; the engine 5 of 5). A candidate until scored. Client 15.535.29 keeps with_the_trigger (CLIENT15535_ARMS; its one scene times the warp, not the holders).",
+      "provenance": "MEASURED by parity (2026-10-11, r71) on client 16.402: parity's r71 census of the live8 set (client 16.402), P the press: enemies holding the Boss Bandit let her go on P + 4 in 19 of 21 holds over 6 presses (the other 2 on P + 5, across frame gaps), the engine's on P + 3 (12 of 12 traced); her warp on P + 17 in both (6 of 6 in the truth, 1 of 1 traced); the Archer Queen's cloak drops her holders on P + 4 in both (35 of 38; the engine 5 of 5).",
+      "meaning": "with_the_trigger: the engine's; the cloak lands on the Boss Bandit's trigger (the press + 3 after EARLY_TRIGGER_TICKS), and enemies holding her drop her from the next Target phase. client16402_trigger_plus_1: it lands a tick later (`magic_pass`, the run's made + 1), so her holders let her go a tick later; the warp, warp_delay_ms after the trigger, is unchanged.",
+      "open": "Whether the cloak's end moves with it; client 15.535.29's holders.",
+      "engine": "state.rs fire_ability (AbilityEffect::WarpBack), magic_pass, warp_cloak_late, selected by Calib::warp_back_cloak; tests/boss_bandit.rs."
+    },
     "LIFT_TIMING": {
       "value": "client_next_tick_late_descent",
       "status": "measured",

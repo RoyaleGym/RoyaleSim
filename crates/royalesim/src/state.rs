@@ -869,6 +869,10 @@ pub struct Calib {
     /// `OwnHalf`, what a battle saved before it ran.
     #[serde(default = "line_territory_default")]
     pub line_territory: LineTerritory,
+    /// status.WARP_BACK_CLOAK (the tick the Boss Bandit's cloak lands: on her trigger, or a tick after it). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `WithTheTrigger`, what a battle saved before it ran.
+    #[serde(default = "warp_back_cloak_default")]
+    pub warp_back_cloak: WarpBackCloak,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2699,6 +2703,10 @@ fn pulsing_area_life_default() -> PulsingAreaLife {
 
 fn line_territory_default() -> LineTerritory {
     LineTerritory::OwnHalf
+}
+
+fn warp_back_cloak_default() -> WarpBackCloak {
+    WarpBackCloak::WithTheTrigger
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9727,6 +9735,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.WARP_BACK_CLOAK -- when the Boss Bandit's cloak (card.rs `WarpBackDef::buff`) lands (state.rs `fire_ability`,
+    /// `magic_pass`); her warp keeps the trigger's clock either way.
+    WarpBackCloak {
+        /// The engine's: on her trigger (EARLY_TRIGGER_TICKS before the other heroes').
+        WithTheTrigger = "with_the_trigger",
+        /// Client 16.402: a tick after her trigger; her warp as before.
+        Client16402TriggerPlus1 = "client16402_trigger_plus_1",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10257,6 +10275,7 @@ impl Calib {
             summon_lane_flip_scope: pick(&v, &["targeting", "SUMMON_LANE_FLIP_SCOPE", "value"], SummonLaneFlipScope::from_calibration_name)?,
             pulsing_area_life: pick(&v, &["spells", "PULSING_AREA_LIFE", "value"], PulsingAreaLife::from_calibration_name)?,
             line_territory: pick(&v, &["formation", "LINE_TERRITORY", "value"], LineTerritory::from_calibration_name)?,
+            warp_back_cloak: pick(&v, &["status", "WARP_BACK_CLOAK", "value"], WarpBackCloak::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -21541,6 +21560,18 @@ impl BattleState {
         self.warps.sieges = keep;
     }
 
+    /// status.WARP_BACK_CLOAK = client16402_trigger_plus_1: the Boss Bandit's cloak lands a tick after her trigger
+    /// (`fire_ability`, `magic_pass`). Measured on client 16.402 (parity r71): her holders let her go on the press + 4, 19 of
+    /// 21, the engine's on + 3; her warp on + 17 in both.
+    fn warp_cloak_late(&self) -> bool {
+        // PLANT (regression) warp_cloak_on_trigger: the new arm still lands the cloak on the trigger.
+        #[cfg(not(clash_plant = "warp_cloak_on_trigger"))]
+        let late = self.cfg.calib.warp_back_cloak == WarpBackCloak::Client16402TriggerPlus1;
+        #[cfg(clash_plant = "warp_cloak_on_trigger")]
+        let late = false;
+        late
+    }
+
     /// THE HERO MAGIC ARCHER'S BUTTONS (card.rs `DecoyWarpDef`, `MagicRun`), in the Status phase after the tick's presses
     /// fired, each step on the trigger's clock in whole ticks: its buff lands on the hero `buff_delay_ms` on; its power
     /// ends `power_ms` on (the group's last step: the hero's entry back to 0 unless a shot set it so already); and its
@@ -21555,8 +21586,13 @@ impl BattleState {
         let runs = std::mem::take(&mut self.warps.magic);
         let mut keep = Vec::new();
         for r in runs {
-            // A WARP BACK's run (the Boss Bandit's) waits for its warp alone (`magic_warps`).
+            // A WARP BACK's run (the Boss Bandit's) waits for its warp alone (`magic_warps`); under status.WARP_BACK_CLOAK =
+            // client16402_trigger_plus_1 its cloak lands here, on the trigger + 1.
             if let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::WarpBack(w), .. }) = self.cfg.cards.get(r.card).ability {
+                if self.tick == r.made + 1 && self.warp_cloak_late() && self.ents.is_alive(r.id) {
+                    let h = crate::status::BuffHit::plain(r.id, w.buff.buff, w.buff.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, r.id.index as usize, &h);
+                }
                 if self.tick <= r.made + (w.warp_delay_ms / tick_ms) as u32 {
                     keep.push(r);
                 }
@@ -33018,8 +33054,11 @@ impl BattleState {
             crate::card::AbilityEffect::WarpBack(w) => {
                 #[cfg(not(clash_plant = "warp_back_never"))]
                 {
-                    let h = crate::status::BuffHit::plain(hero, w.buff.buff, w.buff.time_ms, 0);
-                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    // status.WARP_BACK_CLOAK = client16402_trigger_plus_1: the cloak lands on the next tick (`magic_pass`).
+                    if !self.warp_cloak_late() {
+                        let h = crate::status::BuffHit::plain(hero, w.buff.buff, w.buff.time_ms, 0);
+                        land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    }
                     self.warps.magic.retain(|r| r.id != hero);
                     self.warps.magic.push(MagicRun { id: hero, team, card, made: self.tick });
                 }
@@ -36803,6 +36842,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, formation.LINE_TERRITORY: Calib gained line_territory (serde default the old arm, own_half), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.WARP_BACK_CLOAK: Calib gained warp_back_cloak (serde default the old arm, with_the_trigger), no new state (the cloak's tick is read off the run's `made`),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37780,6 +37821,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("pulsing_area_life".into(), serde_json::to_value(PulsingAreaLife::LifeExclusive).map_err(|e| e.to_string())?);
     // formation.LINE_TERRITORY: a format-3 battle kept a line on its owner's half.
     sh.insert("line_territory".into(), serde_json::to_value(LineTerritory::OwnHalf).map_err(|e| e.to_string())?);
+    // status.WARP_BACK_CLOAK: a format-3 battle's Boss Bandit was cloaked on her trigger.
+    sh.insert("warp_back_cloak".into(), serde_json::to_value(WarpBackCloak::WithTheTrigger).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
