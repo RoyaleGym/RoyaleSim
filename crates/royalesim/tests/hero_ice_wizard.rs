@@ -213,8 +213,9 @@ fn a_press_on_a_marked_knight_freezes_it_behind_the_knight() {
 fn an_unmarked_enemy_is_not_found_and_the_press_waits() {
     let mut s = battle();
     let kat = n(AT.0 - 6000, AT.1 + 5000);
-    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    // put down after the hero settles and held from its first tick, so no shot of the hero ever reached it
     let hero = hero_in(&mut s);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
     s.press_ability_button(Team::Blue, 0).expect("the press");
     for _ in 0..20 {
         assert!(s.debug_set_pos(knight, kat));
