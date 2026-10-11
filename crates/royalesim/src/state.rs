@@ -853,6 +853,10 @@ pub struct Calib {
     /// `Client15535FixedOffset`, what a battle saved before it ran.
     #[serde(default = "guard_birth_point_default")]
     pub guard_birth_point: GuardBirthPoint,
+    /// combat.GUARD_FREE_TICK (the tick after its arrival the Little Prince's guard is free (its first Target and Move, its immunity's end)). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Client15535ArrivalPlus2`, what a battle saved before it ran.
+    #[serde(default = "guard_free_tick_default")]
+    pub guard_free_tick: GuardFreeTick,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2667,6 +2671,10 @@ fn guard_press_contact_default() -> GuardPressContact {
 
 fn guard_birth_point_default() -> GuardBirthPoint {
     GuardBirthPoint::Client15535FixedOffset
+}
+
+fn guard_free_tick_default() -> GuardFreeTick {
+    GuardFreeTick::Client15535ArrivalPlus2
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9654,6 +9662,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_FREE_TICK -- when the Little Prince's guard comes free after its charge (state.rs `guard_moves`; card.rs
+    /// GUARD_LANDING_TICKS, GUARD_IMMUNE_AFTER_ARRIVAL_TICKS).
+    GuardFreeTick {
+        /// The engine's: free on its arrival + GUARD_LANDING_TICKS (2), immune through the arrival + 1.
+        Client15535ArrivalPlus2 = "client15535_arrival_plus_2",
+        /// Client 16.402: free one tick later, on the arrival + 3, and immune through the arrival + 2; its load timer is
+        /// reset on the arrival + 2 as before.
+        Client16402ArrivalPlus3 = "client16402_arrival_plus_3",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10180,6 +10199,7 @@ impl Calib {
             deploy_water_edge: pick(&v, &["movement", "DEPLOY_WATER_EDGE", "value"], DeployWaterEdge::from_calibration_name)?,
             guard_press_contact: pick(&v, &["collision", "GUARD_PRESS_CONTACT", "value"], GuardPressContact::from_calibration_name)?,
             guard_birth_point: pick(&v, &["combat", "GUARD_BIRTH_POINT", "value"], GuardBirthPoint::from_calibration_name)?,
+            guard_free_tick: pick(&v, &["combat", "GUARD_FREE_TICK", "value"], GuardFreeTick::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -21193,8 +21213,15 @@ impl BattleState {
             // after its arrival (entity.rs `dash_immune`).
             let immune = self.guard_charge_immune();
             if let Some(a) = r.arrived {
+                // combat.GUARD_FREE_TICK = client16402_arrival_plus_3: free (and its immunity over) one tick later; the load
+                // timer's reset stays on the arrival + GUARD_LANDING_TICKS.
+                // PLANT (regression) guard_free_at_arrival_plus_2: the new arm still frees it on the arrival + 2.
+                #[cfg(not(clash_plant = "guard_free_at_arrival_plus_2"))]
+                let late = u32::from(self.cfg.calib.guard_free_tick == GuardFreeTick::Client16402ArrivalPlus3);
+                #[cfg(clash_plant = "guard_free_at_arrival_plus_2")]
+                let late = 0u32;
                 if immune {
-                    self.ents.dash_immune_until[gi] = a + crate::card::GUARD_IMMUNE_AFTER_ARRIVAL_TICKS;
+                    self.ents.dash_immune_until[gi] = a + crate::card::GUARD_IMMUNE_AFTER_ARRIVAL_TICKS + late;
                 }
                 // combat.GUARD_LANDING_HITS = client16402_through_landing_ticks: its hit goes on through its arrival +
                 // GUARD_LANDING_HIT_TICKS, on enemies in its reach it has not hit (below); its push stops at the arrival.
@@ -21208,15 +21235,16 @@ impl BattleState {
                 let landing = through && tick <= a + crate::card::GUARD_LANDING_HIT_TICKS;
                 #[cfg(clash_plant = "landing_hits_unbounded")]
                 let landing = through && tick <= a + 60;
-                if tick >= a + crate::card::GUARD_LANDING_TICKS {
-                    // FREE, its load timer full and its swing at 0: its first hit a whole HitSpeed on. Measured on client
-                    // 15.535.29 (Oracle's sp-lp-far-s0): free on P + 39, attacking a Knight at its end from P + 40, its
-                    // first hit on P + 62. Once: the run is kept past this tick only for the landing's hits.
-                    #[cfg(not(clash_plant = "guard_lands_loaded"))]
-                    if tick == a + crate::card::GUARD_LANDING_TICKS || !through {
-                        self.ents.attack_load_ms[gi] = self.cfg.cards.get(self.ents.card[gi]).load_time_ms.max(0);
-                        self.ents.attack_ms[gi] = 0;
-                    }
+                // Its load timer full and its swing at 0 on the arrival + GUARD_LANDING_TICKS: its first hit a whole HitSpeed
+                // on. Measured on client 15.535.29 (Oracle's sp-lp-far-s0): free on P + 39, attacking a Knight at its end from
+                // P + 40, its first hit on P + 62.
+                #[cfg(not(clash_plant = "guard_lands_loaded"))]
+                if tick == a + crate::card::GUARD_LANDING_TICKS {
+                    self.ents.attack_load_ms[gi] = self.cfg.cards.get(self.ents.card[gi]).load_time_ms.max(0);
+                    self.ents.attack_ms[gi] = 0;
+                }
+                if tick >= a + crate::card::GUARD_LANDING_TICKS + late {
+                    // FREE. Once: the run is kept past this tick only for the landing's hits.
                     if !landing {
                         continue;
                     }
@@ -36682,6 +36710,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_BIRTH_POINT: Calib gained guard_birth_point (serde default the old arm, client15535_fixed_offset), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_FREE_TICK: Calib gained guard_free_tick (serde default the old arm, client15535_arrival_plus_2), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37651,6 +37681,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_press_contact".into(), serde_json::to_value(GuardPressContact::Pushed).map_err(|e| e.to_string())?);
     // combat.GUARD_BIRTH_POINT: a format-3 battle's guard was born at the fixed offset, no step.
     sh.insert("guard_birth_point".into(), serde_json::to_value(GuardBirthPoint::Client15535FixedOffset).map_err(|e| e.to_string())?);
+    // combat.GUARD_FREE_TICK: a format-3 battle's guard came free on its arrival + 2.
+    sh.insert("guard_free_tick".into(), serde_json::to_value(GuardFreeTick::Client15535ArrivalPlus2).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

@@ -20,7 +20,8 @@
 //! landing_hits_unbounded (`under_client16402_through_landing_ticks_his_guard_hits_through_its_arrival_plus_three` red),
 //! press_hold_table_time (`under_client16402_three_ticks_longer_his_press_holds_him_three_ticks_past_its_time` red),
 //! press_contact_pushed (`under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press` red),
-//! guard_birth_fixed and guard_birth_no_step (`under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_steps` red).
+//! guard_birth_fixed and guard_birth_no_step (`under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_steps` red),
+//! guard_free_at_arrival_plus_2 (`under_client16402_arrival_plus_3_his_guard_comes_free_a_tick_later` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -37,7 +38,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -60,6 +61,7 @@ fn scene_with(arm: GuardChargeStep, reds: &[(&str, (i32, i32))]) -> (BattleState
         |c| {
             c.calib.guard_charge_step = arm;
             c.calib.guard_birth_point = GuardBirthPoint::Client15535FixedOffset;
+            c.calib.guard_free_tick = GuardFreeTick::Client15535ArrivalPlus2;
         },
         reds,
     )
@@ -931,4 +933,51 @@ fn under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_st
         let (t, off, _) = guard_birth_at(GuardBirthPoint::Client15535FixedOffset, at);
         assert_eq!((t, off), (18, (18, -1944)), "client15535_fixed_offset (the vacuity check) at {at:?}");
     }
+}
+
+/// The guard after its charge under combat.GUARD_FREE_TICK = `arm`, a red Zap cast on its point at its age `zap` (from its
+/// first frame) when given: (its arrival's age, its first step's age after the arrival, its hp losses by age).
+fn guard_landing(arm: GuardFreeTick, zap: Option<u32>) -> (u32, u32, Vec<(u32, i32)>) {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_free_tick = arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut first, mut last, mut arrived, mut hp_was): (Option<u32>, Option<Vec2>, Option<u32>, Option<i32>) = (None, None, None, None);
+    let mut losses = Vec::new();
+    for _ in 0..90 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        if let (Some(f), Some(p)) = (first, find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos)) {
+            if zap == Some(s.tick_count() - f) {
+                s.spawn_unit(Team::Red, "Zap", p, None).expect("the Zap");
+            }
+        }
+        s.tick();
+        let Some((p, hp)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.hp)) else { continue };
+        let f = *first.get_or_insert(s.tick_count() - 1);
+        let age = s.tick_count() - 1 - f;
+        if let Some(h) = hp_was.filter(|h| hp < *h) {
+            losses.push((age, h - hp));
+        }
+        match arrived {
+            None if age > crate_dash_start() && last == Some(p) => arrived = Some(age - 1),
+            Some(a) if last != Some(p) => return (a, age, losses),
+            _ => {}
+        }
+        (last, hp_was) = (Some(p), Some(hp));
+    }
+    panic!("{arm:?}: the guard never walked after its charge")
+}
+
+/// combat.GUARD_FREE_TICK = client16402_arrival_plus_3 (client 16.402, parity's r71 census: first target on L + 2, never on
+/// L + 1, 621 of 628 landings): the guard's first step after its arrival comes one tick later than under
+/// client15535_arrival_plus_2, and a Zap on its arrival + 2 takes nothing (immune through it), where under the old arm it
+/// takes hp. Plant: guard_free_at_arrival_plus_2.
+#[test]
+fn under_client16402_arrival_plus_3_his_guard_comes_free_a_tick_later() {
+    let (a_old, step_old, _) = guard_landing(GuardFreeTick::Client15535ArrivalPlus2, None);
+    let (a_new, step_new, _) = guard_landing(GuardFreeTick::Client16402ArrivalPlus3, None);
+    assert_eq!(a_old, a_new, "the arrival is the same under both arms");
+    assert_eq!(step_new, step_old + 1, "client16402_arrival_plus_3: the first step after the arrival a tick later ({step_old} -> {step_new}, arrival {a_new})");
+    let (_, _, hit_old) = guard_landing(GuardFreeTick::Client15535ArrivalPlus2, Some(a_old + 2));
+    let (_, _, hit_new) = guard_landing(GuardFreeTick::Client16402ArrivalPlus3, Some(a_new + 2));
+    assert!(hit_old.iter().any(|l| l.0 == a_old + 2), "client15535_arrival_plus_2 (the vacuity check): the Zap on the arrival + 2 takes hp: {hit_old:?}");
+    assert!(!hit_new.iter().any(|l| l.0 == a_new + 2), "client16402_arrival_plus_3: the Zap on the arrival + 2 took hp: {hit_new:?}");
 }
