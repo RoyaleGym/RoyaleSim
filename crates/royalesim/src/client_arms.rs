@@ -5,6 +5,7 @@
 //! (`CLIENT15535_ARMS`) and the card tables' own values. A replay of a capture that client recorded runs exactly that
 //! setup (examples/replay_parity/harness.rs `config_for_with`), and a caller who wants a battle on 15.535 rules asks for
 //! the same overrides here.
+#![allow(unexpected_cfgs)]
 
 use std::collections::BTreeMap;
 

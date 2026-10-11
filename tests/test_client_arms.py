@@ -21,7 +21,7 @@ royalesim = pytest.importorskip("royalesim")
 def spirit_hp(overrides):
     """A Fire Spirit's hitpoints at level 11 in a Battle built with `overrides`."""
     b = royalesim.Battle(["FireSpirits", "Knight"], [[0, 1, 1], [0, 1, 1]], calibration_overrides=overrides)
-    return [hp for role, _name, hp in b.unit_hitpoints(0, 11) if role == "own"][0]
+    return next(hp for role, _name, hp in b.unit_hitpoints(0, 11) if role == "own")
 
 
 def test_the_15535_setup_runs_the_tables_own_card_values():
@@ -35,5 +35,5 @@ def test_the_15535_setup_runs_the_tables_own_card_values():
 def test_the_current_client_is_the_ledger_and_an_unknown_client_is_refused():
     assert royalesim.client_arms("16.402") == {}
     assert royalesim.client_arms("15.535.13") == royalesim.client_arms("15.535.29")
-    with pytest.raises(ValueError, match="15.535.29"):
+    with pytest.raises(ValueError, match=r"15\.535\.29"):
         royalesim.client_arms("17.0")
