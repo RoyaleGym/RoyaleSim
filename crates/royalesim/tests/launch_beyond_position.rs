@@ -81,8 +81,8 @@ fn the_old_value_holds_it() {
 }
 
 #[test]
-fn the_shipped_value_is_client15535_after_move() {
-    assert_eq!(Calib::shipped().launch_beyond_position, LaunchBeyondPosition::Client15535AfterMove);
+fn the_shipped_value_is_client16402_after_move_buildings_and_towers() {
+    assert_eq!(Calib::shipped().launch_beyond_position, LaunchBeyondPosition::Client16402AfterMoveBuildingsAndTowers, "parity r70");
 }
 
 /// Under `arm`: whether a Blue Cannon still targets a red Knight on the tick after it fires at it, the Knight held 80 inside
