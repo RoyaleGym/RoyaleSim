@@ -6529,6 +6529,11 @@ calib_enum!(
         /// its progress running on, the engine's kept the Skeleton, idled 3 ticks and loosed its next arrow 3 ticks late
         /// (the scene's 514 lost).
         Client15535AfterMove = "client15535_after_move",
+        /// client15535_after_move for a building too (client 16.402, parity's r70 reading of the ob6 live set's attack
+        /// divergences: a target beyond Range + both radii at the end of the fire tick let go and rescanned on the next
+        /// Target phase, crown towers 129 of 134 fire ticks, buildings 10 of 14, switching to an enemy in reach with the
+        /// attack progress running on).
+        Client16402AfterMoveBuildingsAndTowers = "client16402_after_move_buildings_and_towers",
     }
 );
 calib_enum!(

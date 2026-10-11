@@ -835,11 +835,22 @@ pub fn chase_inside(calib: &Calib, cards: &CardDb, e: &Entities, a: usize, targe
 }
 
 /// targeting.LAUNCH_BEYOND_POSITION = client15535_after_move: is unit `a` a crown tower whose launch is judged on the next
-/// tick's start positions (its flag set at every launch, `launched_out` reading it)?
+/// tick's start positions (its flag set at every launch, `launched_out` reading it)? Under
+/// client16402_after_move_buildings_and_towers a building's is too.
 #[inline]
 pub fn launch_judged_after_move(calib: &Calib, e: &Entities, a: usize) -> bool {
     #[cfg(not(clash_plant = "launch_judged_on_launch_tick"))]
-    let on = calib.launch_beyond_position == crate::state::LaunchBeyondPosition::Client15535AfterMove && e.kind[a].is_crown_tower();
+    let on = match calib.launch_beyond_position {
+        crate::state::LaunchBeyondPosition::Client15535AfterMove => e.kind[a].is_crown_tower(),
+        // PLANT (regression) launch_judged_towers_only: the new arm still leaves a building out.
+        #[cfg(not(clash_plant = "launch_judged_towers_only"))]
+        crate::state::LaunchBeyondPosition::Client16402AfterMoveBuildingsAndTowers => {
+            e.kind[a].is_crown_tower() || e.kind[a] == crate::entity::EntityKind::Building
+        }
+        #[cfg(clash_plant = "launch_judged_towers_only")]
+        crate::state::LaunchBeyondPosition::Client16402AfterMoveBuildingsAndTowers => e.kind[a].is_crown_tower(),
+        crate::state::LaunchBeyondPosition::StartOfTick => false,
+    };
     // PLANT (regression) launch_judged_on_launch_tick: the new arm still judges the launch on the launch tick's start.
     #[cfg(clash_plant = "launch_judged_on_launch_tick")]
     let on = {

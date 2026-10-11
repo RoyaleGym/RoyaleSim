@@ -14,8 +14,14 @@
 //!   2. start_of_tick (the old arm, the vacuity check): it holds the Knight (launched inside reach, held to reach + 500);
 //!   3. the shipped value is start_of_tick (a 15.535.29 replay runs the new arm: tests/replay_parity.rs pins it).
 //!
+//! A BUILDING (client16402_after_move_buildings_and_towers, a candidate): a Blue Cannon fires at a red Knight held 80 inside
+//! its reach (Range + both radii), the Knight then put 40 past it and one tick run: the new arm lets it go;
+//! client15535_after_move (towers only, the vacuity check) holds it.
+//!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test launch_beyond_position`):
 //!   * `launch_judged_on_launch_tick` -- the new arm still judges the launch on the launch tick: (1) goes red.
+//!   * `launch_judged_towers_only` -- client16402_after_move_buildings_and_towers still leaves a building out: the Cannon's
+//!     test goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -77,4 +83,43 @@ fn the_old_value_holds_it() {
 #[test]
 fn the_shipped_value_is_client15535_after_move() {
     assert_eq!(Calib::shipped().launch_beyond_position, LaunchBeyondPosition::Client15535AfterMove);
+}
+
+/// Under `arm`: whether a Blue Cannon still targets a red Knight on the tick after it fires at it, the Knight held 80 inside
+/// its reach (Range + both radii, straight ahead of it) until the shot and put 40 past it between the two ticks.
+fn cannon_holds(arm: LaunchBeyondPosition) -> bool {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.launch_beyond_position = arm;
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(3, cfg);
+    past_deploy_lockout(&mut s);
+    let at = n(9000, 8500);
+    let cannon = s.scenario_spawn_now(Team::Blue, "Cannon", at, None).expect("the Cannon");
+    let reach = card_stat(&s, "Cannon").range + s.entity(cannon).expect("the Cannon").radius + card_stat(&s, "Knight").collision_radius;
+    let (inside, past) = (Vec2::new(at.x, at.y + reach - 80 * K), Vec2::new(at.x, at.y + reach + 40 * K));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", inside, None).expect("the Knight");
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(knight, inside));
+        let max = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_hp(knight, max));
+        s.tick();
+        let c = s.entity(cannon).expect("the Cannon");
+        if c.target == Some(knight) && c.attack_phase == AttackPhase::Cooldown {
+            assert!(s.debug_set_pos(knight, past));
+            s.tick();
+            return s.entity(cannon).expect("the Cannon").target == Some(knight);
+        }
+    }
+    panic!("{arm:?}: the scene drifted: the Cannon never fired at the Knight");
+}
+
+/// targeting.LAUNCH_BEYOND_POSITION = client16402_after_move_buildings_and_towers: the Cannon lets the Knight go after its
+/// launch, as a crown tower does; under client15535_after_move (towers only, the vacuity check) it holds it; and the tower's
+/// scene is the same under both. Plant: launch_judged_towers_only.
+#[test]
+fn a_building_lets_go_of_a_target_past_reach_after_its_launch_under_client16402_after_move_buildings_and_towers() {
+    assert!(!cannon_holds(LaunchBeyondPosition::Client16402AfterMoveBuildingsAndTowers), "new: the Cannon held the Knight past its reach");
+    assert!(cannon_holds(LaunchBeyondPosition::Client15535AfterMove), "towers only: the Cannon let the Knight go (vacuous otherwise)");
+    assert!(!tower_holds(LaunchBeyondPosition::Client16402AfterMoveBuildingsAndTowers), "new: the tower held the Knight past its reach");
 }
