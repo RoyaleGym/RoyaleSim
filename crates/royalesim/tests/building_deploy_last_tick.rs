@@ -10,7 +10,8 @@
 //! building_deploy_last_tick`):
 //!   - building_waits_countdown -> every test red;
 //!   - tesla_hides_with_target -> `under_client16402_acts_on_last_tick_a_tesla_with_a_target_at_its_deploy_end_stays_up` red;
-//!   - hiders_arm_reads_every_building -> `under_client16402_hiders_only_a_cannon_waits_and_a_tesla_acts` red.
+//!   - hiders_arm_reads_every_building -> `under_client16402_hiders_only_a_cannon_waits_and_a_tesla_acts` red;
+//!   - tesla_hides_with_target -> `under_client16402_hiders_only_a_tesla_with_a_target_at_its_deploy_end_stays_up` red too.
 //!
 //! client16402_hiders_only (parity r71, the live8 set): first attack on the deploy end E + 1 for the Cannon 541 of 568, the
 //! Inferno Tower 44 of 44, the X-Bow 23 of 23, the Mortar 18 of 18, the Bomb Tower 27 of 29, the Goblin Cage 22 of 23; the
@@ -71,8 +72,21 @@ fn under_client16402_acts_on_last_tick_a_cannon_takes_its_target_on_its_deploys_
 /// goes under at its deploy end and takes the Knight a tick later. Plants: building_waits_countdown, tesla_hides_with_target.
 #[test]
 fn under_client16402_acts_on_last_tick_a_tesla_with_a_target_at_its_deploy_end_stays_up() {
+    tesla_stays_up(BuildingDeployLastTick::Client16402ActsOnLastTick);
+}
+
+/// client16402_hiders_only: the Tesla, the hiding building, as under client16402_acts_on_last_tick: it takes the Knight on
+/// + 19 and stays up. Plant: tesla_hides_with_target.
+#[test]
+fn under_client16402_hiders_only_a_tesla_with_a_target_at_its_deploy_end_stays_up() {
+    tesla_stays_up(BuildingDeployLastTick::Client16402HidersOnly);
+}
+
+/// The Tesla scene under `arm`, asserted: the Knight held on + 19, the Tesla up on it from + 20 to + 24; under
+/// after_countdown (the vacuity check) its first target later than + 19.
+fn tesla_stays_up(arm: BuildingDeployLastTick) {
     let mut cfg: BattleConfig = config();
-    cfg.calib.building_deploy_last_tick = BuildingDeployLastTick::Client16402ActsOnLastTick;
+    cfg.calib.building_deploy_last_tick = arm;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let knight_at = n(9000, 12500);

@@ -17228,11 +17228,13 @@ impl BattleState {
         let starts_hidden = self.cfg.calib.hide_starts_hidden;
         #[cfg(clash_plant = "tesla_always_up")]
         let starts_hidden = false; // PLANT (regression): the earlier engine, never under.
-        // combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick: a hiding building that took a target on its
-        // deploy's last tick stays up, its wait full (the client's Teslas attack on their first free frame and stay up).
-        // PLANT (regression) tesla_hides_with_target: the new arm's Tesla still goes under with its target.
+        // combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick or client16402_hiders_only: a hiding building that
+        // took a target on its deploy's last tick stays up, its wait full (the client's Teslas attack on their first free
+        // frame and stay up).
+        // PLANT (regression) tesla_hides_with_target: the new arms' Tesla still goes under with its target.
         #[cfg(not(clash_plant = "tesla_hides_with_target"))]
-        let attacking = self.cfg.calib.building_deploy_last_tick == BuildingDeployLastTick::Client16402ActsOnLastTick && self.ents.target[i].is_some();
+        let attacking = matches!(self.cfg.calib.building_deploy_last_tick, BuildingDeployLastTick::Client16402ActsOnLastTick | BuildingDeployLastTick::Client16402HidersOnly)
+            && self.ents.target[i].is_some();
         #[cfg(clash_plant = "tesla_hides_with_target")]
         let attacking = false;
         if starts_hidden && !attacking {
