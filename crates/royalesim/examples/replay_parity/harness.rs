@@ -1495,8 +1495,9 @@ fn containers_waiting(s: &BattleState) -> Vec<(Team, u16, Vec2)> {
         .collect()
 }
 
-/// The ledger key whose values are one client's (calibration cards.CLIENT16402_VALUES).
-pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
+/// The ledger key whose values are one client's (calibration cards.CLIENT16402_VALUES): the library's, so the harness
+/// and `client_overrides` read one copy.
+pub use royalesim::client_arms::CARD_VALUES_KEY;
 /// The client whose card values that key's arm client16402 carries.
 pub const CARD_VALUES_CLIENT: &str = "16.402";
 

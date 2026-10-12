@@ -510,6 +510,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
 ///   - "15.535" or "15.535.<build>": every `CLIENT15535_ARMS` pair, and cards.CLIENT16402_VALUES at arm none, so the
 ///     card tables' own values run (the Fire Spirits' Hitpoints 85, not the current client's 84). This is what a replay
 ///     of a 15.535.29 capture runs. It was measured on 15.535.29; another 15.535 build is given the same.
+///
 /// Any other client is an error that names the two.
 pub fn client_overrides(client: &str) -> Result<BTreeMap<String, String>, String> {
     let is = |v: &str| {

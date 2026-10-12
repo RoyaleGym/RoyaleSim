@@ -31450,14 +31450,10 @@ impl BattleState {
                     let (territory, _) = deploy_rule(calib, card);
                     let rects = if by_territory { self.enemy_no_deploy_rects(team) } else { Vec::new() };
                     let in_territory = |abs: Vec2| arena.territory_zone(Vec2::new(abs.x * K, abs.y * K), team, territory, &rects).is_ok();
-                    let reflected = |e: Vec2| if by_territory { in_territory(Vec2::new(e.x, h - e.y)) } else { e.y < crate::formation::LINE_OWN_HALF_Y };
-                    let rotated = |e: Vec2| {
-                        if by_territory {
-                            in_territory(if team == Team::Red { Vec2::new(w - e.x, h - e.y) } else { e })
-                        } else {
-                            e.y < crate::formation::LINE_OWN_HALF_Y
-                        }
-                    };
+                    // `abs` is the point `e` of the search's frame in the arena's.
+                    let may_stand = |e: Vec2, abs: Vec2| if by_territory { in_territory(abs) } else { e.y < crate::formation::LINE_OWN_HALF_Y };
+                    let reflected = |e: Vec2| may_stand(e, Vec2::new(e.x, h - e.y));
+                    let rotated = |e: Vec2| may_stand(e, if team == Team::Red { Vec2::new(w - e.x, h - e.y) } else { e });
                     if client_search {
                         let abs = Vec2::new(pos.x / K, pos.y / K);
                         if reflect {
