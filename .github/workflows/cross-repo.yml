@@ -205,6 +205,10 @@ jobs:
         with: { repository: RoyaleGym/RoyaleLearn, path: RoyaleLearn, fetch-depth: 0 }
       - uses: actions/checkout@v4
         with: { repository: RoyaleGym/RoyaleViser, path: RoyaleViser, fetch-depth: 0 }
+      # RoyaleBot is read, not built or tested: the docs link into sections of its README, and RoyaleGym's
+      # test_install_pointers checks each such anchor in the README beside it. Without it the check skips undeclared.
+      - uses: actions/checkout@v4
+        with: { repository: RoyaleGym/RoyaleBot, path: RoyaleBot, fetch-depth: 1 }
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
