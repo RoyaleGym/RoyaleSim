@@ -3,6 +3,13 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.34 (2026-10-13)
+
+- One more setting defaults to the current client's behaviour, measured against its recorded battles: the Little
+  Prince's guard waits one tick longer after its charge lands before it picks a target and moves
+  (`combat.GUARD_FREE_TICK`). The older behaviour stays available as that setting's old value, and `replay_parity`
+  uses it for the older client's battles.
+
 ## 0.1.33 (2026-10-11)
 
 - The Hero Ice Wizard plays on the current client's card table (`calibration_overrides={"cards.CARD_TABLE":
