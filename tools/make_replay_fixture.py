@@ -558,6 +558,18 @@ AN AREA SHOWN AFTER ITS DROP
     EFFECT_DROP_SLACK of its first frame takes one up to AREA_DROP_LOOKBACK ticks before
     it, on a frame no unit deploy explains, and is dated there.
 
+AN AREA FIRST SEEN AFTER A FRAME GAP
+    A cast's area shows on its cast tick, so one first seen after missed frames was dated on
+    its first frame, up to the gap late: live ob13, 6 of the 9 Royal Deliveries first seen
+    after a gap were cast on the missed tick. A single-strike area says better: the Royal
+    Delivery's crate comes `effect_leads` (40 ticks) after its cast and its recruit
+    STRIKE_UNIT_AFTER_TICKS after that; each sighting bounds the cast to its own window
+    shifted back by its lead, and the one tick the area's window and theirs all leave
+    (`area_strike_tick`), inside the gap, is the cast's (Parity's six: the crate on four,
+    the recruit on the two whose crate fell on a missed frame). An area that strikes more
+    than once (a Lightning's bolts come 10, 20 or 30 ticks after) is left on its first
+    frame.
+
 A PULSING SPELL FIRST SEEN AFTER A FRAME GAP
     A Poison's or an Earthquake's area appears on its elixir drop's frame, so a cast first
     seen after missing frames was dated on the first frame after them, up to the gap late,
@@ -2487,6 +2499,53 @@ def effect_leads(card: dict | None) -> list[int]:
     while step > 0 and leads[-1] + step <= life:
         leads.append(leads[-1] + step)
     return [ms // TICK_MS for ms in leads]
+
+
+#: A single-strike area's unit is first shown this many ticks after its strike object (the Royal Delivery's recruit,
+#: the tick after its crate: live, Parity's ob13 census).
+STRIKE_UNIT_AFTER_TICKS = 1
+#: ... looked for within this many ticks after the strike's lead.
+STRIKE_UNIT_SLACK = 10
+
+
+def area_strike_tick(
+    cast: dict, ents: dict, ticks: list[int], side: int, cid: int, leads: list[int]
+) -> tuple[int, str] | None:
+    """AN AREA FIRST SEEN AFTER A FRAME GAP (module doc): the cast tick a single-strike area's witnesses pin, with
+    why; None when the area strikes more than once (a Lightning's bolts come 10, 20 or 30 ticks after), nothing
+    witnesses it, or the witnesses leave more than one tick. Each sighting bounds the cast: the area's own first frame
+    to (previous frame, first frame], its strike object's (the Royal Delivery's crate, `leads`[0] after the cast) and
+    its unit's (the recruit, STRIKE_UNIT_AFTER_TICKS after that) the same window shifted back by their lead; the
+    cast is the one tick all of them leave."""
+    if len(leads) != 1 or leads[0] <= 0:
+        return None
+    lead = leads[0]
+    fi = cast["first_index"]
+    first = ticks[fi]
+    previous = {t: (ticks[i - 1] if i > 0 else None) for i, t in enumerate(ticks)}
+    lo, hi = (ticks[fi - 1] + 1 if fi > 0 else first), first
+    why: list[str] = []
+
+    def witness(f: int, after: int, what: str) -> None:
+        nonlocal lo, hi
+        p = previous.get(f)
+        a, b = (p + 1 if p is not None else f) - after, f - after
+        lo, hi = max(lo, a), min(hi, b)
+        why.append(f"its {what} first seen on {f}" + ("" if p == f - 1 else f" (after {p})") + f": cast in [{a}, {b}]")
+
+    for tr in cast.get("tracks") or []:
+        f = tr.get("first")
+        if f is not None and f > first and f in previous:
+            witness(f, lead, "strike object")
+            break
+    for e in sorted(ents.values(), key=lambda e: e["first_index"]):
+        f = ticks[e["first_index"]]
+        if e["side"] == side and e["card_id"] == cid and first < f <= first + lead + STRIKE_UNIT_SLACK:
+            witness(f, lead + STRIKE_UNIT_AFTER_TICKS, "unit")
+            break
+    if not why or lo != hi:
+        return None
+    return lo, "; ".join(why)
 
 
 def released_by_unit(frames: list[dict], fi: int, side: int, cid: int) -> str | None:
@@ -4781,6 +4840,14 @@ def build(
             tick = tick - flown[0] + 1
         else:
             flown = None
+        # AN AREA FIRST SEEN AFTER A FRAME GAP is dated by its strike (`area_strike_tick`), when that falls in the gap
+        struck = None
+        if cast.get("first_area") and flown is None and fi > 0 and ticks[fi] - ticks[fi - 1] > 1:
+            struck = area_strike_tick(cast, ents, ticks, side, cid, effect_leads(cards_by_name.get(name)))
+            if struck is not None and ticks[fi - 1] < struck[0] < tick:
+                tick = struck[0]
+            else:
+                struck = None
         tap_ix = None
         for ix, t in enumerate(taps):
             if ix in used_taps or t["kind"] != "cast" or t["side"] != side or t["id"] != cid:
@@ -4799,7 +4866,8 @@ def build(
                 if fi > 0 and ticks[fi] - ticks[fi - 1] > 1
                 else ""
             )
-            + (f"; {flown[1]}" if flown is not None else ""),
+            + (f"; {flown[1]}" if flown is not None else "")
+            + (f"; {struck[1]}" if struck is not None else ""),
             "side": side,
             "card": name,
             "card_id": cid,

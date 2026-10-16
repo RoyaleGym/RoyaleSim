@@ -3748,3 +3748,34 @@ def test_a_unit_first_seen_out_of_its_deploy_after_frames_that_did_not_show_it(m
     assert m.refine_spawn_tick(ticks, fi, [(fi, 11), (fi + 1, 11)], 1000, tap_tick=234)[0] == 255
     # a gap a deploy long needs no tap (the rule as it was)
     assert m.refine_spawn_tick([799, 872, 873], 1, [(1, 1), (2, 1)], 1000, tap_tick=None)[:2] == (852, 872)
+
+
+def test_an_area_first_seen_after_a_frame_gap_is_dated_by_its_strike(m):
+    """AN AREA FIRST SEEN AFTER A FRAME GAP: live 20261007-205045 t2889 (frame 2888 missed): the Royal Delivery's
+    crate is first seen on 2928, after a present 2927, so the cast was 2928 - 40 = 2888. Live 20261008-165815 t1841
+    (1840 missed) shows no crate; its recruit is first seen on 1881 after a missed 1880, so the cast was 1839 or 1840,
+    and the area's own window (1840, 1841] leaves 1840. Witnesses that leave two ticks pin nothing, and an area that
+    strikes three times (a Lightning's) is left alone."""
+    ticks = list(range(2880, 2888)) + list(range(2889, 2935))
+    cast = {"first_index": ticks.index(2889), "tracks": [
+        {"first": 2889, "last_seen": 2927, "arrival": 2928},
+        {"first": 2928, "last_seen": 2928, "arrival": 2930},
+    ]}
+    tick, why = m.area_strike_tick(cast, {}, ticks, 1, 28000018, [40])
+    assert tick == 2888, why
+    assert "strike object first seen on 2928" in why
+    assert m.area_strike_tick(cast, {}, ticks, 1, 28000018, [10, 20, 30]) is None, "a Lightning strikes three times"
+    # two missed frames before the area (2887, 2888) and the crate after a missed 2928: [2888, 2889] twice, no pin
+    loose = [t for t in ticks if t not in (2887, 2928)]
+    loose_cast = {"first_index": loose.index(2889), "tracks": [{"first": 2889}, {"first": 2929}]}
+    assert m.area_strike_tick(loose_cast, {}, loose, 1, 28000018, [40]) is None
+    # no crate: the recruit (the card's unit), first seen after a missed frame, still pins it with the area's window
+    ticks2 = list(range(1830, 1840)) + list(range(1841, 1880)) + list(range(1881, 1900))
+    cast2 = {"first_index": ticks2.index(1841), "tracks": [{"first": 1841, "last_seen": 1879, "arrival": 1881}]}
+    ents = {
+        50: {"key": 50, "side": 1, "card_id": 28000018, "first_index": ticks2.index(1881)},
+        51: {"key": 51, "side": 0, "card_id": 28000018, "first_index": ticks2.index(1870)},
+    }
+    tick, why = m.area_strike_tick(cast2, ents, ticks2, 1, 28000018, [40])
+    assert tick == 1840, why
+    assert "unit first seen on 1881 (after 1879)" in why
