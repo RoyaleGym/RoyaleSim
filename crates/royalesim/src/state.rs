@@ -6174,6 +6174,9 @@ calib_enum!(
         /// down beside him turned 190 on its first frame, 5 of 5 (Oracle's sp-hero2-DarkPrince-charge, -melee, -mount,
         /// -still s0 and s1). The engine's stayed 0 in all six.
         Client15535NotCounted = "client15535_not_counted",
+        /// client15535_not_counted, and a Little Prince held by his press (the guard's hold on him: his stand after the
+        /// cast, `guard_hold_on`) counts no heading either (parity's r73 census of the live9 set (client 16.402): every walker whose look circle reached a Little Prince standing after his press (client state 0) turned by the avoidance step with him counted, 3 of 3, exact to the native (061053 t1264, 012840 t2711, 193751 t1850); the engine counted him in 1 of 3 (still inside its cast clock)).
+        Client16402ThroughStand = "client16402_through_stand",
     }
 );
 calib_enum!(
@@ -23945,11 +23948,25 @@ impl BattleState {
             // entry casting, its hold running: `casting_heroes`) steers no neighbour by its heading.
             let mut cast_heading_off = vec![false; cap];
             #[cfg(not(clash_plant = "cast_heading_counted"))]
-            if calib.cast_hold_heading == CastHoldHeading::Client15535NotCounted {
+            if matches!(calib.cast_hold_heading, CastHoldHeading::Client15535NotCounted | CastHoldHeading::Client16402ThroughStand) {
                 for u in self.hero_units.iter().filter(|u| u.casting && e.is_alive(u.id)) {
                     let i = u.id.index as usize;
                     if e.stun_ms[i] > 0 {
                         cast_heading_off[i] = true;
+                    }
+                }
+            }
+            // movement.CAST_HOLD_HEADING = client16402_through_stand: a Little Prince held by his press (the guard's hold buff
+            // on him) steers by no heading through the stand after his cast as well.
+            // PLANT (regression) stand_heading_counted: the new arm still counts his heading once the cast ends.
+            #[cfg(not(clash_plant = "stand_heading_counted"))]
+            if calib.cast_hold_heading == CastHoldHeading::Client16402ThroughStand {
+                for u in self.hero_units.iter().filter(|u| e.is_alive(u.id)) {
+                    let i = u.id.index as usize;
+                    if let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Guard(g), .. }) = self.cfg.cards.get(e.card[i]).ability {
+                        if e.buff_slots(i).iter().any(|s| s.id == g.hold.buff + 1) {
+                            cast_heading_off[i] = true;
+                        }
                     }
                 }
             }
