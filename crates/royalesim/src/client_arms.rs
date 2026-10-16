@@ -338,7 +338,6 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   status.WARP_BACK_CLOAK = with_the_trigger: the Boss Bandit cloaked on her trigger (its holders unread there).
 ///   combat.DASH_IMMUNE_HITS = discarded: a shot on a dash-immune unit dropped (combat.DASH_ATTACK's measurement there).
 ///   spells.LIVE_SPAWN_AREA_BIRTH = seen_on_birth_tick: a live spawn in its birth tick's area scans (unread there).
-///   movement.CAST_HOLD_HEADING = client15535_not_counted: the caster's heading off through the cast alone (sp-sk-souls-own-s0).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -507,7 +506,6 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("status.WARP_BACK_CLOAK", "\"with_the_trigger\""),
     ("combat.DASH_IMMUNE_HITS", "\"discarded\""),
     ("spells.LIVE_SPAWN_AREA_BIRTH", "\"seen_on_birth_tick\""),
-    ("movement.CAST_HOLD_HEADING", "\"client15535_not_counted\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
