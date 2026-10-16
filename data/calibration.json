@@ -3435,6 +3435,16 @@
     ]
   },
   "spells": {
+    "LIVE_SPAWN_AREA_BIRTH": {
+      "value": "seen_on_birth_tick",
+      "status": "measured",
+      "candidates": ["seen_on_birth_tick", "client16402_unseen_on_birth_tick"],
+      "confidence": "HIGH for client16402_unseen_on_birth_tick on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): a live spawn born on a Poison's scan tick b took its first pulse on b + 25 in 59 of 63 (Witch 53 of 57, Goblin Hut 4 of 4, Tombstone 2 of 2; the other 4 were hit sooner by other sources), the engine's on b + 20 in 34 of 35; births on the other phases, death spawns and hand-played summons agree (87 of 88, 9 of 9, 13 of 13). A candidate until scored. Measured on the Poison alone (an Arrows census was too noisy to call). Client 15.535.29 keeps seen_on_birth_tick (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): a live spawn born on a Poison's scan tick b took its first pulse on b + 25 in 59 of 63 (Witch 53 of 57, Goblin Hut 4 of 4, Tombstone 2 of 2; the other 4 were hit sooner by other sources), the engine's on b + 20 in 34 of 35; births on the other phases, death spawns and hand-played summons agree (87 of 88, 9 of 9, 13 of 13).",
+      "meaning": "seen_on_birth_tick: the engine's; a unit a live spawner (spawner_pass, the Move phase) makes on tick b is in b's area scans, the spells stepping after it, so a Poison scanning on b applies on b and its first pulse comes on b + 20. client16402_unseen_on_birth_tick: a pulsing area's application on b does not reach a unit a live spawner made on b (entity.rs spawned_by set, spawn_tick b); the next scan, b + 5 for the Poison, applies, and the first pulse comes on b + 25. Hand-played summons and death spawns are unchanged.",
+      "open": "Other pulsing areas, one-shot spells and tower scans on a live spawn's birth tick; client 15.535.29.",
+      "engine": "spell.rs impact (the pulsing area's victim loop), selected by Calib::live_spawn_area_birth; tests/spawner.rs."
+    },
     "PULSING_AREA_LIFE": {
       "value": "client16402_last_update_inclusive",
       "status": "measured",

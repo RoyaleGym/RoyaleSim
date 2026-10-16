@@ -337,6 +337,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   formation.LINE_TERRITORY = own_half: a line's place on its owner's half (unread there).
 ///   status.WARP_BACK_CLOAK = with_the_trigger: the Boss Bandit cloaked on her trigger (its holders unread there).
 ///   combat.DASH_IMMUNE_HITS = discarded: a shot on a dash-immune unit dropped (combat.DASH_ATTACK's measurement there).
+///   spells.LIVE_SPAWN_AREA_BIRTH = seen_on_birth_tick: a live spawn in its birth tick's area scans (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -504,6 +505,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("formation.LINE_TERRITORY", "\"own_half\""),
     ("status.WARP_BACK_CLOAK", "\"with_the_trigger\""),
     ("combat.DASH_IMMUNE_HITS", "\"discarded\""),
+    ("spells.LIVE_SPAWN_AREA_BIRTH", "\"seen_on_birth_tick\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

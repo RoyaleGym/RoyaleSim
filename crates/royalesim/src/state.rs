@@ -877,6 +877,10 @@ pub struct Calib {
     /// `Discarded`, what a battle saved before it ran.
     #[serde(default = "dash_immune_hits_default")]
     pub dash_immune_hits: DashImmuneHits,
+    /// spells.LIVE_SPAWN_AREA_BIRTH (whether a pulsing area's application reaches a unit a live spawner made on that tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `SeenOnBirthTick`, what a battle saved before it ran.
+    #[serde(default = "live_spawn_area_birth_default")]
+    pub live_spawn_area_birth: LiveSpawnAreaBirth,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2715,6 +2719,10 @@ fn warp_back_cloak_default() -> WarpBackCloak {
 
 fn dash_immune_hits_default() -> DashImmuneHits {
     DashImmuneHits::Discarded
+}
+
+fn live_spawn_area_birth_default() -> LiveSpawnAreaBirth {
+    LiveSpawnAreaBirth::SeenOnBirthTick
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9764,6 +9772,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.LIVE_SPAWN_AREA_BIRTH -- a live spawner's newborn and the pulsing areas of its birth tick (spell.rs `impact`;
+    /// entity.rs `spawned_by`, `spawn_tick`).
+    LiveSpawnAreaBirth {
+        /// The engine's: the newborn is in the tick's area scan (the spawner pass runs before the spells).
+        SeenOnBirthTick = "seen_on_birth_tick",
+        /// Client 16.402: a unit a live spawner made this tick is not in this tick's pulsing-area scans.
+        Client16402UnseenOnBirthTick = "client16402_unseen_on_birth_tick",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10296,6 +10314,7 @@ impl Calib {
             line_territory: pick(&v, &["formation", "LINE_TERRITORY", "value"], LineTerritory::from_calibration_name)?,
             warp_back_cloak: pick(&v, &["status", "WARP_BACK_CLOAK", "value"], WarpBackCloak::from_calibration_name)?,
             dash_immune_hits: pick(&v, &["combat", "DASH_IMMUNE_HITS", "value"], DashImmuneHits::from_calibration_name)?,
+            live_spawn_area_birth: pick(&v, &["spells", "LIVE_SPAWN_AREA_BIRTH", "value"], LiveSpawnAreaBirth::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -36890,6 +36909,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_IMMUNE_HITS: Calib gained dash_immune_hits (serde default the old arm, discarded), Projectile gained `held` (serde default false, hashed only when set),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.LIVE_SPAWN_AREA_BIRTH: Calib gained live_spawn_area_birth (serde default the old arm, seen_on_birth_tick), no new state (it reads spawned_by and spawn_tick),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37871,6 +37892,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("warp_back_cloak".into(), serde_json::to_value(WarpBackCloak::WithTheTrigger).map_err(|e| e.to_string())?);
     // combat.DASH_IMMUNE_HITS: a format-3 battle dropped every shot on a dash-immune unit.
     sh.insert("dash_immune_hits".into(), serde_json::to_value(DashImmuneHits::Discarded).map_err(|e| e.to_string())?);
+    // spells.LIVE_SPAWN_AREA_BIRTH: a format-3 battle's areas saw a live spawner's newborn on its birth tick.
+    sh.insert("live_spawn_area_birth".into(), serde_json::to_value(LiveSpawnAreaBirth::SeenOnBirthTick).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

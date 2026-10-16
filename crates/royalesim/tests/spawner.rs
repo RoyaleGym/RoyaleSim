@@ -1644,3 +1644,69 @@ fn under_buffed_a_zap_holds_a_tombstone_by_its_stun_under_either_stun_pauses_arm
     let through = zapped_tombstone(cfg(SpawnSpawnerSpawnSpeed::TickMs, false), zap_at, horizon);
     assert_eq!(through, control, "tick_ms with the pause rule off: the cadence ignores the Zap");
 }
+
+/// A Blue Goblin Hut under a Red Poison cast on it `off` ticks after the hut came out, under spells.LIVE_SPAWN_AREA_BIRTH =
+/// `arm`: each Blue unit the hut makes in the cloud's life, (its birth tick, its first hp loss after it) by its creation.
+///
+/// THE WAKER: the hut's controller (state.rs `life_state_pass`, `life_wave`) releases a wave only while an enemy is in its
+/// reach (a troop at centre - r <= 7000, tests/goblin_hut.rs); alone it sleeps and makes nothing. A Red Knight held 4,500
+/// north at full hp wakes it, and never comes within melee reach of a wave (they throw from 5,000 inside the cloud), so
+/// nothing but the Poison takes a wave's hp.
+fn hut_under_poison(arm: royalesim::state::LiveSpawnAreaBirth, off: u32) -> Vec<(u32, u32)> {
+    let mut cfg = config();
+    cfg.calib.live_spawn_area_birth = arm;
+    let mut s = royalesim::state::BattleState::new(3, cfg);
+    let k = royalesim::fixed::SUBTILE_PER_MILLITILE;
+    let at = royalesim::fixed::Vec2::new(9000 * k, 8000 * k);
+    let k_at = royalesim::fixed::Vec2::new(9000 * k, 12500 * k);
+    let knight = s.scenario_spawn_now(royalesim::Team::Red, "Knight", k_at, None).expect("the Knight");
+    let hut = s.scenario_spawn_now(royalesim::Team::Blue, "GoblinHut", at, None).expect("the Goblin Hut");
+    let hold = |s: &mut royalesim::state::BattleState| {
+        let full = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(knight, k_at) && s.debug_set_hp(knight, full));
+    };
+    for _ in 0..(60 + off) {
+        hold(&mut s);
+        s.tick();
+    }
+    s.spawn_unit(royalesim::Team::Red, "Poison", at, None).expect("the Poison");
+    let (mut born, mut hp): (Vec<(royalesim::EntityId, u32)>, std::collections::BTreeMap<royalesim::EntityId, i32>) = (Vec::new(), Default::default());
+    let mut first: std::collections::BTreeMap<royalesim::EntityId, u32> = Default::default();
+    for _ in 0..200 {
+        hold(&mut s);
+        s.tick();
+        let t = s.tick_count() - 1;
+        for e in s.entities().filter(|e| e.team == royalesim::Team::Blue && e.id != hut && e.kind == royalesim::entity::EntityKind::Troop) {
+            if !hp.contains_key(&e.id) {
+                born.push((e.id, t));
+            } else if e.hp < hp[&e.id] && !first.contains_key(&e.id) {
+                first.insert(e.id, t);
+            }
+            hp.insert(e.id, e.hp);
+        }
+    }
+    born.iter().filter_map(|(id, b)| first.get(id).map(|f| (*b, f - b))).collect()
+}
+
+/// spells.LIVE_SPAWN_AREA_BIRTH = client16402_unseen_on_birth_tick (client 16.402, parity's r73 census: a live spawn born on a
+/// Poison's scan tick took its first pulse on its birth + 25, 59 of 63; the engine's on + 20): over five cast offsets every
+/// hut-made unit's first loss is the same under both arms, or moves from its birth + 20 to + 25; at least one moves. Plant:
+/// live_spawn_seen_on_birth.
+#[test]
+fn under_client16402_unseen_on_birth_tick_a_live_spawn_born_on_a_scan_tick_takes_its_first_pulse_a_scan_later() {
+    use royalesim::state::LiveSpawnAreaBirth;
+    let mut moved = 0;
+    for off in 0..5 {
+        let old = hut_under_poison(LiveSpawnAreaBirth::SeenOnBirthTick, off);
+        assert!(!old.is_empty(), "off {off}: the scene drifted: the hut made no unit in the cloud's life");
+        let new = hut_under_poison(LiveSpawnAreaBirth::Client16402UnseenOnBirthTick, off);
+        assert_eq!(old.iter().map(|r| r.0).collect::<Vec<_>>(), new.iter().map(|r| r.0).collect::<Vec<_>>(), "off {off}: the births differ ({old:?}, {new:?})");
+        for (o, n) in old.iter().zip(new.iter()) {
+            if o.1 != n.1 {
+                assert_eq!((o.1, n.1), (20, 25), "off {off}: born {}, first loss + {} -> + {}", o.0, o.1, n.1);
+                moved += 1;
+            }
+        }
+    }
+    assert!(moved > 0, "vacuous: no hut-made unit was born on a scan tick over five offsets");
+}

@@ -1049,9 +1049,20 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
     // (unmeasured).
     let barrage = ctx.cards.get(card).evo.as_ref().and_then(|v| v.barrage.as_ref());
     let mark = barrage.and(hit.buff).map(|b| b.buff);
+    // spells.LIVE_SPAWN_AREA_BIRTH = client16402_unseen_on_birth_tick: a pulsing area's application does not reach a unit a
+    // live spawner made this tick (the client adds it after the tick's area update). Measured on client 16.402 (parity r73):
+    // a live spawn born on a Poison's scan tick took its first pulse on its birth + 25, 59 of 63; the engine's on + 20.
+    // PLANT (regression) live_spawn_seen_on_birth: the new arm still reaches the newborn.
+    #[cfg(not(clash_plant = "live_spawn_seen_on_birth"))]
+    let skip_newborn = area.is_some() && ctx.calib.live_spawn_area_birth == crate::state::LiveSpawnAreaBirth::Client16402UnseenOnBirthTick;
+    #[cfg(clash_plant = "live_spawn_seen_on_birth")]
+    let skip_newborn = false;
     for &v in nb.iter() {
         let v = v as usize;
         if !eligible(e, v, team, hit, ctx.calib) {
+            continue;
+        }
+        if skip_newborn && e.spawned_by[v].is_some() && e.spawn_tick[v] == ctx.tick {
             continue;
         }
         if let Some(m) = mark {
