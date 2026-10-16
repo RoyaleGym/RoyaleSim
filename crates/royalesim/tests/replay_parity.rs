@@ -1577,3 +1577,56 @@ fn a_pool_registered_a_tick_early_pairs_on_its_points_on_the_groups_frame() {
     assert_eq!(pairs(pair_groups_hp_at(&truth, &sim, &[], &[], PAIR_WINDOW_TICKS, &on_1143)), vec![(0, 0), (1, 1)], "on the frame's points");
     assert_eq!(pairs(pair_groups(&truth, &sim, PAIR_WINDOW_TICKS)), vec![(0, 1), (1, 0)], "on the registration points (the vacuity check)");
 }
+
+/// THE MEMBERS' TILE (`members_point`; Sim's r74 contract 8): on open ground, where the engine keeps the tap on its tile, a row
+/// carrying members_tile is laid on it; without the field, on the tap's tile; where the engine relocates the tap (the own king's
+/// tile under placement.TROOP_TOWER_TAPS = half_open_relocate), the field is not played. Plant: replay_members_tile_unread.
+#[test]
+fn a_members_tile_is_played_only_where_the_engine_keeps_the_tap_on_its_tile() {
+    use royalesim::state::{BattleState, TapSnap, TroopTowerTaps};
+    let k = royalesim::fixed::SUBTILE_PER_MILLITILE;
+    let mut cfg = common::config();
+    cfg.calib.placement_troop_tower_taps = TroopTowerTaps::HalfOpenRelocate;
+    cfg.calib.placement_tap_snap = TapSnap::TileCentre;
+    let db = common::cards();
+    let s = BattleState::new(1, cfg);
+    let row = |tap: [i32; 2], extra: &str| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 603, "side": 0, "card": "Skeletons", "card_id": 26000010, "kind": "troop", "level": 11, "count": 3,
+                "pos": [{}, {}], "source": "tap_tile", "tap": {{"tick": 577, "native": [{}, {}], "cycled": true}}{extra}}}"#,
+            tap[0], tap[1], tap[0], tap[1]
+        ))
+        .expect("a deploy parses")
+    };
+    let tile_x = |p: Vec2| (p.x / k).div_euclid(1000);
+    let open = resolve_on_board(&s, &db, &row([9500, 8500], r#", "members_tile": [11500, 8500]"#)).expect("Skeletons load");
+    assert_eq!(tile_x(open), 11, "open ground: the members' tile is not played ({open:?})");
+    let bare = resolve_on_board(&s, &db, &row([9500, 8500], "")).expect("Skeletons load");
+    assert_eq!(tile_x(bare), 9, "no members' tile: the tap's tile ({bare:?})");
+    let king = resolve_on_board(&s, &db, &row([8500, 1500], r#", "members_tile": [12500, 4500]"#)).expect("Skeletons load");
+    let king_bare = resolve_on_board(&s, &db, &row([8500, 1500], "")).expect("Skeletons load");
+    assert_eq!(king, king_bare, "a relocated tap: the members' tile was played over the engine's relocation");
+}
+
+/// THE TRUTH'S UNREAD HP (`hp_read`; Sim's r74 contract 4): -1 on an entity with hitpoints is not read; a value, and -1 on
+/// an entity with none (max hp below 0), are. The committed sample carries no unread frame. Plant: replay_scores_unread_hp.
+#[test]
+fn an_hp_of_minus_one_on_a_unit_with_hitpoints_is_not_scored() {
+    assert!(!hp_read(-1, 400), "an overheal's -1 was read");
+    assert!(hp_read(0, 400) && hp_read(399, 400), "a value was not read");
+    assert!(hp_read(-1, -1), "a dummy's -1 (no hitpoints) was not read");
+    let r = play(&sample());
+    assert_eq!(r.score.hp_unread, 0, "the sample's frames are all read");
+}
+
+/// THE RNG COLUMN'S BUILDS (Sim's r74 contract 11): a fixture's rng written by client 160402012 or 160402020 is read, as
+/// 160402017's is; another algorithm is not.
+#[test]
+fn the_rng_column_of_the_current_builds_is_read() {
+    for build in ["160402012", "160402017", "160402020"] {
+        let c: RngColumn = serde_json::from_str(&format!(r#"{{"algorithm": "client_xorshift32_v{build}", "first": [10, 12345]}}"#)).expect("a column parses");
+        assert_eq!(c.state_after(10), Some(12345), "build {build}: the column not read");
+    }
+    let c: RngColumn = serde_json::from_str(r#"{"algorithm": "client_lcg_v160402020", "first": [10, 12345]}"#).expect("a column parses");
+    assert_eq!(c.state_after(10), None, "another algorithm was read");
+}

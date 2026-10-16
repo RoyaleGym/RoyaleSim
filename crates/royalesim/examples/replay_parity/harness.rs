@@ -231,6 +231,12 @@ pub struct Deploy {
     /// "base" row of a VARIANT card, the unit card the play put down (MergeMaiden_Mounted), which it spawns too.
     #[serde(default)]
     pub form_row: Option<String>,
+    /// THE MEMBERS' TILE (tools/make_replay_fixture.py; Sim's r74 contract 8): the tile centre, native, a multi-member play's
+    /// members stood on on their first frame, written when it is a tile or more from the tap (the maker matched another tap,
+    /// or the tap was dragged); `pos` stays the tap. Played in the tap's place where the engine keeps the tap on its tile
+    /// (`members_point`). Absent elsewhere.
+    #[serde(default)]
+    pub members_tile: Option<[i32; 2]>,
 }
 
 /// The card a Mirror play copied, as the fixture maker names it (tools/make_replay_fixture.py `mirror_plays`).
@@ -421,10 +427,49 @@ pub fn resolve_tick(d: &Deploy) -> Option<u32> {
 /// must not move again. None for a card this CardDb does not hold.
 pub fn resolve_on_board(s: &BattleState, db: &CardDb, d: &Deploy) -> Option<Vec2> {
     let idx = db.index(&deploy_play(d, db))?;
-    let pp = scenario_troop_tap(s, db, d).unwrap_or_else(|| play_point(d));
+    let pp = members_point(s, db, d, scenario_troop_tap(s, db, d).unwrap_or_else(|| play_point(d)));
     let p = from_native(pp[0], pp[1]);
     let team = team_of(d.side);
     Some(if observed_row(d, db) { s.resolve_observed_point(team, idx, p) } else { s.resolve_point(team, idx, p) })
+}
+
+/// THE TRUTH'S HP IS READ (Sim's r74 contract 4): a truth hp of -1 on an entity whose max hp is not below 0 is the reader's
+/// overheal (an Evo Bat, the Evo Witch, the Evo PEKKA above their max; ob12 has 215k such frames), not a value, and is not
+/// scored; an entity with no hitpoints (max hp below 0) is scored as before. Plant: replay_scores_unread_hp.
+pub fn hp_read(truth_hp: i32, max_hp: i32) -> bool {
+    #[cfg(clash_plant = "replay_scores_unread_hp")]
+    {
+        let _ = (truth_hp, max_hp);
+        return true; // PLANT (regression): every frame's hp scored, -1 included.
+    }
+    #[allow(unreachable_code)]
+    {
+        truth_hp >= 0 || max_hp < 0
+    }
+}
+
+/// THE MEMBERS' TILE IN THE TAP'S PLACE (`Deploy::members_tile`; Sim's r74 contract 8): where the engine's placement keeps
+/// the play point `pp` on its own tile (it does not relocate it), the play is laid at the members' tile; where it relocates
+/// it, `pp` is played as before, so the engine's relocation law stays tested (9 of ob12's 14 rows). Plant:
+/// replay_members_tile_unread.
+pub fn members_point(s: &BattleState, db: &CardDb, d: &Deploy, pp: [i32; 2]) -> [i32; 2] {
+    #[cfg(clash_plant = "replay_members_tile_unread")]
+    {
+        let _ = (s, db, d);
+        return pp; // PLANT (regression): the tap, whatever the members' tile.
+    }
+    #[allow(unreachable_code)]
+    let Some(mt) = d.members_tile else { return pp };
+    let Some(idx) = db.index(&deploy_play(d, db)) else { return pp };
+    let tap = from_native(pp[0], pp[1]);
+    let team = team_of(d.side);
+    let resolved = if observed_row(d, db) { s.resolve_observed_point(team, idx, tap) } else { s.resolve_point(team, idx, tap) };
+    let tile = |p: Vec2| (p.x.div_euclid(SUBTILE), p.y.div_euclid(SUBTILE));
+    if tile(resolved) == tile(tap) {
+        mt
+    } else {
+        pp
+    }
 }
 
 /// THE TAP A SCENARIO BUILDING ROW IS LAID FROM, native: the row's `tap` when it is an [x, y] pair (a scenario row), the
@@ -586,7 +631,7 @@ pub struct RngColumn {
 /// its recorded states replay exactly under it (Oracle's 017 specials: the Skeleton King's soul ring, 7 of 7 state
 /// changes in every sk-souls scene, every copy not moved off the river on its point). Until this listed it, every 017
 /// fixture's column was read as another algorithm and its draws were the engine's own.
-pub const RNG_ALGORITHM_TAILS: [&str; 2] = ["_xorshift32_v150535029", "_xorshift32_v160402017"];
+pub const RNG_ALGORITHM_TAILS: [&str; 4] = ["_xorshift32_v150535029", "_xorshift32_v160402017", "_xorshift32_v160402012", "_xorshift32_v160402020"];
 
 impl RngColumn {
     /// The state after frame `tick`: the latest recorded at or before it; None before the first frame or under another
@@ -1074,6 +1119,9 @@ pub struct Score {
     /// Unit-ticks on frames after the engine declared the battle over (its state is
     /// frozen from there; the recording goes on).
     pub after_engine_end: u64,
+    /// Both-alive unit-ticks whose truth hp is unread (`hp_read`: -1 on an entity with hitpoints, the reader's overheal on
+    /// the Evo Bats, the Evo Witch, the Evo PEKKA): neither hp_exact nor hp_abs_delta reads them.
+    pub hp_unread: u64,
 }
 
 impl Score {
@@ -1087,6 +1135,7 @@ impl Score {
         }
         self.hp_exact += o.hp_exact;
         self.hp_abs_delta += o.hp_abs_delta;
+        self.hp_unread += o.hp_unread;
         self.target_match += o.target_match;
         self.target_unrecorded += o.target_unrecorded;
         self.path_n_match += o.path_n_match;
@@ -2029,7 +2078,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let (resolved_on, pos) = match resolved.get(i) {
                     Some(&(t, p)) => (Some(t), p),
                     None => {
-                        let p = scenario_troop_tap(&s, db, d).unwrap_or_else(|| play_point(d));
+                        let p = members_point(&s, db, d, scenario_troop_tap(&s, db, d).unwrap_or_else(|| play_point(d)));
                         (None, from_native(p[0], p[1]))
                     }
                 };
@@ -2183,7 +2232,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         }
         let tg: Vec<(u32, Vec<Option<Vec2>>)> = truth_groups_of.iter().map(|(t, v)| (*t, v.iter().map(|&tk| truth.row(tk, truth.first_index(tk)).map(|r| from_native(r.x, r.y))).collect())).collect();
         let sp: Vec<(u32, Vec<Vec2>)> = sim_pools.iter().map(|(t, v)| (*t, v.iter().map(|&sk| sim[sk].first_pos).collect())).collect();
-        let th: Vec<Vec<Option<i32>>> = truth_groups_of.iter().map(|(_, v)| v.iter().map(|&tk| truth.row(tk, truth.first_index(tk)).map(|r| r.hp)).collect()).collect();
+        let th: Vec<Vec<Option<i32>>> = truth_groups_of.iter().map(|(_, v)| v.iter().map(|&tk| truth.row(tk, truth.first_index(tk)).map(|r| r.hp).filter(|h| *h >= 0)).collect()).collect();
         let sh: Vec<Vec<i32>> = sim_pools.iter().map(|(_, v)| v.iter().map(|&sk| sim[sk].first_hp).collect()).collect();
         // A POOL MET ON ITS GROUP'S FRAME: a pool registered on another tick than its truth group's first frame is compared
         // where its members stand on that frame (the sim's snapshot of it), where it has one; two members crossing between
@@ -2332,12 +2381,17 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                             }
                         }
                     }
-                    if sr.hp == tr.hp {
-                        sc.hp_exact += 1;
+                    let read = hp_read(tr.hp, e.max_hp);
+                    if read {
+                        if sr.hp == tr.hp {
+                            sc.hp_exact += 1;
+                        } else {
+                            st.2 = Some(t);
+                        }
+                        sc.hp_abs_delta += (sr.hp - tr.hp).unsigned_abs() as u64;
                     } else {
-                        st.2 = Some(t);
+                        sc.hp_unread += 1;
                     }
-                    sc.hp_abs_delta += (sr.hp - tr.hp).unsigned_abs() as u64;
                     // target by matched key
                     match tr.target {
                         None => sc.target_unrecorded += 1,
@@ -2380,7 +2434,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                             detail: cause.1,
                         });
                     }
-                    st.0 = Some(sr.hp - tr.hp);
+                    if read {
+                        st.0 = Some(sr.hp - tr.hp);
+                    }
                 }
                 (Some(_), None) | (None, Some(_)) => {
                     sc.unit_ticks += 1;
