@@ -3723,16 +3723,14 @@
     },
     "AOE_HIT_TEST": {
       "value": "edge_inclusive",
-      "status": "guess",
-      "confidence": "LOW",
-      "provenance": "Engine convention (globals ADD_CHARACTER_RANGE_TO_RADIUS and combat.rs splash): a victim is hit when centre distance <= radius + its collision radius. Nothing public states whether spell areas measure to the hitbox edge or the centre. One key for projectile-spell impacts AND one-shot area effects (the spec's spells.AOE_HIT_TEST and aoe.RADIUS_GEOMETRY ask the same question).",
-      "candidates": [
-        "edge_inclusive",
-        "centre_in_radius"
-      ],
+      "status": "measured",
+      "confidence": "HIGH for edge_inclusive on client 16.402 (parity r74 batch 6, 2026-10-16; Sim's 19-0 reading reproduced fit-free): of the 230 ob13 Zaps that hit a troop, 19 separate the arms and edge_inclusive explains 19 of 19, centre_in_radius 0 of 19 (207 fit both, 4 neither). Measured on the Zap's one-shot area against troops; projectile-spell impacts and pulsing areas read the same key unmeasured. Client 15.535.29: unmeasured (one value for both clients).",
+      "provenance": "MEASURED by parity (2026-10-16, r74 batch 6) on client 16.402, the ob13 set (728 playable battles, maker 557fca83). Every ob13 Zap is a cost_only row whose pos is the maker's own edge-inclusive tile fit, so the test is fit-free: per Zap, the enemy troops (no buildings, towers or shields) that lost its level's damage on its damage frame (hit) and those near that did not (spared), and for each arm whether any tile centre (x, y = 500 + 1000 k) reaches every hit troop and no spared one, on the positions of the frame before the damage. 230 Zaps hit a troop: 207 fit both arms, 19 only edge_inclusive (centre distance <= 2500 + the troop's collision radius), 0 only centre_in_radius, 4 neither (on the damage frame's positions 208, 19, 0, 3; with any aim on a 250-native grid 13 and 15 only edge, 0 only centre). E.g. liveplay-20261011-233805-A's Zap on t3558 (7 hit, 1 spared), liveplay-20261012-025522-A t2369 (9 hit), liveplay-20261007-113846-A t1392 (9 hit, 4 spared). The earlier reading: Engine convention (globals ADD_CHARACTER_RANGE_TO_RADIUS and combat.rs splash): a victim is hit when centre distance <= radius + its collision radius. Nothing public states whether spell areas measure to the hitbox edge or the centre. One key for projectile-spell impacts AND one-shot area effects (the spec's spells.AOE_HIT_TEST and aoe.RADIUS_GEOMETRY ask the same question).",
+      "candidates": ["edge_inclusive", "centre_in_radius"],
       "promotion_rules": "Cast Zap with its centre 2.6-3.0 tiles from a stationary enemy Cannon (radius 0.6): hit and stunned under edge_inclusive, untouched under centre_in_radius.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json); a candidate without an engine implementation is refused at load, never silently substituted",
-      "globals_role": "context"
+      "engine": "spell.rs impact and the step_spells area picks (the reach e.radius[v] under EdgeInclusive), selected by Calib::aoe_hit_test; tests/spells.rs aoe_radius_edge_is_inclusive_to_the_subtile_under_the_registry (plant aoe_centre_to_centre).",
+      "globals_role": "context",
+      "open": "Projectile-spell impacts (Fireball, Arrows), pulsing areas, client 15.535.29."
     },
     "BUILDING_SPELL_REACH": {
       "value": "client_square_radius_strict",
