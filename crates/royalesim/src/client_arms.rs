@@ -370,6 +370,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.AREA_EFFECT_ON_HIT = not_read: AreaEffectOnHit unread there (the Evo Royal Giant's Freeze measured inert).
 ///   spells.SPAWN_AREA_FIRST_PULSE = frequency_less_tick: the spawn heal on her first frame + 4, 9, 14, 19 (measured there).
 ///   spells.STRIKE_DUE = clock_at_or_below_zero: the Royal Delivery's crate on C + 39 (7 casts); 16.402's on C + 40 (ob13).
+///   combat.GUARD_WATER_LANDING = in_water: the guard stands where its charge ends (unread on 15.535.29).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -570,6 +571,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.AREA_EFFECT_ON_HIT", "\"not_read\""),
     ("spells.SPAWN_AREA_FIRST_PULSE", "\"frequency_less_tick\""),
     ("spells.STRIKE_DUE", "\"clock_at_or_below_zero\""),
+    ("combat.GUARD_WATER_LANDING", "\"in_water\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

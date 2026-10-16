@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -1124,4 +1124,72 @@ fn under_client16402_through_landing_ticks_his_guards_push_rearms_after_its_arri
         }
     }
     assert!(farther > 0, "client16402_through_landing_ticks: the Knight never pushed farther after the arrival (point, arrival, old, new): {seen:?}");
+}
+
+/// The shipped config (the 16.402 charge: cell aim, the birth behind him, held through the arrival + 1) under `arm`: the point
+/// the guard's charge ends on with the Little Prince held on `at` (as `charge_end_at` finds it: after its last step over
+/// 150), and whether that point is off water.
+fn guard_end_live(arm: GuardWaterLanding, at: (i32, i32)) -> ((i32, i32), bool) {
+    let mut cfg = config();
+    cfg.calib.guard_water_landing = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let lp = s.scenario_spawn_now(Team::Blue, "LittlePrince", n(at), None).expect("the Little Prince");
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(lp, n(at)));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut pts: Vec<(i32, i32)> = Vec::new();
+    for _ in 0..60 {
+        assert!(s.debug_set_pos(lp, n(at)));
+        s.tick();
+        if let Some(e) = find_live(&s, Team::Blue, "ChampionGuard").first() {
+            pts.push((e.pos.x / K, e.pos.y / K));
+        }
+    }
+    let mut end = *pts.first().expect("a guard");
+    let mut charging = false;
+    for w in pts.windows(2) {
+        let (dx, dy) = ((w[1].0 - w[0].0) as i64, (w[1].1 - w[0].1) as i64);
+        if dx * dx + dy * dy > 150 * 150 {
+            charging = true;
+            end = w[1];
+        } else if charging {
+            break;
+        }
+    }
+    (end, s.config().arena.is_valid_position(n(end)))
+}
+
+/// combat.GUARD_WATER_LANDING = client16402_nearest_land_lattice (client 16.402, parity r75, live13: 41 of 41 water landings
+/// on the lattice, 1092 of 1092 land landings unmoved): from (6777, 13222) his charge's cell aim, (6750, 16250), lies in the
+/// river; the old arm leaves the guard there; the new arm puts him on the nearest point of the landing's 250-odd lattice off
+/// water (every nearer lattice point water; ties to the lower y, then x). From AT (a land aim) both arms agree. The vacuity
+/// check: the old arm's end is water. Plant: guard_lands_in_water.
+#[test]
+fn under_client16402_nearest_land_lattice_a_guard_landing_in_the_river_stands_on_the_nearest_land_point() {
+    let at = (6777, 13222);
+    let (old, old_land) = guard_end_live(GuardWaterLanding::InWater, at);
+    assert!(!old_land && (15000..17000).contains(&old.1), "the scene: the old arm lands in the river ({old:?})");
+    let (new, new_land) = guard_end_live(GuardWaterLanding::Client16402NearestLandLattice, at);
+    assert!(new_land, "client16402_nearest_land_lattice: the guard stands on water ({new:?})");
+    let (dx, dy) = (new.0 - old.0, new.1 - old.1);
+    assert!(dx % 500 != 0 && dx % 250 == 0 && dy % 500 != 0 && dy % 250 == 0, "not on the landing's lattice: ({dx}, {dy})");
+    let s = BattleState::new(0, config());
+    let d2 = |x: i32, y: i32| i64::from(x) * i64::from(x) + i64::from(y) * i64::from(y);
+    for i in -6..6 {
+        for j in -6..6 {
+            let (ox, oy) = (250 * (2 * i + 1), 250 * (2 * j + 1));
+            if (d2(ox, oy), old.1 + oy, old.0 + ox) < (d2(dx, dy), new.1, new.0) {
+                assert!(!s.config().arena.is_valid_position(n((old.0 + ox, old.1 + oy))), "a nearer land point ({ox}, {oy}) than ({dx}, {dy})");
+            }
+        }
+    }
+    let (land_old, _) = guard_end_live(GuardWaterLanding::InWater, AT);
+    assert_eq!(guard_end_live(GuardWaterLanding::Client16402NearestLandLattice, AT).0, land_old, "a land landing moved");
 }

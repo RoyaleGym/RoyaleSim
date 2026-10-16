@@ -1844,6 +1844,16 @@
     }
   },
   "combat": {
+    "GUARD_WATER_LANDING": {
+      "value": "in_water",
+      "status": "measured",
+      "candidates": ["in_water", "client16402_nearest_land_lattice"],
+      "confidence": "HIGH for client16402_nearest_land_lattice on client 16.402 (parity r75, 2026-10-16): 41 of 41 guards whose charge ended on a water half-cell (the landing L from the engine's cell-aim pieces on the truth's previous frame) stood on their arrival frame at L + (250(2i+1), 250(2j+1)), the nearest such point off water, ties to the lower y then the lower x, within 2 native (offsets (-250,-750) 14, (-250,-250) 9, (-250,+750) 6, (-250,-1250) 5, (+250,-250) 4 onto a bridge, (-250,+250) 2, (+750,-250) 1 onto a bridge); 1092 of 1092 land landings stood at L; the engine left the guard in the river 10 of 10 traced. A candidate until scored. Client 15.535.29 keeps in_water (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): 41 of 41 guards whose charge ended on a water half-cell (the landing L from the engine's cell-aim pieces on the truth's previous frame) stood on their arrival frame at L + (250(2i+1), 250(2j+1)), the nearest such point off water, ties to the lower y then the lower x, within 2 native (offsets (-250,-750) 14, (-250,-250) 9, (-250,+750) 6, (-250,-1250) 5, (+250,-250) 4 onto a bridge, (-250,+250) 2, (+750,-250) 1 onto a bridge); 1092 of 1092 land landings stood at L; the engine left the guard in the river 10 of 10 traced.",
+      "meaning": "in_water: the engine's; the guard's charge ends where its last piece stops, in the river when the 500 cell's centre ahead of him (combat.GUARD_CHARGE_STEP = client16402_cell_aim) lies in water. client16402_nearest_land_lattice: on its arrival tick, a guard whose landing point is on a water half-cell (Arena::is_valid_position false) stands instead on the nearest point landing + (250(2i+1), 250(2j+1)) native that is not water, ties to the lower y, then the lower x (a bridge's cells count as land); its landing hits and push (GUARD_LANDING_HITS, GUARD_LANDING_PUSH) read that point.",
+      "open": "The rule is fitted on the lattice, not read off the client's code; a Red guard's tie order (every tie seen in world coordinates); client 15.535.29.",
+      "engine": "state.rs guard_moves (the cell-aim charge's arrival) and guard_land_point, selected by Calib::guard_water_landing; tests/little_prince.rs."
+    },
     "AREA_EFFECT_ON_HIT": {
       "value": "client16402_cast_at_attacker",
       "status": "measured",

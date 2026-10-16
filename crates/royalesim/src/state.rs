@@ -1001,6 +1001,10 @@ pub struct Calib {
     /// `FrequencyLessTick`, what a battle saved before it ran.
     #[serde(default = "spawn_area_first_pulse_default")]
     pub spawn_area_first_pulse: SpawnAreaFirstPulse,
+    /// combat.GUARD_WATER_LANDING (where a Little Prince's guard stands when its charge ends in the river). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `InWater`, what a battle saved before it ran.
+    #[serde(default = "guard_water_landing_default")]
+    pub guard_water_landing: GuardWaterLanding,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2963,6 +2967,10 @@ fn area_effect_on_hit_default() -> AreaEffectOnHit {
 
 fn spawn_area_first_pulse_default() -> SpawnAreaFirstPulse {
     SpawnAreaFirstPulse::FrequencyLessTick
+}
+
+fn guard_water_landing_default() -> GuardWaterLanding {
+    GuardWaterLanding::InWater
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10361,6 +10369,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_WATER_LANDING -- the point a Little Prince's guard stands on when its charge ends on water (state.rs
+    /// `guard_moves`, `guard_land_point`).
+    GuardWaterLanding {
+        /// The engine's: where the charge's last piece ends, in the river when its aim lies there.
+        InWater = "in_water",
+        /// Client 16.402: on its arrival tick, the nearest point landing + (250(2i+1), 250(2j+1)) native off water, ties to
+        /// the lower y, then the lower x.
+        Client16402NearestLandLattice = "client16402_nearest_land_lattice",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10924,6 +10943,7 @@ impl Calib {
             tower_troop_cooking: pick(&v, &["combat", "TOWER_TROOP_COOKING", "value"], TowerTroopCooking::from_calibration_name)?,
             area_effect_on_hit: pick(&v, &["combat", "AREA_EFFECT_ON_HIT", "value"], AreaEffectOnHit::from_calibration_name)?,
             spawn_area_first_pulse: pick(&v, &["spells", "SPAWN_AREA_FIRST_PULSE", "value"], SpawnAreaFirstPulse::from_calibration_name)?,
+            guard_water_landing: pick(&v, &["combat", "GUARD_WATER_LANDING", "value"], GuardWaterLanding::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -14008,6 +14028,31 @@ fn gcd(a: i64, b: i64) -> i64 {
 /// (`CardDef::ignore_buffs`: the VoodooHog is never cursed).
 /// A POINT OFF THE LITTLE PRINCE'S (card.rs GUARD_SPAWN_OFFSET, GUARD_END_OFFSET): `off` (native) in `team`'s frame (+x
 /// its right, +y its forward: Red's is Blue's turned 180 degrees).
+/// combat.GUARD_WATER_LANDING = client16402_nearest_land_lattice: the nearest point `q` + (250(2i+1), 250(2j+1)) native
+/// (|2i+1|, |2j+1| up to 11) off water (Arena::is_valid_position), ties to the lower y, then the lower x; `q` when none is.
+fn guard_land_point(arena: &crate::arena::Arena, q: (i32, i32)) -> (i32, i32) {
+    let k = crate::fixed::SUBTILE_PER_MILLITILE;
+    let mut best: Option<(i64, i32, i32)> = None;
+    for i in -6..6 {
+        for j in -6..6 {
+            let (dx, dy) = (250 * (2 * i + 1), 250 * (2 * j + 1));
+            let c = (q.0 + dx, q.1 + dy);
+            if !arena.is_valid_position(Vec2::new(c.0 * k, c.1 * k)) {
+                continue;
+            }
+            let key = (i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy), c.1, c.0);
+            let better = match best {
+                Some(b) => key < b,
+                None => true,
+            };
+            if better {
+                best = Some(key);
+            }
+        }
+    }
+    best.map_or(q, |(_, y, x)| (x, y))
+}
+
 fn guard_point(team: Team, at: Vec2, off: (i32, i32)) -> Vec2 {
     let k = crate::fixed::SUBTILE_PER_MILLITILE;
     let (x, y) = match team {
@@ -22297,12 +22342,24 @@ impl BattleState {
                     }
                     q = crate::move16402::tunnel_step(q, a, piece).0;
                 }
+                let arrives = crate::move16402::distance(q.0, q.1, a.0, a.1) < crate::card::GUARD_CELL_STOP;
+                // combat.GUARD_WATER_LANDING = client16402_nearest_land_lattice: a charge that ends on water stands on the
+                // nearest land point of the landing's 250-odd lattice. Measured on client 16.402 (parity r75, live13): 41 of 41
+                // water landings, 1092 of 1092 land landings unmoved; the engine's guard stayed in the river 10 of 10.
+                // PLANT (regression) guard_lands_in_water: the new arm still leaves him in the river.
+                #[cfg(not(clash_plant = "guard_lands_in_water"))]
+                let snap = self.cfg.calib.guard_water_landing == GuardWaterLanding::Client16402NearestLandLattice;
+                #[cfg(clash_plant = "guard_lands_in_water")]
+                let snap = false;
+                if arrives && snap && !self.cfg.arena.is_valid_position(Vec2::new(q.0 * k, q.1 * k)) {
+                    q = guard_land_point(&self.cfg.arena, q);
+                }
                 #[cfg(not(clash_plant = "guard_never_charges"))]
                 {
                     self.ents.pos[gi] = Vec2::new(q.0 * k, q.1 * k);
                     moved = true;
                 }
-                if crate::move16402::distance(q.0, q.1, a.0, a.1) < crate::card::GUARD_CELL_STOP {
+                if arrives {
                     r.arrived = Some(tick);
                 }
             } else if substeps {
@@ -38403,6 +38460,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.SPAWN_AREA_FIRST_PULSE: Calib gained spawn_area_first_pulse (serde default the old arm, frequency_less_tick), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_WATER_LANDING: Calib gained guard_water_landing (serde default the old arm, in_water), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39449,6 +39508,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("area_effect_on_hit".into(), serde_json::to_value(AreaEffectOnHit::NotRead).map_err(|e| e.to_string())?);
     // spells.SPAWN_AREA_FIRST_PULSE: a format-3 battle ran spells.SPAWN_AREA_FIRST_PULSE's old arm.
     sh.insert("spawn_area_first_pulse".into(), serde_json::to_value(SpawnAreaFirstPulse::FrequencyLessTick).map_err(|e| e.to_string())?);
+    // combat.GUARD_WATER_LANDING: a format-3 battle ran combat.GUARD_WATER_LANDING's old arm.
+    sh.insert("guard_water_landing".into(), serde_json::to_value(GuardWaterLanding::InWater).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
