@@ -3250,6 +3250,11 @@ pub struct CardDef {
     /// `spell`, `death_area_effect`, `deploy_projectile`, `death_projectile`, `deploy_area_effect`
     /// and this, and one that would carry two is refused (`CardDb::from_json_str`).
     pub spawn_area_effect: Option<SpellDef>,
+    /// THE AREA EACH HIT OF THIS UNIT PUTS DOWN ON ITS POINT (characters AreaEffectOnHit, cards.json `area_effect_on_hit`): the
+    /// Battle Healer's BattleHealerHeal, an own-troop one-shot area hanging her heal. Cast under combat.AREA_EFFECT_ON_HIT =
+    /// client16402_cast_at_attacker (state.rs `hit_areas`; spell.rs part HIT_AREA). None on every other card; an area that is
+    /// not an own-troop one-shot area is dropped by the loader.
+    pub hit_area: Option<AttachedArea>,
     /// characters.csv Hovering (cards.json `hovering`): the troop hovers over the ground. True on
     /// two troop rows that load in the client, the Battle Healer and the Royal Ghost. Acted on only
     /// under pathfinding.HOVERING_WATER_RULE = priced_water_no_hop (state.rs `prices_water`), where
@@ -3869,6 +3874,11 @@ struct RawCard {
     /// BattleHealerSpawnHeal). `from_json_str` resolves it into `CardDef::spawn_area_effect`.
     /// Absent reads as none.
     spawn_area_object: Option<String>,
+    /// cards.json `area_effect_on_hit` (characters AreaEffectOnHit): the NAME of the `area_effect_objects` row each hit of the
+    /// unit puts down on its own point (the Battle Healer's BattleHealerHeal). `from_json_str` resolves an own-troop one-shot
+    /// area into `CardDef::hit_area`; any other (the Evo Royal Giant's Freeze) is dropped. Absent reads as none.
+    #[serde(default)]
+    area_effect_on_hit: Option<String>,
     /// cards.json `summon_members` (15.535 only; the Three Musketeers): `CardDef::summon_members`.
     summon_members: Option<Vec<RawSummonMember>>,
     /// cards.json `summon_offsets_x_mirrored` (CharactersOffsetsXMirrored, beside `summon_members`).
@@ -4965,6 +4975,9 @@ enum UnitUse {
     DeployAreaEffect,
     /// SpawnAreaObject (`spawn_area_effect`). Not a unit: resolved against `area_effect_objects`.
     SpawnAreaEffect,
+    /// AreaEffectOnHit (`hit_area`). Not a unit and not a spell object of the card: resolved against `area_effect_objects`
+    /// into an area riding on the unit (spell.rs part HIT_AREA), outside the one-shape rule.
+    HitAreaEffect,
     /// The area an idle buff puts down (`idle_area`, `IdleBuffDef`). Not a unit: resolved against `area_effect_objects`.
     IdleArea,
     /// A spell's SummonCharacter (`SpellShape::Summon`, or the `Fuse` a bottle row becomes).
@@ -5025,7 +5038,14 @@ impl UnitUse {
     fn is_table(self) -> bool {
         matches!(
             self,
-            UnitUse::DeathAreaEffect | UnitUse::ProjectileArea | UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::IdleArea | UnitUse::DeploySpawnArea
+            UnitUse::DeathAreaEffect
+                | UnitUse::ProjectileArea
+                | UnitUse::DeathProjectile
+                | UnitUse::DeployAreaEffect
+                | UnitUse::SpawnAreaEffect
+                | UnitUse::HitAreaEffect
+                | UnitUse::IdleArea
+                | UnitUse::DeploySpawnArea
         )
     }
 }
@@ -5633,6 +5653,9 @@ pub const FURNACE_DELAY_EXTRA_TICKS: u32 = 2;
 /// The Evo Dart Goblin's dart landing (`DartPoisonDef`), released as a part: `state.rs` starts or stacks the poison on its
 /// target (`dart_hit`) instead of casting an area.
 pub const EVO_DART_POISON: u8 = u8::MAX - 5;
+
+/// The part (spell.rs `SpellMotion::Attached`) that names a unit's area on hit (`CardDef::hit_area`, the Battle Healer's).
+pub const HIT_AREA: u8 = u8::MAX - 6;
 
 /// THE EVO DART GOBLIN'S POISON (tools/extract_cards.py `dart_poison_block`; combat.rs `step_projectiles`, part
 /// EVO_DART_POISON; state.rs EvoBoard `poisons`, `dart_hit`, `poison_pass`): each of his darts that lands on a unit adds
@@ -8175,6 +8198,7 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         death_projectile: None,
         deploy_area_effect: None,
         spawn_area_effect: None,
+        hit_area: None,
         hovering: false,
         minimum_range: 0,
         spark: None,
@@ -10731,6 +10755,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     if let Some(a) = &raw.spawn_area_object {
         units.push((UnitUse::SpawnAreaEffect, a.clone()));
     }
+    if let Some(a) = &raw.area_effect_on_hit {
+        units.push((UnitUse::HitAreaEffect, a.clone()));
+    }
     if let Some((_, Some(a))) = &idle {
         units.push((UnitUse::IdleArea, a.clone()));
     }
@@ -10906,6 +10933,7 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         death_projectile: None,
         deploy_area_effect: None,
         spawn_area_effect: None,
+        hit_area: None,
         hovering: raw.hovering.unwrap_or(false),
         // MinimumRange: a blank (every row but the Mortar family's) is none.
         #[cfg(not(clash_plant = "minimum_range_unread"))]
@@ -11398,6 +11426,22 @@ impl CardDb {
                 }
                 continue;
             }
+            if which == UnitUse::HitAreaEffect {
+                // THE AREA EACH HIT PUTS DOWN (characters AreaEffectOnHit; `CardDef::hit_area`) is no spell object of the card:
+                // it rides on its unit (spell.rs `attached_def`, part HIT_AREA), so the one-shape rule below does not hold it.
+                // An own-troop one-shot area that releases nothing is taken; any other (the Evo Royal Giant's Freeze, inert on
+                // 15.535.29), or one this loader cannot run, is dropped and the card loads without it.
+                if let Some(aeo) = ctx.aeos.get(&unit) {
+                    if let Ok((SpellShape::AreaEffect { hit }, needs)) = convert_spawn_area_effect(aeo, &mut buffs, &ctx) {
+                        if hit.only_own_troops && needs.is_empty() {
+                            let life_ms = aeo.life_duration_ms.unwrap_or(0).max(1);
+                            db.cards[spell_idx as usize].hit_area =
+                                Some(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms: 0, first_ms: 0, follow: false, stay: true, end: None, hero_offsetless: false });
+                        }
+                    }
+                }
+                continue;
+            }
             if matches!(which, UnitUse::DeathProjectile | UnitUse::DeployAreaEffect | UnitUse::SpawnAreaEffect | UnitUse::IdleArea) {
                 // THE DEATH PROJECTILE, THE DEPLOY AREA AND THE SPAWN AREA ARE NOT UNITS either:
                 // each is a row of one of the file's own tables, resolved here and stored on the
@@ -11852,6 +11896,7 @@ impl CardDb {
                         | UnitUse::DeathProjectile
                         | UnitUse::DeployAreaEffect
                         | UnitUse::SpawnAreaEffect
+                        | UnitUse::HitAreaEffect
                         | UnitUse::ProjectileArea
                         | UnitUse::IdleArea
                         | UnitUse::DeploySpawnArea => {
@@ -12379,6 +12424,11 @@ impl CardDb {
         // THE EVO ICE SPIRITS' AREA, riding its shot's target (`EvoDef::impact_area`), made from the area below.
         let mut impact: Option<AttachedArea> = None;
         for (which, u) in needs {
+            // AN EVOLVED FORM'S AREA ON HIT (characters AreaEffectOnHit; the Evo Royal Giant's Freeze, inert on 15.535.29) is
+            // dropped: no unit of the form's, and combat.AREA_EFFECT_ON_HIT reads a base card's own-troop area alone.
+            if which == UnitUse::HitAreaEffect {
+                continue;
+            }
             // THE EVO GOBLIN BARREL'S GOBLINS: its barrel's, a loaded troop found by name.
             if let (Some(_), UnitUse::Spell) = (extra.evo_mirror.as_ref(), &which) {
                 let idx = self.index(&u).filter(|&i| self.get(i).kind == CardKind::Troop).ok_or_else(|| format!("its barrel's unit {u} is not a loaded troop"))?;
@@ -13595,6 +13645,10 @@ impl CardDb {
         // A RE-ROLL FORM'S BARBARIAN (the Hero Barbarian Barrel's): the unit its roll releases, which holds the button.
         let mut rider: Option<CardDef> = None;
         for (which, name) in needs {
+            // A HERO FORM'S AREA ON HIT is dropped as an evolved form's is.
+            if which == UnitUse::HitAreaEffect {
+                continue;
+            }
             if which == UnitUse::Spell && extra.ability.effect.kind == "reroll" && extra.ability.effect.unit.as_deref() == Some(name.as_str()) && rider.is_none() {
                 let mut uv = extra.tables.units.get(&name).cloned().ok_or_else(|| format!("its roll's unit {name}: no units record"))?;
                 let obj = uv.as_object_mut().ok_or_else(|| format!("its roll's unit {name}: not an object"))?;

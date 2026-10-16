@@ -993,6 +993,14 @@ pub struct Calib {
     /// `NotCooked`, what a battle saved before it ran.
     #[serde(default = "tower_troop_cooking_default")]
     pub tower_troop_cooking: TowerTroopCooking,
+    /// combat.AREA_EFFECT_ON_HIT (whether a unit's hit puts down its row's own-troop area on hit). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `NotRead`, what a battle saved before it ran.
+    #[serde(default = "area_effect_on_hit_default")]
+    pub area_effect_on_hit: AreaEffectOnHit,
+    /// spells.SPAWN_AREA_FIRST_PULSE (when a unit's spawn area's buff first pulses). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `FrequencyLessTick`, what a battle saved before it ran.
+    #[serde(default = "spawn_area_first_pulse_default")]
+    pub spawn_area_first_pulse: SpawnAreaFirstPulse,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2947,6 +2955,14 @@ fn lost_target_shot_default() -> LostTargetShot {
 
 fn tower_troop_cooking_default() -> TowerTroopCooking {
     TowerTroopCooking::NotCooked
+}
+
+fn area_effect_on_hit_default() -> AreaEffectOnHit {
+    AreaEffectOnHit::NotRead
+}
+
+fn spawn_area_first_pulse_default() -> SpawnAreaFirstPulse {
+    SpawnAreaFirstPulse::FrequencyLessTick
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10317,6 +10333,27 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.AREA_EFFECT_ON_HIT -- the area each hit of a unit puts down (characters AreaEffectOnHit; card.rs
+    /// `CardDef::hit_area`; state.rs `hit_areas`; spell.rs `attached_def` part HIT_AREA).
+    AreaEffectOnHit {
+        /// The engine's: AreaEffectOnHit is not read; the Battle Healer's hits heal nobody.
+        NotRead = "not_read",
+        /// Client 16.402: each hit puts the row's own-troop area down on the attacker's point (the Battle Healer's heal).
+        Client16402CastAtAttacker = "client16402_cast_at_attacker",
+    }
+);
+calib_enum!(
+    /// spells.SPAWN_AREA_FIRST_PULSE -- the buff a unit's spawn area hangs (card.rs `spawn_area_effect`, the Battle Healer's
+    /// BattleHealerSpawnHeal; spell.rs step_spells, the spawn area's first_pulse_ms).
+    SpawnAreaFirstPulse {
+        /// The engine's (client 15.535.29, measured): the landing tick counts, the first pulse HitFrequency - TICK_MS after it.
+        FrequencyLessTick = "frequency_less_tick",
+        /// Client 16.402: the whole train two ticks later: the first pulse HitFrequency + TICK_MS after the landing, the buff
+        /// two ticks longer.
+        Client16402TwoTicksLater = "client16402_two_ticks_later",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10878,6 +10915,8 @@ impl Calib {
             evo_kill_heal: pick(&v, &["combat", "EVO_KILL_HEAL", "value"], EvoKillHeal::from_calibration_name)?,
             lost_target_shot: pick(&v, &["combat", "LOST_TARGET_SHOT", "value"], LostTargetShot::from_calibration_name)?,
             tower_troop_cooking: pick(&v, &["combat", "TOWER_TROOP_COOKING", "value"], TowerTroopCooking::from_calibration_name)?,
+            area_effect_on_hit: pick(&v, &["combat", "AREA_EFFECT_ON_HIT", "value"], AreaEffectOnHit::from_calibration_name)?,
+            spawn_area_first_pulse: pick(&v, &["spells", "SPAWN_AREA_FIRST_PULSE", "value"], SpawnAreaFirstPulse::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -13286,6 +13325,9 @@ pub const SCHEDULED_EDGE_MARGIN: i32 = 250;
 
 #[derive(Default, Clone, Debug)]
 struct Scratch {
+    /// combat.AREA_EFFECT_ON_HIT = client16402_cast_at_attacker: the units whose hit this tick puts their area on hit down
+    /// (card.rs `CardDef::hit_area`), in attack order; cast in this tick's Resolve (`hit_areas`). Empty between ticks.
+    hit_areas: Vec<EntityId>,
     /// formation.STAGGER_WAIT = client16402_untargetable_immovable_unhittable: the members whose deploy timer ran this tick
     /// with a stagger left (`deploy_countdown`); their stagger steps down at the start of Reap (`phase_reap`), so this
     /// tick's areas and hits judge the wait as it stood at the tick's start. Empty between ticks.
@@ -20812,6 +20854,23 @@ impl BattleState {
     /// THE AREA AN ATTACK MAKES ON ITS UNIT (card.rs `AttackAreaDef`, the Evo Valkyrie's tornado), in the Resolve phase of
     /// the attack's tick: an area riding on the unit (spell.rs `SpellMotion::Attached`, part `EVO_ATTACK_AREA`), which
     /// first acts on the next tick, and the unit's own buff for its time. A unit this tick killed makes nothing.
+    /// THE AREAS ON HIT (combat.AREA_EFFECT_ON_HIT = client16402_cast_at_attacker; card.rs `CardDef::hit_area`), in the
+    /// Resolve: each unit whose hit this tick named one, still alive, puts it down on its point (spell.rs part HIT_AREA): a
+    /// one-shot area hitting on its first update, the next tick.
+    fn hit_areas(&mut self) {
+        let cards = self.cfg.cards.clone();
+        for id in std::mem::take(&mut self.scratch.hit_areas) {
+            if !self.ents.is_alive(id) {
+                continue;
+            }
+            let i = id.index as usize;
+            let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
+            if let Ok(area) = spell::attached_area(&cards, &self.cfg.calib, team, card, level, id, pos, crate::card::HIT_AREA) {
+                self.spells.push(area);
+            }
+        }
+    }
+
     fn attack_areas(&mut self) {
         let cards = self.cfg.cards.clone();
         for id in std::mem::take(&mut self.evo.attack_areas) {
@@ -28104,6 +28163,14 @@ impl BattleState {
                     &bolts,
                     self.tick,
                 );
+                // combat.AREA_EFFECT_ON_HIT = client16402_cast_at_attacker: the hit puts the unit's area on hit down on its point in
+                // this tick's Resolve (`hit_areas`). Measured on client 16.402 (parity r74 batch 7): the Battle Healer's friends in
+                // reach healed 78 of 78 on the hit + 6, 11, 16, 21; the engine's 0.
+                // PLANT (regression) hit_area_never: the new arm casts nothing.
+                #[cfg(not(clash_plant = "hit_area_never"))]
+                if self.cfg.calib.area_effect_on_hit == AreaEffectOnHit::Client16402CastAtAttacker && self.cfg.cards.get(self.ents.card[i]).hit_area.is_some() {
+                    self.scratch.hit_areas.push(self.ents.id_of(i));
+                }
                 // A HERO'S QUEST'S HIT (card.rs `QuestDef::per_hit_ms`, the Hero Mini PEKKA's): each hit fills its bar.
                 if !self.quests.is_empty() {
                     self.quest_hit(i);
@@ -30398,6 +30465,10 @@ impl BattleState {
         // THE EVO VALKYRIE'S TORNADO (card.rs `AttackAreaDef`): this tick's attacks.
         if !self.evo.attack_areas.is_empty() {
             self.attack_areas();
+        }
+        // THE AREAS ON HIT (combat.AREA_EFFECT_ON_HIT, the Battle Healer's heal): this tick's hits.
+        if !self.scratch.hit_areas.is_empty() {
+            self.hit_areas();
         }
         self.riders_die_with_their_mounts();
         // THE HERO GOBLINS' FLAGS (`flag_pass`): their spawns, and the flags that end, into this Resolve's deaths.
@@ -38301,6 +38372,10 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.TOWER_TROOP_COOKING: Calib gained tower_troop_cooking (serde default the old arm, not_cooked), BattleState gained chef (serde default idle, hashed only when not idle), Entities pancaked (default false, hashed only when set), Projectile pancake and EffectBuffer pancakes (default false and empty, hashed only when set), all written by the new arm alone,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.AREA_EFFECT_ON_HIT: Calib gained area_effect_on_hit (serde default the old arm, not_read), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.SPAWN_AREA_FIRST_PULSE: Calib gained spawn_area_first_pulse (serde default the old arm, frequency_less_tick), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39343,6 +39418,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("lost_target_shot".into(), serde_json::to_value(LostTargetShot::Cancel).map_err(|e| e.to_string())?);
     // combat.TOWER_TROOP_COOKING: a format-3 battle ran combat.TOWER_TROOP_COOKING's old arm.
     sh.insert("tower_troop_cooking".into(), serde_json::to_value(TowerTroopCooking::NotCooked).map_err(|e| e.to_string())?);
+    // combat.AREA_EFFECT_ON_HIT: a format-3 battle ran combat.AREA_EFFECT_ON_HIT's old arm.
+    sh.insert("area_effect_on_hit".into(), serde_json::to_value(AreaEffectOnHit::NotRead).map_err(|e| e.to_string())?);
+    // spells.SPAWN_AREA_FIRST_PULSE: a format-3 battle ran spells.SPAWN_AREA_FIRST_PULSE's old arm.
+    sh.insert("spawn_area_first_pulse".into(), serde_json::to_value(SpawnAreaFirstPulse::FrequencyLessTick).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

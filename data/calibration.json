@@ -1844,6 +1844,16 @@
     }
   },
   "combat": {
+    "AREA_EFFECT_ON_HIT": {
+      "value": "not_read",
+      "status": "measured",
+      "candidates": ["not_read", "client16402_cast_at_attacker"],
+      "confidence": "HIGH for client16402_cast_at_attacker on client 16.402 (parity r74 batch 6, 2026-10-16): of 115 Battle Healer hits with a friendly troop near (16 battles), the friends in reach with room to heal (centre distance from her on the hit frame up to 3000 + the friend's radius) healed 78 of 78 (air 19 of 19, ground 59 of 59), out of reach 0 of 17, the cut clean at her edge (-19 / +5); each train +P on the hit + 6, + 11, + 16 and + 21, P 21, 25, 28, 37, 40 at levels 9, 11, 12, 15, 16 (floor(40 x the level multiplier / 100) x 250 / 1000); no building healed; the engine (which reads no AreaEffectOnHit) healed 0. A candidate until scored. Client 15.535.29 keeps not_read (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74 batch 6) on client 16.402, the ob13 set (maker 557fca83): of 115 Battle Healer hits with a friendly troop near (16 battles), the friends in reach with room to heal (centre distance from her on the hit frame up to 3000 + the friend's radius) healed 78 of 78 (air 19 of 19, ground 59 of 59), out of reach 0 of 17, the cut clean at her edge (-19 / +5); each train +P on the hit + 6, + 11, + 16 and + 21, P 21, 25, 28, 37, 40 at levels 9, 11, 12, 15, 16 (floor(40 x the level multiplier / 100) x 250 / 1000); no building healed; the engine (which reads no AreaEffectOnHit) healed 0.",
+      "meaning": "not_read: the engine's; characters AreaEffectOnHit (cards.json area_effect_on_hit) is not read: the Battle Healer's hits heal nobody. client16402_cast_at_attacker: each hit of a unit whose row names an own-troop one-shot area on hit (the Battle Healer's BattleHealerHeal: Radius 3000, own troops, air and ground, no buildings, BattleHealerAll 40/s every 250 ms for 1000 ms) puts it down on the attacker's point in the hit's Resolve (spell.rs part HIT_AREA): it hits on its first update, the next tick, reaching a friend to 3000 + its collision radius (spells.AOE_HIT_TEST), so its pulses land on the hit + 6, + 11, + 16, + 21, each the buff's HealPerSecond scaled on the attacker's card and level times 250 ms. An enemy area on hit (the Evo Royal Giant's Freeze, inert on 15.535.29) is dropped by the loader under both arms.",
+      "open": "The Evo Royal Giant's Freeze on 16.402; a hit that kills the healer; client 15.535.29.",
+      "engine": "card.rs CardDef::hit_area (the loader's UnitUse::HitAreaEffect); state.rs hit_areas, selected by Calib::area_effect_on_hit; spell.rs attached_def (HIT_AREA); tests/battle_healer.rs."
+    },
     "TOWER_TROOP_COOKING": {
       "value": "not_cooked",
       "status": "measured",
@@ -3585,6 +3595,16 @@
     ]
   },
   "spells": {
+    "SPAWN_AREA_FIRST_PULSE": {
+      "value": "frequency_less_tick",
+      "status": "measured",
+      "candidates": ["frequency_less_tick", "client16402_two_ticks_later"],
+      "confidence": "MEDIUM for client16402_two_ticks_later on client 16.402 (parity r74 batch 6, 2026-10-16): the Battle Healer's spawn heal pulsed on her first frame F + 6, 11, 16, 21 in 10 of 19 full trains (the rest partial from same-frame hits or a friend reaching its maximum); the engine's on F + 4, 9, 14, 19, the rule measured on client 15.535.29. A candidate until scored. Client 15.535.29 keeps frequency_less_tick (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74 batch 6) on client 16.402, the ob13 set (maker 557fca83): the Battle Healer's spawn heal pulsed on her first frame F + 6, 11, 16, 21 in 10 of 19 full trains (the rest partial from same-frame hits or a friend reaching its maximum); the engine's on F + 4, 9, 14, 19, the rule measured on client 15.535.29.",
+      "meaning": "frequency_less_tick: the engine's; the spawn area's buff counts its landing tick on its pulse clock, so it first pulses HitFrequency - TICK_MS after it (client 15.535.29: the Battle Healer's spawn heal on her first frame + 4, 9, 14, 19). client16402_two_ticks_later: the train comes two ticks later, on + 6, 11, 16, 21: the first pulse HitFrequency + TICK_MS after the landing and the buff's time two ticks longer, so it keeps its four pulses (the same train her hits' heal gives, combat.AREA_EFFECT_ON_HIT).",
+      "open": "Whether the area itself lands two ticks later (nothing else reads it); client 15.535.29 keeps frequency_less_tick.",
+      "engine": "spell.rs step_spells (the spawn area's first pulse), selected by Calib::spawn_area_first_pulse; tests/battle_healer.rs."
+    },
     "EVO_BARREL_DECOY_POINTS": {
       "value": "mirrored_cast_own_formation",
       "status": "measured",

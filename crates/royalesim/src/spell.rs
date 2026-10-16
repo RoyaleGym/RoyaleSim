@@ -444,6 +444,10 @@ pub(crate) fn attached_def(cards: &CardDb, card: u16, part: u8) -> Option<&Attac
     if part == crate::card::EVO_ATTACK_AREA {
         return cards.cards.get(card as usize).and_then(|c| c.evo.as_ref()).and_then(|v| v.attack_area.as_ref()).map(|a| &a.area);
     }
+    // THE AREA A UNIT'S HIT PUTS DOWN (card.rs `CardDef::hit_area`, the Battle Healer's heal).
+    if part == crate::card::HIT_AREA {
+        return cards.cards.get(card as usize).and_then(|c| c.hit_area.as_ref());
+    }
     // THE EVO FIRECRACKER'S FIREWORKS (card.rs `FireworksDef`): where its rocket lands, where a spark's flight ends.
     if part == crate::card::EVO_FIREWORKS || part == crate::card::EVO_SPARK_FIREWORKS {
         let fw = cards.cards.get(card as usize).and_then(|c| c.evo.as_ref()).and_then(|v| v.fireworks.as_ref())?;
@@ -2158,10 +2162,23 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                     && matches!((shape_of(def), def.spawn_area_effect.as_ref()), (Some(a), Some(b)) if std::ptr::eq(a, b));
                 #[cfg(clash_plant = "spawn_area_pulse_full_period")]
                 let spawn_area = false; // PLANT: the spawn area's buff first pulses a whole HitFrequency after it lands.
+                // spells.SPAWN_AREA_FIRST_PULSE = client16402_two_ticks_later: the train two ticks later, its four pulses kept.
+                // Measured on client 16.402 (parity r74 batch 7): the Battle Healer's spawn heal on her first frame + 6, 11, 16,
+                // 21, the engine's + 4, 9, 14, 19.
+                // PLANT (regression) spawn_pulse_15535: the new arm still pulses HitFrequency - TICK_MS after the landing.
+                #[cfg(not(clash_plant = "spawn_pulse_15535"))]
+                let later = ctx.calib.spawn_area_first_pulse == crate::state::SpawnAreaFirstPulse::Client16402TwoTicksLater;
+                #[cfg(clash_plant = "spawn_pulse_15535")]
+                let later = false;
                 if spawn_area {
                     for h in fx.buffs[first_new..].iter_mut().filter(|h| h.first_pulse_ms.is_none()) {
                         if let Some(b) = ctx.cards.buffs.get(h.buff as usize) {
-                            h.first_pulse_ms = Some((b.hit_frequency_ms - tick).max(0));
+                            if later {
+                                h.first_pulse_ms = Some(b.hit_frequency_ms + tick);
+                                h.time_ms += 2 * tick;
+                            } else {
+                                h.first_pulse_ms = Some((b.hit_frequency_ms - tick).max(0));
+                            }
                         }
                     }
                 }

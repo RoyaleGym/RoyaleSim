@@ -367,6 +367,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.EVO_KILL_HEAL = buff_at_kill: one pulse on the kill + 10, no overheal (sp-form-Pekka-evo-s0).
 ///   combat.LOST_TARGET_SHOT = cancel: a lost swing is cancelled (unread there).
 ///   combat.TOWER_TROOP_COOKING = not_cooked: no Chef tower in a 15.535.29 capture (unread there).
+///   combat.AREA_EFFECT_ON_HIT = not_read: AreaEffectOnHit unread there (the Evo Royal Giant's Freeze measured inert).
+///   spells.SPAWN_AREA_FIRST_PULSE = frequency_less_tick: the spawn heal on her first frame + 4, 9, 14, 19 (measured there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -564,6 +566,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.EVO_KILL_HEAL", "\"buff_at_kill\""),
     ("combat.LOST_TARGET_SHOT", "\"cancel\""),
     ("combat.TOWER_TROOP_COOKING", "\"not_cooked\""),
+    ("combat.AREA_EFFECT_ON_HIT", "\"not_read\""),
+    ("spells.SPAWN_AREA_FIRST_PULSE", "\"frequency_less_tick\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
