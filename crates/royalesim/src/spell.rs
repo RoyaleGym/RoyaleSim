@@ -92,7 +92,16 @@ pub enum SpellMotion {
     Rolling { pos: Vec2, travelled: i32, len: i32, hit: Vec<EntityId> },
     /// THE EVO GIANT SNOWBALL'S BALL (card.rs `SpellShape::CaptureRoll`): its point, the distance it rolled, its age in
     /// ticks from its first point, and its captives.
-    CaptureRoll { pos: Vec2, travelled: i32, age: u32, captives: Vec<Captive> },
+    /// spells.CAPTURE_ROLL_STRIKES = client16402_rolling_strikes: `struck` holds every entity the ball has struck (each at
+    /// most once; empty under capture_tick_only). Absent in older snapshots; hashed only when non-empty.
+    CaptureRoll {
+        pos: Vec2,
+        travelled: i32,
+        age: u32,
+        captives: Vec<Captive>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        struck: Vec<EntityId>,
+    },
     /// A one-shot area effect at `pos`, applied on its first update.
     Area { pos: Vec2 },
     /// A PULSING area effect standing at `pos` (Poison, Earthquake): it applies its
@@ -1863,12 +1872,20 @@ fn capture_roll(
     travelled: &mut i32,
     age: &mut u32,
     captives: &mut Vec<Captive>,
+    struck: &mut Vec<EntityId>,
     dmg: &mut DamageBuffer,
     fx: &mut EffectBuffer,
     out: &mut SpellOut,
     nb: &mut Vec<u32>,
 ) -> bool {
     use crate::card::{CAPTURE_DELAY_TICKS, CAPTURE_DRAG_PER_10000, RELEASE_SPREAD};
+    // spells.CAPTURE_ROLL_STRIKES = client16402_rolling_strikes: the ball strikes on every tick from the capture, each enemy
+    // once. Measured on client 16.402 (parity r75, live13): 13 of 13 reachable enemies struck after the capture, the engine's
+    // none. PLANT (regression) rolling_strikes_dropped: the new arm still strikes on the capture tick alone.
+    #[cfg(not(clash_plant = "rolling_strikes_dropped"))]
+    let rolling = ctx.calib.capture_roll_strikes == crate::state::CaptureRollStrikes::Client16402RollingStrikes;
+    #[cfg(clash_plant = "rolling_strikes_dropped")]
+    let rolling = false;
     let e = ctx.ents;
     let fwd = forward_dy(team);
     let step = d.roll_speed.max(1);
@@ -1896,6 +1913,13 @@ fn capture_roll(
         // THE CAPTURE: the hit, and every troop it struck taken, held to the release's tick.
         let from = dmg.hits.len();
         impact(ctx, team, card, level, *pos, &d.hit, damage, 0, dmg, fx, nb, None);
+        if rolling {
+            for h in &dmg.hits[from..] {
+                if !struck.contains(&h.target) {
+                    struck.push(h.target);
+                }
+            }
+        }
         let hold_ms = (last + 1 - *age) as i32 * ctx.calib.tick_ms;
         let mut taken: Vec<EntityId> = Vec::new();
         for h in &dmg.hits[from..] {
@@ -1911,6 +1935,20 @@ fn capture_roll(
             captives.push(Captive { id, d0, joined: false });
         }
         return true;
+    }
+    // THE ROLLING STRIKES (client16402_rolling_strikes): after the capture, every enemy within reach not yet struck.
+    if rolling && *age > CAPTURE_DELAY_TICKS {
+        let (from, fx_from) = (dmg.hits.len(), fx.buffs.len());
+        impact(ctx, team, card, level, *pos, &d.hit, damage, 0, dmg, fx, nb, None);
+        let hits: Vec<_> = dmg.hits.drain(from..).filter(|h| !struck.contains(&h.target)).collect();
+        let buffs: Vec<_> = fx.buffs.drain(fx_from..).filter(|b| !struck.contains(&b.target)).collect();
+        for h in &hits {
+            if !struck.contains(&h.target) {
+                struck.push(h.target);
+            }
+        }
+        dmg.hits.extend(hits);
+        fx.buffs.extend(buffs);
     }
     // THE DRAG, then the ride.
     let k = age.saturating_sub(CAPTURE_DELAY_TICKS) as usize;
@@ -2142,12 +2180,12 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
                 let np = crate::combat::projectile_advance(ctx.calib.projectile_step, *pos, *aim, d.flight_speed * mult, frac, s.team);
                 *pos = np;
                 if np == *aim {
-                    s.motion = SpellMotion::CaptureRoll { pos: np, travelled: 0, age: 0, captives: Vec::new() };
+                    s.motion = SpellMotion::CaptureRoll { pos: np, travelled: 0, age: 0, captives: Vec::new(), struck: Vec::new() };
                 }
                 true
             }
-            (SpellMotion::CaptureRoll { pos, travelled, age, captives }, SpellShape::CaptureRoll(d)) => {
-                capture_roll(ctx, s.team, s.card, s.level, s.damage, d, pos, travelled, age, captives, dmg, fx, out, nb)
+            (SpellMotion::CaptureRoll { pos, travelled, age, captives, struck }, SpellShape::CaptureRoll(d)) => {
+                capture_roll(ctx, s.team, s.card, s.level, s.damage, d, pos, travelled, age, captives, struck, dmg, fx, out, nb)
             }
             (SpellMotion::Area { pos }, SpellShape::AreaEffect { hit } | SpellShape::Echo { hit, .. }) => {
                 let first_new = fx.buffs.len();

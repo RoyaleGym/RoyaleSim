@@ -3625,6 +3625,16 @@
     ]
   },
   "spells": {
+    "CAPTURE_ROLL_STRIKES": {
+      "value": "capture_tick_only",
+      "status": "measured",
+      "candidates": ["capture_tick_only", "client16402_rolling_strikes"],
+      "confidence": "MEDIUM-HIGH for client16402_rolling_strikes on client 16.402 (parity r75, 2026-10-16): 9 Evo Giant Snowball rolls in live13: of the enemies not struck on R .. R + 2 whose edge came within about 2200 of the ball (the tap, then 300 a tick along the roll for 4000) on R + 3 .. R + 14, the truth struck 13 of 15 for the ball's own amount (135 on troops, 286 on a Little Prince, 34 or 46 on crown towers; Spear Goblins of 110 hp gone), on the first tick inside; the 2 misses are rider-immune Spear Goblin Giant riders; the engine struck none of the 13. A candidate until scored. Client 15.535.29 keeps capture_tick_only (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): 9 Evo Giant Snowball rolls in live13: of the enemies not struck on R .. R + 2 whose edge came within about 2200 of the ball (the tap, then 300 a tick along the roll for 4000) on R + 3 .. R + 14, the truth struck 13 of 15 for the ball's own amount (135 on troops, 286 on a Little Prince, 34 or 46 on crown towers; Spear Goblins of 110 hp gone), on the first tick inside; the 2 misses are rider-immune Spear Goblin Giant riders; the engine struck none of the 13.",
+      "meaning": "capture_tick_only: the engine's; the Evo Giant Snowball's ball strikes once, on its capture tick (R + 2); a unit it rolls onto later is never hit. client16402_rolling_strikes: after the capture the rolling ball (its ActionRollingProjectile, radius 2500: SnowballSpell_EV1_Rolling_after_first_capture's row, the same hit) keeps striking: an enemy that comes within its reach later in the roll takes the hit once, on the first tick it is inside, up to the release; a unit struck at the capture is not struck again. Only R + 2's strike captures.",
+      "open": "The exact reach on a late victim (the ball's point is modelled); whether a late-struck troop is captured too (the late victims seen were killed or uncapturable heroes); fliers at the capture's edge (033637).",
+      "engine": "spell.rs capture_roll (SpellMotion::CaptureRoll's struck), selected by Calib::capture_roll_strikes; tests/evo_snowball.rs."
+    },
     "DEPLOY_AREA_BIRTH_CONTACT": {
       "value": "pushed",
       "status": "measured",

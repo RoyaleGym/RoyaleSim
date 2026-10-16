@@ -17,14 +17,18 @@
 //!   - capture_snaps_at_once -> `a_captive_is_dragged_at_the_ball_then_rides_it` red;
 //!   - capture_never_released -> `a_lone_captive_is_let_go_on_the_end_point_and_walks_slowed` red (its slow past
 //!     R + 63). `a_pair_is_let_go_150_either_side_the_first_made_ahead` stays green under it: without the release the
-//!     pair also ends 150 either side of the end point on R + 15, so that test cannot see the release.
+//!     pair also ends 150 either side of the end point on R + 15, so that test cannot see the release;
+//!   - rolling_strikes_dropped -> `under_client16402_rolling_strikes_the_ball_strikes_a_unit_it_reaches_after_the_capture` red.
+//!
+//! spells.CAPTURE_ROLL_STRIKES = client16402_rolling_strikes (client 16.402, parity r75, live13: 13 of 13 reachable enemies
+//! struck after the capture, on the first tick inside, the engine's none): the ball strikes each enemy it reaches once.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState, CaptureDragFacing, CaptureRoute};
+use royalesim::state::{BattleConfig, BattleState, CaptureDragFacing, CaptureRollStrikes, CaptureRoute};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -288,4 +292,54 @@ fn a_captive_drops_its_route_when_it_joins_the_ball_under_client15535_dropped_at
     assert!(ride.len() == 7 && ride.iter().all(|l| *l == 0), "client15535_dropped_at_join: a route on the ride: {ride:?}");
     let (_, ride) = ride_routes(CaptureRoute::Kept);
     assert!(ride.iter().any(|l| *l > 0), "kept: no route on the ride: {ride:?}");
+}
+
+/// Under spells.CAPTURE_ROLL_STRIKES = `arm`: two basic plays far away, a red Knight held at `offset` from the tap, the evolved
+/// play on the tap: the Knight's hitpoint drops over 60 frames from the play.
+fn knight_drops(arm: CaptureRollStrikes, offset: (i32, i32)) -> Vec<i32> {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["Snowball".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.capture_roll_strikes = arm;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    for _ in 0..2 {
+        s.scenario_set_elixir_milli(Team::Blue, 10_000);
+        s.deploy(Team::Blue, "Snowball", n(3000, 28000)).expect("a basic play");
+        for _ in 0..30 {
+            s.tick();
+        }
+    }
+    let home = n(TAP.0 + offset.0, TAP.1 + offset.1);
+    let kn = s.scenario_spawn_now(Team::Red, "Knight", home, None).expect("a red Knight");
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.deploy(Team::Blue, "Snowball", n(TAP.0, TAP.1)).expect("the evolved play");
+    let (mut drops, mut taken) = (Vec::new(), false);
+    for _ in 0..60 {
+        let Some(before) = s.entity(kn).map(|e| e.hp) else { break };
+        if !taken {
+            assert!(s.debug_set_pos(kn, home));
+        }
+        s.tick();
+        taken |= s.spells().iter().any(|sp| matches!(&sp.motion, SpellMotion::CaptureRoll { age, .. } if *age >= 1));
+        let after = s.entity(kn).map_or(0, |e| e.hp);
+        if after < before {
+            drops.push(before - after);
+        }
+    }
+    drops
+}
+
+/// spells.CAPTURE_ROLL_STRIKES = client16402_rolling_strikes: a Knight held 4000 up the roll (outside the capture's reach on
+/// R + 2, inside the ball's later on) takes the ball's hit once, 179 at level 11; under capture_tick_only none (the vacuity
+/// check). A Knight struck on R + 2 takes it once under both. Plant: rolling_strikes_dropped.
+#[test]
+fn under_client16402_rolling_strikes_the_ball_strikes_a_unit_it_reaches_after_the_capture() {
+    assert_eq!(knight_drops(CaptureRollStrikes::CaptureTickOnly, (0, 4000)), Vec::<i32>::new(), "capture_tick_only: the far Knight was struck");
+    assert_eq!(knight_drops(CaptureRollStrikes::Client16402RollingStrikes, (0, 4000)), vec![179], "client16402_rolling_strikes: the far Knight's hits");
+    for arm in [CaptureRollStrikes::CaptureTickOnly, CaptureRollStrikes::Client16402RollingStrikes] {
+        assert_eq!(knight_drops(arm, (0, -1000)), vec![179], "{arm:?}: the Knight struck on R + 2 is struck once");
+    }
 }

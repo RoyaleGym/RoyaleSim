@@ -1021,6 +1021,10 @@ pub struct Calib {
     /// `Pushed`, what a battle saved before it ran.
     #[serde(default = "deploy_area_birth_contact_default")]
     pub deploy_area_birth_contact: DeployAreaBirthContact,
+    /// spells.CAPTURE_ROLL_STRIKES (whether the Evo Giant Snowball's rolling ball strikes after its capture). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `CaptureTickOnly`, what a battle saved before it ran.
+    #[serde(default = "capture_roll_strikes_default")]
+    pub capture_roll_strikes: CaptureRollStrikes,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3003,6 +3007,10 @@ fn ramp_level_drop_default() -> RampLevelDrop {
 
 fn deploy_area_birth_contact_default() -> DeployAreaBirthContact {
     DeployAreaBirthContact::Pushed
+}
+
+fn capture_roll_strikes_default() -> CaptureRollStrikes {
+    CaptureRollStrikes::CaptureTickOnly
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10451,6 +10459,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.CAPTURE_ROLL_STRIKES -- the Evo Giant Snowball's ball after its capture (spell.rs `capture_roll`,
+    /// SpellMotion::CaptureRoll `struck`).
+    CaptureRollStrikes {
+        /// The engine's: the ball strikes once, on its capture tick (R + 2).
+        CaptureTickOnly = "capture_tick_only",
+        /// Client 16.402: after the capture it strikes every enemy that comes within its reach, each once, up to the
+        /// release; the capture stays R + 2's.
+        Client16402RollingStrikes = "client16402_rolling_strikes",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11019,6 +11038,7 @@ impl Calib {
             ramp_hook_reset: pick(&v, &["combat", "RAMP_HOOK_RESET", "value"], RampHookReset::from_calibration_name)?,
             ramp_level_drop: pick(&v, &["combat", "RAMP_LEVEL_DROP", "value"], RampLevelDrop::from_calibration_name)?,
             deploy_area_birth_contact: pick(&v, &["spells", "DEPLOY_AREA_BIRTH_CONTACT", "value"], DeployAreaBirthContact::from_calibration_name)?,
+            capture_roll_strikes: pick(&v, &["spells", "CAPTURE_ROLL_STRIKES", "value"], CaptureRollStrikes::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -36493,7 +36513,7 @@ impl BattleState {
                         h.u32(7);
                         h.vec(*pos);
                     }
-                    spell::SpellMotion::CaptureRoll { pos, travelled, age, captives } => {
+                    spell::SpellMotion::CaptureRoll { pos, travelled, age, captives, struck } => {
                         h.u32(9);
                         h.vec(*pos);
                         h.i32(*travelled);
@@ -36503,6 +36523,12 @@ impl BattleState {
                             h.id(c.id);
                             h.i32(c.d0);
                             h.bool(c.joined);
+                        }
+                        if !struck.is_empty() {
+                            h.u32(struck.len() as u32);
+                            for id in struck {
+                                h.id(*id);
+                            }
                         }
                     }
                     spell::SpellMotion::Attached { parent, pos, part, life_ms, next_ms } => {
@@ -38634,6 +38660,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.DEPLOY_AREA_BIRTH_CONTACT: Calib gained deploy_area_birth_contact (serde default the old arm, pushed), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.CAPTURE_ROLL_STRIKES: Calib gained capture_roll_strikes (serde default the old arm, capture_tick_only), SpellMotion::CaptureRoll gained struck (serde default empty; hashed only when non-empty),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39690,6 +39718,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ramp_level_drop".into(), serde_json::to_value(RampLevelDrop::WithTheCount).map_err(|e| e.to_string())?);
     // spells.DEPLOY_AREA_BIRTH_CONTACT: a format-3 battle ran spells.DEPLOY_AREA_BIRTH_CONTACT's old arm.
     sh.insert("deploy_area_birth_contact".into(), serde_json::to_value(DeployAreaBirthContact::Pushed).map_err(|e| e.to_string())?);
+    // spells.CAPTURE_ROLL_STRIKES: a format-3 battle ran spells.CAPTURE_ROLL_STRIKES's old arm.
+    sh.insert("capture_roll_strikes".into(), serde_json::to_value(CaptureRollStrikes::CaptureTickOnly).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
