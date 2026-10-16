@@ -304,7 +304,8 @@ pub fn invisible_at(calib: &Calib, cards: &CardDb, ents: &Entities, tick: u32, c
     if ents.buff_slots(c).iter().any(|s| !s.is_empty() && cards.buffs[(s.id - 1) as usize].invisible) {
         return true;
     }
-    if calib.invisibility != crate::state::Invisibility::ClientUntilHit {
+    use crate::state::Invisibility;
+    if !matches!(calib.invisibility, Invisibility::ClientUntilHit | Invisibility::Client16402IdleAfterAttack) {
         return false;
     }
     let Some(idle_ms) = cards.get(ents.card[c]).invisible_when_idle else { return false };
@@ -312,11 +313,26 @@ pub fn invisible_at(calib: &Calib, cards: &CardDb, ents: &Entities, tick: u32, c
     if from == 0 {
         return true;
     }
+    let idle_ticks = (idle_ms / calib.tick_ms.max(1)) as u32;
+    // targeting.INVISIBILITY = client16402_idle_after_attack: visible while it attacks, hidden again its idle time after
+    // its attack ends (E + 41, E the first tick its attack phase reads Idle). Measured on client 16.402 (parity r75,
+    // live13): 26 of 26 let-gos on the truth's attack end + 40. PLANT (regression) rehide_from_hit: the new arm still counts
+    // from the hit.
+    #[cfg(not(clash_plant = "rehide_from_hit"))]
+    let after_attack = calib.invisibility == Invisibility::Client16402IdleAfterAttack;
+    #[cfg(clash_plant = "rehide_from_hit")]
+    let after_attack = false;
     #[cfg(not(clash_plant = "rehide_never"))]
-    let until = from + (idle_ms / calib.tick_ms.max(1)) as u32 + INVIS_VISIBLE_AFTER_HIT_EXTRA;
+    let until = if !after_attack {
+        from + idle_ticks + INVIS_VISIBLE_AFTER_HIT_EXTRA
+    } else if ents.attack_phase[c] != crate::entity::AttackPhase::Idle {
+        u32::MAX
+    } else {
+        ents.attack_idle_from[c].max(from.saturating_sub(1)) + idle_ticks + 1
+    };
     #[cfg(clash_plant = "rehide_never")]
     let until = {
-        let _ = idle_ms;
+        let _ = (idle_ticks, after_attack);
         u32::MAX // PLANT: once revealed, never hidden again.
     };
     tick < from || tick >= until

@@ -5934,6 +5934,9 @@ calib_enum!(
         ClientUntilHit = "client_until_hit",
         /// The idle buff is not read: always targetable.
         NotRead = "not_read",
+        /// Client 16.402 (parity r75, live13): revealed from its hit + 1 as client_until_hit; visible while it attacks, and
+        /// hidden again its idle time after its attack ends (from E + 41, E the first tick its attack phase reads Idle).
+        Client16402IdleAfterAttack = "client16402_idle_after_attack",
     }
 );
 calib_enum!(
@@ -28434,6 +28437,14 @@ impl BattleState {
             }
             self.ents.attack_ms[i] = step.ms;
             self.ents.attack_load_ms[i] = step.load_ms;
+            // targeting.INVISIBILITY = client16402_idle_after_attack: an invisible-when-idle unit still attacking at this
+            // tick's end can turn Idle on the next at the earliest (target.rs `invisible_at` counts its idle time from it).
+            if step.phase != AttackPhase::Idle
+                && self.cfg.calib.invisibility == Invisibility::Client16402IdleAfterAttack
+                && self.cfg.cards.get(self.ents.card[i]).invisible_when_idle.is_some()
+            {
+                self.ents.attack_idle_from[i] = self.tick + 1;
+            }
             // The tick this unit was last revealed from, before this tick's hit moves it (`evo_after_fire`).
             let revealed_from = self.ents.reveal_from[i];
             // targeting.INVISIBILITY: a hit reveals an invisible-when-idle unit from the next tick (target.rs
@@ -36194,6 +36205,11 @@ impl BattleState {
                 #[cfg(not(clash_plant = "hash_skips_reveal"))]
                 if self.cfg.cards.get(e.card[i]).invisible_when_idle.is_some() {
                     h.u32(e.reveal_from[i]);
+                    // targeting.INVISIBILITY = client16402_idle_after_attack: its attack's end, only when set.
+                    if e.attack_idle_from[i] != 0 {
+                        h.u32(0x4944_4c45);
+                        h.u32(e.attack_idle_from[i]);
+                    }
                 }
                 // An elixir producer's payout timer, only on a card that produces: a battle with none hashes as before
                 // the column.
@@ -40304,6 +40320,7 @@ impl BattleState {
         snap.ents.home_team.resize(n, None);
         snap.ents.walk_from.resize(n, 0);
         snap.ents.reveal_from.resize(n, 0);
+        snap.ents.attack_idle_from.resize(n, 0);
         snap.ents.mana_ms.resize(n, 0);
         snap.ents.attached_to.resize(n, None);
         snap.ents.attach_offset.resize(n, Vec2::default());

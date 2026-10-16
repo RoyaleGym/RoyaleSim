@@ -25,12 +25,19 @@
 //!   * `rehide_never` -- once revealed, visible for good: (3) and (6) go red.
 //!   * `hash_skips_reveal` -- the reveal is not hashed: (5) goes red.
 //!   * `invisible_area_immune` -- spell.rs `impact` skips a unit invisible when idle: (4) goes red.
+//!   * `rehide_from_hit` -- client16402_idle_after_attack still counts from the hit: (7) goes red.
+//!
+//! (7) targeting.INVISIBILITY = client16402_idle_after_attack (client 16.402, parity r75, live13: 26 of 26 let-gos on the
+//! attack's end + 40): a second Skeleton held in the Ghost's reach after its first kill, killed in the Ghost's windup; the
+//! tower holds the Ghost through its attack's end E + 40 and drops it on E + 41, where client_until_hit drops it on the
+//! first hit + 46.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::BattleState;
+use royalesim::entity::AttackPhase;
+use royalesim::state::{BattleState, Invisibility};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -160,4 +167,77 @@ fn the_ghosts_reveal_is_state() {
         col[g.index as usize] = serde_json::Value::from(7);
     });
     assert!(hashed, "a save edited only in the Ghost's reveal loads under the old hash: the reveal is not hashed");
+}
+
+/// Under targeting.INVISIBILITY = `arm`: the 46-tick scene (a red Skeleton behind the tower meeting the Ghost); after the
+/// Ghost's first hit h a second red Skeleton held (topped up) 700 ahead of it; once the Ghost has attacked it 8 ticks (its
+/// windup, no hit yet) the Skeleton is set to 0. Returns (h, E: the first tick after the kill on which the Ghost's attack
+/// phase reads Idle, per tick whether the tower targets the Ghost).
+fn lost_swing(arm: Invisibility) -> (usize, usize, Vec<bool>) {
+    let mut cfg = config();
+    cfg.calib.invisibility = arm;
+    let mut s = BattleState::new(0, cfg);
+    let tower = red_tower_near(&s, at((14500, 26000)));
+    s.scenario_spawn_now(Team::Red, "Skeleton", at((14500, 28500)), None).expect("spawn the Skeleton");
+    s.spawn_unit(Team::Blue, "Ghost", at((14500, 12000)), None).expect("play the Ghost");
+    let (mut h, mut second, mut attacking, mut killed, mut idle) = (None, None, 0, None, None);
+    let mut holds = Vec::new();
+    for k in 0..400 {
+        let red_hp: i64 = s.entities().filter(|v| v.team == Team::Red && v.card != "PrincessTower" && v.card != "KingTower").map(|v| v.hp as i64).sum();
+        if let Some((sk, p)) = second {
+            if killed.is_none() {
+                if let Some(e) = s.entity(sk) {
+                    let full = e.max_hp;
+                    assert!(s.debug_set_pos(sk, p) && s.debug_set_hp(sk, full));
+                }
+            }
+        }
+        let ghost = s.entities().find(|v| v.card == "Ghost").map(|v| (v.id, v.max_hp));
+        if let Some(g) = ghost {
+            assert!(s.debug_set_hp(g.0, g.1));
+        }
+        s.tick();
+        let Some((g, gpos, phase)) = s.entities().find(|v| v.card == "Ghost").map(|v| (v.id, v.pos, v.attack_phase)) else { break };
+        let red_after: i64 = s.entities().filter(|v| v.team == Team::Red && v.card != "PrincessTower" && v.card != "KingTower").map(|v| v.hp as i64).sum();
+        holds.push(s.entity(tower.0).and_then(|t| t.target) == Some(g));
+        if h.is_none() && red_after < red_hp {
+            h = Some(k);
+            let p = Vec2::new(gpos.x, gpos.y + 700 * K);
+            second = Some((s.scenario_spawn_now(Team::Red, "Skeleton", p, None).expect("the second Skeleton"), p));
+            continue;
+        }
+        let Some(hit) = h else { continue };
+        if killed.is_none() && k > hit + 6 {
+            assert!(red_after >= red_hp, "the scene drifted: the Ghost hit the second Skeleton on {k}");
+            attacking = if phase != AttackPhase::Idle { attacking + 1 } else { 0 };
+            if attacking == 8 {
+                let sk = second.expect("the second Skeleton").0;
+                assert!(s.debug_set_hp(sk, 0));
+                killed = Some(k);
+            }
+        } else if let Some(kk) = killed {
+            if idle.is_none() && k > kk && phase == AttackPhase::Idle {
+                idle = Some(k);
+            }
+            if idle.is_some_and(|e| k > e + 45) {
+                break;
+            }
+        }
+    }
+    let h = h.expect("the scene drifted: the Ghost never hit");
+    let e = idle.unwrap_or_else(|| panic!("the scene drifted: the Ghost's second attack never ended (killed {killed:?})"));
+    (h, e, holds)
+}
+
+/// (7) Plant: rehide_from_hit.
+#[test]
+fn under_client16402_idle_after_attack_the_tower_holds_the_ghost_40_ticks_past_its_attacks_end() {
+    let (h, e, held) = lost_swing(Invisibility::Client16402IdleAfterAttack);
+    assert!(e > h + 5, "the scene drifted: its attack ended on {e}, the hit on {h}");
+    assert!(held.len() > e + 41, "the scene drifted: the run ended on {}", held.len());
+    assert!((e + 1..=e + 40).all(|k| held[k]), "client16402_idle_after_attack: the tower let the Ghost go before its attack's end + 40 ({h}, {e}): {:?}", &held[e..]);
+    assert!(!held[e + 41], "client16402_idle_after_attack: the tower held the Ghost on its attack's end + 41");
+    // NOT VACUOUS: client_until_hit drops it on the hit + 46, before the attack's end + 41.
+    let (h0, e0, old) = lost_swing(Invisibility::ClientUntilHit);
+    assert!(h0 + 46 < e0 + 41 && old[h0 + 45] && !old[h0 + 46], "client_until_hit: the tower's hold ({h0}, {e0})");
 }

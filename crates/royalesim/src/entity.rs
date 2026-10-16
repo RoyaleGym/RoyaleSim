@@ -300,6 +300,11 @@ pub struct Entities {
     /// load like `launched_beyond`.
     #[serde(default)]
     pub reveal_from: Vec<u32>,
+    /// targeting.INVISIBILITY = client16402_idle_after_attack: the first tick an invisible-when-idle unit's attack phase can
+    /// read Idle (the tick after the last it attacked on; target.rs `invisible_at`). Written under that arm only, so 0 on
+    /// every entity under the others; hashed only when set. `default` and sized on load like `reveal_from`.
+    #[serde(default)]
+    pub attack_idle_from: Vec<u32>,
     /// THE ELIXIR PAYOUT TIMER (an Elixir Collector; state.rs `mana_pass`, economy.*): the ms left to the next
     /// payout, loaded with ManaGenerateTimeMs at the deploy end and held at 0 while a payout waits for its owner
     /// to fall below the cap. 0 on every other entity, hashed only for a card that produces. `default` and sized
@@ -947,6 +952,7 @@ impl Entities {
             self.home_team[i] = None;
             self.walk_from[i] = 0;
             self.reveal_from[i] = 0;
+            self.attack_idle_from[i] = 0;
             self.mana_ms[i] = 0;
             self.attached_to[i] = None;
             self.attach_offset[i] = Vec2::default();
@@ -1057,6 +1063,7 @@ impl Entities {
             self.life_target.push(None);
             self.life_n.push(0);
             self.reveal_from.push(0);
+            self.attack_idle_from.push(0);
             self.mana_ms.push(0);
             self.attached_to.push(None);
             self.attach_offset.push(Vec2::default());
