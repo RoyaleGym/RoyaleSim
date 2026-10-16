@@ -973,6 +973,14 @@ pub struct Calib {
     /// `FromLandingTick`, what a battle saved before it ran.
     #[serde(default = "hit_stun_span_default")]
     pub hit_stun_span: HitStunSpan,
+    /// combat.CAGE_DEPLOY_TAKE (when a free Evo Goblin Cage first takes a troop already in reach as its deploy ends). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `OnDeployEnd`, what a battle saved before it ran.
+    #[serde(default = "cage_deploy_take_default")]
+    pub cage_deploy_take: CageDeployTake,
+    /// combat.CAGE_HOLD_START (when an Evo Goblin Cage's captive stops walking and attacking). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `AtGrab`, what a battle saved before it ran.
+    #[serde(default = "cage_hold_start_default")]
+    pub cage_hold_start: CageHoldStart,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2907,6 +2915,14 @@ fn evo_barrel_decoy_points_default() -> EvoBarrelDecoyPoints {
 
 fn hit_stun_span_default() -> HitStunSpan {
     HitStunSpan::FromLandingTick
+}
+
+fn cage_deploy_take_default() -> CageDeployTake {
+    CageDeployTake::OnDeployEnd
+}
+
+fn cage_hold_start_default() -> CageHoldStart {
+    CageHoldStart::AtGrab
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10222,6 +10238,25 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.CAGE_DEPLOY_TAKE -- an Evo Goblin Cage's first take after its deploy (state.rs `cage_pass`; EvoBoard CageRun
+    /// `free_at`).
+    CageDeployTake {
+        /// The engine's: it takes on the tick its deploy ends (E).
+        OnDeployEnd = "on_deploy_end",
+        /// Client 16.402: busy through E; the first take is on E + 1.
+        Client16402AfterDeployTick = "client16402_after_deploy_tick",
+    }
+);
+calib_enum!(
+    /// combat.CAGE_HOLD_START -- the captive's hold before its drag (state.rs `cage_pass`: its stun before the grab).
+    CageHoldStart {
+        /// The engine's: the captive walks and attacks on to its grab (take + 3), as 15.535.29 measured.
+        AtGrab = "at_grab",
+        /// Client 16.402: held from the take + 2: its last step lands on take + 1; the drag keeps its ticks.
+        Client16402TakePlus2 = "client16402_take_plus_2",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10778,6 +10813,8 @@ impl Calib {
             guard_landing_push: pick(&v, &["combat", "GUARD_LANDING_PUSH", "value"], GuardLandingPush::from_calibration_name)?,
             evo_barrel_decoy_points: pick(&v, &["spells", "EVO_BARREL_DECOY_POINTS", "value"], EvoBarrelDecoyPoints::from_calibration_name)?,
             hit_stun_span: pick(&v, &["status", "HIT_STUN_SPAN", "value"], HitStunSpan::from_calibration_name)?,
+            cage_deploy_take: pick(&v, &["combat", "CAGE_DEPLOY_TAKE", "value"], CageDeployTake::from_calibration_name)?,
+            cage_hold_start: pick(&v, &["combat", "CAGE_HOLD_START", "value"], CageHoldStart::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -20911,6 +20948,17 @@ impl BattleState {
                 let never = false;
                 #[cfg(clash_plant = "cage_never")]
                 let never = true; // PLANT: the cage grabs nothing.
+                // combat.CAGE_DEPLOY_TAKE = client16402_after_deploy_tick: a cage still deploying is busy through the tick its
+                // deploy ends (E), so its first take is on E + 1. Measured on client 16.402 (parity r74 batch 6): 8 of 8 takes
+                // of a troop already in reach on E + 1, the engine's on E in 4 of 4.
+                // PLANT (regression) cage_takes_on_deploy_end: the new arm still takes on the deploy's end tick.
+                #[cfg(not(clash_plant = "cage_takes_on_deploy_end"))]
+                let late = self.cfg.calib.cage_deploy_take == CageDeployTake::Client16402AfterDeployTick;
+                #[cfg(clash_plant = "cage_takes_on_deploy_end")]
+                let late = false;
+                if late && self.ents.deploy_ms[ci] > 0 {
+                    r.free_at = r.free_at.max(tick + 1);
+                }
                 // Freed on `free_at`, it takes a troop from the tick after.
                 #[cfg(not(clash_plant = "cage_takes_on_free"))]
                 let busy = tick <= r.free_at;
@@ -20944,6 +20992,18 @@ impl BattleState {
             let Some(c) = r.captive else { continue };
             let ti = c.index as usize;
             if tick < r.grab {
+                // combat.CAGE_HOLD_START = client16402_take_plus_2: the captive is held from the take + 2; its stun is set on
+                // take + 1 (r.grab = take + lag). Measured on client 16.402 (parity r74 batch 6): 6 of 6 walkers' last step on
+                // take + 1, 4 of 4 attackers' progress held from take + 2; the engine's walked and attacked on to take + 3.
+                // PLANT (regression) cage_hold_at_grab: the new arm still walks the captive on to its grab.
+                #[cfg(not(clash_plant = "cage_hold_at_grab"))]
+                let early = self.cfg.calib.cage_hold_start == CageHoldStart::Client16402TakePlus2;
+                #[cfg(clash_plant = "cage_hold_at_grab")]
+                let early = false;
+                let lag = (cd.grab_delay_ms / dt + crate::card::CAGE_GRAB_LAG_TICKS).max(0) as u32;
+                if early && lag >= 2 && tick + lag == r.grab + 1 {
+                    self.ents.stun_ms[ti] = i32::MAX / 4;
+                }
                 continue;
             }
             if tick == r.grab {
@@ -37799,6 +37859,10 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.HIT_STUN_SPAN: Calib gained hit_stun_span (serde default the old arm, from_landing_tick), no new state (BuffHit gained hit_span, serde default false; a BuffHit lives in the effects buffer, empty between ticks),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.CAGE_DEPLOY_TAKE: Calib gained cage_deploy_take (serde default the old arm, on_deploy_end), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.CAGE_HOLD_START: Calib gained cage_hold_start (serde default the old arm, at_grab), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38828,6 +38892,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_barrel_decoy_points".into(), serde_json::to_value(EvoBarrelDecoyPoints::MirroredCastOwnFormation).map_err(|e| e.to_string())?);
     // status.HIT_STUN_SPAN: a format-3 battle's hit and reflect stuns held their BuffTime from the landing tick.
     sh.insert("hit_stun_span".into(), serde_json::to_value(HitStunSpan::FromLandingTick).map_err(|e| e.to_string())?);
+    // combat.CAGE_DEPLOY_TAKE: a format-3 battle ran combat.CAGE_DEPLOY_TAKE's old arm.
+    sh.insert("cage_deploy_take".into(), serde_json::to_value(CageDeployTake::OnDeployEnd).map_err(|e| e.to_string())?);
+    // combat.CAGE_HOLD_START: a format-3 battle ran combat.CAGE_HOLD_START's old arm.
+    sh.insert("cage_hold_start".into(), serde_json::to_value(CageHoldStart::AtGrab).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

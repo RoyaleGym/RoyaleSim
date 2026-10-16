@@ -362,6 +362,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.GUARD_LANDING_PUSH = stops_at_arrival: the guard's push stops at its arrival (sp-lp-live-s0).
 ///   spells.EVO_BARREL_DECOY_POINTS = mirrored_cast_own_formation: the decoy's own ring (sp-form-GoblinBarrel-evo-s0).
 ///   status.HIT_STUN_SPAN = from_landing_tick: a hit's and a reflect's stun hold their BuffTime from the landing (unread there).
+///   combat.CAGE_DEPLOY_TAKE = on_deploy_end: the cage takes on its deploy's end tick (15.535.29 measured reach-case takes).
+///   combat.CAGE_HOLD_START = at_grab: the captive walks on through its grab (15.535.29: 'walks on through G').
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -554,6 +556,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.GUARD_LANDING_PUSH", "\"stops_at_arrival\""),
     ("spells.EVO_BARREL_DECOY_POINTS", "\"mirrored_cast_own_formation\""),
     ("status.HIT_STUN_SPAN", "\"from_landing_tick\""),
+    ("combat.CAGE_DEPLOY_TAKE", "\"on_deploy_end\""),
+    ("combat.CAGE_HOLD_START", "\"at_grab\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

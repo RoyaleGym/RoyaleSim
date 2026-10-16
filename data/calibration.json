@@ -1844,6 +1844,26 @@
     }
   },
   "combat": {
+    "CAGE_HOLD_START": {
+      "value": "at_grab",
+      "status": "measured",
+      "candidates": ["at_grab", "client16402_take_plus_2"],
+      "confidence": "MEDIUM for client16402_take_plus_2 on client 16.402 (parity r74 batch 6, 2026-10-16): every captive walking into its take X took its last step on X + 1 and stood from X + 2, 6 of 6 (Hog Rider, Ice Golemite, Rune Giants, a Skeleton), standing X + 2 .. X + 13 before the drag's first step on X + 14; captives in their attack held their progress from X + 2, 4 of 4; the engine walks and attacks on through the grab (X + 3), 3 of 3 walkers and 4 of 4 attackers, standing 10 ticks (the 16.402 table's captive buff GoblinCage_EV1_incapacitate_target, unread, is the likely cause). A candidate until scored. Client 15.535.29 keeps at_grab (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74 batch 6) on client 16.402, the ob13 set (maker 557fca83): every captive walking into its take X took its last step on X + 1 and stood from X + 2, 6 of 6 (Hog Rider, Ice Golemite, Rune Giants, a Skeleton), standing X + 2 .. X + 13 before the drag's first step on X + 14; captives in their attack held their progress from X + 2, 4 of 4; the engine walks and attacks on through the grab (X + 3), 3 of 3 walkers and 4 of 4 attackers, standing 10 ticks (the 16.402 table's captive buff GoblinCage_EV1_incapacitate_target, unread, is the likely cause).",
+      "meaning": "at_grab: the engine's; a troop an Evo Goblin Cage takes walks and attacks on for DragDelay and a tick more (to its grab, take + 3) and stands there 10 ticks, as client 15.535.29 measured. client16402_take_plus_2: the captive is held from the take + 2 (its stun set on take + 1): its last step lands on take + 1 and its attack progress stops; it stands 12 ticks, and the grab (its point and d0 read on take + 3, now the held point), drag (take + 14), snap (take + 19) and hits keep their ticks.",
+      "open": "A Little Prince captive (his progress reset on X + 1, 3 of 3); a captive pushed in its hold (1 case); client 15.535.29.",
+      "engine": "state.rs cage_pass (the captive's stun before its grab), selected by Calib::cage_hold_start; tests/evo_goblin_cage.rs."
+    },
+    "CAGE_DEPLOY_TAKE": {
+      "value": "on_deploy_end",
+      "status": "measured",
+      "candidates": ["on_deploy_end", "client16402_after_deploy_tick"],
+      "confidence": "MEDIUM-HIGH for client16402_after_deploy_tick on client 16.402 (parity r74 batch 6, 2026-10-16): of the 13 Evo Goblin Cages in ob13 (14 takes), a troop already in reach when the cage's deploy ended (E) was taken on E + 1 in 8 of 8 (one across a missing frame), the engine's on E in 4 of 4 traced; from the take both drag on + 14, snap on + 19 and hit on + 23, so the engine's drag, snap and hits ran a tick early; a troop entering reach later (on R) is taken on R on both (2 of 2), and a freed cage takes its next on its captive's death + 7 on both (3 of 3). A candidate until scored. Client 15.535.29 keeps on_deploy_end (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74 batch 6) on client 16.402, the ob13 set (maker 557fca83): of the 13 Evo Goblin Cages in ob13 (14 takes), a troop already in reach when the cage's deploy ended (E) was taken on E + 1 in 8 of 8 (one across a missing frame), the engine's on E in 4 of 4 traced; from the take both drag on + 14, snap on + 19 and hit on + 23, so the engine's drag, snap and hits ran a tick early; a troop entering reach later (on R) is taken on R on both (2 of 2), and a freed cage takes its next on its captive's death + 7 on both (3 of 3).",
+      "meaning": "on_deploy_end: the engine's; a free Evo Goblin Cage takes the closest enemy ground troop in reach on the tick its deploy ends (E), so its grab, drag, snap and hits run a tick ahead of the client's when the troop was already in reach. client16402_after_deploy_tick: the cage is busy through E and takes from E + 1 (the tick the client's cage first shows the captive as its target); every later tick of the capture keeps its offset from the take (drag + 14, snap + 19, hits + 23, + 43; a freed cage's next take on its captive's death + 7). A take of a troop entering reach later (on R) is unchanged.",
+      "open": "A take on E of a troop that walks into reach on E itself; client 15.535.29 (measured reach-case takes only).",
+      "engine": "state.rs cage_pass (the free cage's take gate: CageRun::free_at), selected by Calib::cage_deploy_take; tests/evo_goblin_cage.rs."
+    },
     "GUARD_LANDING_PUSH": {
       "value": "stops_at_arrival",
       "status": "measured",

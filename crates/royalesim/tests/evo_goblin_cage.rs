@@ -21,7 +21,10 @@
 //!     `the_cages_death_lets_a_knight_go_on_its_point_unpushed_by_its_brawler` red;
 //!   - cage_release_pushed -> the same two red;
 //!   - cage_release_stunned -> `a_captive_let_go_takes_its_target_on_the_next_tick_under_client15535_scans_while_held`
-//!     red.
+//!     red;
+//!   - cage_takes_on_deploy_end -> `under_client16402_after_deploy_tick_a_troop_in_reach_is_taken_on_the_tick_after_the_deploy`
+//!     red;
+//!   - cage_hold_at_grab -> `under_client16402_take_plus_2_a_captive_stands_from_the_take_plus_2` red.
 //!
 //! combat.CAGE_RELEASE_SCAN = client15535_scans_while_held (client 15.535.29, 4 of 4 captives let go): the captive takes
 //! its target on K + 1, standing, and walks on K + 2; the engine's stun scanned nothing until K + 3, and on K + 2 only the
@@ -32,7 +35,7 @@ mod common;
 use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CageCaptiveAvoidance, CageReleaseScan, HeldUnitAvoidance};
+use royalesim::state::{BattleConfig, BattleState, CageCaptiveAvoidance, CageDeployTake, CageHoldStart, CageReleaseScan, HeldUnitAvoidance};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -297,4 +300,99 @@ fn a_caged_captive_scans_no_avoidance_under_client15535_masked() {
     // NOT VACUOUS: scanned, the cage on its point starts a turn.
     let old = captive_offsets(CageCaptiveAvoidance::Scanned);
     assert!(old.iter().any(|&o| o != 0), "scanned: the captive never turned: {old:?}");
+}
+
+/// The cage's battle (Blue's princess towers down, the form put down on CAGE) under combat.CAGE_DEPLOY_TAKE = `take` and
+/// combat.CAGE_HOLD_START = `hold`, before the cage is played: the battle.
+fn cage_battle(take: CageDeployTake, hold: CageHoldStart) -> BattleState {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.cage_deploy_take = take;
+    cfg.calib.cage_hold_start = hold;
+    cfg.decks = [vec!["GoblinCage".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s
+}
+
+/// A red Knight held 3200 right of the cage's point (inside 3000 + 500) through the cage's deploy, then let go, under
+/// combat.CAGE_DEPLOY_TAKE = `take` (CAGE_HOLD_START at at_grab): its points from E, the tick whose state first shows the
+/// cage's deploy over (index k = E + k).
+fn deploy_gated(take: CageDeployTake) -> Vec<(i32, i32)> {
+    let mut s = cage_battle(take, CageHoldStart::AtGrab);
+    s.spawn_unit(Team::Blue, "GoblinCage_EV1", n(CAGE.0, CAGE.1), None).expect("the cage");
+    let held = n(CAGE.0 + 3200, CAGE.1);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", held, None).expect("a red Knight");
+    let mut k = 0;
+    loop {
+        assert!(s.debug_set_pos(knight, held));
+        s.tick();
+        if find_live(&s, Team::Blue, "GoblinCage_EV1").first().is_some_and(|c| c.deploy_ms == 0) {
+            break;
+        }
+        k += 1;
+        assert!(k < 100, "the scene drifted: the cage never ended its deploy");
+    }
+    let mut p = vec![point(&s, knight).expect("the Knight")];
+    for _ in 0..30 {
+        s.tick();
+        p.push(point(&s, knight).expect("the Knight"));
+    }
+    p
+}
+
+/// combat.CAGE_DEPLOY_TAKE = client16402_after_deploy_tick (client 16.402, parity's r74 batch-6 census: 8 of 8 takes of a troop
+/// already in reach on the deploy's end + 1; the engine's on E, 4 of 4): taken on E + 1, the Knight walks on to its grab (E + 4),
+/// stands E + 5 .. E + 14, drags from E + 15 and is on the cage's point from E + 20; under on_deploy_end (the vacuity check) it
+/// drags from E + 14 and is on the point on E + 19. Plant: cage_takes_on_deploy_end.
+#[test]
+fn under_client16402_after_deploy_tick_a_troop_in_reach_is_taken_on_the_tick_after_the_deploy() {
+    let p = deploy_gated(CageDeployTake::Client16402AfterDeployTick);
+    assert!(d(p[0]) <= GRAB2, "the scene: the Knight is in reach on E: {:?}", p[0]);
+    assert!(p[4] != p[3] && p[5..=14].iter().all(|q| *q == p[4]), "client16402_after_deploy_tick: stands from E + 5: {:?}", &p[..16]);
+    assert!(d(p[15]) < d(p[14]) && p[19] != CAGE && p[20] == CAGE, "client16402_after_deploy_tick: drag E + 15, snap E + 20: {:?}", &p[12..22]);
+    let q = deploy_gated(CageDeployTake::OnDeployEnd);
+    assert!(d(q[14]) < d(q[13]) && q[19] == CAGE, "on_deploy_end (the vacuity check): drag E + 14, snap E + 19: {:?}", &q[10..21]);
+}
+
+/// The walk-in scene (`grabbed`'s: a red Knight held 3700 right of the cage until the cage is up, then let walk in) under
+/// combat.CAGE_HOLD_START = `hold`: its points by tick and x, the index of its first point within 3000 + 500 (its take).
+fn walked_in(hold: CageHoldStart) -> (Vec<(i32, i32)>, usize) {
+    let mut s = cage_battle(CageDeployTake::OnDeployEnd, hold);
+    s.spawn_unit(Team::Blue, "GoblinCage_EV1", n(CAGE.0, CAGE.1), None).expect("the cage");
+    s.tick();
+    let far = n(CAGE.0 + 3700, CAGE.1);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", far, None).expect("a red Knight");
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(knight, far));
+        s.tick();
+    }
+    let mut p = vec![point(&s, knight).expect("the Knight")];
+    for _ in 0..80 {
+        s.tick();
+        p.push(point(&s, knight).expect("the Knight"));
+    }
+    let x = p.iter().position(|q| d(*q) <= GRAB2).expect("the Knight never came in reach");
+    (p, x)
+}
+
+/// combat.CAGE_HOLD_START = client16402_take_plus_2 (client 16.402, parity's r74 batch-6 census: 6 of 6 walking captives took
+/// their last step on the take + 1 and stood from + 2; the engine's walked on to the grab, + 3): the Knight's last step lands
+/// on X + 1, it stands X + 2 .. X + 13, drags from X + 14 and is on the cage's point on X + 19; under at_grab (the vacuity
+/// check) it still walks on X + 2 and X + 3. Plant: cage_hold_at_grab.
+#[test]
+fn under_client16402_take_plus_2_a_captive_stands_from_the_take_plus_2() {
+    let (p, x) = walked_in(CageHoldStart::Client16402TakePlus2);
+    assert!(x >= 1 && p[x + 1] != p[x], "client16402_take_plus_2: its last step lands on X + 1: {:?}", &p[x - 1..x + 4]);
+    assert!(p[x + 2..=x + 13].iter().all(|q| *q == p[x + 1]), "client16402_take_plus_2: stands X + 2 .. X + 13: {:?}", &p[x..x + 15]);
+    assert!(d(p[x + 14]) < d(p[x + 13]) && p[x + 18] != CAGE && p[x + 19] == CAGE, "client16402_take_plus_2: drag X + 14, snap X + 19: {:?}", &p[x + 12..x + 21]);
+    let (q, y) = walked_in(CageHoldStart::AtGrab);
+    assert!(q[y + 2] != q[y + 1] && q[y + 3] != q[y + 2], "at_grab (the vacuity check): still walking on X + 2 and X + 3: {:?}", &q[y..y + 5]);
 }
