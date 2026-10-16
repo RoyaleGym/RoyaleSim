@@ -2980,6 +2980,9 @@ pub struct SnipeDef {
     pub skip_pending: bool,
     /// The filter's FilterTowers: a crown tower is never a snipe target.
     pub skip_towers: bool,
+    /// The row's target filter leaves towers out (default_targets_no_towers). Read under targeting.SNIPE_TOWER_FILTER =
+    /// client16402_no_towers_filter (state.rs `snipe_pass`): the 160402017 tables leave FilterTowers blank there.
+    pub no_towers_filter: bool,
     /// The entry's CustomRange, SUBTILES: her attack reach while she aims a snipe.
     pub reach: i32,
     /// The snipe projectile's Speed (raw) and Damage (level 1) and its crown-tower percent.
@@ -6355,6 +6358,7 @@ struct RawSnipe {
     locked_side_clip_milli: Option<i32>,
     skip_pending_damage: Option<bool>,
     filter_towers: Option<bool>,
+    filter: Option<String>,
     shot_range_milli: Option<i32>,
     shot: Option<RawSnipeShot>,
 }
@@ -6483,6 +6487,7 @@ fn snipe_of(sn: &RawSnipe) -> Result<SnipeDef, String> {
         locked_clip: milli(need(sn.locked_side_clip_milli, "LockedTargetSnipeSideClip")?),
         skip_pending: sn.skip_pending_damage.unwrap_or(false),
         skip_towers: sn.filter_towers.unwrap_or(false),
+        no_towers_filter: sn.filter.as_deref() == Some("default_targets_no_towers"),
         reach: milli(need(sn.shot_range_milli, "CustomRange")?),
         speed: need(shot.speed, "shot Speed")?,
         damage: need(shot.damage, "shot Damage")?,

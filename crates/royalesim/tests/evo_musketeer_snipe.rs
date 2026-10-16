@@ -249,3 +249,50 @@ fn d_a_spell_in_flight_is_not_pending_damage() {
     // by the third (no goblin left, 688 off the Knight).
     assert_eq!((snipes[1].4, snipes[2].4, snipes[2].1.as_str(), snipes[2].3), (3, 0, "Knight", 1078), "{snipes:?}");
 }
+
+/// An Evo Musketeer held at (9000, 7000) on the 160402017 table (its snipe row: filter default_targets_no_towers, FilterTowers
+/// blank), alone, under targeting.SNIPE_TOWER_FILTER = `arm`: over 120 ticks, the ticks on which she is in an attack on a crown
+/// tower more than 8,000 from her, and the farthest such distance.
+fn far_tower_attacks(arm: royalesim::state::SnipeTowerFilter) -> (u32, i32) {
+    use royalesim::state::CardTable;
+    let db = royalesim::card::CardDb::load_table(CardTable::Client160402017).expect("the 160402017 table");
+    let mut cfg = BattleConfig::with_cards(db);
+    cfg.calib.card_table = CardTable::Client160402017;
+    cfg.calib.snipe_tower_filter = arm;
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let form = s.cards().index("Musketeer_EV1").expect("the evolved Musketeer loads");
+    s.spawn_unit(Team::Blue, "Musketeer_EV1", n(9000, 7000), None).unwrap();
+    s.tick();
+    let me = s.entities().find(|e| e.card_idx == form).expect("her").id;
+    let (mut ticks, mut far) = (0, 0);
+    for _ in 0..120 {
+        assert!(s.debug_set_pos(me, n(9000, 7000)));
+        s.tick();
+        let m = s.entity(me).expect("her");
+        let Some(t) = m.target.and_then(|t| s.entity(t)) else { continue };
+        if t.kind.is_crown_tower() && m.attack_phase != AttackPhase::Idle {
+            let d = dist(native(m.pos), native(t.pos));
+            if d > 8000 {
+                ticks += 1;
+                far = far.max(d);
+            }
+        }
+    }
+    (ticks, far)
+}
+
+/// targeting.SNIPE_TOWER_FILTER = client16402_no_towers_filter (client 16.402, parity's r74 census: an Evo Musketeer attacked no
+/// crown tower more than 8,000 from her, 0 of 21; the engine's did, from 16,500 to 23,800 away, in 6): held on her lane alone
+/// on the 160402017 table, she never snipes the tower ahead; under filter_towers_column (the vacuity check) she does. Plant:
+/// snipe_takes_towers.
+#[test]
+fn under_client16402_no_towers_filter_she_snipes_no_crown_tower() {
+    use royalesim::state::SnipeTowerFilter as F;
+    let (old, far) = far_tower_attacks(F::FilterTowersColumn);
+    assert!(old > 0, "filter_towers_column (the vacuity check): she never attacked a far tower ({old} ticks)");
+    let (new, nfar) = far_tower_attacks(F::Client16402NoTowersFilter);
+    assert_eq!(new, 0, "client16402_no_towers_filter: she attacked a crown tower {nfar} away ({new} ticks; the old arm's farthest {far})");
+}

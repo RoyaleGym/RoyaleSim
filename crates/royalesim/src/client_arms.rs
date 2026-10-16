@@ -348,6 +348,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   targeting.THROW_PICK = ground_troops_centre_in_radius: the Hero Balloon throws at troops by centre (its golem scenes).
 ///   spells.ROLLING_HIT_SWEEP = swept_prev_to_cur: a roll's box swept from its previous centre (unread there).
 ///   spells.ROLLING_SPARES_LEAPERS = hits: a ground roll hits a leaping unit (unread there).
+///   targeting.DOOMED_ENCHANT_BONUS = counted: the doomed sums add a shot's enchant bonus (unread there).
+///   targeting.SNIPE_TOWER_FILTER = filter_towers_column: the snipe's FilterTowers alone (its row sets it there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -526,6 +528,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.THROW_PICK", "\"ground_troops_centre_in_radius\""),
     ("spells.ROLLING_HIT_SWEEP", "\"swept_prev_to_cur\""),
     ("spells.ROLLING_SPARES_LEAPERS", "\"hits\""),
+    ("targeting.DOOMED_ENCHANT_BONUS", "\"counted\""),
+    ("targeting.SNIPE_TOWER_FILTER", "\"filter_towers_column\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

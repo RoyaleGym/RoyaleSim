@@ -219,6 +219,26 @@
     }
   },
   "targeting": {
+    "SNIPE_TOWER_FILTER": {
+      "value": "filter_towers_column",
+      "status": "measured",
+      "candidates": ["filter_towers_column", "client16402_no_towers_filter"],
+      "confidence": "HIGH for client16402_no_towers_filter on client 16.402 (parity r74, 2026-10-16): parity's r74 census of the live11 set (client 16.402): of 21 Evo Musketeers, the truth attacked a crown tower more than 8,000 from her in 0 (she walked to it); the engine did in 6 (147 ticks, 12 attack runs, from 16,500 to 23,800 away). The 160402017 tables' snipe row carries the target filter default_targets_no_towers with FilterTowers blank (read false), so the engine's snipe pass took a crown tower ahead as a snipe target and shot it from the snipe's CustomRange. A candidate until scored. The 15.535.29 table sets FilterTowers (true), so the arms agree there; CLIENT15535_ARMS keeps filter_towers_column.",
+      "provenance": "MEASURED by parity (2026-10-16, r74) on client 16.402: parity's r74 census of the live11 set (client 16.402): of 21 Evo Musketeers, the truth attacked a crown tower more than 8,000 from her in 0 (she walked to it); the engine did in 6 (147 ticks, 12 attack runs, from 16,500 to 23,800 away). The 160402017 tables' snipe row carries the target filter default_targets_no_towers with FilterTowers blank (read false), so the engine's snipe pass took a crown tower ahead as a snipe target and shot it from the snipe's CustomRange.",
+      "meaning": "filter_towers_column: the engine's; a crown tower is out of the snipe's picks only when the row's FilterTowers is set, which the 160402017 tables leave blank, so a crown tower ahead within SnipeMaxRange and the side clip is sniped from the snipe's CustomRange (30,000). client16402_no_towers_filter: a snipe whose target filter is default_targets_no_towers (SnipeDef::no_towers_filter) never takes a crown tower either; she walks to it as any Musketeer.",
+      "open": "Client 15.535.29 (its row sets FilterTowers).",
+      "engine": "card.rs snipe_of (no_towers_filter); state.rs snipe_pass (fits), selected by Calib::snipe_tower_filter; tests/evo_musketeer_snipe.rs."
+    },
+    "DOOMED_ENCHANT_BONUS": {
+      "value": "counted",
+      "status": "measured",
+      "candidates": ["counted", "client16402_base_damage_only"],
+      "confidence": "HIGH for client16402_base_damage_only on client 16.402 (parity r74, 2026-10-16): parity's r74 census of the live11 set (client 16.402): of 795 crown-tower post-kill events whose only troop co-attacker was a Little Prince, the tower retargeted on the kill + 1 in 709 of 744 when the base damage of the shots in flight covered the victim, and waited the 6 ticks in 49 of 51 when only the Rune Giant's enchant bonus made it up; the engine freed it on the kill + 1 in 7 of 8 of those. A candidate until scored. The census reads the post-kill site; the DOOMED_TARGET_DROP site rides the same arm. Client 15.535.29 keeps counted (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74) on client 16.402: parity's r74 census of the live11 set (client 16.402): of 795 crown-tower post-kill events whose only troop co-attacker was a Little Prince, the tower retargeted on the kill + 1 in 709 of 744 when the base damage of the shots in flight covered the victim, and waited the 6 ticks in 49 of 51 when only the Rune Giant's enchant bonus made it up; the engine freed it on the kill + 1 in 7 of 8 of those.",
+      "meaning": "counted: the engine's; the doomed sums (combat.POST_KILL_RETARGET_WAIT clause (c), targeting.DOOMED_TARGET_DROP) add each homing shot's enchant bonus. client16402_base_damage_only: they read each shot's own damage alone, so a victim only the bonus would cover is not doomed; the bonus still lands (Resolve).",
+      "open": "Whether the DOOMED_TARGET_DROP site reads the bonus; client 15.535.29.",
+      "engine": "state.rs phase_target (the post-kill doomed test) and `doom_bonus`; combat.rs shots_in_flight_at and doomed_by_shots_in_flight; selected by Calib::doomed_enchant_bonus; tests/enchant.rs."
+    },
     "THROW_PICK": {
       "value": "client16402_ground_targets_edge_in_radius",
       "status": "measured",
@@ -1847,10 +1867,10 @@
     "DASH_IMMUNE_HITS": {
       "value": "discarded",
       "status": "measured",
-      "candidates": ["discarded", "client16402_held_to_immunity_end"],
+      "candidates": ["discarded", "client16402_held_to_immunity_end", "client16402_projectile_lands_on_last_immune_tick"],
       "confidence": "HIGH for client16402_held_to_immunity_end on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402), E a Bandit's or Boss Bandit's last dash frame: over all 30 dash runs, a tower arrow fired before the dash that reached her inside the immunity landed on E + 3 in 5 of 5 (the immunity's end, DashImmuneToDamageTime 150 / 50), the engine's in 0 of 5; arrows fired during the dash were lost on both; the 24 other runs agree tick for tick. A candidate until scored. Client 15.535.29 keeps discarded (CLIENT15535_ARMS; combat.DASH_ATTACK's own measurement there).",
       "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402), E a Bandit's or Boss Bandit's last dash frame: over all 30 dash runs, a tower arrow fired before the dash that reached her inside the immunity landed on E + 3 in 5 of 5 (the immunity's end, DashImmuneToDamageTime 150 / 50), the engine's in 0 of 5; arrows fired during the dash were lost on both; the 24 other runs agree tick for tick.",
-      "meaning": "discarded: the engine's; every hit on a dash-immune unit is dropped at Resolve. client16402_held_to_immunity_end: a projectile already flying at a unit when its dash begins is marked (`Projectile::held`); arriving while the unit is dash-immune it waits on it, and lands on the first tick the unit is not immune (the dash's end + DashImmuneToDamageTime / 50); a shot fired during the dash is not marked and is dropped as before.",
+      "meaning": "discarded: the engine's; every hit on a dash-immune unit is dropped at Resolve. client16402_held_to_immunity_end: a projectile already flying at a unit when its dash begins is marked (`Projectile::held`); arriving while the unit is dash-immune it waits on it, and lands on the first tick the unit is not immune (the dash's end + DashImmuneToDamageTime / 50); a shot fired during the dash is not marked and is dropped as before. client16402_projectile_lands_on_last_immune_tick: nothing is held; a projectile's hit (Hit::shot) landing on the immunity's last tick lands, melee and every earlier hit are dropped (a candidate, parity r74: parity's r74 census of the live11 set (client 16.402): over 46 Bandit and Boss Bandit dashes, projectiles reaching her from the dash start to her immunity's last tick but one landed 0 of 24 (both); on its last tick (her last dash frame + 3) 5 of 5 landed in the truth, 0 of 5 in the engine; melee blows there were dropped (0 of 2, both); later, 3 of 3 on both. r73's client16402_held_to_immunity_end held about 15 shots the client dropped (-1,526 by score)). client16402_held_to_immunity_end is refuted by that census.",
       "open": "The Golden Knight's chain (combat.DASH_CHAIN_IMMUNITY) and the guard's charge; troop shots (only tower arrows were seen); client 15.535.29.",
       "engine": "combat.rs step_projectiles (the wait), Projectile::held; state.rs phase_path16402_for (the mark at the dash's start), selected by Calib::dash_immune_hits; tests/dash_attack.rs."
     },

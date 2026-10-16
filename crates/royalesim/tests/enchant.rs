@@ -70,6 +70,8 @@
 //!   * `splash_bonus_primary_only` -- one splash victim takes the bonus: (10) goes red.
 //!   * `enchant_shots_uncounted` -- a launch is not counted: (9) and (11) go red.
 //!   * `crown_bonus_from_added_damage` -- a crown tower takes AddedDamage: (12) goes red.
+//!   * `doom_bonus_counted` -- targeting.DOOMED_ENCHANT_BONUS = client16402_base_damage_only still counts the bonus:
+//!     `under_client16402_base_damage_only_the_doomed_sum_leaves_out_the_enchant_bonus` goes red.
 //!   * `enchant_outlives_instigator` -- an enchant lasts for ever: (13) goes red.
 //!   * `enchant_ends_with_instigator` -- it ends with him: (13) goes red.
 //!   * `enchant_fresh_pick_of_two` -- every look picks two: (14) goes red.
@@ -992,4 +994,35 @@ fn under_client16402_conditional_no_move_each_launch_holds_his_attack_fourteen_t
     assert!(at_k(&p, l + 14) > 0, "client16402_conditional_no_move: no swing on L + 14: {p:?}");
     let (_, q) = swing(P::None);
     assert!((l..l + 14).any(|k| at_k(&q, k) > 0), "none: his swing held through the launch: {q:?}");
+}
+
+/// An enchanted Blue Musketeer shooting a Red Knight (BIG hp) beside her under targeting.DOOMED_ENCHANT_BONUS = `arm`: on the
+/// first tick a shot of hers carrying the bonus flies at the Knight, (the Knight's doomed pending, `doom_reading`; that
+/// shot's damage; its bonus).
+fn bonus_pending(arm: royalesim::state::DoomedEnchantBonus) -> (i64, i32, i32) {
+    let (mut s, musk, _) = enchanted(with(|c| c.doomed_enchant_bonus = arm), "Musketeer", None, None);
+    let knight = foe_beside(&mut s, musk, "Knight", (0, 3000));
+    for _ in 0..240 {
+        s.tick();
+        if let Some(p) = s.projectiles().iter().find(|p| p.target == knight && p.bonus > 0) {
+            let (d, b) = (p.damage, p.bonus);
+            let r = s.doom_reading(knight).expect("the Knight stands");
+            return (r.pending, d, b);
+        }
+    }
+    panic!("the scene drifted: no bonus shot at the Knight in 240 ticks");
+}
+
+/// targeting.DOOMED_ENCHANT_BONUS = client16402_base_damage_only (client 16.402, parity's r74 census: a crown tower whose victim
+/// only the Rune Giant's bonus would cover waited its post-kill wait, 49 of 51; the engine freed it): the doomed pending at a
+/// unit a bonus shot flies at is the counted one less that bonus; under counted (the vacuity check) it holds the shot's damage
+/// and bonus. Plant: doom_bonus_counted.
+#[test]
+fn under_client16402_base_damage_only_the_doomed_sum_leaves_out_the_enchant_bonus() {
+    use royalesim::state::DoomedEnchantBonus as D;
+    let (old, d, b) = bonus_pending(D::Counted);
+    assert!(b > 0 && old >= i64::from(d + b), "counted: the pending {old} does not hold the shot's {d} + {b}");
+    let (new, d2, b2) = bonus_pending(D::Client16402BaseDamageOnly);
+    assert_eq!((d2, b2), (d, b), "the scene drifted between the arms");
+    assert_eq!(new, old - i64::from(b), "client16402_base_damage_only: the pending {new} is not the counted {old} less the bonus {b}");
 }

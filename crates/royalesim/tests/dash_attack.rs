@@ -39,6 +39,9 @@
 //!   * `dash_first_tick_moves` -- the Bandit moves on its entry tick: (3) goes red on the stand's length.
 //!   * `dash_whole_steps` -- one whole step and one Range test a tick: (3) goes red on the half-step stop.
 //!   * `dash_not_immune` -- a dashing unit takes every hit: (4) goes red.
+//!   * `last_immune_shot_dropped` -- combat.DASH_IMMUNE_HITS = client16402_projectile_lands_on_last_immune_tick still drops a
+//!     shot on the immunity's last tick: `under_client16402_projectile_lands_on_last_immune_tick_an_arrow_on_its_last_tick_lands`
+//!     goes red.
 //!   * `dash_end_body_now` -- combat.DASH_END_CONTACT = client16402_next_tick still makes the Mega Knight a body on his end
 //!     tick: `under_client16402_next_tick_a_mega_knight_moves_no_neighbour_on_his_jumps_end_tick` goes red.
 //!   * `dash_immune_hit_discarded` -- combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end still drops a held shot:
@@ -566,4 +569,26 @@ fn under_client16402_next_tick_a_mega_knight_moves_no_neighbour_on_his_jumps_end
     assert_eq!(k, end, "the arms parted {k} ticks after the Skeleton was made, not on his end tick ({end}): old {old:?}, new {new:?}");
     let step = |v: &Vec<(i32, i32)>| isqrt(((v[k].0 - v[k - 1].0) as i64).pow(2) + ((v[k].1 - v[k - 1].1) as i64).pow(2));
     assert!(step(&new) < step(&old), "on his end tick the new arm moved the Skeleton as far or further ({} vs {})", step(&new), step(&old));
+}
+
+/// combat.DASH_IMMUNE_HITS = client16402_projectile_lands_on_last_immune_tick (client 16.402, parity's r74 census: a projectile
+/// reaching a Bandit on her immunity's last tick landed, 5 of 5; earlier ones and melee were dropped): over Bandit starts 900
+/// apart the arms differ only by a tower arrow landing on her immunity's last tick (the arrival + 1: DashImmuneToDamageTime
+/// 100 / 50), one arrow more under the new arm; at least one start parts them. Plant: last_immune_shot_dropped.
+#[test]
+fn under_client16402_projectile_lands_on_last_immune_tick_an_arrow_on_its_last_tick_lands() {
+    let mut parted = 0;
+    for y in (17000..=18600).step_by(100) {
+        let (_, _, _, old) = scene_at_tower_with((3500, y), 60, DashImmuneHits::Discarded);
+        let (_, _, _, new) = scene_at_tower_with((3500, y), 60, DashImmuneHits::Client16402ProjectileLandsOnLastImmuneTick);
+        let d = trigger(&old, 7000);
+        let arrival = dash_rows(&old, d + BANDIT_STAND as usize).last().unwrap().t;
+        let Some(arrow) = old.iter().find(|r| r.own_loss > 0).map(|r| r.own_loss) else { continue };
+        if let Some((a, b)) = old.iter().zip(new.iter()).find(|(a, b)| a.own_loss != b.own_loss) {
+            assert_eq!(a.t, arrival + 1, "start y {y}: the arms parted on {}, not on her immunity's last tick (the arrival {arrival} + 1)", a.t);
+            assert_eq!(b.own_loss - a.own_loss, arrow, "start y {y}: the arrow on {} deals one arrow ({arrow}): old {}, new {}", a.t, a.own_loss, b.own_loss);
+            parted += 1;
+        }
+    }
+    assert!(parted > 0, "vacuous: no start put a tower arrow on her immunity's last tick");
 }

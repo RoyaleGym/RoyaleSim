@@ -86,6 +86,11 @@ pub struct Hit {
     /// victim is Hidden. Snapshot format 6; absent in older snapshots = false.
     #[serde(default)]
     pub ignores_hide: bool,
+    /// A PROJECTILE'S LANDING (`step_projectiles`, a homing shot on its target): combat.DASH_IMMUNE_HITS =
+    /// client16402_projectile_lands_on_last_immune_tick lets it land on a dash immunity's last tick (`resolve`). False on
+    /// every other hit. `default` so a buffer saved before it still reads.
+    #[serde(default)]
+    pub shot: bool,
     /// THE UNIT'S OWN DRAIN OR DEATH: a building's lifetime drain and expiry, a delayed kamikaze's drain, a
     /// kamikaze's death on its fire (state.rs). No DamageReduction applies to it (status.DAMAGE_REDUCTION,
     /// `reduce_hit`): the unit is not being hit by anything. Every other writer leaves it false. `default` so a
@@ -824,7 +829,7 @@ pub fn splash(
             continue;
         }
         if in_range_edge(center, ents.pos[v], radius, ents.radius[v]) {
-            out.hits.push(Hit { target: ents.id_of(v), amount: damage_against(ents.kind[v], amount, crown_pct, rounding), ignores_hide: false, own: false });
+            out.hits.push(Hit { target: ents.id_of(v), amount: damage_against(ents.kind[v], amount, crown_pct, rounding), ignores_hide: false, own: false, shot: false });
             scratch[kept] = v as u32;
             kept += 1;
         }
@@ -1303,7 +1308,7 @@ pub fn fire(
     if let Some(sel) = card.attack_select {
         if melee_chosen(ents, a, ti, sel) {
             let amount = cards.scaled(ents.card[a], ents.level[a], sel.melee_damage).expect("level validated at spawn");
-            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false });
+            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false, shot: false });
             if let Some(b) = direct_buff {
                 fx.buffs.push(BuffHit { by_hit: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
@@ -1650,7 +1655,7 @@ pub fn fire(
         #[cfg(clash_plant = "hit_beyond_cancel_deals_damage")]
         let void = false; // PLANT (regression): the far hit deals its full damage under the new arm too.
         if !void {
-            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false });
+            dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false, shot: false });
             if let Some(b) = direct_buff {
                 fx.buffs.push(BuffHit { by_hit: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
@@ -1685,7 +1690,7 @@ pub fn fire(
                 continue;
             }
             let bi = b.index as usize;
-            dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding) + direct.on(ents.kind[bi]), ignores_hide: false, own: false });
+            dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding) + direct.on(ents.kind[bi]), ignores_hide: false, own: false, shot: false });
             if let Some(bf) = direct_buff {
                 fx.buffs.push(BuffHit { by_hit: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
             }
@@ -2020,7 +2025,7 @@ fn straight_hits(
                 }
             }
         }
-        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], hit_damage, crown_pct, calib.crown_rounding) + bonus.on(ents.kind[v]), ignores_hide: false, own: false });
+        dmg.hits.push(Hit { target: id, amount: damage_against(ents.kind[v], hit_damage, crown_pct, calib.crown_rounding) + bonus.on(ents.kind[v]), ignores_hide: false, own: false, shot: false });
         if let Some(b) = buff {
             fx.buffs.push(BuffHit { by_hit: true, src_level, before_damage, ..BuffHit::plain(id, b.buff, b.time_ms, pulse) });
         }
@@ -2416,7 +2421,7 @@ pub fn step_projectiles(
             }
         } else if alive {
             let ti = p.target.index as usize;
-            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: shot_passes_hide(calib), own: false });
+            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: shot_passes_hide(calib), own: false, shot: true });
             if let Some(f) = p.firer.filter(|_| ice_firer(cards, p.firer_card)) {
                 dmg.firers.push((f, p.target));
             }
@@ -2739,9 +2744,9 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i
 /// is skipped too. A shot's enchant bonus (`Projectile::bonus`) is part of what it deals. `homing_only`: see
 /// `shots_in_flight_at`.
 #[allow(clippy::too_many_arguments)]
-pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>, spears: bool) -> Vec<bool> {
+pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>, spears: bool, bonus: bool) -> Vec<bool> {
     let cap = ents.capacity();
-    let (pending, last_ms) = shots_in_flight_at(ents, projectiles, rounding, tick_ms, step, homing_only, spears);
+    let (pending, last_ms) = shots_in_flight_at(ents, projectiles, rounding, tick_ms, step, homing_only, spears, bonus);
     #[cfg(not(clash_plant = "doomed_eta_ignored"))]
     let within = |t: usize| last_ms[t] <= limit_ms;
     #[cfg(clash_plant = "doomed_eta_ignored")]
@@ -2766,7 +2771,9 @@ pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], ro
 /// targeting.DOOMED_DROP_SPEAR_MEMBERS = client15535_projectile (`spears`): an Evo Elite Barbarian's spear in flight
 /// (`Projectile::trail`) counts as the homing shot it is, though its firer's card (its projectile taken off by the loader)
 /// names none (client 15.535.29: its victim's pending damage carried the spear's 284 or 453).
-pub fn shots_in_flight_at(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>, spears: bool) -> (Vec<i64>, Vec<i32>) {
+/// `bonus`: whether a shot's enchant bonus counts (targeting.DOOMED_ENCHANT_BONUS; false under client16402_base_damage_only).
+#[allow(clippy::too_many_arguments)]
+pub fn shots_in_flight_at(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>, spears: bool, bonus: bool) -> (Vec<i64>, Vec<i32>) {
     let cap = ents.capacity();
     let mut pending = vec![0i64; cap];
     let mut last_ms = vec![0i32; cap];
@@ -2778,7 +2785,8 @@ pub fn shots_in_flight_at(ents: &Entities, projectiles: &[Projectile], rounding:
             continue;
         }
         let t = p.target.index as usize;
-        pending[t] += (damage_against(ents.kind[t], p.damage, p.crown_pct, rounding) + Bonus { hit: p.bonus, crown: p.bonus_crown }.on(ents.kind[t])) as i64;
+        let extra = if bonus { Bonus { hit: p.bonus, crown: p.bonus_crown }.on(ents.kind[t]) } else { 0 };
+        pending[t] += (damage_against(ents.kind[t], p.damage, p.crown_pct, rounding) + extra) as i64;
         last_ms[t] = last_ms[t].max(ticks_to_land(ents, p, step) * tick_ms);
     }
     (pending, last_ms)
@@ -2848,8 +2856,16 @@ pub fn resolve(
         if untouchable_now(ents, h.target.index as usize, hidden_immune, underground_immune, h.ignores_hide) || stagger_untouchable(calib, ents, h.target.index as usize) {
             continue;
         }
+        // combat.DASH_IMMUNE_HITS = client16402_projectile_lands_on_last_immune_tick: a projectile's hit (`Hit::shot`) on the
+        // immunity's last tick lands. Measured on client 16.402 (parity r74): 5 of 5 on the last dash frame + 3 landed, the
+        // engine's 0; melee there and every earlier hit dropped on both.
+        // PLANT (regression) last_immune_shot_dropped: the new arm still drops it.
+        #[cfg(not(clash_plant = "last_immune_shot_dropped"))]
+        let last_lands = h.shot && calib.dash_immune_hits == crate::state::DashImmuneHits::Client16402ProjectileLandsOnLastImmuneTick && !ents.dash_immune(h.target.index as usize, tick + 1);
+        #[cfg(clash_plant = "last_immune_shot_dropped")]
+        let last_lands = false;
         #[cfg(not(clash_plant = "dash_not_immune"))]
-        if ents.dash_immune(h.target.index as usize, tick) {
+        if ents.dash_immune(h.target.index as usize, tick) && !last_lands {
             continue;
         }
         #[cfg(clash_plant = "dash_not_immune")]

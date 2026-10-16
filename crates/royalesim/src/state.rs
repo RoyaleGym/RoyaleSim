@@ -917,6 +917,14 @@ pub struct Calib {
     /// `Hits`, what a battle saved before it ran.
     #[serde(default = "rolling_spares_leapers_default")]
     pub rolling_spares_leapers: RollingSparesLeapers,
+    /// targeting.DOOMED_ENCHANT_BONUS (whether a homing shot's enchant bonus counts in the doomed sums). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Counted`, what a battle saved before it ran.
+    #[serde(default = "doomed_enchant_bonus_default")]
+    pub doomed_enchant_bonus: DoomedEnchantBonus,
+    /// targeting.SNIPE_TOWER_FILTER (what keeps a crown tower out of the Evo Musketeer's snipe picks). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `FilterTowersColumn`, what a battle saved before it ran.
+    #[serde(default = "snipe_tower_filter_default")]
+    pub snipe_tower_filter: SnipeTowerFilter,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2795,6 +2803,14 @@ fn rolling_hit_sweep_default() -> RollingHitSweep {
 
 fn rolling_spares_leapers_default() -> RollingSparesLeapers {
     RollingSparesLeapers::Hits
+}
+
+fn doomed_enchant_bonus_default() -> DoomedEnchantBonus {
+    DoomedEnchantBonus::Counted
+}
+
+fn snipe_tower_filter_default() -> SnipeTowerFilter {
+    SnipeTowerFilter::FilterTowersColumn
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9847,8 +9863,12 @@ calib_enum!(
         /// The engine's: dropped at Resolve, whenever it was fired (combat.DASH_ATTACK = client_dash).
         Discarded = "discarded",
         /// Client 16.402: a shot flying at the unit when its dash began waits on it and lands on its first tick out of the
-        /// immunity; one fired during the dash is dropped as before.
+        /// immunity; one fired during the dash is dropped as before. REFUTED by parity r74 (the client held none; -1,526 by
+        /// score): kept as a candidate for the record.
         Client16402HeldToImmunityEnd = "client16402_held_to_immunity_end",
+        /// Client 16.402: nothing is held; a projectile's hit landing on the immunity's last tick lands (its test reads the
+        /// next tick), melee and every earlier hit are dropped as before (parity's r74 census of the live11 set (client 16.402): over 46 Bandit and Boss Bandit dashes, projectiles reaching her from the dash start to her immunity's last tick but one landed 0 of 24 (both); on its last tick (her last dash frame + 3) 5 of 5 landed in the truth, 0 of 5 in the engine; melee blows there were dropped (0 of 2, both); later, 3 of 3 on both. r73's client16402_held_to_immunity_end held about 15 shots the client dropped (-1,526 by score)).
+        Client16402ProjectileLandsOnLastImmuneTick = "client16402_projectile_lands_on_last_immune_tick",
     }
 );
 calib_enum!(
@@ -9946,6 +9966,26 @@ calib_enum!(
         Hits = "hits",
         /// Client 16.402: a unit in a river leap or in a dash (the Mega Knight's jump) is not hit.
         Client16402SparedMidLeap = "client16402_spared_mid_leap",
+    }
+);
+calib_enum!(
+    /// targeting.DOOMED_ENCHANT_BONUS -- the shots in flight at a unit, summed for its doom (state.rs phase_target's
+    /// post-kill doomed test; combat.rs `shots_in_flight_at`, read by targeting.DOOMED_TARGET_DROP and `doom_reading`).
+    DoomedEnchantBonus {
+        /// The engine's: a shot's enchant bonus (Projectile::bonus, bonus_crown) is part of what it deals.
+        Counted = "counted",
+        /// Client 16.402: each shot counts its own damage alone; the bonus still lands when it hits.
+        Client16402BaseDamageOnly = "client16402_base_damage_only",
+    }
+);
+calib_enum!(
+    /// targeting.SNIPE_TOWER_FILTER -- the Evo Musketeer's snipe targets and crown towers (card.rs `SnipeDef::skip_towers`,
+    /// `no_towers_filter`; state.rs `snipe_pass`).
+    SnipeTowerFilter {
+        /// The engine's: the row's FilterTowers alone (blank reads false).
+        FilterTowersColumn = "filter_towers_column",
+        /// Client 16.402: a target filter that leaves towers out (default_targets_no_towers) keeps them out too.
+        Client16402NoTowersFilter = "client16402_no_towers_filter",
     }
 );
 calib_enum!(
@@ -10491,6 +10531,8 @@ impl Calib {
             throw_pick: pick(&v, &["targeting", "THROW_PICK", "value"], ThrowPick::from_calibration_name)?,
             rolling_hit_sweep: pick(&v, &["spells", "ROLLING_HIT_SWEEP", "value"], RollingHitSweep::from_calibration_name)?,
             rolling_spares_leapers: pick(&v, &["spells", "ROLLING_SPARES_LEAPERS", "value"], RollingSparesLeapers::from_calibration_name)?,
+            doomed_enchant_bonus: pick(&v, &["targeting", "DOOMED_ENCHANT_BONUS", "value"], DoomedEnchantBonus::from_calibration_name)?,
+            snipe_tower_filter: pick(&v, &["targeting", "SNIPE_TOWER_FILTER", "value"], SnipeTowerFilter::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -15234,7 +15276,7 @@ impl BattleState {
                 }
                 r.struck.push(vid);
                 let amount = self.cfg.cards.scaled(card, level, ram.push.damage).expect("the ram's level validated at deploy");
-                self.dmg.hits.push(Hit { target: vid, amount, ignores_hide: false, own: false });
+                self.dmg.hits.push(Hit { target: vid, amount, ignores_hide: false, own: false, shot: false });
                 if self.cfg.cards.get(e.card[v]).ignore_pushback {
                     continue;
                 }
@@ -15352,7 +15394,7 @@ impl BattleState {
 
     fn snipe_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
-        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom());
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus());
         let mut snipers = std::mem::take(&mut self.evo.snipers);
         for s in snipers.iter_mut() {
             let (id, ammo, kept) = *s;
@@ -15414,6 +15456,14 @@ impl BattleState {
                 upper_air: &[],
                 chase_walked: &[],
             };
+            // targeting.SNIPE_TOWER_FILTER = client16402_no_towers_filter: a target filter that leaves towers out keeps them
+            // out of her picks. Measured on client 16.402 (parity r74): no Evo Musketeer attacked a far crown tower, 0 of 21;
+            // the engine's did, from 16,500 to 23,800 away, in 6.
+            // PLANT (regression) snipe_takes_towers: the new arm still lets a blank FilterTowers take a tower.
+            #[cfg(not(clash_plant = "snipe_takes_towers"))]
+            let no_towers = sn.skip_towers || (sn.no_towers_filter && self.cfg.calib.snipe_tower_filter == SnipeTowerFilter::Client16402NoTowersFilter);
+            #[cfg(clash_plant = "snipe_takes_towers")]
+            let no_towers = sn.skip_towers;
             let e = &self.ents;
             let fwd = spell::forward_dy(e.team[a]);
             // (ahead, side) of `c` from her, native, in her owner's frame.
@@ -15421,7 +15471,7 @@ impl BattleState {
             let fits = |c: usize, clip: i32| {
                 let (ahead, side) = place(c);
                 target::can_target(&ctx, a, c, false)
-                    && !(sn.skip_towers && e.kind[c].is_crown_tower())
+                    && !(no_towers && e.kind[c].is_crown_tower())
                     && ahead >= sn.min / K
                     && ahead <= sn.max / K
                     && side <= (clip + e.radius[c]) / K
@@ -17990,7 +18040,7 @@ impl BattleState {
                     // A slot that reaches a building hidden under ground (the Vines' snare on an idle Tesla) hits it
                     // there too (`BuffSlot::reach_hidden`); every other pulse is dropped on a hidden building.
                     if dealt > 0 {
-                        self.dmg.hits.push(Hit { target: id, amount: dealt, ignores_hide: slot.reach_hidden, own: false });
+                        self.dmg.hits.push(Hit { target: id, amount: dealt, ignores_hide: slot.reach_hidden, own: false, shot: false });
                     }
                 } else {
                     // A HEAL. Not in the damage buffer, because that is a buffer of DAMAGE and a negative hit would make
@@ -18141,7 +18191,7 @@ impl BattleState {
                     if self.ents.is_alive(target) {
                         let kind = self.ents.kind[target.index as usize];
                         let amount = combat::damage_against(kind, amount, crown_pct, self.cfg.calib.crown_rounding);
-                        self.dmg.hits.push(Hit { target, amount, ignores_hide: false, own: false });
+                        self.dmg.hits.push(Hit { target, amount, ignores_hide: false, own: false, shot: false });
                     }
                 }
                 ScheduledAction::Buff { target, buff, time_ms } => {
@@ -18400,7 +18450,7 @@ impl BattleState {
         self.ents.kamikaze_from[i] = self.tick + 1;
         let amount = self.kamikaze_drain_amount(i);
         let me = self.ents.id_of(i);
-        self.dmg.hits.push(Hit { target: me, amount, ignores_hide: true, own: true });
+        self.dmg.hits.push(Hit { target: me, amount, ignores_hide: true, own: true, shot: false });
     }
 
     /// THE DELAYED KAMIKAZE'S DRAIN in the Status phase (combat.KAMIKAZE_TIME): every live unit past its first fire
@@ -18427,7 +18477,7 @@ impl BattleState {
                 KamikazeTime::FlatDrainThenExpire if since >= ticks => self.ents.hp[i].max(0).saturating_add(self.ents.shield[i].max(0)).max(1),
                 _ => self.kamikaze_drain_amount(i),
             };
-            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: true, own: true });
+            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: true, own: true, shot: false });
         }
     }
 
@@ -18566,7 +18616,7 @@ impl BattleState {
                     let whole = acc / 100;
                     self.lifetime_acc[i] = acc - whole * 100;
                     if whole > 0 {
-                        self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount: whole, ignores_hide, own: true });
+                        self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount: whole, ignores_hide, own: true, shot: false });
                     }
                 }
                 LifetimeDecay::ExpiryHit => {
@@ -18576,7 +18626,7 @@ impl BattleState {
                             // Expiry is a hit for everything it has, so it goes through
                             // the same buffer and death path as any other damage.
                             let amount = self.ents.hp[i].max(0).saturating_add(self.ents.shield[i].max(0)).max(1);
-                            self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount, ignores_hide, own: true });
+                            self.dmg.hits.push(Hit { target: self.ents.id_of(i), amount, ignores_hide, own: true, shot: false });
                             self.lifetime_ms[i] = None;
                         }
                     }
@@ -19373,7 +19423,7 @@ impl BattleState {
         // and in the Path phase (`Scratch::lane_doomed`, target.rs `lane_fallen`).
         let lane = self.cfg.calib.doomed_lane_tower != DoomedLaneTower::Standing;
         let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() || lane {
-            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom())
+            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus())
         } else {
             Vec::new()
         };
@@ -19463,13 +19513,14 @@ impl BattleState {
         // as fired, against the target's hitpoints. From every source; a non-homing shot (a
         // Bomber's bomb, a Princess arrow) never counts, as the corpus shows. Crown scaling is not
         // applied: untested, and immaterial on the corpus.
+        let bonus_on = self.doom_bonus();
         let doomed_now: Vec<bool> = if wait_mode == PostKillWait::AttackFinish {
             let mut pending = vec![0i64; self.ents.capacity()];
             let mut last_ms = vec![0i32; self.ents.capacity()];
             for p in in_flight {
                 if p.firer_card.is_some_and(|c| cards.get(c).projectile_homing) && self.ents.is_alive(p.target) {
                     let t = p.target.index as usize;
-                    pending[t] += p.damage as i64 + p.bonus as i64;
+                    pending[t] += p.damage as i64 + if bonus_on { p.bonus as i64 } else { 0 };
                     last_ms[t] = last_ms[t].max(combat::ticks_to_land(&self.ents, p, calib.projectile_step) * calib.tick_ms);
                 }
             }
@@ -20087,7 +20138,7 @@ impl BattleState {
                 let amount = self.cfg.cards.scaled(card, self.ents.level[a], damage).expect("level validated at spawn");
                 #[cfg(clash_plant = "chain_blow_unscaled")]
                 let amount = damage; // PLANT (regression): the level-1 column, 131 where the level-11 blow is 335.
-                self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false, own: false });
+                self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false, own: false, shot: false });
             }
             let id = self.ents.id_of(a);
             if let Some(c) = self.chains.iter_mut().find(|c| c.id == id) {
@@ -21585,7 +21636,7 @@ impl BattleState {
                     let reach = (g.push_radius + e.radius[j]) as i64;
                     if e.pos[j].dist2(at) <= reach * reach && !r.hit.contains(&id) {
                         r.hit.push(id);
-                        self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false });
+                        self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false, shot: false });
                     }
                 }
                 keep.push(r);
@@ -21718,7 +21769,7 @@ impl BattleState {
                 }
                 if d2 <= reach * reach && !r.hit.contains(&id) {
                     r.hit.push(id);
-                    self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false });
+                    self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false, shot: false });
                 }
                 #[cfg(not(clash_plant = "guard_push_once"))]
                 {
@@ -21867,7 +21918,7 @@ impl BattleState {
                 for j in 0..self.ents.capacity() {
                     if self.ents.alive[j] && self.ents.card[j] == d.decoy && self.ents.team[j] == r.team && self.ents.spawn_tick[j] == r.made {
                         let amount = self.ents.hp[j].max(0).saturating_add(self.ents.shield[j].max(0)).max(1);
-                        self.dmg.hits.push(Hit { target: self.ents.id_of(j), amount, ignores_hide: false, own: true });
+                        self.dmg.hits.push(Hit { target: self.ents.id_of(j), amount, ignores_hide: false, own: true, shot: false });
                     }
                 }
             }
@@ -22008,7 +22059,7 @@ impl BattleState {
             let due = false; // PLANT: the cube is never killed; its row's LifeTime drains it.
             if due {
                 let amount = self.ents.hp[ci].max(0).saturating_add(self.ents.shield[ci].max(0)).max(1);
-                self.dmg.hits.push(Hit { target: c, amount, ignores_hide: false, own: true });
+                self.dmg.hits.push(Hit { target: c, amount, ignores_hide: false, own: true, shot: false });
                 continue;
             }
             #[cfg(not(clash_plant = "ice_linger_unread"))]
@@ -22530,7 +22581,7 @@ impl BattleState {
                 let base = if tower { d.crown_hit } else { d.damage };
                 let amount = cards.scaled(r.card, r.level, base).expect("the Tesla's level validated at deploy");
                 if amount > 0 {
-                    self.dmg.hits.push(Hit { target: id, amount, ignores_hide: false, own: false });
+                    self.dmg.hits.push(Hit { target: id, amount, ignores_hide: false, own: false, shot: false });
                 }
                 let h = crate::status::BuffHit::plain(id, d.stop.buff, d.stop.time_ms, 0);
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, j, &h);
@@ -23498,7 +23549,7 @@ impl BattleState {
                     if let Some(t) = target.filter(|t| self.ents.is_alive(*t)) {
                         let kind = self.ents.kind[t.index as usize];
                         let amount = combat::damage_against(kind, amount, pct, self.cfg.calib.crown_rounding);
-                        self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false, own: false });
+                        self.dmg.hits.push(Hit { target: t, amount, ignores_hide: false, own: false, shot: false });
                     }
                 }
                 Some(r) => {
@@ -27391,7 +27442,7 @@ impl BattleState {
                 if self.cfg.cards.get(self.ents.card[i]).kamikaze {
                     let me = self.ents.id_of(i);
                     let all = self.ents.hp[i].max(0) + self.ents.shield[i].max(0);
-                    self.dmg.hits.push(Hit { target: me, amount: all, ignores_hide: false, own: true });
+                    self.dmg.hits.push(Hit { target: me, amount: all, ignores_hide: false, own: true, shot: false });
                     // A death on a kill only (the Evo Wall Breakers'): its kamikaze leaves no runner and no blow.
                     if self.cfg.cards.get(self.ents.card[i]).evo.as_ref().is_some_and(|v| v.death_on_kill_only) {
                         self.scratch.kamikazed.push(me);
@@ -27571,7 +27622,7 @@ impl BattleState {
                 let reflect = self.cfg.cards.scaled(self.ents.card[d], self.ents.level[d], (countered as i64 * p.reflect_pct as i64 / 100) as i32).expect("level validated at spawn");
                 let reflect_ms = sub_action_delay_ms(&c, group, p.reflect_at as usize);
                 if reflect_ms <= 0 {
-                    self.dmg.hits.push(Hit { target: pick.attacker, amount: reflect, ignores_hide: false, own: false });
+                    self.dmg.hits.push(Hit { target: pick.attacker, amount: reflect, ignores_hide: false, own: false, shot: false });
                 } else {
                     self.scheduled.push(Scheduled { ms: reflect_ms, action: ScheduledAction::Damage { target: pick.attacker, amount: reflect, crown_pct: 100 } });
                 }
@@ -27630,7 +27681,7 @@ impl BattleState {
         let tower = matches!(e.kind[a], EntityKind::KingTower | EntityKind::PrincessTower);
         let base = if tower { r.crown_tower_damage.unwrap_or(r.damage) } else { r.damage };
         let amount = self.cfg.cards.scaled(e.card[v], e.level[v], base).expect("level validated at spawn");
-        self.dmg.hits.push(Hit { target: firer, amount, ignores_hide: false, own: false });
+        self.dmg.hits.push(Hit { target: firer, amount, ignores_hide: false, own: false, shot: false });
         if let Some(b) = r.buff {
             if land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, &crate::status::BuffHit::plain(victim, b.buff, b.time_ms, 0)) {
                 land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, b.time_ms);
@@ -27677,7 +27728,7 @@ impl BattleState {
             let amount = self.cfg.cards.scaled(e.card[v], e.level[v], r.damage).expect("level validated at spawn");
             #[cfg(clash_plant = "reflect_damage_unscaled")]
             let amount = r.damage; // PLANT (regression): the level-1 column, 75 where the Knight takes 192.
-            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: false, own: false });
+            self.dmg.hits.push(Hit { target: me, amount, ignores_hide: false, own: false, shot: false });
             let Some(b) = r.buff else { continue };
             #[cfg(not(clash_plant = "reflect_stun_buffered"))]
             if land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, &crate::status::BuffHit::plain(me, b.buff, b.time_ms, 0)) {
@@ -28134,7 +28185,7 @@ impl BattleState {
                 let dropped: Option<usize> = if launcher && self.cfg.calib.kamikaze_launch_pass == KamikazeLaunchPass::Client15535LauncherReadsStartUndoomed {
                     self.ents.target[i].map(|t| t.index as usize).filter(|&j| self.scratch.launched.contains(&j)).filter(|&j| {
                         let calib = &self.cfg.calib;
-                        let (pending, last) = combat::shots_in_flight_at(&self.ents, &self.projectiles, calib.crown_rounding, calib.tick_ms, calib.projectile_step, self.homing_only(), self.spears_doom());
+                        let (pending, last) = combat::shots_in_flight_at(&self.ents, &self.projectiles, calib.crown_rounding, calib.tick_ms, calib.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus());
                         pending.get(j).is_some_and(|&p| p > 0) && last.get(j).is_some_and(|&l| l <= target::DOOMED_ETA_LIMIT_MS)
                     })
                 } else {
@@ -29971,7 +30022,7 @@ impl BattleState {
                     }
                     let tower = matches!(e.kind[j], EntityKind::KingTower | EntityKind::PrincessTower);
                     let id = e.id_of(j);
-                    self.dmg.hits.push(Hit { target: id, amount: if tower { crown } else { dmg }, ignores_hide: false, own: false });
+                    self.dmg.hits.push(Hit { target: id, amount: if tower { crown } else { dmg }, ignores_hide: false, own: false, shot: false });
                 }
             }
             keep.push(r);
@@ -34212,6 +34263,18 @@ impl BattleState {
         self.cfg.calib.doomed_drop_spear_members == DoomedDropSpearMembers::Client15535Projectile
     }
 
+    /// targeting.DOOMED_ENCHANT_BONUS: does a homing shot's enchant bonus count in the doomed sums? False under
+    /// client16402_base_damage_only. Measured on client 16.402 (parity r74): a crown tower whose victim only the Rune
+    /// Giant's bonus would cover waited out its post-kill wait in 49 of 51; the engine freed it on the kill + 1.
+    fn doom_bonus(&self) -> bool {
+        // PLANT (regression) doom_bonus_counted: the new arm still counts the bonus.
+        #[cfg(not(clash_plant = "doom_bonus_counted"))]
+        let base = self.cfg.calib.doomed_enchant_bonus == DoomedEnchantBonus::Client16402BaseDamageOnly;
+        #[cfg(clash_plant = "doom_bonus_counted")]
+        let base = false;
+        !base
+    }
+
     fn homing_only(&self) -> Option<&CardDb> {
         // PLANT (regression) doomed_set_counts_every_shot: the new arm's doomed set still counts every shot.
         #[cfg(not(clash_plant = "doomed_set_counts_every_shot"))]
@@ -34232,8 +34295,8 @@ impl BattleState {
         }
         let c = &self.cfg.calib;
         let i = id.index as usize;
-        let (pending, last_ms) = combat::shots_in_flight_at(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, c.projectile_step, self.homing_only(), self.spears_doom());
-        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step, self.homing_only(), self.spears_doom());
+        let (pending, last_ms) = combat::shots_in_flight_at(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, c.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus());
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus());
         Some(DoomReading { pending: pending[i], last_ms: last_ms[i], hp: self.ents.hp[i].max(0) + self.ents.shield[i].max(0), doomed: doomed[i] })
     }
     /// Live spell objects (in flight, rolling, or an area effect about to apply).
@@ -37235,6 +37298,10 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.ROLLING_SPARES_LEAPERS: Calib gained rolling_spares_leapers (serde default the old arm, hits), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.DOOMED_ENCHANT_BONUS: Calib gained doomed_enchant_bonus (serde default the old arm, counted), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.SNIPE_TOWER_FILTER: Calib gained snipe_tower_filter (serde default the old arm, filter_towers_column), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38236,6 +38303,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("rolling_hit_sweep".into(), serde_json::to_value(RollingHitSweep::SweptPrevToCur).map_err(|e| e.to_string())?);
     // spells.ROLLING_SPARES_LEAPERS: a format-3 battle's rolls hit leaping units.
     sh.insert("rolling_spares_leapers".into(), serde_json::to_value(RollingSparesLeapers::Hits).map_err(|e| e.to_string())?);
+    // targeting.DOOMED_ENCHANT_BONUS: a format-3 battle's doomed sums counted the enchant bonus.
+    sh.insert("doomed_enchant_bonus".into(), serde_json::to_value(DoomedEnchantBonus::Counted).map_err(|e| e.to_string())?);
+    // targeting.SNIPE_TOWER_FILTER: a format-3 battle's snipe read FilterTowers alone.
+    sh.insert("snipe_tower_filter".into(), serde_json::to_value(SnipeTowerFilter::FilterTowersColumn).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -39171,7 +39242,7 @@ mod tests {
             s.ents.buffs[i * crate::status::MAX_BUFFS_PER_ENTITY] =
                 crate::status::BuffSlot { id: heal.buff + 1, ms: heal.time_ms, pulse_ms: dt, pulse_amount: -100, ..Default::default() };
             s.buff_pulse_pass();
-            s.dmg.hits.push(Hit { target: id, amount: 202, ignores_hide: false, own: false });
+            s.dmg.hits.push(Hit { target: id, amount: 202, ignores_hide: false, own: false, shot: false });
             s.phase_resolve();
             if want_alive {
                 assert_eq!(s.ents.hp[i], max - 202 + 100, "a full-hp Knight hit for 202 and healed 100 on one tick (max {max})");
