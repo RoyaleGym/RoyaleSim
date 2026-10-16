@@ -332,6 +332,9 @@ fn it_hits_an_enemy_building() {
 /// The one Recruit's (pos, deploying, hp, max hp, facing, team) after each tick from C + 40 to C + 46, a cast by
 /// `team` at `tap` in `cfg`.
 fn recruit_track(cfg: BattleConfig, team: Team, tap: Vec2) -> Vec<(Vec2, bool, i32, i32, Vec2, Team)> {
+    // Client 15.535.29's due (this section's measurement, the Recruit from C + 40; 16.402's ships, the crate test above).
+    let mut cfg = cfg;
+    cfg.calib.strike_due = StrikeDue::ClockAtOrBelowZero;
     let mut s = BattleState::new(0, cfg);
     s.spawn_unit(team, "RoyalDelivery", tap, None).expect("cast RoyalDelivery");
     let mut out = Vec::new();

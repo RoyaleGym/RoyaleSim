@@ -13,13 +13,15 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, DirectHitBuffCountdown};
+use royalesim::state::{BattleState, Calib, DirectHitBuffCountdown, HitStunSpan};
 use royalesim::Team;
 
 /// The ticks the tower's counter stands after the zap's first landing tick.
 fn frozen(arm: DirectHitBuffCountdown) -> u32 {
     let mut cfg = config();
     cfg.calib.direct_hit_buff_countdown = arm;
+    // Client 15.535.29's stun span (this file's measurement; client 16.402's ships, tests/electro_wizard_stun_span.rs).
+    cfg.calib.hit_stun_span = HitStunSpan::FromLandingTick;
     let mut s = BattleState::new(0, cfg);
     past_deploy_lockout(&mut s);
     let tower = s.entities().find(|e| e.team == Team::Red && e.card == "PrincessTower" && e.pos.x < 9000 * K).expect("Red's left princess tower").id;

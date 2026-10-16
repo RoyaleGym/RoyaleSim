@@ -60,11 +60,13 @@ fn at(p: (i32, i32)) -> Vec2 {
     Vec2::new(p.0 * K, p.1 * K)
 }
 
-/// The shipped config, asserting the arms this file pins.
+/// The shipped config, asserting the arms this file pins, on client 15.535.29's status.BUFF_DEATH_SPAWN_POINT (this file's
+/// measurements; client 16.402's client16402_forward_outward_back ships, `under_client16402_forward_outward_back_*`).
 fn shipped() -> BattleConfig {
-    let c = config();
+    let mut c = config();
     assert_eq!(c.calib.apply_buff_before_damage, ApplyBuffBeforeDamage::LandsOnAUnitTheHitKills, "the shipped status.APPLY_BUFF_BEFORE_DAMAGE");
-    assert_eq!(c.calib.buff_death_spawn_point, BuffDeathSpawnPoint::SameLocationOrVictimForward, "the shipped status.BUFF_DEATH_SPAWN_POINT");
+    assert_eq!(c.calib.buff_death_spawn_point, BuffDeathSpawnPoint::Client16402ForwardOutwardBack, "the shipped status.BUFF_DEATH_SPAWN_POINT");
+    c.calib.buff_death_spawn_point = BuffDeathSpawnPoint::SameLocationOrVictimForward;
     assert_eq!(c.calib.buff_death_spawn_deploy, BuffDeathSpawnDeploy::UnitDeployTime, "the shipped status.BUFF_DEATH_SPAWN_DEPLOY_TIME");
     c
 }

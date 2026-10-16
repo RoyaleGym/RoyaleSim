@@ -25,7 +25,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, HeroTombDummyObstacle, HeroTombEmissionNudge, TombMonsterStepScope, TombPressSpawnFirstUpdate};
+use royalesim::state::{BattleState, FlagPressWindow, HeroTombDummyObstacle, HeroTombEmissionNudge, TombMonsterStepScope, TombPressSpawnFirstUpdate};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -44,6 +44,8 @@ fn battle() -> BattleState {
 fn battle_with(scope: TombMonsterStepScope) -> BattleState {
     let mut cfg = config();
     cfg.calib.tomb_monster_step_scope = scope;
+    // Client 15.535.29's window (this file's measurements; client 16.402's through_fade_with_tomb ships, `pressed_late`).
+    cfg.calib.flag_press_window = FlagPressWindow::WindowOnly;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0]];

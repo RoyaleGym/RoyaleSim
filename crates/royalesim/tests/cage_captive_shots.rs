@@ -24,7 +24,7 @@ mod common;
 use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CageCaptiveShots};
+use royalesim::state::{BattleConfig, BattleState, CageCaptiveShots, CageDeployTake, CageHoldStart};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -46,6 +46,9 @@ fn scene(arm: CageCaptiveShots) -> Scene {
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     cfg.calib.cage_captive_shots = arm;
+    // Client 15.535.29's take and hold (this file's measurements; client 16.402's ship, tests/evo_goblin_cage.rs).
+    cfg.calib.cage_deploy_take = CageDeployTake::OnDeployEnd;
+    cfg.calib.cage_hold_start = CageHoldStart::AtGrab;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     s.spawn_unit(Team::Blue, "GoblinCage_EV1", n(CAGE.0, CAGE.1), None).expect("the cage");

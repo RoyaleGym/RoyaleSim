@@ -25,7 +25,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, LiftTiming};
+use royalesim::state::{AttractOnset, BattleConfig, BattleState, LiftTiming};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -42,6 +42,8 @@ thread_local! {
 
 fn battle() -> BattleState {
     let mut cfg: BattleConfig = config();
+    // Client 15.535.29's pull onset (this file's measurements; client 16.402's client16402_area_plus_1 ships).
+    cfg.calib.attract_onset = AttractOnset::ClientNextTick;
     if let Some(a) = LIFT_ARM.with(|a| a.get()) {
         cfg.calib.lift_timing = a;
     }

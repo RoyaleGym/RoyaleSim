@@ -50,7 +50,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, ReflectAttack, ReflectRanged};
+use royalesim::state::{BattleState, HitStunSpan, ReflectAttack, ReflectRanged};
 use royalesim::status::{compose, Sel};
 use royalesim::Team;
 
@@ -68,6 +68,9 @@ const REGENERATE: &str = "cards.json carries no reflected_attack on the Electro 
 fn duel(card: &str, arm: ReflectAttack, ticks: u32) -> (Vec<(u32, i32)>, Vec<(u32, i32)>) {
     let mut cfg = config();
     cfg.calib.reflect_attack = arm;
+    // Client 15.535.29's stun span (this file's measurements; client 16.402's reflect stun holds a tick more, tests/
+    // electro_wizard_stun_span.rs).
+    cfg.calib.hit_stun_span = HitStunSpan::FromLandingTick;
     let mut s = BattleState::new(0, cfg);
     s.scenario_set_tick(200);
     let ids = s

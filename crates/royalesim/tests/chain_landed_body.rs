@@ -93,8 +93,8 @@ fn the_old_value_pushes_him_at_once() {
 }
 
 #[test]
-fn the_shipped_value_is_client15535_no_body_to_end() {
-    assert_eq!(Calib::shipped().chain_landed_body, ChainLandedBody::Client15535NoBodyToEnd);
+fn the_shipped_value_is_client16402_no_body_in_poise() {
+    assert_eq!(Calib::shipped().chain_landed_body, ChainLandedBody::Client16402NoBodyInPoise);
 }
 
 /// The scene with a second red Giant held on (3420, 16500), 2,500 beyond the first, so the chain hops on after its first blow, under `arm`: his

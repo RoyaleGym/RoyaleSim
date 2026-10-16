@@ -64,6 +64,9 @@ fn battle() -> (BattleState, EntityId) {
 fn battle_arm(arm: CageReleaseScan) -> (BattleState, EntityId) {
     let mut cfg: BattleConfig = config();
     cfg.calib.cage_release_scan = arm;
+    // Client 15.535.29's take and hold (this file's measurements; client 16.402's ship, `cage_battle`).
+    cfg.calib.cage_deploy_take = CageDeployTake::OnDeployEnd;
+    cfg.calib.cage_hold_start = CageHoldStart::AtGrab;
     cfg.decks = [vec!["GoblinCage".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];

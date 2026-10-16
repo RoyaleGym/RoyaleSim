@@ -19,7 +19,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, DeployError};
+use royalesim::state::{BattleState, DeployError, FlagPressWindow};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -33,6 +33,8 @@ const FLAG: &str = "GoblinHero_Flag_Building";
 
 fn battle() -> BattleState {
     let mut cfg = config();
+    // Client 15.535.29's flag window (this file's measurements; client 16.402's ships, `flag_press_window`).
+    cfg.calib.flag_press_window = FlagPressWindow::WindowOnly;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];

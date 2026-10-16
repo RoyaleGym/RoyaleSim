@@ -86,8 +86,8 @@ fn the_pulse_lands_on_the_same_tick_under_both_arms() {
 }
 
 #[test]
-fn the_shipped_value_is_client_next_tick() {
-    assert_eq!(Calib::shipped().attract_onset, AttractOnset::ClientNextTick);
+fn the_shipped_value_is_client16402_area_plus_1() {
+    assert_eq!(Calib::shipped().attract_onset, AttractOnset::Client16402AreaPlus1);
 }
 
 /// status.ATTRACT_ONSET = client16402_area_plus_1 (client 16.402, parity's r74 census of 177 Tornado casts: first pull D + 2,

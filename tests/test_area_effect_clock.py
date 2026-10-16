@@ -54,7 +54,10 @@ POISON_PULSE, QUAKE_PULSE, TORNADO_PULSE, ZAP_HIT = 92, 81, 84, 192
 
 
 def overrides(binding: str, pulsing: str) -> dict:
-    return {KEY: json.dumps(binding), PULSING: json.dumps(pulsing)}
+    # Client 15.535.29's pull onset (status.ATTRACT_ONSET = client_next_tick; this file's measurements): client 16.402's
+    # client16402_area_plus_1 ships (crates/royalesim/tests/attract_onset.rs).
+    onset = {"status.ATTRACT_ONSET": json.dumps("client_next_tick")}
+    return {KEY: json.dumps(binding), PULSING: json.dumps(pulsing), **onset}
 
 
 def knight_track(spell: str, binding: str, pulsing: str, ticks: int = 90) -> list[tuple]:

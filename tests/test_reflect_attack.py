@@ -36,7 +36,10 @@ def run(card: str, arm: str, ticks: int = 110):
     """A blue `card` at (9000, 13500) and a red Knight at (9000, 14700), out of every tower's reach for 110 ticks (a
     tower arrow reaches the Knight on tick 147). Returns the hp
     drops (tick, amount) of the blue giant and of the Knight."""
-    b = royalesim.Battle([card, "Knight"], [[0, 1, 2], [0, 1, 2]], calibration_overrides={KEY: json.dumps(arm)})
+    # Client 15.535.29's stun span (status.HIT_STUN_SPAN = from_landing_tick; this file's 33): client 16.402's reflect
+    # stun holds a tick more (crates/royalesim/tests/electro_wizard_stun_span.rs).
+    ov = {KEY: json.dumps(arm), "status.HIT_STUN_SPAN": json.dumps("from_landing_tick")}
+    b = royalesim.Battle([card, "Knight"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=ov)
     units = [(0, 0, 9000 * SUB, 13500 * SUB, -1), (1, 1, 9000 * SUB, 14700 * SUB, -1)]
     b.reset(0, [[0] * 8, [1] * 8], 0, 200, [10_000, 10_000], None, units)
     prev, drops = {}, {0: [], 1: []}

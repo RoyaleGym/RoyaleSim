@@ -18,7 +18,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, EvoKillHeal};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -27,6 +27,8 @@ fn n(x: i32, y: i32) -> Vec2 {
 
 fn battle(red_level: u8) -> BattleState {
     let mut cfg: BattleConfig = config();
+    // Client 15.535.29's heal at the kill (this file's measurements; client 16.402's flight ships, `after_a_kill_16402`).
+    cfg.calib.evo_kill_heal = EvoKillHeal::BuffAtKill;
     cfg.decks = [vec!["Pekka".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, red_level.into()];

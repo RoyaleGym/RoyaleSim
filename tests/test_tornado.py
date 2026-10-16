@@ -40,7 +40,9 @@ START = (9 * TILE, 10 * TILE)
 def battle_with_a_knight_in_the_tornado():
     # CAST is a tile corner and every distance is read from it, an exact point: placement.TAP_SNAP's old arm, none
     # (the shipped tile-centre snap takes the cast to the tile's centre, 707 native away).
-    overrides = {"placement.TAP_SNAP": json.dumps("none")}
+    # Client 15.535.29's pull onset (status.ATTRACT_ONSET = client_next_tick), this file's measurements: client 16.402's
+    # client16402_area_plus_1 ships (crates/royalesim/tests/attract_onset.rs).
+    overrides = {"placement.TAP_SNAP": json.dumps("none"), "status.ATTRACT_ONSET": json.dumps("client_next_tick")}
     b = royalesim.Battle(card_names=DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides)
     ids = list(range(len(DECK)))
     # start_tick past match.DEPLOY_LOCKOUT_TICKS, or the cast is refused for its timing
@@ -146,7 +148,8 @@ KNIGHT_PULL = 216
 def knight_trace(setup_slot, tornado_at, ticks=90):
     """The enemy Knight's row after every tick: `setup_slot` cast on it at tick 0, and a
     Tornado behind it at `tornado_at` (None = never)."""
-    b = royalesim.Battle(card_names=PAIRED_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]])
+    onset = {"status.ATTRACT_ONSET": json.dumps("client_next_tick")}
+    b = royalesim.Battle(card_names=PAIRED_DECK, slot_of_k=[[0, 1, 2], [0, 1, 2]], calibration_overrides=onset)
     ids = list(range(len(PAIRED_DECK)))
     b.reset(0, [ids, ids], 0, 200, [10_000, 10_000], None, [(1, P_KNIGHT, *START, -1)])
     rows = []
