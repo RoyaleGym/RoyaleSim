@@ -1844,6 +1844,16 @@
     }
   },
   "combat": {
+    "LOST_TARGET_SHOT": {
+      "value": "cancel",
+      "status": "measured",
+      "candidates": ["cancel", "client16402_point_first_attack_fires"],
+      "confidence": "HIGH for client16402_point_first_attack_fires on client 16.402 (parity r74 batch 6, 2026-10-16): of 336 Firecracker target losses in her attack, those in her FIRST attack with the target dead (progress + load timer = 2 x LoadTime + 50, not yet fired) fired in 26 of 26 (15 battles): her progress ran on 50 a tick to 3000 and she shot the corpse's point, her AttackPushBack ladder starting that tick (24 of 26) straight away from it, no target until the hit + 6 (25 of 26); later attacks lost before the hit tick fired 0 of 308; the other point-aimed shooters without OverrideAttackFinishTime fired too, 33 of 33 (Executioner, Furnace, Hunter, Bomber, Magic Archer, Goblin Demolisher), the Bowler and Princess (OverrideAttackFinishTime) 0 of 8, homing shooters 4 of 513; the engine cancelled 8 of 8 Firecracker cases (live9: 23 of 23). A candidate until scored. Client 15.535.29 keeps cancel (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74 batch 6) on client 16.402, the ob13 set (maker 557fca83): of 336 Firecracker target losses in her attack, those in her FIRST attack with the target dead (progress + load timer = 2 x LoadTime + 50, not yet fired) fired in 26 of 26 (15 battles): her progress ran on 50 a tick to 3000 and she shot the corpse's point, her AttackPushBack ladder starting that tick (24 of 26) straight away from it, no target until the hit + 6 (25 of 26); later attacks lost before the hit tick fired 0 of 308; the other point-aimed shooters without OverrideAttackFinishTime fired too, 33 of 33 (Executioner, Furnace, Hunter, Bomber, Magic Archer, Goblin Demolisher), the Bowler and Princess (OverrideAttackFinishTime) 0 of 8, homing shooters 4 of 513; the engine cancelled 8 of 8 Firecracker cases (live9: 23 of 23).",
+      "meaning": "cancel: the engine's; a unit whose target dies in its swing starts combat.POST_KILL_RETARGET_WAIT's wait, or retargets: no shot, no recoil. client16402_point_first_attack_fires: a unit with a non-homing projectile whose row does not set OverrideAttackFinishTime (nor is listed in the wait's override units), whose target dies during its first attack after a pick (the full-credit entry: progress + load timer = 2 x LoadTime, within a tick, not yet fired), keeps the swing with no target and takes no target decision; on the tick its progress reaches HitSpeed it fires at the corpse's last point (its slot's), and a Firecracker recoils away from that point by its AttackPushBack ladder; the post-kill wait then starts on the next Target phase as on a kill's (no target through the hit + 5, the next on + 6).",
+      "open": "The six non-Firecracker point shooters (few traced before a divergence); a doomed drop before the death; a corpse slot reused during the swing (the shot is then dropped); client 15.535.29.",
+      "engine": "state.rs phase_target_with (the lost swing's detection and hold) and attack_recoil, selected by Calib::lost_target_shot; entity.rs lost_target; combat.rs attack_step_progress, attack_step_windup; tests/lost_target_shot.rs."
+    },
     "EVO_KILL_HEAL": {
       "value": "buff_at_kill",
       "status": "measured",

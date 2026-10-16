@@ -985,6 +985,10 @@ pub struct Calib {
     /// `BuffAtKill`, what a battle saved before it ran.
     #[serde(default = "evo_kill_heal_default")]
     pub evo_kill_heal: EvoKillHeal,
+    /// combat.LOST_TARGET_SHOT (whether a point-aimed shooter's first attack fires at a target that died in it). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Cancel`, what a battle saved before it ran.
+    #[serde(default = "lost_target_shot_default")]
+    pub lost_target_shot: LostTargetShot,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2931,6 +2935,10 @@ fn cage_hold_start_default() -> CageHoldStart {
 
 fn evo_kill_heal_default() -> EvoKillHeal {
     EvoKillHeal::BuffAtKill
+}
+
+fn lost_target_shot_default() -> LostTargetShot {
+    LostTargetShot::Cancel
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10280,6 +10288,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.LOST_TARGET_SHOT -- a point-aimed shooter's first attack whose target dies (entity.rs `lost_target`; combat.rs
+    /// `attack_step`; state.rs phase_target_with's decision loop, `attack_recoil`).
+    LostTargetShot {
+        /// The engine's: the swing is cancelled (combat.POST_KILL_RETARGET_WAIT's wait or a retarget): no shot.
+        Cancel = "cancel",
+        /// Client 16.402: a non-homing shooter without OverrideAttackFinishTime, in its first attack after a pick, keeps the swing
+        /// and fires at the corpse's point (a Firecracker recoils from it); the post-kill wait runs from the shot.
+        Client16402PointFirstAttackFires = "client16402_point_first_attack_fires",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10839,6 +10858,7 @@ impl Calib {
             cage_deploy_take: pick(&v, &["combat", "CAGE_DEPLOY_TAKE", "value"], CageDeployTake::from_calibration_name)?,
             cage_hold_start: pick(&v, &["combat", "CAGE_HOLD_START", "value"], CageHoldStart::from_calibration_name)?,
             evo_kill_heal: pick(&v, &["combat", "EVO_KILL_HEAL", "value"], EvoKillHeal::from_calibration_name)?,
+            lost_target_shot: pick(&v, &["combat", "LOST_TARGET_SHOT", "value"], LostTargetShot::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -19881,6 +19901,49 @@ impl BattleState {
                 e.target[i] = kept;
                 continue;
             }
+            // combat.LOST_TARGET_SHOT = client16402_point_first_attack_fires: a point-aimed shooter whose target died in its
+            // first attack keeps the swing with no target and takes no decision until it has fired; the Target phase after
+            // the shot starts the post-kill wait as a kill's (no target through the hit + 5). Measured on client 16.402
+            // (parity r74 batch 6): Firecrackers 26 of 26, six other point shooters 33 of 33; the engine cancelled 8 of 8.
+            if let Some(lt) = e.lost_target[i] {
+                if e.attack_phase[i] == AttackPhase::Windup && e.generation[lt.index as usize] == lt.generation {
+                    e.target[i] = None;
+                    continue;
+                }
+                e.lost_target[i] = None;
+                e.target[i] = None;
+                e.target_locked[i] = false;
+                e.retarget_wait[i] = wait_ticks - 1;
+                if e.retarget_wait[i] > 0 {
+                    continue;
+                }
+            }
+            // PLANT (regression) lost_shot_cancelled: the new arm still cancels the lost first attack.
+            #[cfg(not(clash_plant = "lost_shot_cancelled"))]
+            let lost_arm = calib.lost_target_shot == LostTargetShot::Client16402PointFirstAttackFires;
+            #[cfg(clash_plant = "lost_shot_cancelled")]
+            let lost_arm = false;
+            if lost_arm {
+                // A target struck to 0 hp still standing at this phase (a debug edit) is lost too.
+                if let Some(t) = e.target[i].filter(|t| !e.standing(*t, struck) || e.hp[t.index as usize] <= 0) {
+                    let c = cards.get(e.card[i]);
+                    let lt = c.load_time_ms.max(0);
+                    let first = e.attack_phase[i] == AttackPhase::Windup
+                        && lt > 0
+                        && lt <= c.hit_speed_ms
+                        && e.attack_ms[i] < c.hit_speed_ms
+                        && (e.attack_ms[i] + e.attack_load_ms[i] - 2 * lt).abs() <= calib.tick_ms;
+                    let point = c.projectile.is_some() && !c.projectile_homing && !c.kamikaze && c.attack_select.is_none();
+                    let finish = override_units.contains(&c.unit_name) || c.override_attack_finish || wears_finish_override(cards, e, i);
+                    let corpse = e.generation[t.index as usize] == t.generation;
+                    if first && point && !finish && corpse {
+                        e.lost_target[i] = Some(t);
+                        e.target[i] = None;
+                        e.target_locked[i] = false;
+                        continue;
+                    }
+                }
+            }
             // combat.POST_KILL_RETARGET_WAIT, either waiting arm. The loss L is the victim's death
             // tick (the first frame whose target reads none); this Target phase, L + 1, is the first
             // to find the target dead. A unit the arm makes wait (a LISTED unit under
@@ -28287,7 +28350,9 @@ impl BattleState {
     /// and then nothing is reset.
     fn attack_recoil(&mut self, i: usize, t: EntityId) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
-        if !self.ents.is_alive(t) {
+        // combat.LOST_TARGET_SHOT = client16402_point_first_attack_fires: a lost first attack's shot recoils from the corpse's
+        // point (its slot's, kept until reused).
+        if !self.ents.is_alive(t) && self.ents.lost_target[i] != Some(t) {
             return;
         }
         let card = self.cfg.cards.get(self.ents.card[i]);
@@ -35358,6 +35423,13 @@ impl BattleState {
                 if self.cfg.calib.post_kill_wait == PostKillWait::AttackFinish {
                     h.bool(e.target_doomed[i]);
                 }
+                // combat.LOST_TARGET_SHOT = client16402_point_first_attack_fires: a lost swing's corpse, under that arm alone.
+                if self.cfg.calib.lost_target_shot == LostTargetShot::Client16402PointFirstAttackFires {
+                    h.bool(e.lost_target[i].is_some());
+                    if let Some(t) = e.lost_target[i] {
+                        h.id(t);
+                    }
+                }
                 if self.cfg.calib.preserve_target_scope == PreserveTargetScope::ProjectileAttackersOnly {
                     h.bool(e.launched_beyond[i]);
                 }
@@ -37957,6 +38029,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.EVO_KILL_HEAL: Calib gained evo_kill_heal (serde default the old arm, buff_at_kill), EvoBoard gained kill_flights (serde default empty, hashed only when not empty, which only the new arm fills) and KillHealDef flight_ms and over_heal_pct (card data: the card fingerprint moves),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.LOST_TARGET_SHOT: Calib gained lost_target_shot (serde default the old arm, cancel), Entities gained lost_target (serde default empty, sized on load to None, hashed under the new arm only, which alone writes it),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38992,6 +39066,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("cage_hold_start".into(), serde_json::to_value(CageHoldStart::AtGrab).map_err(|e| e.to_string())?);
     // combat.EVO_KILL_HEAL: a format-3 battle ran combat.EVO_KILL_HEAL's old arm.
     sh.insert("evo_kill_heal".into(), serde_json::to_value(EvoKillHeal::BuffAtKill).map_err(|e| e.to_string())?);
+    // combat.LOST_TARGET_SHOT: a format-3 battle ran combat.LOST_TARGET_SHOT's old arm.
+    sh.insert("lost_target_shot".into(), serde_json::to_value(LostTargetShot::Cancel).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -39371,6 +39447,7 @@ impl BattleState {
         snap.ents.retarget_wait.resize(n, 0);
         snap.ents.target_doomed.resize(n, false);
         snap.ents.fired_at.resize(n, None);
+        snap.ents.lost_target.resize(n, None);
         snap.ents.launched_beyond.resize(n, false);
         snap.ents.life_state.resize(n, 0);
         snap.ents.life_ms.resize(n, 0);

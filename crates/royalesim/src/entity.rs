@@ -250,6 +250,11 @@ pub struct Entities {
     /// under that arm only. `default` and sized on load like `target_doomed`.
     #[serde(default)]
     pub fired_at: Vec<Option<EntityId>>,
+    /// combat.LOST_TARGET_SHOT = client16402_point_first_attack_fires: the dead target a point-aimed shooter's first attack
+    /// lost, while that swing runs on to its shot (combat.rs `attack_step` reads it when the unit has no live target; the
+    /// corpse's slot keeps its point). Written under that arm only. `default` and sized on load like `fired_at`.
+    #[serde(default)]
+    pub lost_target: Vec<Option<EntityId>>,
     /// This unit launched a projectile at its target from beyond its reach on the last tick: set in the attack
     /// pass, read and cleared by the next Target phase, which then rescans (target.rs `decide`). Written under
     /// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" only, and hashed under it.
@@ -919,6 +924,7 @@ impl Entities {
             self.retarget_wait[i] = 0;
             self.target_doomed[i] = false;
             self.fired_at[i] = None;
+            self.lost_target[i] = None;
             self.launched_beyond[i] = false;
             self.life_state[i] = 0;
             self.life_ms[i] = 0;
@@ -1030,6 +1036,7 @@ impl Entities {
             self.retarget_wait.push(0);
             self.target_doomed.push(false);
             self.fired_at.push(None);
+            self.lost_target.push(None);
             self.launched_beyond.push(false);
             self.life_state.push(0);
             self.life_ms.push(0);
@@ -1215,6 +1222,7 @@ impl Entities {
         self.retarget_wait[i] = 0;
         self.target_doomed[i] = false;
         self.fired_at[i] = None;
+        self.lost_target[i] = None;
         self.launched_beyond[i] = false;
         self.chase_dropped[i] = None;
         self.chase_inside[i] = None;

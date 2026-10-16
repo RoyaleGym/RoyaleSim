@@ -911,7 +911,9 @@ pub fn attack_step_scaled(ents: &Entities, cards: &CardDb, calib: &Calib, a: usi
 /// place of this step while the special is under way (state.rs `special_step`).
 fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool, advance_pct: i32) -> AttackStep {
     let card = cards.get(ents.card[a]);
-    let target = ents.target[a].filter(|t| ents.is_alive(*t));
+    // combat.LOST_TARGET_SHOT = client16402_point_first_attack_fires: a lost first attack's swing runs on at the corpse
+    // (entity.rs `lost_target`, written under that arm only).
+    let target = ents.target[a].filter(|t| ents.is_alive(*t)).or(ents.lost_target[a]);
     // THE PROGRESS ADVANCE (combat.HIT_SPEED_BUFF = progress_scaled): the counter
     // gains the HitSpeedMultiplier composition of TICK_MS, not TICK_MS -- 65 under
     // Rage, 35 under an Ice Wizard's slow -- and when that is <= 0 the whole step is
@@ -1049,7 +1051,9 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
 /// live corpus on every first hit (the key's provenance); kept runnable.
 fn attack_step_windup(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, can_act: bool) -> AttackStep {
     let card = cards.get(ents.card[a]);
-    let target = ents.target[a].filter(|t| ents.is_alive(*t));
+    // combat.LOST_TARGET_SHOT = client16402_point_first_attack_fires: a lost first attack's swing runs on at the corpse
+    // (entity.rs `lost_target`, written under that arm only).
+    let target = ents.target[a].filter(|t| ents.is_alive(*t)).or(ents.lost_target[a]);
     let mut phase = ents.attack_phase[a];
     let mut ms = ents.attack_ms[a];
     let load = card.load_time_ms.max(0);
