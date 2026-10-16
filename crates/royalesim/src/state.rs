@@ -17370,22 +17370,7 @@ impl BattleState {
     /// enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: the ticks a Rune Giant attacks nothing from each launch's
     /// tick on (L .. L + 13), its row's 600 ms NO_ATTACK hold as measured (130 of 136 dropped swings restarting on L + 14).
     const ENCHANT_HOLD_TICKS: u32 = 14;
-    /// THE ROYAL CHEF'S COOKING (combat.TOWER_TROOP_COOKING; the raw chef_tower.toml ACTION.ChefTower_CookingAction, the same on
-    /// the 15.535.29 and 160402017 tables, which the derived table does not carry yet): StartCookingDelay, ContributionNeeded,
-    /// ContributionBaseline and ContributionIdle (a second), MinCurrentHpPercentageThreshold, MinMaxHpThreshold,
-    /// WaitPancakeThrowAfterAttackTime (the pick from the full + 2), PancakeThrowDelay (the release 5 after the pick),
-    /// PancakeStartOffset (native) and ChefTower_pancake_projectile's Speed (homing). Measured on client 16.402 (parity r74
-    /// batch 6): the release on the full + 7, 63 of 83 exact, 81 within a tick.
-    const CHEF_START_MS: i32 = 7000;
-    const CHEF_NEEDED: i32 = 23000;
-    const CHEF_BASELINE: i32 = 600;
-    const CHEF_IDLE: i32 = 200;
-    const CHEF_MIN_HP_PCT: i64 = 33;
-    const CHEF_MIN_MAX_HP: i32 = 2;
-    const CHEF_PICK_WAIT_MS: i32 = 100;
-    const CHEF_THROW_DELAY_MS: i32 = 250;
-    const CHEF_START_OFFSET: i32 = 200;
-    const CHEF_PANCAKE_SPEED: i32 = 600;
+
 
     /// THE RUNE GIANT'S LAUNCH (enchant.LAUNCH_DELAY), at the top of the Projectile phase: every Rune Giant whose launch
     /// clock ran out this tick sends each friend he picked (a dead one skipped) a homing projectile from where he stands
@@ -23348,36 +23333,38 @@ impl BattleState {
             .collect()
     }
 
-    /// THE ROYAL CHEF'S PICK (combat.TOWER_TROOP_COOKING): the side's own troop, alive, hp at least CHEF_MIN_HP_PCT % of a max
-    /// of at least CHEF_MIN_MAX_HP, not a row the Rune Giant's enchant leaves out (the same friend filter), not an attached
+    /// THE ROYAL CHEF'S PICK (combat.TOWER_TROOP_COOKING): the side's own troop, alive, hp at least min_current_hp_percent % of a max
+    /// of at least min_max_hp (card.rs `ChefCookingDef`), not a row the Rune Giant's enchant leaves out (the same friend filter), not an attached
     /// rider: un-pancaked first, then the most hp, ties to the earliest created. Measured on client 16.402 (parity r74
     /// batch 6): 82 of 83.
     fn chef_pick(&self, team: Team) -> Option<EntityId> {
         let cards = &self.cfg.cards;
+        let cc = cards.chef_cooking?;
         let excluded: Vec<u16> = cards.index("GiantBuffer").and_then(|g| cards.get(g).enchant.as_ref()).map(|d| d.excluded.clone()).unwrap_or_default();
         let e = &self.ents;
         e.live_indices()
-            .filter(|&j| e.team[j] == team && e.kind[j] == EntityKind::Troop && e.hp[j] > 0 && e.max_hp[j] >= Self::CHEF_MIN_MAX_HP)
-            .filter(|&j| 100 * i64::from(e.hp[j]) >= Self::CHEF_MIN_HP_PCT * i64::from(e.max_hp[j]))
+            .filter(|&j| e.team[j] == team && e.kind[j] == EntityKind::Troop && e.hp[j] > 0 && e.max_hp[j] >= cc.min_max_hp)
+            .filter(|&j| 100 * i64::from(e.hp[j]) >= i64::from(cc.min_current_hp_percent) * i64::from(e.max_hp[j]))
             .filter(|&j| !excluded.contains(&e.card[j]) && e.attached_to[j].is_none())
             .min_by_key(|&j| (e.pancaked[j], -(i64::from(e.hp[j]) + i64::from(e.shield[j])), e.team_seq[j]))
             .map(|j| e.id_of(j))
     }
 
     /// THE ROYAL CHEFS' PICKS (combat.TOWER_TROOP_COOKING = client16402_pancakes), at the Spawn phase's end: a side whose bar
-    /// filled on F picks from F + CHEF_PICK_WAIT_MS / TICK_MS (waiting while it has no friend), the thrower its nearest
-    /// live Chef tower not attacking, else its nearest; the release is CHEF_THROW_DELAY_MS on.
+    /// filled on F picks from F + wait_pancake_throw_after_attack_ms / TICK_MS (waiting while it has no friend), the thrower its nearest
+    /// live Chef tower not attacking, else its nearest; the release is pancake_throw_delay_ms on.
     fn chef_pick_pass(&mut self) {
         // PLANT (regression) chef_never_cooks: the new arm cooks nothing.
         #[cfg(clash_plant = "chef_never_cooks")]
         return;
         #[allow(unreachable_code)]
         let dt = self.cfg.calib.tick_ms.max(1);
+        let Some(cc) = self.cfg.cards.chef_cooking else { return };
         for team in [Team::Blue, Team::Red] {
             let t = team as usize;
             let c = self.chef[t];
             let Some(f) = c.full_at else { continue };
-            if c.throw.is_some() || self.tick < f + (Self::CHEF_PICK_WAIT_MS / dt) as u32 {
+            if c.throw.is_some() || self.tick < f + (cc.wait_pancake_throw_after_attack_ms / dt) as u32 {
                 continue;
             }
             let towers = self.chef_towers(team);
@@ -23391,21 +23378,22 @@ impl BattleState {
                 .copied()
                 .min_by_key(|&i| (self.ents.attack_phase[i] != AttackPhase::Idle, self.ents.pos[i].dist2(tp), self.ents.team_seq[i]))
                 .expect("a live Chef tower, checked above");
-            let release = self.tick + (Self::CHEF_THROW_DELAY_MS / dt) as u32;
+            let release = self.tick + (cc.pancake_throw_delay_ms / dt) as u32;
             self.chef[t].throw = Some(ChefThrow { target, tower: self.ents.id_of(tower), release });
         }
     }
 
     /// THE ROYAL CHEFS' COOKING (combat.TOWER_TROOP_COOKING = client16402_pancakes), in the Projectile phase before any
     /// projectile steps: a due release sends the pancake (a friend dead by then: nothing) and restarts the bar; a bar not full
-    /// and not throwing gains, from CHEF_START_MS, CHEF_BASELINE plus CHEF_IDLE for each live Chef tower not attacking, a
-    /// second (this tick's share), and holds full from the tick it reaches CHEF_NEEDED.
+    /// and not throwing gains, from start_cooking_delay_ms, contribution_baseline plus contribution_idle for each live Chef tower not attacking, a
+    /// second (this tick's share), and holds full from the tick it reaches contribution_needed (card.rs `ChefCookingDef`).
     fn chef_cook_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         #[cfg(clash_plant = "chef_never_cooks")]
         return;
         #[allow(unreachable_code)]
         let dt = self.cfg.calib.tick_ms.max(1);
+        let Some(cc) = self.cfg.cards.chef_cooking else { return };
         for team in [Team::Blue, Team::Red] {
             let t = team as usize;
             let towers = self.chef_towers(team);
@@ -23418,14 +23406,14 @@ impl BattleState {
                     let (from, to) = (self.ents.pos[wi], self.ents.pos[ti]);
                     let (dx, dy) = (i64::from((to.x - from.x) / K), i64::from((to.y - from.y) / K));
                     let d = crate::fixed::isqrt(dx * dx + dy * dy).max(1);
-                    let off = Vec2::new((dx * i64::from(Self::CHEF_START_OFFSET) / d) as i32 * K, (dy * i64::from(Self::CHEF_START_OFFSET) / d) as i32 * K);
+                    let off = Vec2::new((dx * i64::from(cc.pancake_start_offset) / d) as i32 * K, (dy * i64::from(cc.pancake_start_offset) / d) as i32 * K);
                     self.projectiles.push(Projectile {
                         pancake: true,
                         team,
                         pos: Vec2::new(from.x + off.x, from.y + off.y),
                         target: th.target,
                         aim: to,
-                        speed: Self::CHEF_PANCAKE_SPEED * self.cfg.calib.projectile_speed_to_subtiles_per_tick,
+                        speed: cc.pancake_speed * self.cfg.calib.projectile_speed_to_subtiles_per_tick,
                         damage: 0,
                         crown_pct: 100,
                         splash: 0,
@@ -23457,13 +23445,13 @@ impl BattleState {
                 self.chef[t] = ChefCook::default();
             }
             let c = self.chef[t];
-            if towers.is_empty() || c.full_at.is_some() || c.throw.is_some() || (self.tick as i64) < i64::from(Self::CHEF_START_MS / dt) {
+            if towers.is_empty() || c.full_at.is_some() || c.throw.is_some() || (self.tick as i64) < i64::from(cc.start_cooking_delay_ms / dt) {
                 continue;
             }
             let idle = towers.iter().filter(|&&i| self.ents.attack_phase[i] == AttackPhase::Idle).count() as i32;
-            let meter = c.meter + (Self::CHEF_BASELINE + Self::CHEF_IDLE * idle) * dt / 1000;
+            let meter = c.meter + (cc.contribution_baseline + cc.contribution_idle * idle) * dt / 1000;
             self.chef[t].meter = meter;
-            if meter >= Self::CHEF_NEEDED {
+            if meter >= cc.contribution_needed {
                 self.chef[t].full_at = Some(self.tick);
             }
         }

@@ -8054,8 +8054,29 @@ pub fn shipped_rarities() -> &'static [RarityRow] {
     CELL.get_or_init(|| parse_rarities(RARITIES_CSV).expect("shipped rarities.csv must parse"))
 }
 
+/// THE ROYAL CHEF'S COOKING (units.ChefTowerKing `chef_cooking`, the king's OnStartingAction ChefTower_CookingAction;
+/// tools/extract_cards.py; the same on the 15.535.29 and 160402017 tables): read by state.rs `chef_cook_pass` and
+/// `chef_pick_pass` under combat.TOWER_TROOP_COOKING = client16402_pancakes. `pancake_speed` is the BuffProjectile's Speed (its
+/// projectiles row). None on a table without the block: no Chef cooks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+pub struct ChefCookingDef {
+    pub start_cooking_delay_ms: i32,
+    pub contribution_needed: i32,
+    pub contribution_baseline: i32,
+    pub contribution_idle: i32,
+    pub min_max_hp: i32,
+    pub min_current_hp_percent: i32,
+    pub pancake_throw_delay_ms: i32,
+    pub pancake_start_offset: i32,
+    pub wait_pancake_throw_after_attack_ms: i32,
+    #[serde(default)]
+    pub pancake_speed: i32,
+}
+
 #[derive(Clone, Debug)]
 pub struct CardDb {
+    /// The Royal Chef's cooking (`ChefCookingDef`), or None on a table without it.
+    pub chef_cooking: Option<ChefCookingDef>,
     pub cards: Vec<CardDef>,
     /// EVERY DISTINCT BUFF the file uses, once (status.rs `BuffDef`); a `BuffApply`
     /// anywhere -- `CardDef::attack_buff`, `SpellHit::buff` -- is an index into it,
@@ -11226,6 +11247,7 @@ impl CardDb {
         let mut buffs = BuffTable::default();
         let globals = CardGlobals::from_map(&file.globals)?;
         let mut db = CardDb {
+            chef_cooking: None,
             cards: Vec::new(),
             buffs: Vec::new(),
             buff_names: Vec::new(),
@@ -15185,6 +15207,21 @@ impl CardDb {
     /// slot, so no index moves. NOT modelled: the Duchess's dagger charges (her row's 500 ms throughout), the Chef's cooking.
     fn load_tower_troops(&mut self, s: &str, buffs: &mut BuffTable, ctx: &LoadCtx) {
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(s) else { return };
+        // THE ROYAL CHEF'S COOKING (`ChefCookingDef`): the king's block, its pancake's Speed off the projectiles table.
+        if let Some(cc) = doc.get("units").and_then(|u| u.get("ChefTowerKing")).and_then(|r| r.get("chef_cooking")).filter(|v| !v.is_null()) {
+            if let Ok(mut def) = serde_json::from_value::<ChefCookingDef>(cc.clone()) {
+                let shot = cc.get("buff_projectile").and_then(|p| p.as_str()).unwrap_or_default();
+                def.pancake_speed = doc
+                    .get("projectiles")
+                    .and_then(|p| p.get(shot))
+                    .and_then(|p| p.get("speed"))
+                    .and_then(|v| v.as_i64())
+                    .map_or(0, |v| v as i32);
+                if def.pancake_speed > 0 && def.contribution_needed > 0 {
+                    self.chef_cooking = Some(def);
+                }
+            }
+        }
         let Some(princess) = doc.get("towers").and_then(|t| t.as_array()).and_then(|t| t.iter().find(|r| r.get("name").and_then(|n| n.as_str()) == Some(PRINCESS_TOWER))) else { return };
         for name in TOWER_TROOPS {
             let Some(row) = doc.get("units").and_then(|u| u.get(*name)) else { continue };
