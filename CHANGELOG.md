@@ -3,6 +3,26 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.35 (2026-10-16)
+
+- Eleven more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A unit a Witch, Tombstone or Goblin Hut makes on a Poison pulse's tick is not hit by that pulse
+    (`spells.LIVE_SPAWN_AREA_BIRTH`).
+  - A walker steering round a Little Prince who stands after his button press turns whatever way he faces
+    (`movement.CAST_HOLD_HEADING`).
+  - Lightning reaches a troop only within its radius plus the troop's own (`spells.STRIKE_REACH`). On a tie in
+    hitpoints it strikes the one nearest its centre (`spells.STRIKE_TIE_BREAK`).
+  - An own-side Rage reaches a rider on its mount (`rider.OWN_AREA_BUFFS_WHILE_ATTACHED`).
+  - Goblinstein's tether keeps running from where its Monster died (`combat.TETHER_MONSTER_GONE`).
+  - A Tornado does not pull the Little Prince while his press holds him (`status.GUARD_PRESS_ATTRACT`).
+  - A ground troop laid on the river stays on the water (`formation.MEMBER_WATER_POINT`).
+  - The Hero Balloon's throw can pick a building and counts the target's size (`targeting.THROW_PICK`).
+  - A rolling log hits only what is under it now (`spells.ROLLING_HIT_SWEEP`), and passes over a unit mid-jump or
+    mid-dash (`spells.ROLLING_SPARES_LEAPERS`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles. Saved battles from earlier releases load
+  unchanged (`SNAPSHOT_FORMAT` is still 20).
+
 ## 0.1.34 (2026-10-13)
 
 - One more setting defaults to the current client's behaviour, measured against its recorded battles: the Little
