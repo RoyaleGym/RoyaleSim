@@ -21,9 +21,10 @@
 //!   6. a striking area's clock is state: a save edited only in it fails the load's hash self-check.
 //!   7. a Knight walking out of reach, inside it on the strike tick and outside it on the predicted next position, is
 //!      not struck.
-//!   Tests 3, 5 and 7 run client 15.535.29's spells.STRIKE_TIE_BREAK and STRIKE_REACH (`client15535`, CLIENT15535_ARMS).
 //!   8. client 16.402 (the shipped STRIKE_REACH = radius_plus_target_radius, parity r73): test 5's Cannon, within the
 //!      + 170 but past Radius + its radius, is not struck.
+//!
+//! Tests 3, 5 and 7 run client 15.535.29's spells.STRIKE_TIE_BREAK and STRIKE_REACH (`client15535`, CLIENT15535_ARMS).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test strikes`):
 //!   * `strike_timer_restarts` -- the leftover dropped: (2) goes red on D + 19.
