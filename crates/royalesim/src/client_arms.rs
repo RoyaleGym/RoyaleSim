@@ -374,6 +374,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   knockback.UPPERCUT_THROW_AIM = own_king: sp-form-MegaKnight-evo-s0 threw its Knight at its king.
 ///   combat.RAMP_HOOK_RESET = kept: unread on client 15.535.29.
 ///   combat.RAMP_LEVEL_DROP = with_the_count: unread on client 15.535.29.
+///   spells.DEPLOY_AREA_BIRTH_CONTACT = pushed: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -578,6 +579,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("knockback.UPPERCUT_THROW_AIM", "\"own_king\""),
     ("combat.RAMP_HOOK_RESET", "\"kept\""),
     ("combat.RAMP_LEVEL_DROP", "\"with_the_count\""),
+    ("spells.DEPLOY_AREA_BIRTH_CONTACT", "\"pushed\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -1017,6 +1017,10 @@ pub struct Calib {
     /// `WithTheCount`, what a battle saved before it ran.
     #[serde(default = "ramp_level_drop_default")]
     pub ramp_level_drop: RampLevelDrop,
+    /// spells.DEPLOY_AREA_BIRTH_CONTACT (whether a deploy area effect's character is pushed on its creation tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Pushed`, what a battle saved before it ran.
+    #[serde(default = "deploy_area_birth_contact_default")]
+    pub deploy_area_birth_contact: DeployAreaBirthContact,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2995,6 +2999,10 @@ fn ramp_hook_reset_default() -> RampHookReset {
 
 fn ramp_level_drop_default() -> RampLevelDrop {
     RampLevelDrop::WithTheCount
+}
+
+fn deploy_area_birth_contact_default() -> DeployAreaBirthContact {
+    DeployAreaBirthContact::Pushed
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10433,6 +10441,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.DEPLOY_AREA_BIRTH_CONTACT -- the creation tick of the character a card's deploy area effect makes (state.rs
+    /// `phase_spawn`, `Scratch::area_born`, `phase_path16402_for`).
+    DeployAreaBirthContact {
+        /// The engine's: the creation tick's ordinary update of a played troop, its contact push included.
+        Pushed = "pushed",
+        /// Client 16.402: no separation scan of its own on its creation tick; a body to its neighbours; pushed from the next.
+        Client16402UnpushedCreationTick = "client16402_unpushed_creation_tick",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11000,6 +11018,7 @@ impl Calib {
             uppercut_throw_aim: pick(&v, &["knockback", "UPPERCUT_THROW_AIM", "value"], UppercutThrowAim::from_calibration_name)?,
             ramp_hook_reset: pick(&v, &["combat", "RAMP_HOOK_RESET", "value"], RampHookReset::from_calibration_name)?,
             ramp_level_drop: pick(&v, &["combat", "RAMP_LEVEL_DROP", "value"], RampLevelDrop::from_calibration_name)?,
+            deploy_area_birth_contact: pick(&v, &["spells", "DEPLOY_AREA_BIRTH_CONTACT", "value"], DeployAreaBirthContact::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -13527,6 +13546,11 @@ struct Scratch {
     /// every Spawn phase and read only by the move pass after it, so a snapshot that drops it changes nothing: not saved,
     /// not hashed.
     action_born: Vec<EntityId>,
+    /// spells.DEPLOY_AREA_BIRTH_CONTACT = client16402_unpushed_creation_tick: the characters a played card's deploy area
+    /// effect made in THIS tick's Spawn phase, which run no separation scan of their own in its move pass
+    /// (`phase_path16402_for`). Emptied at the top of every Spawn phase and read only by the move pass after it: not saved,
+    /// not hashed.
+    area_born: Vec<EntityId>,
     /// THE COUNTER'S CANDIDATES (`note_parry`, `parry_pass`): the hits this Attack phase wrote on a unit that carries
     /// a counter. Filled and emptied inside one call of `phase_attack_for`, so it never outlives the phase and is not
     /// state: not saved, not hashed.
@@ -19191,6 +19215,7 @@ impl BattleState {
 
     fn phase_spawn(&mut self) {
         self.scratch.action_born.clear();
+        self.scratch.area_born.clear();
         #[allow(unused_mut)]
         let mut queue = std::mem::take(&mut self.spawn_queue);
         #[cfg(clash_plant = "unseeded_spawn_order")]
@@ -19335,6 +19360,14 @@ impl BattleState {
                 let at = self.ents.pos[id.index as usize];
                 let area = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, p.team, p.card, p.level, at, self.tick).expect("deploy area level validated at enqueue");
                 self.spells.extend(area);
+                // spells.DEPLOY_AREA_BIRTH_CONTACT = client16402_unpushed_creation_tick: the area makes its character after
+                // this tick's update, so it is pushed from the next. Measured on client 16.402 (parity r75, live13): the
+                // Wizards unmoved on C in 28 of 29 overlapping plays, the engine's pushed 4 of 4. PLANT (regression)
+                // deploy_area_birth_pushed: the new arm still pushes it on C.
+                #[cfg(not(clash_plant = "deploy_area_birth_pushed"))]
+                if self.cfg.calib.deploy_area_birth_contact == DeployAreaBirthContact::Client16402UnpushedCreationTick {
+                    self.scratch.area_born.push(id);
+                }
             }
         }
         self.hash.rebuild(&self.ents);
@@ -24698,6 +24731,17 @@ impl BattleState {
             }
             v
         };
+        // spells.DEPLOY_AREA_BIRTH_CONTACT = client16402_unpushed_creation_tick: this tick's deploy-area characters
+        // (`Scratch::area_born`) run no separation scan of their own; each stays a body.
+        let area_born: Vec<bool> = {
+            let mut v = vec![false; cap];
+            for id in &self.scratch.area_born {
+                if self.ents.is_alive(*id) {
+                    v[id.index as usize] = true;
+                }
+            }
+            v
+        };
         // Measured on client 16.402 (parity r74): the attacking prince moved on 3 of 282 hold ticks; the engine pushed him on 35
         // of 67. PLANT (regression) press_attacking_pushed: the new arm still scans him while he attacks.
         #[cfg(not(clash_plant = "press_attacking_pushed"))]
@@ -26642,6 +26686,7 @@ impl BattleState {
                 let own_scan_off = (press_attacking_off && press_held[i])
                     || (dash_stand_off && dash_state[i] == DashState::Standing)
                     || surfacing[i]
+                    || area_born[i]
                     || (buff_hold_off && e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i] && e.attack_phase[i] != AttackPhase::Idle);
                 if !tag_off[i] && !own_scan_off {
                     move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
@@ -38587,6 +38632,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.RAMP_LEVEL_DROP: Calib gained ramp_level_drop (serde default the old arm, with_the_count), RampRun gained clear_due (serde default false, skipped when false; hashed only when set),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.DEPLOY_AREA_BIRTH_CONTACT: Calib gained deploy_area_birth_contact (serde default the old arm, pushed), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39641,6 +39688,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("ramp_hook_reset".into(), serde_json::to_value(RampHookReset::Kept).map_err(|e| e.to_string())?);
     // combat.RAMP_LEVEL_DROP: a format-3 battle ran combat.RAMP_LEVEL_DROP's old arm.
     sh.insert("ramp_level_drop".into(), serde_json::to_value(RampLevelDrop::WithTheCount).map_err(|e| e.to_string())?);
+    // spells.DEPLOY_AREA_BIRTH_CONTACT: a format-3 battle ran spells.DEPLOY_AREA_BIRTH_CONTACT's old arm.
+    sh.insert("deploy_area_birth_contact".into(), serde_json::to_value(DeployAreaBirthContact::Pushed).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

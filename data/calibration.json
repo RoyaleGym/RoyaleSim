@@ -3625,6 +3625,16 @@
     ]
   },
   "spells": {
+    "DEPLOY_AREA_BIRTH_CONTACT": {
+      "value": "pushed",
+      "status": "measured",
+      "candidates": ["pushed", "client16402_unpushed_creation_tick"],
+      "confidence": "MEDIUM-HIGH for client16402_unpushed_creation_tick on client 16.402 (parity r75, 2026-10-16): single-unit ground troop plays seen on their deploy tick C overlapping an older ground body by more than 30: the Electro Wizard unmoved on C in 21 of 22, the Ice Wizard 7 of 7 (28 of 29), every other card unmoved in only 20 of 984 (964 moved on C: Mega Knight 78/82, Valkyrie 66/68, Knight 60/62, Little Prince 66/66 ...); of the 31 tile-sourced Wizard plays with an overlap, 27 first move on C + 1; the engine pushed on C in 4 of 4 traced Wizard plays (194558.b1, 164822, 185927, 171315), each truth Wizard standing exactly on the engine's creation point on C; it stays a body on C (171315). A candidate until scored. Client 15.535.29 keeps pushed (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): single-unit ground troop plays seen on their deploy tick C overlapping an older ground body by more than 30: the Electro Wizard unmoved on C in 21 of 22, the Ice Wizard 7 of 7 (28 of 29), every other card unmoved in only 20 of 984 (964 moved on C: Mega Knight 78/82, Valkyrie 66/68, Knight 60/62, Little Prince 66/66 ...); of the 31 tile-sourced Wizard plays with an overlap, 27 first move on C + 1; the engine pushed on C in 4 of 4 traced Wizard plays (194558.b1, 164822, 185927, 171315), each truth Wizard standing exactly on the engine's creation point on C; it stays a body on C (171315).",
+      "meaning": "pushed: the engine's; a deploy area effect's character takes the creation-tick update of any played troop. client16402_unpushed_creation_tick: the character a card's deploy area effect spawns (the Electro Wizard, the Ice Wizard) runs no separation scan of its own on its creation tick; it stays a body its neighbours are pushed off, and it is pushed from the next tick (the area makes the character after that tick's update, the tick its late creation costs its deploy countdown: spells.DEPLOY_AREA_EFFECT_DEPLOY_TIME). A scenario spawn keeps the ordinary update.",
+      "open": "'Stays a body' rests on 1 exact case (171315); the Wizard's neighbours displaced beyond the 150 cap on its creation tick (194558.b1, 185927) are unexplained.",
+      "engine": "state.rs phase_spawn (Scratch::area_born) and phase_path16402_for (own_scan_off), selected by Calib::deploy_area_birth_contact; tests/deploy_area_birth_contact.rs."
+    },
     "SPAWN_AREA_FIRST_PULSE": {
       "value": "frequency_less_tick",
       "status": "measured",
