@@ -2385,8 +2385,14 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
             (SpellMotion::Strikes { pos, life_ms, next_ms, k, struck }, SpellShape::Strikes(def)) => {
                 *next_ms -= tick;
                 *life_ms -= tick;
-                #[cfg(not(clash_plant = "strike_due_below_zero"))]
+                // spells.STRIKE_DUE: client 16.402 strikes on the update that takes the clock below zero (the Royal Delivery's crate
+                // on C + 40, its hit and Recruit on C + 41: parity r74, 107 of 107 hits); 15.535.29 on the one that brings it to
+                // zero (CLIENT15535_ARMS).
+                // PLANT (regression) strike_due_at_zero: the 15.535.29 clock on every client.
+                #[cfg(not(any(clash_plant = "strike_due_below_zero", clash_plant = "strike_due_at_zero")))]
                 let due_rule = ctx.calib.strike_due;
+                #[cfg(clash_plant = "strike_due_at_zero")]
+                let due_rule = StrikeDue::ClockAtOrBelowZero;
                 #[cfg(clash_plant = "strike_due_below_zero")]
                 let due_rule = StrikeDue::ClockBelowZero; // PLANT: the strike waits for the clock to fall below zero.
                 // A selector's strike (the Vines' catches, the Void's strikes) takes the Lightning's below-zero update:

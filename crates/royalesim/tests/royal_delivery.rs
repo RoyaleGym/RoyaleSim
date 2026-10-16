@@ -31,6 +31,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test royal_delivery`):
 //!   * `delivery_spawn_time_unchecked` -- the area's SpawnTime is not held against the projectile's: (1) goes red.
 //!   * `strike_due_below_zero` -- the strike waits for the clock to fall below zero: (2) and (3) go red.
+//!   * `strike_due_at_zero` -- client 16.402's shipped clock_below_zero reads the 15.535.29 clock:
+//!     `under_clock_below_zero_the_crate_lands_on_c_plus_41` goes red.
 //!     tests/strikes.rs and tests/strike_timing16402.rs stay green under it (a strike that picks the highest hp,
 //!     the Lightning's, does not read spells.STRIKE_DUE).
 //!   * `area_projectile_reads_area_row` -- the delivery reads the area row's IgnoreBuildings: (4) goes red.
@@ -66,17 +68,25 @@ fn delivery_damage(s: &BattleState, level: i32) -> i32 {
     s.cards().scaled(idx, level, 150).expect("a valid level")
 }
 
-/// The shipped config, asserting the arms this file pins.
+/// `config_pre_flip()` with client 15.535.29's spells.STRIKE_DUE (clock_at_or_below_zero, CLIENT15535_ARMS): this file is
+/// that client's measurement, and client 16.402's arm ships (`under_clock_below_zero_the_crate_lands_on_c_plus_41`).
+fn pre_flip_15535() -> BattleConfig {
+    let mut c = config_pre_flip();
+    c.calib.strike_due = StrikeDue::ClockAtOrBelowZero;
+    c
+}
+
+/// The 15.535.29 config, asserting the arms this file pins.
 fn shipped() -> BattleConfig {
-    let c = config_pre_flip();
-    assert_eq!(c.calib.strike_due, StrikeDue::ClockAtOrBelowZero, "the shipped spells.STRIKE_DUE this file pins");
+    let c = pre_flip_15535();
+    assert_eq!(c.calib.strike_due, StrikeDue::ClockAtOrBelowZero, "the 15.535.29 spells.STRIKE_DUE this file pins");
     assert_eq!(c.calib.area_projectile_ignore_buildings, AreaProjectileIgnoreBuildings::ProjectileRow, "the shipped spells.AREA_PROJECTILE_IGNORE_BUILDINGS");
     c
 }
 
 /// The config with spells.AREA_PROJECTILE_IGNORE_BUILDINGS at `rule`.
 fn with_building_rule(rule: AreaProjectileIgnoreBuildings) -> BattleConfig {
-    let mut c = config_pre_flip();
+    let mut c = pre_flip_15535();
     c.calib.area_projectile_ignore_buildings = rule;
     c
 }
@@ -240,7 +250,7 @@ fn the_crate_lands_on_c_plus_40() {
 #[test]
 fn it_hits_by_the_edge_air_and_ground_and_not_its_own_side() {
     let (tx, ty) = TAP;
-    let s0 = BattleState::new(0, config_pre_flip());
+    let s0 = BattleState::new(0, pre_flip_15535());
     let r_knight = card_stat(&s0, "Knight").collision_radius / K;
     let r_mega = card_stat(&s0, "MegaMinion").collision_radius / K;
     // (victim, hit?): the measured centre distances inside the edge, and misses a margin past it.
@@ -306,7 +316,7 @@ fn it_hits_an_enemy_building() {
         }
         hp
     };
-    let s = BattleState::new(0, config_pre_flip());
+    let s = BattleState::new(0, pre_flip_15535());
     let dmg = delivery_damage(&s, s.config().card_level[0]);
     let control = run(shipped(), false);
     let projectile_row = run(shipped(), true);
@@ -342,7 +352,7 @@ fn recruit_track(cfg: BattleConfig, team: Team, tap: Vec2) -> Vec<(Vec2, bool, i
 /// Plant: delivery_release_dropped.
 #[test]
 fn one_recruit_for_the_caster_on_the_landing_point() {
-    let s = BattleState::new(0, config_pre_flip());
+    let s = BattleState::new(0, pre_flip_15535());
     let level = s.config().card_level[0];
     let idx = s.cards().index("DeliveryRecruit").expect("the Recruit loads as a unit");
     let hp = s.cards().scaled(idx, level, s.cards().get(idx).hitpoints).expect("a valid level");
@@ -402,4 +412,47 @@ fn a_battle_saved_with_the_crate_in_the_air_resumes_it() {
     resumed.tick();
     assert_eq!(resumed.state_hash(), s.state_hash(), "the resumed battle parts from the one that never saved");
     assert_eq!(resumed.entities().filter(|e| e.card == "DeliveryRecruit").count(), 1, "the resumed crate landed and released its Recruit");
+}
+
+/// spells.STRIKE_DUE = clock_below_zero, shipped for client 16.402 (parity's r74 census of ob13: the crate's first frame on
+/// C + 40 in 108 of 112, the delivery's hit on C + 41 for 107 of 107 victims; the engine's a tick earlier): under the shipped
+/// config the crate stands after C + 40 only and its damage lands on C + 41, a tick after 15.535.29's arm, which
+/// CLIENT15535_ARMS keeps. Plant: strike_due_at_zero.
+#[test]
+fn under_clock_below_zero_the_crate_lands_on_c_plus_41() {
+    let c = config();
+    assert_eq!(c.calib.strike_due, StrikeDue::ClockBelowZero, "the shipped spells.STRIKE_DUE");
+    let ov = royalesim::client_arms::client_overrides("15.535.29").expect("the 15.535.29 arms");
+    assert_eq!(ov.get("spells.STRIKE_DUE").map(String::as_str), Some("\"clock_at_or_below_zero\""), "CLIENT15535_ARMS keeps 15.535.29's arm");
+    let (tx, ty) = TAP;
+    let mut s = BattleState::new(0, c.clone());
+    let mut control = BattleState::new(0, c);
+    s.spawn_unit(Team::Blue, "RoyalDelivery", at(TAP), None).expect("cast RoyalDelivery");
+    let (mut seen, mut lost) = (Vec::new(), Vec::new());
+    let mut knight: Option<EntityId> = None;
+    for k in 0..46u32 {
+        s.tick();
+        control.tick();
+        if k == 24 {
+            for b in [&mut s, &mut control] {
+                b.spawn_unit(Team::Red, "Knight", at((tx, ty + 1000)), None).expect("deploy a Knight");
+            }
+        }
+        if k == 25 {
+            knight = s.entities().find(|e| e.team == Team::Red && e.card == "Knight").map(|e| e.id);
+        }
+        if crate_of(&s).is_some() {
+            seen.push(k);
+        }
+        if let Some(id) = knight {
+            let (a, b) = (s.entity(id).map_or(0, |v| v.hp), control.entity(id).map_or(0, |v| v.hp));
+            if b > a {
+                lost.push((k, b - a));
+            }
+        }
+    }
+    assert!(knight.is_some(), "the scene drifted: the Knight did not appear");
+    assert_eq!(seen, vec![40], "clock_below_zero: the crate stands after C + 40 only");
+    let dmg = delivery_damage(&s, s.config().card_level[0]);
+    assert_eq!(lost.first(), Some(&(41, dmg)), "clock_below_zero: the delivery's damage lands on C + 41: {lost:?}");
 }
