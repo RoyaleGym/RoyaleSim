@@ -24069,7 +24069,8 @@ impl BattleState {
         let dash_stand_off = self.cfg.calib.dash_stand_contact == DashStandContact::Client16402Unpushed;
         #[cfg(clash_plant = "dash_stand_pushed")]
         let dash_stand_off = false;
-        // enchant.ON_BUFF_HOLD_CONTACT = client16402_unpushed: measured on client 16.402 (parity r74), the holding Rune Giant
+        // enchant.ON_BUFF_HOLD_CONTACT = client16402_unpushed: a Rune Giant stood in his hold (his swing held, its phase kept;
+        // a walking one walks on) runs no scan of his own. Measured on client 16.402 (parity r74): the holding Rune Giant
         // stood still on 367 of 367 overlap ticks. PLANT (regression) buff_hold_pushed: the new arm still scans him.
         #[cfg(not(clash_plant = "buff_hold_pushed"))]
         let buff_hold_off = self.cfg.calib.on_buff_hold_contact == OnBuffHoldContact::Client16402Unpushed;
@@ -25999,7 +26000,7 @@ impl BattleState {
                 let own_scan_off = (press_attacking_off && press_held[i])
                     || (dash_stand_off && dash_state[i] == DashState::Standing)
                     || surfacing[i]
-                    || (buff_hold_off && e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i] && e.attack_phase[i] == AttackPhase::Idle);
+                    || (buff_hold_off && e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i] && e.attack_phase[i] != AttackPhase::Idle);
                 if !tag_off[i] && !own_scan_off {
                     move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
                 }

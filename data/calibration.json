@@ -7029,7 +7029,7 @@
       "candidates": ["pushed", "client16402_unpushed"],
       "confidence": "MED for client16402_unpushed on client 16.402 (parity r74, 2026-10-16): parity's r74 census of the live11 set (client 16.402): the Rune Giant in his enchant's hold (client state 0) with a ground unit overlapping stood still on 367 of 367 ticks (attacking, he moved on 3,477 of 5,222); the engine pushed him on 3 of 8 traced hold ticks. A candidate until scored. Client 15.535.29 keeps pushed (CLIENT15535_ARMS; unread there).",
       "provenance": "MEASURED by parity (2026-10-16, r74) on client 16.402: parity's r74 census of the live11 set (client 16.402): the Rune Giant in his enchant's hold (client state 0) with a ground unit overlapping stood still on 367 of 367 ticks (attacking, he moved on 3,477 of 5,222); the engine pushed him on 3 of 8 traced hold ticks.",
-      "meaning": "pushed: the engine's; in his enchant's hold (enchant.ON_BUFF_PAUSE) the Rune Giant takes no step but an overlapping unit pushes him. client16402_unpushed: while he holds and does not attack he runs no separation scan of his own; he stays a body to his neighbours.",
+      "meaning": "pushed: the engine's; in his enchant's hold (enchant.ON_BUFF_PAUSE) the Rune Giant takes no step but an overlapping unit pushes him. client16402_unpushed: while he stands in his hold (his swing held, its phase kept; a Rune Giant walking at the launch walks on) he runs no separation scan of his own; he stays a body to his neighbours.",
       "open": "Whether he pushes others in the hold; client 15.535.29.",
       "engine": "state.rs phase_path16402_for (own_scan_off), selected by Calib::on_buff_hold_contact; tests/enchant.rs."
     },

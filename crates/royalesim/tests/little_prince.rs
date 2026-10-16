@@ -1061,15 +1061,14 @@ fn under_client16402_through_last_dash_plus_1_his_guard_is_immune_a_tick_longer(
     assert!(later.iter().any(|l| l.0 == a + 3), "client16402_through_last_dash_plus_1: the Zap on its arrival + 3 took nothing: {later:?}");
 }
 
-/// The Little Prince at AT pressed with a Red Knight held near his guard's end point, let go once the guard comes within 2,500
-/// of it, under combat.GUARD_LANDING_PUSH = `arm`: the Knight's point after each of the 60 ticks from the press, and the tick
-/// (from the press) the guard stopped (its arrival).
-fn landing_pushed(arm: royalesim::state::GuardLandingPush) -> (Vec<Vec2>, u32) {
-    let red_at = (AT.0 + 600, AT.1 + 3600);
+/// The Little Prince at AT pressed with a Red Knight held at `red_at`, near his guard's end point, let go once the guard comes
+/// within 2,500 of it, under combat.GUARD_LANDING_PUSH = `arm`: the Knight's point after each of the 60 ticks from the press,
+/// and the tick (from the press) the guard first stood still after it moved (its arrival).
+fn landing_pushed(arm: royalesim::state::GuardLandingPush, red_at: (i32, i32)) -> (Vec<Vec2>, u32) {
     let (mut s, lp, reds) = scene_cfg(|c| c.calib.guard_landing_push = arm, &[("Knight", red_at)]);
     let knight = reds[0].0;
     s.press_ability_button(Team::Blue, 0).expect("the press");
-    let (mut out, mut held, mut last, mut arrived) = (Vec::new(), true, None, None);
+    let (mut out, mut held, mut last, mut arrived, mut charged) = (Vec::new(), true, None, None, false);
     for k in 1..=60u32 {
         if s.entity(lp).is_some() {
             assert!(s.debug_set_pos(lp, n(AT)));
@@ -1086,7 +1085,10 @@ fn landing_pushed(arm: royalesim::state::GuardLandingPush) -> (Vec<Vec2>, u32) {
             if held && dx * dx + dy * dy < 2500 * 2500 {
                 held = false;
             }
-            if arrived.is_none() && last == Some(g) && k > 20 {
+            if last.is_some_and(|l: Vec2| l != g) {
+                charged = true;
+            }
+            if arrived.is_none() && charged && last == Some(g) {
                 arrived = Some(k - 1);
             }
             last = Some(g);
@@ -1096,21 +1098,30 @@ fn landing_pushed(arm: royalesim::state::GuardLandingPush) -> (Vec<Vec2>, u32) {
 }
 
 /// combat.GUARD_LANDING_PUSH = client16402_through_landing_ticks (client 16.402, parity's r74 census: 26 victims repeat a ladder
-/// step inside the guard's arrival .. + 3, the engine's 0): the Knight's points agree with stops_at_arrival's through the
-/// arrival, and over the 10 ticks after it the new arm moves it farther (its ladder re-armed); under stops_at_arrival (the
-/// vacuity check) the ladder only runs down. Plant: landing_push_stops.
+/// step inside the guard's arrival .. + 3, the engine's 0): over Knight points about the guard's end, the Knight's points agree
+/// with stops_at_arrival's through the arrival, and on at least one the new arm moves it farther over the 10 ticks after it
+/// (its ladder re-armed) than stops_at_arrival (the vacuity check), whose ladder only runs down. Plant: landing_push_stops.
 #[test]
 fn under_client16402_through_landing_ticks_his_guards_push_rearms_after_its_arrival() {
     use royalesim::state::GuardLandingPush as G;
-    let (old, a) = landing_pushed(G::StopsAtArrival);
-    let (new, a2) = landing_pushed(G::Client16402ThroughLandingTicks);
-    assert_eq!(a, a2, "the guard's arrival moved between the arms");
-    let k = a as usize;
-    assert_eq!(old[..k], new[..k], "the arms parted before the guard's arrival");
     let dist = |p: Vec2, q: Vec2| {
         let (dx, dy) = (((p.x - q.x) / K) as i64, ((p.y - q.y) / K) as i64);
         royalesim::fixed::isqrt(dx * dx + dy * dy)
     };
-    let (o, nw) = (dist(old[k - 1], old[k + 9]), dist(new[k - 1], new[k + 9]));
-    assert!(nw > o, "client16402_through_landing_ticks: the Knight not pushed farther after the arrival ({nw} against {o})");
+    let (mut farther, mut seen) = (0, Vec::new());
+    for (dx, dy) in [(600, 3600), (0, 3600), (300, 3300), (600, 3000), (900, 3900), (0, 4200), (600, 4200), (300, 4500)] {
+        let red_at = (AT.0 + dx, AT.1 + dy);
+        let (old, a) = landing_pushed(G::StopsAtArrival, red_at);
+        let (new, a2) = landing_pushed(G::Client16402ThroughLandingTicks, red_at);
+        assert_eq!(a, a2, "{red_at:?}: the guard's arrival moved between the arms");
+        let k = a as usize;
+        assert!(k + 9 < old.len(), "{red_at:?}: the guard arrived too late to read ({a})");
+        assert_eq!(old[..k], new[..k], "{red_at:?}: the arms parted before the guard's arrival");
+        let (o, nw) = (dist(old[k - 1], old[k + 9]), dist(new[k - 1], new[k + 9]));
+        seen.push((red_at, a, o, nw));
+        if nw > o {
+            farther += 1;
+        }
+    }
+    assert!(farther > 0, "client16402_through_landing_ticks: the Knight never pushed farther after the arrival (point, arrival, old, new): {seen:?}");
 }

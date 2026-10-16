@@ -213,8 +213,8 @@ fn under_client16402_holders_drop_plus_1_her_holder_lets_her_go_a_tick_later() {
     assert_eq!(new_warp, old_warp, "the warp's tick is the same under both arms");
 }
 
-/// The Boss Bandit put at `me` (alone, held 40 ticks) under status.WARP_BACK_LANDING = `landing`, pressed free: her point on
-/// the tick she warps (native).
+/// The Boss Bandit put at `me` with a Red Knight held 1,200 behind her (her target, so she never dashes at a Red princess
+/// tower), held 40 ticks, under status.WARP_BACK_LANDING = `landing`, pressed: her point on the tick she warps (native).
 fn warped_to(landing: royalesim::state::WarpBackLanding, me: (i32, i32)) -> (i32, i32) {
     let mut cfg = config();
     cfg.calib.warp_back_landing = landing;
@@ -225,13 +225,22 @@ fn warped_to(landing: royalesim::state::WarpBackLanding, me: (i32, i32)) -> (i32
     past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
     let bb = s.scenario_spawn_now(Team::Blue, "BossBandit", n(me), None).expect("the Boss Bandit");
+    let kn_at = (me.0, me.1 - 1200);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", n(kn_at), None).expect("the Knight");
+    let hold = |s: &mut BattleState| {
+        let (hb, hk) = (s.entity(bb).expect("her").max_hp, s.entity(knight).expect("the Knight").max_hp);
+        assert!(s.debug_set_pos(knight, n(kn_at)) && s.debug_set_hp(knight, hk) && s.debug_set_hp(bb, hb));
+    };
     for _ in 0..40 {
+        hold(&mut s);
         assert!(s.debug_set_pos(bb, n(me)));
         s.tick();
     }
+    assert_eq!(s.entity(bb).expect("her").target, Some(knight), "the scene: she holds the Knight at the press");
     s.press_ability_button(Team::Blue, 0).expect("the press");
     for _ in 0..30 {
-        assert!(s.debug_set_pos(bb, n(me)) || s.entity(bb).is_none());
+        hold(&mut s);
+        assert!(s.debug_set_pos(bb, n(me)));
         let before = s.entity(bb).expect("the Boss Bandit").pos;
         s.tick();
         let p = s.entity(bb).expect("the Boss Bandit").pos;
@@ -254,9 +263,11 @@ fn under_client16402_nearest_bank_half_row_her_warp_onto_the_river_lands_on_the_
     assert_eq!(new, (old.0, 17250), "client16402_nearest_bank_half_row: not on the nearer bank's half-row centre");
 }
 
-/// The Boss Bandit at (3500, 21000) with a Red Musketeer `gap` north of her, held, under status.WARP_BACK_CLOAK = `arm`, pressed
-/// on the 40th tick: whether a shot flies at her on the tick after her warp.
-fn shot_after_warp(arm: WarpBackCloak, gap: i32) -> bool {
+/// The Boss Bandit `d` south of the Red left princess tower's centre (its lane, the bridge's column), a Red Knight held 1,200
+/// behind her (her target), both held, under status.WARP_BACK_CLOAK = `arm`, pressed on the (40 + `wait`)th tick: whether a
+/// tower arrow flies at her on the tick of her warp, after it.
+fn shot_after_warp(arm: WarpBackCloak, d: i32, wait: u32) -> bool {
+    use royalesim::entity::EntityKind;
     let mut cfg = config();
     cfg.calib.warp_back_cloak = arm;
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
@@ -265,15 +276,16 @@ fn shot_after_warp(arm: WarpBackCloak, gap: i32) -> bool {
     let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
     s.scenario_set_elixir_milli(Team::Blue, 10_000);
-    let me = (3500, 21000);
-    let mk = (me.0, me.1 + gap);
+    let tower = s.entities().filter(|e| e.team == Team::Red && e.kind == EntityKind::PrincessTower).min_by_key(|e| e.pos.x).expect("a Red princess tower").pos;
+    let me = (tower.x / K, tower.y / K - d);
+    let kn_at = (me.0, me.1 - 1200);
     let bb = s.scenario_spawn_now(Team::Blue, "BossBandit", n(me), None).expect("the Boss Bandit");
-    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", n(mk), None).expect("the Musketeer");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", n(kn_at), None).expect("the Knight");
     let hold = |s: &mut BattleState| {
-        let (hb, hm) = (s.entity(bb).expect("her").max_hp, s.entity(musk).expect("the Musketeer").max_hp);
-        assert!(s.debug_set_pos(musk, n(mk)) && s.debug_set_hp(musk, hm) && s.debug_set_hp(bb, hb));
+        let (hb, hk) = (s.entity(bb).expect("her").max_hp, s.entity(knight).expect("the Knight").max_hp);
+        assert!(s.debug_set_pos(knight, n(kn_at)) && s.debug_set_hp(knight, hk) && s.debug_set_hp(bb, hb));
     };
-    for _ in 0..40 {
+    for _ in 0..40 + wait {
         hold(&mut s);
         assert!(s.debug_set_pos(bb, n(me)));
         s.tick();
@@ -292,15 +304,18 @@ fn shot_after_warp(arm: WarpBackCloak, gap: i32) -> bool {
     panic!("she never warped");
 }
 
-/// status.WARP_BACK_CLOAK = client16402_holders_drop_plus_1_shots_lost_at_warp (client 16.402, parity's r74 census: a holder's
-/// shot whose flight crossed her warp never landed): over Musketeer distances 2,000 to 6,000, no shot flies at her after her
-/// warp; under client16402_holders_drop_plus_1 (the vacuity check) one does at some distance. Plant: warp_keeps_shots.
+/// status.WARP_BACK_CLOAK = client16402_holders_drop_plus_1_shots_lost_at_warp (client 16.402, parity's r74 census: a tower's
+/// arrow released on the press + 3, whose flight crossed her warp on the press + 17, never landed): over her distances from the
+/// tower 8,000 to 10,500 and the press's 16 phases of its swing, no arrow flies at her after her warp; under
+/// client16402_holders_drop_plus_1 (the vacuity check) one does at some. Plant: warp_keeps_shots.
 #[test]
 fn under_client16402_holders_drop_plus_1_shots_lost_at_warp_no_shot_follows_her_warp() {
     let (mut old, mut new) = (0, 0);
-    for gap in (2000..=6000).step_by(250) {
-        old += usize::from(shot_after_warp(WarpBackCloak::Client16402HoldersDropPlus1, gap));
-        new += usize::from(shot_after_warp(WarpBackCloak::Client16402HoldersDropPlus1ShotsLostAtWarp, gap));
+    for d in (8000..=10500).step_by(250) {
+        for wait in 0..16 {
+            old += usize::from(shot_after_warp(WarpBackCloak::Client16402HoldersDropPlus1, d, wait));
+            new += usize::from(shot_after_warp(WarpBackCloak::Client16402HoldersDropPlus1ShotsLostAtWarp, d, wait));
+        }
     }
     assert!(old > 0, "client16402_holders_drop_plus_1 (the vacuity check): no shot was flying at her when she warped");
     assert_eq!(new, 0, "client16402_holders_drop_plus_1_shots_lost_at_warp: a shot flew at her after her warp");

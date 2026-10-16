@@ -653,8 +653,8 @@ fn under_client16402_unpushed_a_standing_mega_knight_is_not_pushed() {
 
 /// combat.DASH_STAND_RETARGET = client16402_kept_to_mark (client 16.402, parity's r74 census: 84 of 86 switches inside a stand
 /// dashed on schedule; the engine walked off in 6 of 6): the Giant he stands for dies on d + 5 and a Red Knight put 4,000 from
-/// him becomes his target; he jumps on his stand's schedule, the entry MK_ENTRY after d; under cancelled (the vacuity check)
-/// his stand ends and his jump comes later. Plant: dash_stand_switch_cancels.
+/// him becomes his target; he jumps on his stand's schedule, the tick he jumps with no switch; under cancelled (the vacuity
+/// check) his stand ends and his jump comes later. Plant: dash_stand_switch_cancels.
 #[test]
 fn under_client16402_kept_to_mark_a_switch_mid_stand_keeps_the_jump_on_schedule() {
     let switch = |s: &mut BattleState, mk: EntityId, g: EntityId, k: u32| {
@@ -668,8 +668,11 @@ fn under_client16402_kept_to_mark_a_switch_mid_stand_keeps_the_jump_on_schedule(
             assert!(s.debug_set_hp(g, 0));
         }
     };
+    let none = |_: &mut BattleState, _: EntityId, _: EntityId, _: u32| {};
+    let (_, plan) = stand_scene(DashStandContact::Pushed, DashStandRetarget::Client16402KeptToMark, &none);
+    let plan = plan.expect("the scene drifted: with no switch he never jumped");
     let (_, old) = stand_scene(DashStandContact::Pushed, DashStandRetarget::Cancelled, &switch);
     let (_, new) = stand_scene(DashStandContact::Pushed, DashStandRetarget::Client16402KeptToMark, &switch);
-    assert_eq!(new, Some(MK_ENTRY), "client16402_kept_to_mark: his jump not on his stand's schedule ({new:?})");
-    assert!(old.map_or(true, |o| o > MK_ENTRY), "cancelled (the vacuity check): he jumped on schedule all the same ({old:?})");
+    assert_eq!(new, Some(plan), "client16402_kept_to_mark: his jump not on his stand's schedule ({new:?}; no switch {plan})");
+    assert!(old.map_or(true, |o| o > plan), "cancelled (the vacuity check): he jumped on schedule all the same ({old:?}; no switch {plan})");
 }

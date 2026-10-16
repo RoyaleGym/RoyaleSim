@@ -97,7 +97,7 @@ fn the_shipped_value_is_client15535_no_body_to_end() {
     assert_eq!(Calib::shipped().chain_landed_body, ChainLandedBody::Client15535NoBodyToEnd);
 }
 
-/// The scene with a second red Giant held on (3420, 17000), so the chain hops on after its first blow, under `arm`: his
+/// The scene with a second red Giant held on (3420, 16500), 2,500 beyond the first, so the chain hops on after its first blow, under `arm`: his
 /// moves (native) on each tick after the first blow (L) until his next hop's first move (above 200), the Knight held on
 /// him from L.
 fn poise_moves(arm: ChainLandedBody) -> Vec<(i32, i32)> {
@@ -115,9 +115,9 @@ fn poise_moves(arm: ChainLandedBody) -> Vec<(i32, i32)> {
     s.tick();
     let gk = s.scenario_spawn_now(Team::Blue, "GoldenKnight", n(3294, 9000), None).expect("the Golden Knight");
     let g1 = s.scenario_spawn_now(Team::Red, "Giant", n(3420, 14000), None).expect("the Giant");
-    let g2 = s.scenario_spawn_now(Team::Red, "Giant", n(3420, 17000), None).expect("the second Giant");
+    let g2 = s.scenario_spawn_now(Team::Red, "Giant", n(3420, 16500), None).expect("the second Giant");
     let hold = |s: &mut BattleState| {
-        for (g, p) in [(g1, n(3420, 14000)), (g2, n(3420, 17000))] {
+        for (g, p) in [(g1, n(3420, 14000)), (g2, n(3420, 16500))] {
             let top = s.entity(g).expect("a Giant").max_hp;
             assert!(s.debug_set_pos(g, p) && s.debug_set_hp(g, top));
         }
@@ -138,19 +138,21 @@ fn poise_moves(arm: ChainLandedBody) -> Vec<(i32, i32)> {
             let ally = s.scenario_spawn_now(Team::Blue, "Knight", Vec2::new(at.x + 300 * K, at.y), None).expect("a blue Knight");
             let kp = s.entity(ally).expect("the Knight").pos;
             let mut moves = Vec::new();
-            for _ in 0..20 {
+            let mut trace = Vec::new();
+            for _ in 0..60 {
                 let p0 = s.entity(gk).expect("he lives").pos;
                 assert!(s.debug_set_pos(ally, kp));
                 hold(&mut s);
                 s.tick();
                 let p1 = s.entity(gk).expect("he lives").pos;
                 let m = ((p1.x - p0.x) / K, (p1.y - p0.y) / K);
+                trace.push((native_pos(p1), s.entity(gk).expect("he lives").target));
                 if m.0.abs().max(m.1.abs()) > 200 {
                     return moves;
                 }
                 moves.push(m);
             }
-            panic!("{arm:?}: the scene drifted: no second hop within 20 ticks of his first blow");
+            panic!("{arm:?}: the scene drifted: no second hop within 60 ticks of his first blow (Giants {g1:?} {g2:?}; his point and target each tick: {trace:?})");
         }
     }
     panic!("{arm:?}: the scene drifted: his first blow never landed");
@@ -165,4 +167,9 @@ fn under_client16402_no_body_in_poise_he_is_no_body_between_hops() {
     assert!(old.iter().any(|m| *m != (0, 0)), "client15535_no_body_to_end (the vacuity check): the Knight never moved him between hops: {old:?}");
     let new = poise_moves(ChainLandedBody::Client16402NoBodyInPoise);
     assert!(!new.is_empty() && new.iter().all(|m| *m == (0, 0)), "client16402_no_body_in_poise: he moved between hops: {new:?}");
+}
+
+/// A point, native.
+fn native_pos(p: Vec2) -> (i32, i32) {
+    (p.x / K, p.y / K)
 }

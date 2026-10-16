@@ -1027,36 +1027,50 @@ fn under_client16402_base_damage_only_the_doomed_sum_leaves_out_the_enchant_bonu
     assert_eq!(new, old - i64::from(b), "client16402_base_damage_only: the pending {new} is not the counted {old} less the bonus {b}");
 }
 
-/// A Blue Rune Giant and a friend under enchant.ON_BUFF_HOLD_CONTACT = `arm` (`enchanted`'s scene, his hold on): on the tick his
-/// enchant leaves (its projectile in flight), a Blue Knight is put 400 beside him and held: his greatest move (native) over the
-/// next 10 ticks.
+/// The 16.402 shape's Rune Giant (his hold read) under enchant.ON_BUFF_HOLD_CONTACT = `arm` and enchant.ON_BUFF_PAUSE =
+/// client16402_conditional_no_move, swinging at a red Cannon held in his reach with a blue friend in his pick's (the hold
+/// test's scene): on his first launch L a Blue Knight is put 400 west of him and held; his greatest move (native) over
+/// L + 1 .. L + 10, each tick inside his hold (his swing at 0, its phase kept: he stands).
 fn hold_pushed(arm: royalesim::state::OnBuffHoldContact) -> i64 {
-    let mut cfg = with(|c| c.on_buff_hold_contact = arm);
-    cfg.calib.enchant_on_buff_pause = royalesim::state::EnchantOnBuffPause::Client16402ConditionalNoMove;
-    let mut s = BattleState::new(0, cfg);
-    s.scenario_set_tower_hp(Team::Blue, 1, 0).expect("take a Blue princess tower down");
-    s.scenario_set_tower_hp(Team::Blue, 2, 0).expect("take the other down");
-    s.spawn_unit(Team::Blue, "Knight", at(FRIEND_AT), None).expect("play the friend");
-    s.spawn_unit(Team::Blue, "GiantBuffer", at(GIANT_AT), None).expect("play the Rune Giant");
-    s.tick();
-    let giant = the(&s, Team::Blue, "GiantBuffer");
-    let k = run_until(&mut s, 80, |s| s.projectiles().iter().any(|p| p.enchant.is_some()));
-    assert!(k < 80, "the scene drifted: no enchant left within 80 ticks");
-    let g0 = s.entity(giant).expect("him").pos;
-    let at_k = Vec2::new(g0.x + 400 * K, g0.y);
-    let ally = s.scenario_spawn_now(Team::Blue, "Knight", at_k, None).expect("the Knight");
-    let mut most = 0;
-    for _ in 0..10 {
-        assert!(s.debug_set_pos(ally, at_k));
+    let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+    c.calib.enchant_on_buff_pause = royalesim::state::EnchantOnBuffPause::Client16402ConditionalNoMove;
+    c.calib.on_buff_hold_contact = arm;
+    let mut s = BattleState::new(0, c);
+    let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 13600)), None).expect("a red Cannon");
+    let full = s.entity(cannon).expect("the Cannon").max_hp;
+    s.scenario_spawn_now(Team::Blue, "Knight", at((9000, 10500)), None).expect("a blue Knight");
+    let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", at((9000, 12000)), None).expect("the Rune Giant");
+    let mut prev: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+    let mut launched = false;
+    for _ in 0..60 {
+        assert!(s.debug_set_hp(cannon, full), "the Cannon stands");
         s.tick();
-        most = most.max(dist(g0, s.entity(giant).expect("him").pos));
+        let now: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+        if now.iter().any(|t| !prev.contains(t)) {
+            launched = true;
+            break;
+        }
+        prev = now;
     }
+    assert!(launched, "the scene drifted: no launch within 60 ticks");
+    let g0 = s.entity(giant).expect("him").pos;
+    let at_k = Vec2::new(g0.x - 400 * K, g0.y);
+    let ally = s.scenario_spawn_now(Team::Blue, "Knight", at_k, None).expect("the Knight");
+    let (mut most, mut swings) = (0, Vec::new());
+    for _ in 0..10 {
+        assert!(s.debug_set_hp(cannon, full) && s.debug_set_pos(ally, at_k));
+        s.tick();
+        let g = s.entity(giant).expect("him");
+        swings.push((g.attack_ms, g.attack_phase));
+        most = most.max(dist(g0, g.pos));
+    }
+    assert!(swings.iter().all(|(ms, ph)| *ms == 0 && *ph != AttackPhase::Idle), "the scene drifted: his hold did not stand him: {swings:?}");
     most
 }
 
 /// enchant.ON_BUFF_HOLD_CONTACT = client16402_unpushed (client 16.402, parity's r74 census: the holding Rune Giant stood still on
-/// 367 of 367 overlap ticks; the engine pushed him on 3 of 8): a Knight held on him in his hold does not move him; under
-/// pushed (the vacuity check) it does. Plant: buff_hold_pushed.
+/// 367 of 367 overlap ticks; the engine pushed him on 3 of 8): a Knight held on him while his hold stands him does not move
+/// him; under pushed (the vacuity check) it does. Plant: buff_hold_pushed.
 #[test]
 fn under_client16402_unpushed_a_holding_rune_giant_is_not_pushed() {
     use royalesim::state::OnBuffHoldContact as H;
