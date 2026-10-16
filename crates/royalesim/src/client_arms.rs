@@ -340,6 +340,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   spells.LIVE_SPAWN_AREA_BIRTH = seen_on_birth_tick: a live spawn in its birth tick's area scans (unread there).
 ///   combat.DASH_END_CONTACT = end_tick_body: a timed dash's unit a body on its end tick (unread there).
 ///   spells.STRIKE_TIE_BREAK = earliest_created: a Lightning hp tie to the earliest created (its 28 casts).
+///   spells.STRIKE_REACH = edge_within_radius_plus_170_now_and_next: a Lightning's reach, its 35 runs' bracket.
 ///   rider.OWN_AREA_BUFFS_WHILE_ATTACHED = immune: no own-side area on an attached rider (unread there).
 ///   combat.TETHER_MONSTER_GONE = run_ends: the tether ends with its Monster (unread there).
 ///   status.GUARD_PRESS_ATTRACT = pulled: a pull moves a Little Prince in his press (unread there).
@@ -517,6 +518,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.LIVE_SPAWN_AREA_BIRTH", "\"seen_on_birth_tick\""),
     ("combat.DASH_END_CONTACT", "\"end_tick_body\""),
     ("spells.STRIKE_TIE_BREAK", "\"earliest_created\""),
+    ("spells.STRIKE_REACH", "\"edge_within_radius_plus_170_now_and_next\""),
     ("rider.OWN_AREA_BUFFS_WHILE_ATTACHED", "\"immune\""),
     ("combat.TETHER_MONSTER_GONE", "\"run_ends\""),
     ("status.GUARD_PRESS_ATTRACT", "\"pulled\""),
