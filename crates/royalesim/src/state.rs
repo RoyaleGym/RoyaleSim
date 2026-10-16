@@ -1005,6 +1005,10 @@ pub struct Calib {
     /// `InWater`, what a battle saved before it ran.
     #[serde(default = "guard_water_landing_default")]
     pub guard_water_landing: GuardWaterLanding,
+    /// knockback.UPPERCUT_THROW_AIM (the point the Evo Mega Knight's uppercut throws its target at). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `OwnKing`, what a battle saved before it ran.
+    #[serde(default = "uppercut_throw_aim_default")]
+    pub uppercut_throw_aim: UppercutThrowAim,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2971,6 +2975,10 @@ fn spawn_area_first_pulse_default() -> SpawnAreaFirstPulse {
 
 fn guard_water_landing_default() -> GuardWaterLanding {
     GuardWaterLanding::InWater
+}
+
+fn uppercut_throw_aim_default() -> UppercutThrowAim {
+    UppercutThrowAim::OwnKing
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10380,6 +10388,15 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.UPPERCUT_THROW_AIM -- the Evo Mega Knight's throw's aim (state.rs `uppercut_pass`).
+    UppercutThrowAim {
+        /// The engine's and client 15.535.29's one scene: the thrown unit's own king tower.
+        OwnKing = "own_king",
+        /// Client 16.402: the nearest crown tower of the thrown unit's side still standing, re-aimed each step.
+        Client16402NearestOwnTower = "client16402_nearest_own_tower",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10944,6 +10961,7 @@ impl Calib {
             area_effect_on_hit: pick(&v, &["combat", "AREA_EFFECT_ON_HIT", "value"], AreaEffectOnHit::from_calibration_name)?,
             spawn_area_first_pulse: pick(&v, &["spells", "SPAWN_AREA_FIRST_PULSE", "value"], SpawnAreaFirstPulse::from_calibration_name)?,
             guard_water_landing: pick(&v, &["combat", "GUARD_WATER_LANDING", "value"], GuardWaterLanding::from_calibration_name)?,
+            uppercut_throw_aim: pick(&v, &["knockback", "UPPERCUT_THROW_AIM", "value"], UppercutThrowAim::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -21775,8 +21793,36 @@ impl BattleState {
                     self.ents.stun_ms[ti] = self.ents.stun_ms[ti].max(last * tick_ms);
                 }
                 let step = (v - decel * k).min(crate::card::SLAP_FLIGHT_STEP);
-                let king = self.cfg.arena.king_tower_pos(self.ents.team[ti]);
                 let p = self.ents.pos[ti];
+                // knockback.UPPERCUT_THROW_AIM = client16402_nearest_own_tower: at the nearest standing crown tower of the
+                // thrown unit's side. Measured on client 16.402 (parity r75, live13): 78 of 78 throws, 66 at a princess tower.
+                // PLANT (regression) uppercut_aims_king: the new arm still throws at the king.
+                #[cfg(not(clash_plant = "uppercut_aims_king"))]
+                let nearest = self.cfg.calib.uppercut_throw_aim == UppercutThrowAim::Client16402NearestOwnTower;
+                #[cfg(clash_plant = "uppercut_aims_king")]
+                let nearest = false;
+                let mut king = self.cfg.arena.king_tower_pos(self.ents.team[ti]);
+                if nearest {
+                    let e = &self.ents;
+                    let mut best: Option<(i64, Vec2)> = None;
+                    for j in 0..e.capacity() {
+                        if !e.alive[j] || !e.kind[j].is_crown_tower() || e.team[j] != e.team[ti] || e.hp[j] <= 0 {
+                            continue;
+                        }
+                        let (ddx, ddy) = (i64::from((e.pos[j].x - p.x) / K), i64::from((e.pos[j].y - p.y) / K));
+                        let d2 = ddx * ddx + ddy * ddy;
+                        let better = match best {
+                            Some((b, _)) => d2 < b,
+                            None => true,
+                        };
+                        if better {
+                            best = Some((d2, e.pos[j]));
+                        }
+                    }
+                    if let Some((_, at)) = best {
+                        king = at;
+                    }
+                }
                 let (dx, dy) = (i64::from((king.x - p.x) / K), i64::from((king.y - p.y) / K));
                 let len = crate::fixed::isqrt(dx * dx + dy * dy).max(1);
                 let (sx, sy) = ((dx * i64::from(step) / len) as i32, (dy * i64::from(step) / len) as i32);
@@ -38462,6 +38508,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_WATER_LANDING: Calib gained guard_water_landing (serde default the old arm, in_water), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.UPPERCUT_THROW_AIM: Calib gained uppercut_throw_aim (serde default the old arm, own_king), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39510,6 +39558,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_area_first_pulse".into(), serde_json::to_value(SpawnAreaFirstPulse::FrequencyLessTick).map_err(|e| e.to_string())?);
     // combat.GUARD_WATER_LANDING: a format-3 battle ran combat.GUARD_WATER_LANDING's old arm.
     sh.insert("guard_water_landing".into(), serde_json::to_value(GuardWaterLanding::InWater).map_err(|e| e.to_string())?);
+    // knockback.UPPERCUT_THROW_AIM: a format-3 battle ran knockback.UPPERCUT_THROW_AIM's old arm.
+    sh.insert("uppercut_throw_aim".into(), serde_json::to_value(UppercutThrowAim::OwnKing).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

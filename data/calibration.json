@@ -4276,6 +4276,16 @@
     }
   },
   "knockback": {
+    "UPPERCUT_THROW_AIM": {
+      "value": "own_king",
+      "status": "measured",
+      "candidates": ["own_king", "client16402_nearest_own_tower"],
+      "confidence": "MEDIUM-HIGH for client16402_nearest_own_tower on client 16.402 (parity r75, 2026-10-16): 78 of 78 Evo Mega Knight throws (the target's first step of 250 within the hit + 1 .. + 4) ran straight at the thrown unit's nearest own crown tower still standing (cos > 0.999): a princess tower 66, the king 12 (where it was the nearest); the engine's always at its king; traced before a first divergence, liveplay-20261011-182508-A key 44 was thrown (-24,-248) a tick at its left princess tower in the truth, (+79,-237) at its king in the engine. A candidate until scored.",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): 78 of 78 Evo Mega Knight throws (the target's first step of 250 within the hit + 1 .. + 4) ran straight at the thrown unit's nearest own crown tower still standing (cos > 0.999): a princess tower 66, the king 12 (where it was the nearest); the engine's always at its king; traced before a first divergence, liveplay-20261011-182508-A key 44 was thrown (-24,-248) a tick at its left princess tower in the truth, (+79,-237) at its king in the engine.",
+      "meaning": "own_king: the engine's, and client 15.535.29's one scene (sp-form-MegaKnight-evo-s0); the throw runs at the thrown unit's own king tower. client16402_nearest_own_tower: it runs at the nearest crown tower of the thrown unit's side still standing (ties to the lower entity index), re-aimed each step: a princess tower in most throws. The ladder and its ticks are unchanged.",
+      "open": "The tie between two equidistant towers (unread); only 1 traced clean comparison (Evo Mega Knight battles diverge early).",
+      "engine": "state.rs uppercut_pass (the step's aim), selected by Calib::uppercut_throw_aim; tests/evo_mega_knight.rs."
+    },
     "GUARD_PUSH_ATTACK_RESET": {
       "value": "client16402_reset",
       "status": "measured",

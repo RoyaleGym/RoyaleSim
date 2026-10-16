@@ -13,7 +13,12 @@
 //!   - uppercut_throw_never -> the same red;
 //!   - uppercut_flight_collides -> `a_thrown_unit_meets_no_body_in_its_flight_under_client15535_out_of_pass` red;
 //!   - uppercut_flight_ground_target -> `a_ground_attacker_lets_the_thrown_unit_go_under_client15535_airborne` red (309);
-//!   - uppercut_stand_unread -> `he_stands_until_his_load_reads_100_under_client15535_until_load_100` red (315).
+//!   - uppercut_stand_unread -> `he_stands_until_his_load_reads_100_under_client15535_until_load_100` red (315);
+//!   - uppercut_aims_king -> `under_client16402_nearest_own_tower_the_throw_runs_at_its_nearest_tower` red.
+//!
+//! knockback.UPPERCUT_THROW_AIM: these scenes are client 15.535.29's, so they run its own_king (two equidistant princess
+//! towers would make the old scene a tie); client 16.402 throws at the thrown unit's nearest standing crown tower (parity
+//! r75, live13: 78 of 78 throws).
 //!
 //! targeting.UPPERCUT_FLIGHT_TARGETABILITY = client15535_airborne (item 309) and combat.UPPERCUT_STAND =
 //! client15535_until_load_100 (item 315), client 15.535.29, sp-form-MegaKnight-evo-s0 t1078-1100: his uppercut's Knight
@@ -24,7 +29,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, UppercutFlightContact, UppercutFlightTargetability, UppercutStand};
+use royalesim::state::{BattleConfig, BattleState, UppercutFlightContact, UppercutFlightTargetability, UppercutStand, UppercutThrowAim};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -32,7 +37,12 @@ fn n(x: i32, y: i32) -> Vec2 {
 }
 
 fn battle() -> BattleState {
+    battle_aim(UppercutThrowAim::OwnKing)
+}
+
+fn battle_aim(aim: UppercutThrowAim) -> BattleState {
     let mut cfg: BattleConfig = config();
+    cfg.calib.uppercut_throw_aim = aim;
     cfg.decks = [vec!["MegaKnight".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -102,6 +112,7 @@ fn musketeer_in_the_throw(arm: UppercutFlightContact) -> Vec<(i32, i32)> {
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     cfg.calib.uppercut_flight_contact = arm;
+    cfg.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
@@ -163,6 +174,7 @@ fn after_the_uppercut(flight: UppercutFlightTargetability, stand: UppercutStand)
     cfg.tower_level = [11, 11];
     cfg.calib.uppercut_flight_targetability = flight;
     cfg.calib.uppercut_stand = stand;
+    cfg.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
@@ -227,4 +239,45 @@ fn he_stands_until_his_load_reads_100_under_client15535_until_load_100() {
     let start = old[0].1;
     let moved = old.iter().position(|r| r.1 != start).unwrap_or_else(|| panic!("none: he never moved: {old:?}"));
     assert!(old[moved].2 > 300, "none: he waited for his timer: {old:?}");
+}
+
+/// Under `aim`: the Evo Mega Knight held at (14000, 14600), a red Knight 1400 ahead (held and topped up until his second
+/// hit, then let go, topped up still): the Knight's first throw step (the hit + 2). Its nearest red crown tower is the right
+/// princess tower (14500, 25500), about 9,500 away; its king (9000, 29000) about 13,900.
+fn first_throw_step(aim: UppercutThrowAim) -> (i32, i32) {
+    let mut s = battle_aim(aim);
+    let (at, kn_at) = (n(14000, 14600), n(14000, 16000));
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    let (mut hits, mut ys) = (Vec::new(), Vec::new());
+    for k in 0..200 {
+        assert!(s.debug_set_pos(mk, at));
+        let top = s.entity(knight).expect("the Knight").max_hp;
+        if hits.len() < 2 {
+            assert!(s.debug_set_pos(knight, kn_at));
+        }
+        assert!(s.debug_set_hp(knight, top));
+        s.tick();
+        let e = s.entity(knight).expect("the Knight");
+        if top - e.hp == 268 {
+            hits.push(k);
+        }
+        ys.push((e.pos.x / K, e.pos.y / K));
+    }
+    assert!(hits.len() >= 2, "two hits of 268: {hits:?}");
+    let k = hits[1] + 2;
+    (ys[k].0 - ys[k - 1].0, ys[k].1 - ys[k - 1].1)
+}
+
+/// knockback.UPPERCUT_THROW_AIM = client16402_nearest_own_tower (client 16.402, parity r75, live13: 78 of 78 throws at the
+/// thrown unit's nearest standing crown tower): the throw runs at the right princess tower (x up a little), where own_king's
+/// runs at the king (x down; the vacuity check). Plant: uppercut_aims_king.
+#[test]
+fn under_client16402_nearest_own_tower_the_throw_runs_at_its_nearest_tower() {
+    let old = first_throw_step(UppercutThrowAim::OwnKing);
+    assert!(old.0 < -60 && old.1 > 200, "the scene: own_king throws at the king ({old:?})");
+    let new = first_throw_step(UppercutThrowAim::Client16402NearestOwnTower);
+    assert!(new.0 > 0 && new.0 < 30 && new.1 > 240, "client16402_nearest_own_tower: not at the right princess tower ({new:?})");
 }
