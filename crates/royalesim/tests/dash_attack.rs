@@ -56,7 +56,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashAttack, DashEndContact, DashImmuneHits, DASH_BLOW_TO_END_TICKS};
+use royalesim::state::{BattleConfig, BattleState, DashAttack, DashEndContact, DashImmuneHits, DashStandContact, DashStandRetarget, DASH_BLOW_TO_END_TICKS};
 use royalesim::{EntityId, Team};
 
 fn with(arm: DashAttack) -> BattleConfig {
@@ -591,4 +591,85 @@ fn under_client16402_projectile_lands_on_last_immune_tick_an_arrow_on_its_last_t
         }
     }
     assert!(parted > 0, "vacuous: no start put a tower arrow on her immunity's last tick");
+}
+
+/// The Mega Knight scene under combat.DASH_STAND_CONTACT = `contact` and combat.DASH_STAND_RETARGET = `retarget`, run to the
+/// tick he comes within MK_TRIGGER of the Giant (his stand's start, d), then `then(battle, mega knight, giant)` before each of
+/// the next 30 ticks: (his greatest distance from his point on d over d + 1 .. d + 15, native; the first tick after d he moves
+/// more than 200, from d).
+fn stand_scene(contact: DashStandContact, retarget: DashStandRetarget, then: &dyn Fn(&mut BattleState, EntityId, EntityId, u32)) -> (i64, Option<u32>) {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_stand_contact = contact;
+    cfg.calib.dash_stand_retarget = retarget;
+    let mut s = BattleState::new(0, cfg);
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Red, "Giant", at(GIANT_AT), None), (Team::Blue, "MegaKnight", at(MK_AT), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let (giant, mk) = (ids[0], ids[1]);
+    let mut t = 0;
+    while dist(s.entity(mk).unwrap().pos, s.entity(giant).unwrap().pos) > MK_TRIGGER {
+        s.tick();
+        t += 1;
+        assert!(t < 60, "the scene drifted: the Mega Knight never came within the trigger");
+    }
+    let p0 = s.entity(mk).unwrap().pos;
+    let (mut most, mut moved) = (0i64, None);
+    let mut last = p0;
+    for k in 1..=30u32 {
+        then(&mut s, mk, giant, k);
+        s.tick();
+        let p = s.entity(mk).expect("the Mega Knight").pos;
+        if k <= 15 {
+            most = most.max(dist(p0, p));
+        }
+        if moved.is_none() && dist(last, p) > 200 {
+            moved = Some(k);
+        }
+        last = p;
+    }
+    (most, moved)
+}
+
+/// combat.DASH_STAND_CONTACT = client16402_unpushed (client 16.402, parity's r74 census: a standing Mega Knight moved on 3 of 507
+/// overlap ticks; the engine pushed him on 47 of 56): a Blue Knight held on him through his stand does not move him; under
+/// pushed (the vacuity check) it does. Plant: dash_stand_pushed.
+#[test]
+fn under_client16402_unpushed_a_standing_mega_knight_is_not_pushed() {
+    let lean = |s: &mut BattleState, mk: EntityId, _g: EntityId, k: u32| {
+        let p = s.entity(mk).unwrap().pos;
+        if k == 1 {
+            s.scenario_spawn_now(Team::Blue, "Knight", Vec2::new(p.x + 400 * K, p.y), None).expect("the Knight");
+        }
+        let kn = s.entities().find(|e| e.team == Team::Blue && e.card == "Knight").map(|e| e.id);
+        if let Some(kn) = kn {
+            assert!(s.debug_set_pos(kn, Vec2::new(p.x + 400 * K, p.y)));
+        }
+    };
+    let (old, _) = stand_scene(DashStandContact::Pushed, DashStandRetarget::Cancelled, &lean);
+    assert!(old > 0, "pushed (the vacuity check): the Knight never moved the standing Mega Knight");
+    let (new, _) = stand_scene(DashStandContact::Client16402Unpushed, DashStandRetarget::Cancelled, &lean);
+    assert_eq!(new, 0, "client16402_unpushed: the standing Mega Knight moved ({new})");
+}
+
+/// combat.DASH_STAND_RETARGET = client16402_kept_to_mark (client 16.402, parity's r74 census: 84 of 86 switches inside a stand
+/// dashed on schedule; the engine walked off in 6 of 6): the Giant he stands for dies on d + 5 and a Red Knight put 4,000 from
+/// him becomes his target; he jumps on his stand's schedule, the entry MK_ENTRY after d; under cancelled (the vacuity check)
+/// his stand ends and his jump comes later. Plant: dash_stand_switch_cancels.
+#[test]
+fn under_client16402_kept_to_mark_a_switch_mid_stand_keeps_the_jump_on_schedule() {
+    let switch = |s: &mut BattleState, mk: EntityId, g: EntityId, k: u32| {
+        if k == 5 {
+            let p = s.entity(mk).unwrap().pos;
+            let gp = s.entity(g).unwrap().pos;
+            let (dx, dy) = (((gp.x - p.x) / K) as i64, ((gp.y - p.y) / K) as i64);
+            let n = isqrt(dx * dx + dy * dy).max(1);
+            let q = Vec2::new(p.x + (dx * 4000 / n) as i32 * K, p.y + (dy * 4000 / n) as i32 * K);
+            s.scenario_spawn_now(Team::Red, "Knight", q, None).expect("the Knight");
+            assert!(s.debug_set_hp(g, 0));
+        }
+    };
+    let (_, old) = stand_scene(DashStandContact::Pushed, DashStandRetarget::Cancelled, &switch);
+    let (_, new) = stand_scene(DashStandContact::Pushed, DashStandRetarget::Client16402KeptToMark, &switch);
+    assert_eq!(new, Some(MK_ENTRY), "client16402_kept_to_mark: his jump not on his stand's schedule ({new:?})");
+    assert!(old.map_or(true, |o| o > MK_ENTRY), "cancelled (the vacuity check): he jumped on schedule all the same ({old:?})");
 }

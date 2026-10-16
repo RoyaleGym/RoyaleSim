@@ -20,6 +20,8 @@
 //!
 //! PLANT (regression):
 //!   * `attract_onset_area_first_tick` -- the new arm pulls from the area's first tick: (2) goes red.
+//!   * `attract_area_on_first_frame` -- client16402_area_plus_1's area still starts on its first frame:
+//!     `under_client16402_area_plus_1_the_tornado_pulls_and_hits_a_tick_later` goes red.
 //!     RUSTFLAGS='--cfg clash_plant="attract_onset_area_first_tick"' CARGO_TARGET_DIR=target/plant cargo test --profile
 //!     gate --test attract_onset
 #![allow(unexpected_cfgs)]
@@ -86,4 +88,15 @@ fn the_pulse_lands_on_the_same_tick_under_both_arms() {
 #[test]
 fn the_shipped_value_is_client_next_tick() {
     assert_eq!(Calib::shipped().attract_onset, AttractOnset::ClientNextTick);
+}
+
+/// status.ATTRACT_ONSET = client16402_area_plus_1 (client 16.402, parity's r74 census of 177 Tornado casts: first pull D + 2,
+/// first damage D + 12, each the engine's + 1): the Knight is pulled on k 2..22, the same 21 moves, and hit on k 12, each a
+/// tick after client_next_tick's (the vacuity check: k 1..21 and 11). Plant: attract_area_on_first_frame.
+#[test]
+fn under_client16402_area_plus_1_the_tornado_pulls_and_hits_a_tick_later() {
+    let (steps, drops) = pulled(AttractOnset::ClientNextTick);
+    assert_eq!((steps, drops), ((1..=21).collect::<Vec<u32>>(), vec![11]), "client_next_tick: the pulled steps and the pulse");
+    let (steps, drops) = pulled(AttractOnset::Client16402AreaPlus1);
+    assert_eq!((steps, drops), ((2..=22).collect::<Vec<u32>>(), vec![12]), "client16402_area_plus_1: the pulled steps and the pulse");
 }

@@ -188,3 +188,52 @@ fn under_client16402_spared_mid_leap_a_hog_rider_in_its_river_leap_is_not_hit() 
     assert!(leaper_loss(R::Hits) > 0, "hits (the vacuity check): the Barrel never hit the Hog Rider");
     assert_eq!(leaper_loss(R::Client16402SparedMidLeap), 0, "client16402_spared_mid_leap: the Barrel hit the Hog Rider mid leap");
 }
+
+/// One Blue Barbarian Barrel cast at (4600, 11800) under spells.ROLL_RELEASE_WATER_POINT = `arm`: its roll ends on the river
+/// (x 4600 is east of the left bridge's columns): (the roll's end point, the Barbarian's first point).
+fn released_on_water(arm: royalesim::state::RollReleaseWaterPoint) -> (Vec2, Vec2) {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.roll_release_water_point = arm;
+    let mut s = BattleState::new(0, cfg);
+    s.spawn_unit(Team::Blue, "BarbLog", at((4600, 11800)), None).expect("cast the Barbarian Barrel");
+    let mut end = None;
+    for _ in 0..80 {
+        s.tick();
+        let fwd = royalesim::spell::forward_dy(Team::Blue);
+        if let Some(p) = s.spells().iter().find_map(|sp| match &sp.motion {
+            SpellMotion::Rolling { pos, travelled, len, .. } => Some(Vec2::new(pos.x, pos.y + fwd * (len - travelled))),
+            _ => None,
+        }) {
+            end = Some(p);
+        }
+        if let Some(b) = s.entities().find(|v| v.card == "Barbarian") {
+            return (end.expect("the roll never stood"), b.pos);
+        }
+    }
+    panic!("the barrel released no Barbarian in 80 ticks");
+}
+
+/// spells.ROLL_RELEASE_WATER_POINT = client16402_half_cell_centre (client 16.402, parity's r74 census: 59 of 85 releases on water
+/// exactly on the nearest dry half-cell's centre; the engine's 0): the Barbarian stands on a dry half-cell's centre, and no dry
+/// centre is nearer the roll's end; under nearest_passable_ground (the vacuity check) on the nearest land along an axis,
+/// not a centre. Plant: release_water_axis.
+#[test]
+fn under_client16402_half_cell_centre_a_barbarian_released_on_water_stands_on_the_nearest_dry_centre() {
+    use royalesim::state::RollReleaseWaterPoint as R;
+    let a = BattleState::new(0, config()).arena().clone();
+    let (end, old) = released_on_water(R::NearestPassableGround);
+    assert!(a.is_water(end), "the scene drifted: the roll's end {end:?} is not on the river");
+    let centre = |p: Vec2| p.x.rem_euclid(a.cell) == a.cell / 2 && p.y.rem_euclid(a.cell) == a.cell / 2;
+    assert!(!centre(old), "nearest_passable_ground (the vacuity check): a half-cell centre {old:?}");
+    let (_, new) = released_on_water(R::Client16402HalfCellCentre);
+    assert!(centre(new) && !a.is_water(new), "client16402_half_cell_centre: {new:?} is not a dry half-cell's centre");
+    let d2 = |p: Vec2| ((p.x - end.x) as i64).pow(2) + ((p.y - end.y) as i64).pow(2);
+    for r in 0..a.rows {
+        for c in 0..a.cols {
+            let q = a.half_to_subtile_center(c, r);
+            if a.cell_bits(c, r) & a.bit_water == 0 {
+                assert!(d2(q) >= d2(new), "client16402_half_cell_centre: the dry centre {q:?} is nearer the end than {new:?}");
+            }
+        }
+    }
+}

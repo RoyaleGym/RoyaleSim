@@ -414,3 +414,34 @@ fn the_red_scene_is_the_rotation_and_a_curse_survives_a_save() {
     assert_eq!(resumed.state_hash(), s.state_hash(), "the resumed battle parts from the one that never saved");
     assert_eq!(hogs(&resumed).len(), 1, "the resumed curse left its hog");
 }
+
+/// The cursed Red Knight of the standing-victim scene moved to (9900, 17700), just above the river, and set to 0 under
+/// status.BUFF_DEATH_SPAWN_POINT = `arm`: (the hog's point less the Knight's last point, native).
+fn hog_over_the_river(arm: BuffDeathSpawnPoint) -> (i32, i32) {
+    let mut cfg = shipped();
+    cfg.calib.buff_death_spawn_point = arm;
+    let (mut s, _, knight, _) = witch_scene(cfg, false);
+    until_cursed(&mut s, knight);
+    assert!(s.debug_set_pos(knight, at((9900, 17700))));
+    let kp = s.entity(knight).unwrap().pos;
+    let before = hogs(&s);
+    assert!(s.debug_set_hp(knight, 0));
+    s.tick();
+    let new: Vec<EntityId> = hogs(&s).into_iter().filter(|h| !before.contains(h)).collect();
+    assert_eq!(new.len(), 1, "the scene drifted: {} hogs", new.len());
+    let p = s.entity(new[0]).unwrap().pos;
+    ((p.x - kp.x) / K, (p.y - kp.y) / K)
+}
+
+/// status.BUFF_DEATH_SPAWN_POINT = client16402_forward_outward_back (client 16.402, parity's r74 census: 169 of 171 VoodooHogs
+/// on the rule's point; the forward point wet, 21 of 21 outward toward the nearer side wall): a Red victim dying 700 above the
+/// river (its forward point, 1,100 toward -y, on the water) leaves the hog 1,100 toward the right wall (x 9900 > 9000);
+/// under same_location_or_victim_forward_tangent (the vacuity check) it is put on the bank below. A step the Knight takes on
+/// its death tick is allowed (120). Plant: voodoo_point_forward_only.
+#[test]
+fn under_client16402_forward_outward_back_a_hog_over_the_river_goes_outward() {
+    let old = hog_over_the_river(BuffDeathSpawnPoint::SameLocationOrVictimForward);
+    assert!(old.0.abs() <= 120 && old.1 < -500, "same_location_or_victim_forward_tangent: the hog not on the bank below ({old:?})");
+    let new = hog_over_the_river(BuffDeathSpawnPoint::Client16402ForwardOutwardBack);
+    assert!((new.0 - 1100).abs() <= 120 && new.1.abs() <= 120, "client16402_forward_outward_back: the hog not 1,100 outward ({new:?})");
+}

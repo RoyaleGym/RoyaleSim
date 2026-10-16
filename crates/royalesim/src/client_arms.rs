@@ -350,6 +350,10 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   spells.ROLLING_SPARES_LEAPERS = hits: a ground roll hits a leaping unit (unread there).
 ///   targeting.DOOMED_ENCHANT_BONUS = counted: the doomed sums add a shot's enchant bonus (unread there).
 ///   targeting.SNIPE_TOWER_FILTER = filter_towers_column: the snipe's FilterTowers alone (its row sets it there).
+///   combat.FLAG_PRESS_WINDOW = window_only: the Hero Goblins' flag pressed through its window (sp-form-Goblins-hero-s0).
+///   combat.DASH_STAND_CONTACT = pushed: a unit standing before its dash is pushed (unread there).
+///   combat.DASH_STAND_RETARGET = cancelled: a switch mid-stand ends the stand (unread there).
+///   spells.ROLL_RELEASE_WATER_POINT = nearest_passable_ground: a single release on water to the nearest land on an axis (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -530,6 +534,10 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.ROLLING_SPARES_LEAPERS", "\"hits\""),
     ("targeting.DOOMED_ENCHANT_BONUS", "\"counted\""),
     ("targeting.SNIPE_TOWER_FILTER", "\"filter_towers_column\""),
+    ("combat.FLAG_PRESS_WINDOW", "\"window_only\""),
+    ("combat.DASH_STAND_CONTACT", "\"pushed\""),
+    ("combat.DASH_STAND_RETARGET", "\"cancelled\""),
+    ("spells.ROLL_RELEASE_WATER_POINT", "\"nearest_passable_ground\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

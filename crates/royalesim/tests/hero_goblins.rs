@@ -214,3 +214,40 @@ fn goblins_killed_again(s: &mut BattleState) {
     }
     panic!("the goblins outlived the Valkyrie");
 }
+
+/// The flag scene under combat.FLAG_PRESS_WINDOW = `arm`: (the tick from the flag's, the first a check refuses its button;
+/// the tick it is gone).
+fn flag_press_window(arm: royalesim::state::FlagPressWindow) -> (Option<u32>, Option<u32>) {
+    let mut s = battle();
+    let mut c = s.config().clone();
+    c.calib.flag_press_window = arm;
+    let mut s2 = BattleState::try_new(7, c).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    past_deploy_lockout(&mut s2);
+    s2.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s = s2;
+    let d = goblins_killed(&mut s);
+    assert!(flag(&s).is_some(), "the scene drifted: no flag on the death tick");
+    let (mut ready_until, mut gone) = (None, None);
+    for _ in 0..160 {
+        s.tick();
+        assert_buttons_agree(&s, Team::Blue);
+        let now = s.tick_count() - 1;
+        if ready_until.is_none() && s.check_ability_button(Team::Blue, 0) == Err(DeployError::NoHero) {
+            ready_until = Some(now - d);
+        }
+        if gone.is_none() && flag(&s).is_none() {
+            gone = Some(now - d);
+        }
+    }
+    (ready_until, gone)
+}
+
+/// combat.FLAG_PRESS_WINDOW = client16402_through_fade (client 16.402, parity's r74 census: presses on the flag + 111 and + 121,
+/// inside its fade, taken; the engine refused both): the button stays ready through the flag's fade, the last press taken on
+/// its tick + 129, the flag gone on + 130; under window_only (the vacuity check) the last is + 99. Plant: flag_press_window_only.
+#[test]
+fn under_client16402_through_fade_the_flags_button_is_taken_while_it_stands() {
+    use royalesim::state::FlagPressWindow as F;
+    assert_eq!(flag_press_window(F::WindowOnly), (Some(99), Some(130)), "window_only: the button's last press and the flag's end");
+    assert_eq!(flag_press_window(F::Client16402ThroughFade), (Some(129), Some(130)), "client16402_through_fade: the button's last press and the flag's end");
+}

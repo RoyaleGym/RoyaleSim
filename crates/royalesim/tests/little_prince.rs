@@ -996,3 +996,52 @@ fn under_client16402_unpulled_through_hold_a_tornado_does_not_move_him_in_his_pr
     assert!(press_tornado(G::Pulled) > 0, "pulled (the vacuity check): the Tornado never moved him");
     assert_eq!(press_tornado(G::Client16402UnpulledThroughHold), 0, "client16402_unpulled_through_hold: he moved in his press");
 }
+
+/// The Little Prince at AT pressed with a Red Knight held 3,000 ahead (he attacks it from his cast's end), a Blue Knight put
+/// 400 ahead of him on the press + 19 and held there, under collision.GUARD_PRESS_CONTACT = `arm`: (his greatest distance
+/// from his point on the press + 19 over the press + 20 .. + 32, native; whether he attacked on the press + 20).
+fn press_attacking_pushed(arm: GuardPressContact) -> (i64, bool) {
+    let red_at = (AT.0, AT.1 + 3000);
+    let (mut s, lp, reds) = scene_cfg(|c| c.calib.guard_press_contact = arm, &[("Knight", red_at)]);
+    let hold_reds = |s: &mut BattleState| {
+        for (id, p) in &reds {
+            if let Some(e) = s.entity(*id) {
+                let full = e.max_hp;
+                assert!(s.debug_set_pos(*id, *p) && s.debug_set_hp(*id, full));
+            }
+        }
+    };
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 1..=19 {
+        hold_reds(&mut s);
+        s.tick();
+    }
+    let p0 = s.entity(lp).expect("him").pos;
+    let knight_at = Vec2::new(p0.x, p0.y + 400 * K);
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", knight_at, None).expect("the Knight");
+    let (mut most, mut attacking) = (0i64, false);
+    for k in 20..=32 {
+        hold_reds(&mut s);
+        assert!(s.debug_set_pos(knight, knight_at));
+        s.tick();
+        let v = s.entity(lp).expect("him");
+        if k == 20 {
+            attacking = v.attack_phase != AttackPhase::Idle;
+        }
+        let (dx, dy) = (((v.pos.x - p0.x) / K) as i64, ((v.pos.y - p0.y) / K) as i64);
+        most = most.max(dx.abs().max(dy.abs()));
+    }
+    (most, attacking)
+}
+
+/// collision.GUARD_PRESS_CONTACT = client16402_unpushed_attacking (client 16.402, parity's r74 census: attacking in his hold he
+/// moved on 3 of 282 overlap ticks; the engine pushed him on 35 of 67, from the press + 18): a Knight held on him while he
+/// attacks in his hold does not move him; under client16402_unpushed (the vacuity check) it does. Plant: press_attacking_pushed.
+#[test]
+fn under_client16402_unpushed_attacking_a_knight_on_him_does_not_move_him_while_he_attacks_in_his_hold() {
+    let (old, attacking) = press_attacking_pushed(GuardPressContact::Client16402Unpushed);
+    assert!(attacking, "the scene drifted: he was not attacking on the press + 20");
+    assert!(old > 0, "client16402_unpushed (the vacuity check): the Knight never moved him");
+    let (new, _) = press_attacking_pushed(GuardPressContact::Client16402UnpushedAttacking);
+    assert_eq!(new, 0, "client16402_unpushed_attacking: he moved while he attacked in his hold");
+}

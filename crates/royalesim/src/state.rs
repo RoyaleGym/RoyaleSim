@@ -925,6 +925,22 @@ pub struct Calib {
     /// `FilterTowersColumn`, what a battle saved before it ran.
     #[serde(default = "snipe_tower_filter_default")]
     pub snipe_tower_filter: SnipeTowerFilter,
+    /// combat.FLAG_PRESS_WINDOW (how long the Hero Goblins' flag takes its button's press). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `WindowOnly`, what a battle saved before it ran.
+    #[serde(default = "flag_press_window_default")]
+    pub flag_press_window: FlagPressWindow,
+    /// combat.DASH_STAND_CONTACT (whether a unit standing before its dash runs its own separation scan). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Pushed`, what a battle saved before it ran.
+    #[serde(default = "dash_stand_contact_default")]
+    pub dash_stand_contact: DashStandContact,
+    /// combat.DASH_STAND_RETARGET (what a target switch in the middle of a dash stand does). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Cancelled`, what a battle saved before it ran.
+    #[serde(default = "dash_stand_retarget_default")]
+    pub dash_stand_retarget: DashStandRetarget,
+    /// spells.ROLL_RELEASE_WATER_POINT (where a single unit a spell releases on water is put). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `NearestPassableGround`, what a battle saved before it ran.
+    #[serde(default = "roll_release_water_point_default")]
+    pub roll_release_water_point: RollReleaseWaterPoint,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2811,6 +2827,22 @@ fn doomed_enchant_bonus_default() -> DoomedEnchantBonus {
 
 fn snipe_tower_filter_default() -> SnipeTowerFilter {
     SnipeTowerFilter::FilterTowersColumn
+}
+
+fn flag_press_window_default() -> FlagPressWindow {
+    FlagPressWindow::WindowOnly
+}
+
+fn dash_stand_contact_default() -> DashStandContact {
+    DashStandContact::Pushed
+}
+
+fn dash_stand_retarget_default() -> DashStandRetarget {
+    DashStandRetarget::Cancelled
+}
+
+fn roll_release_water_point_default() -> RollReleaseWaterPoint {
+    RollReleaseWaterPoint::NearestPassableGround
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -5306,6 +5338,9 @@ calib_enum!(
         /// D + 1..D + 21, damage on D + 11 in both engines) and the two casts of the 16.402 corpus's 20260920-081819,
         /// where the client's collision accumulator holds the pull a tick before the unit moves by it.
         ClientNextTick = "client_next_tick",
+        /// Client 16.402: client_next_tick, and the pulling area's whole clock starts a tick after its first frame: pulls
+        /// D + 2..D + 22, damage from D + 12, the same number of each (parity's r74 census of the live11 set (client 16.402): over 177 Tornado casts the victims' first pulled tick was the cast D + 2 in 467 of 538 detected (the engine's D + 1 in 86 of 91; paired, truth = engine + 1 in 83 of 89), and their first hp drop D + 12 in 30 of 36 (the engine's D + 11 in 29 of 36)).
+        Client16402AreaPlus1 = "client16402_area_plus_1",
     }
 );
 calib_enum!(
@@ -5872,6 +5907,10 @@ calib_enum!(
         SameLocationOrVictimForward = "same_location_or_victim_forward_tangent",
         /// On the dying unit's point, whatever the row says.
         DeathPosition = "death_position",
+        /// Client 16.402: as same_location_or_victim_forward_tangent, but a ground spawn whose forward point is in water or
+        /// off the arena takes the first dry of: outward in x toward the victim's nearer side wall, backward, inward, at the
+        /// same two radii (parity's r74 census of the live11 set (client 16.402): of 171 VoodooHogs, 169 stood within 250 of the rule's point: forward 143 of 143; outward toward the victim's nearer side wall 21 of 21, the forward point wet in all; backward 5 of 5, forward and outward wet or off the arena; the engine put the 3 moved cases traced on the nearest bank, 1,000 to 1,800 off).
+        Client16402ForwardOutwardBack = "client16402_forward_outward_back",
     }
 );
 calib_enum!(
@@ -9789,6 +9828,9 @@ calib_enum!(
         Pushed = "pushed",
         /// Client 16.402: he stands, no contact moving him; a knockback still does.
         Client16402Unpushed = "client16402_unpushed",
+        /// Client 16.402: client16402_unpushed, and while he attacks inside the hold his own separation scan does not run
+        /// either (parity's r74 census of the live11 set (client 16.402): in his press's hold (the press + 1 to + 32) the Little Prince, attacking from the press + 18 with a body overlapping him, moved on 3 of 282 ticks (1 of 58 presses), and on 15 of 16 from the + 33; the engine pushed him in 15 of 17 presses, on 35 of 67 such ticks, all from the + 18).
+        Client16402UnpushedAttacking = "client16402_unpushed_attacking",
     }
 );
 calib_enum!(
@@ -9986,6 +10028,44 @@ calib_enum!(
         FilterTowersColumn = "filter_towers_column",
         /// Client 16.402: a target filter that leaves towers out (default_targets_no_towers) keeps them out too.
         Client16402NoTowersFilter = "client16402_no_towers_filter",
+    }
+);
+calib_enum!(
+    /// combat.FLAG_PRESS_WINDOW -- the Hero Goblins' flag's press (card.rs `FlagSpawnsDef` window_ms, fade_ms; state.rs
+    /// `button_verdict`).
+    FlagPressWindow {
+        /// The engine's: from the flag's creation through window_ms.
+        WindowOnly = "window_only",
+        /// Client 16.402: while the flag stands, its window and its fade.
+        Client16402ThroughFade = "client16402_through_fade",
+    }
+);
+calib_enum!(
+    /// combat.DASH_STAND_CONTACT -- a unit in DashState::Standing (the stand before a dash; state.rs `phase_path16402_for`).
+    DashStandContact {
+        /// The engine's: its own separation scan runs; an overlapping unit pushes it.
+        Pushed = "pushed",
+        /// Client 16.402: no separation scan of its own; still a body to others; a knockback still moves it.
+        Client16402Unpushed = "client16402_unpushed",
+    }
+);
+calib_enum!(
+    /// combat.DASH_STAND_RETARGET -- a dasher whose target changes during DashState::Standing (state.rs `phase_path16402_for`).
+    DashStandRetarget {
+        /// The engine's: the stand ends and the unit walks.
+        Cancelled = "cancelled",
+        /// Client 16.402: a live new target takes over the dash target and the stand runs on to its mark.
+        Client16402KeptToMark = "client16402_kept_to_mark",
+    }
+);
+calib_enum!(
+    /// spells.ROLL_RELEASE_WATER_POINT -- a single released unit (the Barbarian Barrel's Barbarian) whose point is on water
+    /// (state.rs `release_ring_points`; arena.rs `nearest_dry_half_centre`).
+    RollReleaseWaterPoint {
+        /// The engine's: the nearest land along an axis (arena.rs nearest_passable_ground).
+        NearestPassableGround = "nearest_passable_ground",
+        /// Client 16.402: the centre of the nearest dry half-cell, ties to the lower row, then the lower column.
+        Client16402HalfCellCentre = "client16402_half_cell_centre",
     }
 );
 calib_enum!(
@@ -10533,6 +10613,10 @@ impl Calib {
             rolling_spares_leapers: pick(&v, &["spells", "ROLLING_SPARES_LEAPERS", "value"], RollingSparesLeapers::from_calibration_name)?,
             doomed_enchant_bonus: pick(&v, &["targeting", "DOOMED_ENCHANT_BONUS", "value"], DoomedEnchantBonus::from_calibration_name)?,
             snipe_tower_filter: pick(&v, &["targeting", "SNIPE_TOWER_FILTER", "value"], SnipeTowerFilter::from_calibration_name)?,
+            flag_press_window: pick(&v, &["combat", "FLAG_PRESS_WINDOW", "value"], FlagPressWindow::from_calibration_name)?,
+            dash_stand_contact: pick(&v, &["combat", "DASH_STAND_CONTACT", "value"], DashStandContact::from_calibration_name)?,
+            dash_stand_retarget: pick(&v, &["combat", "DASH_STAND_RETARGET", "value"], DashStandRetarget::from_calibration_name)?,
+            roll_release_water_point: pick(&v, &["spells", "ROLL_RELEASE_WATER_POINT", "value"], RollReleaseWaterPoint::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -23717,13 +23801,26 @@ impl BattleState {
         // no held unit's contact update (`held_walk` below).
         // PLANT (regression) press_contact_pushed: the new arm still pushes him in his press.
         #[cfg(not(clash_plant = "press_contact_pushed"))]
-        let press_held: Vec<bool> = if self.cfg.calib.guard_press_contact == GuardPressContact::Client16402Unpushed {
+        let press_held: Vec<bool> = if matches!(self.cfg.calib.guard_press_contact, GuardPressContact::Client16402Unpushed | GuardPressContact::Client16402UnpushedAttacking) {
             (0..cap).map(|i| self.ents.alive[i] && self.guard_hold_on(i)).collect()
         } else {
             vec![false; cap]
         };
         #[cfg(clash_plant = "press_contact_pushed")]
         let press_held: Vec<bool> = vec![false; cap];
+        // Measured on client 16.402 (parity r74): the attacking prince moved on 3 of 282 hold ticks; the engine pushed him on 35
+        // of 67. PLANT (regression) press_attacking_pushed: the new arm still scans him while he attacks.
+        #[cfg(not(clash_plant = "press_attacking_pushed"))]
+        let press_attacking_off = self.cfg.calib.guard_press_contact == GuardPressContact::Client16402UnpushedAttacking;
+        #[cfg(clash_plant = "press_attacking_pushed")]
+        let press_attacking_off = false;
+        // Measured on client 16.402 (parity r74): a Mega Knight in his 17-tick stand moved on 3 of 507 overlap ticks, the
+        // engine pushed him on 47 of 56; the Bandits 1 of 143 against 20 of 33. PLANT (regression) dash_stand_pushed: the new
+        // arm still scans a standing dasher.
+        #[cfg(not(clash_plant = "dash_stand_pushed"))]
+        let dash_stand_off = self.cfg.calib.dash_stand_contact == DashStandContact::Client16402Unpushed;
+        #[cfg(clash_plant = "dash_stand_pushed")]
+        let dash_stand_off = false;
         // THE TORNADO'S ATTRACT (status.ATTRACT_LAW): one vector per entity, computed
         // from the START-OF-TICK positions, before anything moves and before the entity
         // arrays are borrowed.
@@ -23744,7 +23841,7 @@ impl BattleState {
         // when spell.rs `step_spells` has kept it with its life at 0 (`attract_lags`). area_first_tick (today's engine)
         // takes it from its first tick through its last.
         #[cfg(not(clash_plant = "attract_onset_area_first_tick"))]
-        let lag = self.cfg.calib.attract_onset == AttractOnset::ClientNextTick;
+        let lag = matches!(self.cfg.calib.attract_onset, AttractOnset::ClientNextTick | AttractOnset::Client16402AreaPlus1);
         #[cfg(clash_plant = "attract_onset_area_first_tick")]
         let lag = false; // PLANT (regression): the new arm pulls from the area's first tick.
         let (mut attract, mut attract_n): (Vec<(i32, i32)>, Vec<i32>) = {
@@ -25146,6 +25243,13 @@ impl BattleState {
                 // a held unit (`held_walk`) starts no dash: its dash, if any, ended above
                 if let Some(d) = card.dash.filter(|_| calib.dash_attack == DashAttack::ClientDash && !held_walk) {
                     let tk = calib.tick_ms.max(1);
+                    // combat.DASH_STAND_RETARGET = client16402_kept_to_mark: measured on client 16.402 (parity r74), 84 of 86
+                    // switches inside a stand dashed on schedule; the engine walked off in 6 of 6.
+                    // PLANT (regression) dash_stand_switch_cancels: the new arm still ends the stand on a switch.
+                    #[cfg(not(clash_plant = "dash_stand_switch_cancels"))]
+                    let keep_stand = calib.dash_stand_retarget == DashStandRetarget::Client16402KeptToMark;
+                    #[cfg(clash_plant = "dash_stand_switch_cancels")]
+                    let keep_stand = false;
                     let live = |t: Option<EntityId>| t.filter(|t| e.is_alive(*t));
                     let d2 = |ti: usize| {
                         let (dx, dy) = ((e.pos[ti].x - e.pos[i].x) as i64, (e.pos[ti].y - e.pos[i].y) as i64);
@@ -25186,6 +25290,14 @@ impl BattleState {
                                 dash_mark[i] = self.tick + ((d.cooldown_ms / tk).max(1) - 1) as u32;
                             }
                         }
+                    } else if dash_state[i] == DashState::Standing
+                        && keep_stand
+                        && live(e.target[i]).is_some()
+                        && e.target[i] != dash_target[i]
+                        && e.attack_phase[i] == AttackPhase::Idle
+                    {
+                        // combat.DASH_STAND_RETARGET = client16402_kept_to_mark: the new target takes over, the stand runs on.
+                        dash_target[i] = e.target[i];
                     } else if dash_state[i] == DashState::Standing
                         && (live(e.target[i]).is_none() || e.target[i] != dash_target[i] || e.attack_phase[i] != AttackPhase::Idle)
                     {
@@ -25614,7 +25726,11 @@ impl BattleState {
                     }
                 }
                 move16402::decay_offset(&mut con);
-                if !tag_off[i] {
+                // collision.GUARD_PRESS_CONTACT = client16402_unpushed_attacking: a Little Prince in his press's hold runs no
+                // separation scan of his own, attacking too. combat.DASH_STAND_CONTACT = client16402_unpushed: nor does a unit
+                // standing before its dash. Each stays a body to its neighbours; a knockback still moves it.
+                let own_scan_off = (press_attacking_off && press_held[i]) || (dash_stand_off && dash_state[i] == DashState::Standing);
+                if !tag_off[i] && !own_scan_off {
                     move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
                 }
                 // ---- 4. the step (move16402::move_towards)
@@ -30658,6 +30774,26 @@ impl BattleState {
                         BuffDeathSpawnPoint::SameLocationOrVictimForward if !ds.same_location => {
                             Vec2::new(pos.x, pos.y + spell::forward_dy(victim) * (self.ents.radius[i] + unit.collision_radius))
                         }
+                        // status.BUFF_DEATH_SPAWN_POINT = client16402_forward_outward_back: forward, else outward in x toward
+                        // the victim's nearer side wall, else backward, else inward, at the two radii; the first that is in
+                        // the arena and dry. Measured on client 16.402 (parity r74): 169 of 171 hogs on the rule's point.
+                        // PLANT (regression) voodoo_point_forward_only: the new arm still takes the forward point alone.
+                        #[cfg(not(clash_plant = "voodoo_point_forward_only"))]
+                        BuffDeathSpawnPoint::Client16402ForwardOutwardBack if !ds.same_location => {
+                            let r = self.ents.radius[i] + unit.collision_radius;
+                            let fwd = spell::forward_dy(victim);
+                            let out = if pos.x < self.cfg.arena.width / 2 { -1 } else { 1 };
+                            let ahead = Vec2::new(pos.x, pos.y + fwd * r);
+                            let ok = |p: Vec2| unit.is_flying() || self.cfg.arena.is_passable_ground(p);
+                            [ahead, Vec2::new(pos.x + out * r, pos.y), Vec2::new(pos.x, pos.y - fwd * r), Vec2::new(pos.x - out * r, pos.y)]
+                                .into_iter()
+                                .find(|p| ok(*p))
+                                .unwrap_or(ahead)
+                        }
+                        #[cfg(clash_plant = "voodoo_point_forward_only")]
+                        BuffDeathSpawnPoint::Client16402ForwardOutwardBack if !ds.same_location => {
+                            Vec2::new(pos.x, pos.y + spell::forward_dy(victim) * (self.ents.radius[i] + unit.collision_radius))
+                        }
                         _ => pos,
                     };
                     let arena = &self.cfg.arena;
@@ -31464,12 +31600,25 @@ impl BattleState {
         };
         let (w, h) = (arena.width / K, arena.height / K);
         let margin = arena.cell / K / 2;
+        // spells.ROLL_RELEASE_WATER_POINT = client16402_half_cell_centre: a single released unit on water goes to the centre of
+        // the nearest dry half-cell. Measured on client 16.402 (parity r74): 59 of 85 exactly, 19 more within one push.
+        // PLANT (regression) release_water_axis: the new arm still takes the nearest land along an axis.
+        #[cfg(not(clash_plant = "release_water_axis"))]
+        let centre = count <= 1 && self.cfg.calib.roll_release_water_point == RollReleaseWaterPoint::Client16402HalfCellCentre;
+        #[cfg(clash_plant = "release_water_axis")]
+        let centre = false;
         (0..count.max(1))
             .map(|k| {
                 let p = tap.add(crate::formation::member_offset(layout, k));
                 let p = Vec2::new(p.x.clamp(margin, w - margin), p.y.clamp(margin, h - margin));
                 let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
-                if u.is_flying() || arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) }
+                if u.is_flying() || arena.is_passable_ground(abs) {
+                    abs
+                } else if centre {
+                    arena.nearest_dry_half_centre(abs).unwrap_or(abs)
+                } else {
+                    arena.nearest_passable_ground(abs, team).unwrap_or(abs)
+                }
             })
             .collect()
     }
@@ -32971,7 +33120,15 @@ impl BattleState {
         }
         // THE FLAG'S BUTTON (card.rs `FlagSpawnsDef`, the Hero Goblins'): taken while its window runs.
         if let crate::card::AbilityEffect::FlagSpawns(f) = &a.effect {
-            let window = (f.window_ms / self.cfg.calib.tick_ms.max(1)) as u32;
+            // combat.FLAG_PRESS_WINDOW = client16402_through_fade: taken while the flag stands, its fade included. Measured on
+            // client 16.402 (parity r74): presses on the flag + 111 and + 121 taken, the engine's refused.
+            // PLANT (regression) flag_press_window_only: the new arm still closes at the window's end.
+            #[cfg(not(clash_plant = "flag_press_window_only"))]
+            let through = self.cfg.calib.flag_press_window == FlagPressWindow::Client16402ThroughFade;
+            #[cfg(clash_plant = "flag_press_window_only")]
+            let through = false;
+            let ms = if through { f.window_ms + f.fade_ms } else { f.window_ms };
+            let window = (ms / self.cfg.calib.tick_ms.max(1)) as u32;
             if self.tick >= self.ents.spawn_tick[u.id.index as usize] + window {
                 return Err(DeployError::NoHero);
             }
@@ -37302,6 +37459,14 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.SNIPE_TOWER_FILTER: Calib gained snipe_tower_filter (serde default the old arm, filter_towers_column), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.FLAG_PRESS_WINDOW: Calib gained flag_press_window (serde default the old arm, window_only), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_STAND_CONTACT: Calib gained dash_stand_contact (serde default the old arm, pushed), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_STAND_RETARGET: Calib gained dash_stand_retarget (serde default the old arm, cancelled), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.ROLL_RELEASE_WATER_POINT: Calib gained roll_release_water_point (serde default the old arm, nearest_passable_ground), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38307,6 +38472,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("doomed_enchant_bonus".into(), serde_json::to_value(DoomedEnchantBonus::Counted).map_err(|e| e.to_string())?);
     // targeting.SNIPE_TOWER_FILTER: a format-3 battle's snipe read FilterTowers alone.
     sh.insert("snipe_tower_filter".into(), serde_json::to_value(SnipeTowerFilter::FilterTowersColumn).map_err(|e| e.to_string())?);
+    // combat.FLAG_PRESS_WINDOW: a format-3 battle's flag took presses through its window alone.
+    sh.insert("flag_press_window".into(), serde_json::to_value(FlagPressWindow::WindowOnly).map_err(|e| e.to_string())?);
+    // combat.DASH_STAND_CONTACT: a format-3 battle's standing dasher was pushed.
+    sh.insert("dash_stand_contact".into(), serde_json::to_value(DashStandContact::Pushed).map_err(|e| e.to_string())?);
+    // combat.DASH_STAND_RETARGET: a format-3 battle's dash stand ended on a target switch.
+    sh.insert("dash_stand_retarget".into(), serde_json::to_value(DashStandRetarget::Cancelled).map_err(|e| e.to_string())?);
+    // spells.ROLL_RELEASE_WATER_POINT: a format-3 battle put a single release on water on the nearest land along an axis.
+    sh.insert("roll_release_water_point".into(), serde_json::to_value(RollReleaseWaterPoint::NearestPassableGround).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

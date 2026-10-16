@@ -589,6 +589,28 @@ impl Arena {
     /// points. The shipped arena is rotation-symmetric (`is_rotation_symmetric`), and
     /// the +1/-1 offsets map onto each other under v -> size - v, so the distances are
     /// identical for the twins; only the tie order needed a frame.
+    /// THE CENTRE OF THE NEAREST HALF-CELL THAT TOUCHES NO WATER (spells.ROLL_RELEASE_WATER_POINT = client16402_half_cell_centre):
+    /// by squared distance from `p` to the centre, ties to the lower row, then the lower column; searched within 8 cells.
+    /// None when none is (never on the shipped map).
+    pub fn nearest_dry_half_centre(&self, p: Vec2) -> Option<Vec2> {
+        let (c0, r0) = self.subtile_to_half(p);
+        let mut best: Option<(i64, i32, i32)> = None;
+        for r in (r0 - 8)..=(r0 + 8) {
+            for c in (c0 - 8)..=(c0 + 8) {
+                if c < 0 || r < 0 || c >= self.cols || r >= self.rows || self.cell_bits(c, r) & self.bit_water != 0 {
+                    continue;
+                }
+                let q = self.half_to_subtile_center(c, r);
+                let (dx, dy) = ((q.x - p.x) as i64, (q.y - p.y) as i64);
+                let key = (dx * dx + dy * dy, r, c);
+                if best.map_or(true, |b| key < b) {
+                    best = Some(key);
+                }
+            }
+        }
+        best.map(|(_, r, c)| self.half_to_subtile_center(c, r))
+    }
+
     pub fn nearest_passable_ground(&self, p: Vec2, team: Team) -> Option<Vec2> {
         if self.is_passable_ground(p) {
             return Some(p);

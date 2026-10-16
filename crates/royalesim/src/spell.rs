@@ -600,13 +600,22 @@ pub(crate) fn objects_for(cards: &CardDb, calib: &Calib, arena: Option<&Arena>, 
             #[cfg(clash_plant = "pulsing_offset_full_wait_unread")]
             let full = false;
             let next_ms = if full { wait_ms } else { (wait_ms - calib.tick_ms).max(0) };
+            // status.ATTRACT_ONSET = client16402_area_plus_1: a pulling area's clock (its first application and its life)
+            // starts a tick after its first frame. Measured on client 16.402 (parity r74): pulls from D + 2, damage from D + 12.
+            // PLANT (regression) attract_area_on_first_frame: the new arm's area still starts on its first frame.
+            #[cfg(not(clash_plant = "attract_area_on_first_frame"))]
+            let late = calib.attract_onset == crate::state::AttractOnset::Client16402AreaPlus1
+                && [hit.buff, hit.buff2].into_iter().flatten().any(|b| cards.buffs.get(b.buff as usize).is_some_and(|d| d.attract_pct != 0));
+            #[cfg(clash_plant = "attract_area_on_first_frame")]
+            let late = false;
+            let (next_ms, life_now) = if late { (next_ms + calib.tick_ms, *life_ms + calib.tick_ms) } else { (next_ms, *life_ms) };
             out.push(Spell {
                 team,
                 card,
                 level,
                 damage: scaled(hit)?,
                 pulse: pulse_of(hit)?,
-                motion: SpellMotion::Pulsing(Pulse { pos: tap, life_ms: *life_ms, next_ms }),
+                motion: SpellMotion::Pulsing(Pulse { pos: tap, life_ms: life_now, next_ms }),
                 depth,
                 flown: 0,
             });
@@ -886,7 +895,7 @@ pub fn area_life_floor(calib: &crate::state::Calib, cards: &CardDb, hit: &SpellH
 }
 
 fn attract_lags(ctx: &SpellCtx, hit: &SpellHit) -> bool {
-    ctx.calib.attract_onset == crate::state::AttractOnset::ClientNextTick
+    matches!(ctx.calib.attract_onset, crate::state::AttractOnset::ClientNextTick | crate::state::AttractOnset::Client16402AreaPlus1)
         && [hit.buff, hit.buff2].into_iter().flatten().any(|b| ctx.cards.buffs.get(b.buff as usize).is_some_and(|d| d.attract_pct != 0))
 }
 
