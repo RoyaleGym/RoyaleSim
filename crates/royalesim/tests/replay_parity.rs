@@ -24,7 +24,8 @@
 //!                copy by (plant: replay_roots_a_copy_as_its_unit), and a Skeleton King's soul as
 //!                its King (plant: replay_roots_a_soul_as_clone), and the Evo Goblin Barrel's decoy
 //!                dummies as the Goblin Barrel (plant: replay_decoy_unrooted); a truth entity with
-//!                no hitpoints (a visual dummy) takes no pair (plant: replay_pairs_a_dummy).
+//!                no hitpoints (a visual dummy) takes no pair (plant: replay_pairs_a_dummy); a hero's display twin
+//!                (role "display") is neither paired nor scored (plant: replay_scores_display_twins).
 //!   the floor    the ISOLATED-WALK unit-ticks within WALK_TIGHT_NATIVE (20 native:
 //!                a unit walking at a tower with full hp, bit-exact) -- measured at
 //!                100 % for the Prince (92 frames, charge included),
@@ -956,6 +957,31 @@ fn a_repeated_tick_is_scored_once() {
     let r = play(&f);
     assert_eq!((base.repeated_frames, r.repeated_frames), (0, 50), "the frames skipped");
     assert_eq!(r.score.unit_ticks, base.score.unit_ticks, "a repeated tick was scored again");
+}
+
+/// A HERO'S DISPLAY TWIN IS NOT SCORED (the maker's display_twins, role "display"; parity 2026-10-15): a copy of a unit's
+/// row marked display takes no pair, is not listed unmatched, and adds nothing to the score; marked a summon (the vacuity
+/// check), the same copy is scored as missing. Plant: replay_scores_display_twins.
+#[test]
+fn a_display_twin_is_not_scored() {
+    let base = play(&sample());
+    let twin = |role: &str| {
+        let mut f = sample();
+        let truth = f.truth.as_mut().expect("the sample carries its truth");
+        let k = truth.entities.iter().position(|e| e.role != "tower" && e.max_hp > 0 && e.t0 > 0).expect("a unit row after the first frame");
+        let mut t = truth.entities[k].clone();
+        t.key = truth.entities.iter().map(|e| e.key).max().unwrap_or(0) + 1;
+        t.role = role.to_string();
+        let key = t.key;
+        truth.entities.push(t);
+        (play(&f), key)
+    };
+    let (r, key) = twin("display");
+    assert!(!r.pairs.iter().any(|p| p.truth_key == key), "the display twin took a pair");
+    assert!(!r.unmatched_truth.iter().any(|(t, _)| *t == key), "the display twin is listed as unmatched");
+    assert_eq!((r.score.unit_ticks, r.score.missing_in_sim), (base.score.unit_ticks, base.score.missing_in_sim), "the display twin was scored");
+    let (s, _) = twin("summon");
+    assert!(s.score.missing_in_sim > base.score.missing_in_sim, "vacuous: the same copy as a summon was not scored as missing");
 }
 
 #[test]

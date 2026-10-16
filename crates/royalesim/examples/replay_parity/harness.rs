@@ -1719,6 +1719,15 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         report.last_tick = truth.ticks.last().copied().unwrap_or(0);
     }
     let dummies = unscored_dummies(&truth);
+    // A HERO'S DISPLAY TWIN (the maker's `display_twins`, role "display": the Hero Ice Wizard's floating ice, on the hero's
+    // point every frame, never losing hp, gone with him) is display only: the engine makes no object for it, so it takes no
+    // pair (below) and is not scored, as a dummy is not (2026-10-15: on ob9t's four Hero Ice Wizard battles it was scored as
+    // missing and raised each battle's first divergence on the hero's first deploy).
+    // PLANT (regression) replay_scores_display_twins: the twins are scored as missing again.
+    #[cfg(not(clash_plant = "replay_scores_display_twins"))]
+    let displays: std::collections::BTreeSet<usize> = truth.entities.iter().enumerate().filter(|(_, e)| e.role == "display").map(|(k, _)| k).collect();
+    #[cfg(clash_plant = "replay_scores_display_twins")]
+    let displays: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     report.unscored_dummies = dummies.iter().map(|&k| (truth.entities[k].key, truth.entities[k].card.clone().unwrap_or_default())).collect();
     let (cfg, notes) = config_for_with(f, db.clone(), opts.attacking_movement, &opts.calibration_overrides)?;
     // config_for_with reports the level deviations and the applied overrides in one list; the
@@ -2204,7 +2213,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     report.sim_entities = sim.len();
     let sim_to_truth: BTreeMap<usize, usize> = truth_to_sim.iter().map(|(t, s)| (*s, *t)).collect();
     for (k, e) in truth.entities.iter().enumerate() {
-        if !truth_to_sim.contains_key(&k) && !dummies.contains(&k) {
+        if !truth_to_sim.contains_key(&k) && !dummies.contains(&k) && !displays.contains(&k) {
             report.unmatched_truth.push((e.key, e.card.clone().unwrap_or_default()));
         }
     }
@@ -2397,7 +2406,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         }
         // unmatched truth entities alive on this frame (a dummy, `unscored_dummies`, is not scored)
         for (tk, e) in truth.entities.iter().enumerate() {
-            if truth_to_sim.contains_key(&tk) || truth.row(tk, fi).is_none() || dummies.contains(&tk) {
+            if truth_to_sim.contains_key(&tk) || truth.row(tk, fi).is_none() || dummies.contains(&tk) || displays.contains(&tk) {
                 continue;
             }
             let root = e.card.clone().unwrap_or_default();
