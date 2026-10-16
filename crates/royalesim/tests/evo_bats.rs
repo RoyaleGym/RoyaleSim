@@ -9,13 +9,17 @@
 //! evo_bats`):
 //!   - hit_heal_no_pulse -> both tests red;
 //!   - hit_heal_a_period_out -> both tests red;
-//!   - overheal_capped_at_max -> `each_hit_heals_it_38_nine_and_nineteen_ticks_on_past_its_maximum` red.
+//!   - overheal_capped_at_max -> `each_hit_heals_it_38_nine_and_nineteen_ticks_on_past_its_maximum` red;
+//!   - hit_heal_pulse_15535 -> `under_client16402_a_period_out_each_hit_heals_it_ten_and_twenty_ticks_on` red.
+//!
+//! status.AFTER_HITS_HEAL_PULSE: the 15.535.29 tests above run its frequency_less_tick; client 16.402 (parity r75, live13:
+//! the heal on the hit + 10 in 294 fires and + 20 in 51, never + 9 or + 19) heals a tick later, client16402_a_period_out.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{AfterHitsHealPulse, BattleConfig, BattleState};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -25,7 +29,13 @@ fn n(x: i32, y: i32) -> Vec2 {
 /// One Evo Bat held at (9000, 12500) on `hp` hitpoints until its first hit on a red Knight held 1200 ahead (topped up;
 /// a Knight cannot hit a flier), then let be: (the first hit's frame, its hitpoints on every frame).
 fn after_a_hit(hp: i32) -> (usize, Vec<i32>) {
+    after_a_hit_under(AfterHitsHealPulse::FrequencyLessTick, hp)
+}
+
+/// As `after_a_hit`, under status.AFTER_HITS_HEAL_PULSE = `arm`.
+fn after_a_hit_under(arm: AfterHitsHealPulse, hp: i32) -> (usize, Vec<i32>) {
     let mut cfg: BattleConfig = config();
+    cfg.calib.after_hits_heal_pulse = arm;
     cfg.decks = [vec!["Bats".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -86,4 +96,20 @@ fn the_heal_stops_at_twice_its_maximum() {
     // From 230: 244 (twice 122) on the hit + 9, and no more on the hit + 19.
     let (h, hps) = after_a_hit(230);
     assert_eq!((hps[h + 8], hps[h + 9], hps[h + 19], hps[h + 23]), (230, 244, 244, 244), "the hit on {h}: {:?}", &hps[h..]);
+}
+
+/// status.AFTER_HITS_HEAL_PULSE = client16402_a_period_out: from 100, 138 on the hit + 10 and 176 on the hit + 20; the
+/// vacuity check: frequency_less_tick has healed by the hit + 9. From 230: 244 (the cap) on the hit + 10. Plant:
+/// hit_heal_pulse_15535.
+#[test]
+fn under_client16402_a_period_out_each_hit_heals_it_ten_and_twenty_ticks_on() {
+    let (h, hps) = after_a_hit_under(AfterHitsHealPulse::Client16402APeriodOut, 100);
+    let want = |k: usize| if k < h + 10 { 100 } else if k < h + 20 { 138 } else { 176 };
+    for k in h..=h + 23 {
+        assert_eq!(hps[k], want(k), "frame {k} (the hit on {h}): {:?}", &hps[h..]);
+    }
+    let (h0, old) = after_a_hit_under(AfterHitsHealPulse::FrequencyLessTick, 100);
+    assert_eq!(old[h0 + 9], 138, "frequency_less_tick: the heal on the hit + 9");
+    let (hc, cap) = after_a_hit_under(AfterHitsHealPulse::Client16402APeriodOut, 230);
+    assert_eq!((cap[hc + 9], cap[hc + 10], cap[hc + 23]), (230, 244, 244), "client16402_a_period_out: the cap, the hit on {hc}: {:?}", &cap[hc..]);
 }

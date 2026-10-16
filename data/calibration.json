@@ -4596,6 +4596,16 @@
     }
   },
   "status": {
+    "AFTER_HITS_HEAL_PULSE": {
+      "value": "frequency_less_tick",
+      "status": "measured",
+      "candidates": ["frequency_less_tick", "client16402_a_period_out"],
+      "confidence": "HIGH for client16402_a_period_out on client 16.402 (parity r75, 2026-10-16): 781 Evo Bat fires the truth and the engine make on the same tick before each battle's first divergence (the target hit on that tick on both in 769): the bat's own hp rose (or turned unread, its overheal) on the fire + 10 in 294 and + 20 in 51 in the truth, on + 9 or + 19 in 0; the engine's on + 9 in 457 and + 19 in 424, on + 10 or + 20 in 0; no third pulse on either (0 of 753); in all 13 Evo Bat rows the earliest difference is this shift. A candidate until scored.",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): 781 Evo Bat fires the truth and the engine make on the same tick before each battle's first divergence (the target hit on that tick on both in 769): the bat's own hp rose (or turned unread, its overheal) on the fire + 10 in 294 and + 20 in 51 in the truth, on + 9 or + 19 in 0; the engine's on + 9 in 457 and + 19 in 424, on + 10 or + 20 in 0; no third pulse on either (0 of 753); in all 13 Evo Bat rows the earliest difference is this shift.",
+      "meaning": "frequency_less_tick: the engine's, and client 15.535.29's (sp-form-Bats-evo-s0); a heal after hits (the Evo Bats' BatsEV1_Heal, card.rs HitRageDef) first pulses HitFrequency - TICK_MS after the hit (the hit tick counts), so on the hit + 9 and + 19. client16402_a_period_out: it first pulses a whole HitFrequency after the hit and its buff lasts a tick longer (so the second pulse lands before buff.EXPIRY clears it), so on the hit + 10 and + 20: two pulses per hit, the same amounts.",
+      "open": "The 200 % cap's tick under the new arm (read off the table); client 15.535.29 keeps frequency_less_tick (measured).",
+      "engine": "state.rs evo_after_fire (a heal after hits), selected by Calib::after_hits_heal_pulse; tests/evo_bats.rs."
+    },
     "HIT_STUN_SPAN": {
       "value": "client16402_full_span_from_next_tick",
       "status": "measured",

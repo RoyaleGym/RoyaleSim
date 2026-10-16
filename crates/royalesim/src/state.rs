@@ -1029,6 +1029,10 @@ pub struct Calib {
     /// `DeathTickReap`, what a battle saved before it ran.
     #[serde(default = "death_blow_victim_point_default")]
     pub death_blow_victim_point: DeathBlowVictimPoint,
+    /// status.AFTER_HITS_HEAL_PULSE (when a heal after hits (the Evo Bats') first pulses). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `FrequencyLessTick`, what a battle saved before it ran.
+    #[serde(default = "after_hits_heal_pulse_default")]
+    pub after_hits_heal_pulse: AfterHitsHealPulse,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3019,6 +3023,10 @@ fn capture_roll_strikes_default() -> CaptureRollStrikes {
 
 fn death_blow_victim_point_default() -> DeathBlowVictimPoint {
     DeathBlowVictimPoint::DeathTickReap
+}
+
+fn after_hits_heal_pulse_default() -> AfterHitsHealPulse {
+    AfterHitsHealPulse::FrequencyLessTick
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10489,6 +10497,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.AFTER_HITS_HEAL_PULSE -- the first pulse of a heal after hits (card.rs `HitRageDef`; state.rs
+    /// `evo_after_fire`).
+    AfterHitsHealPulse {
+        /// The engine's and client 15.535.29's (sp-form-Bats-evo-s0): HitFrequency less a tick after the hit (+ 9, + 19).
+        FrequencyLessTick = "frequency_less_tick",
+        /// Client 16.402: a whole HitFrequency after the hit, the buff a tick longer: + 10 and + 20, two pulses.
+        Client16402APeriodOut = "client16402_a_period_out",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11059,6 +11077,7 @@ impl Calib {
             deploy_area_birth_contact: pick(&v, &["spells", "DEPLOY_AREA_BIRTH_CONTACT", "value"], DeployAreaBirthContact::from_calibration_name)?,
             capture_roll_strikes: pick(&v, &["spells", "CAPTURE_ROLL_STRIKES", "value"], CaptureRollStrikes::from_calibration_name)?,
             death_blow_victim_point: pick(&v, &["combat", "DEATH_BLOW_VICTIM_POINT", "value"], DeathBlowVictimPoint::from_calibration_name)?,
+            after_hits_heal_pulse: pick(&v, &["status", "AFTER_HITS_HEAL_PULSE", "value"], AfterHitsHealPulse::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -15409,7 +15428,20 @@ impl BattleState {
                 let mut h = crate::status::BuffHit::plain(id, r.apply.buff, r.apply.time_ms, pulse);
                 #[cfg(not(clash_plant = "hit_heal_a_period_out"))]
                 if pulse != 0 {
-                    h.first_pulse_ms = Some((def.hit_frequency_ms - self.cfg.calib.tick_ms).max(0));
+                    // status.AFTER_HITS_HEAL_PULSE = client16402_a_period_out: a whole HitFrequency out, the buff a tick
+                    // longer (its second pulse before buff.EXPIRY clears it). Measured on client 16.402 (parity r75, live13):
+                    // the heal on the hit + 10 and + 20 in 294 and 51 fires, never + 9 or + 19; the engine's on + 9 and + 19.
+                    // PLANT (regression) hit_heal_pulse_15535: the new arm still pulses HitFrequency less a tick out.
+                    #[cfg(not(clash_plant = "hit_heal_pulse_15535"))]
+                    let late = self.cfg.calib.after_hits_heal_pulse == AfterHitsHealPulse::Client16402APeriodOut;
+                    #[cfg(clash_plant = "hit_heal_pulse_15535")]
+                    let late = false;
+                    if late {
+                        h.first_pulse_ms = Some(def.hit_frequency_ms);
+                        h.time_ms += self.cfg.calib.tick_ms;
+                    } else {
+                        h.first_pulse_ms = Some((def.hit_frequency_ms - self.cfg.calib.tick_ms).max(0));
+                    }
                 }
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
             }
@@ -38770,6 +38802,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DEATH_BLOW_VICTIM_POINT: Calib gained death_blow_victim_point (serde default the old arm, death_tick_reap), WarpBoard gained blows (serde default empty; hashed only when non-empty),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.AFTER_HITS_HEAL_PULSE: Calib gained after_hits_heal_pulse (serde default the old arm, frequency_less_tick), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39830,6 +39864,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("capture_roll_strikes".into(), serde_json::to_value(CaptureRollStrikes::CaptureTickOnly).map_err(|e| e.to_string())?);
     // combat.DEATH_BLOW_VICTIM_POINT: a format-3 battle ran combat.DEATH_BLOW_VICTIM_POINT's old arm.
     sh.insert("death_blow_victim_point".into(), serde_json::to_value(DeathBlowVictimPoint::DeathTickReap).map_err(|e| e.to_string())?);
+    // status.AFTER_HITS_HEAL_PULSE: a format-3 battle ran status.AFTER_HITS_HEAL_PULSE's old arm.
+    sh.insert("after_hits_heal_pulse".into(), serde_json::to_value(AfterHitsHealPulse::FrequencyLessTick).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
