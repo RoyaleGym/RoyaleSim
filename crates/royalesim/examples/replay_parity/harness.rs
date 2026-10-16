@@ -2185,7 +2185,17 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         let sp: Vec<(u32, Vec<Vec2>)> = sim_pools.iter().map(|(t, v)| (*t, v.iter().map(|&sk| sim[sk].first_pos).collect())).collect();
         let th: Vec<Vec<Option<i32>>> = truth_groups_of.iter().map(|(_, v)| v.iter().map(|&tk| truth.row(tk, truth.first_index(tk)).map(|r| r.hp)).collect()).collect();
         let sh: Vec<Vec<i32>> = sim_pools.iter().map(|(_, v)| v.iter().map(|&sk| sim[sk].first_hp).collect()).collect();
-        for (gi, mi, pi, si) in pair_groups_hp(&tg, &sp, &th, &sh, PAIR_WINDOW_TICKS) {
+        // A POOL MET ON ITS GROUP'S FRAME: a pool registered on another tick than its truth group's first frame is compared
+        // where its members stand on that frame (the sim's snapshot of it), where it has one; two members crossing between
+        // the two ticks paired crosswise on their registration points (parity r73: liveplay-20261009-022011-A's Skeleton
+        // Army, 1 of 138 groups registered a tick before their first frame), each then tracing the other's path.
+        let on_frame = |pi: usize, si: usize, t: u32| -> Option<Vec2> {
+            if sim_pools[pi].0 == t {
+                return None;
+            }
+            snaps.get(&t).and_then(|m| m.get(&sim_pools[pi].1[si])).map(|s| s.pos)
+        };
+        for (gi, mi, pi, si) in pair_groups_hp_at(&tg, &sp, &th, &sh, PAIR_WINDOW_TICKS, &on_frame) {
             let (tk, sk) = (truth_groups_of[gi].1[mi], sim_pools[pi].1[si]);
             if matched_sim.contains(&sk) {
                 continue;
@@ -2635,6 +2645,19 @@ pub fn pair_groups_hp(
     sim_hp: &[Vec<i32>],
     window: u32,
 ) -> Vec<(usize, usize, usize, usize)> {
+    pair_groups_hp_at(truth, sim, truth_hp, sim_hp, window, &|_, _, _| None)
+}
+
+/// As `pair_groups_hp`, with `on_frame(pool, member, tick)` the member's point on a truth group's first tick where the
+/// caller has it (None: its registration point, `sim[pool].1[member]`).
+pub fn pair_groups_hp_at(
+    truth: &[(u32, Vec<Option<Vec2>>)],
+    sim: &[(u32, Vec<Vec2>)],
+    truth_hp: &[Vec<Option<i32>>],
+    sim_hp: &[Vec<i32>],
+    window: u32,
+    on_frame: &dyn Fn(usize, usize, u32) -> Option<Vec2>,
+) -> Vec<(usize, usize, usize, usize)> {
     let mut free: Vec<Vec<usize>> = sim.iter().map(|(_, v)| (0..v.len()).collect()).collect();
     let mut out = Vec::new();
     for (gi, (t, pts)) in truth.iter().enumerate() {
@@ -2666,7 +2689,7 @@ pub fn pair_groups_hp(
         if taken.is_empty() {
             continue;
         }
-        let sim_pts: Vec<Vec2> = taken.iter().map(|&(pi, si)| sim[pi].1[si]).collect();
+        let sim_pts: Vec<Vec2> = taken.iter().map(|&(pi, si)| on_frame(pi, si, *t).unwrap_or(sim[pi].1[si])).collect();
         let sim_hps: Vec<Option<i32>> = taken.iter().map(|&(pi, si)| sim_hp.get(pi).and_then(|v| v.get(si)).copied()).collect();
         let tie = |mi: usize, k: usize| -> i64 {
             match (truth_hp.get(gi).and_then(|v| v.get(mi)).copied().flatten(), sim_hps[k]) {

@@ -1557,3 +1557,23 @@ fn a_group_centroid_row_is_played_from_its_tile() {
     assert!(observed_row(&row("Knight", "centroid"), &db), "a single unit's centroid row stays observed");
     assert!(observed_row(&row("Skeletons", "laid_point"), &db), "a group's laid point stays observed");
 }
+
+/// A POOL MET ON ITS GROUP'S FRAME (harness.rs `pair_groups_hp_at`; liveplay-20261009-022011-A's Skeleton Army): two sim
+/// members registered a tick before their truth group's first frame, crossing in that tick, pair by where they stand on the
+/// frame; on their registration points alone they pair crosswise.
+#[test]
+fn a_pool_registered_a_tick_early_pairs_on_its_points_on_the_groups_frame() {
+    let at = |x: i32, y: i32| Vec2::new(x * royalesim::fixed::SUBTILE_PER_MILLITILE, y * royalesim::fixed::SUBTILE_PER_MILLITILE);
+    let (a, b) = (at(9000, 8000), at(9400, 8000));
+    // the truth's first frame (tick 1143): member 0 on a, member 1 on b; the sim registered them on 1142 the other way round
+    let truth = vec![(1143u32, vec![Some(a), Some(b)])];
+    let sim = vec![(1142u32, vec![at(9350, 8000), at(9050, 8000)])];
+    let on_1143 = |_: usize, si: usize, t: u32| -> Option<Vec2> { (t == 1143).then(|| [a, b][si]) };
+    let pairs = |got: Vec<(usize, usize, usize, usize)>| -> Vec<(usize, usize)> {
+        let mut m: Vec<(usize, usize)> = got.iter().map(|&(_, mi, _, si)| (mi, si)).collect();
+        m.sort();
+        m
+    };
+    assert_eq!(pairs(pair_groups_hp_at(&truth, &sim, &[], &[], PAIR_WINDOW_TICKS, &on_1143)), vec![(0, 0), (1, 1)], "on the frame's points");
+    assert_eq!(pairs(pair_groups(&truth, &sim, PAIR_WINDOW_TICKS)), vec![(0, 1), (1, 0)], "on the registration points (the vacuity check)");
+}
