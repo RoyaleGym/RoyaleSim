@@ -39,6 +39,8 @@
 //!   * `dash_first_tick_moves` -- the Bandit moves on its entry tick: (3) goes red on the stand's length.
 //!   * `dash_whole_steps` -- one whole step and one Range test a tick: (3) goes red on the half-step stop.
 //!   * `dash_not_immune` -- a dashing unit takes every hit: (4) goes red.
+//!   * `dash_immune_hit_discarded` -- combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end still drops a held shot:
+//!     `under_client16402_held_to_immunity_end_an_arrow_flying_at_the_dash_start_lands_on_the_immunity_end` goes red.
 //!   * `dash_keeps_the_cycle` -- the load timer is not reset after the dash: (5) goes red.
 //!   * `dash_first_sight_walks` -- a unit put down inside its trigger walks its first tick: (9) goes red.
 //!   * `dash_stand_keeps_walk_heading` -- a standing dasher keeps its walking heading: (10) goes red.
@@ -49,7 +51,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashAttack};
+use royalesim::state::{BattleConfig, BattleState, DashAttack, DashImmuneHits};
 use royalesim::{EntityId, Team};
 
 fn with(arm: DashAttack) -> BattleConfig {
@@ -270,7 +272,14 @@ fn the_bandit_takes_no_tower_arrow_from_its_entry_to_the_arrival_plus_one() {
 
 /// A blue Bandit at `me` whose target is the red left princess tower.
 fn scene_at_tower(me: (i32, i32), ticks: u32) -> (BattleState, EntityId, EntityId, Vec<Row>) {
-    let mut s = BattleState::new(0, with(DashAttack::ClientDash));
+    scene_at_tower_with(me, ticks, DashImmuneHits::Discarded)
+}
+
+/// `scene_at_tower` under combat.DASH_IMMUNE_HITS = `held`.
+fn scene_at_tower_with(me: (i32, i32), ticks: u32, held: DashImmuneHits) -> (BattleState, EntityId, EntityId, Vec<Row>) {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_immune_hits = held;
+    let mut s = BattleState::new(0, cfg);
     let a = s.scenario_spawn_now(Team::Blue, "Assassin", at(me), None).expect("spawn");
     let tower = s
         .tower_ids(Team::Red)
@@ -447,4 +456,51 @@ fn a_standing_bandit_faces_its_dash_goal_cell() {
     for (j, &(_, p, t, f)) in rows.iter().enumerate().take(end).skip(d) {
         assert_eq!(f, goal_heading(p, t, radii), "stand tick {} (trigger + {}): the Bandit does not face its goal cell", j, j - d);
     }
+}
+
+/// The tower scene's Bandit put down 900 nearer the tower: she stands on the same point (3500, 18550) as from (3500, 17200),
+/// from the trigger 5, not 15, so her entry is 20, not 30. The tower locks on her on tick 0 from both starts and fires on 15,
+/// 31, 47 (combat.rs `attack_step_progress`: the first 15 ticks after the lock, then HitSpeed 800 / 50). From (3500, 17200)
+/// arrow 15 landed on 27, before the entry, and arrow 31 left on the entry + 1 (fired in the dash, dropped under both arms).
+/// From here arrow 15 is in flight at the entry and meets her mid-dash.
+const HELD_AT: (i32, i32) = (3500, 18100);
+
+/// Under client16402_held_to_immunity_end, the tower scene from `me`: the ticks (0 = the first run) after which a shot at the
+/// Bandit is held for her dash's end (`Projectile::held`).
+fn held_ticks(me: (i32, i32), ticks: u32) -> Vec<u32> {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_immune_hits = DashImmuneHits::Client16402HeldToImmunityEnd;
+    let mut s = BattleState::new(0, cfg);
+    let a = s.scenario_spawn_now(Team::Blue, "Assassin", at(me), None).expect("spawn");
+    let mut out = Vec::new();
+    for t in 0..ticks {
+        s.tick();
+        if s.projectiles().iter().any(|p| p.target == a && p.held) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end (client 16.402, parity's r73 census: a tower arrow fired before a
+/// Bandit's dash and reaching her inside the immunity landed on its end, 5 of 5; the engine dropped it): from HELD_AT a tower
+/// arrow is in flight at her dash's start; it is marked held from her entry, and lands on her first tick out of the immunity
+/// (the arrival + 2), exactly one arrow's damage the old arm never deals. Plant: dash_immune_hit_discarded.
+#[test]
+fn under_client16402_held_to_immunity_end_an_arrow_flying_at_the_dash_start_lands_on_the_immunity_end() {
+    let (_, _, _, old) = scene_at_tower_with(HELD_AT, 60, DashImmuneHits::Discarded);
+    let (_, _, _, new) = scene_at_tower_with(HELD_AT, 60, DashImmuneHits::Client16402HeldToImmunityEnd);
+    let d = trigger(&old, 7000);
+    let entry = old[d].t + BANDIT_STAND - 1;
+    let arrival = dash_rows(&old, d + BANDIT_STAND as usize).last().unwrap().t;
+    // THE PRECONDITION: a shot in flight at the dash's start is marked on the entry tick (the move pass's mark) and held.
+    let held = held_ticks(HELD_AT, 60);
+    assert_eq!(held.first(), Some(&entry), "no shot at the Bandit was held from her entry {entry} (held after {held:?})");
+    let before: Vec<u32> = old.iter().filter(|r| r.t < arrival && r.own_loss > 0).map(|r| r.t).collect();
+    let arrow = old.iter().find(|r| r.own_loss > 0).map(|r| r.own_loss).expect("the scene drifted: no tower arrow on the Bandit");
+    let first = old.iter().zip(new.iter()).find(|(a, b)| a.own_loss != b.own_loss).map(|(a, b)| (a.t, a.own_loss, b.own_loss));
+    let (t, lo, ln) = first.unwrap_or_else(|| panic!("vacuous: no arrow held under the new arm (arrival {arrival}, the hits before it {before:?})"));
+    // DashImmuneToDamageTime 100 / 50: immune through the arrival + 1, out on the arrival + 2 (state.rs `end_dashes`).
+    assert_eq!(t, arrival + 2, "the held arrow landed on {t}, not on her first tick out of the immunity (the arrival {arrival} + 2)");
+    assert_eq!(ln - lo, arrow, "the held arrow on {t} deals one arrow ({arrow}): old {lo}, new {ln}");
 }

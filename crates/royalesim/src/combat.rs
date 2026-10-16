@@ -157,6 +157,12 @@ pub struct Projectile {
     /// A shot a deflect sent back: it is not deflected again. False on every other shot; hashed only when set.
     #[serde(default)]
     pub deflected: bool,
+    /// HELD FOR A DASH'S END (combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end): the shot was flying at its target
+    /// when the target's dash began (state.rs `phase_path16402_for` marks it), so it waits on a dash-immune target and lands
+    /// on its first tick out of the immunity. False on every other shot, and on every shot under the shipped discarded;
+    /// hashed only when set. `default` so a snapshot saved before it still loads.
+    #[serde(default)]
+    pub held: bool,
     /// A STRAIGHT SHOT (calibration combat.RANGE_PROJECTILE = straight_to_range, or a
     /// pellet of combat.MULTIPLE_PROJECTILES = client_fan): it flies to `aim`, the point
     /// ProjectileRange from its attacker, and never follows `target`, hitting what it
@@ -1266,6 +1272,7 @@ pub fn fire(
             firer_card: Some(ents.card[a]),
             firer: Some(ents.id_of(a)),
             deflected: false,
+            held: false,
             straight: None,
             hook: None,
             bonus: 0,
@@ -1437,6 +1444,7 @@ pub fn fire(
                         firer_card: Some(ents.card[a]),
                         firer: Some(ents.id_of(a)),
                         deflected: false,
+                        held: false,
                         carrier: None,
                         fixed: false,
                         straight: Some(Straight {
@@ -1584,6 +1592,7 @@ pub fn fire(
             firer_card: Some(ents.card[a]),
             firer: Some(ents.id_of(a)),
             deflected: false,
+            held: false,
             straight: None,
             hook: None,
             // A carrier deals nothing itself: its sparks carry the bonus (`Carrier::bonus`).
@@ -1849,6 +1858,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         firer_card: Some(ents.card[a]),
         firer: Some(ents.id_of(a)),
         deflected: false,
+        held: false,
         straight: None,
         hook: Some(ents.id_of(a)),
         carrier: None,
@@ -2308,6 +2318,11 @@ pub fn step_projectiles(
         if np != p.aim && !caught {
             return true;
         }
+        // combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end: a shot that was flying at its target when the target's
+        // dash began waits on it while it is dash-immune (its first tick out of the immunity is its landing).
+        if p.held && alive && ents.dash_immune(p.target.index as usize, tick) {
+            return true;
+        }
         // THE RUNE GIANT'S PROJECTILE deals no damage either. Its landing on a live friend is handed to Resolve
         // (state.rs `apply_effects` puts the enchant on it); one whose friend died in flight lands on nothing (the
         // table's AllowResetTarget is false).
@@ -2432,6 +2447,7 @@ pub fn step_projectiles(
                     firer_card: Some(ents.card[ti]),
                     firer: Some(p.target),
                     deflected: true,
+                    held: false,
                     release: None,
                     enchant: None,
                     trail: None,
@@ -2650,6 +2666,7 @@ fn release_sparks(
             firer_card: p.firer_card,
             firer: p.firer,
             deflected: false,
+            held: false,
             carrier: None,
             fixed: false,
             straight: Some(Straight { origin: at, reach: sp.reach, only_enemies: sp.only_enemies, ..Straight::default() }),

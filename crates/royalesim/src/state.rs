@@ -873,6 +873,10 @@ pub struct Calib {
     /// `WithTheTrigger`, what a battle saved before it ran.
     #[serde(default = "warp_back_cloak_default")]
     pub warp_back_cloak: WarpBackCloak,
+    /// combat.DASH_IMMUNE_HITS (what becomes of a shot already flying at a unit when its dash begins and reaching it while it is dash-immune). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Discarded`, what a battle saved before it ran.
+    #[serde(default = "dash_immune_hits_default")]
+    pub dash_immune_hits: DashImmuneHits,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2707,6 +2711,10 @@ fn line_territory_default() -> LineTerritory {
 
 fn warp_back_cloak_default() -> WarpBackCloak {
     WarpBackCloak::WithTheTrigger
+}
+
+fn dash_immune_hits_default() -> DashImmuneHits {
+    DashImmuneHits::Discarded
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9745,6 +9753,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_IMMUNE_HITS -- a shot on a dash-immune unit (combat.rs `step_projectiles`, `resolve`; state.rs
+    /// `phase_path16402_for`, which marks the shots flying at a unit as its dash begins: `Projectile::held`).
+    DashImmuneHits {
+        /// The engine's: dropped at Resolve, whenever it was fired (combat.DASH_ATTACK = client_dash).
+        Discarded = "discarded",
+        /// Client 16.402: a shot flying at the unit when its dash began waits on it and lands on its first tick out of the
+        /// immunity; one fired during the dash is dropped as before.
+        Client16402HeldToImmunityEnd = "client16402_held_to_immunity_end",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10276,6 +10295,7 @@ impl Calib {
             pulsing_area_life: pick(&v, &["spells", "PULSING_AREA_LIFE", "value"], PulsingAreaLife::from_calibration_name)?,
             line_territory: pick(&v, &["formation", "LINE_TERRITORY", "value"], LineTerritory::from_calibration_name)?,
             warp_back_cloak: pick(&v, &["status", "WARP_BACK_CLOAK", "value"], WarpBackCloak::from_calibration_name)?,
+            dash_immune_hits: pick(&v, &["combat", "DASH_IMMUNE_HITS", "value"], DashImmuneHits::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -16715,6 +16735,7 @@ impl BattleState {
                     firer_card: Some(self.ents.card[i]),
                     firer: Some(self.ents.id_of(i)),
                     deflected: false,
+                    held: false,
                     straight: None,
                     hook: None,
                     carrier: None,
@@ -20736,6 +20757,7 @@ impl BattleState {
             firer_card: Some(self.ents.card[i]),
             firer: Some(self.ents.id_of(i)),
             deflected: false,
+            held: false,
             straight: None,
             hook: None,
             carrier: None,
@@ -23618,6 +23640,8 @@ impl BattleState {
         let mut dash_immune = std::mem::take(&mut self.ents.dash_immune_until);
         let mut dash_blows: Vec<(usize, Option<EntityId>, Vec2)> = Vec::new();
         let mut dash_ended: Vec<usize> = Vec::new();
+        // The units whose dash began this tick with an immunity (combat.DASH_IMMUNE_HITS: the shots flying at them are held).
+        let mut dash_began: Vec<usize> = Vec::new();
         // THE DASH CHAINS this tick (`chain_pass` set their phases): per entity, (phase, target, JumpSpeed).
         let mut chain_at: Vec<Option<(ChainPhase, Option<EntityId>, i32)>> = vec![None; self.ents.capacity()];
         // combat.DASH_CHAIN_AIM: each chain's held dash point (`ChainRun::aim`), written back after the pass.
@@ -24878,6 +24902,7 @@ impl BattleState {
                         dash_mark[i] = self.tick;
                         if d.immune_ms.is_some() {
                             dash_immune[i] = u32::MAX;
+                            dash_began.push(i);
                         }
                         bodies[i].collidable = false;
                         routes[i].clear();
@@ -25531,6 +25556,20 @@ impl BattleState {
         self.ents.dash_target = dash_target;
         self.ents.dash_blocked = dash_blocked;
         self.ents.dash_immune_until = dash_immune;
+        // combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end: every shot flying at a unit whose dash began this tick is
+        // held for the immunity's end (combat.rs `step_projectiles`). Measured on client 16.402 (parity r73): a tower arrow fired
+        // before a Bandit's dash and reaching her inside the immunity landed on its end, 5 of 5.
+        // PLANT (regression) dash_immune_hit_discarded: the new arm still drops them.
+        #[cfg(not(clash_plant = "dash_immune_hit_discarded"))]
+        let hold = self.cfg.calib.dash_immune_hits == DashImmuneHits::Client16402HeldToImmunityEnd;
+        #[cfg(clash_plant = "dash_immune_hit_discarded")]
+        let hold = false;
+        if hold && !dash_began.is_empty() {
+            let ids: Vec<EntityId> = dash_began.iter().map(|&i| self.ents.id_of(i)).collect();
+            for p in self.projectiles.iter_mut().filter(|p| ids.contains(&p.target)) {
+                p.held = true;
+            }
+        }
         self.land_dash_blows(dash_blows);
         // combat.DASH_CHAIN_AIM: the held dash points back on their runs (None under the old arm).
         for c in self.chains.iter_mut() {
@@ -34633,6 +34672,10 @@ impl BattleState {
                 if p.deflected {
                     h.u32(0x4446_4c44);
                 }
+                // A shot held for its target's dash end (`Projectile::held`), only when set.
+                if p.held {
+                    h.u32(0x484c_4444);
+                }
                 // combat.SPECIAL_HOOK: a hook's thrower, only on a hook.
                 if let Some(by) = p.hook {
                     h.id(by);
@@ -36845,6 +36888,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.WARP_BACK_CLOAK: Calib gained warp_back_cloak (serde default the old arm, with_the_trigger), no new state (the cloak's tick is read off the run's `made`),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_IMMUNE_HITS: Calib gained dash_immune_hits (serde default the old arm, discarded), Projectile gained `held` (serde default false, hashed only when set),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37824,6 +37869,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("line_territory".into(), serde_json::to_value(LineTerritory::OwnHalf).map_err(|e| e.to_string())?);
     // status.WARP_BACK_CLOAK: a format-3 battle's Boss Bandit was cloaked on her trigger.
     sh.insert("warp_back_cloak".into(), serde_json::to_value(WarpBackCloak::WithTheTrigger).map_err(|e| e.to_string())?);
+    // combat.DASH_IMMUNE_HITS: a format-3 battle dropped every shot on a dash-immune unit.
+    sh.insert("dash_immune_hits".into(), serde_json::to_value(DashImmuneHits::Discarded).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

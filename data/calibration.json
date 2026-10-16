@@ -1814,6 +1814,16 @@
     }
   },
   "combat": {
+    "DASH_IMMUNE_HITS": {
+      "value": "discarded",
+      "status": "measured",
+      "candidates": ["discarded", "client16402_held_to_immunity_end"],
+      "confidence": "HIGH for client16402_held_to_immunity_end on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402), E a Bandit's or Boss Bandit's last dash frame: over all 30 dash runs, a tower arrow fired before the dash that reached her inside the immunity landed on E + 3 in 5 of 5 (the immunity's end, DashImmuneToDamageTime 150 / 50), the engine's in 0 of 5; arrows fired during the dash were lost on both; the 24 other runs agree tick for tick. A candidate until scored. Client 15.535.29 keeps discarded (CLIENT15535_ARMS; combat.DASH_ATTACK's own measurement there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402), E a Bandit's or Boss Bandit's last dash frame: over all 30 dash runs, a tower arrow fired before the dash that reached her inside the immunity landed on E + 3 in 5 of 5 (the immunity's end, DashImmuneToDamageTime 150 / 50), the engine's in 0 of 5; arrows fired during the dash were lost on both; the 24 other runs agree tick for tick.",
+      "meaning": "discarded: the engine's; every hit on a dash-immune unit is dropped at Resolve. client16402_held_to_immunity_end: a projectile already flying at a unit when its dash begins is marked (`Projectile::held`); arriving while the unit is dash-immune it waits on it, and lands on the first tick the unit is not immune (the dash's end + DashImmuneToDamageTime / 50); a shot fired during the dash is not marked and is dropped as before.",
+      "open": "The Golden Knight's chain (combat.DASH_CHAIN_IMMUNITY) and the guard's charge; troop shots (only tower arrows were seen); client 15.535.29.",
+      "engine": "combat.rs step_projectiles (the wait), Projectile::held; state.rs phase_path16402_for (the mark at the dash's start), selected by Calib::dash_immune_hits; tests/dash_attack.rs."
+    },
     "GUARD_FREE_TICK": {
       "value": "client16402_held_through_arrival_plus_1",
       "status": "measured",

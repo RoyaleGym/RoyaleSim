@@ -336,6 +336,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   spells.PULSING_AREA_LIFE = life_exclusive: a pulsing area ends on its last whole update (unread there).
 ///   formation.LINE_TERRITORY = own_half: a line's place on its owner's half (unread there).
 ///   status.WARP_BACK_CLOAK = with_the_trigger: the Boss Bandit cloaked on her trigger (its holders unread there).
+///   combat.DASH_IMMUNE_HITS = discarded: a shot on a dash-immune unit dropped (combat.DASH_ATTACK's measurement there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -502,6 +503,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.PULSING_AREA_LIFE", "\"life_exclusive\""),
     ("formation.LINE_TERRITORY", "\"own_half\""),
     ("status.WARP_BACK_CLOAK", "\"with_the_trigger\""),
+    ("combat.DASH_IMMUNE_HITS", "\"discarded\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
