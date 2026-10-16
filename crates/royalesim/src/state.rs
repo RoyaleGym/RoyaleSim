@@ -10279,6 +10279,9 @@ calib_enum!(
         FromLandingTick = "from_landing_tick",
         /// Client 16.402: its whole BuffTime from the next tick, one tick longer; a chain's stun and an area's unchanged.
         Client16402FullSpanFromNextTick = "client16402_full_span_from_next_tick",
+        /// Client 16.402 (parity r75, live13): as client16402_full_span_from_next_tick, and the reflect answered on a landed
+        /// shot (`reflect_landed_shot`: a crown tower, a building or a ranged unit) holds a tick longer too.
+        Client16402FullSpanLandedReflect = "client16402_full_span_landed_reflect",
     }
 );
 calib_enum!(
@@ -28541,7 +28544,15 @@ impl BattleState {
         self.dmg.hits.push(Hit { target: firer, amount, ignores_hide: false, own: false, shot: false });
         if let Some(b) = r.buff {
             if land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, &crate::status::BuffHit::plain(victim, b.buff, b.time_ms, 0)) {
-                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, b.time_ms);
+                // status.HIT_STUN_SPAN = client16402_full_span_landed_reflect: the reflect a landed shot draws holds a tick
+                // longer too (parity r75, live13: crown towers resumed on the zap + 11 in 40 of 41 clean holds, the engine's
+                // on + 10 in 41 of 42). PLANT (regression) landed_reflect_stun_from_landing: the new arm still holds BuffTime.
+                #[cfg(not(clash_plant = "landed_reflect_stun_from_landing"))]
+                let span = self.cfg.calib.hit_stun_span == HitStunSpan::Client16402FullSpanLandedReflect;
+                #[cfg(clash_plant = "landed_reflect_stun_from_landing")]
+                let span = false;
+                let ms = if span { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
+                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, ms);
             }
         }
     }
@@ -28592,7 +28603,10 @@ impl BattleState {
                 // status.HIT_STUN_SPAN = client16402_full_span_from_next_tick: a reflect's stun holds a tick longer (the Electro
                 // Giant's: towers resumed on the zap + 11 in 11 of 11, the engine's on + 10).
                 #[cfg(not(clash_plant = "hit_stun_from_landing"))]
-                let span = self.cfg.calib.hit_stun_span == HitStunSpan::Client16402FullSpanFromNextTick;
+                let span = matches!(
+                    self.cfg.calib.hit_stun_span,
+                    HitStunSpan::Client16402FullSpanFromNextTick | HitStunSpan::Client16402FullSpanLandedReflect
+                );
                 #[cfg(clash_plant = "hit_stun_from_landing")]
                 let span = false;
                 let ms = if span { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
@@ -29910,7 +29924,11 @@ impl BattleState {
                     // Measured on client 16.402 (parity r74): towers held by an Electro Wizard resumed on the zap + 11 in 24
                     // of 29, the engine's on + 10. PLANT (regression) hit_stun_from_landing: the new arm still holds BuffTime.
                     #[cfg(not(clash_plant = "hit_stun_from_landing"))]
-                    let span = b.hit_span && self.cfg.calib.hit_stun_span == HitStunSpan::Client16402FullSpanFromNextTick;
+                    let span = b.hit_span
+                        && matches!(
+                            self.cfg.calib.hit_stun_span,
+                            HitStunSpan::Client16402FullSpanFromNextTick | HitStunSpan::Client16402FullSpanLandedReflect
+                        );
                     #[cfg(clash_plant = "hit_stun_from_landing")]
                     let span = false;
                     let ms = if span { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
