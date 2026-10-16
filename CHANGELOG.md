@@ -3,6 +3,39 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.36 (2026-10-16)
+
+- Twenty-two more settings default to the current client's behaviour, each measured against its recorded battles:
+  - The Battle Healer's hits heal her friends around her (`combat.AREA_EFFECT_ON_HIT`), and the Royal Chef cooks
+    pancakes that level up a friendly troop (`combat.TOWER_TROOP_COOKING`).
+  - A stun from an Electro Wizard's bolt or an Electro Giant's reflect holds one tick longer (`status.HIT_STUN_SPAN`).
+  - A Royal Delivery's crate lands a tick later (`spells.STRIKE_DUE`).
+  - A shield takes a tick's hits one by one, and the hit that breaks it is absorbed whole (`combat.SHIELD_TICK_SUM`).
+  - A tower judging whether its target is already doomed counts each shot's own damage, not its enchant bonus
+    (`targeting.DOOMED_ENCHANT_BONUS`). A ranged unit whose target dies during its first attack still fires
+    (`combat.LOST_TARGET_SHOT`). A snipe never picks a crown tower (`targeting.SNIPE_TOWER_FILTER`).
+  - A Miner who comes up is no body to his neighbours for two ticks (`movement.SPAWN_PATHFIND_SURFACE_CONTACT`). A
+    rolling Log does not hit a unit a spawner makes on that tick (`spells.LIVE_SPAWN_ROLL_BIRTH`). A pull starts a
+    tick later (`status.ATTRACT_ONSET`).
+  - The Little Prince's guard stays hit-immune a tick longer and keeps pushing on its landing ticks
+    (`combat.GUARD_CHARGE_IMMUNITY`, `combat.GUARD_LANDING_PUSH`), and the Little Prince is not pushed while he
+    attacks in his press hold (`collision.GUARD_PRESS_CONTACT`).
+  - The Rune Giant is not pushed in his enchant hold (`enchant.ON_BUFF_HOLD_CONTACT`), and the Golden Knight is no
+    contact body between chain hops (`movement.CHAIN_LANDED_BODY`).
+  - The Evo P.E.K.K.A.'s kill heal flies to her and can heal past her maximum (`combat.EVO_KILL_HEAL`).
+  - The Mother Witch's hog appears on the first dry point near where the cursed unit died
+    (`status.BUFF_DEATH_SPAWN_POINT`).
+  - The Evo Goblin Cage takes and holds its captive a tick or two later (`combat.CAGE_DEPLOY_TAKE`,
+    `combat.CAGE_HOLD_START`), and the Evo Goblin Barrel's decoy goblins land on the real goblins' mirror points
+    (`spells.EVO_BARREL_DECOY_POINTS`).
+  - The Hero Tombstone's button can be pressed while its tomb fades, like the Hero Goblins' flag
+    (`combat.FLAG_PRESS_WINDOW`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles. Saved battles from earlier releases load
+  unchanged (`SNAPSHOT_FORMAT` is still 20).
+- The card tables carry two more blocks: the area a unit puts down on each hit (`area_effect_on_hit`) and the Royal
+  Chef's cooking timings (`chef_cooking`, on the Chef's king tower).
+
 ## 0.1.35 (2026-10-16)
 
 - Eleven more settings default to the current client's behaviour, each measured against its recorded battles:
