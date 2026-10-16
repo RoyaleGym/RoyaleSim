@@ -885,6 +885,10 @@ pub struct Calib {
     /// `EndTickBody`, what a battle saved before it ran.
     #[serde(default = "dash_end_contact_default")]
     pub dash_end_contact: DashEndContact,
+    /// spells.STRIKE_TIE_BREAK (how a striking area's (Lightning's) pick breaks a tie on its hp rank). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `EarliestCreated`, what a battle saved before it ran.
+    #[serde(default = "strike_tie_break_default")]
+    pub strike_tie_break: StrikeTieBreak,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2731,6 +2735,10 @@ fn live_spawn_area_birth_default() -> LiveSpawnAreaBirth {
 
 fn dash_end_contact_default() -> DashEndContact {
     DashEndContact::EndTickBody
+}
+
+fn strike_tie_break_default() -> StrikeTieBreak {
+    StrikeTieBreak::EarliestCreated
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9803,6 +9811,15 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.STRIKE_TIE_BREAK -- the tie on spells.STRIKE_HP_RANK among a striking area's candidates (spell.rs `strike`).
+    StrikeTieBreak {
+        /// The engine's: the earliest created (`team_seq`).
+        EarliestCreated = "earliest_created",
+        /// Client 16.402: the candidate nearest the area's centre; an exact distance tie to the earliest created.
+        Client16402NearestCentreThenEarliest = "client16402_nearest_centre_then_earliest",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10337,6 +10354,7 @@ impl Calib {
             dash_immune_hits: pick(&v, &["combat", "DASH_IMMUNE_HITS", "value"], DashImmuneHits::from_calibration_name)?,
             live_spawn_area_birth: pick(&v, &["spells", "LIVE_SPAWN_AREA_BIRTH", "value"], LiveSpawnAreaBirth::from_calibration_name)?,
             dash_end_contact: pick(&v, &["combat", "DASH_END_CONTACT", "value"], DashEndContact::from_calibration_name)?,
+            strike_tie_break: pick(&v, &["spells", "STRIKE_TIE_BREAK", "value"], StrikeTieBreak::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -36960,6 +36978,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_END_CONTACT: Calib gained dash_end_contact (serde default the old arm, end_tick_body), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.STRIKE_TIE_BREAK: Calib gained strike_tie_break (serde default the old arm, earliest_created), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37945,6 +37965,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("live_spawn_area_birth".into(), serde_json::to_value(LiveSpawnAreaBirth::SeenOnBirthTick).map_err(|e| e.to_string())?);
     // combat.DASH_END_CONTACT: a format-3 battle's Mega Knight was a body on his jump's end tick.
     sh.insert("dash_end_contact".into(), serde_json::to_value(DashEndContact::EndTickBody).map_err(|e| e.to_string())?);
+    // spells.STRIKE_TIE_BREAK: a format-3 battle's Lightning broke its hp ties by creation.
+    sh.insert("strike_tie_break".into(), serde_json::to_value(StrikeTieBreak::EarliestCreated).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

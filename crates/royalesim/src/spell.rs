@@ -1226,8 +1226,16 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         StrikeReach::RadiusPlusTarget => 0,
     };
     ctx.hash.neighbours_within(e, pos, def.hit.radius + extra + ctx.hash.max_radius(), nb);
-    // (rank hp, -team_seq, index): the greatest wins
-    let mut best: Option<(i32, i64, usize)> = None;
+    // (rank hp, -distance to the centre under STRIKE_TIE_BREAK's nearest arm, -team_seq, index): the greatest wins
+    // spells.STRIKE_TIE_BREAK = client16402_nearest_centre_then_earliest: an hp tie goes to the nearest candidate, an exact
+    // distance tie to the earliest created. Measured on client 16.402 (parity r73): the strictly nearest in 16 of 20 ties, the
+    // other 4 exact distance ties won by the earliest.
+    // PLANT (regression) strike_tie_earliest: the new arm still breaks the tie by creation alone.
+    #[cfg(not(clash_plant = "strike_tie_earliest"))]
+    let nearest = ctx.calib.strike_tie_break == crate::state::StrikeTieBreak::Client16402NearestCentreThenEarliest;
+    #[cfg(clash_plant = "strike_tie_earliest")]
+    let nearest = false;
+    let mut best: Option<(i32, i64, i64, usize)> = None;
     for &v in nb.iter() {
         let v = v as usize;
         if !eligible(e, v, team, &def.hit, ctx.calib) {
@@ -1259,12 +1267,18 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         let order = -(e.team_seq[v] as i64);
         #[cfg(clash_plant = "strike_tie_by_slot")]
         let order = v as i64; // PLANT: ties to the highest slot, which is not the creation order.
-        let key = (hp, order, v);
-        if best.map_or(true, |b| (key.0, key.1) > (b.0, b.1)) {
+        let near = if nearest {
+            let (dx, dy) = ((e.pos[v].x / K - pos.x / K) as i64, (e.pos[v].y / K - pos.y / K) as i64);
+            -(dx * dx + dy * dy)
+        } else {
+            0
+        };
+        let key = (hp, near, order, v);
+        if best.map_or(true, |b| (key.0, key.1, key.2) > (b.0, b.1, b.2)) {
             best = Some(key);
         }
     }
-    let Some((_, _, v)) = best else { return };
+    let Some((_, _, _, v)) = best else { return };
     let id = e.id_of(v);
     if let Err(at) = struck.binary_search(&id) {
         struck.insert(at, id);

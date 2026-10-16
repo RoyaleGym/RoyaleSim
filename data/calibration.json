@@ -3445,6 +3445,16 @@
     ]
   },
   "spells": {
+    "STRIKE_TIE_BREAK": {
+      "value": "earliest_created",
+      "status": "measured",
+      "candidates": ["earliest_created", "client16402_nearest_centre_then_earliest"],
+      "confidence": "HIGH for client16402_nearest_centre_then_earliest on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): of 20 Lightning bolts with an hp tie among the candidates in reach, the victim was the strictly nearest to the centre in 16, and the other 4 were exact distance ties won by the earliest created; the earliest created alone fits 5 of 20; the engine took another unit in 9 of 10 readable ties. A candidate until scored. Client 15.535.29 keeps earliest_created (CLIENT15535_ARMS; its 28 casts measured the creation order, a_tie_goes_to_the_earlier_created's equidistant scene).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): of 20 Lightning bolts with an hp tie among the candidates in reach, the victim was the strictly nearest to the centre in 16, and the other 4 were exact distance ties won by the earliest created; the earliest created alone fits 5 of 20; the engine took another unit in 9 of 10 readable ties.",
+      "meaning": "earliest_created: the engine's; among candidates of one hp rank the earliest created is struck. client16402_nearest_centre_then_earliest: the one whose centre is nearest the area's centre on the pick tick; on an exact distance tie, the earliest created.",
+      "open": "The Void's and the Vines' picks; client 15.535.29's unequal-distance ties.",
+      "engine": "spell.rs strike (the pick's key), selected by Calib::strike_tie_break; tests/strikes.rs."
+    },
     "LIVE_SPAWN_AREA_BIRTH": {
       "value": "seen_on_birth_tick",
       "status": "measured",

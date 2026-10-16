@@ -339,6 +339,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.DASH_IMMUNE_HITS = discarded: a shot on a dash-immune unit dropped (combat.DASH_ATTACK's measurement there).
 ///   spells.LIVE_SPAWN_AREA_BIRTH = seen_on_birth_tick: a live spawn in its birth tick's area scans (unread there).
 ///   combat.DASH_END_CONTACT = end_tick_body: a timed dash's unit a body on its end tick (unread there).
+///   spells.STRIKE_TIE_BREAK = earliest_created: a Lightning hp tie to the earliest created (its 28 casts).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -508,6 +509,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.DASH_IMMUNE_HITS", "\"discarded\""),
     ("spells.LIVE_SPAWN_AREA_BIRTH", "\"seen_on_birth_tick\""),
     ("combat.DASH_END_CONTACT", "\"end_tick_body\""),
+    ("spells.STRIKE_TIE_BREAK", "\"earliest_created\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

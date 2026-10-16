@@ -25,6 +25,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test strikes`):
 //!   * `strike_timer_restarts` -- the leftover dropped: (2) goes red on D + 19.
 //!   * `strike_tie_by_slot` -- ties to the highest slot: (3) goes red.
+//!   * `strike_tie_earliest` -- spells.STRIKE_TIE_BREAK = client16402_nearest_centre_then_earliest still breaks a tie by
+//!     creation: `under_client16402_nearest_centre_a_tie_goes_to_the_nearer_knight` goes red.
 //!   * `strike_crown_from_area` -- the area's 100 %: (4) goes red.
 //!   * `strike_repeats_target` -- the struck set is not read: (4) goes red (the tower is struck three times).
 //!   * `strike_reach_bare` -- the refuted Radius + r: (5) goes red.
@@ -37,7 +39,7 @@ use common::*;
 use royalesim::card::SpellShape;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState, TapSnap};
+use royalesim::state::{BattleConfig, BattleState, StrikeTieBreak, TapSnap};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -240,4 +242,28 @@ fn a_knight_about_to_leave_reach_is_not_struck() {
     }
     assert!(found, "the scene drifted: no start put the walking Knight inside reach on the strike tick and outside next");
     assert!(control, "the scene drifted: no start kept the walking Knight inside reach now and next");
+}
+
+/// Two Red Knights of one hp, the earlier created 2,000 from a Blue Lightning's centre and the later 500 from it, under
+/// spells.STRIKE_TIE_BREAK = `arm`: the first strike's victim, by its creation (0 the earlier, 1 the later).
+fn tie_by_distance(arm: StrikeTieBreak) -> usize {
+    let mut cfg = config();
+    cfg.calib.strike_tie_break = arm;
+    let mut s = BattleState::new(0, cfg);
+    let far = s.scenario_spawn_now(Team::Red, "Knight", at((7000, 22000)), Some(1300)).expect("spawn");
+    let near = s.scenario_spawn_now(Team::Red, "Knight", at((9500, 22000)), Some(1300)).expect("spawn");
+    assert!(s.entity(far).unwrap().team_seq < s.entity(near).unwrap().team_seq, "the scene drifted: the far Knight is not the earlier created");
+    let ids = [far, near];
+    let got = losses(&mut s, &ids, at((9000, 22000)), 12);
+    let first = got.first().unwrap_or_else(|| panic!("the scene drifted: no strike ({got:?})"));
+    ids.iter().position(|&id| id == first.1).expect("a struck Knight")
+}
+
+/// spells.STRIKE_TIE_BREAK = client16402_nearest_centre_then_earliest (client 16.402, parity's r73 census: the strictly
+/// nearest won 16 of 20 hp ties, the exact distance ties the earliest created): the nearer Knight is struck first; under
+/// earliest_created (the vacuity check) the earlier created, the farther one. Plant: strike_tie_earliest.
+#[test]
+fn under_client16402_nearest_centre_a_tie_goes_to_the_nearer_knight() {
+    assert_eq!(tie_by_distance(StrikeTieBreak::Client16402NearestCentreThenEarliest), 1, "client16402_nearest_centre_then_earliest: the nearer Knight first");
+    assert_eq!(tie_by_distance(StrikeTieBreak::EarliestCreated), 0, "earliest_created: the earlier created first");
 }
