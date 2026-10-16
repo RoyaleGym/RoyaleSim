@@ -192,10 +192,15 @@ fn under_client16402_spared_mid_leap_a_hog_rider_in_its_river_leap_is_not_hit() 
 /// One Blue Barbarian Barrel cast at (4600, 11800) under spells.ROLL_RELEASE_WATER_POINT = `arm`: its roll ends on the river
 /// (x 4600 is east of the left bridge's columns): (the roll's end point, the Barbarian's first point).
 fn released_on_water(arm: royalesim::state::RollReleaseWaterPoint) -> (Vec2, Vec2) {
+    released_at(arm, (4600, 11800))
+}
+
+/// As `released_on_water`, the Barrel cast at `tap`.
+fn released_at(arm: royalesim::state::RollReleaseWaterPoint, tap: (i32, i32)) -> (Vec2, Vec2) {
     let mut cfg: BattleConfig = config();
     cfg.calib.roll_release_water_point = arm;
     let mut s = BattleState::new(0, cfg);
-    s.spawn_unit(Team::Blue, "BarbLog", at((4600, 11800)), None).expect("cast the Barbarian Barrel");
+    s.spawn_unit(Team::Blue, "BarbLog", at(tap), None).expect("cast the Barbarian Barrel");
     let mut end = None;
     for _ in 0..80 {
         s.tick();
@@ -288,4 +293,21 @@ fn under_client16402_unseen_on_birth_tick_a_log_misses_a_live_spawn_on_its_birth
     }
     assert!(new_seen > old_seen, "vacuous: the Log killed no newborn on its birth tick over 44 offsets ({old_seen} seen, the new arm {new_seen})");
     assert_eq!(new_hurt, 0, "client16402_unseen_on_birth_tick: a newborn was hurt on its birth tick");
+}
+
+/// spells.ROLL_RELEASE_WATER_POINT = client16402_own_cell_half_centre (client 16.402, parity r75, live13: 9 of 9 releases
+/// whose own half-cell is dry kept their point): a Barrel cast at (13500, 10500) ends on the right bridge's corner (13500,
+/// 15000), which touches water while its own half-cell is the bridge's; the Barbarian stands there, where
+/// client16402_half_cell_centre (the vacuity check) moves it to a dry centre. On the river (the first scene) the two arms
+/// agree. Plant: release_water_touching.
+#[test]
+fn under_client16402_own_cell_half_centre_a_barbarian_released_on_a_bridge_corner_stays_on_it() {
+    use royalesim::state::RollReleaseWaterPoint as R;
+    let a = BattleState::new(0, config()).arena().clone();
+    let (end, old) = released_at(R::Client16402HalfCellCentre, (13500, 10500));
+    assert!(a.is_water(end) && a.is_valid_position(end), "the scene drifted: the roll's end {end:?} is not a dry half-cell touching water");
+    assert_ne!(old, end, "client16402_half_cell_centre (the vacuity check): the Barbarian stood on the corner");
+    let (_, new) = released_at(R::Client16402OwnCellHalfCentre, (13500, 10500));
+    assert_eq!(new, end, "client16402_own_cell_half_centre: the Barbarian left the corner");
+    assert_eq!(released_on_water(R::Client16402OwnCellHalfCentre).1, released_on_water(R::Client16402HalfCellCentre).1, "the arms part on the river");
 }

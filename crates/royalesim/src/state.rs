@@ -10266,6 +10266,9 @@ calib_enum!(
         NearestPassableGround = "nearest_passable_ground",
         /// Client 16.402: the centre of the nearest dry half-cell, ties to the lower row, then the lower column.
         Client16402HalfCellCentre = "client16402_half_cell_centre",
+        /// Client 16.402 (parity r75, live13): as client16402_half_cell_centre, moved only when the point's own half-open
+        /// half-cell is water (Arena::is_valid_position); a point whose own half-cell is dry stays, touching water or not.
+        Client16402OwnCellHalfCentre = "client16402_own_cell_half_centre",
     }
 );
 calib_enum!(
@@ -32809,15 +32812,25 @@ impl BattleState {
         // the nearest dry half-cell. Measured on client 16.402 (parity r74): 59 of 85 exactly, 19 more within one push.
         // PLANT (regression) release_water_axis: the new arm still takes the nearest land along an axis.
         #[cfg(not(clash_plant = "release_water_axis"))]
-        let centre = count <= 1 && self.cfg.calib.roll_release_water_point == RollReleaseWaterPoint::Client16402HalfCellCentre;
+        let centre = count <= 1
+            && matches!(self.cfg.calib.roll_release_water_point, RollReleaseWaterPoint::Client16402HalfCellCentre | RollReleaseWaterPoint::Client16402OwnCellHalfCentre);
         #[cfg(clash_plant = "release_water_axis")]
         let centre = false;
+        // spells.ROLL_RELEASE_WATER_POINT = client16402_own_cell_half_centre: the trigger is the point's own half-cell (the
+        // client's is_valid_position), not touching water. Measured on client 16.402 (parity r75, live13): 9 of 9 releases
+        // whose own half-cell is dry kept their point, where the touching trigger moved them 354. PLANT (regression)
+        // release_water_touching: the new arm still moves a point that only touches water.
+        #[cfg(not(clash_plant = "release_water_touching"))]
+        let own_cell = count <= 1 && self.cfg.calib.roll_release_water_point == RollReleaseWaterPoint::Client16402OwnCellHalfCentre;
+        #[cfg(clash_plant = "release_water_touching")]
+        let own_cell = false;
         (0..count.max(1))
             .map(|k| {
                 let p = tap.add(crate::formation::member_offset(layout, k));
                 let p = Vec2::new(p.x.clamp(margin, w - margin), p.y.clamp(margin, h - margin));
                 let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
-                if u.is_flying() || arena.is_passable_ground(abs) {
+                let dry = if own_cell { arena.is_valid_position(abs) } else { arena.is_passable_ground(abs) };
+                if u.is_flying() || dry {
                     abs
                 } else if centre {
                     arena.nearest_dry_half_centre(abs).unwrap_or(abs)
