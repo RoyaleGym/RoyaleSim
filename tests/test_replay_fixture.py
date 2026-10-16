@@ -2343,8 +2343,9 @@ def test_a_heros_display_twin_is_display_only(m):
     undamaged one is its floating ice, role "display". With both undamaged, the one first seen behind the other (toward
     its own king: side 1, + y) is the twin. A form with no display twin is left alone."""
     effect = {"kind": "ice_cube", "display_attached": "IceWizardHeroFloatingCube"}
-    hero_form = {"name": "IceWizard_hero", "summon_character": "IceWizardHero", "ability": {"effect": effect}}
-    doc = {"hero_forms": [hero_form]}
+    hero_form = {"name": "IceWizard_hero", "form_of": "IceWizard", "summon_character": "IceWizardHero",
+                 "ability": {"effect": effect}}
+    doc = {"hero_forms": [hero_form], "cards": [{"name": "IceWizard", "summon_character": "IceWizard"}]}
 
     def ent(key, y0, first=0, last=2):
         return {"key": key, "side": 1, "card_id": 203000023, "unit": "IceWizardHero", "role": "summon", "max_hp": 688,
@@ -2360,6 +2361,11 @@ def test_a_heros_display_twin_is_display_only(m):
     assert m.display_twins({7: a, 8: b}, clean, doc) == 1
     assert (a["role"], b["role"]) == ("display", "summon"), "the one behind its hero"
     assert m.display_twins({7: ent(7, 20000), 8: ent(8, 20000)}, clean, {"hero_forms": []}) == 0
+    # live (ob9): both members read as the base card's unit, IceWizard (their hitpoints match its row too)
+    a, b = ent(7, 20000), ent(8, 20000)
+    a["unit"] = b["unit"] = "IceWizard"
+    assert m.display_twins({7: a, 8: b}, rows, doc) == 1
+    assert (a["role"], b["role"]) == ("summon", "display"), "the twin read as an IceWizard"
 
 
 def test_a_hero_forms_own_objects_are_its_cards(m):

@@ -1814,12 +1814,17 @@ def display_twins(ents: dict, per_tick_rows: list[dict], doc: dict) -> int:
     it, never damaged (live, the 2026-10 set: 96 of 96). Display only: the engine has no object for it. Each pair of a
     hero's deploy group (its members by key) holds one; the twin is the undamaged one, or with both undamaged the one
     that first stood behind the other (toward its own king: 79 of 96 by 150), else the later key. Marks each twin role
-    "display" (the harness pairs it with nothing) and returns how many."""
-    heroes = {
-        h.get("summon_character") or h["name"]
-        for h in doc.get("hero_forms") or []
-        if ((h.get("ability") or {}).get("effect") or {}).get("display_attached")
-    }
+    "display" (the harness pairs it with nothing) and returns how many. The pair's members carry the name their
+    hitpoints match, the hero row's or its base card's (both 269 base for the Hero Ice Wizard; live, ob9: every twin
+    read as an IceWizard), so either name is the hero's."""
+    cards_by_name = {c["name"]: c for c in doc.get("cards") or []}
+    heroes: set[str] = set()
+    for h in doc.get("hero_forms") or []:
+        if not ((h.get("ability") or {}).get("effect") or {}).get("display_attached"):
+            continue
+        base = cards_by_name.get(h.get("form_of") or "") or {}
+        heroes |= {h.get("summon_character") or h["name"], base.get("summon_character") or base.get("name")}
+    heroes.discard(None)
     if not heroes:
         return 0
     groups: dict[tuple, list[dict]] = defaultdict(list)
