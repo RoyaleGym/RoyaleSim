@@ -2213,18 +2213,23 @@ def test_a_live_captures_stamp_is_read_and_it_has_no_partner(m, tmp_path):
 
 def test_an_evo_skeletons_copies_are_not_plays(m):
     """An Evo Skeleton's hit makes a copy, which the capture shows as a new unit of the card (module doc, EVO COPIES).
-    A group of fewer members than a play's, each first standing within EVO_COPY_REACH of a living member of an earlier
-    group, is that group's copies (live 20261002-152325-A's keys 55-59 stood 826-925 off one); a full group, one too
-    far, or one whose only neighbour is dead is not."""
+    A group born out of its deploy, each member first standing within EVO_COPY_REACH of a living member of an earlier
+    group, is that group's copies whatever its size (live 20261002-152325-A's keys 55-59 stood 826-925 off one;
+    20261007-112004-A's keys 111-113 are three on one tick); one too far, or one whose only neighbour is dead, is
+    not."""
     row = {10: (14500, 12500, 32), 11: (13600, 12400, 32), 12: (16000, 12500, 0)}
     one = [{"key": 20, "x0": 14500, "y0": 13413}]
-    assert m.evo_copy_of(one, {10, 11}, row, 3) is not None
-    assert "[913]" in m.evo_copy_of(one, {10, 11}, row, 3)
-    assert m.evo_copy_of(one * 3, {10, 11}, row, 3) is None, "a full group is a play"
-    assert m.evo_copy_of([{"key": 21, "x0": 14500, "y0": 12500 + m.EVO_COPY_REACH + 1}], {10}, row, 3) is None
-    assert m.evo_copy_of([{"key": 22, "x0": 16000, "y0": 12600}], {12}, row, 3) is None, "a dead neighbour hits nobody"
-    assert m.evo_copy_of(one, set(), row, 3) is None, "no group to be a copy of"
-    assert m.evo_copy_of(one, {10}, row, None) is None
+    assert m.evo_copy_of(one, {10, 11}, row) is not None
+    assert "[913]" in m.evo_copy_of(one, {10, 11}, row)
+    assert "3 copies" in m.evo_copy_of(one * 3, {10, 11}, row), "three copies on one tick are copies"
+    assert m.evo_copy_of([{"key": 21, "x0": 14500, "y0": 12500 + m.EVO_COPY_REACH + 1}], {10}, row) is None
+    assert m.evo_copy_of([{"key": 22, "x0": 16000, "y0": 12600}], {12}, row) is None, "a dead neighbour hits nobody"
+    assert m.evo_copy_of(one, set(), row) is None, "no group to be a copy of"
+    # born out of its deploy: first shown walking (1) or attacking (2), not deploying (4) nor waiting its stagger (11)
+    assert m.born_out_of_deploy({"states": [(5, 1)]})
+    assert m.born_out_of_deploy({"states": [(5, 2), (6, 1)]})
+    assert not m.born_out_of_deploy({"states": [(5, 4)]})
+    assert not m.born_out_of_deploy({"states": [(5, m.STATE_STAGGER_WAIT)]})
 
 
 def test_a_scheduled_spells_cast_is_read_off_its_spawns(m):
@@ -2521,3 +2526,430 @@ def test_a_spells_level_is_read_off_a_crown_towers_drop(m):
     assert (a["level"], a["level_source"]) == (11, "damage"), a
     assert "fitting levels [" in b["level_evidence"]
     assert (b["level"], b["level_source"]) == (11, "card level"), b
+
+
+TABLE_16402 = os.path.join(ROOT, "data", "derived", "cards-160402017-20261006.json")
+
+
+@pytest.fixture(scope="module")
+def doc16402():
+    if not os.path.exists(TABLE_16402):
+        pytest.skip(f"{TABLE_16402} is absent (the 2026-10-06 table) -- a skip here is not a pass")
+    with open(TABLE_16402, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_a_cards_death_and_form_blocks_put_down_its_objects(m, doc16402):
+    """Objects a card's death projectile, death area, action graph, form row and form mechanic put down are its
+    spawned objects (live ob10: 832 unknown objects, 777 of them these; the harness skipped them all). Each base on
+    the Common ladder: the Phoenix's egg 124 (PhoenixFireball's spawn_character), the Suspicious Bush's BushGoblin 132
+    (its death area SuspiciousBush_DummyAEO), the Evo Skeleton Army's Spectral 1, the Evo Goblin Giant's Goblin 79 (its
+    form row's interval spawner), the Evo Royal Ghost's pair 32, the Evo Lumberjack's ghost 1 (evo_rage_ghost), the
+    Hero Dark Prince's mount 530 (its button's `mount`)."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    live = [  # (card, level, max_hp, unit): live hp of ob10 entities
+        ("Phoenix", 11, 317, "PhoenixEgg"), ("Phoenix", 16, 507, "PhoenixEgg"),
+        ("SuspiciousBush", 15, 491, "BushGoblin"), ("SuspiciousBush", 16, 539, "BushGoblin"),
+        ("SkeletonArmy", 8, 1, "SkeletonArmy_EV1_Spectral"), ("SkeletonArmy", 13, 3, "SkeletonArmy_EV1_Spectral"),
+        ("SkeletonArmy", 16, 4, "SkeletonArmy_EV1_Spectral"),
+        ("GoblinGiant", 15, 293, "Goblin"), ("GoblinGiant", 16, 323, "Goblin"),
+        ("Ghost", 11, 81, "Ghost_EV1_Summon_Left"), ("Ghost", 16, 130, "Ghost_EV1_Summon_Left"),
+        ("RageBarbarian", 11, 2, "RageBarbarianEvoGhost"), ("RageBarbarian", 16, 4, "RageBarbarianEvoGhost"),
+        ("DarkPrince", 11, 1356, "DarkPrinceHero_Mount"), ("DarkPrince", 16, 2167, "DarkPrinceHero_Mount"),
+    ]
+    for name, level, hp, unit in live:
+        assert m.classify_unit(doc16402, cards[name], level, hp) == (unit, False, "exact"), (name, level, hp)
+    # the Lumberjack's 1-base objects are his evolution's ghost, not the bottle his death area drops: the bottle row
+    # has no hitpoints (the engine runs it as a fuse, no entity)
+    assert doc16402["units"]["RageBarbarianBottle"].get("hitpoints") is None
+    # each card's own unit is still its deploy summon
+    for name, level in (("Phoenix", 11), ("SuspiciousBush", 16), ("GoblinGiant", 16), ("Ghost", 11)):
+        pct = m.ladder_percent(doc16402, cards[name], cards[name]["summon_character"], level)
+        own = cards[name]["hitpoints"] * pct // 100
+        assert m.classify_unit(doc16402, cards[name], level, own) == (cards[name]["summon_character"], True, "exact")
+
+
+def test_a_skeleton_kings_soul_copies_are_his_spawns(m, doc16402):
+    """A SOUL COPY: the Skeleton King's button puts down copies of SkeletonKingSkeleton at 1 hitpoint (calibration
+    spells.CLONE_HITPOINTS) at every level (live ob10: 223 of 223 at levels 11, 15 and 16, each an unknown object). Only
+    the copy hitpoints, and only under a card whose button is a soul summon."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    king = cards["SkeletonKing"]
+    for level in (11, 15, 16):
+        assert m.classify_unit(doc16402, king, level, 1) == ("SkeletonKingSkeleton", False, "soul copy")
+    assert m.classify_unit(doc16402, king, 11, 2)[2].startswith("unknown_object"), "2 is no copy's"
+    assert m.classify_unit(doc16402, cards["Knight"], 11, 1)[2].startswith("unknown_object"), "no soul summon"
+
+
+def test_an_eggs_hatchling_is_no_play(m, doc16402):
+    """A SPAWNED OBJECT'S HATCHLING: the Phoenix's egg puts PhoenixNoRespawn (the Phoenix's 411 base) down on its last
+    frame and goes; it read as a Phoenix deploy summon, a play nobody made (live ob10 20261007-112004 key 50: egg 45's
+    last frame 922 at (15296, 14031), the hatchling first seen on the next frame at (15296, 12931); 17 of 17 such). A
+    Phoenix shown later, farther, on the other side, or after an egg that is not a spawned object stays a summon."""
+    rows = [{} for _ in range(10)]
+    rows[4] = {45: (15296, 14031, 233)}
+
+    def ent(key, role, unit, x0, y0, first, last, side=1, max_hp=1052):
+        return {"key": key, "side": side, "card_id": 26000087, "card": "Phoenix", "role": role, "unit": unit,
+                "level": 11, "max_hp": max_hp, "x0": x0, "y0": y0, "first_index": first, "last_index": last}
+
+    egg = ent(45, "spawned", "PhoenixEgg", 15296, 14031, 0, 4, max_hp=317)
+    ents = {45: egg, 50: ent(50, "summon", "Phoenix", 15296, 12931, 5, 9),
+            51: ent(51, "summon", "Phoenix", 15296, 12931, 6, 9),
+            52: ent(52, "summon", "Phoenix", 15296, 11931, 4, 9),
+            53: ent(53, "summon", "Phoenix", 15296, 12931, 4, 9, side=0)}
+    assert m.hatched_spawns(ents, rows, doc16402) == 1
+    assert (ents[50]["role"], ents[50]["unit"], ents[50]["deploy_summon"]) == ("spawned", "PhoenixNoRespawn", False)
+    assert [ents[k]["role"] for k in (51, 52, 53)] == ["summon"] * 3, "later, farther, the other side"
+    unread = {45: {**egg, "role": "unknown_object", "unit": None}, 50: ent(50, "summon", "Phoenix", 15296, 12931, 5, 9)}
+    assert m.hatched_spawns(unread, rows, doc16402) == 0, "an egg the classification did not read hatches nothing"
+
+
+def _evo_skeleton_battle(m, doc):
+    """(header, frames) of side 0's Evo Skeletons play (keys 10-12, card 13000010) shown deploying on t10 and its
+    copies, each born out of its deploy (state 2): key 30 on t40 a tile from a played member (a copy the old rule read
+    too), key 31 on t50 a tile from key 30 and 2100 from every played member (a copy of a copy, its hitter 10 ticks
+    old), keys 32-34 on t60 (three copies on one tick), key 35 on t81 a tile from key 34 (11 ticks after a Skeletons
+    tap on t70); and the base Skeletons play the tap made (keys 40-42, card 26000010) shown deploying on t91."""
+    evo = next(r for r in doc["evolutions"] if r["name"] == "Skeletons_EV1")
+    base = next(c for c in doc["cards"] if c["name"] == "Skeletons")
+    hp_evo = evo["hitpoints"] * m.ladder_percent(doc, evo, evo["summon_character"], 11) // 100
+    hp_base = base["hitpoints"] * m.ladder_percent(doc, base, base.get("summon_character") or "Skeletons", 11) // 100
+    towers = [(1, 0, 9000, 3000, 4824), (2, 0, 3500, 6500, 3052), (3, 0, 14500, 6500, 3052),
+              (4, 1, 9000, 29000, 4824), (5, 1, 3500, 25500, 3052), (6, 1, 14500, 25500, 3052)]
+    header = [{"side": s, "x": x, "y": y} for _, s, x, y, _ in towers]
+    units = [  # key, card id, hp, x, y, first tick, first state
+        (10, 13000010, hp_evo, 9000, 10500, 10, 4), (11, 13000010, hp_evo, 9500, 10500, 10, 4),
+        (12, 13000010, hp_evo, 10000, 10500, 10, 4),
+        (30, 13000010, hp_evo, 9500, 11500, 40, 2),
+        (31, 13000010, hp_evo, 9500, 12600, 50, 2),
+        (32, 13000010, hp_evo, 9000, 11500, 60, 2), (33, 13000010, hp_evo, 10000, 11500, 60, 2),
+        (34, 13000010, hp_evo, 9500, 13500, 60, 2),
+        (35, 13000010, hp_evo, 9500, 14400, 81, 2),
+        (40, 26000010, hp_base, 4000, 20500, 91, 4), (41, 26000010, hp_base, 4500, 20500, 91, 4),
+        (42, 26000010, hp_base, 5000, 20500, 91, 4),
+    ]
+
+    def ent(k, s, cid, hp, x, y, state, kind):
+        return {"id": f"p{k}", "generation_key": k, "side": s, "x": x, "y": y, "x2": x, "y2": y, "card_id": cid,
+                "level": 11, "kind": kind, "hp": hp, "max_hp": hp, "behavior_state": state, "target": None,
+                "path_nodes": [], "attack_progress_ms": 0, "attack_load_timer_ms": 0, "event_timer_ms": 0,
+                "attack_component_valid": True}
+
+    frames = []
+    for t in range(0, 120):
+        es = [ent(k, s, -1, hp, x, y, 0, 13) for k, s, x, y, hp in towers]
+        for k, cid, hp, x, y, t0, st in units:
+            if t >= t0:
+                es.append(ent(k, 0, cid, hp, x, y, st if st != 4 or t < t0 + 20 else 1, 14))
+        frames.append({"tick": t, "entities": es, "effects": []})
+    return header, frames
+
+
+@needs_modern_cards
+def test_evo_skeletons_copies_of_copies_and_full_ticks_are_no_plays(m, maker_inputs, tmp_path):
+    """EVO COPIES on a built battle: every group born out of its deploy near a living member is copies (spawned,
+    `copy_of`), a copy of a young copy and three on one tick too, and a copy shown inside a Skeletons tap's window
+    leaves the tap to the base play it belongs to (20261007-112004-A t1143 took the tap of t1132 from the Skeletons
+    of t1153). The play itself stays the one Evo Skeletons row."""
+    _skip_without_the_id_table(m)
+    id_table, doc, name_to_id, card_names = maker_inputs
+    header, frames = _evo_skeleton_battle(m, doc)
+    path = tmp_path / ("frames-synthetic" + m.CAPTURE_SUFFIX)
+    _write_capture(path, header, frames)
+    log = tmp_path / "placements-synthetic.jsonl"
+    log.write_text(json.dumps({"tick": 0, "local_side_native": 0}) + "\n"
+                   + json.dumps({"tick": 70, "card": "Skeletons", "requested": [4.5, 20.5]}) + "\n", encoding="utf-8")
+    fx = m.build(str(path), [str(log)], 1, None, None, id_table, doc, {}, name_to_id, card_names, {})
+    rows = [(d["tick"], d["keys"], d.get("form"), (d.get("tap") or {}).get("tick")) for d in fx["deploys"]]
+    assert rows == [(10, [10, 11, 12], "ev1", None), (91, [40, 41, 42], "base", 70)], rows
+    copies = [g["keys"] for g in fx["spawned_groups"] if g.get("copy_of")]
+    assert copies == [[30], [31], [32, 33, 34], [35]], fx["spawned_groups"]
+    roles = {e["key"]: e["role"] for e in fx["truth"]["entities"] if e["key"] >= 10}
+    assert {k for k, r in roles.items() if r == "spawned"} == {30, 31, 32, 33, 34, 35}, roles
+
+
+def test_a_mirrored_spells_units_are_the_copied_cards(m):
+    """A MIRRORED SPELL'S UNITS (module doc): live 20261007-125654-A's three Mirror casts of the Goblin Barrel put down
+    goblins under the Mirror's id (28000006, no object of the Mirror card): renamed GoblinBarrel / BarrelGoblin, and
+    the Mirror row takes their level 11 (the copied barrel's own level, not the 'mirrored row + 1' 12). The barrel's
+    own goblins, a Mirror row of a spell that puts nothing down (Arrows), a group out of the window and one whose hp
+    no object of the copied card has are left as they are."""
+    doc = {"units": {"BarrelGoblin": {"hitpoints": 79, "rarity": "Common"}}, "evolutions": [], "hero_forms": [],
+           "rarities": {"Common": {"relative_level": 0, "multiplier_percent_by_level":
+                                   [100, 110, 121, 133, 146, 160, 176, 193, 212, 233, 256, 281, 309, 339]}}}
+    barrel = {"name": "GoblinBarrel", "kind": "spell", "level_scaling": {"rarity": "Epic"},
+              "spell": {"spawn": {"character": "BarrelGoblin", "count": 3}}}
+    cards = {"GoblinBarrel": barrel, "Arrows": {"name": "Arrows", "kind": "spell", "spell": {}},
+             "Mirror": {"name": "Mirror", "kind": "spell", "spell": {"mirror": True}}}
+
+    def row(tick, card, cid, kind, mirrored=None):
+        d = {"tick": tick, "side": 1, "card": card, "card_id": cid, "kind": kind, "keys": [], "level": 14,
+             "level_source": "side mode"}
+        if mirrored:
+            d["mirrored"] = {"card": mirrored, "card_id": 0}
+        return d
+
+    def group(tick, cid, keys, card, hp_match):
+        return {"tick": tick, "side": 1, "card": card, "card_id": cid, "role": "spawned", "unit": None,
+                "count": len(keys), "keys": keys, "hp_match": hp_match}
+
+    deploys = [
+        row(1019, "GoblinBarrel", 28000004, "spell"),
+        row(1219, "Mirror", 28000006, "mirror", "GoblinBarrel"),
+        row(1500, "Mirror", 28000006, "mirror", "Arrows"),
+        row(2000, "Mirror", 28000006, "mirror", "GoblinBarrel"),
+    ]
+    groups = [group(1077, 28000004, [54], "GoblinBarrel", "exact"),
+              group(1277, 28000006, [57, 58, 59], "Mirror", "no_object"),
+              group(1520, 28000006, [70], "Mirror", "no_object"), group(2300, 28000006, [80], "Mirror", "no_object")]
+    ents = {k: {"key": k, "level": 11, "max_hp": 202, "card": "Mirror", "unit": None, "hp_match": "no_object",
+                "role": "spawned"} for k in (57, 58, 59, 80)}
+    ents[70] = {**ents[57], "key": 70, "max_hp": 5000}
+    ents[54] = {**ents[57], "key": 54, "card": "GoblinBarrel", "unit": "BarrelGoblin", "hp_match": "exact"}
+    assert m.mirror_spawns(deploys, groups, ents, doc, cards) == 1
+    assert [(ents[k]["card"], ents[k]["unit"], ents[k]["hp_match"]) for k in (57, 58, 59)] == [
+        ("GoblinBarrel", "BarrelGoblin", "exact")] * 3
+    assert (groups[1]["card"], groups[1]["unit"], groups[1]["hp_match"]) == ("GoblinBarrel", "BarrelGoblin", "exact")
+    assert "1219" in groups[1]["mirror_of"]
+    assert (deploys[1]["level"], deploys[1]["level_source"]) == (11, "spawn")
+    assert (deploys[2]["level"], deploys[2]["level_source"]) == (14, "side mode"), "a Mirror'd Arrows puts nothing down"
+    assert (deploys[3]["level"], deploys[3]["level_source"]) == (14, "side mode"), "its group is out of the window"
+    assert ents[80]["card"] == ents[70]["card"] == "Mirror"
+    assert groups[2]["card"] == groups[3]["card"] == "Mirror"
+    assert groups[0] == group(1077, 28000004, [54], "GoblinBarrel", "exact")
+
+
+REKEY_TOWERS = [  # (key, side, x, y, max_hp, kind): the 16.402 level-11 towers
+    (1, 0, 9000, 3000, 4824, 12),
+    (2, 0, 3500, 6500, 3052, 13),
+    (3, 0, 14500, 6500, 3052, 13),
+    (4, 1, 9000, 29000, 4824, 12),
+    (5, 1, 3500, 25500, 3052, 13),
+    (6, 1, 14500, 25500, 3052, 13),
+]
+
+
+def _truth_row(m, x, y, hp, target=-1):
+    r = [0] * len(m.TRUTH_COLUMNS)
+    r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")] = x, y
+    r[m.TRUTH_COLUMNS.index("hp")], r[m.TRUTH_COLUMNS.index("target")] = hp, target
+    return tuple(r)
+
+
+def test_a_unit_the_converter_rekeyed_across_a_frame_gap_is_one_entity(m):
+    """20261007-142635, gap 1628 -> 1690: the converter gave every track a new key (towers 1-6 -> 33-38, the Giant
+    Buffer 32 -> 39) because it was last seen more than 20 ticks before; the pointer and card are the same. Each pair
+    is one entity again and targets follow. A new pointer (a play inside the gap) stays new, and a pointer a NEW unit of
+    the card took inside the gap (20261002-105120.b1: a Tombstone skeleton's, 11,597 away in 76 ticks at speed 90) is
+    refused by its reach."""
+    ticks = [1626, 1627, 1628, 1690, 1691]
+    t = m.TRUTH_COLUMNS.index("target")
+    r = _truth_row
+    before = [(m, 5931, 28600), (m, 5931, 28550), (m, 5931, 28493)]
+    per = [{1: r(m, 3500, 6500, 2352), 32: r(*g, 3091, 1), 50: r(m, 3761, 16836, 67)} for g in before] + [
+        {33: r(m, 3500, 6500, 2352), 39: r(m, 5139, 25231, 3091, 33), 40: r(m, 1730, 650, 89, 33),
+         51: r(m, 4789, 5285, 67)},
+        {33: r(m, 3500, 6500, 2352), 39: r(m, 5139, 25180, 3091, 33), 40: r(m, 1730, 650, 89, 33),
+         51: r(m, 4789, 5360, 67)},
+    ]
+
+    def ent(key, ptr, cid, side, hp, fi, li, speed):
+        return {"key": key, "ptr": ptr, "card_id": cid, "side": side, "level": 13, "max_hp": hp, "kind_first": 15,
+                "first_index": fi, "last_index": li, "frames": li - fi + 1, "x0": 0, "y0": 0, "c0": None,
+                "speed": speed}
+
+    ents = {
+        1: ent(1, "0xT", -1, 0, 3668, 0, 2, 0), 33: ent(33, "0xT", -1, 0, 3668, 3, 4, 0),
+        32: ent(32, "0xG", 26000101, 1, 3091, 0, 2, 60), 39: ent(39, "0xG", 26000101, 1, 3091, 3, 4, 60),
+        40: ent(40, "0xN", 26000012, 0, 89, 3, 4, 90),
+        50: ent(50, "0xS", 27000009, 0, 67, 0, 2, 90), 51: ent(51, "0xS", 27000009, 0, 67, 3, 4, 90),
+    }
+
+    def reach(a, gap):
+        return int(a["speed"] * m.REJOIN_SPEED_SLACK * gap) + m.REJOIN_BURST_NATIVE
+
+    out = m.rejoin_gap_rekeys(ents, per, ticks, reach)
+    assert out == [[1, 33, 1690], [32, 39, 1690]], out
+    assert sorted(ents) == [1, 32, 40, 50, 51]
+    assert (ents[1]["last_index"], ents[1]["frames"]) == (4, 5)
+    assert per[3][1][:3] == (3500, 6500, 2352)
+    assert 33 not in per[3]
+    assert per[3][32][t] == 1, "targets follow the kept key"
+    assert per[4][40][t] == 1, "targets follow the kept key"
+    assert ents[50]["last_index"] == 2, "a reused pointer out of reach stays two units"
+    assert ents[51]["first_index"] == 3, "a reused pointer out of reach stays two units"
+    # a gap the converter does not re-key across (20 ticks or fewer) never reaches here: the keys are the same
+
+
+@needs_modern_cards
+def test_the_reach_of_a_unit_is_its_speed_over_the_gap(m, maker_inputs):
+    """`rejoin_reach`: a Skeleton (speed 90) over 76 ticks reaches 90 x 1.3 x 76 + 1,000 = 9,892; the reused pointer of
+    105120.b1 stood 11,597 away. A Bat (120) over 21 ticks reaches 4,276; the measured Bats moved 2,520."""
+    _, doc, _, _ = maker_inputs
+    cards = {c["name"]: c for c in doc["cards"]}
+    skel = cards["Skeletons"]
+    hp = doc["units"]["Skeleton"]["hitpoints"] * m.ladder_percent(doc, skel, "Skeleton", 9) // 100
+    assert m.classify_unit(doc, skel, 9, hp)[0] == "Skeleton"
+    assert doc["units"]["Skeleton"]["speed"] == 90
+    assert m.rejoin_reach(doc, skel, 9, hp, 76) == int(90 * 1.3 * 76) + 1000 == 9892
+    assert 9892 < 11597, "the reused pointer of 105120.b1 is out of reach"
+    # a card -1 unit (no card): the table's fastest walk
+    assert m.rejoin_reach(doc, None, 11, 629, 21) == int(120 * 1.3 * 21) + 1000 == 4276
+
+
+@needs_modern_cards
+def test_a_cardless_unit_off_the_crown_towers_is_a_buff_death_spawn(m, maker_inputs, tmp_path):
+    """The Mother Witch's hog (card -1, hp 629 at level 11) first seen mid-battle off every crown tower's point is
+    `cardless_unit`, role spawned (harness.rs CARDLESS_ROOT pairs it with the engine's buff death spawn), in the
+    spawned groups, never a seventh tower; the six towers keep their names."""
+    frames = []
+    for t in range(0, 40):
+        ents = [{"id": f"0xT{k}", "generation_key": k, "side": s, "x": x, "y": y, "x2": x, "y2": y, "card_id": -1,
+                 "level": 11, "kind": kind, "hp": hp, "max_hp": hp, "behavior_state": 0, "target": None,
+                 "path_nodes": []} for k, s, x, y, hp, kind in REKEY_TOWERS]
+        if t >= 20:
+            ents.append({"id": "0xH", "generation_key": 7, "side": 0, "x": 8000, "y": 12000 + 120 * (t - 20),
+                         "x2": 8000, "y2": 12000, "card_id": -1, "level": 11, "kind": 14, "hp": 629, "max_hp": 629,
+                         "behavior_state": 1, "target": None, "path_nodes": []})
+        frames.append({"tick": t, "entities": ents, "effects": [], "elixir_raw": [50000, 50000]})
+    path = tmp_path / "frames-synthetic.native.oracle.jsonl.gz"
+    _write_capture(path, [{"side": s, "x": x, "y": y} for _, s, x, y, _, _ in REKEY_TOWERS], frames)
+    fx = _build(m, maker_inputs, path)
+    by_key = {e["key"]: e for e in fx["truth"]["entities"]}
+    hog = by_key[7]
+    assert (hog["card"], hog["role"], hog["card_id"]) == ("cardless_unit", "spawned", -1), hog
+    assert hog["unit"] == "VoodooHog", hog["unit"]
+    assert [g["keys"] for g in fx["spawned_groups"] if g["card"] == "cardless_unit"] == [[7]]
+    assert [(by_key[k]["card"], by_key[k]["role"]) for k in (1, 2, 3, 4, 5, 6)] == [
+        ("KingTower", "tower"), ("PrincessTower", "tower"), ("PrincessTower", "tower")] * 2
+    assert len(fx["towers"]) == 6
+    assert not any("towers" in r for r in fx["unplayable_reasons"])
+
+
+@needs_modern_cards
+def test_a_frame_gap_the_converter_rekeyed_leaves_six_towers(m, maker_inputs, tmp_path):
+    """20261008-055422, gap 149 -> 232: every tower track took a new key (1-6 -> 7-12). The fixture holds six tower
+    entities that run to the end, both Kings named KingTower, and truth_rejoined records the six folds."""
+    frames = []
+    for t in list(range(0, 30)) + list(range(60, 70)):
+        shift = 6 if t >= 60 else 0
+        frames.append({"tick": t, "effects": [], "elixir_raw": [50000, 50000], "entities": [
+            {"id": f"0xT{k}", "generation_key": k + shift, "side": s, "x": x, "y": y, "x2": x, "y2": y, "card_id": -1,
+             "level": 11, "kind": kind, "hp": hp, "max_hp": hp, "behavior_state": 0, "target": None, "path_nodes": []}
+            for k, s, x, y, hp, kind in REKEY_TOWERS]})
+    path = tmp_path / "frames-synthetic.native.oracle.jsonl.gz"
+    _write_capture(path, [{"side": s, "x": x, "y": y} for _, s, x, y, _, _ in REKEY_TOWERS], frames)
+    fx = _build(m, maker_inputs, path)
+    towers = [e for e in fx["truth"]["entities"] if e["card_id"] == -1]
+    assert [(e["key"], e["card"], e["n"]) for e in towers] == [
+        (1, "KingTower", 40), (2, "PrincessTower", 40), (3, "PrincessTower", 40),
+        (4, "KingTower", 40), (5, "PrincessTower", 40), (6, "PrincessTower", 40)], towers
+    assert fx["truth_rejoined"] == [[k, k + 6, 60] for k in range(1, 7)]
+
+
+def _heal_doc():
+    ladder = [100, 110, 121, 133, 146, 160, 176, 193, 212, 233, 256, 281]
+    common = {"relative_level": 0, "multiplier_percent_by_level": ladder}
+    heal = {"name": "Heal", "kind": "spell", "elixir": 1, "hitpoints": None,
+            "spell": {"summon": {"character": "HealSpirit", "count": 1}},
+            "level_scaling": {"rarity": "Rare", "multiplier_percent_by_level": [100]}}
+    units = {"HealSpirit": {"name": "HealSpirit", "rarity": "Common", "hitpoints": 84, "deploy_time_ms": 1000}}
+    rarities = {"Common": common, "Rare": dict(common, relative_level=2)}
+    return {"rarities": rarities, "units": units, "cards": [heal]}, heal
+
+
+def test_a_spell_summons_unit_is_the_cards_object(m):
+    """A SPELL SUMMON'S UNIT: the Heal card's HealSpirit (84 base, Common ladder) is one of the card's objects: live
+    16.402, a level-11 spirit has 215 hitpoints and a level-12 one 236. It is no deploy summon of the card (a spell is
+    cast): spawned, as before, but named."""
+    doc, heal = _heal_doc()
+    assert m.classify_unit(doc, heal, 11, 215) == ("HealSpirit", False, "exact")
+    assert m.classify_unit(doc, heal, 12, 236) == ("HealSpirit", False, "exact")
+
+
+def test_a_spell_summons_cast_is_read_off_its_unit(m):
+    """A SPELL SUMMON'S CAST (module doc): live 20261007-014738 side 0 (no tap log) put a Heal Spirit on (15500, 14500)
+    first seen on 697 after a missed 696, deploying 18 frames (its deploy ends 19 ticks after a spawn on 696);
+    20261008-170736 side 1 one created on (14500, 17499) and pushed to (14575, 17628) on its first frame 2012. Each is a
+    Heal row at its spawn, on its creation point's tile. A spirit a tapped row already stands for (on its first frame),
+    and one first seen out of its deploy (a reused key's second unit), are not."""
+    doc, heal = _heal_doc()
+    ticks = list(range(600, 696)) + list(range(697, 3300))
+    ix = {t: i for i, t in enumerate(ticks)}
+
+    def spirit(key, side, t0, c0, xy, deploy_frames, first_state=4):
+        fi = ix[t0]
+        states = [(fi + k, first_state if k < deploy_frames else 1) for k in range(deploy_frames + 5)]
+        return {"key": key, "side": side, "card_id": 28000016, "card": "Heal", "level": 11, "unit": "HealSpirit",
+                "role": "spawned", "first_index": fi, "x0": xy[0], "y0": xy[1], "c0": c0, "states": states,
+                "positions": [(fi + k, xy[0], xy[1]) for k in range(deploy_frames + 5)]}
+
+    ents = {26: spirit(26, 0, 697, (15500, 14500), (15500, 14500), 18),
+            40: spirit(40, 1, 2012, (14500, 17499), (14575, 17628), 19),
+            20: spirit(20, 0, 1154, (9500, 500), (9500, 500), 19),
+            77: spirit(77, 1, 2500, (3499, 17499), (3499, 17499), 3, first_state=1)}
+    groups = [{"tick": ticks[e["first_index"]], "side": e["side"], "card": "Heal", "card_id": 28000016,
+               "role": "spawned", "unit": "HealSpirit", "keys": [k]} for k, e in ents.items()]
+    tapped = [{"kind": "spell", "side": 0, "card": "Heal", "tick": 1154, "tap": {"tick": 1132}}]
+    rows = m.summon_casts(groups, ents, ticks, {"Heal": heal}, tapped, doc)
+    got = [(d["tick"], d["first_seen"], d["side"], d["pos"], d["kind"], d["source"], d["spawn_keys"]) for d in rows]
+    assert got == [(696, 697, 0, [15500, 14500], "spell", "summon", [26]),
+                   (2012, 2012, 1, [14500, 17500], "spell", "summon", [40])], got
+    assert all(d["card"] == "Heal" and d["keys"] == [] and d["level"] is None for d in rows)
+
+
+def _flag_inputs(m, press: bool):
+    """A Hero Goblins play on side 0: four Goblin_Stab units (hero class 203) die by 99, their flag stands 100..229
+    (role spawned); pressed, it is in cast state from the drop's frame 180 for 9 frames and its Goblin_dummy spawns come
+    on 189 and 193 (live 20261008-015445: drop 2452, state 10 2452..2460, dummies 2461 and 2465). Side 0's pool also
+    drops 1 on 90 (goblins alive, a dummy 99 ticks later) and on 150 (flag up, no cast state): neither is a press."""
+    eff = {"kind": "flag_spawns", "unit": "GoblinHero_Flag_Building",
+           "spawns": [{"unit": "Goblin_dummy", "dx_milli": 1000, "dy_milli": -500, "delay_ms": 0},
+                      {"unit": "Goblin_dummy", "dx_milli": -1000, "dy_milli": -500, "delay_ms": 200}]}
+    doc = {"hero_forms": [{"name": "Goblins_hero", "form_of": "Goblins",
+                           "ability": {"name": "GoblinHero_Ability", "mana_cost": 1, "cast_ms": 500, "effect": eff}}]}
+    cards = {"Goblins": {"name": "Goblins"}}
+    ticks = list(range(0, 260))
+
+    def ent(key, unit, role, t0, t1):
+        return {"key": key, "side": 0, "card_id": 203000002, "card": "Goblins", "unit": unit, "role": role,
+                "level": 11, "first_index": t0, "last_index": t1}
+
+    ents = {k: ent(k, "Goblin_Stab", "summon", 20, 99) for k in (1, 2, 3, 4)}
+    ents[9] = ent(9, "GoblinHero_Flag_Building", "spawned", 100, 196 if press else 229)
+    if press:
+        ents[10] = ent(10, "Goblin_dummy", "spawned", 189, 240)
+        ents[11] = ent(11, "Goblin_dummy", "spawned", 193, 240)
+    rows = []
+    for t in ticks:
+        r = {}
+        for k, e in ents.items():
+            if e["first_index"] <= t <= e["last_index"]:
+                st = 10 if (k == 9 and press and 180 <= t <= 188) else 0
+                r[k] = (0, 0, 100, -1, 0, st)
+        rows.append(r)
+    pool = []
+    for t in ticks:
+        v = 50000 + 100 * t
+        v -= 10000 * ((t >= 90) + (t >= 150) + (press and t >= 180))
+        pool.append(v)
+    return doc, cards, ents, rows, ticks, {0: pool, 1: [None] * len(ticks)}
+
+
+def test_a_hero_flags_press_is_read_off_the_flag(m):
+    """A FLAG HOLDS ITS FORM'S BUTTON: the Hero Goblins' press is the flag's (its cast state on the drop's frame), not
+    its goblins' (dead, and holding no button), written as the hero's press: card Goblins, form hero, keys [the
+    flag]."""
+    doc, cards, ents, rows, ticks, pools = _flag_inputs(m, press=True)
+    got = m.ability_presses([], set(), ents, rows, ticks, pools, doc, cards, {"Goblins": 26000002})
+    assert [(d["tick"], d["card"], d["card_id"], d["kind"], d["form"], d["form_row"], d["keys"]) for d in got] == [
+        (180, "Goblins", 26000002, "ability", "hero", "Goblins_hero", [9])], got
+    assert got[0]["press"]["evidence"] == "elixir drop of 1; cast state 10 at +0"
+
+
+def test_an_unpressed_flag_writes_no_press(m):
+    """A flag never in cast state, whose side's pool drops 1 while it stands, has no press (24 of 24 unpressed flags,
+    ob10: none in state 10)."""
+    doc, cards, ents, rows, ticks, pools = _flag_inputs(m, press=False)
+    assert m.ability_presses([], set(), ents, rows, ticks, pools, doc, cards, {"Goblins": 26000002}) == []

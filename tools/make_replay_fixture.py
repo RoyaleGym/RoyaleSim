@@ -108,8 +108,13 @@ DEPLOYS VERSUS SPAWNS
     `max_hp` at its `level` against the hitpoints of every object its card can put on
     the board (cards.json: the card's own summon, its second summon, its spawner /
     death-spawn / spell-released units, the building a tunnel leaves (`spawn_pathfind`
-    `morph`: the Goblin Drill's) and an interval spawner's unit (`interval_spawner`: the
-    Furnace's Fire Spirits), each unit's own spawners and death spawn below it, on the
+    `morph`: the Goblin Drill's), an interval spawner's unit (`interval_spawner`: the
+    Furnace's Fire Spirits), a death projectile's release (the Phoenix's PhoenixFireball:
+    its PhoenixEgg), a death area's units (the Suspicious Bush's BushGoblins), an action
+    graph's character spawns (the Evo Skeleton Army's Spectral, the Evo Goblin Giant's
+    Goblins), a form's own mechanic units (the Evo Royal Ghost's pair, the Evo Lumberjack's
+    ghost, the Hero Dark Prince's mount), a spell's summon (the Heal card's HealSpirit),
+    each record's and each unit's own such blocks below it, on the
     ladder cards.json gives each one -- the same resolution
     tools/make_live_levels_fixture.py uses): an entity whose hp is
     the card's OWN unit's (or its second summon's) is a deploy summon; any other is a
@@ -120,7 +125,10 @@ DEPLOYS VERSUS SPAWNS
     something on the board under the card's id that cards.json does not derive from
     the card). Until 2026-09-27 the Goblin Drill's building and its Goblins and the
     Furnace's Fire Spirits were unknown objects: the resolution did not follow a
-    tunnel's morph or an interval spawner, so they were never paired. An
+    tunnel's morph or an interval spawner, so they were never paired; until 2026-10-15 so
+    were the eggs, the bush's goblins, the evolutions' and the heroes' own units above and
+    the Heal card's spirits (live ob10: 832 unknown objects, 55 left, all but one hp -1
+    dummies the harness skips). An
     unknown-object group that coincides with a deploy TAP of its card makes the fixture
     unplayable from that tick (the engine cannot reproduce the deploy). A cross-check
     is recorded per group: a deploy group of a card with a spawner or death_spawn block
@@ -130,6 +138,46 @@ DEPLOYS VERSUS SPAWNS
     64 hash of the cards.json it was classified against (`cards_json_fnv1a64`); the
     harness notes a mismatch with the engine's, the manifest says when the census is
     stale.
+
+A SOUL COPY
+    The Skeleton King's soul summon puts down copies of his SkeletonKingSkeleton, each at
+    the copy hitpoints (calibration spells.CLONE_HITPOINTS: 1) at every level, off every
+    ladder, so each was an unknown object (live ob10: 223 of 223). An object of a card with
+    a soul summon at exactly the copy hitpoints, with no ladder match, is that summon's
+    unit (`hp_match` "soul copy"), a spawn.
+
+A SPAWNED OBJECT'S HATCHLING
+    The Phoenix's egg (PhoenixEgg, a spawn) puts one PhoenixNoRespawn down on its last
+    frame (its spawner has a `limit`), and the hatchling has the Phoenix's 411 base, so by
+    its hitpoints each was a deploy summon, a Phoenix play nobody made (live ob10: 17 of 17,
+    on the egg's last frame or the next, 1050 to 1171 from its last point). A deploy-summon
+    entity of a spawned object's side and card id, first shown on the object's last frame
+    or the next, within HATCH_REACH of its last point, whose hitpoints at its level are the
+    object's spawner unit's, is that unit (`hatched_spawns`): role "spawned".
+
+A BUFF'S DEATH SPAWN
+    The client gives a buff's death spawn no card (card id -1, as a crown tower): the
+    Mother Witch's VoodooHog and the Goblin Curse's goblin, put down where a cursed unit
+    died, on the caster's side. Read as towers, each was named PrincessTower, which the
+    harness pairs only by a crown tower's slot, and the engine's (rooted "cardless_unit")
+    paired with nothing (live ob10: 322 in 35 fixtures). A card -1 entity is a crown tower
+    when it is one of the first frame's towers, or is first shown on a tower's point with
+    its max hp (a tower re-keyed by a capture, named by its slot); any other is card
+    "cardless_unit" (CARDLESS_UNIT, the harness's root for a buff's death spawn), role
+    "spawned", its unit the buff death spawn whose hitpoints at its level are its own
+    (`buff_spawn_unit`; none on a tie).
+
+A FRAME GAP RE-KEYS THE BOARD
+    The converter gives a (pointer, card) track a new key when it was last seen more than
+    20 ticks before, so a capture frame gap longer than that re-keys every entity on the
+    board at once, the crown towers too. Read as new entities, the towers were second towers
+    the harness never pairs (the old key "died" at the gap) and every survivor a play with
+    no tap, dated across the gap (live ob10: 29 gaps of 21 to 121 ticks in 27 captures, 162
+    tower entities and 54 phantom plays). A key first seen on the frame after another's
+    last, under its pointer and card id with its side, level and max hp, within its reach
+    of its last point (THE CONVERTER'S RE-KEY, `rejoin_reach`), is that entity
+    (`rejoin_gap_rekeys`; `truth_rejoined` lists each). A unit played inside the gap has
+    a new pointer, so it stays a play.
 
 DEPLOY POSITION AND TICK
     The tick is the tick the entities came to exist with their deploy timer running
@@ -422,6 +470,19 @@ A SCHEDULED SPELL'S CAST
     (each the median). A cast row of the card on that side already within
     SCHEDULE_CAST_SLACK ticks (one from a tap) is kept instead.
 
+A SPELL SUMMON'S CAST
+    The Heal card is a spell that deploys a unit (`spell.summon`: HealSpirit), and a
+    capture shows no object for the cast, only the spirit, born deploying under the card's
+    id. With no tap of ours to answer it, no row was written and the engine never played
+    it (live ob10: 53 spirits, 49 the opponent's, rows for the 4 we tapped). The cast is
+    read off its unit (`summon_casts`, `source` "summon"): one row per spawned group of the
+    summon first seen deploying that no cast row of the card on its side stands for
+    (within SUMMON_CAST_SLACK before its spawn tick to its first frame), dated as a deploy
+    group is (its unit's DeployTime: 19 frames on 49 of 53 from a gap-free first frame), at
+    its creation point's tile centre, its level the unit's (`spawn_keys`). Its elixir drop
+    is claimed, so no ability press reads it (two false Golden Knight presses beside a
+    Heal, live).
+
 A SPELL'S LEVEL FROM ITS SPAWN
     A spell that puts units down (the Goblin Barrel's goblins, the Barbarian Log's
     Barbarian, the Graveyard's skeletons) records its level on them, so a cast whose
@@ -431,6 +492,17 @@ A SPELL'S LEVEL FROM ITS SPAWN
     earliest group of that side and card first seen within SPELL_SPAWN_WINDOW ticks after
     the cast, each claimed once.
 
+A MIRRORED SPELL'S UNITS
+    The units a Mirror cast of a spell puts down carry the Mirror's id, which the Mirror
+    card derives no object for, so a Mirror'd Goblin Barrel's goblins were card Mirror with
+    no object, while the harness plays the copied card and roots its units to it (live
+    20261007-125654: 3 casts, 9 goblins, none paired). Each Mirror row of a spell, in tick
+    order, takes the earliest unclaimed group of its side under its id with no object, first
+    seen within SPELL_SPAWN_WINDOW ticks after it, when every member reads as an object of
+    the copied card (`mirror_spawns`): the members and the group become the copied card's,
+    and the row takes their level (`level_source` spawn) instead of the mirrored row's + 1
+    (the goblins stood at the copied barrel's level 11, not 12).
+
 EVO COPIES
     An Evo Skeleton's hit makes a copy of it (its evolution's `evo_duplication`: up to the
     group's GroupMaxSize living members, spawner.EVO_COPY_POINT for where). The capture shows
@@ -439,13 +511,21 @@ EVO COPIES
     paired neither. Live 20261002-152325-A: side 0's Evo Skeletons of t1362 (count 3) were
     followed by rows of 2, 1, 1, 1 on t1392 to t1419 (keys 55-59) and one on t2818 (key
     122); with those rows out, unmatched engine units fell 55 -> 1 and the troops within
-    250 rose 3,871 -> 11,176 of 15,905 unit-ticks. A summon group under an evolution that
-    duplicates is its living group's copies, not a play, when no tap answers it, it has
-    fewer members than a play puts down (the evolution's `count`), and every member first
-    stands within EVO_COPY_REACH of a living member, on the frame before, of an earlier
-    group of the same side and id (a play's or a copy's) that has finished its deploy (a
-    hitter; a play whose members first show on two frames is not its own copies). Its entities are spawned (truth
-    only), listed in `spawned_groups` with `copy_of`, which says how near each stood.
+    250 rose 3,871 -> 11,176 of 15,905 unit-ticks. A copy is born out of its deploy (first
+    shown walking or attacking: 820 of 820 in live ob10) and a play deploying. A summon
+    group under an evolution that duplicates is its living group's copies, not a play,
+    WHATEVER ITS SIZE (three hitters make three copies on one tick), when every member is
+    born out of its deploy on a frame its deploy could not have ended in (less than the
+    evolution's DeployTime after the frame before) and first stands within EVO_COPY_REACH of
+    a living member, on the frame before, of an earlier group of the same side and id (a
+    hitter: a member born out of its deploy, a copy, from its first frame, since a copy
+    hits at once; a played member once it has finished its deploy, so a play whose members
+    first show on two frames is not its own copies). A tap of the card in its window is not
+    its own (the evolution's units carry the base card's id in the tap log: a base
+    Skeletons play shown some ticks later keeps it). Live ob10: 137 rows read as plays
+    before 2026-10-15 (copies made by copies, and pairs and triples) are copies, and all
+    301 plays born deploying stay plays. Its entities are spawned (truth only), listed in
+    `spawned_groups` with `copy_of`, which says how near each stood.
 
 LATE SINGLE
     A single troop whose creation tick comes before its first frame (`tick` <
@@ -575,7 +655,11 @@ AN ABILITY PRESS
     (2026-10-09, 603 fixtures): 902 state-10 onsets of champions and heroes, 896 on the
     frame their side's pool fell by exactly the ability's cost; the Little Prince's
     ChampionGuard 17 ticks after the drop on 579 of 604; our own press receipts at the
-    drop's tick for 795 of 797.
+    drop's tick for 795 of 797. A hero's flag holds its form's button (the Hero Goblins'
+    `flag_spawns` unit, GoblinHero_Flag_Building, a spawn), and the form's own units hold
+    none, as in the engine: read off the goblins, dead before their flag stands, no flag
+    press was ever written (live ob10: 14 pressed flags, each in state 10 from its drop's
+    frame).
 
 PLAYABILITY
     Unplayable, with the reason in the fixture and the manifest: a deploy card whose id
@@ -986,35 +1070,71 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
     the record's own (`form_units`: the Hero Musketeer's MusketeerTurret is in its hero form's alone)."""
     units = doc["units"]
     own_table = form_units(card)
+    projectiles = doc.get("projectiles") or {}
+    areas = doc.get("area_effect_objects") or {}
     out: dict[str, int] = {}
     if card.get("hitpoints") is not None:
         out[card.get("summon_character") or card["name"]] = card["hitpoints"]
 
+    def graph_units(rec: dict) -> list:
+        # an action graph's character spawns ("CharacterType:<unit>"): the Evo Skeleton Army's Spectral, the Evo Goblin
+        # Giant's Goblin, the Suspicious Bush's death area's BushGoblins
+        return [
+            s.split(":", 1)[1] for s in (rec.get("action_graph") or {}).get("spawns") or []
+            if isinstance(s, str) and s.startswith("CharacterType:")
+        ]
+
+    def area_units(area: dict) -> list:
+        # an area's own spawn, its schedule's character entries and its graph's
+        entries = (area.get("schedule") or {}).get("entries") or []
+        return [area.get("spawn_character")] + [
+            e.get("spawn") for e in entries if e.get("spawn_type") == "CharacterType"
+        ] + graph_units(area)
+
+    def released(rec: dict) -> list:
+        # what a record's own blocks put down: its death spawn and spawners, its death projectile's release (the
+        # Phoenix's PhoenixFireball -> PhoenixEgg), its death area's units (the Suspicious Bush's
+        # SuspiciousBush_DummyAEO -> BushGoblin) and its action graph's
+        names = [(rec.get(k) or {}).get("character") for k in ("death_spawn", "spawner", "interval_spawner")]
+        dp = rec.get("death_spawn_projectile")
+        dp = projectiles.get(dp) if isinstance(dp, str) else dp
+        if isinstance(dp, dict):
+            nxt = dp.get("spawn_projectile")
+            nxt = projectiles.get(nxt) if isinstance(nxt, str) else nxt
+            names += [dp.get("spawn_character"), (nxt or {}).get("spawn_character")]
+        da = rec.get("death_area_effect")
+        da = areas.get(da) if isinstance(da, str) else da
+        if isinstance(da, dict):
+            names += area_units(da)
+        return names + graph_units(rec)
+
     def add(name, depth=0):
-        u = (units.get(name) or own_table.get(name)) if name else None
+        u = (units.get(name) or own_table.get(name)) if isinstance(name, str) else None
         if u is None:
             return
         if u.get("hitpoints") is not None:
             out.setdefault(name, u["hitpoints"])
         if depth < 2:
-            add((u.get("death_spawn") or {}).get("character"), depth + 1)
-            add((u.get("spawner") or {}).get("character"), depth + 1)
-            add((u.get("interval_spawner") or {}).get("character"), depth + 1)
+            for n in released(u):
+                add(n, depth + 1)
 
     spell = card.get("spell") or {}
     proj = card.get("projectile") or {}
     # a spell's area that puts units down: its own spawn, and its action graph's (the 16.402 Graveyard's skeletons are
     # its schedule's ActionSpawnToLocation entries; read as no object, each was a Graveyard cast of its own)
     area = spell.get("area_effect_object") or {}
-    area_units = [area.get("spawn_character")]
+    spell_area_units = [area.get("spawn_character")]
     schedule = (area.get("schedule") or {}).get("entries") or []
-    area_units += [e.get("spawn") for e in schedule if e.get("spawn_type") == "CharacterType"]
+    spell_area_units += [e.get("spawn") for e in schedule if e.get("spawn_type") == "CharacterType"]
     for ref in (
         card.get("summon_character"),
         (card.get("second_summon") or {}).get("character"),
         (card.get("spawner") or {}).get("character"),
         (card.get("death_spawn") or {}).get("character"),
         (spell.get("spawn") or {}).get("character"),
+        # A SPELL SUMMON'S UNIT (the Heal card's HealSpirit, 84 base on the Common ladder): unread, every spirit was
+        # "no_object" with no unit
+        (spell.get("summon") or {}).get("character"),
         proj.get("spawn_character"),
         (proj.get("spawn_projectile") or {}).get("spawn_character"),
         # the building a tunnel leaves (the Goblin Drill's), with its own spawner and death spawn below it
@@ -1029,7 +1149,19 @@ def reachable_units(doc: dict, card: dict) -> dict[str, int]:
         # the unit an evolution's mirrored decoy drops (the Evo Goblin Barrel's GoblinDummy, AN EVOLVED MIRROR CAST):
         # read as the play's, not an unknown object
         (card.get("evo_mirror") or {}).get("unit"),
-        *area_units,
+        *spell_area_units,
+        # the record's own blocks, as a unit's (an evolution's row holds blocks its unit row lacks: the Evo Goblin
+        # Giant's interval spawner of Goblins under half its hitpoints)
+        *released(card),
+        # the units a form's own mechanic puts down (engine card.rs `unit_refs` EvoUnit): the Evo Royal Ghost's pair,
+        # the Evo Skeleton Army's General and Spectral, the Evo Lumberjack's ghost
+        (card.get("evo_ghost") or {}).get("left"),
+        (card.get("evo_ghost") or {}).get("right"),
+        (card.get("evo_army") or {}).get("general"),
+        (card.get("evo_army") or {}).get("spectral"),
+        (card.get("evo_rage_ghost") or {}).get("ghost"),
+        # the Hero Dark Prince's mount (its button's dismount: `unit` the walking row, `mount` the mount it leaves)
+        ((card.get("ability") or {}).get("effect") or {}).get("mount"),
     ):
         add(ref)
     return out
@@ -1095,6 +1227,12 @@ def classify_unit(
         err = abs(hp - max_hp) * 100 // max(max_hp, 1)
         if best is None or err < best[0]:
             best = (err, unit, hp)
+    # A SOUL COPY: a soul summon's units (the Skeleton King's SkeletonKingSkeleton) are copies, each at the copy
+    # hitpoints at every level (calibration spells.CLONE_HITPOINTS; engine state.rs make_copy), off every ladder
+    for row in rows:
+        eff = (row.get("ability") or {}).get("effect") or {}
+        if eff.get("kind") == "soul_summon" and eff.get("unit") and max_hp == copy_hitpoints():
+            return eff["unit"], False, "soul copy"
     if best is None:
         # a spell is cast, never summoned: an object of its id that no record derives is truth only
         return None, card.get("kind") != "spell", "no_object"
@@ -1102,6 +1240,35 @@ def classify_unit(
     if err > NEAREST_MAX_ERROR_PERCENT:
         return None, False, f"unknown_object (nearest {unit} {hp} at level {level}, {err}% off)"
     return unit, unit in own, "nearest"
+
+
+_COPY_HP: list[int] = []
+
+
+def copy_hitpoints() -> int:
+    """A copy's hitpoints (calibration spells.CLONE_HITPOINTS), read once."""
+    if not _COPY_HP:
+        with open(CALIBRATION, encoding="utf-8") as fh:
+            _COPY_HP.append(json.load(fh)["spells"]["CLONE_HITPOINTS"]["value"]["hitpoints"])
+    return _COPY_HP[0]
+
+
+CARDLESS_UNIT = "cardless_unit"
+
+
+def buff_spawn_unit(doc: dict, level: int, max_hp: int) -> str | None:
+    """The buff death spawn whose hitpoints at `level`, on its rarity's ladder, are `max_hp`; None when none or two."""
+    units = doc.get("units") or {}
+    names = sorted({(b.get("death_spawn") or {}).get("character") for b in (doc.get("buffs") or {}).values()} - {None})
+    hits = []
+    for n in names:
+        u = units.get(n) or {}
+        r = (doc.get("rarities") or {}).get(u.get("rarity")) or {}
+        table, base = r.get("multiplier_percent_by_level") or [], u.get("hitpoints")
+        ix = level - (r.get("relative_level", 0) + 1)
+        if base is not None and 0 <= ix < len(table) and base * table[ix] // 100 == max_hp:
+            hits.append(n)
+    return hits[0] if len(hits) == 1 else None
 
 
 def fnv1a64(data: bytes) -> str:
@@ -1305,6 +1472,84 @@ def merge_rekeyed(ents: dict, per_tick_rows: list, ticks: list[int]) -> list[lis
                 if row[3] in remap:
                     rows[k] = (*row[:3], remap[row[3]], *row[4:])
     return merges
+
+
+#: THE CONVERTER'S RE-KEY (module doc, A FRAME GAP RE-KEYS THE BOARD): the converter keys an entity by its (pointer,
+#: card) track and gives the track a new key when it was last seen more than 20 ticks before (its guard against a freed
+#: pointer taken by a new unit). A capture frame gap longer than that re-keys every entity on the board at once, the
+#: crown towers too. A unit seen again after the gap is rejoined when it stands within its reach of its last point:
+#: its walk speed (twice it for a charger) x REJOIN_SPEED_SLACK over the gap (crowds push: a skeleton of speed 90 made
+#: 100 a tick across one), plus REJOIN_BURST_NATIVE (one knockback), plus REJOIN_DASH_NATIVE for a unit that dashes or
+#: jumps. A card -1 unit (a crown tower, a buff's death spawn) walks at most REJOIN_FALLBACK_SPEED, the table's fastest
+#: walk. Live, ob10: 29 such gaps of 21 to 121 ticks in 27 captures; 290 of their 291 survivors rejoin (the nearest at
+#: 0.73 of its reach), and the one refused is a freed pointer reused 11,596 away (1.17 x its reach).
+REJOIN_SPEED_SLACK = 1.3
+REJOIN_BURST_NATIVE = 1000
+REJOIN_DASH_NATIVE = 8000
+REJOIN_FALLBACK_SPEED = 120
+
+
+def rejoin_reach(doc: dict, card: dict | None, level: int, max_hp: int, gap: int) -> int:
+    """How far, native, a unit of `card` (at `level`, `max_hp`) can stand from its last point after `gap` ticks unseen
+    (THE CONVERTER'S RE-KEY above)."""
+    unit = classify_unit(doc, card, level, max_hp)[0] if card is not None else None
+    u = (doc.get("units") or {}).get(unit) or {}
+    if not u and card is not None and unit == (card.get("summon_character") or card.get("name")):
+        u = card
+    speed = u.get("speed") if u.get("speed") is not None else REJOIN_FALLBACK_SPEED
+    if u.get("charge"):
+        speed *= 2
+    burst = REJOIN_BURST_NATIVE + (REJOIN_DASH_NATIVE if (u.get("dash") or u.get("jump")) else 0)
+    return int(speed * REJOIN_SPEED_SLACK * gap) + burst
+
+
+def rejoin_gap_rekeys(ents: dict, per_tick_rows: list, ticks: list[int], reach) -> list[list[int]]:
+    """Fold a unit the converter RE-KEYED ACROSS A FRAME GAP back into one entity (THE CONVERTER'S RE-KEY above).
+
+    Key B is key A re-keyed when B is first seen on the frame after A's last, under A's pointer (`ptr`, the capture's
+    id) and card id, with A's side, level and max hp, within `reach(A, gap)` of A's last point. No hp or state test: a
+    unit can be healed or change state inside the gap (live: 1 of 291 healed, 34 of 335 changed state). B's rows move
+    under A's key, so a crown tower keeps the first frame's key (the harness finds a tower by it), every target that
+    named B names A, and B is gone. Returns [kept key, merged key, tick] per rejoin; the fixture records them."""
+    out: list[list[int]] = []
+    last_on: dict[int, list[dict]] = defaultdict(list)
+    for a in ents.values():
+        last_on[a["last_index"]].append(a)
+    for b in sorted(list(ents.values()), key=lambda e: (e["first_index"], e["key"])):
+        fi = b["first_index"]
+        if fi == 0 or b["key"] not in ents or b.get("ptr") is None:
+            continue
+        a = next(
+            (x for x in last_on.get(fi - 1, []) if x is not b and x["key"] in ents and x.get("ptr") == b["ptr"]
+             and x["card_id"] == b["card_id"]),
+            None,
+        )
+        if a is None or any(a[f] != b[f] for f in ("side", "level", "max_hp")):
+            continue
+        ra, rb = per_tick_rows[fi - 1].get(a["key"]), per_tick_rows[fi].get(b["key"])
+        if ra is None or rb is None:
+            continue
+        if math.hypot(ra[0] - rb[0], ra[1] - rb[1]) > reach(a, ticks[fi] - ticks[fi - 1]):
+            continue
+        for fj in range(fi, b["last_index"] + 1):
+            row = per_tick_rows[fj].pop(b["key"], None)
+            if row is not None:
+                per_tick_rows[fj][a["key"]] = row
+        last_on[a["last_index"]].remove(a)
+        a["last_index"] = b["last_index"]
+        last_on[a["last_index"]].append(a)
+        a["frames"] += b["frames"]
+        a.setdefault("states", []).extend(b.get("states", []))
+        a.setdefault("positions", []).extend(b.get("positions", []))
+        del ents[b["key"]]
+        out.append([a["key"], b["key"], ticks[fi]])
+    if out:
+        remap = {bk: ak for ak, bk, _ in out}
+        for rows in per_tick_rows:
+            for k, row in rows.items():
+                if row[3] in remap:
+                    rows[k] = (*row[:3], remap[row[3]], *row[4:])
+    return out
 
 
 def spawn_tick_bounds(ticks: list[int], first_index: int) -> tuple[int, int]:
@@ -1808,6 +2053,45 @@ def flag_spawns(ents: dict, ticks: list[int], doc: dict) -> int:
     return n
 
 
+#: How far a hatchling's first point may sit from its egg's last, native (live ob10: 17 Phoenix hatchlings, 1050 to
+#: 1171, each about 1100 toward the enemy).
+HATCH_REACH = 1500
+
+
+def hatched_spawns(ents: dict, per_tick_rows: list[dict], doc: dict) -> int:
+    """A SPAWNED OBJECT'S HATCHLING (module doc): a spawned object whose spawner has a limit (the Phoenix's PhoenixEgg:
+    one PhoenixNoRespawn, then it goes) puts its unit down on its own last frame. PhoenixNoRespawn has the Phoenix's
+    411 base, so read by its hitpoints each hatched Phoenix was a deploy summon, a Phoenix play nobody made (live ob10:
+    17 of 17, each on its egg's last frame or the next, 1050 to 1171 from it). A deploy-summon entity of the object's
+    side and card id first shown on the object's last frame or the next one, within HATCH_REACH of the object's last
+    point, whose hitpoints at its level are the spawner unit's, is that unit: role "spawned". Returns how many."""
+    units = doc["units"]
+    cards_by_name = {c["name"]: c for c in doc.get("cards") or []}
+    n = 0
+    for p in ents.values():
+        sp = (units.get(p.get("unit") or "") or {}).get("spawner") or {}
+        child = sp.get("character")
+        base = (units.get(child or "") or {}).get("hitpoints")
+        last = per_tick_rows[p["last_index"]].get(p["key"])
+        if p.get("role") != "spawned" or sp.get("limit") is None or base is None or last is None:
+            continue
+        for e in ents.values():
+            if e.get("role") != "summon" or e["side"] != p["side"] or e["card_id"] != p["card_id"]:
+                continue
+            if not 0 <= e["first_index"] - p["last_index"] <= 1:
+                continue
+            if math.dist((e["x0"], e["y0"]), last[:2]) > HATCH_REACH:
+                continue
+            card = cards_by_name.get(e.get("card") or "")
+            pct = ladder_percent(doc, card, child, e["level"]) if card else None
+            if pct is None or base * pct // 100 != e["max_hp"]:
+                continue
+            e["role"], e["unit"], e["deploy_summon"] = "spawned", child, False
+            e["hp_match"] = f"hatched from {p['unit']} {p['key']}"
+            n += 1
+    return n
+
+
 def display_twins(ents: dict, per_tick_rows: list[dict], doc: dict) -> int:
     """A HERO'S DISPLAY TWIN (module doc): the Hero Ice Wizard's floating ice (its hero form's `display_attached`) is a
     second object under the hero's card id with the hero's hitpoints, made with the hero, sitting on it and gone with
@@ -2160,12 +2444,16 @@ BUILDING_KINDS = (12, 13)
 EVO_COPY_REACH = 2000
 
 
-def evo_copy_of(members: list[dict], group_keys: set[int], before: dict[int, tuple], count: int | None) -> str | None:
-    """How a summon group with no tap is its living group's copies (module doc, EVO COPIES): fewer members than a play
-    puts down (`count`), each first standing within EVO_COPY_REACH of a living member (`before`: the frame before's
-    rows, x, y, hp first) of `group_keys`; None when it is not."""
-    if count is None or len(members) >= count:
-        return None
+def born_out_of_deploy(e: dict) -> bool:
+    """An entity first shown out of any deploy (its first behavior_state neither 4 nor STATE_STAGGER_WAIT), as an Evo
+    Skeleton's copy is born (module doc, EVO COPIES); a play's units are first shown deploying."""
+    return (e.get("states") or [(0, 4)])[0][1] not in (4, STATE_STAGGER_WAIT)
+
+
+def evo_copy_of(members: list[dict], group_keys: set[int], before: dict[int, tuple]) -> str | None:
+    """How a group born out of its deploy is its living group's copies (module doc, EVO COPIES), whatever its size: each
+    member first standing within EVO_COPY_REACH of a living member (`before`: the frame before's rows, x, y, hp first)
+    of `group_keys`; None when it is not."""
     near = []
     for e in members:
         best = min(
@@ -2355,6 +2643,69 @@ def spawn_schedule(card: dict) -> list[dict]:
     return sorted(entries, key=lambda e: e.get("delay_ms") or 0)
 
 
+#: A SPELL SUMMON'S CAST: how many ticks before its unit's spawn tick a cast row of its card on its side may stand and
+#: still be that cast (a tapped Heal's row sits on its spirit's first frame: 4 of 4 in ob10).
+SUMMON_CAST_SLACK = 3
+
+
+def summon_casts(
+    spawned_groups: list[dict], ents: dict, ticks: list[int], cards_by_name: dict, deploys: list[dict], doc: dict
+) -> list[dict]:
+    """A SPELL SUMMON'S CAST (module doc): a spell card that deploys a unit (cards.json `spell.summon`: the Heal card's
+    HealSpirit) shows no object for its cast, only its unit, born deploying under the card's id. One row per spawned
+    group of that unit first seen deploying that no cast row of the card on its side stands for (a tapped cast's,
+    within SUMMON_CAST_SLACK before its spawn tick to its first frame): dated as a deploy group is (`refine_spawn_tick`
+    on the unit's own DeployTime), at its creation point's tile centre, its level the unit's (`spawn_keys`). Live, ob10:
+    53 spirits, 4 with a tapped row; all 53 first seen in state 4, 49 of them 19 frames deploying from a gap-free first
+    frame, and 52 on a drop of the card's cost (the other across a 121-tick gap)."""
+    out = []
+    for g in spawned_groups:
+        card = cards_by_name.get(g["card"]) or {}
+        unit = ((card.get("spell") or {}).get("summon") or {}).get("character")
+        if card.get("kind") != "spell" or not unit or g["unit"] != unit:
+            continue
+        members = sorted((ents[k] for k in g["keys"] if k in ents), key=lambda e: e["key"])
+        if not members or any((e.get("states") or [(0, None)])[0][1] not in (4, STATE_STAGGER_WAIT) for e in members):
+            continue
+        e = members[0]
+        fi = e["first_index"]
+        deploy_ms = ((doc.get("units") or {}).get(unit) or {}).get("deploy_time_ms")
+        tick, first_seen, evidence = refine_spawn_tick(
+            ticks, fi, e.get("states", []), deploy_ms, positions=e.get("positions", []) if len(members) == 1 else None
+        )
+        if any(
+            d["kind"] == "spell" and d["side"] == g["side"] and d["card"] == g["card"]
+            and tick - SUMMON_CAST_SLACK <= d["tick"] <= first_seen
+            for d in deploys + out
+        ):
+            continue
+        pts = [tuple(m["c0"]) if m.get("c0") is not None else (m["x0"], m["y0"]) for m in members]
+        cx, cy = sum(x for x, _ in pts) // len(pts), sum(y for _, y in pts) // len(pts)
+        out.append(
+            {
+                "tick": tick,
+                "first_seen": first_seen,
+                "tick_evidence": f"its {unit}'s spawn ({evidence})",
+                "side": g["side"],
+                "card": g["card"],
+                "card_id": g["card_id"],
+                "kind": "spell",
+                "level": None,
+                "count": 0,
+                "keys": [],
+                # the tile its unit was created on (a spell row is snapped to its tile and its unit laid as a troop's)
+                "pos": [
+                    cx // TILE_NATIVE * TILE_NATIVE + TILE_NATIVE // 2,
+                    cy // TILE_NATIVE * TILE_NATIVE + TILE_NATIVE // 2,
+                ],
+                "source": "summon",
+                "spawn_keys": [m["key"] for m in members],
+                "_after": ticks[fi - 1] if fi > 0 else first_seen - 1,
+            }
+        )
+    return out
+
+
 def schedule_casts(
     spawned_groups: list[dict], ents: dict, ticks: list[int], cards_by_name: dict, deploys: list[dict]
 ) -> list[dict]:
@@ -2436,6 +2787,49 @@ def spell_levels_from_spawn(deploys: list[dict], spawned_groups: list[dict], ent
             note = f"its spawn's level {level} (was {d.get('level')}, {d.get('level_source')})"
             d["level_evidence"] = f"{d['level_evidence']}; {note}" if d.get("level_evidence") else note
             d["level"], d["level_source"] = level, "spawn"
+
+
+def mirror_spawns(deploys: list[dict], spawned_groups: list[dict], ents: dict, doc: dict, cards_by_name: dict) -> int:
+    """A MIRRORED SPELL'S UNITS (module doc): the units a Mirror cast of a spell puts down carry the Mirror's id, which
+    the Mirror card derives no object for (`no_object`). Each Mirror row of a spell (`kind` mirror, no keys,
+    `mirrored` a spell), in tick order, takes the earliest unclaimed group of its side under its id with no object,
+    first seen within SPELL_SPAWN_WINDOW ticks after it, when every member reads as an object of the copied card
+    (`classify_unit`: the Goblin Barrel's BarrelGoblin). The members and the group are renamed that card, and the row
+    takes their level (`level_source` spawn), as a cast does from its spawn. Returns the groups renamed."""
+    claimed: set[int] = set()
+    renamed = 0
+    for d in sorted((d for d in deploys if d["kind"] == "mirror" and not d.get("keys")), key=lambda d: d["tick"]):
+        copied = cards_by_name.get((d.get("mirrored") or {}).get("card")) or {}
+        if copied.get("kind") != "spell":
+            continue
+        gi = next(
+            (
+                i for i, g in enumerate(spawned_groups)
+                if i not in claimed and g["side"] == d["side"] and g["card_id"] == d["card_id"]
+                and g["hp_match"] == "no_object" and d["tick"] <= g["tick"] <= d["tick"] + SPELL_SPAWN_WINDOW
+            ),
+            None,
+        )
+        if gi is None:
+            continue
+        g = spawned_groups[gi]
+        members = [ents[k] for k in g["keys"] if k in ents]
+        reads = [classify_unit(doc, copied, e["level"], e["max_hp"]) for e in members]
+        if not members or any(how not in ("exact", "nearest") for _, _, how in reads):
+            continue
+        claimed.add(gi)
+        for e, (unit, _, how) in zip(members, reads, strict=True):
+            e["card"], e["unit"], e["hp_match"], e["role"] = copied["name"], unit, how, "spawned"
+        g["card"], g["unit"], g["role"] = copied["name"], reads[0][0], "spawned"
+        g["hp_match"] = Counter(how for _, _, how in reads).most_common(1)[0][0]
+        g["mirror_of"] = f"the units of the Mirror cast at {d['tick']}, a copy of {copied['name']}"
+        level = Counter(e["level"] for e in members).most_common(1)[0][0]
+        if level != d.get("level"):
+            note = f"its spawn's level {level} (was {d.get('level')}, {d.get('level_source')})"
+            d["level_evidence"] = f"{d['level_evidence']}; {note}" if d.get("level_evidence") else note
+        d["level"], d["level_source"] = level, "spawn"
+        renamed += 1
+    return renamed
 
 
 def spell_damage_at(doc: dict, card: dict, level: int) -> int | None:
@@ -3090,12 +3484,29 @@ def ability_presses(
     explained = {(d["side"], t) for d in deploys for t in (d["tick"], d.get("first_seen")) if t is not None}
     explained |= set(claimed)
     buttons = []
+    # A FLAG HOLDS ITS FORM'S BUTTON (module doc, AN ABILITY PRESS: the Hero Goblins' `flag_spawns` unit,
+    # GoblinHero_Flag_Building), whatever its role, and the form's own units hold none, as the engine's (state.rs
+    # `holds`). Read as the units', no press of a flag was ever written (ob10: 14 flags pressed, each in cast state 10
+    # from its drop's frame for 9 frames).
+    flag_rows = {
+        eff["unit"]: r for r in doc.get("hero_forms") or []
+        if (eff := (r.get("ability") or {}).get("effect") or {}).get("kind") == "flag_spawns" and eff.get("unit")
+    }
     for e in ents.values():
         card = cards_by_name.get(e.get("card") or "")
-        if e.get("role") != "summon" or card is None:
+        if card is None:
             continue
         hero = e["card_id"] // 1_000_000 == HERO_CLASS
+        if hero and e.get("unit") in flag_rows and flag_rows[e["unit"]].get("form_of") == card["name"]:
+            row = flag_rows[e["unit"]]
+            if (row.get("ability") or {}).get("mana_cost"):
+                buttons.append((e, card, row, row["ability"]))
+            continue
+        if e.get("role") != "summon":
+            continue
         row = hero_rows.get(card["name"]) if hero else card
+        if hero and row in flag_rows.values():
+            continue
         ability = (row or {}).get("ability")
         if ability and ability.get("mana_cost"):
             buttons.append((e, card, row if hero else None, ability))
@@ -3326,6 +3737,7 @@ def build(
                     "level": e["level"],
                     "max_hp": e["max_hp"],
                     "kind_first": e["kind"],
+                    "ptr": e.get("id"),
                     "first_index": fi,
                     "last_index": fi,
                     "frames": 0,
@@ -3349,6 +3761,15 @@ def build(
     rekeyed = merge_rekeyed(ents, per_tick_rows, ticks)
     if rekeyed:
         fx["truth_rekeyed"] = rekeyed
+    # -- a unit the converter re-keyed across a long frame gap is one entity (rejoin_gap_rekeys)
+    cards_by_name = {c["name"]: c for c in doc["cards"]}
+
+    def reach(a: dict, gap: int) -> int:
+        return rejoin_reach(doc, cards_by_name.get(id_table.get(a["card_id"])), a["level"], a["max_hp"], gap)
+
+    rejoined = rejoin_gap_rekeys(ents, per_tick_rows, ticks, reach)
+    if rejoined:
+        fx["truth_rejoined"] = rejoined
 
     # -- mid-battle start
     first_non_tower = [e for e in ents.values() if e["first_index"] == 0 and e["card_id"] >= 0]
@@ -3395,11 +3816,19 @@ def build(
         tower_level[s] = Counter(lv).most_common(1)[0][0] if lv else None
 
     # -- classification of every non-tower entity
-    cards_by_name = {c["name"]: c for c in doc["cards"]}
     unknown_ids: set[int] = set()
+    tower_keys = {t["key"] for t in towers}
+    tower_at = {(t["side"], t["x"], t["y"]): t for t in towers}
     for e in ents.values():
         if e["card_id"] < 0:
-            e["role"] = "tower"
+            on = tower_at.get((e["side"], e["x0"], e["y0"]))
+            if e["key"] in tower_keys or (on is not None and on["max_hp"] == e["max_hp"]):
+                e["role"] = "tower"
+                e["tower_slot"] = (on or {}).get("slot")
+                continue
+            # A BUFF'S DEATH SPAWN (module doc): the Mother Witch's hog, the Goblin Curse's goblin
+            e["card"], e["role"], e["deploy_summon"], e["hp_match"] = CARDLESS_UNIT, "spawned", False, "cardless"
+            e["unit"] = buff_spawn_unit(doc, e["level"], e["max_hp"])
             continue
         name = id_table.get(e["card_id"])
         e["card"] = name
@@ -3418,6 +3847,8 @@ def build(
         reasons.append(f"card id {cid} is not in the id table")
     # a hero's flag puts its own units down (module doc, A HERO'S FLAG SPAWNS)
     flag_spawns(ents, ticks, doc)
+    # a spawned object's hatchling is a spawn, not a play (A SPAWNED OBJECT'S HATCHLING: the Phoenix's egg)
+    hatched_spawns(ents, per_tick_rows, doc)
     # a hero's floating ice is display only (module doc, A HERO'S DISPLAY TWIN)
     display_twins(ents, per_tick_rows, doc)
 
@@ -3488,14 +3919,18 @@ def build(
         evo = evolutions.get(form.get("form_row")) if form.get("form") == "ev1" else None
         if evo and evo.get("evo_duplication"):
             why = None
-            if tap_ix is None and fi > 0:
-                # a hitter is a member that has finished its deploy: a play's members first shown on two frames are
-                # not each other's copies
+            deploy_ticks = (evo.get("deploy_time_ms") or 0) // 50
+            if fi > 0 and ticks[fi] - ticks[fi - 1] < deploy_ticks and all(born_out_of_deploy(e) for e in members):
+                # a copy is born out of its deploy and a play deploying: a group first shown so, on a frame its deploy
+                # could not have ended in, is no play whatever its size, and a tap of the card in its window is not
+                # its own (a base Skeletons play's, shown some ticks later). A hitter is a member born out of its
+                # deploy (a copy) or one that has finished it: a play's members first shown on two frames are not
+                # each other's copies
                 ready = {
                     k for k in duplicating[(side, cid)]
-                    if ticks[ents[k]["first_index"]] + (evo.get("deploy_time_ms") or 0) // 50 <= ticks[fi]
+                    if born_out_of_deploy(ents[k]) or ticks[ents[k]["first_index"]] + deploy_ticks <= ticks[fi]
                 }
-                why = evo_copy_of(members, ready, per_tick_rows[fi - 1], evo.get("count"))
+                why = evo_copy_of(members, ready, per_tick_rows[fi - 1])
             duplicating[(side, cid)].update(e["key"] for e in members)
             if why:
                 for e in members:
@@ -3973,6 +4408,21 @@ def build(
                 ),
             }
         )
+    # a spell that deploys a unit, read off its unit (module doc, A SPELL SUMMON'S CAST); its drop is claimed, so that
+    # no ability press reads it (a Golden Knight alive beside a Heal: 20261008-072337 t1452, 20261011-205052 t3879)
+    for d in summon_casts(spawned_groups, ents, ticks, cards_by_name, deploys, doc):
+        after = d.pop("_after")
+        cost = (cards_by_name.get(d["card"]) or {}).get("elixir")
+        drop = (
+            cast_drop(d["side"], after + 1, cost, d["first_seen"], seen=True)
+            if has_elixir and isinstance(cost, int)
+            else None
+        )
+        if drop is not None:
+            d["tick_evidence"] += f"; its side's elixir drop of {cost} on {drop}"
+            d["timing"] = "elixir_drop"
+        d["families"] = sorted((register.get("cards", {}).get(d["card"]) or {}).get("families", {}).keys())
+        deploys.append(d)
     # the casts no object shows, off a live capture's header (module doc, A COST-ONLY SPELL)
     deploys.extend(
         cost_only_casts(header, deploys, doc, cards_by_name, name_to_id, ents, per_tick_rows, ticks, unresolved)
@@ -3994,9 +4444,12 @@ def build(
     if pulse_dates(deploys, doc, cards_by_name, ents, per_tick_rows, ticks, TABLE):
         deploys.sort(key=lambda d: (d["tick"], d["side"], d["card_id"]))
     spell_levels_from_spawn(deploys, spawned_groups, ents)
+    # a Mirror cast of a spell: its units, under the Mirror's id, are the copied card's (module doc, A MIRRORED SPELL'S
+    # UNITS), and its level theirs
+    mirror_spawns(deploys, spawned_groups, ents, doc, cards_by_name)
     for d in deploys:
         src = d.pop("_mirror_of", None)
-        if src is not None and src.get("level") is not None:
+        if src is not None and src.get("level") is not None and d.get("level_source") != "spawn":
             d["level"], d["level_source"] = src["level"] + 1, "mirrored row + 1"
     tunnel_destinations(deploys, ents, per_tick_rows, cards_by_name)
     tunnel_spawn_ticks(deploys, ents, ticks, towers, cards_by_name)
@@ -4080,10 +4533,10 @@ def build(
             "side": e["side"],
             "card_id": e["card_id"],
             "card": e.get("card")
-            if e["card_id"] >= 0
+            if e["role"] != "tower"
             else (
                 "KingTower"
-                if any(t["key"] == e["key"] and t["slot"] == 0 for t in towers)
+                if any(t["key"] == e["key"] and t["slot"] == 0 for t in towers) or e.get("tower_slot") == 0
                 else "PrincessTower"
             ),
             "role": e["role"],
