@@ -361,6 +361,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   enchant.ON_BUFF_HOLD_CONTACT = pushed: the holding Rune Giant pushed (unread there).
 ///   combat.GUARD_LANDING_PUSH = stops_at_arrival: the guard's push stops at its arrival (sp-lp-live-s0).
 ///   spells.EVO_BARREL_DECOY_POINTS = mirrored_cast_own_formation: the decoy's own ring (sp-form-GoblinBarrel-evo-s0).
+///   status.HIT_STUN_SPAN = from_landing_tick: a hit's and a reflect's stun hold their BuffTime from the landing (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -552,6 +553,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("enchant.ON_BUFF_HOLD_CONTACT", "\"pushed\""),
     ("combat.GUARD_LANDING_PUSH", "\"stops_at_arrival\""),
     ("spells.EVO_BARREL_DECOY_POINTS", "\"mirrored_cast_own_formation\""),
+    ("status.HIT_STUN_SPAN", "\"from_landing_tick\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

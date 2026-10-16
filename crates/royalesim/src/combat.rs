@@ -1657,7 +1657,7 @@ pub fn fire(
         if !void {
             dmg.hits.push(Hit { target, amount: damage_against(ents.kind[ti], amount, pct, calib.crown_rounding) + direct.on(ents.kind[ti]), ignores_hide: false, own: false, shot: false });
             if let Some(b) = direct_buff {
-                fx.buffs.push(BuffHit { by_hit: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
+                fx.buffs.push(BuffHit { by_hit: true, hit_span: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(target, b.buff, b.time_ms, atk_pulse) });
             }
             // knockback.COMBO_PUSHBACK = client15535_ladder_from_attacker_hit_tick: a combo hit whose entry carries a
             // melee pushback (card.rs `ComboStage::pushback`; the Monk's third, 1800) pushes its target straight away
@@ -1692,7 +1692,7 @@ pub fn fire(
             let bi = b.index as usize;
             dmg.hits.push(Hit { target: b, amount: damage_against(ents.kind[bi], amount, pct, calib.crown_rounding) + direct.on(ents.kind[bi]), ignores_hide: false, own: false, shot: false });
             if let Some(bf) = direct_buff {
-                fx.buffs.push(BuffHit { by_hit: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
+                fx.buffs.push(BuffHit { by_hit: true, hit_span: true, src_level: ents.level[a], before_damage: card.attack_buff_first, ..BuffHit::plain(b, bf.buff, bf.time_ms, atk_pulse) });
             }
         }
     }

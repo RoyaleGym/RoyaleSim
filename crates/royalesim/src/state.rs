@@ -969,6 +969,10 @@ pub struct Calib {
     /// `MirroredCastOwnFormation`, what a battle saved before it ran.
     #[serde(default = "evo_barrel_decoy_points_default")]
     pub evo_barrel_decoy_points: EvoBarrelDecoyPoints,
+    /// status.HIT_STUN_SPAN (how long a stun a unit's direct hit or a reflect delivers holds). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `FromLandingTick`, what a battle saved before it ran.
+    #[serde(default = "hit_stun_span_default")]
+    pub hit_stun_span: HitStunSpan,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2899,6 +2903,10 @@ fn guard_landing_push_default() -> GuardLandingPush {
 
 fn evo_barrel_decoy_points_default() -> EvoBarrelDecoyPoints {
     EvoBarrelDecoyPoints::MirroredCastOwnFormation
+}
+
+fn hit_stun_span_default() -> HitStunSpan {
+    HitStunSpan::FromLandingTick
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10204,6 +10212,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// status.HIT_STUN_SPAN -- a stun from a unit's direct hit (combat.rs `fire`, BuffHit::hit_span: the Electro Wizard's) or
+    /// a reflect (state.rs `reflect_melee_hit`: the Electro Giant's), in state.rs `apply_effects` and `reflect_melee_hit`.
+    HitStunSpan {
+        /// The engine's: its BuffTime from the landing tick, as any stun.
+        FromLandingTick = "from_landing_tick",
+        /// Client 16.402: its whole BuffTime from the next tick, one tick longer; a chain's stun and an area's unchanged.
+        Client16402FullSpanFromNextTick = "client16402_full_span_from_next_tick",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10759,6 +10777,7 @@ impl Calib {
             on_buff_hold_contact: pick(&v, &["enchant", "ON_BUFF_HOLD_CONTACT", "value"], OnBuffHoldContact::from_calibration_name)?,
             guard_landing_push: pick(&v, &["combat", "GUARD_LANDING_PUSH", "value"], GuardLandingPush::from_calibration_name)?,
             evo_barrel_decoy_points: pick(&v, &["spells", "EVO_BARREL_DECOY_POINTS", "value"], EvoBarrelDecoyPoints::from_calibration_name)?,
+            hit_stun_span: pick(&v, &["status", "HIT_STUN_SPAN", "value"], HitStunSpan::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -28099,7 +28118,14 @@ impl BattleState {
             let Some(b) = r.buff else { continue };
             #[cfg(not(clash_plant = "reflect_stun_buffered"))]
             if land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, &crate::status::BuffHit::plain(me, b.buff, b.time_ms, 0)) {
-                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, b.time_ms);
+                // status.HIT_STUN_SPAN = client16402_full_span_from_next_tick: a reflect's stun holds a tick longer (the Electro
+                // Giant's: towers resumed on the zap + 11 in 11 of 11, the engine's on + 10).
+                #[cfg(not(clash_plant = "hit_stun_from_landing"))]
+                let span = self.cfg.calib.hit_stun_span == HitStunSpan::Client16402FullSpanFromNextTick;
+                #[cfg(clash_plant = "hit_stun_from_landing")]
+                let span = false;
+                let ms = if span { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
+                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, ms);
             }
             // PLANT (regression): the stun through the effect buffer, landed in Resolve.
             #[cfg(clash_plant = "reflect_stun_buffered")]
@@ -29402,7 +29428,15 @@ impl BattleState {
                 if hold {
                     hold_new[i] = hold_new[i].max(b.time_ms);
                 } else {
-                    stun_new[i] = stun_new[i].max(b.time_ms);
+                    // status.HIT_STUN_SPAN = client16402_full_span_from_next_tick: a direct hit's stun holds a tick longer.
+                    // Measured on client 16.402 (parity r74): towers held by an Electro Wizard resumed on the zap + 11 in 24
+                    // of 29, the engine's on + 10. PLANT (regression) hit_stun_from_landing: the new arm still holds BuffTime.
+                    #[cfg(not(clash_plant = "hit_stun_from_landing"))]
+                    let span = b.hit_span && self.cfg.calib.hit_stun_span == HitStunSpan::Client16402FullSpanFromNextTick;
+                    #[cfg(clash_plant = "hit_stun_from_landing")]
+                    let span = false;
+                    let ms = if span { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
+                    stun_new[i] = stun_new[i].max(ms);
                     if lag_arm {
                         if b.by_hit {
                             hit_hold[i] = true;
@@ -37762,6 +37796,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.EVO_BARREL_DECOY_POINTS: Calib gained evo_barrel_decoy_points (serde default the old arm, mirrored_cast_own_formation), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.HIT_STUN_SPAN: Calib gained hit_stun_span (serde default the old arm, from_landing_tick), no new state (BuffHit gained hit_span, serde default false; a BuffHit lives in the effects buffer, empty between ticks),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38789,6 +38825,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_landing_push".into(), serde_json::to_value(GuardLandingPush::StopsAtArrival).map_err(|e| e.to_string())?);
     // spells.EVO_BARREL_DECOY_POINTS: a format-3 battle laid the decoy's ring around its own landing point.
     sh.insert("evo_barrel_decoy_points".into(), serde_json::to_value(EvoBarrelDecoyPoints::MirroredCastOwnFormation).map_err(|e| e.to_string())?);
+    // status.HIT_STUN_SPAN: a format-3 battle's hit and reflect stuns held their BuffTime from the landing tick.
+    sh.insert("hit_stun_span".into(), serde_json::to_value(HitStunSpan::FromLandingTick).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

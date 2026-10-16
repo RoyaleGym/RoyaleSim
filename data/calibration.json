@@ -4458,6 +4458,16 @@
     }
   },
   "status": {
+    "HIT_STUN_SPAN": {
+      "value": "from_landing_tick",
+      "status": "measured",
+      "candidates": ["from_landing_tick", "client16402_full_span_from_next_tick"],
+      "confidence": "HIGH for client16402_full_span_from_next_tick on client 16.402 (parity r74, 2026-10-16): parity's r74 census of the live11 set (client 16.402): crown towers held by an Electro Wizard's hit resumed on the zap z + 11 in 24 of 29 holds, the engine's on z + 10 (the rest overlapping re-stuns); by an Electro Giant's reflect on z + 11 in 11 of 11, the engine's on z + 10 in 6 of 6; a Zap (area) and the Electro Dragon's chain resume on z + 11 on both. A candidate until scored. Measured on crown towers only. The target's clearing on z (status.STUN_CLEARS_TARGET) against the truth's z + 1 is not modelled. Client 15.535.29 keeps from_landing_tick (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74) on client 16.402: parity's r74 census of the live11 set (client 16.402): crown towers held by an Electro Wizard's hit resumed on the zap z + 11 in 24 of 29 holds, the engine's on z + 10 (the rest overlapping re-stuns); by an Electro Giant's reflect on z + 11 in 11 of 11, the engine's on z + 10 in 6 of 6; a Zap (area) and the Electro Dragon's chain resume on z + 11 on both.",
+      "meaning": "from_landing_tick: the engine's; a stun's hold is its BuffTime from the tick it lands, so a 500 ms stun frees its unit on the zap + 10. client16402_full_span_from_next_tick: a stun delivered by a unit's direct hit (the Electro Wizard's bolt and its second bolt) or by a reflect (the Electro Giant's) holds BuffTime + a tick, freeing it on the zap + 11; an area's (Zap) and a chain's (the Electro Dragon's) are unchanged.",
+      "open": "Troops; the target's clearing tick; client 15.535.29.",
+      "engine": "state.rs apply_effects and reflect_melee_hit; combat.rs fire (BuffHit::hit_span); selected by Calib::hit_stun_span; tests/electro_wizard_stun_span.rs."
+    },
     "WARP_BACK_LANDING": {
       "value": "nominal_point",
       "status": "measured",
