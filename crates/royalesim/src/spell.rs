@@ -736,7 +736,15 @@ fn eligible(ents: &Entities, v: usize, team: Team, hit: &SpellHit, calib: &Calib
     }
     // rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune: no area, strike or knockback of a spell reaches an
     // attached rider (target.rs `rider_untouchable`).
-    if crate::target::rider_untouchable(calib, ents, v) {
+    // rider.OWN_AREA_BUFFS_WHILE_ATTACHED = client16402_buffed: an area of the rider's own side that reaches its own troops
+    // (Rage) reaches it as any troop. Measured on client 16.402 (parity r73): the rider raged in 3 of 3 casts; the engine's
+    // in 0 of 21 ticks.
+    // PLANT (regression) own_area_skips_rider: the new arm still refuses the rider.
+    #[cfg(not(clash_plant = "own_area_skips_rider"))]
+    let own_area = hit.only_own_troops && ents.team[v] == team && calib.own_area_buffs_while_attached == crate::state::OwnAreaBuffsWhileAttached::Client16402Buffed;
+    #[cfg(clash_plant = "own_area_skips_rider")]
+    let own_area = false;
+    if crate::target::rider_untouchable(calib, ents, v) && !own_area {
         return false;
     }
     // OnlyOwnTroops (card.rs SpellHit `only_own_troops`: the Battle Healer's spawn heal, Rage, the
@@ -1119,6 +1127,9 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
             continue;
         }
         let id = e.id_of(v);
+        // rider.OWN_AREA_BUFFS_WHILE_ATTACHED = client16402_buffed: `eligible` admits an attached rider only for an own-side
+        // area under that arm; its buff carries the mark Resolve lands it by (state.rs `apply_effects`).
+        let reach_rider = crate::target::rider_untouchable(ctx.calib, e, v);
         if let (Some(b), true) = (barrage, e.kind[v].is_crown_tower()) {
             let amount = ctx.cards.scaled(card, level, b.crown_damage).unwrap_or(b.crown_damage);
             if amount > 0 {
@@ -1153,7 +1164,7 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
                 TargetBuffScope::WholeSplash => {
                     for (b, p) in hung {
                         if let Some(b) = b {
-                            fx.buffs.push(application(id, b, p));
+                            fx.buffs.push(BuffHit { reach_rider, ..application(id, b, p) });
                         }
                     }
                 }
@@ -1598,9 +1609,17 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
     // centre, extended by the half-depth fore and aft. A closed Rect, so a victim
     // touching it is hit (spells.ROLLING_HIT_SHAPE; client15535_max_y_edge_open
     // excludes the max-y edge) -- and swept, so the result does not depend on TICK_MS.
+    // spells.ROLLING_HIT_SWEEP = client16402_current_box: the box is the current cross-section alone. Measured on client
+    // 16.402 (parity r73): a unit born behind the centre was hit 0 of 10; the engine's swept box hit 6.
+    // PLANT (regression) rolling_box_swept: the new arm still sweeps from the previous centre.
+    #[cfg(not(clash_plant = "rolling_box_swept"))]
+    let current = ctx.calib.rolling_hit_sweep == crate::state::RollingHitSweep::Client16402CurrentBox;
+    #[cfg(clash_plant = "rolling_box_swept")]
+    let current = false;
+    let (lo, hi) = if current { (cur.y, cur.y) } else { (prev.y.min(cur.y), prev.y.max(cur.y)) };
     let rect = Rect {
-        min: Vec2::new(cur.x - half_width, prev.y.min(cur.y) - half_depth),
-        max: Vec2::new(cur.x + half_width, prev.y.max(cur.y) + half_depth),
+        min: Vec2::new(cur.x - half_width, lo - half_depth),
+        max: Vec2::new(cur.x + half_width, hi + half_depth),
     };
     let shape = Shape::Box(rect);
     let reach = half_width.max(half_depth + step) + ctx.hash.max_radius();
@@ -1613,6 +1632,16 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
         #[cfg(clash_plant = "rolling_hits_air")]
         let ok = eligible(e, v, team, &SpellHit { hits_air: true, ..*hit }, ctx.calib); // PLANT: AoeToAir blank read as TRUE.
         if !ok {
+            continue;
+        }
+        // spells.ROLLING_SPARES_LEAPERS = client16402_spared_mid_leap: a unit in a river leap or a dash (the Mega Knight's
+        // jump) is passed over. Measured on client 16.402 (parity r73): 0 of 4 hit; the engine's 4 of 4.
+        // PLANT (regression) rolling_hits_leapers: the new arm still hits them.
+        #[cfg(not(clash_plant = "rolling_hits_leapers"))]
+        let spare = ctx.calib.rolling_spares_leapers == crate::state::RollingSparesLeapers::Client16402SparedMidLeap;
+        #[cfg(clash_plant = "rolling_hits_leapers")]
+        let spare = false;
+        if spare && (e.jumping[v] || e.dash_state[v] == crate::entity::DashState::Dashing) {
             continue;
         }
         let id = e.id_of(v);

@@ -219,6 +219,16 @@
     }
   },
   "targeting": {
+    "THROW_PICK": {
+      "value": "ground_troops_centre_in_radius",
+      "status": "measured",
+      "candidates": ["ground_troops_centre_in_radius", "client16402_ground_targets_edge_in_radius"],
+      "confidence": "MED for client16402_ground_targets_edge_in_radius on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): of 11 Hero Balloon presses, the engine's timing equals the truth's in 8 of 8 whose nearest ground enemy was a troop within 6500 (centre); in 2 whose nearest was a Cannon the truth threw at it (the trooper on the press + 13 and + 21, 150 short of its centre), the engine at nothing (the failsafe on + 4); in 1 whose nearest troop stood 6928 off (within 6500 and its radius) the truth threw, the engine did not. A candidate until scored. The building clause: 2 of 2, both Cannons; the reach clause: 1 press. Crown towers were never the nearest: they stay out. Client 15.535.29 keeps ground_troops_centre_in_radius (CLIENT15535_ARMS; its golem scenes).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): of 11 Hero Balloon presses, the engine's timing equals the truth's in 8 of 8 whose nearest ground enemy was a troop within 6500 (centre); in 2 whose nearest was a Cannon the truth threw at it (the trooper on the press + 13 and + 21, 150 short of its centre), the engine at nothing (the failsafe on + 4); in 1 whose nearest troop stood 6928 off (within 6500 and its radius) the truth threw, the engine did not.",
+      "meaning": "ground_troops_centre_in_radius: the engine's; an enemy ground troop whose centre lies within the throw's radius (6500), the nearest by centre. client16402_ground_targets_edge_in_radius: an enemy ground troop or a building other than a crown tower, whose centre lies within the radius plus its own collision radius; the nearest by centre as before.",
+      "open": "Crown towers; whether the reach is the edge or a later seek point; client 15.535.29's buildings.",
+      "engine": "state.rs throw_pick, selected by Calib::throw_pick; tests/hero_balloon.rs."
+    },
     "SUMMON_LANE_FLIP_SCOPE": {
       "value": "client16402_rings_only",
       "status": "measured",
@@ -1814,6 +1824,16 @@
     }
   },
   "combat": {
+    "TETHER_MONSTER_GONE": {
+      "value": "run_ends",
+      "status": "measured",
+      "candidates": ["run_ends", "client16402_death_point_anchor"],
+      "confidence": "MED for client16402_death_point_anchor on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): 3 Goblinstein presses with the Monster already dead all ran the tether (3 of 3: 6, 6 and 1 pulses from the press + 19, every 10 ticks), from the Doctor to the Monster's death point: 13 units hit all within 2000 + their radius of that segment, 3 outside it not hit; the engine ran none (0 of 3); with the Monster alive both agree. A candidate until scored. Measured for a Monster dead before the press; one dying mid-tether takes the same anchor (unmeasured). Client 15.535.29 keeps run_ends (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): 3 Goblinstein presses with the Monster already dead all ran the tether (3 of 3: 6, 6 and 1 pulses from the press + 19, every 10 ticks), from the Doctor to the Monster's death point: 13 units hit all within 2000 + their radius of that segment, 3 outside it not hit; the engine ran none (0 of 3); with the Monster alive both agree.",
+      "meaning": "run_ends: the engine's; a press with no live Monster of the Doctor's side starts no tether, and a run whose Monster dies ends. client16402_death_point_anchor: each Goblinstein Monster's death is noted with its point (WarpBoard::monster_falls); a press with no live Monster runs the tether to the point of the fallen one made nearest the Doctor, and a run whose Monster dies holds its death point (TetherRun::anchor). Width, damage, pulses and the first hit are the live tether's.",
+      "open": "A Monster dying mid-tether; client 15.535.29.",
+      "engine": "state.rs fire_ability (the Tether's run), tether_pass, the death queue (monster_falls), selected by Calib::tether_monster_gone; tests/goblinstein.rs."
+    },
     "DASH_END_CONTACT": {
       "value": "end_tick_body",
       "status": "measured",
@@ -3445,6 +3465,26 @@
     ]
   },
   "spells": {
+    "ROLLING_SPARES_LEAPERS": {
+      "value": "hits",
+      "status": "measured",
+      "candidates": ["hits", "client16402_spared_mid_leap"],
+      "confidence": "MED for client16402_spared_mid_leap on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): every Barbarian Barrel pass over a unit in a timed jump (the Mega Knight's, state 3) or a river leap (the Hog Rider's, the Ram Rider's ram, state 5): the truth hit 0 of 4, the engine 4 of 4 for the roll's damage. A candidate until scored. Read on the Barbarian Barrel alone (no Log pass met a leaper). Client 15.535.29 keeps hits (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): every Barbarian Barrel pass over a unit in a timed jump (the Mega Knight's, state 3) or a river leap (the Hog Rider's, the Ram Rider's ram, state 5): the truth hit 0 of 4, the engine 4 of 4 for the roll's damage.",
+      "meaning": "hits: the engine's; a ground roll hits a unit in a river leap (entity.rs jumping) or a dash (dash_state Dashing) as any ground unit. client16402_spared_mid_leap: it skips them; the unit is not marked hit, so the roll may still hit it once it lands, if the box still reaches it.",
+      "open": "The Log; other ground areas; whether a landed unit is hit later. Client 15.535.29.",
+      "engine": "spell.rs roll (the victim loop), selected by Calib::rolling_spares_leapers; tests/barb_log.rs."
+    },
+    "ROLLING_HIT_SWEEP": {
+      "value": "swept_prev_to_cur",
+      "status": "measured",
+      "candidates": ["swept_prev_to_cur", "client16402_current_box"],
+      "confidence": "MED for client16402_current_box on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): of 10 units born during a Log's or a Barbarian Barrel's roll inside its reach but behind its centre (Goblin Barrel and Goblin Drill goblins, 750 to 1040 behind), the truth hit 0; the engine hit 6 on their birth + 1, its swept box reaching a step behind the centre; units first met by the front agree (280 hit on both, none on the truth alone). A candidate until scored. A step (200) is shorter than the box (1200), so the front misses nothing under either arm. Client 15.535.29 keeps swept_prev_to_cur (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): of 10 units born during a Log's or a Barbarian Barrel's roll inside its reach but behind its centre (Goblin Barrel and Goblin Drill goblins, 750 to 1040 behind), the truth hit 0; the engine hit 6 on their birth + 1, its swept box reaching a step behind the centre; units first met by the front agree (280 hit on both, none on the truth alone).",
+      "meaning": "swept_prev_to_cur: the engine's; the box spans the previous centre to the current one, plus the half depth fore and aft, so a unit born up to a step behind the box's back edge is hit. client16402_current_box: the box is the current centre plus and minus the half depth; the front's reach is unchanged.",
+      "open": "Another reading: the client's first check of a newborn comes after the box has passed it. Client 15.535.29.",
+      "engine": "spell.rs roll (the hit box), selected by Calib::rolling_hit_sweep; tests/barb_log.rs."
+    },
     "STRIKE_TIE_BREAK": {
       "value": "earliest_created",
       "status": "measured",
@@ -4318,15 +4358,25 @@
     }
   },
   "status": {
+    "GUARD_PRESS_ATTRACT": {
+      "value": "pulled",
+      "status": "measured",
+      "candidates": ["pulled", "client16402_unpulled_through_hold"],
+      "confidence": "MED for client16402_unpulled_through_hold on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): every Little Prince tick inside an enemy Tornado: in his press's cast and hold (the press + 1 to + 32) he stood still on 40 of 41 (the other the press tick's own pull), the engine pulled him on 38 of 38 traced; outside it he moved on 722 of 745, and the other enemy ground troops in the same Tornadoes on 53 to 100% of their ticks (3 presses, 2 battles). A candidate until scored. Client 15.535.29 keeps pulled (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): every Little Prince tick inside an enemy Tornado: in his press's cast and hold (the press + 1 to + 32) he stood still on 40 of 41 (the other the press tick's own pull), the engine pulled him on 38 of 38 traced; outside it he moved on 722 of 745, and the other enemy ground troops in the same Tornadoes on 53 to 100% of their ticks (3 presses, 2 battles).",
+      "meaning": "pulled: the engine's; a pulling area moves a Little Prince through his press as status.ATTRACT_WHILE_HELD moves any held unit. client16402_unpulled_through_hold: from his press's cast (the guard ability's cast) to the end of its hold (the guard's hold buff on him, combat.GUARD_PRESS_HOLD) no pull moves him; outside it the pull is as before.",
+      "open": "Other pulls (an Evo Valkyrie's tornado); client 15.535.29.",
+      "engine": "state.rs phase_path16402_for (the attract pre-pass), selected by Calib::guard_press_attract; tests/little_prince.rs."
+    },
     "WARP_BACK_CLOAK": {
       "value": "with_the_trigger",
       "status": "measured",
-      "candidates": ["with_the_trigger", "client16402_trigger_plus_1"],
+      "candidates": ["with_the_trigger", "client16402_trigger_plus_1", "client16402_holders_drop_plus_1"],
       "confidence": "HIGH for client16402_trigger_plus_1 on client 16.402 (parity r71, 2026-10-11): parity's r71 census of the live8 set (client 16.402), P the press: enemies holding the Boss Bandit let her go on P + 4 in 19 of 21 holds over 6 presses (the other 2 on P + 5, across frame gaps), the engine's on P + 3 (12 of 12 traced); her warp on P + 17 in both (6 of 6 in the truth, 1 of 1 traced); the Archer Queen's cloak drops her holders on P + 4 in both (35 of 38; the engine 5 of 5). A candidate until scored. Client 15.535.29 keeps with_the_trigger (CLIENT15535_ARMS; its one scene times the warp, not the holders).",
       "provenance": "MEASURED by parity (2026-10-11, r71) on client 16.402: parity's r71 census of the live8 set (client 16.402), P the press: enemies holding the Boss Bandit let her go on P + 4 in 19 of 21 holds over 6 presses (the other 2 on P + 5, across frame gaps), the engine's on P + 3 (12 of 12 traced); her warp on P + 17 in both (6 of 6 in the truth, 1 of 1 traced); the Archer Queen's cloak drops her holders on P + 4 in both (35 of 38; the engine 5 of 5).",
-      "meaning": "with_the_trigger: the engine's; the cloak lands on the Boss Bandit's trigger (the press + 3 after EARLY_TRIGGER_TICKS), and enemies holding her drop her from the next Target phase. client16402_trigger_plus_1: it lands a tick later (`magic_pass`, the run's made + 1), so her holders let her go a tick later; the warp, warp_delay_ms after the trigger, is unchanged.",
+      "meaning": "with_the_trigger: the engine's; the cloak lands on the Boss Bandit's trigger (the press + 3 after EARLY_TRIGGER_TICKS), and enemies holding her drop her from the next Target phase. client16402_trigger_plus_1: it lands a tick later (`magic_pass`, the run's made + 1), so her holders let her go a tick later; the warp, warp_delay_ms after the trigger, is unchanged. client16402_holders_drop_plus_1: the cloak lands on the trigger as under with_the_trigger, but a unit holding her keeps her through the cloak's first Target phase and lets her go on the next (target.rs `fresh_cloak`); her untargetability to new scans and her warp are the engine's (a candidate, parity r73: parity's r73 census of the live9 set (client 16.402): every enemy holding the Boss Bandit at her press P (3 towers, a Cannon, 5 Bats, a Little Prince; 2 presses) let her go on P + 4, 10 of 10, the engine's on P + 3, 10 of 10; with r71's live8 count (19 of 21 on P + 4). client16402_trigger_plus_1 moves the cloak's landing with the drop (r71: -142 by score); this arm moves the drop alone).",
       "open": "Whether the cloak's end moves with it; client 15.535.29's holders.",
-      "engine": "state.rs fire_ability (AbilityEffect::WarpBack), magic_pass, warp_cloak_late, selected by Calib::warp_back_cloak; tests/boss_bandit.rs."
+      "engine": "state.rs fire_ability (AbilityEffect::WarpBack), magic_pass, warp_cloak_late; target.rs fresh_cloak, selected by Calib::warp_back_cloak; tests/boss_bandit.rs."
     },
     "LIFT_TIMING": {
       "value": "client_next_tick_late_descent",
@@ -6581,6 +6631,16 @@
     }
   },
   "formation": {
+    "MEMBER_WATER_POINT": {
+      "value": "nearest_passable_ground",
+      "status": "measured",
+      "candidates": ["nearest_passable_ground", "client16402_kept_on_water"],
+      "confidence": "MED for client16402_kept_on_water on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): every played ground summon member whose first point fell on river water stood there in the truth, 4 of 4 (Skeleton Army, 3 deploys), and walked off after; the engine put 4 of 4 on the bank; no member stood on land in the truth and on water in the engine; 115 of 115 flying members identical. A candidate until scored. One card (Skeleton Army), 4 members: other swarms unread. spells.SCHEDULED_SPAWN_INVALID_POINT = clamp_keep_water is the shipped analogue for the Graveyard. Client 15.535.29 keeps nearest_passable_ground (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): every played ground summon member whose first point fell on river water stood there in the truth, 4 of 4 (Skeleton Army, 3 deploys), and walked off after; the engine put 4 of 4 on the bank; no member stood on land in the truth and on water in the engine; 115 of 115 flying members identical.",
+      "meaning": "nearest_passable_ground: the engine's; a ground member whose point (after the column's y range and the arena's bounds) lies on water is moved to the nearest passable ground before it is created. client16402_kept_on_water: it is created on that point, on the water, and walks off it as any unit there. Flying members are unchanged.",
+      "open": "Other swarms; client 15.535.29.",
+      "engine": "state.rs formation_members_with (the ring and the explicit offsets), selected by Calib::member_water_point; tests/formations.rs."
+    },
     "LINE_TERRITORY": {
       "value": "client16402_troop_territory",
       "status": "measured",
@@ -6745,6 +6805,16 @@
     }
   },
   "rider": {
+    "OWN_AREA_BUFFS_WHILE_ATTACHED": {
+      "value": "immune",
+      "status": "measured",
+      "candidates": ["immune", "client16402_buffed"],
+      "confidence": "MED for client16402_buffed on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): of 3 Rage casts with a rider attacking inside (the Ram Rider's twice, the Goblin Giant's Spear Goblins once), the rider was raged in 3 of 3: its attack progress stepped 65 a tick (x1.3) from the application, through the buff's life after its mount left the area; the engine's stepped 50 on all 21 pre-divergence rider ticks (0 raged). A candidate until scored. Read on Rage alone. Client 15.535.29 keeps immune (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): of 3 Rage casts with a rider attacking inside (the Ram Rider's twice, the Goblin Giant's Spear Goblins once), the rider was raged in 3 of 3: its attack progress stepped 65 a tick (x1.3) from the application, through the buff's life after its mount left the area; the engine's stepped 50 on all 21 pre-divergence rider ticks (0 raged).",
+      "meaning": "immune: the engine's; an attached rider (rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune) is out of every area. client16402_buffed: an only_own_troops area (Rage; the Heal Spirit's heal and the Battle Healer's spawn heal ride the same flag) of the rider's own side reaches it as any troop of its kind; enemy areas still do not.",
+      "open": "The own-side heals on a rider; client 15.535.29.",
+      "engine": "spell.rs eligible (the rider refusal), selected by Calib::own_area_buffs_while_attached; tests/goblin_giant.rs."
+    },
     "$comment": [
       "ATTACHED RIDERS (card.rs `AttachDef`): a unit whose Spawn* block sets SpawnAttach carries",
       "SpawnNumber riders of the named row from its first tick (the 15.535.29 tables: the Ram Rider's",

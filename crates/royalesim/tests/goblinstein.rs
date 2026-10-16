@@ -6,7 +6,8 @@
 //! 10 ticks after; a Musketeer 2279 from the line hit, 2803 from it missed (TetherWidth 2000 and its radius).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
-//! goblinstein`): tether_never, early_trigger_late.
+//! goblinstein`): tether_never, early_trigger_late, tether_ends_with_monster
+//! (`under_client16402_death_point_anchor_a_press_with_its_monster_dead_runs_the_tether_to_where_it_fell` red).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -108,4 +109,73 @@ fn its_tether_hits_what_stands_by_the_line_every_10_ticks_from_the_press_plus_20
     }
     assert_eq!(hits_near, vec![20, 30, 40, 50, 60, 70, 80, 90], "the near Knight's tether hits, from the press");
     assert!(hits_far.is_empty(), "the far Knight out of the tether's reach: {hits_far:?}");
+}
+
+/// Goblinstein's scene with the Monster held on (9500, 14000) and the Doctor on (9500, 9000) under combat.TETHER_MONSTER_GONE
+/// = `arm`, the Monster killed there 10 ticks before the press: the ticks, from the press, a Red Knight held 1,000 off the
+/// segment between them loses a tether hit.
+fn dead_monster_hits(arm: royalesim::state::TetherMonsterGone) -> Vec<u32> {
+    let mut cfg = config();
+    cfg.calib.tether_monster_gone = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.deploy(Team::Blue, "Goblinstein", n(TAP)).expect("the play");
+    for _ in 0..30 {
+        s.tick();
+    }
+    let monster = find_live(&s, Team::Blue, "Goblinstein").first().expect("the Monster").id;
+    let doctor = find_live(&s, Team::Blue, "goblinstein_doctor").first().expect("the Doctor").id;
+    let (m_at, d_at) = (n((9500, 14000)), n((9500, 9000)));
+    let near = s.scenario_spawn_now(Team::Red, "Knight", n((10500, 11500)), None).expect("a Knight");
+    let hold = |s: &mut BattleState| {
+        if s.entity(monster).is_some() {
+            assert!(s.debug_set_pos(monster, m_at));
+        }
+        assert!(s.debug_set_pos(doctor, d_at), "the Doctor stands");
+        let full = s.entity(near).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(near, n((10500, 11500))) && s.debug_set_hp(near, full));
+    };
+    for _ in 0..20 {
+        hold(&mut s);
+        s.tick();
+    }
+    hold(&mut s);
+    assert!(s.debug_set_hp(monster, 0));
+    for _ in 0..10 {
+        hold(&mut s);
+        s.tick();
+    }
+    assert!(s.entity(monster).is_none(), "the scene drifted: the Monster lives");
+    let towers: Vec<EntityId> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press, on the Doctor");
+    let mut hits = Vec::new();
+    for _ in 0..110 {
+        hold(&mut s);
+        let a = s.entity(near).expect("the Knight").hp;
+        s.tick();
+        if matches!(a - s.entity(near).expect("the Knight").hp, 94 | 229) {
+            hits.push(s.tick_count() - 1 - p);
+        }
+    }
+    hits
+}
+
+/// combat.TETHER_MONSTER_GONE = client16402_death_point_anchor (client 16.402, parity's r73 census: 3 of 3 presses with the
+/// Monster dead ran the tether to its death point; the engine's none): with the Monster killed on its point, the press still
+/// hits the Knight by the segment on the press + 20 and every 10 ticks after, as a live Monster's; under run_ends (the vacuity
+/// check) nothing hits it. Plant: tether_ends_with_monster.
+#[test]
+fn under_client16402_death_point_anchor_a_press_with_its_monster_dead_runs_the_tether_to_where_it_fell() {
+    use royalesim::state::TetherMonsterGone as G;
+    assert!(dead_monster_hits(G::RunEnds).is_empty(), "run_ends: a tether ran without its Monster");
+    assert_eq!(dead_monster_hits(G::Client16402DeathPointAnchor), vec![20, 30, 40, 50, 60, 70, 80, 90], "client16402_death_point_anchor: the Knight's tether hits, from the press");
 }

@@ -49,6 +49,9 @@
 //!   9. a whole scripted battle with swarms in both decks keeps every tests/common
 //!      invariant (no member ever on water).
 //!
+//! PLANT (regression): `member_water_to_bank` (formation.MEMBER_WATER_POINT = client16402_kept_on_water still puts a member
+//! laid on water on the bank): `under_client16402_kept_on_water_a_member_laid_on_the_river_stays_there` goes red.
+//!
 //! PLANT (regression): `formation_grid_legacy` forces the square grid on every
 //! deploy: (2), (4), both halves of (7) and (8) go red -- 5 of 10.
 //!     RUSTFLAGS='--cfg clash_plant="formation_grid_legacy"' CARGO_TARGET_DIR=target/plant cargo test --test formations
@@ -755,4 +758,30 @@ fn a_scripted_battle_with_swarms_keeps_every_invariant() {
     assert!(run.hashes.len() > 500, "the battle ended at {}", run.hashes.len());
     assert!(run.plays[0] + run.plays[1] >= 12, "only {:?} plays: not a swarm battle", run.plays);
     assert!(run.max_live >= 20, "at most {} live: not a swarm battle", run.max_live);
+}
+
+/// Blue Skeletons tapped on the last dry row before the river with the column's range off (formation.GROUND_Y_CLAMP = none:
+/// the forward member's ring point lies on the water), under formation.MEMBER_WATER_POINT = `arm`: whether each member
+/// stands on water.
+fn bank_skeletons_on_water(arm: royalesim::state::MemberWaterPoint) -> Vec<bool> {
+    let mut cfg = config_pre_flip();
+    cfg.calib.formation_ground_y_clamp = GroundYClamp::None;
+    cfg.calib.member_water_point = arm;
+    let s = BattleState::new(1, cfg);
+    let a = s.arena().clone();
+    let bank_row = a.water_y_min / a.cell - 1;
+    let tap = Vec2::new(a.width * 3 / 4, bank_row * a.cell + a.cell / 2);
+    s.formation_preview(Team::Blue, "Skeletons", tap).unwrap().iter().map(|(_, p, _)| a.is_water(*p)).collect()
+}
+
+/// formation.MEMBER_WATER_POINT = client16402_kept_on_water (client 16.402, parity's r73 census: 4 of 4 ground members laid
+/// on the river stood there; the engine put 4 of 4 on the bank): the forward Skeleton stays on its ring point on the water;
+/// under nearest_passable_ground (the vacuity check) every member stands on land. Plant: member_water_to_bank.
+#[test]
+fn under_client16402_kept_on_water_a_member_laid_on_the_river_stays_there() {
+    use royalesim::state::MemberWaterPoint as M;
+    let old = bank_skeletons_on_water(M::NearestPassableGround);
+    assert!(old.iter().all(|w| !w), "nearest_passable_ground: a member on water: {old:?}");
+    let new = bank_skeletons_on_water(M::Client16402KeptOnWater);
+    assert!(new.iter().any(|w| *w), "client16402_kept_on_water: no member on the water: {new:?}");
 }

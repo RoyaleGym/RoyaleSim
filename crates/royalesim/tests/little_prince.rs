@@ -21,7 +21,8 @@
 //! press_hold_table_time (`under_client16402_three_ticks_longer_his_press_holds_him_three_ticks_past_its_time` red),
 //! press_contact_pushed (`under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press` red),
 //! guard_birth_fixed and guard_birth_no_step (`under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_steps` red),
-//! guard_free_on_arrival_plus_1 (`under_client16402_held_through_arrival_plus_1_his_guard_targets_a_tick_later` red).
+//! guard_free_on_arrival_plus_1 (`under_client16402_held_through_arrival_plus_1_his_guard_targets_a_tick_later` red),
+//! press_hold_pulled (`under_client16402_unpulled_through_hold_a_tornado_does_not_move_him_in_his_press` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -966,4 +967,32 @@ fn under_client16402_held_through_arrival_plus_1_his_guard_targets_a_tick_later(
     let (a_new, t_new) = guard_landing(GuardFreeTick::Client16402HeldThroughArrivalPlus1);
     assert_eq!(a_old, a_new, "the arrival is the same under both arms");
     assert_eq!(t_new, t_old + 1, "client16402_held_through_arrival_plus_1: the first target a tick later ({t_old} -> {t_new}, arrival {a_new})");
+}
+
+/// The Little Prince pressed at AT (held there before) with a Red Tornado cast 2,000 to his side on the press's own gap,
+/// under status.GUARD_PRESS_ATTRACT = `arm`: his greatest distance from his press point over the press + 1 .. + 15 (his cast
+/// and hold, before his guard appears), native.
+fn press_tornado(arm: royalesim::state::GuardPressAttract) -> i64 {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_press_attract = arm, &[]);
+    let p0 = s.entity(lp).expect("him").pos;
+    s.spawn_unit(Team::Red, "Tornado", Vec2::new(p0.x + 2000 * K, p0.y), None).expect("the Tornado");
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut most = 0i64;
+    for _ in 1..=15 {
+        s.tick();
+        let p = s.entity(lp).expect("him").pos;
+        let (dx, dy) = (((p.x - p0.x) / K) as i64, ((p.y - p0.y) / K) as i64);
+        most = most.max(dx.abs().max(dy.abs()));
+    }
+    most
+}
+
+/// status.GUARD_PRESS_ATTRACT = client16402_unpulled_through_hold (client 16.402, parity's r73 census: in a Tornado through
+/// his press's cast and hold he stood still on 40 of 41 ticks; the engine pulled him on 38 of 38): a Tornado beside him does
+/// not move him in his press; under pulled (the vacuity check) it does. Plant: press_hold_pulled.
+#[test]
+fn under_client16402_unpulled_through_hold_a_tornado_does_not_move_him_in_his_press() {
+    use royalesim::state::GuardPressAttract as G;
+    assert!(press_tornado(G::Pulled) > 0, "pulled (the vacuity check): the Tornado never moved him");
+    assert_eq!(press_tornado(G::Client16402UnpulledThroughHold), 0, "client16402_unpulled_through_hold: he moved in his press");
 }

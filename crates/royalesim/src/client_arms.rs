@@ -340,6 +340,13 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   spells.LIVE_SPAWN_AREA_BIRTH = seen_on_birth_tick: a live spawn in its birth tick's area scans (unread there).
 ///   combat.DASH_END_CONTACT = end_tick_body: a timed dash's unit a body on its end tick (unread there).
 ///   spells.STRIKE_TIE_BREAK = earliest_created: a Lightning hp tie to the earliest created (its 28 casts).
+///   rider.OWN_AREA_BUFFS_WHILE_ATTACHED = immune: no own-side area on an attached rider (unread there).
+///   combat.TETHER_MONSTER_GONE = run_ends: the tether ends with its Monster (unread there).
+///   status.GUARD_PRESS_ATTRACT = pulled: a pull moves a Little Prince in his press (unread there).
+///   formation.MEMBER_WATER_POINT = nearest_passable_ground: a ground member laid on water put on the bank (unread there).
+///   targeting.THROW_PICK = ground_troops_centre_in_radius: the Hero Balloon throws at troops by centre (its golem scenes).
+///   spells.ROLLING_HIT_SWEEP = swept_prev_to_cur: a roll's box swept from its previous centre (unread there).
+///   spells.ROLLING_SPARES_LEAPERS = hits: a ground roll hits a leaping unit (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -510,6 +517,13 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.LIVE_SPAWN_AREA_BIRTH", "\"seen_on_birth_tick\""),
     ("combat.DASH_END_CONTACT", "\"end_tick_body\""),
     ("spells.STRIKE_TIE_BREAK", "\"earliest_created\""),
+    ("rider.OWN_AREA_BUFFS_WHILE_ATTACHED", "\"immune\""),
+    ("combat.TETHER_MONSTER_GONE", "\"run_ends\""),
+    ("status.GUARD_PRESS_ATTRACT", "\"pulled\""),
+    ("formation.MEMBER_WATER_POINT", "\"nearest_passable_ground\""),
+    ("targeting.THROW_PICK", "\"ground_troops_centre_in_radius\""),
+    ("spells.ROLLING_HIT_SWEEP", "\"swept_prev_to_cur\""),
+    ("spells.ROLLING_SPARES_LEAPERS", "\"hits\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -889,6 +889,34 @@ pub struct Calib {
     /// `EarliestCreated`, what a battle saved before it ran.
     #[serde(default = "strike_tie_break_default")]
     pub strike_tie_break: StrikeTieBreak,
+    /// rider.OWN_AREA_BUFFS_WHILE_ATTACHED (whether an area that reaches its own side's troops reaches an attached rider). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Immune`, what a battle saved before it ran.
+    #[serde(default = "own_area_buffs_while_attached_default")]
+    pub own_area_buffs_while_attached: OwnAreaBuffsWhileAttached,
+    /// combat.TETHER_MONSTER_GONE (what Goblinstein's tether does when its Monster is dead). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `RunEnds`, what a battle saved before it ran.
+    #[serde(default = "tether_monster_gone_default")]
+    pub tether_monster_gone: TetherMonsterGone,
+    /// status.GUARD_PRESS_ATTRACT (whether a pull (the Tornado's) moves a Little Prince in his press's cast and hold). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Pulled`, what a battle saved before it ran.
+    #[serde(default = "guard_press_attract_default")]
+    pub guard_press_attract: GuardPressAttract,
+    /// formation.MEMBER_WATER_POINT (where a ground summon member whose ring point lies on river water is created). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `NearestPassableGround`, what a battle saved before it ran.
+    #[serde(default = "member_water_point_default")]
+    pub member_water_point: MemberWaterPoint,
+    /// targeting.THROW_PICK (what the Hero Balloon's throw may pick, and its reach). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `GroundTroopsCentreInRadius`, what a battle saved before it ran.
+    #[serde(default = "throw_pick_default")]
+    pub throw_pick: ThrowPick,
+    /// spells.ROLLING_HIT_SWEEP (the y extent of a roll's hit box on a tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `SweptPrevToCur`, what a battle saved before it ran.
+    #[serde(default = "rolling_hit_sweep_default")]
+    pub rolling_hit_sweep: RollingHitSweep,
+    /// spells.ROLLING_SPARES_LEAPERS (whether a ground roll hits a unit mid river leap or mid timed jump). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Hits`, what a battle saved before it ran.
+    #[serde(default = "rolling_spares_leapers_default")]
+    pub rolling_spares_leapers: RollingSparesLeapers,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2739,6 +2767,34 @@ fn dash_end_contact_default() -> DashEndContact {
 
 fn strike_tie_break_default() -> StrikeTieBreak {
     StrikeTieBreak::EarliestCreated
+}
+
+fn own_area_buffs_while_attached_default() -> OwnAreaBuffsWhileAttached {
+    OwnAreaBuffsWhileAttached::Immune
+}
+
+fn tether_monster_gone_default() -> TetherMonsterGone {
+    TetherMonsterGone::RunEnds
+}
+
+fn guard_press_attract_default() -> GuardPressAttract {
+    GuardPressAttract::Pulled
+}
+
+fn member_water_point_default() -> MemberWaterPoint {
+    MemberWaterPoint::NearestPassableGround
+}
+
+fn throw_pick_default() -> ThrowPick {
+    ThrowPick::GroundTroopsCentreInRadius
+}
+
+fn rolling_hit_sweep_default() -> RollingHitSweep {
+    RollingHitSweep::SweptPrevToCur
+}
+
+fn rolling_spares_leapers_default() -> RollingSparesLeapers {
+    RollingSparesLeapers::Hits
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9777,6 +9833,9 @@ calib_enum!(
         WithTheTrigger = "with_the_trigger",
         /// Client 16.402: a tick after her trigger; her warp as before.
         Client16402TriggerPlus1 = "client16402_trigger_plus_1",
+        /// Client 16.402: on her trigger, as the engine's; but a unit holding her keeps her through the cloak's first Target
+        /// phase (its slot not yet run down) and lets her go on the next (parity's r73 census of the live9 set (client 16.402): every enemy holding the Boss Bandit at her press P (3 towers, a Cannon, 5 Bats, a Little Prince; 2 presses) let her go on P + 4, 10 of 10, the engine's on P + 3, 10 of 10; with r71's live8 count (19 of 21 on P + 4). client16402_trigger_plus_1 moves the cloak's landing with the drop (r71: -142 by score); this arm moves the drop alone).
+        Client16402HoldersDropPlus1 = "client16402_holders_drop_plus_1",
     }
 );
 calib_enum!(
@@ -9817,6 +9876,74 @@ calib_enum!(
         EarliestCreated = "earliest_created",
         /// Client 16.402: the candidate nearest the area's centre; an exact distance tie to the earliest created.
         Client16402NearestCentreThenEarliest = "client16402_nearest_centre_then_earliest",
+    }
+);
+calib_enum!(
+    /// rider.OWN_AREA_BUFFS_WHILE_ATTACHED -- an only_own_troops area (Rage) and an attached rider (spell.rs `eligible`; target.rs
+    /// `rider_untouchable`).
+    OwnAreaBuffsWhileAttached {
+        /// The engine's: rider.TARGETABLE_WHILE_ATTACHED's untouchable rider is out of every area, its own side's too.
+        Immune = "immune",
+        /// Client 16.402: an area of the rider's own side that reaches its own troops (Rage) reaches it as any troop.
+        Client16402Buffed = "client16402_buffed",
+    }
+);
+calib_enum!(
+    /// combat.TETHER_MONSTER_GONE -- Goblinstein's tether without a live Monster (state.rs `fire_ability`'s Tether, `tether_pass`,
+    /// `WarpBoard::monster_falls`, `TetherRun::anchor`).
+    TetherMonsterGone {
+        /// The engine's: no run starts without a live Monster, and a run ends when its Monster dies.
+        RunEnds = "run_ends",
+        /// Client 16.402: the tether runs from the Doctor to the point where the Monster died.
+        Client16402DeathPointAnchor = "client16402_death_point_anchor",
+    }
+);
+calib_enum!(
+    /// status.GUARD_PRESS_ATTRACT -- the Tornado's pull on a Little Prince from his press to the end of its hold (state.rs
+    /// `phase_path16402_for`'s attract pre-pass; `guard_hold_on`).
+    GuardPressAttract {
+        /// The engine's: status.ATTRACT_WHILE_HELD's rule, so a pull still moves him.
+        Pulled = "pulled",
+        /// Client 16.402: no pull moves him from his press's cast to the end of its hold.
+        Client16402UnpulledThroughHold = "client16402_unpulled_through_hold",
+    }
+);
+calib_enum!(
+    /// formation.MEMBER_WATER_POINT -- a ground summon member's ring (or explicit-offsets) point on water (state.rs
+    /// `formation_members_with`).
+    MemberWaterPoint {
+        /// The engine's: moved to the nearest passable ground first.
+        NearestPassableGround = "nearest_passable_ground",
+        /// Client 16.402: created on its point, on the water; it walks off it.
+        Client16402KeptOnWater = "client16402_kept_on_water",
+    }
+);
+calib_enum!(
+    /// targeting.THROW_PICK -- the Hero Balloon's throw's pick (state.rs `throw_pick`).
+    ThrowPick {
+        /// The engine's: an enemy ground troop whose centre lies within the radius.
+        GroundTroopsCentreInRadius = "ground_troops_centre_in_radius",
+        /// Client 16.402: an enemy ground troop or building (not a crown tower) whose edge lies within the radius.
+        Client16402GroundTargetsEdgeInRadius = "client16402_ground_targets_edge_in_radius",
+    }
+);
+calib_enum!(
+    /// spells.ROLLING_HIT_SWEEP -- a rolling spell's (the Log's, the Barbarian Barrel's) box on a tick (spell.rs `roll`).
+    RollingHitSweep {
+        /// The engine's: the cross-section swept from the previous centre to the current, and the half depth fore and aft.
+        SweptPrevToCur = "swept_prev_to_cur",
+        /// Client 16.402: the current centre and the half depth fore and aft alone.
+        Client16402CurrentBox = "client16402_current_box",
+    }
+);
+calib_enum!(
+    /// spells.ROLLING_SPARES_LEAPERS -- a rolling spell's (ground only) victims in a leap (spell.rs `roll`; entity.rs `jumping`,
+    /// `dash_state`).
+    RollingSparesLeapers {
+        /// The engine's: a leaping or jumping unit is ground to the roll.
+        Hits = "hits",
+        /// Client 16.402: a unit in a river leap or in a dash (the Mega Knight's jump) is not hit.
+        Client16402SparedMidLeap = "client16402_spared_mid_leap",
     }
 );
 calib_enum!(
@@ -10355,6 +10482,13 @@ impl Calib {
             live_spawn_area_birth: pick(&v, &["spells", "LIVE_SPAWN_AREA_BIRTH", "value"], LiveSpawnAreaBirth::from_calibration_name)?,
             dash_end_contact: pick(&v, &["combat", "DASH_END_CONTACT", "value"], DashEndContact::from_calibration_name)?,
             strike_tie_break: pick(&v, &["spells", "STRIKE_TIE_BREAK", "value"], StrikeTieBreak::from_calibration_name)?,
+            own_area_buffs_while_attached: pick(&v, &["rider", "OWN_AREA_BUFFS_WHILE_ATTACHED", "value"], OwnAreaBuffsWhileAttached::from_calibration_name)?,
+            tether_monster_gone: pick(&v, &["combat", "TETHER_MONSTER_GONE", "value"], TetherMonsterGone::from_calibration_name)?,
+            guard_press_attract: pick(&v, &["status", "GUARD_PRESS_ATTRACT", "value"], GuardPressAttract::from_calibration_name)?,
+            member_water_point: pick(&v, &["formation", "MEMBER_WATER_POINT", "value"], MemberWaterPoint::from_calibration_name)?,
+            throw_pick: pick(&v, &["targeting", "THROW_PICK", "value"], ThrowPick::from_calibration_name)?,
+            rolling_hit_sweep: pick(&v, &["spells", "ROLLING_HIT_SWEEP", "value"], RollingHitSweep::from_calibration_name)?,
+            rolling_spares_leapers: pick(&v, &["spells", "ROLLING_SPARES_LEAPERS", "value"], RollingSparesLeapers::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -11773,6 +11907,11 @@ pub struct WarpBoard {
     /// Goblinstein's tethers under way (`TetherRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tethers: Vec<TetherRun>,
+    /// combat.TETHER_MONSTER_GONE = client16402_death_point_anchor: each Goblinstein Monster that died, (its side, its card,
+    /// its creation tick, its id, its death point), for a press after it. Empty under run_ends; absent in older snapshots,
+    /// and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub monster_falls: Vec<(Team, u16, u32, EntityId, Vec2)>,
     /// The Little Prince's ramps (`RampRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ramps: Vec<RampRun>,
@@ -11901,6 +12040,10 @@ pub struct TetherRun {
     pub card: u16,
     pub level: i32,
     pub first: u32,
+    /// combat.TETHER_MONSTER_GONE = client16402_death_point_anchor: the point the Monster died on, which the tether runs
+    /// to once it is dead. None while it lives, and always under run_ends; absent in older snapshots, hashed only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<Vec2>,
 }
 
 /// A LITTLE PRINCE'S RAMP (card.rs `RampDef`; `ramp_pass`, `swing_started`): his count, his grace and his last point.
@@ -11940,7 +12083,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -20046,13 +20189,20 @@ impl BattleState {
     /// none is.
     fn throw_pick(&self, i: usize, range: i32) -> Option<EntityId> {
         let e = &self.ents;
-        let r2 = (range as i64) * (range as i64);
+        // targeting.THROW_PICK = client16402_ground_targets_edge_in_radius: a building (not a crown tower) may be picked, and
+        // the reach is the radius plus the candidate's own. Measured on client 16.402 (parity r73): the throw at a Cannon 2 of
+        // 2, at a troop 6928 off 1 of 1; the engine's at neither.
+        // PLANT (regression) throw_pick_troops_only: the new arm still picks troops by centre alone.
+        #[cfg(not(clash_plant = "throw_pick_troops_only"))]
+        let wide = self.cfg.calib.throw_pick == ThrowPick::Client16402GroundTargetsEdgeInRadius;
+        #[cfg(clash_plant = "throw_pick_troops_only")]
+        let wide = false;
         (0..e.capacity())
             .filter(|&j| {
                 e.alive[j]
                     && e.hp[j] > 0
                     && e.team[j] != e.team[i]
-                    && e.kind[j] == EntityKind::Troop
+                    && (e.kind[j] == EntityKind::Troop || (wide && !e.kind[j].is_crown_tower()))
                     && !e.in_air(j)
                     && !e.jumping[j]
                     && e.tunnel_dest[j].is_none()
@@ -20061,7 +20211,10 @@ impl BattleState {
                     && !target::invisible_at(&self.cfg.calib, &self.cfg.cards, e, self.tick, j)
             })
             .map(|j| (e.pos[j].dist2(e.pos[i]), -e.hp[j], e.creation_seq[j], j))
-            .filter(|(d2, _, _, _)| *d2 <= r2)
+            .filter(|&(d2, _, _, j)| {
+                let reach = range as i64 + if wide { e.radius[j] as i64 } else { 0 };
+                d2 <= reach * reach
+            })
             .min()
             .map(|(_, _, _, j)| e.id_of(j))
     }
@@ -23541,7 +23694,7 @@ impl BattleState {
         let lag = self.cfg.calib.attract_onset == AttractOnset::ClientNextTick;
         #[cfg(clash_plant = "attract_onset_area_first_tick")]
         let lag = false; // PLANT (regression): the new arm pulls from the area's first tick.
-        let (attract, attract_n): (Vec<(i32, i32)>, Vec<i32>) = {
+        let (mut attract, mut attract_n): (Vec<(i32, i32)>, Vec<i32>) = {
             let sources: Vec<AttractSource> = self
                 .spells
                 .iter()
@@ -23638,6 +23791,24 @@ impl BattleState {
             }
             (out, n_out)
         };
+        // status.GUARD_PRESS_ATTRACT = client16402_unpulled_through_hold: no pull moves a Little Prince from his press's cast to
+        // the end of its hold. Measured on client 16.402 (parity r73): he stood still in a Tornado on 40 of 41 such ticks; the
+        // engine pulled him on 38 of 38.
+        // PLANT (regression) press_hold_pulled: the new arm still pulls him.
+        #[cfg(not(clash_plant = "press_hold_pulled"))]
+        let unpulled = self.cfg.calib.guard_press_attract == GuardPressAttract::Client16402UnpulledThroughHold;
+        #[cfg(clash_plant = "press_hold_pulled")]
+        let unpulled = false;
+        if unpulled {
+            for u in self.hero_units.iter().filter(|u| self.ents.is_alive(u.id)) {
+                let i = u.id.index as usize;
+                let guard = matches!(self.cfg.cards.get(self.ents.card[i]).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::Guard(_)));
+                if guard && (u.casting || self.guard_hold_on(i)) {
+                    attract[i] = (0, 0);
+                    attract_n[i] = 0;
+                }
+            }
+        }
         let mut deltas = std::mem::take(&mut self.scratch.deltas);
         deltas.clear();
         deltas.resize(cap, Vec2::default());
@@ -28756,7 +28927,18 @@ impl BattleState {
                 && self.ents.hide[i] == HideState::Hidden
                 && !(untouchable && self.ents.underground(i))
                 && !target::rider_untouchable(&c, &self.ents, i);
-            if !survivor(&self.ents, b.target) && !lands_before && !hidden_reached {
+            // rider.OWN_AREA_BUFFS_WHILE_ATTACHED = client16402_buffed: an own-side area's buff spell.rs `eligible` let through
+            // to an attached rider (`BuffHit::reach_rider`) lands on it, as on any troop.
+            // PLANT (regression) rider_buff_dropped_in_resolve: the new arm's rider buff still falls at this gate.
+            #[cfg(not(clash_plant = "rider_buff_dropped_in_resolve"))]
+            let rider_reached = b.reach_rider
+                && self.ents.is_alive(b.target)
+                && self.ents.hp[i] > 0
+                && self.ents.hide[i] != HideState::Hidden
+                && !(untouchable && self.ents.underground(i));
+            #[cfg(clash_plant = "rider_buff_dropped_in_resolve")]
+            let rider_reached = false;
+            if !survivor(&self.ents, b.target) && !lands_before && !hidden_reached && !rider_reached {
                 continue;
             }
             // The slot and the full-stop test are `land_buff`'s, shared with the reflect's
@@ -29746,7 +29928,8 @@ impl BattleState {
         let runs = std::mem::take(&mut self.warps.tethers);
         let mut keep = Vec::new();
         for r in runs {
-            if !self.ents.is_alive(r.doctor) || !self.ents.is_alive(r.monster) {
+            // combat.TETHER_MONSTER_GONE = client16402_death_point_anchor: a run with an anchor (its Monster dead) goes on.
+            if !self.ents.is_alive(r.doctor) || (!self.ents.is_alive(r.monster) && r.anchor.is_none()) {
                 continue;
             }
             let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Tether(tt), .. }) = self.cfg.cards.get(r.card).ability else { continue };
@@ -29755,8 +29938,9 @@ impl BattleState {
                 continue;
             }
             if self.tick >= r.first && (self.tick - r.first) % every == 0 {
-                let (di, mi) = (r.doctor.index as usize, r.monster.index as usize);
-                let (a, b, team) = (self.ents.pos[di], self.ents.pos[mi], self.ents.team[di]);
+                let di = r.doctor.index as usize;
+                let b = r.anchor.unwrap_or_else(|| self.ents.pos[r.monster.index as usize]);
+                let (a, team) = (self.ents.pos[di], self.ents.team[di]);
                 let dc = self.ents.card[di];
                 let dmg = self.cfg.cards.scaled(dc, r.level, tt.damage).expect("the Doctor's level is validated at try_new");
                 let crown = self.cfg.cards.scaled(dc, r.level, tt.crown_damage).expect("the Doctor's level is validated at try_new");
@@ -30762,6 +30946,25 @@ impl BattleState {
                     }
                 }
             }
+            // combat.TETHER_MONSTER_GONE = client16402_death_point_anchor: a Goblinstein Monster's death (its card's own
+            // Tether names it) is noted with its point, for a press after it, and a run on it takes that point as its anchor.
+            // PLANT (regression) tether_ends_with_monster: the new arm still notes nothing.
+            #[cfg(not(clash_plant = "tether_ends_with_monster"))]
+            if self.cfg.calib.tether_monster_gone == TetherMonsterGone::Client16402DeathPointAnchor {
+                for id in &deaths {
+                    let i = id.index as usize;
+                    let c = self.ents.card[i];
+                    if !matches!(self.cfg.cards.get(c).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::Tether(tt)) if tt.monster == c) {
+                        continue;
+                    }
+                    let at = self.ents.pos[i];
+                    for r in self.warps.tethers.iter_mut().filter(|r| r.monster == *id) {
+                        r.anchor.get_or_insert(at);
+                    }
+                    self.warps.monster_falls.retain(|f| f.3 != *id);
+                    self.warps.monster_falls.push((self.ents.team[i], c, self.ents.spawn_tick[i], *id, at));
+                }
+            }
             // THE EVO SKELETON ARMY (`army_deaths`): the Spectrals this tick's dead soldiers leave, and the Spectrals a dead
             // General takes with it, decided before the dead go.
             let (deaths, spectrals) = if self.evo.armies.is_empty() { (deaths, Vec::new()) } else { self.army_deaths(deaths) };
@@ -31616,6 +31819,13 @@ impl BattleState {
                 // The arena-bounds clamp, native: half a cell inside every edge.
                 let (w, h) = (arena.width / K, arena.height / K);
                 let margin = arena.cell / K / 2;
+                // formation.MEMBER_WATER_POINT = client16402_kept_on_water: a ground member whose point lies on water is created
+                // there. Measured on client 16.402 (parity r73): 4 of 4 such members stood on the water; the engine's on the bank.
+                // PLANT (regression) member_water_to_bank: the new arm still moves it to the bank.
+                #[cfg(not(clash_plant = "member_water_to_bank"))]
+                let keep_water = calib.member_water_point == MemberWaterPoint::Client16402KeptOnWater;
+                #[cfg(clash_plant = "member_water_to_bank")]
+                let keep_water = false;
                 // THE EXPLICIT OFFSETS (card.rs `SummonMemberDef`; the Three Musketeers' SummonCharactersOffsetsX / Y),
                 // in place of the ring, under formation.EXPLICIT_OFFSETS_FRAME: in the owner's frame, both axes negated,
                 // and under the side-1 arm x mirrored for side 1 on its own left lane. Measured on client 15.535.29 for
@@ -31640,7 +31850,7 @@ impl BattleState {
                             }
                             p = Vec2::new(p.x.clamp(margin, w - margin), p.y.clamp(margin, h - margin));
                             let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
-                            let abs = if unit.is_flying() || arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) };
+                            let abs = if unit.is_flying() || keep_water || arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) };
                             member(k as i32, abs)
                         })
                         .collect();
@@ -31656,7 +31866,7 @@ impl BattleState {
                         }
                         p = Vec2::new(p.x.clamp(margin, w - margin), p.y.clamp(margin, h - margin));
                         let abs = arena.from_frame(team, Vec2::new(p.x * K, p.y * K));
-                        let abs = if unit.is_flying() || arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) };
+                        let abs = if unit.is_flying() || keep_water || arena.is_passable_ground(abs) { abs } else { arena.nearest_passable_ground(abs, team).unwrap_or(abs) };
                         member(k, abs)
                     })
                     .collect()
@@ -33141,9 +33351,20 @@ impl BattleState {
                 {
                     let (e, made) = (&self.ents, self.ents.spawn_tick[i]);
                     let monster = (0..e.capacity()).filter(|&j| e.alive[j] && e.card[j] == tt.monster && e.team[j] == team).min_by_key(|&j| (e.spawn_tick[j].abs_diff(made), j)).map(|j| e.id_of(j));
+                    // combat.TETHER_MONSTER_GONE = client16402_death_point_anchor: with no live Monster, the fallen one made
+                    // nearest the Doctor (`monster_falls`) anchors the run at its death point. Measured on client 16.402
+                    // (parity r73): 3 of 3 presses with the Monster dead ran the tether to its death point; the engine's none.
+                    let fallen = if monster.is_none() && self.cfg.calib.tether_monster_gone == TetherMonsterGone::Client16402DeathPointAnchor {
+                        self.warps.monster_falls.iter().filter(|f| f.0 == team && f.1 == tt.monster).min_by_key(|f| (f.2.abs_diff(made), f.3.index)).map(|f| (f.3, f.4))
+                    } else {
+                        None
+                    };
                     if let Some(m) = monster {
                         self.warps.tethers.retain(|r| r.doctor != hero);
-                        self.warps.tethers.push(TetherRun { doctor: hero, monster: m, card: tt.monster, level, first: self.tick + crate::card::TETHER_FIRST_HIT_TICKS });
+                        self.warps.tethers.push(TetherRun { doctor: hero, monster: m, card: tt.monster, level, first: self.tick + crate::card::TETHER_FIRST_HIT_TICKS, anchor: None });
+                    } else if let Some((m, at)) = fallen {
+                        self.warps.tethers.retain(|r| r.doctor != hero);
+                        self.warps.tethers.push(TetherRun { doctor: hero, monster: m, card: tt.monster, level, first: self.tick + crate::card::TETHER_FIRST_HIT_TICKS, anchor: Some(at) });
                     }
                 }
                 let _ = (pos, tt);
@@ -35303,6 +35524,23 @@ impl BattleState {
                     h.u32(u32::from(r.card));
                     h.i32(r.level);
                     h.u32(r.first);
+                    if let Some(p) = r.anchor {
+                        h.u32(0x414e_4348);
+                        h.i32(p.x);
+                        h.i32(p.y);
+                    }
+                }
+            }
+            if !self.warps.monster_falls.is_empty() {
+                h.u32(0x4641_4c4c);
+                h.u32(self.warps.monster_falls.len() as u32);
+                for (t, c, made, id, p) in &self.warps.monster_falls {
+                    h.u32(*t as u32);
+                    h.u32(u32::from(*c));
+                    h.u32(*made);
+                    h.id(*id);
+                    h.i32(p.x);
+                    h.i32(p.y);
                 }
             }
             if !self.warps.ramps.is_empty() {
@@ -36980,6 +37218,21 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.STRIKE_TIE_BREAK: Calib gained strike_tie_break (serde default the old arm, earliest_created), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, rider.OWN_AREA_BUFFS_WHILE_ATTACHED: Calib gained own_area_buffs_while_attached (serde default the old arm, immune), and
+///    BuffHit `reach_rider` (serde default false; a BuffHit lives in the effects buffer, empty between ticks),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.TETHER_MONSTER_GONE: Calib gained tether_monster_gone (serde default the old arm, run_ends), WarpBoard gained monster_falls and TetherRun anchor (serde default empty / None, saved and hashed only when not empty / set, which only the new arm fills),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.GUARD_PRESS_ATTRACT: Calib gained guard_press_attract (serde default the old arm, pulled), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, formation.MEMBER_WATER_POINT: Calib gained member_water_point (serde default the old arm, nearest_passable_ground), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.THROW_PICK: Calib gained throw_pick (serde default the old arm, ground_troops_centre_in_radius), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.ROLLING_HIT_SWEEP: Calib gained rolling_hit_sweep (serde default the old arm, swept_prev_to_cur), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.ROLLING_SPARES_LEAPERS: Calib gained rolling_spares_leapers (serde default the old arm, hits), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37967,6 +38220,20 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_end_contact".into(), serde_json::to_value(DashEndContact::EndTickBody).map_err(|e| e.to_string())?);
     // spells.STRIKE_TIE_BREAK: a format-3 battle's Lightning broke its hp ties by creation.
     sh.insert("strike_tie_break".into(), serde_json::to_value(StrikeTieBreak::EarliestCreated).map_err(|e| e.to_string())?);
+    // rider.OWN_AREA_BUFFS_WHILE_ATTACHED: a format-3 battle's own-side areas never reached an attached rider.
+    sh.insert("own_area_buffs_while_attached".into(), serde_json::to_value(OwnAreaBuffsWhileAttached::Immune).map_err(|e| e.to_string())?);
+    // combat.TETHER_MONSTER_GONE: a format-3 battle's tether ended with its Monster.
+    sh.insert("tether_monster_gone".into(), serde_json::to_value(TetherMonsterGone::RunEnds).map_err(|e| e.to_string())?);
+    // status.GUARD_PRESS_ATTRACT: a format-3 battle's Tornado pulled a Little Prince through his press.
+    sh.insert("guard_press_attract".into(), serde_json::to_value(GuardPressAttract::Pulled).map_err(|e| e.to_string())?);
+    // formation.MEMBER_WATER_POINT: a format-3 battle put a ground member laid on water on the bank.
+    sh.insert("member_water_point".into(), serde_json::to_value(MemberWaterPoint::NearestPassableGround).map_err(|e| e.to_string())?);
+    // targeting.THROW_PICK: a format-3 battle's Hero Balloon picked ground troops by centre alone.
+    sh.insert("throw_pick".into(), serde_json::to_value(ThrowPick::GroundTroopsCentreInRadius).map_err(|e| e.to_string())?);
+    // spells.ROLLING_HIT_SWEEP: a format-3 battle's rolls swept their box from the previous centre.
+    sh.insert("rolling_hit_sweep".into(), serde_json::to_value(RollingHitSweep::SweptPrevToCur).map_err(|e| e.to_string())?);
+    // spells.ROLLING_SPARES_LEAPERS: a format-3 battle's rolls hit leaping units.
+    sh.insert("rolling_spares_leapers".into(), serde_json::to_value(RollingSparesLeapers::Hits).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

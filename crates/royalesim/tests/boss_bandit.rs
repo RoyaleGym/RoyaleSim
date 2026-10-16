@@ -7,7 +7,8 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! boss_bandit`): warp_back_never, champion_charges_unread, early_trigger_late, press_during_dash, warp_cloak_on_trigger
-//! (`under_client16402_trigger_plus_1_her_holder_lets_her_go_a_tick_later` red).
+//! (`under_client16402_trigger_plus_1_her_holder_lets_her_go_a_tick_later` red), cloak_holders_drop_now
+//! (`under_client16402_holders_drop_plus_1_her_holder_lets_her_go_a_tick_later` red).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -199,4 +200,15 @@ fn under_client16402_trigger_plus_1_her_holder_lets_her_go_a_tick_later() {
     assert_eq!(new_go, old_go + 1, "client16402_trigger_plus_1: the holder lets her go a tick later ({old_go} -> {new_go})");
     assert_eq!(new_warp, old_warp, "the warp's tick is the same under both arms");
     assert!(new_go < new_warp, "the cloak drops the holder before the warp ({new_go}, {new_warp})");
+}
+
+/// status.WARP_BACK_CLOAK = client16402_holders_drop_plus_1 (client 16.402, parity's r73 census: her holders let her go on the
+/// press + 4, 10 of 10, the engine's on + 3): the Knight holding her lets her go a tick later than under with_the_trigger,
+/// and she warps on the same tick. Plant: cloak_holders_drop_now.
+#[test]
+fn under_client16402_holders_drop_plus_1_her_holder_lets_her_go_a_tick_later() {
+    let (old_go, old_warp) = holder_lets_go(WarpBackCloak::WithTheTrigger);
+    let (new_go, new_warp) = holder_lets_go(WarpBackCloak::Client16402HoldersDropPlus1);
+    assert_eq!(new_go, old_go + 1, "client16402_holders_drop_plus_1: the holder lets her go a tick later ({old_go} -> {new_go})");
+    assert_eq!(new_warp, old_warp, "the warp's tick is the same under both arms");
 }

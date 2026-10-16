@@ -18,7 +18,8 @@
 //! hero_balloon`):
 //!   - throw_never -> `the_throw_lands_on_the_golem_on_p_plus_27` red;
 //!   - throw_speed_flat -> `the_throw_lands_on_the_golem_on_p_plus_27` red;
-//!   - throw_failsafe_on_time -> `with_nothing_in_reach_the_trooper_drops_on_the_balloon_on_p_plus_5` red.
+//!   - throw_failsafe_on_time -> `with_nothing_in_reach_the_trooper_drops_on_the_balloon_on_p_plus_5` red;
+//!   - throw_pick_troops_only -> `under_client16402_ground_targets_edge_in_radius_it_throws_at_a_cannon_and_past_the_radius` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -186,4 +187,66 @@ fn the_hero_balloon_drops_the_base_balloons_bomb() {
     let (hero, base) = (blow("Balloon_hero"), blow("Balloon"));
     assert!(base.windows(2).any(|w| w[1] < w[0]), "the base Balloon's bomb lands on the Knight: {base:?}");
     assert_eq!(hero, base, "the hero's bomb is the base's, tick for tick");
+}
+
+/// The Balloon held at BALLOON with one Red `red` held at `pt` under targeting.THROW_PICK = `arm`, then the press: the first
+/// frame k (P + k + 1) a Skeletrooper stands, and its point; and the red's radius, native.
+fn first_trooper(arm: royalesim::state::ThrowPick, red: &str, pt: (i32, i32)) -> (usize, Vec2, i32) {
+    let mut cfg: BattleConfig = config();
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.throw_pick = arm;
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    let lockout = s.config().calib.deploy_lockout_ticks as u32;
+    s.scenario_set_tick(lockout);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    s.scenario_set_elixir_milli(Team::Red, 10_000);
+    s.spawn_unit(Team::Blue, "Balloon_hero", n(BALLOON.0, BALLOON.1), None).expect("the hero");
+    s.spawn_unit_resolved(Team::Red, red, n(pt.0, pt.1), None).expect("the red");
+    s.tick();
+    let hero = find_live(&s, Team::Blue, "Balloon_hero")[0].id;
+    let (target, radius) = s.entities().find(|e| e.team == Team::Red && e.card == red).map(|e| (e.id, e.radius / K)).expect("the red");
+    let hold = |s: &mut BattleState| {
+        assert!(s.debug_set_pos(hero, n(BALLOON.0, BALLOON.1)));
+        if s.entity(target).is_some() {
+            assert!(s.debug_set_pos(target, n(pt.0, pt.1)));
+        }
+    };
+    for _ in 0..40 {
+        hold(&mut s);
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for k in 0..45 {
+        hold(&mut s);
+        s.tick();
+        if let Some(t) = s.entities().find(|e| e.card == "SkeletonTrooper") {
+            return (k as usize, t.pos, radius);
+        }
+    }
+    panic!("no trooper in 45 frames");
+}
+
+/// targeting.THROW_PICK = client16402_ground_targets_edge_in_radius (client 16.402, parity's r73 census: the throw at a
+/// Cannon 2 of 2, at a troop 6928 off, within 6500 and its radius, 1 of 1; the engine's at neither): a Cannon 4,000 off and
+/// an Ice Golemite past the radius by half its own draw the throw (the trooper far from the Balloon, after the failsafe's
+/// P + 5); under ground_troops_centre_in_radius (the vacuity check) both get the failsafe on the Balloon on P + 5. Plant:
+/// throw_pick_troops_only.
+#[test]
+fn under_client16402_ground_targets_edge_in_radius_it_throws_at_a_cannon_and_past_the_radius() {
+    use royalesim::state::ThrowPick as P;
+    let (_, _, golem_r) = first_trooper(P::GroundTroopsCentreInRadius, "IceGolemite", (BALLOON.0 - 3000, BALLOON.1));
+    assert!(golem_r >= 200, "precondition: the golem's radius ({golem_r})");
+    let past = (BALLOON.0 - (6500 + golem_r / 2), BALLOON.1);
+    let cannon = (BALLOON.0 + 1600, BALLOON.1 + 3600);
+    let far = |p: Vec2| (p.x / K - BALLOON.0).abs().max((p.y / K - BALLOON.1).abs()) > 1000;
+    for (red, pt) in [("Cannon", cannon), ("IceGolemite", past)] {
+        let (k, p, _) = first_trooper(P::GroundTroopsCentreInRadius, red, pt);
+        assert!(k == at(5) && !far(p), "ground_troops_centre_in_radius, {red}: the failsafe on the Balloon on P + 5 (k {k}, {p:?})");
+        let (k, p, _) = first_trooper(P::Client16402GroundTargetsEdgeInRadius, red, pt);
+        assert!(k > at(5) && far(p), "client16402_ground_targets_edge_in_radius, {red}: no throw at it (k {k}, {p:?})");
+    }
 }

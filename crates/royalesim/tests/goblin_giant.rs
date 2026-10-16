@@ -31,6 +31,9 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test goblin_giant`):
 //!   * `rider_offset_ignored` -- every rider on its mount's centre: (1), (2) and (3) go red.
 //!   * `dismount_at_rider_position` -- the dismount at the rider's own position: (3) goes red.
+//!   * `own_area_skips_rider` and `rider_buff_dropped_in_resolve` -- rider.OWN_AREA_BUFFS_WHILE_ATTACHED = client16402_buffed
+//!     still refuses the rider (spell.rs `eligible`; state.rs `apply_effects`):
+//!     `under_client16402_buffed_an_own_rage_speeds_the_giants_riders` goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -240,4 +243,61 @@ fn a_giant_killed_walking_leaves_each_riders_spear_goblin_at_its_position_plus_t
         assert!(v.deploying && v.deploy_ms == 700, "a dismount deploys DeathSpawnDeployTime 700: {} ms", v.deploy_ms);
         assert_eq!(v.acquirable_from, x + 7, "a dismount is a target for enemies from its 8th frame");
     }
+}
+
+/// A Blue Goblin Giant held on (9500, 10500), a Red Knight held 3,500 ahead (its riders' target), and on the 40th tick a Blue
+/// Rage on the Giant, under rider.OWN_AREA_BUFFS_WHILE_ATTACHED = `arm`: over the next 40 ticks, the riders' ticks whose
+/// attack progress stepped 65 (raged, x1.3) and those that stepped 50, and whether a rider carried a buff.
+fn raged_riders(arm: royalesim::state::OwnAreaBuffsWhileAttached) -> (u32, u32, bool) {
+    let mut cfg = shipped();
+    cfg.calib.own_area_buffs_while_attached = arm;
+    let mut s = BattleState::new(0, cfg);
+    let (g_at, k_at) = (at((9500, 10500)), at((9500, 14000)));
+    s.spawn_unit(Team::Blue, "GoblinGiant", g_at, None).expect("play the Goblin Giant");
+    s.tick();
+    let g = s.entities().find(|e| e.card == "GoblinGiant").expect("the Giant").id;
+    let rs = riders(&s, g);
+    assert_eq!(rs.len(), 2, "two riders");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", k_at, None).expect("the Knight");
+    let hold = |s: &mut BattleState| {
+        assert!(s.debug_set_pos(g, g_at));
+        let full = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(knight, k_at) && s.debug_set_hp(knight, full));
+    };
+    for _ in 0..40 {
+        hold(&mut s);
+        s.tick();
+    }
+    s.spawn_unit(Team::Blue, "Rage", g_at, None).expect("cast Rage");
+    let (mut raged, mut plain, mut buffed) = (0, 0, false);
+    let mut last: Vec<i32> = rs.iter().map(|r| s.entity(*r).expect("a rider").attack_ms).collect();
+    for _ in 0..40 {
+        hold(&mut s);
+        s.tick();
+        for (k, r) in rs.iter().enumerate() {
+            let v = s.entity(*r).expect("a rider");
+            buffed |= v.buffs.iter().any(|b| !b.is_empty());
+            match v.attack_ms - last[k] {
+                65 => raged += 1,
+                50 => plain += 1,
+                _ => {}
+            }
+            last[k] = v.attack_ms;
+        }
+    }
+    (raged, plain, buffed)
+}
+
+/// rider.OWN_AREA_BUFFS_WHILE_ATTACHED = client16402_buffed (client 16.402, parity's r73 census: the rider raged in 3 of 3
+/// Rage casts, its progress 65 a tick; the engine's 50 on all 21 ticks): a Blue Rage on the Goblin Giant hangs its buff on
+/// his riders and their attack progress steps 65; under immune (the vacuity check) no rider carries it and none steps 65.
+/// Plant: own_area_skips_rider.
+#[test]
+fn under_client16402_buffed_an_own_rage_speeds_the_giants_riders() {
+    use royalesim::state::OwnAreaBuffsWhileAttached as A;
+    let (raged, plain, buffed) = raged_riders(A::Immune);
+    assert!(plain > 0, "the scene drifted: the riders never attacked ({plain})");
+    assert!(raged == 0 && !buffed, "immune: a rider carried the Rage ({raged} raged ticks, buffed {buffed})");
+    let (raged, _, buffed) = raged_riders(A::Client16402Buffed);
+    assert!(raged > 0 && buffed, "client16402_buffed: no rider raged ({raged} raged ticks, buffed {buffed})");
 }

@@ -453,6 +453,11 @@ pub struct BuffHit {
     /// tick (state.rs `apply_effects`). `default` false.
     #[serde(default)]
     pub by_hit: bool,
+    /// rider.OWN_AREA_BUFFS_WHILE_ATTACHED = client16402_buffed: an own-side area's application (Rage) that spell.rs `eligible`
+    /// let through to an attached rider. It lands on one (state.rs `apply_effects`), where every other effect passes an
+    /// attached rider by under rider.TARGETABLE_WHILE_ATTACHED = untargetable_immune. `default` false.
+    #[serde(default)]
+    pub reach_rider: bool,
 }
 
 impl BuffHit {
@@ -460,7 +465,7 @@ impl BuffHit {
     /// source level, no crown-tower pulse and no before-damage flag. What every hit that is not an area's,
     /// a curse's or the Mother Witch's hangs.
     pub fn plain(target: crate::EntityId, buff: u16, time_ms: i32, pulse_amount: i32) -> BuffHit {
-        BuffHit { target, buff, time_ms, pulse_amount, first_pulse_ms: None, source: None, src_level: 0, before_damage: false, crown_amount: 0, reach_hidden: false, by_hit: false }
+        BuffHit { target, buff, time_ms, pulse_amount, first_pulse_ms: None, source: None, src_level: 0, before_damage: false, crown_amount: 0, reach_hidden: false, by_hit: false, reach_rider: false }
     }
 }
 

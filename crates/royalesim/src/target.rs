@@ -277,6 +277,22 @@ pub fn invisible(ctx: &TargetCtx, c: usize) -> bool {
     invisible_at(ctx.calib, ctx.cards, ctx.ents, ctx.tick, c)
 }
 
+/// status.WARP_BACK_CLOAK = client16402_holders_drop_plus_1: does `c` carry its own warp back's cloak (the Boss Bandit's,
+/// card.rs `WarpBackDef::buff`) not yet run down (its slot at the full time: the Target phase after it landed)? Measured on
+/// client 16.402 (parity r73): her holders let her go on the press + 4, 10 of 10; the engine's on + 3.
+fn fresh_cloak(ctx: &TargetCtx, c: usize) -> bool {
+    // PLANT (regression) cloak_holders_drop_now: the new arm still drops her holders on the cloak's first phase.
+    #[cfg(not(clash_plant = "cloak_holders_drop_now"))]
+    let on = ctx.calib.warp_back_cloak == crate::state::WarpBackCloak::Client16402HoldersDropPlus1;
+    #[cfg(clash_plant = "cloak_holders_drop_now")]
+    let on = false;
+    if !on {
+        return false;
+    }
+    let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::WarpBack(w), .. }) = ctx.cards.get(ctx.ents.card[c]).ability else { return false };
+    ctx.ents.buff_slots(c).iter().any(|s| s.id == w.buff.buff + 1 && s.ms >= w.buff.time_ms)
+}
+
 /// `invisible` from its parts, for a reader with no TargetCtx: the export's `status_flags` bit 1 (state.rs `view`),
 /// asked with the tick the next targeting runs on, so the bit is the predicate that targeting will act on.
 pub fn invisible_at(calib: &Calib, cards: &CardDb, ents: &Entities, tick: u32, c: usize) -> bool {
@@ -440,8 +456,10 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     }
     // targeting.INVISIBILITY = client_until_hit: an invisible unit (the Royal Ghost) is nobody's target, a kept one
     // included -- going invisible drops a lock (measured on client 15.535.29).
+    // status.WARP_BACK_CLOAK = client16402_holders_drop_plus_1: the Boss Bandit's cloak drops no unit holding her on its
+    // first Target phase (`fresh_cloak`); they let her go on the next.
     #[cfg(not(clash_plant = "invisible_targetable"))]
-    if invisible(ctx, c) {
+    if invisible(ctx, c) && !(keeping && fresh_cloak(ctx, c)) {
         return false;
     }
     // movement.SPAWN_PATHFIND_BODY = untouchable: a unit under ground (a Miner, a Goblin Drill's dig on its way to
