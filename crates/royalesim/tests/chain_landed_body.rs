@@ -96,3 +96,73 @@ fn the_old_value_pushes_him_at_once() {
 fn the_shipped_value_is_client15535_no_body_to_end() {
     assert_eq!(Calib::shipped().chain_landed_body, ChainLandedBody::Client15535NoBodyToEnd);
 }
+
+/// The scene with a second red Giant held on (3420, 17000), so the chain hops on after its first blow, under `arm`: his
+/// moves (native) on each tick after the first blow (L) until his next hop's first move (above 200), the Knight held on
+/// him from L.
+fn poise_moves(arm: ChainLandedBody) -> Vec<(i32, i32)> {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.chain_landed_body = arm;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    let gk = s.scenario_spawn_now(Team::Blue, "GoldenKnight", n(3294, 9000), None).expect("the Golden Knight");
+    let g1 = s.scenario_spawn_now(Team::Red, "Giant", n(3420, 14000), None).expect("the Giant");
+    let g2 = s.scenario_spawn_now(Team::Red, "Giant", n(3420, 17000), None).expect("the second Giant");
+    let hold = |s: &mut BattleState| {
+        for (g, p) in [(g1, n(3420, 14000)), (g2, n(3420, 17000))] {
+            let top = s.entity(g).expect("a Giant").max_hp;
+            assert!(s.debug_set_pos(g, p) && s.debug_set_hp(g, top));
+        }
+    };
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(gk, n(3294, 9000)));
+        hold(&mut s);
+        s.tick();
+    }
+    assert!(s.debug_set_pos(gk, n(3294, 9000)));
+    s.press_ability_button(Team::Blue, 0).expect("the press is taken");
+    for _ in 0..30 {
+        let top = s.entity(g1).expect("the Giant").max_hp;
+        hold(&mut s);
+        s.tick();
+        if s.entity(g1).expect("the Giant").hp < top {
+            let at = s.entity(gk).expect("he lives").pos;
+            let ally = s.scenario_spawn_now(Team::Blue, "Knight", Vec2::new(at.x + 300 * K, at.y), None).expect("a blue Knight");
+            let kp = s.entity(ally).expect("the Knight").pos;
+            let mut moves = Vec::new();
+            for _ in 0..20 {
+                let p0 = s.entity(gk).expect("he lives").pos;
+                assert!(s.debug_set_pos(ally, kp));
+                hold(&mut s);
+                s.tick();
+                let p1 = s.entity(gk).expect("he lives").pos;
+                let m = ((p1.x - p0.x) / K, (p1.y - p0.y) / K);
+                if m.0.abs().max(m.1.abs()) > 200 {
+                    return moves;
+                }
+                moves.push(m);
+            }
+            panic!("{arm:?}: the scene drifted: no second hop within 20 ticks of his first blow");
+        }
+    }
+    panic!("{arm:?}: the scene drifted: his first blow never landed");
+}
+
+/// movement.CHAIN_LANDED_BODY = client16402_no_body_in_poise (client 16.402, parity's r74 census: unmoved on 135 of 135 Poise
+/// ticks with an overlapping unit): between his first blow and his next hop the held Knight never moves him; under
+/// client15535_no_body_to_end (the vacuity check) it pushes him in his Poise. Plant: chain_poise_is_body.
+#[test]
+fn under_client16402_no_body_in_poise_he_is_no_body_between_hops() {
+    let old = poise_moves(ChainLandedBody::Client15535NoBodyToEnd);
+    assert!(old.iter().any(|m| *m != (0, 0)), "client15535_no_body_to_end (the vacuity check): the Knight never moved him between hops: {old:?}");
+    let new = poise_moves(ChainLandedBody::Client16402NoBodyInPoise);
+    assert!(!new.is_empty() && new.iter().all(|m| *m == (0, 0)), "client16402_no_body_in_poise: he moved between hops: {new:?}");
+}

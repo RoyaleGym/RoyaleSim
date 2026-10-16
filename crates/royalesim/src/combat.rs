@@ -2846,6 +2846,15 @@ pub fn resolve(
     let cap = ents.capacity();
     sums.clear();
     sums.resize(cap, 0);
+    // combat.SHIELD_TICK_SUM = client16402_each_hit: a shielded unit's hits meet its shield one by one (`shield_left`, -1
+    // unread), the breaking hit absorbed whole, the later ones on hitpoints (`overflow`). Measured on client 16.402 (parity
+    // r74): 3 of 3 first losses with two hits on the breaking tick were the later hit.
+    // PLANT (regression) shield_takes_the_tick_sum: the new arm still sums the tick first.
+    #[cfg(not(clash_plant = "shield_takes_the_tick_sum"))]
+    let each_hit = calib.shield_tick_sum == crate::state::ShieldTickSum::Client16402EachHit;
+    #[cfg(clash_plant = "shield_takes_the_tick_sum")]
+    let each_hit = false;
+    let (mut shield_left, mut overflow) = if each_hit { (vec![-1i64; cap], vec![0i64; cap]) } else { (Vec::new(), Vec::new()) };
     for h in dmg.hits.drain(..) {
         if !ents.is_alive(h.target) || h.amount <= 0 {
             continue;
@@ -2894,9 +2903,43 @@ pub fn resolve(
         }
         // status.DAMAGE_REDUCTION: each hit is scaled on its own, before the tick's sum meets the shield.
         let r = damage_reduction_of(ents, cards, calib, tick, h.target.index as usize);
-        sums[h.target.index as usize] += landed(&h, r, calib.damage_reduction) as i64;
+        let t = h.target.index as usize;
+        let amount = landed(&h, r, calib.damage_reduction) as i64;
+        if each_hit && ents.shield[t] > 0 {
+            if shield_left[t] < 0 {
+                shield_left[t] = ents.shield[t] as i64;
+            }
+            if shield_left[t] > 0 {
+                shield_left[t] = (shield_left[t] - amount).max(0);
+            } else {
+                overflow[t] += amount;
+            }
+            continue;
+        }
+        sums[t] += amount;
     }
     let mut out = ResolveOut::default();
+    if each_hit {
+        for i in 0..cap {
+            if shield_left[i] < 0 || !ents.alive[i] {
+                continue;
+            }
+            if ents.kind[i] == EntityKind::KingTower {
+                out.king_hit[ents.team[i] as usize] = true;
+            }
+            ents.shield[i] = shield_left[i] as i32;
+            if ents.shield[i] == 0 && cards.get(ents.card[i]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) {
+                out.shield_broke.push(ents.id_of(i));
+            }
+            if overflow[i] > 0 {
+                ents.hp[i] = (ents.hp[i] as i64 - overflow[i]).max(i32::MIN as i64) as i32;
+                unkillable_floor(ents, cards, i);
+            }
+            if ents.hp[i] > 0 && cards.get(ents.card[i]).evo.as_ref().is_some_and(|v| v.first_hit.is_some()) {
+                out.hurt.push(ents.id_of(i));
+            }
+        }
+    }
     for (i, &s) in sums.iter().enumerate() {
         if s <= 0 || !ents.alive[i] {
             continue;

@@ -354,6 +354,11 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.DASH_STAND_CONTACT = pushed: a unit standing before its dash is pushed (unread there).
 ///   combat.DASH_STAND_RETARGET = cancelled: a switch mid-stand ends the stand (unread there).
 ///   spells.ROLL_RELEASE_WATER_POINT = nearest_passable_ground: a single release on water to the nearest land on an axis (unread there).
+///   movement.SPAWN_PATHFIND_SURFACE_CONTACT = body_on_surface: a tunneller a body from its surfacing (unread there).
+///   spells.LIVE_SPAWN_ROLL_BIRTH = hit_on_birth_tick: a live spawn in its birth tick's roll test (unread there).
+///   status.WARP_BACK_LANDING = nominal_point: the Boss Bandit's warp on its point (unread there).
+///   combat.SHIELD_TICK_SUM = tick_sum: a shield takes the tick's summed hits (unread there).
+///   enchant.ON_BUFF_HOLD_CONTACT = pushed: the holding Rune Giant pushed (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -538,6 +543,11 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.DASH_STAND_CONTACT", "\"pushed\""),
     ("combat.DASH_STAND_RETARGET", "\"cancelled\""),
     ("spells.ROLL_RELEASE_WATER_POINT", "\"nearest_passable_ground\""),
+    ("movement.SPAWN_PATHFIND_SURFACE_CONTACT", "\"body_on_surface\""),
+    ("spells.LIVE_SPAWN_ROLL_BIRTH", "\"hit_on_birth_tick\""),
+    ("status.WARP_BACK_LANDING", "\"nominal_point\""),
+    ("combat.SHIELD_TICK_SUM", "\"tick_sum\""),
+    ("enchant.ON_BUFF_HOLD_CONTACT", "\"pushed\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

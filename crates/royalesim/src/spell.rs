@@ -1653,6 +1653,16 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
         if spare && (e.jumping[v] || e.dash_state[v] == crate::entity::DashState::Dashing) {
             continue;
         }
+        // spells.LIVE_SPAWN_ROLL_BIRTH = client16402_unseen_on_birth_tick: a unit a live spawner made this tick is not in the
+        // roll's test. Measured on client 16.402 (parity r74): 3 of 3 Witch skeletons unhit on their birth tick.
+        // PLANT (regression) roll_sees_newborn: the new arm still hits the newborn.
+        #[cfg(not(clash_plant = "roll_sees_newborn"))]
+        let unseen = ctx.calib.live_spawn_roll_birth == crate::state::LiveSpawnRollBirth::Client16402UnseenOnBirthTick;
+        #[cfg(clash_plant = "roll_sees_newborn")]
+        let unseen = false;
+        if unseen && e.spawned_by[v].is_some() && e.spawn_tick[v] == ctx.tick {
+            continue;
+        }
         let id = e.id_of(v);
         #[cfg(not(clash_plant = "rolling_rehit_every_tick"))]
         if hit_set.binary_search(&id).is_ok() {

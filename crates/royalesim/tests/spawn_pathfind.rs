@@ -619,3 +619,38 @@ fn not_modelled_refuses_a_tunnelling_card_at_the_deck_and_at_every_play() {
         assert!(matches!(got, Err(DeployError::UnsupportedCard(..))), "{card} under not_modelled: {got:?}");
     }
 }
+
+/// A Blue Miner played at (3500, 1500) with a Blue Knight held on that point, under movement.SPAWN_PATHFIND_SURFACE_CONTACT =
+/// `arm`: his offset from his destination on his surfacing tick S, S + 1 and S + 2 (native).
+fn surfacing_on_a_knight(arm: royalesim::state::SpawnPathfindSurfaceContact) -> [(i32, i32); 3] {
+    let mut cfg = config_pre_flip();
+    cfg.calib.spawn_pathfind_surface_contact = arm;
+    let mut s = board_with(cfg);
+    let dest = s.deploy(Team::Blue, "Miner", at((3500, 1500))).expect("play the Miner");
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", dest, None).expect("the Knight");
+    let mut frames = Vec::new();
+    for _ in 0..80 {
+        assert!(s.debug_set_pos(knight, dest));
+        s.tick();
+        if let Some(f) = snap(&s, Team::Blue, "Miner") {
+            frames.push(f);
+        }
+    }
+    let up = frames.iter().position(|f| f.dest.is_none()).expect("the Miner never came up");
+    let off = |f: &Snap| ((f.pos.x - dest.x) / K, (f.pos.y - dest.y) / K);
+    [off(&frames[up]), off(&frames[up + 1]), off(&frames[up + 2])]
+}
+
+/// movement.SPAWN_PATHFIND_SURFACE_CONTACT = client16402_from_surface_plus_2 (client 16.402, parity's r74 census: a Miner that
+/// came up on another unit moved on neither L nor L + 1 and was pushed from L + 2, 26 of 26; the engine's on L, 19 of 21):
+/// coming up on a held Knight he stands on his point through S + 1 and is pushed on S + 2; under body_on_surface (the
+/// vacuity check) he is pushed on S. Plant: surface_body_at_once.
+#[test]
+fn under_client16402_from_surface_plus_2_a_miner_coming_up_on_a_knight_is_pushed_from_two_ticks_on() {
+    use royalesim::state::SpawnPathfindSurfaceContact as C;
+    let old = surfacing_on_a_knight(C::BodyOnSurface);
+    assert_ne!(old[0], (0, 0), "body_on_surface (the vacuity check): he was not pushed on his surfacing tick: {old:?}");
+    let new = surfacing_on_a_knight(C::Client16402FromSurfacePlus2);
+    assert_eq!(new[..2], [(0, 0), (0, 0)], "client16402_from_surface_plus_2: he moved on S or S + 1: {new:?}");
+    assert_ne!(new[2], (0, 0), "client16402_from_surface_plus_2: he was not pushed on S + 2: {new:?}");
+}

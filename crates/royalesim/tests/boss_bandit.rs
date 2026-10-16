@@ -212,3 +212,96 @@ fn under_client16402_holders_drop_plus_1_her_holder_lets_her_go_a_tick_later() {
     assert_eq!(new_go, old_go + 1, "client16402_holders_drop_plus_1: the holder lets her go a tick later ({old_go} -> {new_go})");
     assert_eq!(new_warp, old_warp, "the warp's tick is the same under both arms");
 }
+
+/// The Boss Bandit put at `me` (alone, held 40 ticks) under status.WARP_BACK_LANDING = `landing`, pressed free: her point on
+/// the tick she warps (native).
+fn warped_to(landing: royalesim::state::WarpBackLanding, me: (i32, i32)) -> (i32, i32) {
+    let mut cfg = config();
+    cfg.calib.warp_back_landing = landing;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let bb = s.scenario_spawn_now(Team::Blue, "BossBandit", n(me), None).expect("the Boss Bandit");
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(bb, n(me)));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(bb, n(me)) || s.entity(bb).is_none());
+        let before = s.entity(bb).expect("the Boss Bandit").pos;
+        s.tick();
+        let p = s.entity(bb).expect("the Boss Bandit").pos;
+        if (before.y - p.y) / K > 3000 {
+            return (p.x / K, p.y / K);
+        }
+    }
+    panic!("she never warped");
+}
+
+/// status.WARP_BACK_LANDING = client16402_nearest_bank_half_row (client 16.402, parity's r74 census: 3 of 3 warps onto the river
+/// stood on the nearer bank's first land half-row centre): pressed at y 22200, her 6,000 back falls on the river (16200),
+/// and she stands on (x, 17250); under nominal_point (the vacuity check) on the water. Plant: warp_lands_on_water.
+#[test]
+fn under_client16402_nearest_bank_half_row_her_warp_onto_the_river_lands_on_the_bank() {
+    use royalesim::state::WarpBackLanding as W;
+    let old = warped_to(W::NominalPoint, (9000, 22200));
+    assert!((15000..17000).contains(&old.1), "nominal_point (the vacuity check): she is not on the river ({old:?})");
+    let new = warped_to(W::Client16402NearestBankHalfRow, (9000, 22200));
+    assert_eq!(new, (old.0, 17250), "client16402_nearest_bank_half_row: not on the nearer bank's half-row centre");
+}
+
+/// The Boss Bandit at (3500, 21000) with a Red Musketeer `gap` north of her, held, under status.WARP_BACK_CLOAK = `arm`, pressed
+/// on the 40th tick: whether a shot flies at her on the tick after her warp.
+fn shot_after_warp(arm: WarpBackCloak, gap: i32) -> bool {
+    let mut cfg = config();
+    cfg.calib.warp_back_cloak = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let me = (3500, 21000);
+    let mk = (me.0, me.1 + gap);
+    let bb = s.scenario_spawn_now(Team::Blue, "BossBandit", n(me), None).expect("the Boss Bandit");
+    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", n(mk), None).expect("the Musketeer");
+    let hold = |s: &mut BattleState| {
+        let (hb, hm) = (s.entity(bb).expect("her").max_hp, s.entity(musk).expect("the Musketeer").max_hp);
+        assert!(s.debug_set_pos(musk, n(mk)) && s.debug_set_hp(musk, hm) && s.debug_set_hp(bb, hb));
+    };
+    for _ in 0..40 {
+        hold(&mut s);
+        assert!(s.debug_set_pos(bb, n(me)));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..30 {
+        hold(&mut s);
+        let before = s.entity(bb).expect("her").pos;
+        s.tick();
+        let p = s.entity(bb).expect("her").pos;
+        if (before.y - p.y) / K > 3000 {
+            return s.projectiles().iter().any(|q| q.target == bb);
+        }
+        assert!(s.debug_set_pos(bb, n(me)));
+    }
+    panic!("she never warped");
+}
+
+/// status.WARP_BACK_CLOAK = client16402_holders_drop_plus_1_shots_lost_at_warp (client 16.402, parity's r74 census: a holder's
+/// shot whose flight crossed her warp never landed): over Musketeer distances 2,000 to 6,000, no shot flies at her after her
+/// warp; under client16402_holders_drop_plus_1 (the vacuity check) one does at some distance. Plant: warp_keeps_shots.
+#[test]
+fn under_client16402_holders_drop_plus_1_shots_lost_at_warp_no_shot_follows_her_warp() {
+    let (mut old, mut new) = (0, 0);
+    for gap in (2000..=6000).step_by(250) {
+        old += usize::from(shot_after_warp(WarpBackCloak::Client16402HoldersDropPlus1, gap));
+        new += usize::from(shot_after_warp(WarpBackCloak::Client16402HoldersDropPlus1ShotsLostAtWarp, gap));
+    }
+    assert!(old > 0, "client16402_holders_drop_plus_1 (the vacuity check): no shot was flying at her when she warped");
+    assert_eq!(new, 0, "client16402_holders_drop_plus_1_shots_lost_at_warp: a shot flew at her after her warp");
+}

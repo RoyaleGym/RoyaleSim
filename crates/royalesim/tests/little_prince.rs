@@ -1045,3 +1045,18 @@ fn under_client16402_unpushed_attacking_a_knight_on_him_does_not_move_him_while_
     let (new, _) = press_attacking_pushed(GuardPressContact::Client16402UnpushedAttacking);
     assert_eq!(new, 0, "client16402_unpushed_attacking: he moved while he attacked in his hold");
 }
+
+/// combat.GUARD_CHARGE_IMMUNITY = client16402_through_last_dash_plus_1 (client 16.402, parity's r74 census: no hit on the frame
+/// after the guard's last dash frame, the engine's 4): a Zap landing on its arrival + 2 takes nothing, one on its arrival + 3
+/// takes hp; under client16402_charge_immune (the vacuity check) the arrival + 2's Zap takes hp. Plant:
+/// guard_immunity_tick_short.
+#[test]
+fn under_client16402_through_last_dash_plus_1_his_guard_is_immune_a_tick_longer() {
+    let (_, a) = guard_zapped(GuardChargeImmunity::Client16402ThroughLastDashPlus1, &[]);
+    let (old, _) = guard_zapped(GuardChargeImmunity::Client16402ChargeImmune, &[a + 2]);
+    assert!(old.iter().any(|l| l.0 == a + 2), "client16402_charge_immune (the vacuity check): the Zap on its arrival + 2 took nothing: {old:?}");
+    let (new, _) = guard_zapped(GuardChargeImmunity::Client16402ThroughLastDashPlus1, &[a + 2]);
+    assert!(!new.iter().any(|l| l.0 == a + 2), "client16402_through_last_dash_plus_1: the Zap on its arrival + 2 took hp: {new:?}");
+    let (later, _) = guard_zapped(GuardChargeImmunity::Client16402ThroughLastDashPlus1, &[a + 3]);
+    assert!(later.iter().any(|l| l.0 == a + 3), "client16402_through_last_dash_plus_1: the Zap on its arrival + 3 took nothing: {later:?}");
+}

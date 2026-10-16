@@ -283,7 +283,7 @@ pub fn invisible(ctx: &TargetCtx, c: usize) -> bool {
 fn fresh_cloak(ctx: &TargetCtx, c: usize) -> bool {
     // PLANT (regression) cloak_holders_drop_now: the new arm still drops her holders on the cloak's first phase.
     #[cfg(not(clash_plant = "cloak_holders_drop_now"))]
-    let on = ctx.calib.warp_back_cloak == crate::state::WarpBackCloak::Client16402HoldersDropPlus1;
+    let on = matches!(ctx.calib.warp_back_cloak, crate::state::WarpBackCloak::Client16402HoldersDropPlus1 | crate::state::WarpBackCloak::Client16402HoldersDropPlus1ShotsLostAtWarp);
     #[cfg(clash_plant = "cloak_holders_drop_now")]
     let on = false;
     if !on {

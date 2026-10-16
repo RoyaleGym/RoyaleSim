@@ -941,6 +941,26 @@ pub struct Calib {
     /// `NearestPassableGround`, what a battle saved before it ran.
     #[serde(default = "roll_release_water_point_default")]
     pub roll_release_water_point: RollReleaseWaterPoint,
+    /// movement.SPAWN_PATHFIND_SURFACE_CONTACT (whether a unit that comes up from a tunnel is a contact body on its surfacing tick and the next). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `BodyOnSurface`, what a battle saved before it ran.
+    #[serde(default = "spawn_pathfind_surface_contact_default")]
+    pub spawn_pathfind_surface_contact: SpawnPathfindSurfaceContact,
+    /// spells.LIVE_SPAWN_ROLL_BIRTH (whether a rolling spell's box reaches a unit a live spawner made on that tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `HitOnBirthTick`, what a battle saved before it ran.
+    #[serde(default = "live_spawn_roll_birth_default")]
+    pub live_spawn_roll_birth: LiveSpawnRollBirth,
+    /// status.WARP_BACK_LANDING (where the Boss Bandit's warp back puts her when its point is on the river). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `NominalPoint`, what a battle saved before it ran.
+    #[serde(default = "warp_back_landing_default")]
+    pub warp_back_landing: WarpBackLanding,
+    /// combat.SHIELD_TICK_SUM (how a tick's hits on a shielded unit meet its shield). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `TickSum`, what a battle saved before it ran.
+    #[serde(default = "shield_tick_sum_default")]
+    pub shield_tick_sum: ShieldTickSum,
+    /// enchant.ON_BUFF_HOLD_CONTACT (whether the Rune Giant runs his own separation scan in his enchant's hold). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Pushed`, what a battle saved before it ran.
+    #[serde(default = "on_buff_hold_contact_default")]
+    pub on_buff_hold_contact: OnBuffHoldContact,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2843,6 +2863,26 @@ fn dash_stand_retarget_default() -> DashStandRetarget {
 
 fn roll_release_water_point_default() -> RollReleaseWaterPoint {
     RollReleaseWaterPoint::NearestPassableGround
+}
+
+fn spawn_pathfind_surface_contact_default() -> SpawnPathfindSurfaceContact {
+    SpawnPathfindSurfaceContact::BodyOnSurface
+}
+
+fn live_spawn_roll_birth_default() -> LiveSpawnRollBirth {
+    LiveSpawnRollBirth::HitOnBirthTick
+}
+
+fn warp_back_landing_default() -> WarpBackLanding {
+    WarpBackLanding::NominalPoint
+}
+
+fn shield_tick_sum_default() -> ShieldTickSum {
+    ShieldTickSum::TickSum
+}
+
+fn on_buff_hold_contact_default() -> OnBuffHoldContact {
+    OnBuffHoldContact::Pushed
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -6780,6 +6820,8 @@ calib_enum!(
         /// pushes on t485 and t486; sp-champ-GoldenKnight-delay60-s0 t239, a Knight 1,047 off, (-51, -35) on t242;
         /// sp-champ-GK-gk2-s0 t189 from L + 4); the unit he landed on was not pushed on those ticks either.
         Client15535NoBodyToEnd = "client15535_no_body_to_end",
+        /// Client 16.402: client15535_no_body_to_end, and no body in the Poise between hops either (parity's r74 census of the live11 set (client 16.402): the Golden Knight stood unmoved on 135 of 135 Poise ticks between hops with a ground unit overlapping him, and on 68 of 68 chain end + 1 ticks; moved on 61 of 67 end + 2 ticks).
+        Client16402NoBodyInPoise = "client16402_no_body_in_poise",
     }
 );
 calib_enum!(
@@ -9691,6 +9733,9 @@ calib_enum!(
         /// set: 0 hp drops on 10,464 charge frames of 740 guards, 3,078 of them with an enemy targeting it; 0 of 715 on
         /// the frame after; hits back on the second frame after, 7 of 711).
         Client16402ChargeImmune = "client16402_charge_immune",
+        /// Client 16.402: client16402_charge_immune, and immune one tick longer: through the frame after its last dash frame
+        /// (the arrival + GUARD_IMMUNE_AFTER_ARRIVAL_TICKS + 1) (parity's r74 census of the live11 set (client 16.402): over 301 guards, hits on the guard on the frame after its last dash frame (L + 1): truth 0, engine 4 (0 of 4 in the truth); back from L + 2 on both; the ledger's r65 count read 0 of 715 on the frame after the charge).
+        Client16402ThroughLastDashPlus1 = "client16402_through_last_dash_plus_1",
     }
 );
 calib_enum!(
@@ -9896,6 +9941,9 @@ calib_enum!(
         /// Client 16.402: on her trigger, as the engine's; but a unit holding her keeps her through the cloak's first Target
         /// phase (its slot not yet run down) and lets her go on the next (parity's r73 census of the live9 set (client 16.402): every enemy holding the Boss Bandit at her press P (3 towers, a Cannon, 5 Bats, a Little Prince; 2 presses) let her go on P + 4, 10 of 10, the engine's on P + 3, 10 of 10; with r71's live8 count (19 of 21 on P + 4). client16402_trigger_plus_1 moves the cloak's landing with the drop (r71: -142 by score); this arm moves the drop alone).
         Client16402HoldersDropPlus1 = "client16402_holders_drop_plus_1",
+        /// Client 16.402: client16402_holders_drop_plus_1, and a projectile still flying at her when her warp moves her is
+        /// lost (parity's r74 census of the live11 set (client 16.402): every holder let her go on the press + 4, 11 of 11 presses; a holder's shot fired on the press + 3 landed if it reached her before the warp and never if its flight crossed the warp; shots in flight during the cloak that arrived before the warp landed, 9 of 9; client16402_holders_drop_plus_1 landed the crossing shot at her warped point (its census battle 173343's -220)).
+        Client16402HoldersDropPlus1ShotsLostAtWarp = "client16402_holders_drop_plus_1_shots_lost_at_warp",
     }
 );
 calib_enum!(
@@ -10066,6 +10114,56 @@ calib_enum!(
         NearestPassableGround = "nearest_passable_ground",
         /// Client 16.402: the centre of the nearest dry half-cell, ties to the lower row, then the lower column.
         Client16402HalfCellCentre = "client16402_half_cell_centre",
+    }
+);
+calib_enum!(
+    /// movement.SPAWN_PATHFIND_SURFACE_CONTACT -- a tunneller's first ticks above ground (state.rs `surface`, the move pass's
+    /// bodies and scans; `WarpBoard::surfaced`).
+    SpawnPathfindSurfaceContact {
+        /// The engine's: a body from the surfacing tick on.
+        BodyOnSurface = "body_on_surface",
+        /// Client 16.402: no body and no scan of its own on the surfacing tick and the next; it pushes and is pushed from the
+        /// surfacing + 2.
+        Client16402FromSurfacePlus2 = "client16402_from_surface_plus_2",
+    }
+);
+calib_enum!(
+    /// spells.LIVE_SPAWN_ROLL_BIRTH -- a live spawner's newborn and the rolls of its birth tick (spell.rs `roll`; the
+    /// companion of spells.LIVE_SPAWN_AREA_BIRTH).
+    LiveSpawnRollBirth {
+        /// The engine's: the newborn is in its birth tick's roll test.
+        HitOnBirthTick = "hit_on_birth_tick",
+        /// Client 16.402: a unit a live spawner made this tick is not in this tick's roll test.
+        Client16402UnseenOnBirthTick = "client16402_unseen_on_birth_tick",
+    }
+);
+calib_enum!(
+    /// status.WARP_BACK_LANDING -- the Boss Bandit's warp (card.rs `WarpBackDef::warp_y`; state.rs `magic_warps`).
+    WarpBackLanding {
+        /// The engine's: on the warp's point, water or not.
+        NominalPoint = "nominal_point",
+        /// Client 16.402: a ground warp point on the river goes to the nearer bank's first land half-row centre, x kept.
+        Client16402NearestBankHalfRow = "client16402_nearest_bank_half_row",
+    }
+);
+calib_enum!(
+    /// combat.SHIELD_TICK_SUM -- a shield and the tick's hits (combat.rs `resolve`).
+    ShieldTickSum {
+        /// The engine's: the tick's hits are summed and a live shield absorbs the sum.
+        TickSum = "tick_sum",
+        /// Client 16.402: each hit meets the shield in the order landed; the breaking hit is absorbed whole, the tick's later
+        /// hits reach hitpoints.
+        Client16402EachHit = "client16402_each_hit",
+    }
+);
+calib_enum!(
+    /// enchant.ON_BUFF_HOLD_CONTACT -- the Rune Giant in his enchant's hold (entity.rs `enchant_hold`; state.rs
+    /// `phase_path16402_for`'s own_scan_off).
+    OnBuffHoldContact {
+        /// The engine's: the hold stops his step; his separation scan still runs.
+        Pushed = "pushed",
+        /// Client 16.402: no separation scan of his own while he holds; still a body to others.
+        Client16402Unpushed = "client16402_unpushed",
     }
 );
 calib_enum!(
@@ -10617,6 +10715,11 @@ impl Calib {
             dash_stand_contact: pick(&v, &["combat", "DASH_STAND_CONTACT", "value"], DashStandContact::from_calibration_name)?,
             dash_stand_retarget: pick(&v, &["combat", "DASH_STAND_RETARGET", "value"], DashStandRetarget::from_calibration_name)?,
             roll_release_water_point: pick(&v, &["spells", "ROLL_RELEASE_WATER_POINT", "value"], RollReleaseWaterPoint::from_calibration_name)?,
+            spawn_pathfind_surface_contact: pick(&v, &["movement", "SPAWN_PATHFIND_SURFACE_CONTACT", "value"], SpawnPathfindSurfaceContact::from_calibration_name)?,
+            live_spawn_roll_birth: pick(&v, &["spells", "LIVE_SPAWN_ROLL_BIRTH", "value"], LiveSpawnRollBirth::from_calibration_name)?,
+            warp_back_landing: pick(&v, &["status", "WARP_BACK_LANDING", "value"], WarpBackLanding::from_calibration_name)?,
+            shield_tick_sum: pick(&v, &["combat", "SHIELD_TICK_SUM", "value"], ShieldTickSum::from_calibration_name)?,
+            on_buff_hold_contact: pick(&v, &["enchant", "ON_BUFF_HOLD_CONTACT", "value"], OnBuffHoldContact::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -12040,6 +12143,11 @@ pub struct WarpBoard {
     /// and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub monster_falls: Vec<(Team, u16, u32, EntityId, Vec2)>,
+    /// movement.SPAWN_PATHFIND_SURFACE_CONTACT = client16402_from_surface_plus_2: each tunneller that came up, with its
+    /// surfacing tick, while it is still out of the contact pass (that tick and the next). Empty under body_on_surface;
+    /// absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaced: Vec<(EntityId, u32)>,
     /// The Little Prince's ramps (`RampRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ramps: Vec<RampRun>,
@@ -12211,7 +12319,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
+        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -19169,6 +19277,16 @@ impl BattleState {
         let deploy_ms = card.deploy_time_ms;
         match morph {
             None => {
+                // movement.SPAWN_PATHFIND_SURFACE_CONTACT = client16402_from_surface_plus_2: out of the contact pass this tick
+                // and the next. Measured on client 16.402 (parity r74): pushed from the surfacing + 2, 26 of 26; the engine's
+                // on the surfacing tick, 19 of 21.
+                // PLANT (regression) surface_body_at_once: the new arm still makes him a body at once.
+                #[cfg(not(clash_plant = "surface_body_at_once"))]
+                if self.cfg.calib.spawn_pathfind_surface_contact == SpawnPathfindSurfaceContact::Client16402FromSurfacePlus2 {
+                    let id = self.ents.id_of(i);
+                    self.warps.surfaced.retain(|(s, _)| *s != id);
+                    self.warps.surfaced.push((id, self.tick));
+                }
                 self.ents.tunnel_dest[i] = None;
                 self.ents.pos[i] = dest;
                 self.ents.deploy_ms[i] = deploy_ms;
@@ -21524,7 +21642,7 @@ impl BattleState {
     fn guard_charge_immune(&self) -> bool {
         // PLANT (regression) guard_charge_hit: the new arm still lets every hit land in the charge.
         #[cfg(not(clash_plant = "guard_charge_hit"))]
-        let immune = self.cfg.calib.guard_charge_immunity == GuardChargeImmunity::Client16402ChargeImmune;
+        let immune = matches!(self.cfg.calib.guard_charge_immunity, GuardChargeImmunity::Client16402ChargeImmune | GuardChargeImmunity::Client16402ThroughLastDashPlus1);
         #[cfg(clash_plant = "guard_charge_hit")]
         let immune = false;
         immune
@@ -21663,7 +21781,14 @@ impl BattleState {
             let immune = self.guard_charge_immune();
             if let Some(a) = r.arrived {
                 if immune {
-                    self.ents.dash_immune_until[gi] = a + crate::card::GUARD_IMMUNE_AFTER_ARRIVAL_TICKS;
+                    // combat.GUARD_CHARGE_IMMUNITY = client16402_through_last_dash_plus_1: one tick more. Measured on client
+                    // 16.402 (parity r74): no hit on the frame after its last dash frame, the engine's 4.
+                    // PLANT (regression) guard_immunity_tick_short: the new arm still ends a tick sooner.
+                    #[cfg(not(clash_plant = "guard_immunity_tick_short"))]
+                    let extra = u32::from(self.cfg.calib.guard_charge_immunity == GuardChargeImmunity::Client16402ThroughLastDashPlus1);
+                    #[cfg(clash_plant = "guard_immunity_tick_short")]
+                    let extra = 0;
+                    self.ents.dash_immune_until[gi] = a + crate::card::GUARD_IMMUNE_AFTER_ARRIVAL_TICKS + extra;
                 }
                 // combat.GUARD_LANDING_HITS = client16402_through_landing_ticks: its hit goes on through its arrival +
                 // GUARD_LANDING_HIT_TICKS, on enemies in its reach it has not hit (below); its push stops at the arrival.
@@ -22560,8 +22685,35 @@ impl BattleState {
             let p = self.ents.pos[i];
             let to = Vec2::new(p.x, p.y + warp_y * spell::forward_dy(r.team) * crate::fixed::SUBTILE_PER_MILLITILE);
             let flying = self.ents.flying[i];
+            // status.WARP_BACK_LANDING = client16402_nearest_bank_half_row: the Boss Bandit's point on the river goes to the
+            // nearer bank's first land half-row centre, x kept. Measured on client 16.402 (parity r74): 3 of 3.
+            // PLANT (regression) warp_lands_on_water: the new arm still leaves her on the water.
+            #[cfg(not(clash_plant = "warp_lands_on_water"))]
+            let bank = !flying && self.cfg.calib.warp_back_landing == WarpBackLanding::Client16402NearestBankHalfRow && self.cfg.arena.is_water(to)
+                && matches!(self.cfg.cards.get(r.card).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::WarpBack(_)));
+            #[cfg(clash_plant = "warp_lands_on_water")]
+            let bank = false;
+            let to = if bank {
+                let a = &self.cfg.arena;
+                let (lo, hi) = (a.water_y_min - a.cell / 2, a.water_y_max + a.cell / 2);
+                Vec2::new(to.x, if (to.y - lo).abs() <= (hi - to.y).abs() { lo } else { hi })
+            } else {
+                to
+            };
             #[cfg(not(clash_plant = "decoy_warp_never"))]
             {
+                // status.WARP_BACK_CLOAK = client16402_holders_drop_plus_1_shots_lost_at_warp: the shots still flying at her
+                // are lost when she warps. Measured on client 16.402 (parity r74): a holder's shot whose flight crossed her
+                // warp never landed, the engine landed it at her warped point.
+                // PLANT (regression) warp_keeps_shots: the new arm still lands them.
+                #[cfg(not(clash_plant = "warp_keeps_shots"))]
+                let lose = self.cfg.calib.warp_back_cloak == WarpBackCloak::Client16402HoldersDropPlus1ShotsLostAtWarp
+                    && matches!(self.cfg.cards.get(r.card).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::WarpBack(_)));
+                #[cfg(clash_plant = "warp_keeps_shots")]
+                let lose = false;
+                if lose {
+                    self.projectiles.retain(|p| p.target != r.id);
+                }
                 self.ents.pos[i] = self.scheduled_point(r.team, to, crate::card::SpawnOffset::Relative { x: 0, y: 0 }, flying);
                 self.ents.target[i] = None;
                 self.ents.target_locked[i] = false;
@@ -23808,6 +23960,19 @@ impl BattleState {
         };
         #[cfg(clash_plant = "press_contact_pushed")]
         let press_held: Vec<bool> = vec![false; cap];
+        // movement.SPAWN_PATHFIND_SURFACE_CONTACT = client16402_from_surface_plus_2: a tunneller that came up on this tick or
+        // the last (`WarpBoard::surfaced`) is no body and scans nothing; older entries go.
+        let tick_now = self.tick;
+        self.warps.surfaced.retain(|(_, at)| tick_now <= at + 1);
+        let surfacing: Vec<bool> = {
+            let mut v = vec![false; cap];
+            for (id, _) in &self.warps.surfaced {
+                if self.ents.is_alive(*id) {
+                    v[id.index as usize] = true;
+                }
+            }
+            v
+        };
         // Measured on client 16.402 (parity r74): the attacking prince moved on 3 of 282 hold ticks; the engine pushed him on 35
         // of 67. PLANT (regression) press_attacking_pushed: the new arm still scans him while he attacks.
         #[cfg(not(clash_plant = "press_attacking_pushed"))]
@@ -23821,6 +23986,12 @@ impl BattleState {
         let dash_stand_off = self.cfg.calib.dash_stand_contact == DashStandContact::Client16402Unpushed;
         #[cfg(clash_plant = "dash_stand_pushed")]
         let dash_stand_off = false;
+        // enchant.ON_BUFF_HOLD_CONTACT = client16402_unpushed: measured on client 16.402 (parity r74), the holding Rune Giant
+        // stood still on 367 of 367 overlap ticks. PLANT (regression) buff_hold_pushed: the new arm still scans him.
+        #[cfg(not(clash_plant = "buff_hold_pushed"))]
+        let buff_hold_off = self.cfg.calib.on_buff_hold_contact == OnBuffHoldContact::Client16402Unpushed;
+        #[cfg(clash_plant = "buff_hold_pushed")]
+        let buff_hold_off = false;
         // THE TORNADO'S ATTRACT (status.ATTRACT_LAW): one vector per entity, computed
         // from the START-OF-TICK positions, before anything moves and before the entity
         // arrays are borrowed.
@@ -24341,11 +24512,23 @@ impl BattleState {
             // on this tick, is no contact body (client 15.535.29: pushed from his last landing + 3, 3 of 3).
             // PLANT (regression) chain_landed_is_body: the new arm's landed champion is a body at once.
             #[cfg(not(clash_plant = "chain_landed_is_body"))]
-            let landed_off = calib.chain_landed_body == ChainLandedBody::Client15535NoBodyToEnd;
+            let landed_off = matches!(calib.chain_landed_body, ChainLandedBody::Client15535NoBodyToEnd | ChainLandedBody::Client16402NoBodyInPoise);
             #[cfg(clash_plant = "chain_landed_is_body")]
             let landed_off = false;
+            // movement.CHAIN_LANDED_BODY = client16402_no_body_in_poise: no body in the Poise between hops either. Measured on
+            // client 16.402 (parity r74): unmoved on 135 of 135 Poise ticks with an overlap.
+            // PLANT (regression) chain_poise_is_body: the new arm still makes him a body in the Poise.
+            #[cfg(not(clash_plant = "chain_poise_is_body"))]
+            let poise_off = calib.chain_landed_body == ChainLandedBody::Client16402NoBodyInPoise;
+            #[cfg(clash_plant = "chain_poise_is_body")]
+            let poise_off = false;
             let chain_ended = &self.scratch.chain_ended;
-            let chain_landed = |i: usize| landed_off && (matches!(chain_at[i], Some((ChainPhase::Landed, _, _))) || chain_ended.contains(&e.id_of(i)));
+            let chain_landed = |i: usize| {
+                landed_off
+                    && (matches!(chain_at[i], Some((ChainPhase::Landed, _, _)))
+                        || (poise_off && matches!(chain_at[i], Some((ChainPhase::Poise, _, _))))
+                        || chain_ended.contains(&e.id_of(i)))
+            };
             // spawner.ABILITY_UNIT_FIRST_UPDATE = client_next_tick: a unit a hero's button put down on this tick
             // (`Scratch::action_born`) takes no update on it, its contact included.
             let action_born = &self.scratch.action_born;
@@ -24394,6 +24577,7 @@ impl BattleState {
                             && !e.attached(i)
                             && !copy_settling(i)
                             && !landed_this_tick(i)
+                            && !surfacing[i]
                             && !action_born.contains(&e.id_of(i)),
                         offset: offsets[i],
                         dir: (facing[i].x, facing[i].y),
@@ -25729,7 +25913,10 @@ impl BattleState {
                 // collision.GUARD_PRESS_CONTACT = client16402_unpushed_attacking: a Little Prince in his press's hold runs no
                 // separation scan of his own, attacking too. combat.DASH_STAND_CONTACT = client16402_unpushed: nor does a unit
                 // standing before its dash. Each stays a body to its neighbours; a knockback still moves it.
-                let own_scan_off = (press_attacking_off && press_held[i]) || (dash_stand_off && dash_state[i] == DashState::Standing);
+                let own_scan_off = (press_attacking_off && press_held[i])
+                    || (dash_stand_off && dash_state[i] == DashState::Standing)
+                    || surfacing[i]
+                    || (buff_hold_off && e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i] && e.attack_phase[i] == AttackPhase::Idle);
                 if !tag_off[i] && !own_scan_off {
                     move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
                 }
@@ -35753,6 +35940,14 @@ impl BattleState {
                     }
                 }
             }
+            if !self.warps.surfaced.is_empty() {
+                h.u32(0x5355_5246);
+                h.u32(self.warps.surfaced.len() as u32);
+                for (id, at) in &self.warps.surfaced {
+                    h.id(*id);
+                    h.u32(*at);
+                }
+            }
             if !self.warps.monster_falls.is_empty() {
                 h.u32(0x4641_4c4c);
                 h.u32(self.warps.monster_falls.len() as u32);
@@ -37467,6 +37662,16 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.ROLL_RELEASE_WATER_POINT: Calib gained roll_release_water_point (serde default the old arm, nearest_passable_ground), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, movement.SPAWN_PATHFIND_SURFACE_CONTACT: Calib gained spawn_pathfind_surface_contact (serde default the old arm, body_on_surface), WarpBoard gained surfaced (serde default empty, saved and hashed only when not empty, which only the new arm fills),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.LIVE_SPAWN_ROLL_BIRTH: Calib gained live_spawn_roll_birth (serde default the old arm, hit_on_birth_tick), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.WARP_BACK_LANDING: Calib gained warp_back_landing (serde default the old arm, nominal_point), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.SHIELD_TICK_SUM: Calib gained shield_tick_sum (serde default the old arm, tick_sum), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, enchant.ON_BUFF_HOLD_CONTACT: Calib gained on_buff_hold_contact (serde default the old arm, pushed), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38480,6 +38685,16 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_stand_retarget".into(), serde_json::to_value(DashStandRetarget::Cancelled).map_err(|e| e.to_string())?);
     // spells.ROLL_RELEASE_WATER_POINT: a format-3 battle put a single release on water on the nearest land along an axis.
     sh.insert("roll_release_water_point".into(), serde_json::to_value(RollReleaseWaterPoint::NearestPassableGround).map_err(|e| e.to_string())?);
+    // movement.SPAWN_PATHFIND_SURFACE_CONTACT: a format-3 battle ran movement.SPAWN_PATHFIND_SURFACE_CONTACT's old arm.
+    sh.insert("spawn_pathfind_surface_contact".into(), serde_json::to_value(SpawnPathfindSurfaceContact::BodyOnSurface).map_err(|e| e.to_string())?);
+    // spells.LIVE_SPAWN_ROLL_BIRTH: a format-3 battle ran spells.LIVE_SPAWN_ROLL_BIRTH's old arm.
+    sh.insert("live_spawn_roll_birth".into(), serde_json::to_value(LiveSpawnRollBirth::HitOnBirthTick).map_err(|e| e.to_string())?);
+    // status.WARP_BACK_LANDING: a format-3 battle ran status.WARP_BACK_LANDING's old arm.
+    sh.insert("warp_back_landing".into(), serde_json::to_value(WarpBackLanding::NominalPoint).map_err(|e| e.to_string())?);
+    // combat.SHIELD_TICK_SUM: a format-3 battle ran combat.SHIELD_TICK_SUM's old arm.
+    sh.insert("shield_tick_sum".into(), serde_json::to_value(ShieldTickSum::TickSum).map_err(|e| e.to_string())?);
+    // enchant.ON_BUFF_HOLD_CONTACT: a format-3 battle ran enchant.ON_BUFF_HOLD_CONTACT's old arm.
+    sh.insert("on_buff_hold_contact".into(), serde_json::to_value(OnBuffHoldContact::Pushed).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

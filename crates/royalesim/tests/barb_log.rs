@@ -237,3 +237,55 @@ fn under_client16402_half_cell_centre_a_barbarian_released_on_water_stands_on_th
         }
     }
 }
+
+/// A Blue Goblin Hut at (9000, 8000) kept awake by a Red Knight held 4,500 north, and a Red Log cast 3,000 north of the hut
+/// `off` ticks after it came out, under spells.LIVE_SPAWN_ROLL_BIRTH = `arm`: (the hut-made units seen at the end of a tick,
+/// those of them that lost hp on the tick they were first seen). A newborn the Log kills on its birth tick is never seen.
+fn hut_under_log(arm: royalesim::state::LiveSpawnRollBirth, off: u32) -> (usize, usize) {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.live_spawn_roll_birth = arm;
+    let mut s = BattleState::new(3, cfg);
+    let (h_at, k_at) = (at((9000, 8000)), at((9000, 12500)));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", k_at, None).expect("the Knight");
+    let hut = s.scenario_spawn_now(Team::Blue, "GoblinHut", h_at, None).expect("the Goblin Hut");
+    let hold = |s: &mut BattleState| {
+        let full = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(knight, k_at) && s.debug_set_hp(knight, full));
+    };
+    for _ in 0..(40 + off) {
+        hold(&mut s);
+        s.tick();
+    }
+    let before: std::collections::BTreeSet<EntityId> = s.entities().filter(|e| e.team == Team::Blue && e.id != hut && e.kind == royalesim::entity::EntityKind::Troop).map(|e| e.id).collect();
+    s.spawn_unit(Team::Red, "Log", at((9000, 11000)), None).expect("cast the Log");
+    let mut seen: std::collections::BTreeSet<EntityId> = Default::default();
+    let mut hurt_at_birth = 0;
+    for _ in 0..60 {
+        hold(&mut s);
+        s.tick();
+        for e in s.entities().filter(|e| e.team == Team::Blue && e.id != hut && e.kind == royalesim::entity::EntityKind::Troop && !before.contains(&e.id)) {
+            if seen.insert(e.id) && e.hp < e.max_hp {
+                hurt_at_birth += 1;
+            }
+        }
+    }
+    (seen.len(), hurt_at_birth)
+}
+
+/// spells.LIVE_SPAWN_ROLL_BIRTH = client16402_unseen_on_birth_tick (client 16.402, parity's r74 census: 3 of 3 live spawner
+/// newborns unhit by a roll on their birth tick; the engine killed them on it): over 44 cast offsets (a wave period) no
+/// hut-made unit is hurt on the tick it is first seen under the new arm, and more of them are seen than under
+/// hit_on_birth_tick (the vacuity check: there the Log kills some on their birth tick, unseen). Plant: roll_sees_newborn.
+#[test]
+fn under_client16402_unseen_on_birth_tick_a_log_misses_a_live_spawn_on_its_birth_tick() {
+    use royalesim::state::LiveSpawnRollBirth as L;
+    let (mut old_seen, mut new_seen, mut new_hurt) = (0, 0, 0);
+    for off in 0..44 {
+        old_seen += hut_under_log(L::HitOnBirthTick, off).0;
+        let (seen, hurt) = hut_under_log(L::Client16402UnseenOnBirthTick, off);
+        new_seen += seen;
+        new_hurt += hurt;
+    }
+    assert!(new_seen > old_seen, "vacuous: the Log killed no newborn on its birth tick over 44 offsets ({old_seen} seen, the new arm {new_seen})");
+    assert_eq!(new_hurt, 0, "client16402_unseen_on_birth_tick: a newborn was hurt on its birth tick");
+}
