@@ -313,6 +313,42 @@ RECOVERED TILE
     Otherwise the centroid stays. `recovery` says what decided, on every row that tried.
     The group's `centroid` is kept as it was.
 
+    A TIE IS BROKEN BY THE TAP POINT: where two candidates have as many members on them, and
+    the card has a member on the tap point itself (a zero offset), the one that member stands
+    on is taken. Laid on the tap's own point it was never clamped, so a candidate that reads it
+    as clamped reads a clamp that moved it off a legal tile. Side 1's Goblinstein on a back-row
+    tile is the case: its Doctor, 3500 behind, is clamped to y 31000, which is 3500 behind the
+    tile centre two rows down, so the Monster's tile and that one tie with one member each
+    (live 20261011-192922 t916 and t2845, 20261007-161836 t1962: played on the centroid,
+    the engine's Monster 1250-1345 off).
+
+    THE MEMBERS' TILE OF A TAPPED GROUP: a group with a logged tap is read this way too, and
+    where its members agree on a tile that is not the tap's, the row records it as
+    `members_tile` (`recovery` naming the tap's tile) and stays on its tap (`source`
+    tap_tile). Two things put a group a tile or more off its logged tap, and only the replay
+    can tell them apart. The game RELOCATES a tap its tile does not take (an own building's or
+    crown tower's box, an enemy building's, outside the territory): the engine's placement law
+    answers that from the tap, and is charged with it. Or the log's tap is not the play's (the
+    bot's tap registered on the next tile, a drag, a request taken elsewhere), which no law
+    answers. So the harness plays `members_tile` only where the engine keeps the tap on its own
+    tile (replay_parity/harness.rs `members_point`). Live ob12: 14 of 6,605 tap_tile plays stand
+    a tile or more off their tap. 9 had a building or crown tower within two tiles of the tap,
+    and r73's engine relocated each of the 6 it traced: 4 exactly as the client did, one onto
+    the same tile, and 20261008-051029 t4342's Bats 2000 toward -x where the client moved them
+    2000 toward +x (an engine law to fix, which a played members' tile would hide). 5 had none
+    and r73 laid them on the tap (20261009-162704 t724, 20261007-014738 t2335, 20261011-215918
+    t1415: first divergences; 20261008-012501 t3583, 20261009-195106 t3354).
+
+    A TAP FAR OFF ITS GROUP whose members recover no tile (seen a tick or more after their
+    creation, pushed off their ring) is not where the game laid them either: a group whose
+    first-frame centroid stands TAP_OFF_NATIVE or more on an axis from where its tap would
+    centre it (the tap plus the mean nominal offset) records its centroid's tile centre as
+    `members_tile`, when every member was first seen deploying and the centroid is on no tile
+    line (AN UNLOGGED SIDE'S TROOP's conditions). Nearer than that, with no tile recovered, a
+    relocation off a box is likelier (the committed sample's Skeletons stand 945 off), so
+    nothing is recorded. A card with no nominal offsets (a line: the Royal Recruits, which the
+    game's own clamp centres off their tap) records nothing.
+
     A TWO-PART PLAY the measurement has no group of (the Goblinstein: one Monster, and
     its Doctor as the second summon) takes its card's own layout as the offsets
     (`layout_offsets`): the first summon on the tap, the second SummonRadius behind it in
@@ -322,6 +358,14 @@ RECOVERED TILE
     right, 31 of 32 for both sides; the Monster's first point is its tile's laid point on
     27 of 33; read at the members' centroid, each was played 1750 off (Parity's r68
     trace).
+
+    A RING MEASURED ON ANOTHER TABLE is scaled to this one: a ring's offsets are its
+    SummonRadius times a factor of its count, and the measurement ran the 2026-09 table
+    (FORMATIONS_TABLE). The 2026-10-06 update cut the Skeletons' SummonRadius from 700 to 400,
+    and their ring from 808 to 462 (live ob12: (0, -462) and (+-399, 229) from the tile, side 1).
+    Read at the old ring, no Skeletons play of the new table was ever recovered (106 of 106
+    tapped plays of a 20-battle sample: "no member's creation point is a nominal offset from a
+    tile centre"), so every clamped one stayed on its centroid or its tap.
 
     The recovery reads the client's measured offsets, not the engine's formation law, so
     a group it places is still evidence against that law. tools/replay_formations.py
@@ -365,7 +409,14 @@ A UNIT FIRST SEEN OUT OF ITS DEPLOY
     already reached (Parity's r68 trace, 7 battles of the 2026-10 live set: 1 to 73
     ticks too far). So such a play, after a gap at least a deploy long, is dated to end
     its deploy on its first frame (first seen - DeployTime / 50): the tick and the point
-    from one frame (`refine_spawn_tick`). A shorter gap keeps the earliest tick.
+    from one frame (`refine_spawn_tick`). A shorter gap keeps the earliest tick, unless the
+    play's own tap was early enough for its deploy to end on its first frame: then the frames
+    before it did not show it, and it is dated the same way. Live 20261008-055422: frames 232
+    to 254 repeat one stale board (towers, and both sides' elixir at 10), and side 1's
+    Skeletons, tapped on 234, are first seen on 256 taking their first step from their creation
+    points; side 1's elixir there, 93738 and rising 178 a tick from a capped 10, says their
+    cost left 20 or 21 ticks before (on 236 or 235, as the cap is taken after or before it).
+    Played on the gap's earliest tick, 255, the engine's Skeletons deployed 19 ticks late.
 
 AN UNLOGGED SIDE'S TROOP
     A side no placement log covers (the opponent of a live capture: only our own taps are
@@ -414,6 +465,44 @@ AN EVOLVED MIRROR CAST
     first. The decoy's units are the evolution's (`reachable_units`), so they pair as
     spawned units instead of unknown objects.
 
+AN EVOLVED ROLL CAST
+    The Evo Giant Snowball's flight (SnowballSpell_EV1, no damage) spawns a ball
+    (SnowballSpell_EV1_Rolling) on its target, which rolls 4000 along its caster's forward at
+    300 a tick and captures what it hits (card.rs CaptureRollDef); a base Snowball's flight
+    spawns nothing. The ball carries the plain card id and the cast releases no unit, so no
+    class says the play was evolved, and every such cast was played as a base Snowball (Parity
+    agents14; live11 holds 49). The capture shows the ball as a second object, first seen on
+    the flight's arrival frame on the flight's target: live ob12, 49 of 283 Snowball casts, the
+    ball 0 off the target on all 49, each the third play of its side's base-base-evolved cycle
+    (the evolution's 2 cycles; 34 sides, no other order). A cast of a card whose evolution's
+    flight spawns a roll its base card's does not (`evo_capture`: the Snowball alone), whose
+    second object is first seen after the flight's last sighting and no later than its arrival
+    within ROLL_LAUNCH_TOLERANCE of its target, is one evolved play (`form` "ev1", `form_row`
+    the evolution, `form_evidence`; `evo_roll_cast`), which the harness plays as the form
+    (deploy_play), its ball's capture included.
+
+A SPELL'S HIT FRAMES
+    A cast the effects stream shows is read where and when its objects strike (`hit_span`), not
+    on the first drop after its tick: a projectile spell's hit is its landing (the first
+    object's last sighting + 1; the drop shows on the next frame present), and a volley's its
+    first wave's landings (the objects departing with the first). Live ob12, the drops that fit a
+    level on an enemy in reach: Snowball 301 of 312 on the landing frame, Fireball 921 of 969,
+    Rocket 99 of 101; Arrows 1,404 on a wave's first landing and 809 one tick after. Before, a
+    drop inside the flight passed for the hit whenever it reached the card's least damage (a
+    Common Snowball's is 70): live 20261009-032259-A t2729's Snowball read level 10 off a
+    Musketeer's 164 on 2736, where its own 135 on its landing 2743 is level 8. An evolved roll
+    strikes CAPTURE_DELAY_TICKS after the flight's landing, 600 on along its ball's line (42 of
+    the 42 evolved casts with a fitting drop have one there). A rolling spell (the
+    Log, the Barbarian Barrel: its projectile spawns a ball with a range) hits along its ball's
+    line from the ball's first sighting to its arrival, each victim on the frame its ball
+    reaches it (ROLL_LEAD ahead of the ball's centre): before, its reach was a disc around the
+    landing point, so live 20261007-005625-A t883's Log missed the Goblinstein it took 295 off
+    (level 12) 3752 along and read a 246 on 978, after the roll, as level 10. Every hit frame
+    reads: a frame whose drops one level fits votes for it, the most votes win (a tie is an
+    ambiguous read), and with no such frame the levels every frame's kills allow. A cast whose
+    objects never land inside the capture is no read. A cast with no objects (a tap-dated cast,
+    an area, a strike) keeps the first drop after its tick.
+
 A COST-ONLY SPELL
     A spell whose cast leaves no object the capture shows (the Zap: an area that lives one
     millisecond) is seen only as its caster's elixir drop and what it hits. A live capture's
@@ -422,13 +511,45 @@ A COST-ONLY SPELL
     null, cost, evidence). A payment with evidence "elixir" (nothing readable) that no row
     of its side explains within a tick, whose cost fits exactly one INSTANT spell (no
     projectile, an area of at most a tick) in the side's revealed deck, is that spell
-    (`cost_only_casts`, `source` `cost_only`): dated at the drop, aimed at the centroid of
-    the enemy units its damage hit within COST_ONLY_HIT_FRAMES frames (a drop of its damage
-    at a level it can be played at, up to SPELL_HIT_SLACK more, or a kill of no more), its
-    level the one most victims fit (nearest the side mode on a tie). With no victim it is
-    not played (`unresolved` says so). Live 20261007-141917: the opponent revealed Zap and
-    paid 2 with nothing readable on t282 (five Bats died together) and t2744. "ability"
-    payments (a hero's or a champion's press) are no card and are never matched.
+    (`cost_only_casts`, `source` `cost_only`). Its HIT is the first of COST_ONLY_HIT_FRAMES
+    frames from the drop on which enemy units take its damage at a level it can be played at
+    (up to SPELL_HIT_SLACK more, or a kill of no more); its level is the one most victims fit
+    (nearest the side mode on a tie). With no victim it is not played (`unresolved` says so).
+    Live 20261007-141917: the opponent revealed Zap and paid 2 with nothing readable on t282
+    (five Bats died together) and t2744.
+    A CROWN TOWER IS A VICTIM TOO: one that took the area's own crown hit at a level
+    (`instant_crown_hit_at`: the Zap's TowerDamage 19, 64 at level 14, 77 at 16) votes for
+    that level with the units (20261007-153404 t982: two kills fit 13 to 17, the side mode is
+    13, the princess tower's 64 is level 14's).
+    The cast is DATED ON ITS HIT's frame, and `first_seen` keeps the drop (so the drop stays
+    explained): the engine lands an instant area on its row's tick (r73's traces: 33 of 33),
+    and 8 of ob12's 219 hits come one to five ticks after the drop (20261011-213425: drop 371,
+    frame 372 missing, hit 373).
+    THE CAST'S TILE (`cast_tile`): every spell's point is a tile centre (placement.TAP_SNAP),
+    so the cast goes on the tile centre whose area reaches the most victims, then the fewest
+    of the units it SPARED (an enemy it could have reached that lost less than its damage
+    there and lived: not a display twin, an unknown object, a shield holder, nor a unit in a
+    state no area reaches, UNREACHABLE_STATES), then the one nearest the victims' centroid,
+    each reached as the engine reaches it (`area_body`, `area_reaches`: a troop's disc edge
+    inclusive, an ordinary building's square, a crown tower's square of half-side
+    CROWN_SQUARE_HALF_NATIVE, the squares strictly). The victims' centroid was aimed at
+    before: its tile reached a Bat the client spared (20261007-183256 t824) or missed the
+    tower it hit (20261012-002126 t2633). Live ob12 (785 fixtures, 219 casts): the old tile
+    reached exactly the truth's victims and none it spared in 161, the fitted tile in 216 (a
+    victim missed 35 -> 2, a spared unit reached 28 -> 1); r73's engine on its own positions,
+    before each battle's first divergence, 24 -> 31 of 33.
+    A PRESS THE SPELL'S DAMAGE OVERRULES: the live reader logs a payment "ability" whenever a
+    hero or a champion whose ability costs as much is up, so a Zap paid beside a Hero Ice
+    Golem was its press (20261008-064926 t745: three Bats die and a princess tower takes 77
+    on the drop's frame). Such a payment is the spell when its read level is within
+    CONTESTED_LEVEL_SLACK of the side mode, at least CONTESTED_MIN_VICTIMS victims (a crown
+    tower counts) show its damage, one tile reaches them all, and no hero or champion of that
+    cost with a cast hold enters CAST_STATE on the drop's frame or beside it
+    (`held_press_at`); else it is left to the press (`ability_presses`, which skips a drop a
+    cast row's `first_seen` explains). Live ob12, 46 such payments of 2 on a side that
+    revealed the Zap: 10 hero presses become Zaps (none shows its hero's own trace: no Ice
+    Golem pulse, no Balloon trooper, no ice cube), 13 payments no row explained become Zaps,
+    and 20 presses and 3 unexplained payments stay.
 
 AN AREA SHOWN AFTER ITS DROP
     Live's measurement over 580 area plays (2026-10-09): 532 areas appear on their elixir
@@ -644,6 +765,47 @@ ELIXIR
     encoding would be 203 bytes, and was not taken for the same one-decoder reason as the
     timers.
 
+AN UNREAD HP (`truth.hp_unread`, an entity's `hp_unread_frames`)
+    The live reader keeps a unit's hitpoints pair only when 0 <= hp <= max_hp; otherwise
+    it writes hp = max_hp = -1 for that frame. Two
+    states fail the test: an OVERHEAL (an Evo Bat, an Evo Witch or an Evo PEKKA healed above
+    its max: ob12, 181,820 Bat_EV1 frames on 1,446 bats, 32,660 on 155 Evo Witches, 963 on 8
+    Evo PEKKAs; 20261009-161848 key 94 reads 102, then -1 on 2230-2235, then 31 after a
+    109 hit, so it stood at 140), and a unit's DEATH FRAME below 0 (a single -1 on its last
+    frame: 11 units). No capture holds the value (the reader writes max_hp -1 too). The hp
+    column keeps HP_UNREAD on such a frame (null
+    would read as absent: harness.rs decodes a row only when x, y, hp, path_n and state are
+    all present), the fixture says what it means in `truth.hp_unread`, and every entity with
+    such frames counts them in `hp_unread_frames`. A harness must not score that hp. This
+    tool reads it as no hp (`hp_unread`): a unit that goes from a read hp to -1 and is seen
+    again later was healed, not killed, so it is no victim of a cost-only cast and no kill
+    bounding a spell's level; a -1 on a unit's last frame stays a kill.
+
+A LEVEL CHANGE (an entity's `max_hp_changes`)
+    A unit's level and max_hp can change mid-life, and the capture shows it on every frame:
+    the Royal Chef's pancake (tower troop ChefTower) takes one troop of its side up one
+    level with its hp scaled to the new max, hp' = floor(hp x max' / max) (70 of the 73
+    level-ups seen on consecutive frames; the other 3 share the tick with a hit or a second
+    pancake). ob12: 77 of the 78 level changes in the 14 Chef battles are +1 on the Chef's
+    side, about every 450 to 650 ticks from about tick 620; none in 20 battles without a
+    Chef. The Hero Tombstone's press turns the tombstone itself into a 6,748-hp unit (kind
+    13 -> 15, max_hp 846 -> 6,748, 20261011-233805 key 37 on 1475). `level` and `max_hp`
+    stay the entity's first read; each later read frame whose (level, max_hp) differs from
+    the one before is [tick, level, max_hp] in `max_hp_changes`. The engine models neither
+    (card.rs TOWER_TROOPS: "NOT modelled: ... the Chef's cooking"), so the truth's hp jumps
+    there with no source in the script; the list names the source.
+
+THE CLIENT'S GENERATOR (`rng`)
+    A capture whose frames carry `rng_state` (the client's battle xorshift32 after the
+    frame's tick) gives the fixture `rng` in the form the measured scene fixtures carry it:
+    {algorithm, first: [tick, state], changes: [[tick, state], ...]} with frame ticks, so
+    the harness syncs its client generator (harness.rs
+    `RngColumn`, `scenario_set_client_rng`) and the Skeleton King's soul copies land where
+    the client's did. `algorithm` is the header's `rng_algorithm` with its binary prefix
+    replaced by "client", else client_xorshift32_v<the header client build>. No live capture
+    carries it yet (ob12: no rng, seed or state field in any frame or header): the live
+    reader must record it first.
+
 AN ABILITY PRESS
     A press of a champion's or hero's button is a row of kind "ability" (the harness's
     KIND_ABILITY: `card` the base card, `form` "hero" for a hero form, issued at tick - 1
@@ -729,6 +891,10 @@ REGISTER = os.path.join(ROOT, "data", "derived", "mechanic_register.json")
 #: The committed measurement of the client's summon formations (tools/make_formation_fixture.py; tests/formations.rs
 #: holds the engine to it). This tool reads it only for the nominal offsets of a recovered tile (RECOVERED TILE).
 FORMATIONS = os.path.join(ROOT, "crates", "royalesim", "tests", "fixtures", "formations", "measured.json")
+#: The card table FORMATIONS was measured on (a TABLES key): its 2026-09 captures ran client 16.402 before the
+#: 2026-10-06 update. A ring is scaled from that table's SummonRadius to the one a fixture is made against
+#: (`scaled_nominal_offsets`).
+FORMATIONS_TABLE = "160402017"
 OUT_DEFAULT = os.path.join(ROOT, "data", "derived", "replay")
 CENSUS = "card_census.json"
 #: The `--table` CARDS, RAW and CENSUS are set for (`select_table`).
@@ -875,6 +1041,14 @@ NOMINAL_CENTRED_NATIVE = 60
 #: native per axis. The measured offsets are first-frame positions after the first tick's contact push, so two siblings
 #: that overlap at creation stand a few units off their ring (the Minions' 577 ring, 2 apart).
 RECOVER_TOLERANCE = 3
+#: A TAP FAR OFF ITS GROUP (module doc, RECOVERED TILE): how far, native on either axis, a tapped group whose members
+#: recover no tile may stand (its first-frame centroid against its tap plus the mean nominal offset) before the tap is
+#: taken for one the game did not play there. Past what a tower's relocation moves a group: the committed sample's
+#: cycled Skeletons, tapped on the king's footprint, stand 945 below their tap, which the engine's relocation law
+#: answers from the tap. Live ob12: 6,583 of 6,605 tap_tile plays stand within 800 of their tap; of the 14 off it
+#: that have nominal offsets (8 Royal Recruits have none), 11 recover their tile and 3 recover none, 5,705 to 13,079
+#: off (20261007-014738 t2335, 20261009-195106 t3354, 20261011-215918 t1415).
+TAP_OFF_NATIVE = 2500
 #: How far one tick's contact push can move a unit on one axis, native: move16402.rs `collision_mean` scales a push
 #: longer than 150 to length 150 through a truncating isqrt (so up to about 151 long), and neither axis of it passes
 #: 150. A single first seen late is played on its tile's laid point only when its first frame's creation point lies
@@ -930,6 +1104,21 @@ TRUTH_COLUMNS = (
     "event_timer_ms",
     "attack_component_valid",
 )
+#: AN UNREAD HP (module doc): the hp (and max_hp) the live reader writes for a frame whose hitpoints pair fails its
+#: 0 <= hp <= max_hp check.
+HP_UNREAD = -1
+#: A row in `per_tick_rows` may carry, after the TRUTH_COLUMNS, the frame's raw (level, max_hp) (A LEVEL CHANGE); the
+#: truth columns written are the first len(TRUTH_COLUMNS).
+ROW_LEVEL, ROW_MAX_HP = len(TRUTH_COLUMNS), len(TRUTH_COLUMNS) + 1
+
+
+def hp_unread(per_tick_rows: list, key: int, i: int) -> bool:
+    """AN UNREAD HP (module doc): `key`'s hp on frame i is the reader's HP_UNREAD and the unit is on a later frame, so
+    the -1 is a value the reader could not read (an overheal), not a death."""
+    r = per_tick_rows[i].get(key)
+    if r is None or r[TRUTH_COLUMNS.index("hp")] >= 0:
+        return False
+    return any(key in rows for rows in per_tick_rows[i + 1:])
 
 
 # ---------------------------------------------------------------------------
@@ -1618,10 +1807,14 @@ def refine_spawn_tick(
     deploy_ms: int | None,
     tick_ms: int = 50,
     positions: list[tuple[int, int, int]] | None = None,
+    tap_tick: int | None = None,
 ) -> tuple[int, int, str]:
     """(spawn tick, first-seen tick, evidence) from the frame gap, the deploy-end
     transition and -- for a single unit, `positions` given -- the first step.
-    `states` = [(frame index, behavior_state), ...] for one member."""
+    `states` = [(frame index, behavior_state), ...] for one member. `tap_tick`: the
+    play's logged tap, which lets a unit first seen out of its deploy end its deploy on
+    its first frame after a gap shorter than its deploy (module doc, A UNIT FIRST SEEN
+    OUT OF ITS DEPLOY)."""
     lo, hi = spawn_tick_bounds(ticks, first_index)
     if lo == hi:
         return hi, hi, "exact"
@@ -1645,9 +1838,16 @@ def refine_spawn_tick(
                 f"first-seen tick: the deploy-end transition [{a}, {b}] contradicts the frame gap"
                 f" [{lo}, {hi}]",
             )
-    if d >= 1 and states and states[0][1] not in (4, STATE_STAGGER_WAIT) and hi - d >= lo:
+    if d >= 1 and states and states[0][1] not in (4, STATE_STAGGER_WAIT):
         # A UNIT FIRST SEEN OUT OF ITS DEPLOY (module doc): its deploy ends on its first frame, where it stands
-        return hi - d, hi, f"range [{lo}, {hi}] (frame gap), first seen out of its deploy: its deploy ends on {hi}"
+        if hi - d >= lo:
+            return hi - d, hi, f"range [{lo}, {hi}] (frame gap), first seen out of its deploy: its deploy ends on {hi}"
+        if tap_tick is not None and tap_tick <= hi - d:
+            # a gap shorter than its deploy: the frames before it did not show it, as its tap says
+            return hi - d, hi, (
+                f"range [{lo}, {hi}] (frame gap), first seen out of its deploy after frames that did not show it"
+                f" (tapped on {tap_tick}): its deploy ends on {hi}"
+            )
     return lo, hi, f"range [{lo}, {hi}] (frame gap, no transition seen), earliest used"
 
 
@@ -1883,6 +2083,29 @@ def load_nominal_offsets(path: str = FORMATIONS) -> dict[tuple[str, int], list[t
         return nominal_offsets(json.load(fh))
 
 
+def scaled_nominal_offsets(
+    nominal: dict[tuple[str, int], list[tuple[int, int]]], cards_by_name: dict, measured_cards: dict | None = None
+) -> dict[tuple[str, int], list[tuple[int, int]]]:
+    """`nominal` with each card's offsets scaled from the SummonRadius of the table the measurement ran
+    (FORMATIONS_TABLE; `measured_cards` = its cards by name) to the one in `cards_by_name` (module doc, RECOVERED
+    TILE: A RING MEASURED ON ANOTHER TABLE). A card whose radius is the same, or unknown on either table, keeps its
+    offsets."""
+    if measured_cards is None:
+        path = os.path.join(ROOT, "data", "derived", TABLES[FORMATIONS_TABLE][0])
+        measured_cards = {}
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as fh:
+                measured_cards = {c["name"]: c for c in json.load(fh).get("cards") or []}
+    out = {}
+    for (card, side), offs in nominal.items():
+        r0 = (measured_cards.get(card) or {}).get("summon_radius_milli")
+        r1 = (cards_by_name.get(card) or {}).get("summon_radius_milli")
+        if r0 and r1 and r0 != r1:
+            offs = sorted({(round(ox * r1 / r0), round(oy * r1 / r0)) for ox, oy in offs})
+        out[(card, side)] = offs
+    return out
+
+
 def recovered_tile(
     points: list[tuple[int, int]], offsets: list[tuple[int, int]]
 ) -> tuple[list[int] | None, str]:
@@ -1924,11 +2147,61 @@ def recovered_tile(
     scored.sort(key=lambda s: (-s[0], -s[1], s[2]))
     on, clamped, (cx, cy) = scored[0]
     tied = [s[2] for s in scored if s[0] == on]
+    tie = ""
     if len(tied) > 1:
-        return None, f"{len(tied)} tile centres tie with {on} of {n} members on a nominal offset: {sorted(tied)}"
+        # A TIE IS BROKEN BY THE TAP POINT (module doc): a member laid on the tap's own point (a zero offset) was never
+        # clamped, so the tied candidate it stands on is the one
+        on_tap = []
+        if any(abs(ox) <= tol and abs(oy) <= tol for ox, oy in offsets):
+            on_tap = [s for s in scored if s[0] == on and any(abs(x - s[2][0]) <= tol and abs(y - s[2][1]) <= tol
+                                                              for x, y in points)]
+        if len(on_tap) != 1:
+            return None, f"{len(tied)} tile centres tie with {on} of {n} members on a nominal offset: {sorted(tied)}"
+        on, clamped, (cx, cy) = on_tap[0]
+        tie = f"; {len(tied)} tile centres tied, a member stands on this one's tap point"
     if on >= 2 or (on == 1 and clamped == n - 1):
-        return [cx, cy], f"{on} of {n} members on a nominal offset from it, {clamped} clamped on one axis"
+        return [cx, cy], f"{on} of {n} members on a nominal offset from it, {clamped} clamped on one axis{tie}"
     return None, f"the best tile centre ({cx}, {cy}) has {on} of {n} members on a nominal offset, {clamped} on one axis"
+
+
+def members_tile(
+    members: list[dict], name: str, side: int, nominal: dict, cards_by_name: dict
+) -> tuple[list[int] | None, str]:
+    """The tile a deploy group's members agree it was laid around, read at their creation points (`c0`), and why; or
+    None and why not (module doc, RECOVERED TILE): the card's nominal offsets for the side, else a two-part play's own
+    layout (`layout_offsets`, from its first summon's point), else its ring's laid point (`laid_tile`)."""
+    points = [tuple(e["c0"]) for e in members]
+    card_row = cards_by_name.get(name) or {}
+    offsets = nominal.get((name, side))
+    if not offsets:
+        # a two-part play the measurement lacks: its card's layout, from its first summon's point
+        first = [e for e in members if e.get("unit") == card_row.get("summon_character")]
+        offsets = layout_offsets(card_row, side, first[0]["c0"][0]) if len(first) == 1 else []
+    tile, why = recovered_tile(points, offsets)
+    if tile is not None and not nominal.get((name, side)):
+        why += " (the card's layout: no measured group)"
+    if tile is None and why == "no nominal offsets for this card and side":
+        tile, laid_why = laid_tile(points, side, bool(card_row.get("flying_height")))
+        why += "; " + laid_why
+    return tile, why
+
+
+def tap_offset(
+    members: list[dict], name: str, side: int, nominal: dict, cards_by_name: dict, tap: list, centroid: tuple
+) -> tuple[int, int] | None:
+    """How far a tapped group's first-frame `centroid` stands from where its tap would centre it: the tap plus the mean
+    of the card's nominal offsets (or of a two-part play's layout); None for a card with neither (a line, the Royal
+    Recruits, whose centroid the game's own clamp moves off the tap)."""
+    card_row = cards_by_name.get(name) or {}
+    offsets = nominal.get((name, side))
+    if not offsets:
+        first = [e for e in members if e.get("unit") == card_row.get("summon_character")]
+        offsets = layout_offsets(card_row, side, first[0]["x0"]) if len(first) == 1 else []
+    if not offsets:
+        return None
+    mx = sum(o[0] for o in offsets) / len(offsets)
+    my = sum(o[1] for o in offsets) / len(offsets)
+    return int(centroid[0] - tap[0] - mx), int(centroid[1] - tap[1] - my)
 
 
 def laid_tile(points: list[tuple[int, int]], side: int, flying: bool) -> tuple[list[int] | None, str]:
@@ -2037,6 +2310,47 @@ def evo_mirror_cast(cast: dict, ents: dict, ticks: list[int], evo: dict | None) 
             f"an evolved mirror cast: its own units land under {list(real[0]['target'])}, its decoy's at the mirror"
         )
     return tuple(first[0]["target"]), "an evolved mirror cast: no unit tells its decoy apart; the object listed first"
+
+
+#: AN EVOLVED ROLL CAST (module doc): how far from the flight's target its ball's first point may stand, native (the
+#: live set: 0 off on 49 of 49 two-object Snowball casts).
+ROLL_LAUNCH_TOLERANCE = 3
+#: A ROLL HITS A VICTIM AS IT REACHES IT (`hit_span`): how far ahead of the ball's centre (its speed a tick from its
+#: first sighting) a victim stands on the frame its drop shows, native, [from, to); a crown tower's body reaches
+#: further. The live set (ob12), the drops that fit a level on a victim in the ball's band inside its frames: 771 of 956
+#: Log drops on troops stand 600 to 1800 ahead (715 of them 800 to 1400), 1,896 of 2,246 Barbarian Barrel ones, and 323
+#: of the Log's 324 tower drops 1200 to 2000; the rest spread over the whole line (other units' hits and kills).
+ROLL_LEAD = (600, 1800)
+ROLL_TOWER_LEAD_EXTRA = 400
+#: The ball's hit and capture fall this many ticks after its first point, its flight's arrival (card.rs
+#: CAPTURE_DELAY_TICKS, measured on 15.535.29; live ob12: each of the 42 evolved casts with a drop that fits a level
+#: has one on the flight's last sighting + 3, or on the next frame present behind a gap; 7 casts show no fitting drop).
+CAPTURE_DELAY_TICKS = 2
+
+
+def evo_roll_cast(cast: dict, evo: dict | None, base: dict | None) -> str | None:
+    """AN EVOLVED ROLL CAST (module doc): why, when the card's evolution lands a capturing roll (`evo_capture`: its
+    flight's projectile spawns a rolling one, which the base card's does not) and the cast shows that ball: a second
+    object first seen after the flight's last sighting, no later than its arrival frame, standing on the flight's
+    target. None otherwise (a base cast is one object)."""
+    if not evo or not evo.get("evo_capture"):
+        return None
+    if not (evo.get("projectile") or {}).get("spawn_projectile"):
+        return None
+    if ((base or {}).get("projectile") or {}).get("spawn_projectile"):
+        return None
+    tracks = cast.get("tracks") or []
+    if len(tracks) != 2:
+        return None
+    flight, ball = tracks
+    if flight.get("arrival") is None or not flight["last_seen"] < ball["first"] <= flight["arrival"]:
+        return None
+    if math.dist(ball["launch"], flight["target"]) > ROLL_LAUNCH_TOLERANCE:
+        return None
+    return (
+        f"an evolved roll cast: its ball first seen on {ball['first']} at the flight's target"
+        f" {list(flight['target'])}, rolling to {list(ball['target'])}"
+    )
 
 
 def flag_spawns(ents: dict, ticks: list[int], doc: dict) -> int:
@@ -2529,6 +2843,21 @@ PULSE_DATING_MIN = 2
 AREA_DROP_LOOKBACK = 12
 #: A COST-ONLY SPELL (module doc): the frames from its drop on which its damage is looked for.
 COST_ONLY_HIT_FRAMES = 4
+#: THE CAST'S TILE (module doc, A COST-ONLY SPELL): the arena's height, native (its width is ARENA_W_NATIVE); every
+#: spell's point is a tile centre (placement.TAP_SNAP = client16402_tile_centre), so the fit tries those alone.
+ARENA_H_NATIVE = 32000
+#: spells.CROWN_TOWER_SPELL_REACH = client_square_1000_strict (spell.rs CROWN_SQUARE_HALF_MILLI): an area reaches a
+#: crown tower when its point is strictly nearer than its radius to the tower's square of this half-side, native.
+CROWN_SQUARE_HALF_NATIVE = 1000
+#: The behaviour states a unit cannot be reached in, so that an area which left it untouched says nothing of the
+#: area's point (STATE_STAGGER_WAIT: formation.STAGGER_WAIT, no area reaches a member waiting out its stagger; 3: a
+#: dash, during which a dash-immune unit takes no hit).
+UNREACHABLE_STATES = (3, 11)
+#: A PRESS THE SPELL'S DAMAGE OVERRULES (module doc, A COST-ONLY SPELL): how far from the side's level mode the spell's
+#: read level may be, and how many victims (a crown tower counts) its damage must show, for a payment the live reader
+#: logged as an "ability" press to be read as the spell.
+CONTESTED_LEVEL_SLACK = 1
+CONTESTED_MIN_VICTIMS = 2
 
 
 def instant_spell(card: dict) -> bool:
@@ -2542,6 +2871,84 @@ def instant_spell(card: dict) -> bool:
         return False
     life = ae.get("life_duration_ms")
     return life is not None and life <= TICK_MS
+
+
+def instant_crown_hit_at(doc: dict, card: dict, level: int) -> int | None:
+    """What an instant spell's area takes off a crown tower at `level`: its own TowerDamage (the area's
+    `tower_damage`), on the card's ladder (`scaled_at`), as the engine's SpellHit `tower_damage` (spell.rs
+    `tower_damage_of`). The Zap's 19 is 48 at level 11 and 77 at 16 (live 20261009-164822 t1102, 20261008-064926 t745).
+    None for an area without one."""
+    ae = (card.get("spell") or {}).get("area_effect_object") or {}
+    return scaled_at(doc, card, ae.get("tower_damage"), level)
+
+
+def area_body(doc: dict, e: dict) -> tuple[bool, int]:
+    """How an area reaches entity `e` in the engine (spell.rs `impact`): (square, size). A crown tower is a square of
+    half-side CROWN_SQUARE_HALF_NATIVE (spells.CROWN_TOWER_SPELL_REACH), an ordinary building a square of half-side its
+    collision radius (spells.BUILDING_SPELL_REACH = client_square_radius_strict), both reached strictly; a troop is a
+    disc of its collision radius, reached edge-inclusive (spells.AOE_HIT_TEST = edge_inclusive)."""
+    if e.get("role") == "tower":
+        return True, CROWN_SQUARE_HALF_NATIVE
+    u = (doc.get("units") or {}).get(e.get("unit") or "") or {}
+    return u.get("source_table") == "buildings", u.get("collision_radius_milli") or 0
+
+
+def area_reaches(point: tuple[int, int], at: tuple[int, int], body: tuple[bool, int], radius: int) -> bool:
+    """Whether an area of `radius` at `point` reaches a body (`area_body`) standing at `at`, as the engine tests it."""
+    square, size = body
+    dx, dy = abs(point[0] - at[0]), abs(point[1] - at[1])
+    if square:
+        dx, dy = max(dx - size, 0), max(dy - size, 0)
+        return dx * dx + dy * dy < radius * radius
+    return dx * dx + dy * dy <= (radius + size) * (radius + size)
+
+
+def cast_tile(hits: list, spared: list, radius: int) -> tuple[list[int], int, int]:
+    """THE CAST'S TILE (module doc, A COST-ONLY SPELL): the tile centre whose area reaches the most of `hits`, then the
+    fewest of `spared`, then the one nearest the hits' centroid (a crown tower's centre counts only when nothing else
+    was hit), then the lowest (x, y). `hits` and `spared` are [(position, area_body)]. Returns (point, hits reached,
+    spared reached)."""
+    own = [p for p, b in hits if b != (True, CROWN_SQUARE_HALF_NATIVE)] or [p for p, _ in hits]
+    cx, cy = sum(p[0] for p in own) / len(own), sum(p[1] for p in own) / len(own)
+    best = None
+    for x in range(TILE_NATIVE // 2, ARENA_W_NATIVE, TILE_NATIVE):
+        for y in range(TILE_NATIVE // 2, ARENA_H_NATIVE, TILE_NATIVE):
+            h = sum(area_reaches((x, y), p, b, radius) for p, b in hits)
+            if not h:
+                continue
+            s = sum(area_reaches((x, y), p, b, radius) for p, b in spared)
+            key = (-h, s, (x - cx) ** 2 + (y - cy) ** 2, x, y)
+            if best is None or key < best:
+                best = key
+    if best is None:
+        # no tile reaches a victim (an area of no radius): the centroid's own tile
+        tile = [int(cx) // TILE_NATIVE * TILE_NATIVE + TILE_NATIVE // 2, int(cy) // TILE_NATIVE * TILE_NATIVE
+                + TILE_NATIVE // 2]
+        return tile, 0, 0
+    return [best[3], best[4]], -best[0], best[1]
+
+
+def held_press_at(
+    ents: dict, per_tick_rows: list, i0: int, side: int, cost: int, doc: dict, cards_by_name: dict
+) -> bool:
+    """Whether a hero or a champion of `side` whose ability costs `cost` and holds a cast (`cast_ms` > 0) enters
+    CAST_STATE on drop frame `i0` or a frame beside it (AN ABILITY PRESS: on the drop's own frame in 896 of 902
+    confirmed presses, one frame before on 4): a press the capture shows, which no spell's damage overrules."""
+    hero_rows = {r["form_of"]: r for r in doc.get("hero_forms") or [] if r.get("form_of")}
+    ist = TRUTH_COLUMNS.index("state")
+    for e in ents.values():
+        card = cards_by_name.get(e.get("card") or "")
+        if e["side"] != side or card is None or e.get("role") not in ("summon", "spawned"):
+            continue
+        row = hero_rows.get(card["name"]) if e["card_id"] // 1_000_000 == HERO_CLASS else card
+        ab = (row or {}).get("ability") or {}
+        if ab.get("mana_cost") != cost or not ab.get("cast_ms"):
+            continue
+        for j in range(max(i0 - 1, 1), min(i0 + 2, len(per_tick_rows))):
+            r, q = per_tick_rows[j].get(e["key"]), per_tick_rows[j - 1].get(e["key"])
+            if r is not None and r[ist] == CAST_STATE and (q is None or q[ist] != CAST_STATE):
+                return True
+    return False
 
 
 def cost_only_casts(
@@ -2560,13 +2967,20 @@ def cost_only_casts(
     reveal = (header or {}).get("reveal") or {}
     if not plays or not reveal:
         return []
-    ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
+    ix, iy, ihp, ist = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp", "state"))
     index_of = {t: i for i, t in enumerate(ticks)}
     out = []
     for p in plays:
-        if p.get("evidence") != "elixir" or p.get("side") not in (0, 1) or not isinstance(p.get("cost"), int):
+        if (
+            p.get("evidence") not in ("elixir", "ability")
+            or p.get("side") not in (0, 1)
+            or not isinstance(p.get("cost"), int)
+        ):
             continue
         side, tick, cost = p["side"], p["tick"], p["cost"]
+        # A PRESS THE SPELL'S DAMAGE OVERRULES: the live reader logs any payment of a hero's or a champion's ability
+        # cost as a press while one is up; such a payment is the spell only on the stronger evidence below
+        contested = p["evidence"] == "ability"
         if any(
             d["side"] == side and any(t is not None and abs(t - tick) <= 1 for t in (d["tick"], d.get("first_seen")))
             for d in deploys + out
@@ -2583,8 +2997,12 @@ def cost_only_casts(
         i0 = index_of.get(tick)
         if i0 is None or i0 == 0:
             continue
+        if contested and held_press_at(ents, per_tick_rows, i0, side, cost, doc, cards_by_name):
+            continue
         levels = [lv for lv in playable_levels(doc, card) if spell_damage_at(doc, card, lv) is not None]
-        foes = [e for e in ents.values() if e["side"] != side and e["card_id"] >= 0]
+        # every foe: a crown tower (card id -1) is aimed by too (A CROWN TOWER IS A VICTIM TOO); the level votes stay
+        # the card-id units'
+        foes = [e for e in ents.values() if e["side"] != side]
         best = None
         for i in range(i0, min(i0 + COST_ONLY_HIT_FRAMES, len(per_tick_rows))):
             hit = []
@@ -2592,49 +3010,100 @@ def cost_only_casts(
                 a, b = per_tick_rows[i - 1].get(e["key"]), per_tick_rows[i].get(e["key"])
                 if a is None or a[ihp] <= 0:
                     continue
+                if hp_unread(per_tick_rows, e["key"], i):
+                    continue  # AN UNREAD HP: healed above its max, not killed
                 took = a[ihp] - (b[ihp] if b is not None and b[ihp] > 0 else 0)
                 killed = b is None or b[ihp] <= 0
-                hit.append(((a[ix], a[iy]), took, killed))
+                # where it stood when the area struck: the hit frame (the engine's area strikes after the tick's move)
+                at = (b[ix], b[iy]) if b is not None else (a[ix], a[iy])
+                hit.append((at, took, killed, e, b))
             votes = {}
             for lv in levels:
                 dmg = spell_damage_at(doc, card, lv)
                 ok = [
                     h for h in hit
-                    if (dmg <= h[1] <= dmg + SPELL_HIT_SLACK) or (h[2] and h[1] <= dmg + SPELL_HIT_SLACK)
+                    if h[3]["card_id"] >= 0
+                    and ((dmg <= h[1] <= dmg + SPELL_HIT_SLACK) or (h[2] and h[1] <= dmg + SPELL_HIT_SLACK))
                 ]
                 if ok:
                     votes[lv] = ok
             if votes:
-                best = (i, votes)
+                best = (i, votes, hit)
                 break
         if best is None:
-            why = f"a cost-only {name} (elixir drop of {cost}) with no victim to aim it: not played"
-            unresolved.append({"tick": tick, "side": side, "card": name, "why": why})
+            if not contested:
+                why = f"a cost-only {name} (elixir drop of {cost}) with no victim to aim it: not played"
+                unresolved.append({"tick": tick, "side": side, "card": name, "why": why})
             continue
-        i, votes = best
+        i, votes, hit = best
+
+        def crowned(lv, hit=hit, card=card):
+            # A CROWN TOWER IS A VICTIM TOO: one that took the area's own crown hit at that level
+            # (`instant_crown_hit_at`); it votes with the units for that level (live 20261007-153404 t982: two kills
+            # fit 13 to 17, the tower's 64 is level 14's)
+            crown = instant_crown_hit_at(doc, card, lv)
+            return [
+                h for h in hit
+                if h[3].get("role") == "tower" and crown is not None
+                and ((crown <= h[1] <= crown + SPELL_HIT_SLACK) or (h[2] and h[1] <= crown + SPELL_HIT_SLACK))
+            ]
+
+        votes = {lv: v + crowned(lv) for lv, v in votes.items()}
         top = max(len(v) for v in votes.values())
         side_lv = [d["level"] for d in deploys if d["side"] == side and d.get("level") is not None]
         mode = Counter(side_lv).most_common(1)[0][0] if side_lv else None
         level = min((lv for lv, v in votes.items() if len(v) == top),
                     key=lambda lv: (abs(lv - mode) if mode is not None else 0, lv))
-        pts = [h[0] for h in votes[level]]
+        dmg, crown = spell_damage_at(doc, card, level), instant_crown_hit_at(doc, card, level)
+        victims = votes[level]
+        if contested and (
+            mode is None or abs(level - mode) > CONTESTED_LEVEL_SLACK or len(victims) < CONTESTED_MIN_VICTIMS
+        ):
+            continue  # left to the press (`ability_presses`)
+        # THE UNITS IT SPARED: every other foe it could have reached that lost less than its damage there and lived
+        spared = [
+            h for h in hit
+            if not h[2] and h[1] < (crown if h[3].get("role") == "tower" else dmg)
+            and (h[3].get("role") != "tower" or crown is not None)
+            and h[3].get("role") not in ("display", "unknown", "unknown_object")
+            and h[4][ist] not in UNREACHABLE_STATES
+            and not ((doc.get("units") or {}).get(h[3].get("unit") or "") or {}).get("shield_hitpoints")
+        ]
+        radius = (card.get("spell") or {}).get("radius_milli") or card.get("area_damage_radius_milli") or 0
+        pos, reached, overreached = cast_tile(
+            [(h[0], area_body(doc, h[3])) for h in victims], [(h[0], area_body(doc, h[3])) for h in spared], radius
+        )
+        if contested and reached < len(victims):
+            continue
+        n_towers = sum(1 for h in victims if h[3].get("role") == "tower")
+        how = f"the payment the live reader logged as a {p.get('card') or 'hero'} press; " if contested else ""
         out.append(
             {
-                "tick": tick,
+                # dated on its damage's frame: the engine lands an instant area on its row's tick (r73: 33 of 33)
+                "tick": ticks[i],
                 "first_seen": tick,
-                "tick_evidence": f"the caster's elixir drop of {cost} (header opponent_plays: nothing readable)",
+                "tick_evidence": (
+                    f"its damage on {ticks[i]}; {how}the caster's elixir drop of {cost} on {tick}"
+                    " (header opponent_plays: nothing readable)"
+                ),
                 "side": side,
                 "card": name,
                 "card_id": name_to_id.get(name, cards_by_name[name].get("id", -1)),
                 "kind": "spell",
                 "level": level,
                 "level_source": "damage",
-                "level_evidence": f"cost-only cast: {len(pts)} victims took its level-{level} damage on {ticks[i]}",
+                "level_evidence": (
+                    f"cost-only cast: {len(victims) - n_towers} victims took its level-{level} damage on {ticks[i]}"
+                    + (f", {n_towers} crown towers its crown hit {crown}" if n_towers else "")
+                ),
                 "count": 0,
                 "keys": [],
-                "pos": [sum(q[0] for q in pts) // len(pts), sum(q[1] for q in pts) // len(pts)],
+                "pos": pos,
                 "source": "cost_only",
-                "aim": f"centroid of the {len(pts)} units its damage hit",
+                "aim": (
+                    f"the tile centre reaching {reached} of the {len(victims)} units its damage hit"
+                    f" and {overreached} of the {len(spared)} it spared"
+                ),
             }
         )
     return out
@@ -2926,14 +3395,42 @@ def playable_levels(doc: dict, card: dict) -> range:
     return range(r["relative_level"] + 1, r["relative_level"] + r["level_count"] + LEVELS_PAST_COUNT + 1)
 
 
+def strike_pulses_at(doc: dict, card: dict, level: int) -> list[int]:
+    """A LASER BALL'S PULSES (the Void, DarkMagic: cards.json `strike_area` of kind laser_ball): what one strike deals
+    a character at a unified level, one value per count tier (the tier's buff, lasting one pulse: its level-scaled
+    DamagePerSecond's HitFrequency share, truncated, as status.rs `pulse_amount` deals it). DarkMagic at 15: 1011 on a
+    lone victim, 429 on two to four, 223 on more; at 16 1112, 472, 245. [] for a card with no laser ball, or a level
+    its ladder lacks."""
+    sa = ((card.get("spell") or {}).get("area_effect_object") or {}).get("strike_area") or {}
+    if sa.get("kind") != "laser_ball":
+        return []
+    out = []
+    for tier in sa.get("tiers") or []:
+        b = tier.get("buff") or {}
+        per_second = scaled_at(doc, card, b.get("damage_per_second"), level)
+        if per_second is None or not b.get("hit_frequency_ms"):
+            return []
+        out.append(per_second * b["hit_frequency_ms"] // 1000)
+    return out
+
+
+def pulse_period_ticks(card: dict) -> int:
+    """The ticks between two pulses on one victim: the area buff's HitFrequency (Poison, the Earthquake: 20), else a
+    laser ball's strike HitFrequency (DarkMagic: 1000 ms, 20); 0 for neither."""
+    area = (card.get("spell") or {}).get("area_effect_object") or {}
+    every = (area.get("buff") or {}).get("hit_frequency_ms") or (area.get("strike_area") or {}).get("hit_frequency_ms")
+    return (every or 0) // TICK_MS
+
+
 def spell_pulse_votes(d: dict, doc: dict, card: dict, ents: dict, per_tick_rows: list, ticks: list, i0: int) -> Counter:
     """A PULSING SPELL'S LEVEL (spell_levels_from_damage): per playable level, how many drops inside SPELL_HIT_WINDOW
     frames from `i0`, on enemies that are not towers, stood within the area's radius + SPELL_VICTIM_MARGIN of the cast
-    point and lived, are that level's pulse (`spell_pulse_at`, up to SPELL_HIT_SLACK more) on a victim that takes the
-    same pulse again one HitFrequency (SPELL_PULSE_TOLERANCE) before or after."""
+    point and lived, are that level's pulse (`spell_pulse_at`, up to SPELL_HIT_SLACK more; a laser ball's: any of its
+    tiers', `strike_pulses_at`) on a victim that takes such a pulse again one HitFrequency (SPELL_PULSE_TOLERANCE)
+    before or after."""
     ix, iy, ihp = (TRUTH_COLUMNS.index(c) for c in ("x", "y", "hp"))
     area = card["spell"]["area_effect_object"]
-    every = area["buff"]["hit_frequency_ms"] // 50  # 50 ms a tick
+    every = pulse_period_ticks(card)
     reach = (area.get("radius_milli") or 0) + SPELL_VICTIM_MARGIN
     foes = [e for e in ents.values() if e["side"] != d["side"] and e["card_id"] >= 0]
     drops: dict[int, list[tuple[int, int]]] = defaultdict(list)
@@ -2949,7 +3446,8 @@ def spell_pulse_votes(d: dict, doc: dict, card: dict, ents: dict, per_tick_rows:
         building = ents[key].get("kind_first") in BUILDING_KINDS
         for lv in playable_levels(doc, card):
             pulse = spell_pulse_at(doc, card, lv, building)
-            at = [t for t, x in seen if pulse is not None and pulse <= x <= pulse + SPELL_HIT_SLACK]
+            pulses = [pulse] if pulse is not None else strike_pulses_at(doc, card, lv)
+            at = [t for t, x in seen if any(p <= x <= p + SPELL_HIT_SLACK for p in pulses)]
             votes[lv] += sum(1 for t in at if any(abs(abs(t - u) - every) <= SPELL_PULSE_TOLERANCE for u in at))
     return +votes
 
@@ -3008,6 +3506,57 @@ def pulse_dates(
     return moved
 
 
+def hit_span(d: dict, card: dict, evo: dict | None) -> tuple | None:
+    """A SPELL'S HIT FRAMES (module doc): (first tick, last tick, path start, path end, roll) over which a cast the
+    effects stream shows hits, read off its objects: a projectile spell (a Fireball, a Rocket, a Snowball, an Arrows
+    volley) on its first wave's landings, from the first object's last sighting + 1 (the drop shows on the next
+    frame present) to the last landing of the objects departing with it, around its point; an evolved roll
+    (`evo_roll_cast`) on its ball's capture, CAPTURE_DELAY_TICKS after the flight's landing, roll_speed a tick along
+    the ball's line; a rolling spell (the Log, the Barbarian Barrel: its projectile spawns one with a range) along
+    its ball's line, from the ball's first sighting to its arrival, each victim on the frames its ball reaches it
+    (`roll`: the ball's speed a tick and its first sighting; ROLL_LEAD). () when the objects never land inside the
+    capture; None for every other cast (no objects, an area, a strike), which keeps the first drop after its tick."""
+    objs = d.get("objects") or []
+    if d.get("source") != "effect" or not objs:
+        return None
+    proj = card.get("projectile") or {}
+    if (proj.get("spawn_projectile") or {}).get("projectile_range_milli"):
+        ball = next(
+            (o for o in objs[1:] if math.dist(o["launch"], objs[0]["target"]) <= ROLL_LAUNCH_TOLERANCE), None
+        )
+        if ball is None:
+            return None
+        end = ball["arrival"] if ball.get("arrival") is not None else ball["last_seen"]
+        speed = proj["spawn_projectile"].get("speed") or 0
+        roll = (speed, ball["first"]) if speed > 0 else None
+        return ball["first"], end, tuple(ball["launch"]), tuple(ball["target"]), roll
+    if d.get("form") == "ev1" and (evo or {}).get("evo_capture") and len(objs) == 2:
+        flight, ball = objs
+        if flight.get("arrival") is None:
+            return ()
+        h = flight["last_seen"] + 1 + CAPTURE_DELAY_TICKS
+        (x0, y0), (x1, y1) = ball["launch"], ball["target"]
+        k = min(1.0, evo["evo_capture"]["roll_speed"] * CAPTURE_DELAY_TICKS / (math.dist((x0, y0), (x1, y1)) or 1))
+        p = (round(x0 + (x1 - x0) * k), round(y0 + (y1 - y0) * k))
+        return h, h, p, p, None
+    if not proj.get("damage") or proj.get("spawn_projectile"):
+        return None
+    first = [o for o in objs if o.get("depart") == objs[0].get("depart")] or objs[:1]
+    lands = [o["last_seen"] + 1 for o in first if o.get("arrival") is not None]
+    if not lands:
+        return ()
+    p = tuple(d["pos"])
+    return min(lands), max(lands), p, p, None
+
+
+def path_dist(p: tuple, a: tuple, b: tuple) -> float:
+    """How far point `p` stands from the segment a-b (a point when a == b)."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    n = dx * dx + dy * dy
+    t = 0.0 if n == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / n))
+    return math.dist(p, (a[0] + t * dx, a[1] + t * dy))
+
+
 def spell_levels_from_damage(
     deploys: list[dict], doc: dict, cards_by_name: dict, ents: dict, per_tick_rows: list, ticks: list
 ) -> None:
@@ -3038,9 +3587,17 @@ def spell_levels_from_damage(
     win, a tie the one nearest the side mode, and an unread cast takes its card level (below). Live, 248 fixtures: 584
     of 637 Poison casts read off their trains, no cast's votes split, and 597 change level (12 -> 11 on 285, 12 -> 10
     on 6, 14 -> 13 on 306, by train or card level); the Earthquake reads 9, 11 and 12 in different battles (troops 67,
-    81, 89 a pulse; buildings 234, 283, 311 and their decay tick), and 11 of its 27 casts change.
+    81, 89 a pulse; buildings 234, 283, 311 and their decay tick), and 11 of its 27 casts change. A LASER BALL
+    (DarkMagic: its area strikes every 1000 ms with the buff of the tier its victims' count falls in,
+    `strike_pulses_at`) has neither, so it was never read; its strikes vote as trains do, a drop that is any tier's
+    pulse at a level (live 20261008-041851-A t1472: 429 twice on a Giant Buffer, level 15's two-to-four tier, where the
+    side mode 16 deals 472; live ob12, 6 of 14 casts read, 3 off the side mode).
 
-    ONE LEVEL PER CARD PER SIDE: a cast whose hit is not read (no drop inside the window, or none any level fits) takes
+    A cast the effects stream shows is read on its HIT FRAMES (module doc, `hit_span`), every one of them voting.
+
+    ONE LEVEL PER CARD PER SIDE: a card has one level in a battle, so a read cast its side's other reads of the card
+    outvote (one level holds more reads than any other) takes that level (`level_source` "card level"). A cast whose
+    hit is not read (no drop inside the window, or none any level fits) takes
     the level its side's other casts of the same card were read at (`level_source` "card level"; the most read, the
     one nearest the side mode on a tie, then the lowest), and the side mode only when none was read. 20260918-112751's
     side 0 cast three Fireballs: the first two read level 4, and the third (tick 3032) fell to the side mode 3; at 4 the
@@ -3051,11 +3608,14 @@ def spell_levels_from_damage(
     read: dict[tuple, Counter] = defaultdict(Counter)
     read_rows: set[int] = set()
     ambiguous: dict[int, list[int]] = {}
+    evo_by_card = {r["form_of"]: r for r in doc.get("evolutions") or [] if r.get("form_of")}
     for d in deploys:
         if d["kind"] != "spell" or d.get("level_source") != "side mode" or d.get("level") is None:
             continue
         card = cards_by_name.get(d["card"]) or {}
-        pulsing = spell_pulse_at(doc, card, d["level"], False) is not None
+        pulsing = spell_pulse_at(doc, card, d["level"], False) is not None or bool(
+            strike_pulses_at(doc, card, d["level"])
+        )
         if not pulsing and spell_damage_at(doc, card, d["level"]) is None:
             continue
         reach = (card.get("area_damage_radius_milli") or (card.get("projectile") or {}).get("radius_milli") or 0)
@@ -3108,26 +3668,55 @@ def spell_levels_from_damage(
                     return r
             return None
 
-        hit = None
-        # a spell whose area strikes later (`effect_leads`: the Lightning's first bolt 10 ticks after its cast, the
-        # Royal Delivery's crate 40) is looked for from that strike on, so no earlier drop passes for it
-        lead = effect_leads(card)[0]
-        if lead:
-            i0 = next((j for j in range(i0, len(ticks)) if ticks[j] >= d["tick"] + lead), len(ticks))
-        for i in range(max(i0, 1), min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows))):
+        # A SPELL'S HIT FRAMES (`hit_span`): a cast the effects stream shows is read where and when its objects land
+        span = hit_span(d, card, evo_by_card.get(d["card"]))
+        if span == ():
+            d["level_evidence"] = "its objects never land inside the capture"
+            continue
+        if span is not None:
+            lo, hi, pa, pb, roll = span
+            i_lo = next((j for j, t in enumerate(ticks) if t >= lo), len(ticks))
+            i_hi = next((j for j, t in enumerate(ticks) if t >= hi), len(ticks) - 1)
+            frames_read = range(max(i_lo, 1), min(i_hi + 1, len(per_tick_rows)))
+        else:
+            pa = pb = tuple(d["pos"])
+            roll = None
+            # a spell whose area strikes later (`effect_leads`: the Lightning's first bolt 10 ticks after its cast, the
+            # Royal Delivery's crate 40) is looked for from that strike on, so no earlier drop passes for it
+            lead = effect_leads(card)[0]
+            if lead:
+                i0 = next((j for j in range(i0, len(ticks)) if ticks[j] >= d["tick"] + lead), len(ticks))
+            frames_read = range(max(i0, 1), min(i0 + SPELL_HIT_WINDOW, len(per_tick_rows)))
+
+        def reached(p, i, tower, pa=pa, pb=pb, roll=roll):
+            # A ROLL HITS A VICTIM AS IT REACHES IT: the victim stands ROLL_LEAD ahead of the ball's centre on the
+            # drop's frame (the ball `speed` a tick from its first sighting on its launch, to its line's end)
+            if roll is None:
+                return True
+            speed, first = roll
+            n = math.dist(pa, pb) or 1
+            along = ((p[0] - pa[0]) * (pb[0] - pa[0]) + (p[1] - pa[1]) * (pb[1] - pa[1])) / n
+            lead = along - min(speed * (ticks[i] - first), n)
+            return ROLL_LEAD[0] <= lead < ROLL_LEAD[1] + (ROLL_TOWER_LEAD_EXTRA if tower else 0)
+
+        def frame_hit(i, pa=pa, pb=pb, reach=reach, foes=foes, towers=towers, least=least, least_tower=least_tower):
             drops, kills, tower_drops = [], [], []
             if least_tower is not None:
                 for e in towers:
                     a, b = before(e["key"], i), per_tick_rows[i].get(e["key"])
                     if a is None or b is None or a[ihp] <= 0 or b[ihp] <= 0:
                         continue
-                    near = math.dist((a[ix], a[iy]), d["pos"]) <= reach + TOWER_REACH_MARGIN
-                    if near and a[ihp] - b[ihp] >= least_tower:
+                    near = path_dist((a[ix], a[iy]), pa, pb) <= reach + TOWER_REACH_MARGIN
+                    if near and a[ihp] - b[ihp] >= least_tower and reached((a[ix], a[iy]), i, True):
                         tower_drops.append(a[ihp] - b[ihp])
             for e in foes:
                 a, b = before(e["key"], i), per_tick_rows[i].get(e["key"])
-                if a is None or a[ihp] <= 0 or math.dist((a[ix], a[iy]), d["pos"]) > reach:
+                if a is None or a[ihp] <= 0 or path_dist((a[ix], a[iy]), pa, pb) > reach:
                     continue
+                if not reached((a[ix], a[iy]), i, False):
+                    continue
+                if hp_unread(per_tick_rows, e["key"], i):
+                    continue  # AN UNREAD HP: healed above its max, not killed
                 # A KILL BOUNDS THE LEVEL (item 58): an enemy in reach whose last hp is at least the spell's least
                 # damage and that is gone (or at 0) on the hit's frame took at least that much.
                 if b is None or b[ihp] <= 0:
@@ -3137,13 +3726,10 @@ def spell_levels_from_damage(
                 if a[ihp] - b[ihp] >= least:
                     drops.append(a[ihp] - b[ihp])
             if drops or kills or tower_drops:
-                hit = (ticks[i], sorted(drops), sorted(kills), sorted(tower_drops))
-                break
-        if hit is None:
-            d["level_evidence"] = "no enemy within its reach lost hp inside the window"
-            continue
+                return ticks[i], sorted(drops), sorted(kills), sorted(tower_drops)
+            return None
 
-        def fitting(with_towers, hit=hit, card=card, playable=playable):
+        def fitting(hit, with_towers, card=card, playable=playable):
             return [
                 lv for lv in playable
                 if (dmg := spell_damage_at(doc, card, lv)) is not None
@@ -3152,14 +3738,44 @@ def spell_levels_from_damage(
                 and (not with_towers or all(spell_tower_damage_at(doc, card, lv) == t for t in hit[3]))
             ]
 
-        # a tower's drop is the crown share exactly; one that another hit shares the frame with fits no level, and the
-        # troops' drops decide alone
-        fits = fitting(True) if (hit[1] or hit[2]) or hit[3] else []
-        if not fits and hit[3] and (hit[1] or hit[2]):
-            fits = fitting(False)
-        kill_note = f"; kills of last hp {hit[2]}" if hit[2] else ""
-        tower_note = f"; crown towers took {hit[3]}" if hit[3] else ""
-        d["level_evidence"] = f"hit on {hit[0]}: drops {hit[1]}{kill_note}{tower_note}; fitting levels {fits}"
+        def fits_of(hit):
+            # a tower's drop is the crown share exactly; one that another hit shares the frame with fits no level, and
+            # the troops' drops decide alone
+            fits = fitting(hit, True) if (hit[1] or hit[2]) or hit[3] else []
+            if not fits and hit[3] and (hit[1] or hit[2]):
+                fits = fitting(hit, False)
+            return fits
+
+        def note_of(hit, fits):
+            kill_note = f"; kills of last hp {hit[2]}" if hit[2] else ""
+            tower_note = f"; crown towers took {hit[3]}" if hit[3] else ""
+            return f"hit on {hit[0]}: drops {hit[1]}{kill_note}{tower_note}; fitting levels {fits}"
+
+        if span is None:
+            # the first frame with a drop is the hit
+            hit = next((h for i in frames_read if (h := frame_hit(i)) is not None), None)
+            if hit is None:
+                d["level_evidence"] = "no enemy within its reach lost hp inside the window"
+                continue
+            fits = fits_of(hit)
+            d["level_evidence"] = note_of(hit, fits)
+        else:
+            # every hit frame of the span reads; a frame one level fits votes for it, the most votes win (a tie is no
+            # read); with no such frame, the levels every frame's kills allow
+            hits = [h for i in frames_read if (h := frame_hit(i)) is not None]
+            if not hits:
+                d["level_evidence"] = f"no enemy within its reach lost hp on its hit frames {lo}..{hi}"
+                continue
+            per_hit = [fits_of(h) for h in hits]
+            votes = Counter(f[0] for f in per_hit if len(f) == 1)
+            if votes:
+                fits = sorted(lv for lv, n in votes.items() if n == max(votes.values()))
+            else:
+                bounded = [set(f) for f in per_hit if f]
+                fits = sorted(set.intersection(*bounded)) if bounded else []
+            d["level_evidence"] = "; ".join(note_of(h, f) for h, f in zip(hits[:4], per_hit[:4], strict=False)) + (
+                f"; ... {len(hits)} hit frames" if len(hits) > 4 else ""
+            ) + (f"; votes {dict(sorted(votes.items()))}" if len(hits) > 1 else "") + f"; read {fits}"
         if len(fits) > 1:
             # AN AMBIGUOUS HIT (kills bound a level only from below) is no read: the cast takes its side's read level
             # of the card where that is one of its fits (live 20261008-051029: Rockets whose kills fit 13 to 17 beside
@@ -3174,8 +3790,21 @@ def spell_levels_from_damage(
             if best != d["level"]:
                 d["level"] = best
                 d["level_source"] = "damage"
-    # one level per card per side: an unread cast takes its side's read level of that card (an ambiguous one only when
-    # that level is one of its own fits)
+    # one level per card per side: a read cast its side's other reads of the card outvote (one level holds more reads
+    # than any other) takes that level, a coincidence of one victim's drop (live 20261008-174111-A side 1: Snowballs
+    # read 11, 11, 11 and, off a Hog Rider's 288 = 179 + another hit, 16)
+    for d in deploys:
+        if d["kind"] != "spell" or id(d) not in read_rows:
+            continue
+        levels = read[(d["side"], d["card"])]
+        (top, n), *rest = levels.most_common()
+        if top == d["level"] or (rest and rest[0][1] == n):
+            continue
+        note = f"outvoted by the side's read casts of {d['card']}: levels {dict(sorted(levels.items()))}"
+        d["level_evidence"] = f"{d['level_evidence']}; {note}" if d.get("level_evidence") else note
+        d["level"], d["level_source"] = top, "card level"
+    # an unread cast takes its side's read level of that card (an ambiguous one only when that level is one of its own
+    # fits)
     for d in deploys:
         if d["kind"] != "spell" or id(d) in read_rows:
             continue
@@ -3739,6 +4368,9 @@ def build(
                 e["behavior_state"],
                 cells_of(nodes),
                 *attack_timers(e),
+                # not truth columns: the frame's raw level and max_hp (A LEVEL CHANGE)
+                e["level"],
+                e["max_hp"],
             )
             rec = ents.get(k)
             if rec is None:
@@ -3775,6 +4407,8 @@ def build(
         fx["truth_rekeyed"] = rekeyed
     # -- a unit the converter re-keyed across a long frame gap is one entity (rejoin_gap_rekeys)
     cards_by_name = {c["name"]: c for c in doc["cards"]}
+    # the measured rings at this table's SummonRadius (module doc, RECOVERED TILE: A RING MEASURED ON ANOTHER TABLE)
+    nominal = scaled_nominal_offsets(nominal, cards_by_name)
 
     def reach(a: dict, gap: int) -> int:
         return rejoin_reach(doc, cards_by_name.get(id_table.get(a["card_id"])), a["level"], a["max_hp"], gap)
@@ -3899,6 +4533,13 @@ def build(
         members.sort(key=lambda e: e["key"])
         name0 = members[0]["card"]
         card0 = cards_by_name.get(name0) or {}
+        tap_ix = None
+        for ix, t in enumerate(taps):
+            if ix in used_taps or t["kind"] != "deploy" or t["side"] != side or t["id"] != name_to_id.get(name0, cid):
+                continue
+            if t["tick"] + TAP_MIN <= ticks[fi] <= t["tick"] + TAP_MAX:
+                tap_ix = ix
+                break
         late = shown_late_spawn(
             ticks,
             fi,
@@ -3915,16 +4556,11 @@ def build(
                 members[0].get("states", []),
                 card0.get("deploy_time_ms"),
                 positions=members[0].get("positions", []) if len(members) == 1 else None,
+                # a tunnel's first frames are under ground, not out of its deploy (tunnel_spawn_ticks times it)
+                tap_tick=taps[tap_ix]["tick"] if tap_ix is not None and not card0.get("spawn_pathfind") else None,
             )
         cx = sum(e["x0"] for e in members) // len(members)
         cy = sum(e["y0"] for e in members) // len(members)
-        tap_ix = None
-        for ix, t in enumerate(taps):
-            if ix in used_taps or t["kind"] != "deploy" or t["side"] != side or t["id"] != name_to_id.get(name0, cid):
-                continue
-            if t["tick"] + TAP_MIN <= first_seen <= t["tick"] + TAP_MAX:
-                tap_ix = ix
-                break
         name = members[0]["card"]
         card = cards_by_name.get(name) or {}
         form = deploy_form(cid, form_rows, name) if form_rows is not None else {}
@@ -3979,25 +4615,32 @@ def build(
             }
             if t["native"] and len(members) > 1:
                 d["pos"], d["source"] = snap_troop_tap(t["native"]), "tap_tile"
+                # THE MEMBERS' TILE OF A TAPPED GROUP (module doc, RECOVERED TILE): recorded, the row kept on its tap
+                if all(e.get("c0") is not None for e in members):
+                    tile, why = members_tile(members, name, side, nominal, cards_by_name)
+                    if tile is not None and tile != d["pos"]:
+                        d["members_tile"], d["recovery"] = tile, f"{why}; not the tap's tile {d['pos']}"
+                    elif tile is None:
+                        # A TAP FAR OFF ITS GROUP (module doc, RECOVERED TILE): its centroid's tile is the members'
+                        off = tap_offset(members, name, side, nominal, cards_by_name, d["pos"], (cx, cy))
+                        if (
+                            off is not None
+                            and max(abs(off[0]), abs(off[1])) >= TAP_OFF_NATIVE
+                            and all((e.get("states") or [(0, None)])[0][1] in (4, STATE_STAGGER_WAIT) for e in members)
+                            and cx % 1000
+                            and cy % 1000
+                        ):
+                            d["members_tile"] = [cx // 1000 * 1000 + 500, cy // 1000 * 1000 + 500]
+                            d["recovery"] = (
+                                f"{why}; the centroid ({cx}, {cy}) stands {off} off where the tap's tile {d['pos']}"
+                                " would centre the group: its own tile"
+                            )
         if "pos" not in d:
             d["pos"], d["source"] = [cx, cy], "centroid"
             if len(members) > 1:
                 # the tile the members agree the game laid them around (module doc, RECOVERED TILE)
                 if all(e.get("c0") is not None for e in members):
-                    points = [tuple(e["c0"]) for e in members]
-                    offsets = nominal.get((name, side))
-                    if not offsets:
-                        # a two-part play the measurement lacks: its card's layout, from its first summon's point
-                        card_row = cards_by_name.get(name) or {}
-                        first = [e for e in members if e.get("unit") == card_row.get("summon_character")]
-                        offsets = layout_offsets(card_row, side, first[0]["c0"][0]) if len(first) == 1 else []
-                    tile, d["recovery"] = recovered_tile(points, offsets)
-                    if tile is not None and not nominal.get((name, side)):
-                        d["recovery"] += " (the card's layout: no measured group)"
-                    if tile is None and d["recovery"] == "no nominal offsets for this card and side":
-                        flying = bool((cards_by_name.get(name) or {}).get("flying_height"))
-                        tile, why = laid_tile(points, side, flying)
-                        d["recovery"] += "; " + why
+                    tile, d["recovery"] = members_tile(members, name, side, nominal, cards_by_name)
                     if tile is not None:
                         d["pos"], d["source"] = tile, "recovered_tile"
                 else:
@@ -4128,6 +4771,8 @@ def build(
         mirror = evo_mirror_cast(cast, ents, ticks, evo_row)
         if mirror is not None:
             (ax, ay), mirror_why = mirror
+        # AN EVOLVED ROLL CAST (module doc): its ball, a second object on the flight's target, says the evolution
+        roll_why = evo_roll_cast(cast, evo_row, cards_by_name.get(name)) if mirror is None else None
         tick = ticks[fi]
         side = cast["side"]
         # A KING-LAUNCHED CAST FIRST SEEN AFTER A FRAME GAP is dated by the steps it has flown (`launch_tick`).
@@ -4177,6 +4822,8 @@ def build(
         }
         if mirror is not None:
             d["form"], d["form_row"], d["aim"] = "ev1", evo_row["name"], mirror_why
+        elif roll_why is not None:
+            d["form"], d["form_row"], d["form_evidence"] = "ev1", evo_row["name"], roll_why
         # AN EFFECT CAST IS BACKED BY ITS CASTER'S ELIXIR. On every corpus cast the cost leaves the pool
         # on the first projectile frame (94 of 98 effect casts, within EFFECT_DROP_SLACK). The other
         # four are two cases: (a) the drop is EARLIER, at the tap -- Lightning is an invisible area whose
@@ -4533,12 +5180,20 @@ def build(
             continue
         cols: list[list] = [[] for _ in TRUTH_COLUMNS]
         gaps = 0
+        unread = 0
+        changes: list[list[int]] = []
+        last_read = (e["level"], e["max_hp"])
         for i in idx:
             row = per_tick_rows[i].get(e["key"])
             if row is None:
                 gaps += 1
                 row = (None,) * len(TRUTH_COLUMNS)
-            for c, v in enumerate(row):
+            elif e["max_hp"] >= 0 and row[2] < 0:
+                unread += 1  # AN UNREAD HP
+            elif len(row) > ROW_MAX_HP and row[ROW_MAX_HP] >= 0 and (row[ROW_LEVEL], row[ROW_MAX_HP]) != last_read:
+                last_read = (row[ROW_LEVEL], row[ROW_MAX_HP])
+                changes.append([ticks[i], *last_read])  # A LEVEL CHANGE
+            for c, v in enumerate(row[: len(TRUTH_COLUMNS)]):
                 cols[c].append(v)
         rec = {
             "key": e["key"],
@@ -4559,6 +5214,10 @@ def build(
             "n": len(idx),
             "absent_frames": gaps,
         }
+        if unread:
+            rec["hp_unread_frames"] = unread
+        if changes:
+            rec["max_hp_changes"] = changes
         rec.update({name: rle(cols[c]) for c, name in enumerate(TRUTH_COLUMNS)})
         truth_entities.append(rec)
     truth = {
@@ -4570,6 +5229,12 @@ def build(
         "ticks": truth_ticks,
         "entities": truth_entities,
     }
+    if any(r.get("hp_unread_frames") for r in truth_entities):
+        truth["hp_unread"] = {
+            "value": HP_UNREAD,
+            "meaning": "an hp of -1 on an entity whose max_hp is >= 0 is a frame the reader could not read (the unit's"
+            " hp was above its max_hp, an overheal, or below 0 on its death frame): not a value, not to be scored",
+        }
     elixir = elixir_columns([frames[i] for i in sel])
     if elixir is not None:
         truth["elixir_raw"] = elixir
@@ -4596,7 +5261,32 @@ def build(
             "truth": truth,
         }
     )
+    # -- THE CLIENT'S GENERATOR (module doc): the battle xorshift32's state after each frame, where the capture has it
+    rng = client_rng_column(header, frames)
+    if rng is not None:
+        fx["rng"] = rng
     return fx
+
+
+def client_rng_column(header: dict | None, frames: list[dict]) -> dict | None:
+    """THE CLIENT'S GENERATOR (module doc): the fixture's `rng` from the frames' `rng_state` (the state after the
+    frame's tick), in the scene fixtures' form: its first value and every frame tick it changes on. None
+    when no frame carries one."""
+    states = [(int(f["tick"]), int(f["rng_state"]) % 2**32) for f in frames if f.get("rng_state") is not None]
+    if not states:
+        return None
+    alg = str((header or {}).get("rng_algorithm") or "")
+    client = (header or {}).get("client")
+    if "_" in alg:
+        alg = "client" + alg[alg.index("_"):]
+    elif isinstance(client, dict) and client.get("build"):
+        alg = f"client_xorshift32_v{client['build']}"
+    return {
+        "algorithm": alg or "client_xorshift32_unknown",
+        "first": list(states[0]),
+        "changes": [[t, v] for (t, v), (_, p) in zip(states[1:], states, strict=False) if v != p],
+        "note": "uint32 state after the frame's tick (frame ticks, not the issued+1 labels)",
+    }
 
 
 def fixture_text(fx: dict) -> str:

@@ -2334,7 +2334,7 @@ def test_a_cost_only_spell_is_read_off_the_header_and_its_victims(m):
                                  {"tick": 283, "side": 0, "card": "Knight", "cost": 3, "evidence": "ability"}]}
     unresolved = []
     got = m.cost_only_casts(header, [], doc, cards, {"Zap": 28000008}, ents, rows, ticks, unresolved)
-    assert [(d["tick"], d["card"], d["source"], d["pos"]) for d in got] == [(282, "Zap", "cost_only", [14200, 17100])]
+    assert [(d["tick"], d["card"], d["source"], d["pos"]) for d in got] == [(282, "Zap", "cost_only", [14500, 17500])]
     assert got[0]["level"] in m.playable_levels(doc, cards["Zap"])
     explained = [{"tick": 282, "side": 0, "first_seen": 282}]
     assert m.cost_only_casts(header, explained, doc, cards, {"Zap": 28000008}, ents, rows, ticks, []) == []
@@ -2970,3 +2970,781 @@ def test_a_ladder_runs_on_past_its_rarity_count(m, doc16402):
     # the ladder still ends where its multipliers do: Common lists 19, the last for level 20
     assert m.ladder_percent(doc16402, cards["Knight"], "Knight", 20) == 600
     assert m.ladder_percent(doc16402, cards["Knight"], "Knight", 21) is None
+
+
+def _zap_row(m, x, y, hp, state=1):
+    r = [0] * len(m.TRUTH_COLUMNS)
+    for c, v in (("x", x), ("y", y), ("hp", hp), ("state", state)):
+        r[m.TRUTH_COLUMNS.index(c)] = v
+    return tuple(r)
+
+
+def _zap_bat(key, side):
+    return {"key": key, "side": side, "card_id": 26000049, "card": "Bats", "unit": "Bat", "role": "summon"}
+
+
+def _zap_tower(key, side, card="PrincessTower"):
+    return {"key": key, "side": side, "card_id": -1, "card": card, "unit": None, "role": "tower"}
+
+
+def _zap_header(side, tick, evidence="elixir", card=None, deck=("Zap",)):
+    return {"reveal": {str(side): list(deck), str(1 - side): []},
+            "opponent_plays": [{"tick": tick, "side": side, "card": card, "cost": 2, "evidence": evidence}]}
+
+
+def _zap_snap(p):
+    return [p[0] // 1000 * 1000 + 500, p[1] // 1000 * 1000 + 500]
+
+
+def _zap_bats_die(m, ents, ticks, hit_index, victims, others=None):
+    """per-tick rows: every unit of `victims` {key: (x, y, hp)} stands to frame hit_index - 1 and is gone on hit_index;
+    every unit of `others` {key: (x, y, hp, hp_after)} stands throughout and reads hp_after from hit_index on."""
+    others = others or {}
+    rows = []
+    for i in range(len(ticks)):
+        r = {}
+        for k, (x, y, hp) in victims.items():
+            if i < hit_index:
+                r[k] = _zap_row(m, x, y, hp)
+        for k, (x, y, hp, after) in others.items():
+            r[k] = _zap_row(m, x, y, hp if i < hit_index else after)
+        rows.append(r)
+    return rows
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# THE CAST'S TILE
+
+
+def test_a_cost_only_zap_goes_on_the_tile_that_spares_what_it_spared(m, doc16402):
+    """THE CAST'S TILE (module doc, A COST-ONLY SPELL): three Bats die to a level-16 Zap on t824 and a fourth 2,600
+    below their centroid lives (live 20261007-183256 t824, whose centroid's tile also killed bats 24 and 25 in r73's
+    engine). The centroid's tile reaches the fourth; the cast goes on the nearest tile centre that reaches the three and
+    spares it, (13500, 7500)."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    ticks = [822, 823, 824, 825]
+    victims = {21: (12600, 6000, 100), 22: (14400, 6000, 100), 23: (13500, 7600, 100)}
+    spared = {24: (13500, 3900, 100, 100)}
+    ents = {k: _zap_bat(k, 0) for k in (21, 22, 23, 24)}
+    rows = _zap_bats_die(m, ents, ticks, 2, victims, spared)
+    deploys = [{"tick": 100, "first_seen": 100, "side": 1, "level": 16}]
+    centroid = [sum(v[0] for v in victims.values()) // 3, sum(v[1] for v in victims.values()) // 3]
+    body = m.area_body(doc16402, ents[24])
+    assert body == (False, 500)
+    # the old aim's tile (the engine snaps the centroid to it) reaches the Bat the client spared
+    assert m.area_reaches(tuple(_zap_snap(centroid)), (13500, 3900), body, 2500)
+    got = m.cost_only_casts(_zap_header(1, 824), deploys, doc16402, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["tick"], d["first_seen"], d["level"], d["pos"]) for d in got] == [(824, 824, 16, [13500, 7500])], got
+    pos = tuple(got[0]["pos"])
+    assert all(m.area_reaches(pos, v[:2], body, 2500) for v in victims.values())
+    assert not m.area_reaches(pos, (13500, 3900), body, 2500)
+    assert got[0]["aim"] == "the tile centre reaching 3 of the 3 units its damage hit and 0 of the 1 it spared"
+
+
+def test_area_reach_is_the_engines(m):
+    """`area_reaches` is spell.rs `impact`'s test: a troop's disc edge-inclusive (radius + its collision radius), a
+    building's square of half-side its radius and a crown tower's square of half-side 1000, both strictly."""
+    troop, cannon, tower = (False, 500), (True, 600), (True, m.CROWN_SQUARE_HALF_NATIVE)
+    assert m.area_reaches((0, 0), (3000, 0), troop, 2500)          # 3000 = 2500 + 500: on the edge, in
+    assert not m.area_reaches((0, 0), (3001, 0), troop, 2500)
+    assert not m.area_reaches((0, 0), (3100, 0), cannon, 2500)     # 2500 from the square: not strictly below
+    assert m.area_reaches((0, 0), (3099, 0), cannon, 2500)
+    assert not m.area_reaches((2500, 21500), (3500, 25500), tower, 2500)   # 3000 from its square
+    assert m.area_reaches((2500, 22500), (3500, 25500), tower, 2500)       # 2000
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# A CROWN TOWER IS A VICTIM TOO
+
+
+def test_a_crown_tower_that_took_the_zaps_crown_hit_votes_its_level_and_is_aimed_at(m, doc16402):
+    """A CROWN TOWER IS A VICTIM TOO: two Bats killed fit levels 4 to 17 and the side mode is 13, but the princess tower
+    took 64, level 14's crown hit (19 on the Common ladder), on the same frame (live 20261007-153404 t982: the old row
+    read level 13 and its tile (2500, 21500) left the tower untouched in r73's engine). The cast reads level 14 and goes
+    on (2500, 22500), which reaches the tower's square; the king, untouched, is spared."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    zap = cards["Zap"]
+    assert [m.instant_crown_hit_at(doc16402, zap, lv) for lv in (11, 13, 14, 16)] == [48, 58, 64, 77]
+    assert [m.spell_damage_at(doc16402, zap, lv) for lv in (11, 14, 16)] == [192, 254, 306]
+    ticks = [980, 981, 982, 983]
+    victims = {33: (2600, 21300, 100), 34: (2900, 21800, 100)}
+    others = {5: (3500, 25500, 3000, 2936), 4: (9000, 29000, 4000, 4000)}
+    ents = {33: _zap_bat(33, 1), 34: _zap_bat(34, 1), 5: _zap_tower(5, 1), 4: _zap_tower(4, 1, "KingTower")}
+    rows = _zap_bats_die(m, ents, ticks, 2, victims, others)
+    deploys = [{"tick": 100, "first_seen": 100, "side": 0, "level": 13}]
+    got = m.cost_only_casts(_zap_header(0, 982), deploys, doc16402, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["tick"], d["level"], d["pos"]) for d in got] == [(982, 14, [2500, 22500])], got
+    assert got[0]["level_evidence"] == (
+        "cost-only cast: 2 victims took its level-14 damage on 982, 1 crown towers its crown hit 64"
+    )
+    assert m.area_reaches(tuple(got[0]["pos"]), (3500, 25500), (True, 1000), 2500)
+    # the old aim: the two kills' centroid, whose tile misses the tower
+    assert _zap_snap([2750, 21550]) == [2500, 21500]
+    assert not m.area_reaches((2500, 21500), (3500, 25500), (True, 1000), 2500)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# DATED ON ITS HIT
+
+
+def test_a_cost_only_zap_is_dated_on_its_hit_and_keeps_its_drop(m, doc16402):
+    """The cast is DATED ON ITS HIT's frame: the drop shows on 371, frame 372 is missing, the Bats are gone on 373 (live
+    20261011-213425 t371, where r73's engine landed the Zap on 371 and the client's damage shows on 373). The row is
+    dated 373 (the engine lands an instant area on its row's tick) and `first_seen` keeps 371, so the drop is still
+    explained: no press reads it, and a second payment beside it is not a second cast."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    ticks = [369, 370, 371, 373, 374]
+    victims = {8: (5500, 8000, 100), 9: (5800, 8600, 100)}
+    ents = {8: _zap_bat(8, 0), 9: _zap_bat(9, 0)}
+    rows = _zap_bats_die(m, ents, ticks, 3, victims)
+    deploys = [{"tick": 100, "first_seen": 100, "side": 1, "level": 16}]
+    got = m.cost_only_casts(_zap_header(1, 371), deploys, doc16402, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["tick"], d["first_seen"]) for d in got] == [(373, 371)], got
+    assert got[0]["tick_evidence"].startswith("its damage on 373; ")
+    again = m.cost_only_casts(
+        _zap_header(1, 370), deploys + got, doc16402, cards, {"Zap": 28000008}, ents, rows, ticks, []
+    )
+    assert again == []
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# A PRESS THE SPELL'S DAMAGE OVERRULES
+
+
+def _zap_press_inputs(m, doc16402, hero="IceGolemite", hero_id=203000038, cast_state_on_drop=False, victims=None,
+                  tower_after=3000 - 77):
+    """Side 0 holds a hero of `hero` (alive throughout) and pays 2 on t745, which the live reader logged as its press;
+    on that frame three side-1 Bats die and a princess tower loses 77 (live 20261008-064926 t745)."""
+    ticks = list(range(740, 750))
+    hit = ticks.index(745)
+    if victims is None:
+        victims = {27: (14000, 22000, 100), 28: (14600, 22400, 100), 29: (15000, 22100, 100)}
+    others = {6: (14500, 25500, 3000, tower_after)}
+    ents = {k: _zap_bat(k, 1) for k in victims}
+    ents[6] = _zap_tower(6, 1)
+    ents[12] = {"key": 12, "side": 0, "card_id": hero_id, "card": hero, "unit": hero, "role": "summon", "level": 16,
+                "first_index": 0, "last_index": len(ticks) - 1}
+    rows = _zap_bats_die(m, ents, ticks, hit, victims, others)
+    for i, r in enumerate(rows):
+        state = m.CAST_STATE if (cast_state_on_drop and i >= hit) else 1
+        r[12] = _zap_row(m, 9000, 20000, 1000, state)
+    pool = [50_000 + 100 * t - 2 * m.ELIXIR_UNIT * (t >= 745) for t in ticks]
+    deploys = [{"tick": 100, "first_seen": 100, "side": 0, "level": 16, "kind": "troop", "card": hero}]
+    return ticks, ents, rows, {0: pool, 1: [None] * len(ticks)}, deploys
+
+
+def test_a_zap_paid_beside_a_hero_is_the_zap_not_its_press(m, doc16402):
+    """A PRESS THE SPELL'S DAMAGE OVERRULES: the live reader logged the payment of t745 as the Hero Ice Golem's press
+    (its ability costs 2 and holds no cast), and ed83c924 wrote that press, so the engine cast no Zap. Its level-16
+    damage shows on the drop's frame on three Bats and a crown tower (77): the payment is the Zap, and
+    `ability_presses`, which without the cast row writes the press, then reads no press off that drop."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    ticks, ents, rows, pools, deploys = _zap_press_inputs(m, doc16402)
+    hdr = _zap_header(0, 745, "ability", "IceGolemite", ("Zap", "IceGolemite"))
+    got = m.cost_only_casts(hdr, deploys, doc16402, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["tick"], d["first_seen"], d["card"], d["level"], d["source"]) for d in got] == [
+        (745, 745, "Zap", 16, "cost_only")], got
+    assert "logged as a IceGolemite press" in got[0]["tick_evidence"]
+    assert got[0]["level_evidence"].endswith("1 crown towers its crown hit 77")
+    names = {"IceGolemite": 26000038}
+    # the press is what ed83c924 writes off that drop with no cast row...
+    presses = m.ability_presses([], set(), ents, rows, ticks, pools, doc16402, cards, names)
+    assert [(d["tick"], d["card"], d["press"]["evidence"]) for d in presses] == [
+        (745, "IceGolemite", "elixir drop of 2; no cast hold")], presses
+    # ...and no press is read once the Zap's row explains the drop
+    assert m.ability_presses(got, set(), ents, rows, ticks, pools, doc16402, cards, names) == []
+
+
+def test_an_ability_payment_needs_the_spells_proof(m, doc16402):
+    """The press keeps a payment the spell's damage does not prove: one victim only; a level far from the side's mode
+    (two units losing 110 fit only level 5's Zap, and 110 is the level-16 Hero Ice Golem's own pulse: live
+    20261008-064926 t1239, pulses on +1 and +31), which an "elixir" payment would still read as a level-5 Zap; or a
+    hero of that cost with a cast hold (the Hero Knight, 1200 ms) entering CAST_STATE on the drop's frame."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    names = {"Zap": 28000008}
+    hdr = _zap_header(0, 745, "ability", "IceGolemite", ("Zap", "IceGolemite"))
+    # one victim, no tower hit
+    ticks, ents, rows, _, deploys = _zap_press_inputs(m, doc16402, victims={27: (14000, 22000, 100)}, tower_after=3000)
+    assert m.cost_only_casts(hdr, deploys, doc16402, cards, names, ents, rows, ticks, []) == []
+    header = _zap_header(0, 745, deck=("Zap",))
+    assert len(m.cost_only_casts(header, deploys, doc16402, cards, names, ents, rows, ticks, [])) == 1
+    # two survivors losing 110: level 5's Zap, eleven levels below the side's 16
+    ticks, ents, rows, _, deploys = _zap_press_inputs(m, doc16402, victims={}, tower_after=3000)
+    for i, r in enumerate(rows):
+        for k, x in ((40, 14000), (41, 14800)):
+            r[k] = _zap_row(m, x, 22000, 500 if i < ticks.index(745) else 390)
+    ents[40], ents[41] = _zap_bat(40, 1), _zap_bat(41, 1)
+    assert m.cost_only_casts(hdr, deploys, doc16402, cards, names, ents, rows, ticks, []) == []
+    header = _zap_header(0, 745, deck=("Zap",))
+    elixir = m.cost_only_casts(header, deploys, doc16402, cards, names, ents, rows, ticks, [])
+    assert [d["level"] for d in elixir] == [5], elixir
+    # the Hero Knight's press shows: it holds the drop although three Bats and a tower took the Zap's damage
+    held = _zap_press_inputs(m, doc16402, hero="Knight", hero_id=203000000, cast_state_on_drop=True)
+    ticks, ents, rows, _, deploys = held
+    hdr_k = _zap_header(0, 745, "ability", "Knight", ("Zap", "Knight"))
+    assert m.cost_only_casts(hdr_k, deploys, doc16402, cards, names, ents, rows, ticks, []) == []
+    ticks, ents, rows, _, deploys = _zap_press_inputs(m, doc16402, hero="Knight", hero_id=203000000)
+    assert len(m.cost_only_casts(hdr_k, deploys, doc16402, cards, names, ents, rows, ticks, [])) == 1
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# the existing test's one changed expectation
+
+
+def _snow_table():
+    if not os.path.exists(TABLE_16402):
+        pytest.skip(f"{TABLE_16402} is absent (the 2026-10-06 table) -- a skip here is not a pass")
+    with open(TABLE_16402, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    return doc, {c["name"]: c for c in doc["cards"]}
+
+
+def _snow_row(m, x, y, hp):
+    r = [0] * len(m.TRUTH_COLUMNS)
+    r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")], r[m.TRUTH_COLUMNS.index("hp")] = x, y, hp
+    return tuple(r)
+
+
+def _snow_timeline(m, ticks, ents_hp):
+    """per_tick_rows from {key: (x, y, {tick: hp after that tick's drop})}: each victim stands still, its hp the last
+    value at or before the frame's tick."""
+    rows = []
+    for t in ticks:
+        fr = {}
+        for k, (x, y, hps) in ents_hp.items():
+            hp = [h for tt, h in sorted(hps.items()) if tt <= t]
+            if hp and hp[-1] is not None:
+                fr[k] = _snow_row(m, x, y, hp[-1])
+        rows.append(fr)
+    return rows
+
+
+def _snow_evo(doc):
+    return next(r for r in doc["evolutions"] if r["name"] == "Snowball_EV1")
+
+
+def _snow_flight(first, last_seen, arrival, target, launch=(9000, 3000)):
+    return {"first": first, "launch": list(launch), "depart": first, "target": list(target), "last_seen": last_seen,
+            "end": list(target), "arrival": arrival}
+
+
+def test_an_evolved_snowball_is_read_off_its_ball(m):
+    """AN EVOLVED ROLL CAST (module doc): the Evo Giant Snowball's flight lands a ball that rolls 4000 on (its
+    evolution's flight spawns SnowballSpell_EV1_Rolling; the base Snowball's spawns nothing). The capture shows it as a
+    second object first seen on the flight's arrival frame, on the flight's target (live 20261008-163400-A t1545: the
+    flight last seen 1554, the ball first seen 1555 on (10500, 11500), rolling to (10500, 15500); 49 of 49 two-object
+    Snowball casts of the live set, every one the third play of its side's bbE cycle). One object, a ball off the
+    target or seen after the arrival, a card whose base already rolls (the Log) and an evolution with no capture
+    roll are no evolved roll."""
+    doc, cards = _snow_table()
+    evo, base = _snow_evo(doc), cards["Snowball"]
+    flight = _snow_flight(1545, 1554, 1555, (10500, 11500))
+    ball = {"first": 1555, "launch": [10500, 11500], "depart": 1556, "target": [10500, 15500], "last_seen": 1567,
+            "end": [10500, 15100], "arrival": 1569}
+    why = m.evo_roll_cast({"tracks": [flight, ball]}, evo, base)
+    assert why is not None, why
+    assert "ball first seen on 1555" in why, why
+    # a frame gap over the landing (20261009-025346-A t4206: flight last seen 4217, frame 4218 missing, the ball on
+    # 4219)
+    gap = ({**flight, "last_seen": 1553, "arrival": 1555}, ball)
+    assert m.evo_roll_cast({"tracks": list(gap)}, evo, base) is not None
+    assert m.evo_roll_cast({"tracks": [flight]}, evo, base) is None, "a base cast is one object"
+    assert m.evo_roll_cast({"tracks": [flight, {**ball, "launch": [10500, 12000]}]}, evo, base) is None
+    assert m.evo_roll_cast({"tracks": [flight, {**ball, "first": 1556}]}, evo, base) is None
+    assert m.evo_roll_cast({"tracks": [flight, ball]}, evo, cards["Log"]) is None, "a base card that rolls itself"
+    zap = next(r for r in doc["evolutions"] if r["name"] == "Zap_EV1")
+    assert m.evo_roll_cast({"tracks": [flight, ball]}, zap, cards["Zap"]) is None
+    # the rule reaches the Snowball alone today: no other evolution's flight spawns a roll its base card's does not
+    rolls = [
+        r["form_of"] for r in doc["evolutions"]
+        if r.get("evo_capture") and (r.get("projectile") or {}).get("spawn_projectile")
+        and not ((cards.get(r["form_of"]) or {}).get("projectile") or {}).get("spawn_projectile")
+    ]
+    assert rolls == ["Snowball"], rolls
+
+
+def _snow_cast(objects, level=10, side=0, pos=(10500, 11500), **kw):
+    return {"tick": objects[0]["first"], "first_seen": objects[0]["first"], "side": side, "card": "Snowball",
+            "kind": "spell", "level": level, "level_source": "side mode", "pos": list(pos), "source": "effect",
+            "objects": objects, **kw}
+
+
+def test_a_projectile_spells_level_is_read_on_its_landing(m):
+    """A SPELL'S HIT FRAMES (module doc): a projectile spell's hit is its object's landing, last_seen + 1 (live
+    20261009-032259-A t2729: a Musketeer's 164 on 2736, inside the Snowball's flight, fitted level 10 and was read; the
+    Snowball itself took 135, level 8, on its arrival 2743). The live set: 301 of 312 Snowball drops that fit a level
+    fall on the landing, 921 of 969 Fireball and 99 of 101 Rocket ones. A drop on the landing frame alone reads, and a
+    cast whose object never lands inside the capture is no read."""
+    doc, cards = _snow_table()
+    sb = cards["Snowball"]
+    at8, at10 = m.spell_damage_at(doc, sb, 8), m.spell_damage_at(doc, sb, 10)
+    assert (at8, at10) == (135, 163)
+    ticks = list(range(2729, 2750))
+    ents = {7: {"key": 7, "side": 1, "card_id": 26000000}}
+    rows = _snow_timeline(m, ticks, {7: (14500, 13500, {2729: 1000, 2736: 1000 - 164, 2743: 1000 - 164 - at8})})
+    d = _snow_cast([_snow_flight(2729, 2742, 2743, (14500, 13500))], pos=(14500, 13500))
+    m.spell_levels_from_damage([d], doc, cards, ents, rows, ticks)
+    assert (d["level"], d["level_source"]) == (8, "damage"), d
+    assert d["level_evidence"].startswith(f"hit on 2743: drops [{at8}]"), d["level_evidence"]
+    # the same cast without its objects keeps the first drop after its tick (the rule before): the chip reads 10
+    legacy = {k: v for k, v in _snow_cast([_snow_flight(2729, 2742, 2743, (14500, 13500))], pos=(14500, 13500)).items()
+              if k not in ("objects", "source")}
+    m.spell_levels_from_damage([legacy], doc, cards, ents, rows, ticks)
+    assert legacy["level"] == 10, legacy
+    # a landing frame lost to a gap: the drop shows on the next frame present
+    gap_ticks = [t for t in ticks if t != 2743]
+    gap_rows = [r for t, r in zip(ticks, rows, strict=False) if t != 2743]
+    d = _snow_cast([_snow_flight(2729, 2742, 2744, (14500, 13500))], pos=(14500, 13500))
+    m.spell_levels_from_damage([d], doc, cards, ents, gap_rows, gap_ticks)
+    assert d["level"] == 8, d
+    # never lands inside the capture: no read, the side mode stays
+    d = _snow_cast([_snow_flight(2729, 2749, None, (14500, 13500))], pos=(14500, 13500))
+    m.spell_levels_from_damage([d], doc, cards, ents, rows, ticks)
+    assert (d["level"], d["level_source"]) == (10, "side mode"), d
+    assert "never land" in d["level_evidence"]
+
+
+def test_an_evolved_snowballs_level_is_read_on_its_capture(m):
+    """The Evo Giant Snowball's flight strikes nothing (SnowballSpell_EV1, damage 0): its ball hits and captures
+    CAPTURE_DELAY_TICKS after the flight's landing, 600 on along its roll (card.rs CaptureRollDef; live: 35 of 42
+    evolved casts with a fitting drop have one on last_seen + 3 or the next frame present). Live 20261008-005044-A
+    t2603: the Little Prince took 286 (level 16) on 2619, where the side mode was 15."""
+    doc, cards = _snow_table()
+    sb = cards["Snowball"]
+    at15, at16 = m.spell_damage_at(doc, sb, 15), m.spell_damage_at(doc, sb, 16)
+    assert (at15, at16) == (260, 286)
+    flight = _snow_flight(2603, 2616, 2617, (13500, 13500))
+    ball = {"first": 2617, "launch": [13500, 13500], "depart": 2618, "target": [13500, 17500], "last_seen": 2630,
+            "end": [13500, 17400], "arrival": 2631}
+    ticks = list(range(2603, 2640))
+    ents = {7: {"key": 7, "side": 1, "card_id": 26000000}, 8: {"key": 8, "side": 1, "card_id": 26000001}}
+    # a tower shot of 173 on the landing frame on another victim, the ball's 286 two ticks later
+    rows = _snow_timeline(m, ticks, {7: (13600, 14300, {2603: 3000, 2619: 3000 - at16}),
+                                8: (13500, 12400, {2603: 900, 2617: 900 - 173})})
+    d = _snow_cast([flight, ball], level=15, pos=(13500, 13500), form="ev1", form_row="Snowball_EV1")
+    m.spell_levels_from_damage([d], doc, cards, ents, rows, ticks)
+    assert (d["level"], d["level_source"]) == (16, "damage"), d
+    assert d["level_evidence"].startswith(f"hit on 2619: drops [{at16}]"), d["level_evidence"]
+
+
+def test_a_rolling_spells_level_is_read_along_its_roll(m):
+    """A rolling spell (the Log, the Barbarian Barrel) hits along its ball's line while the ball rolls (live
+    20261007-005625-A t883: a Goblinstein 3752 from the landing point took the Log's 295, level 12, on 903; the old
+    reach around the landing missed it and read a 246 on 978, after the roll, as level 10). The live set: 771 of
+    956 Log drops on troops that fit a level inside the ball's band and frames stand 600 to 1800 ahead of it."""
+    doc, cards = _snow_table()
+    log = cards["Log"]
+    at10, at12 = m.spell_damage_at(doc, log, 10), m.spell_damage_at(doc, log, 12)
+    assert (at10, at12) == (244, 295)
+    airborne = {"first": 883, "launch": [14500, 6500], "depart": 883, "target": [14500, 9500], "last_seen": 890,
+                "end": [14500, 9380], "arrival": 891}
+    ball = {"first": 891, "launch": [14500, 9500], "depart": 892, "target": [14500, 19600], "last_seen": 941,
+            "end": [14500, 19500], "arrival": 942}
+    ticks = list(range(883, 990))
+    ents = {20: {"key": 20, "side": 1, "card_id": 26000000}, 21: {"key": 21, "side": 1, "card_id": 26000001}}
+    rows = _snow_timeline(m, ticks, {20: (14229, 13242, {883: 3000, 903: 3000 - at12}),
+                                21: (14231, 9726, {883: 2000, 978: 2000 - 246})})
+    d = {"tick": 883, "first_seen": 883, "side": 0, "card": "Log", "kind": "spell", "level": 10,
+         "level_source": "side mode", "pos": [14500, 9500], "source": "effect", "objects": [airborne, ball]}
+    m.spell_levels_from_damage([d], doc, cards, ents, rows, ticks)
+    assert (d["level"], d["level_source"]) == (12, "damage"), d
+    assert "hit on 903" in d["level_evidence"], d["level_evidence"]
+    assert "978" not in d["level_evidence"], d["level_evidence"]
+
+
+def test_a_volleys_level_is_read_on_its_first_waves_landings(m):
+    """An Arrows volley is read on its first wave's landings (live 20261008-174803-A t722: a Musketeer's 217 on 737,
+    inside the flight, fitted level 17; the first wave's 122 on 739 is level 11). The live set: 1,404 drops that fit a
+    level fall on a wave's first landing, 809 one tick after."""
+    doc, cards = _snow_table()
+    ar = cards["Arrows"]
+    assert (m.spell_damage_at(doc, ar, 11), m.spell_damage_at(doc, ar, 17)) == (122, 216)
+
+    def arrow(depart, last_seen, target):
+        return {"first": 722, "launch": [9000, 29000], "depart": depart, "target": list(target),
+                "last_seen": last_seen, "end": list(target), "arrival": last_seen + 1}
+
+    objs = [arrow(722, 738, (14600, 10400)), arrow(722, 739, (14200, 10500)), arrow(726, 742, (14400, 10400))]
+    ticks = list(range(722, 760))
+    ents = {13: {"key": 13, "side": 0, "card_id": 26000014}}
+    rows = _snow_timeline(m, ticks, {13: (14400, 10500, {722: 900, 737: 900 - 217, 739: 900 - 217 - 122,
+                                                    743: 900 - 217 - 244})})
+    d = {"tick": 722, "first_seen": 722, "side": 1, "card": "Arrows", "kind": "spell", "level": 17,
+         "level_source": "side mode", "pos": [14366, 10460], "source": "effect", "objects": objs}
+    m.spell_levels_from_damage([d], doc, cards, ents, rows, ticks)
+    assert (d["level"], d["level_source"]) == (11, "damage"), d
+
+
+def test_a_laser_balls_level_is_read_off_its_strike_trains(m):
+    """DarkMagic (the Void) deals its strike as one pulse of a count tier's buff (`strike_pulses_at`), every 1000 ms:
+    at 15, 1011 on a lone victim, 429 on two to four, 223 on more. Read as a pulsing spell's trains (live
+    20261008-041851-A t1472: a Giant Buffer took 429 on 1524 and 1544, level 15, where the side mode was 16; 602 on 1504
+    is 429 + a tower's 173). The live set: 6 of 14 casts read, 3 of them off the side mode."""
+    doc, cards = _snow_table()
+    dm = cards["DarkMagic"]
+    assert m.strike_pulses_at(doc, dm, 15) == [1011, 429, 223]
+    assert m.strike_pulses_at(doc, dm, 16) == [1112, 472, 245]
+    assert m.strike_pulses_at(doc, cards["Poison"], 13) == [], "an area buff's pulse is spell_pulse_at's"
+    assert m.pulse_period_ticks(dm) == 20
+    assert m.pulse_period_ticks(cards["Poison"]) == 20
+    ticks = list(range(1472, 1600))
+    ents = {26: {"key": 26, "side": 1, "card_id": 26000000}, 43: {"key": 43, "side": 1, "card_id": 26000001}}
+    rows = _snow_timeline(m, ticks, {26: (3500, 13900, {1472: 4000, 1504: 4000 - 602, 1524: 4000 - 602 - 429,
+                                                   1544: 4000 - 602 - 858}),
+                                43: (3300, 13200, {1472: 2000, 1504: 2000 - 429, 1524: 2000 - 858, 1544: 2000 - 1287})})
+    d = {"tick": 1472, "first_seen": 1472, "side": 0, "card": "DarkMagic", "kind": "spell", "level": 16,
+         "level_source": "side mode", "pos": [3500, 13500], "source": "effect"}
+    m.spell_levels_from_damage([d], doc, cards, ents, rows, ticks)
+    assert (d["level"], d["level_source"]) == (15, "damage"), d
+    assert "level votes {15: 5}" in d["level_evidence"], d["level_evidence"]
+
+
+def test_a_read_its_sides_other_reads_outvote_takes_their_level(m):
+    """ONE LEVEL PER CARD PER SIDE: a card has one level in a battle, so a read the side's other reads of the card
+    outvote is a coincidence (live 20261008-174111-A side 1: Snowballs read 11, 11, 11, and 16 off a Hog Rider's 288,
+    179 + another hit) and takes their level; a tie keeps each read."""
+    doc, cards = _snow_table()
+    sb = cards["Snowball"]
+    at11, at16 = m.spell_damage_at(doc, sb, 11), m.spell_damage_at(doc, sb, 16)
+    ticks = list(range(100, 200))
+    ents = {k: {"key": k, "side": 1, "card_id": 26000000 + k} for k in (1, 2, 3, 4)}
+    pts = {1: (3500, 13500), 2: (14500, 13500), 3: (3500, 20500), 4: (14500, 20500)}
+    drops = {1: at11, 2: at11, 3: at11, 4: at16 + 2}
+    rows = _snow_timeline(m, ticks, {k: (*pts[k], {100: 3000, 120 + k: 3000 - drops[k]}) for k in pts})
+    casts = [_snow_cast([_snow_flight(100 + k, 119 + k, 120 + k, pts[k])], level=11, side=0, pos=pts[k])
+             for k in pts]
+    m.spell_levels_from_damage(casts, doc, cards, ents, rows, ticks)
+    assert [d["level"] for d in casts] == [11, 11, 11, 11], [d["level_evidence"] for d in casts]
+    assert casts[3]["level_source"] == "card level"
+    assert "outvoted" in casts[3]["level_evidence"]
+    # one read each way: no majority, each keeps its own
+    two = [_snow_cast([_snow_flight(100 + k, 119 + k, 120 + k, pts[k])], level=11, side=0, pos=pts[k]) for k in (1, 4)]
+    m.spell_levels_from_damage(two, doc, cards, ents, rows, ticks)
+    assert [d["level"] for d in two] == [11, 16], [d["level_evidence"] for d in two]
+
+
+@pytest.fixture(scope="module")
+def table15535():
+    with open(CARDS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    return doc, {c["name"]: c for c in doc["cards"]}
+
+
+def _hp_row(m, x, y, hp):
+    r = [0] * len(m.TRUTH_COLUMNS)
+    r[m.TRUTH_COLUMNS.index("x")], r[m.TRUTH_COLUMNS.index("y")], r[m.TRUTH_COLUMNS.index("hp")] = x, y, hp
+    return tuple(r)
+
+
+def test_an_unread_hp_is_the_readers_minus_one_on_a_unit_seen_again(m):
+    """AN UNREAD HP: the reader's -1 on a frame the unit is seen on again later is unread (an overheal); on its last
+    frame it is its death frame; a read hp is never unread."""
+    rows = [
+        {7: _hp_row(m, 0, 0, 122)}, {7: _hp_row(m, 0, 0, -1)}, {7: _hp_row(m, 0, 0, 102)}, {},
+        {8: _hp_row(m, 0, 0, -1)},
+    ]
+    assert m.hp_unread(rows, 7, 1)
+    assert not m.hp_unread(rows, 7, 0)
+    assert not m.hp_unread(rows, 7, 2)
+    assert not m.hp_unread(rows, 8, 4), "a -1 on the unit's last frame is its death frame"
+    assert not m.hp_unread(rows, 9, 1), "no row, nothing to read"
+
+
+@needs_modern_cards
+def test_an_overheal_read_as_minus_one_is_no_kill_bounding_a_spells_level(m, table15535):
+    """Live 20261008-163400 (side 0's Fireball of t2864): an Evo Witch healed above her max reads -1 from 2867 and 476
+    from 2888, where the Fireball's 473 lands on a Knight and a Dart Goblin. Read as a kill of last hp 695 on 2867 it
+    bounded the level from below (fits 12-17, written 12); the side's four other Fireballs read 7 by damage. The -1 is
+    no kill, so the hit is the Knight's drop."""
+    doc, cards = table15535
+    dmg4 = m.spell_damage_at(doc, cards["Fireball"], 4)
+    ticks = [100, 101, 102, 103, 104, 105]
+    ents = {7: {"key": 7, "side": 1, "card_id": 26000007}, 8: {"key": 8, "side": 1, "card_id": 26000000}}
+
+    def frames(witch):
+        knight = [1000, 1000, 1000, 1000 - dmg4, 1000 - dmg4, 1000 - dmg4]
+        out = []
+        for i in range(len(ticks)):
+            r = {8: _hp_row(m, 6600, 17400, knight[i])}
+            if witch[i] is not None:
+                r[7] = _hp_row(m, 6500, 17500, witch[i])
+            out.append(r)
+        return out
+
+    def cast():
+        return {"tick": 100, "side": 0, "card": "Fireball", "kind": "spell", "level": 3,
+                "level_source": "side mode", "pos": [6500, 17500]}
+
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, frames([600, 600, -1, -1, 650, 650]), ticks)
+    assert (d["level"], d["level_source"]) == (4, "damage"), d
+    assert d["level_evidence"].startswith(f"hit on 103: drops [{dmg4}]"), d["level_evidence"]
+    # the control: the same -1 on her LAST frame is her death frame, still a kill of last hp 600 on 102
+    d = cast()
+    m.spell_levels_from_damage([d], doc, cards, ents, frames([600, 600, -1, None, None, None]), ticks)
+    assert "hit on 102" in d["level_evidence"], d["level_evidence"]
+    assert "kills of last hp [600]" in d["level_evidence"], d["level_evidence"]
+
+
+@needs_modern_cards
+def test_an_overheal_read_as_minus_one_is_no_victim_of_a_cost_only_zap(m, table15535):
+    """A cost-only Zap is aimed at the tile that reaches its victims (A COST-ONLY SPELL). An Evo Bat that heals above
+    its max on the Zap's frame (reader -1) and flies on is no victim; the Knight that took the Zap's damage is the
+    only one, and the tile the one of the four around him nearest first in x, then y."""
+    doc, cards = table15535
+    dmg = m.spell_damage_at(doc, cards["Zap"], 11)
+    ticks = [280, 281, 282, 283]
+    ents = {7: {"key": 7, "side": 1, "card_id": 26000049}, 8: {"key": 8, "side": 1, "card_id": 26000000}}
+    before = {7: _hp_row(m, 14000, 17000, dmg // 2), 8: _hp_row(m, 15000, 17000, 300 + dmg)}
+    hit = {7: _hp_row(m, 14000, 17000, -1), 8: _hp_row(m, 15000, 17000, 300)}
+    rows = [before, before, hit, {7: _hp_row(m, 14000, 17000, dmg // 2 + 30), 8: _hp_row(m, 15000, 17000, 300)}]
+    header = {"reveal": {"0": ["Zap", "Knight"], "1": []},
+              "opponent_plays": [{"tick": 282, "side": 0, "card": None, "cost": 2, "evidence": "elixir"}]}
+    got = m.cost_only_casts(header, [], doc, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["tick"], d["pos"]) for d in got] == [(282, [14500, 16500])], got
+    assert got[0]["level_evidence"].startswith("cost-only cast: 1 victims"), got[0]["level_evidence"]
+    # the control: the bat not seen again (its -1 is its death frame) is a victim, so the cast has two
+    rows[3] = {8: _hp_row(m, 15000, 17000, 300)}
+    got = m.cost_only_casts(header, [], doc, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["tick"], d["pos"]) for d in got] == [(282, [14500, 16500])], got
+    assert got[0]["level_evidence"].startswith("cost-only cast: 2 victims"), got[0]["level_evidence"]
+
+
+def test_the_rng_column_is_the_frames_state_as_the_specials_fixtures_carry_it(m):
+    """THE CLIENT'S GENERATOR: the first state and every frame tick it changes on; the algorithm by the header's
+    rng_algorithm tail, else by the client build; a state read as a signed int is its uint32; none without states."""
+    frames = [{"tick": 3, "rng_state": 7}, {"tick": 4, "rng_state": 7}, {"tick": 6, "rng_state": -2},
+              {"tick": 7}, {"tick": 8, "rng_state": -2}]
+    got = m.client_rng_column({"rng_algorithm": "libg_xorshift32_v160402020"}, frames)
+    assert got["algorithm"] == "client_xorshift32_v160402020"
+    assert (got["first"], got["changes"]) == ([3, 7], [[6, 4294967294]])
+    assert m.client_rng_column({"client": {"build": 160402012}}, frames)["algorithm"] == "client_xorshift32_v160402012"
+    assert m.client_rng_column({"client": {"build": 160402012}}, [{"tick": 3}, {"tick": 4}]) is None
+
+
+HP_TOWERS = [(1, 0, 9000, 3000, 4824), (2, 0, 3500, 6500, 3052), (3, 0, 14500, 6500, 3052),
+          (4, 1, 9000, 29000, 4824), (5, 1, 3500, 25500, 3052), (6, 1, 14500, 25500, 3052)]
+
+
+def _hp_capture(path, knight, rng=None, header_extra=None):
+    """Six towers and a Knight (key 7) from frame 1; knight[i] = (hp, max_hp, level) on frame i, ticks 0..n-1."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with gzip.open(path, "wt", encoding="utf-8") as fh:
+        header = {"record": "header", "towers": [{"side": s, "x": x, "y": y} for _, s, x, y, _ in HP_TOWERS],
+                  "local_side_native": 0, **(header_extra or {})}
+        fh.write(json.dumps(header) + "\n")
+        for i, (hp, mx, lv) in enumerate(knight):
+            ents = [{"id": f"p{k}", "generation_key": k, "side": s, "x": x, "y": y, "x2": x, "y2": y, "card_id": -1,
+                     "level": 11, "kind": 13, "hp": h, "max_hp": h, "behavior_state": 0, "target": None,
+                     "path_nodes": [], "attack_progress_ms": 0, "attack_load_timer_ms": 0, "event_timer_ms": 0,
+                     "attack_component_valid": True} for k, s, x, y, h in HP_TOWERS]
+            if i >= 1:
+                ents.append({"id": "p7", "generation_key": 7, "side": 0, "x": 3400, "y": 12000 + 60 * i,
+                             "x2": 3400, "y2": 12000 + 60 * (i - 1), "card_id": 26000000, "level": lv,
+                             "kind": 14 if i < 3 else 15, "hp": hp, "max_hp": mx,
+                             "behavior_state": 4 if i < 3 else 1, "target": None, "path_nodes": [],
+                             "attack_progress_ms": 0, "attack_load_timer_ms": 0, "event_timer_ms": 0,
+                             "attack_component_valid": True})
+            state = {"tick": i, "entities": ents, "effects": []}
+            if rng is not None:
+                state["rng_state"] = rng[i]
+            fh.write(json.dumps({"record": "frame", "state": state}) + "\n")
+
+
+def _hp_build(m, path):
+    with open(CARDS, "rb") as fh:
+        raw = fh.read()
+    doc = json.loads(raw.decode("utf-8"))
+    doc["_fnv1a64"] = m.fnv1a64(raw)
+    id_table = {} if m.missing_id_files() else m.load_id_table()
+    card_names = {c["name"] for c in doc["cards"]}
+    return m.build(str(path), [], 1, None, None, id_table, doc, {}, m.base_ids(id_table, card_names), card_names, {})
+
+
+@needs_modern_cards
+def test_a_capture_publishes_its_unread_hp_level_changes_and_generator(m, tmp_path):
+    """AN UNREAD HP, A LEVEL CHANGE, THE CLIENT'S GENERATOR on one synthetic capture: the Knight's -1 frames stay -1
+    in the hp column and are counted; a pancake's level 12 / max 1940 on tick 5 is listed (the entity keeps its first
+    read); the frames' generator states become `rng`. The same capture without them carries none of the keys."""
+    unread = [(None, None, None), (1766, 1766, 11), (-1, -1, 11), (-1, -1, 11), (1700, 1766, 11),
+              (1868, 1940, 12), (1868, 1940, 12), (1868, 1940, 12)]
+    path = tmp_path / "a" / "frames-synthetic.native.oracle.jsonl.gz"
+    _hp_capture(
+        path, unread, rng=[5, 5, 9, 9, 9, 12, 12, 12], header_extra={"rng_algorithm": "native_xorshift32_v160402020"},
+    )
+    fx = _hp_build(m, path)
+    knight = next(e for e in fx["truth"]["entities"] if e["key"] == 7)
+    hp = []
+    for v, run in zip(knight["hp"][::2], knight["hp"][1::2], strict=False):
+        hp += [v] * run
+    assert hp == [1766, -1, -1, 1700, 1868, 1868, 1868], "the hp column keeps the reader's -1 (null reads absent)"
+    assert knight["hp_unread_frames"] == 2
+    assert fx["truth"]["hp_unread"]["value"] == -1
+    assert (knight["level"], knight["max_hp"]) == (11, 1766)
+    assert knight["max_hp_changes"] == [[5, 12, 1940]]
+    assert fx["rng"]["algorithm"] == "client_xorshift32_v160402020"
+    assert (fx["rng"]["first"], fx["rng"]["changes"]) == ([0, 5], [[2, 9], [5, 12]])
+    # the control: every hp read, no level change, no generator state
+    plain = [(None, None, None)] + [(1766, 1766, 11)] * 7
+    bare = tmp_path / "b" / "frames-synthetic.native.oracle.jsonl.gz"
+    _hp_capture(bare, plain)
+    fb = _hp_build(m, bare)
+    assert "rng" not in fb
+    assert "hp_unread" not in fb["truth"]
+    assert not any("hp_unread_frames" in e or "max_hp_changes" in e for e in fb["truth"]["entities"])
+
+
+GOBLINSTEIN = {"count": 1, "second_summon": {"character": "goblinstein_doctor", "count": 1},
+               "summon_radius_milli": 3500, "summon_width_milli": -1000}
+
+
+# ---------------------------------------------------------------------------------------------------------- item 9
+def test_a_tie_is_broken_by_the_member_on_the_tap_point(m):
+    """A TIE IS BROKEN BY THE TAP POINT (module doc, RECOVERED TILE): side 1's Goblinstein on a back-row tile, its
+    Monster on its tile's laid point and its Doctor, 3500 behind, clamped to y 31000 -- which is 3500 behind the tile
+    centre two rows down, so the two tiles tie with one member each (live 20261011-192922 t916: played on the centroid
+    (11000, 29749) before, the engine's Monster 1250-1345 off). The Monster stands on the zero offset of its own tile,
+    where no clamp moved it: that tile is taken."""
+    tile, why = m.recovered_tile([(11500, 28499), (10500, 31000)], m.layout_offsets(GOBLINSTEIN, 1, 11500))
+    assert tile == [11500, 28500], why
+    assert why.startswith("1 of 2 members on a nominal offset from it, 1 clamped on one axis"), why
+    assert "tied" in why, why
+    # t2845 (the right half: the Doctor toward the centre is -x) and 20261007-161836 t1962 (one row further back)
+    assert m.recovered_tile([(17500, 28499), (16500, 31000)], m.layout_offsets(GOBLINSTEIN, 1, 17500))[0] == [
+        17500, 28500]
+    assert m.recovered_tile([(13500, 29499), (12500, 31000)], m.layout_offsets(GOBLINSTEIN, 1, 13500))[0] == [
+        13500, 29500]
+    # a Monster pushed off its point stands on no tap point: the Doctor's tile alone is not enough (and no tie is left)
+    tile, why = m.recovered_tile([(11530, 28499), (10500, 31000)], m.layout_offsets(GOBLINSTEIN, 1, 11530))
+    assert tile is None, why
+    # a ring has no member on its tap point, so its ties still stand (the Minions of the test above)
+    tile, why = m.recovered_tile([(3999, 14212), (3500, 15000)], MINIONS_RING_SIDE0)
+    assert tile is None, why
+    assert why.startswith("2 tile centres tie"), why
+
+
+# ---------------------------------------------------------------------------------------------------------- item 8
+def test_a_ring_measured_on_another_table_is_scaled_to_this_ones_radius(m):
+    """A RING MEASURED ON ANOTHER TABLE (module doc, RECOVERED TILE): the committed measurement ran the 2026-09 table,
+    where the Skeletons' SummonRadius was 700 (ring 808); the 2026-10-06 update made it 400 (ring 462). Scaled, the ring
+    places live 20261009-162704 t724's Skeletons (tapped on (14500, 17500), laid on (15500, 17500), the front one
+    clamped to the river row's y 17499) on their tile; at the 808 ring no tile is found."""
+    nominal = {("Skeletons", 1): SKELETONS_RING_SIDE1, ("Bats", 1): [(0, -1404)]}
+    measured = {"Skeletons": {"summon_radius_milli": 700}, "Bats": {"summon_radius_milli": 750}}
+    now = {"Skeletons": {"summon_radius_milli": 400}, "Bats": {"summon_radius_milli": 750}}
+    got = m.scaled_nominal_offsets(nominal, now, measured)
+    assert got[("Skeletons", 1)] == [(-400, 230), (-1, -462), (399, 230)], got
+    assert got[("Bats", 1)] == [(0, -1404)], "an unchanged radius keeps its offsets"
+    assert m.scaled_nominal_offsets(nominal, {}, measured) == nominal, "a radius unknown on this table: unscaled"
+    c0 = [(15500, 17499), (15899, 17729), (15101, 17729)]
+    tile, why = m.recovered_tile(c0, SKELETONS_RING_SIDE1)
+    assert tile is None, why
+    assert why.startswith("no member's creation point"), why
+    tile, why = m.recovered_tile(c0, got[("Skeletons", 1)])
+    assert tile == [15500, 17500], why
+    assert why == "2 of 3 members on a nominal offset from it, 1 clamped on one axis", why
+
+
+def test_the_committed_measurement_is_scaled_only_where_the_tables_differ(m):
+    """The measurement's table and the 2026-10-06 table differ on one formation radius only (the Skeletons): every
+    other measured card keeps its offsets, so a fixture of the 2026-09 corpus is made exactly as before."""
+    import os
+
+    def cards(name):
+        path = os.path.join(m.ROOT, "data", "derived", m.TABLES[name][0])
+        if not os.path.exists(path):
+            pytest.skip(f"{path} is absent -- a skip here is not a pass")
+        with open(path, encoding="utf-8") as fh:
+            return {c["name"]: c for c in json.load(fh)["cards"]}
+
+    nominal = m.load_nominal_offsets()
+    before = m.scaled_nominal_offsets(nominal, cards(m.FORMATIONS_TABLE))
+    assert before == nominal, "the measurement's own table scales nothing"
+    after = m.scaled_nominal_offsets(nominal, cards("160402017-20261006"))
+    assert {k[0] for k in nominal if after[k] != nominal[k]} == {"Skeletons"}, after
+
+
+def _off_tap_battle():
+    """(header towers, frames 0..40) of a battle side 0 logs, three Goblins groups (all deploying, no frame missed):
+    keys 20.. first seen on 25 on the ring around (4500, 8500), a tile right of their tap's (3500, 8500); keys 30.. on
+    30 on the ring around their tap's tile (14500, 8500); keys 40.. on 35 pushed off any ring around (9500, 13500),
+    ten tiles from their tap's (9500, 3500)."""
+    tower_rows = [(1, 0, 9000, 3000, 4824), (2, 0, 3500, 6500, 3052), (3, 0, 14500, 6500, 3052),
+                  (4, 1, 9000, 29000, 4824), (5, 1, 3500, 25500, 3052), (6, 1, 14500, 25500, 3052)]
+    header = [{"side": s, "x": x, "y": y} for _, s, x, y, _ in tower_rows]
+
+    def ent(key, side, cid, x, y, hp, kind, state):
+        return {"id": f"p{key}", "generation_key": key, "side": side, "x": x, "y": y, "x2": x, "y2": y,
+                "card_id": cid, "level": 11, "kind": kind, "hp": hp, "max_hp": hp, "behavior_state": state,
+                "target": None, "path_nodes": []}
+
+    moved = [(4500 + ox, 8500 + oy) for ox, oy in GOBLINS_RING_SIDE0]
+    on_tap = [(14500 + ox, 8500 + oy) for ox, oy in GOBLINS_RING_SIDE0]
+    pushed = [(8850, 12850), (8850, 14150), (10150, 14150), (10150, 12850)]
+    frames = []
+    for t in range(41):
+        es = [ent(k, s, -1, x, y, hp, 13, 0) for k, s, x, y, hp in tower_rows]
+        for base, t0, pts in ((20, 25, moved), (30, 30, on_tap), (40, 35, pushed)):
+            if t >= t0:
+                es += [ent(base + i, 0, GOBLINS, x, y, 202, 14, 4) for i, (x, y) in enumerate(pts)]
+        frames.append({"tick": t, "entities": es, "effects": [], "elixir_raw": [50000 + 178 * t, 50000 + 178 * t]})
+    return header, frames
+
+
+@needs_modern_cards
+def test_a_tapped_group_records_the_tile_its_members_stand_on(m, maker_inputs, tmp_path):
+    """THE MEMBERS' TILE OF A TAPPED GROUP and A TAP FAR OFF ITS GROUP (module doc, RECOVERED TILE), built end to end
+    with a placements log: a group whose members agree on the tile right of their tap's records that tile as
+    `members_tile` and stays on its tap (live 20261009-162704 t724's Skeletons, tapped on (14500, 17500), laid on
+    (15500, 17500)); a group on its tap's tile records nothing; a group ten tiles off whose members recover no tile
+    (seen pushed) records its centroid's tile (live 20261011-215918 t1415's Skeletons, tapped on (14500, 8500), laid on
+    (14500, 14500)). The harness, not the maker, decides which one plays (harness.rs `members_point`)."""
+    _skip_without_the_id_table(m)
+    id_table, doc, name_to_id, card_names = maker_inputs
+    header, frames = _off_tap_battle()
+    path = tmp_path / ("frames-synthetic" + m.CAPTURE_SUFFIX)
+    _write_capture(path, header, frames)
+    log = tmp_path / "placements-synthetic.jsonl"
+    log.write_text(
+        json.dumps({"tick": 0, "local_side_native": 0}) + "\n"
+        + json.dumps({"tick": 3, "card": "Goblins", "requested": [14.5, 8.5]}) + "\n"  # (3500, 8500)
+        + json.dumps({"tick": 8, "card": "Goblins", "requested": [3.5, 8.5]}) + "\n"  # (14500, 8500)
+        + json.dumps({"tick": 12, "card": "Goblins", "requested": [8.5, 3.5]}) + "\n",  # (9500, 3500)
+        encoding="utf-8",
+    )
+    fx = m.build(str(path), [str(log)], 1, None, None, id_table, doc, {}, name_to_id, card_names, {})
+    rows = {d["keys"][0]: d for d in fx["deploys"] if d["keys"]}
+    moved, kept, far = rows[20], rows[30], rows[40]
+    # the row stays on its tap (a relocation is the engine's to answer); the members' tile rides along for the harness
+    assert (moved["pos"], moved["source"], moved["members_tile"]) == ([3500, 8500], "tap_tile", [4500, 8500]), moved
+    assert (moved["tap"]["tick"], moved["tap"]["native"]) == (3, [3500, 8500]), moved
+    assert moved["recovery"].endswith("not the tap's tile [3500, 8500]"), moved["recovery"]
+    assert (kept["pos"], kept["source"]) == ([14500, 8500], "tap_tile"), kept
+    assert "members_tile" not in kept, kept
+    assert "recovery" not in kept, kept
+    assert (far["pos"], far["source"], far["members_tile"]) == ([9500, 3500], "tap_tile", [9500, 13500]), far
+    assert far["recovery"].endswith("its own tile"), far["recovery"]
+
+
+# ---------------------------------------------------------------------------------------------------------- item 10
+def test_a_unit_first_seen_out_of_its_deploy_after_frames_that_did_not_show_it(m):
+    """A UNIT FIRST SEEN OUT OF ITS DEPLOY (module doc), the frames before it stale: live 20261008-055422's frames 232
+    to 254 (every 2-3 ticks) repeat one board, and side 1's Skeletons, tapped on 234, are first seen on 256 walking
+    (state 1, their first step from their creation points). The gap is two ticks, shorter than their 20-tick deploy, so
+    the old rule took its earliest tick, 255; their tap says the frames did not show them, and they end their deploy on
+    256: spawned on 236 (side 1's elixir on 256, 93738 and rising 178 a tick from a capped 10, left 20-21 ticks
+    before)."""
+    ticks = [149, 232, 234, 237, 239, 242, 244, 247, 249, 252, 254, 256, 257, 258]
+    fi = ticks.index(256)
+    walking = [(fi, 1), (fi + 1, 1), (fi + 2, 1)]
+    tick, first_seen, why = m.refine_spawn_tick(ticks, fi, walking, 1000, tap_tick=234)
+    assert (tick, first_seen) == (236, 256), why
+    assert "after frames that did not show it (tapped on 234)" in why, why
+    # no tap, or one too late for a whole deploy before the first frame: the gap's earliest tick, as before
+    assert m.refine_spawn_tick(ticks, fi, walking, 1000)[:2] == (255, 256)
+    assert m.refine_spawn_tick(ticks, fi, walking, 1000, tap_tick=237)[:2] == (255, 256)
+    # first seen deploying (or waiting its stagger) is no unit out of its deploy, tap or none
+    assert m.refine_spawn_tick(ticks, fi, [(fi, 4), (fi + 1, 4)], 1000, tap_tick=234)[0] == 255
+    assert m.refine_spawn_tick(ticks, fi, [(fi, 11), (fi + 1, 11)], 1000, tap_tick=234)[0] == 255
+    # a gap a deploy long needs no tap (the rule as it was)
+    assert m.refine_spawn_tick([799, 872, 873], 1, [(1, 1), (2, 1)], 1000, tap_tick=None)[:2] == (852, 872)
