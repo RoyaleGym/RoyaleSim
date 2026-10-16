@@ -8403,8 +8403,10 @@ calib_enum!(
         /// client 15.535.29 (35 runs): the bound lies in [3642.6, 3702.6), a circle with the radius in, and a target
         /// about to leave reach is not picked.
         EdgeNowAndNext = "edge_within_radius_plus_170_now_and_next",
-        /// Radius + the target's radius, on the strike tick alone: refuted (a target of radius 600 was struck at a
-        /// centre distance of 4242.6 from a Lightning of Radius 3500).
+        /// Radius + the target's radius, on the strike tick alone. Refuted on client 15.535.29 (a target of radius 600
+        /// was struck at a centre distance of 4242.6 from a Lightning of Radius 3500); shipped for client 16.402 (parity
+        /// r73's census of the live9 set: a troop counts only within Radius + its collision radius, no + 170; live11
+        /// +6,532 within by override).
         RadiusPlusTarget = "radius_plus_target_radius",
     }
 );

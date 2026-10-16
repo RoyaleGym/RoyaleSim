@@ -21,6 +21,9 @@
 //!   6. a striking area's clock is state: a save edited only in it fails the load's hash self-check.
 //!   7. a Knight walking out of reach, inside it on the strike tick and outside it on the predicted next position, is
 //!      not struck.
+//!   Tests 3, 5 and 7 run client 15.535.29's spells.STRIKE_TIE_BREAK and STRIKE_REACH (`client15535`, CLIENT15535_ARMS).
+//!   8. client 16.402 (the shipped STRIKE_REACH = radius_plus_target_radius, parity r73): test 5's Cannon, within the
+//!      + 170 but past Radius + its radius, is not struck.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test strikes`):
 //!   * `strike_timer_restarts` -- the leftover dropped: (2) goes red on D + 19.
@@ -29,7 +32,7 @@
 //!     creation: `under_client16402_nearest_centre_a_tie_goes_to_the_nearer_knight` goes red.
 //!   * `strike_crown_from_area` -- the area's 100 %: (4) goes red.
 //!   * `strike_repeats_target` -- the struck set is not read: (4) goes red (the tower is struck three times).
-//!   * `strike_reach_bare` -- the refuted Radius + r: (5) goes red.
+//!   * `strike_reach_bare` -- Radius + r (refuted on 15.535.29) on every arm: (5) goes red.
 //!   * `strike_ignores_next_position` -- no test of the next position: (7) goes red.
 //!   * `hash_skips_strikes` -- the motion is not hashed: (6) goes red.
 #![allow(unexpected_cfgs)]
@@ -39,7 +42,7 @@ use common::*;
 use royalesim::card::SpellShape;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState, StrikeTieBreak, TapSnap};
+use royalesim::state::{BattleConfig, BattleState, StrikeReach, StrikeTieBreak, TapSnap};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -51,6 +54,14 @@ fn at(p: (i32, i32)) -> Vec2 {
 fn unsnapped() -> BattleConfig {
     let mut c = config();
     c.calib.placement_tap_snap = TapSnap::None;
+    c
+}
+
+/// `c` with client 15.535.29's Lightning pick (CLIENT15535_ARMS): spells.STRIKE_REACH = edge_within_radius_plus_170_now_and_next
+/// and spells.STRIKE_TIE_BREAK = earliest_created, the arms its 28 casts measured. The ledger ships client 16.402's.
+fn client15535(mut c: BattleConfig) -> BattleConfig {
+    c.calib.strike_reach = StrikeReach::EdgeNowAndNext;
+    c.calib.strike_tie_break = StrikeTieBreak::EarliestCreated;
     c
 }
 
@@ -109,7 +120,7 @@ fn three_strikes_land_on_d_plus_10_19_and_28_the_highest_hp_first() {
 /// Plant: strike_tie_by_slot.
 #[test]
 fn a_tie_goes_to_the_earlier_created() {
-    let mut s = BattleState::new(0, config());
+    let mut s = BattleState::new(0, client15535(config()));
     // One at a time, so the call order is the creation order. A batch creates in its own order, by the Red frame,
     // which is rotated: it would create the Knight at x 9500 first.
     let first = s.scenario_spawn_now(Team::Red, "Knight", at((8500, 22000)), Some(1300)).expect("spawn");
@@ -134,10 +145,10 @@ fn a_princess_tower_alone_loses_a_quarter_of_one_strike_once() {
     assert_eq!(got, vec![(10, tower.0, want)], "one strike, 25 % of it, ceil");
 }
 
-/// Plant: strike_reach_bare.
-#[test]
-fn a_target_within_the_170_margin_is_struck() {
-    let mut s = BattleState::new(0, unsnapped());
+/// Test 5's scene under `cfg`: the tick (k) the Cannon first loses a strike, if it does, and its distance from the strike
+/// centre and Radius + its radius, native.
+fn margin_cannon(cfg: BattleConfig) -> (Option<u32>, i64, i64) {
+    let mut s = BattleState::new(0, cfg);
     let c = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 22000)), None).expect("spawn");
     let (cpos, r) = (s.entity(c).unwrap().pos, s.entity(c).unwrap().radius / K);
     // South of the Cannon, where no crown tower is in reach. East of it, the Red princess tower at (14500, 25500)
@@ -166,9 +177,27 @@ fn a_target_within_the_170_margin_is_struck() {
     let centre = centre.expect("no striking area stood");
     let (dx, dy) = ((centre.x / K - cpos.x / K) as i64, (centre.y / K - cpos.y / K) as i64);
     let d = isqrt(dx * dx + dy * dy);
-    let bare = (3500 + r) as i64;
+    (hit, d, (3500 + r) as i64)
+}
+
+/// Plant: strike_reach_bare.
+#[test]
+fn a_target_within_the_170_margin_is_struck() {
+    let (hit, d, bare) = margin_cannon(client15535(unsnapped()));
     assert!(d > bare && d <= bare + 170, "the scene drifted: the Cannon stands {d} from the strike centre, not in ({bare}, {}]", bare + 170);
     assert_eq!(hit, Some(10), "a Cannon {d} away (Radius + r = {bare}) is struck on D + 9, its loss on D + 10");
+}
+
+/// spells.STRIKE_REACH = radius_plus_target_radius, shipped for client 16.402 (parity r73's census of the live9 set: a troop
+/// counts only within Radius + its collision radius, no + 170): test 5's Cannon, within the + 170 but past Radius + its
+/// radius, is not struck; under client 15.535.29's arm (test 5) it is.
+#[test]
+fn under_radius_plus_target_radius_a_target_in_the_170_margin_is_not_struck() {
+    let mut cfg = unsnapped();
+    cfg.calib.strike_reach = StrikeReach::RadiusPlusTarget;
+    let (hit, d, bare) = margin_cannon(cfg);
+    assert!(d > bare && d <= bare + 170, "the scene drifted: the Cannon stands {d} from the strike centre, not in ({bare}, {}]", bare + 170);
+    assert_eq!(hit, None, "radius_plus_target_radius: a Cannon {d} away (Radius + r = {bare}) was struck");
 }
 
 /// Plant: hash_skips_strikes.
@@ -201,7 +230,7 @@ fn a_knight_about_to_leave_reach_is_not_struck() {
         let tap = at((9000, 23000));
         let r = card_stat(&BattleState::new(0, config()), "Knight").collision_radius / K;
         let start = Vec2::new(tap.x, tap.y - (3500 + 170 + r - 600 + off) * K);
-        let mut s = BattleState::new(0, unsnapped());
+        let mut s = BattleState::new(0, client15535(unsnapped()));
         let k = s.scenario_spawn_now(Team::Red, "Knight", start, None).expect("spawn");
         s.spawn_unit(Team::Blue, "Lightning", tap, None).expect("cast Lightning");
         let mut centre = None;

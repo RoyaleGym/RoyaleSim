@@ -68,9 +68,10 @@ fn the_old_arm_passes_her_by() {
     assert_eq!(scene(CastHoldHeading::Counted), (0, 0), "counted: the Knight turned (vacuous otherwise)");
 }
 
+/// The ledger ships client 16.402's arm (parity r73); client 15.535.29 keeps client15535_not_counted (CLIENT15535_ARMS).
 #[test]
 fn the_shipped_arm_counts_the_heading() {
-    assert_eq!(Calib::shipped().cast_hold_heading, CastHoldHeading::Client15535NotCounted);
+    assert_eq!(Calib::shipped().cast_hold_heading, CastHoldHeading::Client16402ThroughStand);
 }
 
 const LP_DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];

@@ -654,9 +654,12 @@ fn the_ground_clamp_holds_a_bank_deploy_on_the_bank_and_the_bounds_clamp_the_edg
         assert_eq!(a.rotate(b.1), r.1);
     }
     // Under the `none` arm the forward member is ejected to passable ground
-    // instead, and lands somewhere else than the clamp put it.
+    // instead, and lands somewhere else than the clamp put it (formation.MEMBER_WATER_POINT's old arm,
+    // nearest_passable_ground: the shipped client16402_kept_on_water leaves it on the water,
+    // `under_client16402_kept_on_water_a_member_laid_on_the_river_stays_there`).
     let mut cfg = config_pre_flip();
     cfg.calib.formation_ground_y_clamp = GroundYClamp::None;
+    cfg.calib.member_water_point = royalesim::state::MemberWaterPoint::NearestPassableGround;
     let s2 = BattleState::new(1, cfg);
     let none = s2.formation_preview(Team::Blue, "Skeletons", tap).unwrap();
     assert!(none.iter().all(|(_, p, _)| a.is_passable_ground(*p)));
