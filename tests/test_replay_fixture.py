@@ -2953,3 +2953,20 @@ def test_an_unpressed_flag_writes_no_press(m):
     ob10: none in state 10)."""
     doc, cards, ents, rows, ticks, pools = _flag_inputs(m, press=False)
     assert m.ability_presses([], set(), ents, rows, ticks, pools, doc, cards, {"Goblins": 26000002}) == []
+
+
+def test_a_ladder_runs_on_past_its_rarity_count(m, doc16402):
+    """A level past a rarity's count (rarities.csv lists more multipliers than LevelCount; cards.json `unused_tail`)
+    is on the ladder, as the engine reads it (card.rs `level_multiplier`): live, 62 level-17 objects of 11 battles
+    stood at 450 % of their base (Common's entry after 409), and with the ladder ending at 16 each was "no_object", a
+    deploy summon, so a Lava Hound's pups (378), an Elixir Golem's golemites and a Phoenix's egg were plays."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    assert doc16402["rarities"]["Common"]["unused_tail"][0] == 450
+    assert m.classify_unit(doc16402, cards["Valkyrie"], 17, 3352) == ("Valkyrie", True, "exact")
+    assert m.classify_unit(doc16402, cards["LavaHound"], 17, 6295) == ("LavaHound", True, "exact")
+    assert m.classify_unit(doc16402, cards["LavaHound"], 17, 378) == ("LavaPups", False, "exact")
+    assert m.classify_unit(doc16402, cards["Phoenix"], 17, 558) == ("PhoenixEgg", False, "exact")
+    assert m.classify_unit(doc16402, cards["ElixirGolem"], 17, 1341) == ("ElixirGolem2", False, "exact")
+    # the ladder still ends where its multipliers do: Common lists 19, the last for level 20
+    assert m.ladder_percent(doc16402, cards["Knight"], "Knight", 20) == 600
+    assert m.ladder_percent(doc16402, cards["Knight"], "Knight", 21) is None

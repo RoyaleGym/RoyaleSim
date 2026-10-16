@@ -1186,15 +1186,27 @@ def own_units(card: dict) -> set[str]:
 
 
 def ladder_percent(doc: dict, card: dict, unit: str, level: int):
+    """The percent `unit` of `card` stands at on `level`. A ladder runs on past its rarity's count (rarities.csv lists
+    more multipliers than LevelCount: Common's 450 at 17 after 409 at 16; cards.json `unused_tail`), as the engine's
+    does (card.rs `level_multiplier`, RarityRow::tail): live, 62 level-17 objects of 11 battles stood at 450 % of their
+    base, and read off a ladder that ended at 16 each was "no_object", a deploy summon (their Lava Pups, golemites and
+    eggs played as cards)."""
     ls = card["level_scaling"]
     if unit == (card.get("summon_character") or card["name"]) and card.get("hitpoints") is not None:
         base_level = ls.get("base_level", doc["rarities"][ls["rarity"]]["relative_level"] + 1)
         table = ls["multiplier_percent_by_level"]
+        # the card's own ladder is a rarity's (16.402: the Common one, `ladder_rarity`); its tail is that rarity's
+        tail = next(
+            (r.get("unused_tail") or [] for r in doc["rarities"].values() if r["multiplier_percent_by_level"] == table),
+            [],
+        )
     else:
         r = doc["rarities"][(doc["units"].get(unit) or form_units(card)[unit])["rarity"]]
         base_level = r["relative_level"] + 1
         table = r["multiplier_percent_by_level"]
+        tail = r.get("unused_tail") or []
     ix = level - base_level
+    table = [*table, *tail]
     return table[ix] if 0 <= ix < len(table) else None
 
 
