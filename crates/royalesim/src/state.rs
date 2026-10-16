@@ -1009,6 +1009,14 @@ pub struct Calib {
     /// `OwnKing`, what a battle saved before it ran.
     #[serde(default = "uppercut_throw_aim_default")]
     pub uppercut_throw_aim: UppercutThrowAim,
+    /// combat.RAMP_HOOK_RESET (whether a Fisherman's hook resets a Little Prince's ramp). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Kept`, what a battle saved before it ran.
+    #[serde(default = "ramp_hook_reset_default")]
+    pub ramp_hook_reset: RampHookReset,
+    /// combat.RAMP_LEVEL_DROP (when a Little Prince's level buff comes off after his grace runs out). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `WithTheCount`, what a battle saved before it ran.
+    #[serde(default = "ramp_level_drop_default")]
+    pub ramp_level_drop: RampLevelDrop,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2979,6 +2987,14 @@ fn guard_water_landing_default() -> GuardWaterLanding {
 
 fn uppercut_throw_aim_default() -> UppercutThrowAim {
     UppercutThrowAim::OwnKing
+}
+
+fn ramp_hook_reset_default() -> RampHookReset {
+    RampHookReset::Kept
+}
+
+fn ramp_level_drop_default() -> RampLevelDrop {
+    RampLevelDrop::WithTheCount
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10397,6 +10413,26 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.RAMP_HOOK_RESET -- a hook drag and the Little Prince's ramp (state.rs `ramp_pass`'s `disabled`).
+    RampHookReset {
+        /// The engine's: a hook drag is no move and no stun to the ramp; he comes out at his speed.
+        Kept = "kept",
+        /// Client 16.402: while a hook holds him his combat is disabled: his count 0, his level buffs off.
+        Client16402HookDisables = "client16402_hook_disables",
+    }
+);
+calib_enum!(
+    /// combat.RAMP_LEVEL_DROP -- the Little Prince's level buff after his grace's reset (state.rs `ramp_pass`, RampRun
+    /// `clear_due`).
+    RampLevelDrop {
+        /// The engine's: the count and the level buff go together, in the reset's Status phase.
+        WithTheCount = "with_the_count",
+        /// Client 16.402: the count goes then; the level buff a Status phase later, so the reset tick's attack step runs at
+        /// the old level.
+        Client16402AfterTheAttack = "client16402_after_the_attack",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10962,6 +10998,8 @@ impl Calib {
             spawn_area_first_pulse: pick(&v, &["spells", "SPAWN_AREA_FIRST_PULSE", "value"], SpawnAreaFirstPulse::from_calibration_name)?,
             guard_water_landing: pick(&v, &["combat", "GUARD_WATER_LANDING", "value"], GuardWaterLanding::from_calibration_name)?,
             uppercut_throw_aim: pick(&v, &["knockback", "UPPERCUT_THROW_AIM", "value"], UppercutThrowAim::from_calibration_name)?,
+            ramp_hook_reset: pick(&v, &["combat", "RAMP_HOOK_RESET", "value"], RampHookReset::from_calibration_name)?,
+            ramp_level_drop: pick(&v, &["combat", "RAMP_LEVEL_DROP", "value"], RampLevelDrop::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -12537,6 +12575,10 @@ pub struct RampRun {
     pub count: u8,
     pub grace_ms: i32,
     pub at: Vec2,
+    /// combat.RAMP_LEVEL_DROP = client16402_after_the_attack: the count went on the last Status phase and the level buffs
+    /// come off on the next. Absent in older snapshots; hashed only when set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub clear_due: bool,
 }
 
 /// A LITTLE PRINCE'S GUARD UNDER WAY (card.rs `GuardDef`; `guard_release`, `guard_bind`, `guard_moves`): his side, card
@@ -14658,7 +14700,7 @@ impl BattleState {
         // A HERO UNIT'S ONE CHARGE (`HeroUnit`), for every creation of a card with an ability but a Clone's copy.
         // THE LITTLE PRINCE'S RAMP (card.rs `RampDef`): from his creation (`ramp_pass`).
         if c.ramp.is_some() {
-            self.warps.ramps.push(RampRun { id, count: 0, grace_ms: 0, at: pos });
+            self.warps.ramps.push(RampRun { id, count: 0, grace_ms: 0, at: pos, clear_due: false });
         }
         // A FLAG FORM'S UNITS (the Hero Goblins') hold no charge: the flag they leave does, from its creation, hidden for
         // good (card.rs `FlagSpawnsDef`).
@@ -22054,6 +22096,11 @@ impl BattleState {
             }
             let i = r.id.index as usize;
             let Some(ramp) = self.cfg.cards.get(self.ents.card[i]).ramp.clone() else { continue };
+            // combat.RAMP_LEVEL_DROP = client16402_after_the_attack: the last Status phase's reset takes his level buffs now.
+            if r.clear_due {
+                self.ramp_clear(i, &ramp);
+                r.clear_due = false;
+            }
             let pos = self.ents.pos[i];
             // combat.RAMP_GRACE_MOVE = client15535_own_walk: he moves when his own walk stepped (the last move pass's
             // `walk_step`, 0 while he attacks); a push or a knockback while he attacks is no move.
@@ -22083,14 +22130,37 @@ impl BattleState {
                 r.grace_ms = (r.grace_ms - tick_ms).max(if below { -tick_ms } else { 0 });
             }
             r.at = pos;
-            let disabled = (self.ents.stun_ms[i] > 0 && !own_cast) || self.ents.buffed(&self.cfg.cards.buffs, i, Sel::HitSpeed, 100) <= 0;
+            // combat.RAMP_HOOK_RESET = client16402_hook_disables: a hook holding him disables his combat, as a stun does.
+            // Measured on client 16.402 (parity r75, live13): 5 of 5 ramped hooks came out at x1; the engine kept the level.
+            // PLANT (regression) ramp_hook_kept: the new arm still keeps his level through the drag.
+            #[cfg(not(clash_plant = "ramp_hook_kept"))]
+            let hooked = self.cfg.calib.ramp_hook_reset == RampHookReset::Client16402HookDisables && self.ents.hooked_by[i].is_some();
+            #[cfg(clash_plant = "ramp_hook_kept")]
+            let hooked = false;
+            let disabled = (self.ents.stun_ms[i] > 0 && !own_cast) || self.ents.buffed(&self.cfg.cards.buffs, i, Sel::HitSpeed, 100) <= 0 || hooked;
             let spent = if below { r.grace_ms < 0 } else { r.grace_ms == 0 };
+            // combat.RAMP_LEVEL_DROP = client16402_after_the_attack: the grace's reset takes his count now and his level
+            // buffs on the next Status phase (an entry on the reset tick runs at the old level). Measured on client 16.402
+            // (parity r75, live13): 25 of 25 entries after 7 walking ticks. PLANT (regression) ramp_level_drops_with_count:
+            // the new arm still takes both at once.
+            #[cfg(not(clash_plant = "ramp_level_drops_with_count"))]
+            let later = self.cfg.calib.ramp_level_drop == RampLevelDrop::Client16402AfterTheAttack;
+            #[cfg(clash_plant = "ramp_level_drops_with_count")]
+            let later = false;
             #[cfg(not(clash_plant = "ramp_never_resets"))]
-            if (spent && r.count > 0) || disabled {
+            if disabled {
                 r.count = 0;
+                r.clear_due = false;
                 self.ramp_clear(i, &ramp);
+            } else if spent && r.count > 0 {
+                r.count = 0;
+                if later {
+                    r.clear_due = true;
+                } else {
+                    self.ramp_clear(i, &ramp);
+                }
             }
-            let _ = disabled;
+            let _ = (disabled, later);
             keep.push(r);
         }
         self.warps.ramps = keep;
@@ -36755,6 +36825,9 @@ impl BattleState {
                     h.i32(r.grace_ms);
                     h.i32(r.at.x);
                     h.i32(r.at.y);
+                    if r.clear_due {
+                        h.u32(0x4443_4c52);
+                    }
                 }
             }
             if !self.warps.guards.is_empty() {
@@ -38510,6 +38583,10 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.UPPERCUT_THROW_AIM: Calib gained uppercut_throw_aim (serde default the old arm, own_king), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RAMP_HOOK_RESET: Calib gained ramp_hook_reset (serde default the old arm, kept), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.RAMP_LEVEL_DROP: Calib gained ramp_level_drop (serde default the old arm, with_the_count), RampRun gained clear_due (serde default false, skipped when false; hashed only when set),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39560,6 +39637,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_water_landing".into(), serde_json::to_value(GuardWaterLanding::InWater).map_err(|e| e.to_string())?);
     // knockback.UPPERCUT_THROW_AIM: a format-3 battle ran knockback.UPPERCUT_THROW_AIM's old arm.
     sh.insert("uppercut_throw_aim".into(), serde_json::to_value(UppercutThrowAim::OwnKing).map_err(|e| e.to_string())?);
+    // combat.RAMP_HOOK_RESET: a format-3 battle ran combat.RAMP_HOOK_RESET's old arm.
+    sh.insert("ramp_hook_reset".into(), serde_json::to_value(RampHookReset::Kept).map_err(|e| e.to_string())?);
+    // combat.RAMP_LEVEL_DROP: a format-3 battle ran combat.RAMP_LEVEL_DROP's old arm.
+    sh.insert("ramp_level_drop".into(), serde_json::to_value(RampLevelDrop::WithTheCount).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

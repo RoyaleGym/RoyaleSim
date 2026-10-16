@@ -372,6 +372,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   spells.STRIKE_DUE = clock_at_or_below_zero: the Royal Delivery's crate on C + 39 (7 casts); 16.402's on C + 40 (ob13).
 ///   combat.GUARD_WATER_LANDING = in_water: the guard stands where its charge ends (unread on 15.535.29).
 ///   knockback.UPPERCUT_THROW_AIM = own_king: sp-form-MegaKnight-evo-s0 threw its Knight at its king.
+///   combat.RAMP_HOOK_RESET = kept: unread on client 15.535.29.
+///   combat.RAMP_LEVEL_DROP = with_the_count: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -574,6 +576,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.STRIKE_DUE", "\"clock_at_or_below_zero\""),
     ("combat.GUARD_WATER_LANDING", "\"in_water\""),
     ("knockback.UPPERCUT_THROW_AIM", "\"own_king\""),
+    ("combat.RAMP_HOOK_RESET", "\"kept\""),
+    ("combat.RAMP_LEVEL_DROP", "\"with_the_count\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

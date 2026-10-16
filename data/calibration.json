@@ -1844,6 +1844,26 @@
     }
   },
   "combat": {
+    "RAMP_LEVEL_DROP": {
+      "value": "with_the_count",
+      "status": "measured",
+      "candidates": ["with_the_count", "client16402_after_the_attack"],
+      "confidence": "HIGH for client16402_after_the_attack on client 16.402 (parity r75, 2026-10-16): re-entries after a ramped run (x2/x3) on the tick right after his last walking frame: 1-6 walking frames since his last swing start keep the level (301 of 317, the rest unread or other); 7 run the entry tick E at the OLD level (p(E) = LoadTime - max(0, l(E-1) - 50) + 50 x old level) and x1 from E + 1, 25 of 25; 8 are x1 on E, 31 of 31; the engine x1 on E after 7 walking ticks, 7 of 7 traced. A candidate until scored. Client 15.535.29 keeps with_the_count (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): re-entries after a ramped run (x2/x3) on the tick right after his last walking frame: 1-6 walking frames since his last swing start keep the level (301 of 317, the rest unread or other); 7 run the entry tick E at the OLD level (p(E) = LoadTime - max(0, l(E-1) - 50) + 50 x old level) and x1 from E + 1, 25 of 25; 8 are x1 on E, 31 of 31; the engine x1 on E after 7 walking ticks, 7 of 7 traced.",
+      "meaning": "with_the_count: the engine's; the grace's reset takes his count and his level buff in the Status phase, so an entry on that tick runs at x1. client16402_after_the_attack: the count goes then, but the level buff comes off a tick later (the next Status phase), so the attack step on the reset tick runs at the old level: an entry on the tick after his 7th walking tick takes a credit 50 x (old level - 1) larger. A stun or a disable still takes both at once.",
+      "open": "The client's internal order (its ticker after the attack step) is inferred from the entries' credit.",
+      "engine": "state.rs ramp_pass (RampRun::clear_due), selected by Calib::ramp_level_drop; tests/little_prince.rs."
+    },
+    "RAMP_HOOK_RESET": {
+      "value": "kept",
+      "status": "measured",
+      "candidates": ["kept", "client16402_hook_disables"],
+      "confidence": "MEDIUM for client16402_hook_disables on client 16.402 (parity r75, 2026-10-16): all 15 Little Prince state-12 episodes in live13 are Fisherman hooks (drags of 5-15 frames); the 5 that started ramped (x2 or x3, a 5-frame drag among them) came out at x1, their next run rising 50 a tick after its entry; the engine kept the level after the drag in 5 of 5 (2 before the battle's first divergence: 055001-A key 9 back at x2, 231858-A key 8 back at x3). A candidate until scored. Client 15.535.29 keeps kept (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): all 15 Little Prince state-12 episodes in live13 are Fisherman hooks (drags of 5-15 frames); the 5 that started ramped (x2 or x3, a 5-frame drag among them) came out at x1, their next run rising 50 a tick after its entry; the engine kept the level after the drag in 5 of 5 (2 before the battle's first divergence: 055001-A key 9 back at x2, 231858-A key 8 back at x3).",
+      "meaning": "kept: the engine's; a Fisherman's hook drag is no move and no stun to the Little Prince's ramp (combat.RAMP_GRACE_MOVE = client15535_own_walk), so he comes out of it at the speed he went in. client16402_hook_disables: while a hook holds him (his hooked_by set) his combat is disabled, so his count goes to 0 and his level buffs come off, as under a stun.",
+      "open": "Small n (5 ramped hooks); that the client calls the drag 'disabled' is inferred (a 5-frame drag reset him, where a walk needs 7).",
+      "engine": "state.rs ramp_pass (`disabled`), selected by Calib::ramp_hook_reset; tests/little_prince.rs."
+    },
     "GUARD_WATER_LANDING": {
       "value": "in_water",
       "status": "measured",

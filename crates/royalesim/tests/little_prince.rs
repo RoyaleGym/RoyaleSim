@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampPressHold, RampStunRestart};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -1192,4 +1192,131 @@ fn under_client16402_nearest_land_lattice_a_guard_landing_in_the_river_stands_on
     }
     let (land_old, _) = guard_end_live(GuardWaterLanding::InWater, AT);
     assert_eq!(guard_end_live(GuardWaterLanding::Client16402NearestLandLattice, AT).0, land_old, "a land landing moved");
+}
+
+/// Under combat.RAMP_HOOK_RESET = `arm` (combat.SPECIAL_HOOK = client_hook_drag; Blue's princess towers down): his ramp at
+/// its third speed on a red Golem held 5000 ahead, then a red Fisherman (held, topped up) 6800 off hooks him; after the drag
+/// (his steps of about 510) the gaps of his hits on the Golem, which he shoots on from where the drag left him (its
+/// hitpoints' drops: one shot is always in flight from there, so the projectile count cannot tell his shots).
+fn hooked_gaps(arm: RampHookReset) -> Vec<u32> {
+    let (mut s, lp, _) = scene_cfg(
+        |c| {
+            c.calib.ramp_hook_reset = arm;
+            c.calib.special_hook = SpecialHook::ClientHookDrag;
+        },
+        &[],
+    );
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    let at = (AT.0, AT.1 + 5000);
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", n(at), None).expect("a red Golem");
+    let t = shots(&mut s, lp, &[(golem, n(at))], 160, None);
+    assert!(gaps(&t).ends_with(&[8, 8]), "the scene: his ramp at its third speed before the hook {t:?}");
+    let f_at = n((AT.0 - 6500, AT.1 + 2000));
+    let fisher = s.scenario_spawn_now(Team::Red, "Fisherman", f_at, None).expect("the Fisherman");
+    let (mut out, mut dragged, mut done) = (Vec::new(), 0, None);
+    let mut last = s.entity(lp).expect("him").pos;
+    for k in 0..260 {
+        for (id, p) in [(golem, n(at)), (fisher, f_at)] {
+            if let Some(e) = s.entity(id) {
+                let full = e.max_hp;
+                assert!(s.debug_set_hp(id, full));
+                if done.is_none() || id == golem {
+                    assert!(s.debug_set_pos(id, p));
+                }
+            }
+        }
+        let full = s.entity(lp).expect("him").max_hp;
+        assert!(s.debug_set_hp(lp, full));
+        s.tick();
+        let now = s.entity(lp).expect("him").pos;
+        let (dx, dy) = (i64::from((now.x - last.x) / K), i64::from((now.y - last.y) / K));
+        last = now;
+        if (480 * 480..=540 * 540).contains(&(dx * dx + dy * dy)) {
+            dragged += 1;
+        } else if dragged > 0 && done.is_none() {
+            done = Some(k);
+        }
+        let g = s.entity(golem).expect("the Golem");
+        if done.is_some() && g.hp < g.max_hp {
+            out.push(s.tick_count() - 1);
+        }
+    }
+    assert!(dragged >= 3 && done.is_some(), "the scene drifted: no hook drag ({dragged} drag ticks)");
+    gaps(&out)
+}
+
+/// combat.RAMP_HOOK_RESET = client16402_hook_disables (client 16.402, parity r75, live13: 5 of 5 ramped hooks came out at
+/// x1, the engine kept the level 5 of 5): after the drag his shots are 24 apart (his first speed); under kept 8 apart (the
+/// vacuity check). Plant: ramp_hook_kept.
+#[test]
+fn under_client16402_hook_disables_a_hook_resets_his_ramp() {
+    // The first gap may start from a shot fired before the drag that lands after it.
+    let old = hooked_gaps(RampHookReset::Kept);
+    assert!(old.len() >= 3 && old[1..3] == [8, 8], "kept: his ramp after the drag {old:?}");
+    let new = hooked_gaps(RampHookReset::Client16402HookDisables);
+    assert!(new.len() >= 3 && (new[..2] == [24, 24] || new[1..3] == [24, 24]), "client16402_hook_disables: his ramp after the drag {new:?}");
+}
+
+/// Under combat.RAMP_LEVEL_DROP = `arm` (RAMP_GRACE_MOVE = point_changed, RAMP_GRACE_RESET = client16402_below_zero): his
+/// ramp at its third speed on a red Golem 5000 ahead, then `walk` moving ticks (his point moved 30 a tick), the Golem away
+/// for all but the last, put back 5000 ahead of him on the last (the walk's last tick is his entry's): his shot ticks after,
+/// from the walk's last tick.
+fn walked_shots(arm: RampLevelDrop, walk: i32) -> Vec<u32> {
+    let (mut s, lp, _) = scene_cfg(
+        |c| {
+            c.calib.ramp_level_drop = arm;
+            c.calib.ramp_grace_reset = RampGraceReset::Client16402BelowZero;
+            c.calib.ramp_grace_move = RampGraceMove::PointChanged;
+        },
+        &[],
+    );
+    let at = (AT.0, AT.1 + 5000);
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", n(at), None).expect("a red Golem");
+    let t = shots(&mut s, lp, &[(golem, n(at))], 160, None);
+    assert!(gaps(&t).ends_with(&[8, 8]), "the scene: his ramp at its third speed before the walk {t:?}");
+    let away = n((AT.0, 31000));
+    let me = (AT.0 + 30 * walk, AT.1);
+    let back = (me.0, me.1 + 5000);
+    for k in 1..=walk {
+        assert!(s.debug_set_pos(lp, n((AT.0 + 30 * k, AT.1))));
+        assert!(s.debug_set_pos(golem, if k == walk { n(back) } else { away }));
+        s.tick();
+    }
+    let end = s.tick_count() - 1;
+    let mine = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(lp)).count();
+    let mut known = mine(&s);
+    let mut out = Vec::new();
+    for _ in 0..120 {
+        assert!(s.debug_set_pos(lp, n(me)));
+        if let Some(e) = s.entity(golem) {
+            let full = e.max_hp;
+            assert!(s.debug_set_pos(golem, n(back)));
+            assert!(s.debug_set_hp(golem, full));
+        }
+        s.tick();
+        let m = mine(&s);
+        if m > known {
+            out.push(s.tick_count() - 1 - end);
+        }
+        known = m;
+    }
+    out
+}
+
+/// combat.RAMP_LEVEL_DROP = client16402_after_the_attack (client 16.402, parity r75, live13: 25 of 25 entries the tick after
+/// his 7th walking tick ran at the old level, x1 after; 31 of 31 after 8 at x1): an entry on the grace's reset tick runs
+/// at his old (third) speed, so his first shot comes sooner than under with_the_count (the vacuity check), and his shots
+/// after are at his first speed under both; an entry a tick after the reset is the same under both. Plant:
+/// ramp_level_drops_with_count.
+#[test]
+fn under_client16402_after_the_attack_an_entry_on_the_reset_tick_runs_at_his_old_speed() {
+    let (o7, n7) = (walked_shots(RampLevelDrop::WithTheCount, 7), walked_shots(RampLevelDrop::Client16402AfterTheAttack, 7));
+    assert!(o7.len() >= 3 && n7.len() >= 3, "the scene drifted: {o7:?} {n7:?}");
+    assert!(n7[0] < o7[0], "client16402_after_the_attack: the entry on the reset tick ran at his first speed ({n7:?} against {o7:?})");
+    assert_eq!(gaps(&o7)[..2], [24, 24], "with_the_count: his shots after the reset {o7:?}");
+    assert_eq!(gaps(&n7)[..2], [24, 24], "client16402_after_the_attack: his shots after the entry {n7:?}");
+    assert_eq!(walked_shots(RampLevelDrop::WithTheCount, 8), walked_shots(RampLevelDrop::Client16402AfterTheAttack, 8), "an entry a tick after the reset");
 }
