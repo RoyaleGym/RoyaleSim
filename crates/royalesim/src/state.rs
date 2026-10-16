@@ -881,6 +881,10 @@ pub struct Calib {
     /// `SeenOnBirthTick`, what a battle saved before it ran.
     #[serde(default = "live_spawn_area_birth_default")]
     pub live_spawn_area_birth: LiveSpawnAreaBirth,
+    /// combat.DASH_END_CONTACT (whether a timed dash's unit is a contact body on its dash's end tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `EndTickBody`, what a battle saved before it ran.
+    #[serde(default = "dash_end_contact_default")]
+    pub dash_end_contact: DashEndContact,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2723,6 +2727,10 @@ fn dash_immune_hits_default() -> DashImmuneHits {
 
 fn live_spawn_area_birth_default() -> LiveSpawnAreaBirth {
     LiveSpawnAreaBirth::SeenOnBirthTick
+}
+
+fn dash_end_contact_default() -> DashEndContact {
+    DashEndContact::EndTickBody
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -9785,6 +9793,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DASH_END_CONTACT -- a timed dash's (DashConstantTime: the Mega Knight's jump) end tick in the move pass (state.rs
+    /// `phase_path16402_for`, the DashState::Dashing branch).
+    DashEndContact {
+        /// The engine's: a contact body from the moment its dash ends, for the units the pass updates after it.
+        EndTickBody = "end_tick_body",
+        /// Client 16.402: no body on the end tick; the next tick's bodies take it in.
+        Client16402NextTick = "client16402_next_tick",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10318,6 +10336,7 @@ impl Calib {
             warp_back_cloak: pick(&v, &["status", "WARP_BACK_CLOAK", "value"], WarpBackCloak::from_calibration_name)?,
             dash_immune_hits: pick(&v, &["combat", "DASH_IMMUNE_HITS", "value"], DashImmuneHits::from_calibration_name)?,
             live_spawn_area_birth: pick(&v, &["spells", "LIVE_SPAWN_AREA_BIRTH", "value"], LiveSpawnAreaBirth::from_calibration_name)?,
+            dash_end_contact: pick(&v, &["combat", "DASH_END_CONTACT", "value"], DashEndContact::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -25081,7 +25100,18 @@ impl BattleState {
                             // the dash is spent: the target's next sight is a first sight
                             dash_target[i] = None;
                             dash_ended.push(i);
-                            bodies[i].collidable = true;
+                            // combat.DASH_END_CONTACT = client16402_next_tick: a timed dash's unit (the Mega Knight's jump)
+                            // stays out of its end tick's contact pass; the next tick's bodies (built from `dash_state`) take
+                            // it in. Measured on client 16.402 (parity r73): no neighbour moved by contact on the end tick, 0
+                            // of 7; the engine pushed the 5 created after him.
+                            // PLANT (regression) dash_end_body_now: the new arm still makes him a body on the end tick.
+                            #[cfg(not(clash_plant = "dash_end_body_now"))]
+                            let later = calib.dash_end_contact == DashEndContact::Client16402NextTick && d.constant_time_ms.is_some();
+                            #[cfg(clash_plant = "dash_end_body_now")]
+                            let later = false;
+                            if !later {
+                                bodies[i].collidable = true;
+                            }
                         }
                         continue;
                     }
@@ -36928,6 +36958,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.LIVE_SPAWN_AREA_BIRTH: Calib gained live_spawn_area_birth (serde default the old arm, seen_on_birth_tick), no new state (it reads spawned_by and spawn_tick),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_END_CONTACT: Calib gained dash_end_contact (serde default the old arm, end_tick_body), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -37911,6 +37943,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_immune_hits".into(), serde_json::to_value(DashImmuneHits::Discarded).map_err(|e| e.to_string())?);
     // spells.LIVE_SPAWN_AREA_BIRTH: a format-3 battle's areas saw a live spawner's newborn on its birth tick.
     sh.insert("live_spawn_area_birth".into(), serde_json::to_value(LiveSpawnAreaBirth::SeenOnBirthTick).map_err(|e| e.to_string())?);
+    // combat.DASH_END_CONTACT: a format-3 battle's Mega Knight was a body on his jump's end tick.
+    sh.insert("dash_end_contact".into(), serde_json::to_value(DashEndContact::EndTickBody).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

@@ -39,6 +39,8 @@
 //!   * `dash_first_tick_moves` -- the Bandit moves on its entry tick: (3) goes red on the stand's length.
 //!   * `dash_whole_steps` -- one whole step and one Range test a tick: (3) goes red on the half-step stop.
 //!   * `dash_not_immune` -- a dashing unit takes every hit: (4) goes red.
+//!   * `dash_end_body_now` -- combat.DASH_END_CONTACT = client16402_next_tick still makes the Mega Knight a body on his end
+//!     tick: `under_client16402_next_tick_a_mega_knight_moves_no_neighbour_on_his_jumps_end_tick` goes red.
 //!   * `dash_immune_hit_discarded` -- combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end still drops a held shot:
 //!     `under_client16402_held_to_immunity_end_an_arrow_flying_at_the_dash_start_lands_on_the_immunity_end` goes red.
 //!   * `dash_keeps_the_cycle` -- the load timer is not reset after the dash: (5) goes red.
@@ -51,7 +53,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashAttack, DashImmuneHits};
+use royalesim::state::{BattleConfig, BattleState, DashAttack, DashEndContact, DashImmuneHits, DASH_BLOW_TO_END_TICKS};
 use royalesim::{EntityId, Team};
 
 fn with(arm: DashAttack) -> BattleConfig {
@@ -503,4 +505,65 @@ fn under_client16402_held_to_immunity_end_an_arrow_flying_at_the_dash_start_land
     // DashImmuneToDamageTime 100 / 50: immune through the arrival + 1, out on the arrival + 2 (state.rs `end_dashes`).
     assert_eq!(t, arrival + 2, "the held arrow landed on {t}, not on her first tick out of the immunity (the arrival {arrival} + 2)");
     assert_eq!(ln - lo, arrow, "the held arrow on {t} deals one arrow ({arrow}): old {lo}, new {ln}");
+}
+
+/// The Mega Knight scene (a Blue Mega Knight at MK_AT jumping on a Red Giant at GIANT_AT) under combat.DASH_END_CONTACT = `arm`,
+/// with a Red Skeleton made after his blow's tick (the blow's DashRadius and DashPushBack spare it), 300 from where he rests on
+/// the side he jumped from: it overlaps him (the radii sum 1,250), it stands 1,800 or more from the Giant, and he is its
+/// nearest enemy, so it stays on him. Its point when made, then after each tick, native: entry DASH_BLOW_TO_END_TICKS is
+/// after his end tick (the blow + DASH_BLOW_TO_END_TICKS).
+fn landing_neighbour(arm: DashEndContact) -> Vec<(i32, i32)> {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_end_contact = arm;
+    let mut s = BattleState::new(0, cfg);
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Red, "Giant", at(GIANT_AT), None), (Team::Blue, "MegaKnight", at(MK_AT), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let mk = ids[1];
+    // The jump's onset (its first move longer than 200, as test 7 reads it), then on through the blow's tick, onset + MK_BLOW.
+    let mut t = 0u32;
+    let onset = loop {
+        assert!(t < 60, "{arm:?}: the scene drifted: the Mega Knight never jumped");
+        let p0 = s.entity(mk).expect("the Mega Knight").pos;
+        s.tick();
+        t += 1;
+        if dist(p0, s.entity(mk).expect("the Mega Knight").pos) > 200 {
+            break t - 1;
+        }
+    };
+    while t <= onset + MK_BLOW {
+        s.tick();
+        t += 1;
+    }
+    let m = s.entity(mk).expect("the Mega Knight").pos;
+    let (mx, my) = (m.x / K, m.y / K);
+    let (dx, dy) = ((MK_AT.0 - mx) as i64, (MK_AT.1 - my) as i64);
+    let n = isqrt(dx * dx + dy * dy).max(1);
+    let p = (mx + (dx * 300 / n) as i32, my + (dy * 300 / n) as i32);
+    let sk = s.scenario_spawn_now(Team::Red, "Skeleton", at(p), None).expect("the Skeleton");
+    let sp = s.entity(sk).expect("the Skeleton").pos;
+    let mut out = vec![(sp.x / K, sp.y / K)];
+    for _ in 0..DASH_BLOW_TO_END_TICKS + 4 {
+        s.tick();
+        let Some(v) = s.entity(sk) else { break };
+        out.push((v.pos.x / K, v.pos.y / K));
+    }
+    out
+}
+
+/// combat.DASH_END_CONTACT = client16402_next_tick (client 16.402, parity's r73 census: no neighbour moved by contact on a
+/// Mega Knight's jump's end tick, 0 of 7; the engine pushed the 5 created after him): a Skeleton made on him after his blow
+/// keeps the same points under both arms through his last dash ticks (he is no body under either); on his end tick the old
+/// arm makes him a body before the Skeleton's later update and it is pushed, the new arm leaves it still. Plant:
+/// dash_end_body_now.
+#[test]
+fn under_client16402_next_tick_a_mega_knight_moves_no_neighbour_on_his_jumps_end_tick() {
+    let old = landing_neighbour(DashEndContact::EndTickBody);
+    let new = landing_neighbour(DashEndContact::Client16402NextTick);
+    let end = DASH_BLOW_TO_END_TICKS as usize; // made after onset + 16; his end is onset + 20, the 4th tick after
+    assert!(old.len() > end + 1 && new.len() > end + 1, "the scene drifted: the Skeleton did not live to his end tick + 1 (old {old:?}, new {new:?})");
+    let k = old.iter().zip(new.iter()).position(|(a, b)| a != b).unwrap_or_else(|| panic!("vacuous: the arms never parted on the Skeleton ({old:?})"));
+    assert_eq!(k, end, "the arms parted {k} ticks after the Skeleton was made, not on his end tick ({end}): old {old:?}, new {new:?}");
+    let step = |v: &Vec<(i32, i32)>| isqrt(((v[k].0 - v[k - 1].0) as i64).pow(2) + ((v[k].1 - v[k - 1].1) as i64).pow(2));
+    assert!(step(&new) < step(&old), "on his end tick the new arm moved the Skeleton as far or further ({} vs {})", step(&new), step(&old));
 }

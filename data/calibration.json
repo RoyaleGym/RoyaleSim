@@ -1814,6 +1814,16 @@
     }
   },
   "combat": {
+    "DASH_END_CONTACT": {
+      "value": "end_tick_body",
+      "status": "measured",
+      "candidates": ["end_tick_body", "client16402_next_tick"],
+      "confidence": "HIGH for client16402_next_tick on client 16.402 (parity r73, 2026-10-15): parity's r73 census of the live9 set (client 16.402): over 6 Mega Knight landings with a ground unit overlapping him, the client moved no neighbour by contact on his jump's end tick (0 of 7), the engine pushed every one created after him (5 of 5); from the end + 1 both push every overlapping neighbour alike (16 of 16). A candidate until scored. Bandit-type dashes (no DashConstantTime) unread (no end-tick overlap in the set): they keep end_tick_body under either arm. Client 15.535.29 keeps end_tick_body (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-15, r73) on client 16.402: parity's r73 census of the live9 set (client 16.402): over 6 Mega Knight landings with a ground unit overlapping him, the client moved no neighbour by contact on his jump's end tick (0 of 7), the engine pushed every one created after him (5 of 5); from the end + 1 both push every overlapping neighbour alike (16 of 16).",
+      "meaning": "end_tick_body: the engine's; a dash that ends inside the move pass makes its unit a contact body on the spot, so the units updated after it on that tick meet it (pushed, steered). client16402_next_tick: a timed dash's unit (DashConstantTime) stays out of its end tick's contact pass; the next tick's bodies take it in.",
+      "open": "Bandit-type dashes; client 15.535.29.",
+      "engine": "state.rs phase_path16402_for (the dash's end), selected by Calib::dash_end_contact; tests/dash_attack.rs."
+    },
     "DASH_IMMUNE_HITS": {
       "value": "discarded",
       "status": "measured",
