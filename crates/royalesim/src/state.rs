@@ -7991,6 +7991,10 @@ calib_enum!(
         /// offset 0 and attacked the tower 501 off. A Knight killed by a princess tower's arrow after the move pass
         /// (sweep-WitchMother) left its hog at offset 0, as under the old arm.
         Client15535DoomedParent = "client15535_doomed_parent",
+        /// Client 16.402 (parity r75, live13): its first update, contact push included, on its creation tick whatever
+        /// killed its parent; the dying parent a static blocker in its avoidance scan only when the doomed mask held it.
+        /// The 7 hogs born overlapping a body were pushed on their first frame in 7 of 7; the engine's in 0 of 7.
+        Client16402CreationTick = "client16402_creation_tick",
     }
 );
 calib_enum!(
@@ -31630,14 +31634,31 @@ impl BattleState {
                     let acquire_delay = true; // PLANT: the curse's unit waits out the death spawn's acquire delay.
                     // status.BUFF_DEATH_SPAWN_FIRST_UPDATE = client15535_doomed_parent: a parent the move pass's doomed mask
                     // held gives the unit its first update on this tick, the parent a static blocker in its avoidance scan.
-                    #[cfg(not(any(clash_plant = "buff_spawn_first_update_next_tick", clash_plant = "buff_spawn_first_update_any_parent")))]
-                    let first_update = self.cfg.calib.buff_death_spawn_first_update == BuffDeathSpawnFirstUpdate::Client15535DoomedParent
-                        && self.scratch.doomed.get(i).copied().unwrap_or(false);
+                    // client16402_creation_tick: the first update on this tick whatever killed the parent, the parent a
+                    // blocker only when doomed. PLANT (regression) buff_spawn_first_update_doomed_only: the new arm still
+                    // needs the doomed mask.
+                    let doomed = self.scratch.doomed.get(i).copied().unwrap_or(false);
+                    #[cfg(not(any(
+                        clash_plant = "buff_spawn_first_update_next_tick",
+                        clash_plant = "buff_spawn_first_update_any_parent",
+                        clash_plant = "buff_spawn_first_update_doomed_only"
+                    )))]
+                    let first_update = match self.cfg.calib.buff_death_spawn_first_update {
+                        BuffDeathSpawnFirstUpdate::NextTick => false,
+                        BuffDeathSpawnFirstUpdate::Client15535DoomedParent => doomed,
+                        BuffDeathSpawnFirstUpdate::Client16402CreationTick => true,
+                    };
                     #[cfg(clash_plant = "buff_spawn_first_update_next_tick")]
                     let first_update = false; // PLANT: the unit first moves on the next tick, whatever the key.
                     #[cfg(clash_plant = "buff_spawn_first_update_any_parent")]
                     let first_update = self.cfg.calib.buff_death_spawn_first_update == BuffDeathSpawnFirstUpdate::Client15535DoomedParent; // PLANT: doomed or not.
-                    if first_update {
+                    #[cfg(clash_plant = "buff_spawn_first_update_doomed_only")]
+                    let first_update = self.cfg.calib.buff_death_spawn_first_update != BuffDeathSpawnFirstUpdate::NextTick && doomed;
+                    #[cfg(not(clash_plant = "buff_spawn_first_update_any_parent"))]
+                    let blocks = doomed;
+                    #[cfg(clash_plant = "buff_spawn_first_update_any_parent")]
+                    let blocks = true; // PLANT: the parent a blocker, doomed or not.
+                    if first_update && blocks {
                         use crate::fixed::SUBTILE_PER_MILLITILE as K;
                         let p = self.ents.pos[i];
                         let blocker = (p.x / K, p.y / K, self.ents.radius[i] / K, self.ents.team[i] as u8, self.ents.flying[i], false);

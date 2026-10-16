@@ -20,7 +20,12 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test buff_death_spawn_first_update`):
 //!   * `buff_spawn_first_update_next_tick` -- the hog first moves on the next tick: (1) goes red;
-//!   * `buff_spawn_first_update_any_parent` -- the hog steps on its birth tick whatever killed its parent: (2) goes red.
+//!   * `buff_spawn_first_update_any_parent` -- the hog steps on its birth tick whatever killed its parent: (2) goes red;
+//!   * `buff_spawn_first_update_doomed_only` -- client16402_creation_tick still needs the doomed mask: (3) goes red.
+//!
+//! (3) client16402_creation_tick (client 16.402, parity r75, live13: the 7 hogs born overlapping a body carried a push off it
+//! on their first frame in 7 of 7, the engine's in 0 of 7): a Blue Golem PUSHER held 700 south of the hog's birth point;
+//! the hog's point on its creation tick, with and without the pusher, its parent's hitpoints set to 0 on a quiet tick.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -120,4 +125,44 @@ fn a_hog_whose_parent_died_of_no_hit_waits_for_the_next_tick() {
 #[test]
 fn the_shipped_arm_is_the_client15535_doomed_parent() {
     assert_eq!(Calib::shipped().buff_death_spawn_first_update, BuffDeathSpawnFirstUpdate::Client15535DoomedParent);
+}
+
+/// 700 south of the hog's birth point (1100 south of the Red Knight): a Blue Golem there overlaps the newborn hog. A
+/// building-targeter, it never strikes the Red Knight, and the Witch curses no Blue unit, so the kill stays quiet.
+const PUSHER: (i32, i32) = (9900, 18200);
+
+/// As `scene`, the Red Knight's hitpoints set to `hp` before tick `d`, and with a Blue Golem `pusher` held on PUSHER: the
+/// point of the hog the Red Knight leaves, on its creation tick.
+fn birth_point(arm: BuffDeathSpawnFirstUpdate, d: usize, hp: i32, pusher: bool) -> Vec2 {
+    let mut s = BattleState::new(0, cfg(arm));
+    let _cannon = s.scenario_spawn_now(Team::Blue, "Cannon", at(CANNON), None).expect("the Cannon");
+    let red = s.scenario_spawn_now(Team::Red, "Knight", at(RED_KNIGHT), None).expect("the Red Knight");
+    let _witch = s.scenario_spawn_now(Team::Blue, "WitchMother", at(WITCH), None).expect("the Witch");
+    let blue = s.scenario_spawn_now(Team::Blue, "Knight", at(BLUE_KNIGHT), None).expect("the Blue Knight");
+    let push = pusher.then(|| s.scenario_spawn_now(Team::Blue, "Golem", at(PUSHER), None).expect("the pusher"));
+    let full = s.entity(red).expect("the Red Knight").max_hp;
+    for k in 0..=d {
+        assert!(s.entity(red).is_some(), "the scene drifted: the Red Knight died before tick {d}");
+        assert!(s.debug_set_pos(red, at(RED_KNIGHT)) && s.debug_set_pos(blue, at(BLUE_KNIGHT)));
+        assert!(s.debug_set_hp(blue, s.entity(blue).expect("the Blue Knight").max_hp));
+        if let Some(p) = push {
+            assert!(s.debug_set_pos(p, at(PUSHER)) && s.debug_set_hp(p, s.entity(p).expect("the pusher").max_hp));
+        }
+        assert!(s.debug_set_hp(red, if k == d { hp } else { full }));
+        s.tick();
+    }
+    let hog = s.entities().find(|e| e.card == "VoodooHog").map(|e| e.pos);
+    hog.expect("the scene drifted: no hog on its creation tick")
+}
+
+/// (3) Plant: buff_spawn_first_update_doomed_only.
+#[test]
+fn under_client16402_creation_tick_a_hog_whose_parent_died_of_no_hit_is_pushed_on_its_birth_tick() {
+    let d = quiet_tick();
+    let arm = BuffDeathSpawnFirstUpdate::Client16402CreationTick;
+    let (alone, crowded) = (birth_point(arm, d, 0, false), birth_point(arm, d, 0, true));
+    assert_ne!(crowded, alone, "client16402_creation_tick: the pusher moved no hog on its creation tick ({alone:?})");
+    // NOT VACUOUS: the shipped 16.402 arm (client15535_doomed_parent) leaves a not-doomed parent's hog unpushed on that tick.
+    let old = BuffDeathSpawnFirstUpdate::Client15535DoomedParent;
+    assert_eq!(birth_point(old, d, 0, true), birth_point(old, d, 0, false), "client15535_doomed_parent: the hog was pushed");
 }
