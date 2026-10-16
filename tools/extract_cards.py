@@ -3175,6 +3175,55 @@ def spawn_area_action(t, c) -> str | None:
     return a["SpawnData"]
 
 
+#: THE ROYAL CHEF'S COOKING (`chef_cooking`): an ActionChefTower's columns -> cards.json keys. Times are ms
+#: (HoldFullBarTime is seconds in the table: 1.2 -> 1200). Its indicator, animation and stats columns are display only,
+#: not carried.
+CHEF_COOKING_FIELDS = {
+    "StartCookingDelay": "start_cooking_delay_ms",
+    "ContributionNeeded": "contribution_needed",
+    "ContributionBaseline": "contribution_baseline",
+    "ContributionIdle": "contribution_idle",
+    "ContributionAttacking": "contribution_attacking",
+    "ContributionDestroyed": "contribution_destroyed",
+    "TargetFilter": "target_filter",
+    "MinCurrentHpThreshold": "min_current_hp",
+    "MinMaxHpThreshold": "min_max_hp",
+    "MinCurrentHpPercentageThreshold": "min_current_hp_percent",
+    "DeprioritizeBuffed": "deprioritize_buffed",
+    "BuffProjectile": "buff_projectile",
+    "PancakeThrowDelay": "pancake_throw_delay_ms",
+    "PancakeStartOffset": "pancake_start_offset",
+    "PancakeThrowDelayTreshold": "pancake_throw_delay_threshold_ms",
+    "WaitPancakeThrowAfterAttackTime": "wait_pancake_throw_after_attack_ms",
+    "PancakeThrowDuration": "pancake_throw_duration_ms",
+    "HoldFullBarTime": "hold_full_bar_ms",
+}
+
+
+def chef_cooking(t, c) -> dict | None:
+    """THE ROYAL CHEF'S COOKING: the ActionChefTower a row's OnStartingAction runs (the Chef's king tower,
+    ChefTowerKing: an ActionGroup whose SubActions name ChefTower_CookingAction), as {name, <CHEF_COOKING_FIELDS>}; None
+    for a row that runs none. The same block on 15.535.29 and 160402017. The engine does not read it yet."""
+    if not isinstance(c, Row) or "actions" not in t or not c.has_column("OnStartingAction"):
+        return None
+    start = c["OnStartingAction"]
+    names = [start] if isinstance(start, str) else list((start or {}).get("SubActions") or []) \
+        if isinstance(start, dict) else []
+    acts = t["actions"]
+    for n in names:
+        a = acts.get(n) if isinstance(n, str) else None
+        if a is None or a["ClassType"] != "ActionChefTower":
+            continue
+        out: dict = {"name": n}
+        for col, key in CHEF_COOKING_FIELDS.items():
+            v = a[col]
+            if col == "HoldFullBarTime" and v is not None:
+                v = round(v * 1000)
+            out[key] = v
+        return out
+    return None
+
+
 def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
     table, c = unit_record(t, name)
     defaults: list[str] = []
@@ -3293,6 +3342,9 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
         # appears (the Battle Healer's BattleHealerSpawnHeal), read under calibration
         # spawner.SPAWN_AREA_OBJECT_SCOPE. SpawnAreaObjectLevelIndex is not carried. 15.535 rows only.
         "spawn_area_object": c.get("SpawnAreaObject"),
+        # AreaEffectOnHit: the NAME of an `area_effect_objects` row the unit puts down on each hit it
+        # lands (the Battle Healer's BattleHealerHeal, the Evo Royal Giant's freeze). 15.535 rows only.
+        "area_effect_on_hit": c.get("AreaEffectOnHit"),
         # THE SUMMON RING'S RADIUS FALLBACK (calibration.json formation.LAYOUT): a
         # card with a blank SummonRadius lays its summons on the character's
         # SpawnRadius when that is set, else its CollisionRadius (the Skeleton
@@ -3676,6 +3728,10 @@ def norm_unit(t: dict[str, Table], name: str, with_raw: bool = False) -> dict:
             if g and g["roots"] == {"OnStartingAction": c["OnStartingAction"]} and g["class_types"] == ["ActionSpawn"] \
                     and g["spawns"] == [f"AreaEffectType:{sa}"]:
                 u["action_graph"] = None
+        # THE ROYAL CHEF'S COOKING (`chef_cooking`), written only on the row whose OnStartingAction runs it.
+        ck = chef_cooking(t, c)
+        if ck is not None:
+            u["chef_cooking"] = ck
         # SpawnCharacter2, into the spawner block: a second periodic unit (the Super Witch's Bat), which
         # the loader refuses. Written on the 15.535 rows only, after the literal, for the reason
         # DeathSpawnPushback is; tools/check_card_reads.py's PROLOGUE names it.
@@ -3824,6 +3880,7 @@ UNIT_FIELDS_FOR_CARD = [
 UNIT_FIELDS_15535 = [
     "death_spawn_projectile",
     "spawn_area_object",
+    "area_effect_on_hit",
     "hovering",
     "variable_damage",
     "attack_pushback_milli",

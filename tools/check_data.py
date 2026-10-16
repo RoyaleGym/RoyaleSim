@@ -109,6 +109,7 @@ REF_COLUMNS = {
         "SpawnAreaObject": "area_effect_objects",
         "DeathAreaEffect": "area_effect_objects",
         "AreaEffectOnDash": "area_effect_objects",
+        "AreaEffectOnHit": "area_effect_objects",
         "AreaEffectOnMorph": "area_effect_objects",
         "AppearAreaObject": "area_effect_objects",
         "BuffOnDamage": "character_buffs",
