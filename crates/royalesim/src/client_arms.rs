@@ -364,6 +364,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   status.HIT_STUN_SPAN = from_landing_tick: a hit's and a reflect's stun hold their BuffTime from the landing (unread there).
 ///   combat.CAGE_DEPLOY_TAKE = on_deploy_end: the cage takes on its deploy's end tick (15.535.29 measured reach-case takes).
 ///   combat.CAGE_HOLD_START = at_grab: the captive walks on through its grab (15.535.29: 'walks on through G').
+///   combat.EVO_KILL_HEAL = buff_at_kill: one pulse on the kill + 10, no overheal (sp-form-Pekka-evo-s0).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -558,6 +559,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("status.HIT_STUN_SPAN", "\"from_landing_tick\""),
     ("combat.CAGE_DEPLOY_TAKE", "\"on_deploy_end\""),
     ("combat.CAGE_HOLD_START", "\"at_grab\""),
+    ("combat.EVO_KILL_HEAL", "\"buff_at_kill\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -981,6 +981,10 @@ pub struct Calib {
     /// `AtGrab`, what a battle saved before it ran.
     #[serde(default = "cage_hold_start_default")]
     pub cage_hold_start: CageHoldStart,
+    /// combat.EVO_KILL_HEAL (how the Evo P.E.K.K.A.'s heal on a kill reaches her). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `BuffAtKill`, what a battle saved before it ran.
+    #[serde(default = "evo_kill_heal_default")]
+    pub evo_kill_heal: EvoKillHeal,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2923,6 +2927,10 @@ fn cage_deploy_take_default() -> CageDeployTake {
 
 fn cage_hold_start_default() -> CageHoldStart {
     CageHoldStart::AtGrab
+}
+
+fn evo_kill_heal_default() -> EvoKillHeal {
+    EvoKillHeal::BuffAtKill
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10261,6 +10269,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.EVO_KILL_HEAL -- the Evo P.E.K.K.A.'s heal on a kill (card.rs `KillHealDef`; state.rs `kill_heals`,
+    /// `kill_flight_heals`, EvoBoard `kill_flights`).
+    EvoKillHeal {
+        /// The engine's: the picked heal's buff hangs on her in the kill's Resolve, capped at her maximum.
+        BuffAtKill = "buff_at_kill",
+        /// Client 16.402: the heal flies flight_ms and lands once on the kill + flight_ms / TICK_MS + 1, one pulse, up to the
+        /// rows' AllowedOverHealPerc.
+        Client16402FlightOverheal = "client16402_flight_overheal",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10819,6 +10838,7 @@ impl Calib {
             hit_stun_span: pick(&v, &["status", "HIT_STUN_SPAN", "value"], HitStunSpan::from_calibration_name)?,
             cage_deploy_take: pick(&v, &["combat", "CAGE_DEPLOY_TAKE", "value"], CageDeployTake::from_calibration_name)?,
             cage_hold_start: pick(&v, &["combat", "CAGE_HOLD_START", "value"], CageHoldStart::from_calibration_name)?,
+            evo_kill_heal: pick(&v, &["combat", "EVO_KILL_HEAL", "value"], EvoKillHeal::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -11660,6 +11680,11 @@ pub struct EvoBoard {
     /// battle saved before it still loads; hashed only when not empty.
     #[serde(default)]
     pub souls: Vec<(EntityId, u32)>,
+    /// combat.EVO_KILL_HEAL = client16402_flight_overheal: each Evo P.E.K.K.A.'s kill heals in flight, (her, the tick it
+    /// lands, the pulse (negative: a heal), the overheal %) (`kill_flight_heals`). Empty under buff_at_kill; `default` so a
+    /// battle saved before it still loads; hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kill_flights: Vec<(EntityId, u32, i32, i32)>,
     /// Each Evo Witch's next interval wave's tick (`witch_wave_pass`). `default` so a battle saved before it still loads;
     /// hashed only when not empty.
     #[serde(default)]
@@ -11929,6 +11954,7 @@ impl EvoBoard {
             && self.uppercut_counts.is_empty()
             && self.uppercuts.is_empty()
             && self.souls.is_empty()
+            && self.kill_flights.is_empty()
             && self.witch_waves.is_empty()
             && self.cages.is_empty()
             && self.freed.is_empty()
@@ -21390,6 +21416,27 @@ impl BattleState {
         self.evo.souls = keep;
     }
 
+    /// THE EVO P.E.K.K.A.'S KILL HEALS IN FLIGHT (combat.EVO_KILL_HEAL = client16402_flight_overheal; EvoBoard `kill_flights`):
+    /// each due this tick heals her its pulse with the tick's other heals (`land_buff_heals`), up to its overheal %; one
+    /// whose P.E.K.K.A. is gone is dropped.
+    fn kill_flight_heals(&mut self) {
+        let tick = self.tick;
+        let mut keep = Vec::new();
+        for (p, due, pulse, over) in std::mem::take(&mut self.evo.kill_flights) {
+            if !self.ents.is_alive(p) || self.ents.hp[p.index as usize] <= 0 {
+                continue;
+            }
+            if due > tick {
+                keep.push((p, due, pulse, over));
+                continue;
+            }
+            if pulse < 0 {
+                self.scratch.heals.push((p, -pulse, over));
+            }
+        }
+        self.evo.kill_flights = keep;
+    }
+
     /// THE HEALS ON A KILL (card.rs `KillHealDef`), in the Resolve, after the tick's hits: each watched hit whose target
     /// the tick's hits left on 0 or below, its hitter alive, hangs on the hitter the heal the victim's size picks: its
     /// card's hitpoints at the block's level (a card with none: its maximum). The heal's pulse is scaled on the hitter's
@@ -21423,6 +21470,24 @@ impl BattleState {
             };
             let (card, level) = (self.ents.card[i], self.ents.level[i]);
             let Ok(pulse) = cards.buffs[b.buff as usize].pulse_amount(self.cfg.calib.buff_pulse_amount, |m| cards.scaled(card, level, m)) else { continue };
+            // combat.EVO_KILL_HEAL = client16402_flight_overheal: the heal flies flight_ms and lands once on the kill +
+            // flight / TICK_MS + 1 (the Evo Witch's soul's rule), up to the rows' AllowedOverHealPerc. Measured on client
+            // 16.402 (parity r74 batch 6): on the kill + 15 in 54 of 54, past her maximum in 8 of 8.
+            // PLANT (regression) kill_heal_at_kill: the new arm hangs the buff at the kill.
+            #[cfg(not(clash_plant = "kill_heal_at_kill"))]
+            let flies = self.cfg.calib.evo_kill_heal == EvoKillHeal::Client16402FlightOverheal;
+            #[cfg(clash_plant = "kill_heal_at_kill")]
+            let flies = false;
+            if flies {
+                let dt = self.cfg.calib.tick_ms.max(1);
+                // PLANT (regression) kill_heal_flight_capped: the new arm's heal stops at her maximum.
+                #[cfg(not(clash_plant = "kill_heal_flight_capped"))]
+                let over = k.over_heal_pct;
+                #[cfg(clash_plant = "kill_heal_flight_capped")]
+                let over = 100;
+                self.evo.kill_flights.push((by, self.tick + (k.flight_ms / dt) as u32 + 1, pulse, over));
+                continue;
+            }
             let h = crate::status::BuffHit::plain(by, b.buff, b.time_ms, pulse);
             land_buff(&mut self.ents, &cards, &self.cfg.calib, i, &h);
         }
@@ -29995,6 +30060,9 @@ impl BattleState {
         if !self.evo.souls.is_empty() {
             self.soul_heals();
         }
+        if !self.evo.kill_flights.is_empty() {
+            self.kill_flight_heals();
+        }
         self.land_buff_heals();
         for t in 0..2 {
             if out.king_hit[t] && self.king_wake_ms[t].is_none() {
@@ -36644,6 +36712,17 @@ impl BattleState {
                     h.u32(*next);
                 }
             }
+            // The Evo P.E.K.K.A.s' kill heals in flight (combat.EVO_KILL_HEAL), only when there are some.
+            if !b.kill_flights.is_empty() {
+                h.u32(0x4b48_464c);
+                h.u32(b.kill_flights.len() as u32);
+                for (id, due, pulse, over) in &b.kill_flights {
+                    h.id(*id);
+                    h.u32(*due);
+                    h.i32(*pulse);
+                    h.i32(*over);
+                }
+            }
             // The Evo Witches' souls in flight, only when there are some.
             if !b.souls.is_empty() {
                 h.u32(0x534f_554c);
@@ -37876,6 +37955,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.CAGE_HOLD_START: Calib gained cage_hold_start (serde default the old arm, at_grab), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.EVO_KILL_HEAL: Calib gained evo_kill_heal (serde default the old arm, buff_at_kill), EvoBoard gained kill_flights (serde default empty, hashed only when not empty, which only the new arm fills) and KillHealDef flight_ms and over_heal_pct (card data: the card fingerprint moves),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38909,6 +38990,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("cage_deploy_take".into(), serde_json::to_value(CageDeployTake::OnDeployEnd).map_err(|e| e.to_string())?);
     // combat.CAGE_HOLD_START: a format-3 battle ran combat.CAGE_HOLD_START's old arm.
     sh.insert("cage_hold_start".into(), serde_json::to_value(CageHoldStart::AtGrab).map_err(|e| e.to_string())?);
+    // combat.EVO_KILL_HEAL: a format-3 battle ran combat.EVO_KILL_HEAL's old arm.
+    sh.insert("evo_kill_heal".into(), serde_json::to_value(EvoKillHeal::BuffAtKill).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

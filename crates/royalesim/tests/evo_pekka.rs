@@ -10,7 +10,9 @@
 //! evo_pekka`):
 //!   - kill_heal_never -> every test red;
 //!   - kill_heal_overheals -> `a_kill_heals_her_no_higher_than_her_maximum` red;
-//!   - kill_size_at_own_level -> `the_victims_size_is_its_hitpoints_at_level_10` red.
+//!   - kill_size_at_own_level -> `the_victims_size_is_its_hitpoints_at_level_10` red;
+//!   - kill_heal_at_kill, kill_heal_flight_capped -> `under_client16402_flight_overheal_a_kill_heals_her_once_on_the_kill_plus_15`
+//!     red (the first everywhere, the second on the overheal).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -103,4 +105,78 @@ fn the_victims_size_is_its_hitpoints_at_level_10() {
     let kn = s.scenario_spawn_now(Team::Red, "Knight", n(9000, 20000), None).expect("a red Knight");
     assert!(s.entity(kn).expect("the Knight").max_hp >= 1990, "the level-14 Knight is not over 1990");
     assert_one_heal("Knight", &after_a_kill(14, "Knight", 2000), 320);
+}
+
+/// `after_a_kill` on the 160402017 table under combat.EVO_KILL_HEAL = `arm`: her hitpoints on the kill's tick and on each of the
+/// 30 after it.
+fn after_a_kill_16402(arm: royalesim::state::EvoKillHeal, victim: &str, hp: i32) -> Vec<i32> {
+    use royalesim::state::CardTable;
+    let db = royalesim::card::CardDb::load_table(CardTable::Client160402017).expect("the 160402017 table");
+    let mut cfg = BattleConfig::with_cards(db);
+    cfg.calib.card_table = CardTable::Client160402017;
+    cfg.calib.evo_kill_heal = arm;
+    cfg.decks = [vec!["Pekka".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s.tick();
+    let (at, v_at) = (n(9000, 12500), n(9000, 13700));
+    s.spawn_unit(Team::Blue, "Pekka_EV1", at, None).expect("the P.E.K.K.A.");
+    let v = s.scenario_spawn_now(Team::Red, victim, v_at, None).expect("the victim");
+    s.tick();
+    let pk = find_live(&s, Team::Blue, "Pekka_EV1").first().expect("the P.E.K.K.A.").id;
+    let mut killed = false;
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(pk, at));
+        assert!(s.debug_set_pos(v, v_at));
+        assert!(s.debug_set_hp(v, 1));
+        assert!(s.debug_set_hp(pk, hp));
+        s.tick();
+        if s.entity(v).is_none() {
+            killed = true;
+            break;
+        }
+    }
+    assert!(killed, "{victim}: no kill in 200 ticks");
+    let mut hps = vec![s.entity(pk).expect("the P.E.K.K.A.").hp];
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(pk, at));
+        s.tick();
+        hps.push(s.entity(pk).expect("the P.E.K.K.A.").hp);
+    }
+    hps
+}
+
+/// One heal of `heal` on the kill + 15, nothing before or after.
+fn heals_on_15(h: &[i32], heal: i32) -> bool {
+    h[1..15].iter().all(|x| *x == h[0]) && h[15] == h[0] + heal && h[16..].iter().all(|x| *x == h[0] + heal)
+}
+
+/// combat.EVO_KILL_HEAL = client16402_flight_overheal (client 16.402, parity's r74 batch-6 census: 54 of 54 readable heals on the
+/// kill + 15, 8 of 8 past her maximum; the engine's 0): on the 160402017 table a Skeleton's kill heals her 168 and a Knight's
+/// 320 on the kill + 15 alone, and a Giant's 606 from her maximum takes her past it; under buff_at_kill (the vacuity check) no
+/// such heal comes. Plants: kill_heal_at_kill, kill_heal_flight_capped.
+#[test]
+fn under_client16402_flight_overheal_a_kill_heals_her_once_on_the_kill_plus_15() {
+    use royalesim::state::EvoKillHeal as E;
+    let h = after_a_kill_16402(E::Client16402FlightOverheal, "Skeleton", 2000);
+    assert!(heals_on_15(&h, 168), "client16402_flight_overheal: a Skeleton's 168 on the kill + 15: {h:?}");
+    let h = after_a_kill_16402(E::Client16402FlightOverheal, "Knight", 2000);
+    assert!(heals_on_15(&h, 320), "client16402_flight_overheal: a Knight's 320 on the kill + 15: {h:?}");
+    let full = {
+        let db = royalesim::card::CardDb::load_table(royalesim::state::CardTable::Client160402017).expect("the 160402017 table");
+        let i = db.index("Pekka_EV1").expect("the form");
+        db.scaled(i, 11, db.get(i).hitpoints).expect("her hitpoints at 11")
+    };
+    let h = after_a_kill_16402(E::Client16402FlightOverheal, "Giant", full);
+    assert!(heals_on_15(&h, 606), "client16402_flight_overheal: a Giant's 606 past her maximum {full}: {h:?}");
+    let old = after_a_kill_16402(E::BuffAtKill, "Skeleton", 2000);
+    assert!(!heals_on_15(&old, 168), "buff_at_kill (the vacuity check): the heal on the kill + 15 alone: {old:?}");
 }

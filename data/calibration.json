@@ -1844,6 +1844,16 @@
     }
   },
   "combat": {
+    "EVO_KILL_HEAL": {
+      "value": "buff_at_kill",
+      "status": "measured",
+      "candidates": ["buff_at_kill", "client16402_flight_overheal"],
+      "confidence": "HIGH for client16402_flight_overheal on client 16.402 (parity r74 batch 6, 2026-10-16): of 62 kills by the Evo P.E.K.K.A.'s hit in 20 battles, 54 readable heals all landed on the kill + 15, one pulse of the heal the victim's size picks scaled on her level (39 of 40 clean amounts exact: L11 168 / 320, L16 269 / 511 / 969), and 8 of 8 heals that took her past her maximum read as overheal (-1), none capped; the engine (whose 50 ms buff on the 16.402 table never pulses) healed her 0 times. A candidate until scored. Client 15.535.29 keeps buff_at_kill (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74 batch 6) on client 16.402, the ob13 set (maker 557fca83): of 62 kills by the Evo P.E.K.K.A.'s hit in 20 battles, 54 readable heals all landed on the kill + 15, one pulse of the heal the victim's size picks scaled on her level (39 of 40 clean amounts exact: L11 168 / 320, L16 269 / 511 / 969), and 8 of 8 heals that took her past her maximum read as overheal (-1), none capped; the engine (whose 50 ms buff on the 16.402 table never pulses) healed her 0 times.",
+      "meaning": "buff_at_kill: the engine's; her kill hangs the heal the victim's size picks (card.rs KillHealDef) in the kill's Resolve, its pulse a HitFrequency on, capped at her maximum (client 15.535.29: one pulse on the kill + 10, no overheal); on the 16.402 table (BuffTime 50, HitFrequency 50) it never pulses. client16402_flight_overheal: the heal flies evo_kill_heal.flight_ms and lands once on the kill + flight_ms / TICK_MS + 1 (+ 15, the Evo Witch's soul rule), one pulse of the picked buff (HealPerSecond x HitFrequency, scaled on her card and level), up to the rows' AllowedOverHealPerc (150 % of her maximum).",
+      "open": "The 150 % cap (never reached); counts_shield; two kills that healed 386 where the class reads 351; client 15.535.29.",
+      "engine": "state.rs kill_heals and kill_flight_heals (EvoBoard kill_flights), selected by Calib::evo_kill_heal; card.rs KillHealDef flight_ms, over_heal_pct; tests/evo_pekka.rs."
+    },
     "CAGE_HOLD_START": {
       "value": "at_grab",
       "status": "measured",

@@ -5888,6 +5888,12 @@ pub struct KillHealDef {
     pub level: i32,
     pub below: [i32; 2],
     pub buffs: [crate::status::BuffApply; 3],
+    /// The heal's flight to her (16.402's ActionSoulDrain), ms; 0 where the row has none. Read under combat.EVO_KILL_HEAL =
+    /// client16402_flight_overheal (state.rs `kill_flight_heals`).
+    pub flight_ms: i32,
+    /// The rows' AllowedOverHealPerc (the same on all three; 100 where absent). Read under client16402_flight_overheal; the
+    /// interned buffs keep 0 (no overheal) for buff_at_kill.
+    pub over_heal_pct: i32,
 }
 
 /// cards.json `evolutions[].evo_data_only` (tools/extract_cards.py `data_only_block`): the card blocks the form's data
@@ -13204,7 +13210,13 @@ impl CardDb {
             };
             let raw = k.buffs.as_deref().filter(|b| b.len() == 3).ok_or("a kill heal with no three heals")?;
             let mut out = [crate::status::BuffApply { buff: 0, time_ms: 0 }; 3];
+            let mut over: Option<i32> = None;
             for (slot, b) in out.iter_mut().zip(raw) {
+                let row_over = b.convert("a kill heal")?.over_heal_pct;
+                if over.is_some_and(|o| o != row_over) {
+                    return Err("a kill heal whose three heals allow different overheals".into());
+                }
+                over = Some(row_over);
                 // Her heals stop at her maximum, whatever the rows' AllowedOverHealPerc says (measured).
                 #[cfg(not(clash_plant = "kill_heal_overheals"))]
                 {
@@ -13220,7 +13232,8 @@ impl CardDb {
                     return Err("a kill heal whose buff is not a heal over time".into());
                 }
             }
-            evo.kill_heal = Some(KillHealDef { level, below, buffs: out });
+            let over_heal_pct = over.filter(|o| *o > 0).unwrap_or(100);
+            evo.kill_heal = Some(KillHealDef { level, below, buffs: out, flight_ms: k.flight_ms.unwrap_or(0).max(0), over_heal_pct });
         }
         // THE RAGE AFTER HITS on the form's own units (the Evo Barbarians'), as the Evo Battle Ram's Barbarian_EV1 has it.
         if let Some(rage) = &extra.evo_hit_rage {
