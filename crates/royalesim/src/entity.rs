@@ -854,6 +854,13 @@ impl Entities {
     /// export adds it from target.rs `invisible_at` (state.rs `view`). Each bit is the
     /// predicate the engine itself acts on, so an observation built from it reads what the
     /// battle does, never a second derivation of it.
+    /// Under ground and shut to damage (hide.HIDDEN_IMMUNE_TO_DAMAGE): Hidden with its going-under window spent. The window
+    /// is the Hidden timer hide.HIDING_DAMAGE_WINDOW = client16402_hide_time sets at the hide (`hide_ms`, 0 through Hidden
+    /// under shut_at_hide: every transition to Hidden writes 0).
+    pub fn hide_shut(&self, i: usize) -> bool {
+        self.hide[i] == HideState::Hidden && self.hide_ms[i] <= 0
+    }
+
     pub fn status_flags(&self, i: usize) -> i32 {
         let mut bits = 0;
         if self.underground(i) {

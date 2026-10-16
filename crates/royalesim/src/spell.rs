@@ -59,7 +59,7 @@ use crate::arena::{Arena, Rect, Shape};
 use crate::card::{AbilityEffect, AttachedArea, CardDb, KnockbackDef, SelectorDef, SpawnDef, SpawnOffset, SpawnVia, SpellHit, SpellShape, StrikeDef, StrikePick};
 use crate::status::{BuffApply, BuffHit, Pulse};
 use crate::combat::{damage_against, DamageBuffer, Hit, Projectile};
-use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
+use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
@@ -1462,7 +1462,7 @@ fn selector_candidates(ctx: &SpellCtx, team: Team, def: &StrikeDef, sel: &Select
             if !kind_taken {
                 return false;
             }
-            if (skip_hidden && e.hide[v] == HideState::Hidden)
+            if (skip_hidden && e.hide_shut(v))
                 || (f.skip_underground && e.underground(v))
                 || (f.skip_dash_immune && e.dash_immune(v, ctx.tick))
                 || (f.skip_untargetable && ctx.calib.formation_stagger_wait.waits() && e.stagger_ms[v] > 0)

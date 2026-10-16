@@ -2072,7 +2072,7 @@ fn killed_this_tick(ents: &Entities, cards: &CardDb, calib: &Calib, dmg: &Damage
         return false;
     }
     let id = ents.id_of(v);
-    let hidden = calib.hide_hidden_immune && ents.hide[v] == HideState::Hidden;
+    let hidden = calib.hide_hidden_immune && ents.hide_shut(v);
     // status.DAMAGE_REDUCTION: each hit as `resolve` lands it.
     let r = damage_reduction_of(ents, cards, calib, tick, v);
     let dealt: i64 = dmg
@@ -3067,7 +3067,7 @@ pub fn stagger_untouchable(calib: &Calib, ents: &Entities, v: usize) -> bool {
 }
 
 pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, underground_immune: bool, ignores_hide: bool) -> bool {
-    (underground_immune && ents.underground(v)) || (hidden_immune && !ignores_hide && ents.hide[v] == HideState::Hidden)
+    (underground_immune && ents.underground(v)) || (hidden_immune && !ignores_hide && ents.hide_shut(v))
 }
 
 /// LAND ONE DIRECT STRIKE AT ONCE (calibration match.TICK_ORDER = client_sequential_strike;

@@ -1033,6 +1033,10 @@ pub struct Calib {
     /// `FrequencyLessTick`, what a battle saved before it ran.
     #[serde(default = "after_hits_heal_pulse_default")]
     pub after_hits_heal_pulse: AfterHitsHealPulse,
+    /// hide.HIDING_DAMAGE_WINDOW (how long a Tesla going under still takes damage). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `ShutAtHide`, what a battle saved before it ran.
+    #[serde(default = "hide_hiding_damage_window_default")]
+    pub hide_hiding_damage_window: HidingDamageWindow,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3027,6 +3031,10 @@ fn death_blow_victim_point_default() -> DeathBlowVictimPoint {
 
 fn after_hits_heal_pulse_default() -> AfterHitsHealPulse {
     AfterHitsHealPulse::FrequencyLessTick
+}
+
+fn hide_hiding_damage_window_default() -> HidingDamageWindow {
+    HidingDamageWindow::ShutAtHide
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10510,6 +10518,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// hide.HIDING_DAMAGE_WINDOW -- a hiding building's damage after it goes under (state.rs `hide_pass`; entity.rs
+    /// `hide_shut`; its HideState::Hidden timer).
+    HidingDamageWindow {
+        /// The engine's: immune (hide.HIDDEN_IMMUNE_TO_DAMAGE) from the tick it goes under.
+        ShutAtHide = "shut_at_hide",
+        /// Client 16.402: it takes every hit for its HideTimeMs after it goes under (H .. H + 16); immune from H + 17.
+        Client16402HideTime = "client16402_hide_time",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11081,6 +11099,7 @@ impl Calib {
             capture_roll_strikes: pick(&v, &["spells", "CAPTURE_ROLL_STRIKES", "value"], CaptureRollStrikes::from_calibration_name)?,
             death_blow_victim_point: pick(&v, &["combat", "DEATH_BLOW_VICTIM_POINT", "value"], DeathBlowVictimPoint::from_calibration_name)?,
             after_hits_heal_pulse: pick(&v, &["status", "AFTER_HITS_HEAL_PULSE", "value"], AfterHitsHealPulse::from_calibration_name)?,
+            hide_hiding_damage_window: pick(&v, &["hide", "HIDING_DAMAGE_WINDOW", "value"], HidingDamageWindow::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -19895,6 +19914,14 @@ impl BattleState {
                 let surfacing = target::surfaces_attacking(&self.cfg.calib);
                 let rise_ms = if surfacing { 0 } else { h.up_time_ms };
                 let wait_ms = self.hide_wait_ms(h);
+                // hide.HIDING_DAMAGE_WINDOW = client16402_hide_time: going under, it takes hits for its HideTimeMs (the
+                // hide tick and 16 more: HideTimeMs + a tick, run down from the next pass). Measured on client 16.402 (parity
+                // r75, live13): 31 of 31 hits on a hiding Tesla at H .. H + 16, none later; the engine dropped 4 of 4.
+                // PLANT (regression) hiding_window_shut: the new arm still shuts it at the hide.
+                #[cfg(not(clash_plant = "hiding_window_shut"))]
+                let window_ms = if self.cfg.calib.hide_hiding_damage_window == HidingDamageWindow::Client16402HideTime { h.hide_time_ms + dt } else { 0 };
+                #[cfg(clash_plant = "hiding_window_shut")]
+                let window_ms = 0;
                 #[cfg(clash_plant = "tesla_always_up")]
                 {
                     // PLANT (regression): the earlier engine -- the building is
@@ -19908,6 +19935,9 @@ impl BattleState {
                     HideState::Hidden => {
                         if target::enemy_in_wake_range(&ctx, i, nb) {
                             next.push((i, HideState::Rising, rise_ms));
+                        } else if e.hide_ms[i] > 0 {
+                            // hide.HIDING_DAMAGE_WINDOW = client16402_hide_time: its going-under window runs down.
+                            next.push((i, HideState::Hidden, (e.hide_ms[i] - dt).max(0)));
                         }
                     }
                     HideState::Rising => {
@@ -19948,7 +19978,7 @@ impl BattleState {
                                 if stays_for_enemy && target::enemy_in_wake_range(&ctx, i, nb) {
                                     (HideState::Up, 0)
                                 } else {
-                                    (HideState::Hidden, 0)
+                                    (HideState::Hidden, window_ms)
                                 }
                             }
                             HideDelayMeaning::IdleTimeWithoutTarget => (HideState::Up, left),
@@ -19958,7 +19988,7 @@ impl BattleState {
                             // HideTimeMs (Tesla, 800 = 800) fires its next shot on the very
                             // tick the countdown reaches 0, and that shot re-arms it. With
                             // `<= 0` it would go under before every second shot.
-                            HideDelayMeaning::TimeSinceLastShot if left < 0 => (HideState::Hidden, 0),
+                            HideDelayMeaning::TimeSinceLastShot if left < 0 => (HideState::Hidden, window_ms),
                             HideDelayMeaning::TimeSinceLastShot => (HideState::Up, left),
                         };
                         next.push((i, st, ms));
@@ -20790,7 +20820,7 @@ impl BattleState {
                 continue;
             }
             let t = h.target.index as usize;
-            if hidden_immune && !h.ignores_hide && e.hide[t] == HideState::Hidden {
+            if hidden_immune && !h.ignores_hide && e.hide_shut(t) {
                 continue;
             }
             sums[t] += h.amount as i64;
@@ -38817,6 +38847,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, status.AFTER_HITS_HEAL_PULSE: Calib gained after_hits_heal_pulse (serde default the old arm, frequency_less_tick), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, hide.HIDING_DAMAGE_WINDOW: Calib gained hide_hiding_damage_window (serde default the old arm, shut_at_hide), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39879,6 +39911,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_blow_victim_point".into(), serde_json::to_value(DeathBlowVictimPoint::DeathTickReap).map_err(|e| e.to_string())?);
     // status.AFTER_HITS_HEAL_PULSE: a format-3 battle ran status.AFTER_HITS_HEAL_PULSE's old arm.
     sh.insert("after_hits_heal_pulse".into(), serde_json::to_value(AfterHitsHealPulse::FrequencyLessTick).map_err(|e| e.to_string())?);
+    // hide.HIDING_DAMAGE_WINDOW: a format-3 battle ran hide.HIDING_DAMAGE_WINDOW's old arm.
+    sh.insert("hide_hiding_damage_window".into(), serde_json::to_value(HidingDamageWindow::ShutAtHide).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

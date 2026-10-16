@@ -5038,6 +5038,16 @@
     }
   },
   "hide": {
+    "HIDING_DAMAGE_WINDOW": {
+      "value": "shut_at_hide",
+      "status": "measured",
+      "candidates": ["shut_at_hide", "client16402_hide_time"],
+      "confidence": "HIGH for client16402_hide_time on client 16.402 (parity r75, 2026-10-16): every Tesla hide in live13 (the truth's state turning 0 from an attack): 31 damage drops on a Tesla in such a state-0 run, all at H + 0 .. H + 16, none later; Poison trains: the next pulse taken while it is under in 19 of 19 at H + 0 .. + 16 while the poison lives, 0 of 26 at H + 19 .. + 55; the engine, before each first divergence, dropped 4 of 4 such hits (H + 0, 3, 4, 13); its Hidden starts on the truth's first state-0 tick. A candidate until scored. Client 15.535.29 keeps shut_at_hide (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): every Tesla hide in live13 (the truth's state turning 0 from an attack): 31 damage drops on a Tesla in such a state-0 run, all at H + 0 .. H + 16, none later; Poison trains: the next pulse taken while it is under in 19 of 19 at H + 0 .. + 16 while the poison lives, 0 of 26 at H + 19 .. + 55; the engine, before each first divergence, dropped 4 of 4 such hits (H + 0, 3, 4, 13); its Hidden starts on the truth's first state-0 tick.",
+      "meaning": "shut_at_hide: the engine's; a Tesla that goes under is immune (hide.HIDDEN_IMMUNE_TO_DAMAGE) from its hide tick H. client16402_hide_time: it takes every hit that lands while it goes under, its HideTimeMs (800 ms) from the hide: hits landing on H .. H + 16 (spells' areas included); immune from H + 17. Targeting is unchanged: nobody acquires it under ground, and holders keep it per hide.HELD_THROUGH_HIDE. The window is its Hidden timer (HideTimeMs + a tick, run down 50 a tick in the hide pass); a Tesla deployed under has none.",
+      "open": "The exact edge (H + 16 taken twice; nothing seen on H + 17 or + 18 after an attack; one post-deploy hit on + 17); client 15.535.29.",
+      "engine": "state.rs hide_pass (the Hidden timer), entity.rs hide_shut (read by combat.rs untouchable_now and resolve, state.rs's buffered sums, spell.rs's selector), selected by Calib::hide_hiding_damage_window; tests/hide.rs."
+    },
     "HELD_THROUGH_HIDE": {
       "value": "client16402_kept",
       "status": "measured",

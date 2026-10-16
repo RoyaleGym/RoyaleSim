@@ -51,7 +51,7 @@ use royalesim::arena::Lane;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind, HideState};
 use royalesim::fixed::{Vec2, SUBTILE};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HeldThroughHide, HideDelayMeaning, RiseLaw, RiseTrigger, TapSnap};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HeldThroughHide, HideDelayMeaning, HidingDamageWindow, RiseLaw, RiseTrigger, TapSnap};
 use royalesim::{EntityId, Team};
 
 // ---------------------------------------------------------------------------
@@ -1042,4 +1042,66 @@ fn under_client16402_kept_a_giant_keeps_a_tesla_that_goes_under() {
     assert!(kept.iter().filter(|r| r.0).all(|r| r.1), "client16402_kept: the Giant let the Tesla go under ground: {kept:?}");
     let dropped = giant_on_a_hiding_tesla(HeldThroughHide::Dropped);
     assert!(dropped.iter().any(|r| r.0 && !r.1), "dropped (the vacuity check): the Giant kept it: {dropped:?}");
+}
+
+/// The ticks from a Red Zap's cast on `tesla` (up) to its damage: the first post-tick on which a zapped copy's hitpoints part
+/// from the control's.
+fn zap_delay(s: &BattleState, tesla: EntityId) -> u32 {
+    let (mut z, mut c) = (s.clone(), s.clone());
+    let at = z.entity(tesla).expect("the Tesla").pos;
+    z.spawn_unit(Team::Red, "Zap", at, None).expect("the Zap");
+    for d in 1..=20 {
+        z.tick();
+        c.tick();
+        if z.entity(tesla).expect("the Tesla").hp != c.entity(tesla).expect("the Tesla").hp {
+            return d;
+        }
+    }
+    panic!("the scene drifted: the Zap never hurt the up Tesla");
+}
+
+/// Under hide.HIDING_DAMAGE_WINDOW = `arm` (the shipped rise law): the approach scene to its first shot, the Knight killed,
+/// run to the post-tick H on which the Tesla is first Hidden; then for each `j`, a Red Zap cast on the Tesla j ticks on (its
+/// damage on post-tick H + j + d, d the Zap's delay measured on the up Tesla): whether it took the Zap against a control.
+fn zapped_going_under(arm: HidingDamageWindow, js: &[u32]) -> (u32, Vec<bool>) {
+    let mut cfg = shipped_rise_law();
+    cfg.calib.hide_hiding_damage_window = arm;
+    let (mut s, tesla, knight, _) = approach_until_first_shot(cfg);
+    let d = zap_delay(&s, tesla);
+    assert!(s.debug_set_hp(knight, 0));
+    let n = run_until(&mut s, 60, |s| hide_of(s, tesla).0 == HideState::Hidden);
+    assert!(n < 60, "the scene drifted: the Tesla never went under");
+    let took = js
+        .iter()
+        .map(|&j| {
+            let mut z = s.clone();
+            for _ in 0..j {
+                z.tick();
+            }
+            let mut c = z.clone();
+            let at = z.entity(tesla).expect("the Tesla").pos;
+            z.spawn_unit(Team::Red, "Zap", at, None).expect("the Zap");
+            for _ in 0..d + 2 {
+                z.tick();
+                c.tick();
+            }
+            z.entity(tesla).expect("the Tesla").hp < c.entity(tesla).expect("the Tesla").hp
+        })
+        .collect();
+    (d, took)
+}
+
+/// hide.HIDING_DAMAGE_WINDOW = client16402_hide_time (client 16.402, parity r75, live13: 31 of 31 hits on a hiding Tesla at
+/// H .. H + 16, none later; the engine dropped 4 of 4): a Zap landing on H + 16 or earlier is taken, one on H + 17 is not;
+/// under shut_at_hide (the vacuity check) none is. Plant: hiding_window_shut.
+#[test]
+fn under_client16402_hide_time_a_tesla_going_under_takes_hits_through_hide_plus_16() {
+    let js: Vec<u32> = (0..=17).collect();
+    let (d, new) = zapped_going_under(HidingDamageWindow::Client16402HideTime, &js);
+    assert!(d <= 16, "the scene drifted: the Zap's delay {d}");
+    for (&j, &took) in js.iter().zip(&new) {
+        assert_eq!(took, j + d <= 16, "client16402_hide_time: a Zap landing on H + {} (taken {took})", j + d);
+    }
+    let (_, old) = zapped_going_under(HidingDamageWindow::ShutAtHide, &js);
+    assert!(old.iter().all(|t| !t), "shut_at_hide: a Zap on the hidden Tesla was taken {old:?}");
 }

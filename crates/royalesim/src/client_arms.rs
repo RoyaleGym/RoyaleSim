@@ -378,6 +378,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   spells.CAPTURE_ROLL_STRIKES = capture_tick_only: client 15.535.29's scenes struck every unit on R + 2 (no late reach).
 ///   combat.DEATH_BLOW_VICTIM_POINT = death_tick_reap: unread there (client15535_death_tick lands the blow in the Reap).
 ///   status.AFTER_HITS_HEAL_PULSE = frequency_less_tick: sp-form-Bats-evo-s0 healed on the hit + 9 and + 19.
+///   hide.HIDING_DAMAGE_WINDOW = shut_at_hide: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -586,6 +587,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spells.CAPTURE_ROLL_STRIKES", "\"capture_tick_only\""),
     ("combat.DEATH_BLOW_VICTIM_POINT", "\"death_tick_reap\""),
     ("status.AFTER_HITS_HEAL_PULSE", "\"frequency_less_tick\""),
+    ("hide.HIDING_DAMAGE_WINDOW", "\"shut_at_hide\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
