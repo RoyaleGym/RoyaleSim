@@ -961,6 +961,14 @@ pub struct Calib {
     /// `Pushed`, what a battle saved before it ran.
     #[serde(default = "on_buff_hold_contact_default")]
     pub on_buff_hold_contact: OnBuffHoldContact,
+    /// combat.GUARD_LANDING_PUSH (whether the Little Prince's guard's push re-arms through its landing ticks). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `StopsAtArrival`, what a battle saved before it ran.
+    #[serde(default = "guard_landing_push_default")]
+    pub guard_landing_push: GuardLandingPush,
+    /// spells.EVO_BARREL_DECOY_POINTS (where the Evo Goblin Barrel's decoy's units stand). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `MirroredCastOwnFormation`, what a battle saved before it ran.
+    #[serde(default = "evo_barrel_decoy_points_default")]
+    pub evo_barrel_decoy_points: EvoBarrelDecoyPoints,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2883,6 +2891,14 @@ fn shield_tick_sum_default() -> ShieldTickSum {
 
 fn on_buff_hold_contact_default() -> OnBuffHoldContact {
     OnBuffHoldContact::Pushed
+}
+
+fn guard_landing_push_default() -> GuardLandingPush {
+    GuardLandingPush::StopsAtArrival
+}
+
+fn evo_barrel_decoy_points_default() -> EvoBarrelDecoyPoints {
+    EvoBarrelDecoyPoints::MirroredCastOwnFormation
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10167,6 +10183,27 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_LANDING_PUSH -- the guard's push after its arrival (state.rs `guard_moves`; combat.GUARD_LANDING_HITS's
+    /// window).
+    GuardLandingPush {
+        /// The engine's: the push re-arms the ladder on the charge's ticks and stops at the arrival.
+        StopsAtArrival = "stops_at_arrival",
+        /// Client 16.402: it re-arms the ladder from its point on its landing ticks as well (the arrival + 1 ..
+        /// GUARD_LANDING_HIT_TICKS), as its hits do.
+        Client16402ThroughLandingTicks = "client16402_through_landing_ticks",
+    }
+);
+calib_enum!(
+    /// spells.EVO_BARREL_DECOY_POINTS -- the decoy barrel's GoblinDummies (card.rs `EvoDef::mirror`; state.rs the released
+    /// units' loop, `release_ring_points`).
+    EvoBarrelDecoyPoints {
+        /// The engine's: laid around the decoy's own (mirrored) landing point by its own ring.
+        MirroredCastOwnFormation = "mirrored_cast_own_formation",
+        /// Client 16.402: decoy member i stands on the mirror (width - x, y) of the real barrel's member i point.
+        Client16402MirroredMembers = "client16402_mirrored_members",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10720,6 +10757,8 @@ impl Calib {
             warp_back_landing: pick(&v, &["status", "WARP_BACK_LANDING", "value"], WarpBackLanding::from_calibration_name)?,
             shield_tick_sum: pick(&v, &["combat", "SHIELD_TICK_SUM", "value"], ShieldTickSum::from_calibration_name)?,
             on_buff_hold_contact: pick(&v, &["enchant", "ON_BUFF_HOLD_CONTACT", "value"], OnBuffHoldContact::from_calibration_name)?,
+            guard_landing_push: pick(&v, &["combat", "GUARD_LANDING_PUSH", "value"], GuardLandingPush::from_calibration_name)?,
+            evo_barrel_decoy_points: pick(&v, &["spells", "EVO_BARREL_DECOY_POINTS", "value"], EvoBarrelDecoyPoints::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -21836,6 +21875,14 @@ impl BattleState {
                 // the reach of the guard's centre (its push radius and their own) that it has not hit; no push.
                 let at = self.ents.pos[gi];
                 let dmg = self.cfg.cards.scaled(r.card, r.level, g.push_damage).expect("the Little Prince's level is validated at try_new");
+                // combat.GUARD_LANDING_PUSH = client16402_through_landing_ticks: its push re-arms on these ticks as on the
+                // charge's. Measured on client 16.402 (parity r74): 26 victims repeat a ladder step inside the arrival .. + 3.
+                // PLANT (regression) landing_push_stops: the new arm still stops the push at the arrival.
+                #[cfg(not(clash_plant = "landing_push_stops"))]
+                let push_on = self.cfg.calib.guard_landing_push == GuardLandingPush::Client16402ThroughLandingTicks && tick > a;
+                #[cfg(clash_plant = "landing_push_stops")]
+                let push_on = false;
+                let mut pushes: Vec<(usize, i32)> = Vec::new();
                 for j in 0..self.ents.capacity() {
                     let e = &self.ents;
                     if !e.alive[j] || e.team[j] == r.team || e.flying[j] || e.kind[j] != EntityKind::Troop {
@@ -21843,9 +21890,26 @@ impl BattleState {
                     }
                     let id = e.id_of(j);
                     let reach = (g.push_radius + e.radius[j]) as i64;
-                    if e.pos[j].dist2(at) <= reach * reach && !r.hit.contains(&id) {
+                    let d2 = e.pos[j].dist2(at);
+                    if d2 <= reach * reach && !r.hit.contains(&id) {
                         r.hit.push(id);
                         self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false, shot: false });
+                    }
+                    if push_on {
+                        let k = crate::fixed::SUBTILE_PER_MILLITILE as i64;
+                        let d = crate::fixed::isqrt(d2);
+                        if d < g.push_radius as i64 {
+                            pushes.push((j, ((g.push as i64 - d) / k) as i32));
+                        }
+                    }
+                }
+                let reset = self.cfg.calib.guard_push_attack_reset == GuardPushAttackReset::Client16402Reset;
+                for (j, m) in pushes {
+                    if m > 0 && self.rearm_ladder(j, at, m, r.team) {
+                        moved = true;
+                        if reset {
+                            self.guard_push_reset(j);
+                        }
                     }
                 }
                 keep.push(r);
@@ -28719,6 +28783,24 @@ impl BattleState {
         let release_first = self.cfg.calib.scheduled_unit_first_update == ScheduledUnitFirstUpdate::ClientCreationTick;
         #[cfg(clash_plant = "release_first_update_next_tick")]
         let release_first = false; // PLANT (regression): the released units' first update is the next tick's.
+        // spells.EVO_BARREL_DECOY_POINTS = client16402_mirrored_members: the real barrel's members' points (a release whose
+        // card has a mirror, `EvoDef::mirror`), for its decoy to stand on their mirror. Measured on client 16.402 (parity r74):
+        // 66 of 74 dummies on the exact mirror; the engine's own ring 1 to 2 off in 63 of 71.
+        // PLANT (regression) decoy_own_formation: the new arm still lays the decoy's own ring.
+        #[cfg(not(clash_plant = "decoy_own_formation"))]
+        let mirror_members = self.cfg.calib.evo_barrel_decoy_points == EvoBarrelDecoyPoints::Client16402MirroredMembers
+            && self.cfg.calib.projectile_spawn_formation == ProjectileSpawnFormation::CountRingTight;
+        #[cfg(clash_plant = "decoy_own_formation")]
+        let mirror_members = false;
+        let reals: Vec<(Team, u16, Vec<Vec2>)> = if mirror_members {
+            released
+                .iter()
+                .filter(|q| self.cfg.cards.get(q.source).evo.as_ref().and_then(|v| v.mirror).is_some())
+                .map(|q| (q.team, q.source, self.release_ring_points(q.team, q.count, q.unit, q.pos, q.count > 1)))
+                .collect()
+        } else {
+            Vec::new()
+        };
         for r in released {
             // spawner.RELEASE_TIMING: on this frame and inert on it, or queued for the next
             // Spawn phase under the earlier convention.
@@ -28739,7 +28821,11 @@ impl BattleState {
                     let single = r.count <= 1;
                     #[cfg(clash_plant = "release_ground_point_shifts_single")]
                     let single = false; // PLANT (regression): a single released unit takes the one-unit shift too.
-                    self.release_ring_points(r.team, r.count, r.unit, r.pos, !decoy && !single)
+                    let real = reals.iter().find(|(t, src, _)| *t == r.team && self.cfg.cards.get(*src).evo.as_ref().and_then(|v| v.mirror) == Some(r.source));
+                    match real.filter(|_| decoy) {
+                        Some((_, _, pts)) => pts.iter().take(r.count.max(1) as usize).map(|p| Vec2::new(self.cfg.arena.width - p.x, p.y)).collect(),
+                        None => self.release_ring_points(r.team, r.count, r.unit, r.pos, !decoy && !single),
+                    }
                 }
             };
             for p in points {
@@ -37672,6 +37758,10 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, enchant.ON_BUFF_HOLD_CONTACT: Calib gained on_buff_hold_contact (serde default the old arm, pushed), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_LANDING_PUSH: Calib gained guard_landing_push (serde default the old arm, stops_at_arrival), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.EVO_BARREL_DECOY_POINTS: Calib gained evo_barrel_decoy_points (serde default the old arm, mirrored_cast_own_formation), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38695,6 +38785,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("shield_tick_sum".into(), serde_json::to_value(ShieldTickSum::TickSum).map_err(|e| e.to_string())?);
     // enchant.ON_BUFF_HOLD_CONTACT: a format-3 battle ran enchant.ON_BUFF_HOLD_CONTACT's old arm.
     sh.insert("on_buff_hold_contact".into(), serde_json::to_value(OnBuffHoldContact::Pushed).map_err(|e| e.to_string())?);
+    // combat.GUARD_LANDING_PUSH: a format-3 battle's guard pushed only on its charge's ticks.
+    sh.insert("guard_landing_push".into(), serde_json::to_value(GuardLandingPush::StopsAtArrival).map_err(|e| e.to_string())?);
+    // spells.EVO_BARREL_DECOY_POINTS: a format-3 battle laid the decoy's ring around its own landing point.
+    sh.insert("evo_barrel_decoy_points".into(), serde_json::to_value(EvoBarrelDecoyPoints::MirroredCastOwnFormation).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

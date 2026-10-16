@@ -1844,6 +1844,16 @@
     }
   },
   "combat": {
+    "GUARD_LANDING_PUSH": {
+      "value": "stops_at_arrival",
+      "status": "measured",
+      "candidates": ["stops_at_arrival", "client16402_through_landing_ticks"],
+      "confidence": "MED for client16402_through_landing_ticks on client 16.402 (parity r74, 2026-10-16): parity's r74 census of the live11 set (client 16.402): of 112 victims of the guard's push (ground enemies within 2,700 of it, a step over 140) whose charge ended 14 ticks or more before the battle's first divergence, 38 agree step for step; in 26 the truth repeats a ladder step once inside the arrival A .. A + 3 (a re-arm), where the engine keeps descending by 25; the engine repeats in 0; no repeat after A + 3 in either. A candidate until scored. Client 15.535.29 keeps stops_at_arrival (CLIENT15535_ARMS; its ladder scene, sp-lp-live-s0).",
+      "provenance": "MEASURED by parity (2026-10-16, r74) on client 16.402: parity's r74 census of the live11 set (client 16.402): of 112 victims of the guard's push (ground enemies within 2,700 of it, a step over 140) whose charge ended 14 ticks or more before the battle's first divergence, 38 agree step for step; in 26 the truth repeats a ladder step once inside the arrival A .. A + 3 (a re-arm), where the engine keeps descending by 25; the engine repeats in 0; no repeat after A + 3 in either.",
+      "meaning": "stops_at_arrival: the engine's; each tick of the charge the guard re-arms the knockback ladder (m = push - d, rearm_ladder) of every enemy ground troop whose centre lies within its push radius, and stops at its arrival. client16402_through_landing_ticks: it does so on its landing ticks too, the arrival + 1 through GUARD_LANDING_HIT_TICKS, with the same rule, under combat.GUARD_LANDING_HITS = client16402_through_landing_ticks.",
+      "open": "Client 15.535.29's landing ticks.",
+      "engine": "state.rs guard_moves (the landing branch), selected by Calib::guard_landing_push; tests/little_prince.rs."
+    },
     "SHIELD_TICK_SUM": {
       "value": "tick_sum",
       "status": "measured",
@@ -3525,6 +3535,16 @@
     ]
   },
   "spells": {
+    "EVO_BARREL_DECOY_POINTS": {
+      "value": "mirrored_cast_own_formation",
+      "status": "measured",
+      "candidates": ["mirrored_cast_own_formation", "client16402_mirrored_members"],
+      "confidence": "MED for client16402_mirrored_members on client 16.402 (parity r74, 2026-10-16): parity's r74 census of the live11 set (client 16.402): of the 74 GoblinDummies of every Evo Goblin Barrel landing, 66 stood on the exact mirror (18000 - x, y) of the matching real Goblin's point (the other 8 displaced by their real twin's or a crown tower's own push); the engine's on the mirror in 8 of 71 traced, the rest 1 to 2 off, which flipped a crown tower's pick between two decoys in 4 battles. A candidate until scored. Client 15.535.29 keeps mirrored_cast_own_formation (CLIENT15535_ARMS; sp-form-GoblinBarrel-evo-s0, mirrored exactly there).",
+      "provenance": "MEASURED by parity (2026-10-16, r74) on client 16.402: parity's r74 census of the live11 set (client 16.402): of the 74 GoblinDummies of every Evo Goblin Barrel landing, 66 stood on the exact mirror (18000 - x, y) of the matching real Goblin's point (the other 8 displaced by their real twin's or a crown tower's own push); the engine's on the mirror in 8 of 71 traced, the rest 1 to 2 off, which flipped a crown tower's pick between two decoys in 4 battles.",
+      "meaning": "mirrored_cast_own_formation: the engine's; the decoy barrel, cast at the point mirrored across the arena's middle, lays its own ring there, which lands 1 to 2 off the real Goblins' mirror where the lanes' rounding differs. client16402_mirrored_members: under spells.PROJECTILE_SPAWN_FORMATION = count_ring_tight, decoy member i stands on (width - x_i, y_i) of the real barrel's member i point of the same landing.",
+      "open": "A decoy whose real barrel landed on another tick; client 15.535.29.",
+      "engine": "state.rs the released units' loop (count_ring_tight), selected by Calib::evo_barrel_decoy_points; tests/evo_goblin_barrel.rs."
+    },
     "LIVE_SPAWN_ROLL_BIRTH": {
       "value": "hit_on_birth_tick",
       "status": "measured",

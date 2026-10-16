@@ -1060,3 +1060,57 @@ fn under_client16402_through_last_dash_plus_1_his_guard_is_immune_a_tick_longer(
     let (later, _) = guard_zapped(GuardChargeImmunity::Client16402ThroughLastDashPlus1, &[a + 3]);
     assert!(later.iter().any(|l| l.0 == a + 3), "client16402_through_last_dash_plus_1: the Zap on its arrival + 3 took nothing: {later:?}");
 }
+
+/// The Little Prince at AT pressed with a Red Knight held near his guard's end point, let go once the guard comes within 2,500
+/// of it, under combat.GUARD_LANDING_PUSH = `arm`: the Knight's point after each of the 60 ticks from the press, and the tick
+/// (from the press) the guard stopped (its arrival).
+fn landing_pushed(arm: royalesim::state::GuardLandingPush) -> (Vec<Vec2>, u32) {
+    let red_at = (AT.0 + 600, AT.1 + 3600);
+    let (mut s, lp, reds) = scene_cfg(|c| c.calib.guard_landing_push = arm, &[("Knight", red_at)]);
+    let knight = reds[0].0;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut out, mut held, mut last, mut arrived) = (Vec::new(), true, None, None);
+    for k in 1..=60u32 {
+        if s.entity(lp).is_some() {
+            assert!(s.debug_set_pos(lp, n(AT)));
+        }
+        if held {
+            let full = s.entity(knight).expect("the Knight").max_hp;
+            assert!(s.debug_set_pos(knight, n(red_at)) && s.debug_set_hp(knight, full));
+        }
+        s.tick();
+        out.push(s.entity(knight).expect("the Knight").pos);
+        if let Some(g) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos) {
+            let kp = s.entity(knight).unwrap().pos;
+            let (dx, dy) = (((g.x - kp.x) / K) as i64, ((g.y - kp.y) / K) as i64);
+            if held && dx * dx + dy * dy < 2500 * 2500 {
+                held = false;
+            }
+            if arrived.is_none() && last == Some(g) && k > 20 {
+                arrived = Some(k - 1);
+            }
+            last = Some(g);
+        }
+    }
+    (out, arrived.expect("the guard never arrived"))
+}
+
+/// combat.GUARD_LANDING_PUSH = client16402_through_landing_ticks (client 16.402, parity's r74 census: 26 victims repeat a ladder
+/// step inside the guard's arrival .. + 3, the engine's 0): the Knight's points agree with stops_at_arrival's through the
+/// arrival, and over the 10 ticks after it the new arm moves it farther (its ladder re-armed); under stops_at_arrival (the
+/// vacuity check) the ladder only runs down. Plant: landing_push_stops.
+#[test]
+fn under_client16402_through_landing_ticks_his_guards_push_rearms_after_its_arrival() {
+    use royalesim::state::GuardLandingPush as G;
+    let (old, a) = landing_pushed(G::StopsAtArrival);
+    let (new, a2) = landing_pushed(G::Client16402ThroughLandingTicks);
+    assert_eq!(a, a2, "the guard's arrival moved between the arms");
+    let k = a as usize;
+    assert_eq!(old[..k], new[..k], "the arms parted before the guard's arrival");
+    let dist = |p: Vec2, q: Vec2| {
+        let (dx, dy) = (((p.x - q.x) / K) as i64, ((p.y - q.y) / K) as i64);
+        royalesim::fixed::isqrt(dx * dx + dy * dy)
+    };
+    let (o, nw) = (dist(old[k - 1], old[k + 9]), dist(new[k - 1], new[k + 9]));
+    assert!(nw > o, "client16402_through_landing_ticks: the Knight not pushed farther after the arrival ({nw} against {o})");
+}
