@@ -10120,12 +10120,16 @@ calib_enum!(
 );
 calib_enum!(
     /// combat.FLAG_PRESS_WINDOW -- the Hero Goblins' flag's press (card.rs `FlagSpawnsDef` window_ms, fade_ms; state.rs
-    /// `button_verdict`).
+    /// `button_verdict`), and under client16402_through_fade_with_tomb the Hero Tombstone's waiting monster's (card.rs
+    /// `TombMonsterDef` window_ms, fade_ms).
     FlagPressWindow {
         /// The engine's: from the flag's creation through window_ms.
         WindowOnly = "window_only",
         /// Client 16.402: while the flag stands, its window and its fade.
         Client16402ThroughFade = "client16402_through_fade",
+        /// Client 16.402: the flag's as client16402_through_fade, and the Hero Tombstone's monster's button through its fade
+        /// too: refused only from its tomb's death g + (window_ms + fade_ms) / TICK_MS, the tick the fade kills it.
+        Client16402ThroughFadeWithTomb = "client16402_through_fade_with_tomb",
     }
 );
 calib_enum!(
@@ -33480,7 +33484,16 @@ impl BattleState {
             let dt = self.cfg.calib.tick_ms.max(1);
             #[cfg(not(clash_plant = "tomb_window_unread"))]
             if let Some(g) = self.warps.tombs.iter().find(|r| r.monster == u.id).and_then(|r| r.tomb_gone) {
-                if self.tick >= g + (t.window_ms / dt) as u32 {
+                // combat.FLAG_PRESS_WINDOW = client16402_through_fade_with_tomb: taken until the fade kills the monster.
+                // Measured on client 16.402 (parity r74 batch 6): a press on the tomb's last frame + 41 taken
+                // (liveplay-20261011-233805-A), the engine's refused.
+                // PLANT (regression) tomb_press_window_only: the wider arm still closes the Tomb at window_ms.
+                #[cfg(not(clash_plant = "tomb_press_window_only"))]
+                let through = self.cfg.calib.flag_press_window == FlagPressWindow::Client16402ThroughFadeWithTomb;
+                #[cfg(clash_plant = "tomb_press_window_only")]
+                let through = false;
+                let ms = if through { t.window_ms + t.fade_ms } else { t.window_ms };
+                if self.tick >= g + (ms / dt) as u32 {
                     return Err(DeployError::NoHero);
                 }
             }
@@ -33492,7 +33505,7 @@ impl BattleState {
             // client 16.402 (parity r74): presses on the flag + 111 and + 121 taken, the engine's refused.
             // PLANT (regression) flag_press_window_only: the new arm still closes at the window's end.
             #[cfg(not(clash_plant = "flag_press_window_only"))]
-            let through = self.cfg.calib.flag_press_window == FlagPressWindow::Client16402ThroughFade;
+            let through = matches!(self.cfg.calib.flag_press_window, FlagPressWindow::Client16402ThroughFade | FlagPressWindow::Client16402ThroughFadeWithTomb);
             #[cfg(clash_plant = "flag_press_window_only")]
             let through = false;
             let ms = if through { f.window_ms + f.fade_ms } else { f.window_ms };

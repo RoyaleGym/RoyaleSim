@@ -250,4 +250,5 @@ fn under_client16402_through_fade_the_flags_button_is_taken_while_it_stands() {
     use royalesim::state::FlagPressWindow as F;
     assert_eq!(flag_press_window(F::WindowOnly), (Some(99), Some(130)), "window_only: the button's last press and the flag's end");
     assert_eq!(flag_press_window(F::Client16402ThroughFade), (Some(129), Some(130)), "client16402_through_fade: the button's last press and the flag's end");
+    assert_eq!(flag_press_window(F::Client16402ThroughFadeWithTomb), (Some(129), Some(130)), "client16402_through_fade_with_tomb: the flag's as through_fade");
 }

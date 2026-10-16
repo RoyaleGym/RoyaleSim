@@ -16,7 +16,9 @@
 //! arm steps a monster pressed after its tomb's death), tomb_press_spawn_reads_moved (spawner.TOMB_PRESS_SPAWN_FIRST_UPDATE's
 //! new arm's death spawn reads the moved board), hero_tomb_emission_radial (spawner.HERO_TOMB_EMISSION_NUDGE's new arm keeps
 //! the radial push alone), tomb_box_leaves_at_death (pathfinding.HERO_TOMB_DUMMY_OBSTACLE's new arm takes the dead tomb out
-//! of the path grid at once).
+//! of the path grid at once), tomb_press_window_only (combat.FLAG_PRESS_WINDOW = client16402_through_fade_with_tomb still
+//! closes the monster's button at window_ms: `under_client16402_through_fade_with_tomb_its_button_is_taken_through_the_fade`
+//! red).
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -424,4 +426,50 @@ fn a_monster_pressed_beside_its_standing_tomb_steps_until_the_tombs_kill_under_c
     let total = ((at.x - a.x) / K, (at.y - a.y) / K);
     assert_eq!(total, (-212, -212), "client16402_until_kill: (-212, -212) in all: {moves:?}");
     assert_eq!(pressed_after_the_tomb(TombMonsterStepScope::Client16402UntilKill), (0, 0), "client16402_until_kill: a press after the tomb's death moved it");
+}
+
+/// The no-press scene under combat.FLAG_PRESS_WINDOW = `arm`: the tomb killed, then `wait` ticks run; whether a press then is
+/// taken (the row and the check agreeing), and if so the monster's card and hp on the next tick and whether it stands 20
+/// ticks after that (past the waiting monster's fade, its tomb's death + 50).
+fn pressed_late(arm: royalesim::state::FlagPressWindow, wait: u32) -> Option<(String, i32, bool)> {
+    let mut c = battle().config().clone();
+    c.calib.flag_press_window = arm;
+    let mut s = BattleState::try_new(7, c).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    past_deploy_lockout(&mut s);
+    let (tomb, m) = play(&mut s, Team::Blue, n(14500, 11500));
+    assert!(s.debug_set_hp(tomb, 0));
+    for _ in 0..wait {
+        s.tick();
+        assert_buttons_agree(&s, Team::Blue);
+    }
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let row = s.ability_buttons(Team::Blue)[0].available;
+    let taken = s.press_ability_button(Team::Blue, 0).is_ok();
+    assert_eq!(row, taken, "the row and the press disagree after {wait} ticks");
+    if !taken {
+        return None;
+    }
+    s.tick();
+    let e = s.entity(m).expect("the monster");
+    let (card, hp) = (e.card.to_string(), e.hp);
+    for _ in 0..20 {
+        s.tick();
+    }
+    Some((card, hp, s.entity(m).is_some()))
+}
+
+/// combat.FLAG_PRESS_WINDOW = client16402_through_fade_with_tomb (client 16.402, parity's r74 batch-6 census: a press on the
+/// tomb's last frame + 41 taken, liveplay-20261011-233805-A; the engine's refused): 42 ticks after the tomb a press is taken,
+/// the monster active at full hitpoints and standing past its fade; under window_only and the flag-only client16402_through_fade
+/// (the vacuity checks) it is refused, while a press 21 ticks after is taken under every arm. Plant: tomb_press_window_only.
+#[test]
+fn under_client16402_through_fade_with_tomb_its_button_is_taken_through_the_fade() {
+    use royalesim::state::FlagPressWindow as F;
+    for arm in [F::WindowOnly, F::Client16402ThroughFade, F::Client16402ThroughFadeWithTomb] {
+        assert!(pressed_late(arm, 21).is_some(), "{arm:?}: the press 20 ticks after the tomb refused");
+    }
+    assert_eq!(pressed_late(F::Client16402ThroughFadeWithTomb, 42), Some((ACTIVE.to_string(), 4224, true)), "client16402_through_fade_with_tomb: the press in the fade");
+    assert_eq!(pressed_late(F::WindowOnly, 42), None, "window_only (the vacuity check): the press in the fade taken");
+    assert_eq!(pressed_late(F::Client16402ThroughFade, 42), None, "client16402_through_fade (the flag's alone): the Tomb's press in the fade taken");
+    assert_eq!(pressed_late(F::Client16402ThroughFadeWithTomb, 60), None, "client16402_through_fade_with_tomb: a press after the fade taken");
 }
