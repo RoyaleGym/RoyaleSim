@@ -1025,6 +1025,10 @@ pub struct Calib {
     /// `CaptureTickOnly`, what a battle saved before it ran.
     #[serde(default = "capture_roll_strikes_default")]
     pub capture_roll_strikes: CaptureRollStrikes,
+    /// combat.DEATH_BLOW_VICTIM_POINT (the tick whose positions a death blow's disc is tested against). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `DeathTickReap`, what a battle saved before it ran.
+    #[serde(default = "death_blow_victim_point_default")]
+    pub death_blow_victim_point: DeathBlowVictimPoint,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3011,6 +3015,10 @@ fn deploy_area_birth_contact_default() -> DeployAreaBirthContact {
 
 fn capture_roll_strikes_default() -> CaptureRollStrikes {
     CaptureRollStrikes::CaptureTickOnly
+}
+
+fn death_blow_victim_point_default() -> DeathBlowVictimPoint {
+    DeathBlowVictimPoint::DeathTickReap
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10470,6 +10478,17 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.DEATH_BLOW_VICTIM_POINT -- which tick's positions a death blow's disc takes its victims from (state.rs
+    /// `phase_reap`, WarpBoard `blows`, `blow_pass`).
+    DeathBlowVictimPoint {
+        /// The engine's: the death tick's Reap, after its move; the hits land with the next tick's (DEATH_DAMAGE_TICK).
+        DeathTickReap = "death_tick_reap",
+        /// Client 16.402: the landing tick's own positions, after its move, at the head of its Resolve (under
+        /// DEATH_DAMAGE_TICK = next_tick).
+        Client16402LandingTick = "client16402_landing_tick",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11039,6 +11058,7 @@ impl Calib {
             ramp_level_drop: pick(&v, &["combat", "RAMP_LEVEL_DROP", "value"], RampLevelDrop::from_calibration_name)?,
             deploy_area_birth_contact: pick(&v, &["spells", "DEPLOY_AREA_BIRTH_CONTACT", "value"], DeployAreaBirthContact::from_calibration_name)?,
             capture_roll_strikes: pick(&v, &["spells", "CAPTURE_ROLL_STRIKES", "value"], CaptureRollStrikes::from_calibration_name)?,
+            death_blow_victim_point: pick(&v, &["combat", "DEATH_BLOW_VICTIM_POINT", "value"], DeathBlowVictimPoint::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -12463,6 +12483,10 @@ pub struct WarpBoard {
     /// Goblinstein's tethers under way (`TetherRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tethers: Vec<TetherRun>,
+    /// combat.DEATH_BLOW_VICTIM_POINT = client16402_landing_tick: the last Reap's death blows, tested and landed at the head
+    /// of the next Resolve (`PendingBlow`, `blow_pass`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blows: Vec<PendingBlow>,
     /// combat.TETHER_MONSTER_GONE = client16402_death_point_anchor: each Goblinstein Monster that died, (its side, its card,
     /// its creation tick, its id, its death point), for a press after it. Empty under run_ends; absent in older snapshots,
     /// and hashed only when not empty.
@@ -12592,6 +12616,21 @@ pub struct RerollRun {
     pub start: Option<Vec2>,
 }
 
+/// A DEATH BLOW DUE ON THE NEXT TICK (combat.DEATH_BLOW_VICTIM_POINT = client16402_landing_tick; `phase_reap`, `blow_pass`):
+/// the dying unit's side, its death point, the disc's radius, the damage and its crown-tower percent, its death push (the
+/// ladder's distance, for a troop under knockback.TROOP_DEATH_PUSHBACK = client16402_with_blow) and the units a throw put
+/// down on the death tick (spawner.THROWN_UNIT_DEATH_BLOW: unreached).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PendingBlow {
+    pub team: Team,
+    pub pos: Vec2,
+    pub radius: i32,
+    pub amount: i32,
+    pub crown: i32,
+    pub push: Option<i32>,
+    pub exclude: Vec<EntityId>,
+}
+
 /// A GOBLINSTEIN TETHER UNDER WAY (card.rs `TetherDef`; `tether_pass`): its Doctor and Monster, the card, the level and
 /// the tick of its first hit.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -12648,7 +12687,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
+        self.runs.is_empty() && self.blows.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -30649,6 +30688,10 @@ impl BattleState {
         if !self.warps.tethers.is_empty() {
             self.tether_pass();
         }
+        // combat.DEATH_BLOW_VICTIM_POINT = client16402_landing_tick: the last Reap's death blows, on this tick's positions.
+        if !self.warps.blows.is_empty() {
+            self.blow_pass();
+        }
         let underground_immune = self.underground_immune();
         let riders_immune = target::riders_immune(&self.cfg.calib);
         // status.HEAL_PULSE_LANDING = client15535_before_buffered_hits: the pulses' heals land here, before the hits the
@@ -31159,6 +31202,33 @@ impl BattleState {
     /// centre is within `width` and its radius of the segment from the Doctor to the Monster takes the tether's damage at
     /// the Doctor's level (a crown tower its crown damage), in this Resolve. A run
     /// whose units are gone, or whose time is out, ends.
+    /// THE DEATH BLOWS DUE (combat.DEATH_BLOW_VICTIM_POINT = client16402_landing_tick; `PendingBlow`): each disc tested on
+    /// this tick's positions (after its move), its hits into this Resolve, its push armed with this Resolve's effects
+    /// (knockback.TROOP_DEATH_PUSHBACK = client16402_with_blow's tick). Measured on client 16.402 (parity r75, live13): 4 of
+    /// 4 units inside the disc on one frame only followed the landing frame.
+    fn blow_pass(&mut self) {
+        let blows = std::mem::take(&mut self.warps.blows);
+        self.hash.rebuild(&self.ents);
+        for b in blows {
+            let from = self.dmg.hits.len();
+            combat::splash(&self.ents, &self.hash, b.team, b.pos, b.radius, true, true, b.amount, b.crown, self.cfg.calib.crown_rounding, &mut self.dmg, &mut self.scratch.nb);
+            if !b.exclude.is_empty() {
+                let kept: Vec<_> = self.dmg.hits.drain(from..).filter(|h| !b.exclude.contains(&h.target)).collect();
+                self.dmg.hits.extend(kept);
+            }
+            if let Some(distance) = b.push {
+                let victims: Vec<usize> = self.dmg.hits[from..].iter().map(|h| h.target.index as usize).collect();
+                let ctx = spell::SpellCtx { ents: &self.ents, hash: &self.hash, cards: &self.cfg.cards, calib: &self.cfg.calib, steps: &[], tick: self.tick };
+                let k = crate::card::KnockbackDef { distance, all: false };
+                let mut pushes = EffectBuffer::default();
+                for v in victims {
+                    spell::push_from(&ctx, b.team, v, b.pos, &k, false, &mut pushes);
+                }
+                self.effects.knocks.append(&mut pushes.knocks);
+            }
+        }
+    }
+
     fn tether_pass(&mut self) {
         let tick_ms = self.cfg.calib.tick_ms.max(1) as u32;
         let runs = std::mem::take(&mut self.warps.tethers);
@@ -32075,7 +32145,26 @@ impl BattleState {
                 }
                 let card = self.cfg.cards.get(self.ents.card[i]);
                 let blow_from = self.dmg.hits.len();
-                if self.ents.death_damage[i] > 0 && card.death_damage_radius > 0 {
+                // combat.DEATH_BLOW_VICTIM_POINT = client16402_landing_tick: under DEATH_DAMAGE_TICK = next_tick the blow is
+                // kept for the next tick's Resolve and its disc tested there, on that tick's positions (`blow_pass`).
+                // PLANT (regression) death_blow_victims_at_reap: the new arm still takes its victims in this Reap.
+                #[cfg(not(clash_plant = "death_blow_victims_at_reap"))]
+                let landing = self.cfg.calib.death_blow_victim_point == DeathBlowVictimPoint::Client16402LandingTick
+                    && self.cfg.calib.death_damage_tick == DeathDamageTick::NextTick;
+                #[cfg(clash_plant = "death_blow_victims_at_reap")]
+                let landing = false;
+                if landing && self.ents.death_damage[i] > 0 && card.death_damage_radius > 0 {
+                    #[cfg(not(clash_plant = "death_crown_pct_unread"))]
+                    let crown = card.death_crown_pct.unwrap_or(card.crown_tower_damage_percent);
+                    #[cfg(clash_plant = "death_crown_pct_unread")]
+                    let crown = card.crown_tower_damage_percent;
+                    let push = (matches!(self.cfg.calib.troop_death_pushback, TroopDeathPushback::Client15535Ladder | TroopDeathPushback::Client16402WithBlow)
+                        && card.death_pushback > 0
+                        && self.ents.kind[i] == EntityKind::Troop)
+                        .then_some(card.death_pushback);
+                    let exclude = if self.cfg.calib.thrown_unit_death_blow == ThrownUnitDeathBlow::Client15535Unreached { self.scratch.thrown.clone() } else { Vec::new() };
+                    self.warps.blows.push(PendingBlow { team: self.ents.team[i], pos: self.ents.pos[i], radius: card.death_damage_radius, amount: self.ents.death_damage[i], crown, push, exclude });
+                } else if self.ents.death_damage[i] > 0 && card.death_damage_radius > 0 {
                     // The blow's own crown-tower percent where it has one (card.rs `CardDef::death_crown_pct`: the Evo Wall
                     // Breakers'), else the card's.
                     #[cfg(not(clash_plant = "death_crown_pct_unread"))]
@@ -36851,6 +36940,23 @@ impl BattleState {
                     }
                 }
             }
+            if !self.warps.blows.is_empty() {
+                h.u32(0x424c_4f57);
+                h.u32(self.warps.blows.len() as u32);
+                for b in &self.warps.blows {
+                    h.u32(b.team as u32);
+                    h.i32(b.pos.x);
+                    h.i32(b.pos.y);
+                    h.i32(b.radius);
+                    h.i32(b.amount);
+                    h.i32(b.crown);
+                    h.i32(b.push.unwrap_or(-1));
+                    h.u32(b.exclude.len() as u32);
+                    for id in &b.exclude {
+                        h.id(*id);
+                    }
+                }
+            }
             if !self.warps.tethers.is_empty() {
                 h.u32(0x5445_5448);
                 h.u32(self.warps.tethers.len() as u32);
@@ -38662,6 +38768,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, spells.CAPTURE_ROLL_STRIKES: Calib gained capture_roll_strikes (serde default the old arm, capture_tick_only), SpellMotion::CaptureRoll gained struck (serde default empty; hashed only when non-empty),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DEATH_BLOW_VICTIM_POINT: Calib gained death_blow_victim_point (serde default the old arm, death_tick_reap), WarpBoard gained blows (serde default empty; hashed only when non-empty),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39720,6 +39828,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("deploy_area_birth_contact".into(), serde_json::to_value(DeployAreaBirthContact::Pushed).map_err(|e| e.to_string())?);
     // spells.CAPTURE_ROLL_STRIKES: a format-3 battle ran spells.CAPTURE_ROLL_STRIKES's old arm.
     sh.insert("capture_roll_strikes".into(), serde_json::to_value(CaptureRollStrikes::CaptureTickOnly).map_err(|e| e.to_string())?);
+    // combat.DEATH_BLOW_VICTIM_POINT: a format-3 battle ran combat.DEATH_BLOW_VICTIM_POINT's old arm.
+    sh.insert("death_blow_victim_point".into(), serde_json::to_value(DeathBlowVictimPoint::DeathTickReap).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

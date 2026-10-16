@@ -376,6 +376,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.RAMP_LEVEL_DROP = with_the_count: unread on client 15.535.29.
 ///   spells.DEPLOY_AREA_BIRTH_CONTACT = pushed: unread on client 15.535.29.
 ///   spells.CAPTURE_ROLL_STRIKES = capture_tick_only: client 15.535.29's scenes struck every unit on R + 2 (no late reach).
+///   combat.DEATH_BLOW_VICTIM_POINT = death_tick_reap: unread there (client15535_death_tick lands the blow in the Reap).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -582,6 +583,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.RAMP_LEVEL_DROP", "\"with_the_count\""),
     ("spells.DEPLOY_AREA_BIRTH_CONTACT", "\"pushed\""),
     ("spells.CAPTURE_ROLL_STRIKES", "\"capture_tick_only\""),
+    ("combat.DEATH_BLOW_VICTIM_POINT", "\"death_tick_reap\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

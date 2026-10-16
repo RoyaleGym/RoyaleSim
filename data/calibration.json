@@ -1844,6 +1844,16 @@
     }
   },
   "combat": {
+    "DEATH_BLOW_VICTIM_POINT": {
+      "value": "death_tick_reap",
+      "status": "measured",
+      "candidates": ["death_tick_reap", "client16402_landing_tick"],
+      "confidence": "MEDIUM for client16402_landing_tick on client 16.402 (parity r75, 2026-10-16): all unit death blows in live13 (Golem, Golemite, Ice Golemite, Super Ice Golemite, the Skeleton containers; deaths before each first divergence): of the enemies inside the blow's disc on one of the death frame D and the landing frame D + 1 only, the truth hit those inside on D + 1, 4 of 4 (031822 Valkyrie k65 in on D and spared, 040857 Skeleton k15 likewise, 031009 Skeleton k86 and 170647 Bat k43 out on D and killed); the engine followed D, 4 of 4; a radius cannot fit both; inside on both frames, truth 388 of 408 hit, engine 398 of 408 (shields, riders, unread Evo Bat hp). A candidate until scored. Client 15.535.29 keeps death_tick_reap (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-16, r75) on client 16.402, the ob13 set (maker 557fca83): all unit death blows in live13 (Golem, Golemite, Ice Golemite, Super Ice Golemite, the Skeleton containers; deaths before each first divergence): of the enemies inside the blow's disc on one of the death frame D and the landing frame D + 1 only, the truth hit those inside on D + 1, 4 of 4 (031822 Valkyrie k65 in on D and spared, 040857 Skeleton k15 likewise, 031009 Skeleton k86 and 170647 Bat k43 out on D and killed); the engine followed D, 4 of 4; a radius cannot fit both; inside on both frames, truth 388 of 408 hit, engine 398 of 408 (shields, riders, unread Evo Bat hp).",
+      "meaning": "death_tick_reap: the engine's; a dying unit's death blow takes the enemies inside its disc on the death tick's Reap, after that tick's move, and lands on them with the next tick's hits (combat.DEATH_DAMAGE_TICK = next_tick). client16402_landing_tick: the blow's disc, centred where the unit died, is tested on the landing tick itself, after that tick's move (the head of its Resolve), so a unit that walks in on the landing tick is hit and one that walks out is spared; its push (knockback.TROOP_DEATH_PUSHBACK = client16402_with_blow) is armed from the same victims in that Resolve. A unit a throw put down on the death tick stays unreached (spawner.THROWN_UNIT_DEATH_BLOW).",
+      "open": "Small sample (4 discriminating events: edge cases near the radius are rare); the blow's centre one step on is extrapolated; under client15535_death_tick the key is not read.",
+      "engine": "state.rs phase_reap (the death blow, WarpBoard::blows) and blow_pass (phase_resolve's head), selected by Calib::death_blow_victim_point; tests/death_damage_tick.rs."
+    },
     "RAMP_LEVEL_DROP": {
       "value": "with_the_count",
       "status": "measured",

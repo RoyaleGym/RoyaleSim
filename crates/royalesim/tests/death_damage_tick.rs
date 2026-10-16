@@ -14,12 +14,18 @@
 //!
 //! combat.DEATH_BLOW_VICTIM_REAP = client15535_same_reap (client 15.535.29: 15 of 16 enemies a dying Golem's or Ice
 //! Golemite's blow killed left on the death frame): a unit the blow takes to 0 dies in that Reap.
+//!
+//! combat.DEATH_BLOW_VICTIM_POINT = client16402_landing_tick (client 16.402, parity r75, live13: 4 of 4 units inside the
+//! blow's disc on one frame only followed the landing frame, the engine's the death frame): under next_tick the disc is
+//! tested on the landing tick's positions. The scene: the Golem's blow with the Knight 250 outside its disc on the death
+//! tick and 250 inside on the landing tick, then the other way about. PLANT death_blow_victims_at_reap ->
+//! `under_client16402_landing_tick_the_blow_takes_the_units_inside_on_its_landing_tick` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, DeathBlowVictimReap, DeathDamageTick};
+use royalesim::state::{BattleState, DeathBlowVictimPoint, DeathBlowVictimReap, DeathDamageTick};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["Knight", "Golem", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -94,4 +100,43 @@ fn a_unit_the_blow_kills_leaves_on_the_death_tick_under_client15535_same_reap() 
     assert_eq!(knight_left(DeathBlowVictimReap::Client15535SameReap), (false, false), "client15535_same_reap: the Knight outlived the Golem's death tick");
     // NOT VACUOUS: next_tick leaves it on the board through the death tick.
     assert_eq!(knight_left(DeathBlowVictimReap::NextTick), (true, false), "next_tick: the Knight did not stand out the death tick");
+}
+
+/// Under combat.DEATH_BLOW_VICTIM_POINT = `arm` (DEATH_DAMAGE_TICK = next_tick): the Golem set to 0 before tick D, the Knight
+/// put `d_death` (native, centre to centre) south of it before D and `d_landing` before D + 1: whether the Knight lost
+/// hitpoints by the end of D + 1 (both still deploying: neither walks).
+fn blow_lands(arm: DeathBlowVictimPoint, d_death: i32, d_landing: i32) -> bool {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.death_damage_tick = DeathDamageTick::NextTick;
+    cfg.calib.death_blow_victim_point = arm;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    let golem: EntityId = s.scenario_spawn_now(Team::Red, "Golem", at(9000, 13500), None).expect("the Golem");
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", at(9000, 13500 - d_death), None).expect("the Knight");
+    let full = s.entity(knight).expect("the Knight").max_hp;
+    assert!(s.debug_set_hp(knight, full));
+    assert!(s.debug_set_hp(golem, 0));
+    s.tick();
+    assert!(s.entity(golem).is_none(), "the scene drifted: the Golem did not die on the tick");
+    assert_eq!(s.entity(knight).expect("the Knight").hp, full, "the scene drifted: a hit on the death tick");
+    assert!(s.debug_set_pos(knight, at(9000, 13500 - d_landing)));
+    s.tick();
+    s.entity(knight).map_or(true, |e| e.hp < full)
+}
+
+/// Plant: death_blow_victims_at_reap.
+#[test]
+fn under_client16402_landing_tick_the_blow_takes_the_units_inside_on_its_landing_tick() {
+    let s = BattleState::new(0, config());
+    // The disc's reach on the Knight's centre: the blow's radius and the Knight's own.
+    let reach = card_stat(&s, "Golem").death_damage_radius / K + card_stat(&s, "Knight").collision_radius / K;
+    let (out, inside) = (reach + 250, reach - 250);
+    // NOT VACUOUS: death_tick_reap takes the Knight where it stood on the death tick.
+    assert!(!blow_lands(DeathBlowVictimPoint::DeathTickReap, out, inside), "death_tick_reap: the Knight walked in and was hit");
+    assert!(blow_lands(DeathBlowVictimPoint::DeathTickReap, inside, out), "death_tick_reap: the Knight walked out and was spared");
+    assert!(blow_lands(DeathBlowVictimPoint::Client16402LandingTick, out, inside), "client16402_landing_tick: the Knight inside on the landing tick was spared");
+    assert!(!blow_lands(DeathBlowVictimPoint::Client16402LandingTick, inside, out), "client16402_landing_tick: the Knight outside on the landing tick was hit");
 }
