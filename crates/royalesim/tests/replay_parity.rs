@@ -268,7 +268,13 @@ fn the_score_counters_are_consistent() {
     assert!(r.first_divergence.is_none(), "at the shipped values the sample diverges: {:?}", r.first_divergence);
     let mut opts = Options::default();
     opts.calibration_overrides.insert("placement.TROOP_TOWER_TAPS".to_string(), "\"closed_block\"".to_string());
-    let old = replay(&sample(), &common::cards(), &register(), &opts).expect("the sample replays under closed_block");
+    // Without the maker's members_tile: under closed_block the engine keeps the tap, so the harness would lay the Skeletons
+    // on the client's tile and the old arm's placement would go untested (`members_point`).
+    let mut bare = sample();
+    for d in &mut bare.deploys {
+        d.members_tile = None;
+    }
+    let old = replay(&bare, &common::cards(), &register(), &opts).expect("the sample replays under closed_block");
     let d = old.first_divergence.as_ref().expect("under closed_block the own-king Skeletons spawn where the client's do not");
     assert!(d.tick > 0 && d.tick <= old.last_tick);
     assert!(["walking", "contact", "spawn", "death", "attack-timing", "knockback", "status"].contains(&d.cause.as_str()), "{}", d.cause);
@@ -1629,4 +1635,95 @@ fn the_rng_column_of_the_current_builds_is_read() {
     }
     let c: RngColumn = serde_json::from_str(r#"{"algorithm": "client_lcg_v160402020", "first": [10, 12345]}"#).expect("a column parses");
     assert_eq!(c.state_after(10), None, "another algorithm was read");
+}
+
+/// A GROUP SMALLER THAN ITS POOL takes its nearest members on its frame (liveplay-20261007-010559-A: a Goblin Giant on the back
+/// row, its two Spear Goblins first seen apart on 306 and 312). Plant: replay_pool_members_by_order.
+#[test]
+fn a_group_smaller_than_its_pool_takes_its_nearest_members_on_its_frame() {
+    let at = |x: i32, y: i32| Vec2::new(x * royalesim::fixed::SUBTILE_PER_MILLITILE, y * royalesim::fixed::SUBTILE_PER_MILLITILE);
+    let truth = vec![(285u32, vec![Some(at(9500, 500))]), (306, vec![Some(at(8720, 197))]), (312, vec![Some(at(9499, 2))])];
+    let sim = vec![(285u32, vec![at(9500, 500), at(9851, -328), at(9163, -334)])];
+    let on = |_: usize, si: usize, t: u32| -> Option<Vec2> {
+        match (si, t) {
+            (1, 306) => Some(at(9211, -286)),
+            (1, 312) => Some(at(9499, 2)),
+            (2, 306) => Some(at(8720, 197)),
+            (2, 312) => Some(at(9008, 485)),
+            _ => None,
+        }
+    };
+    let th = vec![vec![Some(3414)], vec![Some(146)], vec![Some(146)]];
+    let sh = vec![vec![3414, 146, 146]];
+    let got = pair_groups_hp_at(&truth, &sim, &th, &sh, PAIR_WINDOW_TICKS, &on);
+    assert!(got.contains(&(0, 0, 0, 0)), "the carrier with the carrier: {got:?}");
+    assert!(got.contains(&(1, 0, 0, 2)), "the 306 rider with the member standing on its point on 306: {got:?}");
+    assert!(got.contains(&(2, 0, 0, 1)), "the 312 rider with the other: {got:?}");
+}
+
+/// A UNIT OFF THE ARENA IS UNSEEN (`off_arena`; liveplay-20261007-010559-A: a Goblin Giant on the back row's tile, its riders
+/// 828 behind it, first seen on the tick each enters the arena): the predicate, and the scene is real. Plant:
+/// replay_scores_off_arena_frames.
+#[test]
+fn a_rider_off_the_arena_is_unobserved_before_its_first_frame() {
+    use royalesim::state::BattleState;
+    use royalesim::Team;
+    let n = |x: i32, y: i32| Vec2::new(x * royalesim::fixed::SUBTILE_PER_MILLITILE, y * royalesim::fixed::SUBTILE_PER_MILLITILE);
+    let s0 = BattleState::new(0, common::config());
+    assert!(off_arena(s0.arena(), n(9851, -328)) && off_arena(s0.arena(), n(9163, -334)), "a point below the arena reads on it");
+    assert!(!off_arena(s0.arena(), n(9499, 2)) && !off_arena(s0.arena(), n(8720, 197)), "a point on the arena reads off it");
+    let mut s = BattleState::new(0, common::config());
+    s.spawn_unit(Team::Blue, "GoblinGiant", n(9500, 500), None).expect("the back-row play");
+    s.tick();
+    let riders: Vec<Vec2> = s.entities().filter(|e| e.card == "SpearGoblinGiant").map(|e| e.pos).collect();
+    assert_eq!(riders.len(), 2, "the Goblin Giant's two riders");
+    assert!(riders.iter().all(|p| off_arena(s.arena(), *p)), "vacuous: the riders stand on the arena: {riders:?}");
+}
+
+/// The first `k` frames of an RLE column dropped.
+fn drop_front(col: &mut Vec<serde_json::Value>, mut k: u64) {
+    while k > 0 {
+        let run = col[1].as_u64().expect("an RLE run");
+        if run > k {
+            col[1] = serde_json::json!(run - k);
+            k = 0;
+        } else {
+            col.drain(0..2);
+            k -= run;
+        }
+    }
+}
+
+/// A GROUP THE CAPTURE SHOWS LATE (Deploy::first_seen; the maker's 'the capture shows the group from N'): the sample's Giant
+/// (row 1329, key 15) cut to its frames from the sixth on. Marked first_seen, its five earlier frames are unobserved (the
+/// score as the sample's, no divergence before its first sight); unmarked (the vacuity check), they are scored as alive in the
+/// sim only and raise the battle's first divergence on 1329. Plant: replay_scores_unseen_frames.
+#[test]
+fn a_member_shown_late_is_scored_from_its_first_seen_frame() {
+    let base = play(&sample());
+    let late = |mark: bool| -> (Report, u32, u32) {
+        let mut f = sample();
+        let i = f.deploys.iter().position(|d| d.card.as_deref() == Some("Giant")).expect("the sample's Giant row");
+        let key = f.deploys[i].keys[0];
+        let tick = f.deploys[i].tick;
+        let truth = f.truth.as_mut().expect("the sample's truth");
+        let ticks = truth.ticks.clone();
+        let e = truth.entities.iter_mut().find(|e| e.key == key).expect("the Giant's truth");
+        assert_eq!(ticks[e.t0], tick, "vacuous: the Giant is not seen on its tick");
+        for col in [&mut e.x, &mut e.y, &mut e.hp, &mut e.target, &mut e.path_n, &mut e.state] {
+            drop_front(col, 5);
+        }
+        e.t0 += 5;
+        e.n -= 5;
+        let seen = ticks[e.t0];
+        f.deploys[i].first_seen = Some(if mark { seen } else { tick });
+        (play(&f), tick, seen)
+    };
+    let (r, _, seen) = late(true);
+    assert_eq!(r.score.alive_mismatch, base.score.alive_mismatch, "the unseen frames were scored");
+    assert!(r.unseen_frames >= 5, "the unseen frames not counted: {}", r.unseen_frames);
+    assert!(r.first_divergence.as_ref().map_or(true, |d| d.tick >= seen), "a divergence before the first sight: {:?}", r.first_divergence);
+    let (v, tick, _) = late(false);
+    assert_eq!(v.score.alive_mismatch, base.score.alive_mismatch + 5, "vacuous: unmarked, the five frames are not scored");
+    assert_eq!(v.first_divergence.as_ref().map(|d| d.tick), Some(tick), "vacuous: unmarked, no divergence on the spawn tick");
 }

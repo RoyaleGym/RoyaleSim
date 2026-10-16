@@ -433,6 +433,21 @@ pub fn resolve_on_board(s: &BattleState, db: &CardDb, d: &Deploy) -> Option<Vec2
     Some(if observed_row(d, db) { s.resolve_observed_point(team, idx, p) } else { s.resolve_point(team, idx, p) })
 }
 
+/// OFF THE ARENA (`Report::unseen_frames`): a sim point outside the arena's box (subtiles, as Snap::pos). A Goblin Giant
+/// played on the back row stands its riders 828 behind it, at y -328 (liveplay-20261007-010559-A); the capture shows each on
+/// the first tick its engine twin is on the arena. Plant: replay_scores_off_arena_frames.
+pub fn off_arena(a: &royalesim::arena::Arena, p: Vec2) -> bool {
+    #[cfg(clash_plant = "replay_scores_off_arena_frames")]
+    {
+        let _ = (a, p);
+        return false; // PLANT (regression): every point reads on the arena, so its frames are scored again.
+    }
+    #[allow(unreachable_code)]
+    {
+        p.x < 0 || p.y < 0 || p.x > a.width || p.y > a.height
+    }
+}
+
 /// THE TRUTH'S HP IS READ (Sim's r74 contract 4): a truth hp of -1 on an entity whose max hp is not below 0 is the reader's
 /// overheal (an Evo Bat, the Evo Witch, the Evo PEKKA above their max; ob12 has 215k such frames), not a value, and is not
 /// scored; an entity with no hitpoints (max hp below 0) is scored as before. Plant: replay_scores_unread_hp.
@@ -1240,6 +1255,11 @@ pub struct Report {
     /// tick 931, the king tower's fall, on 5,170 frames); scored per frame, each copy counted the fallen tower, which
     /// the engine removes, as a unit-tick lost. Counted here so the skip stays visible.
     pub repeated_frames: u64,
+    /// THE FRAMES NOT OBSERVED: a paired member's frames before its truth's first frame on which the truth has no row and
+    /// the sim member stands off the arena (`off_arena`), or which its deploy row's `first_seen` puts before the capture's
+    /// first sight of the group. Neither unit-ticks nor alive mismatches; counted so the skip stays visible.
+    #[serde(default)]
+    pub unseen_frames: u64,
     pub score: Score,
     /// `score` without the six crown towers' rows (the towers stand still and are
     /// on every frame, so they carry most unit-ticks).
@@ -1732,6 +1752,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         unmatched_sim: Vec::new(),
         unscored_dummies: Vec::new(),
         repeated_frames: 0,
+        unseen_frames: 0,
         score: Score::default(),
         score_no_towers: Score::default(),
         per_card: BTreeMap::new(),
@@ -2293,6 +2314,19 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     let mut missing_run: BTreeMap<usize, (u32, u32)> = BTreeMap::new();
     let mut extra_run: BTreeMap<usize, (u32, u32)> = BTreeMap::new();
     let is_tower_key = |key: i64| f.towers.iter().any(|t| truth_tower_key(f, &truth, t) == Some(key));
+    // A GROUP THE CAPTURE SHOWS LATE (Deploy::first_seen > tick, the maker's 'the capture shows the group from N'): its
+    // members' frames before first_seen are unobserved (`Report::unseen_frames`).
+    #[cfg(not(clash_plant = "replay_scores_unseen_frames"))]
+    let unseen_until: BTreeMap<usize, u32> = {
+        let k2e = &truth.key_to_entity;
+        f.deploys
+            .iter()
+            .filter_map(|d| d.first_seen.filter(|&fs| fs > d.tick).map(|fs| (d, fs)))
+            .flat_map(|(d, fs)| d.keys.iter().filter_map(move |k| k2e.get(k).map(|&tk| (tk, fs))))
+            .collect()
+    };
+    #[cfg(clash_plant = "replay_scores_unseen_frames")]
+    let unseen_until: BTreeMap<usize, u32> = BTreeMap::new(); // PLANT (regression): scored from the sim's birth again.
     // ONE TICK, SCORED ONCE (`Report::repeated_frames`): a frame repeating the tick just scored is skipped.
     let mut scored_tick: Option<u32> = None;
     for (fi, &t) in truth.ticks.iter().enumerate().step_by(opts.stride.max(1)) {
@@ -2314,9 +2348,14 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             let root = e.card.clone().unwrap_or_default();
             let truth_row = truth.row(*tk, fi);
             let sim_row = snap.get(sk).copied();
+            // UNOBSERVED (`Report::unseen_frames`): before the truth's first frame, with no truth row, a sim member off the
+            // arena (`off_arena`) or one its deploy row's first_seen puts before the capture's first sight.
+            let late = unseen_until.get(tk).is_some_and(|&u| t < u);
+            let off = sim_row.is_some_and(|r| off_arena(s.arena(), r.pos));
+            let unseen = truth_row.is_none() && sim_row.is_some() && fi < truth.first_index(*tk) && (late || off);
             let sc = per_card.entry(root.clone()).or_default();
             let st = pair_state.entry(*tk).or_default();
-            if truth_row.is_some() || sim_row.is_some() {
+            if (truth_row.is_some() || sim_row.is_some()) && !unseen {
                 sc.after_engine_end += after_end;
             }
             if opts.trace && (truth_row.is_some() || sim_row.is_some()) {
@@ -2353,6 +2392,10 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let attack = sim_row.map(|r| [r.attack[0] as i64, r.attack[1] as i64]);
                 let route = sim_row.map(|r| r.route.map(i64::from));
                 report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist, heading, attack, route });
+            }
+            if unseen {
+                report.unseen_frames += 1;
+                continue;
             }
             match (truth_row, sim_row) {
                 (Some(tr), Some(sr)) => {
@@ -2730,11 +2773,16 @@ pub fn pair_groups_hp_at(
             .map(|(pi, len, st)| (len != n, st.abs_diff(*t), st, pi))
             .collect();
         cands.sort();
+        // A GROUP SMALLER THAN ITS POOL takes the pool's nearest members on its own frame: every free member of each ranked
+        // pool is a candidate (pools in rank order until the group is full), and `assign_tied` keeps the nearest; the rest
+        // stay free. liveplay-20261007-010559-A's Goblin Giant riders, first seen apart on 306 and 312, were paired by the
+        // pool's order, crosswise: 0 of 794 unit-ticks within 250; crosswise 794 of 794 exact.
         let mut taken: Vec<(usize, usize)> = Vec::new();
         for (_, _, _, pi) in cands {
             for &si in &free[pi] {
+                #[cfg(clash_plant = "replay_pool_members_by_order")]
                 if taken.len() >= n {
-                    break;
+                    break; // PLANT (regression): the pool's first free members, in its order.
                 }
                 taken.push((pi, si));
             }
@@ -2919,6 +2967,12 @@ pub fn render_fixture_markdown(r: &Report) -> String {
         r.last_tick,
         r.engine_end_tick
     ));
+    if r.unseen_frames > 0 {
+        out.push_str(&format!(
+            "NOT OBSERVED: {} paired frames before the truth's first sight (off the arena, or a deploy row's first_seen)\n\n",
+            r.unseen_frames
+        ));
+    }
     if r.repeated_frames > 0 {
         out.push_str(&format!(
             "NOT SCORED AGAIN: {} truth frames repeat the tick before them (the client's frozen frames after the match ends); each tick is scored once\n\n",
