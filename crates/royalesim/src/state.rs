@@ -989,6 +989,10 @@ pub struct Calib {
     /// `Cancel`, what a battle saved before it ran.
     #[serde(default = "lost_target_shot_default")]
     pub lost_target_shot: LostTargetShot,
+    /// combat.TOWER_TROOP_COOKING (whether a Royal Chef side's princess towers cook pancakes for its troops). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `NotCooked`, what a battle saved before it ran.
+    #[serde(default = "tower_troop_cooking_default")]
+    pub tower_troop_cooking: TowerTroopCooking,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -2939,6 +2943,10 @@ fn evo_kill_heal_default() -> EvoKillHeal {
 
 fn lost_target_shot_default() -> LostTargetShot {
     LostTargetShot::Cancel
+}
+
+fn tower_troop_cooking_default() -> TowerTroopCooking {
+    TowerTroopCooking::NotCooked
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10299,6 +10307,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.TOWER_TROOP_COOKING -- the Royal Chef's cooking (state.rs `ChefCook`, `chef_cook_pass`, `chef_pick_pass`,
+    /// `chef_level_step`; combat.rs Projectile `pancake`; entity.rs `pancaked`).
+    TowerTroopCooking {
+        /// The engine's: a Chef side's princess towers shoot and cook nothing.
+        NotCooked = "not_cooked",
+        /// Client 16.402: the side's bar fills, a friend is picked and a homing pancake levels it up on landing.
+        Client16402Pancakes = "client16402_pancakes",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -10859,6 +10877,7 @@ impl Calib {
             cage_hold_start: pick(&v, &["combat", "CAGE_HOLD_START", "value"], CageHoldStart::from_calibration_name)?,
             evo_kill_heal: pick(&v, &["combat", "EVO_KILL_HEAL", "value"], EvoKillHeal::from_calibration_name)?,
             lost_target_shot: pick(&v, &["combat", "LOST_TARGET_SHOT", "value"], LostTargetShot::from_calibration_name)?,
+            tower_troop_cooking: pick(&v, &["combat", "TOWER_TROOP_COOKING", "value"], TowerTroopCooking::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -13791,6 +13810,26 @@ pub fn deploy_rule(calib: &Calib, card: &CardDef) -> (Territory, bool) {
 // ---------------------------------------------------------------------------
 // the state
 
+
+/// A ROYAL CHEF'S THROW under way (combat.TOWER_TROOP_COOKING; `ChefCook::throw`): the friend it picked, the tower that
+/// throws, the release tick.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChefThrow {
+    pub target: EntityId,
+    pub tower: EntityId,
+    pub release: u32,
+}
+
+/// A SIDE'S ROYAL CHEF COOKING (combat.TOWER_TROOP_COOKING = client16402_pancakes; state.rs `chef_cook_pass`,
+/// `chef_pick_pass`): the bar's contribution so far, the tick it filled, the throw under way. Default (idle) in every battle
+/// without a Chef side.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChefCook {
+    pub meter: i32,
+    pub full_at: Option<u32>,
+    pub throw: Option<ChefThrow>,
+}
+
 #[derive(Clone, Debug)]
 pub struct BattleState {
     cfg: BattleConfig,
@@ -13844,6 +13883,9 @@ pub struct BattleState {
     lifts: Vec<LiftRun>,
     /// The heroes' quests (`QuestRun`), in creation order. Empty in every battle without one.
     quests: Vec<QuestRun>,
+    /// Each side's Royal Chef cooking (combat.TOWER_TROOP_COOKING = client16402_pancakes; `chef_cook_pass`). Idle in every
+    /// battle without a Chef side or under not_cooked.
+    chef: [ChefCook; 2],
     /// The evolved fliers that fall (`FallRun`), in creation order. Empty in every battle without one.
     falls: Vec<FallRun>,
     /// The taunts (`TauntBoard`). Empty in every battle without one.
@@ -14307,6 +14349,7 @@ impl BattleState {
             spins: Vec::new(),
             lifts: Vec::new(),
             quests: Vec::new(),
+            chef: [ChefCook::default(); 2],
             falls: Vec::new(),
             taunts: TauntBoard::default(),
             client_rng: None,
@@ -17285,6 +17328,22 @@ impl BattleState {
     /// enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: the ticks a Rune Giant attacks nothing from each launch's
     /// tick on (L .. L + 13), its row's 600 ms NO_ATTACK hold as measured (130 of 136 dropped swings restarting on L + 14).
     const ENCHANT_HOLD_TICKS: u32 = 14;
+    /// THE ROYAL CHEF'S COOKING (combat.TOWER_TROOP_COOKING; the raw chef_tower.toml ACTION.ChefTower_CookingAction, the same on
+    /// the 15.535.29 and 160402017 tables, which the derived table does not carry yet): StartCookingDelay, ContributionNeeded,
+    /// ContributionBaseline and ContributionIdle (a second), MinCurrentHpPercentageThreshold, MinMaxHpThreshold,
+    /// WaitPancakeThrowAfterAttackTime (the pick from the full + 2), PancakeThrowDelay (the release 5 after the pick),
+    /// PancakeStartOffset (native) and ChefTower_pancake_projectile's Speed (homing). Measured on client 16.402 (parity r74
+    /// batch 6): the release on the full + 7, 63 of 83 exact, 81 within a tick.
+    const CHEF_START_MS: i32 = 7000;
+    const CHEF_NEEDED: i32 = 23000;
+    const CHEF_BASELINE: i32 = 600;
+    const CHEF_IDLE: i32 = 200;
+    const CHEF_MIN_HP_PCT: i64 = 33;
+    const CHEF_MIN_MAX_HP: i32 = 2;
+    const CHEF_PICK_WAIT_MS: i32 = 100;
+    const CHEF_THROW_DELAY_MS: i32 = 250;
+    const CHEF_START_OFFSET: i32 = 200;
+    const CHEF_PANCAKE_SPEED: i32 = 600;
 
     /// THE RUNE GIANT'S LAUNCH (enchant.LAUNCH_DELAY), at the top of the Projectile phase: every Rune Giant whose launch
     /// clock ran out this tick sends each friend he picked (a dead one skipped) a homing projectile from where he stands
@@ -17340,6 +17399,7 @@ impl BattleState {
                     trail: None,
                     chain: None,
                     bounce: None,
+                    pancake: false,
                 });
             }
             self.ents.enchant_state[i] = ENCHANT_WAITING;
@@ -18099,6 +18159,7 @@ impl BattleState {
         self.spins.clear();
         self.lifts.clear();
         self.quests.clear();
+        self.chef = [ChefCook::default(); 2];
         self.falls.clear();
         self.deflects.clear();
         self.ladder_asks.clear();
@@ -19151,6 +19212,10 @@ impl BattleState {
         }
         // The Rune Giant's look, on the start-of-tick positions, the units created this tick included.
         self.enchant_pass();
+        // The Royal Chefs' picks (combat.TOWER_TROOP_COOKING), on the start-of-tick hitpoints, this tick's units included.
+        if self.cfg.calib.tower_troop_cooking == TowerTroopCooking::Client16402Pancakes {
+            self.chef_pick_pass();
+        }
     }
 
     /// combat.DEPLOY_PROJECTILE = client_on_landing: a card whose play carries a deploy projectile (card.rs
@@ -21449,6 +21514,7 @@ impl BattleState {
             trail: None,
             chain: None,
             bounce: None,
+            pancake: false,
         });
     }
 
@@ -23187,6 +23253,163 @@ impl BattleState {
     /// damage, a building's decay (a share of its max hitpoints).
     ///
     /// Read off the table, not measured (Oracle request 27): the floor (what character_level counts) and the rescale.
+    /// THE ROYAL CHEF'S LEVEL STEP (combat.TOWER_TROOP_COOKING): `level_down`'s rescale one level up; nothing past the
+    /// ladder's top. Measured on client 16.402 (parity r74 batch 6): max hp the card's own at the new level (47 of 47), hp
+    /// floor(hp x M' / M) (70 of 73).
+    fn chef_level_step(&mut self, i: usize) {
+        let (card, from) = (self.ents.card[i], self.ents.level[i]);
+        let cards = self.cfg.cards.clone();
+        let to = from + 1;
+        let (Ok(m0), Ok(m1)) = (cards.level_multiplier(card, from), cards.level_multiplier(card, to)) else { return };
+        let c = cards.get(card);
+        let on = |base: i32, level: i32| cards.scaled(card, level, base).expect("the level checked above");
+        let by_ladder = |v: i32| ((v as i64) * (m1 as i64) / (m0.max(1) as i64)) as i32;
+        let rescale = |v: i32, base: i32| if v == on(base, from) { on(base, to) } else { by_ladder(v) };
+        let (old_max, hp) = (self.ents.max_hp[i], self.ents.hp[i]);
+        let new_max = rescale(old_max, c.hitpoints);
+        self.ents.level[i] = to;
+        self.ents.max_hp[i] = new_max;
+        self.ents.damage[i] = rescale(self.ents.damage[i], c.damage);
+        self.ents.death_damage[i] = rescale(self.ents.death_damage[i], c.death_damage);
+        self.ents.shield[i] = by_ladder(self.ents.shield[i]);
+        let kept = ((hp as i64) * (new_max as i64) / (old_max.max(1) as i64)) as i32;
+        self.ents.hp[i] = kept.clamp(1, new_max.max(1));
+    }
+
+    /// A side's live Royal Chef towers (its princess towers' ChefTower records), as slots.
+    fn chef_towers(&self, team: Team) -> Vec<usize> {
+        let t = team as usize;
+        self.towers[t]
+            .iter()
+            .skip(1)
+            .flatten()
+            .filter(|id| self.ents.is_alive(**id) && self.ents.hp[id.index as usize] > 0)
+            .map(|id| id.index as usize)
+            .filter(|&i| self.cfg.cards.get(self.ents.card[i]).name == "ChefTower")
+            .collect()
+    }
+
+    /// THE ROYAL CHEF'S PICK (combat.TOWER_TROOP_COOKING): the side's own troop, alive, hp at least CHEF_MIN_HP_PCT % of a max
+    /// of at least CHEF_MIN_MAX_HP, not a row the Rune Giant's enchant leaves out (the same friend filter), not an attached
+    /// rider: un-pancaked first, then the most hp, ties to the earliest created. Measured on client 16.402 (parity r74
+    /// batch 6): 82 of 83.
+    fn chef_pick(&self, team: Team) -> Option<EntityId> {
+        let cards = &self.cfg.cards;
+        let excluded: Vec<u16> = cards.index("GiantBuffer").and_then(|g| cards.get(g).enchant.as_ref()).map(|d| d.excluded.clone()).unwrap_or_default();
+        let e = &self.ents;
+        e.live_indices()
+            .filter(|&j| e.team[j] == team && e.kind[j] == EntityKind::Troop && e.hp[j] > 0 && e.max_hp[j] >= Self::CHEF_MIN_MAX_HP)
+            .filter(|&j| 100 * i64::from(e.hp[j]) >= Self::CHEF_MIN_HP_PCT * i64::from(e.max_hp[j]))
+            .filter(|&j| !excluded.contains(&e.card[j]) && e.attached_to[j].is_none())
+            .min_by_key(|&j| (e.pancaked[j], -(i64::from(e.hp[j]) + i64::from(e.shield[j])), e.team_seq[j]))
+            .map(|j| e.id_of(j))
+    }
+
+    /// THE ROYAL CHEFS' PICKS (combat.TOWER_TROOP_COOKING = client16402_pancakes), at the Spawn phase's end: a side whose bar
+    /// filled on F picks from F + CHEF_PICK_WAIT_MS / TICK_MS (waiting while it has no friend), the thrower its nearest
+    /// live Chef tower not attacking, else its nearest; the release is CHEF_THROW_DELAY_MS on.
+    fn chef_pick_pass(&mut self) {
+        // PLANT (regression) chef_never_cooks: the new arm cooks nothing.
+        #[cfg(clash_plant = "chef_never_cooks")]
+        return;
+        #[allow(unreachable_code)]
+        let dt = self.cfg.calib.tick_ms.max(1);
+        for team in [Team::Blue, Team::Red] {
+            let t = team as usize;
+            let c = self.chef[t];
+            let Some(f) = c.full_at else { continue };
+            if c.throw.is_some() || self.tick < f + (Self::CHEF_PICK_WAIT_MS / dt) as u32 {
+                continue;
+            }
+            let towers = self.chef_towers(team);
+            if towers.is_empty() {
+                continue;
+            }
+            let Some(target) = self.chef_pick(team) else { continue };
+            let tp = self.ents.pos[target.index as usize];
+            let tower = towers
+                .iter()
+                .copied()
+                .min_by_key(|&i| (self.ents.attack_phase[i] != AttackPhase::Idle, self.ents.pos[i].dist2(tp), self.ents.team_seq[i]))
+                .expect("a live Chef tower, checked above");
+            let release = self.tick + (Self::CHEF_THROW_DELAY_MS / dt) as u32;
+            self.chef[t].throw = Some(ChefThrow { target, tower: self.ents.id_of(tower), release });
+        }
+    }
+
+    /// THE ROYAL CHEFS' COOKING (combat.TOWER_TROOP_COOKING = client16402_pancakes), in the Projectile phase before any
+    /// projectile steps: a due release sends the pancake (a friend dead by then: nothing) and restarts the bar; a bar not full
+    /// and not throwing gains, from CHEF_START_MS, CHEF_BASELINE plus CHEF_IDLE for each live Chef tower not attacking, a
+    /// second (this tick's share), and holds full from the tick it reaches CHEF_NEEDED.
+    fn chef_cook_pass(&mut self) {
+        use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        #[cfg(clash_plant = "chef_never_cooks")]
+        return;
+        #[allow(unreachable_code)]
+        let dt = self.cfg.calib.tick_ms.max(1);
+        for team in [Team::Blue, Team::Red] {
+            let t = team as usize;
+            let towers = self.chef_towers(team);
+            if towers.is_empty() && self.chef[t] == ChefCook::default() {
+                continue;
+            }
+            if let Some(th) = self.chef[t].throw.filter(|th| th.release <= self.tick) {
+                let (ti, wi) = (th.target.index as usize, th.tower.index as usize);
+                if self.ents.is_alive(th.target) && self.ents.hp[ti] > 0 && self.ents.is_alive(th.tower) {
+                    let (from, to) = (self.ents.pos[wi], self.ents.pos[ti]);
+                    let (dx, dy) = (i64::from((to.x - from.x) / K), i64::from((to.y - from.y) / K));
+                    let d = crate::fixed::isqrt(dx * dx + dy * dy).max(1);
+                    let off = Vec2::new((dx * i64::from(Self::CHEF_START_OFFSET) / d) as i32 * K, (dy * i64::from(Self::CHEF_START_OFFSET) / d) as i32 * K);
+                    self.projectiles.push(Projectile {
+                        pancake: true,
+                        team,
+                        pos: Vec2::new(from.x + off.x, from.y + off.y),
+                        target: th.target,
+                        aim: to,
+                        speed: Self::CHEF_PANCAKE_SPEED * self.cfg.calib.projectile_speed_to_subtiles_per_tick,
+                        damage: 0,
+                        crown_pct: 100,
+                        splash: 0,
+                        hits_air: true,
+                        hits_ground: true,
+                        frac: Vec2::default(),
+                        fresh: true,
+                        buff: None,
+                        pulse: 0,
+                        firer_card: Some(self.ents.card[wi]),
+                        firer: Some(th.tower),
+                        deflected: false,
+                        held: false,
+                        straight: None,
+                        hook: None,
+                        carrier: None,
+                        fixed: false,
+                        release: None,
+                        buff_first: false,
+                        src_level: self.ents.level[wi],
+                        enchant: None,
+                        bonus: 0,
+                        bonus_crown: 0,
+                        trail: None,
+                        chain: None,
+                        bounce: None,
+                    });
+                }
+                self.chef[t] = ChefCook::default();
+            }
+            let c = self.chef[t];
+            if towers.is_empty() || c.full_at.is_some() || c.throw.is_some() || (self.tick as i64) < i64::from(Self::CHEF_START_MS / dt) {
+                continue;
+            }
+            let idle = towers.iter().filter(|&&i| self.ents.attack_phase[i] == AttackPhase::Idle).count() as i32;
+            let meter = c.meter + (Self::CHEF_BASELINE + Self::CHEF_IDLE * idle) * dt / 1000;
+            self.chef[t].meter = meter;
+            if meter >= Self::CHEF_NEEDED {
+                self.chef[t].full_at = Some(self.tick);
+            }
+        }
+    }
+
     fn level_down(&mut self, i: usize) {
         let (card, from) = (self.ents.card[i], self.ents.level[i]);
         let cards = self.cfg.cards.clone();
@@ -28884,6 +29107,10 @@ impl BattleState {
         let mut out = spell::SpellOut::default();
         // The Rune Giant's projectiles leave before any projectile steps, so each first steps the next tick.
         self.launch_due_enchants();
+        // The Royal Chefs' pancakes leave there too, and their bars fill (combat.TOWER_TROOP_COOKING).
+        if self.cfg.calib.tower_troop_cooking == TowerTroopCooking::Client16402Pancakes {
+            self.chef_cook_pass();
+        }
         // A deflect sends back what lands on its champion while it is active (`deflects`; ended ones dropped here).
         let now = self.tick;
         self.deflects.retain(|(id, until)| now < *until && self.ents.is_alive(*id));
@@ -29427,7 +29654,7 @@ impl BattleState {
         // The pushes are armed now, and the move pass takes their first step (not `ladder_step_now`). Everything else the
         // bombs buffered lands at Resolve with the tick's other effects. Destructured without `..`, so a field added to
         // the buffer does not compile until it has a place here.
-        let EffectBuffer { mut knocks, mut stuns, mut buffs, mut hooks, mut enchants, mut grounds } = fx;
+        let EffectBuffer { mut knocks, mut stuns, mut buffs, mut hooks, mut enchants, mut grounds, mut pancakes } = fx;
         for kn in knocks.iter_mut() {
             if let spell::Knock::Push { now, .. } = kn {
                 *now = false;
@@ -29438,6 +29665,7 @@ impl BattleState {
         self.effects.hooks.append(&mut hooks);
         self.effects.enchants.append(&mut enchants);
         self.effects.grounds.append(&mut grounds);
+        self.effects.pancakes.append(&mut pancakes);
         let later = std::mem::replace(&mut self.effects, EffectBuffer { knocks, ..Default::default() });
         self.apply_effects();
         self.effects = later;
@@ -29520,7 +29748,7 @@ impl BattleState {
     /// -- buffer order is spell order, which is cast order.
     fn apply_effects(&mut self) {
         let fx = std::mem::take(&mut self.effects);
-        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() && fx.hooks.is_empty() && fx.enchants.is_empty() && fx.grounds.is_empty() {
+        if fx.knocks.is_empty() && fx.stuns.is_empty() && fx.buffs.is_empty() && fx.hooks.is_empty() && fx.enchants.is_empty() && fx.grounds.is_empty() && fx.pancakes.is_empty() {
             self.effects = fx;
             return;
         }
@@ -29941,6 +30169,20 @@ impl BattleState {
             };
             self.ents.enchant[ti] = Some(crate::entity::EnchantSlot { source: en.source, card: en.card, level: en.level, count: 0, finish_ms });
         }
+        // THE ROYAL CHEFS' PANCAKES THAT LANDED (combat.TOWER_TROOP_COOKING) level a friend that survived this Resolve up one,
+        // after the tick's damage (measured: damage first, then the scale), and an attached rider with its mount.
+        for &t in &fx.pancakes {
+            if !survivor(&self.ents, t) {
+                continue;
+            }
+            let ti = t.index as usize;
+            self.ents.pancaked[ti] = true;
+            self.chef_level_step(ti);
+            let riders: Vec<usize> = self.ents.live_indices().filter(|&j| self.ents.attached_to[j] == Some(t)).collect();
+            for j in riders {
+                self.chef_level_step(j);
+            }
+        }
         let mut fx = fx;
         fx.knocks.clear();
         fx.stuns.clear();
@@ -29948,6 +30190,7 @@ impl BattleState {
         fx.hooks.clear();
         fx.enchants.clear();
         fx.grounds.clear();
+        fx.pancakes.clear();
         self.effects = fx;
     }
 
@@ -35423,6 +35666,10 @@ impl BattleState {
                 if self.cfg.calib.post_kill_wait == PostKillWait::AttackFinish {
                     h.bool(e.target_doomed[i]);
                 }
+                // combat.TOWER_TROOP_COOKING: a troop that ate a Royal Chef's pancake, only when set.
+                if e.pancaked[i] {
+                    h.u32(0x5043_4b44);
+                }
                 // combat.LOST_TARGET_SHOT = client16402_point_first_attack_fires: a lost swing's corpse, under that arm alone.
                 if self.cfg.calib.lost_target_shot == LostTargetShot::Client16402PointFirstAttackFires {
                     h.bool(e.lost_target[i].is_some());
@@ -35727,6 +35974,10 @@ impl BattleState {
                 // combat.SPECIAL_HOOK: a hook's thrower, only on a hook.
                 if let Some(by) = p.hook {
                     h.id(by);
+                }
+                // A Royal Chef's pancake (combat.TOWER_TROOP_COOKING), only when set.
+                if p.pancake {
+                    h.u32(0x5043_4b45);
                 }
                 // CardDef::projectile_area's release, only when set: a battle with none hashes as before.
                 if let Some((c, l)) = p.release {
@@ -36483,6 +36734,23 @@ impl BattleState {
                 h.id(f.id);
                 h.u32(u32::from(f.card));
                 h.u32(f.land_at.map_or(0, |t| t + 1));
+            }
+        }
+        // The Royal Chefs' cooking (combat.TOWER_TROOP_COOKING), only when a side's is not idle.
+        if self.chef.iter().any(|c| *c != ChefCook::default()) {
+            h.u32(0x4348_4546);
+            for c in &self.chef {
+                h.i32(c.meter);
+                h.u32(c.full_at.map_or(0, |t| t + 1));
+                match c.throw {
+                    Some(t) => {
+                        h.u32(1);
+                        h.id(t.target);
+                        h.id(t.tower);
+                        h.u32(t.release);
+                    }
+                    None => h.u32(0),
+                }
             }
         }
         // The heroes' quests, only when there are some.
@@ -38031,6 +38299,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.LOST_TARGET_SHOT: Calib gained lost_target_shot (serde default the old arm, cancel), Entities gained lost_target (serde default empty, sized on load to None, hashed under the new arm only, which alone writes it),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.TOWER_TROOP_COOKING: Calib gained tower_troop_cooking (serde default the old arm, not_cooked), BattleState gained chef (serde default idle, hashed only when not idle), Entities pancaked (default false, hashed only when set), Projectile pancake and EffectBuffer pancakes (default false and empty, hashed only when set), all written by the new arm alone,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -38183,6 +38453,9 @@ struct Snapshot {
     /// The heroes' quests (`BattleState::quests`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     quests: Vec<QuestRun>,
+    /// Each side's Royal Chef cooking (`BattleState::chef`). Added after SNAPSHOT_FORMAT 20; `default` idle.
+    #[serde(default)]
+    chef: [ChefCook; 2],
     /// The fliers that fall (`BattleState::falls`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     falls: Vec<FallRun>,
@@ -39068,6 +39341,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_kill_heal".into(), serde_json::to_value(EvoKillHeal::BuffAtKill).map_err(|e| e.to_string())?);
     // combat.LOST_TARGET_SHOT: a format-3 battle ran combat.LOST_TARGET_SHOT's old arm.
     sh.insert("lost_target_shot".into(), serde_json::to_value(LostTargetShot::Cancel).map_err(|e| e.to_string())?);
+    // combat.TOWER_TROOP_COOKING: a format-3 battle ran combat.TOWER_TROOP_COOKING's old arm.
+    sh.insert("tower_troop_cooking".into(), serde_json::to_value(TowerTroopCooking::NotCooked).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -39317,6 +39592,7 @@ impl BattleState {
             spins: self.spins.clone(),
             lifts: self.lifts.clone(),
             quests: self.quests.clone(),
+            chef: self.chef,
             falls: self.falls.clone(),
             taunts: self.taunts.clone(),
             client_rng: self.client_rng,
@@ -39449,6 +39725,7 @@ impl BattleState {
         snap.ents.fired_at.resize(n, None);
         snap.ents.lost_target.resize(n, None);
         snap.ents.launched_beyond.resize(n, false);
+        snap.ents.pancaked.resize(n, false);
         snap.ents.life_state.resize(n, 0);
         snap.ents.life_ms.resize(n, 0);
         snap.ents.life_target.resize(n, None);
@@ -39605,6 +39882,7 @@ impl BattleState {
             spins: snap.spins,
             lifts: snap.lifts,
             quests: snap.quests,
+            chef: snap.chef,
             falls: snap.falls,
             taunts: snap.taunts,
             client_rng: snap.client_rng,

@@ -118,6 +118,11 @@ fn ice_firer(cards: &CardDb, firer_card: Option<u16>) -> bool {
 /// NOT `Copy`: a straight shot's hit set (`Straight::hit`), a Vec, rides on it.
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Projectile {
+    /// combat.TOWER_TROOP_COOKING = client16402_pancakes: the Royal Chef's pancake (state.rs `chef_cook_pass`): no damage;
+    /// its landing on a live friend is handed to Resolve (`EffectBuffer::pancakes`). False on every other shot; `default`
+    /// so a snapshot saved before it still loads; hashed only when set.
+    #[serde(default)]
+    pub pancake: bool,
     pub team: Team,
     pub pos: Vec2,
     pub target: EntityId,
@@ -1294,6 +1299,7 @@ pub fn fire(
             trail: Some(SpearTrail { card: ents.card[a], level: ents.level[a], steps: 0, next: 0 }),
             chain: None,
             bounce: None,
+            pancake: false,
         });
         return;
     }
@@ -1481,6 +1487,7 @@ pub fn fire(
                         trail: None,
                         chain: None,
                         bounce: None,
+                        pancake: false,
                     };
                     // THE CREATION TICK'S TEST (a one-way shot born on its launch point): the
                     // launch point against the start-of-tick positions, measured on client
@@ -1617,6 +1624,7 @@ pub fn fire(
             chain: card.chain_hit.map(|c| ChainHop { left: (c.count - 1).clamp(0, 255) as u8, radius: c.radius, hit: vec![target], wait: 0, evo: None }),
             // THE BOUNCE (card.rs `BounceDef`, the Evo Bomber's): the bounces after this landing.
             bounce: card.evo.as_ref().and_then(|v| v.bounce).map(|b| BounceHop { left: b.count, range: b.range, from: pos, hit: Vec::new() }),
+            pancake: false,
         });
         return;
     }
@@ -1881,6 +1889,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         trail: None,
         chain: None,
         bounce: None,
+        pancake: false,
     });
 }
 
@@ -2344,6 +2353,14 @@ pub fn step_projectiles(
             let _ = en; // PLANT: the projectile lands and enchants nobody.
             return false;
         }
+        // THE ROYAL CHEF'S PANCAKE (combat.TOWER_TROOP_COOKING) deals no damage either: its landing on a live friend is
+        // handed to Resolve (state.rs `apply_effects` levels the friend up); one whose friend died in flight lands on nothing.
+        if p.pancake {
+            if alive {
+                fx.pancakes.push(p.target);
+            }
+            return false;
+        }
         // combat.SPECIAL_HOOK = client_hook_drag: a hook deals no damage. Its landing on a
         // live target is handed to Resolve (state.rs `apply_effects` starts the drag); a hook
         // whose target died in flight lands on nothing.
@@ -2462,6 +2479,7 @@ pub fn step_projectiles(
                     trail: None,
                     chain: None,
                     bounce: None,
+                    pancake: false,
                     bonus: 0,
                     bonus_crown: 0,
                     ..p.clone()
@@ -2689,6 +2707,7 @@ fn release_sparks(
             trail: None,
             chain: None,
             bounce: None,
+            pancake: false,
         };
         // combat.SPARK_LANDING_REACH = client16402_start_extra: on the landing tick the spark reaches ProjectileRadius +
         // ProjectileStartExtraRadius about the landing point; in flight, ProjectileRadius.

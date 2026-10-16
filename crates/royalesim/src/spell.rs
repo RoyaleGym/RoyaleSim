@@ -344,6 +344,11 @@ pub struct EffectBuffer {
     /// survived it. Empty in every battle with no Rune Giant. `default` so a snapshot saved before it still loads.
     #[serde(default)]
     pub enchants: Vec<(EntityId, crate::combat::EnchantPayload)>,
+    /// The friends a Royal Chef's pancake landed on this tick (combat.TOWER_TROOP_COOKING; `step_projectiles`). Drained in
+    /// Resolve by `state.rs apply_effects`, which levels a survivor up. Empty in every battle with no Chef. `default` so a
+    /// snapshot saved before it still loads.
+    #[serde(default)]
+    pub pancakes: Vec<EntityId>,
     /// Fliers a catch holds to the ground this tick, (victim, window ms) (the Vines; `catch`). Drained in Resolve by
     /// `state.rs apply_effects`, which sets the survivor's `grounded_ms`. Empty in every battle with no Vines. `default`
     /// so a snapshot saved before it still loads.
@@ -1336,6 +1341,7 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         trail: None,
         chain: None,
         bounce: None,
+        pancake: false,
     });
 }
 
@@ -1403,6 +1409,7 @@ fn launch_hop(ctx: &SpellCtx, team: Team, card: u16, level: i32, hd: &crate::car
         trail: None,
         chain: None,
         bounce: Some(crate::combat::BounceHop { left: hd.count.saturating_sub(1), range: hd.range, from: at, hit }),
+        pancake: false,
     });
 }
 

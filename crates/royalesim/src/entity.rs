@@ -261,6 +261,11 @@ pub struct Entities {
     /// `default` and sized on load like `fired_at`.
     #[serde(default)]
     pub launched_beyond: Vec<bool>,
+    /// combat.TOWER_TROOP_COOKING = client16402_pancakes: this troop has eaten a Royal Chef's pancake (the pick ranks the
+    /// un-pancaked first; state.rs `chef_pick`). Written under that arm only; kept through a transformation (as the level is).
+    /// `default` and sized on load like `launched_beyond`.
+    #[serde(default)]
+    pub pancaked: Vec<bool>,
     /// THE LIFE-STATE CONTROLLER (a Goblin Hut; state.rs `life_state_pass`): where it is (0 not started, 1 in its
     /// ActionDelay, 2 sleeping, 3 awake), the ms its clock has left, the enemy its waves aim at (sticky), and the
     /// waves it has released over its whole life (the side rule reads its parity). 0 / None on every other entity,
@@ -926,6 +931,7 @@ impl Entities {
             self.fired_at[i] = None;
             self.lost_target[i] = None;
             self.launched_beyond[i] = false;
+            self.pancaked[i] = false;
             self.life_state[i] = 0;
             self.life_ms[i] = 0;
             self.life_target[i] = None;
@@ -1038,6 +1044,7 @@ impl Entities {
             self.fired_at.push(None);
             self.lost_target.push(None);
             self.launched_beyond.push(false);
+            self.pancaked.push(false);
             self.life_state.push(0);
             self.life_ms.push(0);
             self.life_target.push(None);

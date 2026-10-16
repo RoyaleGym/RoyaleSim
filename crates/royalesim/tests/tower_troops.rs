@@ -194,3 +194,96 @@ fn under_client16402_burst_attack_the_duchess_throws_her_charges_then_one_each_3
     let g = gaps(&duchess_daggers(B::RowHitSpeed));
     assert!(g.len() >= 10 && g[..10].iter().all(|x| *x == 10), "row_hit_speed (the vacuity check): every 10 ticks: {g:?}");
 }
+
+/// A battle with Blue's princess towers Royal Chefs under combat.TOWER_TROOP_COOKING = `arm`.
+fn chef_side(arm: royalesim::state::TowerTroopCooking) -> BattleState {
+    let mut cfg = config();
+    cfg.tower_level = [11, 11];
+    cfg.card_level = [11, 11];
+    cfg.tower_troops = [Some("ChefTower".to_string()), None];
+    cfg.calib.tower_troop_cooking = arm;
+    BattleState::try_new(0, cfg).expect("the battle")
+}
+
+/// Unit `id` held on `at` for `ticks` ticks, its hp set to `hp_at.1` before the tick `hp_at.0` runs: (each pancake's release
+/// tick and first point) and (each tick, `id`'s max hp and hp).
+#[allow(clippy::type_complexity)]
+fn cook(s: &mut BattleState, id: royalesim::EntityId, at: Vec2, ticks: u32, hp_at: Option<(u32, i32)>) -> (Vec<(u32, Vec2)>, Vec<(u32, i32, i32)>) {
+    let mut seen = 0;
+    let (mut out, mut rows) = (Vec::new(), Vec::new());
+    for _ in 0..ticks {
+        assert!(s.debug_set_pos(id, at));
+        if let Some((t, hp)) = hp_at {
+            if s.tick_count() == t {
+                assert!(s.debug_set_hp(id, hp));
+            }
+        }
+        s.tick();
+        let p: Vec<_> = s.projectiles().iter().filter(|q| q.pancake).collect();
+        if p.len() > seen {
+            out.push((s.tick_count() - 1, p.last().expect("a pancake").pos));
+        }
+        seen = p.len();
+        let e = s.entity(id).expect("the friend");
+        rows.push((s.tick_count() - 1, e.max_hp, e.hp));
+    }
+    (out, rows)
+}
+
+/// combat.TOWER_TROOP_COOKING = client16402_pancakes (client 16.402, parity's r74 batch-6 census: 83 pancakes in 14 Chef battles;
+/// the release on the bar's full + 7, 63 of 83 exact; the landing a level up, 73 of 73): with both Chefs idle the bar fills 50
+/// a tick from tick 140, full on 599, the pancake released on 606 from Blue's left tower's centre + 200 toward the Knight, and
+/// the next on 1072; landing on 611 it sets the Knight from level 11 to 12, its max hp the card's own at 12 and its hp
+/// floor(1000 x M12 / M11); under not_cooked (the vacuity check) nothing is thrown. Plant: chef_never_cooks.
+#[test]
+fn under_client16402_pancakes_the_chef_cooks_from_tick_140_and_levels_a_friend() {
+    use royalesim::state::TowerTroopCooking as C;
+    let at = n((3500, 9500));
+    let mut s = chef_side(C::Client16402Pancakes);
+    let k = s.scenario_spawn_now(Team::Blue, "Knight", at, None).expect("the Knight");
+    let (l, rows) = cook(&mut s, k, at, 1100, Some((610, 1000)));
+    assert_eq!(l.iter().map(|x| x.0).take(2).collect::<Vec<_>>(), vec![606, 1072], "client16402_pancakes: the releases: {l:?}");
+    assert_eq!(l[0].1, n((3500, 6700)), "from Blue's left tower, 200 toward the Knight");
+    let card = s.entity(k).expect("the Knight").card_idx;
+    let base = s.cards().get(card).hitpoints;
+    let (m11, m12) = (s.cards().scaled(card, 11, base).expect("level 11"), s.cards().scaled(card, 12, base).expect("level 12"));
+    assert_eq!(rows.iter().find(|r| r.0 == 610).map(|r| r.1), Some(m11), "before the landing, level 11: {:?}", &rows[605..615]);
+    assert_eq!(rows.iter().find(|r| r.0 == 611).map(|r| (r.1, r.2)), Some((m12, 1000 * m12 / m11)), "the landing on 611, level 12: {:?}", &rows[605..615]);
+    let mut s0 = chef_side(C::NotCooked);
+    let k0 = s0.scenario_spawn_now(Team::Blue, "Knight", at, None).expect("the Knight");
+    let (l0, r0) = cook(&mut s0, k0, at, 1100, None);
+    let m0 = s0.entity(k0).expect("the Knight").max_hp;
+    assert!(l0.is_empty() && r0.iter().all(|r| r.1 == m0), "not_cooked (the vacuity check): a pancake, or the Knight moved off its level");
+}
+
+/// The pick (client 16.402, 82 of 83): the friend with the most hitpoints, un-pancaked first: a Giant at (14500, 9500) and a
+/// Knight at (3500, 9500), both held; the first pancake (606) goes to the Giant from Blue's right tower, the second (1072) to
+/// the Knight, the Giant now pancaked.
+#[test]
+fn under_client16402_pancakes_the_pick_is_the_most_hitpoints_un_pancaked_first() {
+    use royalesim::state::TowerTroopCooking as C;
+    let mut s = chef_side(C::Client16402Pancakes);
+    let (ga, ka) = (n((14500, 9500)), n((3500, 9500)));
+    let g = s.scenario_spawn_now(Team::Blue, "Giant", ga, None).expect("the Giant");
+    let k = s.scenario_spawn_now(Team::Blue, "Knight", ka, None).expect("the Knight");
+    let mut starts = Vec::new();
+    let mut seen = 0;
+    for _ in 0..1100 {
+        assert!(s.debug_set_pos(g, ga) && s.debug_set_pos(k, ka));
+        s.tick();
+        let p: Vec<_> = s.projectiles().iter().filter(|q| q.pancake).collect();
+        if p.len() > seen {
+            starts.push(p.last().expect("a pancake").pos);
+        }
+        seen = p.len();
+    }
+    assert!(starts.len() >= 2, "two pancakes: {starts:?}");
+    assert_eq!(starts[0], n((14500, 6700)), "the first to the Giant, from the right tower: {starts:?}");
+    assert_eq!(starts[1], n((3500, 6700)), "the second to the Knight, from the left tower: {starts:?}");
+    let at12 = |s: &BattleState, id: royalesim::EntityId| {
+        let c = s.entity(id).expect("the friend").card_idx;
+        s.cards().scaled(c, 12, s.cards().get(c).hitpoints).expect("level 12")
+    };
+    assert_eq!(s.entity(g).expect("the Giant").max_hp, at12(&s, g), "the Giant a level up");
+    assert_eq!(s.entity(k).expect("the Knight").max_hp, at12(&s, k), "the Knight a level up");
+}

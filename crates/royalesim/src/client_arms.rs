@@ -366,6 +366,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.CAGE_HOLD_START = at_grab: the captive walks on through its grab (15.535.29: 'walks on through G').
 ///   combat.EVO_KILL_HEAL = buff_at_kill: one pulse on the kill + 10, no overheal (sp-form-Pekka-evo-s0).
 ///   combat.LOST_TARGET_SHOT = cancel: a lost swing is cancelled (unread there).
+///   combat.TOWER_TROOP_COOKING = not_cooked: no Chef tower in a 15.535.29 capture (unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -562,6 +563,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.CAGE_HOLD_START", "\"at_grab\""),
     ("combat.EVO_KILL_HEAL", "\"buff_at_kill\""),
     ("combat.LOST_TARGET_SHOT", "\"cancel\""),
+    ("combat.TOWER_TROOP_COOKING", "\"not_cooked\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
