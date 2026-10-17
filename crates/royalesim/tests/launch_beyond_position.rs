@@ -46,6 +46,9 @@ fn n(x: i32, y: i32) -> Vec2 {
 fn tower_holds(arm: LaunchBeyondPosition) -> bool {
     let mut cfg: BattleConfig = config();
     cfg.calib.launch_beyond_position = arm;
+    // The launch's judgement alone: targeting.TOWER_HOLD_HIT_STARTED's every_tick (the shipped client16402_after_first_tick
+    // also lets go on the cycle's first ticks, `held_at_cycle` below).
+    cfg.calib.tower_hold_hit_started = TowerHoldHitStarted::EveryTick;
     cfg.calib.chase_hold_scope = ChaseHoldScope::Client15535WalkersOnly;
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
