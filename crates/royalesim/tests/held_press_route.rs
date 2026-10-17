@@ -85,8 +85,8 @@ fn a_held_heros_press_plans_its_route_afresh_under_client15535_replanned() {
 }
 
 #[test]
-fn the_shipped_value_is_kept() {
-    assert_eq!(Calib::shipped().held_press_route, HeldPressRoute::Kept);
+fn the_shipped_value_is_client16402_replanned_after_stand() {
+    assert_eq!(Calib::shipped().held_press_route, HeldPressRoute::Client16402ReplannedAfterStand, "parity r76");
 }
 
 /// Under `arm`: a Blue Little Prince played on (3500, 9500), walking his lane, pressed: the route's length after every tick of
