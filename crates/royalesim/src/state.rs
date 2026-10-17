@@ -8613,6 +8613,9 @@ calib_enum!(
         /// `idle_back`). Measured on client 15.535.29 (sweep-SuperKnight): the hit that lands on the Super Knight's
         /// own first-hit tick takes 1, the three while it attacks take 202 each, the three after it walks on take 1.
         OffAfterHitWhileAttacking = "off_after_hit_while_attacking",
+        /// Client 16.402 (parity r76, live13): as off_after_hit_while_attacking, and a unit whose idle buff is its own
+        /// (IdleBuffDef::own: the Evo Knight's) carries it through its deploy: 8 of 8 deploy-window hits at 40 %.
+        Client16402OnThroughDeploy = "client16402_on_through_deploy",
     }
 );
 calib_enum!(

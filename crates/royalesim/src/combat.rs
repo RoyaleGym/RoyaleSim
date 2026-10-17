@@ -2097,7 +2097,14 @@ pub fn idle_on(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, v: usi
     let back = ents.idle_back[v];
     #[cfg(clash_plant = "idle_shield_while_attacking")]
     let back = 0; // PLANT (regression): the idle buff never goes off, the unit's attack included.
-    ents.deploy_ms[v] <= 0 && tick >= back
+    // status.IDLE_BUFF = client16402_on_through_deploy: an own idle buff (the Evo Knight's) is on through the deploy too.
+    // Measured on client 16.402 (parity r76, live13): 8 of 8 hits on a deploying Evo Knight at 40 %, the engine's whole.
+    // PLANT (regression) idle_buff_off_while_deploying: the new arm's own buff is still off while the unit deploys.
+    #[cfg(not(clash_plant = "idle_buff_off_while_deploying"))]
+    let through = calib.idle_buff == IdleBuffLaw::Client16402OnThroughDeploy && cards.get(ents.card[v]).idle_buff.is_some_and(|b| b.own.is_some());
+    #[cfg(clash_plant = "idle_buff_off_while_deploying")]
+    let through = false;
+    (ents.deploy_ms[v] <= 0 || through) && tick >= back
 }
 
 /// status.DAMAGE_REDUCTION: the DamageReduction unit `v` takes a hit under at `tick`: the strongest of the buffs it
