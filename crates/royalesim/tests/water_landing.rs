@@ -112,6 +112,9 @@ fn a_golden_knights_hop_whose_blow_lands_over_the_river_ends_on_land() {
     const DECK: [&str; 8] = ["GoldenKnight", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
     const GIANT: (i32, i32) = (6500, 18000);
     let mut cfg = config_pre_flip();
+    // The press keeps the Knight's route, as when this scene was measured (pathfinding.PRESS_ROUTE = kept; the shipped
+    // client15535_replanned_with_dash replans it on the press tick, tests/press_route.rs): the river landing is the subject.
+    cfg.calib.press_route = royalesim::state::PressRoute::Kept;
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), ["Giant", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
