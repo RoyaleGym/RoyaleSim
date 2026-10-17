@@ -6712,6 +6712,10 @@ calib_enum!(
         /// own; the engine walked on to its kept waypoint (14750, 17750), (2, 63), and every soul he then summoned was
         /// laid 3 to 21 off.
         Client15535Replanned = "client15535_replanned",
+        /// Client 16.402 (parity r76, live13): client15535_replanned, and a hero standing out his press's guard hold (the
+        /// Little Prince, `guard_hold_on`) requests no path either: his route reads empty through the stand (472 of 477
+        /// presses) and is planned afresh on his first walking tick (a fresh first node, 422 of 477; kept 4).
+        Client16402ReplannedAfterStand = "client16402_replanned_after_stand",
     }
 );
 calib_enum!(
@@ -26649,8 +26653,21 @@ impl BattleState {
                     goals[i] = None;
                     segs[i] = Vec2::default();
                 }
+                // pathfinding.HELD_PRESS_ROUTE = client16402_replanned_after_stand: a hero standing out his press's guard
+                // hold has no route and asks for none; he plans afresh on his first walking tick. Measured on client 16.402
+                // (parity r76, live13): 472 of 477 Little Prince presses empty through the stand. PLANT (regression)
+                // held_press_route_stand_plans: the new arm still plans inside the stand.
+                #[cfg(not(clash_plant = "held_press_route_stand_plans"))]
+                let stand_noplan = press_held[i] && calib.held_press_route == HeldPressRoute::Client16402ReplannedAfterStand;
+                #[cfg(clash_plant = "held_press_route_stand_plans")]
+                let stand_noplan = false;
+                if stand_noplan {
+                    routes[i].clear();
+                    goals[i] = None;
+                    segs[i] = Vec2::default();
+                }
                 // a held unit (`held_walk`) asks for no path either: its route waits out the hold as it is
-                if let (false, false, false, Some(gid)) = (deploying, phase_hold, held_walk, goal_id) {
+                if let (false, false, false, Some(gid)) = (deploying, phase_hold, held_walk || stand_noplan, goal_id) {
                     let gi = gid.index as usize;
                     let own = if goals[i].is_some() { walk_own } else { e.radius[i] };
                     if target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]) {
@@ -34534,7 +34551,8 @@ impl BattleState {
         // 15.535.29: 56 of 61 held presses (sp-sk-souls-own-s0 t329, the Skeleton King after his cast).
         // PLANT (regression) held_press_route_kept: the new arm keeps a held hero's route.
         #[cfg(not(clash_plant = "held_press_route_kept"))]
-        let held_replan = self.cfg.calib.held_press_route == HeldPressRoute::Client15535Replanned && a.cast_ms > 0;
+        let held_replan = matches!(self.cfg.calib.held_press_route, HeldPressRoute::Client15535Replanned | HeldPressRoute::Client16402ReplannedAfterStand)
+            && a.cast_ms > 0;
         #[cfg(clash_plant = "held_press_route_kept")]
         let held_replan = false;
         if ((replan && a.cast_ms == 0) || held_replan) && !self.ents.flying[i] && (dash_too || !matches!(a.effect, crate::card::AbilityEffect::DashChain { .. })) {
