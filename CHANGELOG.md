@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.38 (2026-10-17)
+
+- Four more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A ground hero whose button holds it plans a fresh route once the hold ends (`pathfinding.HELD_PRESS_ROUTE`), and
+    one whose button does not hold it, a dash included, plans a fresh route on the press (`pathfinding.PRESS_ROUTE`).
+  - A princess tower keeps a target past its reach only once its attack has started (`targeting.TOWER_HOLD_HIT_STARTED`).
+  - A unit's buff for not attacking is on from its deploy (`status.IDLE_BUFF`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles. Saved battles from earlier releases load
+  unchanged (`SNAPSHOT_FORMAT` is still 20).
+
 ## 0.1.37 (2026-10-16)
 
 - Thirteen more settings default to the current client's behaviour, each measured against its recorded battles:
