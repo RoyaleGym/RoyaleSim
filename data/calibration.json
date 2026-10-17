@@ -219,6 +219,16 @@
     }
   },
   "targeting": {
+    "TOWER_HOLD_HIT_STARTED": {
+      "value": "every_tick",
+      "status": "measured",
+      "candidates": ["every_tick", "client16402_after_first_tick"],
+      "confidence": "HIGH for client16402_after_first_tick on client 16.402 (parity r76, 2026-10-17): every princess-tower Target phase in live13 before each battle's first divergence whose held live target stood past the tower's bare reach (Range + both radii) but within + 500, by its cycle position c (progress mod HitSpeed on the tick before): c = 0 (the launch tick) let go 149 of 149 on both; c = 50 let go 30 of 30 in the truth (26 drops, 4 switches), the engine kept 28 of 29; c >= 100 kept 1,556 of 1,559 in the truth, 1,555 of 1,558 in the engine; past + 500 both let go, 64 of 64. A candidate until scored. Client 15.535.29 keeps every_tick (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-17, r76) on client 16.402, the ob13 set (maker 557fca83): every princess-tower Target phase in live13 before each battle's first divergence whose held live target stood past the tower's bare reach (Range + both radii) but within + 500, by its cycle position c (progress mod HitSpeed on the tick before): c = 0 (the launch tick) let go 149 of 149 on both; c = 50 let go 30 of 30 in the truth (26 drops, 4 switches), the engine kept 28 of 29; c >= 100 kept 1,556 of 1,559 in the truth, 1,555 of 1,558 in the engine; past + 500 both let go, 64 of 64.",
+      "meaning": "every_tick: the engine's; a princess tower holds a target past its reach, to Range + both radii + 500, on every Target phase but the one after a launch judged beyond its reach. client16402_after_first_tick: while the tower's attack cycle has not passed its first tick (progress mod HitSpeed at most one tick, 0 or 50 ms at the Target phase), it keeps a target only within Range + both radii; past that it rescans, dropping the target or taking an enemy in range. From the cycle's second tick it holds to + 500 as before. LoadTime-0 princess towers only.",
+      "open": "The king tower (LoadTime 500) and the tower troops (unread); client 15.535.29.",
+      "engine": "target.rs decide (the projectile-hold branch: cycle_out), selected by Calib::tower_hold_hit_started; tests/launch_beyond_position.rs."
+    },
     "SNIPE_TOWER_FILTER": {
       "value": "client16402_no_towers_filter",
       "status": "measured",

@@ -1037,6 +1037,10 @@ pub struct Calib {
     /// `ShutAtHide`, what a battle saved before it ran.
     #[serde(default = "hide_hiding_damage_window_default")]
     pub hide_hiding_damage_window: HidingDamageWindow,
+    /// targeting.TOWER_HOLD_HIT_STARTED (how far a princess tower holds its target at the start of its attack cycle). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `EveryTick`, what a battle saved before it ran.
+    #[serde(default = "tower_hold_hit_started_default")]
+    pub tower_hold_hit_started: TowerHoldHitStarted,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3035,6 +3039,10 @@ fn after_hits_heal_pulse_default() -> AfterHitsHealPulse {
 
 fn hide_hiding_damage_window_default() -> HidingDamageWindow {
     HidingDamageWindow::ShutAtHide
+}
+
+fn tower_hold_hit_started_default() -> TowerHoldHitStarted {
+    TowerHoldHitStarted::EveryTick
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10538,6 +10546,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.TOWER_HOLD_HIT_STARTED -- a LoadTime-0 princess tower's hold past its reach early in its cycle (target.rs
+    /// `decide`, the projectile-hold branch).
+    TowerHoldHitStarted {
+        /// The engine's: to Range + both radii + 500 on every Target phase but the one after a launch beyond reach.
+        EveryTick = "every_tick",
+        /// Client 16.402: while its cycle has not passed its first tick it keeps only within Range + both radii.
+        Client16402AfterFirstTick = "client16402_after_first_tick",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11110,6 +11128,7 @@ impl Calib {
             death_blow_victim_point: pick(&v, &["combat", "DEATH_BLOW_VICTIM_POINT", "value"], DeathBlowVictimPoint::from_calibration_name)?,
             after_hits_heal_pulse: pick(&v, &["status", "AFTER_HITS_HEAL_PULSE", "value"], AfterHitsHealPulse::from_calibration_name)?,
             hide_hiding_damage_window: pick(&v, &["hide", "HIDING_DAMAGE_WINDOW", "value"], HidingDamageWindow::from_calibration_name)?,
+            tower_hold_hit_started: pick(&v, &["targeting", "TOWER_HOLD_HIT_STARTED", "value"], TowerHoldHitStarted::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -38886,6 +38905,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, hide.HIDING_DAMAGE_WINDOW: Calib gained hide_hiding_damage_window (serde default the old arm, shut_at_hide), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.TOWER_HOLD_HIT_STARTED: Calib gained tower_hold_hit_started (serde default the old arm, every_tick), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39950,6 +39971,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("after_hits_heal_pulse".into(), serde_json::to_value(AfterHitsHealPulse::FrequencyLessTick).map_err(|e| e.to_string())?);
     // hide.HIDING_DAMAGE_WINDOW: a format-3 battle ran hide.HIDING_DAMAGE_WINDOW's old arm.
     sh.insert("hide_hiding_damage_window".into(), serde_json::to_value(HidingDamageWindow::ShutAtHide).map_err(|e| e.to_string())?);
+    // targeting.TOWER_HOLD_HIT_STARTED: a format-3 battle ran targeting.TOWER_HOLD_HIT_STARTED's old arm.
+    sh.insert("tower_hold_hit_started".into(), serde_json::to_value(TowerHoldHitStarted::EveryTick).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

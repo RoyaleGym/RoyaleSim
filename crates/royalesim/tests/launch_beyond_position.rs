@@ -22,13 +22,19 @@
 //!   * `launch_judged_on_launch_tick` -- the new arm still judges the launch on the launch tick: (1) goes red.
 //!   * `launch_judged_towers_only` -- client16402_after_move_buildings_and_towers still leaves a building out: the Cannon's
 //!     test goes red.
+//!   * `tower_hold_ignores_cycle_start` -- targeting.TOWER_HOLD_HIT_STARTED = client16402_after_first_tick still holds to
+//!     reach + 500 one tick into the cycle: its test goes red.
+//!
+//! targeting.TOWER_HOLD_HIT_STARTED = client16402_after_first_tick (client 16.402, parity r76, live13: 30 of 30 let-gos one tick
+//! into the cycle, the engine kept 28 of 29): the same scene, the Knight kept inside `extra` ticks after the launch, then put
+//! past the reach.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, ChaseHoldScope, LaunchBeyondPosition};
+use royalesim::state::{BattleConfig, BattleState, Calib, ChaseHoldScope, LaunchBeyondPosition, TowerHoldHitStarted};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -123,4 +129,57 @@ fn a_building_lets_go_of_a_target_past_reach_after_its_launch_under_client16402_
     assert!(!cannon_holds(LaunchBeyondPosition::Client16402AfterMoveBuildingsAndTowers), "new: the Cannon held the Knight past its reach");
     assert!(cannon_holds(LaunchBeyondPosition::Client15535AfterMove), "towers only: the Cannon let the Knight go (vacuous otherwise)");
     assert!(!tower_holds(LaunchBeyondPosition::Client16402AfterMoveBuildingsAndTowers), "new: the tower held the Knight past its reach");
+}
+
+/// Under targeting.TOWER_HOLD_HIT_STARTED = `arm` (the shipped launch judgement): whether Blue's right princess tower still
+/// targets the Knight one tick after it is put past the reach, the Knight kept inside for `extra` ticks after the launch tick.
+fn held_at_cycle(arm: TowerHoldHitStarted, extra: u32) -> bool {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.tower_hold_hit_started = arm;
+    cfg.calib.chase_hold_scope = ChaseHoldScope::Client15535WalkersOnly;
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(3, cfg);
+    past_deploy_lockout(&mut s);
+    let tower = s
+        .entities()
+        .filter(|e| e.team == Team::Blue && e.kind == EntityKind::PrincessTower)
+        .max_by_key(|e| e.pos.x)
+        .map(|e| e.id)
+        .expect("Blue's right princess tower");
+    let (inside, past) = (n(8500, 13100), n(8400, 13180));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", inside, None).expect("the Knight");
+    let hold = |s: &mut BattleState, p: Vec2| {
+        assert!(s.debug_set_pos(knight, p));
+        let max = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_hp(knight, max));
+    };
+    for _ in 0..200 {
+        hold(&mut s, inside);
+        s.tick();
+        let t = s.entity(tower).expect("the tower");
+        if t.target == Some(knight) && t.attack_phase == AttackPhase::Cooldown {
+            for _ in 0..extra {
+                hold(&mut s, inside);
+                s.tick();
+            }
+            hold(&mut s, past);
+            s.tick();
+            return s.entity(tower).expect("the tower").target == Some(knight);
+        }
+    }
+    panic!("{arm:?}: the scene drifted: the tower never fired at the Knight");
+}
+
+/// targeting.TOWER_HOLD_HIT_STARTED = client16402_after_first_tick: past the reach on the tick after the launch both arms let
+/// the Knight go (the shipped targeting.LAUNCH_BEYOND_POSITION judges the launch there); on the cycle's next tick the new arm
+/// lets it go, where every_tick (the vacuity check) holds it; from the one after both hold. Plant:
+/// tower_hold_ignores_cycle_start.
+#[test]
+fn under_client16402_after_first_tick_a_princess_tower_lets_go_early_in_its_cycle() {
+    assert!(!held_at_cycle(TowerHoldHitStarted::EveryTick, 0), "every_tick: the launch's judgement held the Knight");
+    assert!(!held_at_cycle(TowerHoldHitStarted::Client16402AfterFirstTick, 0), "client16402_after_first_tick: the tower held the Knight on the launch's next tick");
+    assert!(held_at_cycle(TowerHoldHitStarted::EveryTick, 1), "every_tick: the tower let the Knight go one tick into its cycle");
+    assert!(!held_at_cycle(TowerHoldHitStarted::Client16402AfterFirstTick, 1), "client16402_after_first_tick: the tower held the Knight past its reach one tick into its cycle");
+    assert!(held_at_cycle(TowerHoldHitStarted::Client16402AfterFirstTick, 2), "client16402_after_first_tick: a started cycle let the Knight go");
 }

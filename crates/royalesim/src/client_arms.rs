@@ -380,6 +380,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   status.AFTER_HITS_HEAL_PULSE = frequency_less_tick: sp-form-Bats-evo-s0 healed on the hit + 9 and + 19.
 ///   hide.HIDING_DAMAGE_WINDOW = shut_at_hide: unread on client 15.535.29.
 ///   status.IDLE_BUFF = off_after_hit_while_attacking: sweep-SuperKnight (the area shape; the own shape's deploy unread there).
+///   targeting.TOWER_HOLD_HIT_STARTED = every_tick: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -590,6 +591,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("status.AFTER_HITS_HEAL_PULSE", "\"frequency_less_tick\""),
     ("hide.HIDING_DAMAGE_WINDOW", "\"shut_at_hide\""),
     ("status.IDLE_BUFF", "\"off_after_hit_while_attacking\""),
+    ("targeting.TOWER_HOLD_HIT_STARTED", "\"every_tick\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

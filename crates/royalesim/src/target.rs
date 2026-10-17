@@ -1323,8 +1323,22 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 // targeting.LAUNCH_BEYOND_POSITION = client15535_after_move: a crown tower's launch flag (set at every
                 // launch) is judged here, on this tick's start positions -- the target where the launch tick's move left
                 // it -- against the tower's reach; beyond it, the hold ends.
-                let launched_out = e.launched_beyond[a]
-                    && (!launch_judged_after_move(ctx.calib, e, a) || !in_attack_range(ctx.calib, e.pos[a], card.range, e.radius[a], e.pos[ti], e.radius[ti]));
+                // targeting.TOWER_HOLD_HIT_STARTED = client16402_after_first_tick: a LoadTime-0 princess tower whose cycle has
+                // not passed its first tick holds nothing past its bare reach. Measured on client 16.402 (parity r76, live13):
+                // 30 of 30 let-gos one tick into the cycle, the engine kept 28 of 29. PLANT (regression)
+                // tower_hold_ignores_cycle_start: the new arm still holds to reach + 500 there.
+                #[cfg(not(clash_plant = "tower_hold_ignores_cycle_start"))]
+                let cycle_start = ctx.calib.tower_hold_hit_started == crate::state::TowerHoldHitStarted::Client16402AfterFirstTick
+                    && e.kind[a] == EntityKind::PrincessTower
+                    && card.load_time_ms == 0
+                    && card.hit_speed_ms > 0
+                    && e.attack_ms[a].rem_euclid(card.hit_speed_ms) <= ctx.calib.tick_ms;
+                #[cfg(clash_plant = "tower_hold_ignores_cycle_start")]
+                let cycle_start = false;
+                let cycle_out = cycle_start && !in_attack_range(ctx.calib, e.pos[a], card.range, e.radius[a], e.pos[ti], e.radius[ti]);
+                let launched_out = cycle_out
+                    || (e.launched_beyond[a]
+                        && (!launch_judged_after_move(ctx.calib, e, a) || !in_attack_range(ctx.calib, e.pos[a], card.range, e.radius[a], e.pos[ti], e.radius[ti])));
                 if !launched_out && in_attack_range(ctx.calib, e.pos[a], hold, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
