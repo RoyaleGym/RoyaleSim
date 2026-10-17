@@ -23,7 +23,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, TickOrder, TroopDeathPushback};
+use royalesim::state::{BattleState, DeathBlowVictimPoint, TickOrder, TroopDeathPushback};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["Knight", "Musketeer", "Golem", "Giant", "Fireball", "Arrows", "Minions", "Zap"];
@@ -47,6 +47,11 @@ fn scene3(arm: TroopDeathPushback, attacker: &str, at: (i32, i32)) -> (i32, i32,
     cfg.tower_level = [11, 11];
     cfg.calib.tick_order = TickOrder::ClientSequentialStrike;
     cfg.calib.troop_death_pushback = arm;
+    // The 15.535.29 ladder's measurements take the blow's victims on the death tick (combat.DEATH_BLOW_VICTIM_POINT =
+    // death_tick_reap, CLIENT15535_ARMS); client16402_with_blow runs the shipped landing tick (client16402_landing_tick).
+    if arm != TroopDeathPushback::Client16402WithBlow {
+        cfg.calib.death_blow_victim_point = DeathBlowVictimPoint::DeathTickReap;
+    }
     let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
     // Out of every tower's reach: the Golem on Red's half, 8,500 from the nearest princess tower.

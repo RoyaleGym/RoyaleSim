@@ -52,6 +52,16 @@ use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::{AttackPhase, EntityKind, HideState};
 use royalesim::fixed::{Vec2, SUBTILE};
 use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, HeldThroughHide, HideDelayMeaning, HidingDamageWindow, RiseLaw, RiseTrigger, TapSnap};
+
+/// The Hidden timer a Tesla holds on the tick it goes under: hide.HIDING_DAMAGE_WINDOW = client16402_hide_time's window
+/// (HideTimeMs + a tick, run down to 0 while it stays under), 0 under shut_at_hide.
+fn going_under_ms(s: &BattleState) -> i32 {
+    if s.config().calib.hide_hiding_damage_window == HidingDamageWindow::Client16402HideTime {
+        tesla_hide(s).hide_time_ms + dt()
+    } else {
+        0
+    }
+}
 use royalesim::{EntityId, Team};
 
 // ---------------------------------------------------------------------------
@@ -361,11 +371,11 @@ fn losing_its_target_sends_it_under_after_its_up_wait(cfg: BattleConfig) {
         assert_eq!(s.entity(tesla).unwrap().target, None);
     }
     s.tick();
-    assert_eq!(hide_of(&s, tesla), (HideState::Hidden, 0), "not under after {n} tick calls");
-    // And it stays under: nothing else is in its sight.
-    for _ in 0..20 {
+    assert_eq!(hide_of(&s, tesla), (HideState::Hidden, going_under_ms(&s)), "not under after {n} tick calls");
+    // And it stays under: nothing else is in its sight (its going-under window runs down to 0).
+    for k in 1..=20 {
         s.tick();
-        assert_eq!(hide_of(&s, tesla), (HideState::Hidden, 0));
+        assert_eq!(hide_of(&s, tesla), (HideState::Hidden, (going_under_ms(&s) - k * dt()).max(0)));
     }
 }
 
@@ -756,7 +766,7 @@ fn starts_hidden_false_stands_the_tesla_up_at_deploy_end_and_it_goes_under_after
         assert_eq!(hide_of(&s, tesla), (HideState::Up, h.hide_time_ms - (k as i32) * dt()));
     }
     s.tick();
-    assert_eq!(hide_of(&s, tesla), (HideState::Hidden, 0), "false: under after ceil(HideTimeMs / TICK_MS) idle ticks");
+    assert_eq!(hide_of(&s, tesla), (HideState::Hidden, going_under_ms(&s)), "false: under after ceil(HideTimeMs / TICK_MS) idle ticks");
     // true (shipped): under from the start.
     let mut s = bare(config());
     let tesla = s.scenario_spawn_now(Team::Blue, "Tesla", t(900, 1200), None).unwrap();

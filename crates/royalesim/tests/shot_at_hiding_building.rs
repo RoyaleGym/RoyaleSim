@@ -17,7 +17,7 @@ mod common;
 use common::*;
 use royalesim::entity::HideState;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, ShotAtHidingBuilding};
+use royalesim::state::{BattleState, Calib, HidingDamageWindow, ShotAtHidingBuilding};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -28,6 +28,9 @@ fn n(x: i32, y: i32) -> Vec2 {
 fn scene(arm: ShotAtHidingBuilding) -> (i32, bool) {
     let mut cfg = config();
     cfg.calib.shot_at_hiding_building = arm;
+    // Client 15.535.29's window (this file's reading; client 16.402's hide.HIDING_DAMAGE_WINDOW = client16402_hide_time takes
+    // every hit for HideTimeMs after the hide, tests/hide.rs), so the dropped arm still drops the bomb.
+    cfg.calib.hide_hiding_damage_window = HidingDamageWindow::ShutAtHide;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     s.spawn_unit(Team::Blue, "Tesla", n(14000, 14000), None).expect("the Tesla");
