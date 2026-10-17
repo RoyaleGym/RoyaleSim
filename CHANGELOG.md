@@ -3,6 +3,29 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.37 (2026-10-16)
+
+- Thirteen more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A dying unit's death blow hits what is in its circle when the blow lands (`combat.DEATH_BLOW_VICTIM_POINT`).
+  - A Tesla that goes underground still takes hits for its hide time (`hide.HIDING_DAMAGE_WINDOW`).
+  - The Evo Giant Snowball's rolling ball keeps hitting what it rolls onto (`spells.CAPTURE_ROLL_STRIKES`).
+  - The Evo Mega Knight's uppercut throws toward the thrown unit's nearest standing crown tower
+    (`knockback.UPPERCUT_THROW_AIM`).
+  - The Evo Bats' heal after hits first pulses a full period after the hit (`status.AFTER_HITS_HEAL_PULSE`).
+  - An Electro Giant's reflected stun holds a tick longer too (`status.HIT_STUN_SPAN`).
+  - A unit released onto the river stands on the centre of the nearest dry half-cell
+    (`spells.ROLL_RELEASE_WATER_POINT`), and a Little Prince's guard that would land in the river lands on the
+    nearest land (`combat.GUARD_WATER_LANDING`).
+  - The Little Prince's ramp keeps its level for the attack on the tick it resets (`combat.RAMP_LEVEL_DROP`), and a
+    Fisherman's hook resets it (`combat.RAMP_HOOK_RESET`).
+  - A unit standing before its dash is not pushed, and a timed dash's unit joins the contact pass the tick after it
+    ends (`combat.DASH_STAND_CONTACT`, `combat.DASH_END_CONTACT`).
+  - The unit a card's deploy area puts down (the Electro Wizard's, the Ice Wizard's) is not pushed on its first tick
+    (`spells.DEPLOY_AREA_BIRTH_CONTACT`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles. Saved battles from earlier releases load
+  unchanged (`SNAPSHOT_FORMAT` is still 20).
+
 ## 0.1.36 (2026-10-16)
 
 - Twenty-two more settings default to the current client's behaviour, each measured against its recorded battles:
