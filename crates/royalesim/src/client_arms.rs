@@ -381,6 +381,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   hide.HIDING_DAMAGE_WINDOW = shut_at_hide: unread on client 15.535.29.
 ///   status.IDLE_BUFF = off_after_hit_while_attacking: sweep-SuperKnight (the area shape; the own shape's deploy unread there).
 ///   targeting.TOWER_HOLD_HIT_STARTED = every_tick: unread on client 15.535.29.
+///   combat.GUARD_BIRTH_PASS_THROUGH = hit: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -592,6 +593,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("hide.HIDING_DAMAGE_WINDOW", "\"shut_at_hide\""),
     ("status.IDLE_BUFF", "\"off_after_hit_while_attacking\""),
     ("targeting.TOWER_HOLD_HIT_STARTED", "\"every_tick\""),
+    ("combat.GUARD_BIRTH_PASS_THROUGH", "\"hit\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

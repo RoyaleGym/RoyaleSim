@@ -1279,6 +1279,10 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         if !eligible(e, v, team, &def.hit, ctx.calib) {
             continue;
         }
+        // combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: a strike picks no guard on its birth frames.
+        if e.passes_over(v) {
+            continue;
+        }
         let id = e.id_of(v);
         #[cfg(not(clash_plant = "strike_repeats_target"))]
         if struck.binary_search(&id).is_ok() {
@@ -1671,6 +1675,10 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
         #[cfg(clash_plant = "rolling_hits_leapers")]
         let spare = false;
         if spare && (e.jumping[v] || e.dash_state[v] == crate::entity::DashState::Dashing) {
+            continue;
+        }
+        // combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: a roll passes over a guard on its birth frames.
+        if e.passes_over(v) {
             continue;
         }
         // spells.LIVE_SPAWN_ROLL_BIRTH = client16402_unseen_on_birth_tick: a unit a live spawner made this tick is not in the

@@ -1854,6 +1854,16 @@
     }
   },
   "combat": {
+    "GUARD_BIRTH_PASS_THROUGH": {
+      "value": "hit",
+      "status": "measured",
+      "candidates": ["hit", "client16402_passed_over"],
+      "confidence": "MEDIUM-HIGH for client16402_passed_over on client 16.402 (parity r77, 2026-10-18): over all live13 newborns traced on their birth tick: engine-only birth-frame hits 8, 7 of them on ChampionGuards (7 of 369 guards: an Axe Man's axe twice, a Magic Archer arrow, a Log, two Barbarian Logs, a Lightning pick) against 1 of about 22,960 other newborns, truth-only 0; Log rolls over guards on their birth frames hit 0 of 7 in the truth (the engine 3 of 3 traced), while rolls over other newborns agree 59 of 59; area and splash hits on the birth frames landed on both, 5 of 5. A candidate until scored. Client 15.535.29 keeps hit (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-10-18, r77) on client 16.402, the ob13 set (maker 557fca83): over all live13 newborns traced on their birth tick: engine-only birth-frame hits 8, 7 of them on ChampionGuards (7 of 369 guards: an Axe Man's axe twice, a Magic Archer arrow, a Log, two Barbarian Logs, a Lightning pick) against 1 of about 22,960 other newborns, truth-only 0; Log rolls over guards on their birth frames hit 0 of 7 in the truth (the engine 3 of 3 traced), while rolls over other newborns agree 59 of 59; area and splash hits on the birth frames landed on both, 5 of 5.",
+      "meaning": "hit: the engine's; a Little Prince guard is met by every hit test from its first frame. client16402_passed_over: on its birth frames (its first frame until its first charge frame) rolling projectiles (the Log, the Barbarian Log), pass-through shots (the Axe Man's axe, the Magic Archer's arrow) and Lightning's strike picks pass over it; area impacts and splash still land.",
+      "open": "Why the client passes over it is unread (the mechanism); Lightning is one instance; the guard's own push and hits are unchanged.",
+      "engine": "state.rs guard_moves (Entities::pass_over), entity.rs passes_over, spell.rs roll and strike, combat.rs straight_hits, selected by Calib::guard_birth_pass_through; tests/little_prince.rs."
+    },
     "DEATH_BLOW_VICTIM_POINT": {
       "value": "client16402_landing_tick",
       "status": "measured",

@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -1319,4 +1319,58 @@ fn under_client16402_after_the_attack_an_entry_on_the_reset_tick_runs_at_his_old
     assert_eq!(gaps(&o7)[..2], [24, 24], "with_the_count: his shots after the reset {o7:?}");
     assert_eq!(gaps(&n7)[..2], [24, 24], "client16402_after_the_attack: his shots after the entry {n7:?}");
     assert_eq!(walked_shots(RampLevelDrop::WithTheCount, 8), walked_shots(RampLevelDrop::Client16402AfterTheAttack, 8), "an entry a tick after the reset");
+}
+
+/// Under combat.GUARD_BIRTH_PASS_THROUGH = `arm`: the Little Prince held on AT and pressed; a red Log cast 4000 north of his
+/// guard's birth point `cast_at` ticks after the press (it rolls south at it), or a red Zap on the guard's point on its age 1
+/// (`zap`): the guard's hitpoint losses by its age (ticks from its first frame).
+fn guard_hit(arm: GuardBirthPassThrough, cast_at: u32, zap: bool) -> Vec<(u32, i32)> {
+    let mut cfg = config();
+    cfg.calib.guard_birth_pass_through = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), ["Log", "Zap", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions"].iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let lp = s.scenario_spawn_now(Team::Blue, "LittlePrince", n(AT), None).expect("the Little Prince");
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut first, mut hp_was, mut losses) = (None::<u32>, None::<i32>, Vec::new());
+    for k in 0..60 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        if !zap && k == cast_at {
+            s.spawn_unit(Team::Red, "Log", n((AT.0, AT.1 - 2000 + 4000)), None).expect("the Log");
+        }
+        if let (true, Some(f)) = (zap, first) {
+            if s.tick_count() - f == 1 {
+                let p = find_live(&s, Team::Blue, "ChampionGuard").first().expect("the guard").pos;
+                s.spawn_unit(Team::Red, "Zap", p, None).expect("the Zap");
+            }
+        }
+        s.tick();
+        let Some(hp) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.hp) else { continue };
+        let f = *first.get_or_insert(s.tick_count() - 1);
+        if let Some(h) = hp_was.filter(|h| hp < *h) {
+            losses.push((s.tick_count() - 1 - f, h - hp));
+        }
+        hp_was = Some(hp);
+    }
+    losses
+}
+
+/// combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over (client 16.402, parity r77, live13: Log rolls over guards on their
+/// birth frames hit 0 of 7; engine-only birth-frame hits on 7 of 369 guards): a Log whose roll crosses the guard before its
+/// first charge frame takes nothing off it, where hit (the vacuity check) does; a Zap's area on its age 1 lands under both.
+/// Plant: guard_birth_pass_through_hit.
+#[test]
+fn under_client16402_passed_over_a_log_rolls_over_his_guard_on_its_birth_frames() {
+    let birth = |l: &[(u32, i32)]| l.iter().any(|(age, _)| *age < crate_dash_start());
+    let cast = (0..30).find(|&c| birth(&guard_hit(GuardBirthPassThrough::Hit, c, false))).expect("the scene drifted: no cast tick lands the Log's roll on the guard's birth frames under hit");
+    let new = guard_hit(GuardBirthPassThrough::Client16402PassedOver, cast, false);
+    assert!(!birth(&new), "client16402_passed_over: the Log hit the guard on its birth frames (cast {cast}): {new:?}");
+    assert!(birth(&guard_hit(GuardBirthPassThrough::Client16402PassedOver, 0, true)), "client16402_passed_over: the Zap's area missed the guard on its birth frames");
 }

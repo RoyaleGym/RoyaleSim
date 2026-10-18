@@ -1988,6 +1988,10 @@ fn straight_hits(
         if crate::target::rider_untouchable(calib, ents, v) {
             continue;
         }
+        // combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: and a guard on its birth frames.
+        if ents.passes_over(v) {
+            continue;
+        }
         // movement.SPAWN_PATHFIND_BODY = untouchable and hide.HIDDEN_IMMUNE_TO_DAMAGE: it passes a unit
         // under ground and a hidden building too. A Hunter's pellet that met a tunnelling Miner or an idle
         // Tesla used to stop on it, and `resolve` then dropped the hit, so the pellet was spent on nothing.

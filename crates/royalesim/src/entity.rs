@@ -255,6 +255,11 @@ pub struct Entities {
     /// corpse's slot keeps its point). Written under that arm only. `default` and sized on load like `fired_at`.
     #[serde(default)]
     pub lost_target: Vec<Option<EntityId>>,
+    /// combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: a Little Prince guard on its birth frames, which rolls,
+    /// pass-through shots and strike picks pass over (state.rs `guard_moves` writes it, `passes_over` reads it). Written under
+    /// that arm only; hashed only when set. `default` and sized on load like `lost_target`.
+    #[serde(default)]
+    pub pass_over: Vec<bool>,
     /// This unit launched a projectile at its target from beyond its reach on the last tick: set in the attack
     /// pass, read and cleared by the next Target phase, which then rescans (target.rs `decide`). Written under
     /// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" only, and hashed under it.
@@ -866,6 +871,16 @@ impl Entities {
         self.hide[i] == HideState::Hidden && self.hide_ms[i] <= 0
     }
 
+    /// combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: rolls, pass-through shots and strike picks pass over unit `i`
+    /// (a Little Prince guard on its birth frames, `pass_over`). PLANT (regression) guard_birth_pass_through_hit: they meet it.
+    pub fn passes_over(&self, i: usize) -> bool {
+        #[cfg(not(clash_plant = "guard_birth_pass_through_hit"))]
+        let over = self.pass_over.get(i).copied().unwrap_or(false);
+        #[cfg(clash_plant = "guard_birth_pass_through_hit")]
+        let over = false;
+        over
+    }
+
     pub fn status_flags(&self, i: usize) -> i32 {
         let mut bits = 0;
         if self.underground(i) {
@@ -942,6 +957,7 @@ impl Entities {
             self.target_doomed[i] = false;
             self.fired_at[i] = None;
             self.lost_target[i] = None;
+            self.pass_over[i] = false;
             self.launched_beyond[i] = false;
             self.pancaked[i] = false;
             self.life_state[i] = 0;
@@ -1056,6 +1072,7 @@ impl Entities {
             self.target_doomed.push(false);
             self.fired_at.push(None);
             self.lost_target.push(None);
+            self.pass_over.push(false);
             self.launched_beyond.push(false);
             self.pancaked.push(false);
             self.life_state.push(0);
@@ -1244,6 +1261,7 @@ impl Entities {
         self.target_doomed[i] = false;
         self.fired_at[i] = None;
         self.lost_target[i] = None;
+        self.pass_over[i] = false;
         self.launched_beyond[i] = false;
         self.chase_dropped[i] = None;
         self.chase_inside[i] = None;

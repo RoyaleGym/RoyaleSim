@@ -1041,6 +1041,10 @@ pub struct Calib {
     /// `EveryTick`, what a battle saved before it ran.
     #[serde(default = "tower_hold_hit_started_default")]
     pub tower_hold_hit_started: TowerHoldHitStarted,
+    /// combat.GUARD_BIRTH_PASS_THROUGH (whether rolls, pass-through shots and strike picks meet a Little Prince guard on its birth frames). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Hit`, what a battle saved before it ran.
+    #[serde(default = "guard_birth_pass_through_default")]
+    pub guard_birth_pass_through: GuardBirthPassThrough,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3043,6 +3047,10 @@ fn hide_hiding_damage_window_default() -> HidingDamageWindow {
 
 fn tower_hold_hit_started_default() -> TowerHoldHitStarted {
     TowerHoldHitStarted::EveryTick
+}
+
+fn guard_birth_pass_through_default() -> GuardBirthPassThrough {
+    GuardBirthPassThrough::Hit
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -10556,6 +10564,16 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.GUARD_BIRTH_PASS_THROUGH -- a Little Prince guard's birth frames (state.rs `guard_moves`; entity.rs
+    /// `passes_over`, read by spell.rs `roll` and `strike` and combat.rs `straight_hits`).
+    GuardBirthPassThrough {
+        /// The engine's: every hit test meets the guard from its first frame.
+        Hit = "hit",
+        /// Client 16.402: until its first charge frame, rolls, pass-through shots and strike picks pass over it.
+        Client16402PassedOver = "client16402_passed_over",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11129,6 +11147,7 @@ impl Calib {
             after_hits_heal_pulse: pick(&v, &["status", "AFTER_HITS_HEAL_PULSE", "value"], AfterHitsHealPulse::from_calibration_name)?,
             hide_hiding_damage_window: pick(&v, &["hide", "HIDING_DAMAGE_WINDOW", "value"], HidingDamageWindow::from_calibration_name)?,
             tower_hold_hit_started: pick(&v, &["targeting", "TOWER_HOLD_HIT_STARTED", "value"], TowerHoldHitStarted::from_calibration_name)?,
+            guard_birth_pass_through: pick(&v, &["combat", "GUARD_BIRTH_PASS_THROUGH", "value"], GuardBirthPassThrough::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -22596,6 +22615,11 @@ impl BattleState {
             if immune && tick + 1 >= r.born + crate::card::GUARD_DASH_START_TICKS {
                 self.ents.dash_immune_until[gi] = u32::MAX;
             }
+            // combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: until its first charge frame rolls, pass-through
+            // shots and strike picks pass over it. Measured on client 16.402 (parity r77, live13): engine-only birth-frame
+            // hits on 7 of 369 guards against 1 of about 22,960 other newborns; Log rolls 0 of 7 in the truth.
+            self.ents.pass_over[gi] = self.cfg.calib.guard_birth_pass_through == GuardBirthPassThrough::Client16402PassedOver
+                && tick + 1 < r.born + crate::card::GUARD_DASH_START_TICKS;
             // combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step: the route its birth step planned is dropped as its
             // dash starts (client 16.402: path_n 0 or 1 on all 8,804 dash frames), so after the charge it plans afresh from
             // where it landed (parity's agents11 trace: the kept route was walked after the landing on 357 of 558 births).
@@ -36222,6 +36246,10 @@ impl BattleState {
                     h.u32(0x5043_4b44);
                 }
                 // combat.LOST_TARGET_SHOT = client16402_point_first_attack_fires: a lost swing's corpse, under that arm alone.
+                // combat.GUARD_BIRTH_PASS_THROUGH: a guard on its birth frames, only when set.
+                if e.pass_over[i] {
+                    h.u32(0x5041_5353);
+                }
                 if self.cfg.calib.lost_target_shot == LostTargetShot::Client16402PointFirstAttackFires {
                     h.bool(e.lost_target[i].is_some());
                     if let Some(t) = e.lost_target[i] {
@@ -38907,6 +38935,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.TOWER_HOLD_HIT_STARTED: Calib gained tower_hold_hit_started (serde default the old arm, every_tick), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_BIRTH_PASS_THROUGH: Calib gained guard_birth_pass_through (serde default the old arm, hit), Entities gained pass_over (serde default empty, sized on load to false, hashed only when set),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -39973,6 +40003,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("hide_hiding_damage_window".into(), serde_json::to_value(HidingDamageWindow::ShutAtHide).map_err(|e| e.to_string())?);
     // targeting.TOWER_HOLD_HIT_STARTED: a format-3 battle ran targeting.TOWER_HOLD_HIT_STARTED's old arm.
     sh.insert("tower_hold_hit_started".into(), serde_json::to_value(TowerHoldHitStarted::EveryTick).map_err(|e| e.to_string())?);
+    // combat.GUARD_BIRTH_PASS_THROUGH: a format-3 battle ran combat.GUARD_BIRTH_PASS_THROUGH's old arm.
+    sh.insert("guard_birth_pass_through".into(), serde_json::to_value(GuardBirthPassThrough::Hit).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -40354,6 +40386,7 @@ impl BattleState {
         snap.ents.target_doomed.resize(n, false);
         snap.ents.fired_at.resize(n, None);
         snap.ents.lost_target.resize(n, None);
+        snap.ents.pass_over.resize(n, false);
         snap.ents.launched_beyond.resize(n, false);
         snap.ents.pancaked.resize(n, false);
         snap.ents.life_state.resize(n, 0);
