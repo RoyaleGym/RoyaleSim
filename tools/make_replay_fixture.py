@@ -937,6 +937,10 @@ def select_table(name: str) -> None:
 #: update on): 16.402.19, and the later stamps of the same build that changed no card (16.402.21: build 160402020 is
 #: 160402017's tables).
 UPDATE_20261006_CONTENT = (16, 402, 19)
+#: Every content stamp the 2026-10-06 table is known to fit, and no other: a later stamp may carry a balance change
+#: (the Season 88 mid-season update), and a capture of it read on this table would play its cards at the old values.
+#: A new stamp joins here only once its update's own files are checked against the table.
+CONTENTS_20261006 = {(16, 402, 19), (16, 402, 21)}
 
 
 def content_refusal(table: str, content: str | None) -> str | None:
@@ -960,6 +964,10 @@ def content_refusal(table: str, content: str | None) -> str | None:
                 "make it with --table 160402017-20261006")
     if v[:2] != UPDATE_20261006_CONTENT[:2] or v < UPDATE_20261006_CONTENT:
         return f"the capture's content {content} is not the 2026-10-06 update's (16.402.19 on)"
+    if v not in CONTENTS_20261006:
+        known = ", ".join(".".join(map(str, c)) for c in sorted(CONTENTS_20261006))
+        return (f"the capture's content {content} is not one the 2026-10-06 table is known to fit ({known}): a later "
+                "content update may change cards, so it needs its own table")
     return None
 
 

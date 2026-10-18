@@ -2176,6 +2176,9 @@ def test_a_capture_is_made_on_the_table_of_its_own_content(m):
     assert "--table 160402017" in m.content_refusal(new, None)
     assert m.content_refusal(new, "16.402.12") is not None, "an older content of the build is not the update's"
     assert m.content_refusal(new, "16.403.1") is not None
+    # a later stamp of the build may carry a balance change: refused until its files are checked (CONTENTS_20261006)
+    assert "its own table" in m.content_refusal(new, "16.402.22")
+    assert "its own table" in m.content_refusal(new, "16.402.20")
     assert m.content_refusal(old, None) is None
     assert "--table 160402017-20261006" in m.content_refusal(old, "16.402.19")
     assert m.content_refusal(new, "x.y") is not None
