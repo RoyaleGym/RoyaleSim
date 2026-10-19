@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.39 (2026-10-18)
+
+- One more setting defaults to the current client's behaviour, measured against its recorded battles: while a Little
+  Prince's guard is being born, rolling spells, shots that pass through units and Lightning's picks pass over it, and
+  area hits still land (`combat.GUARD_BIRTH_PASS_THROUGH`).
+- The older behaviour stays available as the setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  use it for the older client's battles. Saved battles from earlier releases load unchanged (`SNAPSHOT_FORMAT` is
+  still 20).
+- `tools/make_replay_fixture.py` refuses a recording whose content stamp the 2026-10-06 card table is not known to fit
+  (16.402.19 and 16.402.21 are), since a later content update may change cards.
+
 ## 0.1.38 (2026-10-17)
 
 - Four more settings default to the current client's behaviour, each measured against its recorded battles:
