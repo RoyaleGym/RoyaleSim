@@ -10,6 +10,7 @@
 //!   * two at once, measured on client 16.402 (RoyaleLive recordings): 452 champion plays put a second copy down while
 //!     the first stood (432 Little Prince, 20 Golden Knight), on both sides. Battle 20261007-004819: a Little Prince
 //!     from t3014 to t3669, a second one deployed at t3364.
+//!
 //! The tables' CHAMPION_RETURN_TO_CYCLE_POSITION = 2 governs neither: nothing above shows a card held out or put back.
 //!
 //! THE SCENE: Blue puts a Little Prince down in its back corner, far from every enemy, and plays four other cards; the
