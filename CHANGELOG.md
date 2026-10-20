@@ -3,6 +3,20 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.40 (2026-10-20)
+
+- A new card table: the current client's after its Season 88 mid-season balance update of 2026-10-19. Pick it with
+  `calibration_overrides={"cards.CARD_TABLE": '"client160402017_20261019"'}`. It changes the Minion Giant, the Rune
+  Giant (his enchant now ends 0.5 s after his death), the Cannon Cart, the Dart Goblin, the Evo Skeleton Barrel, the
+  Electro Dragon, the Flying Machine, the Void, the Skeleton Barrel and the Skeletons' spawn ring. The default table
+  is unchanged.
+- On that table the Evo Electro Giant's pulse passes over the Clone spell's copies, as the client has done since its
+  2026-10-08 content update.
+- `Battle.card_table_fnv1a64()` gives the hash of the card table a Battle read, whichever table it runs.
+- `tools/make_replay_fixture.py --table 160402017-20261019` makes fixtures from recordings of the new content
+  (16.402.22).
+- Saved battles from earlier releases load unchanged (`SNAPSHOT_FORMAT` is still 20).
+
 ## 0.1.39 (2026-10-18)
 
 - One more setting defaults to the current client's behaviour, measured against its recorded battles: while a Little
