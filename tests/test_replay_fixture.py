@@ -2159,6 +2159,10 @@ def test_the_table_switch_sets_the_card_file_the_id_pack_and_the_census_together
         assert m.CARDS.endswith(os.path.join("derived", "cards-160402017.json"))
         assert m.RAW.endswith(os.path.join("raw", "cr-160402017", "csv_logic")), "both 160402017 tables name one pack"
         assert m.CENSUS == "card_census-160402017.json"
+        m.select_table("160402017-20261019")
+        assert m.CARDS.endswith(os.path.join("derived", "cards-160402017-20261019.json"))
+        assert m.RAW.endswith(os.path.join("raw", "cr-160402017", "csv_logic")), "its update changes no spells csv"
+        assert m.CENSUS == "card_census-160402017-20261019.json"
         m.select_table("15.535.29")
         assert saved == (m.CARDS, m.RAW, m.CENSUS, m.TABLE), "the default table is the module's own constants"
     finally:
@@ -2177,8 +2181,15 @@ def test_a_capture_is_made_on_the_table_of_its_own_content(m):
     assert m.content_refusal(new, "16.402.12") is not None, "an older content of the build is not the update's"
     assert m.content_refusal(new, "16.403.1") is not None
     # a later stamp of the build may carry a balance change: refused until its files are checked (CONTENTS_20261006)
-    assert "its own table" in m.content_refusal(new, "16.402.22")
+    assert "--table 160402017-20261019" in m.content_refusal(new, "16.402.22"), "the 2026-10-19 update's stamp"
     assert "its own table" in m.content_refusal(new, "16.402.20")
+    # the 2026-10-19 table takes its own stamp and no other (CONTENTS_20261019)
+    s88 = "160402017-20261019"
+    assert m.content_refusal(s88, "16.402.22") is None
+    assert "--table 160402017-20261006" in m.content_refusal(s88, "16.402.19")
+    assert "--table 160402017-20261006" in m.content_refusal(s88, "16.402.21")
+    assert "--table 160402017" in m.content_refusal(s88, None)
+    assert "its own table" in m.content_refusal(s88, "16.402.23")
     assert m.content_refusal(old, None) is None
     assert "--table 160402017-20261006" in m.content_refusal(old, "16.402.19")
     assert m.content_refusal(new, "x.y") is not None

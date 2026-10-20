@@ -415,6 +415,33 @@ VINTAGES = {
         character_dirs=("characters", "events"),
         filters_format=True,
     ),
+    # THE SEASON 88 MID-SEASON UPDATE (2026-10-19 16:48Z; content 16.402.22 on build 160402020, which runs 160402017's
+    # tables): the update folder is CUMULATIVE, every file changed since the install pack (the 2026-10-06 update's
+    # still-current files, the 2026-10-08 content's Evo Electro Giant filter, and the 2026-10-19 balance changes), so it
+    # overlays the install-time pack directly (data/raw/cr-160402017-20261019, its MANIFEST.json lists each change).
+    "160402017-20261019": Vintage(
+        key="160402017-20261019",
+        raw=ROOT / "data" / "raw" / "cr-160402017" / "csv_logic",
+        update=ROOT / "data" / "raw" / "cr-160402017-20261019" / "csv_logic",
+        version="cards-160402017-20261019.1",
+        warning=(
+            "LIVE 2026 BUILD (the 160402017 tables with the Season 88 mid-season content update of 2026-10-19, content "
+            "16.402.22: the update's files over the install-time pack, decoded by tools/decode_sc_assets.py). Every "
+            "number in this file is EVIDENCE, NOT SPEC: the columns are the client's, what the engine does with each "
+            "is calibration.json's. Stats are UNIFIED LEVEL-1 base values (calibration.json combat.STAT_BASE_LEVEL). "
+            "Effective row = the client's TOML rows; evolutions and hero forms are excluded from `cards`."
+        ),
+        source="Supercell csv_logic/ of the 160402017 tables (client build 160402020): the 2026-10-19 update folder "
+        "over the install-time pack, decoded by tools/decode_sc_assets.py (each pack's MANIFEST.json carries its "
+        "per-file hashes)",
+        vintage="160402017 tables, content 16.402.22 (the 2026-10-19 Season 88 mid-season balance update)",
+        roster_dating="The build and content are in the files (MANIFEST.json build 160402020, content_version "
+                      "16.402.22).",
+        sources=SOURCES_16402,
+        overlays=OVERLAYS_16402,
+        character_dirs=("characters", "events"),
+        filters_format=True,
+    ),
 }
 # The 15.535 file became the default once it passed every gate (cargo test, clippy,
 # tools/check_data.py).
@@ -1500,7 +1527,11 @@ FILTER_FLAGS = {
 FILTER_LIST_FLAGS = {"Hidden": "filter_hidden", "Underground": "filter_underground", "Cloning": "filter_cloning",
                      "Invisible": "filter_invisible", "NoHitpointComponent": "filter_if_no_hitpoint_component",
                      "DashImmune": "filter_dash_immune", "Flying": "filter_flying", "Summoner": "filter_summoner",
-                     "Buildings": "filter_buildings", "PrincessTowers": "filter_princess_towers"}
+                     "Buildings": "filter_buildings", "PrincessTowers": "filter_princess_towers",
+                     # Content 16.402.20 on (the 2026-10-08 update): "Clones", the Clone spell's copies, a category of
+                     # its own beside "Cloning" (which every troop's own target filter excludes, and troops do hit
+                     # copies). Only CommonAreaDamageFilterNoClones names it (the Evo Electro Giant's pulse).
+                     "Clones": "filter_clones"}
 FILTER_LABELS = frozenset({"FilterDescriptionTID"})
 # The columns an inline laser-ball tier buff may set (`laser_ball_block`).
 LASER_BALL_BUFF_KEYS = frozenset(
@@ -7892,7 +7923,9 @@ DELEVEL_SPAWN = {"ClassType", "SpawnType", "SpawnData", "ParentGOAsSource"}
 DELEVEL_AREA_READ = {"Rarity", "Filter", "Radius", "MaxRadius", "LifeDuration", "HitSpeed", "OneHitPerTarget",
                      "FollowBehaviour", "StayAfterParentDies", "OnHitAction"}
 DELEVEL_AREA_DISPLAY = {"StatsTags"}
-DELEVEL_AREA_FILTER = "CommonAreaDamageFilter"
+#: The pulse area's filter: CommonAreaDamageFilter, or from content 16.402.20 on (the 2026-10-08 update) the same with
+#: the Clone spell's copies excluded (CommonAreaDamageFilterNoClones; the block's `filter` carries filter_clones).
+DELEVEL_AREA_FILTERS = ("CommonAreaDamageFilter", "CommonAreaDamageFilterNoClones")
 # The area's hit: a damage of {BaseDamage, TowerDamage} and the debuff's spawn on all but a crown tower.
 DELEVEL_HIT_DAMAGE = {"ClassType", "Damage"}
 DELEVEL_HIT_DEBUFF = {"ClassType", "SpawnType", "SpawnData", "SpawnTime", "ParentGOAsSource", "ExecuteIfTrue"}
@@ -8011,7 +8044,7 @@ def delevel_pulse_block(t: Tables, card: dict) -> dict:
     unread = tb.set_fields.get(name, set()) - DELEVEL_AREA_READ - DELEVEL_AREA_DISPLAY
     need(not unread, f"area {name} sets {sorted(unread)}")
     flt = filter_block(t, r["Filter"])
-    need(r["Filter"] == DELEVEL_AREA_FILTER and flt is not None, f"area {name}'s Filter {r['Filter']!r}")
+    need(r["Filter"] in DELEVEL_AREA_FILTERS and flt is not None, f"area {name}'s Filter {r['Filter']!r}")
     need(r["OnlyEnemies"] is True and r["OnlyOwnTroops"] is False and r["IgnoreBuildings"] is False
          and r["NoEffectToCrownTowers"] is False and r["Damage"] is None and r["TowerDamage"] is None,
          f"area {name}'s targets")
@@ -10640,10 +10673,20 @@ def surge_effect(h: Tables, name: str, subs: list, delays: list, units: dict, he
         if not ok:
             raise SystemExit(f"hero ability {name}: {what}")
 
+    # Content 16.402.22 on (the 2026-10-19 update): the setters of entries 1 and 2 go on to an ActionWithDuration of
+    # NO_MOVE_ALLOW_ATTRACT, the hero standing that long as an entry's attack starts (`entry_stand_ms`).
+    stands: set[tuple[int, int]] = set()
+
     def index_of(n, want: int | None = None) -> int:
-        a = _one_action(acts, n, "ActionSetAttackSequenceIndex", SURGE_INDEX_KEYS)
+        a = _one_action(acts, n, "ActionSetAttackSequenceIndex", SURGE_INDEX_KEYS | {"NextAction"})
         need(a["SetEvenIfCombatDisabled"] is True and (want is None or a["AttackIndex"] == want),
              f"{n} sets entry {a['AttackIndex']} (want {want})")
+        if a["NextAction"] is not None:
+            st = _one_action(acts, a["NextAction"], "ActionWithDuration",
+                             {"ClassType", "ActionDuration", "GameTagsToSet"})
+            need(tags(st) == {"NO_MOVE_ALLOW_ATTRACT"} and isinstance(st["ActionDuration"], int)
+                 and st["ActionDuration"] > 0, f"{n}'s NextAction {a['NextAction']}")
+            stands.add((a["AttackIndex"], st["ActionDuration"]))
         return a["AttackIndex"]
 
     def buff_spawn(n) -> tuple[dict, str, int]:
@@ -10762,6 +10805,8 @@ def surge_effect(h: Tables, name: str, subs: list, delays: list, units: dict, he
     # Its CrownTowerDamagePercent 0: a delta of 0 (100 + 0), as every negative one is read; its base row's blank.
     need(row["CrownTowerDamagePercent"] in (None, 0),
          f"its row's CrownTowerDamagePercent {row['CrownTowerDamagePercent']}")
+    need(not stands or ({i for i, _ in stands} == {1, 2} and len({d for _, d in stands}) == 1),
+         f"its entries' stands {sorted(stands)}")
     surge = f"{hero_unit}_Surge"
     rec = norm_unit(h, hero_unit, with_raw=True)
     rec.update({"name": surge, "damage": e1["Damage"], "crown_tower_damage_percent": 100,
@@ -10781,6 +10826,7 @@ def surge_effect(h: Tables, name: str, subs: list, delays: list, units: dict, he
         "recovery_root_ms": root_ms,
         "recovery_root_range_milli": root_range,
         "spawn_instant_range_milli": int(mi.group(1)),
+        **({"entry_stand_ms": next(iter(stands))[1]} if stands else {}),
     }
 
 

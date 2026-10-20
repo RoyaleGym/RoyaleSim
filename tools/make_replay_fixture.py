@@ -921,6 +921,9 @@ TABLES = {
     "160402017-20261006": ("cards-160402017-20261006.json", "cr-160402017", "card_census-160402017-20261006.json"),
     # The same client before its 2026-10-06 update (content 16.402.2): a capture recorded before the update.
     "160402017": ("cards-160402017.json", "cr-160402017", "card_census-160402017.json"),
+    # The Season 88 mid-season update of 2026-10-19 (content 16.402.22): its update folder carries no spells csv change
+    # either (spells_characters.csv and spells_evolved.csv are the base pack's), so the base pack names every card id.
+    "160402017-20261019": ("cards-160402017-20261019.json", "cr-160402017", "card_census-160402017-20261019.json"),
 }
 
 
@@ -934,13 +937,16 @@ def select_table(name: str) -> None:
     CENSUS = census
 
 #: THE 2026-10-06 UPDATE'S CONTENT (a capture header's `client.content_version`, which the live reader writes from that
-#: update on): 16.402.19, and the later stamps of the same build that changed no card (16.402.21: build 160402020 is
-#: 160402017's tables).
+#: update on): 16.402.19, and the later stamp 16.402.21 (build 160402020 runs 160402017's tables). 16.402.21 changed one
+#: card the 2026-10-06 table does not carry: the 2026-10-08 content's Evo Electro Giant pulse passes over the Clone
+#: spell's copies (CommonAreaDamageFilterNoClones; the 2026-10-19 table has it). Its captures stay on this table.
 UPDATE_20261006_CONTENT = (16, 402, 19)
 #: Every content stamp the 2026-10-06 table is known to fit, and no other: a later stamp may carry a balance change
 #: (the Season 88 mid-season update), and a capture of it read on this table would play its cards at the old values.
 #: A new stamp joins here only once its update's own files are checked against the table.
 CONTENTS_20261006 = {(16, 402, 19), (16, 402, 21)}
+#: THE SEASON 88 MID-SEASON UPDATE'S CONTENT (2026-10-19 16:48Z), and every stamp the 2026-10-19 table is known to fit.
+CONTENTS_20261019 = {(16, 402, 22)}
 
 
 def content_refusal(table: str, content: str | None) -> str | None:
@@ -948,10 +954,10 @@ def content_refusal(table: str, content: str | None) -> str | None:
     stamp, i.e. before the 2026-10-06 update) does not fit card table `table`, or None when it does. The table must be
     the game the capture was played on: a stamp is per capture, since a device takes a content update when its game
     starts, so no date decides it. The 15.535.29 table takes any capture (the 16.402 corpus is measured on it)."""
-    if table not in ("160402017", "160402017-20261006"):
+    if table not in ("160402017", "160402017-20261006", "160402017-20261019"):
         return None
     if content is None:
-        if table == "160402017-20261006":
+        if table != "160402017":
             return ("the capture has no content stamp, so it was recorded before the 2026-10-06 update: "
                     "make it with --table 160402017")
         return None
@@ -962,6 +968,18 @@ def content_refusal(table: str, content: str | None) -> str | None:
     if table == "160402017":
         return (f"the capture's content {content} is the 2026-10-06 update's or later: "
                 "make it with --table 160402017-20261006")
+    if table == "160402017-20261019":
+        if v in CONTENTS_20261006:
+            return (f"the capture's content {content} is the 2026-10-06 update's: make it with --table "
+                    "160402017-20261006")
+        if v not in CONTENTS_20261019:
+            known = ", ".join(".".join(map(str, c)) for c in sorted(CONTENTS_20261019))
+            return (f"the capture's content {content} is not one the 2026-10-19 table is known to fit ({known}): a "
+                    "later content update may change cards, so it needs its own table")
+        return None
+    if v in CONTENTS_20261019:
+        return (f"the capture's content {content} is the 2026-10-19 update's: make it with --table "
+                "160402017-20261019")
     if v[:2] != UPDATE_20261006_CONTENT[:2] or v < UPDATE_20261006_CONTENT:
         return f"the capture's content {content} is not the 2026-10-06 update's (16.402.19 on)"
     if v not in CONTENTS_20261006:

@@ -25,7 +25,7 @@ fn hp_at(db: &CardDb, name: &str, level: i32) -> Result<i32, String> {
 
 #[test]
 fn a_card_plays_one_level_past_its_count_on_its_ladders_next_multiplier() {
-    for table in [CardTable::Client160402017, CardTable::Client160402017Install, CardTable::Client15535] {
+    for table in [CardTable::Client160402017, CardTable::Client160402017Install, CardTable::Client15535, CardTable::Client160402017Oct19] {
         let db = CardDb::load_table(table).expect("the table loads");
         // (card, level-1 hitpoints): a Common, an Epic and a Champion
         for (name, base) in [("Minions", 90), ("Pekka", 1469), ("GoldenKnight", 703)] {

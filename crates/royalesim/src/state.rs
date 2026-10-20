@@ -5196,6 +5196,12 @@ calib_enum!(
         /// (data/derived/cards-160402017.json, card.rs `CARDS_160402017_INSTALL_FILE`, read from a checkout only).
         /// What a capture recorded before that update is scored against; cards.CLIENT16402_VALUES does not apply to it.
         Client160402017Install = "client160402017",
+        /// The same tables with the Season 88 mid-season content update of 2026-10-19 (content 16.402.22: the
+        /// Minion Giant, the Rune Giant's enchant after his death, the Skeletons' ring and eight more; and the
+        /// 2026-10-08 content's Evo Electro Giant pulse, which passes over the Clone spell's copies), data/derived/
+        /// cards-160402017-20261019.json, `EMBEDDED_CARDS_160402017_20261019_JSON`. What a capture stamped 16.402.22 is
+        /// scored against; cards.CLIENT16402_VALUES does not apply to it.
+        Client160402017Oct19 = "client160402017_20261019",
     }
 );
 
@@ -23608,7 +23614,8 @@ impl BattleState {
     ///   - a pulse rides its giant while he lives (FollowParent) and stays where he died (StayAfterParentDies). It is
     ///     `age` = (this tick - the next after its making) x 50 ms old and gone past its life, and grows as the Evo
     ///     Tesla's ring does: Radius + (MaxRadius - Radius) x age / LifeDuration, plus the enemy's own radius. It takes
-    ///     each enemy on its layers once, past CommonAreaDamageFilter (not hidden, under ground or dash-immune): no
+    ///     each enemy on its layers once, past CommonAreaDamageFilter (not hidden, under ground or dash-immune; from
+    ///     content 16.402.20 on not a Clone spell's copy either, CommonAreaDamageFilterNoClones, `skips_clones`): no
     ///     damage (its hit's 0), and every enemy but a crown tower drops a level (`level_down`).
     ///
     /// Read off the table, not measured (Oracle request 27): whether the clock runs through his deploy, the ring after
@@ -23655,6 +23662,11 @@ impl BattleState {
                     continue;
                 }
                 if e.underground(j) || e.hide[j] == HideState::Hidden || e.dash_immune(j, tick) {
+                    continue;
+                }
+                // PLANT (regression) pulse_hits_clones: the NoClones filter's ring still takes a copy.
+                #[cfg(not(clash_plant = "pulse_hits_clones"))]
+                if d.skips_clones && e.cloned[j] {
                     continue;
                 }
                 if !(if e.in_air(j) { d.hits_air } else { d.hits_ground }) {
@@ -38380,6 +38392,9 @@ impl BattleState {
 /// 20, unchanged, formation.ARMY_GENERAL_POINT: Calib gained army_general_point (serde default the old arm, tap), no new
 ///    state (read at each play), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
 ///    battle at the old arm.
+/// 20, unchanged, cards.CARD_TABLE client160402017_20261019 (the 2026-10-19 content's table): a new arm, no new state
+///    (a blob names its table in its own calibration, as before), so a blob saved before it deserializes and hashes as
+///    it did.
 /// 20, unchanged, match.BATTLE_END: Calib gained battle_end (serde default the old arm, rules), no new state (read at
 ///    each Judge phase), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle
 ///    at the old arm.
@@ -40173,11 +40188,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
 /// The card table `t` names (cards.CARD_TABLE, card.rs `CardDb::load_table`), loaded once per process, for
 /// `BattleState::load`.
 fn repo_cards(t: CardTable) -> Result<Arc<CardDb>, String> {
-    static CELLS: [OnceLock<Result<Arc<CardDb>, String>>; 3] = [OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    static CELLS: [OnceLock<Result<Arc<CardDb>, String>>; 4] = [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
     let i = match t {
         CardTable::Client15535 => 0,
         CardTable::Client160402017 => 1,
         CardTable::Client160402017Install => 2,
+        CardTable::Client160402017Oct19 => 3,
     };
     CELLS[i].get_or_init(|| CardDb::load_table(t).map(Arc::new)).clone()
 }

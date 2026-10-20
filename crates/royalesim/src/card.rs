@@ -102,12 +102,24 @@ pub const CARDS_160402017_INSTALL_FILE: &str = "cards-160402017.json";
 /// The install-time table's `version` (its file's own).
 pub const CARDS_160402017_INSTALL_VERSION: &str = "cards-160402017.1";
 
+/// THE SAME TABLES WITH THE SEASON 88 MID-SEASON CONTENT UPDATE (2026-10-19 16:48Z, content 16.402.22; tools/
+/// extract_cards.py `--vintage 160402017-20261019`), compiled in: what a battle under calibration cards.CARD_TABLE =
+/// client160402017_20261019 loads away from a checkout, and what a capture stamped 16.402.22 is scored against.
+pub const EMBEDDED_CARDS_160402017_20261019_JSON: &str = include_str!("../../../data/derived/cards-160402017-20261019.json");
+
+/// The 2026-10-19 table's file name under data/derived/ (`CardDb::load_table`).
+pub const CARDS_160402017_20261019_FILE: &str = "cards-160402017-20261019.json";
+
+/// The 2026-10-19 table's `version` (its file's own).
+pub const CARDS_160402017_20261019_VERSION: &str = "cards-160402017-20261019.1";
+
 /// EVERY TABLE OTHER THAN THE 15.535.29 ONE, as (`version`, file under data/derived/): what a loaded CardDb's
 /// `version` names, so a census or a stamp names the file the table came from (examples/replay_parity/harness.rs
 /// `table_file`). The 15.535.29 table is data/derived/cards.json, a copy of cards-15.535.json, and is not listed.
 pub const TABLE_FILES: &[(&str, &str)] = &[
     (CARDS_160402017_VERSION, CARDS_160402017_FILE),
     (CARDS_160402017_INSTALL_VERSION, CARDS_160402017_INSTALL_FILE),
+    (CARDS_160402017_20261019_VERSION, CARDS_160402017_20261019_FILE),
 ];
 
 /// A projectile an attack launches instead of hitting instantly.
@@ -6051,6 +6063,9 @@ pub struct DelevelPulseDef {
     pub life_ms: i32,
     pub hits_air: bool,
     pub hits_ground: bool,
+    /// The ring passes over the Clone spell's copies (its filter CommonAreaDamageFilterNoClones, content 16.402.20 on:
+    /// the 2026-10-08 update; its `filter.filter_clones`). False on a table before it (CommonAreaDamageFilter).
+    pub skips_clones: bool,
 }
 
 /// cards.json `evolutions[].evo_first_hit` (tools/extract_cards.py `first_hit_block`): the buff and its time.
@@ -12883,8 +12898,14 @@ impl CardDb {
             if p.stacks != Some(true) || p.spares_crown_towers != Some(true) || p.affects_hidden != Some(false) {
                 return refuse("a debuff that does not stack, that de-levels a crown tower, or a ring that takes the hidden");
             }
-            if p.filter.as_ref().and_then(|f| f.get("name")).and_then(|n| n.as_str()) != Some("CommonAreaDamageFilter") {
-                return refuse("a filter other than CommonAreaDamageFilter");
+            let filter = p.filter.as_ref().and_then(|f| f.get("name")).and_then(|n| n.as_str());
+            if !matches!(filter, Some("CommonAreaDamageFilter" | "CommonAreaDamageFilterNoClones")) {
+                return refuse("a filter other than CommonAreaDamageFilter (with or without the Clone spell's copies)");
+            }
+            // CommonAreaDamageFilterNoClones: the same filter, the Clone spell's copies excluded (filter_clones).
+            let skips_clones = p.filter.as_ref().and_then(|f| f.get("filter_clones")).and_then(|v| v.as_bool()) == Some(true);
+            if skips_clones != (filter == Some("CommonAreaDamageFilterNoClones")) {
+                return refuse("a filter whose name and Clones flag disagree");
             }
             if p.levels_per_hit != Some(1) || p.down_while_level_at_least != Some(1) {
                 return refuse("a drop other than one level while above the card's first");
@@ -12915,6 +12936,7 @@ impl CardDb {
                 life_ms: pos(p.life_ms, "LifeDuration")?,
                 hits_air: p.hits_air.unwrap_or(false),
                 hits_ground: p.hits_ground.unwrap_or(false),
+                skips_clones,
             });
         }
         // THE BOUNCE (the Evo Bomber's): on a card whose shot splashes.
@@ -15315,6 +15337,13 @@ impl CardDb {
                     return file(CARDS_160402017_FILE);
                 }
                 Ok((Cow::Borrowed(EMBEDDED_CARDS_160402017_JSON), CardSource::Embedded))
+            }
+            crate::state::CardTable::Client160402017Oct19 => {
+                #[cfg(feature = "checkout-data")]
+                if std::path::Path::new(&CardDb::repo_file_path(CARDS_160402017_20261019_FILE)).exists() {
+                    return file(CARDS_160402017_20261019_FILE);
+                }
+                Ok((Cow::Borrowed(EMBEDDED_CARDS_160402017_20261019_JSON), CardSource::Embedded))
             }
             crate::state::CardTable::Client160402017Install => {
                 if cfg!(feature = "checkout-data") {

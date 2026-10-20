@@ -88,6 +88,7 @@ def read_text(file_name: str, embedded: str) -> str:
     [
         (None, "cards.json", "EMBEDDED_CARDS_JSON"),
         ("client160402017_20261006", "cards-160402017-20261006.json", "EMBEDDED_CARDS_160402017_JSON"),
+        ("client160402017_20261019", "cards-160402017-20261019.json", "EMBEDDED_CARDS_160402017_20261019_JSON"),
     ],
 )
 def test_the_battle_hashes_the_table_it_read(table, file_name, embedded):
@@ -101,3 +102,15 @@ def test_the_battle_hashes_the_table_it_read(table, file_name, embedded):
 
 def test_two_tables_hash_apart():
     assert battle(None).card_table_fnv1a64() != battle("client160402017_20261006").card_table_fnv1a64()
+
+
+def test_the_override_runs_the_20261019_table():
+    """The Season 88 mid-season content (16.402.22): its own table, the same catalogue as the 2026-10-06 one."""
+    new = battle("client160402017_20261019")
+    assert new.card_table() == "cards-160402017-20261019.1"
+
+    def names(table: str) -> list[str]:
+        b = royalesim.Battle(None, SLOTS, calibration_overrides={KEY: json.dumps(table)})
+        return [row[0] for row in json.loads(b.catalogue_json())]
+
+    assert names("client160402017_20261019") == names("client160402017_20261006"), "card ids are fixed, append only"

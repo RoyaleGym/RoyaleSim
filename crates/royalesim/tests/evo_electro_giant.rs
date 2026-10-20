@@ -9,12 +9,16 @@
 //!      reaches the enemy's edge; each enemy it takes drops a level: its max hitpoints its card's on the level below,
 //!      its hitpoints kept in proportion (floor);
 //!   3. the drop stops at the card's first level: a level-11 Princess (Legendary, first level 9) drops twice in three
-//!      pulses, a level-11 Golden Knight (Champion, first level 11) never.
+//!      pulses, a level-11 Golden Knight (Champion, first level 11) never;
+//!   4. on the 2026-10-19 table (content 16.402.22, which carries the 2026-10-08 content's CommonAreaDamageFilterNoClones)
+//!      the ring passes over the Clone spell's copy of a Knight and takes the Knight it copied; on the 2026-10-06 table
+//!      (CommonAreaDamageFilter) it takes both.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_electro_giant`):
-//!   - pulse_never -> 2 and 3 red;
-//!   - delevel_keeps_stats -> 2 and 3 red.
+//!   - pulse_never -> 2, 3 and 4 red;
+//!   - delevel_keeps_stats -> 2, 3 and 4 red;
+//!   - pulse_hits_clones -> 4 red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -80,8 +84,12 @@ fn the_160402017_table_loads_the_evo_electro_giant() {
         life_ms: 550,
         hits_air: true,
         hits_ground: true,
+        skips_clones: false,
     };
     assert_eq!(p, want);
+    let s88 = CardDb::load_table(CardTable::Client160402017Oct19).expect("the 2026-10-19 table");
+    let q = s88.get(s88.index("ElectroGiant_EV1").expect("the form loads")).evo.as_ref().and_then(|v| v.delevel_pulse);
+    assert_eq!(q, Some(DelevelPulseDef { skips_clones: true, ..want }), "the 2026-10-19 table's pulse: the same, past the copies");
 }
 
 #[test]
@@ -144,4 +152,45 @@ fn the_drop_stops_at_the_cards_first_level() {
     let princess = [11, 10, 9].map(|l| max_hp("Princess", l));
     assert_eq!(seen[0], princess, "the Princess: 11, 10, 9 and no lower");
     assert_eq!(seen[1], [max_hp("GoldenKnight", 11)], "the Golden Knight keeps his level");
+}
+
+/// Which of a red Knight and the Clone spell's copy of it the pulses took a level off, on table `t`: (the Knight, the
+/// copy). Both are held 3000 and 3162 from the giant, topped up, for 200 ticks (two pulses reach them).
+fn knight_and_copy_dropped(t: CardTable) -> (bool, bool) {
+    let mut cfg = BattleConfig::with_cards(CardDb::load_table(t).expect("the table"));
+    cfg.calib.card_table = t;
+    cfg.decks = [vec!["ElectroGiant".into(), "Knight".into()], vec!["Knight".into(), "Clone".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let g = giant(&mut s, (9000, 10500));
+    let a = s.scenario_spawn_now(Team::Red, "Knight", n(9000, 23000), None).expect("the Knight");
+    s.spawn_unit(Team::Red, "Clone", n(9000, 23000), None).expect("cast the Clone");
+    let (mut copy, mut first) = (None, [None, None]);
+    for _ in 1..=200u32 {
+        let top = s.entity(g).expect("the giant").max_hp;
+        assert!(s.debug_set_pos(g, n(9000, 20000)) && s.debug_set_hp(g, top));
+        assert!(s.debug_set_pos(a, n(9000, 23000)));
+        if copy.is_none() {
+            copy = s.entities().find(|v| v.team == Team::Red && v.card == "Knight" && v.cloned).map(|v| v.id);
+            if let Some(c) = copy {
+                first = [Some(s.entity(a).expect("the Knight").max_hp), Some(s.entity(c).expect("the copy").max_hp)];
+            }
+        }
+        if let Some(c) = copy {
+            assert!(s.debug_set_pos(c, n(8000, 23000)) && s.debug_set_hp(c, 1000), "the copy held alive");
+        }
+        s.tick();
+    }
+    let c = copy.expect("the scene drifted: the Clone made no copy");
+    let now = [s.entity(a).expect("the Knight").max_hp, s.entity(c).expect("the copy held alive").max_hp];
+    (Some(now[0]) != first[0], Some(now[1]) != first[1])
+}
+
+#[test]
+fn on_the_20261019_table_the_pulse_passes_over_a_clone_copy() {
+    assert_eq!(knight_and_copy_dropped(CardTable::Client160402017Oct19), (true, false), "the Knight drops, its copy does not");
+    assert_eq!(knight_and_copy_dropped(CardTable::Client160402017), (true, true), "the 2026-10-06 table's ring takes both");
 }

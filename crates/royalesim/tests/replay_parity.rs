@@ -221,6 +221,11 @@ fn a_census_names_the_table_it_loaded() {
     let want = fnv1a64(&std::fs::read(&file).expect("the 160402017 table on disk"));
     assert_eq!(census(&new).cards_json_fnv1a64.as_deref(), Some(want.as_str()), "the census stamps the table it loaded");
     assert_eq!(census(&old).cards_json_fnv1a64, cards_json_hash().ok(), "the 15.535.29 census stamps cards.json, as before");
+    let oct19 = CardDb::load_table(CardTable::Client160402017Oct19).expect("the 2026-10-19 table");
+    assert_eq!(
+        (table_file(&oct19), census_file(&oct19)),
+        (royalesim::card::CARDS_160402017_20261019_FILE, "card_census-160402017-20261019.json".to_string())
+    );
 }
 
 #[test]
