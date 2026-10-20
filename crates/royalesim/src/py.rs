@@ -553,6 +553,8 @@ pub struct Battle {
     /// An EXPERIMENT's whole calibration (`calibration_overrides`), in place of the
     /// ledger's for every battle this object starts. None = the ledger.
     calib: Option<Calib>,
+    /// THE FNV-1a 64 OF THE CARD TABLE'S TEXT this object's battles run (card.rs `CardDb::table_text`), 16 hex digits.
+    table_fnv1a64: String,
     /// What was overridden, parsed, for `calibration_overrides()` and for every frame.
     calib_overrides: BTreeMap<String, serde_json::Value>,
     /// THE COMMAND DELAY every battle this object starts runs (`BattleConfig::command_delay_ticks`, Blue then Red;
@@ -1421,7 +1423,9 @@ impl Battle {
         };
         // cards.CARD_TABLE: the table this object's battles run, from the calibration they run under.
         let table = calib.as_ref().map_or_else(|| crate::state::Calib::shipped().card_table, |c| c.card_table);
-        let db = CardDb::load_table(table).map_err(|e| BuildError::Runtime(format!("card table: {e}")))?;
+        let (text, source) = CardDb::table_text(table).map_err(|e| BuildError::Runtime(format!("card table: {e}")))?;
+        let table_fnv1a64 = fnv1a64_hex(text.as_bytes());
+        let db = CardDb::from_json_str(&text, source).map_err(|e| BuildError::Runtime(format!("card table: {e}")))?;
         let is_tower = |n: &str| n == KING_TOWER || n == PRINCESS_TOWER;
         let catalogue: Vec<u16> = match card_names {
             Some(names) => names
@@ -1482,7 +1486,7 @@ impl Battle {
         }
         let id_of_idx = ids_of_indices(&db, &catalogue);
         let (unit_types, unit_type_of_idx) = unit_types_of(&db);
-        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, unit_types, unit_type_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, calib_overrides, command_delay_ticks: [0, 0], state: None, step_commands: Vec::new() })
+        Ok(Battle { cards: Arc::new(db), catalogue, id_of_idx, unit_types, unit_type_of_idx, slot_of_k, path_search, ground_y_clamp, ground_deploy_point, death_spawn_pushback, tap_snap, level, tower_level, calib, table_fnv1a64, calib_overrides, command_delay_ticks: [0, 0], state: None, step_commands: Vec::new() })
     }
 
     /// `catalogue_json`'s body, with no Python type in it (`build` says why).
@@ -1680,6 +1684,14 @@ impl Battle {
     /// for the 15.535.29 table, "cards-160402017-20261006.1" for the 160402017 client's.
     fn card_table(&self) -> String {
         self.cards.version.clone()
+    }
+
+    /// THE FNV-1a 64 OF THE CARD TABLE this object's battles run, 16 hex digits: of the very text it read
+    /// (card.rs `CardDb::table_text`: the checkout's file, or the copy compiled in), whichever table calibration
+    /// cards.CARD_TABLE names. The value a replay fixture records as `cards_json_fnv1a64` for the same file, and the
+    /// name RoyaleGym's card-table stamp looks for on a Battle.
+    fn card_table_fnv1a64(&self) -> String {
+        self.table_fnv1a64.clone()
     }
 
     /// The crown towers' level every battle from this object uses (the constructor's `tower_level`, else `level`).

@@ -102,6 +102,14 @@ pub const CARDS_160402017_INSTALL_FILE: &str = "cards-160402017.json";
 /// The install-time table's `version` (its file's own).
 pub const CARDS_160402017_INSTALL_VERSION: &str = "cards-160402017.1";
 
+/// EVERY TABLE OTHER THAN THE 15.535.29 ONE, as (`version`, file under data/derived/): what a loaded CardDb's
+/// `version` names, so a census or a stamp names the file the table came from (examples/replay_parity/harness.rs
+/// `table_file`). The 15.535.29 table is data/derived/cards.json, a copy of cards-15.535.json, and is not listed.
+pub const TABLE_FILES: &[(&str, &str)] = &[
+    (CARDS_160402017_VERSION, CARDS_160402017_FILE),
+    (CARDS_160402017_INSTALL_VERSION, CARDS_160402017_INSTALL_FILE),
+];
+
 /// A projectile an attack launches instead of hitting instantly.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ProjectileDef {
@@ -15274,23 +15282,43 @@ impl CardDb {
     /// not parse is an error. The install-time table (`CARDS_160402017_INSTALL_FILE`) is the checkout's file or an
     /// error.
     pub fn load_table(t: crate::state::CardTable) -> Result<CardDb, String> {
+        let (text, source) = CardDb::table_text(t)?;
+        CardDb::from_json_str(&text, source)
+    }
+
+    /// THE TEXT `load_table(t)` PARSES, and where it came from: the checkout's file where a checkout build has it,
+    /// else the compiled-in copy, else an error (`load_table`). One answer for the load and for the table's hash
+    /// (py.rs `Battle.card_table_fnv1a64`), so the hash is always of the bytes the battle read.
+    pub fn table_text(t: crate::state::CardTable) -> Result<(std::borrow::Cow<'static, str>, CardSource), String> {
+        use std::borrow::Cow;
         #[cfg(clash_plant = "card_table_unread")]
         let t = {
             let _ = t;
             crate::state::CardTable::Client15535 // PLANT (tests/card_table.rs): every arm loads the 15.535.29 table.
         };
+        let file = |name: &str| -> Result<(Cow<'static, str>, CardSource), String> {
+            let path = CardDb::repo_file_path(name);
+            let s = std::fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
+            Ok((Cow::Owned(s), CardSource::DerivedJson))
+        };
         match t {
-            crate::state::CardTable::Client15535 => CardDb::load_repo(),
+            crate::state::CardTable::Client15535 => {
+                #[cfg(feature = "checkout-data")]
+                if std::path::Path::new(&CardDb::repo_file_path("cards.json")).exists() {
+                    return file("cards.json");
+                }
+                Ok((Cow::Borrowed(EMBEDDED_CARDS_JSON), CardSource::Embedded))
+            }
             crate::state::CardTable::Client160402017 => {
                 #[cfg(feature = "checkout-data")]
                 if std::path::Path::new(&CardDb::repo_file_path(CARDS_160402017_FILE)).exists() {
-                    return CardDb::load_repo_file(CARDS_160402017_FILE);
+                    return file(CARDS_160402017_FILE);
                 }
-                CardDb::from_json_str(EMBEDDED_CARDS_160402017_JSON, CardSource::Embedded)
+                Ok((Cow::Borrowed(EMBEDDED_CARDS_160402017_JSON), CardSource::Embedded))
             }
             crate::state::CardTable::Client160402017Install => {
                 if cfg!(feature = "checkout-data") {
-                    CardDb::load_repo_file(CARDS_160402017_INSTALL_FILE)
+                    file(CARDS_160402017_INSTALL_FILE)
                 } else {
                     Err(format!(
                         "cards.CARD_TABLE client160402017 ({CARDS_160402017_INSTALL_FILE}) is read from a checkout \

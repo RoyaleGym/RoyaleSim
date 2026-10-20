@@ -980,16 +980,10 @@ pub fn fnv1a64(bytes: &[u8]) -> String {
     format!("{h:016x}")
 }
 
-/// THE DERIVED FILE `db` WAS READ FROM (cards.CARD_TABLE): each 160402017 table's own file for that table, the
-/// checkout's data/derived/cards.json for every other.
+/// THE DERIVED FILE `db` WAS READ FROM (cards.CARD_TABLE): a listed table's own file (card.rs `TABLE_FILES`), the
+/// checkout's data/derived/cards.json for the 15.535.29 one.
 pub fn table_file(db: &CardDb) -> &'static str {
-    if db.version == royalesim::card::CARDS_160402017_VERSION {
-        royalesim::card::CARDS_160402017_FILE
-    } else if db.version == royalesim::card::CARDS_160402017_INSTALL_VERSION {
-        royalesim::card::CARDS_160402017_INSTALL_FILE
-    } else {
-        "cards.json"
-    }
+    royalesim::card::TABLE_FILES.iter().find(|(v, _)| *v == db.version).map_or("cards.json", |(_, f)| f)
 }
 
 /// The census's own file under data/derived/replay/: card_census.json for the 15.535.29 table, and one named for any
