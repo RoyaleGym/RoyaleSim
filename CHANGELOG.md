@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.41 (2026-10-21)
+
+- Two more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A Royal Ghost that hides again stays hidden through the start of its next swing and is shown by the hit
+    (`targeting.INVISIBILITY`).
+  - A unit that takes no damage while it dashes, such as the Little Prince's guard, is not pushed then either
+    (`knockback.DASH_IMMUNE_PUSH`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles. Saved battles from earlier releases load
+  unchanged (`SNAPSHOT_FORMAT` is still 20).
+
 ## 0.1.40 (2026-10-20)
 
 - A new card table: the current client's after its Season 88 mid-season balance update of 2026-10-19. Pick it with
