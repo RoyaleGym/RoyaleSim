@@ -1045,6 +1045,10 @@ pub struct Calib {
     /// `Hit`, what a battle saved before it ran.
     #[serde(default = "guard_birth_pass_through_default")]
     pub guard_birth_pass_through: GuardBirthPassThrough,
+    /// knockback.DASH_IMMUNE_PUSH (whether a unit its dash makes immune to damage is pushed by a spell's or a roll's pushback). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Pushed`, what a battle saved before it ran.
+    #[serde(default = "dash_immune_push_default")]
+    pub dash_immune_push: DashImmunePush,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3051,6 +3055,10 @@ fn tower_hold_hit_started_default() -> TowerHoldHitStarted {
 
 fn guard_birth_pass_through_default() -> GuardBirthPassThrough {
     GuardBirthPassThrough::Hit
+}
+
+fn dash_immune_push_default() -> DashImmunePush {
+    DashImmunePush::Pushed
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -5959,6 +5967,9 @@ calib_enum!(
         /// Client 16.402 (parity r75, live13): revealed from its hit + 1 as client_until_hit; visible while it attacks, and
         /// hidden again its idle time after its attack ends (from E + 41, E the first tick its attack phase reads Idle).
         Client16402IdleAfterAttack = "client16402_idle_after_attack",
+        /// Client 16.402 (parity r78, live13): as client16402_idle_after_attack, but once it is hidden again its next
+        /// swing does not show it; that swing's hit does (from the hit + 1).
+        Client16402HitRevealIdleAfterAttack = "client16402_hit_reveal_idle_after_attack",
     }
 );
 calib_enum!(
@@ -10580,6 +10591,15 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// knockback.DASH_IMMUNE_PUSH -- a dash-immune unit and a spell's pushback (spell.rs `pushable`; entity.rs `dash_immune`).
+    DashImmunePush {
+        /// The engine's: a unit whose dash drops its damage is still pushed.
+        Pushed = "pushed",
+        /// Client 16.402: on the ticks its damage is dropped it is not pushed either.
+        Client16402UnpushedWhileImmune = "client16402_unpushed_while_immune",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11154,6 +11174,7 @@ impl Calib {
             hide_hiding_damage_window: pick(&v, &["hide", "HIDING_DAMAGE_WINDOW", "value"], HidingDamageWindow::from_calibration_name)?,
             tower_hold_hit_started: pick(&v, &["targeting", "TOWER_HOLD_HIT_STARTED", "value"], TowerHoldHitStarted::from_calibration_name)?,
             guard_birth_pass_through: pick(&v, &["combat", "GUARD_BIRTH_PASS_THROUGH", "value"], GuardBirthPassThrough::from_calibration_name)?,
+            dash_immune_push: pick(&v, &["knockback", "DASH_IMMUNE_PUSH", "value"], DashImmunePush::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -28491,6 +28512,19 @@ impl BattleState {
             if self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle && !self.evo.stages.is_empty() {
                 self.stage_restart(self.ents.id_of(i));
             }
+            // targeting.INVISIBILITY = client16402_hit_reveal_idle_after_attack: a swing an invisible-when-idle unit starts
+            // once hidden again does not show it; only that swing's hit does (the reveal below sets it from the hit + 1).
+            // Measured on client 16.402 (parity r78, live13): 0 of 94 re-attacks after a re-hide held between their start and
+            // their hit, 45 first held on the hit + 1. PLANT (regression) reattack_reveals_at_start: the swing shows it.
+            #[cfg(not(clash_plant = "reattack_reveals_at_start"))]
+            if self.cfg.calib.invisibility == Invisibility::Client16402HitRevealIdleAfterAttack
+                && self.ents.attack_phase[i] == AttackPhase::Idle
+                && step.phase != AttackPhase::Idle
+                && self.ents.reveal_from[i] != 0
+                && crate::target::invisible_at(&self.cfg.calib, &self.cfg.cards, &self.ents, self.tick, i)
+            {
+                self.ents.reveal_from[i] = 0;
+            }
             self.ents.attack_phase[i] = step.phase;
             // movement.ATTACK_FACING = toward_target: a unit in its attack state faces its target on
             // every tick, the move law's integer normalize (length 256) of target - self in native units.
@@ -28515,7 +28549,7 @@ impl BattleState {
             // targeting.INVISIBILITY = client16402_idle_after_attack: an invisible-when-idle unit still attacking at this
             // tick's end can turn Idle on the next at the earliest (target.rs `invisible_at` counts its idle time from it).
             if step.phase != AttackPhase::Idle
-                && self.cfg.calib.invisibility == Invisibility::Client16402IdleAfterAttack
+                && matches!(self.cfg.calib.invisibility, Invisibility::Client16402IdleAfterAttack | Invisibility::Client16402HitRevealIdleAfterAttack)
                 && self.cfg.cards.get(self.ents.card[i]).invisible_when_idle.is_some()
             {
                 self.ents.attack_idle_from[i] = self.tick + 1;
@@ -38952,6 +38986,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_BIRTH_PASS_THROUGH: Calib gained guard_birth_pass_through (serde default the old arm, hit), Entities gained pass_over (serde default empty, sized on load to false, hashed only when set),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.DASH_IMMUNE_PUSH: Calib gained dash_immune_push (serde default the old arm, pushed), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -40020,6 +40056,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("tower_hold_hit_started".into(), serde_json::to_value(TowerHoldHitStarted::EveryTick).map_err(|e| e.to_string())?);
     // combat.GUARD_BIRTH_PASS_THROUGH: a format-3 battle ran combat.GUARD_BIRTH_PASS_THROUGH's old arm.
     sh.insert("guard_birth_pass_through".into(), serde_json::to_value(GuardBirthPassThrough::Hit).map_err(|e| e.to_string())?);
+    // knockback.DASH_IMMUNE_PUSH: a format-3 battle ran knockback.DASH_IMMUNE_PUSH's old arm.
+    sh.insert("dash_immune_push".into(), serde_json::to_value(DashImmunePush::Pushed).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

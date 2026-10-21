@@ -63,7 +63,7 @@ use crate::entity::{EntityKind, Entities, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
-    AirToGroundWindow, AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, BarrageReach, Calib, ChildAreaBirth, CrownPerHitScaling,
+    AirToGroundWindow, DashImmunePush, AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, BarrageReach, Calib, ChildAreaBirth, CrownPerHitScaling,
     BuildingSpellReach, CrownTowerSpellReach,
     DeathBombSpawnTiming, DeathPushbackScope, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape,
     StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SubTickDelayRounding, SummonFuseStart, TargetBuffScope,
@@ -847,6 +847,13 @@ fn pushable(ctx: &SpellCtx, v: usize, k: &KnockbackDef) -> bool {
     }
     // An attached rider is never pushed under any arm: it stands where its mount stood (entity.rs `attached`).
     if e.attached(v) {
+        return false;
+    }
+    // knockback.DASH_IMMUNE_PUSH = client16402_unpushed_while_immune: on the ticks a dash drops its damage it is not pushed
+    // either. Measured on client 16.402 (parity r78, live13): 16 of 16 pushback hits inside a Little Prince guard's immunity
+    // left its steps unchanged. PLANT (regression) immune_dash_pushed: it is pushed.
+    #[cfg(not(clash_plant = "immune_dash_pushed"))]
+    if ctx.calib.dash_immune_push == DashImmunePush::Client16402UnpushedWhileImmune && e.dash_immune(v, ctx.tick) {
         return false;
     }
     #[cfg(not(clash_plant = "ignore_flag_not_read"))]

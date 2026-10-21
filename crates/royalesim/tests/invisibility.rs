@@ -26,11 +26,17 @@
 //!   * `hash_skips_reveal` -- the reveal is not hashed: (5) goes red.
 //!   * `invisible_area_immune` -- spell.rs `impact` skips a unit invisible when idle: (4) goes red.
 //!   * `rehide_from_hit` -- client16402_idle_after_attack still counts from the hit: (7) goes red.
+//!   * `reattack_reveals_at_start` -- client16402_hit_reveal_idle_after_attack: a swing after a re-hide shows it: (8) goes red.
 //!
 //! (7) targeting.INVISIBILITY = client16402_idle_after_attack (client 16.402, parity r75, live13: 26 of 26 let-gos on the
 //! attack's end + 40): a second Skeleton held in the Ghost's reach after its first kill, killed in the Ghost's windup; the
 //! tower holds the Ghost through its attack's end E + 40 and drops it on E + 41, where client_until_hit drops it on the
 //! first hit + 46.
+//!
+//! (8) targeting.INVISIBILITY = client16402_hit_reveal_idle_after_attack (client 16.402, parity r78, live13: 0 of 94 re-attacks
+//! after a re-hide held between their start and their hit): the Ghost held still after its first hit until it hides again,
+//! then a red Skeleton held before it; the tower first holds it on its second hit + 1, where client16402_idle_after_attack
+//! holds it from its second swing's start.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -240,4 +246,86 @@ fn under_client16402_idle_after_attack_the_tower_holds_the_ghost_40_ticks_past_i
     // NOT VACUOUS: client_until_hit drops it on the hit + 46, before the attack's end + 41.
     let (h0, e0, old) = lost_swing(Invisibility::ClientUntilHit);
     assert!(h0 + 46 < e0 + 41 && old[h0 + 45] && !old[h0 + 46], "client_until_hit: the tower's hold ({h0}, {e0})");
+}
+
+/// Under targeting.INVISIBILITY = `arm`: the 46-tick scene; after the Ghost's first hit h it is held still (no red unit in its
+/// reach) and topped up until it hides again; on h + 60 a red Skeleton is spawned 700 ahead of it, held. Returns (S2: the first
+/// tick after h + 60 its attack phase leaves Idle, H2: the first tick after S2 a red unit loses hp, A2: the first tick after
+/// h + 60 the tower targets it).
+fn second_reveal(arm: Invisibility) -> (usize, usize, usize) {
+    let mut cfg = config();
+    cfg.calib.invisibility = arm;
+    let mut s = BattleState::new(0, cfg);
+    let tower = red_tower_near(&s, at((14500, 26000)));
+    s.scenario_spawn_now(Team::Red, "Skeleton", at((14500, 28500)), None).expect("spawn the Skeleton");
+    s.spawn_unit(Team::Blue, "Ghost", at((14500, 12000)), None).expect("play the Ghost");
+    let (mut h, mut still, mut second): (Option<usize>, Option<Vec2>, Option<(EntityId, Vec2)>) = (None, None, None);
+    let (mut s2, mut h2, mut a2) = (None, None, None);
+    let reds = |s: &BattleState| -> i64 { s.entities().filter(|v| v.team == Team::Red && v.card != "PrincessTower" && v.card != "KingTower").map(|v| v.hp as i64).sum() };
+    for k in 0..500 {
+        let ghost = s.entities().find(|v| v.card == "Ghost").map(|v| (v.id, v.max_hp));
+        if let Some((g, full)) = ghost {
+            assert!(s.debug_set_hp(g, full));
+            if let Some(p) = still {
+                assert!(s.debug_set_pos(g, p));
+            }
+        }
+        if let Some((sk, p)) = second {
+            let full = s.entity(sk).map(|e| e.max_hp);
+            if let Some(full) = full {
+                assert!(s.debug_set_pos(sk, p) && s.debug_set_hp(sk, full));
+            }
+        }
+        let red_hp = reds(&s);
+        s.tick();
+        let Some((g, gpos, phase)) = s.entities().find(|v| v.card == "Ghost").map(|v| (v.id, v.pos, v.attack_phase)) else { break };
+        let red_after = reds(&s);
+        let held = s.entity(tower.0).and_then(|t| t.target) == Some(g);
+        let Some(hit) = h else {
+            if red_after < red_hp {
+                h = Some(k);
+                still = Some(gpos);
+            }
+            continue;
+        };
+        if k == hit + 60 {
+            assert!(!held, "the scene drifted: the tower still holds the Ghost on its first hit + 60");
+            let p = Vec2::new(gpos.x, gpos.y + 700 * K);
+            second = Some((s.scenario_spawn_now(Team::Red, "Skeleton", p, None).expect("the second Skeleton"), p));
+        } else if k > hit + 60 {
+            if s2.is_none() && phase != AttackPhase::Idle {
+                s2 = Some(k);
+            }
+            if s2.is_some() && h2.is_none() && red_after < red_hp {
+                h2 = Some(k);
+            }
+            if a2.is_none() && held {
+                a2 = Some(k);
+            }
+            if h2.is_some() && a2.is_some() {
+                break;
+            }
+        }
+    }
+    let f = |v: Option<usize>, what: &str| v.unwrap_or_else(|| panic!("the scene drifted: no {what} (h {h:?})"));
+    (f(s2, "second swing"), f(h2, "second hit"), f(a2, "second hold"))
+}
+
+/// (8) Plant: reattack_reveals_at_start.
+#[test]
+fn under_client16402_hit_reveal_a_rehidden_ghost_is_shown_by_its_hit_not_its_swing() {
+    let (s2, h2, a2) = second_reveal(Invisibility::Client16402HitRevealIdleAfterAttack);
+    assert!(h2 > s2 + 5, "the scene drifted: its second swing started on {s2}, hit on {h2}");
+    assert_eq!(a2, h2 + 1, "client16402_hit_reveal_idle_after_attack: the tower first held the re-hidden Ghost on {a2} (swing {s2}, hit {h2})");
+    // NOT VACUOUS: client16402_idle_after_attack shows it from its swing's start.
+    let (s0, h0, a0) = second_reveal(Invisibility::Client16402IdleAfterAttack);
+    assert!(a0 <= s0 + 1 && a0 < h0 + 1, "client16402_idle_after_attack shows it from its swing: {s0} {h0} {a0}");
+}
+
+/// (7) under the corrected arm: its first attack's hold is client16402_idle_after_attack's (through its end + 40).
+#[test]
+fn under_client16402_hit_reveal_the_tower_still_holds_the_ghost_40_ticks_past_its_attacks_end() {
+    let (h, e, held) = lost_swing(Invisibility::Client16402HitRevealIdleAfterAttack);
+    assert!(e > h + 5 && held.len() > e + 41, "the scene drifted: hit {h}, end {e}, run {}", held.len());
+    assert!((e + 1..=e + 40).all(|k| held[k]) && !held[e + 41], "client16402_hit_reveal_idle_after_attack: the hold after its attack's end ({h}, {e}): {:?}", &held[e..]);
 }

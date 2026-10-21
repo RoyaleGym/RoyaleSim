@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -1373,4 +1373,47 @@ fn under_client16402_passed_over_a_log_rolls_over_his_guard_on_its_birth_frames(
     let new = guard_hit(GuardBirthPassThrough::Client16402PassedOver, cast, false);
     assert!(!birth(&new), "client16402_passed_over: the Log hit the guard on its birth frames (cast {cast}): {new:?}");
     assert!(birth(&guard_hit(GuardBirthPassThrough::Client16402PassedOver, 0, true)), "client16402_passed_over: the Zap's area missed the guard on its birth frames");
+}
+
+/// The guard's points by its age 0..30 (ticks from its first frame), a red Log cast 2500 ahead of it at its age `log_at` (it rolls
+/// back into the charge, inside the guard's shipped immunity), under knockback.DASH_IMMUNE_PUSH = `arm`; and whether its hp ever dropped.
+fn guard_track(arm: DashImmunePush, log_at: Option<u32>) -> (Vec<Vec2>, bool) {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.dash_immune_push = arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut first, mut hp_was, mut lost): (Option<u32>, Option<i32>, bool) = (None, None, false);
+    let mut track = Vec::new();
+    for _ in 0..90 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        if let (Some(f), Some(p)) = (first, find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos)) {
+            if log_at == Some(s.tick_count() - f) {
+                s.spawn_unit(Team::Red, "Log", Vec2::new(p.x, p.y + 2500 * K), None).expect("the Log");
+            }
+        }
+        s.tick();
+        let Some((p, hp)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.hp)) else { continue };
+        let f = *first.get_or_insert(s.tick_count() - 1);
+        if s.tick_count() - 1 - f >= 30 {
+            break;
+        }
+        lost |= hp_was.is_some_and(|h| hp < h);
+        hp_was = Some(hp);
+        track.push(p);
+    }
+    (track, lost)
+}
+
+/// knockback.DASH_IMMUNE_PUSH = client16402_unpushed_while_immune (client 16.402, parity r78, live13: 16 of 16 pushback hits
+/// inside a guard's immunity left its steps unchanged): a Log rolled back into the charging guard (cast 2500 ahead of it at its age 10) leaves its track as
+/// without the Log; under pushed it moves it (the vacuity check). Its hp is unchanged under both (the shipped immunity).
+/// Plant: immune_dash_pushed.
+#[test]
+fn under_client16402_unpushed_while_immune_a_log_does_not_push_his_charging_guard() {
+    let (bare, _) = guard_track(DashImmunePush::Client16402UnpushedWhileImmune, None);
+    assert_eq!(bare.len(), 30, "the scene drifted: the guard's track");
+    let (logged, lost) = guard_track(DashImmunePush::Client16402UnpushedWhileImmune, Some(10));
+    assert!(!lost, "precondition: the Log landed inside the guard's immunity");
+    assert_eq!(logged, bare, "client16402_unpushed_while_immune: the Log moved the charging guard");
+    let (old, old_lost) = guard_track(DashImmunePush::Pushed, Some(10));
+    assert!(!old_lost, "precondition (pushed): the Log landed inside the guard's immunity");
+    assert_ne!(old, guard_track(DashImmunePush::Pushed, None).0, "pushed (the vacuity check): the Log did not move the guard");
 }

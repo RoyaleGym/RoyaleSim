@@ -305,7 +305,7 @@ pub fn invisible_at(calib: &Calib, cards: &CardDb, ents: &Entities, tick: u32, c
         return true;
     }
     use crate::state::Invisibility;
-    if !matches!(calib.invisibility, Invisibility::ClientUntilHit | Invisibility::Client16402IdleAfterAttack) {
+    if !matches!(calib.invisibility, Invisibility::ClientUntilHit | Invisibility::Client16402IdleAfterAttack | Invisibility::Client16402HitRevealIdleAfterAttack) {
         return false;
     }
     let Some(idle_ms) = cards.get(ents.card[c]).invisible_when_idle else { return false };
@@ -319,7 +319,7 @@ pub fn invisible_at(calib: &Calib, cards: &CardDb, ents: &Entities, tick: u32, c
     // live13): 26 of 26 let-gos on the truth's attack end + 40. PLANT (regression) rehide_from_hit: the new arm still counts
     // from the hit.
     #[cfg(not(clash_plant = "rehide_from_hit"))]
-    let after_attack = calib.invisibility == Invisibility::Client16402IdleAfterAttack;
+    let after_attack = matches!(calib.invisibility, Invisibility::Client16402IdleAfterAttack | Invisibility::Client16402HitRevealIdleAfterAttack);
     #[cfg(clash_plant = "rehide_from_hit")]
     let after_attack = false;
     #[cfg(not(clash_plant = "rehide_never"))]
