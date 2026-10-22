@@ -260,6 +260,11 @@ pub struct Entities {
     /// that arm only; hashed only when set. `default` and sized on load like `lost_target`.
     #[serde(default)]
     pub pass_over: Vec<bool>,
+    /// charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step: the unit's run-up completed on this tick's move pass (state.rs
+    /// `charge_pass` sets it and clears every flag at its start). Written true under that arm only; hashed only when set.
+    /// `default` and sized on load like `pass_over`.
+    #[serde(default)]
+    pub charge_fresh: Vec<bool>,
     /// This unit launched a projectile at its target from beyond its reach on the last tick: set in the attack
     /// pass, read and cleared by the next Target phase, which then rescans (target.rs `decide`). Written under
     /// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" only, and hashed under it.
@@ -958,6 +963,7 @@ impl Entities {
             self.fired_at[i] = None;
             self.lost_target[i] = None;
             self.pass_over[i] = false;
+            self.charge_fresh[i] = false;
             self.launched_beyond[i] = false;
             self.pancaked[i] = false;
             self.life_state[i] = 0;
@@ -1073,6 +1079,7 @@ impl Entities {
             self.fired_at.push(None);
             self.lost_target.push(None);
             self.pass_over.push(false);
+            self.charge_fresh.push(false);
             self.launched_beyond.push(false);
             self.pancaked.push(false);
             self.life_state.push(0);
@@ -1262,6 +1269,7 @@ impl Entities {
         self.fired_at[i] = None;
         self.lost_target[i] = None;
         self.pass_over[i] = false;
+        self.charge_fresh[i] = false;
         self.launched_beyond[i] = false;
         self.chase_dropped[i] = None;
         self.chase_inside[i] = None;

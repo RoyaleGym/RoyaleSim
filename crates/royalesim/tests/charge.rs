@@ -86,10 +86,10 @@ mod common;
 use common::*;
 use royalesim::card::{CardDb, CardKind, CardSource, ChargeDef, SpellShape};
 use royalesim::combat::damage_against;
-use royalesim::entity::EntityKind;
+use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{centi, Vec2, SUBTILE, SUBTILE_PER_MILLITILE};
 use royalesim::path2026;
-use royalesim::state::{BattleConfig, BattleState, Calib, ChargeAccumulator, ChargeLevelScaling, ChargeMultiplier, ChargeRangeUnit, ChargeStopRule};
+use royalesim::state::{BattleConfig, BattleState, Calib, ChargeAccumulator, ChargeLevelScaling, ChargeMultiplier, ChargeRangeUnit, ChargeStopRule, ChargedHitTiming};
 use royalesim::{EntityId, Team};
 
 // ---------------------------------------------------------------------------
@@ -1107,4 +1107,62 @@ fn the_battle_ram_dies_on_its_charged_hit_and_its_barbarians_take_over() {
     let db = royalesim::card::CardDb::load_repo_file("cards.json").unwrap_or_else(|e| panic!("cards.json: {e}"));
     let barrel = db.get(db.index("SkeletonBalloon").expect("the 15.535 Skeleton Barrel loads"));
     assert_eq!((barrel.kamikaze, barrel.kamikaze_time_ms), (false, 500), "the Skeleton Barrel's delayed kamikaze");
+}
+
+/// Under charge.CHARGED_HIT_TIMING = `arm`, a Blue Prince on the lane from `y0`: the post-tick it turns charged, the post-tick its
+/// attack phase first leaves Idle, and the lane's Red princess tower's first hp drop (post-tick, amount).
+fn charged_entry(arm: ChargedHitTiming, y0: i32) -> (Option<u32>, Option<u32>, Option<(u32, i32)>) {
+    let mut s = bare(with_calib(|c| c.charged_hit_timing = arm));
+    let id = s.scenario_spawn_now(Team::Blue, "Prince", Vec2::new(lane_spot().x, y0), None).unwrap();
+    let (mut c, mut e) = (None, None);
+    let mut last = s.tower_hp(Team::Red)[1];
+    for _ in 0..600 {
+        s.tick();
+        let Some((charged, phase)) = s.entity(id).map(|p| (p.charged, p.attack_phase)) else { break };
+        if c.is_none() && charged {
+            c = Some(s.tick_count());
+        }
+        if e.is_none() && phase != AttackPhase::Idle {
+            e = Some(s.tick_count());
+        }
+        let now = s.tower_hp(Team::Red)[1];
+        if now != last {
+            return (c, e, Some((s.tick_count(), last - now)));
+        }
+        last = now;
+    }
+    (c, e, None)
+}
+
+/// charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step (client 16.402, parity r79, live13: 2 of 2 entries on the tick
+/// after the run-up completed were plain): a Prince whose run-up completes the tick before it enters its attack hits the tower
+/// for plain Damage, and later than the snap; under first_attack_pass_no_windup the same entry snaps to DamageSpecial (the
+/// vacuity check). The start is searched (a scene check, not a claim): the first on the lane from (3.75, 18) tiles, stepping
+/// 60 native toward the tower, whose entry under the old arm is the completion tick + 1. Plant: charged_hit_on_completion_tick.
+#[test]
+fn under_client16402_after_a_charged_step_a_charge_completed_the_tick_before_the_swing_is_spent_on_a_plain_hit() {
+    let s0 = bare(config());
+    let db = s0.cards();
+    let idx = db.index("Prince").unwrap();
+    let level = s0.config().card_level[Team::Blue as usize];
+    let (pct, rounding) = (card_stat(&s0, "Prince").crown_tower_damage_percent, s0.config().calib.crown_rounding);
+    let want = |d: i32| damage_against(EntityKind::PrincessTower, db.scaled(idx, level, d).unwrap(), pct, rounding);
+    let (special, plain) = (want(charge_of(&s0, "Prince").damage_special), want(card_stat(&s0, "Prince").damage));
+    assert_ne!(special, plain, "vacuous: DamageSpecial equals Damage");
+    let step = 60 * SUBTILE_PER_MILLITILE;
+    // from past the river toward the tower: the run-up's 42 steps must end on the step that brings it into reach
+    let y0 = (0..120)
+        .map(|k| t(375, 1800).y + k * step)
+        .find(|&y| {
+            let (c, e, _) = charged_entry(ChargedHitTiming::FirstAttackPassNoWindup, y);
+            c.is_some() && e == c.map(|c| c + 1)
+        })
+        .expect("scene: no start whose run-up completes the tick before its entry");
+    let (_, _, old) = charged_entry(ChargedHitTiming::FirstAttackPassNoWindup, y0);
+    let old = old.expect("first_attack_pass_no_windup: the tower was never hit");
+    assert_eq!(old.1, special, "first_attack_pass_no_windup (the vacuity check): the entry on the completion tick + 1 snaps");
+    let (_, _, new) = charged_entry(ChargedHitTiming::Client16402AfterAChargedStep, y0);
+    let new = new.expect("client16402_after_a_charged_step: the tower was never hit");
+    assert_eq!(new.1, plain, "client16402_after_a_charged_step: the swing on the completion tick + 1 is plain, the charge spent ({new:?})");
+    assert!(new.0 > old.0, "client16402_after_a_charged_step: the plain hit comes after its windup ({new:?} against {old:?})");
 }

@@ -10638,6 +10638,10 @@ calib_enum!(
         /// combat.ATTACK_CYCLE (the LoadTime windup under windup_load_time, the
         /// earlier engine).
         AfterLoadTimeWindup = "after_load_time_windup",
+        /// Client 16.402 (parity r79, live13): as first_attack_pass_no_windup, but only once the unit has walked one tick
+        /// charged: a run-up that completes on tick c's move pass snaps from c + 2's attack pass; a swing that starts on
+        /// c + 1 is plain and spends the charge (Entities::charge_fresh).
+        Client16402AfterAChargedStep = "client16402_after_a_charged_step",
     }
 );
 calib_enum!(
@@ -27363,6 +27367,8 @@ impl BattleState {
         let client16402 = self.arm16402();
         let cap = self.ents.capacity();
         let mut due: Vec<(usize, i32, i32)> = Vec::new();
+        // charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step: a charge completed on this pass is fresh until the next.
+        self.ents.charge_fresh.iter_mut().for_each(|f| *f = false);
         // the ladder's zero-speed and back-step ticks: progress AND charge cleared
         let mut ladder_reset: Vec<usize> = Vec::new();
         {
@@ -27515,6 +27521,7 @@ impl BattleState {
             if e.charge_progress[i] >= need {
                 e.charged[i] = true;
                 e.charge_progress[i] = 0;
+                e.charge_fresh[i] = c.charged_hit_timing == ChargedHitTiming::Client16402AfterAChargedStep;
             }
         }
     }
@@ -28515,6 +28522,17 @@ impl BattleState {
             // THE EVO INFERNO DRAGON (card.rs `StagesDef`): an attack's start restarts its count's decay (`stages_pass`).
             if self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle && !self.evo.stages.is_empty() {
                 self.stage_restart(self.ents.id_of(i));
+            }
+            // charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step: a swing that starts on the tick after the run-up
+            // completed (no charged step yet) is a plain one and spends the charge. Measured on client 16.402 (parity r79, live13):
+            // 2 of 2 such entries plain where the engine snapped; 104 of 104 after a charged step charged.
+            if self.ents.charge_fresh[i]
+                && self.ents.charged[i]
+                && self.ents.attack_phase[i] == AttackPhase::Idle
+                && step.phase != AttackPhase::Idle
+            {
+                self.ents.charged[i] = false;
+                self.ents.charge_progress[i] = 0;
             }
             // targeting.INVISIBILITY = client16402_hit_reveal_idle_after_attack: a swing an invisible-when-idle unit starts
             // once hidden again does not show it; only that swing's hit does (the reveal below sets it from the hit + 1).
@@ -36300,6 +36318,10 @@ impl BattleState {
                 if e.pass_over[i] {
                     h.u32(0x5041_5353);
                 }
+                // charge.CHARGED_HIT_TIMING: a charge completed on this tick's move pass, only when set.
+                if e.charge_fresh[i] {
+                    h.u32(0x4346_5253);
+                }
                 if self.cfg.calib.lost_target_shot == LostTargetShot::Client16402PointFirstAttackFires {
                     h.bool(e.lost_target[i].is_some());
                     if let Some(t) = e.lost_target[i] {
@@ -38988,6 +39010,9 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.TOWER_HOLD_HIT_STARTED: Calib gained tower_hold_hit_started (serde default the old arm, every_tick), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step: Entities gained charge_fresh (serde default empty,
+///    sized on load to false, hashed only when set; written true only under that arm), so a blob saved before it deserializes
+///    and hashes as it did.
 /// 20, unchanged, combat.GUARD_BIRTH_PASS_THROUGH: Calib gained guard_birth_pass_through (serde default the old arm, hit), Entities gained pass_over (serde default empty, sized on load to false, hashed only when set),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.DASH_IMMUNE_PUSH: Calib gained dash_immune_push (serde default the old arm, pushed), no new state,
@@ -40445,6 +40470,7 @@ impl BattleState {
         snap.ents.fired_at.resize(n, None);
         snap.ents.lost_target.resize(n, None);
         snap.ents.pass_over.resize(n, false);
+        snap.ents.charge_fresh.resize(n, false);
         snap.ents.launched_beyond.resize(n, false);
         snap.ents.pancaked.resize(n, false);
         snap.ents.life_state.resize(n, 0);

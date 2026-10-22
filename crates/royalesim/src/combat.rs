@@ -1017,7 +1017,16 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
         return idle(load);
     }
     let cycle_before = progress / hs;
-    let snap = ents.charged[a] && card.charge.is_some() && calib.charged_hit_timing == ChargedHitTiming::FirstAttackPassNoWindup;
+    // charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step: no snap on the tick after the run-up completed (the swing that
+    // starts then is plain and spends the charge, state.rs). PLANT (regression) charged_hit_on_completion_tick: it snaps.
+    #[cfg(not(clash_plant = "charged_hit_on_completion_tick"))]
+    let fresh = calib.charged_hit_timing == ChargedHitTiming::Client16402AfterAChargedStep && ents.charge_fresh.get(a).copied().unwrap_or(false);
+    #[cfg(clash_plant = "charged_hit_on_completion_tick")]
+    let fresh = false;
+    let snap = ents.charged[a]
+        && card.charge.is_some()
+        && matches!(calib.charged_hit_timing, ChargedHitTiming::FirstAttackPassNoWindup | ChargedHitTiming::Client16402AfterAChargedStep)
+        && !fresh;
     let mut charge_snapped = false;
     if progress == 0 && !snap {
         if lt <= hs {
