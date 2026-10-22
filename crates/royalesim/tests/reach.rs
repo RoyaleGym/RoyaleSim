@@ -85,7 +85,9 @@ fn assert_shipped_arms() {
     assert!(c.add_character_range_to_radius, "globals ship ADD_CHARACTER_RANGE_TO_RADIUS = TRUE");
     assert_eq!(c.attack_range_rule, AttackRangeRule::RangePlusBothRadii, "the shipped arm this file pins");
     assert_eq!(c.attack_cycle, AttackCycle::ProgressCredit, "the shipped arm this file pins");
-    assert_eq!(c.charged_hit_timing, ChargedHitTiming::FirstAttackPassNoWindup, "the shipped arm this file pins");
+    // charge.CHARGED_HIT_TIMING ships client16402_after_a_charged_step since r79 (its snap, first_attack_pass_no_windup's, after
+    // one charged step: every charged walker in this file takes many).
+    assert_eq!(c.charged_hit_timing, ChargedHitTiming::Client16402AfterAChargedStep, "the shipped arm this file pins");
     assert_eq!(c.projectile_launch, ProjectileLaunch::StartRadiusNextTick, "the shipped arm this file pins");
 }
 
@@ -541,7 +543,7 @@ fn every_reach_and_cycle_candidate_moves_a_measurable_behaviour_and_the_loader_r
         ("\"value\": \"range_plus_both_radii\"", "\"value\": \"edge_to_edge_only\"", "targeting.ATTACK_RANGE_RULE"),
         ("\"value\": \"progress_credit\"", "\"value\": \"instant_hit\"", "combat.ATTACK_CYCLE"),
         ("\"value\": \"start_radius_next_tick\"", "\"value\": \"muzzle_offset\"", "combat.PROJECTILE_LAUNCH"),
-        ("\"value\": \"first_attack_pass_no_windup\"", "\"value\": \"contact_same_tick\"", "charge.CHARGED_HIT_TIMING"),
+        ("\"value\": \"client16402_after_a_charged_step\"", "\"value\": \"contact_same_tick\"", "charge.CHARGED_HIT_TIMING"),
     ] {
         let edited = royalesim::py::EMBEDDED_CALIBRATION_JSON.replacen(needle, bad, 1);
         assert_ne!(edited, royalesim::py::EMBEDDED_CALIBRATION_JSON, "{key}: edit did not apply; the JSON layout changed");
