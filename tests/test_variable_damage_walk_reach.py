@@ -142,4 +142,6 @@ def test_the_shipped_value_is_the_every_row_arm():
     # this file's NEW_ARM, which the scenes above select by name.
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["VARIABLE_DAMAGE_WALK_REACH"]
     assert entry["value"] == "client15535_no_own_radius_walking_every_row"
-    assert entry["candidates"] == [OLD_ARM, NEW_ARM, "client15535_no_own_radius_walking_every_row"]
+    # r79 added client16402_deploy_end_walks_every_row (a candidate, held: it lost on the live set)
+    assert entry["candidates"] == [
+        OLD_ARM, NEW_ARM, "client15535_no_own_radius_walking_every_row", "client16402_deploy_end_walks_every_row"]

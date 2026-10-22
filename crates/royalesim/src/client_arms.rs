@@ -384,6 +384,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.GUARD_BIRTH_PASS_THROUGH = hit: unread on client 15.535.29.
 ///   targeting.INVISIBILITY = client_until_hit: sp-ghost-ab-s0 and the corpus battle (the hide-again on the hit + 46).
 ///   knockback.DASH_IMMUNE_PUSH = pushed: unread on client 15.535.29.
+///   targeting.VARIABLE_DAMAGE_WALK_REACH = client15535_no_own_radius_walking_every_row: the Monk and Mighty Miner sweeps (a deploy end unread there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -598,6 +599,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.GUARD_BIRTH_PASS_THROUGH", "\"hit\""),
     ("targeting.INVISIBILITY", "\"client_until_hit\""),
     ("knockback.DASH_IMMUNE_PUSH", "\"pushed\""),
+    ("targeting.VARIABLE_DAMAGE_WALK_REACH", "\"client15535_no_own_radius_walking_every_row\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

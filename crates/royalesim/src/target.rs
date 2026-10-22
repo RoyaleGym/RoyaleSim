@@ -219,6 +219,26 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, t
 /// within Range of the target's centre (the largest 3,523 of 20 choices on the corpus seat, 3,509 of 5 in the
 /// sweep); every other flyer's reach Range + its radius.
 #[inline]
+/// targeting.VARIABLE_DAMAGE_WALK_REACH: whether a unit is gated at the reach it walks to (`walking_own_radius`): it walked
+/// on the previous tick (`walking`: it holds a walking goal), or, under client16402_deploy_end_walks_every_row, its deploy
+/// is over and it has not walked since (`move_ticks` 0), a flying row alone (a building never walks; the ground rows are
+/// unmeasured). Measured on client 16.402 (parity r79, live13): every Inferno
+/// Dragon deploy end with its target only within Range + both radii walked, 6 of 6; the engine attacked at once 4 of 4.
+/// PLANT (regression) deploy_end_stands: the new arm still gates a just-deployed unit as a standing one.
+pub fn walks_for_reach(calib: &Calib, flyer: bool, deploy_ms: i32, move_ticks: u32, walking: bool) -> bool {
+    #[cfg(not(clash_plant = "deploy_end_stands"))]
+    let fresh = calib.variable_damage_walk_reach == crate::state::VariableDamageWalkReach::Client16402DeployEndWalksEveryRow
+        && flyer
+        && deploy_ms <= 0
+        && move_ticks == 0;
+    #[cfg(clash_plant = "deploy_end_stands")]
+    let fresh = {
+        let _ = (calib, flyer, deploy_ms, move_ticks);
+        false
+    };
+    walking || fresh
+}
+
 pub fn walking_own_radius(calib: &Calib, card: &CardDef, own: i32) -> i32 {
     use crate::state::VariableDamageWalkReach as W;
     #[cfg(not(clash_plant = "walk_reach_keeps_own_radius"))]
@@ -227,6 +247,7 @@ pub fn walking_own_radius(calib: &Calib, card: &CardDef, own: i32) -> i32 {
         W::Client16402NoOwnRadiusWalking => card.variable_damage.is_some() && card.is_flying(),
         #[cfg(not(clash_plant = "walk_reach_every_row_flyers_only"))]
         W::Client15535NoOwnRadiusWalkingEveryRow => card.variable_damage.is_some() || card.combo.is_some(),
+        W::Client16402DeployEndWalksEveryRow => card.variable_damage.is_some() || card.combo.is_some(),
         // PLANT (regression): the every-row arm still reads flyers alone, so the Monk and the Mighty Miner walk to
         // Range + both radii.
         #[cfg(clash_plant = "walk_reach_every_row_flyers_only")]

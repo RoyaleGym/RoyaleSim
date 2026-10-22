@@ -4733,6 +4733,10 @@ calib_enum!(
         /// starts within Range + the target's radius (1,575, 1,652, 1,696 against 1,700), a Mighty Miner's too (2,050
         /// against 2,100), where every other walker measured starts at Range + both radii.
         Client15535NoOwnRadiusWalkingEveryRow = "client15535_no_own_radius_walking_every_row",
+        /// Client 16.402 (parity r79, live13): as client15535_no_own_radius_walking_every_row, and a row it covers counts as
+        /// walking from its deploy end until it first walks, a flying row alone (target.rs `walks_for_reach`): an Inferno Dragon deployed with
+        /// its target only within Range + both radii walks until the target is within Range + the target's radius.
+        Client16402DeployEndWalksEveryRow = "client16402_deploy_end_walks_every_row",
     }
 );
 calib_enum!(
@@ -20459,7 +20463,7 @@ impl BattleState {
                     let repick_lost = { let _ = (monk_rows, inferno_row); false };
                     if let Some(t) = e.target[i].filter(|t| e.standing(*t, struck) && (d.target != Some(*t) || repick_lost)) {
                         let (ti, c) = (t.index as usize, cards.get(e.card[i]));
-                        let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
+                        let own = if target::walks_for_reach(calib, c.is_flying(), e.deploy_ms[i], e.move_ticks[i], e.route_goal[i].is_some()) { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
                         let left = !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti]);
                         // client15535_after_reach_loss_variable_rows: a target the decision keeps or re-picks is lost only past
                         // its keep reach (Range + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET + both radii): sweep-InfernoDragon t325,
@@ -20528,7 +20532,7 @@ impl BattleState {
                     && struck
                     && e.target[i].is_some_and(|t| {
                         let (ti, c) = (t.index as usize, cards.get(e.card[i]));
-                        let own = if e.route_goal[i].is_some() { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
+                        let own = if target::walks_for_reach(calib, c.is_flying(), e.deploy_ms[i], e.move_ticks[i], e.route_goal[i].is_some()) { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
                         e.is_alive(t) && !target::in_attack_range(calib, e.pos[i], c.range + keep_ext, own, e.pos[ti], e.radius[ti])
                     });
                 #[cfg(clash_plant = "chaser_waits")]
@@ -25853,7 +25857,7 @@ impl BattleState {
                         if let Some((gid, slot)) = asked {
                             let gi = gid.index as usize;
                             let walk_own = target::walking_own_radius(calib, card, e.radius[i]);
-                            let own = if goals[i].is_some() { walk_own } else { e.radius[i] };
+                            let own = if target::walks_for_reach(calib, card.is_flying(), e.deploy_ms[i], kticks[i], goals[i].is_some()) { walk_own } else { e.radius[i] };
                             // PLANT (regression) ladder_release_reach_gated: the new arm still asks only out of reach.
                             #[cfg(not(clash_plant = "ladder_release_reach_gated"))]
                             let gated = !on_release;
@@ -26745,7 +26749,7 @@ impl BattleState {
                 // a held unit (`held_walk`) asks for no path either: its route waits out the hold as it is
                 if let (false, false, false, Some(gid)) = (deploying, phase_hold, held_walk || stand_noplan, goal_id) {
                     let gi = gid.index as usize;
-                    let own = if goals[i].is_some() { walk_own } else { e.radius[i] };
+                    let own = if target::walks_for_reach(calib, card.is_flying(), e.deploy_ms[i], kticks[i], goals[i].is_some()) { walk_own } else { e.radius[i] };
                     if target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]) {
                         // SPEC 5.3: the path is cleared on the transition to attacking
                         routes[i].clear();
@@ -29465,7 +29469,7 @@ impl BattleState {
             #[cfg(not(clash_plant = "reach_walker_reads_pass_kills"))]
             let in_reach = self.ents.target[i].filter(|t| self.ents.is_alive(*t)).is_some_and(|t| {
                 let (ti, c) = (t.index as usize, self.cfg.cards.get(self.ents.card[i]));
-                let own = if self.ents.route_goal[i].is_some() {
+                let own = if target::walks_for_reach(&self.cfg.calib, c.is_flying(), self.ents.deploy_ms[i], self.ents.move_ticks[i], self.ents.route_goal[i].is_some()) {
                     target::walking_own_radius(&self.cfg.calib, c, self.ents.radius[i])
                 } else {
                     self.ents.radius[i]
@@ -29482,7 +29486,7 @@ impl BattleState {
             let in_keep = self.cfg.calib.pass_kill_chase == PassKillChase::Client15535ChaserPastKeepReadsPass
                 && self.ents.target[i].filter(|t| self.ents.is_alive(*t)).is_some_and(|t| {
                     let (ti, c) = (t.index as usize, self.cfg.cards.get(self.ents.card[i]));
-                    let own = if self.ents.route_goal[i].is_some() {
+                    let own = if target::walks_for_reach(&self.cfg.calib, c.is_flying(), self.ents.deploy_ms[i], self.ents.move_ticks[i], self.ents.route_goal[i].is_some()) {
                         target::walking_own_radius(&self.cfg.calib, c, self.ents.radius[i])
                     } else {
                         self.ents.radius[i]

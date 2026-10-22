@@ -26,10 +26,12 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test variable_damage_walk_reach`):
 //!   * `walk_reach_keeps_own_radius` -- the new value still adds the walker's own radius: (1), (3) and (6) go red.
+//!   * `deploy_end_stands` -- client16402_deploy_end_walks_every_row gates a just-deployed Dragon as a standing one: (8) goes red.
 mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::entity::AttackPhase;
 use royalesim::state::{BattleState, Calib, VariableDamageWalkReach};
 use royalesim::target::walking_own_radius;
 use royalesim::Team;
@@ -190,4 +192,58 @@ fn the_new_value_reaches_the_inferno_dragons_row_and_not_the_mighty_miners() {
 #[test]
 fn the_shipped_value_is_the_every_row_arm_since_the_round_12_flip() {
     assert_eq!(Calib::shipped().variable_damage_walk_reach, VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow);
+}
+
+/// (8) targeting.VARIABLE_DAMAGE_WALK_REACH = client16402_deploy_end_walks_every_row: a Blue Inferno Dragon PLAYED (deploying) at
+/// DEPLOY_AT (it lands on its tile's centre) and a Red Knight held 4250 ahead of where it stands, inside Range + both radii and outside Range + the Knight's radius. Under
+/// `arm`: whether it moved after its deploy end before its first attack tick, and the Knight's start-of-tick centre distance on
+/// that tick, with the band's reaches.
+const DEPLOY_AT: (i32, i32) = (9000, 9000);
+
+fn deploy_end(arm: VariableDamageWalkReach) -> (bool, i64, Reach) {
+    let mut cfg = config();
+    cfg.calib.variable_damage_walk_reach = arm;
+    let mut s = BattleState::new(0, cfg);
+    let at = |p: (i32, i32)| Vec2::new(p.0 * K, p.1 * K);
+    s.spawn_unit(Team::Blue, "InfernoDragon", at(DEPLOY_AT), None).expect("play the Inferno Dragon");
+    s.tick();
+    // the play lands on its tile's centre: the Knight goes 4250 ahead of where the Dragon stands
+    let (dragon, p) = s.entities().find(|v| v.card == "InfernoDragon").map(|v| (v.id, v.pos)).expect("the played Dragon stands (deploying)");
+    let kp = Vec2::new(p.x, p.y + 4250 * K);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kp, None).expect("spawn the Knight");
+    let reach = {
+        let (f, k) = (s.entity(dragon).expect("the Dragon stands"), s.entity(knight).expect("the Knight stands"));
+        Reach { range: (card_stat(&s, "InfernoDragon").range / K) as i64, own: (f.radius / K) as i64, knight: (k.radius / K) as i64 }
+    };
+    let mut moved = false;
+    for _ in 0..200 {
+        let full = s.entity(knight).map(|k| k.max_hp);
+        if let Some(full) = full {
+            assert!(s.debug_set_pos(knight, kp) && s.debug_set_hp(knight, full));
+        }
+        let (f0, was_deploying) = s.entity(dragon).map(|f| (native(f.pos), f.deploying)).expect("the Dragon");
+        s.tick();
+        let (f1, deploying, phase) = s.entity(dragon).map(|f| (native(f.pos), f.deploying, f.attack_phase)).expect("the Dragon");
+        if deploying {
+            continue;
+        }
+        if phase != AttackPhase::Idle {
+            return (moved, dist(f0, native(kp)), reach);
+        }
+        if !was_deploying {
+            moved |= f1 != f0;
+        }
+    }
+    panic!("the scene drifted: the Inferno Dragon never attacked the Knight");
+}
+
+/// (8) Plant: deploy_end_stands.
+#[test]
+fn under_client16402_deploy_end_walks_a_just_deployed_inferno_dragon_walks_to_range_plus_the_targets_radius() {
+    let (moved, d, r) = deploy_end(VariableDamageWalkReach::Client16402DeployEndWalksEveryRow);
+    assert!(r.short() < 4250 && 4250 <= r.long(), "precondition: the Knight in the band ({} .. {})", r.short(), r.long());
+    assert!(moved && d <= r.short(), "client16402_deploy_end_walks_every_row: moved {moved}, its attack started {d} from the Knight (Range + its radius {})", r.short());
+    // NOT VACUOUS: under the every-row arm it attacks from its deploy end, the Knight still in the band.
+    let (moved0, d0, _) = deploy_end(VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow);
+    assert!(!moved0 && d0 > r.short(), "client15535_no_own_radius_walking_every_row: moved {moved0}, its attack started {d0} from the Knight");
 }
