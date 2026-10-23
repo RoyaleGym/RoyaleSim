@@ -3,6 +3,15 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.42 (2026-10-22)
+
+- One more setting defaults to the current client's behaviour, measured against its recorded battles: a charging
+  unit (the Prince, the Dark Prince) lands its charge hit only after a step at full charge, so a run-up that fills on
+  the tick before its swing gives a plain hit (`charge.CHARGED_HIT_TIMING`).
+- The older behaviour stays available as the setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  use it for the older client's battles. Saved battles from earlier releases load unchanged (`SNAPSHOT_FORMAT` is
+  still 20).
+
 ## 0.1.41 (2026-10-21)
 
 - Two more settings default to the current client's behaviour, each measured against its recorded battles:
