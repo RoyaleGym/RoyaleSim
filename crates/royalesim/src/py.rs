@@ -1655,6 +1655,35 @@ impl Battle {
         self.catalogue_text().map_err(PyValueError::new_err)
     }
 
+    /// THE ELIXIR DATA OF THE CARD TABLE this object's battles run (card.rs `ManaDef`), for a caller's own elixir count:
+    /// a JSON object `{unit type name: [collect, generate_ms, on_death, on_death_for_opponent]}`, one entry per unit
+    /// type whose row produces elixir or pays any on its death (the Elixir Collector, the Elixir Golem's pieces, the
+    /// Elixir Barrel), named as `unit_types` names them. The three payouts are THOUSANDTHS OF AN ELIXIR, as the engine
+    /// pays them: ManaCollectAmount and ManaOnDeath are whole elixir, and ManaOnDeathForOpponent is read under this
+    /// object's economy.MANA_ON_DEATH_FOR_OPPONENT_UNIT. `generate_ms` is ManaGenerateTimeMs, 0 for a row that produces
+    /// nothing. When a payout is due is the engine's rule (state.rs `mana_pass`, `phase_reap`), not this table's.
+    fn unit_mana_json(&self) -> String {
+        let unit = self.calib.as_ref().map_or_else(|| crate::state::Calib::shipped().mana_for_opponent_unit, |c| c.mana_for_opponent_unit);
+        let to_opponent = |raw: i32| -> i64 {
+            match unit {
+                crate::state::ForOpponentUnit::MilliElixir => raw as i64,
+                crate::state::ForOpponentUnit::Elixir => raw as i64 * 1000,
+            }
+        };
+        let mut out: std::collections::BTreeMap<&str, [i64; 4]> = std::collections::BTreeMap::new();
+        for (i, c) in self.cards.cards.iter().enumerate() {
+            let Some(m) = c.mana else { continue };
+            let (amount, period) = m.collect.unwrap_or((0, 0));
+            if amount == 0 && m.on_death == 0 && m.on_death_for_opponent == 0 {
+                continue;
+            }
+            let Some(t) = usize::try_from(self.unit_type_of_idx[i]).ok() else { continue };
+            out.entry(self.unit_types[t].as_str())
+                .or_insert([amount as i64 * 1000, period as i64, m.on_death as i64 * 1000, to_opponent(m.on_death_for_opponent)]);
+        }
+        serde_json::to_string(&out).expect("a map of names to numbers serializes")
+    }
+
     /// EVERY UNIT A CARD PUTS ON THE BOARD, WITH ITS HITPOINTS: `unit_hitpoints(card_id, level)` for the catalogue's
     /// `card_id` played at unified `level`, a list of (role, unit name, hitpoints) tuples. The card's own row comes
     /// first, ("own", its unit's row name, the hitpoints the catalogue shows at that level); then every unit it puts
