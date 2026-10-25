@@ -1540,7 +1540,9 @@ pub struct ReRollDef {
 }
 
 /// The re-roll's roll is its row's ProjectileRange less this many steps: FITTED on one scene (sp-form-BarbLog-hero-s0:
-/// 2800 of 3000, 14 steps of 200).
+/// 2800 of 3000, 14 steps of 200). Measured on client 16.402 too (RoyaleLive recordings, 7 re-rolls): the log's line
+/// 2800 of 3000 in 7 of 7 (15 frames), and the Barbarian's slide back before it 852 (6 of the 7 steps of its offset)
+/// in 6 of 7.
 pub const REROLL_ROLL_SHORT_STEPS: i32 = 1;
 
 /// THE DISMOUNT (the Hero Dark Prince's; tools/extract_cards.py `dismount_effect`; state.rs `DismountRun`,
