@@ -36,8 +36,11 @@ jobs:
           - { os: windows-latest, target: x86_64 }
           - { os: ubuntu-latest, target: x86_64 }
           - { os: ubuntu-latest, target: aarch64 }
-          - { os: macos-14, target: x86_64 }
-          - { os: macos-14, target: aarch64 }
+          # macos-15: GitHub retires the older macOS image on 2026-11-02. `macosx` pins each wheel's deployment target
+          # to the one the Rust target defaults to, so the wheels keep the tags they shipped with (macosx_10_12_x86_64,
+          # macosx_11_0_arm64) whatever SDK the runner carries.
+          - { os: macos-15, target: x86_64, macosx: '10.12' }
+          - { os: macos-15, target: aarch64, macosx: '11.0' }
     runs-on: ${{ matrix.os }}
     steps:
       # Full history: build.rs stamps the commit into the extension (Battle.provenance()).
@@ -56,6 +59,10 @@ jobs:
           cp data/derived/cards-15.535.json data/derived/cards.json
           python tools/extract_globals.py
           python tools/stage_wheel_data.py
+      - name: pin the macOS deployment target
+        if: runner.os == 'macOS'
+        shell: bash
+        run: echo "MACOSX_DEPLOYMENT_TARGET=${{ matrix.macosx }}" >> "$GITHUB_ENV"
       - uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
@@ -115,7 +122,7 @@ jobs:
       fail-fast: false
       matrix:
         # macos-15-intel tests the x86_64 macOS wheel: v0.1.0's macos-13 jobs never got a runner and held the release.
-        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-14]
+        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
         # Every CPython the abi3 wheel claims, so the README's version list is a list of measured versions.
         python: ['3.10', '3.11', '3.12', '3.13', '3.14']
     runs-on: ${{ matrix.os }}
