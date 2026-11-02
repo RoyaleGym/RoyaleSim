@@ -386,6 +386,17 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   knockback.DASH_IMMUNE_PUSH = pushed: unread on client 15.535.29.
 ///   targeting.VARIABLE_DAMAGE_WALK_REACH = client15535_no_own_radius_walking_every_row: the Monk and Mighty Miner sweeps (a deploy end unread there).
 ///   charge.CHARGED_HIT_TIMING = first_attack_pass_no_windup: the completion-tick entry unread on client 15.535.29.
+///   transform.SWITCH_TICK_WALK = walks: client 15.535.29's 3 Demolisher switches read only the target.
+///   combat.DASH_KILL_RETARGET = at_once: unread on client 15.535.29.
+///   targeting.LEAP_TARGET_SCAN = scans: unread on client 15.535.29.
+///   status.BUFF_DEATH_SPAWN_FACING = own_side_forward: sp-event-SuperWitch-s0's -200 off the Knight dead ahead is that scan.
+///   combat.STRAIGHT_SHOT_RANGE_END = gone_before_aim: 10800 is client 15.535.29's last seen point of the arrow.
+///   spells.STRIKE_DASH_IMMUNE = picked: unread on client 15.535.29.
+///   spells.CLONE_SLIDE_WATER = settled: no 15.535.29 Clone slide reached the river.
+///   combat.GUARD_BIRTH_GOAL = lane_tower: client 15.535.29's guards are born on the fixed offset (no birth step).
+///   enchant.GUARD_CHARGE_ATTACK = uncounted: unmeasured on client 15.535.29.
+///   enchant.ON_BUFF_HOLD_WALK = stands_in_reach: client 15.535.29's Rune Giant has no hold.
+///   combat.WARP_WALK_STEP = warp_only: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -602,6 +613,17 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("knockback.DASH_IMMUNE_PUSH", "\"pushed\""),
     ("targeting.VARIABLE_DAMAGE_WALK_REACH", "\"client15535_no_own_radius_walking_every_row\""),
     ("charge.CHARGED_HIT_TIMING", "\"first_attack_pass_no_windup\""),
+    ("transform.SWITCH_TICK_WALK", "\"walks\""),
+    ("combat.DASH_KILL_RETARGET", "\"at_once\""),
+    ("targeting.LEAP_TARGET_SCAN", "\"scans\""),
+    ("status.BUFF_DEATH_SPAWN_FACING", "\"own_side_forward\""),
+    ("combat.STRAIGHT_SHOT_RANGE_END", "\"gone_before_aim\""),
+    ("spells.STRIKE_DASH_IMMUNE", "\"picked\""),
+    ("spells.CLONE_SLIDE_WATER", "\"settled\""),
+    ("combat.GUARD_BIRTH_GOAL", "\"lane_tower\""),
+    ("enchant.GUARD_CHARGE_ATTACK", "\"uncounted\""),
+    ("enchant.ON_BUFF_HOLD_WALK", "\"stands_in_reach\""),
+    ("combat.WARP_WALK_STEP", "\"warp_only\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

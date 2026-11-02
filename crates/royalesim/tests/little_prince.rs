@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -1416,4 +1416,160 @@ fn under_client16402_unpushed_while_immune_a_log_does_not_push_his_charging_guar
     let (old, old_lost) = guard_track(DashImmunePush::Pushed, Some(10));
     assert!(!old_lost, "precondition (pushed): the Log landed inside the guard's immunity");
     assert_ne!(old, guard_track(DashImmunePush::Pushed, None).0, "pushed (the vacuity check): the Log did not move the guard");
+}
+
+/// Under spells.STRIKE_DASH_IMMUNE = `arm`: he presses, held at AT; on the tick after his guard's first frame a Red Lightning is
+/// cast on (14500, 12000), ahead of him (his and the guard's charge in its reach, the princess tower out of it). The ticks
+/// after the cast (0 = the first) on which his hp and the guard's dropped: the strikes land on + 10, + 19 and + 28
+/// (tests/strikes.rs), the first picked on + 9, the guard's age 10, in its charge.
+fn charge_strike(arm: StrikeDashImmune) -> (Vec<u32>, Vec<u32>) {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.strike_dash_immune = arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut cast: Option<u32> = None;
+    let (mut lp_hits, mut g_hits) = (Vec::new(), Vec::new());
+    let (mut lp_was, mut g_was): (Option<i32>, Option<i32>) = (None, None);
+    for _ in 0..80 {
+        if s.entity(lp).is_some() {
+            assert!(s.debug_set_pos(lp, n(AT)));
+        }
+        if cast.is_none() && !find_live(&s, Team::Blue, "ChampionGuard").is_empty() {
+            s.spawn_unit(Team::Red, "Lightning", n((14500, 12000)), None).expect("the Lightning");
+            cast = Some(s.tick_count());
+        }
+        s.tick();
+        let Some(c) = cast else { continue };
+        let k = s.tick_count() - c - 1;
+        let lp_hp = s.entity(lp).map(|e| e.hp);
+        let g_hp = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.hp);
+        // a loss, or gone (a strike can kill him outright)
+        if lp_was.is_some_and(|a| lp_hp.map_or(true, |b| b < a)) {
+            lp_hits.push(k);
+        }
+        if g_was.is_some_and(|a| g_hp.map_or(true, |b| b < a)) {
+            g_hits.push(k);
+        }
+        (lp_was, g_was) = (lp_hp, g_hp);
+    }
+    assert!(cast.is_some(), "the scene drifted: no guard appeared");
+    (lp_hits, g_hits)
+}
+
+/// spells.STRIKE_DASH_IMMUNE = client16402_charge_skipped (parity r80, live13: 3 of 3 bolts with a charging guard in reach took
+/// a lower-hp enemy). Plant: strike_picks_charging_guard.
+#[test]
+fn under_client16402_charge_skipped_a_strike_passes_over_his_charging_guard() {
+    let (lp, g) = charge_strike(StrikeDashImmune::Client16402ChargeSkipped);
+    assert_eq!(lp.first(), Some(&10), "client16402_charge_skipped: his first loss is not the first strike's: {lp:?} (guard {g:?})");
+    assert!(!g.contains(&10), "client16402_charge_skipped: the guard lost hp to the first strike: {g:?}");
+    // NOT VACUOUS: picked strikes the guard first (immune: the strike is wasted), so his first loss is the second strike's
+    let (lp0, g0) = charge_strike(StrikeDashImmune::Picked);
+    assert_eq!(lp0.first(), Some(&19), "picked: his first loss: {lp0:?} (guard {g0:?})");
+    assert!(!g0.contains(&10), "picked: the charging guard lost hp: {g0:?}");
+}
+
+/// guard_birth_at's scene at AT under combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step and GUARD_BIRTH_GOAL = `arm`,
+/// with a red Knight held on `red` (if any): the guard's first-frame point less his, and its target on that frame.
+fn guard_birth_near(arm: GuardBirthGoal, red: Option<(i32, i32)>) -> ((i32, i32), Option<EntityId>) {
+    let mut cfg = config();
+    cfg.calib.guard_birth_point = GuardBirthPoint::Client16402Behind2000FirstStep;
+    cfg.calib.guard_birth_goal = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let lp = s.scenario_spawn_now(Team::Blue, "LittlePrince", n(AT), None).expect("the Little Prince");
+    let reds: Vec<(EntityId, Vec2)> = red.iter().map(|p| (s.scenario_spawn_now(Team::Red, "Knight", n(*p), None).expect("the Knight"), n(*p))).collect();
+    for _ in 0..30 {
+        hold(&mut s, lp, &reds);
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..40 {
+        hold(&mut s, lp, &reds);
+        s.tick();
+        if let Some(e) = find_live(&s, Team::Blue, "ChampionGuard").first() {
+            return (((e.pos.x / K) - AT.0, (e.pos.y / K) - AT.1), e.target);
+        }
+    }
+    panic!("no guard in 40 ticks")
+}
+
+/// combat.GUARD_BIRTH_GOAL = client16402_nearest_in_sight (parity r80, live13: the birth route's goal fits the nearest enemy in
+/// the guard's sight on 338 of 343 births; 14 of 15 with an enemy in reach stood 2000 behind him). Plant: guard_birth_goal_lane.
+#[test]
+fn under_client16402_nearest_in_sight_his_guard_is_born_toward_the_enemy_it_sees() {
+    let (old, new) = (GuardBirthGoal::LaneTower, GuardBirthGoal::Client16402NearestInSight);
+    // no enemy in sight: the lane step, as today
+    let (off, t) = guard_birth_near(new, None);
+    assert_eq!((birth_step(off).0, birth_step(off).1, t), (18, 56, None), "no enemy in sight: the lane step ({off:?})");
+    // a Knight 3000 left of the birth point (11500, 8500): in the guard's sight, out of its reach (1200 + 800 + 500)
+    let (off, t) = guard_birth_near(new, Some((11500, 8500)));
+    let (sx, _, len) = birth_step(off);
+    assert!(STEP2.contains(&len) && sx < 0, "client16402_nearest_in_sight: the birth step heads left, toward the Knight ({off:?})");
+    assert_eq!(t, None, "no target on the birth frame");
+    let (off0, _) = guard_birth_near(old, Some((11500, 8500)));
+    assert_eq!((birth_step(off0).0, birth_step(off0).1), (18, 56), "NOT VACUOUS: lane_tower steps along its lane route ({off0:?})");
+    // a Knight 1500 left (13000, 8500): in its reach, so no birth step
+    let (off, t) = guard_birth_near(new, Some((13000, 8500)));
+    assert_eq!((off, t), ((0, -2000), None), "in reach: it stands 2000 behind him, with no target");
+    let (off0, _) = guard_birth_near(old, Some((13000, 8500)));
+    assert_ne!(off0, (0, -2000), "NOT VACUOUS: lane_tower steps");
+}
+
+/// Under enchant.GUARD_CHARGE_ATTACK = `arm`: he presses, held at AT; `off` ticks from the press (before it if negative) a Blue
+/// Rune Giant is put at AT + (2500, 2000) and held. Per tick from the guard's first frame: (its age, its enchant count, None
+/// with no enchant); and its arrival age (guard_zapped's rule).
+fn guard_enchant(arm: EnchantGuardCharge, off: i32) -> (Vec<(u32, Option<u32>)>, u32) {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.enchant_guard_charge = arm, &[]);
+    let giant_at = n((AT.0 + 2500, AT.1 + 2000));
+    let mut giant: Option<EntityId> = None;
+    let (mut first, mut last, mut arrived): (Option<u32>, Option<Vec2>, Option<u32>) = (None, None, None);
+    let mut rows = Vec::new();
+    for k in off.min(0)..90 {
+        if k == off {
+            giant = Some(s.scenario_spawn_now(Team::Blue, "GiantBuffer", giant_at, None).expect("the Rune Giant"));
+        }
+        if k == 0 {
+            s.press_ability_button(Team::Blue, 0).expect("the press");
+        }
+        if s.entity(lp).is_some() {
+            assert!(s.debug_set_pos(lp, n(AT)));
+        }
+        if let Some(full) = giant.and_then(|g| s.entity(g)).map(|v| v.max_hp) {
+            let g = giant.expect("the Rune Giant");
+            assert!(s.debug_set_pos(g, giant_at) && s.debug_set_hp(g, full));
+        }
+        s.tick();
+        let Some((p, count)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.enchant.map(|x| x.count))) else { continue };
+        let f = *first.get_or_insert(s.tick_count() - 1);
+        let age = s.tick_count() - 1 - f;
+        rows.push((age, count));
+        if arrived.is_none() && age > crate_dash_start() && last == Some(p) {
+            arrived = Some(age - 1);
+        }
+        last = Some(p);
+    }
+    (rows, arrived.expect("the guard arrived"))
+}
+
+/// enchant.GUARD_CHARGE_ATTACK = client16402_counted_on_landing (parity r80, live13: the guard's first bonus on his 2nd regular
+/// hit in 8 of 20, the engine's 0 of 22): an enchant that lands on the charging guard counts his charge once on his free tick,
+/// so before any swing his count reads 1, where uncounted reads 0. Plant: guard_charge_uncounted.
+#[test]
+fn under_client16402_counted_on_landing_his_charge_counts_for_an_enchant_he_holds_when_freed() {
+    let after_free = |a: u32| a + royalesim::card::GUARD_LANDING_TICKS + 3;
+    let count_at = |rows: &[(u32, Option<u32>)], age: u32| rows.iter().find(|r| r.0 == age).and_then(|r| r.1);
+    // the scene: the first offset whose enchant reaches the guard in its charge
+    let found = (-12..=12).find_map(|off| {
+        let (rows, a) = guard_enchant(EnchantGuardCharge::Client16402CountedOnLanding, off);
+        let e = rows.iter().find(|r| r.1.is_some()).map(|r| r.0)?;
+        (crate_dash_start() <= e && e <= a).then_some((off, rows, a))
+    });
+    let (off, rows, a) = found.expect("the scene drifted: no Rune Giant offset puts his enchant on the charging guard");
+    assert_eq!(count_at(&rows, after_free(a)), Some(1), "client16402_counted_on_landing (offset {off}, arrival {a}): {rows:?}");
+    // NOT VACUOUS: uncounted leaves the count at 0 until his first swing
+    let (old, a0) = guard_enchant(EnchantGuardCharge::Uncounted, off);
+    assert_eq!(count_at(&old, after_free(a0)), Some(0), "uncounted (offset {off}, arrival {a0}): {old:?}");
 }

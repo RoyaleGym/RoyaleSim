@@ -33,7 +33,7 @@ use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpLaw};
+use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpLaw, WarpWalkStep};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -285,4 +285,34 @@ fn on_the_160402017_table_it_warps_back_on_its_strike_frame_plus_3500_ms_with_it
     assert!(gone.is_none_or(|g| g > a + 72), "the scene drifted: the Knight died ({gone:?})");
     let back = (a + 2..steps.len()).find(|&f| steps[f] >= 350).expect("it warps back");
     assert_eq!(back, a + 72, "the first step back on the arrival + 72: {steps:?}");
+}
+
+/// combat.WARP_WALK_STEP = client16402_walk_added (parity r80, live13: the first warp step's residual against the engine is the
+/// hero's walk step in 3 of 3 walking presses, 0 in 2 of 2 attacking ones), on the brake scene (the Skeleton 7200 off): walking
+/// at the press (the Knight 3000 ahead, out of its reach), the first point that differs is one walk step toward the Knight, and
+/// it still lands on its pick; attacking at the press (the Knight 1200 ahead) nothing rides on the warp. Plant:
+/// warp_walk_step_dropped.
+#[test]
+fn under_client16402_walk_added_each_warp_step_carries_its_walk_step() {
+    let warp = |arm: WarpWalkStep, knight_y: i32| -> (Vec<Vec2>, Option<usize>) {
+        let mut cfg: BattleConfig = config();
+        cfg.calib.warp_law = WarpLaw::Client16402BrakeAndReturn;
+        cfg.calib.warp_walk_step = arm;
+        let minion = (AT.0 - 4320, AT.1 + 5760);
+        let (mut s, hero, reds) = start_in(battle_on(cfg), &[("Knight", (AT.0, AT.1 + knight_y)), ("Skeleton", minion)]);
+        s.press_ability_button(Team::Blue, 0).expect("the press");
+        let (_, points, arrived, _) = run_warp(&mut s, hero, &reds, reds[1].0, 30);
+        (points, arrived)
+    };
+    let (old, a_old) = warp(WarpWalkStep::WarpOnly, 3000);
+    let (new, a_new) = warp(WarpWalkStep::Client16402WalkAdded, 3000);
+    let f = (0..old.len()).find(|&k| old[k] != new[k]).expect("client16402_walk_added: no walk step rode on the warp");
+    let r = ((new[f].x - old[f].x) / K, (new[f].y - old[f].y) / K);
+    let len2 = i64::from(r.0).pow(2) + i64::from(r.1).pow(2);
+    assert!((55 * 55..=61 * 61).contains(&len2) && r.1 > 0, "the first difference is one walk step toward the Knight ahead: {r:?}");
+    let (lo, ln) = (a_old.expect("warp_only lands"), a_new.expect("client16402_walk_added lands"));
+    assert_eq!(new[ln], old[lo], "it still lands on its pick");
+    let (old_a, _) = warp(WarpWalkStep::WarpOnly, 1200);
+    let (new_a, _) = warp(WarpWalkStep::Client16402WalkAdded, 1200);
+    assert_eq!(old_a, new_a, "attacking at the press: the warp alone");
 }

@@ -1049,6 +1049,50 @@ pub struct Calib {
     /// `Pushed`, what a battle saved before it ran.
     #[serde(default = "dash_immune_push_default")]
     pub dash_immune_push: DashImmunePush,
+    /// transform.SWITCH_TICK_WALK (whether a unit whose transformation reset its target walks its lane on its switch tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Walks`, what a battle saved before it ran.
+    #[serde(default = "switch_tick_walk_default")]
+    pub switch_tick_walk: SwitchTickWalk,
+    /// combat.DASH_KILL_RETARGET (when a timed dasher whose target died in its dash takes its next target). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `AtOnce`, what a battle saved before it ran.
+    #[serde(default = "dash_kill_retarget_default")]
+    pub dash_kill_retarget: DashKillRetarget,
+    /// targeting.LEAP_TARGET_SCAN (whether a troop in its river leap scans for a target). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Scans`, what a battle saved before it ran.
+    #[serde(default = "leap_target_scan_default")]
+    pub leap_target_scan: LeapTargetScan,
+    /// status.BUFF_DEATH_SPAWN_FACING (the facing a buff's death spawn starts with, which its first avoidance scan reads). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `OwnSideForward`, what a battle saved before it ran.
+    #[serde(default = "buff_death_spawn_facing_default")]
+    pub buff_death_spawn_facing: BuffDeathSpawnFacing,
+    /// combat.STRAIGHT_SHOT_RANGE_END (whether a one-way straight shot tests the step that reaches its range point). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `GoneBeforeAim`, what a battle saved before it ran.
+    #[serde(default = "straight_shot_range_end_default")]
+    pub straight_shot_range_end: StraightShotRangeEnd,
+    /// spells.STRIKE_DASH_IMMUNE (whether a strike's pick passes over a Little Prince guard in its charge). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Picked`, what a battle saved before it ran.
+    #[serde(default = "strike_dash_immune_default")]
+    pub strike_dash_immune: StrikeDashImmune,
+    /// spells.CLONE_SLIDE_WATER (whether a Clone slide is settled against the river). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Settled`, what a battle saved before it ran.
+    #[serde(default = "clone_slide_water_default")]
+    pub clone_slide_water: CloneSlideWater,
+    /// combat.GUARD_BIRTH_GOAL (what a Little Prince guard's birth step plans toward). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `LaneTower`, what a battle saved before it ran.
+    #[serde(default = "guard_birth_goal_default")]
+    pub guard_birth_goal: GuardBirthGoal,
+    /// enchant.GUARD_CHARGE_ATTACK (whether a Little Prince guard's charge counts as an attack of the Rune Giant's enchant it holds). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Uncounted`, what a battle saved before it ran.
+    #[serde(default = "enchant_guard_charge_default")]
+    pub enchant_guard_charge: EnchantGuardCharge,
+    /// enchant.ON_BUFF_HOLD_WALK (whether a Rune Giant in his launch's hold stops at his reach). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `StandsInReach`, what a battle saved before it ran.
+    #[serde(default = "enchant_on_buff_hold_walk_default")]
+    pub enchant_on_buff_hold_walk: EnchantOnBuffHoldWalk,
+    /// combat.WARP_WALK_STEP (whether a warping Hero Mega Minion also takes its own walk step). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `WarpOnly`, what a battle saved before it ran.
+    #[serde(default = "warp_walk_step_default")]
+    pub warp_walk_step: WarpWalkStep,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3061,6 +3105,50 @@ fn dash_immune_push_default() -> DashImmunePush {
     DashImmunePush::Pushed
 }
 
+fn switch_tick_walk_default() -> SwitchTickWalk {
+    SwitchTickWalk::Walks
+}
+
+fn dash_kill_retarget_default() -> DashKillRetarget {
+    DashKillRetarget::AtOnce
+}
+
+fn leap_target_scan_default() -> LeapTargetScan {
+    LeapTargetScan::Scans
+}
+
+fn buff_death_spawn_facing_default() -> BuffDeathSpawnFacing {
+    BuffDeathSpawnFacing::OwnSideForward
+}
+
+fn straight_shot_range_end_default() -> StraightShotRangeEnd {
+    StraightShotRangeEnd::GoneBeforeAim
+}
+
+fn strike_dash_immune_default() -> StrikeDashImmune {
+    StrikeDashImmune::Picked
+}
+
+fn clone_slide_water_default() -> CloneSlideWater {
+    CloneSlideWater::Settled
+}
+
+fn guard_birth_goal_default() -> GuardBirthGoal {
+    GuardBirthGoal::LaneTower
+}
+
+fn enchant_guard_charge_default() -> EnchantGuardCharge {
+    EnchantGuardCharge::Uncounted
+}
+
+fn enchant_on_buff_hold_walk_default() -> EnchantOnBuffHoldWalk {
+    EnchantOnBuffHoldWalk::StandsInReach
+}
+
+fn warp_walk_step_default() -> WarpWalkStep {
+    WarpWalkStep::WarpOnly
+}
+
 fn life_state_wake_reach_default() -> LifeWakeReach {
     LifeWakeReach::BuildingsFurther
 }
@@ -4737,6 +4825,16 @@ calib_enum!(
         /// walking from its deploy end until it first walks, a flying row alone (target.rs `walks_for_reach`): an Inferno Dragon deployed with
         /// its target only within Range + both radii walks until the target is within Range + the target's radius.
         Client16402DeployEndWalksEveryRow = "client16402_deploy_end_walks_every_row",
+        /// Client 16.402 (parity r80, live13): as client15535_no_own_radius_walking_every_row, and a FLYING row it covers (the
+        /// Inferno Dragon) counts as walking from its deploy end until its first attack start (Entities::reach_settled); from
+        /// then on it is gated as a standing unit whenever it holds no walking goal.
+        Client16402DeployEndWalksUntilAttack = "client16402_deploy_end_walks_until_attack",
+        /// Client 16.402 (parity r80, live13): as client15535_no_own_radius_walking_every_row, and a GROUND troop row it covers
+        /// (the Monk, the Mighty Miner; never a building) counts as walking from its deploy end until its first attack start,
+        /// and on any tick after one its own walk stepped on (Entities::walked_prev: a target switch while walking).
+        Client16402GroundEntryFromWalkOrDeploy = "client16402_ground_entry_from_walk_or_deploy",
+        /// Both client16402_deploy_end_walks_until_attack (flyers) and client16402_ground_entry_from_walk_or_deploy (ground).
+        Client16402EntryWalksGroundAndFlyer = "client16402_entry_walks_ground_and_flyer",
     }
 );
 calib_enum!(
@@ -7280,6 +7378,9 @@ calib_enum!(
         /// pellet ends of 20260920-082459 on the King's square, 11 of its 23 events outside the circle. Shipped since
         /// 2026-10-04 on both clients (Sim's ruling).
         Client15535RoundedSquare = "client15535_rounded_square",
+        /// Client 16.402 (parity r80, live13): every one-way straight shot (the Magic Archer's arrow as well as the
+        /// Hunter's pellets) reaches a building's square.
+        Client16402EveryStraightShot = "client16402_every_straight_shot",
     }
 );
 calib_enum!(
@@ -10604,6 +10705,129 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// transform.SWITCH_TICK_WALK -- the switch tick of a transformation with ResetTarget (state.rs `phase_path16402_for`,
+    /// `Scratch::switched_reset`).
+    SwitchTickWalk {
+        /// The engine's: with no target on its switch tick (transform.ATTACK_STATE), the unit takes its default tower as its
+        /// goal, plans its lane route and takes a full step at the new row's speed.
+        Walks = "walks",
+        /// Client 16.402 (parity r80, live13): on its switch tick it has no goal: no path request, its route dropped, no
+        /// walking step (contact pushes still apply); it plans and walks from the tick after.
+        Client16402Stands = "client16402_stands",
+    }
+);
+calib_enum!(
+    /// combat.DASH_KILL_RETARGET -- a timed dasher (DashConstantTime: the Mega Knight) whose target dies during its dash
+    /// (state.rs `phase_target_with`, the decision loop).
+    DashKillRetarget {
+        /// The engine's: it takes its next target on the next Target phase, mid-dash (the post-kill wait's exemption, progress 0
+        /// at the loss, skips the wait).
+        AtOnce = "at_once",
+        /// Client 16.402 (parity r80, live13): it holds no target while its dash runs once its target is dead or gone, and takes
+        /// its next one on the first Target phase after the dash ends (E + 1).
+        Client16402AfterTheDash = "client16402_after_the_dash",
+    }
+);
+calib_enum!(
+    /// targeting.LEAP_TARGET_SCAN -- a troop in its river leap (`Entities::jumping`, set by the previous tick's move) at the
+    /// Target phase (target.rs `decide`).
+    LeapTargetScan {
+        /// The engine's: a leaping troop decides as a walker on every Target phase.
+        Scans = "scans",
+        /// Client 16.402 (parity r80, live13): on every Target phase whose start-of-tick state is the leap (J + 1 through the
+        /// landing tick L) it keeps a live target, lets a dead one go and scans nothing; its first scan is on L + 1.
+        Client16402HeldMidLeap = "client16402_held_mid_leap",
+    }
+);
+calib_enum!(
+    /// status.BUFF_DEATH_SPAWN_FACING -- the facing of a buff's death spawn (the Voodoo Hog, the curse goblin) at its
+    /// release (state.rs `phase_reap`, the buff death-spawn loop; entity.rs `initial_facing`).
+    BuffDeathSpawnFacing {
+        /// The engine's: released with no facing, it takes its own side's forward, which points back at the dead victim.
+        OwnSideForward = "own_side_forward",
+        /// Client 16.402 (parity r80, live13): it takes its victim's facing (its heading, or toward its target when it died
+        /// attacking: movement.ATTACK_FACING), so its first avoidance scan looks where the victim looked.
+        Client16402VictimFacing = "client16402_victim_facing",
+    }
+);
+calib_enum!(
+    /// combat.STRAIGHT_SHOT_RANGE_END -- the last step of a one-way straight shot that does not stop on a hit (combat.rs
+    /// `step_straight`: the Magic Archer's arrow, the Bowler's boulder).
+    StraightShotRangeEnd {
+        /// The engine's: the shot is gone instead of taking the step that reaches its ProjectileRange point; it last tests the
+        /// step before (10800 of 11000 for the Magic Archer's arrow).
+        GoneBeforeAim = "gone_before_aim",
+        /// Client 16.402 (parity r80, live13): that last step reaches the aim point and tests there before the shot is gone.
+        Client16402AimPointTested = "client16402_aim_point_tested",
+    }
+);
+calib_enum!(
+    /// spells.STRIKE_DASH_IMMUNE -- a strike's pick (spell.rs `strike`: Lightning's hit_biggest_targets) and a Little Prince
+    /// guard in its charge (state.rs `guard_moves` sets Entities::strike_skip).
+    StrikeDashImmune {
+        /// The engine's: a guard in its charge is an ordinary candidate, ranked by hp; being dash-immune it then drops the
+        /// strike's damage, so the strike is wasted.
+        Picked = "picked",
+        /// Client 16.402 (parity r80, live13): a strike passes over a guard from its first charge frame to its arrival and
+        /// takes the next-highest enemy in reach.
+        Client16402ChargeSkipped = "client16402_charge_skipped",
+    }
+);
+calib_enum!(
+    /// spells.CLONE_SLIDE_WATER -- the Clone slide's steps of a ground unit the Clone holds (state.rs `step_knock_slides`;
+    /// spell.rs `settle`, `settle_over_water`).
+    CloneSlideWater {
+        /// The engine's: each slide step is settled as a knockback's is, so a ground unit's slide stops at the river bank.
+        Settled = "settled",
+        /// Client 16.402 (parity r80, live13): a ground unit the Clone holds keeps its 125 a tick onto river cells; buildings
+        /// and the arena's edge still stop it.
+        Client16402ThroughWater = "client16402_through_water",
+    }
+);
+calib_enum!(
+    /// combat.GUARD_BIRTH_GOAL -- the goal of a Little Prince guard's birth update (state.rs `guard_birth_step`, under
+    /// combat.GUARD_BIRTH_POINT = client16402_behind_2000_first_step).
+    GuardBirthGoal {
+        /// The engine's: with no target, the birth update plans its lane-tower route and steps toward its first cell.
+        LaneTower = "lane_tower",
+        /// Client 16.402 (parity r80, live13): it plans toward the enemy its own target scan finds (without taking it as its
+        /// target); with that enemy in its reach it takes no birth step; with none in sight, its lane tower.
+        Client16402NearestInSight = "client16402_nearest_in_sight",
+    }
+);
+calib_enum!(
+    /// enchant.GUARD_CHARGE_ATTACK -- a Little Prince guard's charge and the enchant count (state.rs `guard_moves`, the free tick;
+    /// combat.rs `enchant_bonus` reads the count).
+    EnchantGuardCharge {
+        /// The engine's: the charge is a move, not a fire; an enchant on the guard before he lands pays on his 3rd hit.
+        Uncounted = "uncounted",
+        /// Client 16.402 (parity r80, live13): his charge counts as one attack of an enchant he holds when he is freed (the
+        /// arrival + GUARD_LANDING_TICKS), so it pays on his 2nd regular hit and then every 3rd.
+        Client16402CountedOnLanding = "client16402_counted_on_landing",
+    }
+);
+calib_enum!(
+    /// enchant.ON_BUFF_HOLD_WALK -- a Rune Giant in his launch's hold (enchant.ON_BUFF_PAUSE = client16402_conditional_no_move)
+    /// whose target is in his reach, with no swing under way (state.rs `phase_path16402_for`, the in-reach test and the aim).
+    EnchantOnBuffHoldWalk {
+        /// The engine's: he stands from the tick his target enters his reach and swings when the hold ends.
+        StandsInReach = "stands_in_reach",
+        /// Client 16.402 (parity r80, live13): he walks on into and past his reach, his route kept and then straight at his
+        /// target's centre, until the hold ends; his swing starts where he stands on L + 14.
+        Client16402WalksOn = "client16402_walks_on",
+    }
+);
+calib_enum!(
+    /// combat.WARP_WALK_STEP -- a Hero Mega Minion's outbound warp step (state.rs `phase_path16402_for`, the warp block).
+    WarpWalkStep {
+        /// The engine's: a warping hero moves by its warp step alone.
+        WarpOnly = "warp_only",
+        /// Client 16.402 (parity r80, live13): each outbound warp step before the landing also carries the hero's own walk step
+        /// (its speed toward its held route's next waypoint), none while its swing is under way; the landing is unchanged.
+        Client16402WalkAdded = "client16402_walk_added",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11183,6 +11407,17 @@ impl Calib {
             tower_hold_hit_started: pick(&v, &["targeting", "TOWER_HOLD_HIT_STARTED", "value"], TowerHoldHitStarted::from_calibration_name)?,
             guard_birth_pass_through: pick(&v, &["combat", "GUARD_BIRTH_PASS_THROUGH", "value"], GuardBirthPassThrough::from_calibration_name)?,
             dash_immune_push: pick(&v, &["knockback", "DASH_IMMUNE_PUSH", "value"], DashImmunePush::from_calibration_name)?,
+            switch_tick_walk: pick(&v, &["transform", "SWITCH_TICK_WALK", "value"], SwitchTickWalk::from_calibration_name)?,
+            dash_kill_retarget: pick(&v, &["combat", "DASH_KILL_RETARGET", "value"], DashKillRetarget::from_calibration_name)?,
+            leap_target_scan: pick(&v, &["targeting", "LEAP_TARGET_SCAN", "value"], LeapTargetScan::from_calibration_name)?,
+            buff_death_spawn_facing: pick(&v, &["status", "BUFF_DEATH_SPAWN_FACING", "value"], BuffDeathSpawnFacing::from_calibration_name)?,
+            straight_shot_range_end: pick(&v, &["combat", "STRAIGHT_SHOT_RANGE_END", "value"], StraightShotRangeEnd::from_calibration_name)?,
+            strike_dash_immune: pick(&v, &["spells", "STRIKE_DASH_IMMUNE", "value"], StrikeDashImmune::from_calibration_name)?,
+            clone_slide_water: pick(&v, &["spells", "CLONE_SLIDE_WATER", "value"], CloneSlideWater::from_calibration_name)?,
+            guard_birth_goal: pick(&v, &["combat", "GUARD_BIRTH_GOAL", "value"], GuardBirthGoal::from_calibration_name)?,
+            enchant_guard_charge: pick(&v, &["enchant", "GUARD_CHARGE_ATTACK", "value"], EnchantGuardCharge::from_calibration_name)?,
+            enchant_on_buff_hold_walk: pick(&v, &["enchant", "ON_BUFF_HOLD_WALK", "value"], EnchantOnBuffHoldWalk::from_calibration_name)?,
+            warp_walk_step: pick(&v, &["combat", "WARP_WALK_STEP", "value"], WarpWalkStep::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -20397,6 +20632,23 @@ impl BattleState {
             // for L + 1 .. L + 5, its attack timer zeroed on L + 5, and takes this phase's decision
             // on L + 6. The hold keeps it out of the walk (the Path phase holds a waiting unit like
             // an attacking one) and freezes its timers (phase_attack).
+            // combat.DASH_KILL_RETARGET = client16402_after_the_dash: a timed dasher (DashConstantTime: the Mega Knight) in its
+            // dash with no live target takes none until its dash is over (dash_state is cleared in E's move pass, after this
+            // phase). Measured on client 16.402 (parity r80, live13): 112 of 113 Mega Knight dash kills took the next target on
+            // the dash's end + 1, none before. PLANT (regression) dash_kill_retargets_mid_dash: it retargets mid-dash.
+            #[cfg(not(clash_plant = "dash_kill_retargets_mid_dash"))]
+            let dash_hold = calib.dash_kill_retarget == DashKillRetarget::Client16402AfterTheDash;
+            #[cfg(clash_plant = "dash_kill_retargets_mid_dash")]
+            let dash_hold = false;
+            if dash_hold
+                && e.dash_state[i] == DashState::Dashing
+                && cards.get(e.card[i]).dash.is_some_and(|d| d.constant_time_ms.is_some())
+                && !e.target[i].is_some_and(|t| e.standing(t, struck))
+            {
+                e.target[i] = None;
+                e.target_locked[i] = false;
+                continue;
+            }
             // client16402_attack_finish: while the target lives, remember whether it is doomed, so
             // that at the loss this holds its last live tick.
             if wait_mode == PostKillWait::AttackFinish {
@@ -20467,7 +20719,7 @@ impl BattleState {
                     let repick_lost = { let _ = (monk_rows, inferno_row); false };
                     if let Some(t) = e.target[i].filter(|t| e.standing(*t, struck) && (d.target != Some(*t) || repick_lost)) {
                         let (ti, c) = (t.index as usize, cards.get(e.card[i]));
-                        let own = if target::walks_for_reach(calib, c.is_flying(), e.deploy_ms[i], e.move_ticks[i], e.route_goal[i].is_some()) { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
+                        let own = if target::walks_for_reach(calib, c, e.deploy_ms[i], e.move_ticks[i], e.reach_settled[i], e.walked_prev[i], e.route_goal[i].is_some()) { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
                         let left = !target::in_attack_range(calib, e.pos[i], c.range, own, e.pos[ti], e.radius[ti]);
                         // client15535_after_reach_loss_variable_rows: a target the decision keeps or re-picks is lost only past
                         // its keep reach (Range + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET + both radii): sweep-InfernoDragon t325,
@@ -20536,7 +20788,7 @@ impl BattleState {
                     && struck
                     && e.target[i].is_some_and(|t| {
                         let (ti, c) = (t.index as usize, cards.get(e.card[i]));
-                        let own = if target::walks_for_reach(calib, c.is_flying(), e.deploy_ms[i], e.move_ticks[i], e.route_goal[i].is_some()) { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
+                        let own = if target::walks_for_reach(calib, c, e.deploy_ms[i], e.move_ticks[i], e.reach_settled[i], e.walked_prev[i], e.route_goal[i].is_some()) { target::walking_own_radius(calib, c, e.radius[i]) } else { e.radius[i] };
                         e.is_alive(t) && !target::in_attack_range(calib, e.pos[i], c.range + keep_ext, own, e.pos[ti], e.radius[ti])
                     });
                 #[cfg(clash_plant = "chaser_waits")]
@@ -22510,7 +22762,42 @@ impl BattleState {
         #[cfg(clash_plant = "guard_birth_sees_all")]
         let others: Vec<usize> = Vec::new();
         self.hash.rebuild(&self.ents);
+        // combat.GUARD_BIRTH_GOAL = client16402_nearest_in_sight: the birth update plans toward the enemy its own target scan sees,
+        // without taking it as its target (the target is put back after the pass: no target on the birth frame). Measured on
+        // client 16.402 (parity r80, live13): 338 of 343 birth routes' goals fit it; 14 of 15 births with an enemy in reach stood.
+        // PLANT (regression) guard_birth_goal_lane: the new arm still plans toward the lane tower.
+        #[cfg(not(clash_plant = "guard_birth_goal_lane"))]
+        let pick = if self.cfg.calib.guard_birth_goal == GuardBirthGoal::Client16402NearestInSight {
+            let ctx = TargetCtx {
+                ents: &self.ents,
+                hash: &self.hash,
+                cards: &self.cfg.cards,
+                arena: &self.cfg.arena,
+                calib: &self.cfg.calib,
+                reading: self.cfg.tower_sight_reading,
+                towers: &self.towers,
+                king_active: self.king_active,
+                tick: self.tick,
+                doomed: &[],
+                lane_doomed: &[],
+                slap_air: &[],
+                upper_air: &[],
+                chase_walked: &[],
+            };
+            target::scan(&ctx, j, &mut Vec::new())
+        } else {
+            None
+        };
+        #[cfg(clash_plant = "guard_birth_goal_lane")]
+        let pick: Option<EntityId> = None;
+        let kept = self.ents.target[j];
+        if pick.is_some() {
+            self.ents.target[j] = pick;
+        }
         self.phase_path16402_for(Some(&[j]), &others, &[], &[]);
+        if pick.is_some() {
+            self.ents.target[j] = kept;
+        }
         let (w, h) = (self.cfg.arena.width, self.cfg.arena.height);
         let step = self.scratch.deltas.get(j).copied().unwrap_or_default();
         if step != Vec2::default() {
@@ -22548,6 +22835,8 @@ impl BattleState {
             // after its arrival (entity.rs `dash_immune`).
             let immune = self.guard_charge_immune();
             if let Some(a) = r.arrived {
+                // spells.STRIKE_DASH_IMMUNE: its charge is over.
+                self.ents.strike_skip[gi] = false;
                 if immune {
                     // combat.GUARD_CHARGE_IMMUNITY = client16402_through_last_dash_plus_1: one tick more. Measured on client
                     // 16.402 (parity r74): no hit on the frame after its last dash frame, the engine's 4.
@@ -22578,6 +22867,16 @@ impl BattleState {
                     if tick == a + crate::card::GUARD_LANDING_TICKS || !through {
                         self.ents.attack_load_ms[gi] = self.cfg.cards.get(self.ents.card[gi]).load_time_ms.max(0);
                         self.ents.attack_ms[gi] = 0;
+                    }
+                    // enchant.GUARD_CHARGE_ATTACK = client16402_counted_on_landing: his charge is one attack of an enchant he holds
+                    // when he is freed, so his first regular hit is the enchant's 2nd. Measured on client 16.402 (parity r80, live13):
+                    // the guard's first bonus on his 2nd hit in 8 of 20, the engine's 0 of 22. PLANT (regression)
+                    // guard_charge_uncounted: the new arm still leaves the count alone.
+                    #[cfg(not(clash_plant = "guard_charge_uncounted"))]
+                    if tick == a + crate::card::GUARD_LANDING_TICKS && self.cfg.calib.enchant_guard_charge == EnchantGuardCharge::Client16402CountedOnLanding {
+                        if let Some(s) = self.ents.enchant[gi].as_mut() {
+                            s.count += 1;
+                        }
                     }
                     if !landing {
                         continue;
@@ -22650,6 +22949,10 @@ impl BattleState {
             if immune && tick + 1 >= r.born + crate::card::GUARD_DASH_START_TICKS {
                 self.ents.dash_immune_until[gi] = u32::MAX;
             }
+            // spells.STRIKE_DASH_IMMUNE = client16402_charge_skipped: from its first charge frame to its arrival a strike's pick
+            // passes over it.
+            self.ents.strike_skip[gi] = self.cfg.calib.strike_dash_immune == StrikeDashImmune::Client16402ChargeSkipped
+                && tick + 1 >= r.born + crate::card::GUARD_DASH_START_TICKS;
             // combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: until its first charge frame rolls, pass-through
             // shots and strike picks pass over it. Measured on client 16.402 (parity r77, live13): engine-only birth-frame
             // hits on 7 of 369 guards against 1 of about 22,960 other newborns; Log rolls 0 of 7 in the truth.
@@ -24936,6 +25239,18 @@ impl BattleState {
         };
         #[cfg(clash_plant = "press_contact_pushed")]
         let press_held: Vec<bool> = vec![false; cap];
+        // transform.SWITCH_TICK_WALK = client16402_stands: a unit whose transformation reset its target on this tick
+        // (`Scratch::switched_reset`) has no goal: no route, no path request, no walking step. Measured on client 16.402
+        // (parity r80, live13): 36 of 37 Goblin Demolisher switches stood on the switch tick. PLANT (regression)
+        // switch_tick_walks: the new arm still walks its lane on the switch tick.
+        #[cfg(not(clash_plant = "switch_tick_walks"))]
+        let switch_stand: Vec<bool> = if self.cfg.calib.switch_tick_walk == SwitchTickWalk::Client16402Stands {
+            (0..cap).map(|i| self.ents.alive[i] && self.scratch.switched_reset.contains(&self.ents.id_of(i))).collect()
+        } else {
+            vec![false; cap]
+        };
+        #[cfg(clash_plant = "switch_tick_walks")]
+        let switch_stand: Vec<bool> = vec![false; cap];
         // movement.SPAWN_PATHFIND_SURFACE_CONTACT = client16402_from_surface_plus_2: a tunneller that came up on this tick or
         // the last (`WarpBoard::surfaced`) is no body and scans nothing; older entries go.
         let tick_now = self.tick;
@@ -25861,7 +26176,7 @@ impl BattleState {
                         if let Some((gid, slot)) = asked {
                             let gi = gid.index as usize;
                             let walk_own = target::walking_own_radius(calib, card, e.radius[i]);
-                            let own = if target::walks_for_reach(calib, card.is_flying(), e.deploy_ms[i], kticks[i], goals[i].is_some()) { walk_own } else { e.radius[i] };
+                            let own = if target::walks_for_reach(calib, card, e.deploy_ms[i], kticks[i], e.reach_settled[i], e.walked_prev[i], goals[i].is_some()) { walk_own } else { e.radius[i] };
                             // PLANT (regression) ladder_release_reach_gated: the new arm still asks only out of reach.
                             #[cfg(not(clash_plant = "ladder_release_reach_gated"))]
                             let gated = !on_release;
@@ -26247,7 +26562,7 @@ impl BattleState {
                 }
                 let card: &CardDef = self.cfg.cards.get(e.card[i]);
                 let team = e.team[i];
-                let goal_id = e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i));
+                let goal_id = if switch_stand[i] { None } else { e.target[i].filter(|t| e.is_alive(*t)).or_else(|| target::default_tower(&ctx, i)) };
                 let epoch = self.scratch.occluder_epoch[team as usize];
                 let actor = (bodies[i].x, bodies[i].y);
                 let node_centre = |p: Vec2| (p.x / K, p.y / K);
@@ -26292,6 +26607,32 @@ impl BattleState {
                         (actor.0 + (dx * step as i64 / left) as i32, actor.1 + (dy * step as i64 / left) as i32)
                     } else {
                         actor
+                    };
+                    // combat.WARP_WALK_STEP = client16402_walk_added: an outbound warp step before the landing also carries the hero's
+                    // own walk step (its speed toward its held route's next waypoint), none while its swing is under way. Measured on
+                    // client 16.402 (parity r80, live13): the residual is its walk step in 3 of 3 walking presses, 0 in 2 of 2
+                    // attacking ones. PLANT (regression) warp_walk_step_dropped: the new arm still warps alone.
+                    #[cfg(not(clash_plant = "warp_walk_step_dropped"))]
+                    let adds = calib.warp_walk_step == WarpWalkStep::Client16402WalkAdded
+                        && !lands
+                        && home.is_none()
+                        && step > 0
+                        && e.attack_phase[i] == AttackPhase::Idle;
+                    #[cfg(clash_plant = "warp_walk_step_dropped")]
+                    let adds = false;
+                    let p = match (adds, routes[i].last()) {
+                        (true, Some(&n)) => {
+                            let aim = node_centre(n);
+                            let mut w = (aim.0 - actor.0, aim.1 - actor.1);
+                            let d = isqrt(i64::from(w.0) * i64::from(w.0) + i64::from(w.1) * i64::from(w.1)) as i32;
+                            let sp = (self.effective_speed(i) / K).min(d);
+                            if sp > 0 && move16402::normalize_to(&mut w, sp) != 0 {
+                                (p.0 + w.0, p.1 + w.1)
+                            } else {
+                                p
+                            }
+                        }
+                        _ => p,
                     };
                     let mut v = (p.0 - actor.0, p.1 - actor.1);
                     if move16402::normalize_to(&mut v, 256) != 0 {
@@ -26720,6 +27061,9 @@ impl BattleState {
                 // branch below clears one (SPEC 5.3).
                 let mut attacking = phase_hold;
                 let mut target_abs: Option<(i32, i32)> = None;
+                // enchant.ON_BUFF_HOLD_WALK = client16402_walks_on: a Rune Giant walking on into his reach through his hold aims at
+                // his target's centre (the direct aim's reach 0).
+                let mut walk_in = false;
                 let mut feasible = true;
                 // The route is cleared, as on any transition to attacking (SPEC 5.3).
                 // NOT clearing it was tried, on the argument that a held unit is already
@@ -26745,7 +27089,7 @@ impl BattleState {
                 let stand_noplan = press_held[i] && calib.held_press_route == HeldPressRoute::Client16402ReplannedAfterStand;
                 #[cfg(clash_plant = "held_press_route_stand_plans")]
                 let stand_noplan = false;
-                if stand_noplan {
+                if stand_noplan || switch_stand[i] {
                     routes[i].clear();
                     goals[i] = None;
                     segs[i] = Vec2::default();
@@ -26753,8 +27097,24 @@ impl BattleState {
                 // a held unit (`held_walk`) asks for no path either: its route waits out the hold as it is
                 if let (false, false, false, Some(gid)) = (deploying, phase_hold, held_walk || stand_noplan, goal_id) {
                     let gi = gid.index as usize;
-                    let own = if target::walks_for_reach(calib, card.is_flying(), e.deploy_ms[i], kticks[i], goals[i].is_some()) { walk_own } else { e.radius[i] };
-                    if target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]) {
+                    let own = if target::walks_for_reach(calib, card, e.deploy_ms[i], kticks[i], e.reach_settled[i], e.walked_prev[i], goals[i].is_some()) { walk_own } else { e.radius[i] };
+                    // enchant.ON_BUFF_HOLD_WALK = client16402_walks_on: a Rune Giant in his launch's hold with no swing under way is
+                    // not stopped by his reach: his route kept (no replan), then straight at his target's centre, until the hold
+                    // ends. Measured on client 16.402 (parity r80, live13): 16 of 16 held arrivals walked past the in-reach tick.
+                    // PLANT (regression) enchant_hold_stands_in_reach: the new arm still stands in his reach.
+                    #[cfg(not(clash_plant = "enchant_hold_stands_in_reach"))]
+                    let hold_walks = calib.enchant_on_buff_hold_walk == EnchantOnBuffHoldWalk::Client16402WalksOn
+                        && card.enchant_hold
+                        && e.enchant_hold[i] > 0
+                        && self.tick <= e.enchant_hold[i]
+                        && e.attack_phase[i] == AttackPhase::Idle;
+                    #[cfg(clash_plant = "enchant_hold_stands_in_reach")]
+                    let hold_walks = false;
+                    let in_reach = target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]);
+                    if in_reach && hold_walks {
+                        target_abs = Some((bodies[gi].x, bodies[gi].y));
+                        walk_in = true;
+                    } else if in_reach {
                         // SPEC 5.3: the path is cleared on the transition to attacking
                         routes[i].clear();
                         goals[i] = None;
@@ -27000,7 +27360,7 @@ impl BattleState {
                         // THE DIRECT AIM: with an empty list and a target out of
                         // range the unit walks at the point `reach` away from the
                         // target on the line to itself (move16402::direct_aim)
-                        Some(t) => (move16402::direct_aim(actor, t, (card.range + walk_own) / K), native_speed),
+                        Some(t) => (move16402::direct_aim(actor, t, if walk_in { 0 } else { (card.range + walk_own) / K }), native_speed),
                         None => (actor, 0),
                     },
                     _ => (actor, 0),
@@ -27206,6 +27566,18 @@ impl BattleState {
             self.land_warps(warp_arrivals);
         }
         self.end_dashes(dash_ended);
+        // targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 ground arms): whether each unit this pass moved took a walking step of its
+        // own, read as `walked` by the next tick's reach tests (target.rs `walks_for_reach`).
+        if matches!(
+            self.cfg.calib.variable_damage_walk_reach,
+            VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy | VariableDamageWalkReach::Client16402EntryWalksGroundAndFlyer
+        ) {
+            for (i, &l) in walk_step.iter().enumerate().take(self.ents.walked_prev.len()) {
+                if only.map_or(true, |o| o.contains(&i)) {
+                    self.ents.walked_prev[i] = l > 0;
+                }
+            }
+        }
         self.scratch.deltas = deltas;
         self.scratch.walk_step = walk_step;
         self.scratch.pushed = pushed;
@@ -28523,6 +28895,23 @@ impl BattleState {
             if self.ents.attack_phase[i] == AttackPhase::Idle && step.phase != AttackPhase::Idle && !self.evo.stages.is_empty() {
                 self.stage_restart(self.ents.id_of(i));
             }
+            // targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 arms): a variable-damage or combo row's first attack start ends its
+            // deploy end's walking reach for good (target.rs `walks_for_reach`). Measured on client 16.402 (parity r80, live13): a
+            // Dragon that burned from its deploy end without a step kept its in-band target on 235 of 246 ticks.
+            if matches!(
+                self.cfg.calib.variable_damage_walk_reach,
+                VariableDamageWalkReach::Client16402DeployEndWalksUntilAttack
+                    | VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy
+                    | VariableDamageWalkReach::Client16402EntryWalksGroundAndFlyer
+            ) && self.ents.attack_phase[i] == AttackPhase::Idle
+                && step.phase != AttackPhase::Idle
+                && {
+                    let c = self.cfg.cards.get(self.ents.card[i]);
+                    c.variable_damage.is_some() || c.combo.is_some()
+                }
+            {
+                self.ents.reach_settled[i] = true;
+            }
             // charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step: a swing that starts on the tick after the run-up
             // completed (no charged step yet) is a plain one and spends the charge. Measured on client 16.402 (parity r79, live13):
             // 2 of 2 such entries plain where the engine snapped; 104 of 104 after a charged step charged.
@@ -29487,7 +29876,15 @@ impl BattleState {
             #[cfg(not(clash_plant = "reach_walker_reads_pass_kills"))]
             let in_reach = self.ents.target[i].filter(|t| self.ents.is_alive(*t)).is_some_and(|t| {
                 let (ti, c) = (t.index as usize, self.cfg.cards.get(self.ents.card[i]));
-                let own = if target::walks_for_reach(&self.cfg.calib, c.is_flying(), self.ents.deploy_ms[i], self.ents.move_ticks[i], self.ents.route_goal[i].is_some()) {
+                let own = if target::walks_for_reach(
+                    &self.cfg.calib,
+                    c,
+                    self.ents.deploy_ms[i],
+                    self.ents.move_ticks[i],
+                    self.ents.reach_settled[i],
+                    self.ents.walked_prev[i],
+                    self.ents.route_goal[i].is_some(),
+                ) {
                     target::walking_own_radius(&self.cfg.calib, c, self.ents.radius[i])
                 } else {
                     self.ents.radius[i]
@@ -29504,7 +29901,15 @@ impl BattleState {
             let in_keep = self.cfg.calib.pass_kill_chase == PassKillChase::Client15535ChaserPastKeepReadsPass
                 && self.ents.target[i].filter(|t| self.ents.is_alive(*t)).is_some_and(|t| {
                     let (ti, c) = (t.index as usize, self.cfg.cards.get(self.ents.card[i]));
-                    let own = if target::walks_for_reach(&self.cfg.calib, c.is_flying(), self.ents.deploy_ms[i], self.ents.move_ticks[i], self.ents.route_goal[i].is_some()) {
+                    let own = if target::walks_for_reach(
+                    &self.cfg.calib,
+                    c,
+                    self.ents.deploy_ms[i],
+                    self.ents.move_ticks[i],
+                    self.ents.reach_settled[i],
+                    self.ents.walked_prev[i],
+                    self.ents.route_goal[i].is_some(),
+                ) {
                         target::walking_own_radius(&self.cfg.calib, c, self.ents.radius[i])
                     } else {
                         self.ents.radius[i]
@@ -30270,8 +30675,17 @@ impl BattleState {
             };
             let old = self.ents.pos[i];
             let team = self.ents.team[i];
-            self.ents.pos[i] =
-                spell::settle(&self.cfg.arena, &self.scratch.obstacles[0], team, self.ents.radius[i], self.ents.flying[i], old, old.add(step));
+            // spells.CLONE_SLIDE_WATER = client16402_through_water: a unit the Clone holds (its hold's slot live) slides on over
+            // river cells. Measured on client 16.402 (parity r80, live13): 1651 of 1651 held-tick slide steps a full 125, 7
+            // ground slides through the river among them. PLANT (regression) clone_slide_settled: the new arm still stops at
+            // the bank.
+            #[cfg(not(clash_plant = "clone_slide_settled"))]
+            let over_water = self.cfg.calib.clone_slide_water == CloneSlideWater::Client16402ThroughWater
+                && self.ents.buff_slots(i).iter().any(|s| !s.is_empty() && self.cfg.cards.buffs.get(s.id as usize - 1).is_some_and(|d| d.clone_hold));
+            #[cfg(clash_plant = "clone_slide_settled")]
+            let over_water = false;
+            let settle = if over_water { spell::settle_over_water } else { spell::settle };
+            self.ents.pos[i] = settle(&self.cfg.arena, &self.scratch.obstacles[0], team, self.ents.radius[i], self.ents.flying[i], old, old.add(step));
             self.ents.knock_rem[i] = rem.sub(step);
             self.ents.knock_ms[i] = (left - dt).max(0);
             if self.ents.knock_ms[i] == 0 {
@@ -32181,12 +32595,21 @@ impl BattleState {
                             self.scratch.dying_blockers.push(blocker);
                         }
                     }
+                    // status.BUFF_DEATH_SPAWN_FACING = client16402_victim_facing: the spawn takes its victim's facing (its
+                    // heading, or toward its target when it died attacking: movement.ATTACK_FACING), so its first avoidance
+                    // scan looks where the victim looked. Measured on client 16.402 (parity r80, live13): the victim's facing
+                    // gives the truth's first turn 23 of 24, the own side's forward 0 of 9. PLANT (regression)
+                    // buff_spawn_faces_own_forward: the new arm still faces its own side's forward.
+                    #[cfg(not(clash_plant = "buff_spawn_faces_own_forward"))]
+                    let facing = (self.cfg.calib.buff_death_spawn_facing == BuffDeathSpawnFacing::Client16402VictimFacing).then(|| self.ents.facing[i]);
+                    #[cfg(clash_plant = "buff_spawn_faces_own_forward")]
+                    let facing = None;
                     parents.push(i);
                     spawned.push((
                         team,
                         self.ents.team_seq[i],
                         256 + k as u32,
-                        PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: NO_CARD },
+                        PendingSpawn { team, card: ds.unit, level, pos: at, deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay, first_update, facing, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: NO_CARD },
                     ));
                 }
             }
@@ -36322,6 +36745,18 @@ impl BattleState {
                 if e.charge_fresh[i] {
                     h.u32(0x4346_5253);
                 }
+                // targeting.VARIABLE_DAMAGE_WALK_REACH: the unit walked on the last move pass, only when set.
+                if e.walked_prev[i] {
+                    h.u32(0x5750_5256);
+                }
+                // targeting.VARIABLE_DAMAGE_WALK_REACH: a variable-damage row's first attack has started, only when set.
+                if e.reach_settled[i] {
+                    h.u32(0x5253_544c);
+                }
+                // spells.STRIKE_DASH_IMMUNE: a guard in its charge, only when set.
+                if e.strike_skip[i] {
+                    h.u32(0x5354_534b);
+                }
                 if self.cfg.calib.lost_target_shot == LostTargetShot::Client16402PointFirstAttackFires {
                     h.bool(e.lost_target[i].is_some());
                     if let Some(t) = e.lost_target[i] {
@@ -39010,12 +39445,38 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.TOWER_HOLD_HIT_STARTED: Calib gained tower_hold_hit_started (serde default the old arm, every_tick), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.VARIABLE_DAMAGE_WALK_REACH's r80 arms (client16402_deploy_end_walks_until_attack,
+///    client16402_ground_entry_from_walk_or_deploy, client16402_entry_walks_ground_and_flyer): Entities gained reach_settled and
+///    walked_prev (serde default empty, sized on load to false, hashed only when set; written only under those arms), so a
+///    blob saved before them deserializes and hashes as it did.
 /// 20, unchanged, charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step: Entities gained charge_fresh (serde default empty,
 ///    sized on load to false, hashed only when set; written true only under that arm), so a blob saved before it deserializes
 ///    and hashes as it did.
 /// 20, unchanged, combat.GUARD_BIRTH_PASS_THROUGH: Calib gained guard_birth_pass_through (serde default the old arm, hit), Entities gained pass_over (serde default empty, sized on load to false, hashed only when set),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, knockback.DASH_IMMUNE_PUSH: Calib gained dash_immune_push (serde default the old arm, pushed), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, transform.SWITCH_TICK_WALK: Calib gained switch_tick_walk (serde default the old arm, walks), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_KILL_RETARGET: Calib gained dash_kill_retarget (serde default the old arm, at_once), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.LEAP_TARGET_SCAN: Calib gained leap_target_scan (serde default the old arm, scans), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.BUFF_DEATH_SPAWN_FACING: Calib gained buff_death_spawn_facing (serde default the old arm, own_side_forward), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.STRAIGHT_SHOT_RANGE_END: Calib gained straight_shot_range_end (serde default the old arm, gone_before_aim), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.STRIKE_DASH_IMMUNE: Calib gained strike_dash_immune (serde default the old arm, picked), Entities gained strike_skip (serde default empty, sized on load to false, hashed only when set; written true only under that arm),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, spells.CLONE_SLIDE_WATER: Calib gained clone_slide_water (serde default the old arm, settled), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_BIRTH_GOAL: Calib gained guard_birth_goal (serde default the old arm, lane_tower), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, enchant.GUARD_CHARGE_ATTACK: Calib gained enchant_guard_charge (serde default the old arm, uncounted), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, enchant.ON_BUFF_HOLD_WALK: Calib gained enchant_on_buff_hold_walk (serde default the old arm, stands_in_reach), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.WARP_WALK_STEP: Calib gained warp_walk_step (serde default the old arm, warp_only), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
@@ -40087,6 +40548,28 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_birth_pass_through".into(), serde_json::to_value(GuardBirthPassThrough::Hit).map_err(|e| e.to_string())?);
     // knockback.DASH_IMMUNE_PUSH: a format-3 battle ran knockback.DASH_IMMUNE_PUSH's old arm.
     sh.insert("dash_immune_push".into(), serde_json::to_value(DashImmunePush::Pushed).map_err(|e| e.to_string())?);
+    // transform.SWITCH_TICK_WALK: a format-3 battle ran transform.SWITCH_TICK_WALK's old arm.
+    sh.insert("switch_tick_walk".into(), serde_json::to_value(SwitchTickWalk::Walks).map_err(|e| e.to_string())?);
+    // combat.DASH_KILL_RETARGET: a format-3 battle ran combat.DASH_KILL_RETARGET's old arm.
+    sh.insert("dash_kill_retarget".into(), serde_json::to_value(DashKillRetarget::AtOnce).map_err(|e| e.to_string())?);
+    // targeting.LEAP_TARGET_SCAN: a format-3 battle ran targeting.LEAP_TARGET_SCAN's old arm.
+    sh.insert("leap_target_scan".into(), serde_json::to_value(LeapTargetScan::Scans).map_err(|e| e.to_string())?);
+    // status.BUFF_DEATH_SPAWN_FACING: a format-3 battle ran status.BUFF_DEATH_SPAWN_FACING's old arm.
+    sh.insert("buff_death_spawn_facing".into(), serde_json::to_value(BuffDeathSpawnFacing::OwnSideForward).map_err(|e| e.to_string())?);
+    // combat.STRAIGHT_SHOT_RANGE_END: a format-3 battle ran combat.STRAIGHT_SHOT_RANGE_END's old arm.
+    sh.insert("straight_shot_range_end".into(), serde_json::to_value(StraightShotRangeEnd::GoneBeforeAim).map_err(|e| e.to_string())?);
+    // spells.STRIKE_DASH_IMMUNE: a format-3 battle ran spells.STRIKE_DASH_IMMUNE's old arm.
+    sh.insert("strike_dash_immune".into(), serde_json::to_value(StrikeDashImmune::Picked).map_err(|e| e.to_string())?);
+    // spells.CLONE_SLIDE_WATER: a format-3 battle ran spells.CLONE_SLIDE_WATER's old arm.
+    sh.insert("clone_slide_water".into(), serde_json::to_value(CloneSlideWater::Settled).map_err(|e| e.to_string())?);
+    // combat.GUARD_BIRTH_GOAL: a format-3 battle ran combat.GUARD_BIRTH_GOAL's old arm.
+    sh.insert("guard_birth_goal".into(), serde_json::to_value(GuardBirthGoal::LaneTower).map_err(|e| e.to_string())?);
+    // enchant.GUARD_CHARGE_ATTACK: a format-3 battle ran enchant.GUARD_CHARGE_ATTACK's old arm.
+    sh.insert("enchant_guard_charge".into(), serde_json::to_value(EnchantGuardCharge::Uncounted).map_err(|e| e.to_string())?);
+    // enchant.ON_BUFF_HOLD_WALK: a format-3 battle ran enchant.ON_BUFF_HOLD_WALK's old arm.
+    sh.insert("enchant_on_buff_hold_walk".into(), serde_json::to_value(EnchantOnBuffHoldWalk::StandsInReach).map_err(|e| e.to_string())?);
+    // combat.WARP_WALK_STEP: a format-3 battle ran combat.WARP_WALK_STEP's old arm.
+    sh.insert("warp_walk_step".into(), serde_json::to_value(WarpWalkStep::WarpOnly).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -40471,6 +40954,9 @@ impl BattleState {
         snap.ents.lost_target.resize(n, None);
         snap.ents.pass_over.resize(n, false);
         snap.ents.charge_fresh.resize(n, false);
+        snap.ents.walked_prev.resize(n, false);
+        snap.ents.reach_settled.resize(n, false);
+        snap.ents.strike_skip.resize(n, false);
         snap.ents.launched_beyond.resize(n, false);
         snap.ents.pancaked.resize(n, false);
         snap.ents.life_state.resize(n, 0);

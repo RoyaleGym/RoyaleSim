@@ -86,7 +86,7 @@ mod common;
 use common::*;
 use royalesim::card::{CardDb, CardSource, SpellPlacement, SpellShape};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CloneCopyBuffs, CloneDeathSpawns, CloneHoldDeploy, CloneLevel, CloneOffset, EntityView};
+use royalesim::state::{BattleConfig, BattleState, CloneCopyBuffs, CloneDeathSpawns, CloneHoldDeploy, CloneLevel, CloneOffset, CloneSlideWater, EntityView};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -717,4 +717,27 @@ fn the_copy_takes_its_originals_buffs_under_each_arm() {
     let (before, copy) = raged_copy(c);
     assert!(before.iter().all(|b| !copy.contains(b)), "none: the copy carries {copy:?}, the original carried {before:?}");
     assert_eq!(copy.len(), 1, "none: the copy carries the hold alone: {copy:?}");
+}
+
+/// spells.CLONE_SLIDE_WATER = client16402_through_water (parity r80, live13: 1651 of 1651 held-tick slide steps were a full 125,
+/// 7 ground slides through the river among them). A lone Blue Knight off the bridges, 500 short of the river, slides north.
+/// Plant: clone_slide_settled.
+#[test]
+fn under_client16402_through_water_the_clone_slide_runs_on_into_the_river() {
+    let slide_at = |arm: CloneSlideWater| {
+        let mut cfg = shipped();
+        cfg.calib.clone_slide_water = arm;
+        slide_in(cfg, Team::Blue, at((5250, 14500)))
+    };
+    let new = slide_at(CloneSlideWater::Client16402ThroughWater);
+    let o0 = new[0].0;
+    for (k, &(o, _)) in new.iter().enumerate().take(11).skip(1) {
+        assert_eq!(o, Vec2::new(o0.x, o0.y + 125 * k as i32 * K), "client16402_through_water: the original on C + {k}");
+    }
+    // NOT VACUOUS: settled stops the original at the bank
+    let old = slide_at(CloneSlideWater::Settled);
+    assert!(old[10].0.y < o0.y + 1250 * K, "settled: the slide ran into the river: {:?}", old[10].0);
+    // the copy slides south on dry land, the same under both arms
+    let copies = |r: &[(Vec2, Vec2)]| r.iter().take(11).map(|x| x.1).collect::<Vec<_>>();
+    assert_eq!(copies(&new), copies(&old), "the copy's slide");
 }

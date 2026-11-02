@@ -1850,6 +1850,13 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             resolve_on.entry(t).or_default().push(i);
         }
     }
+    // harness.SAME_TICK_PLAY_ORDER (parity r80, a candidate scored with PARITY_SAME_TICK_KEY_ORDER set): a tick's plays in the
+    // client's creation order (`same_tick_issue_order`).
+    if std::env::var_os("PARITY_SAME_TICK_KEY_ORDER").is_some() {
+        for list in deploys_by_tick.values_mut() {
+            same_tick_issue_order(list);
+        }
+    }
     let last_tick = report.last_tick;
 
     // -- register what is on the board now (towers at tick 0)
@@ -3184,4 +3191,28 @@ Note that `maturin develop` does NOT rebuild this binary: it builds the wheel, a
         drifted.join("
 ")
     ))
+}
+
+/// harness.SAME_TICK_PLAY_ORDER: one tick's deploy rows reordered into the client's creation order. The troop and building rows
+/// that carry truth keys go in ascending order of their first key, in the slots those rows occupy; a row without keys (a spell)
+/// and an ability row keep their places. A fixture whose rows carry no keys (the 15.535.29 scenarios) is unchanged. Measured on
+/// client 16.402 (parity r80, the r76 census re-checked, live13): on the 119 ticks where both sides' plays put units down the
+/// truth's keys give side 1 first on 35 and side 0 first on 84, where the maker writes side 0 first on all 119; the keys follow
+/// creation order on 7,622 of 7,631 flyer goal ticks that discriminate.
+/// PLANT (regression) replay_same_tick_rows_by_row_order: the fixture's row order is kept.
+pub fn same_tick_issue_order(list: &mut [(usize, &Deploy)]) {
+    #[cfg(clash_plant = "replay_same_tick_rows_by_row_order")]
+    {
+        let _ = list;
+        return;
+    }
+    #[allow(unreachable_code)]
+    {
+        let slots: Vec<usize> = (0..list.len()).filter(|&j| matches!(list[j].1.kind.as_str(), "troop" | "building") && !list[j].1.keys.is_empty()).collect();
+        let mut rows: Vec<(usize, &Deploy)> = slots.iter().map(|&j| list[j]).collect();
+        rows.sort_by_key(|(i, d)| (d.keys.iter().copied().min().unwrap_or(i64::MAX), *i));
+        for (j, r) in slots.into_iter().zip(rows) {
+            list[j] = r;
+        }
+    }
 }

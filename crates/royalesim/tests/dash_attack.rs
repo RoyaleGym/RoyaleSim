@@ -56,7 +56,10 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashAttack, DashEndContact, DashImmuneHits, DashStandContact, DashStandRetarget, DASH_BLOW_TO_END_TICKS};
+use royalesim::state::{
+    BattleConfig, BattleState, DashAttack, DashEndContact, DashImmuneHits, DashKillRetarget, DashStandContact, DashStandRetarget,
+    DASH_BLOW_TO_END_TICKS,
+};
 use royalesim::{EntityId, Team};
 
 fn with(arm: DashAttack) -> BattleConfig {
@@ -675,4 +678,44 @@ fn under_client16402_kept_to_mark_a_switch_mid_stand_keeps_the_jump_on_schedule(
     let (_, new) = stand_scene(DashStandContact::Pushed, DashStandRetarget::Client16402KeptToMark, &switch);
     assert_eq!(new, Some(plan), "client16402_kept_to_mark: his jump not on his stand's schedule ({new:?}; no switch {plan})");
     assert!(old.map_or(true, |o| o > plan), "cancelled (the vacuity check): he jumped on schedule all the same ({old:?}; no switch {plan})");
+}
+
+/// A Blue Mega Knight put down inside its trigger of a Red Skeleton (held in place, so the blow kills it) with a Red Knight held
+/// 2000 beyond it, under combat.DASH_KILL_RETARGET = `arm`: the Mega Knight's target after each tick, the row whose tick the
+/// Skeleton died on (L), and the Knight. On Red's side of the centre, out of every Blue tower's reach.
+fn mk_after_kill(arm: DashKillRetarget) -> (Vec<Option<EntityId>>, usize, EntityId) {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_kill_retarget = arm;
+    let mut s = BattleState::new(0, cfg);
+    let (skel_at, kn_at) = ((9500, 23400), (9500, 25400));
+    let mk = s.scenario_spawn_now(Team::Blue, "MegaKnight", at((9500, 18500)), None).unwrap();
+    let skel = s.scenario_spawn_now(Team::Red, "Skeleton", at(skel_at), None).unwrap();
+    let kn = s.scenario_spawn_now(Team::Red, "Knight", at(kn_at), None).unwrap();
+    let (mut rows, mut gone) = (Vec::new(), None);
+    for k in 0..80 {
+        if s.entity(skel).is_some() {
+            assert!(s.debug_set_pos(skel, at(skel_at)));
+        }
+        let max = s.entity(kn).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(kn, at(kn_at)) && s.debug_set_hp(kn, max));
+        s.tick();
+        rows.push(s.entity(mk).expect("the Mega Knight").target);
+        if gone.is_none() && s.entity(skel).is_none() {
+            gone = Some(k);
+        }
+    }
+    (rows, gone.expect("the scene drifted: the Skeleton never died"), kn)
+}
+
+/// combat.DASH_KILL_RETARGET = client16402_after_the_dash (parity r80, live13: 112 of 113 Mega Knight dash kills took the next
+/// target on the dash's end + 1). Plant: dash_kill_retargets_mid_dash.
+#[test]
+fn under_client16402_after_the_dash_a_mega_knight_takes_no_target_until_its_jump_ends() {
+    let (rows, l, kn) = mk_after_kill(DashKillRetarget::Client16402AfterTheDash);
+    let first = (l + 1..rows.len()).find(|&k| rows[k] == Some(kn)).expect("the Mega Knight never took the Knight");
+    assert!(rows[l + 1..first].iter().all(|t| t.is_none()), "a target mid-dash: {:?}", &rows[l..=first]);
+    assert_eq!(first - l, DASH_BLOW_TO_END_TICKS as usize + 1, "the Knight on the blow + 4 + 1: {:?}", &rows[l..=first]);
+    // NOT VACUOUS: at_once takes the Knight on L + 1, mid-dash
+    let (old, l0, kn0) = mk_after_kill(DashKillRetarget::AtOnce);
+    assert_eq!(old[l0 + 1], Some(kn0), "at_once: {:?}", &old[l0..l0 + 6]);
 }

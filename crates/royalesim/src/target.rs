@@ -41,11 +41,11 @@
 #![allow(unexpected_cfgs)]
 
 use crate::arena::{Arena, Lane};
-use crate::card::{CardDb, CardDef};
+use crate::card::{CardDb, CardDef, CardKind};
 use crate::entity::{EntityKind, Entities, HideState, SpatialHash};
 use crate::fixed::{in_range_edge, isqrt, Vec2};
 use crate::state::{
-    AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, ChaseRescanPassOver, DeprioritizedTargetBuff, EqualDistanceTie, KnockedLostTarget, KnockedTargetHold, LeapingUnitTargetability,
+    AttackRangeRule, Calib, CentreLaneFrame, ScanReach, ChaseDropMeasure, ChaseDropRange, ChaseDropWalkingAway, ChaseHoldPastLimit, ChaseRescanPassOver, DeprioritizedTargetBuff, EqualDistanceTie, KnockedLostTarget, KnockedTargetHold, LeapTargetScan, LeapingUnitTargetability,
     MinimumRange, PreserveTargetScope, SlapFlightSightHold, SlapFlightTargetability, RiderTargetable, RiseLaw, RiseTrigger, TowerCancelRange, WalkingKeepReach, ChaseHoldScope,
 };
 use crate::{EntityId, Team};
@@ -196,6 +196,59 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, t
     }
 }
 
+/// targeting.VARIABLE_DAMAGE_WALK_REACH: whether a unit of `card` is gated at the reach it walks to (`walking_own_radius`): it
+/// holds a walking goal (`walking`), or its deploy is over and
+///   - under client16402_deploy_end_walks_every_row (held), a flying row has not walked since (`move_ticks` 0);
+///   - under client16402_deploy_end_walks_until_attack, a flying row has not started an attack yet (`settled` false);
+///   - under client16402_ground_entry_from_walk_or_deploy, a ground troop row has not started an attack yet, or its own walk
+///     stepped on the last move pass (`walked`: a target switch while walking);
+///   - under client16402_entry_walks_ground_and_flyer, either of the last two.
+///
+/// A building never walks. Measured on client 16.402 (parity r79, r80, live13): every Inferno Dragon deploy end with its target
+/// only within Range + both radii walked, 6 of 6 (the engine attacked at once 4 of 4); a Dragon that burned from its deploy
+/// end without a step kept its in-band target on 235 of 246 ticks (r79's move_ticks test held it at the walking reach for
+/// life); the Monk entered at Range + the target's radius on 71 of 71 attack starts, and ground rows walked on 11 of 11
+/// deploy-end and switch ticks with the target in the band.
+/// PLANTS (regression) deploy_end_stands: a just-deployed flyer is still gated as a standing one; deploy_end_walk_never_settles:
+/// the deploy end's walking reach outlives its attack start; ground_entry_stands: the ground arm's entries are standing ones.
+#[inline]
+pub fn walks_for_reach(calib: &Calib, card: &CardDef, deploy_ms: i32, move_ticks: u32, settled: bool, walked: bool, walking: bool) -> bool {
+    use crate::state::VariableDamageWalkReach as W;
+    let arm = calib.variable_damage_walk_reach;
+    let flyer = card.is_flying();
+    #[cfg(not(clash_plant = "deploy_end_walk_never_settles"))]
+    let unsettled = !settled;
+    #[cfg(clash_plant = "deploy_end_walk_never_settles")]
+    let unsettled = {
+        let _ = settled;
+        true
+    };
+    #[cfg(not(clash_plant = "deploy_end_stands"))]
+    let fresh = flyer
+        && deploy_ms <= 0
+        && match arm {
+            W::Client16402DeployEndWalksEveryRow => move_ticks == 0,
+            W::Client16402DeployEndWalksUntilAttack | W::Client16402EntryWalksGroundAndFlyer => unsettled,
+            _ => false,
+        };
+    #[cfg(clash_plant = "deploy_end_stands")]
+    let fresh = {
+        let _ = move_ticks;
+        false
+    };
+    #[cfg(not(clash_plant = "ground_entry_stands"))]
+    let ground = matches!(arm, W::Client16402GroundEntryFromWalkOrDeploy | W::Client16402EntryWalksGroundAndFlyer)
+        && !flyer
+        && card.kind == CardKind::Troop
+        && ((deploy_ms <= 0 && unsettled) || walked);
+    #[cfg(clash_plant = "ground_entry_stands")]
+    let ground = {
+        let _ = (walked, unsettled);
+        false
+    };
+    walking || fresh || ground
+}
+
 /// targeting.VARIABLE_DAMAGE_WALK_REACH: the attacker radius a WALKING unit's reach adds, where `own` is its
 /// collision radius (subtiles). Under client16402_no_own_radius_walking, 0 for a FLYING card whose row sets
 /// VariableDamage2 (card.rs `CardDef::variable_damage`, `is_flying`): in the 15.535.29 tables that is the Inferno
@@ -219,26 +272,6 @@ pub fn in_attack_range(calib: &Calib, from: Vec2, range: i32, own_radius: i32, t
 /// within Range of the target's centre (the largest 3,523 of 20 choices on the corpus seat, 3,509 of 5 in the
 /// sweep); every other flyer's reach Range + its radius.
 #[inline]
-/// targeting.VARIABLE_DAMAGE_WALK_REACH: whether a unit is gated at the reach it walks to (`walking_own_radius`): it walked
-/// on the previous tick (`walking`: it holds a walking goal), or, under client16402_deploy_end_walks_every_row, its deploy
-/// is over and it has not walked since (`move_ticks` 0), a flying row alone (a building never walks; the ground rows are
-/// unmeasured). Measured on client 16.402 (parity r79, live13): every Inferno
-/// Dragon deploy end with its target only within Range + both radii walked, 6 of 6; the engine attacked at once 4 of 4.
-/// PLANT (regression) deploy_end_stands: the new arm still gates a just-deployed unit as a standing one.
-pub fn walks_for_reach(calib: &Calib, flyer: bool, deploy_ms: i32, move_ticks: u32, walking: bool) -> bool {
-    #[cfg(not(clash_plant = "deploy_end_stands"))]
-    let fresh = calib.variable_damage_walk_reach == crate::state::VariableDamageWalkReach::Client16402DeployEndWalksEveryRow
-        && flyer
-        && deploy_ms <= 0
-        && move_ticks == 0;
-    #[cfg(clash_plant = "deploy_end_stands")]
-    let fresh = {
-        let _ = (calib, flyer, deploy_ms, move_ticks);
-        false
-    };
-    walking || fresh
-}
-
 pub fn walking_own_radius(calib: &Calib, card: &CardDef, own: i32) -> i32 {
     use crate::state::VariableDamageWalkReach as W;
     #[cfg(not(clash_plant = "walk_reach_keeps_own_radius"))]
@@ -247,7 +280,10 @@ pub fn walking_own_radius(calib: &Calib, card: &CardDef, own: i32) -> i32 {
         W::Client16402NoOwnRadiusWalking => card.variable_damage.is_some() && card.is_flying(),
         #[cfg(not(clash_plant = "walk_reach_every_row_flyers_only"))]
         W::Client15535NoOwnRadiusWalkingEveryRow => card.variable_damage.is_some() || card.combo.is_some(),
-        W::Client16402DeployEndWalksEveryRow => card.variable_damage.is_some() || card.combo.is_some(),
+        W::Client16402DeployEndWalksEveryRow
+        | W::Client16402DeployEndWalksUntilAttack
+        | W::Client16402GroundEntryFromWalkOrDeploy
+        | W::Client16402EntryWalksGroundAndFlyer => card.variable_damage.is_some() || card.combo.is_some(),
         // PLANT (regression): the every-row arm still reads flyers alone, so the Monk and the Mighty Miner walk to
         // Range + both radii.
         #[cfg(clash_plant = "walk_reach_every_row_flyers_only")]
@@ -1263,6 +1299,13 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     let sliding = e.death_sliding(a);
     #[cfg(clash_plant = "death_slide_targets")]
     let sliding = false; // PLANT: a sliding member scans and takes a target.
+    // targeting.LEAP_TARGET_SCAN = client16402_held_mid_leap: a troop in its river leap (`jumping`, set by the previous tick's
+    // move) keeps a live target and scans nothing. Measured on client 16.402 (parity r80, live13): 0 of 343 leaps took or
+    // changed a target mid-leap. PLANT (regression) leap_scans_mid_leap: the new arm still scans in the air.
+    #[cfg(not(clash_plant = "leap_scans_mid_leap"))]
+    if ctx.calib.leap_target_scan == LeapTargetScan::Client16402HeldMidLeap && e.jumping[a] {
+        return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: false, resumed: false, chase_dropped: None };
+    }
     if e.stun_ms[a] > 0 || e.knocked(a) || sliding {
         let held = cur.filter(|t| e.is_alive(*t));
         // targeting.KNOCKED_TARGET_HOLD = client15535_sight_keep: past its keep test a knocked unit lets go and rescans.

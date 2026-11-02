@@ -1003,7 +1003,15 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     // entity.rs `route_goal`) is gated at the reach it walks to, which adds no own radius for an Inferno Dragon under
     // client16402_no_own_radius_walking (target.rs `walking_own_radius`); a standing one at Range + both radii.
     // client16402_deploy_end_walks_every_row: a just-deployed unit that has not walked yet is gated so too (`walks_for_reach`).
-    let own = if walks_for_reach(calib, card.is_flying(), ents.deploy_ms[a], ents.move_ticks[a], ents.route_goal[a].is_some()) { walking_own_radius(calib, card, ents.radius[a]) } else { ents.radius[a] };
+    let own = if walks_for_reach(
+        calib,
+        card,
+        ents.deploy_ms[a],
+        ents.move_ticks[a],
+        ents.reach_settled.get(a).copied().unwrap_or(false),
+        ents.walked_prev.get(a).copied().unwrap_or(false),
+        ents.route_goal[a].is_some(),
+    ) { walking_own_radius(calib, card, ents.radius[a]) } else { ents.radius[a] };
     let in_range = in_attack_range(calib, ents.pos[a], attack_reach(ents, card, a), own, ents.pos[ti], ents.radius[ti]);
     // THE HIT-STARTED TEST, `progress % HitSpeed > TICK_MS` -- a FLAT constant and
     // not the buffed advance, so a slowed unit's swing is still under way. `>=
@@ -1965,6 +1973,9 @@ fn straight_hits(
     let axe = p.firer_card.and_then(|c| cards.get(c).evo.as_ref().and_then(|e| e.axe).map(|a| (c, a)));
     // The enchant bonus the shot was fired with (`enchant_bonus`), on each unit it hits.
     let bonus = Bonus { hit: p.bonus, crown: p.bonus_crown };
+    // A Firecracker's spark (release_sparks: a one-way straight shot of the Firecracker's card), which the r80 straight-shot arms
+    // leave alone: their census measured the Magic Archer's arrows.
+    let spark = p.firer_card.is_some_and(|c| cards.get(c).spark.is_some());
     let Some(s) = p.straight.as_mut() else { return false };
     let ctx = SpellCtx { ents, hash, cards, calib, steps: &[], tick };
     // What `resolve` drops a hit on (`untouchable_now`), read from the same keys.
@@ -1979,8 +1990,19 @@ fn straight_hits(
     // combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: a CheckCollisions shot reaches a building's square,
     // whose corner stands its radius x 1.415 from the centre (the broad phase reaches it).
     // PLANT (regression) pellet_building_circle: the new arm still tests a building's circle.
+    // client16402_every_straight_shot: every one-way shot (period 0: the Magic Archer's arrow too; the pingpong axe keeps the
+    // circle). Measured on client 16.402 (parity r80, live13): 6 of 6 Magic Archer arrows passing a princess tower 1314..1422
+    // from its centre (outside the circle, inside the square's reach) hit it. PLANT (regression) straight_square_pellets_only:
+    // the new arm still squares the CheckCollisions shots alone.
     #[cfg(not(clash_plant = "pellet_building_circle"))]
-    let square = s.stop_on_hit && calib.straight_shot_building_reach == StraightShotBuildingReach::Client15535RoundedSquare;
+    let square = match calib.straight_shot_building_reach {
+        StraightShotBuildingReach::Circle => false,
+        StraightShotBuildingReach::Client15535RoundedSquare => s.stop_on_hit,
+        #[cfg(not(clash_plant = "straight_square_pellets_only"))]
+        StraightShotBuildingReach::Client16402EveryStraightShot => s.stop_on_hit || (s.period == 0 && !spark),
+        #[cfg(clash_plant = "straight_square_pellets_only")]
+        StraightShotBuildingReach::Client16402EveryStraightShot => s.stop_on_hit,
+    };
     #[cfg(clash_plant = "pellet_building_circle")]
     let square = false;
     let broad = if square { hash.max_radius() * 1415 / 1000 + 1 } else { hash.max_radius() };
@@ -2201,6 +2223,8 @@ fn step_straight(
     nb: &mut Vec<u32>,
     tick: u32,
 ) -> bool {
+    // A Firecracker's spark keeps gone_before_aim under every arm (straight_hits' `spark`).
+    let spark = p.firer_card.is_some_and(|c| cards.get(c).spark.is_some());
     let Some(s) = p.straight.as_mut() else { return false };
     // combat.PROJECTILE_COLLISIONS = client_columns on a CheckCollisions row: the shot is gone on
     // the tick it hits (measured on client 15.535.29: each of 134 Hunter pellets that hit a Knight
@@ -2235,6 +2259,14 @@ fn step_straight(
     }
     let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac, p.team);
     if np == p.aim {
+        // combat.STRAIGHT_SHOT_RANGE_END = client16402_aim_point_tested: the last step reaches the aim and tests there (a shot
+        // that does not stop on a hit). Measured on client 16.402 (parity r80, live13): 9 of 9 crown-tower hits only the last
+        // step of a Magic Archer arrow can reach. PLANT (regression) straight_aim_untested: the shot is still gone untested.
+        #[cfg(not(clash_plant = "straight_aim_untested"))]
+        if !stop && !spark && calib.straight_shot_range_end == crate::state::StraightShotRangeEnd::Client16402AimPointTested {
+            p.pos = np;
+            let _ = straight_hits(ents, hash, cards, calib, p, np, dmg, fx, nb, tick);
+        }
         return false;
     }
     p.pos = np;

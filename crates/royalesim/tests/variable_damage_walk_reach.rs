@@ -201,19 +201,24 @@ fn the_shipped_value_is_the_every_row_arm_since_the_round_12_flip() {
 const DEPLOY_AT: (i32, i32) = (9000, 9000);
 
 fn deploy_end(arm: VariableDamageWalkReach) -> (bool, i64, Reach) {
+    deploy_end_of("InfernoDragon", arm, 4250)
+}
+
+/// `deploy_end` for a played `card` with the Knight held `ahead` of where it stands.
+fn deploy_end_of(card: &str, arm: VariableDamageWalkReach, ahead: i32) -> (bool, i64, Reach) {
     let mut cfg = config();
     cfg.calib.variable_damage_walk_reach = arm;
     let mut s = BattleState::new(0, cfg);
     let at = |p: (i32, i32)| Vec2::new(p.0 * K, p.1 * K);
-    s.spawn_unit(Team::Blue, "InfernoDragon", at(DEPLOY_AT), None).expect("play the Inferno Dragon");
+    s.spawn_unit(Team::Blue, card, at(DEPLOY_AT), None).expect("play the card");
     s.tick();
-    // the play lands on its tile's centre: the Knight goes 4250 ahead of where the Dragon stands
-    let (dragon, p) = s.entities().find(|v| v.card == "InfernoDragon").map(|v| (v.id, v.pos)).expect("the played Dragon stands (deploying)");
-    let kp = Vec2::new(p.x, p.y + 4250 * K);
+    // the play lands on its tile's centre: the Knight goes `ahead` of where the unit stands
+    let (dragon, p) = s.entities().find(|v| v.card == card).map(|v| (v.id, v.pos)).expect("the played unit stands (deploying)");
+    let kp = Vec2::new(p.x, p.y + ahead * K);
     let knight = s.scenario_spawn_now(Team::Red, "Knight", kp, None).expect("spawn the Knight");
     let reach = {
         let (f, k) = (s.entity(dragon).expect("the Dragon stands"), s.entity(knight).expect("the Knight stands"));
-        Reach { range: (card_stat(&s, "InfernoDragon").range / K) as i64, own: (f.radius / K) as i64, knight: (k.radius / K) as i64 }
+        Reach { range: (card_stat(&s, card).range / K) as i64, own: (f.radius / K) as i64, knight: (k.radius / K) as i64 }
     };
     let mut moved = false;
     for _ in 0..200 {
@@ -234,7 +239,7 @@ fn deploy_end(arm: VariableDamageWalkReach) -> (bool, i64, Reach) {
             moved |= f1 != f0;
         }
     }
-    panic!("the scene drifted: the Inferno Dragon never attacked the Knight");
+    panic!("the scene drifted: the {card} never attacked the Knight");
 }
 
 /// (8) Plant: deploy_end_stands.
@@ -246,4 +251,98 @@ fn under_client16402_deploy_end_walks_a_just_deployed_inferno_dragon_walks_to_ra
     // NOT VACUOUS: under the every-row arm it attacks from its deploy end, the Knight still in the band.
     let (moved0, d0, _) = deploy_end(VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow);
     assert!(!moved0 && d0 > r.short(), "client15535_no_own_radius_walking_every_row: moved {moved0}, its attack started {d0} from the Knight");
+}
+
+/// (9) targeting.VARIABLE_DAMAGE_WALK_REACH = client16402_deploy_end_walks_until_attack (parity r80, live13: 6 of 6 Inferno
+/// Dragon deploy ends in the band walked). Plant: deploy_end_stands.
+#[test]
+fn under_client16402_deploy_end_walks_until_attack_a_just_deployed_inferno_dragon_walks_to_range_plus_the_targets_radius() {
+    let (moved, d, r) = deploy_end(VariableDamageWalkReach::Client16402DeployEndWalksUntilAttack);
+    assert!(moved && d <= r.short(), "client16402_deploy_end_walks_until_attack: moved {moved}, its attack started {d} (Range + the Knight's radius {})", r.short());
+    // NOT VACUOUS: the shipped every-row arm attacks from its deploy end
+    let (moved0, d0, _) = deploy_end(VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow);
+    assert!(!moved0 && d0 > r.short(), "client15535_no_own_radius_walking_every_row: moved {moved0}, its attack started {d0}");
+}
+
+/// A played `card` under `arm` with the Knight held `inside` ahead (in its reach under every arm: it attacks from its deploy end
+/// without a step); 15 ticks into its attack the Knight is moved to `band` ahead and held 20 ticks. (it never moved before the
+/// move, it left its attack after it, it moved after it).
+fn burned_then_band(card: &str, arm: VariableDamageWalkReach, inside: i32, band: i32) -> (bool, bool, bool) {
+    let mut cfg = config();
+    cfg.calib.variable_damage_walk_reach = arm;
+    let mut s = BattleState::new(0, cfg);
+    let at = |p: (i32, i32)| Vec2::new(p.0 * K, p.1 * K);
+    s.spawn_unit(Team::Blue, card, at(DEPLOY_AT), None).expect("play the card");
+    s.tick();
+    let (u, p) = s.entities().find(|v| v.card == card).map(|v| (v.id, v.pos)).expect("the played unit stands (deploying)");
+    let mut kp = Vec2::new(p.x, p.y + inside * K);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kp, None).expect("spawn the Knight");
+    let (mut attacking, mut after, mut still, mut left, mut moved) = (0, 0, true, false, false);
+    for _ in 0..300 {
+        let full = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(knight, kp) && s.debug_set_hp(knight, full));
+        let p0 = s.entity(u).expect("the unit").pos;
+        s.tick();
+        let v = s.entity(u).expect("the unit");
+        if v.deploying {
+            continue;
+        }
+        if attacking < 15 {
+            still &= v.pos == p0;
+            if v.attack_phase != AttackPhase::Idle || attacking > 0 {
+                attacking += 1;
+            }
+            if attacking == 15 {
+                kp = Vec2::new(p.x, p.y + band * K);
+            }
+            continue;
+        }
+        left |= v.attack_phase == AttackPhase::Idle;
+        moved |= v.pos != p0;
+        after += 1;
+        if after == 20 {
+            return (still, left, moved);
+        }
+    }
+    panic!("the scene drifted: the {card} never attacked the Knight");
+}
+
+/// (10) targeting.VARIABLE_DAMAGE_WALK_REACH = client16402_deploy_end_walks_until_attack (parity r80, live13: a Dragon that
+/// burned from its deploy end without a step kept its in-band target on 235 of 246 ticks). Plant: deploy_end_walk_never_settles.
+#[test]
+fn under_client16402_deploy_end_walks_until_attack_a_dragon_that_burned_from_its_deploy_end_keeps_its_target_inside_both_radii() {
+    let (still, left, moved) = burned_then_band("InfernoDragon", VariableDamageWalkReach::Client16402DeployEndWalksUntilAttack, 3900, 4250);
+    assert!(still, "the scene drifted: the Dragon stepped before the Knight moved");
+    assert!(!left && !moved, "client16402_deploy_end_walks_until_attack: left {left} moved {moved}");
+    // NOT VACUOUS: the held every-row arm (move_ticks 0 for life) judges it at the walking reach and lets go
+    let (_, l0, m0) = burned_then_band("InfernoDragon", VariableDamageWalkReach::Client16402DeployEndWalksEveryRow, 3900, 4250);
+    assert!(l0 || m0, "client16402_deploy_end_walks_every_row kept it: the scene does not separate the arms");
+}
+
+/// (11) targeting.VARIABLE_DAMAGE_WALK_REACH = client16402_ground_entry_from_walk_or_deploy (parity r80, live13: the Monk entered
+/// at Range + the target's radius on 71 of 71 attack starts; ground rows walked on 11 of 11 deploy-end and switch ticks in the
+/// band). A Monk played with the Knight 1950 ahead: inside Range + both radii (2200), outside Range + its radius (1700).
+/// Plant: ground_entry_stands.
+#[test]
+fn under_client16402_ground_entry_from_walk_or_deploy_a_just_deployed_monk_walks_to_range_plus_the_targets_radius() {
+    for arm in [VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy, VariableDamageWalkReach::Client16402EntryWalksGroundAndFlyer] {
+        let (moved, d, r) = deploy_end_of("Monk", arm, 1950);
+        assert!(r.short() < 1950 && 1950 <= r.long(), "precondition: the Knight in the band ({} .. {})", r.short(), r.long());
+        assert!(moved && d <= r.short(), "{arm:?}: moved {moved}, its attack started {d} (Range + the Knight's radius {})", r.short());
+    }
+    // NOT VACUOUS: the shipped every-row arm and the flyers' arm attack from the deploy end
+    for arm in [VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow, VariableDamageWalkReach::Client16402DeployEndWalksUntilAttack] {
+        let (moved0, d0, r) = deploy_end_of("Monk", arm, 1950);
+        assert!(!moved0 && d0 > r.short(), "{arm:?}: moved {moved0}, its attack started {d0}");
+    }
+}
+
+/// (12) Under client16402_ground_entry_from_walk_or_deploy a Monk that attacked from its deploy end without a step is a standing
+/// unit: the Knight moved into the band keeps him swinging (live13: the Monk's 3 non-walks came after a cast or an idle tick).
+/// Plant: deploy_end_walk_never_settles.
+#[test]
+fn under_client16402_ground_entry_from_walk_or_deploy_a_monk_that_attacked_stands_inside_both_radii() {
+    let (still, left, moved) = burned_then_band("Monk", VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy, 1650, 1950);
+    assert!(still, "the scene drifted: the Monk stepped before the Knight moved");
+    assert!(!left && !moved, "client16402_ground_entry_from_walk_or_deploy: left {left} moved {moved}");
 }

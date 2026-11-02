@@ -1290,6 +1290,13 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         if e.passes_over(v) {
             continue;
         }
+        // spells.STRIKE_DASH_IMMUNE = client16402_charge_skipped: nor one in its charge (state.rs `guard_moves`). Measured on
+        // client 16.402 (parity r80, live13): 3 of 3 bolts with a charging guard in reach took a lower-hp enemy. PLANT
+        // (regression) strike_picks_charging_guard: the new arm still picks it.
+        #[cfg(not(clash_plant = "strike_picks_charging_guard"))]
+        if e.strike_skip.get(v).copied().unwrap_or(false) {
+            continue;
+        }
         let id = e.id_of(v);
         #[cfg(not(clash_plant = "strike_repeats_target"))]
         if struck.binary_search(&id).is_ok() {
@@ -2574,6 +2581,34 @@ pub fn step_spells(ctx: &SpellCtx, spells: &mut Vec<Spell>, dmg: &mut DamageBuff
 /// (knockback.WATER_RESOLUTION = eject_to_nearest_land), repeated until both hold. If
 /// they cannot be satisfied together in a few rounds the unit stays at `old` -- which
 /// the every-tick invariants already hold to be legal ground.
+/// spells.CLONE_SLIDE_WATER = client16402_through_water: `settle` without its water ejection -- the arena clamp and the
+/// building push-outs (up to 4 rounds) alone, so a Clone slide runs on over river cells. A point still inside a building
+/// after them keeps `old`.
+pub fn settle_over_water(arena: &Arena, obstacles: &[Obstacle], team: Team, radius: i32, flying: bool, old: Vec2, desired: Vec2) -> Vec2 {
+    let clamp = |p: Vec2| Vec2::new(p.x.clamp(0, arena.width), p.y.clamp(0, arena.height));
+    let mut p = clamp(desired);
+    if flying {
+        return p;
+    }
+    for _ in 0..4 {
+        let mut total = Vec2::default();
+        for o in obstacles {
+            if let Some(q) = o.shape.push_out(p, radius, team) {
+                total = total.add(q.sub(p));
+            }
+        }
+        if total == Vec2::default() {
+            return p;
+        }
+        p = clamp(p.add(total));
+    }
+    if obstacles.iter().any(|o| o.shape.penetrates(p, 0)) {
+        old
+    } else {
+        p
+    }
+}
+
 pub fn settle(arena: &Arena, obstacles: &[Obstacle], team: Team, radius: i32, flying: bool, old: Vec2, desired: Vec2) -> Vec2 {
     #[cfg(clash_plant = "knock_unclamped")]
     if !arena.in_bounds(desired) {

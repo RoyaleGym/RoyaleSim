@@ -265,6 +265,21 @@ pub struct Entities {
     /// `default` and sized on load like `pass_over`.
     #[serde(default)]
     pub charge_fresh: Vec<bool>,
+    /// targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 ground arms): the unit's own walk stepped on the last move pass (its requested
+    /// step, `Scratch::walk_step`, above 0: pushes, knocks and slides do not count). Written by state.rs `phase_path16402_for`
+    /// under those arms only, read by target.rs `walks_for_reach` on the next tick; hashed only when set.
+    #[serde(default)]
+    pub walked_prev: Vec<bool>,
+    /// targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 arms): a variable-damage or combo row has started an attack, which ends its
+    /// deploy end's walking reach for good (state.rs `phase_attack_for` writes it, target.rs `walks_for_reach` reads it). Written
+    /// true under those arms only; hashed only when set. `default` and sized on load like `charge_fresh`.
+    #[serde(default)]
+    pub reach_settled: Vec<bool>,
+    /// spells.STRIKE_DASH_IMMUNE = client16402_charge_skipped: a Little Prince guard from its first charge frame to its arrival,
+    /// which a strike's pick passes over (state.rs `guard_moves` writes it, spell.rs `strike` reads it). Written true under that
+    /// arm only; hashed only when set. `default` and sized on load like `charge_fresh`.
+    #[serde(default)]
+    pub strike_skip: Vec<bool>,
     /// This unit launched a projectile at its target from beyond its reach on the last tick: set in the attack
     /// pass, read and cleared by the next Target phase, which then rescans (target.rs `decide`). Written under
     /// targeting.LOGIC_PRESERVE_TARGET_IF_HIT_STARTED = "projectile_attackers_only" only, and hashed under it.
@@ -964,6 +979,9 @@ impl Entities {
             self.lost_target[i] = None;
             self.pass_over[i] = false;
             self.charge_fresh[i] = false;
+            self.walked_prev[i] = false;
+            self.reach_settled[i] = false;
+            self.strike_skip[i] = false;
             self.launched_beyond[i] = false;
             self.pancaked[i] = false;
             self.life_state[i] = 0;
@@ -1080,6 +1098,9 @@ impl Entities {
             self.lost_target.push(None);
             self.pass_over.push(false);
             self.charge_fresh.push(false);
+            self.walked_prev.push(false);
+            self.reach_settled.push(false);
+            self.strike_skip.push(false);
             self.launched_beyond.push(false);
             self.pancaked.push(false);
             self.life_state.push(0);
@@ -1270,6 +1291,9 @@ impl Entities {
         self.lost_target[i] = None;
         self.pass_over[i] = false;
         self.charge_fresh[i] = false;
+        self.walked_prev[i] = false;
+        self.reach_settled[i] = false;
+        self.strike_skip[i] = false;
         self.launched_beyond[i] = false;
         self.chase_dropped[i] = None;
         self.chase_inside[i] = None;

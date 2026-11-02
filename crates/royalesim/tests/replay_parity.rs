@@ -1732,3 +1732,23 @@ fn a_member_shown_late_is_scored_from_its_first_seen_frame() {
     assert_eq!(v.score.alive_mismatch, base.score.alive_mismatch + 5, "vacuous: unmarked, the five frames are not scored");
     assert_eq!(v.first_divergence.as_ref().map(|d| d.tick), Some(tick), "vacuous: unmarked, no divergence on the spawn tick");
 }
+
+/// harness.SAME_TICK_PLAY_ORDER (parity r80, live13: side 1's plays first on 35 of the 119 two-sided ticks, by the truth's keys).
+/// Plant: replay_same_tick_rows_by_row_order.
+#[test]
+fn a_ticks_plays_are_issued_in_the_truths_key_order() {
+    let row = |side: i32, card: &str, kind: &str, keys: &[i64]| -> Deploy {
+        serde_json::from_str(&format!(
+            r#"{{"tick": 204, "side": {side}, "card": "{card}", "card_id": 0, "kind": "{kind}", "level": 11, "count": 1, "keys": {keys:?}, "pos": [1500, 14500], "source": "tile_centre"}}"#
+        ))
+        .expect("a deploy parses")
+    };
+    let rows = [row(0, "HogRider", "troop", &[12]), row(1, "Bats", "troop", &[7, 8, 9, 10, 11])];
+    let mut list: Vec<(usize, &Deploy)> = rows.iter().enumerate().collect();
+    same_tick_issue_order(&mut list);
+    assert_eq!(list.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![1, 0], "the Bats (keys 7..11) go down before the Hog Rider (key 12)");
+    let rows = [row(0, "Zap", "spell", &[]), row(0, "Knight", "troop", &[20]), row(1, "Knight", "troop", &[19])];
+    let mut list: Vec<(usize, &Deploy)> = rows.iter().enumerate().collect();
+    same_tick_issue_order(&mut list);
+    assert_eq!(list.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![0, 2, 1], "a keyless spell keeps its slot");
+}

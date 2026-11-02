@@ -85,8 +85,8 @@ use royalesim::card::{CardDb, CardKind, CardSource, SpellDef, SpellShape};
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{
-    BattleConfig, BattleState, DeathSpawnProjectile, ScheduledAction, TickOrder, TransformAttackState, TransformCompare, TransformRedeploy,
-    TransformTiming,
+    BattleConfig, BattleState, DeathSpawnProjectile, ScheduledAction, SwitchTickWalk, TickOrder, TransformAttackState, TransformCompare,
+    TransformRedeploy, TransformTiming,
 };
 use royalesim::{EntityId, Team};
 
@@ -893,4 +893,28 @@ fn the_new_row_deploy_time_arm_deploys_the_cannon() {
         assert!(f.deploying, "deploying on C + {}", k - c);
         assert_eq!(f.hp, hp, "no drain while it deploys (C + {})", k - c);
     }
+}
+
+/// transform.SWITCH_TICK_WALK = client16402_stands (parity r80, live13: the kamikaze form stood on its switch tick in 36 of 37
+/// switches and walked from the next in 35; the engine stepped on it in 7 of 7). Plant: switch_tick_walks.
+#[test]
+fn under_client16402_stands_the_kamikaze_form_stands_on_its_switch_tick() {
+    let walk = |arm: SwitchTickWalk| {
+        let mut cfg = shipped_arms();
+        cfg.calib.switch_tick_walk = arm;
+        let (mut s, demo, tower) = tower_scene(cfg, "GoblinDemolisher", DEMOLISHER_AHEAD, DEMOLISHER_HP);
+        let frames = run(&mut s, demo, 80);
+        let c = crossing(&frames, DEMOLISHER_HP);
+        let (f2, f3, f4, f5) = (live(&frames, c + 2).clone(), live(&frames, c + 3).clone(), live(&frames, c + 4).clone(), live(&frames, c + 5).clone());
+        assert_eq!(f3.card, "GoblinDemolisher_kamikaze_form", "precondition: the switch on C + 3");
+        assert_eq!(f3.target, None, "precondition: no target on the switch tick");
+        (dist(f2.pos, f3.pos), dist(f3.pos, f4.pos), dist(f4.pos, f5.pos), f4.target == Some(tower))
+    };
+    // NOT VACUOUS: walks takes the form's step on its switch tick
+    let (old3, _, _, _) = walk(SwitchTickWalk::Walks);
+    assert!(old3 >= 100, "walks: the form stepped {old3} on its switch tick");
+    let (s3, s4, s5, t4) = walk(SwitchTickWalk::Client16402Stands);
+    assert_eq!(s3, 0, "client16402_stands: a step on the switch tick");
+    assert!(t4, "its tower the tick after the switch");
+    assert!(s4 >= 100 && s5 >= 100, "the form walks from the tick after: {s4} {s5}");
 }

@@ -1077,3 +1077,58 @@ fn under_client16402_unpushed_a_holding_rune_giant_is_not_pushed() {
     assert!(hold_pushed(H::Pushed) > 0, "pushed (the vacuity check): the Knight never moved the holding Rune Giant");
     assert_eq!(hold_pushed(H::Client16402Unpushed), 0, "client16402_unpushed: the holding Rune Giant moved");
 }
+
+/// enchant.ON_BUFF_HOLD_WALK = client16402_walks_on (parity r80, live13: 16 of 16 held arrivals walked past the in-reach tick,
+/// the engine stood): a Rune Giant walking at a red Cannon from far enough that his reach comes inside his first launch's hold
+/// (a blue Knight held 2000 to his left is his pick) walks on through it and swings on L + 14 under both arms. Plant:
+/// enchant_hold_stands_in_reach.
+#[test]
+fn under_client16402_walks_on_he_walks_into_his_reach_through_his_hold() {
+    use royalesim::state::{EnchantOnBuffHoldWalk as W, EnchantOnBuffPause as P};
+    let cannon_at = (9000, 13600);
+    // per tick from F: (his step, his centre distance to the Cannon after it, attack_ms > 0); the launch tick L; his reach
+    let run = |w: W, start_y: i32| -> (Vec<(i64, i64, bool)>, u32, i64) {
+        let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+        c.calib.enchant_on_buff_pause = P::Client16402ConditionalNoMove;
+        c.calib.enchant_on_buff_hold_walk = w;
+        let mut s = BattleState::new(0, c);
+        let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at(cannon_at), None).expect("a red Cannon");
+        let full = s.entity(cannon).expect("the Cannon").max_hp;
+        let knight = s.scenario_spawn_now(Team::Blue, "Knight", at((7000, start_y)), None).expect("a blue Knight");
+        let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", at((9000, start_y)), None).expect("the Rune Giant");
+        let reach = {
+            let (g, k) = (s.entity(giant).expect("the Rune Giant"), s.entity(cannon).expect("the Cannon"));
+            ((s.cards().get(g.card_idx).range + g.radius + k.radius) / K) as i64
+        };
+        let f = s.tick_count();
+        let (mut out, mut launch) = (Vec::new(), None);
+        let mut prev: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+        for _ in 0..70 {
+            assert!(s.debug_set_hp(cannon, full), "the Cannon stands");
+            let gp = s.entity(giant).expect("the Rune Giant").pos;
+            assert!(s.debug_set_pos(knight, Vec2::new(gp.x - 2000 * K, gp.y)), "the Knight held to his left");
+            let k = s.tick_count();
+            s.tick();
+            let now: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+            if launch.is_none() && now.iter().any(|t| !prev.contains(t)) {
+                launch = Some(k - f);
+            }
+            prev = now;
+            let v = s.entity(giant).expect("the Rune Giant");
+            out.push((dist(gp, v.pos), dist(v.pos, at(cannon_at)), v.attack_ms > 0));
+        }
+        (out, launch.expect("no launch"), reach)
+    };
+    // his reach should come about 5 ticks into the hold: L 27, about 60 a tick
+    let (old, l, reach) = run(W::StandsInReach, 9130);
+    // E: the tick stands_in_reach stops on, his reach (centre within `reach` of the Cannon's) reached
+    let e = (1..old.len()).find(|&k| old[k].0 == 0 && old[k - 1].0 > 0).expect("the scene drifted: he never stopped") as u32;
+    assert!(old[e as usize].1 <= reach + 60, "the scene drifted: he stopped short of his reach ({reach}): {old:?}");
+    assert!(l < e && e + 3 <= l + 13, "the scene: his reach falls inside the hold (L {l}, E {e}): {old:?}");
+    assert!(old[(e + 1) as usize..=(l + 13) as usize].iter().all(|r| r.0 == 0), "NOT VACUOUS: stands_in_reach stands in his reach: {old:?}");
+    let (new, l2, _) = run(W::Client16402WalksOn, 9130);
+    assert_eq!(l2, l, "the same launch");
+    assert!(new[(e + 1) as usize..=(l + 13) as usize].iter().all(|r| r.0 > 0), "client16402_walks_on: he walks on: {new:?}");
+    let first_swing = |r: &[(i64, i64, bool)]| r.iter().position(|x| x.2).map(|k| k as u32);
+    assert_eq!((first_swing(&old), first_swing(&new)), (Some(l + 14), Some(l + 14)), "his swing on L + 14 under both");
+}

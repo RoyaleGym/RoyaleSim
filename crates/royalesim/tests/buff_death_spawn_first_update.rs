@@ -31,7 +31,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, BuffDeathSpawnFirstUpdate, Calib, DyingUnitVisibility};
+use royalesim::state::{BattleConfig, BattleState, BuffDeathSpawnFacing, BuffDeathSpawnFirstUpdate, Calib, DyingUnitVisibility};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -165,4 +165,64 @@ fn under_client16402_creation_tick_a_hog_whose_parent_died_of_no_hit_is_pushed_o
     // NOT VACUOUS: the shipped 16.402 arm (client15535_doomed_parent) leaves a not-doomed parent's hog unpushed on that tick.
     let old = BuffDeathSpawnFirstUpdate::Client15535DoomedParent;
     assert_eq!(birth_point(old, d, 0, true), birth_point(old, d, 0, false), "client15535_doomed_parent: the hog was pushed");
+}
+
+/// South-west of the hog's birth point, 922 from it: a Blue Golem held here is the Red Knight's target, so the Knight faces it
+/// south-west; nothing stands north of the hog.
+const BLOCK: (i32, i32) = (9200, 18300);
+
+/// What `facing_scene` reads: per tick (the Red Knight's hp drop, whether it carries the curse after), and with a kill (the new
+/// hog's avoidance offset on its creation tick, the Red Knight's facing before that tick).
+type FacingScene = (Vec<(i32, bool)>, Option<(i32, Vec2)>);
+
+/// The Red Knight cursed by the Witch and swinging at a Blue Golem held on BLOCK (no Blue Knight), under
+/// status.BUFF_DEATH_SPAWN_FIRST_UPDATE = client16402_creation_tick and BUFF_DEATH_SPAWN_FACING = `facing`. Per tick (its hp
+/// drop, it carries the curse after); with `kill` = Some(d), its hp set to 0 before tick d, and then the new hog's avoidance
+/// offset on its creation tick and the Red Knight's facing before that tick.
+fn facing_scene(facing: BuffDeathSpawnFacing, kill: Option<usize>) -> FacingScene {
+    let mut c = cfg(BuffDeathSpawnFirstUpdate::Client16402CreationTick);
+    c.calib.buff_death_spawn_facing = facing;
+    let mut s = BattleState::new(0, c);
+    let _cannon = s.scenario_spawn_now(Team::Blue, "Cannon", at(CANNON), None).expect("the Cannon");
+    let red = s.scenario_spawn_now(Team::Red, "Knight", at(RED_KNIGHT), None).expect("the Red Knight");
+    let _witch = s.scenario_spawn_now(Team::Blue, "WitchMother", at(WITCH), None).expect("the Witch");
+    let golem = s.scenario_spawn_now(Team::Blue, "Golem", at(BLOCK), None).expect("the Golem");
+    let full = s.entity(red).expect("the Red Knight").max_hp;
+    let mut rows = Vec::new();
+    for k in 0..400 {
+        let Some(f) = s.entity(red).map(|v| v.facing) else { break };
+        assert!(s.debug_set_pos(red, at(RED_KNIGHT)) && s.debug_set_pos(golem, at(BLOCK)));
+        assert!(s.debug_set_hp(golem, s.entity(golem).expect("the Golem").max_hp));
+        let die = kill == Some(k);
+        assert!(s.debug_set_hp(red, if die { 0 } else { full }));
+        let hogs: Vec<EntityId> = s.entities().filter(|e| e.card == "VoodooHog").map(|e| e.id).collect();
+        s.tick();
+        let after = s.entity(red).map_or(0, |v| v.hp.max(0));
+        rows.push((if die { 0 } else { full - after }, cursed(&s, red)));
+        if die {
+            let new = s.entities().find(|e| e.card == "VoodooHog" && !hogs.contains(&e.id)).map(|e| (e.avoid_offset, f));
+            return (rows, new);
+        }
+    }
+    (rows, None)
+}
+
+/// status.BUFF_DEATH_SPAWN_FACING = client16402_victim_facing (parity r80, live13: the victim's facing gives the truth's first
+/// turn 23 of 24). Plant: buff_spawn_faces_own_forward.
+#[test]
+fn under_client16402_victim_facing_the_hog_scans_along_its_victims_facing() {
+    let (rows, _) = facing_scene(BuffDeathSpawnFacing::OwnSideForward, None);
+    let d = (101..rows.len()).find(|&k| rows[k].0 == 0 && rows[k - 1].1).expect("the scene drifted: no quiet tick on the cursed Knight");
+    let (_, new) = facing_scene(BuffDeathSpawnFacing::Client16402VictimFacing, Some(d));
+    let (off, f) = new.expect("the scene drifted: the Red Knight left no hog");
+    assert!(f.x < 0 && f.y < 0, "the scene drifted: the Red Knight faced {f:?}, not the Golem south-west of it");
+    assert_ne!(off, 0, "client16402_victim_facing: the hog found no body along its victim's facing");
+    // NOT VACUOUS: along Blue's forward (+y) nothing stands, so own_side_forward takes no offset
+    let (_, old) = facing_scene(BuffDeathSpawnFacing::OwnSideForward, Some(d));
+    assert_eq!(old.map(|o| o.0), Some(0), "own_side_forward: the hog took an offset");
+}
+
+#[test]
+fn the_shipped_buff_death_spawn_facing_is_own_side_forward() {
+    assert_eq!(Calib::shipped().buff_death_spawn_facing, BuffDeathSpawnFacing::OwnSideForward);
 }
