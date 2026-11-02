@@ -46,8 +46,10 @@ const AT: (i32, i32) = (9000, 9000);
 
 fn battle() -> BattleState {
     let mut cfg: BattleConfig = config();
-    // The 15.535.29 scene's warp (combat.WARP_LAW's old arm; the new one below).
+    // The 15.535.29 scene's warp (combat.WARP_LAW's old arm; the new one below), and its first step the warp's alone
+    // (combat.WARP_WALK_STEP = warp_only, the arm client 15.535.29 keeps; client 16.402's walk step is that key's tests').
     cfg.calib.warp_law = WarpLaw::Client15535Ladder;
+    cfg.calib.warp_walk_step = WarpWalkStep::WarpOnly;
     battle_on(cfg)
 }
 
@@ -231,6 +233,8 @@ fn run_warp(s: &mut BattleState, hero: EntityId, reds: &[(EntityId, Vec2)], targ
 fn under_client16402_brake_and_return_the_warp_brakes_before_its_pick() {
     let mut cfg: BattleConfig = config();
     cfg.calib.warp_law = WarpLaw::Client16402BrakeAndReturn;
+    // the law's steps alone: the shipped combat.WARP_WALK_STEP adds the hero's walk step to its first (that key's tests)
+    cfg.calib.warp_walk_step = WarpWalkStep::WarpOnly;
     let minion = (AT.0 - 4320, AT.1 + 5760);
     let (mut s, hero, reds) = start_in(battle_on(cfg), &[("Knight", (AT.0, AT.1 + 3000)), ("Skeleton", minion)]);
     let target = reds[1].0;

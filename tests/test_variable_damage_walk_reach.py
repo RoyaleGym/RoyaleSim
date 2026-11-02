@@ -137,12 +137,13 @@ def test_a_baby_dragon_stops_inside_both_radii(arm):
     assert SHORT < d <= LONG, f"{arm}: on {t} the Baby Dragon stopped {d:.1f} from the Knight, not in ({SHORT}, {LONG}]"
 
 
-def test_the_shipped_value_is_the_ground_entry_arm():
-    # Since r80 the ground-entry arm ships: the every-row arm's walking reach (the Monk, the Mighty Miner and the
-    # Inferno Dragon) plus a ground row's entry from a walk or a deploy end. For the Inferno Dragon the walking reach
-    # is this file's NEW_ARM's, which the scenes above select by name.
+def test_the_shipped_value_is_the_ground_and_flyer_entry_arm():
+    # Since r81 the ground-and-flyer entry arm ships: the every-row arm's walking reach (the Monk, the Mighty Miner
+    # and the Inferno Dragon) plus a ground row's entry from a walk or a deploy end and a flyer's from its deploy end
+    # (r80 shipped the ground entry alone). For the Inferno Dragon the walking reach is this file's NEW_ARM's, which
+    # the scenes above select by name.
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["VARIABLE_DAMAGE_WALK_REACH"]
-    assert entry["value"] == "client16402_ground_entry_from_walk_or_deploy"
+    assert entry["value"] == "client16402_entry_walks_ground_and_flyer"
     # r79 added client16402_deploy_end_walks_every_row (a candidate, held: it lost on the live set)
     assert entry["candidates"] == [
         OLD_ARM, NEW_ARM, "client15535_no_own_radius_walking_every_row", "client16402_deploy_end_walks_every_row",

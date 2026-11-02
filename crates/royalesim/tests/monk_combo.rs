@@ -212,9 +212,9 @@ fn the_shipped_values_are_the_measured_arms_since_the_round_12_flip() {
     let c = Calib::shipped();
     assert_eq!(c.attack_combo, AttackCombo::SequenceAcrossTargets);
     assert_eq!(c.combo_pushback, ComboPushback::LadderFromAttackerHitTick);
-    // since parity r80: the every-row arm's walking reach (a walking Monk or Mighty Miner adds no own radius) plus a ground
-    // row's entry from a walk or a deploy end
-    assert_eq!(c.variable_damage_walk_reach, VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy);
+    // since parity r81: the every-row arm's walking reach (a walking Monk or Mighty Miner adds no own radius) plus a ground
+    // row's entry from a walk or a deploy end, and a flyer's from its deploy end
+    assert_eq!(c.variable_damage_walk_reach, VariableDamageWalkReach::Client16402EntryWalksGroundAndFlyer);
 }
 
 /// The Giant's points per tick under `push`: Blue's Monk at (3586, 12375), towers standing, a Red Giant put down at

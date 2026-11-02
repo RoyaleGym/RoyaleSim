@@ -122,9 +122,11 @@ fn a_hog_whose_parent_died_of_no_hit_waits_for_the_next_tick() {
     assert_eq!(new, Some(0), "client15535_doomed_parent: a hog whose parent the doomed mask did not hold stepped on its birth tick");
 }
 
+/// Since parity r81 client 16.402 ships client16402_creation_tick; client 15.535.29 keeps client15535_doomed_parent
+/// (CLIENT15535_ARMS).
 #[test]
-fn the_shipped_arm_is_the_client15535_doomed_parent() {
-    assert_eq!(Calib::shipped().buff_death_spawn_first_update, BuffDeathSpawnFirstUpdate::Client15535DoomedParent);
+fn the_shipped_arm_is_the_client16402_creation_tick() {
+    assert_eq!(Calib::shipped().buff_death_spawn_first_update, BuffDeathSpawnFirstUpdate::Client16402CreationTick);
 }
 
 /// 700 south of the hog's birth point (1100 south of the Red Knight): a Blue Golem there overlaps the newborn hog. A
@@ -222,7 +224,8 @@ fn under_client16402_victim_facing_the_hog_scans_along_its_victims_facing() {
     assert_eq!(old.map(|o| o.0), Some(0), "own_side_forward: the hog took an offset");
 }
 
+/// Since parity r81 (with status.BUFF_DEATH_SPAWN_FIRST_UPDATE's client16402_creation_tick).
 #[test]
-fn the_shipped_buff_death_spawn_facing_is_own_side_forward() {
-    assert_eq!(Calib::shipped().buff_death_spawn_facing, BuffDeathSpawnFacing::OwnSideForward);
+fn the_shipped_buff_death_spawn_facing_is_client16402_victim_facing() {
+    assert_eq!(Calib::shipped().buff_death_spawn_facing, BuffDeathSpawnFacing::Client16402VictimFacing);
 }
