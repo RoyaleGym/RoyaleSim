@@ -267,7 +267,8 @@ pub struct Entities {
     pub charge_fresh: Vec<bool>,
     /// targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 ground arms): the unit's own walk stepped on the last move pass (its requested
     /// step, `Scratch::walk_step`, above 0: pushes, knocks and slides do not count). Written by state.rs `phase_path16402_for`
-    /// under those arms only, read by target.rs `walks_for_reach` on the next tick; hashed only when set.
+    /// under those arms only and for variable-damage and combo rows only (no other row's reach reads it), read by target.rs
+    /// `walks_for_reach` on the next tick; hashed only when set.
     #[serde(default)]
     pub walked_prev: Vec<bool>,
     /// targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 arms): a variable-damage or combo row has started an attack, which ends its

@@ -18,8 +18,10 @@
 //!      and at least 1,500 over the ladder, where the first two push nothing; the count runs under COMBO_PUSHBACK alone; under
 //!      not_read the Knight stands;
 //!   3. the every-row arm: a walking Monk's attack starts within Range + the Knight's radius and a walking Mighty
-//!      Miner's too, and neither does under the shipped arm; a Knight's starts where it did;
-//!   4. the shipped values are the measured arms, since the round-12 flip;
+//!      Miner's too, and neither does under the Inferno Dragon's arm (client16402_no_own_radius_walking); a Knight's
+//!      starts where it did;
+//!   4. the shipped values are the measured arms: the combo's since the round-12 flip, the walking reach's
+//!      client16402_ground_entry_from_walk_or_deploy (the every-row arm's walking reach) since parity r80;
 //!   5. knockback.COMBO_PUSHBACK = client15535_ladder_armed_at_hit: a Red Giant walking past the Monk (to Blue's left
 //!      princess tower, which stands in this scene) takes the third hit's first step, about 250, straight away from the
 //!      Monk out of its point before the tick, and no walk; client15535_ladder_from_attacker_hit_tick (the vacuity check)
@@ -200,7 +202,7 @@ fn the_every_row_arm_starts_a_walking_monk_and_mighty_miner_within_range_plus_th
         assert!(walked, "{me}: the scene drifted: it never walked");
         assert!(d <= short, "{me}: every-row arm: the attack started {d} from the Knight, outside Range + its radius ({short})");
         let (d, _) = attack_start(me, DRAGON_ONLY_REACH);
-        assert!(d > short && d <= short + 500, "{me}: shipped arm: the attack started {d}, not within Range + both radii and outside Range + the Knight's radius");
+        assert!(d > short && d <= short + 500, "{me}: the Dragon-only arm: the attack started {d}, not within Range + both radii and outside Range + the Knight's radius");
     }
     assert_eq!(attack_start("Knight", EVERY_ROW), attack_start("Knight", DRAGON_ONLY_REACH), "a Knight's start moved with the arm");
 }
@@ -210,7 +212,9 @@ fn the_shipped_values_are_the_measured_arms_since_the_round_12_flip() {
     let c = Calib::shipped();
     assert_eq!(c.attack_combo, AttackCombo::SequenceAcrossTargets);
     assert_eq!(c.combo_pushback, ComboPushback::LadderFromAttackerHitTick);
-    assert_eq!(c.variable_damage_walk_reach, EVERY_ROW);
+    // since parity r80: the every-row arm's walking reach (a walking Monk or Mighty Miner adds no own radius) plus a ground
+    // row's entry from a walk or a deploy end
+    assert_eq!(c.variable_damage_walk_reach, VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy);
 }
 
 /// The Giant's points per tick under `push`: Blue's Monk at (3586, 12375), towers standing, a Red Giant put down at

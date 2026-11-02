@@ -27567,14 +27567,17 @@ impl BattleState {
         }
         self.end_dashes(dash_ended);
         // targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 ground arms): whether each unit this pass moved took a walking step of its
-        // own, read as `walked` by the next tick's reach tests (target.rs `walks_for_reach`).
+        // own, read as `walked` by the next tick's reach tests (target.rs `walks_for_reach`). Written for a variable-damage or
+        // combo row only: no other row's reach reads it (target.rs `walking_own_radius` gives it its own radius either way), so
+        // a battle without such a row keeps its state hash.
         if matches!(
             self.cfg.calib.variable_damage_walk_reach,
             VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy | VariableDamageWalkReach::Client16402EntryWalksGroundAndFlyer
         ) {
             for (i, &l) in walk_step.iter().enumerate().take(self.ents.walked_prev.len()) {
                 if only.map_or(true, |o| o.contains(&i)) {
-                    self.ents.walked_prev[i] = l > 0;
+                    let card = self.cfg.cards.get(self.ents.card[i]);
+                    self.ents.walked_prev[i] = l > 0 && (card.variable_damage.is_some() || card.combo.is_some());
                 }
             }
         }
@@ -39447,8 +39450,8 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.VARIABLE_DAMAGE_WALK_REACH's r80 arms (client16402_deploy_end_walks_until_attack,
 ///    client16402_ground_entry_from_walk_or_deploy, client16402_entry_walks_ground_and_flyer): Entities gained reach_settled and
-///    walked_prev (serde default empty, sized on load to false, hashed only when set; written only under those arms), so a
-///    blob saved before them deserializes and hashes as it did.
+///    walked_prev (serde default empty, sized on load to false, hashed only when set; written only under those arms, for
+///    variable-damage and combo rows), so a blob saved before them deserializes and hashes as it did.
 /// 20, unchanged, charge.CHARGED_HIT_TIMING = client16402_after_a_charged_step: Entities gained charge_fresh (serde default empty,
 ///    sized on load to false, hashed only when set; written true only under that arm), so a blob saved before it deserializes
 ///    and hashes as it did.

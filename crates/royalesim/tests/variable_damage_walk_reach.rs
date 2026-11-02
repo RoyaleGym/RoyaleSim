@@ -260,7 +260,7 @@ fn under_client16402_deploy_end_walks_a_just_deployed_inferno_dragon_walks_to_ra
 fn under_client16402_deploy_end_walks_until_attack_a_just_deployed_inferno_dragon_walks_to_range_plus_the_targets_radius() {
     let (moved, d, r) = deploy_end(VariableDamageWalkReach::Client16402DeployEndWalksUntilAttack);
     assert!(moved && d <= r.short(), "client16402_deploy_end_walks_until_attack: moved {moved}, its attack started {d} (Range + the Knight's radius {})", r.short());
-    // NOT VACUOUS: the shipped every-row arm attacks from its deploy end
+    // NOT VACUOUS: the every-row arm (shipped before r80) attacks from its deploy end
     let (moved0, d0, _) = deploy_end(VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow);
     assert!(!moved0 && d0 > r.short(), "client15535_no_own_radius_walking_every_row: moved {moved0}, its attack started {d0}");
 }
@@ -331,7 +331,7 @@ fn under_client16402_ground_entry_from_walk_or_deploy_a_just_deployed_monk_walks
         assert!(r.short() < 1950 && 1950 <= r.long(), "precondition: the Knight in the band ({} .. {})", r.short(), r.long());
         assert!(moved && d <= r.short(), "{arm:?}: moved {moved}, its attack started {d} (Range + the Knight's radius {})", r.short());
     }
-    // NOT VACUOUS: the shipped every-row arm and the flyers' arm attack from the deploy end
+    // NOT VACUOUS: the every-row arm (shipped before r80) and the flyers' arm attack from the deploy end
     for arm in [VariableDamageWalkReach::Client15535NoOwnRadiusWalkingEveryRow, VariableDamageWalkReach::Client16402DeployEndWalksUntilAttack] {
         let (moved0, d0, r) = deploy_end_of("Monk", arm, 1950);
         assert!(!moved0 && d0 > r.short(), "{arm:?}: moved {moved0}, its attack started {d0}");
