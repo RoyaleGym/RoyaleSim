@@ -29,7 +29,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, UppercutFlightContact, UppercutFlightTargetability, UppercutStand, UppercutThrowAim};
+use royalesim::state::{BattleConfig, BattleState, UppercutCount, UppercutFlightContact, UppercutFlightTargetability, UppercutStand, UppercutThrowAim};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -41,8 +41,13 @@ fn battle() -> BattleState {
 }
 
 fn battle_aim(aim: UppercutThrowAim) -> BattleState {
+    battle_with(|c| c.calib.uppercut_throw_aim = aim)
+}
+
+/// `battle` with `tweak` applied to its config.
+fn battle_with(tweak: impl FnOnce(&mut BattleConfig)) -> BattleState {
     let mut cfg: BattleConfig = config();
-    cfg.calib.uppercut_throw_aim = aim;
+    tweak(&mut cfg);
     cfg.decks = [vec!["MegaKnight".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
     cfg.card_level = [11, 11];
@@ -280,4 +285,69 @@ fn under_client16402_nearest_own_tower_the_throw_runs_at_its_nearest_tower() {
     assert!(old.0 < -60 && old.1 > 200, "the scene: own_king throws at the king ({old:?})");
     let new = first_throw_step(UppercutThrowAim::Client16402NearestOwnTower);
     assert!(new.0 > 0 && new.0 < 30 && new.1 > 240, "client16402_nearest_own_tower: not at the right princess tower ({new:?})");
+}
+
+/// Whether each of the Evo Mega Knight's first three regular hits (268 off a red Knight put back on its point before every
+/// tick) threw it (400 or more toward its king over the hit's tick + 1 .. + 4), under combat.UPPERCUT_COUNT = `arm`. `played`:
+/// played (his deploy blow cast) and held at (9000, 12500), the Knight 1,400 ahead, inside his jump's minimum range; else a
+/// setup spawn (no deploy blow), free at (9000, 8500), the Knight 5,200 ahead: he jumps to it first.
+fn throws(arm: UppercutCount, played: bool) -> Vec<bool> {
+    let mut s = battle_with(|c| {
+        c.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
+        c.calib.uppercut_count = arm;
+    });
+    let (at, kn_at) = if played { (n(9000, 12500), n(9000, 13900)) } else { (n(9000, 8500), n(9000, 13700)) };
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
+    let mk = if played {
+        s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+        s.tick();
+        find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id
+    } else {
+        s.scenario_spawn_now(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight")
+    };
+    let (mut hits, mut steps, mut farthest) = (Vec::new(), Vec::new(), 0);
+    for k in 0..400 {
+        if played {
+            assert!(s.debug_set_pos(mk, at));
+        }
+        let top = s.entity(knight).expect("the Knight").max_hp;
+        assert!(s.debug_set_pos(knight, kn_at));
+        assert!(s.debug_set_hp(knight, top));
+        s.tick();
+        let e = s.entity(knight).expect("the Knight");
+        if top - e.hp == 268 {
+            hits.push(k);
+        }
+        steps.push((e.pos.y - kn_at.y) / K);
+        if let Some(m) = s.entity(mk) {
+            farthest = farthest.max((m.pos.y - at.y) / K);
+        }
+        if hits.len() == 3 && k >= hits[2] + 4 {
+            break;
+        }
+    }
+    assert!(hits.len() >= 3, "three hits of 268: {hits:?}");
+    if !played {
+        assert!(farthest >= 2000, "the scene drifted: he never jumped (farthest {farthest})");
+    }
+    hits.iter().take(3).map(|&h| steps[h + 1..=h + 4].iter().sum::<i32>() >= 400).collect()
+}
+
+/// combat.UPPERCUT_COUNT = client16402_deploy_blow_not_dash (client 16.402, parity r81, live13: 128 of 132 hits, the engine's
+/// rule 40 of 132): a played Evo Mega Knight's deploy blow is his first attack, so his first hit throws. Plant:
+/// uppercut_deploy_uncounted.
+#[test]
+fn under_client16402_deploy_blow_not_dash_a_played_knights_first_hit_throws() {
+    assert_eq!(throws(UppercutCount::Client16402DeployBlowNotDash, true), vec![true, false, true]);
+    // NOT VACUOUS: the engine's rule throws on the 2nd
+    assert_eq!(throws(UppercutCount::HitsAndDashBlows, true), vec![false, true, false]);
+}
+
+/// combat.UPPERCUT_COUNT = client16402_deploy_blow_not_dash: his jump's blow is no attack for the count (live13: 50 of 50 hits
+/// after a jump). A setup spawn casts no deploy blow, so he starts at 0. Plant: uppercut_dash_counted.
+#[test]
+fn under_client16402_deploy_blow_not_dash_his_jump_is_no_attack() {
+    assert_eq!(throws(UppercutCount::Client16402DeployBlowNotDash, false), vec![false, true, false]);
+    // NOT VACUOUS: the engine's rule counts the jump, so his 1st hit throws
+    assert_eq!(throws(UppercutCount::HitsAndDashBlows, false), vec![true, false, true]);
 }

@@ -399,6 +399,10 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.WARP_WALK_STEP = warp_only: unread on client 15.535.29.
 ///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: client 15.535.29's 136 of 136 Hunter pellet ends (no other
 ///   straight shot's end read there).
+///   combat.UPPERCUT_COUNT = hits_and_dash_blows: client 15.535.29's Evo Mega Knight dashes are unread.
+///   targeting.VARIABLE_DAMAGE_LADDER_WALK = stands_after_ladder: client 15.535.29 keeps its own walk-reach arm, which reads no
+///   walked_prev.
+///   combat.GUARD_LANDING_AVOIDANCE = scanned: client 15.535.29's landed guards are unread for it.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -627,6 +631,9 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("enchant.ON_BUFF_HOLD_WALK", "\"stands_in_reach\""),
     ("combat.WARP_WALK_STEP", "\"warp_only\""),
     ("combat.STRAIGHT_SHOT_BUILDING_REACH", "\"client15535_rounded_square\""),
+    ("combat.UPPERCUT_COUNT", "\"hits_and_dash_blows\""),
+    ("targeting.VARIABLE_DAMAGE_LADDER_WALK", "\"stands_after_ladder\""),
+    ("combat.GUARD_LANDING_AVOIDANCE", "\"scanned\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -993,7 +993,7 @@ fn locked_hold_beyond(ctx: &TargetCtx, a: usize) -> i32 {
 fn knocked_lets_go(ctx: &TargetCtx, a: usize, ti: usize) -> bool {
     let e = ctx.ents;
     #[cfg(not(clash_plant = "knocked_target_held"))]
-    let arm = ctx.calib.knocked_target_hold == KnockedTargetHold::Client15535SightKeep;
+    let arm = matches!(ctx.calib.knocked_target_hold, KnockedTargetHold::Client15535SightKeep | KnockedTargetHold::Client16402DecidesOnLadder);
     #[cfg(clash_plant = "knocked_target_held")]
     let arm = false; // PLANT (regression): the new arm still keeps a knocked unit's target at any distance.
     arm && (e.knock_ms[a] > 0 || e.push_active[a])
@@ -1306,7 +1306,21 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     if ctx.calib.leap_target_scan == LeapTargetScan::Client16402HeldMidLeap && e.jumping[a] {
         return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: false, resumed: false, chase_dropped: None };
     }
-    if e.stun_ms[a] > 0 || e.knocked(a) || sliding {
+    // targeting.KNOCKED_TARGET_HOLD = client16402_decides_on_ladder: a unit on a knock ladder (not stunned, hooked or sliding
+    // out) decides its target below as one off the ladder would. Measured on client 16.402 (parity r81, live13): with a nearer
+    // enemy in sight and the held target past the keep reach, 89 of 102 clean ladders took the nearest, 84 on the first such
+    // tick; the engine held its target 12 of 12. PLANT (regression) knocked_ladder_holds: the new arm still holds.
+    #[cfg(not(clash_plant = "knocked_ladder_holds"))]
+    let decides = ctx.calib.knocked_target_hold == KnockedTargetHold::Client16402DecidesOnLadder
+        && e.stun_ms[a] == 0
+        && !sliding
+        && e.hooked_by[a].is_none()
+        && (e.push_active[a] || e.knock_ms[a] > 0)
+        // a crown tower held is kept as under client15535_sight_keep (the census measured other targets)
+        && !cur.filter(|t| e.is_alive(*t)).is_some_and(|t| e.kind[t.index as usize].is_crown_tower());
+    #[cfg(clash_plant = "knocked_ladder_holds")]
+    let decides = false;
+    if (e.stun_ms[a] > 0 || e.knocked(a) || sliding) && !decides {
         let held = cur.filter(|t| e.is_alive(*t));
         // targeting.KNOCKED_TARGET_HOLD = client15535_sight_keep: past its keep test a knocked unit lets go and rescans.
         if e.stun_ms[a] == 0 && !sliding && held.is_some_and(|t| knocked_lets_go(ctx, a, t.index as usize)) {

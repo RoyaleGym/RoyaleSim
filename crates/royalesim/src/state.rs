@@ -1093,6 +1093,18 @@ pub struct Calib {
     /// `WarpOnly`, what a battle saved before it ran.
     #[serde(default = "warp_walk_step_default")]
     pub warp_walk_step: WarpWalkStep,
+    /// combat.UPPERCUT_COUNT (which of an Evo Mega Knight's blows his uppercut count reads). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `HitsAndDashBlows`, what a battle saved before it ran.
+    #[serde(default = "uppercut_count_default")]
+    pub uppercut_count: UppercutCount,
+    /// targeting.VARIABLE_DAMAGE_LADDER_WALK (whether a knock ladder's tick counts as a walking tick for the ground variable-damage reach). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `StandsAfterLadder`, what a battle saved before it ran.
+    #[serde(default = "variable_damage_ladder_walk_default")]
+    pub variable_damage_ladder_walk: VariableDamageLadderWalk,
+    /// combat.GUARD_LANDING_AVOIDANCE (whether a landed Little Prince guard, bodiless through the arrival + 4, runs its own avoidance scan). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Scanned`, what a battle saved before it ran.
+    #[serde(default = "guard_landing_avoidance_default")]
+    pub guard_landing_avoidance: GuardLandingAvoidance,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3149,6 +3161,18 @@ fn warp_walk_step_default() -> WarpWalkStep {
     WarpWalkStep::WarpOnly
 }
 
+fn uppercut_count_default() -> UppercutCount {
+    UppercutCount::HitsAndDashBlows
+}
+
+fn variable_damage_ladder_walk_default() -> VariableDamageLadderWalk {
+    VariableDamageLadderWalk::StandsAfterLadder
+}
+
+fn guard_landing_avoidance_default() -> GuardLandingAvoidance {
+    GuardLandingAvoidance::Scanned
+}
+
 fn life_state_wake_reach_default() -> LifeWakeReach {
     LifeWakeReach::BuildingsFurther
 }
@@ -4708,6 +4732,10 @@ calib_enum!(
         /// LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET; past that it lets go and rescans. Client 15.535.29: 9 of 9 let go past
         /// it, none within it.
         Client15535SightKeep = "client15535_sight_keep",
+        /// Client 16.402 (parity r81, live13): a unit on a knock ladder (not stunned, hooked or sliding out) decides its target
+        /// as one off the ladder would: it keeps one within its keep reach, else it takes the nearest enemy in sight. A
+        /// stunned, hooked or sliding unit, and one holding a crown tower, as client15535_sight_keep.
+        Client16402DecidesOnLadder = "client16402_decides_on_ladder",
     }
 );
 calib_enum!(
@@ -10815,6 +10843,9 @@ calib_enum!(
         /// Client 16.402 (parity r80, live13): he walks on into and past his reach, his route kept and then straight at his
         /// target's centre, until the hold ends; his swing starts where he stands on L + 14.
         Client16402WalksOn = "client16402_walks_on",
+        /// Client 16.402 (parity r81, live13): client16402_walks_on, but with his route run out inside the walk-on he walks on
+        /// along his facing (his last step's direction), not at his target's centre.
+        Client16402WalksOnHeading = "client16402_walks_on_heading",
     }
 );
 calib_enum!(
@@ -10825,6 +10856,45 @@ calib_enum!(
         /// Client 16.402 (parity r80, live13): each outbound warp step before the landing also carries the hero's own walk step
         /// (its speed toward its held route's next waypoint), none while its swing is under way; the landing is unchanged.
         Client16402WalkAdded = "client16402_walk_added",
+        /// Client 16.402 (parity r81, oracle sp-form-MegaMinion-hero-s0): the walk step rides toward the enemy the hero's own
+        /// target scan sees on the start-of-tick points (its target keeps the warp's pick), none once that enemy is in its
+        /// reach; with none in sight, toward its held route's next waypoint.
+        Client16402WalkToScannedTarget = "client16402_walk_to_scanned_target",
+    }
+);
+calib_enum!(
+    /// combat.UPPERCUT_COUNT -- the Evo Mega Knight's count (state.rs `uppercut_count`, `uppercut_seed`, `land_dash_blows`).
+    UppercutCount {
+        /// The engine's: every regular hit and every dash blow counts; his deploy blow does not, so a played one's first hit
+        /// throws only after a jump.
+        HitsAndDashBlows = "hits_and_dash_blows",
+        /// Client 16.402 (parity r81, live13): a played one's deploy blow counts as his first attack and his dash blows do not,
+        /// so his 1st, 3rd, 5th ... regular hits throw, jump or no jump.
+        Client16402DeployBlowNotDash = "client16402_deploy_blow_not_dash",
+    }
+);
+calib_enum!(
+    /// targeting.VARIABLE_DAMAGE_LADDER_WALK -- what `Entities::walked_prev` reads for a ladder tick (state.rs
+    /// `phase_path16402_for`, target.rs `walks_for_reach`).
+    VariableDamageLadderWalk {
+        /// The engine's: a ladder tick is no walking step (its back-step hands the walk step -25), so on the tick after a
+        /// ladder the unit is a standing one.
+        StandsAfterLadder = "stands_after_ladder",
+        /// Client 16.402 (parity r81, live13): a tick on which a knock ladder moved the unit, its back-step included, counts
+        /// as a walking one.
+        Client16402WalksAfterLadder = "client16402_walks_after_ladder",
+    }
+);
+calib_enum!(
+    /// combat.GUARD_LANDING_AVOIDANCE -- a landed guard's first walk ticks (state.rs `phase_path16402_for`, the contact
+    /// scans).
+    GuardLandingAvoidance {
+        /// The engine's: on its first walk ticks (the arrival + 3 and + 4), bodiless, it still runs its own avoidance scan and
+        /// turns for bodies it landed inside.
+        Scanned = "scanned",
+        /// Client 16.402 (parity r81, live13): on those ticks it runs no avoidance scan (its offset decays as an attacker's):
+        /// its step is its route's or its direct aim's, unrotated; from the arrival + 5, its body back, it scans as before.
+        Client16402UnscannedBodiless = "client16402_unscanned_bodiless",
     }
 );
 calib_enum!(
@@ -11418,6 +11488,9 @@ impl Calib {
             enchant_guard_charge: pick(&v, &["enchant", "GUARD_CHARGE_ATTACK", "value"], EnchantGuardCharge::from_calibration_name)?,
             enchant_on_buff_hold_walk: pick(&v, &["enchant", "ON_BUFF_HOLD_WALK", "value"], EnchantOnBuffHoldWalk::from_calibration_name)?,
             warp_walk_step: pick(&v, &["combat", "WARP_WALK_STEP", "value"], WarpWalkStep::from_calibration_name)?,
+            uppercut_count: pick(&v, &["combat", "UPPERCUT_COUNT", "value"], UppercutCount::from_calibration_name)?,
+            variable_damage_ladder_walk: pick(&v, &["targeting", "VARIABLE_DAMAGE_LADDER_WALK", "value"], VariableDamageLadderWalk::from_calibration_name)?,
+            guard_landing_avoidance: pick(&v, &["combat", "GUARD_LANDING_AVOIDANCE", "value"], GuardLandingAvoidance::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -19693,6 +19766,13 @@ impl BattleState {
             let id = self.spawn_now(p.team, p.card, p.level, p.pos, kind).expect("level validated at enqueue");
             // combat.DEPLOY_PROJECTILE: the play's blow, on the tick its unit is created (`deploy_blow`).
             self.deploy_blow(p.team, p.card, p.level, p.pos, p.action_made);
+            // combat.UPPERCUT_COUNT = client16402_deploy_blow_not_dash: a played Evo Mega Knight's deploy blow is his first
+            // attack (his count starts at 1). Measured on client 16.402 (parity r81, live13): his 1st, 3rd, 5th ... hits
+            // threw, 128 of 132. PLANT (regression) uppercut_deploy_uncounted: the new arm still starts him at 0.
+            #[cfg(not(clash_plant = "uppercut_deploy_uncounted"))]
+            if self.cfg.calib.uppercut_count == UppercutCount::Client16402DeployBlowNotDash {
+                self.uppercut_seed(id);
+            }
             // AN EVOLVED UNIT'S OWN START (`evo_created`): the barrage, the group, the snipes.
             if self.cfg.cards.get(p.card).evo.is_some() {
                 self.evo_created(id, &mut groups);
@@ -22272,9 +22352,32 @@ impl BattleState {
         self.scratch.kills.clear();
     }
 
+    /// combat.UPPERCUT_COUNT = client16402_deploy_blow_not_dash: a played Evo Mega Knight's deploy blow is one of his
+    /// attacks: his count starts at `1 % every`, with no throw (the blow has no target of his). A unit of any other card,
+    /// nothing.
+    fn uppercut_seed(&mut self, id: EntityId) {
+        let Some(u) = self.cfg.cards.get(self.ents.card[id.index as usize]).evo.as_ref().and_then(|v| v.uppercut) else { return };
+        self.evo.uppercut_counts.retain(|(m, _)| *m != id);
+        self.evo.uppercut_counts.push((id, 1 % u.every));
+    }
+
+    /// combat.UPPERCUT_COUNT = client16402_deploy_blow_not_dash: unit `i`'s jump counts nothing, but an entry at 0 (his last
+    /// attack an uppercut) reads `every`, so combat.UPPERCUT_STAND's test of 0 no longer holds him after the jump, as under
+    /// hits_and_dash_blows, and his next hit takes it to `(every + 1) % every`, 1, as from 0.
+    fn uppercut_disarm(&mut self, i: usize) {
+        let Some(u) = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.uppercut) else { return };
+        let id = self.ents.id_of(i);
+        if let Some((_, n)) = self.evo.uppercut_counts.iter_mut().find(|(m, _)| *m == id) {
+            if *n == 0 {
+                *n = u.every;
+            }
+        }
+    }
+
     /// THE EVO MEGA KNIGHT'S COUNT (card.rs `UppercutDef`): one more for each of unit `i`'s attacks, its dash's blow
-    /// included (the table's counter, `(V + 1) % every`); on 0 the attack's target, a live troop, is uppercut from this
-    /// tick (`UppercutRun`, a new one replacing any it is under). A unit of any other card counts nothing.
+    /// included under combat.UPPERCUT_COUNT = hits_and_dash_blows (the table's counter, `(V + 1) % every`); on 0 the
+    /// attack's target, a live troop, is uppercut from this tick (`UppercutRun`, a new one replacing any it is under). A
+    /// unit of any other card counts nothing.
     fn uppercut_count(&mut self, i: usize, target: EntityId) {
         let Some(u) = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.uppercut) else { return };
         let id = self.ents.id_of(i);
@@ -25051,9 +25154,21 @@ impl BattleState {
 
     fn land_dash_blows(&mut self, blows: Vec<(usize, Option<EntityId>, Vec2)>) {
         for (a, target, centre) in blows {
-            // THE EVO MEGA KNIGHT'S COUNT (card.rs `UppercutDef`): his dash's blow is one of his attacks.
-            if let Some(t) = target {
-                self.uppercut_count(a, t);
+            // THE EVO MEGA KNIGHT'S COUNT (card.rs `UppercutDef`): his dash's blow is one of his attacks under
+            // combat.UPPERCUT_COUNT = hits_and_dash_blows; under client16402_deploy_blow_not_dash it is none (parity r81,
+            // live13: not counting his jumps fit 50 of 50 hits after one). PLANT (regression) uppercut_dash_counted: the new
+            // arm still counts it.
+            #[cfg(not(clash_plant = "uppercut_dash_counted"))]
+            let dash_counts = self.cfg.calib.uppercut_count == UppercutCount::HitsAndDashBlows;
+            #[cfg(clash_plant = "uppercut_dash_counted")]
+            let dash_counts = true;
+            match target {
+                Some(t) if dash_counts => self.uppercut_count(a, t),
+                // ... and under client16402_deploy_blow_not_dash the jump counts nothing but still ends the stand armed by his last
+                // uppercut (combat.UPPERCUT_STAND reads a count of 0) as the old arm's count did (`uppercut_disarm`): a stand after
+                // a jump is unmeasured.
+                Some(_) => self.uppercut_disarm(a),
+                None => {}
             }
             let card = self.cfg.cards.get(self.ents.card[a]);
             let Some(d) = card.dash else { continue };
@@ -25445,6 +25560,30 @@ impl BattleState {
         let mut jumped = std::mem::take(&mut self.scratch.jumped);
         jumped.clear();
         jumped.resize(cap, false);
+        // combat.WARP_WALK_STEP = client16402_walk_to_scanned_target: each outbound warping hero's own target scan on the
+        // start-of-tick state, before this pass takes any column (the scan reads them).
+        let warp_scanned: Vec<(EntityId, Option<EntityId>)> = if self.cfg.calib.warp_walk_step == WarpWalkStep::Client16402WalkToScannedTarget {
+            let ctx = TargetCtx {
+                ents: &self.ents,
+                hash: &self.hash,
+                cards: &self.cfg.cards,
+                arena: &self.cfg.arena,
+                calib: &self.cfg.calib,
+                reading: self.cfg.tower_sight_reading,
+                towers: &self.towers,
+                king_active: self.king_active,
+                tick: self.tick,
+                doomed: &[],
+                lane_doomed: &self.scratch.lane_doomed,
+                slap_air: &[],
+                upper_air: &[],
+                chase_walked: &[],
+            };
+            let mut scratch: Vec<u32> = Vec::new();
+            self.warps.runs.iter().filter(|r| !r.back && self.ents.is_alive(r.id)).map(|r| (r.id, target::scan(&ctx, r.id.index as usize, &mut scratch))).collect()
+        } else {
+            Vec::new()
+        };
         let mut routes = std::mem::take(&mut self.ents.route);
         let mut goals = std::mem::take(&mut self.ents.route_goal);
         let mut planned = std::mem::take(&mut self.ents.last_plan_tick);
@@ -25570,6 +25709,13 @@ impl BattleState {
         for r in self.warps.guards.iter() {
             if let Some(g) = r.guard.filter(|g| self.ents.is_alive(*g)) {
                 drill_off[g.index as usize] = true;
+            }
+        }
+        // combat.GUARD_LANDING_AVOIDANCE: the landed guards (their run arrived and still kept: no body through the arrival + 4).
+        let mut guard_landed = vec![false; cap];
+        for r in self.warps.guards.iter().filter(|r| r.arrived.is_some()) {
+            if let Some(g) = r.guard.filter(|g| self.ents.is_alive(*g)) {
+                guard_landed[g.index as usize] = true;
             }
         }
         // A HERO TOMBSTONE'S MONSTER WAITING (card.rs `TombMonsterDef`): DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS; no unit
@@ -26613,16 +26759,36 @@ impl BattleState {
                     // client 16.402 (parity r80, live13): the residual is its walk step in 3 of 3 walking presses, 0 in 2 of 2
                     // attacking ones. PLANT (regression) warp_walk_step_dropped: the new arm still warps alone.
                     #[cfg(not(clash_plant = "warp_walk_step_dropped"))]
-                    let adds = calib.warp_walk_step == WarpWalkStep::Client16402WalkAdded
+                    let adds = matches!(calib.warp_walk_step, WarpWalkStep::Client16402WalkAdded | WarpWalkStep::Client16402WalkToScannedTarget)
                         && !lands
                         && home.is_none()
                         && step > 0
                         && e.attack_phase[i] == AttackPhase::Idle;
                     #[cfg(clash_plant = "warp_walk_step_dropped")]
                     let adds = false;
-                    let p = match (adds, routes[i].last()) {
-                        (true, Some(&n)) => {
-                            let aim = node_centre(n);
+                    // combat.WARP_WALK_STEP = client16402_walk_to_scanned_target: the walk rides toward the enemy the hero's own scan
+                    // sees on the start-of-tick points (its target keeps the pick), none once that enemy is in its reach; with none
+                    // in sight, its held route. Measured on client 16.402 (parity r81, oracle sp-form-MegaMinion-hero-s0): the walk
+                    // heads for the Skeleton it walked to on W .. W + 2 and for the pick from W + 3, when the pick is the nearer; none
+                    // on L - 1. PLANT (regression) warp_walk_aims_held_route: the new arm still walks its held route.
+                    #[cfg(not(clash_plant = "warp_walk_aims_held_route"))]
+                    let scanned = if adds && calib.warp_walk_step == WarpWalkStep::Client16402WalkToScannedTarget {
+                        warp_scanned.iter().find(|(id, _)| *id == e.id_of(i)).and_then(|(_, t)| *t)
+                    } else {
+                        None
+                    };
+                    #[cfg(clash_plant = "warp_walk_aims_held_route")]
+                    let scanned: Option<EntityId> = None;
+                    let walk_aim = match scanned {
+                        Some(t) => {
+                            let ti = t.index as usize;
+                            let range = self.cfg.cards.get(e.card[i]).range;
+                            if target::in_attack_range(calib, e.pos[i], range, e.radius[i], e.pos[ti], e.radius[ti]) { None } else { Some((bodies[ti].x, bodies[ti].y)) }
+                        }
+                        None => routes[i].last().map(|&n| node_centre(n)),
+                    };
+                    let p = match (adds, walk_aim) {
+                        (true, Some(aim)) => {
                             let mut w = (aim.0 - actor.0, aim.1 - actor.1);
                             let d = isqrt(i64::from(w.0) * i64::from(w.0) + i64::from(w.1) * i64::from(w.1)) as i32;
                             let sp = (self.effective_speed(i) / K).min(d);
@@ -27103,7 +27269,7 @@ impl BattleState {
                     // ends. Measured on client 16.402 (parity r80, live13): 16 of 16 held arrivals walked past the in-reach tick.
                     // PLANT (regression) enchant_hold_stands_in_reach: the new arm still stands in his reach.
                     #[cfg(not(clash_plant = "enchant_hold_stands_in_reach"))]
-                    let hold_walks = calib.enchant_on_buff_hold_walk == EnchantOnBuffHoldWalk::Client16402WalksOn
+                    let hold_walks = matches!(calib.enchant_on_buff_hold_walk, EnchantOnBuffHoldWalk::Client16402WalksOn | EnchantOnBuffHoldWalk::Client16402WalksOnHeading)
                         && card.enchant_hold
                         && e.enchant_hold[i] > 0
                         && self.tick <= e.enchant_hold[i]
@@ -27245,7 +27411,14 @@ impl BattleState {
                 let cage_masked = caged[i] && calib.cage_captive_avoidance == CageCaptiveAvoidance::Client15535Masked;
                 #[cfg(clash_plant = "cage_captive_scanned")]
                 let cage_masked = false;
-                if !attacking && !held_masked && !cage_masked {
+                // combat.GUARD_LANDING_AVOIDANCE = client16402_unscanned_bodiless: a landed guard with no body yet runs no avoidance
+                // scan; the decay below still runs. Measured on client 16.402 (parity r81, live13): straight on its first two walk
+                // ticks 7 of 7 where the engine turned. PLANT (regression) guard_landing_scans: the new arm still scans.
+                #[cfg(not(clash_plant = "guard_landing_scans"))]
+                let landing_masked = guard_landed[i] && calib.guard_landing_avoidance == GuardLandingAvoidance::Client16402UnscannedBodiless;
+                #[cfg(clash_plant = "guard_landing_scans")]
+                let landing_masked = false;
+                if !attacking && !held_masked && !cage_masked && !landing_masked {
                     // The scan runs for walking and deploying units, not for an
                     // attacking one: an attacking unit is masked out of it (and a held
                     // one under collision.HELD_UNIT_AVOIDANCE = masked). A CHARGED
@@ -27353,6 +27526,14 @@ impl BattleState {
                 let held_faces_waypoint = still && calib.held_facing == HeldFacing::Client15535TowardWaypoint;
                 #[cfg(clash_plant = "held_facing_unchanged")]
                 let held_faces_waypoint = false; // PLANT (regression): the new arm still leaves a held unit's facing.
+                // enchant.ON_BUFF_HOLD_WALK = client16402_walks_on_heading: with his route run out he walks on along his facing, not
+                // at his target's centre. Measured on client 16.402 (parity r81, live13): the first routeless walk-on step kept
+                // the heading within 2 native in 13 of 13 (the engine turned to the centre in 13 of 13). PLANT (regression)
+                // hold_walk_turns_to_centre: the new arm still turns to the centre.
+                #[cfg(not(clash_plant = "hold_walk_turns_to_centre"))]
+                let along = walk_in && calib.enchant_on_buff_hold_walk == EnchantOnBuffHoldWalk::Client16402WalksOnHeading && facing[i] != Vec2::default();
+                #[cfg(clash_plant = "hold_walk_turns_to_centre")]
+                let along = false;
                 let (aim, speed) = match routes[i].last() {
                     Some(&p) if !deploying && !attacking && !still => (fly_direct_aim.unwrap_or(node_centre(p)), native_speed),
                     Some(&p) if !deploying && !attacking && held_faces_waypoint => (node_centre(p), 0),
@@ -27360,6 +27541,7 @@ impl BattleState {
                         // THE DIRECT AIM: with an empty list and a target out of
                         // range the unit walks at the point `reach` away from the
                         // target on the line to itself (move16402::direct_aim)
+                        Some(_) if along => ((actor.0 + facing[i].x, actor.1 + facing[i].y), native_speed),
                         Some(t) => (move16402::direct_aim(actor, t, if walk_in { 0 } else { (card.range + walk_own) / K }), native_speed),
                         None => (actor, 0),
                     },
@@ -27574,10 +27756,18 @@ impl BattleState {
             self.cfg.calib.variable_damage_walk_reach,
             VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy | VariableDamageWalkReach::Client16402EntryWalksGroundAndFlyer
         ) {
+            // targeting.VARIABLE_DAMAGE_LADDER_WALK = client16402_walks_after_ladder: a tick on which a knock ladder moved the unit
+            // (`pushed`, its back-step included) counts as a walking one. Measured on client 16.402 (parity r81, live13): on the
+            // tick after a ladder 5 of 5 Monks and Mighty Miners walked in to Range + the target's radius. PLANT (regression)
+            // ladder_entry_stands: the new arm still stands after a ladder.
+            #[cfg(not(clash_plant = "ladder_entry_stands"))]
+            let ladder_walks = self.cfg.calib.variable_damage_ladder_walk == VariableDamageLadderWalk::Client16402WalksAfterLadder;
+            #[cfg(clash_plant = "ladder_entry_stands")]
+            let ladder_walks = false;
             for (i, &l) in walk_step.iter().enumerate().take(self.ents.walked_prev.len()) {
                 if only.map_or(true, |o| o.contains(&i)) {
                     let card = self.cfg.cards.get(self.ents.card[i]);
-                    self.ents.walked_prev[i] = l > 0 && (card.variable_damage.is_some() || card.combo.is_some());
+                    self.ents.walked_prev[i] = (l > 0 || (ladder_walks && pushed[i])) && (card.variable_damage.is_some() || card.combo.is_some());
                 }
             }
         }
@@ -39481,6 +39671,12 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.WARP_WALK_STEP: Calib gained warp_walk_step (serde default the old arm, warp_only), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.UPPERCUT_COUNT: Calib gained uppercut_count (serde default the old arm, hits_and_dash_blows), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.VARIABLE_DAMAGE_LADDER_WALK: Calib gained variable_damage_ladder_walk (serde default the old arm, stands_after_ladder), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_LANDING_AVOIDANCE: Calib gained guard_landing_avoidance (serde default the old arm, scanned), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -40573,6 +40769,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("enchant_on_buff_hold_walk".into(), serde_json::to_value(EnchantOnBuffHoldWalk::StandsInReach).map_err(|e| e.to_string())?);
     // combat.WARP_WALK_STEP: a format-3 battle ran combat.WARP_WALK_STEP's old arm.
     sh.insert("warp_walk_step".into(), serde_json::to_value(WarpWalkStep::WarpOnly).map_err(|e| e.to_string())?);
+    // combat.UPPERCUT_COUNT: a format-3 battle ran combat.UPPERCUT_COUNT's old arm.
+    sh.insert("uppercut_count".into(), serde_json::to_value(UppercutCount::HitsAndDashBlows).map_err(|e| e.to_string())?);
+    // targeting.VARIABLE_DAMAGE_LADDER_WALK: a format-3 battle ran targeting.VARIABLE_DAMAGE_LADDER_WALK's old arm.
+    sh.insert("variable_damage_ladder_walk".into(), serde_json::to_value(VariableDamageLadderWalk::StandsAfterLadder).map_err(|e| e.to_string())?);
+    // combat.GUARD_LANDING_AVOIDANCE: a format-3 battle ran combat.GUARD_LANDING_AVOIDANCE's old arm.
+    sh.insert("guard_landing_avoidance".into(), serde_json::to_value(GuardLandingAvoidance::Scanned).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

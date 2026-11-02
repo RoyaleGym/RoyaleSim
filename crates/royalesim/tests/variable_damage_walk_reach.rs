@@ -33,7 +33,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::entity::AttackPhase;
-use royalesim::state::{BattleState, Calib, VariableDamageWalkReach};
+use royalesim::state::{BattleState, Calib, VariableDamageLadderWalk, VariableDamageWalkReach};
 use royalesim::target::walking_own_radius;
 use royalesim::Team;
 
@@ -346,4 +346,64 @@ fn under_client16402_ground_entry_from_walk_or_deploy_a_monk_that_attacked_stand
     let (still, left, moved) = burned_then_band("Monk", VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy, 1650, 1950);
     assert!(still, "the scene drifted: the Monk stepped before the Knight moved");
     assert!(!left && !moved, "client16402_ground_entry_from_walk_or_deploy: left {left} moved {moved}");
+}
+
+/// A Monk swinging at a red Knight held 1,650 ahead, knocked back by a red Fireball landing 700 ahead of him, then the Knight
+/// put 1,950 ahead of where his ladder ended (inside Range + both radii, outside Range + the Knight's radius), under
+/// targeting.VARIABLE_DAMAGE_WALK_REACH = client16402_ground_entry_from_walk_or_deploy and VARIABLE_DAMAGE_LADDER_WALK = `arm`:
+/// (whether he moved after the ladder before his next swing, the start-of-tick centre distance on that swing's tick, his
+/// ladder's ticks), with the reaches.
+fn ladder_then_band(arm: VariableDamageLadderWalk) -> (bool, i64, usize, Reach) {
+    let mut cfg = config();
+    cfg.calib.variable_damage_walk_reach = VariableDamageWalkReach::Client16402GroundEntryFromWalkOrDeploy;
+    cfg.calib.variable_damage_ladder_walk = arm;
+    let mut s = BattleState::new(0, cfg);
+    let at = |p: (i32, i32)| Vec2::new(p.0 * K, p.1 * K);
+    let m0 = (9500, 9800);
+    let monk = s.scenario_spawn_now(Team::Blue, "Monk", at(m0), None).expect("the Monk");
+    let mut kp = at((m0.0, m0.1 + 1650));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kp, Some(100_000)).expect("the Knight");
+    let reach = {
+        let (f, k) = (s.entity(monk).expect("the Monk"), s.entity(knight).expect("the Knight"));
+        Reach { range: (card_stat(&s, "Monk").range / K) as i64, own: (f.radius / K) as i64, knight: (k.radius / K) as i64 }
+    };
+    let (mut cast, mut ladder, mut back, mut moved) = (false, 0usize, false, false);
+    for _ in 0..300 {
+        assert!(s.debug_set_pos(knight, kp) && s.debug_set_hp(knight, 100_000));
+        let (p0, pa0, phase0) = s.entity(monk).map(|m| (m.pos, m.push_active, m.attack_phase)).expect("the Monk");
+        if !cast && phase0 != AttackPhase::Idle {
+            // between him and the Knight, so the ladder carries him away from it: a spell lands on its tile's centre
+            s.spawn_unit(Team::Red, "Fireball", at((m0.0, m0.1 + 700)), None).expect("the Fireball");
+            cast = true;
+        }
+        s.tick();
+        let (p1, pa1, phase1) = s.entity(monk).map(|m| (m.pos, m.push_active, m.attack_phase)).expect("the Monk");
+        if pa1 {
+            ladder += 1;
+        }
+        if back {
+            if phase1 != AttackPhase::Idle {
+                return (moved, dist(native(p0), native(kp)), ladder, reach);
+            }
+            moved |= p1 != p0;
+        } else if pa0 && !pa1 {
+            // his back-step's tick: the Knight goes 1,950 ahead of where the ladder left him
+            back = true;
+            kp = Vec2::new(p1.x, p1.y + 1950 * K);
+        }
+    }
+    panic!("the scene drifted: cast {cast}, ladder {ladder}, back {back}");
+}
+
+/// targeting.VARIABLE_DAMAGE_LADDER_WALK = client16402_walks_after_ladder (client 16.402, parity r81, live13: 5 of 5 Monks and
+/// Mighty Miners walked in after a ladder; the engine swung at once 3 of 3). Plant: ladder_entry_stands.
+#[test]
+fn under_client16402_walks_after_ladder_a_knocked_monk_walks_to_range_plus_the_targets_radius() {
+    let (moved, d, ladder, r) = ladder_then_band(VariableDamageLadderWalk::Client16402WalksAfterLadder);
+    assert!(ladder >= 3, "the scene drifted: a ladder of {ladder} ticks");
+    assert!(r.short() < 1950 && 1950 <= r.long(), "precondition: the Knight in the band ({} .. {})", r.short(), r.long());
+    assert!(moved && d <= r.short(), "client16402_walks_after_ladder: moved {moved}, his swing started {d} (Range + the Knight's radius {})", r.short());
+    // NOT VACUOUS: the engine's arm swings at once from the band
+    let (moved0, d0, _, _) = ladder_then_band(VariableDamageLadderWalk::StandsAfterLadder);
+    assert!(!moved0 && d0 > r.short(), "stands_after_ladder: moved {moved0}, his swing started {d0}");
 }

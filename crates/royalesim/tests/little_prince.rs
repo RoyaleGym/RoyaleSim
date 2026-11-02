@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingAvoidance, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -1572,4 +1572,54 @@ fn under_client16402_counted_on_landing_his_charge_counts_for_an_enchant_he_hold
     // NOT VACUOUS: uncounted leaves the count at 0 until his first swing
     let (old, a0) = guard_enchant(EnchantGuardCharge::Uncounted, off);
     assert_eq!(count_at(&old, after_free(a0)), Some(0), "uncounted (offset {off}, arrival {a0}): {old:?}");
+}
+
+/// The guard's first two walk steps after its charge (native), a red Knight held at (11500, 12500), under
+/// combat.GUARD_LANDING_AVOIDANCE = `arm`, with a blue Cannon 900 past the charge's end when `cannon` (the end measured by
+/// under_client16402_cell_aim_the_charge_ends_by_the_cell_centre_ahead): the first two non-zero steps after the charge (a step over
+/// 150) and the hold after it (a zero step).
+fn landing_steps(arm: GuardLandingAvoidance, cannon: bool) -> ((i32, i32), (i32, i32)) {
+    let (mut s, lp, reds) = scene_cfg(|c| c.calib.guard_landing_avoidance = arm, &[("Knight", (11500, 12500))]);
+    if cannon {
+        s.scenario_spawn_now(Team::Blue, "Cannon", n((AT.0 + 239, AT.1 + 3083 + 900)), None).expect("a blue Cannon");
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut last, mut state, mut walk): (Option<Vec2>, u8, Vec<(i32, i32)>) = (None, 0, Vec::new());
+    for _ in 0..120 {
+        hold(&mut s, lp, &reds);
+        s.tick();
+        let Some(p) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos) else { continue };
+        if let Some(q) = last {
+            let d = ((p.x - q.x) / K, (p.y - q.y) / K);
+            match state {
+                _ if d.0.abs().max(d.1.abs()) > 150 => {
+                    state = 1;
+                    walk.clear();
+                }
+                1 if d == (0, 0) => state = 2,
+                2 if d != (0, 0) => {
+                    walk.push(d);
+                    if walk.len() == 2 {
+                        return (walk[0], walk[1]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        last = Some(p);
+    }
+    panic!("{arm:?} (cannon {cannon}): the guard never walked two steps after its charge (state {state}, {walk:?})")
+}
+
+/// combat.GUARD_LANDING_AVOIDANCE = client16402_unscanned_bodiless (client 16.402, parity r81, live13: straight on its first two
+/// walk ticks 7 of 7 where the engine turned): the landed guard's first two walk steps past a body it overlaps are its free walk's.
+/// Plant: guard_landing_scans.
+#[test]
+fn under_client16402_unscanned_bodiless_his_landed_guard_walks_straight_through_its_first_two_steps() {
+    use GuardLandingAvoidance as G;
+    let free = landing_steps(G::Scanned, false);
+    let turned = landing_steps(G::Scanned, true);
+    assert!(turned != free, "NOT VACUOUS: scanned turns its first walk steps for the Cannon: {turned:?} vs {free:?}");
+    assert_eq!(landing_steps(G::Client16402UnscannedBodiless, true), free, "client16402_unscanned_bodiless: no turn on its bodiless walk ticks");
+    assert_eq!(landing_steps(G::Client16402UnscannedBodiless, false), free, "no body near: the same walk under both arms");
 }

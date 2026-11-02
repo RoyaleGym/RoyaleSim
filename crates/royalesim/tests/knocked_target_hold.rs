@@ -22,6 +22,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{BattleState, Calib, KnockedLostTarget, KnockedTargetHold};
+use royalesim::EntityId;
 use royalesim::Team;
 
 const SPARKY_AT: (i32, i32) = (9000, 6500);
@@ -127,4 +128,55 @@ fn a_recoiling_sparky_whose_target_dies_takes_the_next_under_client15535_rescans
     // NOT VACUOUS: held_none holds none to the ladder's end.
     let old = ladder_after_kill(KnockedLostTarget::HeldNone);
     assert!(old.iter().all(|&held| !held), "held_none: the Sparky took the second Knight on its ladder: {old:?}");
+}
+
+/// A blue Firecracker shooting at a red Knight held 5,000 ahead; from its recoil's first ladder tick the Knight is put `ahead`
+/// of it each tick (7,600: past its keep reach 6,000 + 25 + both radii, inside its sight + both radii + 25; 6,500: inside its
+/// keep reach) and a second red Knight 3,000 beside its ladder's start, held there: whether it held the second Knight after
+/// each later ladder tick, under targeting.KNOCKED_TARGET_HOLD = `arm`.
+fn recoil_switch(arm: KnockedTargetHold, ahead: i32) -> Vec<bool> {
+    let mut cfg = config();
+    cfg.calib.knocked_target_hold = arm;
+    let mut s = BattleState::new(3, cfg);
+    let fc = s.scenario_spawn_now(Team::Blue, "Firecracker", at((9000, 6500)), None).expect("the Firecracker");
+    let k1 = s.scenario_spawn_now(Team::Red, "Knight", at((9000, 11500)), Some(100_000)).expect("the Knight");
+    let (mut k2, mut k2_at): (Option<EntityId>, Vec2) = (None, Vec2::default());
+    let mut out = Vec::new();
+    for _ in 0..300 {
+        let f = s.entity(fc).expect("the Firecracker");
+        let (knocked, fp) = (f.push_active, f.pos);
+        if knocked && k2.is_none() {
+            k2_at = Vec2::new(fp.x + 3000 * K, fp.y);
+            k2 = Some(s.scenario_spawn_now(Team::Red, "Knight", k2_at, Some(100_000)).expect("the second Knight"));
+        }
+        let k1_at = if k2.is_some() { Vec2::new(fp.x, fp.y + ahead * K) } else { at((9000, 11500)) };
+        assert!(s.debug_set_pos(k1, k1_at));
+        if let Some(k) = k2 {
+            assert!(s.debug_set_pos(k, k2_at));
+        }
+        s.tick();
+        if knocked && k2.is_some() {
+            out.push(s.entity(fc).expect("the Firecracker").target == k2);
+        } else if !out.is_empty() {
+            break;
+        }
+    }
+    assert!(out.len() >= 3, "the scene drifted: {} ladder ticks after the second Knight", out.len());
+    out
+}
+
+/// targeting.KNOCKED_TARGET_HOLD = client16402_decides_on_ladder (client 16.402, parity r81, live13: 89 of 102 clean ladders
+/// with a nearer enemy and the held target past the keep reach took the nearest). Plant: knocked_ladder_holds.
+#[test]
+fn under_client16402_decides_on_ladder_a_recoiling_firecracker_takes_the_nearer_knight() {
+    let new = recoil_switch(KnockedTargetHold::Client16402DecidesOnLadder, 7600);
+    assert!(new.iter().any(|&b| b), "client16402_decides_on_ladder: never took the nearer Knight: {new:?}");
+    // NOT VACUOUS: the sight keep holds the first Knight, inside its sight
+    let old = recoil_switch(KnockedTargetHold::Client15535SightKeep, 7600);
+    assert!(old.iter().all(|&b| !b), "client15535_sight_keep: took the nearer Knight: {old:?}");
+    // the control: inside its keep reach both arms keep the first Knight
+    for arm in [KnockedTargetHold::Client16402DecidesOnLadder, KnockedTargetHold::Client15535SightKeep] {
+        let kept = recoil_switch(arm, 6500);
+        assert!(kept.iter().all(|&b| !b), "{arm:?}: let the Knight inside its keep reach go: {kept:?}");
+    }
 }

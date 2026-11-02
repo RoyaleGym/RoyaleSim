@@ -316,3 +316,40 @@ fn under_client16402_walk_added_each_warp_step_carries_its_walk_step() {
     let (new_a, _) = warp(WarpWalkStep::Client16402WalkAdded, 1200);
     assert_eq!(old_a, new_a, "attacking at the press: the warp alone");
 }
+
+/// combat.WARP_WALK_STEP = client16402_walk_to_scanned_target (parity r81, oracle sp-form-MegaMinion-hero-s0: the walk follows the
+/// hero's own scan, the enemy it walked to, then the pick once nearer, and it lands on the warp alone's tick) on the oracle's
+/// geometry: a Knight east, out of its reach (its walk target at the press), the pick a Skeleton west. Plant:
+/// warp_walk_aims_held_route.
+#[test]
+fn under_client16402_walk_to_scanned_target_the_warp_walk_follows_its_own_scan() {
+    let warp = |arm: WarpWalkStep, knight: (i32, i32)| -> (Vec<Vec2>, Option<usize>) {
+        let mut cfg: BattleConfig = config();
+        cfg.calib.warp_law = WarpLaw::Client16402BrakeAndReturn;
+        cfg.calib.warp_walk_step = arm;
+        let (mut s, hero, reds) = start_in(battle_on(cfg), &[("Knight", knight), ("Skeleton", (AT.0 - 6663, AT.1 + 2123))]);
+        s.press_ability_button(Team::Blue, 0).expect("the press");
+        let (_, points, arrived, _) = run_warp(&mut s, hero, &reds, reds[1].0, 30);
+        (points, arrived)
+    };
+    let east = (AT.0 + 3364, AT.1 + 1144);
+    let (only, a_only) = warp(WarpWalkStep::WarpOnly, east);
+    let (scan, a_scan) = warp(WarpWalkStep::Client16402WalkToScannedTarget, east);
+    let f = (0..only.len()).find(|&k| only[k] != scan[k]).expect("client16402_walk_to_scanned_target: no walk rode on the warp");
+    assert!((scan[f].x - only[f].x) / K > 50, "the first warp step's walk heads east, at the Knight: {:?}", (scan[f].x - only[f].x) / K);
+    let (lo, ls) = (a_only.expect("warp_only lands"), a_scan.expect("client16402_walk_to_scanned_target lands"));
+    assert_eq!(ls, lo, "it lands on the warp alone's tick");
+    assert_eq!(scan[ls], only[lo], "on its pick");
+    // NOT VACUOUS: client16402_walk_added walks its held route throughout
+    let (held, _) = warp(WarpWalkStep::Client16402WalkAdded, east);
+    // the turn: once the Skeleton is the nearer the scan's walk heads west, where the held route's still heads east
+    let step = |p: &[Vec2], k: usize| (p[k].x - p[k - 1].x) / K;
+    let turn = (f + 1..ls).find(|&k| step(&scan, k) - step(&held, k) < -100);
+    assert!(turn.is_some(), "NOT VACUOUS: no tick where the scan walks west of walk_added's held route: scan {scan:?} held {held:?}");
+    // attacking at the press (the Knight 1,200 ahead, in its reach): its first warp step is the warp alone (live13: no walk on
+    // the first warp tick of the 4 heroes attacking at the press)
+    let ahead = (AT.0, AT.1 + 1200);
+    let (a_scan, a_only) = (warp(WarpWalkStep::Client16402WalkToScannedTarget, ahead).0, warp(WarpWalkStep::WarpOnly, ahead).0);
+    let w = (1..a_only.len()).find(|&k| a_only[k] != a_only[0]).expect("the warp never moved");
+    assert_eq!(a_scan[..=w], a_only[..=w], "attacking at the press: the first warp step is the warp alone");
+}

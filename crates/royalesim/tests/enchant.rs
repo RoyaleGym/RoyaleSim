@@ -1132,3 +1132,44 @@ fn under_client16402_walks_on_he_walks_into_his_reach_through_his_hold() {
     let first_swing = |r: &[(i64, i64, bool)]| r.iter().position(|x| x.2).map(|k| k as u32);
     assert_eq!((first_swing(&old), first_swing(&new)), (Some(l + 14), Some(l + 14)), "his swing on L + 14 under both");
 }
+
+/// enchant.ON_BUFF_HOLD_WALK = client16402_walks_on_heading (parity r81, live13: the first routeless walk-on step kept the heading
+/// within 2 native in 13 of 13; the engine turned to the centre in 13 of 13): the walk-on scene of
+/// under_client16402_walks_on_he_walks_into_his_reach_through_his_hold with the red Cannon off his line. Plant:
+/// hold_walk_turns_to_centre.
+#[test]
+fn under_client16402_walks_on_heading_he_walks_on_along_his_heading_with_no_route() {
+    use royalesim::state::{EnchantOnBuffHoldWalk as W, EnchantOnBuffPause as P};
+    let cannon_at = (9600, 13600);
+    // per tick: (his step, native; his route empty after it; attack_ms > 0)
+    let run = |w: W| -> Vec<((i64, i64), bool, bool)> {
+        let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+        c.calib.enchant_on_buff_pause = P::Client16402ConditionalNoMove;
+        c.calib.enchant_on_buff_hold_walk = w;
+        let mut s = BattleState::new(0, c);
+        let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at(cannon_at), None).expect("a red Cannon");
+        let full = s.entity(cannon).expect("the Cannon").max_hp;
+        let knight = s.scenario_spawn_now(Team::Blue, "Knight", at((7000, 9130)), None).expect("a blue Knight");
+        let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", at((9000, 9130)), None).expect("the Rune Giant");
+        let mut out = Vec::new();
+        for _ in 0..70 {
+            assert!(s.debug_set_hp(cannon, full), "the Cannon stands");
+            let gp = s.entity(giant).expect("the Rune Giant").pos;
+            assert!(s.debug_set_pos(knight, Vec2::new(gp.x - 2000 * K, gp.y)), "the Knight held to his left");
+            s.tick();
+            let v = s.entity(giant).expect("the Rune Giant");
+            out.push(((((v.pos.x - gp.x) / K) as i64, ((v.pos.y - gp.y) / K) as i64), v.route.is_empty(), v.attack_ms > 0));
+        }
+        out
+    };
+    let (old, new) = (run(W::Client16402WalksOn), run(W::Client16402WalksOnHeading));
+    // the walk-on ticks with no route: a step on this tick and the one before, both routeless, no swing
+    let routeless = |r: &[((i64, i64), bool, bool)]| -> Vec<usize> {
+        (1..r.len()).filter(|&k| r[k].1 && r[k - 1].1 && r[k].0 != (0, 0) && r[k - 1].0 != (0, 0) && !r[k].2).collect()
+    };
+    let (ro, rn) = (routeless(&old), routeless(&new));
+    assert!(ro.len() >= 2 && rn.len() >= 2, "the scene drifted: his route never ran out inside his walk-on: {old:?}");
+    let bend = |r: &[((i64, i64), bool, bool)], k: usize| (r[k].0 .0 - r[k - 1].0 .0).abs().max((r[k].0 .1 - r[k - 1].0 .1).abs());
+    assert!(rn.iter().all(|&k| bend(&new, k) <= 1), "client16402_walks_on_heading: he keeps his heading: {new:?}");
+    assert!(ro.iter().any(|&k| bend(&old, k) >= 3), "NOT VACUOUS: client16402_walks_on turns to the Cannon's centre: {old:?}");
+}
