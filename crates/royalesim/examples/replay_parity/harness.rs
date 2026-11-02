@@ -1850,9 +1850,10 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
             resolve_on.entry(t).or_default().push(i);
         }
     }
-    // harness.SAME_TICK_PLAY_ORDER (parity r80, a candidate scored with PARITY_SAME_TICK_KEY_ORDER set): a tick's plays in the
-    // client's creation order (`same_tick_issue_order`).
-    if std::env::var_os("PARITY_SAME_TICK_KEY_ORDER").is_some() {
+    // harness.SAME_TICK_PLAY_ORDER (parity r80; live13 same-end within +2,485 alone, +6,891 on top of the round's other
+    // winners): a tick's plays in the client's creation order (`same_tick_issue_order`). PARITY_SAME_TICK_ROW_ORDER set keeps
+    // the fixture's row order, the harness before r80.
+    if std::env::var_os("PARITY_SAME_TICK_ROW_ORDER").is_none() {
         for list in deploys_by_tick.values_mut() {
             same_tick_issue_order(list);
         }

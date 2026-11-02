@@ -397,6 +397,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   enchant.GUARD_CHARGE_ATTACK = uncounted: unmeasured on client 15.535.29.
 ///   enchant.ON_BUFF_HOLD_WALK = stands_in_reach: client 15.535.29's Rune Giant has no hold.
 ///   combat.WARP_WALK_STEP = warp_only: unread on client 15.535.29.
+///   combat.STRAIGHT_SHOT_BUILDING_REACH = client15535_rounded_square: client 15.535.29's 136 of 136 Hunter pellet ends (no other
+///   straight shot's end read there).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -624,6 +626,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("enchant.GUARD_CHARGE_ATTACK", "\"uncounted\""),
     ("enchant.ON_BUFF_HOLD_WALK", "\"stands_in_reach\""),
     ("combat.WARP_WALK_STEP", "\"warp_only\""),
+    ("combat.STRAIGHT_SHOT_BUILDING_REACH", "\"client15535_rounded_square\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
