@@ -603,9 +603,17 @@ fn under_client16402_tag_held_his_press_keeps_his_ramp() {
 }
 
 /// The guard's hp losses by its age (ticks from its first frame), a red Zap cast on its point at each age in `zaps`,
-/// under combat.GUARD_CHARGE_IMMUNITY = `arm`: the losses and its arrival's age (its last step).
+/// under combat.GUARD_CHARGE_IMMUNITY = `arm`: the losses and its arrival's age (its last step). The scene lands its Zaps
+/// as the engine did before parity r83 (combat.GUARD_LANDING_AREA = hit: an area hit takes a guard on its first landing
+/// ticks), so it measures the charge immunity alone; client16402_bodiless_passed_over's own scenes set their arm.
 fn guard_zapped(arm: GuardChargeImmunity, zaps: &[u32]) -> (Vec<(u32, i32)>, u32) {
-    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_charge_immunity = arm, &[]);
+    let (mut s, lp, _) = scene_cfg(
+        |c| {
+            c.calib.guard_charge_immunity = arm;
+            c.calib.guard_landing_area = GuardLandingArea::Hit;
+        },
+        &[],
+    );
     s.press_ability_button(Team::Blue, 0).expect("the press");
     let (mut first, mut last, mut arrived, mut hp_was): (Option<u32>, Option<Vec2>, Option<u32>, Option<i32>) = (None, None, None, None);
     let mut losses = Vec::new();
@@ -1672,10 +1680,10 @@ fn under_client16402_guard_charge_unheld_a_zap_in_his_guards_charge_does_not_hol
     }
 }
 
-/// Since parity r82 (landed before it; client 15.535.29 keeps landed).
+/// Since parity r83 (client16402_guard_charge_unheld from parity r82, landed before it; client 15.535.29 keeps landed).
 #[test]
-fn the_shipped_dash_immune_buffs_is_client16402_guard_charge_unheld() {
-    assert_eq!(royalesim::state::Calib::shipped().dash_immune_buffs, DashImmuneBuffs::Client16402GuardChargeUnheld);
+fn the_shipped_dash_immune_buffs_is_client16402_guard_charge_unslowed() {
+    assert_eq!(royalesim::state::Calib::shipped().dash_immune_buffs, DashImmuneBuffs::Client16402GuardChargeUnslowed);
 }
 
 /// Under combat.PRESS_LOAD_TIMER = `arm` on the 160402017 table: he shoots at a red Golem held 5000 ahead and presses his guard on
@@ -1738,9 +1746,10 @@ fn under_client16402_runs_through_cast_his_press_keeps_his_load_timer() {
     assert_eq!((l0, p0), (0, lt + 50), "zeroed: his press zeroed the timer");
 }
 
+/// Since parity r83 (zeroed before it; client 15.535.29 keeps zeroed).
 #[test]
-fn the_shipped_press_load_timer_is_zeroed() {
-    assert_eq!(royalesim::state::Calib::shipped().press_load_timer, PressLoadTimer::Zeroed);
+fn the_shipped_press_load_timer_is_client16402_runs_unless_stunned() {
+    assert_eq!(royalesim::state::Calib::shipped().press_load_timer, PressLoadTimer::Client16402RunsUnlessStunned);
 }
 
 /// Under combat.RAMP_KNOCK_RESET = `arm` (Blue's princess towers down): his ramp at its third speed on a red Golem held 5000
@@ -1868,10 +1877,10 @@ fn under_client16402_not_while_immune_an_inferno_tower_waits_out_his_guards_char
     assert!(old.is_some_and(|f| f <= l0), "taken: not taken in the charge ({old:?}, the charge ending {l0})");
 }
 
-/// Since parity r82 (taken before it; client 15.535.29 keeps taken).
+/// Since parity r83 (client16402_not_while_immune from parity r82, taken before it; client 15.535.29 keeps taken).
 #[test]
-fn the_shipped_variable_damage_immune_target_is_client16402_not_while_immune() {
-    assert_eq!(royalesim::state::Calib::shipped().variable_damage_immune_target, VariableDamageImmuneTarget::Client16402NotWhileImmune);
+fn the_shipped_variable_damage_immune_target_is_client16402_not_while_immune_plus_1() {
+    assert_eq!(royalesim::state::Calib::shipped().variable_damage_immune_target, VariableDamageImmuneTarget::Client16402NotWhileImmunePlus1);
 }
 
 /// targeting.VARIABLE_DAMAGE_IMMUNE_TARGET = client16402_not_while_immune_plus_1 (client 16.402, parity r83, live13: free

@@ -54,6 +54,9 @@ fn battle_with(tweak: impl FnOnce(&mut BattleConfig)) -> BattleState {
     // the scenes count his hits as the engine did before parity r82 (combat.UPPERCUT_COUNT = hits_and_dash_blows: his
     // second hit throws); client16402_deploy_blow_not_dash's own scenes below set their count
     cfg.calib.uppercut_count = UppercutCount::HitsAndDashBlows;
+    // and root the thrown unit as the engine did before parity r83 (knockback.UPPERCUT_ROOT_WINDOW = on_delay: rooted
+    // from 1000 ms after the hit); client16402_after_a_free_step's own scenes below set their window
+    cfg.calib.uppercut_root_window = UppercutRootWindow::OnDelay;
     tweak(&mut cfg);
     cfg.decks = [vec!["MegaKnight".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];

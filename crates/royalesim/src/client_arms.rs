@@ -419,6 +419,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   movement.DASH_STAND_HEADING = counted: unread on client 15.535.29.
 ///   combat.WARP_PICK = at_press: unread on client 15.535.29.
 ///   combat.GUARD_LANDING_AREA = hit: unread on client 15.535.29.
+///   spawner.SPAWN_POINT = client_rounded_facing_degree: client 15.535.29's Night Witch scene reads the same degree
+///   under both arms; its octant reads are unread.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -665,6 +667,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DASH_STAND_HEADING", "\"counted\""),
     ("combat.WARP_PICK", "\"at_press\""),
     ("combat.GUARD_LANDING_AREA", "\"hit\""),
+    ("spawner.SPAWN_POINT", "\"client_rounded_facing_degree\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
