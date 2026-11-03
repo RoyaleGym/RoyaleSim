@@ -21,7 +21,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 DERIVED = ROOT / "data" / "derived"
-TABLES = ["cards-15.535.json", "cards-160402017.json", "cards-160402017-20261006.json", "cards-160402017-20261019.json"]
+TABLES = ["cards-15.535.json", "cards-160402017.json", "cards-160402017-20261006.json", "cards-160402017-20261019.json",
+          "cards-160635007-20261103.json"]
 RAW_15535 = ROOT / "data" / "raw" / "cr-15.535.29" / "csv_logic"
 
 BLOCK = {

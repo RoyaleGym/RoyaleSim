@@ -1711,7 +1711,8 @@ impl Battle {
 
     /// The `version` of the card table this object's battles run (calibration cards.CARD_TABLE): "cards-15535.1"
     /// for the 15.535.29 table, "cards-160402017-20261006.1" for the 160402017 client's with its 2026-10-06 content,
-    /// "cards-160402017-20261019.1" with its 2026-10-19 content, "cards-160402017.1" for its install-time table.
+    /// "cards-160402017-20261019.1" with its 2026-10-19 content, "cards-160402017.1" for its install-time table,
+    /// "cards-160635007-20261103.1" for the 16.635 client's.
     fn card_table(&self) -> String {
         self.cards.version.clone()
     }
@@ -2528,6 +2529,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("EMBEDDED_CARDS_JSON", crate::card::EMBEDDED_CARDS_JSON)?;
     m.add("EMBEDDED_CARDS_160402017_JSON", crate::card::EMBEDDED_CARDS_160402017_JSON)?;
     m.add("EMBEDDED_CARDS_160402017_20261019_JSON", crate::card::EMBEDDED_CARDS_160402017_20261019_JSON)?;
+    m.add("EMBEDDED_CARDS_160635007_20261103_JSON", crate::card::EMBEDDED_CARDS_160635007_20261103_JSON)?;
     #[cfg(feature = "checkout-data")]
     m.add("BUILD_DATA_DIR", BUILD_DATA_DIR)?;
     m.add_function(wrap_pyfunction!(card_table_source, m)?)?;

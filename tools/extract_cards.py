@@ -442,6 +442,32 @@ VINTAGES = {
         character_dirs=("characters", "events"),
         filters_format=True,
     ),
+    # THE 16.635 CLIENT (build 160635007, the 2026-11-03 Play update) with its 2026-11-03 content update (16.635.8):
+    # the install-time pack (data/raw/cr-160635007, content 16.635.1) replaces every 16.402 table, and the update folder
+    # (data/raw/cr-160635007-20261103) releases Evo Giant and Evo Mirror, which the install pack holds unreleased.
+    "160635007-20261103": Vintage(
+        key="160635007-20261103",
+        raw=ROOT / "data" / "raw" / "cr-160635007" / "csv_logic",
+        update=ROOT / "data" / "raw" / "cr-160635007-20261103" / "csv_logic",
+        version="cards-160635007-20261103.1",
+        warning=(
+            "LIVE 2026 BUILD (the 160635007 client's install-time asset pack with its 2026-11-03 content update, "
+            "content 16.635.8: the update's files over the install-time pack, decoded by "
+            "tools/decode_sc_assets.py). Every number in this file is EVIDENCE, NOT SPEC: the columns are the "
+            "client's, what the engine does with each is calibration.json's. Stats are UNIFIED LEVEL-1 base values "
+            "(calibration.json combat.STAT_BASE_LEVEL). Effective row = the client's TOML rows; evolutions and hero "
+            "forms are excluded from `cards`."
+        ),
+        source="Supercell csv_logic/ of the 160635007 client: the 2026-11-03 update folder over the install-time pack, "
+        "decoded by tools/decode_sc_assets.py (each pack's MANIFEST.json carries its per-file hashes)",
+        vintage="160635007 client, content 16.635.8 (the 2026-11-03 update)",
+        roster_dating="The build and content are in the files (MANIFEST.json build 160635007, content_version "
+                      "16.635.8).",
+        sources=SOURCES_16402,
+        overlays=OVERLAYS_16402,
+        character_dirs=("characters", "events"),
+        filters_format=True,
+    ),
 }
 # The 15.535 file became the default once it passed every gate (cargo test, clippy,
 # tools/check_data.py).
@@ -1122,7 +1148,83 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
                 tb.resolve_bases(lambda n, tb=tb: (tb, tb.get(n)))
     if v.filters_format:
         normalize_16402(t)
+        strip_delivery_markers(t)
     return t
+
+
+# THE ABILITY'S DELIVERY MARKER (16.635 on). A button of RefundUntilDelivered (in place of a RefundWindow) refunds its
+# cost until its graph reaches an ActionAbilityDelivered, a step that does nothing else; the refund is recorded, not
+# run (`refund_until_delivered`, as `refund_window_ms`). `strip_delivery_markers` takes every marker out of the graph,
+# so each reader meets the 16.402 graph: a SubActions entry (at delay 0) is dropped, a NextAction to a marker takes
+# the marker's own NextAction (and its NextActionWait, which must be the pointing action's), and an
+# ActionRunOnInstigator that only runs a marker goes too. That last one (the Hero Ice Wizard's death spawns) may lead on
+# to a variable write alone: the death group that runs the spawns resets the same variable itself (`ice_cube_button`).
+DELIVERY_MARKER_KEYS = {"ClassType", "NextAction", "NextActionWait"}
+
+
+def strip_delivery_markers(t: Tables) -> None:
+    acts = t["actions"]
+    marks = {n for n, r in acts.records.items() if r.get("ClassType") == "ActionAbilityDelivered"}
+    if not marks:
+        return
+    for m in marks:
+        extra = acts.set_fields.get(m, set()) - DELIVERY_MARKER_KEYS
+        if extra:
+            raise SystemExit(f"actions.{m}: a delivery marker sets {sorted(extra)}")
+    runs = {n for n, r in acts.records.items() if r.get("ClassType") == "ActionRunOnInstigator"
+            and isinstance(r.get("ActionToExecute"), str) and r["ActionToExecute"] in marks}
+    for r in runs:
+        m = acts.records[r]["ActionToExecute"]
+        nxt = acts.records[m].get("NextAction")
+        if acts.set_fields.get(r) != {"ClassType", "ActionToExecute"} \
+                or (nxt is not None and (acts.get(nxt) or {}).get("ClassType") != "ActionSetVariable"):
+            raise SystemExit(f"actions.{r}: a run of the delivery marker {m} that does more than mark it")
+    gone = marks | runs
+    for name, rec in acts.records.items():
+        if name in gone:
+            continue
+        seen = acts.set_fields.get(name, set())
+        subs = acts.arrays.get(name, {}).get("SubActions") or ([rec["SubActions"]] if rec.get("SubActions") else [])
+        hit = [isinstance(s, str) and s in gone for s in subs]
+        if any(hit):
+            delays = acts.arrays.get(name, {}).get("SubActionsDelay") or (
+                [rec["SubActionsDelay"]] if rec.get("SubActionsDelay") is not None else [])
+            marked = [s for s, h_ in zip(subs, hit, strict=True) if h_]
+            if len(delays) != len(subs) or any(d != 0 for h_, d in zip(hit, delays, strict=True) if h_) \
+                    or any(acts.records[s].get("NextAction") is not None for s in marked):
+                raise SystemExit(f"actions.{name}: a delivery marker in its SubActions that is not a bare step at 0")
+            keep = [(s, d) for s, d, h_ in zip(subs, delays, hit, strict=True) if not h_]
+            if not keep:
+                raise SystemExit(f"actions.{name}: SubActions of delivery markers alone")
+            for col, vals in (("SubActions", [s for s, _ in keep]), ("SubActionsDelay", [d for _, d in keep])):
+                rec[col] = vals[0]
+                if len(vals) > 1:
+                    acts.arrays[name][col] = vals
+                else:
+                    acts.arrays[name].pop(col, None)
+        nxt = rec.get("NextAction")
+        if isinstance(nxt, str) and nxt in gone:
+            m = acts.records[nxt]
+            after = m.get("NextAction") if nxt in marks else None
+            if after is None:
+                rec["NextAction"] = None
+                seen.discard("NextAction")
+                if rec.get("NextActionWait") is not None:
+                    raise SystemExit(f"actions.{name}: waits on a delivery marker that leads nowhere")
+            else:
+                if m.get("NextActionWait") != rec.get("NextActionWait"):
+                    raise SystemExit(f"actions.{name}: its wait on the delivery marker {nxt} is not the marker's own")
+                rec["NextAction"] = after
+    for n in gone:
+        for d in (acts.records, acts.arrays, acts.set_fields, acts.overlaid):
+            d.pop(n, None)
+    # Nothing else may name a marker (a button's OnActivationAction, a filter's branch): it would dangle.
+    for name, rec in acts.records.items():
+        named = [v for v in rec.values() if isinstance(v, str)]
+        named += [x for vals in acts.arrays.get(name, {}).values() for x in vals if isinstance(x, str)]
+        left = sorted(gone.intersection(named))
+        if left:
+            raise SystemExit(f"actions.{name}: still names the delivery marker {left}")
 
 
 # THE 16.402 TARGETING AND DAMAGE FORMAT (build 160402017 on). An area no longer carries HitsAir, HitsGround,
@@ -2662,6 +2764,11 @@ def norm_buff_row(t: dict[str, Table], name: str | None, b: dict) -> dict:
         # LoveCharm; the engine's state.rs `apply_effects`). Written only where set, so every other buff is unchanged.
         if flag(b, "SwitchTeam"):
             out["switch_team"] = True
+        # CastIdSpecificBuff (16.635 on, the Evo Cannon's barrage and the Evo Firecracker's fireworks, in place of the
+        # PlayerSpecificBuff that no reader takes): how copies of the buff from separate casts stack. Recorded, not
+        # run; written only where set, so every other buff is unchanged.
+        if flag(b, "CastIdSpecificBuff"):
+            out["cast_id_specific"] = True
         if b["AttachedInheritAs"]:
             out["attached_inherit_as"] = b["AttachedInheritAs"]
         # UNKILLABLE among GameTagsToSet: the carrier's hitpoints do not fall below 1 while the buff lasts (the Hero
@@ -4693,6 +4800,10 @@ def champion_guard(t, unit: str) -> dict | None:
               "push_milli": g["PushBackStrength"], "push_damage": g["PushBackDamage"]}
     if len(tags) > 1:
         effect["hold_tag"] = tags[1]
+    # 16.635 on: the charge's filter (and its cleave's, the same one) leaves out the dash-immune. Recorded, not run;
+    # written only where the filter says so.
+    if "DashImmune" in ((t.filters.get(g["HitFilter"]) or {}).get("Filters") or []):
+        effect["hit_filter_dash_immune"] = True
     if cleave is not None:
         effect["cleave"] = cleave
     return {
@@ -4878,6 +4989,7 @@ def champion_dash_chain(t, unit: str) -> dict | None:
         "trigger_delay_ms": a.get("TriggerDelay") or 0,
         # 16.402 on: the Golden Knight's RefundWindow (50 ms), as the hero buttons' (`ABILITY_READ_KEYS`).
         **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
+        **({"refund_until_delivered": True} if a.get("RefundUntilDelivered") is True else {}),
         # 16.402: the tags its trigger holds until the dash starts (above); what they do is calibration's.
         **({"held_until_dashing": held} if held is not None else {}),
         "keep_current_target": a.get("KeepCurrentTarget") is True,
@@ -5733,6 +5845,15 @@ def ram_block(t: Tables, card: dict) -> dict:
         raise SystemExit(f"{unit}: OnStartChargingAction {name!r} is no actions row")
     unread = set(a) - set(RAM_PUSH_PINNED) - set(RAM_PUSH_READ) - RAM_PUSH_COSMETIC
     off = {k: a.get(k) for k, v in RAM_PUSH_PINNED.items() if a.get(k) != v}
+    # 16.635 on: PushBackDamage is {BaseDamage, Flags = "NoCounter"} (the flag the Ronin's reflected hit pairs with
+    # Reflected and NoScaling), its number the BaseDamage. The flag is recorded (`damage_flags`), not run.
+    pd = a.get("PushBackDamage")
+    flags = None
+    if isinstance(pd, dict):
+        if set(pd) != {"BaseDamage", "Flags"} or pd["Flags"] != "NoCounter":
+            raise SystemExit(f"{unit}: {name}'s PushBackDamage {pd!r}")
+        pd, flags = pd["BaseDamage"], pd["Flags"]
+    a = {**a, "PushBackDamage": pd}
     missing = [k for k in RAM_PUSH_READ if not isinstance(a.get(k), int)]
     if unread or off or missing:
         raise SystemExit(f"{unit}: {name} reads {sorted(unread)} unread, {off} off the pinned values, {missing} "
@@ -5759,6 +5880,7 @@ def ram_block(t: Tables, card: dict) -> dict:
             "offset_milli": a["PushRadiusDirectionalOffset"],
             "strength_milli": a["PushBackStrength"],
             "damage": a["PushBackDamage"],
+            **({"damage_flags": flags} if flags is not None else {}),
         },
         "spawn_rage": {"unit": spawn, "hits": counts[0], "time_ms": times[0], "buff": buff},
     }
@@ -6250,6 +6372,12 @@ def kill_heal_block(t: Tables, card: dict) -> dict:
     return {"level": level, "below": below, "time_ms": times.pop(), "buffs": buffs, **extra}
 
 
+# The columns the Evo Mega Knight's ActionMegaKnightUppercut may set (`uppercut_block`); the dash follow-up's range is
+# not read (DoFollowUpJump false), StatsTags is display, GameTagsToSet is 16.635's.
+UPPERCUT_KEYS = {"ClassType", "ExecuteIfTrue", "PushBackStrength", "ActionOnTargets", "IgnorePushbackChecks",
+                 "DoFollowUpJump", "DashFollowUpMinRange", "DashFollowUpMaxRange", "StatsTags", "GameTagsToSet"}
+
+
 def uppercut_block(t: Tables, card: dict) -> dict:
     """THE EVO MEGA KNIGHT'S UPPERCUT (characters_evo MegaKnight_EV1), read whole or the build stops:
       - OnAttackAction: an ActionGroup, both at 0, of the counter and the uppercut;
@@ -6258,7 +6386,9 @@ def uppercut_block(t: Tables, card: dict) -> dict:
         Damage alone, so the entry changes nothing;
       - the uppercut: an ActionMegaKnightUppercut on `V % N == 0`, IgnorePushbackChecks, no follow-up jump, its
         PushBackStrength (`push_milli`), on its targets a group of an ActionKnockback (Duration `flight_ms`), effects,
-        and an ActionWithDuration of NO_MOVE alone (`root_ms`) at `root_delay_ms`."""
+        and an ActionWithDuration of NO_MOVE alone (`root_ms`) at `root_delay_ms`.
+    16.635 on, recorded and not run (each key only where set): the uppercut tags its knight NO_ATTACK and
+    NO_MOVE_ALLOW_ATTRACT while it runs (`uppercut_tags`), and the root is NO_MOVE_ALLOW_ATTRACT (`root_tags`)."""
     unit = card["summon_character"]
     tb, row = unit_record(t, unit)
     acts = t["actions"]
@@ -6281,6 +6411,11 @@ def uppercut_block(t: Tables, card: dict) -> dict:
          "the counter's select")
     seq = t[tb].arrays.get(unit, {}).get("AttackSequenceList")
     need(isinstance(seq, list) and all(e == {"Damage": row["Damage"]} for e in seq), f"the attack entries {seq}")
+    extra = acts.set_fields.get(subs[1][0], set()) - UPPERCUT_KEYS
+    need(not extra, f"the uppercut sets {sorted(extra)}")
+    up_tags = upper.get("GameTagsToSet")
+    need(up_tags is None or {x.strip() for x in str(up_tags).split(",")} == {"NO_ATTACK", "NO_MOVE_ALLOW_ATTRACT"},
+         f"the uppercut's tags {up_tags!r}")
     need(upper["ExecuteIfTrue"] == f"{var} % {every} == 0" and upper["IgnorePushbackChecks"] is True
          and upper["DoFollowUpJump"] is False
          and isinstance(upper["PushBackStrength"], int) and upper["PushBackStrength"] > 0, "the uppercut")
@@ -6292,12 +6427,15 @@ def uppercut_block(t: Tables, card: dict) -> dict:
          f"the target group {tsubs}")
     k = acts.get(kb[0][0])
     r = acts.get(root[0][0])
-    need(isinstance(k["Duration"], int) and str(r["GameTagsToSet"]).strip() == "NO_MOVE"
+    root_tags = str(r["GameTagsToSet"]).strip()
+    need(isinstance(k["Duration"], int) and root_tags in ("NO_MOVE", "NO_MOVE_ALLOW_ATTRACT")
          and isinstance(r["ActionDuration"], int),
          "the knock or the root")
     return {"every": every, "push_milli": upper["PushBackStrength"], "flight_ms": k["Duration"],
             "root_delay_ms": root[0][1],
-            "root_ms": r["ActionDuration"]}
+            "root_ms": r["ActionDuration"],
+            **({"uppercut_tags": up_tags} if up_tags is not None else {}),
+            **({"root_tags": root_tags} if root_tags != "NO_MOVE" else {})}
 
 
 def far_shot_block(t: Tables, card: dict) -> dict:
@@ -8342,6 +8480,10 @@ ABILITY_READ_KEYS = {
     # Berserker's, 400 the Hero Barbarian Barrel's). Recorded as `refund_window_ms` where set; what it does in a
     # battle is a calibration question (unmeasured), not the reader's.
     "RefundWindow",
+    # 16.635 on, in place of a RefundWindow on the Golden Knight's and the Hero Balloon's, Giant's, Ice Wizard's and
+    # Valkyrie's buttons: the cost is refunded until the graph reaches its delivery marker (`strip_delivery_markers`).
+    # Recorded as `refund_until_delivered` where set, as the window is.
+    "RefundUntilDelivered",
 }
 ABILITY_UI_KEYS = {
     "TID", "TID_INFO", "IconSWF", "IconExportName", "KeepIconEvenWhenOutOfCharges", "HideChargesTextField",
@@ -9565,6 +9707,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "cast_ms": a.get("CastTime") or 0,
             "trigger_delay_ms": a.get("TriggerDelay") or 0,
             **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
+            **({"refund_until_delivered": True} if a.get("RefundUntilDelivered") is True else {}),
             "keep_current_target": a.get("KeepCurrentTarget") is True,
             "is_champion": a.get("IsChampion") is True,
             "effect": effect,
@@ -9590,6 +9733,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "cast_ms": a.get("CastTime") or 0,
             "trigger_delay_ms": a.get("TriggerDelay") or 0,
             **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
+            **({"refund_until_delivered": True} if a.get("RefundUntilDelivered") is True else {}),
             "keep_current_target": a.get("KeepCurrentTarget") is True,
             "is_champion": a.get("IsChampion") is True,
             "effect": warp_effect(h, name, lock, tagged),
@@ -9610,6 +9754,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
             "cast_ms": a.get("CastTime") or 0,
             "trigger_delay_ms": a.get("TriggerDelay") or 0,
             **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
+            **({"refund_until_delivered": True} if a.get("RefundUntilDelivered") is True else {}),
             "keep_current_target": a.get("KeepCurrentTarget") is True,
             "is_champion": a.get("IsChampion") is True,
             "effect": dismount_effect(h, name, a["OnActivationAction"], units, hero_unit or ""),
@@ -9715,6 +9860,7 @@ def ability_block(h: Tables, name: str, units: dict, hero_unit: str | None = Non
         "is_champion": a.get("IsChampion") is True,
         # 16.402: the Hero Ice Golem's, Giant's and Valkyrie's RefundWindow (50), as the other paths carry it.
         **({"refund_window_ms": a["RefundWindow"]} if a.get("RefundWindow") is not None else {}),
+        **({"refund_until_delivered": True} if a.get("RefundUntilDelivered") is True else {}),
         "effect": effect,
     }
 
@@ -10638,11 +10784,12 @@ SURGE_BUFF_READ = {"Rarity", "CharacterCrownTowerDamagePercent", "SpeedMultiplie
 SURGE_BUFF_DISPLAY = {"ContinuousEffect", "LoopContinuousEffect"}
 SURGE_RECOVERY_READ = {"Rarity", "AddAsIndividualBuff", "GameTagsToSet", "OnRemoveAction"}
 SURGE_ROOT_READ = {"Rarity", "AddAsIndividualBuff", "AliveIfTrue", "GameTagsToSet", "OnStartAction"}
+# 16.635 on: CustomBuffOnDamageTime, the surge bolts' stun time (600 ms) in place of the row's BuffOnDamageTime.
 SURGE_ENTRY_READ = {"Damage", "HitSpeedMultiplier", "CustomMultipleTargets", "CustomRememberMultipleTargets",
-                    "AttackStartDelay", "CustomOnAttackAction"}
+                    "AttackStartDelay", "CustomOnAttackAction", "CustomBuffOnDamageTime"}
 SURGE_ENTRY_DISPLAY = {"VisualHitSpeed", "DisableAttackAnimationFrameMatching", "StatsTags"}
 SURGE_ENTRY_SAME = ("Damage", "HitSpeedMultiplier", "CustomMultipleTargets", "CustomRememberMultipleTargets",
-                    "AttackStartDelay")
+                    "AttackStartDelay", "CustomBuffOnDamageTime")
 SURGE_TAG = "UNIT_CUSTOM_TAG_1"
 SURGE_IN_RANGE = r"target_in_range\((\d+)\)"
 
@@ -10765,7 +10912,8 @@ def surge_effect(h: Tables, name: str, subs: list, delays: list, units: dict, he
     need(isinstance(e1.get("Damage"), int) and e1["Damage"] > 0 and isinstance(e1.get("HitSpeedMultiplier"), int)
          and e1["HitSpeedMultiplier"] > 0 and e1.get("CustomMultipleTargets") == row["MultipleTargets"]
          and e1.get("CustomRememberMultipleTargets") in (None, 0, 1, True, False)
-         and isinstance(e1.get("AttackStartDelay", 0), int) and e1.get("AttackStartDelay", 0) >= 0,
+         and isinstance(e1.get("AttackStartDelay", 0), int) and e1.get("AttackStartDelay", 0) >= 0
+         and isinstance(e1.get("CustomBuffOnDamageTime", 0), int) and e1.get("CustomBuffOnDamageTime", 0) >= 0,
          f"entry 1 {e1}")
     setter = _one_action(acts, e1.get("CustomOnAttackAction"), "ActionSetVariable", {"ClassType", "Variable", "Value"})
     var = setter["Variable"]
@@ -10822,6 +10970,7 @@ def surge_effect(h: Tables, name: str, subs: list, delays: list, units: dict, he
         "hit_speed_multiplier": e1["HitSpeedMultiplier"],
         "remember_targets": bool(e1.get("CustomRememberMultipleTargets")),
         "attack_start_delay_ms": e1.get("AttackStartDelay", 0),
+        **({"stun_ms": e1["CustomBuffOnDamageTime"]} if e1.get("CustomBuffOnDamageTime") is not None else {}),
         "recovery_no_attack_ms": recovery_ms,
         "recovery_root_ms": root_ms,
         "recovery_root_range_milli": root_range,
@@ -11312,6 +11461,7 @@ def ice_cube_button(h: Tables, form: str, unit: str, urow, units: dict, card: di
         "keep_current_target": False,
         "is_champion": True,
         **({"refund_window_ms": ab["RefundWindow"]} if ab.get("RefundWindow") is not None else {}),
+        **({"refund_until_delivered": True} if ab.get("RefundUntilDelivered") is True else {}),
         "effect": {
             "kind": "ice_cube",
             "marks": sorted(tfilter["only_buffed_by"]),

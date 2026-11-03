@@ -14,13 +14,19 @@
 //!   6. the 2026-10-19 arm (client160402017_20261019, content 16.402.22) loads that table, with the Season 88
 //!      mid-season values (the Minion Giant's 60 against 66, the Rune Giant's enchant ending 500 ms after his death
 //!      against 5000, the Skeletons' 500 ring against 400), the same cards as the 2026-10-06 table, its compiled-in copy
-//!      the committed file, and a battle saved under it restores on it.
+//!      the committed file, and a battle saved under it restores on it;
+//!   7. the 16.635 arm (client160635007_20261103, build 160635007, content 16.635.8) loads that table: the Season 88
+//!      values (the Minion Giant's 60, the Skeletons' 500 ring), the same cards as the 2026-10-19 table, the Evo Electro
+//!      Giant's pulse on CommonAreaDamageFilter again (it takes a Clone copy), the Golden Knight's button refunded until
+//!      delivered (an unmodelled key, listed), its compiled-in copy the committed file, and a battle saved under it
+//!      restores on it.
 //!
-//! Plant card_table_unread: every arm loads the 15.535.29 table and every blob restores on it, so 2, 4, 5 and 6 go
+//! Plant card_table_unread: every arm loads the 15.535.29 table and every blob restores on it, so 2, 4, 5, 6 and 7 go
 //! red.
 use royalesim::card::{
     CardDb, CardSource, CARDS_160402017_20261019_FILE, CARDS_160402017_20261019_VERSION, CARDS_160402017_FILE,
-    CARDS_160402017_INSTALL_VERSION, EMBEDDED_CARDS_160402017_20261019_JSON, EMBEDDED_CARDS_160402017_JSON,
+    CARDS_160402017_INSTALL_VERSION, CARDS_160635007_20261103_FILE, CARDS_160635007_20261103_VERSION,
+    EMBEDDED_CARDS_160402017_20261019_JSON, EMBEDDED_CARDS_160402017_JSON, EMBEDDED_CARDS_160635007_20261103_JSON,
 };
 use royalesim::fixed::milli;
 use royalesim::state::{BattleConfig, BattleState, Calib, CardTable};
@@ -78,6 +84,7 @@ fn a_saved_battle_restores_on_the_table_it_ran() {
         ("client160402017_20261006", V160402017),
         ("client160402017", CARDS_160402017_INSTALL_VERSION),
         ("client160402017_20261019", CARDS_160402017_20261019_VERSION),
+        ("client160635007_20261103", CARDS_160635007_20261103_VERSION),
     ] {
         let c = arm(name);
         let mut cfg = BattleConfig::with_cards(CardDb::load_table(c.card_table).expect("the table loads"));
@@ -126,6 +133,37 @@ fn the_20261019_arm_loads_the_season_88_mid_season_table() {
     assert_eq!((radius(&db), radius(&before)), (milli(500), milli(400)), "the Skeletons' ring");
     let names = |db: &CardDb| db.cards.iter().take_while(|c| c.name != "PrincessTower").map(|c| c.name.clone()).collect::<Vec<_>>();
     assert_eq!(names(&db), names(&before), "the update changes values, not the catalogue");
+}
+
+#[test]
+fn the_20261103_arm_loads_the_16635_table() {
+    let c = arm("client160635007_20261103");
+    assert_eq!(c.card_table, CardTable::Client160635007Nov03);
+    let db = CardDb::load_table(c.card_table).expect("the 16.635 table loads");
+    let s88 = CardDb::load_table(CardTable::Client160402017Oct19).expect("the 2026-10-19 table");
+    assert_eq!(db.version, CARDS_160635007_20261103_VERSION, "the arm loads its own table");
+    let damage = |db: &CardDb, n: &str| db.get(db.index(n).unwrap_or_else(|| panic!("{n} loads"))).damage;
+    assert_eq!((damage(&db, "MinionGiant"), damage(&s88, "MinionGiant")), (60, 60), "the Season 88 values carried");
+    let radius = |db: &CardDb| db.get(db.index("Skeletons").expect("Skeletons load")).formation.summon_radius;
+    assert_eq!(radius(&db), milli(500), "the Skeletons' ring");
+    let clones = |db: &CardDb| {
+        let g = db.get(db.index("ElectroGiant_EV1").expect("the form loads"));
+        g.evo.as_ref().and_then(|v| v.delevel_pulse).expect("his pulse").skips_clones
+    };
+    assert_eq!((clones(&db), clones(&s88)), (false, true), "the pulse's filter: CommonAreaDamageFilter again");
+    let listed = |db: &CardDb, key: &str| db.unmodelled.iter().any(|(n, p)| n == "GoldenKnight" && p == key);
+    assert!(listed(&db, "cards[].ability.refund_until_delivered"), "the Golden Knight's button: {:?}", db.unmodelled);
+    assert!(!listed(&db, "cards[].ability.refund_window_ms") && listed(&s88, "cards[].ability.refund_window_ms"));
+    let names = |db: &CardDb| db.cards.iter().take_while(|c| c.name != "PrincessTower").map(|c| c.name.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&db), names(&s88), "the same catalogue");
+}
+
+#[test]
+fn the_compiled_in_20261103_table_is_the_committed_file() {
+    let on_disk = std::fs::read_to_string(CardDb::repo_file_path(CARDS_160635007_20261103_FILE)).expect("the committed table");
+    assert_eq!(EMBEDDED_CARDS_160635007_20261103_JSON.replace("\r\n", "\n"), on_disk.replace("\r\n", "\n"));
+    let embedded = CardDb::from_json_str(EMBEDDED_CARDS_160635007_20261103_JSON, CardSource::Embedded).expect("the copy parses");
+    assert_eq!(embedded.version, CARDS_160635007_20261103_VERSION);
 }
 
 #[test]

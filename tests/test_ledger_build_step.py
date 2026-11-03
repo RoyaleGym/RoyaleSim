@@ -161,6 +161,10 @@ EMBEDDED = [
     # battle under cards.CARD_TABLE = client160402017_20261019 runs.
     ("EMBEDDED_CARDS_160402017_20261019_JSON", ("data", "derived", "cards-160402017-20261019.json"), "json",
      "2026-10-19 card table in every wheel built from it, silently"),
+    # The 16.635 client's table (card.rs EMBEDDED_CARDS_160635007_20261103_JSON), what a wheel's battle under
+    # cards.CARD_TABLE = client160635007_20261103 runs.
+    ("EMBEDDED_CARDS_160635007_20261103_JSON", ("data", "derived", "cards-160635007-20261103.json"), "json",
+     "16.635 card table in every wheel built from it, silently"),
 ]
 
 

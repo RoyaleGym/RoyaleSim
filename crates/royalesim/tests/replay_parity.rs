@@ -226,6 +226,11 @@ fn a_census_names_the_table_it_loaded() {
         (table_file(&oct19), census_file(&oct19)),
         (royalesim::card::CARDS_160402017_20261019_FILE, "card_census-160402017-20261019.json".to_string())
     );
+    let nov03 = CardDb::load_table(CardTable::Client160635007Nov03).expect("the 16.635 table");
+    assert_eq!(
+        (table_file(&nov03), census_file(&nov03)),
+        (royalesim::card::CARDS_160635007_20261103_FILE, "card_census-160635007-20261103.json".to_string())
+    );
 }
 
 #[test]

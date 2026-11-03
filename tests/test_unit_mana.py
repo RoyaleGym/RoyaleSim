@@ -34,6 +34,7 @@ def test_an_override_tables_own_numbers():
     m = mana("client160402017_20261019")
     assert m["ElixirCollector"] == [1000, 15000, 1000, 0], m
     assert m["ElixirGolem1"][3] == 1000, m
+    assert mana("client160635007_20261103") == m, "the 16.635 client moves no elixir number"
 
 
 def test_the_opponent_payout_follows_its_unit_key():

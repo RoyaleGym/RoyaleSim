@@ -924,6 +924,9 @@ TABLES = {
     # The Season 88 mid-season update of 2026-10-19 (content 16.402.22): its update folder carries no spells csv change
     # either (spells_characters.csv and spells_evolved.csv are the base pack's), so the base pack names every card id.
     "160402017-20261019": ("cards-160402017-20261019.json", "cr-160402017", "card_census-160402017-20261019.json"),
+    # The 16.635 client (build 160635007, the 2026-11-03 Play update) with its content 16.635.8: its own install pack
+    # names every card id (the update folder's spells_evolved.csv has the same rows, two flags cleared).
+    "160635007-20261103": ("cards-160635007-20261103.json", "cr-160635007", "card_census-160635007-20261103.json"),
 }
 
 
@@ -947,6 +950,10 @@ UPDATE_20261006_CONTENT = (16, 402, 19)
 CONTENTS_20261006 = {(16, 402, 19), (16, 402, 21)}
 #: THE SEASON 88 MID-SEASON UPDATE'S CONTENT (2026-10-19 16:48Z), and every stamp the 2026-10-19 table is known to fit.
 CONTENTS_20261019 = {(16, 402, 22)}
+#: THE 16.635 CLIENT'S CONTENT (the 2026-11-03 Play update, build 160635007), and every stamp its table is known to fit.
+CONTENTS_20261103 = {(16, 635, 8)}
+#: The tables of the 160402017 client (16.402), which no 16.635 capture fits.
+TABLES_16402 = ("160402017", "160402017-20261006", "160402017-20261019")
 
 
 def content_refusal(table: str, content: str | None) -> str | None:
@@ -954,7 +961,7 @@ def content_refusal(table: str, content: str | None) -> str | None:
     stamp, i.e. before the 2026-10-06 update) does not fit card table `table`, or None when it does. The table must be
     the game the capture was played on: a stamp is per capture, since a device takes a content update when its game
     starts, so no date decides it. The 15.535.29 table takes any capture (the 16.402 corpus is measured on it)."""
-    if table not in ("160402017", "160402017-20261006", "160402017-20261019"):
+    if table not in (*TABLES_16402, "160635007-20261103"):
         return None
     if content is None:
         if table != "160402017":
@@ -965,6 +972,16 @@ def content_refusal(table: str, content: str | None) -> str | None:
         v = tuple(int(x) for x in content.split("."))
     except ValueError:
         return f"the capture's content stamp {content!r} is not a version"
+    if table == "160635007-20261103":
+        if v not in CONTENTS_20261103:
+            known = ", ".join(".".join(map(str, c)) for c in sorted(CONTENTS_20261103))
+            return (f"the capture's content {content} is not one the 16.635 table is known to fit ({known}): an older "
+                    "client's capture takes its own table, a later content update needs its own")
+        return None
+    if v[:2] == (16, 635):
+        return (f"the capture's content {content} is the 16.635 client's: make it with --table 160635007-20261103"
+                if v in CONTENTS_20261103 else
+                f"the capture's content {content} is the 16.635 client's, which no 16.402 table fits")
     if table == "160402017":
         return (f"the capture's content {content} is the 2026-10-06 update's or later: "
                 "make it with --table 160402017-20261006")

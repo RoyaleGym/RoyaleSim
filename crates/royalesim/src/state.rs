@@ -5396,6 +5396,12 @@ calib_enum!(
         /// cards-160402017-20261019.json, `EMBEDDED_CARDS_160402017_20261019_JSON`. What a capture stamped 16.402.22 is
         /// scored against; cards.CLIENT16402_VALUES does not apply to it.
         Client160402017Oct19 = "client160402017_20261019",
+        /// The 16.635 client's table (build 160635007, the 2026-11-03 Play update, with its content 16.635.8:
+        /// the 16.402 numbers, hero buttons refunded until their ability is delivered, the Evo Electro Giant's pulse
+        /// on CommonAreaDamageFilter again; Evo Giant and Evo Mirror not built), data/derived/
+        /// cards-160635007-20261103.json, `EMBEDDED_CARDS_160635007_20261103_JSON`. What a capture stamped 16.635.8 is
+        /// scored against; cards.CLIENT16402_VALUES does not apply to it.
+        Client160635007Nov03 = "client160635007_20261103",
     }
 );
 
@@ -39418,6 +39424,8 @@ impl BattleState {
 /// 20, unchanged, cards.CARD_TABLE client160402017_20261019 (the 2026-10-19 content's table): a new arm, no new state
 ///    (a blob names its table in its own calibration, as before), so a blob saved before it deserializes and hashes as
 ///    it did.
+/// 20, unchanged, cards.CARD_TABLE client160635007_20261103 (the 16.635 client's table): a new arm, no new state, so a
+///    blob saved before it deserializes and hashes as it did.
 /// 20, unchanged, match.BATTLE_END: Calib gained battle_end (serde default the old arm, rules), no new state (read at
 ///    each Judge phase), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle
 ///    at the old arm.
@@ -41312,12 +41320,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
 /// The card table `t` names (cards.CARD_TABLE, card.rs `CardDb::load_table`), loaded once per process, for
 /// `BattleState::load`.
 fn repo_cards(t: CardTable) -> Result<Arc<CardDb>, String> {
-    static CELLS: [OnceLock<Result<Arc<CardDb>, String>>; 4] = [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
+    static CELLS: [OnceLock<Result<Arc<CardDb>, String>>; 5] =
+        [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
     let i = match t {
         CardTable::Client15535 => 0,
         CardTable::Client160402017 => 1,
         CardTable::Client160402017Install => 2,
         CardTable::Client160402017Oct19 => 3,
+        CardTable::Client160635007Nov03 => 4,
     };
     CELLS[i].get_or_init(|| CardDb::load_table(t).map(Arc::new)).clone()
 }

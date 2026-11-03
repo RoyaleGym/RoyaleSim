@@ -2163,6 +2163,10 @@ def test_the_table_switch_sets_the_card_file_the_id_pack_and_the_census_together
         assert m.CARDS.endswith(os.path.join("derived", "cards-160402017-20261019.json"))
         assert m.RAW.endswith(os.path.join("raw", "cr-160402017", "csv_logic")), "its update changes no spells csv"
         assert m.CENSUS == "card_census-160402017-20261019.json"
+        m.select_table("160635007-20261103")
+        assert m.CARDS.endswith(os.path.join("derived", "cards-160635007-20261103.json"))
+        assert m.RAW.endswith(os.path.join("raw", "cr-160635007", "csv_logic")), "the 16.635 client's own pack"
+        assert m.CENSUS == "card_census-160635007-20261103.json"
         m.select_table("15.535.29")
         assert saved == (m.CARDS, m.RAW, m.CENSUS, m.TABLE), "the default table is the module's own constants"
     finally:
@@ -2193,6 +2197,15 @@ def test_a_capture_is_made_on_the_table_of_its_own_content(m):
     assert m.content_refusal(old, None) is None
     assert "--table 160402017-20261006" in m.content_refusal(old, "16.402.19")
     assert m.content_refusal(new, "x.y") is not None
+    # the 16.635 table takes its own stamp and no other (CONTENTS_20261103); no 16.402 table takes a 16.635 stamp
+    c16635 = "160635007-20261103"
+    assert m.content_refusal(c16635, "16.635.8") is None
+    assert "known to fit" in m.content_refusal(c16635, "16.402.22")
+    assert "known to fit" in m.content_refusal(c16635, "16.635.9")
+    assert m.content_refusal(c16635, None) is not None
+    for t in (new, old, s88):
+        assert "--table 160635007-20261103" in m.content_refusal(t, "16.635.8"), t
+        assert "no 16.402 table" in m.content_refusal(t, "16.635.9"), t
     assert m.content_refusal("15.535.29", "16.402.19") is None
     assert m.content_refusal("15.535.29", None) is None
 

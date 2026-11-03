@@ -12,7 +12,7 @@
 //!      pulses, a level-11 Golden Knight (Champion, first level 11) never;
 //!   4. on the 2026-10-19 table (content 16.402.22, which carries the 2026-10-08 content's CommonAreaDamageFilterNoClones)
 //!      the ring passes over the Clone spell's copy of a Knight and takes the Knight it copied; on the 2026-10-06 table
-//!      (CommonAreaDamageFilter) it takes both.
+//!      (CommonAreaDamageFilter) it takes both, and on the 16.635 table (CommonAreaDamageFilter again) both.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_electro_giant`):
@@ -193,4 +193,5 @@ fn knight_and_copy_dropped(t: CardTable) -> (bool, bool) {
 fn on_the_20261019_table_the_pulse_passes_over_a_clone_copy() {
     assert_eq!(knight_and_copy_dropped(CardTable::Client160402017Oct19), (true, false), "the Knight drops, its copy does not");
     assert_eq!(knight_and_copy_dropped(CardTable::Client160402017), (true, true), "the 2026-10-06 table's ring takes both");
+    assert_eq!(knight_and_copy_dropped(CardTable::Client160635007Nov03), (true, true), "the 16.635 table's ring takes both");
 }

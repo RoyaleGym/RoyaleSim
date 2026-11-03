@@ -55,6 +55,9 @@ data/derived/*
 # The same tables with the Season 88 mid-season content update of 2026-10-19 (content 16.402.22): what a capture
 # stamped 16.402.22 is scored against (cards.CARD_TABLE = client160402017_20261019). Same ruling, same category.
 !data/derived/cards-160402017-20261019.json
+# The 16.635 client's table (build 160635007, the 2026-11-03 Play update, with its content 16.635.8): what a capture
+# stamped 16.635.8 is scored against (cards.CARD_TABLE = client160635007_20261103). Same ruling, same category.
+!data/derived/cards-160635007-20261103.json
 
 # Ground-truth traces (large; not distributed). The PREFIX, not the exact path: a
 # byte-identical copy at data/oracle-native-2026-09-18-backup/ sat untracked for five

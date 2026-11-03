@@ -113,6 +113,17 @@ pub const CARDS_160402017_20261019_FILE: &str = "cards-160402017-20261019.json";
 /// The 2026-10-19 table's `version` (its file's own).
 pub const CARDS_160402017_20261019_VERSION: &str = "cards-160402017-20261019.1";
 
+/// THE 16.635 CLIENT'S TABLE (build 160635007, the 2026-11-03 Play update, with its content 16.635.8; tools/
+/// extract_cards.py `--vintage 160635007-20261103`), compiled in: what a battle under calibration cards.CARD_TABLE =
+/// client160635007_20261103 loads away from a checkout, and what a capture stamped 16.635.8 is scored against.
+pub const EMBEDDED_CARDS_160635007_20261103_JSON: &str = include_str!("../../../data/derived/cards-160635007-20261103.json");
+
+/// The 16.635 table's file name under data/derived/ (`CardDb::load_table`).
+pub const CARDS_160635007_20261103_FILE: &str = "cards-160635007-20261103.json";
+
+/// The 16.635 table's `version` (its file's own).
+pub const CARDS_160635007_20261103_VERSION: &str = "cards-160635007-20261103.1";
+
 /// EVERY TABLE OTHER THAN THE 15.535.29 ONE, as (`version`, file under data/derived/): what a loaded CardDb's
 /// `version` names, so a census or a stamp names the file the table came from (examples/replay_parity/harness.rs
 /// `table_file`). The 15.535.29 table is data/derived/cards.json, a copy of cards-15.535.json, and is not listed.
@@ -120,6 +131,7 @@ pub const TABLE_FILES: &[(&str, &str)] = &[
     (CARDS_160402017_VERSION, CARDS_160402017_FILE),
     (CARDS_160402017_INSTALL_VERSION, CARDS_160402017_INSTALL_FILE),
     (CARDS_160402017_20261019_VERSION, CARDS_160402017_20261019_FILE),
+    (CARDS_160635007_20261103_VERSION, CARDS_160635007_20261103_FILE),
 ];
 
 /// A projectile an attack launches instead of hitting instantly.
@@ -6806,6 +6818,15 @@ struct RawIceCube {
 pub const UNMODELLED_KEYS: &[(&str, &str)] = &[
     ("cards[].ability.refund_window_ms", "a button's refund window (RefundWindow); unmeasured"),
     ("hero_forms[].ability.refund_window_ms", "a hero button's refund window (RefundWindow); unmeasured"),
+    ("cards[].ability.refund_until_delivered", "a button refunded until delivered (RefundUntilDelivered); unmeasured"),
+    ("hero_forms[].ability.refund_until_delivered", "a hero button refunded until delivered; unmeasured"),
+    ("cards[].ability.effect.hit_filter_dash_immune", "the Little Prince's guard charge skips the dash-immune; unmeasured"),
+    ("evolutions[].evo_ram.push.damage_flags", "the Evo Battle Ram's push damage flag (NoCounter); unmeasured"),
+    ("evolutions[].evo_uppercut.uppercut_tags", "the Evo Mega Knight's tags while its uppercut runs; unmeasured"),
+    ("evolutions[].evo_uppercut.root_tags", "the Evo Mega Knight's root of NO_MOVE_ALLOW_ATTRACT; unmeasured"),
+    ("buffs{}.cast_id_specific", "a buff whose copies stack by cast (CastIdSpecificBuff); unmeasured"),
+    ("area_effect_objects{}.buff.cast_id_specific", "an area's buff whose copies stack by cast; unmeasured"),
+    ("projectiles{}.target_buff.cast_id_specific", "a shot's buff whose copies stack by cast; unmeasured"),
     ("cards[].ability.held_until_dashing", "the Golden Knight's cooldown held until his dash starts; unmeasured"),
     ("cards[].ability.effect.hold_tag", "the Little Prince's guard holds its target while tagged; unmeasured"),
     ("cards[].ability.effect.cleave", "the Little Prince's guard's cleave area; unmeasured"),
@@ -15346,6 +15367,13 @@ impl CardDb {
                     return file(CARDS_160402017_20261019_FILE);
                 }
                 Ok((Cow::Borrowed(EMBEDDED_CARDS_160402017_20261019_JSON), CardSource::Embedded))
+            }
+            crate::state::CardTable::Client160635007Nov03 => {
+                #[cfg(feature = "checkout-data")]
+                if std::path::Path::new(&CardDb::repo_file_path(CARDS_160635007_20261103_FILE)).exists() {
+                    return file(CARDS_160635007_20261103_FILE);
+                }
+                Ok((Cow::Borrowed(EMBEDDED_CARDS_160635007_20261103_JSON), CardSource::Embedded))
             }
             crate::state::CardTable::Client160402017Install => {
                 if cfg!(feature = "checkout-data") {
