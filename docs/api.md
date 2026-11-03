@@ -74,9 +74,10 @@ numbering.
 real client. `pending_commands()` lists what is waiting.
 
 **Card table.** A Battle runs the 15.535.29 client's card table unless you pass
-`calibration_overrides={"cards.CARD_TABLE": '"client160402017_20261019"'}`, which runs the current client's table
-(its Season 88 mid-season update of 2026-10-19) instead. `"client160402017_20261006"` runs the same client's table
-from 2026-10-06 to that update. `card_table()` names the table a Battle runs, and `card_table_fnv1a64()` gives the hash
+`calibration_overrides={"cards.CARD_TABLE": '"client160635007_20261103"'}`, which runs the current client's table
+(16.635, from its game update of 2026-11-03) instead. `"client160402017_20261019"` runs the 16.402 client's table
+after its Season 88 mid-season update of 2026-10-19, and `"client160402017_20261006"` the same client's table from
+2026-10-06 to that update. `card_table()` names the table a Battle runs, and `card_table_fnv1a64()` gives the hash
 of the file it read. Card ids are the same on every table. A build from a checkout also takes `"client160402017"`, the
 current client's table from before its 2026-10-06 update; a wheel has no copy.
 

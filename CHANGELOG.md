@@ -3,6 +3,51 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.43 (2026-11-03)
+
+- A new card table: the 16.635 client's, from the game update of 2026-11-03 (content 16.635.8). Pick it with
+  `calibration_overrides={"cards.CARD_TABLE": '"client160635007_20261103"'}`. The update changes no card's numbers,
+  so the table carries the Season 88 values. The default table is unchanged.
+  - On it the Evo Electro Giant's pulse takes the Clone spell's copies again.
+  - The Evo Giant and the Evo Mirror are not supported yet: a deck may play the Giant and the Mirror, not their
+    evolutions.
+  - Some new details of the client are recorded in the table and not yet simulated: hero abilities and the Golden
+    Knight's dash are refunded until they land, the Evo Mega Knight stands while it uppercuts, the Little Prince's
+    guard charge passes over units that are immune while they dash, and the Evo Cannon's and Evo Firecracker's
+    damage buffs stack once per cast. In Rust, a loaded table's `CardDb.unmodelled` lists them.
+- `tools/make_replay_fixture.py --table 160635007-20261103` makes fixtures from recordings of the new client
+  (16.635.8), and no 16.402 table takes such a recording.
+- `Battle.unit_mana_json()` gives the elixir each unit of the table produces, carries or pays out on its death.
+- 28 more settings default to the current client's behaviour, each measured against its recorded battles:
+  - Dashes and charges: a timed dasher whose target dies takes its next one after the dash
+    (`combat.DASH_KILL_RETARGET`); a standing dasher keeps a new target and dashes at it
+    (`combat.DASH_STAND_RETARGET`); a shot already flying at a unit that starts a dash lands on the unit's last
+    immune tick (`combat.DASH_IMMUNE_HITS`).
+  - The Little Prince: his guard is born heading for the nearest enemy in sight (`combat.GUARD_BIRTH_GOAL`), walks its
+    first landed steps without avoiding (`combat.GUARD_LANDING_AVOIDANCE`), takes no stun or freeze during its charge
+    (`status.DASH_IMMUNE_BUFFS`), and is passed over then by Lightning (`spells.STRIKE_DASH_IMMUNE`) and by the
+    Inferno Tower, Inferno Dragon and Mighty Miner (`targeting.VARIABLE_DAMAGE_IMMUNE_TARGET`); a knockback resets
+    his ramp (`combat.RAMP_KNOCK_RESET`).
+  - The Evo Mega Knight: his deploy blow counts toward his uppercut and his dash blows do not
+    (`combat.UPPERCUT_COUNT`), and he stands a moment after a throw (`combat.UPPERCUT_STAND`).
+  - The Hero Mega Minion: it hides from its first warp step both ways (`combat.WARP_HIDING`), walks during its warp
+    (`combat.WARP_WALK_STEP`), and stays hidden one tick longer after its strike (`combat.WARP_STRIKE_REVEAL`).
+  - Targeting: a troop leaping the river takes no target in the air (`targeting.LEAP_TARGET_SCAN`); a unit in a
+    knockback decides its target on the ladder (`targeting.KNOCKED_TARGET_HOLD`); a building without a projectile
+    keeps a target only within its range (`targeting.BUILDING_KEEP_REACH`); a stun or freeze clears its victim's
+    target a tick later (`status.STUN_CLEARS_TARGET`); the Inferno and Mighty Miner rows walk into reach as the
+    client does (`targeting.VARIABLE_DAMAGE_WALK_REACH`, `targeting.VARIABLE_DAMAGE_LADDER_WALK`).
+  - Shots: a straight shot tests its aim point (`combat.STRAIGHT_SHOT_RANGE_END`) and hits a building by its square
+    (`combat.STRAIGHT_SHOT_BUILDING_REACH`).
+  - Others: a stun or freeze resets a Sparky's charge (`combat.LOAD_FIRST_HIT_HOLD`); the Rune Giant walks on during
+    his launch's hold (`enchant.ON_BUFF_HOLD_WALK`); the Clone's slide crosses the river (`spells.CLONE_SLIDE_WATER`);
+    a buff's death spawn takes its victim's facing and moves on its first tick (`status.BUFF_DEATH_SPAWN_FACING`,
+    `status.BUFF_DEATH_SPAWN_FIRST_UPDATE`); a unit that transforms stands on its switch tick
+    (`transform.SWITCH_TICK_WALK`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles. `replay_parity` plays a tick's plays in the
+  client's order. Saved battles from earlier releases load unchanged (`SNAPSHOT_FORMAT` is still 20).
+
 ## 0.1.42 (2026-10-22)
 
 - One more setting defaults to the current client's behaviour, measured against its recorded battles: a charging
