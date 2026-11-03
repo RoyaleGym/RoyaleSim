@@ -961,6 +961,12 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
         && !(calib.load_timer_target_loss == crate::state::LoadTimerTargetLoss::Client16402HitHoldLag && ents.load_hold[a] == 3);
     #[cfg(clash_plant = "held_load_runs_on")]
     let stands = false;
+    // combat.PRESS_LOAD_TIMER = client16402_runs_through_cast: the Little Prince's timer runs through his press's cast while he
+    // holds a target (Entities::press_load_runs).
+    let cast_runs = calib.press_load_timer == crate::state::PressLoadTimer::Client16402RunsThroughCast
+        && ents.press_load_runs.get(a).copied().unwrap_or(false)
+        && ents.target[a].is_some();
+    let stands = stands && !cast_runs;
     let held = held || stands;
     let mut load = if held { ents.attack_load_ms[a] } else { (ents.attack_load_ms[a] - calib.tick_ms).max(0) };
     let phase = ents.attack_phase[a];

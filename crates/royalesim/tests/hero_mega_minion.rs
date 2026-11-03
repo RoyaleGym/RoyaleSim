@@ -33,7 +33,7 @@ use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpLaw, WarpWalkStep};
+use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpHiding, WarpLaw, WarpStrikeReveal, WarpWalkStep};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -356,4 +356,95 @@ fn under_client16402_walk_to_scanned_target_the_warp_walk_follows_its_own_scan()
     let (a_scan, a_only) = (warp(WarpWalkStep::Client16402WalkToScannedTarget, ahead).0, warp(WarpWalkStep::WarpOnly, ahead).0);
     let w = (1..a_only.len()).find(|&k| a_only[k] != a_only[0]).expect("the warp never moved");
     assert_eq!(a_scan[..=w], a_only[..=w], "attacking at the press: the first warp step is the warp alone");
+}
+
+/// `battle_017` with `tweak` applied to its config.
+fn battle_017_with(tweak: impl FnOnce(&mut BattleConfig)) -> BattleState {
+    let db = CardDb::load_table(CardTable::Client160402017).expect("the 160402017 table");
+    let mut cfg = BattleConfig::with_cards(db);
+    cfg.calib.card_table = CardTable::Client160402017;
+    cfg.calib.warp_law = WarpLaw::Client16402BrakeAndReturn;
+    tweak(&mut cfg);
+    battle_on(cfg)
+}
+
+/// The return scene of on_the_160402017_table_it_warps_back_the_tick_after_its_target_dies, a red Musketeer held 4,240 past the
+/// Skeleton's point (its reach takes the hero there; it is no pick, its hitpoints above the Skeleton's), under combat.WARP_HIDING
+/// = `hide` and WARP_STRIKE_REVEAL = `reveal`: per tick from the press, (the hero's step, its invisible bit, the Musketeer holds
+/// it); the tick of its strike shot (its first projectile after it stands on the Skeleton) and W, its first step back.
+fn return_rows(hide: WarpHiding, reveal: WarpStrikeReveal) -> (Vec<(i64, bool, bool)>, usize, usize) {
+    let minion = (AT.0 - 4320, AT.1 + 5760);
+    let s0 = battle_017_with(|c| {
+        c.calib.warp_hiding = hide;
+        c.calib.warp_strike_reveal = reveal;
+    });
+    let (mut s, hero, reds) = start_in(s0, &[("Knight", (AT.0, AT.1 + 3000)), ("Skeleton", minion), ("Musketeer", (minion.0, minion.1 + 4240))]);
+    let (target, mus) = (reds[1].0, reds[2].0);
+    let mine = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(hero)).count();
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut known = mine(&s);
+    let mut prev = s.entity(hero).expect("the hero").pos;
+    let (mut rows, mut arrived, mut shot) = (Vec::new(), None, None);
+    for f in 0..90 {
+        for (k, (id, p)) in reds.iter().enumerate() {
+            let Some(e) = s.entity(*id) else { continue };
+            if k == 1 && arrived.is_some() {
+                continue;
+            }
+            let full = e.max_hp;
+            assert!(s.debug_set_pos(*id, *p));
+            if k != 1 {
+                assert!(s.debug_set_hp(*id, full));
+            }
+        }
+        s.tick();
+        let h = s.entity(hero).expect("the hero");
+        let (dx, dy) = (((h.pos.x - prev.x) / K) as i64, ((h.pos.y - prev.y) / K) as i64);
+        prev = h.pos;
+        let held = s.entity(mus).is_some_and(|m| m.target == Some(hero));
+        rows.push((isqrt(dx * dx + dy * dy), h.status_flags & 2 != 0, held));
+        if arrived.is_none() && s.entity(target).is_some_and(|t| t.pos == h.pos) {
+            arrived = Some(f);
+        }
+        let m = mine(&s);
+        if arrived.is_some() && shot.is_none() && m > known {
+            shot = Some(f);
+        }
+        known = m;
+    }
+    let a = arrived.unwrap_or_else(|| panic!("{hide:?} {reveal:?}: the scene drifted: it never stood on the Skeleton"));
+    let f = shot.unwrap_or_else(|| panic!("{hide:?} {reveal:?}: the scene drifted: no strike shot"));
+    let w = (a + 2..rows.len()).find(|&k| rows[k].0 >= 350).unwrap_or_else(|| panic!("{hide:?} {reveal:?}: the scene drifted: no step back: {rows:?}"));
+    (rows, f, w)
+}
+
+/// combat.WARP_HIDING = client16402_first_step_both_ways (client 16.402, parity r82, ob13: every holder let the returning hero go
+/// on its first step + 1, 11 of 11 over 6 returns). Plant: warp_return_unhidden.
+#[test]
+fn under_client16402_first_step_both_ways_its_return_hides_it() {
+    let (new, _, w) = return_rows(WarpHiding::Client16402FirstStepBothWays, WarpStrikeReveal::WithTheShot);
+    assert!(new[w - 1].2, "the scene drifted: the Musketeer does not hold the hero when its return starts: {new:?}");
+    assert!(new[w..w + 5].iter().all(|r| r.1), "client16402_first_step_both_ways: hidden from its first step back: {new:?}");
+    assert!(!new[w + 1].2, "client16402_first_step_both_ways: the Musketeer lets it go on W + 1: {new:?}");
+    // NOT VACUOUS: client15535_first_step hides nothing on the return
+    let (old, _, w0) = return_rows(WarpHiding::Client15535FirstStep, WarpStrikeReveal::WithTheShot);
+    assert_eq!(w0, w, "the same return");
+    assert!(!old[w0].1 && old[w0 + 1].2, "client15535_first_step: the Musketeer keeps the returning hero: {old:?}");
+}
+
+/// combat.WARP_STRIKE_REVEAL = client16402_shot_plus_1 (client 16.402, parity r82, ob13: 6 of 6 retakes on the strike + 2).
+/// Plant: strike_reveal_on_shot.
+#[test]
+fn under_client16402_shot_plus_1_it_is_taken_on_its_strike_plus_2() {
+    let taken = |r: &[(i64, bool, bool)], f: usize| (f..r.len()).find(|&k| r[k].2).unwrap_or_else(|| panic!("the Musketeer never takes the hero: {r:?}"));
+    let (new, f, _) = return_rows(WarpHiding::Client15535FirstStep, WarpStrikeReveal::Client16402ShotPlus1);
+    assert_eq!(taken(&new, f), f + 2, "client16402_shot_plus_1: taken on its strike + 2: {new:?}");
+    // NOT VACUOUS: with_the_shot lets the Musketeer take it on the strike + 1
+    let (old, f0, _) = return_rows(WarpHiding::Client15535FirstStep, WarpStrikeReveal::WithTheShot);
+    assert_eq!(taken(&old, f0), f0 + 1, "with_the_shot: taken on its strike + 1: {old:?}");
+}
+
+#[test]
+fn the_shipped_warp_strike_reveal_is_with_the_shot() {
+    assert_eq!(royalesim::state::Calib::shipped().warp_strike_reveal, WarpStrikeReveal::WithTheShot);
 }

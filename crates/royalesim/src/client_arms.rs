@@ -403,6 +403,13 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   targeting.VARIABLE_DAMAGE_LADDER_WALK = stands_after_ladder: client 15.535.29 keeps its own walk-reach arm, which reads no
 ///   walked_prev.
 ///   combat.GUARD_LANDING_AVOIDANCE = scanned: client 15.535.29's landed guards are unread for it.
+///   combat.LOAD_FIRST_HIT_HOLD = held: client 15.535.29's Sparky holds are unread.
+///   targeting.BUILDING_KEEP_REACH = range_plus_extension: client 15.535.29's building keeps in the band are unread.
+///   status.DASH_IMMUNE_BUFFS = landed: client 15.535.29's holds on a charging guard are unread.
+///   combat.PRESS_LOAD_TIMER = zeroed: client 15.535.29's presses are read on its own Little Prince scenes, which zero it.
+///   combat.RAMP_KNOCK_RESET = kept: unread on client 15.535.29.
+///   targeting.VARIABLE_DAMAGE_IMMUNE_TARGET = taken: unread on client 15.535.29.
+///   combat.WARP_STRIKE_REVEAL = with_the_shot: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -634,6 +641,13 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.UPPERCUT_COUNT", "\"hits_and_dash_blows\""),
     ("targeting.VARIABLE_DAMAGE_LADDER_WALK", "\"stands_after_ladder\""),
     ("combat.GUARD_LANDING_AVOIDANCE", "\"scanned\""),
+    ("combat.LOAD_FIRST_HIT_HOLD", "\"held\""),
+    ("targeting.BUILDING_KEEP_REACH", "\"range_plus_extension\""),
+    ("status.DASH_IMMUNE_BUFFS", "\"landed\""),
+    ("combat.PRESS_LOAD_TIMER", "\"zeroed\""),
+    ("combat.RAMP_KNOCK_RESET", "\"kept\""),
+    ("targeting.VARIABLE_DAMAGE_IMMUNE_TARGET", "\"taken\""),
+    ("combat.WARP_STRIKE_REVEAL", "\"with_the_shot\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

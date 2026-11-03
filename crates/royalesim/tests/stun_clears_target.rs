@@ -66,3 +66,57 @@ fn the_old_arm_keeps_the_target_through_the_stun() {
 fn the_shipped_arm_is_client_cleared() {
     assert_eq!(Calib::shipped().stun_clears_target, StunClearsTarget::ClientCleared);
 }
+
+/// Under status.STUN_CLEARS_TARGET = `arm`: a Blue Valkyrie swinging at a Red Golem held beside her is frozen by a Red Ice
+/// Spirit's hit (a hit-delivered hold); per tick from the spirit's spawn, the Valkyrie's target and whether she is held. Also
+/// the Golem's id.
+fn hit_frozen(arm: StunClearsTarget) -> (EntityId, Vec<(Option<EntityId>, bool)>) {
+    let mut cfg = config();
+    cfg.calib.stun_clears_target = arm;
+    let mut s = BattleState::new(0, cfg);
+    past_deploy_lockout(&mut s);
+    let blue = s.scenario_spawn_now(Team::Blue, "Valkyrie", n(9000, 12000), None).expect("the Valkyrie");
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", n(9000, 13200), None).expect("the Golem");
+    let mut waited = 0;
+    while s.entity(blue).unwrap().target != Some(golem) || s.entity(blue).unwrap().attack_phase == royalesim::entity::AttackPhase::Idle {
+        assert!(waited < 120, "the scene drifted: the Valkyrie never swung at the Golem");
+        assert!(s.debug_set_pos(golem, n(9000, 13200)));
+        s.tick();
+        waited += 1;
+    }
+    s.scenario_spawn_now(Team::Red, "IceSpirits", n(11500, 12000), None).expect("the Ice Spirit");
+    let rows = (0..140)
+        .map(|_| {
+            assert!(s.debug_set_pos(golem, n(9000, 13200)));
+            s.tick();
+            let b = s.entity(blue).expect("the Valkyrie lives");
+            (b.target, b.stun_ms > 0)
+        })
+        .collect();
+    (golem, rows)
+}
+
+/// status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick (client 16.402, parity r82, live13: 142 of 155 hit holds cleared
+/// the target on H + 1). Plant: hit_hold_clears_at_landing.
+#[test]
+fn under_client16402_hit_hold_next_tick_a_hit_freeze_clears_the_target_a_tick_later() {
+    let (golem, rows) = hit_frozen(StunClearsTarget::Client16402HitHoldNextTick);
+    let h = rows.iter().position(|r| r.1).expect("the scene drifted: the Ice Spirit never froze the Valkyrie");
+    assert_eq!(rows[h].0, Some(golem), "client16402_hit_hold_next_tick: she holds the Golem on the freeze's first tick");
+    assert_eq!(rows[h + 1].0, None, "client16402_hit_hold_next_tick: cleared on H + 1");
+    // NOT VACUOUS: client_cleared drops it on H
+    let (_, old) = hit_frozen(StunClearsTarget::ClientCleared);
+    let h0 = old.iter().position(|r| r.1).expect("the scene drifted: no freeze");
+    assert_eq!(old[h0].0, None, "client_cleared: cleared on landing");
+}
+
+/// status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick: an area's hold (the Zap's) still clears on landing (live13: 40 of
+/// 40 area holds on H).
+#[test]
+fn under_client16402_hit_hold_next_tick_a_zap_still_clears_on_landing() {
+    let (giant, rows) = zapped_knight(StunClearsTarget::Client16402HitHoldNextTick);
+    let landed = rows.iter().position(|r| r.1).expect("the scene drifted: the Zap never held the Knight");
+    let resumed = (landed..rows.len()).find(|&k| !rows[k].1).expect("the scene drifted: the stun never ended");
+    assert!(rows[landed..resumed].iter().all(|r| r.0.is_none()), "client16402_hit_hold_next_tick: the Zapped Knight held a target: {:?}", &rows[landed..resumed]);
+    assert!(rows[resumed..].iter().any(|r| r.0 == Some(giant)), "the resume rescan did not take the Giant back");
+}

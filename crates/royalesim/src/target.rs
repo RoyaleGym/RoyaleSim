@@ -576,6 +576,16 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
         return false;
     }
     let card = ctx.cards.get(e.card[a]);
+    // targeting.VARIABLE_DAMAGE_IMMUNE_TARGET = client16402_not_while_immune: a variable-damage row's scan takes no dash-immune
+    // unit (a charging Little Prince guard). Measured on client 16.402 (parity r82, live13): 0 of 18 pickups inside a guard's
+    // charge, against 786 of 1,172 for other units. PLANT (regression) vd_takes_immune: the new arm still takes it.
+    #[cfg(not(clash_plant = "vd_takes_immune"))]
+    let vd_gate = ctx.calib.variable_damage_immune_target == crate::state::VariableDamageImmuneTarget::Client16402NotWhileImmune;
+    #[cfg(clash_plant = "vd_takes_immune")]
+    let vd_gate = false;
+    if vd_gate && !keeping && card.variable_damage.is_some() && e.dash_immune(c, ctx.tick) {
+        return false;
+    }
     // targeting.DOOMED_TARGET_DROP: a projectile attacker neither keeps nor takes a unit the shots already in flight
     // will kill (`ctx.doomed`) unless it has shot at it (`drops_when_doomed`).
     if drops_when_doomed(ctx, a, c, keeping) && ctx.doomed.get(c).copied().unwrap_or(false) {
@@ -1443,7 +1453,17 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 cancel = true;
             } else {
                 // targeting.WALKING_KEEP_REACH: a walking holder's radius is the one it walks to (`keep_own_radius`).
-                let keep = card.range + ctx.calib.range_extension_to_keep_target;
+                // targeting.BUILDING_KEEP_REACH = client16402_range_only: a building with no projectile keeps a unit only within
+                // Range + both radii. Measured on client 16.402 (parity r82, live13): the Tesla and the Inferno Tower let go in 11
+                // of 11 band ticks and kept 288 of 288 just inside; the engine kept 3 of 3. PLANT (regression)
+                // building_keeps_extension: the new arm still keeps to the extension.
+                #[cfg(not(clash_plant = "building_keeps_extension"))]
+                let range_only = ctx.calib.building_keep_reach == crate::state::BuildingKeepReach::Client16402RangeOnly
+                    && e.kind[a] == EntityKind::Building
+                    && card.projectile.is_none();
+                #[cfg(clash_plant = "building_keeps_extension")]
+                let range_only = false;
+                let keep = card.range + if range_only { 0 } else { ctx.calib.range_extension_to_keep_target };
                 if in_attack_range(ctx.calib, e.pos[a], keep, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }

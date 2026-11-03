@@ -265,6 +265,17 @@ pub struct Entities {
     /// `default` and sized on load like `pass_over`.
     #[serde(default)]
     pub charge_fresh: Vec<bool>,
+    /// status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick: a hit's hold landed on the unit last tick, and its target
+    /// clears on this Target phase (state.rs `land_stun` sets it, `phase_target_with` clears it and the target). Written true
+    /// under that arm only; hashed only when set. `default` and sized on load like `charge_fresh`.
+    #[serde(default)]
+    pub stun_clear_due: Vec<bool>,
+    /// combat.PRESS_LOAD_TIMER = client16402_runs_through_cast: a Little Prince in his press's cast, whose load timer runs while he
+    /// holds a target (state.rs `start_ability` sets it, `casting_heroes` clears it at the cast's end; combat.rs
+    /// `attack_step_progress` reads it). Written true under that arm only; hashed only when set. `default` and sized on load
+    /// like `charge_fresh`.
+    #[serde(default)]
+    pub press_load_runs: Vec<bool>,
     /// targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 ground arms): the unit's own walk stepped on the last move pass (its requested
     /// step, `Scratch::walk_step`, above 0: pushes, knocks and slides do not count). Written by state.rs `phase_path16402_for`
     /// under those arms only and for variable-damage and combo rows only (no other row's reach reads it), read by target.rs
@@ -980,6 +991,8 @@ impl Entities {
             self.lost_target[i] = None;
             self.pass_over[i] = false;
             self.charge_fresh[i] = false;
+            self.stun_clear_due[i] = false;
+            self.press_load_runs[i] = false;
             self.walked_prev[i] = false;
             self.reach_settled[i] = false;
             self.strike_skip[i] = false;
@@ -1099,6 +1112,8 @@ impl Entities {
             self.lost_target.push(None);
             self.pass_over.push(false);
             self.charge_fresh.push(false);
+            self.stun_clear_due.push(false);
+            self.press_load_runs.push(false);
             self.walked_prev.push(false);
             self.reach_settled.push(false);
             self.strike_skip.push(false);
@@ -1292,6 +1307,8 @@ impl Entities {
         self.lost_target[i] = None;
         self.pass_over[i] = false;
         self.charge_fresh[i] = false;
+        self.stun_clear_due[i] = false;
+        self.press_load_runs[i] = false;
         self.walked_prev[i] = false;
         self.reach_settled[i] = false;
         self.strike_skip[i] = false;

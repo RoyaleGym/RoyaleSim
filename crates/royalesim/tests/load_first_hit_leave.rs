@@ -27,7 +27,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, LoadFirstHitKillWait, LoadFirstHitLeave};
+use royalesim::state::{BattleState, Calib, LoadFirstHitHold, LoadFirstHitKillWait, LoadFirstHitLeave};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -137,4 +137,54 @@ fn a_leaving_sparky_gets_its_windup_back() {
 #[test]
 fn the_shipped_arm_runs_the_timer_on() {
     assert_eq!(Calib::shipped().load_first_hit_leave, LoadFirstHitLeave::Client15535RefundAtDeath);
+}
+
+/// Under combat.LOAD_FIRST_HIT_HOLD = `arm`: a blue Sparky at (9000, 6500), charged with no enemy in sight (its load timer 0),
+/// is Zapped on its point; a red Knight (100,000 hp) is put 4,000 ahead on the Zap's first held tick and held there. (its load
+/// timer on every held tick, its progress on its first tick in its attack after the hold).
+fn zapped_sparky(arm: LoadFirstHitHold) -> (Vec<i32>, i32) {
+    let mut cfg = config();
+    cfg.calib.load_first_hit_hold = arm;
+    let mut s = BattleState::new(3, cfg);
+    past_deploy_lockout(&mut s);
+    let sparky = s.scenario_spawn_now(Team::Blue, "ZapMachine", at((9000, 6500)), None).expect("the Sparky");
+    run_until(&mut s, 200, |s| s.entity(sparky).is_some_and(|v| v.attack_load_ms == 0));
+    assert_eq!(s.entity(sparky).unwrap().attack_load_ms, 0, "the scene drifted: the Sparky never charged");
+    let p = s.entity(sparky).unwrap().pos;
+    s.spawn_unit(Team::Red, "Zap", p, None).expect("the Zap");
+    let (mut loads, mut knight) = (Vec::new(), None);
+    for _ in 0..120 {
+        if let Some(k) = knight {
+            assert!(s.debug_set_pos(k, at((9000, 10500))));
+        }
+        s.tick();
+        let v = s.entity(sparky).expect("the Sparky");
+        if v.stun_ms > 0 {
+            loads.push(v.attack_load_ms);
+            if knight.is_none() {
+                knight = Some(s.scenario_spawn_now(Team::Red, "Knight", at((9000, 10500)), Some(100_000)).expect("the Knight"));
+            }
+        } else if !loads.is_empty() && v.attack_ms > 0 {
+            return (loads, v.attack_ms);
+        }
+    }
+    panic!("{arm:?}: the scene drifted: held {} ticks, no attack after", loads.len());
+}
+
+/// combat.LOAD_FIRST_HIT_HOLD = client16402_hold_recharges (client 16.402, parity r82, live13: the timer read LoadTime on the
+/// first held tick in 41 of 41 Sparky holds; it entered at progress 100 after). Plant: hold_keeps_sparky_charge.
+#[test]
+fn under_client16402_hold_recharges_a_zapped_sparky_charges_again() {
+    let (loads, entry) = zapped_sparky(LoadFirstHitHold::Client16402HoldRecharges);
+    assert!(loads.len() >= 8, "the scene drifted: the Zap held the Sparky {} ticks", loads.len());
+    assert!(loads.iter().all(|&l| l == 3000), "client16402_hold_recharges: the held Sparky's timer reads LoadTime: {loads:?}");
+    assert!(entry <= 300, "client16402_hold_recharges: it enters charging again: {entry}");
+    // NOT VACUOUS: held keeps its charge through the hold and fires at once after it
+    let (l0, e0) = zapped_sparky(LoadFirstHitHold::Held);
+    assert!(l0.iter().all(|&l| l == 0) && e0 >= 3000, "held: {l0:?}, entry {e0}");
+}
+
+#[test]
+fn the_shipped_load_first_hit_hold_is_held() {
+    assert_eq!(Calib::shipped().load_first_hit_hold, LoadFirstHitHold::Held);
 }

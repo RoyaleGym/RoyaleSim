@@ -351,3 +351,72 @@ fn under_client16402_deploy_blow_not_dash_his_jump_is_no_attack() {
     // NOT VACUOUS: the engine's rule counts the jump, so his 1st hit throws
     assert_eq!(throws(UppercutCount::HitsAndDashBlows, false), vec![true, false, true]);
 }
+
+/// Under combat.UPPERCUT_COUNT = client16402_deploy_blow_not_dash (his 1st hit his uppercut) and UPPERCUT_STAND = `stand`: a
+/// played Evo Mega Knight held at (9000, 12500) kills a red Knight 1,400 ahead (100 hp) with his first hit; a second red Knight
+/// is held 2,900 to his right (out of his reach, inside his jump's minimum range), so he walks to it. (ticks from the tick the first
+/// Knight is gone to his first step, his load timer on the tick before that step).
+fn walk_after_kill(stand: UppercutStand) -> (usize, i32) {
+    let mut s = battle_with(|c| {
+        c.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
+        c.calib.uppercut_count = UppercutCount::Client16402DeployBlowNotDash;
+        c.calib.uppercut_stand = stand;
+    });
+    let at = n(9000, 12500);
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    // his deploy blow lands with nothing in reach (on his landing): his count reads 1
+    let mut waited = 0;
+    while s.entity(mk).expect("the Mega Knight").deploying || waited < 3 {
+        assert!(waited < 80, "the scene drifted: he never landed");
+        assert!(s.debug_set_pos(mk, at));
+        s.tick();
+        waited += 1;
+    }
+    let victim = s.scenario_spawn_now(Team::Red, "Knight", n(9000, 13900), Some(100)).expect("the first Knight");
+    let next_at = n(11900, 12500);
+    let next = s.scenario_spawn_now(Team::Red, "Knight", next_at, None).expect("the second Knight");
+    let (mut rows, mut gone): (Vec<(Vec2, i32)>, Option<usize>) = (Vec::new(), None);
+    for k in 0..200 {
+        if gone.is_none() {
+            assert!(s.debug_set_pos(mk, at));
+        }
+        let top = s.entity(next).expect("the second Knight").max_hp;
+        assert!(s.debug_set_pos(next, next_at) && s.debug_set_hp(next, top));
+        s.tick();
+        let m = s.entity(mk).expect("the Mega Knight");
+        rows.push((m.pos, m.attack_load_ms));
+        if gone.is_none() && s.entity(victim).is_none() {
+            gone = Some(k);
+        }
+        if let Some(h) = gone {
+            if let Some(w) = (h + 1..rows.len()).find(|&j| rows[j].0 != at) {
+                return (w - h, rows[w - 1].1);
+            }
+        }
+    }
+    panic!("{stand:?}: the scene drifted: the first Knight gone {gone:?}, he never stepped after it");
+}
+
+/// combat.UPPERCUT_STAND = client16402_after_a_throw (client 16.402, parity r82, live13: after a killing uppercut he walked on
+/// the hit + 6 in 22 of 22, never at his load's 100). Plant: uppercut_kill_stands.
+#[test]
+fn under_client16402_after_a_throw_a_killing_uppercut_arms_no_stand() {
+    let (dt, load) = walk_after_kill(UppercutStand::Client16402AfterAThrow);
+    assert!(dt <= 8 && load >= 500, "client16402_after_a_throw: he walks after the post-kill wait: {dt} ticks, load {load}");
+    // NOT VACUOUS: client15535_until_load_100 holds him to his load's 100
+    let (dt0, load0) = walk_after_kill(UppercutStand::Client15535UntilLoad100);
+    assert!(load0 <= 150 && dt0 >= 12, "client15535_until_load_100: {dt0} ticks, load {load0}");
+}
+
+/// combat.UPPERCUT_STAND = client16402_after_a_throw: an uppercut that threw still holds him to his load's 100 (the scene of
+/// he_stands_until_his_load_reads_100_under_client15535_until_load_100).
+#[test]
+fn under_client16402_after_a_throw_a_throw_still_stands() {
+    let new = after_the_uppercut(UppercutFlightTargetability::Client15535Airborne, UppercutStand::Client16402AfterAThrow);
+    let start = new[0].1;
+    let first_move = new.iter().position(|r| r.1 != start).unwrap_or_else(|| panic!("the scene drifted: he never moved: {new:?}"));
+    assert!(new[first_move - 1].2 <= 150, "client16402_after_a_throw: he walked at load {} after a throw: {new:?}", new[first_move - 1].2);
+    assert!(new[..first_move].iter().filter(|r| r.2 > 100).count() >= 15, "the scene drifted: a short stand: {new:?}");
+}

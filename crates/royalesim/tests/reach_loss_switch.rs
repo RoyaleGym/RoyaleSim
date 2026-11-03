@@ -33,7 +33,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, EqualDistanceTie, PreserveTargetScope, RetargetProgress};
+use royalesim::state::{BattleConfig, BattleState, BuildingKeepReach, Calib, EqualDistanceTie, PreserveTargetScope, RetargetProgress};
 use royalesim::{EntityId, Team};
 
 /// (lock on, its scope, the progress arm)
@@ -225,4 +225,77 @@ fn the_shipped_values_are_projectile_attackers_only_and_keep_when_dead_or_in_rea
     assert!(c.preserve_target_if_hit_started);
     assert_eq!(c.preserve_target_scope, PreserveTargetScope::ProjectileAttackersOnly);
     assert_eq!(c.retarget_progress, RetargetProgress::KeepWhenDeadOrInReach);
+}
+
+/// Under targeting.BUILDING_KEEP_REACH = `arm`: a red `building` at (9000, 20000) takes a blue Giant held inside its reach; a
+/// blue Knight is then held 5,000 to its right (in reach, if `knight`); the Giant is put `past` beyond Range + both radii, straight
+/// below it, and the battle ticks once. (the building's target then, the Giant, the Knight).
+fn building_band(arm: BuildingKeepReach, building: &str, knight: bool, past: i64) -> (Option<EntityId>, EntityId, Option<EntityId>) {
+    let mut cfg = config();
+    cfg.calib.building_keep_reach = arm;
+    let mut s = BattleState::new(0, cfg);
+    let b_at = at((9000, 20000));
+    let b = s.scenario_spawn_now(Team::Red, building, b_at, None).expect("the building");
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", at((9000, 13800)), Some(100_000)).expect("the Giant");
+    let r = {
+        let (bv, gv) = (s.entity(b).expect("the building"), s.entity(giant).expect("the Giant"));
+        ((card_stat(&s, building).range + bv.radius + gv.radius) / K) as i64
+    };
+    let inside = at((9000, 20000 - (r - 300) as i32));
+    let mut waited = 0;
+    while s.entity(b).unwrap().target != Some(giant) {
+        assert!(waited < 200, "the scene drifted: the {building} never took the Giant");
+        assert!(s.debug_set_pos(giant, inside));
+        s.tick();
+        waited += 1;
+    }
+    let k = if knight {
+        let k_at = at((14000, 20000));
+        let k = s.scenario_spawn_now(Team::Blue, "Knight", k_at, Some(100_000)).expect("the Knight");
+        for _ in 0..3 {
+            assert!(s.debug_set_pos(giant, inside) && s.debug_set_pos(k, k_at));
+            s.tick();
+        }
+        assert!(s.debug_set_pos(k, k_at));
+        Some(k)
+    } else {
+        None
+    };
+    assert_eq!(s.entity(b).unwrap().target, Some(giant), "the scene drifted: the {building} let the Giant go inside its reach");
+    let band = at((9000, 20000 - (r + past) as i32));
+    assert!(s.debug_set_pos(giant, band));
+    assert_eq!(dist(s.entity(giant).unwrap().pos, b_at), r + past, "precondition: the Giant {past} past the reach {r}");
+    s.tick();
+    (s.entity(b).unwrap().target, giant, k)
+}
+
+/// targeting.BUILDING_KEEP_REACH = client16402_range_only (client 16.402, parity r82, live13: the Tesla and the Inferno Tower let
+/// go in 11 of 11 band ticks, the engine kept 3 of 3). Plant: building_keeps_extension.
+#[test]
+fn under_client16402_range_only_a_tesla_lets_a_target_10_past_its_reach_go() {
+    let (t, _, k) = building_band(BuildingKeepReach::Client16402RangeOnly, "Tesla", true, 10);
+    assert_eq!(t, k, "client16402_range_only: the Tesla takes the Knight in its reach");
+    // NOT VACUOUS: range_plus_extension keeps the Giant inside the 25 band
+    let (t0, g0, _) = building_band(BuildingKeepReach::RangePlusExtension, "Tesla", true, 10);
+    assert_eq!(t0, Some(g0), "range_plus_extension: the Tesla keeps the Giant");
+    // controls: 10 inside its reach both keep; 40 past it both let go
+    let (ti, gi, _) = building_band(BuildingKeepReach::Client16402RangeOnly, "Tesla", true, -10);
+    assert_eq!(ti, Some(gi), "client16402_range_only: the Tesla keeps the Giant inside its reach");
+    let (tf, _, kf) = building_band(BuildingKeepReach::RangePlusExtension, "Tesla", true, 40);
+    assert_eq!(tf, kf, "range_plus_extension: past the band the Tesla lets go");
+}
+
+/// targeting.BUILDING_KEEP_REACH = client16402_range_only: an Inferno Tower with nothing else in sight holds none 10 past its
+/// reach.
+#[test]
+fn under_client16402_range_only_an_inferno_tower_holds_none_past_its_reach() {
+    let (t, _, _) = building_band(BuildingKeepReach::Client16402RangeOnly, "InfernoTower", false, 10);
+    assert_eq!(t, None, "client16402_range_only: the Inferno Tower holds none");
+    let (t0, g0, _) = building_band(BuildingKeepReach::RangePlusExtension, "InfernoTower", false, 10);
+    assert_eq!(t0, Some(g0), "range_plus_extension: the Inferno Tower keeps the Giant");
+}
+
+#[test]
+fn the_shipped_building_keep_reach_is_range_plus_extension() {
+    assert_eq!(Calib::shipped().building_keep_reach, BuildingKeepReach::RangePlusExtension);
 }

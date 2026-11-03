@@ -1173,3 +1173,61 @@ fn under_client16402_walks_on_heading_he_walks_on_along_his_heading_with_no_rout
     assert!(rn.iter().all(|&k| bend(&new, k) <= 1), "client16402_walks_on_heading: he keeps his heading: {new:?}");
     assert!(ro.iter().any(|&k| bend(&old, k) >= 3), "NOT VACUOUS: client16402_walks_on turns to the Cannon's centre: {old:?}");
 }
+
+/// enchant.ON_BUFF_HOLD_WALK = client16402_walks_on_to_goal_cell (client 16.402, parity r82, live13: 17 of 17 walk-on stops on
+/// the tick after he entered his goal cell; the engine walked on in it 4 of 4): the walk-on scene of
+/// under_client16402_walks_on_he_walks_into_his_reach_through_his_hold. Plant: hold_walk_past_goal_cell.
+#[test]
+fn under_client16402_walks_on_to_goal_cell_he_stands_once_in_his_goal_cell() {
+    use royalesim::state::{EnchantOnBuffHoldWalk as W, EnchantOnBuffPause as P};
+    let cannon_at = (9000, 13600);
+    let cell = |p: Vec2| ((p.x / K) as i64 / 500, (p.y / K) as i64 / 500);
+    // per tick from F: (his step, native; his cell after it; his goal cell (his route's first node's, kept once it empties); attack_ms > 0); L
+    type Row = ((i64, i64), (i64, i64), Option<(i64, i64)>, bool);
+    let run = |w: W, start_y: i32| -> (Vec<Row>, u32) {
+        let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+        c.calib.enchant_on_buff_pause = P::Client16402ConditionalNoMove;
+        c.calib.enchant_on_buff_hold_walk = w;
+        let mut s = BattleState::new(0, c);
+        let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at(cannon_at), None).expect("a red Cannon");
+        let full = s.entity(cannon).expect("the Cannon").max_hp;
+        let knight = s.scenario_spawn_now(Team::Blue, "Knight", at((7000, start_y)), None).expect("a blue Knight");
+        let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", at((9000, start_y)), None).expect("the Rune Giant");
+        let f = s.tick_count();
+        let (mut out, mut launch, mut goal) = (Vec::new(), None, None);
+        let mut prev: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+        for _ in 0..70 {
+            assert!(s.debug_set_hp(cannon, full), "the Cannon stands");
+            let gp = s.entity(giant).expect("the Rune Giant").pos;
+            assert!(s.debug_set_pos(knight, Vec2::new(gp.x - 2000 * K, gp.y)), "the Knight held to his left");
+            let k = s.tick_count();
+            s.tick();
+            let now: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+            if launch.is_none() && now.iter().any(|t| !prev.contains(t)) {
+                launch = Some(k - f);
+            }
+            prev = now;
+            let v = s.entity(giant).expect("the Rune Giant");
+            if let Some(&g) = v.route.first() {
+                goal = Some(cell(g));
+            }
+            out.push(((((v.pos.x - gp.x) / K) as i64, ((v.pos.y - gp.y) / K) as i64), cell(v.pos), goal, v.attack_ms > 0));
+        }
+        (out, launch.expect("no launch"))
+    };
+    // three ticks nearer than the walks_on scene's 9130, so he enters his goal cell inside his hold
+    let start_y = 9310;
+    let (old, l) = run(W::Client16402WalksOnHeading, start_y);
+    let (new, l2) = run(W::Client16402WalksOnToGoalCell, start_y);
+    assert_eq!(l, l2, "the same launch");
+    // X: the step that enters his goal cell
+    let x = (1..old.len())
+        .find(|&k| old[k].0 != (0, 0) && old[k].2 == Some(old[k].1) && old[k - 1].1 != old[k].1)
+        .unwrap_or_else(|| panic!("the scene drifted: he never entered his goal cell (L {l}): {old:?}"));
+    assert!(l as usize <= x && x < (l + 13) as usize, "the scene drifted: he enters his goal cell at {x}, outside his hold (L {l}): {old:?}");
+    assert_eq!(&new[..=x], &old[..=x], "the same walk into his goal cell under both arms");
+    assert!(old[x + 1..=(l + 13) as usize].iter().any(|r| r.0 != (0, 0)), "NOT VACUOUS: client16402_walks_on_heading walks on inside his goal cell: {old:?}");
+    assert!(new[x + 1..=(l + 13) as usize].iter().all(|r| r.0 == (0, 0)), "client16402_walks_on_to_goal_cell: he stands from X + 1: {new:?}");
+    let first_swing = |r: &[Row]| r.iter().position(|y| y.3).map(|k| k as u32);
+    assert_eq!((first_swing(&old), first_swing(&new)), (Some(l + 14), Some(l + 14)), "his swing on L + 14 under both");
+}

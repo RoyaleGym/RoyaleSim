@@ -1105,6 +1105,34 @@ pub struct Calib {
     /// `Scanned`, what a battle saved before it ran.
     #[serde(default = "guard_landing_avoidance_default")]
     pub guard_landing_avoidance: GuardLandingAvoidance,
+    /// combat.LOAD_FIRST_HIT_HOLD (what a hold landing on a LoadFirstHit unit does to its charge). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Held`, what a battle saved before it ran.
+    #[serde(default = "load_first_hit_hold_default")]
+    pub load_first_hit_hold: LoadFirstHitHold,
+    /// targeting.BUILDING_KEEP_REACH (how far a building with no projectile keeps a unit target). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `RangePlusExtension`, what a battle saved before it ran.
+    #[serde(default = "building_keep_reach_default")]
+    pub building_keep_reach: BuildingKeepReach,
+    /// status.DASH_IMMUNE_BUFFS (whether a hold lands on a Little Prince guard in its charge immunity). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Landed`, what a battle saved before it ran.
+    #[serde(default = "dash_immune_buffs_default")]
+    pub dash_immune_buffs: DashImmuneBuffs,
+    /// combat.PRESS_LOAD_TIMER (what the Little Prince's press does to his load timer). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Zeroed`, what a battle saved before it ran.
+    #[serde(default = "press_load_timer_default")]
+    pub press_load_timer: PressLoadTimer,
+    /// combat.RAMP_KNOCK_RESET (whether a knockback resets the Little Prince's ramp). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Kept`, what a battle saved before it ran.
+    #[serde(default = "ramp_knock_reset_default")]
+    pub ramp_knock_reset: RampKnockReset,
+    /// targeting.VARIABLE_DAMAGE_IMMUNE_TARGET (whether a variable-damage row's scan takes a dash-immune unit). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Taken`, what a battle saved before it ran.
+    #[serde(default = "variable_damage_immune_target_default")]
+    pub variable_damage_immune_target: VariableDamageImmuneTarget,
+    /// combat.WARP_STRIKE_REVEAL (when the Hero Mega Minion's invisible strike buff comes off after its strike shot). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `WithTheShot`, what a battle saved before it ran.
+    #[serde(default = "warp_strike_reveal_default")]
+    pub warp_strike_reveal: WarpStrikeReveal,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3171,6 +3199,34 @@ fn variable_damage_ladder_walk_default() -> VariableDamageLadderWalk {
 
 fn guard_landing_avoidance_default() -> GuardLandingAvoidance {
     GuardLandingAvoidance::Scanned
+}
+
+fn load_first_hit_hold_default() -> LoadFirstHitHold {
+    LoadFirstHitHold::Held
+}
+
+fn building_keep_reach_default() -> BuildingKeepReach {
+    BuildingKeepReach::RangePlusExtension
+}
+
+fn dash_immune_buffs_default() -> DashImmuneBuffs {
+    DashImmuneBuffs::Landed
+}
+
+fn press_load_timer_default() -> PressLoadTimer {
+    PressLoadTimer::Zeroed
+}
+
+fn ramp_knock_reset_default() -> RampKnockReset {
+    RampKnockReset::Kept
+}
+
+fn variable_damage_immune_target_default() -> VariableDamageImmuneTarget {
+    VariableDamageImmuneTarget::Taken
+}
+
+fn warp_strike_reveal_default() -> WarpStrikeReveal {
+    WarpStrikeReveal::WithTheShot
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -7188,6 +7244,9 @@ calib_enum!(
         /// reach and sight; holders of the Golden Knight's and the Boss Bandit's dashes kept them through every dash (126
         /// frames).
         Client15535FirstStep = "client15535_first_step",
+        /// Client 16.402 (parity r82, ob13): client15535_first_step, and its return warp (combat.WARP_LAW =
+        /// client16402_brake_and_return) hides it from its first step too, the strike buff's time from there.
+        Client16402FirstStepBothWays = "client16402_first_step_both_ways",
     }
 );
 calib_enum!(
@@ -8318,6 +8377,9 @@ calib_enum!(
         /// thrown, he left his attack with 1,150 on the timer, stood 21 ticks and walked on the tick it read 100 (the
         /// thrown Knight's last flight step the tick before); after a kill by an ordinary hit he walked at once at 900.
         Client15535UntilLoad100 = "client15535_until_load_100",
+        /// Client 16.402 (parity r82, live13): client15535_until_load_100 after an uppercut that threw; an uppercut whose hit
+        /// killed its target arms no stand (his count reads `every`, `uppercut_disarm`), so he walks after the post-kill wait.
+        Client16402AfterAThrow = "client16402_after_a_throw",
     }
 );
 calib_enum!(
@@ -8734,6 +8796,9 @@ calib_enum!(
         /// a princess tower frozen by an Ice Spirit from t320, reads no target from t320 though its Fire Spirit lives to
         /// t332.
         ClientCleared = "client_cleared",
+        /// Client 16.402 (parity r82, live13): a hold delivered by a hit (BuffHit::by_hit) or the Electro Giant's reflect clears
+        /// the target on the victim's next Target phase (H + 1), its lock at once; an area's hold clears on landing.
+        Client16402HitHoldNextTick = "client16402_hit_hold_next_tick",
     }
 );
 calib_enum!(
@@ -10846,6 +10911,9 @@ calib_enum!(
         /// Client 16.402 (parity r81, live13): client16402_walks_on, but with his route run out inside the walk-on he walks on
         /// along his facing (his last step's direction), not at his target's centre.
         Client16402WalksOnHeading = "client16402_walks_on_heading",
+        /// Client 16.402 (parity r82, live13): client16402_walks_on_heading, but the walk-on ends in his goal cell (his last
+        /// plan's goal, the cell of his route's last node): from the tick after the step that enters it he stands.
+        Client16402WalksOnToGoalCell = "client16402_walks_on_to_goal_cell",
     }
 );
 calib_enum!(
@@ -10895,6 +10963,81 @@ calib_enum!(
         /// Client 16.402 (parity r81, live13): on those ticks it runs no avoidance scan (its offset decays as an attacker's):
         /// its step is its route's or its direct aim's, unrotated; from the arrival + 5, its body back, it scans as before.
         Client16402UnscannedBodiless = "client16402_unscanned_bodiless",
+    }
+);
+calib_enum!(
+    /// combat.LOAD_FIRST_HIT_HOLD -- a hold (a stun or a full-stop buff) landing on a LoadFirstHit unit (the Sparky; state.rs
+    /// `land_stun`, `apply_effects`).
+    LoadFirstHitHold {
+        /// The engine's: the hold treats it as any unit (its load timer stands, its swing pauses), so a charge built before the
+        /// hold survives it.
+        Held = "held",
+        /// Client 16.402 (parity r82, live13): the hold resets its charge: on the landing tick its swing goes Idle at progress 0
+        /// and its load timer reads LoadTime, held through the hold (no hit-hold-lag tick).
+        Client16402HoldRecharges = "client16402_hold_recharges",
+    }
+);
+calib_enum!(
+    /// targeting.BUILDING_KEEP_REACH -- a building with no projectile (the Tesla, the Inferno Tower) keeping a unit target
+    /// (target.rs `decide`, the plain keep).
+    BuildingKeepReach {
+        /// The engine's: within Range + both radii + LOGIC_RANGE_EXTENSION_TO_KEEP_TARGET, as a troop.
+        RangePlusExtension = "range_plus_extension",
+        /// Client 16.402 (parity r82, live13): within Range + both radii only; past it, a rescan.
+        Client16402RangeOnly = "client16402_range_only",
+    }
+);
+calib_enum!(
+    /// status.DASH_IMMUNE_BUFFS -- a hold (a stun, or a full-stop buff) reaching a Little Prince guard on a tick its charge
+    /// immunity drops damage (state.rs `apply_effects`, entity.rs `dash_immune`).
+    DashImmuneBuffs {
+        /// The engine's: it lands as on any survivor, so the guard stands after its arrival for the rest of the hold.
+        Landed = "landed",
+        /// Client 16.402 (parity r82, live13): it does not land (no slot, no stun timer, none of land_stun's resets).
+        Client16402GuardChargeUnheld = "client16402_guard_charge_unheld",
+    }
+);
+calib_enum!(
+    /// combat.PRESS_LOAD_TIMER -- the Little Prince's press (a cast hold without KeepCurrentTarget; state.rs `start_ability`,
+    /// combat.rs `attack_step_progress`, Entities::press_load_runs).
+    PressLoadTimer {
+        /// The engine's: his press sets his load timer to 0, and the hold keeps it there.
+        Zeroed = "zeroed",
+        /// Client 16.402 (parity r82, live13): his press leaves his load timer; it runs through his cast while he holds a
+        /// target, runs once more on the tick he loses it, then holds until he has one.
+        Client16402RunsThroughCast = "client16402_runs_through_cast",
+    }
+);
+calib_enum!(
+    /// combat.RAMP_KNOCK_RESET -- a knockback (a 16.402 ladder or a fixed slide) on the Little Prince's ramp (card.rs `RampDef`;
+    /// state.rs `ramp_pass`, beside combat.RAMP_HOOK_RESET).
+    RampKnockReset {
+        /// The engine's: a knockback is no stun, no hold and (under client15535_own_walk) no move to the ramp: he keeps his level.
+        Kept = "kept",
+        /// Client 16.402 (parity r82, live13): a knockback holding him disables his combat for the ramp, as a hook does: his
+        /// count goes to 0 and his level buffs come off.
+        Client16402KnockDisables = "client16402_knock_disables",
+    }
+);
+calib_enum!(
+    /// targeting.VARIABLE_DAMAGE_IMMUNE_TARGET -- a variable-damage row (the Inferno Tower, the Inferno Dragon, the Mighty
+    /// Miner) scanning a dash-immune unit (a charging Little Prince guard; target.rs `can_target`).
+    VariableDamageImmuneTarget {
+        /// The engine's: it takes it like any enemy.
+        Taken = "taken",
+        /// Client 16.402 (parity r82, live13): its scan does not take a unit dash-immune on this tick; a kept target is
+        /// unchanged.
+        Client16402NotWhileImmune = "client16402_not_while_immune",
+    }
+);
+calib_enum!(
+    /// combat.WARP_STRIKE_REVEAL -- the Hero Mega Minion's strike buff (invisible) on its strike shot (state.rs
+    /// `strike_after_fire`).
+    WarpStrikeReveal {
+        /// The engine's: it comes off in the shot's Attack phase; enemies may take it on the shot + 1.
+        WithTheShot = "with_the_shot",
+        /// Client 16.402 (parity r82, ob13): it comes off a tick later; no enemy takes it before the shot + 2.
+        Client16402ShotPlus1 = "client16402_shot_plus_1",
     }
 );
 calib_enum!(
@@ -11491,6 +11634,13 @@ impl Calib {
             uppercut_count: pick(&v, &["combat", "UPPERCUT_COUNT", "value"], UppercutCount::from_calibration_name)?,
             variable_damage_ladder_walk: pick(&v, &["targeting", "VARIABLE_DAMAGE_LADDER_WALK", "value"], VariableDamageLadderWalk::from_calibration_name)?,
             guard_landing_avoidance: pick(&v, &["combat", "GUARD_LANDING_AVOIDANCE", "value"], GuardLandingAvoidance::from_calibration_name)?,
+            load_first_hit_hold: pick(&v, &["combat", "LOAD_FIRST_HIT_HOLD", "value"], LoadFirstHitHold::from_calibration_name)?,
+            building_keep_reach: pick(&v, &["targeting", "BUILDING_KEEP_REACH", "value"], BuildingKeepReach::from_calibration_name)?,
+            dash_immune_buffs: pick(&v, &["status", "DASH_IMMUNE_BUFFS", "value"], DashImmuneBuffs::from_calibration_name)?,
+            press_load_timer: pick(&v, &["combat", "PRESS_LOAD_TIMER", "value"], PressLoadTimer::from_calibration_name)?,
+            ramp_knock_reset: pick(&v, &["combat", "RAMP_KNOCK_RESET", "value"], RampKnockReset::from_calibration_name)?,
+            variable_damage_immune_target: pick(&v, &["targeting", "VARIABLE_DAMAGE_IMMUNE_TARGET", "value"], VariableDamageImmuneTarget::from_calibration_name)?,
+            warp_strike_reveal: pick(&v, &["combat", "WARP_STRIKE_REVEAL", "value"], WarpStrikeReveal::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -14054,6 +14204,10 @@ struct Scratch {
     /// tick's Resolve after its hits (`land_buff_heals`). Cleared at the top of every `buff_pulse_pass` and drained in
     /// the Resolve of the same tick, so it never outlives its tick: not saved, not hashed.
     heals: Vec<(EntityId, i32, i32)>,
+    /// THE TICK'S UPPERCUT WATCH (combat.UPPERCUT_STAND = client16402_after_a_throw): each (Evo Mega Knight, target) of this
+    /// tick's uppercuts (`uppercut_count`), read and emptied in the same tick's Resolve (`uppercut_kills`), so it never
+    /// outlives its tick: not saved, not hashed.
+    uppercut_watch: Vec<(EntityId, EntityId)>,
     /// THE TICK'S KILL WATCH (card.rs `KillHealDef`): each (hitter, target) of this tick's Attack-phase hits by a unit
     /// that heals on a kill (`evo_after_fire`), read and emptied in the same tick's Resolve (`kill_heals`), so it never
     /// outlives its tick: not saved, not hashed.
@@ -14637,6 +14791,25 @@ fn guard_point(team: Team, at: Vec2, off: (i32, i32)) -> Vec2 {
     Vec2::new(at.x + x * k, at.y + y * k)
 }
 
+/// status.FULL_STOP_BUFF_IS_STUN: whether buff row `def` is a full-stop buff (the -100 / -100 / -100 rows: ZapFreeze,
+/// Freeze, ContinueFreeze), which also drives the engine's one hold timer, so every status.STUN_* key keeps its meaning and a
+/// Zap, a Freeze spell and an Ice Spirit all hold alike. Under stun_timer that is any row whose speed composes to 0; under
+/// stun_timer_speed_and_hit_speed_zero its hit speed must compose to 0 too, so the Ronin's counter stun (hit speed -95) is a
+/// plain buff that stops the walk and slows the attack clock to 2 a tick. `land_buff`'s test, and status.DASH_IMMUNE_BUFFS'.
+fn buff_full_stop(def: &crate::status::BuffDef, c: &Calib) -> bool {
+    let speed0 = crate::status::compose([*def].iter(), Sel::Speed, 100) == 0;
+    match c.full_stop_buff_is_stun {
+        FullStopBuff::StunTimer => speed0,
+        // PLANT (regression, tests/parry.rs): the split row drives the hold timer as a stun would.
+        #[cfg(clash_plant = "split_stop_is_stun")]
+        FullStopBuff::SpeedAndHitSpeedZero => speed0,
+        #[cfg(not(clash_plant = "split_stop_is_stun"))]
+        FullStopBuff::SpeedAndHitSpeedZero => speed0 && crate::status::compose([*def].iter(), Sel::HitSpeed, 100) == 0,
+        // Refused at load (`Calib::from_json`); a config built in code that sets it drives nothing.
+        FullStopBuff::BuffOnly => false,
+    }
+}
+
 fn land_buff(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, h: &crate::status::BuffHit) -> bool {
     let Some(def) = cards.buffs.get(h.buff as usize).copied() else { return false };
     #[cfg(not(clash_plant = "curse_on_buildings"))]
@@ -14648,23 +14821,7 @@ fn land_buff(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, h: &crate::s
         return false;
     }
     let (buff, time_ms, pulse_amount, first_pulse_ms, source) = (h.buff, h.time_ms, h.pulse_amount, h.first_pulse_ms, h.source);
-    // status.FULL_STOP_BUFF_IS_STUN: a full-stop buff (the -100 / -100 / -100 rows: ZapFreeze,
-    // Freeze, ContinueFreeze) also drives the engine's one hold timer, so every status.STUN_* key
-    // keeps its meaning and a Zap, a Freeze spell and an Ice Spirit all hold alike. Under
-    // stun_timer that is any row whose speed composes to 0; under stun_timer_speed_and_hit_speed_zero
-    // its hit speed must compose to 0 too, so the Ronin's counter stun (hit speed -95) is a plain
-    // buff that stops the walk and slows the attack clock to 2 a tick.
-    let speed0 = crate::status::compose([def].iter(), Sel::Speed, 100) == 0;
-    let full_stop = match c.full_stop_buff_is_stun {
-        FullStopBuff::StunTimer => speed0,
-        // PLANT (regression, tests/parry.rs): the split row drives the hold timer as a stun would.
-        #[cfg(clash_plant = "split_stop_is_stun")]
-        FullStopBuff::SpeedAndHitSpeedZero => speed0,
-        #[cfg(not(clash_plant = "split_stop_is_stun"))]
-        FullStopBuff::SpeedAndHitSpeedZero => speed0 && crate::status::compose([def].iter(), Sel::HitSpeed, 100) == 0,
-        // Refused at load (`Calib::from_json`); a config built in code that sets it drives nothing.
-        FullStopBuff::BuffOnly => false,
-    };
+    let full_stop = buff_full_stop(&def, c);
     // status.BUFF_PULSE_TIMING: the pulse clock starts a whole period out, so an area that
     // refreshes its buff four times a second still pulses once a second. An area that sets the
     // clock itself (HitTickFromSource under status.AREA_BUFF_SOURCE_BINDING = client_source_bound,
@@ -14712,7 +14869,8 @@ fn land_buff(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, h: &crate::s
 /// (combat.VARIABLE_DAMAGE), the Little Prince's cycle restarted (combat.RAMP_STUN_RESTART)
 /// and the charge cleared (charge.RESET_ON_STUN). The one implementation behind
 /// `apply_effects` and `reflect_melee_hit`.
-fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
+/// `by_hit`: a hit or a reflect delivered the hold (status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick).
+fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32, by_hit: bool) {
     #[cfg(not(clash_plant = "stun_replace"))]
     let reapply = c.same_buff_reapply;
     #[cfg(clash_plant = "stun_replace")]
@@ -14727,11 +14885,28 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
     }
     // status.STUN_CLEARS_TARGET = client_cleared: no target from the landing tick; the paused cycle is the
     // stun model's (status.STUN_ATTACK_TIMER_MODEL) and the resume rescan's (status.RESUME_RETARGET_WINDUP).
+    // client16402_hit_hold_next_tick: a hit's hold clears the target on the next Target phase (`phase_target_with`). Measured on
+    // client 16.402 (parity r82, live13): 142 of 155 hit holds and 48 of 60 reflects on H + 1, 40 of 40 area holds on H.
+    // PLANT (regression) hit_hold_clears_at_landing: the new arm clears a hit's hold on landing.
+    #[cfg(not(clash_plant = "hit_hold_clears_at_landing"))]
+    let late = by_hit && c.stun_clears_target == StunClearsTarget::Client16402HitHoldNextTick;
+    #[cfg(clash_plant = "hit_hold_clears_at_landing")]
+    let late = {
+        let _ = by_hit;
+        false
+    };
     #[cfg(not(clash_plant = "stun_keeps_target"))]
-    if c.stun_clears_target == StunClearsTarget::ClientCleared {
-        e.target[i] = None;
-        e.target_locked[i] = false;
+    if matches!(c.stun_clears_target, StunClearsTarget::ClientCleared | StunClearsTarget::Client16402HitHoldNextTick) {
+        if late {
+            e.target_locked[i] = false;
+            e.stun_clear_due[i] = true;
+        } else {
+            e.target[i] = None;
+            e.target_locked[i] = false;
+        }
     }
+    #[cfg(clash_plant = "stun_keeps_target")]
+    let _ = late;
     #[cfg(not(clash_plant = "stun_resets_attack"))]
     let model = c.stun_attack_timer;
     #[cfg(clash_plant = "stun_resets_attack")]
@@ -14780,6 +14955,20 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32) {
     if c.charge_reset_on_stun {
         e.charged[i] = false;
         e.charge_progress[i] = 0;
+    }
+    // combat.LOAD_FIRST_HIT_HOLD = client16402_hold_recharges: a hold landing on a LoadFirstHit unit (the Sparky) resets its
+    // charge: its swing Idle at progress 0, its load timer LoadTime (held through the hold). Measured on client 16.402 (parity
+    // r82, live13): the timer read LoadTime on the first held tick in 41 of 41 Sparky holds, the progress 0 in 11 of 11
+    // mid-swing ones. PLANT (regression) hold_keeps_sparky_charge: the new arm still keeps the charge.
+    #[cfg(not(clash_plant = "hold_keeps_sparky_charge"))]
+    let recharge = c.load_first_hit_hold == LoadFirstHitHold::Client16402HoldRecharges && cards.get(e.card[i]).load_first_hit;
+    #[cfg(clash_plant = "hold_keeps_sparky_charge")]
+    let recharge = false;
+    if recharge {
+        e.attack_phase[i] = AttackPhase::Idle;
+        e.attack_ms[i] = 0;
+        e.attack_load_ms[i] = cards.get(e.card[i]).load_time_ms.max(0);
+        e.target_locked[i] = false;
     }
 }
 
@@ -20481,6 +20670,8 @@ impl BattleState {
                 out.push((i, self.ents.stun_ms[i]));
             } else {
                 u.casting = false;
+                // combat.PRESS_LOAD_TIMER: his cast is over.
+                self.ents.press_load_runs[i] = false;
             }
         }
         // PLANT (regression): the earlier reading, the cast holds her target search as a stun does.
@@ -20504,6 +20695,13 @@ impl BattleState {
             self.health_triggers(only);
         }
         self.hash.rebuild(&self.ents);
+        // status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick: a hit's hold that landed last tick clears the target now.
+        for i in 0..self.ents.stun_clear_due.len() {
+            if self.ents.stun_clear_due[i] && only.map_or(true, |o| o.contains(&i)) {
+                self.ents.stun_clear_due[i] = false;
+                self.ents.target[i] = None;
+            }
+        }
         let mut decisions = std::mem::take(&mut self.scratch.decisions);
         let mut nb = std::mem::take(&mut self.scratch.nb);
         decisions.clear();
@@ -20931,6 +21129,12 @@ impl BattleState {
                 } else if e.target[i].is_some() && e.attack_phase[i] == AttackPhase::Idle && e.load_hold[i] == 0 {
                     e.load_hold[i] = 1;
                 }
+            }
+            // combat.PRESS_LOAD_TIMER = client16402_runs_through_cast: the tick his cast loses its target runs his timer once more
+            // (`load_hold` 3, client16402_hit_hold_lag's lag tick); it holds from the next (parity r82, live13: 51 of 51 loss
+            // frames, 57 of 58 holds after).
+            if calib.press_load_timer == PressLoadTimer::Client16402RunsThroughCast && e.press_load_runs[i] && e.target[i].is_some() && d.target.is_none() {
+                e.load_hold[i] = 3;
             }
             // CHARGE (calibration charge.RESET_ON_RETARGET, shipped false): switching
             // from one LIVE target to a DIFFERENT one clears the charge and the run-up.
@@ -22401,6 +22605,29 @@ impl BattleState {
         }
         #[cfg(clash_plant = "uppercut_never")]
         let _ = n; // PLANT: no uppercut.
+        // combat.UPPERCUT_STAND = client16402_after_a_throw: this uppercut's target is watched through the tick's hits
+        // (`uppercut_kills`); one they kill arms no stand. Measured on client 16.402 (parity r82, live13): after a killing
+        // uppercut he walked on the hit + 6 in 22 of 22, his state the attack's finish on the hit + 1 in 32 of 32 (a throw's
+        // recovery in 74 of 74 throws). PLANT (regression) uppercut_kill_stands: the new arm still stands after a killing
+        // uppercut.
+        #[cfg(not(clash_plant = "uppercut_kill_stands"))]
+        if n == 0 && self.cfg.calib.uppercut_stand == UppercutStand::Client16402AfterAThrow {
+            self.scratch.uppercut_watch.push((id, target));
+        }
+    }
+
+    /// combat.UPPERCUT_STAND = client16402_after_a_throw, in the Resolve after the tick's hits: each watched uppercut whose
+    /// target the hits left on 0 or below (or gone) disarms its Evo Mega Knight (`uppercut_disarm`: 0 reads `every`), so no
+    /// stand holds him and his next attack counts 1.
+    fn uppercut_kills(&mut self) {
+        let w = std::mem::take(&mut self.scratch.uppercut_watch);
+        for &(by, victim) in &w {
+            if self.ents.is_alive(by) && (!self.ents.is_alive(victim) || self.ents.hp[victim.index as usize] <= 0) {
+                self.uppercut_disarm(by.index as usize);
+            }
+        }
+        self.scratch.uppercut_watch = w;
+        self.scratch.uppercut_watch.clear();
     }
 
     /// THE UPPERCUTS (card.rs `UppercutDef`), in the Projectile phase after the move: on step k from the hit's tick + 2
@@ -22583,10 +22810,18 @@ impl BattleState {
             // there). Client 15.535.29, sp-form-MegaMinion-hero-s0: the Musketeer holding it let go on the next tick.
             // PLANT (regression) warp_hidden_on_arrival: the new arm still hides it on the arrival alone.
             #[cfg(not(clash_plant = "warp_hidden_on_arrival"))]
-            let early = self.cfg.calib.warp_hiding == WarpHiding::Client15535FirstStep;
+            let early = matches!(self.cfg.calib.warp_hiding, WarpHiding::Client15535FirstStep | WarpHiding::Client16402FirstStepBothWays);
             #[cfg(clash_plant = "warp_hidden_on_arrival")]
             let early = false;
-            if early && r.moves == 1 && !r.back {
+            // combat.WARP_HIDING = client16402_first_step_both_ways: its return warp hides it from its first step too (the strike
+            // buff's time from there; the return's arrival lands nothing). Measured on client 16.402 (parity r82, ob13): every
+            // holder let the returning hero go on its first step + 1, 11 of 11 over 6 returns; retaken on + 10, 2 of 2. PLANT
+            // (regression) warp_return_unhidden: the new arm still hides the outbound warp alone.
+            #[cfg(not(clash_plant = "warp_return_unhidden"))]
+            let both = self.cfg.calib.warp_hiding == WarpHiding::Client16402FirstStepBothWays;
+            #[cfg(clash_plant = "warp_return_unhidden")]
+            let both = false;
+            if early && r.moves == 1 && (!r.back || both) {
                 let h = crate::status::BuffHit::plain(r.id, w.strike.buff, w.strike.time_ms, 0);
                 land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, r.id.index as usize, &h);
             }
@@ -22732,7 +22967,15 @@ impl BattleState {
             let hooked = self.cfg.calib.ramp_hook_reset == RampHookReset::Client16402HookDisables && self.ents.hooked_by[i].is_some();
             #[cfg(clash_plant = "ramp_hook_kept")]
             let hooked = false;
-            let disabled = (self.ents.stun_ms[i] > 0 && !own_cast) || self.ents.buffed(&self.cfg.cards.buffs, i, Sel::HitSpeed, 100) <= 0 || hooked;
+            // combat.RAMP_KNOCK_RESET = client16402_knock_disables: a knockback holding him (a ladder or a fixed slide) disables
+            // his combat, as a hook does. Measured on client 16.402 (parity r82, live13): 17 of 17 knocks of a ramped Little
+            // Prince came out at his first speed; the engine kept his level after 4 of 17. PLANT (regression) ramp_knock_kept: the
+            // new arm still keeps it.
+            #[cfg(not(clash_plant = "ramp_knock_kept"))]
+            let knocked = self.cfg.calib.ramp_knock_reset == RampKnockReset::Client16402KnockDisables && (self.ents.push_active[i] || self.ents.knock_ms[i] > 0);
+            #[cfg(clash_plant = "ramp_knock_kept")]
+            let knocked = false;
+            let disabled = (self.ents.stun_ms[i] > 0 && !own_cast) || self.ents.buffed(&self.cfg.cards.buffs, i, Sel::HitSpeed, 100) <= 0 || hooked || knocked;
             let spent = if below { r.grace_ms < 0 } else { r.grace_ms == 0 };
             // combat.RAMP_LEVEL_DROP = client16402_after_the_attack: the grace's reset takes his count now and his level
             // buffs on the next Status phase (an entry on the reset tick runs at the old level). Measured on client 16.402
@@ -23971,9 +24214,20 @@ impl BattleState {
             }
             #[cfg(clash_plant = "strike_shot_unread")]
             let _ = dmg; // PLANT: the strike shot is an ordinary one.
+            // combat.WARP_STRIKE_REVEAL = client16402_shot_plus_1: the strike buff lives one more Status phase, so no enemy takes
+            // the hero before the shot + 2. Measured on client 16.402 (parity r82, ob13): 6 of 6 retakes on the strike + 2.
+            // PLANT (regression) strike_reveal_on_shot: the new arm still clears it with the shot.
+            #[cfg(not(clash_plant = "strike_reveal_on_shot"))]
+            let lag = self.cfg.calib.warp_strike_reveal == WarpStrikeReveal::Client16402ShotPlus1;
+            #[cfg(clash_plant = "strike_reveal_on_shot")]
+            let lag = false;
             for slot in self.ents.buff_slots_mut(i) {
                 if slot.id == w.strike.buff + 1 {
-                    *slot = crate::status::BuffSlot::default();
+                    if lag {
+                        slot.ms = slot.ms.min(2 * tick_ms);
+                    } else {
+                        *slot = crate::status::BuffSlot::default();
+                    }
                 }
             }
             self.warps.strikes[k].crown_from = Some(tick + delay);
@@ -25331,7 +25585,7 @@ impl BattleState {
         #[cfg(not(clash_plant = "uppercut_stand_unread"))]
         let uppercut_stand: Vec<bool> = {
             let mut v = vec![false; cap];
-            if self.cfg.calib.uppercut_stand == UppercutStand::Client15535UntilLoad100 {
+            if matches!(self.cfg.calib.uppercut_stand, UppercutStand::Client15535UntilLoad100 | UppercutStand::Client16402AfterAThrow) {
                 for (id, n) in &self.evo.uppercut_counts {
                     let i = id.index as usize;
                     if *n == 0 && self.ents.is_alive(*id) && self.ents.attack_phase[i] == AttackPhase::Idle && self.ents.attack_load_ms[i] > 100 {
@@ -27269,7 +27523,10 @@ impl BattleState {
                     // ends. Measured on client 16.402 (parity r80, live13): 16 of 16 held arrivals walked past the in-reach tick.
                     // PLANT (regression) enchant_hold_stands_in_reach: the new arm still stands in his reach.
                     #[cfg(not(clash_plant = "enchant_hold_stands_in_reach"))]
-                    let hold_walks = matches!(calib.enchant_on_buff_hold_walk, EnchantOnBuffHoldWalk::Client16402WalksOn | EnchantOnBuffHoldWalk::Client16402WalksOnHeading)
+                    let hold_walks = matches!(
+                        calib.enchant_on_buff_hold_walk,
+                        EnchantOnBuffHoldWalk::Client16402WalksOn | EnchantOnBuffHoldWalk::Client16402WalksOnHeading | EnchantOnBuffHoldWalk::Client16402WalksOnToGoalCell
+                    )
                         && card.enchant_hold
                         && e.enchant_hold[i] > 0
                         && self.tick <= e.enchant_hold[i]
@@ -27277,13 +27534,27 @@ impl BattleState {
                     #[cfg(clash_plant = "enchant_hold_stands_in_reach")]
                     let hold_walks = false;
                     let in_reach = target::in_attack_range(calib, e.pos[i], card.range, own, e.pos[gi], e.radius[gi]);
-                    if in_reach && hold_walks {
+                    // enchant.ON_BUFF_HOLD_WALK = client16402_walks_on_to_goal_cell: the walk-on ends in his goal cell (his last
+                    // plan's goal, kept through the walk-on); from there he stands as stands_in_reach stands, his swing on L + 14.
+                    // Measured on client 16.402 (parity r82, live13): 17 of 17 walk-on stops came on the tick after he entered it;
+                    // the engine walked on inside it 4 of 4. PLANT (regression) hold_walk_past_goal_cell: the new arm still walks
+                    // on in his goal cell.
+                    #[cfg(not(clash_plant = "hold_walk_past_goal_cell"))]
+                    let goal_stand = hold_walks
+                        && calib.enchant_on_buff_hold_walk == EnchantOnBuffHoldWalk::Client16402WalksOnToGoalCell
+                        && goals[i].is_some_and(|g| (actor.0 / path16402::CELL, actor.1 / path16402::CELL) == (g.x, g.y));
+                    #[cfg(clash_plant = "hold_walk_past_goal_cell")]
+                    let goal_stand = false;
+                    if in_reach && hold_walks && !goal_stand {
                         target_abs = Some((bodies[gi].x, bodies[gi].y));
                         walk_in = true;
                     } else if in_reach {
                         // SPEC 5.3: the path is cleared on the transition to attacking
                         routes[i].clear();
-                        goals[i] = None;
+                        // client16402_walks_on_to_goal_cell: the goal cell is kept through his stand, so the next tick stands him again
+                        if !goal_stand {
+                            goals[i] = None;
+                        }
                         segs[i] = Vec2::default();
                         attacking = true;
                     } else {
@@ -27531,7 +27802,9 @@ impl BattleState {
                 // the heading within 2 native in 13 of 13 (the engine turned to the centre in 13 of 13). PLANT (regression)
                 // hold_walk_turns_to_centre: the new arm still turns to the centre.
                 #[cfg(not(clash_plant = "hold_walk_turns_to_centre"))]
-                let along = walk_in && calib.enchant_on_buff_hold_walk == EnchantOnBuffHoldWalk::Client16402WalksOnHeading && facing[i] != Vec2::default();
+                let along = walk_in
+                    && matches!(calib.enchant_on_buff_hold_walk, EnchantOnBuffHoldWalk::Client16402WalksOnHeading | EnchantOnBuffHoldWalk::Client16402WalksOnToGoalCell)
+                    && facing[i] != Vec2::default();
                 #[cfg(clash_plant = "hold_walk_turns_to_centre")]
                 let along = false;
                 let (aim, speed) = match routes[i].last() {
@@ -29622,7 +29895,7 @@ impl BattleState {
                 #[cfg(clash_plant = "landed_reflect_stun_from_landing")]
                 let span = false;
                 let ms = if span { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
-                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, ms);
+                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, ms, true);
             }
         }
     }
@@ -29680,7 +29953,7 @@ impl BattleState {
                 #[cfg(clash_plant = "hit_stun_from_landing")]
                 let span = false;
                 let ms = if span { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
-                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, ms);
+                land_stun(&mut self.ents, &self.cfg.cards, &self.cfg.calib, a, ms, true);
             }
             // PLANT (regression): the stun through the effect buffer, landed in Resolve.
             #[cfg(clash_plant = "reflect_stun_buffered")]
@@ -30934,6 +31207,29 @@ impl BattleState {
                 && !(untouchable && e.underground(id.index as usize))
                 && !target::rider_untouchable(&c, e, id.index as usize)
         };
+        // status.DASH_IMMUNE_BUFFS = client16402_guard_charge_unheld: no hold lands on a Little Prince guard on a tick its charge
+        // immunity drops damage (combat::resolve tests the damage on this same tick). Measured on client 16.402 (parity r82,
+        // live13): 7 of 7 holds landing in the charge left the guard free on its last charge frame + 2; the engine held it 6 of
+        // 6. PLANT (regression) charge_holds_land: the new arm's hold still lands.
+        #[cfg(not(clash_plant = "charge_holds_land"))]
+        let drop_holds = c.dash_immune_buffs == DashImmuneBuffs::Client16402GuardChargeUnheld;
+        #[cfg(clash_plant = "charge_holds_land")]
+        let drop_holds = false;
+        let guard_rows: Vec<u16> = if drop_holds {
+            self.cfg
+                .cards
+                .cards
+                .iter()
+                .filter_map(|d| match &d.ability {
+                    Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Guard(g), .. }) => Some(g.unit),
+                    _ => None,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let tick = self.tick;
+        let unheld = |e: &Entities, i: usize| drop_holds && e.dash_immune(i, tick) && guard_rows.contains(&e.card[i]);
         // BUFFS (status.rs), before the stun merge, because a FULL-STOP buff feeds
         // it. ONE SLOT PER BUFF ROW (status.BUFF_STACKING): an application either
         // refreshes the slot that already holds that row or takes a free one, and
@@ -30951,7 +31247,9 @@ impl BattleState {
         // combat.LOAD_TIMER_TARGET_LOSS = client16402_hit_hold_lag: who stood unheld before this tick's holds, and whom a
         // hit's buff (`BuffHit::by_hit`) or an area's holds now (both: no lag).
         let lag_arm = c.load_timer_target_loss == LoadTimerTargetLoss::Client16402HitHoldLag && fx.buffs.iter().any(|b| b.by_hit);
-        let pre_held: Vec<bool> = if lag_arm {
+        // status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick reads the same split of hit and area holds.
+        let track = lag_arm || (c.stun_clears_target == StunClearsTarget::Client16402HitHoldNextTick && fx.buffs.iter().any(|b| b.by_hit));
+        let pre_held: Vec<bool> = if track {
             (0..cap).map(|i| self.ents.alive[i] && self.ents.held(&self.cfg.cards.buffs, i, c.full_stop_buff_is_stun)).collect()
         } else {
             Vec::new()
@@ -30996,6 +31294,10 @@ impl BattleState {
             if !survivor(&self.ents, b.target) && !lands_before && !hidden_reached && !rider_reached {
                 continue;
             }
+            // status.DASH_IMMUNE_BUFFS = client16402_guard_charge_unheld: a hold on a charging guard does not land.
+            if unheld(&self.ents, i) && self.cfg.cards.buffs.get(b.buff as usize).is_some_and(|d| buff_full_stop(d, &c)) {
+                continue;
+            }
             // The slot and the full-stop test are `land_buff`'s, shared with the reflect's
             // stun (`reflect_melee_hit`), which lands the same way in the attack pass.
             // A CHARM (status.rs `BuffDef::switch_team`, the Super Elite Archer's SuperEliteArcherCharm) that took its slot:
@@ -31028,7 +31330,7 @@ impl BattleState {
                     let span = false;
                     let ms = if span { b.time_ms + self.cfg.calib.tick_ms } else { b.time_ms };
                     stun_new[i] = stun_new[i].max(ms);
-                    if lag_arm {
+                    if track {
                         if b.by_hit {
                             hit_hold[i] = true;
                         } else {
@@ -31078,22 +31380,32 @@ impl BattleState {
         self.drop_deprioritized_targets(&landed);
         // Stuns: max per target. Replace vs refresh decides only what the EXISTING timer
         // contributes; several new stuns in one tick always merge by max.
+        // status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick: these are areas' holds (a Zap's), which clear on landing.
+        let mut stun_area = vec![false; cap];
         for &(id, ms) in &fx.stuns {
-            if survivor(&self.ents, id) {
+            if survivor(&self.ents, id) && !unheld(&self.ents, id.index as usize) {
                 let i = id.index as usize;
                 stun_new[i] = stun_new[i].max(ms);
+                stun_area[i] = true;
             }
         }
         for (i, &ms) in stun_new.iter().enumerate() {
             if ms <= 0 {
                 continue;
             }
-            land_stun(&mut self.ents, &self.cfg.cards, &c, i, ms);
+            let by_hit = track && hit_hold[i] && !area_hold[i] && !stun_area[i];
+            land_stun(&mut self.ents, &self.cfg.cards, &c, i, ms, by_hit);
             // combat.LOAD_TIMER_TARGET_LOSS = client16402_hit_hold_lag: a hold a hit's buff alone landed on an unheld unit
             // lets its timer run on the next tick (combat.rs `attack_step_progress`; cleared after that step).
             // PLANT (regression) hit_hold_lag_unread: the new arm's hit-delivered hold stands at once.
+            // combat.LOAD_FIRST_HIT_HOLD = client16402_hold_recharges: a recharged Sparky reads LoadTime from H + 1, no lag tick.
             #[cfg(not(clash_plant = "hit_hold_lag_unread"))]
-            if lag_arm && hit_hold[i] && !area_hold[i] && !pre_held[i] {
+            if lag_arm
+                && hit_hold[i]
+                && !area_hold[i]
+                && !pre_held[i]
+                && !(c.load_first_hit_hold == LoadFirstHitHold::Client16402HoldRecharges && self.cfg.cards.get(self.ents.card[i]).load_first_hit)
+            {
                 self.ents.load_hold[i] = 3;
             }
         }
@@ -31553,6 +31865,10 @@ impl BattleState {
         // THE EVO P.E.K.K.A.'S HEAL (card.rs `KillHealDef`): her hits this tick that killed.
         if !self.scratch.kills.is_empty() {
             self.kill_heals();
+        }
+        // combat.UPPERCUT_STAND = client16402_after_a_throw: the tick's killing uppercuts disarm their knights.
+        if !self.scratch.uppercut_watch.is_empty() {
+            self.uppercut_kills();
         }
         // THE HERO ICE WIZARDS' KILLS (`ice_kills`): its shots' hits this tick that killed.
         let firers = std::mem::take(&mut self.dmg.firers);
@@ -35310,7 +35626,18 @@ impl BattleState {
                 self.ents.target_locked[i] = false;
                 self.ents.attack_phase[i] = AttackPhase::Idle;
                 self.ents.attack_ms[i] = 0;
-                self.ents.attack_load_ms[i] = 0;
+                // combat.PRESS_LOAD_TIMER = client16402_runs_through_cast: his press leaves his load timer, which runs through his
+                // cast while he holds a target. Measured on client 16.402 (parity r82, live13): 656 of 664 press ticks ran it
+                // (the engine zeroed 244 of 244). PLANT (regression) press_load_zeroed: the new arm's press still zeroes it.
+                #[cfg(not(clash_plant = "press_load_zeroed"))]
+                let runs = self.cfg.calib.press_load_timer == PressLoadTimer::Client16402RunsThroughCast && matches!(a.effect, crate::card::AbilityEffect::Guard(_));
+                #[cfg(clash_plant = "press_load_zeroed")]
+                let runs = false;
+                if runs {
+                    self.ents.press_load_runs[i] = true;
+                } else {
+                    self.ents.attack_load_ms[i] = 0;
+                }
             }
             // PLANT (regression): the earlier reading, the lock let go for a rescan at the hold's end, the clock paused.
             #[cfg(clash_plant = "cast_releases_target")]
@@ -36937,6 +37264,14 @@ impl BattleState {
                 // charge.CHARGED_HIT_TIMING: a charge completed on this tick's move pass, only when set.
                 if e.charge_fresh[i] {
                     h.u32(0x4346_5253);
+                }
+                // status.STUN_CLEARS_TARGET: a hit's hold clears the target next tick, only when set.
+                if e.stun_clear_due[i] {
+                    h.u32(0x5343_4c44);
+                }
+                // combat.PRESS_LOAD_TIMER: his press runs his load timer, only when set.
+                if e.press_load_runs[i] {
+                    h.u32(0x504c_5255);
                 }
                 // targeting.VARIABLE_DAMAGE_WALK_REACH: the unit walked on the last move pass, only when set.
                 if e.walked_prev[i] {
@@ -39677,6 +40012,26 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_LANDING_AVOIDANCE: Calib gained guard_landing_avoidance (serde default the old arm, scanned), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.UPPERCUT_STAND's client16402_after_a_throw: a new arm of an existing key; Scratch gained uppercut_watch
+///    (per tick, emptied in the same tick's Resolve: not saved, not hashed), so a blob saved before it deserializes and hashes
+///    as it did.
+/// 20, unchanged, combat.LOAD_FIRST_HIT_HOLD: Calib gained load_first_hit_hold (serde default the old arm, held), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.BUILDING_KEEP_REACH: Calib gained building_keep_reach (serde default the old arm, range_plus_extension), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.DASH_IMMUNE_BUFFS: Calib gained dash_immune_buffs (serde default the old arm, landed), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.PRESS_LOAD_TIMER: Calib gained press_load_timer (serde default the old arm, zeroed), Entities gained press_load_runs (serde default empty, sized on load to false, hashed only when set; written true only under that arm),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, status.STUN_CLEARS_TARGET's client16402_hit_hold_next_tick: a new arm of an existing key; Entities gained
+///    stun_clear_due (serde default empty, sized on load to false, hashed only when set; written true only under that arm), so
+///    a blob saved before it deserializes and hashes as it did.
+/// 20, unchanged, combat.RAMP_KNOCK_RESET: Calib gained ramp_knock_reset (serde default the old arm, kept), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.VARIABLE_DAMAGE_IMMUNE_TARGET: Calib gained variable_damage_immune_target (serde default the old arm, taken), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.WARP_STRIKE_REVEAL: Calib gained warp_strike_reveal (serde default the old arm, with_the_shot), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -40775,6 +41130,20 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("variable_damage_ladder_walk".into(), serde_json::to_value(VariableDamageLadderWalk::StandsAfterLadder).map_err(|e| e.to_string())?);
     // combat.GUARD_LANDING_AVOIDANCE: a format-3 battle ran combat.GUARD_LANDING_AVOIDANCE's old arm.
     sh.insert("guard_landing_avoidance".into(), serde_json::to_value(GuardLandingAvoidance::Scanned).map_err(|e| e.to_string())?);
+    // combat.LOAD_FIRST_HIT_HOLD: a format-3 battle ran combat.LOAD_FIRST_HIT_HOLD's old arm.
+    sh.insert("load_first_hit_hold".into(), serde_json::to_value(LoadFirstHitHold::Held).map_err(|e| e.to_string())?);
+    // targeting.BUILDING_KEEP_REACH: a format-3 battle ran targeting.BUILDING_KEEP_REACH's old arm.
+    sh.insert("building_keep_reach".into(), serde_json::to_value(BuildingKeepReach::RangePlusExtension).map_err(|e| e.to_string())?);
+    // status.DASH_IMMUNE_BUFFS: a format-3 battle ran status.DASH_IMMUNE_BUFFS's old arm.
+    sh.insert("dash_immune_buffs".into(), serde_json::to_value(DashImmuneBuffs::Landed).map_err(|e| e.to_string())?);
+    // combat.PRESS_LOAD_TIMER: a format-3 battle ran combat.PRESS_LOAD_TIMER's old arm.
+    sh.insert("press_load_timer".into(), serde_json::to_value(PressLoadTimer::Zeroed).map_err(|e| e.to_string())?);
+    // combat.RAMP_KNOCK_RESET: a format-3 battle ran combat.RAMP_KNOCK_RESET's old arm.
+    sh.insert("ramp_knock_reset".into(), serde_json::to_value(RampKnockReset::Kept).map_err(|e| e.to_string())?);
+    // targeting.VARIABLE_DAMAGE_IMMUNE_TARGET: a format-3 battle ran targeting.VARIABLE_DAMAGE_IMMUNE_TARGET's old arm.
+    sh.insert("variable_damage_immune_target".into(), serde_json::to_value(VariableDamageImmuneTarget::Taken).map_err(|e| e.to_string())?);
+    // combat.WARP_STRIKE_REVEAL: a format-3 battle ran combat.WARP_STRIKE_REVEAL's old arm.
+    sh.insert("warp_strike_reveal".into(), serde_json::to_value(WarpStrikeReveal::WithTheShot).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -41159,6 +41528,8 @@ impl BattleState {
         snap.ents.lost_target.resize(n, None);
         snap.ents.pass_over.resize(n, false);
         snap.ents.charge_fresh.resize(n, false);
+        snap.ents.stun_clear_due.resize(n, false);
+        snap.ents.press_load_runs.resize(n, false);
         snap.ents.walked_prev.resize(n, false);
         snap.ents.reach_settled.resize(n, false);
         snap.ents.strike_skip.resize(n, false);
