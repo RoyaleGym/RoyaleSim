@@ -184,7 +184,8 @@ fn under_client16402_hold_recharges_a_zapped_sparky_charges_again() {
     assert!(l0.iter().all(|&l| l == 0) && e0 >= 3000, "held: {l0:?}, entry {e0}");
 }
 
+/// Since parity r82 (held before it; client 15.535.29 keeps held).
 #[test]
-fn the_shipped_load_first_hit_hold_is_held() {
-    assert_eq!(Calib::shipped().load_first_hit_hold, LoadFirstHitHold::Held);
+fn the_shipped_load_first_hit_hold_is_client16402_hold_recharges() {
+    assert_eq!(Calib::shipped().load_first_hit_hold, LoadFirstHitHold::Client16402HoldRecharges);
 }

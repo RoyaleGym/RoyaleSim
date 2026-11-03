@@ -105,7 +105,8 @@ fn the_old_value_hides_it_on_its_arrival_alone() {
     assert!(arrival, "old: the hero is not hidden on its arrival");
 }
 
+/// Since parity r82 (client15535_first_step before it; client 15.535.29 keeps client15535_first_step).
 #[test]
-fn the_shipped_value_is_client15535_first_step() {
-    assert_eq!(Calib::shipped().warp_hiding, WarpHiding::Client15535FirstStep);
+fn the_shipped_value_is_client16402_first_step_both_ways() {
+    assert_eq!(Calib::shipped().warp_hiding, WarpHiding::Client16402FirstStepBothWays);
 }

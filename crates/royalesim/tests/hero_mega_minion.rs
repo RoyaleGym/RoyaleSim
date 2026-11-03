@@ -444,7 +444,8 @@ fn under_client16402_shot_plus_1_it_is_taken_on_its_strike_plus_2() {
     assert_eq!(taken(&old, f0), f0 + 1, "with_the_shot: taken on its strike + 1: {old:?}");
 }
 
+/// Since parity r82 (with_the_shot before it; client 15.535.29 keeps with_the_shot).
 #[test]
-fn the_shipped_warp_strike_reveal_is_with_the_shot() {
-    assert_eq!(royalesim::state::Calib::shipped().warp_strike_reveal, WarpStrikeReveal::WithTheShot);
+fn the_shipped_warp_strike_reveal_is_client16402_shot_plus_1() {
+    assert_eq!(royalesim::state::Calib::shipped().warp_strike_reveal, WarpStrikeReveal::Client16402ShotPlus1);
 }

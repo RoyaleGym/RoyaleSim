@@ -73,7 +73,9 @@ fn a_recoiling_sparky_lets_a_target_past_its_sight_go() {
 
 #[test]
 fn the_old_arm_keeps_a_knocked_units_target() {
-    assert_eq!(Calib::shipped().knocked_target_hold, KnockedTargetHold::Client15535SightKeep);
+    // since parity r82 client 16.402 ships client16402_decides_on_ladder; client 15.535.29 keeps client15535_sight_keep
+    // (CLIENT15535_ARMS)
+    assert_eq!(Calib::shipped().knocked_target_hold, KnockedTargetHold::Client16402DecidesOnLadder);
     let out = ladder(KnockedTargetHold::HeldWhileKnocked);
     assert!(out.iter().all(|&(_, held)| held), "held_while_knocked (the arm before the c4 flip) let the Knight go: {out:?}");
 }

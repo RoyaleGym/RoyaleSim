@@ -295,7 +295,8 @@ fn under_client16402_range_only_an_inferno_tower_holds_none_past_its_reach() {
     assert_eq!(t0, Some(g0), "range_plus_extension: the Inferno Tower keeps the Giant");
 }
 
+/// Since parity r82 (range_plus_extension before it; client 15.535.29 keeps range_plus_extension).
 #[test]
-fn the_shipped_building_keep_reach_is_range_plus_extension() {
-    assert_eq!(Calib::shipped().building_keep_reach, BuildingKeepReach::RangePlusExtension);
+fn the_shipped_building_keep_reach_is_client16402_range_only() {
+    assert_eq!(Calib::shipped().building_keep_reach, BuildingKeepReach::Client16402RangeOnly);
 }

@@ -410,6 +410,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.RAMP_KNOCK_RESET = kept: unread on client 15.535.29.
 ///   targeting.VARIABLE_DAMAGE_IMMUNE_TARGET = taken: unread on client 15.535.29.
 ///   combat.WARP_STRIKE_REVEAL = with_the_shot: unread on client 15.535.29.
+///   status.STUN_CLEARS_TARGET = client_cleared: client 15.535.29's Zaps clear on the hit tick (23 of 24); its
+///   hit-delivered holds are unread.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -648,6 +650,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.RAMP_KNOCK_RESET", "\"kept\""),
     ("targeting.VARIABLE_DAMAGE_IMMUNE_TARGET", "\"taken\""),
     ("combat.WARP_STRIKE_REVEAL", "\"with_the_shot\""),
+    ("status.STUN_CLEARS_TARGET", "\"client_cleared\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

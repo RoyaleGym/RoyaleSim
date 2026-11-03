@@ -47,6 +47,9 @@ fn battle_aim(aim: UppercutThrowAim) -> BattleState {
 /// `battle` with `tweak` applied to its config.
 fn battle_with(tweak: impl FnOnce(&mut BattleConfig)) -> BattleState {
     let mut cfg: BattleConfig = config();
+    // the scenes count his hits as the engine did before parity r82 (combat.UPPERCUT_COUNT = hits_and_dash_blows: his
+    // second hit throws); client16402_deploy_blow_not_dash's own scenes below set their count
+    cfg.calib.uppercut_count = UppercutCount::HitsAndDashBlows;
     tweak(&mut cfg);
     cfg.decks = [vec!["MegaKnight".into(), "Knight".into()], vec!["Knight".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
@@ -117,6 +120,9 @@ fn musketeer_in_the_throw(arm: UppercutFlightContact) -> Vec<(i32, i32)> {
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     cfg.calib.uppercut_flight_contact = arm;
+    // the scenes count his hits as the engine did before parity r82 (combat.UPPERCUT_COUNT = hits_and_dash_blows: his
+    // second hit throws); client16402_deploy_blow_not_dash's own scenes below set their count
+    cfg.calib.uppercut_count = UppercutCount::HitsAndDashBlows;
     cfg.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
@@ -179,6 +185,9 @@ fn after_the_uppercut(flight: UppercutFlightTargetability, stand: UppercutStand)
     cfg.tower_level = [11, 11];
     cfg.calib.uppercut_flight_targetability = flight;
     cfg.calib.uppercut_stand = stand;
+    // the scenes count his hits as the engine did before parity r82 (combat.UPPERCUT_COUNT = hits_and_dash_blows: his
+    // second hit throws); client16402_deploy_blow_not_dash's own scenes below set their count
+    cfg.calib.uppercut_count = UppercutCount::HitsAndDashBlows;
     cfg.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);

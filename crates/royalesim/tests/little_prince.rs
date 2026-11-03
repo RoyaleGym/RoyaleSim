@@ -1672,9 +1672,10 @@ fn under_client16402_guard_charge_unheld_a_zap_in_his_guards_charge_does_not_hol
     }
 }
 
+/// Since parity r82 (landed before it; client 15.535.29 keeps landed).
 #[test]
-fn the_shipped_dash_immune_buffs_is_landed() {
-    assert_eq!(royalesim::state::Calib::shipped().dash_immune_buffs, DashImmuneBuffs::Landed);
+fn the_shipped_dash_immune_buffs_is_client16402_guard_charge_unheld() {
+    assert_eq!(royalesim::state::Calib::shipped().dash_immune_buffs, DashImmuneBuffs::Client16402GuardChargeUnheld);
 }
 
 /// Under combat.PRESS_LOAD_TIMER = `arm` on the 160402017 table: he shoots at a red Golem held 5000 ahead and presses his guard on
@@ -1813,9 +1814,10 @@ fn under_client16402_knock_disables_a_knock_resets_his_ramp() {
     assert!(new.len() >= 3 && (new[..2] == [24, 24] || new[1..3] == [24, 24]), "client16402_knock_disables: his ramp after the knock {new:?}");
 }
 
+/// Since parity r82 (kept before it; client 15.535.29 keeps kept).
 #[test]
-fn the_shipped_ramp_knock_reset_is_kept() {
-    assert_eq!(royalesim::state::Calib::shipped().ramp_knock_reset, RampKnockReset::Kept);
+fn the_shipped_ramp_knock_reset_is_client16402_knock_disables() {
+    assert_eq!(royalesim::state::Calib::shipped().ramp_knock_reset, RampKnockReset::Client16402KnockDisables);
 }
 
 /// Under targeting.VARIABLE_DAMAGE_IMMUNE_TARGET = `arm`: a red Inferno Tower 8,500 ahead of him (out of its sight of him, in
@@ -1866,7 +1868,8 @@ fn under_client16402_not_while_immune_an_inferno_tower_waits_out_his_guards_char
     assert!(old.is_some_and(|f| f <= l0), "taken: not taken in the charge ({old:?}, the charge ending {l0})");
 }
 
+/// Since parity r82 (taken before it; client 15.535.29 keeps taken).
 #[test]
-fn the_shipped_variable_damage_immune_target_is_taken() {
-    assert_eq!(royalesim::state::Calib::shipped().variable_damage_immune_target, VariableDamageImmuneTarget::Taken);
+fn the_shipped_variable_damage_immune_target_is_client16402_not_while_immune() {
+    assert_eq!(royalesim::state::Calib::shipped().variable_damage_immune_target, VariableDamageImmuneTarget::Client16402NotWhileImmune);
 }

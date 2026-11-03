@@ -62,9 +62,10 @@ fn the_old_arm_keeps_the_target_through_the_stun() {
     assert!(rows[landed..resumed].iter().all(|r| r.0 == Some(giant)), "kept: the Knight lost the Giant during its stun");
 }
 
+/// Since parity r82 (client_cleared before it; client 15.535.29 keeps client_cleared).
 #[test]
-fn the_shipped_arm_is_client_cleared() {
-    assert_eq!(Calib::shipped().stun_clears_target, StunClearsTarget::ClientCleared);
+fn the_shipped_arm_is_client16402_hit_hold_next_tick() {
+    assert_eq!(Calib::shipped().stun_clears_target, StunClearsTarget::Client16402HitHoldNextTick);
 }
 
 /// Under status.STUN_CLEARS_TARGET = `arm`: a Blue Valkyrie swinging at a Red Golem held beside her is frozen by a Red Ice
