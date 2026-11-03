@@ -33,7 +33,7 @@ use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpHiding, WarpLaw, WarpStrikeReveal, WarpWalkStep};
+use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpHiding, WarpLaw, WarpPick, WarpStrikeReveal, WarpWalkStep};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -448,4 +448,60 @@ fn under_client16402_shot_plus_1_it_is_taken_on_its_strike_plus_2() {
 #[test]
 fn the_shipped_warp_strike_reveal_is_client16402_shot_plus_1() {
     assert_eq!(royalesim::state::Calib::shipped().warp_strike_reveal, WarpStrikeReveal::Client16402ShotPlus1);
+}
+
+/// Under combat.WARP_PICK = `arm` (the 15.535.29 scene's warp): a red Skeleton A held 4,000 ahead of the hero before it comes, the
+/// only enemy through its button's time; then a red Skeleton B put 7,200 off (the furthest of the lowest max hitpoints) and held;
+/// with `kill_a`, A killed before the press. (A, B, the warp's target: the hero's first target after the press.)
+fn warp_choice(arm: WarpPick, kill_a: bool) -> (EntityId, EntityId, Option<EntityId>) {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.warp_law = WarpLaw::Client15535Ladder;
+    cfg.calib.warp_walk_step = WarpWalkStep::WarpOnly;
+    cfg.calib.warp_pick = arm;
+    let (mut s, hero, reds) = start_in(battle_on(cfg), &[("Skeleton", (AT.0, AT.1 + 4000))]);
+    let (a, a_at) = reds[0];
+    let b_at = n(AT.0 - 4320, AT.1 + 5760);
+    let b = s.scenario_spawn_now(Team::Red, "Skeleton", b_at, None).expect("Skeleton B");
+    for _ in 0..2 {
+        assert!(s.debug_set_pos(hero, n(AT.0, AT.1)) && s.debug_set_pos(a, a_at) && s.debug_set_pos(b, b_at));
+        s.tick();
+    }
+    if kill_a {
+        assert!(s.debug_set_hp(a, 0));
+        assert!(s.debug_set_pos(b, b_at));
+        s.tick();
+        assert!(s.debug_set_pos(b, b_at));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut prev = s.entity(hero).expect("the hero").pos;
+    for _ in 0..30 {
+        if s.entity(a).is_some() {
+            assert!(s.debug_set_pos(a, a_at));
+        }
+        assert!(s.debug_set_pos(b, b_at));
+        s.tick();
+        let h = s.entity(hero).expect("the hero");
+        let (dx, dy) = (i64::from((h.pos.x - prev.x) / K), i64::from((h.pos.y - prev.y) / K));
+        if dx * dx + dy * dy > 300 * 300 {
+            // its first warp step: the warp's target is the one it holds now
+            return (a, b, h.target);
+        }
+        prev = h.pos;
+    }
+    panic!("{arm:?} kill_a {kill_a}: the scene drifted: the hero never warped");
+}
+
+/// combat.WARP_PICK = client16402_held_mark (client 16.402, parity r83, live13: 10 of 10 presses warped to the mark the hero held;
+/// the press-time pick named 6 of 10). Plant: warp_pick_at_press.
+#[test]
+fn under_client16402_held_mark_the_warp_goes_to_the_mark_it_held_before_the_press() {
+    let (a, _, new) = warp_choice(WarpPick::Client16402HeldMark, false);
+    assert_eq!(new, Some(a), "client16402_held_mark: the warp did not go to the held mark A");
+    // NOT VACUOUS: at_press picks the furthest Skeleton, B
+    let (_, b, old) = warp_choice(WarpPick::AtPress, false);
+    assert_eq!(old, Some(b), "at_press: the warp did not go to B");
+    // the mark gone: re-chosen, B
+    let (_, b2, again) = warp_choice(WarpPick::Client16402HeldMark, true);
+    assert_eq!(again, Some(b2), "client16402_held_mark: with A gone the mark was not re-chosen");
 }

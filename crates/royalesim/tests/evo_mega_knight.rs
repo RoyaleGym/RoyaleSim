@@ -29,7 +29,11 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, UppercutCount, UppercutFlightContact, UppercutFlightTargetability, UppercutStand, UppercutThrowAim};
+use royalesim::state::{
+    BattleConfig, BattleState, UppercutCount, UppercutFlightContact, UppercutFlightHold, UppercutFlightTargetability, UppercutRootWindow, UppercutStand,
+    UppercutThrowAim,
+};
+use royalesim::EntityId;
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -428,4 +432,224 @@ fn under_client16402_after_a_throw_a_throw_still_stands() {
     let first_move = new.iter().position(|r| r.1 != start).unwrap_or_else(|| panic!("the scene drifted: he never moved: {new:?}"));
     assert!(new[first_move - 1].2 <= 150, "client16402_after_a_throw: he walked at load {} after a throw: {new:?}", new[first_move - 1].2);
     assert!(new[..first_move].iter().filter(|r| r.2 > 100).count() >= 15, "the scene drifted: a short stand: {new:?}");
+}
+
+/// The throw scene of `after_the_uppercut` (his count under hits_and_dash_blows: his second hit throws) with the red Musketeer out
+/// of his sight, held at (16500, 4500), and no stand, under targeting.UPPERCUT_FLIGHT_TARGETABILITY = `flight`: per tick from his
+/// uppercut (index 0, the hit's tick), whether he holds the Knight, and the Knight's step (native).
+fn retake(flight: UppercutFlightTargetability) -> Vec<(bool, i64)> {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["MegaKnight".into(), "Knight".into()], vec!["Knight".into(), "Musketeer".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.uppercut_flight_targetability = flight;
+    cfg.calib.uppercut_stand = UppercutStand::None;
+    cfg.calib.uppercut_count = UppercutCount::HitsAndDashBlows;
+    cfg.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    s.tick();
+    let (at, kn_at, mu_at) = (n(9000, 12500), n(9000, 13900), n(16500, 4500));
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
+    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", mu_at, None).expect("a red Musketeer");
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    let (mut hits, mut out) = (0, Vec::new());
+    for _ in 0..300 {
+        if hits < 2 {
+            assert!(s.debug_set_pos(mk, at) && s.debug_set_pos(knight, kn_at));
+        }
+        assert!(s.debug_set_pos(musk, mu_at));
+        for id in [knight, musk, mk] {
+            let top = s.entity(id).expect("alive").max_hp;
+            assert!(s.debug_set_hp(id, top));
+        }
+        let (top, before) = (s.entity(knight).unwrap().max_hp, s.entity(knight).unwrap().pos);
+        s.tick();
+        let kv = s.entity(knight).expect("the Knight");
+        if hits < 2 && top - kv.hp == 268 {
+            hits += 1;
+        }
+        if hits >= 2 {
+            let (dx, dy) = (i64::from((kv.pos.x - before.x) / K), i64::from((kv.pos.y - before.y) / K));
+            let held: Option<EntityId> = s.entity(mk).expect("the Mega Knight").target;
+            out.push((held == Some(knight), royalesim::fixed::isqrt(dx * dx + dy * dy)));
+            if out.len() > 40 {
+                return out;
+            }
+        }
+    }
+    panic!("{flight:?}: the scene drifted: no second hit");
+}
+
+/// targeting.UPPERCUT_FLIGHT_TARGETABILITY = client16402_ground_after_last_step (client 16.402, parity r83, live13: ground
+/// attackers re-took a thrown unit on its last forward step + 1 in 63 of 76; the engine's client15535_airborne on + 3, 4 of 4).
+/// Plant: uppercut_flight_retake_late.
+#[test]
+fn under_client16402_ground_after_last_step_he_retakes_the_thrown_unit_on_its_zero_step() {
+    let last_forward = |r: &[(bool, i64)]| (2..r.len() - 1).find(|&i| r[i].1 > 0 && r[i + 1].1 == 0).unwrap_or_else(|| panic!("the scene drifted: no landing: {r:?}"));
+    let new = retake(UppercutFlightTargetability::Client16402GroundAfterLastStep);
+    let fl = last_forward(&new);
+    assert!(fl >= 10 && !new[4].0, "the scene drifted: a short flight, or he held it airborne: {new:?}");
+    assert_eq!((fl + 1..new.len()).find(|&i| new[i].0), Some(fl + 1), "client16402_ground_after_last_step: retaken on its zero step: {new:?}");
+    // NOT VACUOUS: client15535_airborne holds it airborne through the step back
+    let old = retake(UppercutFlightTargetability::Client15535Airborne);
+    let fl0 = last_forward(&old);
+    assert_eq!(fl0, fl, "the same flight under both arms");
+    assert_eq!((fl0 + 1..old.len()).find(|&i| old[i].0), Some(fl0 + 3), "client15535_airborne: {old:?}");
+}
+
+/// knockback.UPPERCUT_FLIGHT_CONTACT = client16402_out_of_pass_from_hit_plus_1 (client 16.402, parity r83, live13: 406 of 406
+/// overlap ticks of 34 throws kept the 250 ladder): the thrown Knight meets no body in its flight. Plant: uppercut_flight_collides.
+#[test]
+fn under_client16402_out_of_pass_from_hit_plus_1_the_thrown_knight_meets_no_body_in_its_flight() {
+    let new = musketeer_in_the_throw(UppercutFlightContact::Client16402OutOfPassFromHitPlus1);
+    assert!(new.windows(2).all(|w| w[0] == w[1]), "client16402_out_of_pass_from_hit_plus_1: the Musketeer was pushed: {new:?}");
+    // NOT VACUOUS: stunned_body (the arm shipped for client 16.402 before it) pushes it as the Knight flies past
+    let old = musketeer_in_the_throw(UppercutFlightContact::StunnedBody);
+    assert!(old.windows(2).any(|w| w[0] != w[1]), "stunned_body: the Musketeer never moved: {old:?}");
+}
+
+/// Under knockback.UPPERCUT_FLIGHT_CONTACT = `arm`: the throw scene of every_second_hit_throws_its_target_toward_its_king with a
+/// second red Knight put 800 behind the victim on its line (into its body, the two radii 1,000) on every tick to the hit + 1: the
+/// victim's move (native) on the hit + 1, before its first flight step (it attacks him: it takes no walking step).
+fn victim_pushed_on_hit_plus_1(arm: UppercutFlightContact) -> i64 {
+    let mut s = battle_with(|c| {
+        c.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
+        c.calib.uppercut_flight_contact = arm;
+    });
+    let (at, kn_at) = (n(9000, 12500), n(9000, 13900));
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
+    let pusher = s.scenario_spawn_now(Team::Red, "Knight", n(9000, 14700), None).expect("a second red Knight");
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    let mut hits = 0;
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(mk, at));
+        for id in [knight, pusher] {
+            let top = s.entity(id).expect("a Knight").max_hp;
+            assert!(s.debug_set_hp(id, top));
+        }
+        let top = s.entity(knight).expect("the Knight").max_hp;
+        if hits < 2 {
+            assert!(s.debug_set_pos(knight, kn_at));
+        }
+        let before = s.entity(knight).expect("the Knight").pos;
+        assert!(s.debug_set_pos(pusher, Vec2::new(before.x, before.y + 800 * K)));
+        s.tick();
+        let after = s.entity(knight).expect("the Knight");
+        if hits >= 2 {
+            let (dx, dy) = (i64::from((after.pos.x - before.x) / K), i64::from((after.pos.y - before.y) / K));
+            return royalesim::fixed::isqrt(dx * dx + dy * dy);
+        }
+        if top - after.hp == 268 {
+            hits += 1;
+        }
+    }
+    panic!("{arm:?}: the scene drifted: no second hit");
+}
+
+/// knockback.UPPERCUT_FLIGHT_CONTACT = client16402_out_of_pass_from_hit_plus_1 on the hit + 1 (client 16.402, parity r83, live13:
+/// no contact push on a thrown unit from the hit + 1; the Mega Knight stood unpushed on the hit + 1 in 4 of 4 where his victim had
+/// been pushing him, the engine pushed him 2 of 2). Plant: uppercut_flight_collides.
+#[test]
+fn under_client16402_out_of_pass_from_hit_plus_1_the_thrown_knight_takes_no_push_on_the_hit_plus_1() {
+    let new = victim_pushed_on_hit_plus_1(UppercutFlightContact::Client16402OutOfPassFromHitPlus1);
+    assert_eq!(new, 0, "client16402_out_of_pass_from_hit_plus_1: the thrown Knight was pushed on the hit + 1");
+    // NOT VACUOUS: client15535_out_of_pass leaves it a body on the hit + 1
+    let old = victim_pushed_on_hit_plus_1(UppercutFlightContact::Client15535OutOfPass);
+    assert!(old > 0, "client15535_out_of_pass: the second Knight did not push it on the hit + 1");
+}
+
+/// One tick of thrown_rows: the victim's (attack_ms, attack_load_ms) and its point (native).
+type ThrownRow = ((i32, i32), (i32, i32));
+
+/// The throw scene of every_second_hit_throws_its_target_toward_its_king with a red `victim` (attacking him) for the Knight, under
+/// knockback.UPPERCUT_FLIGHT_HOLD = `hold` and UPPERCUT_ROOT_WINDOW = `root`: per tick from his second hit (index 0, the hit's
+/// tick), the victim's (attack_ms, attack_load_ms) and its point (native).
+fn thrown_rows(victim: &str, hold: UppercutFlightHold, root: UppercutRootWindow) -> Vec<ThrownRow> {
+    let mut s = battle_with(|c| {
+        c.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
+        c.calib.uppercut_flight_hold = hold;
+        c.calib.uppercut_root_window = root;
+    });
+    let (at, v_at) = (n(9000, 12500), n(9000, 13900));
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    let v = s.scenario_spawn_now(Team::Red, victim, v_at, None).expect("the victim");
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    let (mut hits, mut out) = (0, Vec::new());
+    for _ in 0..300 {
+        assert!(s.debug_set_pos(mk, at));
+        let top = s.entity(v).expect("the victim").max_hp;
+        if hits < 2 {
+            assert!(s.debug_set_pos(v, v_at));
+        }
+        assert!(s.debug_set_hp(v, top));
+        s.tick();
+        let e = s.entity(v).expect("the victim");
+        if hits < 2 && top - e.hp == 268 {
+            hits += 1;
+        }
+        if hits >= 2 {
+            out.push(((e.attack_ms, e.attack_load_ms), (e.pos.x / K, e.pos.y / K)));
+            if out.len() > 40 {
+                return out;
+            }
+        }
+    }
+    panic!("{victim} {hold:?}: the scene drifted: no second hit");
+}
+
+/// knockback.UPPERCUT_FLIGHT_HOLD = client16402_reset_from_hit_plus_1 (client 16.402, parity r83, live13: 45 of 46 attacking
+/// victims read progress 0 on the hit + 2; the engine paused 11 of 11 swings and resumed them after the flight): a Musketeer
+/// shooting him, thrown: its swing resets on the hit + 2 and re-enters fresh after the flight. (A running attack's load timer
+/// reads 0, so this scene cannot show the timer running through the flight.) Plant: uppercut_hold_from_first_step.
+#[test]
+fn under_client16402_reset_from_hit_plus_1_the_thrown_swing_resets_and_re_enters_fresh() {
+    let new = thrown_rows("Musketeer", UppercutFlightHold::Client16402ResetFromHitPlus1, UppercutRootWindow::OnDelay);
+    assert!(new[1].0 .0 > 0, "the scene drifted: the Musketeer was not swinging on the hit + 1: {new:?}");
+    assert_eq!(new[2].0 .0, 0, "client16402_reset_from_hit_plus_1: its swing reset on the hit + 2: {new:?}");
+    // NOT VACUOUS: stun_from_first_step pauses its swing through the flight and resumes it
+    let old = thrown_rows("Musketeer", UppercutFlightHold::StunFromFirstStep, UppercutRootWindow::OnDelay);
+    assert!(old[3].0 .0 > 0, "stun_from_first_step: the swing was reset: {old:?}");
+    assert!(old[3..=6].windows(2).all(|w| w[0].0 == w[1].0), "stun_from_first_step: its swing moved in the flight: {old:?}");
+    let resumed = |r: &[ThrownRow]| r.iter().skip(20).map(|x| x.0 .0).find(|&p| p > 0);
+    let (rn, ro) = (resumed(&new).expect("no attack after the flight"), resumed(&old).expect("no attack after the flight"));
+    assert!(rn < ro && rn < 1000, "client16402_reset_from_hit_plus_1: re-entered at {rn}, the paused swing resumed at {ro}: {new:?}");
+}
+
+/// knockback.UPPERCUT_FLIGHT_HOLD = client16402_reset_from_hit_plus_1: a thrown Knight's first flight step is the throw's 250 alone,
+/// and the flight's hold ends on the same tick under both arms (its first own move after the flight on the same tick).
+#[test]
+fn under_client16402_reset_from_hit_plus_1_the_flight_ends_as_before() {
+    let new = thrown_rows("Knight", UppercutFlightHold::Client16402ResetFromHitPlus1, UppercutRootWindow::OnDelay);
+    let old = thrown_rows("Knight", UppercutFlightHold::StunFromFirstStep, UppercutRootWindow::OnDelay);
+    let pts = |r: &[ThrownRow]| r.iter().map(|x| x.1).collect::<Vec<_>>();
+    assert_eq!(pts(&new)[..28], pts(&old)[..28], "the same flight and root under both arms");
+    assert_eq!(pts(&new)[2].1 - pts(&new)[1].1, 250, "the first flight step: {:?}", pts(&new));
+}
+
+/// knockback.UPPERCUT_ROOT_WINDOW = client16402_after_a_free_step (client 16.402, parity r83, live13: free on H + 21, kept H + 22 ..
+/// H + 30 in 59 of 60, walking again on H + 31 in 48 of 50; the engine kept H + 20 .. H + 27): the Knight thrown under
+/// knockback.UPPERCUT_FLIGHT_HOLD = client16402_reset_from_hit_plus_1, so its swing is reset and it walks after the flight (under
+/// stun_from_first_step its paused swing resumes and it walks only after it fires). Plant: uppercut_root_on_delay.
+#[test]
+fn under_client16402_after_a_free_step_the_thrown_knight_steps_once_then_is_rooted_nine_ticks() {
+    let new: Vec<(i32, i32)> = thrown_rows("Knight", UppercutFlightHold::Client16402ResetFromHitPlus1, UppercutRootWindow::Client16402AfterAFreeStep).iter().map(|x| x.1).collect();
+    assert_ne!(new[21], new[20], "client16402_after_a_free_step: its own step on H + 21: {new:?}");
+    assert!(new[22..=30].iter().all(|p| *p == new[21]), "client16402_after_a_free_step: kept H + 22 .. H + 30: {new:?}");
+    assert_ne!(new[31], new[30], "client16402_after_a_free_step: it walks again on H + 31: {new:?}");
+    // NOT VACUOUS: on_delay roots it from H + 20 and lets it walk on H + 28
+    let old: Vec<(i32, i32)> = thrown_rows("Knight", UppercutFlightHold::Client16402ResetFromHitPlus1, UppercutRootWindow::OnDelay).iter().map(|x| x.1).collect();
+    assert_eq!(old[21], old[20], "on_delay: rooted on H + 21: {old:?}");
+    assert_ne!(old[28], old[27], "on_delay: it walks on H + 28: {old:?}");
 }

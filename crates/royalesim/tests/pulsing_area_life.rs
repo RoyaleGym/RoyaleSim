@@ -14,7 +14,9 @@
 mod common;
 
 use common::*;
-use royalesim::state::{BattleState, PulsingAreaLife};
+use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::spell::SpellMotion;
+use royalesim::state::{BattleState, PulseEdge, PulsingAreaLife};
 use royalesim::Team;
 
 /// A Blue Knight held 6000 off a Red `spell` cast on (900, 1000) until `enter` ticks after the cast, then on its centre, under
@@ -74,4 +76,67 @@ fn under_client16402_last_update_inclusive_a_poison_applies_once_more_and_pulses
 #[test]
 fn an_every_tick_area_keeps_its_life_under_either_arm() {
     assert_eq!(tail("Tornado", PulsingAreaLife::Client16402LastUpdateInclusive, 0), tail("Tornado", PulsingAreaLife::LifeExclusive, 0));
+}
+
+/// Under spells.PULSE_EDGE = `arm`: a Blue Poison cast about (600, 2200) (its centre read off the cloud: a cast lands off the point
+/// it is cast on; the engine keeps unit positions on whole native units, so the centre must sit on them too); once it stands, a Red
+/// Musketeer played 7,000 outside it and, from its first frame, held `off` subtiles outside the Poison's Radius (3500) + its own
+/// radius, on the cloud's x axis, while it deploys (a deploying unit does not move, so it stays exactly there for the scans).
+/// Whether the Poison's buff takes a slot on it on a deploy tick.
+fn poisoned(arm: PulseEdge, off: i32) -> bool {
+    let mut cfg = config();
+    cfg.calib.pulse_edge = arm;
+    let mut s = BattleState::new(5, cfg);
+    s.spawn_unit(Team::Blue, "Poison", t(600, 2200), None).expect("the cast");
+    let mut centre: Option<Vec2> = None;
+    for _ in 0..30 {
+        s.tick();
+        centre = s.spells().iter().find_map(|sp| match &sp.motion {
+            SpellMotion::Pulsing(p) if sp.team == Team::Blue => Some(p.pos),
+            _ => None,
+        });
+        if centre.is_some() {
+            break;
+        }
+    }
+    let c = centre.expect("the scene drifted: no Poison cloud");
+    assert!(c.x % K == 0 && c.y % K == 0, "the scene: the cloud's centre {c:?} is off the native grid, so no unit can sit on its exact edge");
+    s.spawn_unit(Team::Red, "Musketeer", Vec2::new(c.x + 7000 * K, c.y), None).expect("the Musketeer");
+    let mut on_edge = 0;
+    for _ in 0..60 {
+        let mut held = false;
+        if let Some(m) = find_live(&s, Team::Red, "Musketeer").first().map(|e| (e.id, e.radius, e.deploying)) {
+            if !m.2 {
+                break;
+            }
+            assert!(s.debug_set_pos(m.0, Vec2::new(c.x + 3500 * K + m.1 + off, c.y)));
+            held = true;
+        }
+        s.tick();
+        if !held {
+            continue;
+        }
+        let Some(v) = find_live(&s, Team::Red, "Musketeer").first().map(|e| (e.pos, e.radius, e.deploying, e.buffs.iter().any(|b| !b.is_empty()))) else { continue };
+        if !v.2 {
+            break;
+        }
+        assert_eq!(v.0, Vec2::new(c.x + 3500 * K + v.1 + off, c.y), "the scene drifted: the deploying Musketeer moved");
+        on_edge += 1;
+        if v.3 {
+            return true;
+        }
+    }
+    assert!(on_edge >= 12, "the scene drifted: the Musketeer stood on the edge {on_edge} deploy ticks (fewer than the Poison's scans need)");
+    false
+}
+
+/// spells.PULSE_EDGE = client16402_exclusive (client 16.402, parity r83, live13: 9 of 9 units on a Poison's exact edge took no
+/// pulse from the edge scans; the engine's edge scan poisoned 5 of 5). Plant: pulse_edge_inclusive.
+#[test]
+fn under_client16402_exclusive_a_poison_misses_a_unit_on_its_edge() {
+    assert!(!poisoned(PulseEdge::Client16402Exclusive, 0), "client16402_exclusive: the edge was reached");
+    assert!(poisoned(PulseEdge::Client16402Exclusive, -K), "client16402_exclusive: a native inside was missed");
+    // NOT VACUOUS: inclusive reaches the edge
+    assert!(poisoned(PulseEdge::Inclusive, 0), "inclusive: the edge was missed");
+    assert!(!poisoned(PulseEdge::Inclusive, K), "the scene drifted: inclusive reached a native outside");
 }

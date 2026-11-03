@@ -1731,6 +1731,9 @@ pub const GUARD_END_OFFSET: (i32, i32) = (239, 3083);
 /// Ticks from the guard's first frame to its charge's first step: measured, 7 (6 deploying frames and one in its dash
 /// state).
 pub const GUARD_DASH_START_TICKS: u32 = 7;
+/// combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over: area tests pass over a landed guard through its arrival + this
+/// (its body back on + 5, combat.GUARD_LANDING_AVOIDANCE's window).
+pub const GUARD_LANDING_UNSCANNED_TICKS: u32 = 4;
 /// The guard's charge's step, native a tick: measured, 398 along its line (its JumpSpeed 400).
 pub const GUARD_STEP: i32 = 398;
 /// combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim: the point the guard's charge aims at, from the Little Prince's
@@ -11256,6 +11259,11 @@ fn convert_deploy_projectile(v: serde_json::Value) -> Result<SpellDef, String> {
 }
 
 impl CardDb {
+    /// Whether row `card` is a champion's guard (`GuardDef::unit`: the Little Prince's), by the cards' abilities.
+    pub fn is_guard_unit(&self, card: u16) -> bool {
+        self.cards.iter().any(|d| matches!(&d.ability, Some(AbilityDef { effect: AbilityEffect::Guard(g), .. }) if g.unit == card))
+    }
+
     /// Parse a cards.json document (schema at the bottom of this file).
     pub fn from_json_str(s: &str, source: CardSource) -> Result<CardDb, String> {
         let mut file: RawCardsFile = serde_json::from_str(s).map_err(|e| format!("cards.json: {e}"))?;

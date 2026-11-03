@@ -412,6 +412,13 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.WARP_STRIKE_REVEAL = with_the_shot: unread on client 15.535.29.
 ///   status.STUN_CLEARS_TARGET = client_cleared: client 15.535.29's Zaps clear on the hit tick (23 of 24); its
 ///   hit-delivered holds are unread.
+///   spells.PULSE_EDGE = inclusive: unread on client 15.535.29.
+///   targeting.DASH_TARGET_SCAN = scans: unread on client 15.535.29.
+///   knockback.UPPERCUT_FLIGHT_HOLD = stun_from_first_step: unread on client 15.535.29.
+///   knockback.UPPERCUT_ROOT_WINDOW = on_delay: unread on client 15.535.29.
+///   movement.DASH_STAND_HEADING = counted: unread on client 15.535.29.
+///   combat.WARP_PICK = at_press: unread on client 15.535.29.
+///   combat.GUARD_LANDING_AREA = hit: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -651,6 +658,13 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.VARIABLE_DAMAGE_IMMUNE_TARGET", "\"taken\""),
     ("combat.WARP_STRIKE_REVEAL", "\"with_the_shot\""),
     ("status.STUN_CLEARS_TARGET", "\"client_cleared\""),
+    ("spells.PULSE_EDGE", "\"inclusive\""),
+    ("targeting.DASH_TARGET_SCAN", "\"scans\""),
+    ("knockback.UPPERCUT_FLIGHT_HOLD", "\"stun_from_first_step\""),
+    ("knockback.UPPERCUT_ROOT_WINDOW", "\"on_delay\""),
+    ("movement.DASH_STAND_HEADING", "\"counted\""),
+    ("combat.WARP_PICK", "\"at_press\""),
+    ("combat.GUARD_LANDING_AREA", "\"hit\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingAvoidance, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook, DashImmuneBuffs, PressLoadTimer, RampKnockReset, VariableDamageImmuneTarget};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingArea, GuardLandingAvoidance, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook, DashImmuneBuffs, PressLoadTimer, RampKnockReset, VariableDamageImmuneTarget};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -1872,4 +1872,234 @@ fn under_client16402_not_while_immune_an_inferno_tower_waits_out_his_guards_char
 #[test]
 fn the_shipped_variable_damage_immune_target_is_client16402_not_while_immune() {
     assert_eq!(royalesim::state::Calib::shipped().variable_damage_immune_target, VariableDamageImmuneTarget::Client16402NotWhileImmune);
+}
+
+/// targeting.VARIABLE_DAMAGE_IMMUNE_TARGET = client16402_not_while_immune_plus_1 (client 16.402, parity r83, live13: free
+/// variable-damage units first took a landed guard on L + 3, never on L + 2 (0 of 12); the r82 engine on L + 2, 5 of 5): the
+/// Inferno Tower takes his guard a tick after it does under client16402_not_while_immune. Plant: vd_takes_guard_on_l_plus_2.
+#[test]
+fn under_client16402_not_while_immune_plus_1_an_inferno_tower_takes_his_landed_guard_a_tick_later() {
+    let (f, l) = vd_pick(VariableDamageImmuneTarget::Client16402NotWhileImmunePlus1);
+    let (f0, l0) = vd_pick(VariableDamageImmuneTarget::Client16402NotWhileImmune);
+    assert_eq!(l, l0, "the same charge under both arms");
+    let f0 = f0.expect("the scene drifted: client16402_not_while_immune never takes the guard");
+    // NOT VACUOUS: the r82 arm takes it on the first tick its immunity allows
+    assert_eq!(f, Some(f0 + 1), "client16402_not_while_immune_plus_1: taken on {f:?}, the r82 arm on {f0} (the charge ending {l})");
+}
+
+/// Under status.DASH_IMMUNE_BUFFS = `arm`: he presses (held at AT), and on the press tick a red Poison is cast on his guard's
+/// birth point (2,000 behind him), so its scans find the guard on its birth frames and in its charge, and the guard lands 5,000
+/// and more from the cloud's centre. The ages (ticks from its first frame) on which the guard's hp drops, in 90 ticks.
+fn guard_poisoned(arm: DashImmuneBuffs) -> Vec<u32> {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.dash_immune_buffs = arm, &[]);
+    let cloud = n((AT.0, AT.1 - 2000));
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.spawn_unit(Team::Red, "Poison", cloud, None).expect("the Poison");
+    let (mut first, mut hp, mut drops): (Option<u32>, Option<i32>, Vec<u32>) = (None, None, Vec::new());
+    for _ in 0..90 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        let top = s.entity(lp).expect("him").max_hp;
+        assert!(s.debug_set_hp(lp, top));
+        s.tick();
+        let Some((p, h)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.hp)) else { continue };
+        let f = *first.get_or_insert_with(|| {
+            let (dx, dy) = (i64::from((p.x - cloud.x) / K), i64::from((p.y - cloud.y) / K));
+            assert!(dx * dx + dy * dy < 3000 * 3000, "the scene drifted: the guard was born {dx}, {dy} from the cloud");
+            s.tick_count() - 1
+        });
+        if hp.is_some_and(|o| h < o) {
+            drops.push(s.tick_count() - 1 - f);
+        }
+        hp = Some(h);
+    }
+    assert!(first.is_some(), "the scene drifted: no guard");
+    drops
+}
+
+/// status.DASH_IMMUNE_BUFFS = client16402_area_buffs_unheld (client 16.402, parity r83, live13: Poison scans on a guard's birth
+/// frames or in its charge, a Golden Knight's chain or a Boss Bandit's dash were followed by no pulse, 14 of 14; the engine pulsed
+/// 6 of 6). Plant: area_buff_lands_on_dash.
+#[test]
+fn under_client16402_area_buffs_unheld_a_poison_he_charges_out_of_never_bites_his_guard() {
+    for arm in [DashImmuneBuffs::Client16402AreaBuffsUnheld, DashImmuneBuffs::Client16402AreaBuffsUnslowed] {
+        let d = guard_poisoned(arm);
+        assert!(d.is_empty(), "{arm:?}: the guard took a pulse on ages {d:?}");
+    }
+    // NOT VACUOUS: client16402_guard_charge_unheld lets the birth-frame scan land, and its pulses follow
+    let old = guard_poisoned(DashImmuneBuffs::Client16402GuardChargeUnheld);
+    assert!(!old.is_empty(), "client16402_guard_charge_unheld: the guard took no pulse");
+}
+
+/// Under status.DASH_IMMUNE_BUFFS = `arm`: a red Poison cast on his guard's point on the age its charge starts (so its scans find it
+/// in its charge only: it leaves the cloud before its arrival). Per age, whether a buff slot is in use on the guard; its arrival.
+fn guard_slowed(arm: DashImmuneBuffs) -> (Vec<(u32, bool)>, u32) {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.dash_immune_buffs = arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut first, mut last, mut arrived): (Option<u32>, Option<Vec2>, Option<u32>) = (None, None, None);
+    let (mut rows, mut cast) = (Vec::new(), None);
+    for _ in 0..90 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        let top = s.entity(lp).expect("him").max_hp;
+        assert!(s.debug_set_hp(lp, top));
+        if let (Some(f), Some(p)) = (first, find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos)) {
+            if s.tick_count() - f == crate_dash_start() {
+                s.spawn_unit(Team::Red, "Poison", p, None).expect("the Poison");
+                cast = Some(p);
+            }
+        }
+        s.tick();
+        let Some((p, slot)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.buffs.iter().any(|b| !b.is_empty()))) else { continue };
+        let f = *first.get_or_insert(s.tick_count() - 1);
+        let age = s.tick_count() - 1 - f;
+        rows.push((age, slot));
+        if arrived.is_none() && age > crate_dash_start() && last == Some(p) {
+            arrived = Some(age - 1);
+            let c = cast.expect("the scene drifted: the guard arrived before the cast");
+            let (dx, dy) = (i64::from((p.x - c.x) / K), i64::from((p.y - c.y) / K));
+            assert!(dx * dx + dy * dy > 4500 * 4500, "the scene drifted: the guard landed {dx}, {dy} from the cloud");
+        }
+        last = Some(p);
+    }
+    (rows, arrived.expect("the guard arrived"))
+}
+
+/// status.DASH_IMMUNE_BUFFS = client16402_guard_charge_unslowed (client 16.402, parity r83, live13: 5 of 5 guards whose slows all
+/// landed in the charge walked at full speed after it; the engine slowed 3 of 3). Plant: guard_charge_slows_land.
+#[test]
+fn under_client16402_guard_charge_unslowed_a_poison_in_his_guards_charge_does_not_slow_it() {
+    let after = |r: &[(u32, bool)], a: u32| r.iter().filter(|x| x.0 >= a + 2 && x.0 <= a + 8).any(|x| x.1);
+    for arm in [DashImmuneBuffs::Client16402GuardChargeUnslowed, DashImmuneBuffs::Client16402AreaBuffsUnslowed] {
+        let (rows, a) = guard_slowed(arm);
+        assert!(!after(&rows, a), "{arm:?}: the Poison's slow in the charge holds a slot after the arrival: {rows:?}");
+    }
+    // NOT VACUOUS: client16402_guard_charge_unheld lands the slow in the charge, and its slot outlives the arrival
+    let (old, a0) = guard_slowed(DashImmuneBuffs::Client16402GuardChargeUnheld);
+    assert!(after(&old, a0), "client16402_guard_charge_unheld: no slot after the arrival: {old:?}");
+}
+
+/// Under combat.PRESS_LOAD_TIMER = `arm` on the 160402017 table: press_entry's scene with the Golem kept in his sight, and a red
+/// Zap on him on the press + 5. (his load timer on each tick from the press to his first attack after the cast, that attack's
+/// entry progress, his LoadTime).
+fn zapped_press(arm: PressLoadTimer) -> (Vec<i32>, i32, i32) {
+    let (mut s, lp, _) = scene_cfg(
+        |c| {
+            let mut k = config_160402017();
+            k.calib.press_load_timer = arm;
+            *c = k;
+        },
+        &[],
+    );
+    let near = n((AT.0, AT.1 + 5000));
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", near, None).expect("the Golem");
+    let load_time = s.config().cards.get(s.entity(lp).expect("him").card_idx).load_time_ms;
+    let mine = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(lp)).count();
+    let mut known = mine(&s);
+    let (mut shot, mut press): (Option<u32>, Option<u32>) = (None, None);
+    let mut loads = Vec::new();
+    for _ in 0..300 {
+        let t = s.tick_count();
+        assert!(s.debug_set_pos(lp, n(AT)));
+        let top = s.entity(lp).expect("him").max_hp;
+        assert!(s.debug_set_hp(lp, top));
+        if let Some(g) = s.entity(golem) {
+            let full = g.max_hp;
+            assert!(s.debug_set_pos(golem, near) && s.debug_set_hp(golem, full));
+        }
+        if shot.is_some() && press.is_none() {
+            press = Some(t);
+            s.press_ability_button(Team::Blue, 0).expect("the press");
+        }
+        if press.is_some_and(|p| t == p + 5) {
+            s.spawn_unit(Team::Red, "Zap", n(AT), None).expect("the Zap");
+        }
+        s.tick();
+        let v = s.entity(lp).expect("him");
+        if let Some(p) = press {
+            if t >= p + 5 && v.attack_phase != AttackPhase::Idle {
+                return (loads, v.attack_ms, load_time);
+            }
+            loads.push(v.attack_load_ms);
+        }
+        let m = mine(&s);
+        if m > known && shot.is_none() {
+            shot = Some(t);
+        }
+        known = m;
+    }
+    panic!("{arm:?}: the scene drifted: shot {shot:?}, press {press:?}, no attack after the cast");
+}
+
+/// combat.PRESS_LOAD_TIMER = client16402_runs_unless_stunned (client 16.402, parity r83, live13: 7 of 7 stunned casts stood the
+/// timer for the stun; 6,815 of 6,882 cast ticks ran it). Plant: press_stun_runs.
+#[test]
+fn under_client16402_runs_unless_stunned_a_zap_in_his_cast_stands_his_timer() {
+    let (loads, p, lt) = zapped_press(PressLoadTimer::Client16402RunsUnlessStunned);
+    let stood = loads.windows(2).filter(|w| w[0] == w[1] && w[0] > 0).count();
+    assert!(stood >= 8, "client16402_runs_unless_stunned: the Zap's hold did not stand his timer: {loads:?}");
+    let l = *loads.last().expect("a cast");
+    assert!(l > 50, "client16402_runs_unless_stunned: the timer ran out through the Zap: {loads:?}");
+    assert_eq!(p, lt - (l - 50).max(0) + 50, "client16402_runs_unless_stunned: his entry after a cast ending at {l}: {loads:?}");
+    assert!(loads[..4].windows(2).all(|w| w[1] == (w[0] - 50).max(0)), "client16402_runs_unless_stunned: it runs before the Zap: {loads:?}");
+    // NOT VACUOUS: zeroed enters at LoadTime + 50
+    let (_, p0, _) = zapped_press(PressLoadTimer::Zeroed);
+    assert_eq!(p0, lt + 50, "zeroed: his press zeroed the timer");
+}
+
+/// Under combat.GUARD_LANDING_AREA = `arm`: he presses, held at AT; with `cast`, a red Lightning cast on the tick and point given. The
+/// guard's hp by tick, his by tick, the guard's arrival (its last moving tick) and its landing point.
+fn landing_run(arm: GuardLandingArea, cast: Option<(u32, Vec2)>) -> (std::collections::BTreeMap<u32, i32>, std::collections::BTreeMap<u32, i32>, u32, Vec2) {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_landing_area = arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut g_hp, mut lp_hp) = (std::collections::BTreeMap::new(), std::collections::BTreeMap::new());
+    let (mut last, mut charged, mut l): (Option<Vec2>, bool, Option<(u32, Vec2)>) = (None, false, None);
+    for _ in 0..120 {
+        if s.entity(lp).is_some() {
+            assert!(s.debug_set_pos(lp, n(AT)));
+        }
+        if let Some((c, p)) = cast.filter(|c| c.0 == s.tick_count()) {
+            s.spawn_unit(Team::Red, "Lightning", p, None).expect("the Lightning");
+            let _ = c;
+        }
+        s.tick();
+        let t = s.tick_count() - 1;
+        if let Some(v) = s.entity(lp) {
+            lp_hp.insert(t, v.hp);
+        }
+        let Some(g) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.hp)) else { continue };
+        g_hp.insert(t, g.1);
+        if let Some(p) = last {
+            let (dx, dy) = (i64::from((g.0.x - p.x) / K), i64::from((g.0.y - p.y) / K));
+            if dx * dx + dy * dy >= 200 * 200 {
+                charged = true;
+            } else if charged && l.is_none() {
+                l = Some((t - 1, p));
+            }
+        }
+        last = Some(g.0);
+    }
+    let (a, at) = l.expect("the scene drifted: the guard never charged");
+    (g_hp, lp_hp, a, at)
+}
+
+/// Whether the first bolt of a red Lightning picked on the guard's arrival + `off` (the cast on that tick - 9, on its landing point:
+/// him and the guard in its reach) takes the guard's hp on its landing tick, under combat.GUARD_LANDING_AREA = `arm`.
+fn landing_bolt(arm: GuardLandingArea, off: u32) -> bool {
+    let (_, _, a, at) = landing_run(arm, None);
+    let (g, _, a1, _) = landing_run(arm, Some((a + off - 9, at)));
+    assert_eq!(a1, a, "the scene drifted: the cast moved the arrival");
+    let (b, c) = (g.get(&(a + off)).copied(), g.get(&(a + off + 1)).copied());
+    matches!((b, c), (Some(x), Some(y)) if y < x) || (b.is_some() && c.is_none())
+}
+
+/// combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over (client 16.402, parity r83, live13: Lightning passed over a landed
+/// guard on L + 3 and struck it on L + 4; 1 area hit in the window over 1,178 landings): a strike first takes the landed guard two
+/// ticks later than under hit (whose first is the tick after its immunity). Plant: guard_landing_scanned.
+#[test]
+fn under_client16402_bodiless_passed_over_a_strike_passes_over_his_landed_guard() {
+    let first = |arm: GuardLandingArea| (1..=8).find(|&off| landing_bolt(arm, off));
+    let old = first(GuardLandingArea::Hit).expect("the scene drifted: no bolt took the landed guard under hit");
+    let new = first(GuardLandingArea::Client16402BodilessPassedOver).expect("client16402_bodiless_passed_over: no bolt took it");
+    // NOT VACUOUS: under hit the guard is struck as soon as its immunity ends, earlier
+    assert!(new > old, "client16402_bodiless_passed_over: first struck on the arrival + {new}, under hit + {old}");
+    assert!((4..=6).contains(&new), "client16402_bodiless_passed_over: first struck on the arrival + {new}, not about + 5");
 }

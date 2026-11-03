@@ -1107,6 +1107,11 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         if skip_newborn && e.spawned_by[v].is_some() && e.spawn_tick[v] == ctx.tick {
             continue;
         }
+        // combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over: an impact or a pulse passes over a landed guard through its
+        // arrival + 4.
+        if e.landing_unscanned(v, ctx.tick, false) {
+            continue;
+        }
         if let Some(m) = mark {
             let id = e.id_of(v);
             if e.buff_slots(v).iter().any(|s| s.id == m + 1) || fx.buffs.iter().any(|h| h.target == id && h.buff == m) {
@@ -1150,10 +1155,20 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         let on_building_square = building_square && barrage.is_none() && e.kind[v] == EntityKind::Building;
         #[cfg(clash_plant = "building_spell_disc")]
         let on_building_square = false; // PLANT (regression): an ordinary building is a disc to every spell, whatever the arm.
+        // spells.PULSE_EDGE = client16402_exclusive: a pulsing area's application reaches a disc unit strictly inside its Radius
+        // + the unit's radius. Measured on client 16.402 (parity r83, live13): 9 of 9 units on a Poison's exact edge went
+        // unpoisoned until a strictly-inside scan; the engine poisoned them from the edge scan, 5 of 5. PLANT (regression)
+        // pulse_edge_inclusive: the new arm still reaches the edge.
+        #[cfg(not(clash_plant = "pulse_edge_inclusive"))]
+        let strict = area.is_some() && ctx.calib.pulse_edge == crate::state::PulseEdge::Client16402Exclusive;
+        #[cfg(clash_plant = "pulse_edge_inclusive")]
+        let strict = false;
         let reached = if tower_square {
             in_crown_square(centre, e.pos[v], hit.radius)
         } else if on_building_square {
             in_square(centre, e.pos[v], e.radius[v], hit.radius)
+        } else if strict {
+            crate::fixed::in_range_edge_strict(centre, e.pos[v], reach, edge)
         } else {
             in_range_edge(centre, e.pos[v], reach, edge)
         };
@@ -1295,6 +1310,10 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         // (regression) strike_picks_charging_guard: the new arm still picks it.
         #[cfg(not(clash_plant = "strike_picks_charging_guard"))]
         if e.strike_skip.get(v).copied().unwrap_or(false) {
+            continue;
+        }
+        // combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over: nor a landed guard through its arrival + 4.
+        if e.landing_unscanned(v, ctx.tick, false) {
             continue;
         }
         let id = e.id_of(v);
@@ -1693,6 +1712,10 @@ fn roll(ctx: &SpellCtx, team: Team, card: u16, damage: i32, pos: &mut Vec2, trav
         }
         // combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: a roll passes over a guard on its birth frames.
         if e.passes_over(v) {
+            continue;
+        }
+        // combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over: and a landed guard through its arrival + 4.
+        if e.landing_unscanned(v, ctx.tick, false) {
             continue;
         }
         // spells.LIVE_SPAWN_ROLL_BIRTH = client16402_unseen_on_birth_tick: a unit a live spawner made this tick is not in the

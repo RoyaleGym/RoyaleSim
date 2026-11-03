@@ -819,12 +819,38 @@ pub fn splash(
     out: &mut DamageBuffer,
     scratch: &mut Vec<u32>,
 ) {
+    splash_passing(ents, hash, team, center, radius, hits_air, hits_ground, amount, crown_pct, rounding, out, scratch, None);
+}
+
+/// `splash`, passing over a landed guard in its bodiless window (combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over,
+/// entity.rs `landing_unscanned`): `pass` is (this tick, a unit's shot, the shot's own target, which is exempt).
+#[allow(clippy::too_many_arguments)]
+pub fn splash_passing(
+    ents: &Entities,
+    hash: &SpatialHash,
+    team: Team,
+    center: Vec2,
+    radius: i32,
+    hits_air: bool,
+    hits_ground: bool,
+    amount: i32,
+    crown_pct: i32,
+    rounding: CrownRounding,
+    out: &mut DamageBuffer,
+    scratch: &mut Vec<u32>,
+    pass: Option<(u32, bool, Option<EntityId>)>,
+) {
     hash.neighbours_within(ents, center, radius + hash.max_radius(), scratch);
     let mut kept = 0usize;
     for i in 0..scratch.len() {
         let v = scratch[i] as usize;
         if ents.team[v] == team || ents.hp[v] <= 0 {
             continue;
+        }
+        if let Some((t, shot, own)) = pass {
+            if own != Some(ents.id_of(v)) && ents.landing_unscanned(v, t, shot) {
+                continue;
+            }
         }
         #[cfg(clash_plant = "acquire_delay_blocks_splash")]
         if ents.acquirable_from[v] > 0 {
@@ -961,11 +987,19 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
         && !(calib.load_timer_target_loss == crate::state::LoadTimerTargetLoss::Client16402HitHoldLag && ents.load_hold[a] == 3);
     #[cfg(clash_plant = "held_load_runs_on")]
     let stands = false;
+    // knockback.UPPERCUT_FLIGHT_HOLD = client16402_reset_from_hit_plus_1: a thrown unit's timer runs on through its flight's hold
+    // (Entities::throw_flight), as through a knock ladder.
+    let stands = stands && !ents.throw_flight.get(a).copied().unwrap_or(false);
     // combat.PRESS_LOAD_TIMER = client16402_runs_through_cast: the Little Prince's timer runs through his press's cast while he
     // holds a target (Entities::press_load_runs).
-    let cast_runs = calib.press_load_timer == crate::state::PressLoadTimer::Client16402RunsThroughCast
-        && ents.press_load_runs.get(a).copied().unwrap_or(false)
-        && ents.target[a].is_some();
+    // client16402_runs_unless_stunned: it runs every tick of the cast, whatever his target, unless a hold landed on him in it
+    // (Entities::press_stun_ms).
+    let cast_runs = ents.press_load_runs.get(a).copied().unwrap_or(false)
+        && match calib.press_load_timer {
+            crate::state::PressLoadTimer::Client16402RunsThroughCast => ents.target[a].is_some(),
+            crate::state::PressLoadTimer::Client16402RunsUnlessStunned => ents.press_stun_ms.get(a).copied().unwrap_or(0) == 0,
+            crate::state::PressLoadTimer::Zeroed => false,
+        };
     let stands = stands && !cast_runs;
     let held = held || stands;
     let mut load = if held { ents.attack_load_ms[a] } else { (ents.attack_load_ms[a] - calib.tick_ms).max(0) };
@@ -1674,7 +1708,7 @@ pub fn fire(
         let void = false; // PLANT (regression): the far area hit deals its damage, as before r21.
         if !void {
             let from = dmg.hits.len();
-            splash(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch);
+            splash_passing(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch, Some((tick, true, Some(target))));
             add_splash_bonus(ents, calib, &mut dmg.hits[from..], direct, target);
             apply_attack_buff(ents, calib, direct_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
         }
@@ -2452,7 +2486,7 @@ pub fn step_projectiles(
         let dead_hop_goes_on = false;
         if p.splash > 0 {
             let from = dmg.hits.len();
-            splash(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch);
+            splash_passing(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch, Some((tick, true, Some(p.target))));
             // AN EVO BOMBER'S LATER LANDING spares every unit the throw's earlier landings hit (card.rs `BounceDef`).
             #[cfg(not(clash_plant = "bounce_rehits"))]
             if let Some(b) = p.bounce.as_ref().filter(|b| !b.hit.is_empty()) {

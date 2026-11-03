@@ -580,10 +580,25 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     // unit (a charging Little Prince guard). Measured on client 16.402 (parity r82, live13): 0 of 18 pickups inside a guard's
     // charge, against 786 of 1,172 for other units. PLANT (regression) vd_takes_immune: the new arm still takes it.
     #[cfg(not(clash_plant = "vd_takes_immune"))]
-    let vd_gate = ctx.calib.variable_damage_immune_target == crate::state::VariableDamageImmuneTarget::Client16402NotWhileImmune;
+    let vd_gate = matches!(
+        ctx.calib.variable_damage_immune_target,
+        crate::state::VariableDamageImmuneTarget::Client16402NotWhileImmune | crate::state::VariableDamageImmuneTarget::Client16402NotWhileImmunePlus1
+    );
     #[cfg(clash_plant = "vd_takes_immune")]
     let vd_gate = false;
-    if vd_gate && !keeping && card.variable_damage.is_some() && e.dash_immune(c, ctx.tick) {
+    // targeting.VARIABLE_DAMAGE_IMMUNE_TARGET = client16402_not_while_immune_plus_1: a guard is skipped a tick past its
+    // immunity too. Measured on client 16.402 (parity r83, live13): first pickups of a landed guard on L + 3 (9), L + 4 (2),
+    // never L + 2 (0 of 12); the r82 engine's on L + 2, 5 of 5. PLANT (regression) vd_takes_guard_on_l_plus_2: the new arm
+    // still takes it a tick early.
+    #[cfg(not(clash_plant = "vd_takes_guard_on_l_plus_2"))]
+    let plus1 = ctx.calib.variable_damage_immune_target == crate::state::VariableDamageImmuneTarget::Client16402NotWhileImmunePlus1;
+    #[cfg(clash_plant = "vd_takes_guard_on_l_plus_2")]
+    let plus1 = false;
+    if vd_gate
+        && !keeping
+        && card.variable_damage.is_some()
+        && (e.dash_immune(c, ctx.tick) || (plus1 && ctx.tick > 0 && e.dash_immune(c, ctx.tick - 1) && ctx.cards.is_guard_unit(e.card[c])))
+    {
         return false;
     }
     // targeting.DOOMED_TARGET_DROP: a projectile attacker neither keeps nor takes a unit the shots already in flight
@@ -1315,6 +1330,19 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     #[cfg(not(clash_plant = "leap_scans_mid_leap"))]
     if ctx.calib.leap_target_scan == LeapTargetScan::Client16402HeldMidLeap && e.jumping[a] {
         return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: false, resumed: false, chase_dropped: None };
+    }
+    // targeting.DASH_TARGET_SCAN = client16402_held_mid_dash: a unit in its dash (the Bandit, the Boss Bandit, the Mega Knight's
+    // jump) with a live target keeps it and scans nothing; a dead one falls through to combat.DASH_KILL_RETARGET's reading.
+    // Measured on client 16.402 (parity r83, live13): 0 of 8,275 dash ticks changed to a live target; the engine switched on
+    // 17 in 12 dashes. PLANT (regression) dash_scans_mid_dash: the new arm still scans mid-dash.
+    #[cfg(not(clash_plant = "dash_scans_mid_dash"))]
+    let dash_held = ctx.calib.dash_target_scan == crate::state::DashTargetScan::Client16402HeldMidDash && e.dash_state[a] == crate::entity::DashState::Dashing;
+    #[cfg(clash_plant = "dash_scans_mid_dash")]
+    let dash_held = false;
+    if dash_held {
+        if let Some(t) = cur.filter(|t| e.is_alive(*t)) {
+            return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
+        }
     }
     // targeting.KNOCKED_TARGET_HOLD = client16402_decides_on_ladder: a unit on a knock ladder (not stunned, hooked or sliding
     // out) decides its target below as one off the ladder would. Measured on client 16.402 (parity r81, live13): with a nearer

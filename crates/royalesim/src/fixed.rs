@@ -225,6 +225,14 @@ pub fn in_range_edge(from: Vec2, target: Vec2, range: i32, target_radius: i32) -
     from.dist2(target) <= r * r
 }
 
+/// `in_range_edge` with the edge itself out: strictly within `range` of the target's hitbox edge (spells.PULSE_EDGE =
+/// client16402_exclusive, a pulsing area's application).
+#[inline]
+pub fn in_range_edge_strict(from: Vec2, target: Vec2, range: i32, target_radius: i32) -> bool {
+    let r = (range as i64) + (target_radius as i64);
+    from.dist2(target) < r * r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

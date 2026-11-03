@@ -28,9 +28,9 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::formation::{rounded_degree, sin1024};
+use royalesim::formation::{octant_degree, ring_offset_native, rounded_degree, sin1024};
 use royalesim::move16402::normalize_to;
-use royalesim::state::{BattleState, DeathSpawnLayout, SpawnedFirstStep};
+use royalesim::state::{BattleState, DeathSpawnLayout, SpawnPoint, SpawnedFirstStep};
 use royalesim::Team;
 
 #[test]
@@ -124,4 +124,68 @@ fn a_death_ring_lies_at_the_rounded_degree_and_its_members_keep_the_heading() {
     old_pos.sort_by_key(|p| (p.x, p.y));
     assert_ne!(old_pos, want_sorted, "precondition: the exact rotation lands on the rounded degree's points here");
     assert!(old.iter().all(|(_, f)| (f.x, f.y) == (0, -256)), "precondition: under facing_ring the Barbarians face Red's forward");
+}
+
+/// Under spawner.SPAWN_POINT = `arm` (spawner.SPAWNED_FIRST_STEP at none, so a Bat's first frame is its creation point): a blue
+/// Dark Witch (the Night Witch's row) put at (9000, 9000) walking straight at a red Giant held in her sight at `giant`: her point
+/// and facing after the
+/// tick her first two Bats appear, and their points.
+fn witch_wave(arm: SpawnPoint, giant: (i32, i32)) -> (Vec2, Vec2, Vec<Vec2>) {
+    let mut cfg = config();
+    cfg.calib.spawner_spawn_point = arm;
+    cfg.calib.spawned_first_step = SpawnedFirstStep::None;
+    let mut s = BattleState::new(0, cfg);
+    let at = |p: (i32, i32)| Vec2::new(p.0 * K, p.1 * K);
+    let witch = s.scenario_spawn_now(Team::Blue, "DarkWitch", at((9000, 9000)), None).expect("the Dark Witch");
+    let g = s.scenario_spawn_now(Team::Red, "Giant", at(giant), None).expect("a red Giant");
+    let before: Vec<_> = s.entities().map(|e| e.id).collect();
+    for _ in 0..200 {
+        let top = s.entity(g).expect("the Giant").max_hp;
+        assert!(s.debug_set_pos(g, at(giant)) && s.debug_set_hp(g, top));
+        s.tick();
+        let bats: Vec<Vec2> = s.entities().filter(|e| e.team == Team::Blue && !before.contains(&e.id)).map(|e| e.pos).collect();
+        if !bats.is_empty() {
+            let w = s.entity(witch).expect("the Dark Witch");
+            return (w.pos, w.facing, bats);
+        }
+    }
+    panic!("{arm:?}: the scene drifted: no Bats in 200 ticks");
+}
+
+/// The ring a two-Bat wave lays round `c` at the facing's degree `d` (the card's SpawnAngleShift and SpawnRadius), sorted.
+fn ring_at(s: &BattleState, c: Vec2, d: i32) -> Vec<Vec2> {
+    let row = card_stat(s, "DarkWitch");
+    let (shift, radius) = (row.formation.spawn_angle_shift_deg, row.spawner.as_ref().and_then(|sp| sp.radius).expect("data: the Dark Witch's SpawnRadius"));
+    let mut v: Vec<Vec2> = (0..2).map(|k| c.add(ring_offset_native(radius, d + shift + 180 * k))).collect();
+    v.sort_by_key(|p| (p.x, p.y));
+    v
+}
+
+/// spawner.SPAWN_POINT = client16402_octant_facing_degree (client 16.402, parity r83, live13: 69 of 71 Dark Witch waves; 13 of 13
+/// where the octant and the rounded degree of her facing differ sat on the octant degree's ring). The Giant is moved along a row
+/// until her facing at the emission reads differently under the two: there the new arm lays the octant ring and the rounded arm
+/// the rounded one. Plant: ring_facing_rounded.
+#[test]
+fn under_client16402_octant_facing_degree_the_bat_ring_turns_at_the_octant_degree() {
+    assert_eq!((octant_degree(Vec2::new(-106, -232)), rounded_degree(Vec2::new(-106, -232))), (246, 245), "the census's heading");
+    let s = BattleState::new(0, config());
+    for dx in (-3000..=3000).step_by(150) {
+        let giant = (9000 + dx, 12500);
+        let (w, f, mut bats) = witch_wave(SpawnPoint::Client16402OctantFacingDegree, giant);
+        let (d, r) = (octant_degree(f), rounded_degree(f));
+        if d == r {
+            continue;
+        }
+        assert_eq!(bats.len(), 2, "the scene: a two-Bat wave");
+        bats.sort_by_key(|p| (p.x, p.y));
+        assert_eq!(bats, ring_at(&s, w, d), "client16402_octant_facing_degree: the ring at the octant degree {d} of {f:?}");
+        // NOT VACUOUS: the rounded arm lays the ring a degree round, the same witch on the same facing
+        let (w0, f0, mut old) = witch_wave(SpawnPoint::ClientRoundedFacingDegree, giant);
+        assert_eq!((w0, f0), (w, f), "the same witch, the same facing");
+        old.sort_by_key(|p| (p.x, p.y));
+        assert_eq!(old, ring_at(&s, w0, r), "client_rounded_facing_degree: the ring at the rounded degree {r}");
+        assert_ne!(old, bats, "the two rings differ");
+        return;
+    }
+    panic!("the scene drifted: no Giant on the row gave a facing whose octant and rounded degrees differ");
 }

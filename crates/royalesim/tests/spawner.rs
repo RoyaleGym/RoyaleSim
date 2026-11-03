@@ -304,7 +304,7 @@ fn hut_spawns_on_the_predicted_ticks(hut: &str) {
         SpawnPoint::InFrontAtOwnRadius => Vec2::new(pos.x, pos.y + hut_r),
         // the tangent of the two circles: the spawner's own radius plus the unit's (the rounded-degree arm
         // differs only on a SpawnAngleShift ring, which a hut has not)
-        SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree => Vec2::new(pos.x, pos.y + hut_r + unit_r),
+        SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree | SpawnPoint::Client16402OctantFacingDegree => Vec2::new(pos.x, pos.y + hut_r + unit_r),
     };
     assert_eq!(u.pos.x, spawn_point.x, "the {unit} left the {hut}'s forward axis");
     // Under the shipped emission the unit is created in the MOVE phase, after that
@@ -716,7 +716,7 @@ fn tombstone_expiring_by_lifetime_leaves_its_death_spawn_skeletons() {
     for b in &laid {
         if at_emission {
             assert!(
-                matches!(c.spawner_spawn_point, SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree),
+                matches!(c.spawner_spawn_point, SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree | SpawnPoint::Client16402OctantFacingDegree),
                 "the emission point this test computes (the rounded arm moves only a SpawnAngleShift ring)"
             );
             assert_eq!(*b, Vec2::new(pos.x, pos.y + tomb_r + skel_r), "{unit} not on the emission point");
@@ -1358,7 +1358,7 @@ fn a_dark_witch_lands_both_bats_at_once_around_her_spawn_radius_and_a_rams_barba
     // tick, which is the tolerance in both branches.
     let nudge = royalesim::fixed::SUBTILE_PER_MILLITILE;
     // The rounded arm lays the same ring (it rounds a SpawnAngleShift ring's degree; the Dark Witch has none).
-    if matches!(calib().spawner_spawn_point, SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree) {
+    if matches!(calib().spawner_spawn_point, SpawnPoint::Client16402Measured | SpawnPoint::ClientRoundedFacingDegree | SpawnPoint::Client16402OctantFacingDegree) {
         // Squared, so there is no square root and no floating point.
         let lo = ((radius - nudge) as i64).pow(2);
         let hi = ((radius + nudge) as i64).pow(2);

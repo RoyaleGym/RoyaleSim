@@ -265,6 +265,24 @@ pub struct Entities {
     /// `default` and sized on load like `pass_over`.
     #[serde(default)]
     pub charge_fresh: Vec<bool>,
+    /// combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over: the last tick (its arrival + GUARD_LANDING_UNSCANNED_TICKS)
+    /// an area test passes over a landed guard (a unit's shot splash a tick sooner; `landing_unscanned`); 0 none. Written under
+    /// that arm only; hashed only when set.
+    #[serde(default)]
+    pub landing_until: Vec<u32>,
+    /// movement.DASH_STAND_HEADING = client16402_attack_stand_uncounted: the tick a dasher's (card.dash) post-kill wait last ran
+    /// out (0 never). Written under that arm only; hashed only when set.
+    #[serde(default)]
+    pub wait_out: Vec<u32>,
+    /// knockback.UPPERCUT_FLIGHT_HOLD = client16402_reset_from_hit_plus_1: the unit is in an uppercut's flight, from the hit + 1
+    /// to its last flight step; its load timer runs through the flight's hold. Written under that arm only; hashed only when set.
+    #[serde(default)]
+    pub throw_flight: Vec<bool>,
+    /// combat.PRESS_LOAD_TIMER = client16402_runs_unless_stunned: the ms left of a hold that landed on a Little Prince in his
+    /// press's cast (`land_stun`), on the stun's clock; his load timer stands while it is above 0. Written under that arm
+    /// only; hashed only when set.
+    #[serde(default)]
+    pub press_stun_ms: Vec<i32>,
     /// status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick: a hit's hold landed on the unit last tick, and its target
     /// clears on this Target phase (state.rs `land_stun` sets it, `phase_target_with` clears it and the target). Written true
     /// under that arm only; hashed only when set. `default` and sized on load like `charge_fresh`.
@@ -905,6 +923,21 @@ impl Entities {
 
     /// combat.GUARD_BIRTH_PASS_THROUGH = client16402_passed_over: rolls, pass-through shots and strike picks pass over unit `i`
     /// (a Little Prince guard on its birth frames, `pass_over`). PLANT (regression) guard_birth_pass_through_hit: they meet it.
+    /// combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over: a landed guard an area test passes over on `tick` (a unit's
+    /// shot splash, `shot`, one tick sooner). PLANT (regression) guard_landing_scanned: never.
+    pub fn landing_unscanned(&self, i: usize, tick: u32, shot: bool) -> bool {
+        #[cfg(clash_plant = "guard_landing_scanned")]
+        {
+            let _ = (i, tick, shot);
+            false
+        }
+        #[cfg(not(clash_plant = "guard_landing_scanned"))]
+        {
+            let u = self.landing_until.get(i).copied().unwrap_or(0);
+            u > 0 && if shot { tick < u } else { tick <= u }
+        }
+    }
+
     pub fn passes_over(&self, i: usize) -> bool {
         #[cfg(not(clash_plant = "guard_birth_pass_through_hit"))]
         let over = self.pass_over.get(i).copied().unwrap_or(false);
@@ -991,6 +1024,10 @@ impl Entities {
             self.lost_target[i] = None;
             self.pass_over[i] = false;
             self.charge_fresh[i] = false;
+            self.landing_until[i] = 0;
+            self.wait_out[i] = 0;
+            self.throw_flight[i] = false;
+            self.press_stun_ms[i] = 0;
             self.stun_clear_due[i] = false;
             self.press_load_runs[i] = false;
             self.walked_prev[i] = false;
@@ -1112,6 +1149,10 @@ impl Entities {
             self.lost_target.push(None);
             self.pass_over.push(false);
             self.charge_fresh.push(false);
+            self.landing_until.push(0);
+            self.wait_out.push(0);
+            self.throw_flight.push(false);
+            self.press_stun_ms.push(0);
             self.stun_clear_due.push(false);
             self.press_load_runs.push(false);
             self.walked_prev.push(false);
@@ -1307,6 +1348,10 @@ impl Entities {
         self.lost_target[i] = None;
         self.pass_over[i] = false;
         self.charge_fresh[i] = false;
+        self.landing_until[i] = 0;
+        self.wait_out[i] = 0;
+        self.throw_flight[i] = false;
+        self.press_stun_ms[i] = 0;
         self.stun_clear_due[i] = false;
         self.press_load_runs[i] = false;
         self.walked_prev[i] = false;

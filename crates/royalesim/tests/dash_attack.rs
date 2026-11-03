@@ -57,8 +57,8 @@ mod common;
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{
-    BattleConfig, BattleState, DashAttack, DashEndContact, DashImmuneHits, DashKillRetarget, DashStandContact, DashStandRetarget,
-    DASH_BLOW_TO_END_TICKS,
+    BattleConfig, BattleState, DashAttack, DashEndContact, DashImmuneHits, DashKillRetarget, DashStandContact, DashStandHeading,
+    DashStandRetarget, DASH_BLOW_TO_END_TICKS,
 };
 use royalesim::{EntityId, Team};
 
@@ -718,4 +718,67 @@ fn under_client16402_after_the_dash_a_mega_knight_takes_no_target_until_its_jump
     // NOT VACUOUS: at_once takes the Knight on L + 1, mid-dash
     let (old, l0, kn0) = mk_after_kill(DashKillRetarget::AtOnce);
     assert_eq!(old[l0 + 1], Some(kn0), "at_once: {:?}", &old[l0..l0 + 6]);
+}
+
+/// Under movement.DASH_STAND_HEADING = `arm`, on the left lane (Blue's princess towers down): a blue Mega Knight at (3500, 12000),
+/// a red Giant held at (3500, 17500) (inside his jump's trigger) and, with `kill`, a red Skeleton (1 hp) held 1,300 ahead of him in
+/// his reach; a blue Knight held 1,700 behind him on his line until he stands for his jump (S: his target the Giant, no move),
+/// then let go. (S, and the Knight's steps (native) on S + 1 .. S + 8.)
+fn stand_walker(arm: DashStandHeading, kill: bool) -> (u32, Vec<(i64, i64)>) {
+    let mut cfg = config();
+    cfg.calib.dash_stand_heading = arm;
+    let mut s = BattleState::new(0, cfg);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    let (mk_at, giant_at, kn_at) = (at((3500, 12000)), at((3500, 17500)), at((3500, 10300)));
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("a red Giant");
+    let skel = kill.then(|| s.scenario_spawn_now(Team::Red, "Skeleton", at((3500, 13300)), Some(1)).expect("a red Skeleton"));
+    let mk = s.scenario_spawn_now(Team::Blue, "MegaKnight", mk_at, None).expect("the Mega Knight");
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", kn_at, None).expect("a blue Knight");
+    let mut stand: Option<u32> = None;
+    let mut steps = Vec::new();
+    for _ in 0..200 {
+        let top = s.entity(giant).expect("the Giant").max_hp;
+        assert!(s.debug_set_pos(giant, giant_at) && s.debug_set_hp(giant, top));
+        if let Some(k) = skel.filter(|k| s.entity(*k).is_some()) {
+            assert!(s.debug_set_pos(k, at((3500, 13300))));
+        }
+        if stand.is_none() {
+            assert!(s.debug_set_pos(knight, kn_at));
+        }
+        let (m0, k0) = (s.entity(mk).expect("the Mega Knight").pos, s.entity(knight).expect("the Knight").pos);
+        s.tick();
+        let t = s.tick_count() - 1;
+        let (m, k) = (s.entity(mk).expect("the Mega Knight"), s.entity(knight).expect("the Knight").pos);
+        if let Some(st) = stand {
+            steps.push((i64::from((k.x - k0.x) / K), i64::from((k.y - k0.y) / K)));
+            if t >= st + 8 {
+                return (st, steps);
+            }
+        } else if m.target == Some(giant) && m.pos == m0 && skel.map_or(true, |k| s.entity(k).is_none()) {
+            stand = Some(t);
+        }
+    }
+    panic!("{arm:?} kill {kill}: the scene drifted: he never stood for his jump");
+}
+
+/// movement.DASH_STAND_HEADING = client16402_attack_stand_uncounted (client 16.402, parity r83, live13: a stand out of a post-kill
+/// wait read state 2 on every tick, 63 of 63; 3 of 3 walkers meeting one with a like heading turned): a Knight walking up behind a
+/// Mega Knight standing out of his wait steers round him under the new arm and walks straight into him under counted; the same
+/// stand from a walk (no Skeleton) leaves the Knight straight under both. Plant: attack_stand_heading_counted.
+#[test]
+fn under_client16402_attack_stand_uncounted_a_walker_steers_round_a_mega_knight_standing_out_of_his_wait() {
+    let lateral = |v: &[(i64, i64)]| v.iter().map(|s| s.0.abs()).sum::<i64>();
+    let (s_new, new) = stand_walker(DashStandHeading::Client16402AttackStandUncounted, true);
+    let (s_old, old) = stand_walker(DashStandHeading::Counted, true);
+    assert_eq!(s_new, s_old, "the same stand under both arms");
+    // NOT VACUOUS: counted passes the standing Mega Knight over, the new arm steers round him (more sideways)
+    assert!(lateral(&new) >= lateral(&old) + 20, "client16402_attack_stand_uncounted: no steer round him: new {new:?}, counted {old:?}");
+    // control: a stand from a walk keeps its heading under both arms
+    let (_, walk_new) = stand_walker(DashStandHeading::Client16402AttackStandUncounted, false);
+    let (_, walk_old) = stand_walker(DashStandHeading::Counted, false);
+    assert_eq!(walk_new, walk_old, "a stand from a walk: the same steps under both arms");
 }
