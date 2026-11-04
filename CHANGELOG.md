@@ -9,7 +9,8 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
   hitpoints it puts a Rage area down behind it at once and then every 1500 ms, held while it is stunned or frozen.
   Each area is wider the more hits the giant has made since (2 to 3.5 tiles). The areas rage its own side only and
   deal no damage. A Clone of it makes a plain Giant. This is read off the game's table and not yet measured. The
-  Evo Mirror is still not supported.
+  Evo Mirror is still not supported. On that table `unit_types()` gains `Giant_EV1`, so every unit type after it in
+  the sorted list moves up one (`unit_types_digest` names the list). The other tables' lists are unchanged.
 - 10 more settings default to the current client's behaviour, each measured against its recorded battles:
   - A Poison does not touch a unit exactly on its edge (`spells.PULSE_EDGE`).
   - The Inferno Tower, Inferno Dragon and Mighty Miner wait one tick more after a guard's charge before they target
