@@ -279,9 +279,11 @@ fn a_copys_form_starts_as_its_play_does() {
     assert_eq!(["Knight_hero", "Musketeer_EV1", "SkeletonArmy_EV1", "Knight"].map(|u| db.copy_refusal(db.index(u).expect(u))), [None; 4]);
 }
 
-/// The ring hits (148 at level 11, one each) a red Knight held 2500 ahead of an Evo Tesla takes in 120 ticks from the
-/// Tesla's creation, the Tesla put down by a copy or by a setup spawn.
-fn ring_hits(copy: bool) -> usize {
+/// The ticks, of 120 from an Evo Tesla's creation, on which a red Knight held 2500 ahead of it loses a whole number of
+/// ring hits (148 at level 11 each; the Tesla's own shots take 218 or 220), and that loss: the Tesla put down by a copy
+/// or by a setup spawn. Both come up on the first tick, so a ring made then and one made at the creation reach the
+/// Knight on the same tick.
+fn ring_hits(copy: bool) -> Vec<(u32, i32)> {
     let mut s = battle();
     let at = n(9000, 11000);
     let tesla = [(Team::Blue, "Tesla_EV1", at, None, None)];
@@ -289,11 +291,14 @@ fn ring_hits(copy: bool) -> usize {
     let p = n(9000, 13500);
     let k = s.scenario_spawn_now(Team::Red, "Knight", p, None).expect("a red Knight");
     let top = s.entity(k).expect("the Knight").max_hp;
-    let mut hits = 0;
-    for _ in 0..120 {
+    let mut hits = Vec::new();
+    for f in 0..120 {
         assert!(s.debug_set_pos(k, p) && s.debug_set_hp(k, top));
         s.tick();
-        hits += usize::from(top - s.entity(k).expect("the Knight held alive").hp == 148);
+        let lost = top - s.entity(k).expect("the Knight held alive").hp;
+        if lost > 0 && lost % 148 == 0 {
+            hits.push((f, lost));
+        }
     }
     hits
 }
@@ -309,8 +314,9 @@ fn a_copys_evolved_unit_is_as_made() {
     };
     assert!(invisible(true), "a copy's Spectral is invisible to its enemies");
     assert!(!invisible(false), "the control: a setup spawn's is not");
-    // the Evo Tesla: its creation ring is the play's, so a copy's rings once (as it comes up), a setup spawn's twice
-    assert_eq!((ring_hits(true), ring_hits(false)), (1, 2), "(copy, setup spawn)");
+    // the Evo Tesla: its creation ring is the play's, so a copy's rings once (as it comes up), a setup spawn's twice, its
+    // two rings on the Knight together
+    assert_eq!((ring_hits(true), ring_hits(false)), (vec![(11, 148)], vec![(11, 296)]), "(copy, setup spawn)");
     // the Evo Lumberjack's ghost lives on its Rage's run, which no copy has; the Hero Balloon's bomb is its death's
     let s = battle();
     let db = s.cards().clone();
