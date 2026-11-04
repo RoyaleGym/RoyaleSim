@@ -5491,12 +5491,19 @@ def client_rng_column(header: dict | None, frames: list[dict]) -> dict | None:
         alg = "client" + alg[alg.index("_"):]
     elif isinstance(client, dict) and client.get("build"):
         alg = f"client_xorshift32_v{client['build']}"
-    return {
+    out = {
         "algorithm": alg or "client_xorshift32_unknown",
         "first": list(states[0]),
         "changes": [[t, v] for (t, v), (_, p) in zip(states[1:], states, strict=False) if v != p],
         "note": "uint32 state after the frame's tick (frame ticks, not the issued+1 labels)",
     }
+    # The place the states were read at, for a build whose generator moved (RNG_OFF_BY_BUILD), once a live capture's
+    # start event names it (`rng_unread`): the harness reads such a build's column only with it, so a column made before
+    # this check (the 16.635 client's clock) is never taken for the generator.
+    build = str(client.get("build") or "") if isinstance(client, dict) else ""
+    if build in RNG_OFF_BY_BUILD and (header or {}).get("source") == "live_reader" and rng_unread(header) is None:
+        out["place"] = f"{RNG_OFF_BY_BUILD[build]:#x}"
+    return out
 
 
 def fixture_text(fx: dict) -> str:

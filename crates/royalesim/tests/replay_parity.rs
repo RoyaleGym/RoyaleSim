@@ -1254,20 +1254,27 @@ fn an_evo_goblin_barrels_decoy_dummies_are_rooted_to_the_goblin_barrel() {
 
 /// THE CLIENT'S GENERATOR, RECORDED (`RngColumn::state_after`): a fixture's column is read under both clients' tails, the
 /// 15.535.29 one and 160402017's (the same xorshift32: Oracle's 017 specials replay under it exactly), and refused under
-/// any other algorithm or before its first frame. Plant: replay_rng_017_unread.
+/// any other algorithm or before its first frame. Plant: replay_rng_017_unread. A 16.635 column (the same generator) is read
+/// only where it names the place its states were read at, 0xa4 (`RngColumn::place`). Plant: replay_rng_place_unread.
 #[test]
 fn the_017_clients_recorded_generator_is_read() {
-    let column = |algorithm: &str| RngColumn {
+    let placed = |algorithm: &str, place: Option<&str>| RngColumn {
         algorithm: algorithm.to_string(),
         first: [100, 7],
         changes: vec![[105, 9], [120, 11]],
         note: None,
+        place: place.map(str::to_string),
     };
-    for alg in ["client_xorshift32_v150535029", "client_xorshift32_v160402017", "client_xorshift32_v160635007"] {
-        let c = column(alg);
-        assert_eq!((c.state_after(99), c.state_after(100), c.state_after(110), c.state_after(130)), (None, Some(7), Some(9), Some(11)), "{alg}");
+    let column = |algorithm: &str| placed(algorithm, None);
+    for c in [column("client_xorshift32_v150535029"), column("client_xorshift32_v160402017"), placed("client_xorshift32_v160635007", Some("0xa4"))] {
+        assert_eq!((c.state_after(99), c.state_after(100), c.state_after(110), c.state_after(130)), (None, Some(7), Some(9), Some(11)), "{}", c.algorithm);
     }
     assert_eq!(column("client_mt19937").state_after(110), None, "another algorithm is not the engine's");
+    // THE 16.635 COLUMN needs its place (RNG_PLACE_REQUIRED): one without it, or read at +0xA0, holds the client's clock.
+    // Plant: replay_rng_place_unread.
+    assert_eq!(column("client_xorshift32_v160635007").state_after(110), None, "a 16.635 column without its place");
+    assert_eq!(placed("client_xorshift32_v160635007", Some("0xa0")).state_after(110), None, "a 16.635 column read at 0xa0");
+    assert_eq!(placed("client_xorshift32_v160635007", Some("0xA4")).state_after(110), Some(9), "the place's case does not matter");
 }
 
 /// THE DECK'S OWN LEVELS (`config_for_with`): each deck entry is at the level its card's plays recorded, a card with

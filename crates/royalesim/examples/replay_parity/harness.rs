@@ -655,7 +655,16 @@ pub struct RngColumn {
     pub changes: Vec<[u32; 2]>,
     #[serde(default)]
     pub note: Option<String>,
+    /// THE PLACE ITS STATES WERE READ AT in the generator's object (the fixture maker's RNG_OFF_BY_BUILD, written for a
+    /// build listed there), as hex text. A tail in RNG_PLACE_REQUIRED is read only with its place: a column without it
+    /// was made before the maker checked the place, and a 16.635 one from then holds a clock, not the generator.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
 }
+
+/// The tails whose column is read only when it names the place its states were read at (`RngColumn::place`): the
+/// 16.635 client keeps its generator at +0xA4, and +0xA0, where a reader read it before 2026-11-03, is a clock there.
+pub const RNG_PLACE_REQUIRED: [(&str, u32); 1] = [("_xorshift32_v160635007", 0xA4)];
 
 /// The algorithm the engine's client generator runs (state.rs `client_rnd`, the client's xorshift32), named in a
 /// fixture's `rng.algorithm` by its tail: the generator and the client version. Client 160402017 runs the same generator:
@@ -676,6 +685,14 @@ impl RngColumn {
         let tails = &RNG_ALGORITHM_TAILS[..1]; // PLANT: the 15.535.29 tail alone, as before.
         if !tails.iter().any(|t| self.algorithm.ends_with(t)) || tick < self.first[0] {
             return None;
+        }
+        // A tail that needs its place: the column's own, parsed as hex, or none read.
+        #[cfg(not(clash_plant = "replay_rng_place_unread"))]
+        if let Some((_, want)) = RNG_PLACE_REQUIRED.iter().find(|(t, _)| self.algorithm.ends_with(t)) {
+            let got = self.place.as_deref().and_then(|p| u32::from_str_radix(p.trim_start_matches("0x").trim_start_matches("0X"), 16).ok());
+            if got != Some(*want) {
+                return None;
+            }
         }
         let mut st = self.first[1];
         for c in &self.changes {

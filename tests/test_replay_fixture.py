@@ -3668,6 +3668,12 @@ def test_a_16635_live_capture_reads_its_generator_only_at_its_builds_offset(m):
     assert m.rng_unread(live(160402017, {"rng_off": "0xa0"})) is None
     assert m.rng_unread(live(160402017, {"rng_off": "0xa4"})) is not None
     assert m.rng_unread({"rng_algorithm": "libg_xorshift32_v160635007"}) is None, "not a live reader's capture"
+    # the column names its place for such a build (the harness reads a 16.635 column only with it), no other
+    frames = [{"tick": 3, "rng_state": 7}, {"tick": 6, "rng_state": 9}]
+    col = m.client_rng_column(live(160635007, {"rng_off": "0xa4"}), frames)
+    assert (col["algorithm"], col["place"]) == ("client_xorshift32_v160635007", "0xa4")
+    assert "place" not in m.client_rng_column(live(160402017, {"rng_off": "0xa0"}), frames)
+    assert "place" not in m.client_rng_column({"client": {"build": 160635007}}, frames), "not a live reader's capture"
 
 
 @needs_modern_cards
