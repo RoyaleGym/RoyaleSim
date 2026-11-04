@@ -31,7 +31,9 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::BattleState;
+use royalesim::card::CardDb;
+use royalesim::state::{BattleConfig, BattleState, CardTable, PressLoadTimer};
+use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["SkeletonKing", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -473,4 +475,62 @@ fn a_16402_soul_counts_once_it_has_landed() {
     assert_eq!(copies_with_deaths_at(None, -40), 9);
     assert_eq!(copies_with_deaths_at(Some(CardTable::Client160402017), -40), 9, "160402017: landed by the trigger");
     assert_eq!(copies_with_deaths_at(Some(CardTable::Client160402017), 5), 6, "160402017: still in flight at the trigger");
+}
+
+/// The King held on AT on the 160402017 table under combat.PRESS_LOAD_TIMER = `arm`, a red Golem held 1000 ahead and topped up
+/// each tick; his press on the tick after a blow reloads his timer (it jumps up). Returns (his load timer on the tick before his
+/// first attack after the cast, that attack's first progress, his LoadTime).
+fn king_entry(arm: PressLoadTimer) -> (i32, i32, i32) {
+    let db = CardDb::load_table(CardTable::Client160402017).expect("the 160402017 table");
+    let mut cfg = BattleConfig::with_cards(db);
+    cfg.calib.card_table = CardTable::Client160402017;
+    cfg.calib.press_load_timer = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let king = s.scenario_spawn_now(Team::Blue, "SkeletonKing", n(AT), None).expect("the Skeleton King");
+    let golem = s.scenario_spawn_now(Team::Red, "Golem", n((AT.0, AT.1 + 1000)), None).expect("the Golem");
+    let load_time = s.config().cards.get(s.entity(king).expect("him").card_idx).load_time_ms;
+    let mut press: Option<u32> = None;
+    let (mut prev_load, mut swung) = (0, false);
+    for _ in 0..400 {
+        let t = s.tick_count();
+        assert!(s.debug_set_pos(king, n(AT)));
+        let full = s.entity(golem).expect("the Golem").max_hp;
+        assert!(s.debug_set_pos(golem, n((AT.0, AT.1 + 1000))) && s.debug_set_hp(golem, full));
+        s.tick();
+        let (phase, load, ms) = s.entity(king).map(|v| (v.attack_phase, v.attack_load_ms, v.attack_ms)).expect("him");
+        match press {
+            None => {
+                swung |= phase != AttackPhase::Idle;
+                if swung && load > prev_load + 200 {
+                    press = Some(t + 1);
+                    s.press_ability_button(Team::Blue, 0).expect("the press");
+                }
+            }
+            Some(p) => {
+                if t >= p + 5 && phase != AttackPhase::Idle {
+                    return (prev_load, ms, load_time);
+                }
+            }
+        }
+        prev_load = load;
+    }
+    panic!("{arm:?}: the scene drifted: press {press:?}, no attack after the cast");
+}
+
+/// combat.PRESS_LOAD_TIMER = client16402_runs_every_cast (client 16.402, parity r84, live14: 130 of 131 presses without
+/// KeepCurrentTarget ran the timer 50 a tick through the cast, the Skeleton King 12 of 12; the entry after it LoadTime - timer +
+/// 100, his 7 of 7). Plant: cast_load_zeroed.
+#[test]
+fn under_client16402_runs_every_cast_his_press_keeps_his_load_timer() {
+    let (l, p, lt) = king_entry(PressLoadTimer::Client16402RunsEveryCast);
+    assert!(l > 50, "the scene drifted: the timer ran out in the cast: {l}");
+    assert_eq!(p, lt - (l - 50).max(0) + 50, "client16402_runs_every_cast: his entry after a cast ending at {l}");
+    // NOT VACUOUS: client16402_runs_unless_stunned zeroes a non-guard press's timer: he enters at LoadTime + 50
+    let (l0, p0, _) = king_entry(PressLoadTimer::Client16402RunsUnlessStunned);
+    assert_eq!((l0, p0), (0, lt + 50), "client16402_runs_unless_stunned: his press zeroed the timer");
 }

@@ -1161,6 +1161,34 @@ pub struct Calib {
     /// `Hit`, what a battle saved before it ran.
     #[serde(default = "guard_landing_area_default")]
     pub guard_landing_area: GuardLandingArea,
+    /// combat.UPPERCUT_FINISH (the Evo Mega Knight's attack after an uppercut that throws). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `SwingRunsOn`, what a battle saved before it ran.
+    #[serde(default = "uppercut_finish_default")]
+    pub uppercut_finish: UppercutFinish,
+    /// combat.UPPERCUT_STAND_CONTACT (the Evo Mega Knight's own separation scan in his uppercut stand). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Pushed`, what a battle saved before it ran.
+    #[serde(default = "uppercut_stand_contact_default")]
+    pub uppercut_stand_contact: UppercutStandContact,
+    /// combat.UPPERCUT_STAND_DASH (the Evo Mega Knight's dash trigger in his uppercut stand). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Runs`, what a battle saved before it ran.
+    #[serde(default = "uppercut_stand_dash_default")]
+    pub uppercut_stand_dash: UppercutStandDash,
+    /// combat.WARP_RETURN_FREE (whether a return warp holds the hero). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Held`, what a battle saved before it ran.
+    #[serde(default = "warp_return_free_default")]
+    pub warp_return_free: WarpReturnFree,
+    /// combat.GUARD_CHARGE_BUILDINGS (whether the Little Prince guard's charge hit lands on buildings). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Troops`, what a battle saved before it ran.
+    #[serde(default = "guard_charge_buildings_default")]
+    pub guard_charge_buildings: GuardChargeBuildings,
+    /// combat.DASH_START_CONTACT (a dasher's contact on its dash's first tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `StartTickBody`, what a battle saved before it ran.
+    #[serde(default = "dash_start_contact_default")]
+    pub dash_start_contact: DashStartContact,
+    /// combat.HOOK_WATER_LANDING (where a Fisherman hook's victim stands when its drag stops on water). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `InWater`, what a battle saved before it ran.
+    #[serde(default = "hook_water_landing_default")]
+    pub hook_water_landing: HookWaterLanding,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3283,6 +3311,34 @@ fn warp_pick_default() -> WarpPick {
 
 fn guard_landing_area_default() -> GuardLandingArea {
     GuardLandingArea::Hit
+}
+
+fn uppercut_finish_default() -> UppercutFinish {
+    UppercutFinish::SwingRunsOn
+}
+
+fn uppercut_stand_contact_default() -> UppercutStandContact {
+    UppercutStandContact::Pushed
+}
+
+fn uppercut_stand_dash_default() -> UppercutStandDash {
+    UppercutStandDash::Runs
+}
+
+fn warp_return_free_default() -> WarpReturnFree {
+    WarpReturnFree::Held
+}
+
+fn guard_charge_buildings_default() -> GuardChargeBuildings {
+    GuardChargeBuildings::Troops
+}
+
+fn dash_start_contact_default() -> DashStartContact {
+    DashStartContact::StartTickBody
+}
+
+fn hook_water_landing_default() -> HookWaterLanding {
+    HookWaterLanding::InWater
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -8420,6 +8476,9 @@ calib_enum!(
         /// Client 16.402 (parity r83, live13): as client15535_airborne to the flight's last forward step (k = last - 2); a
         /// ground target again from its zero step (the tick after).
         Client16402GroundAfterLastStep = "client16402_ground_after_last_step",
+        /// Client 16.402 (parity r84, live14): as client16402_ground_after_last_step, airborne from the hit + 2 for every
+        /// attacker but an Evo Mega Knight (from the hit + 3 for him, the thrower).
+        Client16402FromHitPlus2 = "client16402_from_hit_plus_2",
     }
 );
 calib_enum!(
@@ -9047,6 +9106,9 @@ calib_enum!(
         /// 4 Knights hit by a jump slid 199, 174, 149, ... 24, 0 and 25 back from the next tick, away from the landing
         /// point within 0.1 degree; 2 of 2 Giants (IgnorePushback) and a princess tower did not move.
         ClientLadderFromLanding = "client_ladder_from_landing",
+        /// Client 16.402 (parity r84, live14): as client_ladder_from_landing, but a victim created after the Mega Knight takes
+        /// its first ladder step on the blow tick (his blow lands in his own update of the creation-order pass).
+        Client16402LadderInPass = "client16402_ladder_in_pass",
     }
 );
 calib_enum!(
@@ -11089,6 +11151,9 @@ calib_enum!(
         /// target; a hold landing on him in the cast stands it for its own length (a hit's runs it once first;
         /// Entities::press_stun_ms).
         Client16402RunsUnlessStunned = "client16402_runs_unless_stunned",
+        /// Client 16.402 (parity r84, live14): as Client16402RunsUnlessStunned, for every press without KeepCurrentTarget
+        /// (the champions and the hero forms), not the Little Prince's guard press alone.
+        Client16402RunsEveryCast = "client16402_runs_every_cast",
     }
 );
 calib_enum!(
@@ -11204,6 +11269,86 @@ calib_enum!(
         /// Client 16.402 (parity r83, live13): spell impacts and pulses, strike picks, rolls and death blows pass over it through
         /// its arrival + 4, a unit's shot splash through its arrival + 3; a shot or blow aimed at it lands as before.
         Client16402BodilessPassedOver = "client16402_bodiless_passed_over",
+    }
+);
+calib_enum!(
+    /// combat.UPPERCUT_FINISH -- the Evo Mega Knight's own attack after an uppercut that throws (state.rs `phase_attack_for`;
+    /// combat.UPPERCUT_STAND decides when he walks again).
+    UppercutFinish {
+        /// The engine's: his attack runs on as after any hit (1750, 1800 on the hit + 1 and + 2), Idle on the hit + 3; a target in
+        /// reach by then takes the swing on.
+        SwingRunsOn = "swing_runs_on",
+        /// Client 16.402 (parity r84, live14): his attack ends on the hit + 1 (Idle, progress 0, the lock released, his target
+        /// kept); his next attack enters fresh.
+        Client16402FinishOnHitPlus1 = "client16402_finish_on_hit_plus_1",
+    }
+);
+calib_enum!(
+    /// combat.UPPERCUT_STAND_CONTACT -- whether the Evo Mega Knight in his uppercut stand (combat.UPPERCUT_STAND,
+    /// `uppercut_stand`) runs a separation scan of his own (state.rs `phase_path16402_for`, `own_scan_off`).
+    UppercutStandContact {
+        /// The engine's: the stand keeps his contact, so an overlapping walker shifts him.
+        Pushed = "pushed",
+        /// Client 16.402 (parity r84, live14): through the stand he runs no separation scan of his own; he stays a body to his
+        /// neighbours, and a knockback still moves him.
+        Client16402Unpushed = "client16402_unpushed",
+    }
+);
+calib_enum!(
+    /// combat.UPPERCUT_STAND_DASH -- whether the Evo Mega Knight's dash trigger runs inside his uppercut stand
+    /// (combat.UPPERCUT_STAND, `uppercut_stand`; state.rs `phase_path16402_for`, the dash block).
+    UppercutStandDash {
+        /// The engine's: the trigger runs through the stand, so a target in jump reach seen on the hit + 3 starts his jump stand
+        /// at once and he jumps on its mark, mid-stand.
+        Runs = "runs",
+        /// Client 16.402 (parity r84, live14): while the uppercut stand holds him no dash trigger runs; on its first tick off
+        /// (load at 100 or under) the trigger runs as for any walker.
+        Client16402HeldByTheStand = "client16402_held_by_the_stand",
+    }
+);
+calib_enum!(
+    /// combat.WARP_RETURN_FREE -- whether the Hero Mega Minion's return warp (combat.WARP_LAW = client16402_brake_and_return,
+    /// WarpRun::back) holds it as an outbound warp does (state.rs `phase_attack_for`, the Target phase, `phase_path16402_for`).
+    WarpReturnFree {
+        /// The engine's: a return holds the hero as an outbound warp: its swing held, its target kept, the brake law's step alone.
+        Held = "held",
+        /// Client 16.402 (parity r84, live14): on a return the hero is free: its swing runs and ends as a free unit's, its target
+        /// is decided each tick, and each return step out of its attack, the landing included, also carries its walk step.
+        Client16402WalksAndRetargets = "client16402_walks_and_retargets",
+    }
+);
+calib_enum!(
+    /// combat.GUARD_CHARGE_BUILDINGS -- whether the Little Prince guard's charge hit (its push_damage, once each) lands on enemy
+    /// buildings too (state.rs `guard_moves`).
+    GuardChargeBuildings {
+        /// The engine's: it lands only on enemy ground troops within push_radius + their radius.
+        Troops = "troops",
+        /// Client 16.402 (parity r84, live14): it also lands, once, on enemy buildings within push_radius + their radius (not one
+        /// hidden or under ground); a building is not pushed.
+        Client16402BuildingsHit = "client16402_buildings_hit",
+    }
+);
+calib_enum!(
+    /// combat.DASH_START_CONTACT -- whether a dasher whose stand reaches its mark this tick (its dash starts in this tick's move)
+    /// is a contact body for the units updated before it (state.rs `phase_path16402_for`, the Body list's `collidable`).
+    DashStartContact {
+        /// The engine's: it leaves the contact pass only at its own turn in the creation-order pass, so the units updated before
+        /// it meet it on that tick as the body it was through its stand.
+        StartTickBody = "start_tick_body",
+        /// Client 16.402 (parity r84, live14): it is out of the whole tick's contact pass from its dash's first tick, as a timed
+        /// dash's unit is on its end tick under combat.DASH_END_CONTACT = client16402_next_tick.
+        Client16402OutFromStart = "client16402_out_from_start",
+    }
+);
+calib_enum!(
+    /// combat.HOOK_WATER_LANDING -- where a Fisherman hook's ground victim stands when its drag stopped on water (state.rs
+    /// `step_hook_drags`, the idle tick of combat.HOOK_RELEASE = client_idle_tick).
+    HookWaterLanding {
+        /// The engine's: it stays where the drag stopped, on the river too, and walks out of it.
+        InWater = "in_water",
+        /// Client 16.402 (parity r84, live14): on its idle tick it stands on the nearest point stop + (250(2i+1), 250(2j+1)) native
+        /// off water (combat.GUARD_WATER_LANDING's lattice, `guard_land_point`).
+        Client16402NearestLandLattice = "client16402_nearest_land_lattice",
     }
 );
 calib_enum!(
@@ -11814,6 +11959,13 @@ impl Calib {
             dash_stand_heading: pick(&v, &["movement", "DASH_STAND_HEADING", "value"], DashStandHeading::from_calibration_name)?,
             warp_pick: pick(&v, &["combat", "WARP_PICK", "value"], WarpPick::from_calibration_name)?,
             guard_landing_area: pick(&v, &["combat", "GUARD_LANDING_AREA", "value"], GuardLandingArea::from_calibration_name)?,
+            uppercut_finish: pick(&v, &["combat", "UPPERCUT_FINISH", "value"], UppercutFinish::from_calibration_name)?,
+            uppercut_stand_contact: pick(&v, &["combat", "UPPERCUT_STAND_CONTACT", "value"], UppercutStandContact::from_calibration_name)?,
+            uppercut_stand_dash: pick(&v, &["combat", "UPPERCUT_STAND_DASH", "value"], UppercutStandDash::from_calibration_name)?,
+            warp_return_free: pick(&v, &["combat", "WARP_RETURN_FREE", "value"], WarpReturnFree::from_calibration_name)?,
+            guard_charge_buildings: pick(&v, &["combat", "GUARD_CHARGE_BUILDINGS", "value"], GuardChargeBuildings::from_calibration_name)?,
+            dash_start_contact: pick(&v, &["combat", "DASH_START_CONTACT", "value"], DashStartContact::from_calibration_name)?,
+            hook_water_landing: pick(&v, &["combat", "HOOK_WATER_LANDING", "value"], HookWaterLanding::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -13462,6 +13614,11 @@ pub struct FlagRun {
 impl WarpBoard {
     fn is_empty(&self) -> bool {
         self.runs.is_empty() && self.blows.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
+    }
+
+    /// Is hero `id` on a return warp (combat.WARP_LAW = client16402_brake_and_return), not yet home?
+    fn returning(&self, id: EntityId) -> bool {
+        self.runs.iter().any(|r| r.id == id && r.back && !r.arrived)
     }
 
     /// Is hero `id` warping (or on its arrival tick)?
@@ -15175,7 +15332,9 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32, by_
     // timer above 0 ran it on the stun's first tick, stood it through the stun and ran it again on the retake. PLANT
     // (regression) press_stun_runs: the new arm runs through it.
     #[cfg(not(clash_plant = "press_stun_runs"))]
-    if c.press_load_timer == PressLoadTimer::Client16402RunsUnlessStunned && e.press_load_runs.get(i).copied().unwrap_or(false) {
+    if matches!(c.press_load_timer, PressLoadTimer::Client16402RunsUnlessStunned | PressLoadTimer::Client16402RunsEveryCast)
+        && e.press_load_runs.get(i).copied().unwrap_or(false)
+    {
         e.press_stun_ms[i] = e.press_stun_ms[i].max(ms);
         if by_hit {
             e.load_hold[i] = 3;
@@ -21047,8 +21206,9 @@ impl BattleState {
                     && !self.chains.iter().any(|c| c.id == self.ents.id_of(i) && !(c.phase == ChainPhase::Seek && pending_redecides))
                     // A spin's chain keeps its own target too (`spin_seek`, `spin_pass`).
                     && !self.spins.iter().any(|r| r.id == self.ents.id_of(i) && r.chaining)
-                    // A warp keeps its target (ForceKeepTargetAfterWarp; `WarpRun`).
-                    && !self.warps.warping(self.ents.id_of(i))
+                    // A warp keeps its target (ForceKeepTargetAfterWarp; `WarpRun`) -- but a return under
+                    // combat.WARP_RETURN_FREE = client16402_walks_and_retargets is decided as a walker's.
+                    && !(self.warps.warping(self.ents.id_of(i)) && !(self.warp_return_free() && self.warps.returning(self.ents.id_of(i))))
                 {
                     decisions.push((i, target::decide(&ctx, i, &mut nb)));
                 }
@@ -22129,12 +22289,14 @@ impl BattleState {
     /// at the Target phase: its first step taken (`uppercut_pass`, the hit's tick + 2) and its last not yet (the hit's
     /// tick + 1 + its steps), so a ground-only attacker drops it on the tick after its first step and may take it
     /// again on the tick after its last, as a slap's flight (`slap_air_mask`). Empty under ground.
-    fn upper_air_mask(&self) -> Vec<bool> {
+    fn upper_air_mask(&self) -> Vec<u8> {
         // PLANT (regression) uppercut_flight_ground_target: the new arm leaves the thrown unit a ground target.
         #[cfg(not(clash_plant = "uppercut_flight_ground_target"))]
         let on = matches!(
             self.cfg.calib.uppercut_flight_targetability,
-            UppercutFlightTargetability::Client15535Airborne | UppercutFlightTargetability::Client16402GroundAfterLastStep
+            UppercutFlightTargetability::Client15535Airborne
+                | UppercutFlightTargetability::Client16402GroundAfterLastStep
+                | UppercutFlightTargetability::Client16402FromHitPlus2
         );
         #[cfg(clash_plant = "uppercut_flight_ground_target")]
         let on = false;
@@ -22142,7 +22304,8 @@ impl BattleState {
             return Vec::new();
         }
         let decel = crate::move16402::PUSHBACK_DECEL;
-        let mut v = vec![false; self.ents.capacity()];
+        // 0 a ground target, 1 airborne for every attacker, 2 airborne for every attacker but an Evo Mega Knight.
+        let mut v = vec![0u8; self.ents.capacity()];
         for r in &self.evo.uppercuts {
             if !self.ents.is_alive(r.id) {
                 continue;
@@ -22153,10 +22316,30 @@ impl BattleState {
             // ground attackers re-took the thrown unit on its last forward step + 1 in 63 of 76; the engine on + 3, 4 of 4.
             // PLANT (regression) uppercut_flight_retake_late: the new arm still holds it airborne through the step back.
             #[cfg(not(clash_plant = "uppercut_flight_retake_late"))]
-            let end = if self.cfg.calib.uppercut_flight_targetability == UppercutFlightTargetability::Client16402GroundAfterLastStep { (last - 2).max(1) } else { last };
+            let end = if matches!(
+                self.cfg.calib.uppercut_flight_targetability,
+                UppercutFlightTargetability::Client16402GroundAfterLastStep | UppercutFlightTargetability::Client16402FromHitPlus2
+            ) {
+                (last - 2).max(1)
+            } else {
+                last
+            };
             #[cfg(clash_plant = "uppercut_flight_retake_late")]
             let end = last;
-            v[r.id.index as usize] |= self.tick >= r.mark + 3 && self.tick <= r.mark + 1 + end as u32;
+            // targeting.UPPERCUT_FLIGHT_TARGETABILITY = client16402_from_hit_plus_2: airborne from the hit + 2 (its first flight
+            // step's tick) for every attacker but an Evo Mega Knight. Measured on client 16.402 (parity r84, live14): ground
+            // holders dropped the thrown unit on the hit + 2 in 70 of 70, the thrower on + 3 in 95 of 97; the engine on + 3.
+            // PLANT (regression) uppercut_flight_drop_late: the new arm still lets ground holders keep it on the hit + 2.
+            #[cfg(not(clash_plant = "uppercut_flight_drop_late"))]
+            let early = self.cfg.calib.uppercut_flight_targetability == UppercutFlightTargetability::Client16402FromHitPlus2;
+            #[cfg(clash_plant = "uppercut_flight_drop_late")]
+            let early = false;
+            let i = r.id.index as usize;
+            if self.tick >= r.mark + 3 && self.tick <= r.mark + 1 + end as u32 {
+                v[i] = 1;
+            } else if early && self.tick == r.mark + 2 {
+                v[i] = v[i].max(2);
+            }
         }
         v
     }
@@ -23794,16 +23977,24 @@ impl BattleState {
             let mut pushes: Vec<(usize, i32)> = Vec::new();
             #[cfg(clash_plant = "guard_push_once")]
             let mut slides: Vec<(usize, Vec2)> = Vec::new();
+            // combat.GUARD_CHARGE_BUILDINGS = client16402_buildings_hit: the charge hit lands on enemy buildings too (no push).
+            // Measured on client 16.402 (parity r84, live14): 8 of 8 buildings within push radius + their radius took it, 0 of
+            // 17 out of it; the engine hit none. PLANT (regression) guard_charge_buildings_spared: the new arm still spares them.
+            #[cfg(not(clash_plant = "guard_charge_buildings_spared"))]
+            let bld_arm = self.cfg.calib.guard_charge_buildings == GuardChargeBuildings::Client16402BuildingsHit;
+            #[cfg(clash_plant = "guard_charge_buildings_spared")]
+            let bld_arm = false;
             for j in 0..self.ents.capacity() {
                 let e = &self.ents;
-                if !e.alive[j] || e.team[j] == r.team || e.flying[j] || e.kind[j] != EntityKind::Troop {
+                let building = bld_arm && e.alive[j] && e.kind[j] == EntityKind::Building && !crate::target::hidden_from_targeting(&self.cfg.calib, e, j) && !e.underground(j);
+                if !e.alive[j] || e.team[j] == r.team || e.flying[j] || (e.kind[j] != EntityKind::Troop && !building) {
                     continue;
                 }
                 let d2 = e.pos[j].dist2(at);
                 let id = e.id_of(j);
                 let reach = (g.push_radius + e.radius[j]) as i64;
                 #[cfg(clash_plant = "guard_push_once")]
-                if d2 <= reach * reach && !r.hit.contains(&id) {
+                if d2 <= reach * reach && !r.hit.contains(&id) && !building {
                     // PLANT (regression): the earlier push, once at the hit, push x (1 - d / reach) at once.
                     let d = crate::fixed::isqrt(d2).max(1);
                     let push = (g.push as i64) * (reach - d).max(0) / reach;
@@ -23816,7 +24007,7 @@ impl BattleState {
                     self.dmg.hits.push(Hit { target: id, amount: dmg, ignores_hide: false, own: false, shot: false });
                 }
                 #[cfg(not(clash_plant = "guard_push_once"))]
-                {
+                if !building {
                     let k = crate::fixed::SUBTILE_PER_MILLITILE as i64;
                     let d = crate::fixed::isqrt(d2);
                     if d < g.push_radius as i64 {
@@ -25903,7 +26094,7 @@ impl BattleState {
                     );
                     // `splash` leaves the victims it hit in the scratch list.
                     #[cfg(not(clash_plant = "dash_pushback_unapplied"))]
-                    let pushes = self.cfg.calib.dash_pushback == DashPushback::ClientLadderFromLanding;
+                    let pushes = matches!(self.cfg.calib.dash_pushback, DashPushback::ClientLadderFromLanding | DashPushback::Client16402LadderInPass);
                     #[cfg(clash_plant = "dash_pushback_unapplied")]
                     let pushes = false; // PLANT (regression): the new arm leaves the victims where the blow found them.
                     if let (true, Some(pb)) = (pushes, d.pushback_raw) {
@@ -25913,7 +26104,17 @@ impl BattleState {
                         for &v in self.scratch.nb.iter() {
                             let v = v as usize;
                             if self.ents.team[v] != team && self.ents.hp[v] > 0 {
-                                spell::push_from(&ctx, team, v, centre, &k, false, &mut self.effects);
+                                // combat.DASH_PUSHBACK = client16402_ladder_in_pass: the blow lands in his own update of the client's
+                                // creation-order pass, so a victim updated after him takes its first ladder step on this tick
+                                // (`ladder_step_now`); one updated before him on the next. Measured on client 16.402 (parity r84,
+                                // live14): 51 of 57 victims created after him stepped on the blow tick, 24 of 25 created before on
+                                // the tick after; the engine stepped every one a tick after. PLANT (regression)
+                                // dash_blow_step_next_tick: the new arm still steps every victim on the next tick.
+                                #[cfg(not(clash_plant = "dash_blow_step_next_tick"))]
+                                let now = self.cfg.calib.dash_pushback == DashPushback::Client16402LadderInPass && self.ents.creation_seq[v] > self.ents.creation_seq[a];
+                                #[cfg(clash_plant = "dash_blow_step_next_tick")]
+                                let now = false;
+                                spell::push_from(&ctx, team, v, centre, &k, now, &mut self.effects);
                             }
                         }
                     }
@@ -26114,6 +26315,24 @@ impl BattleState {
         let dash_stand_off = self.cfg.calib.dash_stand_contact == DashStandContact::Client16402Unpushed;
         #[cfg(clash_plant = "dash_stand_pushed")]
         let dash_stand_off = false;
+        // combat.UPPERCUT_STAND_CONTACT = client16402_unpushed: the Evo Mega Knight in his uppercut stand runs no separation scan
+        // of his own. Measured on client 16.402 (parity r84, live14): still on 62 of 62 stand ticks with an overlapping ground
+        // neighbour; the engine's was pushed by walkers in 4 comparable throws. PLANT (regression) uppercut_stand_pushed: the
+        // new arm still scans him.
+        #[cfg(not(clash_plant = "uppercut_stand_pushed"))]
+        let upper_stand_off = self.cfg.calib.uppercut_stand_contact == UppercutStandContact::Client16402Unpushed;
+        #[cfg(clash_plant = "uppercut_stand_pushed")]
+        let upper_stand_off = false;
+        // combat.UPPERCUT_STAND_DASH = client16402_held_by_the_stand: no dash trigger while the uppercut stand holds him.
+        // Measured on client 16.402 (parity r84, live14): 0 of 102 throws jumped inside the stand, 13 of 14 jumps after one on
+        // its end + 17; the engine jumped inside it in 5 of 5. PLANT (regression) uppercut_stand_dash_runs: the new arm still
+        // triggers inside the stand.
+        #[cfg(not(clash_plant = "uppercut_stand_dash_runs"))]
+        let stand_holds_dash = self.cfg.calib.uppercut_stand_dash == UppercutStandDash::Client16402HeldByTheStand;
+        #[cfg(clash_plant = "uppercut_stand_dash_runs")]
+        let stand_holds_dash = false;
+        // combat.WARP_RETURN_FREE = client16402_walks_and_retargets: a return's steps carry the hero's walk (`adds` below).
+        let return_free = self.warp_return_free();
         // enchant.ON_BUFF_HOLD_CONTACT = client16402_unpushed: a Rune Giant stood in his hold (his swing held, its phase kept;
         // a walking one walks on) runs no scan of his own. Measured on client 16.402 (parity r74): the holding Rune Giant
         // stood still on 367 of 367 overlap ticks. PLANT (regression) buff_hold_pushed: the new arm still scans him.
@@ -26291,7 +26510,9 @@ impl BattleState {
                 chase_walked: &[],
             };
             let mut scratch: Vec<u32> = Vec::new();
-            self.warps.runs.iter().filter(|r| !r.back && self.ents.is_alive(r.id)).map(|r| (r.id, target::scan(&ctx, r.id.index as usize, &mut scratch))).collect()
+            // combat.WARP_RETURN_FREE = client16402_walks_and_retargets: a returning hero's walk rides toward its own scan too.
+            let back_too = self.warp_return_free();
+            self.warps.runs.iter().filter(|r| (!r.back || back_too) && self.ents.is_alive(r.id)).map(|r| (r.id, target::scan(&ctx, r.id.index as usize, &mut scratch))).collect()
         } else {
             Vec::new()
         };
@@ -26679,6 +26900,24 @@ impl BattleState {
                     }
                 }
             }
+            // combat.DASH_START_CONTACT = client16402_out_from_start: a dasher whose stand reaches its mark this tick (its dash
+            // starts in this tick's move) is out of the whole tick's contact pass, for the units updated before it too. Measured on
+            // client 16.402 (parity r84, live14): 4 of 4 neighbours created before the dasher took no push on the dash's first tick,
+            // the engine pushed each; 8 of 8 created after it alike in both. PLANT (regression) dash_start_body_for_earlier: the new
+            // arm still leaves it a body until its own turn.
+            let mut start_off = vec![false; cap];
+            #[cfg(not(clash_plant = "dash_start_body_for_earlier"))]
+            if calib.dash_start_contact == DashStartContact::Client16402OutFromStart && calib.dash_attack == DashAttack::ClientDash {
+                for (i, off) in start_off.iter_mut().enumerate() {
+                    *off = e.alive[i]
+                        && dash_state.get(i) == Some(&DashState::Standing)
+                        && self.tick >= dash_mark[i]
+                        && self.cfg.cards.get(e.card[i]).dash.is_some()
+                        && e.target[i].is_some_and(|t| e.is_alive(t))
+                        && e.attack_phase[i] == AttackPhase::Idle
+                        && !e.held(&self.cfg.cards.buffs, i, calib.full_stop_buff_is_stun);
+                }
+            }
             // movement.JUMP_LANDING_SCOPE = client15535_whole_tick: a unit whose leap ended earlier on this tick (this is a
             // first update after the move pass) is no body either, as the move pass after its landing kept it.
             // PLANT (regression) landing_scope_move_pass_only: the lander is a body for the first updates of its landing
@@ -26751,6 +26990,7 @@ impl BattleState {
                             && !held
                             && !jumping[i]
                             && dash_state[i] != DashState::Dashing
+                            && !start_off[i]
                             && !matches!(chain_at[i], Some((ChainPhase::Dash, _, _)))
                             && !chain_landed(i)
                             && warp_at[i].is_none()
@@ -27492,8 +27732,8 @@ impl BattleState {
                     // attacking ones. PLANT (regression) warp_walk_step_dropped: the new arm still warps alone.
                     #[cfg(not(clash_plant = "warp_walk_step_dropped"))]
                     let adds = matches!(calib.warp_walk_step, WarpWalkStep::Client16402WalkAdded | WarpWalkStep::Client16402WalkToScannedTarget)
-                        && !lands
-                        && home.is_none()
+                        && (!lands || (return_free && home.is_some()))
+                        && (home.is_none() || return_free)
                         && step > 0
                         && e.attack_phase[i] == AttackPhase::Idle;
                     #[cfg(clash_plant = "warp_walk_step_dropped")]
@@ -27667,7 +27907,7 @@ impl BattleState {
                         dx * dx + dy * dy
                     };
                     if dash_state[i] == DashState::None {
-                        let walking = !deploying && e.attack_phase[i] == AttackPhase::Idle && e.retarget_wait[i] == 0;
+                        let walking = !deploying && e.attack_phase[i] == AttackPhase::Idle && e.retarget_wait[i] == 0 && !(stand_holds_dash && uppercut_stand[i]);
                         if let (true, Some(t)) = (walking, live(e.target[i])) {
                             let ti = t.index as usize;
                             let near = (d.min_range + e.radius[i] + e.radius[ti]) as i64;
@@ -28198,6 +28438,7 @@ impl BattleState {
                 // standing before its dash. Each stays a body to its neighbours; a knockback still moves it.
                 let own_scan_off = (press_attacking_off && press_held[i])
                     || (dash_stand_off && dash_state[i] == DashState::Standing)
+                    || (upper_stand_off && uppercut_stand[i])
                     || surfacing[i]
                     || area_born[i]
                     || (buff_hold_off && e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i] && e.attack_phase[i] != AttackPhase::Idle);
@@ -29706,11 +29947,48 @@ impl BattleState {
     }
 
     /// The Attack phase, for every unit or for a first update's fresh units alone.
+    /// combat.WARP_RETURN_FREE = client16402_walks_and_retargets: a return warp does not hold its hero. Measured on client
+    /// 16.402 (parity r84, live14): the return's steps carried the hero's walk on 55 of 72 ticks and 8 of 12 landings, its swing
+    /// at 0 by the return's second tick in 12 of 12, its target re-chosen mid-return in 5 of 6; the engine held it (28 of 28).
+    /// PLANT (regression) warp_return_held: the new arm still holds the returning hero.
+    fn warp_return_free(&self) -> bool {
+        #[cfg(not(clash_plant = "warp_return_held"))]
+        return self.cfg.calib.warp_return_free == WarpReturnFree::Client16402WalksAndRetargets;
+        #[cfg(clash_plant = "warp_return_held")]
+        return false;
+    }
+
     fn phase_attack_for(&mut self, only: Option<&[usize]>) {
+        let return_free = self.warp_return_free();
         // combat.RANGE_PROJECTILE = straight_to_range: the units whose pingpong throw is still out
         // (combat.rs `throwers_out`), read before the pass; a throw made in it is its thrower's own
         // and first holds it next tick. Empty, and nothing below reads it, in a battle without one.
         let waiting = combat::throwers_out(&self.ents, &self.projectiles);
+        // combat.UPPERCUT_FINISH = client16402_finish_on_hit_plus_1: after an uppercut that throws (its run's mark one or two
+        // ticks back, the victim alive), the Evo Mega Knight whose count is back at 0 and who holds that victim is out of his
+        // attack on the hit + 1 and + 2: his swing ends on the hit + 1 and no new one enters on either (Idle, progress 0, the
+        // lock released, his target kept, his load timer run as an idle unit's; set at the end of the pass). Measured on client
+        // 16.402 (parity r84, live14): state 0 with progress 0 on the hit + 1 in 103 of 103 throws and on the hit + 2 in 102 of
+        // 102, no entry before the hit + 4; the engine ran the swing on in 26 of 27. PLANT (regression) uppercut_swing_runs_on:
+        // the new arm still runs his swing on.
+        #[cfg(not(clash_plant = "uppercut_swing_runs_on"))]
+        let finish = self.cfg.calib.uppercut_finish == UppercutFinish::Client16402FinishOnHitPlus1;
+        #[cfg(clash_plant = "uppercut_swing_runs_on")]
+        let finish = false;
+        let mut finish_now: Vec<(usize, i32)> = Vec::new();
+        if finish && !self.evo.uppercuts.is_empty() {
+            let tick = self.tick;
+            let thrown: Vec<EntityId> =
+                self.evo.uppercuts.iter().filter(|r| (r.mark + 1 == tick || r.mark + 2 == tick) && self.ents.is_alive(r.id)).map(|r| r.id).collect();
+            for v in thrown {
+                for &(m, n) in &self.evo.uppercut_counts {
+                    let k = m.index as usize;
+                    if n == 0 && self.ents.is_alive(m) && self.ents.target[k] == Some(v) && only.map_or(true, |o| o.contains(&k)) {
+                        finish_now.push((k, self.ents.attack_load_ms[k]));
+                    }
+                }
+            }
+        }
         for i in 0..self.ents.capacity() {
             if !self.ents.alive[i] || self.cfg.cards.get(self.ents.card[i]).hit_speed_ms <= 0 || !only.map_or(true, |o| o.contains(&i)) {
                 continue;
@@ -29753,8 +30031,9 @@ impl BattleState {
                 || self.spins.iter().any(|r| r.id == e.id_of(i) && r.began.is_some())
                 // A lift's descent holds the attack (its NO_ATTACK), `lift_pass`.
                 || self.lifts.iter().any(|l| l.id == e.id_of(i) && self.lift_descending(l))
-                // A warp holds it too, until it arrives (`WarpBoard::warp_holds_swing`).
-                || self.warps.warp_holds_swing(e.id_of(i));
+                // A warp holds it too, until it arrives (`WarpBoard::warp_holds_swing`) -- but not a return under
+                // combat.WARP_RETURN_FREE = client16402_walks_and_retargets.
+                || (self.warps.warp_holds_swing(e.id_of(i)) && !(return_free && self.warps.returning(e.id_of(i))));
             // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: a Rune Giant inside his launch's hold.
             let enchant_held = e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i];
             // combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick: a building on its deploy's last tick acts.
@@ -30184,6 +30463,17 @@ impl BattleState {
                         self.ents.hp[h.target.index as usize] -= h.amount;
                     }
                 }
+            }
+        }
+        // combat.UPPERCUT_FINISH (the top of this pass): the swing that ran on, or the one that entered, ends; his load timer
+        // runs once as an idle unit's.
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        for (k, load) in finish_now {
+            if self.ents.alive[k] {
+                self.ents.attack_phase[k] = AttackPhase::Idle;
+                self.ents.attack_ms[k] = 0;
+                self.ents.target_locked[k] = false;
+                self.ents.attack_load_ms[k] = (load - tick_ms).max(0);
             }
         }
         // THE COUNTER, across the whole pass (the sequential order ran it after each attacker, and it is empty now).
@@ -30679,6 +30969,19 @@ impl BattleState {
             if self.ents.drag_idle[i] {
                 self.ents.drag_idle[i] = false;
                 self.ents.hooked_by[i] = None;
+                // combat.HOOK_WATER_LANDING = client16402_nearest_land_lattice: a ground victim the drag left on water stands on
+                // its idle tick on the nearest land point of the guard's lattice (`guard_land_point`). Measured on client 16.402
+                // (parity r84, live14): 3 of 3 drags ending on the river, each exact to the native; 68 of 68 ending on land
+                // unmoved. PLANT (regression) hook_victim_left_in_water: the new arm still leaves it in the water.
+                #[cfg(not(clash_plant = "hook_victim_left_in_water"))]
+                if self.cfg.calib.hook_water_landing == HookWaterLanding::Client16402NearestLandLattice
+                    && !self.ents.flying[i]
+                    && !self.cfg.arena.is_valid_position(self.ents.pos[i])
+                {
+                    let q = guard_land_point(&self.cfg.arena, (self.ents.pos[i].x / K, self.ents.pos[i].y / K));
+                    self.ents.pos[i] = Vec2::new(q.0 * K, q.1 * K);
+                    moved = true;
+                }
                 continue;
             }
             let special = if self.ents.is_alive(by) { self.cfg.cards.get(self.ents.card[bi]).special } else { None };
@@ -36168,9 +36471,20 @@ impl BattleState {
                 // combat.PRESS_LOAD_TIMER = client16402_runs_through_cast: his press leaves his load timer, which runs through his
                 // cast while he holds a target. Measured on client 16.402 (parity r82, live13): 656 of 664 press ticks ran it
                 // (the engine zeroed 244 of 244). PLANT (regression) press_load_zeroed: the new arm's press still zeroes it.
+                // client16402_runs_every_cast: every press without KeepCurrentTarget leaves it (the champions and the hero
+                // forms, not the guard press alone). Measured on client 16.402 (parity r84, live14): 130 of 131 such presses
+                // with a timer above 0 ran it 50 a tick through the cast (the engine zeroed 34 of 34). PLANT (regression)
+                // cast_load_zeroed: the new arm's non-guard press still zeroes it.
+                #[cfg(not(clash_plant = "cast_load_zeroed"))]
+                let every = self.cfg.calib.press_load_timer == PressLoadTimer::Client16402RunsEveryCast;
+                #[cfg(clash_plant = "cast_load_zeroed")]
+                let every = false;
                 #[cfg(not(clash_plant = "press_load_zeroed"))]
-                let runs = matches!(self.cfg.calib.press_load_timer, PressLoadTimer::Client16402RunsThroughCast | PressLoadTimer::Client16402RunsUnlessStunned)
-                    && matches!(a.effect, crate::card::AbilityEffect::Guard(_));
+                let runs = (matches!(
+                    self.cfg.calib.press_load_timer,
+                    PressLoadTimer::Client16402RunsThroughCast | PressLoadTimer::Client16402RunsUnlessStunned | PressLoadTimer::Client16402RunsEveryCast
+                ) && matches!(a.effect, crate::card::AbilityEffect::Guard(_)))
+                    || every;
                 #[cfg(clash_plant = "press_load_zeroed")]
                 let runs = false;
                 if runs {
@@ -40778,6 +41092,22 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.GUARD_LANDING_AREA: Calib gained guard_landing_area (serde default the old arm, hit), Entities gained landing_until (serde default empty, sized on load to 0, hashed only when set; written only under its new arm),
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.PRESS_LOAD_TIMER: gains client16402_runs_every_cast (a Calib arm; Entities::press_load_runs is written
+///    for every press without KeepCurrentTarget under it, hashed only when set as before).
+/// 20, unchanged, combat.UPPERCUT_FINISH: Calib gained uppercut_finish (serde default the old arm, swing_runs_on), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.UPPERCUT_STAND_CONTACT: Calib gained uppercut_stand_contact (serde default the old arm, pushed), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.UPPERCUT_STAND_DASH: Calib gained uppercut_stand_dash (serde default the old arm, runs), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.WARP_RETURN_FREE: Calib gained warp_return_free (serde default the old arm, held), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_CHARGE_BUILDINGS: Calib gained guard_charge_buildings (serde default the old arm, troops), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.DASH_START_CONTACT: Calib gained dash_start_contact (serde default the old arm, start_tick_body), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HOOK_WATER_LANDING: Calib gained hook_water_landing (serde default the old arm, in_water), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -41907,6 +42237,20 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("warp_pick".into(), serde_json::to_value(WarpPick::AtPress).map_err(|e| e.to_string())?);
     // combat.GUARD_LANDING_AREA: a format-3 battle ran combat.GUARD_LANDING_AREA's old arm.
     sh.insert("guard_landing_area".into(), serde_json::to_value(GuardLandingArea::Hit).map_err(|e| e.to_string())?);
+    // combat.UPPERCUT_FINISH: a format-3 battle ran combat.UPPERCUT_FINISH's old arm.
+    sh.insert("uppercut_finish".into(), serde_json::to_value(UppercutFinish::SwingRunsOn).map_err(|e| e.to_string())?);
+    // combat.UPPERCUT_STAND_CONTACT: a format-3 battle ran combat.UPPERCUT_STAND_CONTACT's old arm.
+    sh.insert("uppercut_stand_contact".into(), serde_json::to_value(UppercutStandContact::Pushed).map_err(|e| e.to_string())?);
+    // combat.UPPERCUT_STAND_DASH: a format-3 battle ran combat.UPPERCUT_STAND_DASH's old arm.
+    sh.insert("uppercut_stand_dash".into(), serde_json::to_value(UppercutStandDash::Runs).map_err(|e| e.to_string())?);
+    // combat.WARP_RETURN_FREE: a format-3 battle ran combat.WARP_RETURN_FREE's old arm.
+    sh.insert("warp_return_free".into(), serde_json::to_value(WarpReturnFree::Held).map_err(|e| e.to_string())?);
+    // combat.GUARD_CHARGE_BUILDINGS: a format-3 battle ran combat.GUARD_CHARGE_BUILDINGS's old arm.
+    sh.insert("guard_charge_buildings".into(), serde_json::to_value(GuardChargeBuildings::Troops).map_err(|e| e.to_string())?);
+    // combat.DASH_START_CONTACT: a format-3 battle ran combat.DASH_START_CONTACT's old arm.
+    sh.insert("dash_start_contact".into(), serde_json::to_value(DashStartContact::StartTickBody).map_err(|e| e.to_string())?);
+    // combat.HOOK_WATER_LANDING: a format-3 battle ran combat.HOOK_WATER_LANDING's old arm.
+    sh.insert("hook_water_landing".into(), serde_json::to_value(HookWaterLanding::InWater).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

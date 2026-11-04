@@ -18,7 +18,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, HookRelease, SpecialHook};
+use royalesim::state::{BattleState, Calib, HookRelease, HookWaterLanding, SpecialHook};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -69,4 +69,46 @@ fn the_old_arm_frees_it_the_tick_after_the_stop() {
 #[test]
 fn the_shipped_arm_idles_it_a_tick() {
     assert_eq!(Calib::shipped().hook_release, HookRelease::ClientIdleTick);
+}
+
+type WaterStop = (usize, (i32, i32), (i32, i32), (bool, bool));
+
+/// A Blue Fisherman at (9000, 13600) hooks a Red Giant walking in from (9000, 20500), under combat.HOOK_WATER_LANDING = `arm`
+/// (HOOK_RELEASE = client_idle_tick): (S, the stop tick; the Giant's point on S and on S + 1, native; whether each is off water).
+fn water_stop(arm: HookWaterLanding) -> WaterStop {
+    let mut cfg = config();
+    cfg.calib.special_hook = SpecialHook::ClientHookDrag;
+    cfg.calib.hook_release = HookRelease::ClientIdleTick;
+    cfg.calib.hook_water_landing = arm;
+    let mut s = BattleState::new(0, cfg);
+    s.scenario_spawn_now(Team::Blue, "Fisherman", at((9000, 13600)), None).expect("the Fisherman");
+    let v = s.scenario_spawn_now(Team::Red, "Giant", at((9000, 20500)), None).expect("the Giant");
+    let mut rows: Vec<(i64, (i32, i32))> = Vec::new();
+    for _ in 0..200 {
+        let Some(a) = s.entity(v).map(|e| e.pos) else { break };
+        s.tick();
+        let Some(e) = s.entity(v) else { break };
+        let (dx, dy) = ((e.pos.x / K - a.x / K) as i64, (e.pos.y / K - a.y / K) as i64);
+        rows.push((isqrt(dx * dx + dy * dy), (e.pos.x / K, e.pos.y / K)));
+    }
+    let steps: Vec<usize> = (0..rows.len()).filter(|&i| (505..=515).contains(&rows[i].0)).collect();
+    assert!(!steps.is_empty(), "{arm:?}: the scene drifted: no drag of the Giant");
+    let stop = steps.last().unwrap() + 1;
+    let valid = |p: (i32, i32)| s.arena().is_valid_position(at(p));
+    (stop, rows[stop].1, rows[stop + 1].1, (valid(rows[stop].1), valid(rows[stop + 1].1)))
+}
+
+/// combat.HOOK_WATER_LANDING = client16402_nearest_land_lattice (client 16.402, parity r84, live14: 3 of 3 drags ending on the river
+/// set on the guard's land lattice on the stop + 1). Plant: hook_victim_left_in_water.
+#[test]
+fn under_client16402_nearest_land_lattice_a_victim_dragged_onto_the_river_stands_on_land_on_its_idle_tick() {
+    let (s_old, stop_old, idle_old, (on_land, _)) = water_stop(HookWaterLanding::InWater);
+    assert!(!on_land, "the scene drifted: the drag stopped on land at {stop_old:?}");
+    let (s_new, stop_new, idle_new, (_, idle_on_land)) = water_stop(HookWaterLanding::Client16402NearestLandLattice);
+    assert_eq!((s_old, stop_old), (s_new, stop_new), "the same drag under both arms");
+    // NOT VACUOUS: in_water leaves the Giant on the river on S + 1
+    assert_eq!(idle_old, stop_old, "in_water: the Giant moved on its idle tick");
+    let d = (idle_new.0 - stop_new.0, idle_new.1 - stop_new.1);
+    assert!(d.0.abs() % 500 == 250 && d.1.abs() % 500 == 250, "client16402_nearest_land_lattice: an odd multiple of 250 on each axis: {d:?}");
+    assert!(idle_on_land, "client16402_nearest_land_lattice: still on water at {idle_new:?}");
 }

@@ -997,7 +997,9 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     let cast_runs = ents.press_load_runs.get(a).copied().unwrap_or(false)
         && match calib.press_load_timer {
             crate::state::PressLoadTimer::Client16402RunsThroughCast => ents.target[a].is_some(),
-            crate::state::PressLoadTimer::Client16402RunsUnlessStunned => ents.press_stun_ms.get(a).copied().unwrap_or(0) == 0,
+            crate::state::PressLoadTimer::Client16402RunsUnlessStunned | crate::state::PressLoadTimer::Client16402RunsEveryCast => {
+                ents.press_stun_ms.get(a).copied().unwrap_or(0) == 0
+            }
             crate::state::PressLoadTimer::Zeroed => false,
         };
     let stands = stands && !cast_runs;

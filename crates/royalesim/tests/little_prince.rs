@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingArea, GuardLandingAvoidance, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook, DashImmuneBuffs, PressLoadTimer, RampKnockReset, VariableDamageImmuneTarget};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingArea, GuardLandingAvoidance, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, GuardChargeBuildings, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook, DashImmuneBuffs, PressLoadTimer, RampKnockReset, VariableDamageImmuneTarget};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -1746,6 +1746,12 @@ fn under_client16402_runs_through_cast_his_press_keeps_his_load_timer() {
     assert_eq!((l0, p0), (0, lt + 50), "zeroed: his press zeroed the timer");
 }
 
+/// combat.PRESS_LOAD_TIMER = client16402_runs_every_cast keeps the guard press as client16402_runs_unless_stunned has it.
+#[test]
+fn under_client16402_runs_every_cast_his_guard_press_is_unchanged() {
+    assert_eq!(press_entry(PressLoadTimer::Client16402RunsEveryCast), press_entry(PressLoadTimer::Client16402RunsUnlessStunned));
+}
+
 /// Since parity r83 (zeroed before it; client 15.535.29 keeps zeroed).
 #[test]
 fn the_shipped_press_load_timer_is_client16402_runs_unless_stunned() {
@@ -2111,4 +2117,38 @@ fn under_client16402_bodiless_passed_over_a_strike_passes_over_his_landed_guard(
     // NOT VACUOUS: under hit the guard is struck as soon as its immunity ends, earlier
     assert!(new > old, "client16402_bodiless_passed_over: first struck on the arrival + {new}, under hit + {old}");
     assert!((4..=6).contains(&new), "client16402_bodiless_passed_over: first struck on the arrival + {new}, not about + 5");
+}
+
+/// The scene with no reds and a red Cannon put down 2,400 right of the guard's path (`side` from AT.0, 1,000 ahead), under
+/// combat.GUARD_CHARGE_BUILDINGS = `arm`: 25 ticks for its deploy, the press, then the Cannon's per-tick hitpoint losses over 45
+/// ticks.
+fn cannon_hits(arm: GuardChargeBuildings, side: i32) -> Vec<i32> {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_charge_buildings = arm, &[]);
+    let cannon = s.scenario_spawn_now(Team::Red, "Cannon", n((AT.0 + side, AT.1 + 1000)), None).expect("the Cannon");
+    for _ in 0..25 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut out = Vec::new();
+    for _ in 0..45 {
+        let Some(before) = s.entity(cannon).map(|c| c.hp) else { break };
+        s.tick();
+        out.push(before - s.entity(cannon).map_or(0, |c| c.hp));
+    }
+    out
+}
+
+/// combat.GUARD_CHARGE_BUILDINGS = client16402_buildings_hit (client 16.402, parity r84, live14: 8 of 8 enemy buildings within
+/// push radius + their radius took the charge hit once, 0 of 17 out of it). Plant: guard_charge_buildings_spared.
+#[test]
+fn under_client16402_buildings_hit_his_guards_charge_hits_a_cannon_near_its_path_once() {
+    let hit = |l: &[i32]| l.iter().filter(|x| **x >= 256).count();
+    let l = cannon_hits(GuardChargeBuildings::Client16402BuildingsHit, 2400);
+    assert_eq!(hit(&l), 1, "client16402_buildings_hit: one charge hit on the Cannon: {l:?}");
+    // NOT VACUOUS: troops spares the Cannon
+    let l0 = cannon_hits(GuardChargeBuildings::Troops, 2400);
+    assert_eq!(hit(&l0), 0, "troops: the Cannon was hit: {l0:?}");
+    // out of reach (3,400 off the path): no hit under either arm
+    assert_eq!(hit(&cannon_hits(GuardChargeBuildings::Client16402BuildingsHit, 3400)), 0, "a Cannon out of reach was hit");
 }

@@ -33,7 +33,7 @@ use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpHiding, WarpLaw, WarpPick, WarpStrikeReveal, WarpWalkStep};
+use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, WarpHiding, WarpLaw, WarpPick, WarpReturnFree, WarpStrikeReveal, WarpWalkStep};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -504,4 +504,44 @@ fn under_client16402_held_mark_the_warp_goes_to_the_mark_it_held_before_the_pres
     // the mark gone: re-chosen, B
     let (_, b2, again) = warp_choice(WarpPick::Client16402HeldMark, true);
     assert_eq!(again, Some(b2), "client16402_held_mark: with A gone the mark was not re-chosen");
+}
+
+/// combat.WARP_RETURN_FREE = client16402_walks_and_retargets (client 16.402, parity r84, live14: the return's steps carried the
+/// hero's walk on 55 of 72 ticks and 8 of 12 landings, landing a walk step off home; the engine landed on home 6 of 6), on the
+/// return scene of on_the_160402017_table_it_warps_back_the_tick_after_its_target_dies with the Knight held (3000, 3000) off
+/// its press point the whole run: out of its reach on every step of the return (4,100 or more; the warp picks the Skeleton,
+/// the lowest max hitpoints, wherever the Knight stands), in its sight from the return's fourth tick, so its walk heads for
+/// it; the Skeleton held until the hero stands on it. Plant: warp_return_held.
+#[test]
+fn under_client16402_walks_and_retargets_its_return_carries_its_walk() {
+    let run = |arm: WarpReturnFree| {
+        let minion = (AT.0 - 4320, AT.1 + 5760);
+        let (mut s, hero, reds) = start_in(battle_017_with(|c| c.calib.warp_return_free = arm), &[("Knight", (AT.0 + 3000, AT.1 + 3000)), ("Skeleton", minion)]);
+        let ((knight, kp), (target, tp)) = (reds[0], reds[1]);
+        s.press_ability_button(Team::Blue, 0).expect("the press");
+        let (mut points, mut arrived, mut gone) = (Vec::new(), false, None);
+        for f in 0..60 {
+            if s.entity(knight).is_some() {
+                assert!(s.debug_set_pos(knight, kp));
+            }
+            if !arrived && s.entity(target).is_some() {
+                assert!(s.debug_set_pos(target, tp));
+            }
+            s.tick();
+            let now = s.entity(hero).expect("the hero").pos;
+            points.push(now);
+            match s.entity(target) {
+                Some(t) if t.pos == now => arrived = true,
+                None if gone.is_none() => gone = Some(f),
+                _ => {}
+            }
+        }
+        (points, gone.unwrap_or_else(|| panic!("{arm:?}: the scene drifted: the Skeleton lives")))
+    };
+    let (held, g0) = run(WarpReturnFree::Held);
+    let home = held[0];
+    assert!(held[g0 + 1..].contains(&home), "the scene drifted: held does not land on its press point {home:?}: {held:?}");
+    let (free, g1) = run(WarpReturnFree::Client16402WalksAndRetargets);
+    assert_eq!(free[0], home, "the same press point under both arms");
+    assert!(!free[g1 + 1..].contains(&home), "client16402_walks_and_retargets: the return still lands on its press point: {free:?}");
 }

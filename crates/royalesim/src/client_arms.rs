@@ -421,6 +421,13 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.GUARD_LANDING_AREA = hit: unread on client 15.535.29.
 ///   spawner.SPAWN_POINT = client_rounded_facing_degree: client 15.535.29's Night Witch scene reads the same degree
 ///   under both arms; its octant reads are unread.
+///   combat.UPPERCUT_FINISH = swing_runs_on: unread on client 15.535.29.
+///   combat.UPPERCUT_STAND_CONTACT = pushed: unread on client 15.535.29.
+///   combat.UPPERCUT_STAND_DASH = runs: unread on client 15.535.29 (its scene had no jump target).
+///   combat.WARP_RETURN_FREE = held: unread on client 15.535.29.
+///   combat.GUARD_CHARGE_BUILDINGS = troops: unread on client 15.535.29.
+///   combat.DASH_START_CONTACT = start_tick_body: unread on client 15.535.29.
+///   combat.HOOK_WATER_LANDING = in_water: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -668,6 +675,13 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.WARP_PICK", "\"at_press\""),
     ("combat.GUARD_LANDING_AREA", "\"hit\""),
     ("spawner.SPAWN_POINT", "\"client_rounded_facing_degree\""),
+    ("combat.UPPERCUT_FINISH", "\"swing_runs_on\""),
+    ("combat.UPPERCUT_STAND_CONTACT", "\"pushed\""),
+    ("combat.UPPERCUT_STAND_DASH", "\"runs\""),
+    ("combat.WARP_RETURN_FREE", "\"held\""),
+    ("combat.GUARD_CHARGE_BUILDINGS", "\"troops\""),
+    ("combat.DASH_START_CONTACT", "\"start_tick_body\""),
+    ("combat.HOOK_WATER_LANDING", "\"in_water\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -57,7 +57,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{
-    BattleConfig, BattleState, DashAttack, DashEndContact, DashImmuneHits, DashKillRetarget, DashStandContact, DashStandHeading,
+    BattleConfig, BattleState, DashAttack, DashEndContact, DashStartContact, DashImmuneHits, DashKillRetarget, DashStandContact, DashStandHeading,
     DashStandRetarget, DASH_BLOW_TO_END_TICKS,
 };
 use royalesim::{EntityId, Team};
@@ -781,4 +781,49 @@ fn under_client16402_attack_stand_uncounted_a_walker_steers_round_a_mega_knight_
     let (_, walk_new) = stand_walker(DashStandHeading::Client16402AttackStandUncounted, false);
     let (_, walk_old) = stand_walker(DashStandHeading::Counted, false);
     assert_eq!(walk_new, walk_old, "a stand from a walk: the same steps under both arms");
+}
+
+/// A Blue Bandit at BANDIT_AT walking at a red Knight at KNIGHT_AT (her trigger, her stand, her dash), and a Blue Skeleton made
+/// before her (`before`) or after her, held each tick 583 behind her (away from the Knight, overlapping her), under
+/// combat.DASH_START_CONTACT = `arm`: (her first step over 300, on D + 1: her first dash tick D is still (combat.DASH_ATTACK);
+/// the Skeleton's move on D, native).
+fn start_contact(arm: DashStartContact, before: bool) -> (usize, (i64, i64)) {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_start_contact = arm;
+    let mut s = BattleState::new(0, cfg);
+    let skel_at = (BANDIT_AT.0 - 500, BANDIT_AT.1 - 300);
+    let first = if before { Some(s.scenario_spawn_now(Team::Blue, "Skeleton", at(skel_at), None).expect("the Skeleton")) } else { None };
+    let bandit = s.scenario_spawn_now(Team::Blue, "Bandit", at(BANDIT_AT), None).expect("the Bandit");
+    let skel = first.unwrap_or_else(|| s.scenario_spawn_now(Team::Blue, "Skeleton", at(skel_at), None).expect("the Skeleton"));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", at(KNIGHT_AT), None).expect("the Knight");
+    let mut prev = s.entity(bandit).expect("her").pos;
+    let mut moved = (0, 0);
+    for k in 0..120 {
+        let b = s.entity(bandit).expect("her").pos;
+        let put = Vec2::new(b.x - 500 * K, b.y - 300 * K);
+        assert!(s.debug_set_pos(skel, put) && s.debug_set_pos(knight, at(KNIGHT_AT)));
+        s.tick();
+        let now = s.entity(bandit).expect("her").pos;
+        if dist(now, prev) > 300 {
+            return (k, moved);
+        }
+        let q = s.entity(skel).expect("the Skeleton").pos;
+        moved = (((q.x - put.x) / K) as i64, ((q.y - put.y) / K) as i64);
+        prev = now;
+    }
+    panic!("{arm:?}: the scene drifted: no dash");
+}
+
+/// combat.DASH_START_CONTACT = client16402_out_from_start (client 16.402, parity r84, live14: 4 of 4 units created before a dasher
+/// took no push from her on her dash's first tick; 8 of 8 created after her alike in both streams). Plant:
+/// dash_start_body_for_earlier.
+#[test]
+fn under_client16402_out_from_start_a_unit_made_before_a_dasher_is_not_pushed_by_her_on_her_dash_tick() {
+    let (d_old, s_old) = start_contact(DashStartContact::StartTickBody, true);
+    let (d_new, s_new) = start_contact(DashStartContact::Client16402OutFromStart, true);
+    assert_eq!(d_old, d_new, "the same dash tick under both arms");
+    // NOT VACUOUS: start_tick_body pushes the earlier Skeleton off her on D
+    assert_ne!(s_old, s_new, "client16402_out_from_start: the earlier Skeleton moved alike on D: {s_old:?}");
+    // a Skeleton made after her: passed over under both arms
+    assert_eq!(start_contact(DashStartContact::StartTickBody, false), start_contact(DashStartContact::Client16402OutFromStart, false), "a Skeleton made after her");
 }

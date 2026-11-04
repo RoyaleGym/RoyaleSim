@@ -127,3 +127,47 @@ fn a_victim_that_ignores_pushback_is_not_moved_under_either_value() {
 fn the_shipped_value_is_client_ladder_from_landing() {
     assert_eq!(config().calib.dash_pushback, DashPushback::ClientLadderFromLanding, "shipped combat.DASH_PUSHBACK");
 }
+
+/// `scene` with the two made by scenario_spawn_now in the order asked (scenario_spawn_batch sorts Blue first): the victim first
+/// when `victim_first`, so it is created before the Mega Knight.
+fn scene_ordered(arm: DashPushback, victim_first: bool) -> (Vec<Row>, i32) {
+    let mut s = BattleState::new(0, with(arm));
+    let (v, m) = if victim_first {
+        let v = s.scenario_spawn_now(Team::Red, "Knight", at(KNIGHT_AT), None).expect("the Knight");
+        (v, s.scenario_spawn_now(Team::Blue, "MegaKnight", at(MK_FOR_KNIGHT), None).expect("the Mega Knight"))
+    } else {
+        let m = s.scenario_spawn_now(Team::Blue, "MegaKnight", at(MK_FOR_KNIGHT), None).expect("the Mega Knight");
+        (s.scenario_spawn_now(Team::Red, "Knight", at(KNIGHT_AT), None).expect("the Knight"), m)
+    };
+    let idx = s.cards().index("MegaKnight").expect("the Mega Knight is simulable");
+    let dash = s.cards().get(idx).dash.expect("the Mega Knight carries a dash block");
+    let blow = s.cards().scaled(idx, s.config().card_level[0], dash.damage).expect("a valid level");
+    let mut rows = Vec::new();
+    for _ in 0..90 {
+        let (Some(vv), Some(_)) = (s.entity(v), s.entity(m)) else { break };
+        let (v0, hp0) = (native(vv.pos), vv.hp);
+        s.tick();
+        let (Some(vv), Some(mv)) = (s.entity(v), s.entity(m)) else { break };
+        let p = native(vv.pos);
+        let (dx, dy) = (p.0 - v0.0, p.1 - v0.1);
+        rows.push((hp0 - vv.hp, isqrt(dx * dx + dy * dy), native(mv.pos), p));
+    }
+    (rows, blow)
+}
+
+/// combat.DASH_PUSHBACK = client16402_ladder_in_pass (client 16.402, parity r84, live14: 51 of 57 jump-blow victims created after
+/// the Mega Knight stepped on the blow tick, 24 of 25 created before him on the tick after). Plant: dash_blow_step_next_tick.
+#[test]
+fn under_client16402_ladder_in_pass_a_victim_made_after_the_mega_knight_steps_on_the_blow_tick() {
+    let (late_new, b1) = scene_ordered(DashPushback::Client16402LadderInPass, false);
+    let bn = blow_tick(&late_new, b1);
+    assert!((199..=201).contains(&late_new[bn].1), "client16402_ladder_in_pass: the Knight made after him steps on B: {:?}", &late_new[bn..bn + 3]);
+    let (early_new, b2) = scene_ordered(DashPushback::Client16402LadderInPass, true);
+    let be = blow_tick(&early_new, b2);
+    assert_eq!(early_new[be].1, 0, "the Knight made before him: still on B: {:?}", &early_new[be..be + 3]);
+    assert!((199..=201).contains(&early_new[be + 1].1), "the Knight made before him: its first step on B + 1: {:?}", &early_new[be..be + 3]);
+    // NOT VACUOUS: client_ladder_from_landing leaves the later Knight still on B
+    let (late_old, b0) = scene_ordered(DashPushback::ClientLadderFromLanding, false);
+    let bo = blow_tick(&late_old, b0);
+    assert_eq!(late_old[bo].1, 0, "client_ladder_from_landing: the Knight stepped on B: {:?}", &late_old[bo..bo + 3]);
+}
