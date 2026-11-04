@@ -1293,6 +1293,107 @@ def test_the_battle_publishes_timers_elixir_and_spell_objects(m, maker_inputs, t
     assert m.comparable(fb) == m.comparable(fx)
 
 
+def _shielded(frames, pairs, key=7):
+    """The battle's frames with unit `key` given the reader's shield pair on each frame it is on: `pairs` one
+    (shield, max_shield) per such frame, None to leave the pair out there (A SHIELD in the maker's doc)."""
+    out = json.loads(json.dumps(frames))
+    rows = [e for f in out for e in f["entities"] if e["generation_key"] == key]
+    assert len(rows) == len(pairs), (len(rows), len(pairs))
+    for e, p in zip(rows, pairs, strict=True):
+        if p is not None:
+            e["shield"], e["max_shield"] = p
+    return out
+
+
+def _shield_fixture(m, maker_inputs, tmp_path, frames, name="shield"):
+    header, _ = _battle()
+    path = tmp_path / name / "frames-synthetic.native.oracle.jsonl.gz"
+    _write_capture(path, header, frames)
+    return _build(m, maker_inputs, path)
+
+
+@needs_modern_cards
+def test_a_shielded_unit_carries_its_shield_and_max_shield(m, maker_inputs, tmp_path):
+    _skip_without_the_id_table(m)
+    _, frames = _battle()
+    values = [318, 318, 160, 0, 0]
+    fx = _shield_fixture(m, maker_inputs, tmp_path, _shielded(frames, [(v, 318) for v in values]))
+    truth = fx["truth"]
+    knight = next(e for e in truth["entities"] if e["key"] == 7)
+    assert knight["max_shield"] == 318
+    assert _decode(knight["shield"]) == values, "the shield left on each frame; 0 stays 0 after the break"
+    assert not any(isinstance(v, bool) for v in knight["shield"])
+    assert "max_shield_changes" not in knight
+    assert "shield" not in truth["columns"], "not a column every row holds"
+    assert "absent, not 0" in truth["shield"]["meaning"]
+    assert all("shield" not in e and "max_shield" not in e for e in truth["entities"] if e["key"] != 7)
+
+
+@needs_modern_cards
+def test_a_capture_without_shields_builds_the_bytes_it_built_before(m, maker_inputs, tmp_path):
+    _skip_without_the_id_table(m)
+    _, frames = _battle()
+    bare = _shield_fixture(m, maker_inputs, tmp_path, frames, "bare")
+    assert "shield" not in bare["truth"]
+    assert all(not {"shield", "max_shield", "max_shield_changes"} & set(e) for e in bare["truth"]["entities"])
+    shielded = _shield_fixture(m, maker_inputs, tmp_path, _shielded(frames, [(318, 318)] * 5))
+    del shielded["truth"]["shield"]
+    for e in shielded["truth"]["entities"]:
+        e.pop("shield", None)
+        e.pop("max_shield", None)
+    assert m.fixture_text(shielded) == m.fixture_text(bare), "the shield keys alone differ, key order included"
+
+
+@needs_modern_cards
+def test_a_shield_frame_not_read_is_null_not_zero(m, maker_inputs, tmp_path):
+    _skip_without_the_id_table(m)
+    _, frames = _battle()
+    pairs = [(318, 318), None, (200, 318), (0, 318), (0, 318)]
+    fx = _shield_fixture(m, maker_inputs, tmp_path, _shielded(frames, pairs))
+    knight = next(e for e in fx["truth"]["entities"] if e["key"] == 7)
+    assert _decode(knight["shield"]) == [318, None, 200, 0, 0], "the frame whose pair was not read is null"
+    # a frame the unit is absent from inside its run is null too
+    gone = _shielded(frames, [(318, 318)] * 5)
+    gone[3]["entities"] = [e for e in gone[3]["entities"] if e["generation_key"] != 7]
+    knight = next(e for e in _shield_fixture(m, maker_inputs, tmp_path, gone, "gone")["truth"]["entities"]
+                  if e["key"] == 7)
+    assert _decode(knight["shield"]) == [318, 318, None, 318, 318]
+
+
+@needs_modern_cards
+def test_a_unit_whose_shield_starts_at_zero_still_carries_the_column(m, maker_inputs, tmp_path):
+    # the Hero Knight: zeroed at its spawn, filled by its ability in one tick
+    _skip_without_the_id_table(m)
+    _, frames = _battle()
+    fx = _shield_fixture(m, maker_inputs, tmp_path, _shielded(frames, [(0, 818), (0, 818), (818, 818), (818, 818),
+                                                                      (700, 818)]))
+    knight = next(e for e in fx["truth"]["entities"] if e["key"] == 7)
+    assert knight["max_shield"] == 818
+    assert _decode(knight["shield"]) == [0, 0, 818, 818, 700]
+
+
+@needs_modern_cards
+def test_a_max_shield_of_zero_writes_no_column(m, maker_inputs, tmp_path):
+    _skip_without_the_id_table(m)
+    _, frames = _battle()
+    fx = _shield_fixture(m, maker_inputs, tmp_path, _shielded(frames, [(0, 0)] * 5))
+    assert "shield" not in fx["truth"]
+    knight = next(e for e in fx["truth"]["entities"] if e["key"] == 7)
+    assert "shield" not in knight
+    assert "max_shield" not in knight
+
+
+@needs_modern_cards
+def test_a_max_shield_change_is_listed(m, maker_inputs, tmp_path):
+    _skip_without_the_id_table(m)
+    _, frames = _battle()
+    fx = _shield_fixture(m, maker_inputs, tmp_path, _shielded(frames, [(318, 318), (318, 318), (350, 350), (350, 350),
+                                                                      (350, 350)]))
+    knight = next(e for e in fx["truth"]["entities"] if e["key"] == 7)
+    assert knight["max_shield"] == 318, "its first read"
+    assert knight["max_shield_changes"] == [[3, 350]]
+
+
 @needs_modern_cards
 def test_a_spell_object_with_no_elixir_drop_is_a_release_not_a_cast(m, maker_inputs, tmp_path):
     """A spell object whose side's elixir never falls by the card's cost is a unit's release, not a

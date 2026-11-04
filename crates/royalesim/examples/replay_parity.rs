@@ -39,6 +39,13 @@
 //! after the engine's own end of battle (a frozen state) and a NOTE when the fixture
 //! was classified against a different cards.json than the engine loaded.
 //!
+//! shield: its OWN AXIS (`ShieldScore`), scored only where the fixture's truth gives a
+//! unit a shield column (the maker's A SHIELD): on each both-alive frame of a matched
+//! pair, the engine's shield left against the truth's, exact or not, with its own
+//! shield first divergence. It is never part of hp exact, the score, the per-card rows
+//! or the first divergence. A fixture with no column scores the axis ABSENT (`shield`
+//! null), never 0; a null frame is unread, not scored.
+//!
 //! Needs data/derived/mechanic_register.json (python tools/mechanic_register.py) for
 //! the family tables; the test on the sample runs without it.
 #![allow(unexpected_cfgs)]
@@ -154,8 +161,17 @@ fn run(args: &[String]) -> Result<(), String> {
         std::fs::write(format!("{out_dir}/{stem}.parity.md"), render_fixture_markdown(&r)).map_err(|e| e.to_string())?;
         let sc = &r.score;
         if r.playable {
+            // THE SHIELD AXIS, only where present, so the line of a fixture without it is as it was.
+            let shield = r
+                .shield
+                .as_ref()
+                .map(|s| {
+                    let first = r.shield_first_divergence.as_ref().map(|d| format!("tick {}", d.tick)).unwrap_or_else(|| "none".into());
+                    format!(", shield exact {}% of {} (first shield divergence {first})", Score::permille(s.shield_match, s.shield_ticks) / 10, s.shield_ticks)
+                })
+                .unwrap_or_default();
             println!(
-                "{stem}{}: {} unit-ticks, <=250 {}% (moving {}%), <=1000 {}%, hp exact {}%, first divergence {} ({:.1}s)",
+                "{stem}{}: {} unit-ticks, <=250 {}% (moving {}%), <=1000 {}%, hp exact {}%{shield}, first divergence {} ({:.1}s)",
                 r.prefix_until.map(|c| format!(" [prefix < {c}]")).unwrap_or_default(),
                 sc.unit_ticks,
                 Score::permille(sc.within[0], sc.unit_ticks) / 10,

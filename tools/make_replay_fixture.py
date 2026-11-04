@@ -42,8 +42,9 @@ WHAT A FIXTURE IS
       truth    what the game then SHOWED: per frame tick, per entity, the columns the
                harness scores (side, card, x, y, hp, alive, target, path-node count,
                behavior_state), the path's cells and the attack timers (ATTACK TIMERS
-               below), run-length encoded per entity column; and per frame, each side's
-               elixir when the capture carries it (ELIXIR below).
+               below), run-length encoded per entity column; a shielded unit's shield
+               (A SHIELD below); and per frame, each side's elixir when the capture
+               carries it (ELIXIR below).
 
     replay_parity.rs plays the script through the engine and scores the engine's
     entities against the truth, entity by entity, tick by tick.
@@ -793,6 +794,21 @@ AN UNREAD HP (`truth.hp_unread`, an entity's `hp_unread_frames`)
     again later was healed, not killed, so it is no victim of a cost-only cast and no kill
     bounding a spell's level; a -1 on a unit's last frame stays a kill.
 
+A SHIELD (`truth.shield`; an entity's `max_shield`, `shield` and `max_shield_changes`)
+    The live reader writes a unit's shield pair (shield, max_shield) only on a shielded unit, and
+    only when 0 <= shield <= max_shield and max_shield > 0; a failed read drops both fields for
+    that frame. A unit whose rows carry a max_shield above 0 on a selected frame gets `max_shield`
+    (its first read) and `shield`: the shield hitpoints left after the frame's tick, run-length
+    encoded like an entity column over its t0/n frames, null on a frame the unit was absent from
+    or whose pair was not read. A max_shield that changes is listed in `max_shield_changes` as
+    [tick, max_shield]. Measured on four captures (10-24 to 11-03, 120 shielded units): the pair
+    is on every row of a shielded unit and on no other entity; max_shield never changes; the
+    shield stays at 0 after its break; hp does not include it; a Hero Knight starts at 0 and
+    fills in one tick on its ability. An entity without the keys has no recorded shield: ABSENT,
+    not 0. The column is not in TRUTH_COLUMNS (every row holds those), so a capture without
+    shields gives the fixture it gave before, byte for byte; no script reading uses it, and the
+    harness scores it on its own axis, never in hp.
+
 A LEVEL CHANGE (an entity's `max_hp_changes`)
     A unit's level and max_hp can change mid-life, and the capture shows it on every frame:
     the Royal Chef's pancake (tower troop ChefTower) takes one troop of its side up one
@@ -1171,6 +1187,22 @@ HP_UNREAD = -1
 #: A row in `per_tick_rows` may carry, after the TRUTH_COLUMNS, the frame's raw (level, max_hp) (A LEVEL CHANGE); the
 #: truth columns written are the first len(TRUTH_COLUMNS).
 ROW_LEVEL, ROW_MAX_HP = len(TRUTH_COLUMNS), len(TRUTH_COLUMNS) + 1
+#: A SHIELD (module doc): the frame's raw (shield, max_shield) in a `per_tick_rows` row, after (level, max_hp); both
+#: None where the capture's row carries no max_shield above 0 (the live reader writes the pair only then).
+ROW_SHIELD, ROW_MAX_SHIELD = len(TRUTH_COLUMNS) + 2, len(TRUTH_COLUMNS) + 3
+
+
+def shield_pair(e: dict) -> tuple:
+    """A SHIELD (module doc): the capture row's (shield, max_shield); (None, None) without a max_shield above 0, and the
+    shield None when it is not an int (the pair not read)."""
+
+    def is_int(v) -> bool:
+        return isinstance(v, int) and not isinstance(v, bool)
+
+    ms, s = e.get("max_shield"), e.get("shield")
+    if not is_int(ms) or ms <= 0:
+        return None, None
+    return (s if is_int(s) else None), ms
 
 
 def hp_unread(per_tick_rows: list, key: int, i: int) -> bool:
@@ -4476,9 +4508,10 @@ def build(
                 e["behavior_state"],
                 cells_of(nodes),
                 *attack_timers(e),
-                # not truth columns: the frame's raw level and max_hp (A LEVEL CHANGE)
+                # not truth columns: the frame's raw level and max_hp (A LEVEL CHANGE), and its shield pair (A SHIELD)
                 e["level"],
                 e["max_hp"],
+                *shield_pair(e),
             )
             rec = ents.get(k)
             if rec is None:
@@ -5300,6 +5333,9 @@ def build(
         unread = 0
         changes: list[list[int]] = []
         last_read = (e["level"], e["max_hp"])
+        # A SHIELD: the shield left per frame (null where absent or not read), the first max_shield read, its changes.
+        shields: list = []
+        max_shield, last_ms, ms_changes = None, None, []
         for i in idx:
             row = per_tick_rows[i].get(e["key"])
             if row is None:
@@ -5312,6 +5348,14 @@ def build(
                 changes.append([ticks[i], *last_read])  # A LEVEL CHANGE
             for c, v in enumerate(row[: len(TRUTH_COLUMNS)]):
                 cols[c].append(v)
+            ms = row[ROW_MAX_SHIELD] if len(row) > ROW_MAX_SHIELD else None
+            shields.append(row[ROW_SHIELD] if ms is not None else None)
+            if ms is not None:
+                if max_shield is None:
+                    max_shield = ms
+                elif ms != last_ms:
+                    ms_changes.append([ticks[i], ms])
+                last_ms = ms
         rec = {
             "key": e["key"],
             "side": e["side"],
@@ -5336,6 +5380,12 @@ def build(
         if changes:
             rec["max_hp_changes"] = changes
         rec.update({name: rle(cols[c]) for c, name in enumerate(TRUTH_COLUMNS)})
+        # A SHIELD: on a unit whose rows carry a max_shield above 0 on a selected frame; after the columns.
+        if max_shield is not None:
+            rec["max_shield"] = max_shield
+            rec["shield"] = rle(shields)
+            if ms_changes:
+                rec["max_shield_changes"] = ms_changes
         truth_entities.append(rec)
     truth = {
         "columns": list(TRUTH_COLUMNS),
@@ -5355,6 +5405,14 @@ def build(
     elixir = elixir_columns([frames[i] for i in sel])
     if elixir is not None:
         truth["elixir_raw"] = elixir
+    if any("shield" in r for r in truth_entities):
+        truth["shield"] = {
+            "meaning": "on an entity whose capture rows carry a max_shield above 0 (the reader writes the pair on a"
+            " shielded unit only): `max_shield` (its first read) and `shield`, the shield hitpoints left after the"
+            " frame's tick, run-length encoded like an entity column over its t0/n frames; null on a frame the entity"
+            " was absent from or whose pair the reader did not read. An entity without the keys has no recorded"
+            " shield: absent, not 0. Never part of hp",
+        }
 
     fx.update(
         {

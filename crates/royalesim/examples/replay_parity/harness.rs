@@ -569,6 +569,22 @@ pub struct TruthEntity {
     pub target: Vec<serde_json::Value>,
     pub path_n: Vec<serde_json::Value>,
     pub state: Vec<serde_json::Value>,
+    /// THE SHIELD (the maker's A SHIELD): its first-read full shield and the shield left per frame, run-length encoded
+    /// like the columns. Both absent: no recorded shield, which is ABSENT, never 0. Absent on every fixture made before
+    /// them and on one from a capture without shields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_shield: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shield: Option<Vec<serde_json::Value>>,
+}
+
+/// One truth entity's shield on one frame: no column on the entity, a frame whose pair was not read (or out of its run),
+/// or the shield left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShieldTruth {
+    NoColumn,
+    Unread,
+    Value(i32),
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -755,13 +771,37 @@ pub struct TruthTable {
     /// entity index -> (first frame index, rows)
     pub rows: Vec<(usize, Vec<Option<Row>>)>,
     pub key_to_entity: BTreeMap<i64, usize>,
+    /// entity index -> its shield per frame of its run (the same t0 as `rows`), None without a column.
+    pub shield: Vec<Option<Vec<Option<i32>>>>,
 }
 
 impl TruthTable {
+    /// Entity `k`'s shield on frame index `fi`.
+    pub fn shield(&self, k: usize, fi: usize) -> ShieldTruth {
+        let Some(col) = self.shield.get(k).and_then(|c| c.as_ref()) else { return ShieldTruth::NoColumn };
+        let t0 = self.rows[k].0;
+        match fi.checked_sub(t0).and_then(|i| col.get(i)).copied().flatten() {
+            Some(v) => ShieldTruth::Value(v),
+            None => ShieldTruth::Unread,
+        }
+    }
+
+    /// Whether some entity carries a shield column: the shield axis is present.
+    pub fn has_shield_axis(&self) -> bool {
+        self.shield.iter().any(|c| c.is_some())
+    }
+
     pub fn decode(t: &Truth) -> Result<TruthTable, String> {
         let mut rows = Vec::with_capacity(t.entities.len());
+        let mut shield = Vec::with_capacity(t.entities.len());
         let mut key_to_entity = BTreeMap::new();
         for (k, e) in t.entities.iter().enumerate() {
+            // THE SHIELD: the column and its full shield come together (the maker writes both), or neither.
+            shield.push(match (&e.shield, e.max_shield) {
+                (None, None) => None,
+                (Some(col), Some(ms)) if ms > 0 => Some(decode_rle(col, e.n)?.into_iter().map(|v| v.map(|v| v as i32)).collect()),
+                _ => return Err(format!("entity {}: a shield column needs a max_shield above 0 beside it, and the reverse", e.key)),
+            });
             let x = decode_rle(&e.x, e.n)?;
             let y = decode_rle(&e.y, e.n)?;
             let hp = decode_rle(&e.hp, e.n)?;
@@ -789,7 +829,7 @@ impl TruthTable {
             }
         }
         let index_of = t.ticks.iter().enumerate().map(|(i, t)| (*t, i)).collect();
-        Ok(TruthTable { ticks: t.ticks.clone(), index_of, entities: t.entities.clone(), rows, key_to_entity })
+        Ok(TruthTable { ticks: t.ticks.clone(), index_of, entities: t.entities.clone(), rows, key_to_entity, shield })
     }
 
     /// Keep only the frames with tick < `cut` (the `--prefix` play).
@@ -799,6 +839,7 @@ impl TruthTable {
         self.index_of.retain(|t, _| *t < cut);
         let mut keep = Vec::new();
         let mut rows = Vec::new();
+        let mut shield = Vec::new();
         for (k, e) in self.entities.iter().enumerate() {
             let (t0, r) = &self.rows[k];
             if *t0 >= n {
@@ -807,9 +848,11 @@ impl TruthTable {
             let len = r.len().min(n - t0);
             keep.push(e.clone());
             rows.push((*t0, r[..len].to_vec()));
+            shield.push(self.shield[k].as_ref().map(|c| c[..len.min(c.len())].to_vec()));
         }
         self.entities = keep;
         self.rows = rows;
+        self.shield = shield;
         self.key_to_entity = self.entities.iter().enumerate().map(|(k, e)| (e.key, k)).collect();
     }
 
@@ -1220,6 +1263,59 @@ pub struct Divergence {
     pub detail: String,
 }
 
+/// THE SHIELD AXIS (the maker's A SHIELD): its own counters, never in `Score`, so hp_exact, the totals, the bar and
+/// `Score::consistent` are untouched.
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct ShieldScore {
+    /// Truth entities carrying a shield column (per card: of that root).
+    pub shielded_entities: u64,
+    /// Both-alive unit-ticks of a matched pair whose truth shield was read.
+    pub shield_ticks: u64,
+    /// Of `shield_ticks`: the engine's shield equals the truth's.
+    pub shield_match: u64,
+    /// Sum of |engine - truth| over `shield_ticks`.
+    pub shield_abs_delta: u64,
+    /// Both-alive unit-ticks of a shielded entity whose shield was not read on the frame.
+    pub shield_unread: u64,
+    /// Both-alive unit-ticks of a pair whose truth has no column while the engine's unit carries a shield.
+    pub shield_sim_only: u64,
+}
+
+impl ShieldScore {
+    pub fn add(&mut self, o: &ShieldScore) {
+        self.shielded_entities += o.shielded_entities;
+        self.shield_ticks += o.shield_ticks;
+        self.shield_match += o.shield_match;
+        self.shield_abs_delta += o.shield_abs_delta;
+        self.shield_unread += o.shield_unread;
+        self.shield_sim_only += o.shield_sim_only;
+    }
+
+    pub fn consistent(&self) -> Result<(), String> {
+        if self.shield_match > self.shield_ticks {
+            return Err("shield_match exceeds shield_ticks".into());
+        }
+        Ok(())
+    }
+}
+
+/// THE SHIELD FIRST DIVERGENCE: the earliest scored frame tick where a matched both-alive pair with a read truth shield
+/// has another shield in the engine. Its own; it never sets or feeds `Report::first_divergence`.
+#[derive(Serialize, Clone, Debug)]
+pub struct ShieldDivergence {
+    pub tick: u32,
+    pub truth_key: i64,
+    pub side: i32,
+    pub card: String,
+    pub unit: Option<String>,
+    pub truth: i32,
+    pub sim: i32,
+    pub max_shield: i32,
+    /// Context only, scored nowhere here.
+    pub truth_hp: i32,
+    pub sim_hp: i32,
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct Report {
     pub fixture: String,
@@ -1260,6 +1356,12 @@ pub struct Report {
     pub score_no_towers: Score,
     pub per_card: BTreeMap<String, Score>,
     pub first_divergence: Option<Divergence>,
+    /// THE SHIELD AXIS. None = ABSENT: no truth entity carries a shield column (a capture from before the shield was
+    /// recorded, or one with no shielded unit). Some with zeros = present, nothing scored.
+    pub shield: Option<ShieldScore>,
+    pub shield_first_divergence: Option<ShieldDivergence>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub shield_per_card: BTreeMap<String, ShieldScore>,
     pub card_families: BTreeMap<String, Vec<String>>,
     /// Per-card level deviations from the side mode, listed so the report can say what it played: each deck entry
     /// and each play is at its card's own level (`config_for_with`), not the mode.
@@ -1364,6 +1466,12 @@ pub struct TraceRow {
     /// (sp-form-Tombstone-hero-s0 t194: the engine's red Skeleton turned on the bridge two ticks before the client's from
     /// points 4 apart, which the trace could not place). Its own field, like `push`: absent is not zero.
     pub route: Option<[i64; 5]>,
+    /// THE SHIELD on a fixture whose shield axis is present: the truth's (a read value only) and the engine's. Absent
+    /// otherwise, so a trace of a fixture without the axis keeps its bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truth_shield: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sim_shield: Option<i32>,
 }
 
 /// Which unit card (summon_only) each spawning card puts out, for rooting.
@@ -1751,6 +1859,9 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
         score_no_towers: Score::default(),
         per_card: BTreeMap::new(),
         first_divergence: None,
+        shield: None,
+        shield_first_divergence: None,
+        shield_per_card: BTreeMap::new(),
         card_families: BTreeMap::new(),
         level_deviations: Vec::new(),
         cards_json_fixture: f.cards_json_fnv1a64.clone(),
@@ -2047,6 +2158,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                             facing: e.facing,
                             avoid: e.avoid_offset,
                             attack: [e.attack_ms, e.attack_load_ms],
+                            shield: e.shield,
                             route: match (e.route.last(), e.route.first()) {
                                 (Some(&n), Some(&g)) => {
                                     let (n, g) = (to_native(n), to_native(g));
@@ -2329,6 +2441,14 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     };
     #[cfg(clash_plant = "replay_scores_unseen_frames")]
     let unseen_until: BTreeMap<usize, u32> = BTreeMap::new(); // PLANT (regression): scored from the sim's birth again.
+    // THE SHIELD AXIS (`ShieldScore`): present when some truth entity carries a shield column; its own counters and its
+    // own first divergence, never `Score`, `PairState` or `divergence`.
+    #[cfg(not(clash_plant = "replay_shield_absent_reads_zero"))]
+    let shield_axis = truth.has_shield_axis();
+    #[cfg(clash_plant = "replay_shield_absent_reads_zero")]
+    let shield_axis = true; // PLANT: no column read as a shield of 0, so the axis is always present.
+    let mut shield_per_card: BTreeMap<String, ShieldScore> = BTreeMap::new();
+    let mut shield_div: Option<ShieldDivergence> = None;
     // ONE TICK, SCORED ONCE (`Report::repeated_frames`): a frame repeating the tick just scored is skipped.
     let mut scored_tick: Option<u32> = None;
     for (fi, &t) in truth.ticks.iter().enumerate().step_by(opts.stride.max(1)) {
@@ -2393,7 +2513,16 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 let heading = sim_row.map(|r| [r.facing.x as i64, r.facing.y as i64, r.avoid as i64]);
                 let attack = sim_row.map(|r| [r.attack[0] as i64, r.attack[1] as i64]);
                 let route = sim_row.map(|r| r.route.map(i64::from));
-                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist, heading, attack, route });
+                let (truth_shield, sim_shield) = if shield_axis {
+                    let v = match truth.shield(*tk, fi) {
+                        ShieldTruth::Value(v) => Some(v),
+                        _ => None,
+                    };
+                    (v, sim_row.map(|r| r.shield))
+                } else {
+                    (None, None)
+                };
+                report.trace.push(TraceRow { tick: t, key: e.key, card: root.clone(), truth: tr, sim: sr, push, radius, dist, heading, attack, route, truth_shield, sim_shield });
             }
             if unseen {
                 report.unseen_frames += 1;
@@ -2436,6 +2565,57 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                         sc.hp_abs_delta += (sr.hp - tr.hp).unsigned_abs() as u64;
                     } else {
                         sc.hp_unread += 1;
+                    }
+                    // THE SHIELD AXIS: the frame's shield, exact or not, on its own counters (a frame whose hp is unread
+                    // still has its shield scored: the reader reads the two pairs apart).
+                    if shield_axis {
+                        let ss = shield_per_card.entry(root.clone()).or_default();
+                        let got = truth.shield(*tk, fi);
+                        #[cfg(clash_plant = "replay_shield_absent_reads_zero")]
+                        let got = if got == ShieldTruth::NoColumn { ShieldTruth::Value(0) } else { got };
+                        #[cfg(clash_plant = "replay_shield_unread_scored")]
+                        let got = if got == ShieldTruth::Unread { ShieldTruth::Value(0) } else { got }; // PLANT: a null frame read as 0.
+                        match got {
+                            ShieldTruth::Value(v) => {
+                                ss.shield_ticks += 1;
+                                ss.shield_abs_delta += (sr.shield - v).unsigned_abs() as u64;
+                                if sr.shield == v {
+                                    ss.shield_match += 1;
+                                } else {
+                                    #[cfg(clash_plant = "replay_shield_scored_into_hp")]
+                                    {
+                                        // PLANT: a shield mismatch counted against the hp too.
+                                        sc.hp_abs_delta += (sr.shield - v).unsigned_abs() as u64;
+                                        st.2 = Some(t);
+                                    }
+                                    #[cfg(clash_plant = "replay_shield_sets_first_divergence")]
+                                    if divergence.is_none() {
+                                        // PLANT: a shield mismatch sets the battle's first divergence.
+                                        divergence = Some(Divergence { tick: t, truth_key: e.key, side: e.side, card: root.clone(), families: families_of(&root), what: "shield".into(), cause: "shield".into(), onset_tick: t, detail: String::new() });
+                                    }
+                                    if shield_div.is_none() {
+                                        shield_div = Some(ShieldDivergence {
+                                            tick: t,
+                                            truth_key: e.key,
+                                            side: e.side,
+                                            card: root.clone(),
+                                            unit: e.unit.clone(),
+                                            truth: v,
+                                            sim: sr.shield,
+                                            max_shield: e.max_shield.unwrap_or(0),
+                                            truth_hp: tr.hp,
+                                            sim_hp: sr.hp,
+                                        });
+                                    }
+                                }
+                            }
+                            ShieldTruth::Unread => ss.shield_unread += 1,
+                            ShieldTruth::NoColumn => {
+                                if sr.shield > 0 {
+                                    ss.shield_sim_only += 1;
+                                }
+                            }
+                        }
                     }
                     // target by matched key
                     match tr.target {
@@ -2582,6 +2762,21 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
     report.score = total;
     report.per_card = per_card;
     report.first_divergence = divergence;
+    // THE SHIELD AXIS: each truth entity with a column counted under its root, and the sum; None when absent.
+    if shield_axis {
+        for (k, e) in truth.entities.iter().enumerate() {
+            if truth.shield.get(k).is_some_and(|c| c.is_some()) {
+                shield_per_card.entry(e.card.clone().unwrap_or_default()).or_default().shielded_entities += 1;
+            }
+        }
+        let mut sum = ShieldScore::default();
+        for s in shield_per_card.values() {
+            sum.add(s);
+        }
+        report.shield = Some(sum);
+    }
+    report.shield_first_divergence = shield_div;
+    report.shield_per_card = shield_per_card;
     Ok(report)
 }
 
@@ -2615,6 +2810,8 @@ pub struct Snap {
     avoid: i32,
     /// The attack progress and the load timer after the tick (`EntityView::attack_ms`, `attack_load_ms`).
     attack: [i32; 2],
+    /// The shield hitpoints left after the tick (`EntityView::shield`), for the shield axis.
+    shield: i32,
     /// The next waypoint, the goal-most node (native) and the node count after the tick (`EntityView::route`).
     route: [i32; 5],
 }
@@ -2887,6 +3084,12 @@ pub struct Aggregate {
     pub per_family: BTreeMap<String, Score>,
     pub causes: BTreeMap<String, usize>,
     pub causes_per_family: BTreeMap<String, BTreeMap<String, usize>>,
+    /// THE SHIELD AXIS over the played fixtures that carry it: how many, the sum (None: none does), per card, and how
+    /// many had a shield first divergence.
+    pub shield_fixtures: usize,
+    pub shield: Option<ShieldScore>,
+    pub shield_per_card: BTreeMap<String, ShieldScore>,
+    pub shield_divergences: usize,
 }
 
 pub fn aggregate(reports: &[Report]) -> Aggregate {
@@ -2913,6 +3116,14 @@ pub fn aggregate(reports: &[Report]) -> Aggregate {
             for fam in &d.families {
                 *a.causes_per_family.entry(fam.clone()).or_default().entry(d.cause.clone()).or_default() += 1;
             }
+        }
+        if let Some(s) = &r.shield {
+            a.shield_fixtures += 1;
+            a.shield.get_or_insert_with(ShieldScore::default).add(s);
+            for (card, sc) in &r.shield_per_card {
+                a.shield_per_card.entry(card.clone()).or_default().add(sc);
+            }
+            a.shield_divergences += usize::from(r.shield_first_divergence.is_some());
         }
     }
     a
@@ -2944,6 +3155,32 @@ pub fn score_row(name: &str, sc: &Score) -> String {
 /// `<=250 moving` leaves the deploy-phase frames out of both numerator and
 /// denominator; `walk <=250` / `walk <=20` are over the isolated-walk unit-ticks.
 pub const SCORE_HEADER: &str = "| | unit-ticks | <=250 | <=250 moving | <=500 | <=1000 | hp exact | target | path n | alive/missing/extra | walk <=250 | walk <=20 |\n|---|---|---|---|---|---|---|---|---|---|---|---|";
+
+/// THE SHIELD AXIS's line in a fixture's report: its own counts and its own first divergence, or that it is absent.
+pub fn shield_line(r: &Report) -> String {
+    let Some(s) = &r.shield else { return "shield: absent (no truth entity carries a shield column)\n".into() };
+    let mut line = format!(
+        "shield (own axis; not in hp exact or the first divergence): {} of {} both-alive shielded unit-ticks exact ({}), {} shielded entities",
+        s.shield_match,
+        s.shield_ticks,
+        pct(s.shield_match, s.shield_ticks),
+        s.shielded_entities
+    );
+    if s.shield_unread > 0 {
+        line.push_str(&format!(", {} unread", s.shield_unread));
+    }
+    if s.shield_sim_only > 0 {
+        line.push_str(&format!(", {} engine-only", s.shield_sim_only));
+    }
+    match &r.shield_first_divergence {
+        Some(d) => line.push_str(&format!(
+            "; first shield divergence: tick {} side {} {} (key {}): truth {}, engine {}\n",
+            d.tick, d.side, d.card, d.truth_key, d.truth, d.sim
+        )),
+        None => line.push_str("; no shield divergence\n"),
+    }
+    line
+}
 
 pub fn render_fixture_markdown(r: &Report) -> String {
     let mut out = String::new();
@@ -3014,6 +3251,7 @@ pub fn render_fixture_markdown(r: &Report) -> String {
         )),
         None => out.push_str("\nno divergence\n"),
     }
+    out.push_str(&shield_line(r));
     for d in r.deploys.iter().filter(|d| d.result.is_err()) {
         out.push_str(&format!("- deploy refused: tick {} side {} {}: {:?}\n", d.tick, d.side, d.card, d.result));
     }
@@ -3084,6 +3322,37 @@ pub fn render_aggregate_markdown(a: &Aggregate, reports: &[Report]) -> String {
         match &r.first_divergence {
             Some(d) => out.push_str(&format!("| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n", r.fixture, played, nt.unit_ticks, within, d.tick, d.side, d.card, d.cause, d.onset_tick, d.what)),
             None => out.push_str(&format!("| {} | {} | {} | {} | - | - | - | none | - | no divergence |\n", r.fixture, played, nt.unit_ticks, within)),
+        }
+    }
+    // THE SHIELD AXIS, its own section, only where some played fixture carries it (the report stays as it was without).
+    if let Some(s) = &a.shield {
+        out.push_str(&format!(
+            "\n#### shield (own axis)\n\n{} fixtures carry it: {} of {} both-alive shielded unit-ticks exact ({}), {} shielded entities, {} unread, {} engine-only; {} with a shield divergence.\n\n| card | entities | ticks | exact | abs delta | unread | engine-only |\n|---|---|---|---|---|---|---|\n",
+            a.shield_fixtures,
+            s.shield_match,
+            s.shield_ticks,
+            pct(s.shield_match, s.shield_ticks),
+            s.shielded_entities,
+            s.shield_unread,
+            s.shield_sim_only,
+            a.shield_divergences
+        ));
+        for (card, c) in &a.shield_per_card {
+            out.push_str(&format!(
+                "| {card} | {} | {} | {} | {} | {} | {} |\n",
+                c.shielded_entities,
+                c.shield_ticks,
+                pct(c.shield_match, c.shield_ticks),
+                c.shield_abs_delta,
+                c.shield_unread,
+                c.shield_sim_only
+            ));
+        }
+        out.push_str("\n| fixture | tick | side | card | truth | engine |\n|---|---|---|---|---|---|\n");
+        for r in reports.iter().filter(|r| r.playable) {
+            if let Some(d) = &r.shield_first_divergence {
+                out.push_str(&format!("| {} | {} | {} | {} | {} | {} |\n", r.fixture, d.tick, d.side, d.card, d.truth, d.sim));
+            }
         }
     }
     out.push_str("\n#### unplayable\n\n| fixture | why |\n|---|---|\n");

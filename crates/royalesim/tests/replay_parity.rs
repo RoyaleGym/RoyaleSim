@@ -26,6 +26,13 @@
 //!                dummies as the Goblin Barrel (plant: replay_decoy_unrooted); a truth entity with
 //!                no hitpoints (a visual dummy) takes no pair (plant: replay_pairs_a_dummy); a hero's display twin
 //!                (role "display") is neither paired nor scored (plant: replay_scores_display_twins).
+//!   the shield   a fixture without a shield column scores the shield axis ABSENT (null, not 0; plant:
+//!                replay_shield_absent_reads_zero); a column on the sample's Dark Prince is its own axis: the
+//!                score, the per-card rows, the pairs and the first divergence do not move (plants:
+//!                replay_shield_scored_into_hp, replay_shield_sets_first_divergence), a null frame is unread,
+//!                not scored (plant: replay_shield_unread_scored), one frame off by one is one miss and the
+//!                shield first divergence, and an all-zero column is scored; a column that does not decode to
+//!                its frames, or one without its max_shield, is refused.
 //!   the floor    the ISOLATED-WALK unit-ticks within WALK_TIGHT_NATIVE (20 native:
 //!                a unit walking at a tower with full hp, bit-exact) -- measured at
 //!                100 % for the Prince (92 frames, charge included),
@@ -403,6 +410,121 @@ fn the_replay_is_deterministic() {
     assert_eq!(a.score, b.score);
     assert_eq!(serde_json::to_string(&a.first_divergence).unwrap(), serde_json::to_string(&b.first_divergence).unwrap());
     assert_eq!(a.pairs.len(), b.pairs.len());
+    // the shield axis too, on a fixture that carries it (an all-zero column on the Dark Prince is scored)
+    let n = f.truth.as_ref().expect("the truth").entities.iter().find(|e| e.key == 8).expect("the Dark Prince").n;
+    let g = with_shield(&vec![Some(0); n], 1);
+    let (a, b) = (play(&g), play(&g));
+    assert!(a.shield.as_ref().is_some_and(|s| s.shield_ticks > 0), "{:?}", a.shield);
+    assert_eq!((&a.shield, &a.shield_per_card), (&b.shield, &b.shield_per_card));
+    assert_eq!(serde_json::to_string(&a.shield_first_divergence).unwrap(), serde_json::to_string(&b.shield_first_divergence).unwrap());
+}
+
+// -- THE SHIELD AXIS (the maker's A SHIELD; harness `ShieldScore`): its own counters and first divergence, never hp.
+
+/// The sample's Dark Prince (truth key 8) given a shield column: one value per frame of its run (None: null) and its
+/// full shield `max`.
+fn with_shield(values: &[Option<i64>], max: i32) -> Fixture {
+    let mut f = sample();
+    let e = f.truth.as_mut().expect("the truth").entities.iter_mut().find(|e| e.key == 8).expect("the Dark Prince");
+    assert_eq!(values.len(), e.n, "one value per frame of its run");
+    let mut col: Vec<serde_json::Value> = Vec::new();
+    for v in values {
+        let v = v.map_or(serde_json::Value::Null, serde_json::Value::from);
+        match col.len() {
+            l if l >= 2 && col[l - 2] == v => col[l - 1] = serde_json::Value::from(col[l - 1].as_u64().unwrap() + 1),
+            _ => col.extend([v, serde_json::Value::from(1u64)]),
+        }
+    }
+    e.max_shield = Some(max);
+    e.shield = Some(col);
+    f
+}
+
+fn traced(f: &Fixture) -> Report {
+    replay(f, &common::cards(), &register(), &Options { trace: true, ..Options::default() }).expect("the sample replays")
+}
+
+#[test]
+fn a_fixture_without_a_shield_column_scores_the_shield_axis_absent() {
+    let r = play(&sample());
+    assert!(r.shield.is_none() && r.shield_first_divergence.is_none() && r.shield_per_card.is_empty(), "{:?}", r.shield);
+    let v = serde_json::to_value(&r).expect("the report serializes");
+    assert!(v.get("shield").is_some_and(|s| s.is_null()), "absent is null, not 0: {:?}", v.get("shield"));
+    assert!(render_fixture_markdown(&r).contains("shield: absent"));
+}
+
+#[test]
+fn a_shield_column_is_its_own_axis_and_moves_no_other_number() {
+    let base = play(&sample());
+    let truth = sample().truth.expect("the truth");
+    let e = truth.entities.iter().find(|e| e.key == 8).expect("the Dark Prince").clone();
+    let same = |r: &Report, what: &str| {
+        assert_eq!(r.score, base.score, "{what}: the score");
+        assert_eq!(r.score_no_towers, base.score_no_towers, "{what}: the score without towers");
+        assert_eq!(r.per_card, base.per_card, "{what}: the per-card scores");
+        assert_eq!(serde_json::to_string(&r.first_divergence).unwrap(), serde_json::to_string(&base.first_divergence).unwrap(), "{what}: the first divergence");
+        assert_eq!(r.pairs.len(), base.pairs.len(), "{what}: the pairs");
+    };
+    // (b) an all-null column: present, nothing scored, every both-alive frame unread; the engine's shield read off the trace
+    let r = traced(&with_shield(&vec![None; e.n], 1));
+    same(&r, "all null");
+    let s = r.shield.clone().expect("a column makes the axis present");
+    assert_eq!(s.shield_ticks, 0, "a null frame is unread, not scored");
+    assert!(s.shield_unread > 0);
+    let rows: std::collections::BTreeMap<u32, (bool, i32)> = r
+        .trace
+        .iter()
+        .filter(|row| row.key == 8)
+        .filter_map(|row| row.sim_shield.map(|v| (row.tick, (row.truth.is_some() && row.sim.is_some(), v))))
+        .collect();
+    let engine: Vec<Option<i64>> = (0..e.n).map(|i| rows.get(&truth.ticks[e.t0 + i]).map(|(_, v)| *v as i64)).collect();
+    assert!(engine.iter().flatten().any(|v| *v > 0), "the scene drifted: the engine's Dark Prince carries no shield");
+    let full = engine.iter().flatten().copied().max().unwrap() as i32;
+    // (c) the engine's own values: every scored frame exact, no shield divergence
+    let r = play(&with_shield(&engine, full));
+    same(&r, "the engine's values");
+    let s = r.shield.clone().expect("present");
+    assert!(s.shield_ticks > 0 && s.shield_match == s.shield_ticks, "{s:?}");
+    assert!(r.shield_first_divergence.is_none());
+    // (d) one both-alive frame off by one: one miss, and the shield first divergence on that frame
+    let i = (0..e.n).find(|i| rows.get(&truth.ticks[e.t0 + i]).is_some_and(|(both, _)| *both)).expect("a both-alive frame");
+    let mut off = engine.clone();
+    off[i] = off[i].map(|v| v + 1);
+    let r = play(&with_shield(&off, full));
+    same(&r, "one frame off");
+    let s = r.shield.clone().expect("present");
+    assert_eq!(s.shield_match, s.shield_ticks - 1);
+    let d = r.shield_first_divergence.as_ref().expect("a shield divergence");
+    assert_eq!((d.tick, d.truth_key), (truth.ticks[e.t0 + i], 8));
+    s.consistent().expect("the shield counters");
+    let mut sum = ShieldScore::default();
+    for c in r.shield_per_card.values() {
+        c.consistent().expect("a card's shield counters");
+        sum.add(c);
+    }
+    assert_eq!(sum, s, "the per-card shield rows sum to the battle's");
+    assert!(render_fixture_markdown(&r).contains("first shield divergence"));
+    // (e) all zeros: present and scored, 0 is not absent
+    let r = play(&with_shield(&vec![Some(0); e.n], full));
+    same(&r, "all zeros");
+    let s = r.shield.clone().expect("present");
+    assert!(s.shield_ticks > 0 && s.shield_match < s.shield_ticks, "{s:?}");
+}
+
+#[test]
+fn a_shield_column_that_does_not_decode_to_its_frames_is_refused() {
+    let mut f = sample();
+    let e = f.truth.as_mut().expect("the truth").entities.iter_mut().find(|e| e.key == 8).expect("the Dark Prince");
+    let n = e.n as u64;
+    e.max_shield = Some(300);
+    e.shield = Some(vec![serde_json::Value::from(300), serde_json::Value::from(n + 1)]);
+    let err = replay(&f, &common::cards(), &register(), &Options::default()).expect_err("refused");
+    assert!(err.contains("decodes to"), "{err}");
+    let mut g = sample();
+    let e = g.truth.as_mut().expect("the truth").entities.iter_mut().find(|e| e.key == 8).expect("the Dark Prince");
+    e.shield = Some(vec![serde_json::Value::from(300), serde_json::Value::from(n)]);
+    let err = replay(&g, &common::cards(), &register(), &Options::default()).expect_err("refused");
+    assert!(err.contains("max_shield"), "{err}");
 }
 
 #[test]

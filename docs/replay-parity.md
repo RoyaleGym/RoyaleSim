@@ -43,6 +43,12 @@ own integer path or it is not.
 Towers are scored too and they are easy: they do not move. Every headline number below is the
 **no-towers** row, which is the one that says whether the engine plays the game.
 
+A unit with a shield (the Royal Recruits, the Dark Prince, the Hero Knight) can carry a
+**shield** column in the truth: the shield hitpoints left on each frame. It is scored on its own,
+each frame exact or not, with its own first divergence. It never counts in the hitpoints column
+or in the first divergence above. A battle whose truth has no shield column shows the shield as
+absent, not as 0.
+
 ## 2. The corpus and the run
 
 | | |
