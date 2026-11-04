@@ -2351,6 +2351,16 @@ impl Battle {
         Ok(self.s()?.mirror_target(t).map_or(-1, |i| self.id_of_idx.get(i as usize).copied().unwrap_or(-1)))
     }
 
+    /// SNIPES: `(uid, snipes_left)` for every living Evo Musketeer (state.rs `snipes_left`): 0 once she has fired her
+    /// AmmoCount, and for one `spawns` put down. A hero's charge is each player's `abilities` row in `state_json`.
+    fn snipe_states(&self) -> PyResult<Vec<(i64, i32)>> {
+        let s = self.s()?;
+        Ok(s.snipes_left()
+            .into_iter()
+            .filter_map(|(id, left)| s.entity(id).map(|e| ((e.team_seq as i64) * 2 + e.team as i64, i32::from(left))))
+            .collect())
+    }
+
     /// HIDE (Tesla): the protocol uids of every live entity that is
     /// under ground right now (entity.rs `HideState::Hidden`: untargetable and, under
     /// calibration hide.HIDDEN_IMMUNE_TO_DAMAGE, immune). The same state is bit 2 of each

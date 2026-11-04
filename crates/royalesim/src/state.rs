@@ -35877,6 +35877,15 @@ impl BattleState {
         card == form || self.cfg.cards.button_unit(form) == Some(card) || self.cfg.cards.spent_unit(form) == Some(card)
     }
 
+    /// EACH LIVING EVO MUSKETEER'S SNIPES LEFT (AmmoCount less those fired; `evo_created`, `snipe_pass`), in slot
+    /// order: 0 once spent, and for one a setup spawn put down, which stands as if played earlier.
+    pub fn snipes_left(&self) -> Vec<(EntityId, u8)> {
+        self.entities()
+            .filter(|e| self.cfg.cards.get(e.card_idx).evo.as_ref().is_some_and(|v| v.snipe.is_some()))
+            .map(|e| (e.id, self.evo.snipers.iter().find(|(m, _, _)| *m == e.id).map_or(0, |s| s.1)))
+            .collect()
+    }
+
     /// EVERY ABILITY BUTTON OF `team`, in button order (`AbilityButton`).
     pub fn ability_buttons(&self, team: Team) -> Vec<AbilityButton> {
         let p = &self.players[team as usize];

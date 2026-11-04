@@ -213,6 +213,7 @@ fn snipes_put(copy: bool) -> usize {
     let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
     let her = [(Team::Blue, "Musketeer_EV1", n(5499, 5500), None, None)];
     let id = if copy { s.scenario_spawn_copy(&her) } else { s.scenario_spawn_batch_levels(&her) }.expect("the Musketeer")[0];
+    assert_eq!(s.snipes_left(), vec![(id, if copy { 3 } else { 0 })], "her snipes left as she is put down");
     s.scenario_spawn_now(Team::Red, "Giant", n(3499, 17499), None).expect("the Giant");
     let mut snipes = 0;
     for _ in 0..260 {
@@ -223,6 +224,7 @@ fn snipes_put(copy: bool) -> usize {
             snipes += usize::from(shot.speed / mult == 2650);
         }
     }
+    assert_eq!(s.snipes_left().first().map(|(_, k)| *k), Some(0), "spent at the end ({snipes} fired)");
     snipes
 }
 

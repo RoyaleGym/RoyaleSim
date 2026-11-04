@@ -59,6 +59,7 @@ def test_a_form_goes_down_as_a_deck_names_it_or_by_its_records_name():
         (e,) = units(b)
         assert unit_types(b)[e[F["unit_type"]]] == "Musketeer_EV1", (name, form)
         assert e[F["card_id"]] == MUSKETEER, f"{name}: the evolved Musketeer reads under the Musketeer"
+        assert b.snipe_states() == [(e[F["uid"]], 3)], "put down as just played: all three snipes left"
 
 
 @pytest.mark.parametrize(("unit", "form", "why"), [
