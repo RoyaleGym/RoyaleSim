@@ -12662,6 +12662,10 @@ pub fn whole_ticks_ms(ms: i32, tick_ms: i32) -> i32 {
 /// P + 62 (HitSpeed 1500, HitSpeedOffset 1450), the last one after a golem that died on P + 52.
 pub const ABILITY_AREA_FIRST_UPDATE_TICKS: i32 = 1;
 
+/// One spec of a spawn batch at a unified level (`scenario_spawn_batch_levels`, `scenario_spawn_copy`): its side, its
+/// record's name, its point, its hp (None: full) and its level (None: its deck entry's).
+pub type LevelledSpawn<'a> = (Team, &'a str, Vec2, Option<i32>, Option<i32>);
+
 /// Why a deploy was refused.
 ///
 /// The position variants say WHY, in the order `check_deploy` tests them, and
@@ -37613,7 +37617,7 @@ impl BattleState {
     ///
     /// Returns ids in INPUT order. Plant: setup_spawn_list_order.
     pub fn scenario_spawn_batch(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>)]) -> Result<Vec<EntityId>, (usize, DeployError)> {
-        let with: Vec<(Team, &str, Vec2, Option<i32>, Option<i32>)> = spawns.iter().map(|&(t, n, p, h)| (t, n, p, h, None)).collect();
+        let with: Vec<LevelledSpawn> = spawns.iter().map(|&(t, n, p, h)| (t, n, p, h, None)).collect();
         self.scenario_spawn_batch_levels(&with)
     }
 
@@ -37621,7 +37625,7 @@ impl BattleState {
     /// battle under way puts each unit down at the level it had, a summoned or death-spawned unit (a Golemite, a Battle
     /// Ram's Barbarian) by its own record's name at its root card's level. The canonical order's key ends with the
     /// level, so two specs that differ in it alone keep a list-independent order.
-    pub fn scenario_spawn_batch_levels(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>, Option<i32>)]) -> Result<Vec<EntityId>, (usize, DeployError)> {
+    pub fn scenario_spawn_batch_levels(&mut self, spawns: &[LevelledSpawn]) -> Result<Vec<EntityId>, (usize, DeployError)> {
         self.spawn_batch(spawns, false)
     }
 
@@ -37633,12 +37637,12 @@ impl BattleState {
     /// Skeletons); a Spectral among them hangs its Invisible buff, as one made. Its play's creation blows are not cast
     /// either (the Evo Tesla's ring). A record whose state has no fresh value is refused (card.rs `copy_refusal`: a
     /// hero's record a press makes, the Hero Tombstone's waiting monster, the Evo Lumberjack's ghost).
-    pub fn scenario_spawn_copy(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>, Option<i32>)]) -> Result<Vec<EntityId>, (usize, DeployError)> {
+    pub fn scenario_spawn_copy(&mut self, spawns: &[LevelledSpawn]) -> Result<Vec<EntityId>, (usize, DeployError)> {
         self.spawn_batch(spawns, true)
     }
 
     /// `scenario_spawn_batch_levels` and `scenario_spawn_copy` (`fresh`).
-    fn spawn_batch(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>, Option<i32>)], fresh: bool) -> Result<Vec<EntityId>, (usize, DeployError)> {
+    fn spawn_batch(&mut self, spawns: &[LevelledSpawn], fresh: bool) -> Result<Vec<EntityId>, (usize, DeployError)> {
         let mut checked = Vec::with_capacity(spawns.len());
         for (k, &(team, name, pos, hp, level)) in spawns.iter().enumerate() {
             let (idx, full_hp) = self.setup_spawn_check(team, name, pos, level).map_err(|e| (k, e))?;

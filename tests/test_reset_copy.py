@@ -23,8 +23,8 @@ royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
-CARDS = ["Golem", "Knight", "BabyDragon", "Fireball", "Zap", "Log", "Snowball", "Ghost", "Musketeer", "Mirror"]
-GOLEM, KNIGHT, DRAGON, FIREBALL, ZAP, LOG, SNOWBALL, GHOST, MUSKETEER, MIRROR = range(10)
+CARDS = ["Golem", "Knight", "BabyDragon", "Fireball", "Zap", "Log", "Snowball", "GoblinGiant", "Musketeer", "Mirror"]
+GOLEM, KNIGHT, DRAGON, FIREBALL, ZAP, LOG, SNOWBALL, GOBLIN_GIANT, MUSKETEER, MIRROR = range(10)
 #: Blue's deck (the Baby Dragon in slot 2, evolved when `forms` says so) and Red's.
 DECKS = [[GOLEM, KNIGHT, DRAGON, FIREBALL, ZAP, MIRROR, KNIGHT, KNIGHT], [KNIGHT] * 8]
 
@@ -67,7 +67,7 @@ def test_a_form_goes_down_as_a_deck_names_it_or_by_its_records_name():
     ("Musketeer_EV1", 2, "is a form 1 record, not form 2"),
     ("Golem", 2, "has no form 2"),
     ("Musketeer", 7, "unknown form 7"),
-    ("GhostOverlay", 0, "a rider is not put down alone"),
+    ("SpearGoblinGiant", 0, "a rider is not put down alone"),
     ("MusketeerTurret", 2, "a hero's press makes it"),
 ])
 def test_a_unit_that_cannot_stand_alone_is_refused(unit, form, why):
@@ -77,19 +77,20 @@ def test_a_unit_that_cannot_stand_alone_is_refused(unit, form, why):
 
 def test_a_copys_builder_can_ask_each_units_kind_first():
     b = battle()
-    asks = [("Knight", 0), ("Golemite", 0), ("Musketeer", 1), ("Musketeer_EV1", 0), ("Musketeer", 2), ("GhostOverlay", 0),
-            ("MusketeerTurret", 0), ("Fireball", 0)]
-    assert [b.unit_spawn_kind(*a) for a in asks] == ["stands", "stands", "fresh", "fresh", "fresh", "rider", "by_press",
-                                                     "not_a_unit"]
+    asks = [("Knight", 0), ("Golemite", 0), ("Musketeer", 1), ("Musketeer_EV1", 0), ("Musketeer", 2),
+            ("SpearGoblinGiant", 0), ("MusketeerTurret", 0), ("Fireball", 0)]
+    assert [b.unit_spawn_kind(*a) for a in asks] == ["stands", "stands", "fresh", "fresh", "fresh", "rider",
+                                                     "by_press", "not_a_unit"]
     knights = royalesim.Battle(["Knight"], [[0, 1, 2], [0, 1, 2]])
-    assert knights.unit_spawn_kind("Golemite") == "not_in_catalogue"
+    # a record's name and a unit row's unit_type name alike (the Minions card's Minion names no record)
+    assert [knights.unit_spawn_kind(n) for n in ("Golemite", "Minion")] == ["not_in_catalogue"] * 2
     with pytest.raises(ValueError, match="is a form 2 record, not form 1"):
         b.unit_spawn_kind("MusketeerTurret", 1)
 
 
 def test_a_unit_rows_unit_type_name_puts_it_back():
-    # a hero form's unit_type is its unit name (KnightHero), not its record's (Knight_hero); a Skeletons card's skeleton's
-    # is Skeleton, which names no unit this catalogue puts down but the card's own
+    # a hero form's unit_type is its unit name (KnightHero), not its record's (Knight_hero); a Skeletons card's
+    # skeleton's is Skeleton, which names no unit this catalogue puts down but the card's own
     def put(cards, decks, spawns=(), unit_spawns=()):
         b = royalesim.Battle(cards, [[0, 1, 2], [0, 1, 2]])
         b.reset(0, decks, 0, 200, [10_000, 10_000], None, list(spawns), unit_spawns=list(unit_spawns))

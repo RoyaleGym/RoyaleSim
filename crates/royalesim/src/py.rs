@@ -146,7 +146,7 @@ use crate::card::{CardDb, CardKind, UnitRef, KING_TOWER, PRINCESS_TOWER};
 use crate::entity::EntityKind;
 use crate::fixed::Vec2;
 use crate::spell::SpellMotion;
-use crate::state::{deploy_rule, BattleConfig, BattleState, Calib, DeployError, Outcome, SpawnPathfindDestination, ABILITY_BUTTONS, HAND_SIZE};
+use crate::state::{deploy_rule, BattleConfig, BattleState, Calib, DeployError, LevelledSpawn, Outcome, SpawnPathfindDestination, ABILITY_BUTTONS, HAND_SIZE};
 use crate::{Rng, Team};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -597,7 +597,9 @@ pub fn spell_form(cards: &CardDb, idx: u16) -> i32 {
 /// `form_card`), named by the card or by the form's record (card.rs `record_form`). `name` is a record's name, or a
 /// unit row's `unit_type` name (`unit_types_json`, a record's `unit_name`: the Hero Knight's KnightHero, the Skeletons
 /// card's Skeleton): a record of that name that a catalogue card puts down (`id_of_idx`), else the one record with that
-/// unit name a catalogue card puts down, the catalogue's own card first. Several such records are refused by name.
+/// unit name a catalogue card puts down, the catalogue's own card first. Several such records are refused by name. A
+/// unit name that only records no catalogue card puts down carry names the first of them, so `unit_spawn_kind` reads it
+/// as not_in_catalogue (the Minions card's Minion where the catalogue has no Minions) and `reset` refuses it as one.
 pub fn copy_record(cards: &CardDb, catalogue: &[u16], id_of_idx: &[i32], name: &str, form: u8) -> Result<u16, String> {
     if form > 2 {
         return Err(format!("unit spawn {name}: unknown form {form} (0 the record named, 1 an evolution's, 2 a hero's)"));
@@ -611,7 +613,10 @@ pub fn copy_record(cards: &CardDb, catalogue: &[u16], id_of_idx: &[i32], name: &
             match (own.as_slice(), by_unit.as_slice(), named) {
                 ([i], _, _) | ([], [i], _) => *i,
                 ([], [], Some(i)) => i,
-                ([], [], None) => return Err(format!("unit spawn {name}: no such record in this battle's card table")),
+                ([], [], None) => match (0..cards.cards.len() as u16).find(|&i| cards.get(i).unit_name == name) {
+                    Some(i) => i,
+                    None => return Err(format!("unit spawn {name}: no such record in this battle's card table")),
+                },
                 _ => {
                     let all: Vec<&str> = by_unit.iter().map(|i| cards.get(*i).name.as_str()).collect();
                     return Err(format!("unit spawn {name}: names several records ({}): name one", all.join(", ")));
@@ -708,6 +713,12 @@ pub type CommandOutcome = (i32, u8, u32, i32, i32);
 pub type Command = (i64, i64, i32, i32);
 /// A waiting command as `pending_commands` returns it: (kind, what, x, y, ticks left, cost).
 pub type PendingRow = (String, i64, i32, i32, u32, i32);
+/// A `reset` `unit_spawns` entry: (unit, team, x, y, hp or -1, level or -1, form).
+pub type UnitSpawn = (String, i64, i32, i32, i32, i32, u8);
+/// A `reset` `spells_in_flight` entry: (card_id, form, team, x, y, aim_x, aim_y, level or -1, delay_ms).
+pub type SpellInFlight = (i64, u8, i64, i32, i32, i32, i32, i32, i32);
+/// A `spawns` or `unit_spawns` entry as `reset` hands it to the engine: (team, record name, point, hp, level).
+type OwnedSpawn = (Team, String, Vec2, Option<i32>, Option<i32>);
 
 pub fn apply_commands(
     s: &mut BattleState,
@@ -1965,8 +1976,8 @@ impl Battle {
         tower_levels: Option<Vec<i32>>,
         king_wake_ms: Option<Vec<i32>>,
         evo_counts: Option<Vec<Vec<u8>>>,
-        unit_spawns: Option<Vec<(String, i64, i32, i32, i32, i32, u8)>>,
-        spells_in_flight: Option<Vec<(i64, u8, i64, i32, i32, i32, i32, i32, i32)>>,
+        unit_spawns: Option<Vec<UnitSpawn>>,
+        spells_in_flight: Option<Vec<SpellInFlight>>,
         last_played: Option<Vec<i64>>,
     ) -> PyResult<()> {
         if decks.len() != 2 {
@@ -2075,7 +2086,7 @@ impl Battle {
         }
         // One batch, so the engine spawns in its canonical order and the LIST
         // order cannot reach team_seq (state.rs `scenario_spawn_batch`).
-        let mut specs: Vec<(Team, String, Vec2, Option<i32>, Option<i32>)> = Vec::with_capacity(spawns.len());
+        let mut specs: Vec<OwnedSpawn> = Vec::with_capacity(spawns.len());
         for &(team, cid, x, y, hp) in &spawns {
             let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("bad spawn team {team}")))?;
             specs.push((t, name_of(cid)?, Vec2::new(x, y), (hp >= 0).then_some(hp), None));
@@ -2094,7 +2105,7 @@ impl Battle {
             }
             specs.push((t, self.cards.get(i).name.clone(), Vec2::new(x, y), (hp >= 0).then_some(hp), (level >= 0).then_some(level)));
         }
-        let refs: Vec<(Team, &str, Vec2, Option<i32>, Option<i32>)> = specs.iter().map(|(t, n, p, h, l)| (*t, n.as_str(), *p, *h, *l)).collect();
+        let refs: Vec<LevelledSpawn> = specs.iter().map(|(t, n, p, h, l)| (*t, n.as_str(), *p, *h, *l)).collect();
         // `spawns` names catalogue cards only, which no form's start reaches, so one batch takes both lists.
         s.scenario_spawn_copy(&refs).map_err(|(k, e)| {
             let (_, name, p, _, _) = refs[k];
@@ -2355,7 +2366,7 @@ impl Battle {
     /// down as it is), "fresh" (an evolved or hero form's, put down with its form's state at a fresh unit's), or why it
     /// is refused: "by_press" (a hero's press makes it: the Hero Musketeer's turret, the Hero Bowler's siege),
     /// "by_its_tomb" (the Hero Tombstone's waiting monster: put the tomb down), "by_death" (the Evo Lumberjack's ghost,
-    /// which only its Rage ends), "rider" (its mount makes it),
+    /// which only its Rage ends), "rider" (its mount makes it: the Goblin Giant's Spear Goblins),
     /// "not_in_catalogue" (no card of this Battle's catalogue puts it on the board) or "not_a_unit" (a spell's record).
     /// A copy's builder asks first and leaves out what is refused.
     #[pyo3(signature = (name, form = 0))]
