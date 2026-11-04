@@ -53,17 +53,17 @@ def unit_types(b) -> list:
     return json.loads(b.unit_types_json())
 
 
-def test_a_form_goes_down_as_a_deck_names_it_or_as_its_row_reads_it():
-    for name in ("Musketeer", "Musketeer_EV1"):
-        b = battle(unit_spawns=[(name, 0, 9000 * SUB, 8000 * SUB, -1, -1, 1)])
+def test_a_form_goes_down_as_a_deck_names_it_or_by_its_records_name():
+    for name, form in (("Musketeer", 1), ("Musketeer_EV1", 1), ("Musketeer_EV1", 0)):
+        b = battle(unit_spawns=[(name, 0, 9000 * SUB, 8000 * SUB, -1, -1, form)])
         (e,) = units(b)
-        assert unit_types(b)[e[F["unit_type"]]] == "Musketeer_EV1", name
+        assert unit_types(b)[e[F["unit_type"]]] == "Musketeer_EV1", (name, form)
         assert e[F["card_id"]] == MUSKETEER, f"{name}: the evolved Musketeer reads under the Musketeer"
 
 
 @pytest.mark.parametrize(("unit", "form", "why"), [
     ("NoSuchUnit", 0, "no such record"),
-    ("Musketeer_EV1", 0, "is a form 1 record, not form 0"),
+    ("Musketeer_EV1", 2, "is a form 1 record, not form 2"),
     ("Golem", 2, "has no form 2"),
     ("Musketeer", 7, "unknown form 7"),
     ("GhostOverlay", 0, "a rider is not put down alone"),
@@ -76,14 +76,14 @@ def test_a_unit_that_cannot_stand_alone_is_refused(unit, form, why):
 
 def test_a_copys_builder_can_ask_each_units_kind_first():
     b = battle()
-    asks = [("Knight", 0), ("Golemite", 0), ("Musketeer", 1), ("Musketeer_EV1", 1), ("Musketeer", 2), ("GhostOverlay", 0),
-            ("MusketeerTurret", 2), ("Fireball", 0)]
+    asks = [("Knight", 0), ("Golemite", 0), ("Musketeer", 1), ("Musketeer_EV1", 0), ("Musketeer", 2), ("GhostOverlay", 0),
+            ("MusketeerTurret", 0), ("Fireball", 0)]
     assert [b.unit_spawn_kind(*a) for a in asks] == ["stands", "stands", "fresh", "fresh", "fresh", "rider", "by_press",
                                                      "not_a_unit"]
     knights = royalesim.Battle(["Knight"], [[0, 1, 2], [0, 1, 2]])
     assert knights.unit_spawn_kind("Golemite") == "not_in_catalogue"
-    with pytest.raises(ValueError, match="is a form 1 record, not form 0"):
-        b.unit_spawn_kind("Musketeer_EV1")
+    with pytest.raises(ValueError, match="is a form 2 record, not form 1"):
+        b.unit_spawn_kind("MusketeerTurret", 1)
 
 
 def test_a_unit_no_catalogue_card_puts_down_is_refused():

@@ -592,16 +592,16 @@ pub fn spell_form(cards: &CardDb, idx: u16) -> i32 {
     }
 }
 
-/// THE RECORD A COPY'S UNIT SPAWN NAMES (`Battle.reset`'s `unit_spawns`, `unit_spawn_kind`): `name` the record as
-/// `unit_types_json` names it with its own `form` (card.rs `record_form`), or a card's name with the form to put down
-/// (1 its evolution, 2 its hero form: card.rs `form_card`).
+/// THE RECORD A COPY'S UNIT SPAWN NAMES (`Battle.reset`'s `unit_spawns`, `unit_spawn_kind`): with `form` 0 the record
+/// `name` names, as `unit_types_json` does (a form's own record too); with 1 or 2 a card's form (its evolution, its
+/// hero form: card.rs `form_card`), named by the card or by the form's record (card.rs `record_form`).
 pub fn copy_record(cards: &CardDb, name: &str, form: u8) -> Result<u16, String> {
     if form > 2 {
-        return Err(format!("unit spawn {name}: unknown form {form} (0 plain, 1 an evolution's, 2 a hero's)"));
+        return Err(format!("unit spawn {name}: unknown form {form} (0 the record named, 1 an evolution's, 2 a hero's)"));
     }
     let idx = cards.index(name).ok_or_else(|| format!("unit spawn {name}: no such record in this battle's card table"))?;
     let own = cards.record_form(idx);
-    if own == form {
+    if form == 0 || own == form {
         return Ok(idx);
     }
     match (own, cards.form_card(idx, form)) {
@@ -1920,9 +1920,9 @@ impl Battle {
     /// evolved one (its next play is evolved once the count reaches the form's cycle); 0 for every other card.
     /// `unit_spawns`: (unit, team, x, y, hp or -1, level or -1, form), beside `spawns`: any unit by its record's NAME, a
     /// summoned or death-spawned one included (a Golemite, a Battle Ram's Barbarian, a Witch's Skeleton), standing and
-    /// deployed at that unified level (-1: its deck entry's, else the side's card level). `form` is the record's own,
-    /// as its unit row reads it (0 plain, 1 an evolution's, 2 a hero's: card.rs `record_form`), or a card's name with
-    /// the form to put down (1 its evolution, 2 its hero form), as a deck names it. A form's record stands with its
+    /// deployed at that unified level (-1: its deck entry's, else the side's card level). `form`: 0 the record named, a
+    /// form's own record too (a unit row's `unit_type` name); 1 or 2 a card's evolution or hero form, as a deck names
+    /// it, by the card's name or the form record's (copy_record). A form's record stands with its
     /// form's state at a fresh unit's, as its play leaves it, but for the play's own effects (state.rs
     /// `scenario_spawn_copy`; `unit_spawn_kind` says which records can). Both lists go down in one canonical order.
     /// `spells_in_flight`: (card_id, form, team, x, y, aim_x, aim_y, level or -1, delay_ms): ONE flying object (a

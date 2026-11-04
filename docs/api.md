@@ -56,12 +56,12 @@ own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck c
 
 - `unit_spawns` puts down a unit by its name, a summoned one too (a Golemite, a Witch's Skeleton), each at its own
   level: `(name, team, x, y, hp, level, form)`, with -1 for the default hp and level. The unit must come from a card in
-  the Battle's card list (a Golemite needs the Golem). `form` is 0 for a plain unit, 1 for an evolution's and 2 for a
-  hero's: give the card's name with the form (`"Musketeer"`, 1), or the unit's own name with its form
-  (`"Musketeer_EV1"`, 1). An evolved or hero unit starts as if just played: an Evo Musketeer has all her snipes and a
-  hero has its charge. Its play's own effects are not cast, so an Evo Cannon fires no barrage. Ask
-  `unit_spawn_kind(name, form)` first. `"stands"` and `"fresh"` can be put down. A rider, a spell, a unit a hero's
-  button makes (the Hero Musketeer's turret) and the Hero Tombstone's waiting monster cannot.
+  the Battle's card list (a Golemite needs the Golem). With `form` 0 you get the unit you name, an evolved one too
+  (`"Musketeer_EV1"`). With 1 or 2 you get the card's evolution or hero form (`"Musketeer"`, 1). An evolved or hero
+  unit starts as if just played: an Evo Musketeer has all her snipes and a hero has its charge. Its play's own
+  effects are not cast, so an Evo Cannon fires no barrage. Ask `unit_spawn_kind(name, form)` first. `"stands"` and
+  `"fresh"` can be put down. A rider, a spell, a unit a hero's button makes (the Hero Musketeer's turret) and the
+  Hero Tombstone's waiting monster cannot.
 - `king_wake_ms=[blue, red]` sets each king tower's wake clock: the milliseconds since it was first hit or lost a
   princess tower, or -1. A player row's `king_wake_ms` in `state_json` reads it back.
 - `evo_counts=[blue, red]` gives each evolved deck card's plays since its last evolved one, one count per deck card.
