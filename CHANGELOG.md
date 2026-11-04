@@ -3,6 +3,41 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.45 (2026-11-04)
+
+- Upgrade royalegym to 0.1.27 with this release. Its state reader carries the new columns below; an older royalegym
+  refuses this engine's state rows.
+- `reset` can start from a battle under way. Each new argument is optional, and leaving it out keeps a fresh battle's
+  state:
+  - `unit_spawns` puts down any unit by its name, a summoned one too (a Golemite, a Witch's Skeleton), at its own
+    level: `(name, team, x, y, hp, level, form)`. With `form` 0 you get the unit you name, an evolved or hero one
+    too (`"Musketeer_EV1"`), and a unit row's `unit_type` name works as well, so a unit row puts it back. With 1 or 2
+    you get a card's evolution or hero form (`"Musketeer"`, 1). An evolved or hero unit starts as if just played (an
+    Evo Musketeer has all her snipes, a hero has its charge), but its play's own effects are not cast (an Evo Cannon
+    fires no barrage). `unit_spawn_kind(name, form)` says first whether a unit can be put down: a rider, a unit a
+    hero's button makes, the Hero Tombstone's waiting monster and the Evo Lumberjack's ghost cannot.
+    `snipe_states()` gives each Evo Musketeer's snipes left.
+  - `king_wake_ms` sets each king tower's wake clock, `evo_counts` each evolved card's plays since its last evolved
+    one, and `last_played` the card each side's Mirror would copy.
+  - `spells_in_flight` puts a flying spell object on its way, one Arrows wave per entry. Ask
+    `spell_in_flight_kind(card_id, form)` first: only `"flies"` can be put in flight.
+- `state_json` gains columns, each after the existing ones: a player's `king_wake_ms`, and a spell row's `level` and
+  `form` (0 the card, 1 its evolution, 2 its hero form, 3 an evolution's decoy).
+- A battle saved by another release, or against another card table, is refused with a message that says so.
+- 7 more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A hero's attack keeps loading while it uses its ability (the Skeleton King, Archer Queen, Monk, Boss Bandit,
+    Mighty Miner and the hero forms), unless it is stunned (`combat.PRESS_LOAD_TIMER`).
+  - A unit the Evo Mega Knight throws can be targeted only by air attackers while it flies
+    (`targeting.UPPERCUT_FLIGHT_TARGETABILITY`).
+  - The Little Prince's guard's charge also hits enemy buildings in its path (`combat.GUARD_CHARGE_BUILDINGS`).
+  - Units knocked back by the Mega Knight's jump start moving a tick earlier when they were placed after him
+    (`combat.DASH_PUSHBACK`).
+  - The Giant Skeleton's death bomb pushes units back (`knockback.DEATH_PUSHBACK`).
+  - A unit the Fisherman drags onto the river is set down on the nearest land (`combat.HOOK_WATER_LANDING`).
+  - A Bandit, Boss Bandit or Mega Knight stops pushing units the moment its dash starts (`combat.DASH_START_CONTACT`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles.
+
 ## 0.1.44 (2026-11-04)
 
 - The Evo Giant runs on the 16.635 table (`cards.CARD_TABLE` `"client160635007_20261103"`). Below half its
