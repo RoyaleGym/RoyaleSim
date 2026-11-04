@@ -122,6 +122,31 @@ def test_a_fireball_on_its_flight_lands():
         battle(spells_in_flight=[(SNOWBALL, 1, 0, 9000 * SUB, 22000 * SUB, 9000 * SUB, 22000 * SUB, -1, 0)])
 
 
+SP = {name: i for i, name in enumerate(royalesim.SPELL_FIELDS)}
+
+
+def spell_rows(b) -> list:
+    return json.loads(b.state_json())["spells"]
+
+
+def test_a_spell_row_says_its_level_and_form():
+    assert list(royalesim.SPELL_FIELDS[-3:]) == ["ticks_flown", "level", "form"], "the newer columns come last"
+    b = battle(spells_in_flight=[(FIREBALL, 0, 0, 9000 * SUB, 19000 * SUB, 9000 * SUB, 22000 * SUB, 9, 0)])
+    (row,) = spell_rows(b)
+    assert (row[SP["level"]], row[SP["form"]]) == (9, 0), "the level given; the card itself"
+    # an evolved Giant Snowball played from the hand: its objects read form 1, under the base card's id
+    deck = [SNOWBALL, KNIGHT, KNIGHT, KNIGHT, KNIGHT, KNIGHT, KNIGHT, KNIGHT]
+    e = royalesim.Battle(CARDS, [[0, 1, 2], [0, 1, 2]])
+    e.reset(0, [deck, [KNIGHT] * 8], 0, 200, [10_000, 10_000], None, [], forms=[[1] + [0] * 7, []],
+            evo_counts=[[2] + [0] * 7, []])
+    e.step([(0, 0, 9500 * SUB, 22500 * SUB)], 1)
+    forms = set()
+    for _ in range(40):
+        forms |= {(r[SP["card_id"]], r[SP["form"]]) for r in spell_rows(e)}
+        e.step([], 1)
+    assert (SNOWBALL, 1) in forms, f"the evolved Snowball's objects: {sorted(forms)}"
+
+
 def test_a_copys_builder_can_ask_what_flies_first():
     b = battle()
     kinds = [b.spell_in_flight_kind(c) for c in (FIREBALL, SNOWBALL, LOG, ZAP, KNIGHT)]

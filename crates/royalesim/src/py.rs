@@ -87,9 +87,12 @@
 //!     ladder still runs, `knock_ticks_left`); and a top-level "spells" array, one row per live spell object (a
 //!     spell card's, and every area, bomb or blow a unit or a form makes: an evolution's effects, a death bomb, a
 //!     deploy blow, a hero's ability), each under the card whose play made it, of rows
-//!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits, ticks_flown]
+//!         [team, card_id, motion, x, y, aim_x, aim_y, delay_ticks, travelled, length, hits, ticks_flown, level, form]
 //!     ticks_flown: for a FLIGHT spell, the ticks it has moved (0 while it waits out delay_ticks); 0 for every other
-//!     motion. The column is last, so a reader of the first eleven keeps working.
+//!     motion. level: the object's unified level (a Mirror's copy one above its deck entry). form: the record that
+//!     made it, coded as a deck's forms are (`spell_form`): 0 the card itself, 1 its evolution (the Evo Firecracker's
+//!     fireworks, the Evo Giant Snowball's capture), 2 its hero form (a hero ability's areas), 3 an evolution's decoy
+//!     (the Evo Goblin Barrel's). The newer columns are last, so a reader of the first ones keeps working.
 //!     motion 0 flight / 1 airborne (the Log before it lands) / 2 rolling / 3 area
 //!     effect; (x, y) the current centre; aim the landing point (flight, airborne) or
 //!     the roll's end point (rolling) or the centre (area); distances in subtiles.
@@ -397,7 +400,7 @@ pub const PROJECTILE_FIELDS: [&str; 8] = ["team", "x", "y", "aim_x", "aim_y", "t
 /// THE SPELL ROW'S FIELDS, in `state_json`'s order (its `spells` key), named as protocol.py
 /// `SpellState` names them. Same reason as ENTITY_FIELDS: a spell column added here and not
 /// there would otherwise be dropped without a word. Pinned to the serializer by a test here.
-pub const SPELL_FIELDS: [&str; 12] = ["team", "card_id", "motion", "x", "y", "aim_x", "aim_y", "delay_ticks", "travelled", "length", "hits", "ticks_flown"];
+pub const SPELL_FIELDS: [&str; 14] = ["team", "card_id", "motion", "x", "y", "aim_x", "aim_y", "delay_ticks", "travelled", "length", "hits", "ticks_flown", "level", "form"];
 
 /// THE SPELL MOTIONS BY NAME, index = the `motion` code a spell row carries, named as
 /// protocol.py `SpellMotion` names them, so a decoder refuses a code it has no name for at
@@ -572,6 +575,21 @@ fn command_row(tick: u32, r: &crate::state::CommandRun, id_of_idx: &[i32]) -> (u
         crate::state::CommandKind::Ability { button } => ("ability", (HAND_SIZE + button) as i64),
     };
     (tick, r.command.team as i64, kind.to_string(), what, reason_of(&r.result.clone().map(|_| ())))
+}
+
+/// THE FORM OF A SPELL OBJECT'S RECORD, coded as a deck's forms are (`spells_in_flight`'s form, a spell row's last
+/// column): 1 an evolution's record (card.rs `is_form`), 2 a hero record (`is_hero_record`), 3 an evolution's decoy
+/// (`EvoDef::mirror`), 0 every other record (the card itself).
+pub fn spell_form(cards: &CardDb, idx: u16) -> i32 {
+    if cards.is_form(idx) {
+        1
+    } else if cards.is_hero_record(idx) {
+        2
+    } else if cards.cards.iter().any(|c| c.evo.as_ref().and_then(|v| v.mirror) == Some(idx)) {
+        3
+    } else {
+        0
+    }
 }
 
 /// The record a flying object of catalogue card `card_id` with `form` is (`Battle.reset`'s `spells_in_flight`): the
@@ -1332,7 +1350,7 @@ pub fn state_json_text_with(
         };
         let _ = write!(
             o,
-            "[{},{card_id},{motion},{},{},{},{},{},{travelled},{len},{hits},{}]",
+            "[{},{card_id},{motion},{},{},{},{},{},{travelled},{len},{hits},{},{},{}]",
             sp.team as u8,
             pos.x,
             pos.y,
@@ -1340,6 +1358,8 @@ pub fn state_json_text_with(
             aim.y,
             ceil_div(delay_ms.max(0) as i64, tick_ms),
             if motion == MOTION_FLIGHT { sp.flown } else { 0 },
+            sp.level,
+            spell_form(s.cards(), sp.card),
         );
     }
     // PROJECTILE_FIELDS, one row per projectile in flight.
