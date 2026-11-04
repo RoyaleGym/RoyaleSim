@@ -14924,6 +14924,46 @@ impl CardDb {
         })
     }
 
+    /// THE FORM OF A BOARD RECORD, coded as a deck's forms are (a unit row's `form`, py.rs; `unit_spawns`): 1 an
+    /// evolution's own record (`is_evo_record`: the form's row or a row only the form puts down), 2 a record the hero
+    /// pass loads (`is_hero_record`: a hero form's row or a unit its button makes), 0 every other record.
+    pub fn record_form(&self, idx: u16) -> u8 {
+        if self.is_evo_record(idx) {
+            1
+        } else if self.is_hero_record(idx) {
+            2
+        } else {
+            0
+        }
+    }
+
+    /// WHY A COPY OF A BATTLE UNDER WAY CANNOT PUT RECORD `idx` DOWN ALONE with its form's state at a fresh unit's
+    /// (state.rs `scenario_spawn_copy`), as (kind, why), or None when it can. An evolution's records all can: what a
+    /// play of the form starts on them has a fresh value (its snipes full, its spear held, no captive, its counts at
+    /// 0). A hero's can when its play makes them: the form's row and the unit that holds its charge (the Hero
+    /// Goblins' flag, the Hero Barbarian Barrel's Barbarian). The rest of a hero's records cannot:
+    ///   - "by_its_tomb": the Hero Tombstone's waiting monster, which its tomb puts down with it;
+    ///   - "by_press": a record a press makes or turns the hero into (the Hero Musketeer's turret, the Hero Bowler's
+    ///     siege, the Hero Dark Prince's walk, the active tomb monster), whose state is the press's.
+    pub fn copy_refusal(&self, idx: u16) -> Option<(&'static str, &'static str)> {
+        if !self.is_hero_record(idx) || self.hero_forms.iter().any(|(_, f)| *f == idx) {
+            return None;
+        }
+        let made_by_play = self.hero_forms.iter().any(|&(_, f)| match self.get(f).ability.as_ref().map(|a| &a.effect) {
+            Some(AbilityEffect::FlagSpawns(d)) => d.flag == idx,
+            Some(AbilityEffect::ReRoll(r)) => r.unit == idx,
+            _ => false,
+        });
+        let by_tomb = self.hero_forms.iter().any(|&(_, f)| matches!(self.get(f).ability.as_ref().map(|a| &a.effect), Some(AbilityEffect::TombMonster(t)) if t.passive == idx));
+        if made_by_play {
+            None
+        } else if by_tomb {
+            Some(("by_its_tomb", "its tomb puts it down with it: put the tomb down"))
+        } else {
+            Some(("by_press", "a hero's press makes it, and its state is the press's"))
+        }
+    }
+
     /// THE ENCHANT'S MULTIPLIERS AND EXCLUSIONS, resolved against the loaded cards (`EnchantDef::per_attacker`,
     /// `EnchantDef::excluded`), for every card that carries an enchant. A multiplier names the row that DELIVERS the
     /// damage: a character row (the Electro Wizard) or a projectile row (the Hunter's pellet, the Firecracker's spark).

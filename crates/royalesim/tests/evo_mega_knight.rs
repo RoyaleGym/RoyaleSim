@@ -14,7 +14,8 @@
 //!   - uppercut_flight_collides -> `a_thrown_unit_meets_no_body_in_its_flight_under_client15535_out_of_pass` red;
 //!   - uppercut_flight_ground_target -> `a_ground_attacker_lets_the_thrown_unit_go_under_client15535_airborne` red (309);
 //!   - uppercut_stand_unread -> `he_stands_until_his_load_reads_100_under_client15535_until_load_100` red (315);
-//!   - uppercut_aims_king -> `under_client16402_nearest_own_tower_the_throw_runs_at_its_nearest_tower` red.
+//!   - uppercut_aims_king -> `under_client16402_nearest_own_tower_the_throw_runs_at_its_nearest_tower` red;
+//!   - copy_form_unstarted -> `under_client16402_deploy_blow_not_dash_a_copys_knight_counts_as_a_played_one` red.
 //!
 //! knockback.UPPERCUT_THROW_AIM: these scenes are client 15.535.29's, so they run its own_king (two equidistant princess
 //! towers would make the old scene a tie); client 16.402 throws at the thrown unit's nearest standing crown tower (parity
@@ -308,6 +309,11 @@ fn under_client16402_nearest_own_tower_the_throw_runs_at_its_nearest_tower() {
 /// played (his deploy blow cast) and held at (9000, 12500), the Knight 1,400 ahead, inside his jump's minimum range; else a
 /// setup spawn (no deploy blow), free at (9000, 8500), the Knight 5,200 ahead: he jumps to it first.
 fn throws(arm: UppercutCount, played: bool) -> Vec<bool> {
+    throws_put(arm, played, false)
+}
+
+/// `throws`, the setup spawn a copy's (`copy`: state.rs `scenario_spawn_copy`) when not `played`.
+fn throws_put(arm: UppercutCount, played: bool, copy: bool) -> Vec<bool> {
     let mut s = battle_with(|c| {
         c.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
         c.calib.uppercut_count = arm;
@@ -318,6 +324,8 @@ fn throws(arm: UppercutCount, played: bool) -> Vec<bool> {
         s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
         s.tick();
         find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id
+    } else if copy {
+        s.scenario_spawn_copy(&[(Team::Blue, "MegaKnight_EV1", at, None, None)]).expect("the Mega Knight")[0]
     } else {
         s.scenario_spawn_now(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight")
     };
@@ -366,6 +374,16 @@ fn under_client16402_deploy_blow_not_dash_his_jump_is_no_attack() {
     assert_eq!(throws(UppercutCount::Client16402DeployBlowNotDash, false), vec![false, true, false]);
     // NOT VACUOUS: the engine's rule counts the jump, so his 1st hit throws
     assert_eq!(throws(UppercutCount::HitsAndDashBlows, false), vec![true, false, true]);
+}
+
+/// A COPY OF A BATTLE UNDER WAY (state.rs `scenario_spawn_copy`) starts his count as his play leaves it, his deploy blow
+/// counted though not cast: put down where the setup spawn is, he jumps first, and his first hit throws as a played
+/// knight's does. Plant: copy_form_unstarted.
+#[test]
+fn under_client16402_deploy_blow_not_dash_a_copys_knight_counts_as_a_played_one() {
+    assert_eq!(throws_put(UppercutCount::Client16402DeployBlowNotDash, false, true), vec![true, false, true]);
+    // the control: the same point as a setup spawn starts at 0
+    assert_eq!(throws(UppercutCount::Client16402DeployBlowNotDash, false), vec![false, true, false]);
 }
 
 /// Under combat.UPPERCUT_COUNT = client16402_deploy_blow_not_dash (his 1st hit his uppercut) and UPPERCUT_STAND = `stand`: a

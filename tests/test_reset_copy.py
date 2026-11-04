@@ -1,9 +1,11 @@
 """A COPY OF A BATTLE UNDER WAY through `Battle.reset` (py.rs): `unit_spawns`, `king_wake_ms`, `evo_counts`,
-`last_played` and `spells_in_flight`, and `Battle.spell_in_flight_kind`. The engine's own rules for each are pinned in
-crates/royalesim/tests/scenario_copy.rs; here the binding's half: what each argument takes, what it refuses and how
-what it sets reads back.
-  1. a summoned unit goes down by its record's name at the level given, and reads under the card that produces it;
-  2. a record the table does not hold, one no catalogue card puts on the board, a form and a rider are refused;
+`last_played` and `spells_in_flight`, and `Battle.spell_in_flight_kind` and `Battle.unit_spawn_kind`. The engine's own
+rules for each are pinned in crates/royalesim/tests/scenario_copy.rs; here the binding's half: what each argument
+takes, what it refuses and how what it sets reads back.
+  1. a summoned unit goes down by its record's name at the level given, and reads under the card that produces it; a
+     form goes down by its card's name and form, as a deck names it, or by its record's name and own form, alike;
+  2. a record the table does not hold, one no catalogue card puts on the board, a form the record is not, a rider and
+     a hero's record a press makes are refused, and a copy's builder can ask each record's kind first;
   3. an evolved card's count is taken per deck slot, and refused past its cycle or on a card not evolved;
   4. a king's wake clock and a Mirror's last play are taken, and read back in `state_json` and `mirror_target`;
   5. a Fireball put on its flight is on the board and lands; a record that does not fly is refused by its kind, and a
@@ -38,7 +40,7 @@ def units(b) -> list:
 
 
 def test_a_summoned_unit_goes_down_by_name_at_its_level():
-    spawns = [("Golemite", 1, 5000 * SUB, 20000 * SUB, -1, 9), ("Golemite", 1, 13000 * SUB, 20000 * SUB, -1, -1)]
+    spawns = [("Golemite", 1, 5000 * SUB, 20000 * SUB, -1, 9, 0), ("Golemite", 1, 13000 * SUB, 20000 * SUB, -1, -1, 0)]
     b = battle(unit_spawns=spawns)
     got = sorted(units(b), key=lambda e: e[F["x"]])
     assert [e[F["level"]] for e in got] == [9, b.card_level()], "level 9 as given; the other at the side's level"
@@ -47,14 +49,41 @@ def test_a_summoned_unit_goes_down_by_name_at_its_level():
     assert all(e[F["deploy_ticks"]] == 0 for e in got), "standing, deployed"
 
 
-@pytest.mark.parametrize(("unit", "why"), [
-    ("NoSuchUnit", "no such record"),
-    ("Musketeer_EV1", "an evolved or hero form is not put down alone"),
-    ("GhostOverlay", "a rider is not put down alone"),
+def unit_types(b) -> list:
+    return json.loads(b.unit_types_json())
+
+
+def test_a_form_goes_down_as_a_deck_names_it_or_as_its_row_reads_it():
+    for name in ("Musketeer", "Musketeer_EV1"):
+        b = battle(unit_spawns=[(name, 0, 9000 * SUB, 8000 * SUB, -1, -1, 1)])
+        (e,) = units(b)
+        assert unit_types(b)[e[F["unit_type"]]] == "Musketeer_EV1", name
+        assert e[F["card_id"]] == MUSKETEER, f"{name}: the evolved Musketeer reads under the Musketeer"
+
+
+@pytest.mark.parametrize(("unit", "form", "why"), [
+    ("NoSuchUnit", 0, "no such record"),
+    ("Musketeer_EV1", 0, "is a form 1 record, not form 0"),
+    ("Golem", 2, "has no form 2"),
+    ("Musketeer", 7, "unknown form 7"),
+    ("GhostOverlay", 0, "a rider is not put down alone"),
+    ("MusketeerTurret", 2, "a hero's press makes it"),
 ])
-def test_a_unit_that_cannot_stand_alone_is_refused(unit, why):
+def test_a_unit_that_cannot_stand_alone_is_refused(unit, form, why):
     with pytest.raises(ValueError, match=why):
-        battle(unit_spawns=[(unit, 1, 9000 * SUB, 20000 * SUB, -1, -1)])
+        battle(unit_spawns=[(unit, 1, 9000 * SUB, 20000 * SUB, -1, -1, form)])
+
+
+def test_a_copys_builder_can_ask_each_units_kind_first():
+    b = battle()
+    asks = [("Knight", 0), ("Golemite", 0), ("Musketeer", 1), ("Musketeer_EV1", 1), ("Musketeer", 2), ("GhostOverlay", 0),
+            ("MusketeerTurret", 2), ("Fireball", 0)]
+    assert [b.unit_spawn_kind(*a) for a in asks] == ["stands", "stands", "fresh", "fresh", "fresh", "rider", "by_press",
+                                                     "not_a_unit"]
+    knights = royalesim.Battle(["Knight"], [[0, 1, 2], [0, 1, 2]])
+    assert knights.unit_spawn_kind("Golemite") == "not_in_catalogue"
+    with pytest.raises(ValueError, match="is a form 1 record, not form 0"):
+        b.unit_spawn_kind("Musketeer_EV1")
 
 
 def test_a_unit_no_catalogue_card_puts_down_is_refused():
@@ -62,7 +91,7 @@ def test_a_unit_no_catalogue_card_puts_down_is_refused():
     with pytest.raises(ValueError, match="no card of this catalogue"):
         royalesim.Battle(["Knight"], [[0, 1, 2], [0, 1, 2]]).reset(
             0, [[0] * 8, [0] * 8], 0, 200, [10_000, 10_000], None, [],
-            unit_spawns=[("Golemite", 1, 9000 * SUB, 20000 * SUB, -1, -1)])
+            unit_spawns=[("Golemite", 1, 9000 * SUB, 20000 * SUB, -1, -1, 0)])
 
 
 def test_an_evo_count_is_taken_per_deck_slot():
@@ -164,7 +193,7 @@ def test_a_copys_builder_can_ask_what_flies_first():
     ({"king_wake_ms": [0]}, "king_wake_ms must be"),
     ({"last_played": [0]}, "last_played must be"),
     ({"evo_counts": [[]]}, "evo_counts must be"),
-    ({"unit_spawns": [("Golemite", 2, 0, 0, -1, -1)]}, "bad unit spawn team"),
+    ({"unit_spawns": [("Golemite", 2, 0, 0, -1, -1, 0)]}, "bad unit spawn team"),
     ({"spells_in_flight": [(FIREBALL, 0, 3, 0, 0, 0, 0, -1, 0)]}, "bad team"),
 ])
 def test_an_argument_of_the_wrong_shape_is_refused(kw, why):

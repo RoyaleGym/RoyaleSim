@@ -1,5 +1,6 @@
 //! A COPY OF A BATTLE UNDER WAY (state.rs `scenario_set_king_wake`, `scenario_set_evo_plays`,
-//! `scenario_set_last_played`, `scenario_spawn_batch_levels`, `scenario_spell_in_flight`; spell.rs `in_flight_kind`;
+//! `scenario_set_last_played`, `scenario_spawn_batch_levels`, `scenario_spawn_copy`, `scenario_spell_in_flight`;
+//! card.rs `copy_refusal`; spell.rs `in_flight_kind`;
 //! py.rs `Battle.reset`'s king_wake_ms, evo_counts, last_played, unit_spawns and spells_in_flight): the pieces of
 //! state a fresh battle does not have, set at the start.
 //!   1. a king's wake clock: awake at the activation delay targets from the first ticks, one still waking wakes on its
@@ -10,7 +11,10 @@
 //!   4. a summoned unit goes down by its record's name at the level it is given;
 //!   5. two spawns that differ in their level alone go down in one order whatever the list's;
 //!   6. a Fireball put on its flight lands on the tick the same flight from its launch does; one entry is one object
-//!      with its own delay (an Arrows wave); a record that does not fly is refused by its kind.
+//!      with its own delay (an Arrows wave); a record that does not fly is refused by its kind;
+//!   7. a copy's evolved unit starts its form as its play does (an Evo Musketeer snipes, where a setup spawn's does
+//!      not), but casts none of the play's own effects (no Evo Cannon barrage); a hero's record its play makes stands
+//!      with its button, and one a press makes, or the tomb's waiting monster, is refused.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! scenario_copy`):
@@ -18,7 +22,9 @@
 //!   - copy_evo_plays_unset -> 2 red;
 //!   - copy_last_played_unset -> 3 red;
 //!   - copy_spawn_level_ignored -> 4 red;
-//!   - copy_spell_flight_from_launch -> 6 red.
+//!   - copy_spell_flight_from_launch -> 6 red;
+//!   - copy_form_unstarted -> 7 red (and tests/evo_mega_knight.rs `..._a_copys_knight_counts_as_a_played_one`);
+//!   - copy_casts_barrage -> 7 red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -197,4 +203,71 @@ fn a_spell_on_its_flight_lands_when_the_same_flight_does() {
         ["Fireball", "Rocket", "Arrows", "Snowball", "Log", "BarbLog", "Snowball_EV1", "Zap", "Knight"].map(kind),
         ["flies", "flies", "flies", "flies", "rolls", "rolls", "rolls", "at_once", "not_a_spell"]
     );
+}
+
+/// The Evo Musketeer's snipes (shots at the snipe's Speed 2650) of 260 ticks after she is put down at (5499, 5500), a red
+/// Giant at (3499, 17499) walking down to her: by a copy (`scenario_spawn_copy`) or by a setup spawn.
+fn snipes_put(copy: bool) -> usize {
+    let mut s = battle();
+    let form = s.cards().index("Musketeer_EV1").expect("the evolved Musketeer loads");
+    let mult = s.config().calib.projectile_speed_to_subtiles_per_tick;
+    let her = [(Team::Blue, "Musketeer_EV1", n(5499, 5500), None, None)];
+    let id = if copy { s.scenario_spawn_copy(&her) } else { s.scenario_spawn_batch_levels(&her) }.expect("the Musketeer")[0];
+    s.scenario_spawn_now(Team::Red, "Giant", n(3499, 17499), None).expect("the Giant");
+    let mut snipes = 0;
+    for _ in 0..260 {
+        s.tick();
+        let Some(m) = s.entity(id) else { break };
+        if m.attack_phase == royalesim::entity::AttackPhase::Cooldown {
+            let shot = s.projectiles().iter().rev().find(|p| p.firer_card == Some(form)).expect("her shot");
+            snipes += usize::from(shot.speed / mult == 2650);
+        }
+    }
+    snipes
+}
+
+#[test]
+fn a_copys_form_starts_as_its_play_does() {
+    assert_eq!(snipes_put(true), 3, "a copy's Evo Musketeer snipes three times (AmmoCount 3)");
+    assert_eq!(snipes_put(false), 0, "the control: a setup spawn's stands as if played earlier, its snipes spent");
+    // the play's own effects are not cast: a played Evo Cannon's barrage is on the board a tick after it; a copy's
+    // spell objects are a setup spawn's (none of the play's)
+    let spells = |how: u8| {
+        let mut s = battle();
+        let at = [(Team::Blue, "Cannon_EV1", n(9000, 12000), None, None)];
+        match how {
+            0 => s.spawn_unit(Team::Blue, "Cannon_EV1", at[0].2, None).expect("the Cannon"),
+            1 => drop(s.scenario_spawn_copy(&at).expect("the Cannon")),
+            _ => drop(s.scenario_spawn_batch_levels(&at).expect("the Cannon")),
+        }
+        (0..3)
+            .map(|_| {
+                s.tick();
+                s.spells().len()
+            })
+            .max()
+            .unwrap_or(0)
+    };
+    let (played, copy, setup) = (spells(0), spells(1), spells(2));
+    assert!(played >= setup + 9, "the control: a played Evo Cannon's nine bombs ({played} against {setup})");
+    assert_eq!(copy, setup, "a copy's Evo Cannon casts no barrage");
+    // a hero's record its play makes stands with its button; one a press makes is refused, by its kind
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["Knight".into(), "Fireball".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![2, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let hero = s.scenario_spawn_copy(&[(Team::Blue, "Knight_hero", n(9000, 12000), None, None)]).expect("the Hero Knight")[0];
+    let button = s.ability_buttons(Team::Blue)[0];
+    assert_eq!((button.hero, button.spent), (Some(hero), false), "the button is on him, its charge unspent");
+    let db = s.cards().clone();
+    for (unit, kind) in [("MusketeerTurret", "by_press"), ("TombstoneHero_Monster_Active", "by_press"), ("TombstoneHero_Monster_Passive", "by_its_tomb")] {
+        let idx = db.index(unit).unwrap_or_else(|| panic!("{unit}"));
+        assert_eq!(db.copy_refusal(idx).map(|(k, _)| k), Some(kind), "{unit}");
+        assert!(s.scenario_spawn_copy(&[(Team::Blue, unit, n(9000, 14000), None, None)]).is_err(), "{unit} refused");
+        assert!(s.clone().scenario_spawn_batch_levels(&[(Team::Blue, unit, n(9000, 14000), None, None)]).is_ok(), "{unit}: a setup spawn takes it");
+    }
+    assert_eq!(["Knight_hero", "Musketeer_EV1", "SkeletonArmy_EV1", "Knight"].map(|u| db.copy_refusal(db.index(u).expect(u))), [None; 4]);
 }

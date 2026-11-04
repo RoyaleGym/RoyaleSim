@@ -16056,13 +16056,20 @@ impl BattleState {
     ///   - Evo Skeletons: the play's members join one group per side (`groups`), which counts their hits;
     ///   - Evo Musketeer: her snipes (AmmoCount), from her creation (the action group's delay 0; unmeasured).
     ///
-    /// A unit the scenario setup puts down stands as if played earlier and starts none of these.
-    fn evo_created(&mut self, id: EntityId, groups: &mut [Option<u32>; 2]) {
+    /// A unit the scenario setup puts down stands as if played earlier and starts none of these. A copy of a battle
+    /// under way (`scenario_spawn_copy`, `played` false) starts every one but the barrage, which is the play's effect,
+    /// as its deploy blow is.
+    fn evo_created(&mut self, id: EntityId, groups: &mut [Option<u32>; 2], played: bool) {
         let i = id.index as usize;
         let cards = self.cfg.cards.clone();
         let Some(evo) = cards.get(self.ents.card[i]).evo.as_ref() else { return };
         let (team, card, level, pos) = (self.ents.team[i], self.ents.card[i], self.ents.level[i], self.ents.pos[i]);
-        if let Some(b) = evo.barrage.as_ref() {
+        #[cfg(clash_plant = "copy_casts_barrage")]
+        let played = {
+            let _ = played;
+            true // PLANT: a copy's Evo Cannon casts its barrage.
+        };
+        if let Some(b) = evo.barrage.as_ref().filter(|_| played) {
             let bombs = barrage_spells(&cards, &self.cfg.calib, b, team, card, level, pos);
             self.spells.extend(bombs);
         }
@@ -20207,7 +20214,7 @@ impl BattleState {
             }
             // AN EVOLVED UNIT'S OWN START (`evo_created`): the barrage, the group, the snipes.
             if self.cfg.cards.get(p.card).evo.is_some() {
-                self.evo_created(id, &mut groups);
+                self.evo_created(id, &mut groups, true);
             }
             // targeting.FIRST_TOWER_PICK = client_spawn_lane: a summon member's lane, flipped against its deploy point.
             if let Some(ax) = p.summon_x {
@@ -37150,7 +37157,7 @@ impl BattleState {
     /// `scenario_spawn_batch`, which makes the order canonical.
     pub fn scenario_spawn_now(&mut self, team: Team, card_name: &str, pos: Vec2, hp: Option<i32>) -> Result<EntityId, DeployError> {
         let (idx, _) = self.setup_spawn_check(team, card_name, pos, None)?;
-        let id = self.setup_spawn_place(team, idx, pos, hp, None)?;
+        let id = self.setup_spawn_place(team, idx, pos, hp, None, None)?;
         self.hash.rebuild(&self.ents);
         Ok(id)
     }
@@ -37191,8 +37198,9 @@ impl BattleState {
 
     /// Materialise one validated setup spawn (no hash rebuild). A CREATION, NOT A PLAY: the unit puts its spawn area
     /// object down as every creation does (spawner.SPAWN_AREA_OBJECT_SCOPE, `spawn_now`), and its card's deploy effects,
-    /// the deploy projectile and the deploy area effect, are not cast (`deploy_blow`, `phase_spawn`).
-    fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>, level: Option<i32>) -> Result<EntityId, DeployError> {
+    /// the deploy projectile and the deploy area effect, are not cast (`deploy_blow`, `phase_spawn`). `fresh`: a copy's
+    /// unit (`scenario_spawn_copy`), whose form starts as a play starts it, the batch's groups given.
+    fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>, level: Option<i32>, fresh: Option<&mut [Option<u32>; 2]>) -> Result<EntityId, DeployError> {
         #[cfg(clash_plant = "copy_spawn_level_ignored")]
         let level: Option<i32> = level.and(None); // PLANT: every setup spawn at its deck entry's level.
         let level = level.unwrap_or_else(|| self.card_level_of(team, idx));
@@ -37204,6 +37212,19 @@ impl BattleState {
         let id = self.spawn_with(team, idx, level, pos, kind, false).map_err(DeployError::InvalidLevel)?; // PLANT: no spawn area either.
         #[cfg(clash_plant = "setup_spawn_lands_deploy_blow")]
         self.deploy_blow(team, idx, level, pos, false); // PLANT: the setup spawn lands its card's deploy projectile.
+        // A COPY'S FORM, started as a play starts it (`phase_spawn`): the Evo Mega Knight's count as his deploy blow leaves
+        // it, and the evolution's own start (`evo_created`) but its barrage. PLANT copy_form_unstarted: as a setup spawn.
+        #[cfg(not(clash_plant = "copy_form_unstarted"))]
+        if let Some(groups) = fresh {
+            if self.cfg.calib.uppercut_count == UppercutCount::Client16402DeployBlowNotDash {
+                self.uppercut_seed(id);
+            }
+            if self.cfg.cards.get(idx).evo.is_some() {
+                self.evo_created(id, groups, false);
+            }
+        }
+        #[cfg(clash_plant = "copy_form_unstarted")]
+        let _ = fresh;
         let i = id.index as usize;
         self.ents.deploy_ms[i] = 0;
         self.on_deployed(i);
@@ -37245,9 +37266,28 @@ impl BattleState {
     /// Ram's Barbarian) by its own record's name at its root card's level. The canonical order's key ends with the
     /// level, so two specs that differ in it alone keep a list-independent order.
     pub fn scenario_spawn_batch_levels(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>, Option<i32>)]) -> Result<Vec<EntityId>, (usize, DeployError)> {
+        self.spawn_batch(spawns, false)
+    }
+
+    /// A COPY OF A BATTLE UNDER WAY'S UNITS (py.rs `unit_spawns`): `scenario_spawn_batch_levels`, but an evolved or hero
+    /// form's record stands with its form's state at a fresh unit's, as a play of it leaves it (`setup_spawn_place`'s
+    /// `fresh`): an Evo Musketeer's snipes full, an Evo Witch's wave clock and an Evo Hunter's net from now, a hero's
+    /// charge unspent. Its play's own effects are not cast (the Evo Cannon's barrage, a deploy blow). The batch's evolved
+    /// units of one side form one group, as one play's do (an Evo Skeleton Army's soldiers and General, Evo
+    /// Skeletons). A record whose state has no fresh value is refused (card.rs `copy_refusal`: a hero's record a press
+    /// makes, the Hero Tombstone's waiting monster).
+    pub fn scenario_spawn_copy(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>, Option<i32>)]) -> Result<Vec<EntityId>, (usize, DeployError)> {
+        self.spawn_batch(spawns, true)
+    }
+
+    /// `scenario_spawn_batch_levels` and `scenario_spawn_copy` (`fresh`).
+    fn spawn_batch(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>, Option<i32>)], fresh: bool) -> Result<Vec<EntityId>, (usize, DeployError)> {
         let mut checked = Vec::with_capacity(spawns.len());
         for (k, &(team, name, pos, hp, level)) in spawns.iter().enumerate() {
             let (idx, full_hp) = self.setup_spawn_check(team, name, pos, level).map_err(|e| (k, e))?;
+            if let Some((_, why)) = self.cfg.cards.copy_refusal(idx).filter(|_| fresh) {
+                return Err((k, DeployError::UnsupportedCard(name.to_string(), why.to_string())));
+            }
             checked.push((idx, hp.unwrap_or(full_hp)));
         }
         #[allow(unused_mut)]
@@ -37275,9 +37315,10 @@ impl BattleState {
             });
         }
         let mut ids = vec![EntityId::default(); spawns.len()];
+        let mut groups: [Option<u32>; 2] = [None, None];
         for k in order {
             let (team, _, pos, hp, level) = spawns[k];
-            ids[k] = self.setup_spawn_place(team, checked[k].0, pos, hp, level).map_err(|e| (k, e))?;
+            ids[k] = self.setup_spawn_place(team, checked[k].0, pos, hp, level, fresh.then_some(&mut groups)).map_err(|e| (k, e))?;
         }
         self.hash.rebuild(&self.ents);
         Ok(ids)
