@@ -18,8 +18,8 @@ royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
-CARDS = ["Golem", "Knight", "BabyDragon", "Fireball", "Zap"]
-GOLEM, KNIGHT, DRAGON, FIREBALL, ZAP = range(5)
+CARDS = ["Golem", "Knight", "BabyDragon", "Fireball", "Zap", "Log"]
+GOLEM, KNIGHT, DRAGON, FIREBALL, ZAP, LOG = range(6)
 #: Blue's deck (the Baby Dragon in slot 2, evolved when `forms` says so) and Red's.
 DECKS = [[GOLEM, KNIGHT, DRAGON, FIREBALL, ZAP, KNIGHT, KNIGHT, KNIGHT], [KNIGHT] * 8]
 
@@ -74,8 +74,16 @@ def test_a_fireball_on_its_flight_lands_and_a_spell_that_does_not_fly_is_refused
             break
     else:
         pytest.fail("the Fireball never landed")
-    with pytest.raises(ValueError, match="does not fly"):
+    with pytest.raises(ValueError, match=r"does not fly \(at_once\)"):
         battle(spells_in_flight=[(ZAP, 0, 9000 * SUB, 22000 * SUB, 9000 * SUB, 22000 * SUB, -1)])
+
+
+def test_a_copys_builder_can_ask_what_flies_first():
+    b = battle()
+    kinds = [b.spell_in_flight_kind(c) for c in (FIREBALL, LOG, ZAP, KNIGHT)]
+    assert kinds == ["flies", "rolls", "at_once", "not_a_spell"]
+    with pytest.raises(ValueError, match="unknown card id"):
+        b.spell_in_flight_kind(99)
 
 
 @pytest.mark.parametrize(("kw", "why"), [

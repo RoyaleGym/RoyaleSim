@@ -389,6 +389,22 @@ pub fn forward_dy(team: Team) -> i32 {
 /// refuses a saved `Spell` whose card runs no shape, and it has to ask the question
 /// the same way the step does. Asking it as `def.spell.is_some()` refused every
 /// battle saved on the one tick a death release is in the air.
+/// HOW A SPELL CARD STANDS TO A COPY OF A BATTLE UNDER WAY (state.rs `scenario_spell_in_flight`), so a copy's builder can
+/// ask before it builds: "flies" (a projectile spell, a Fireball, a Rocket, Arrows: it can be put on its way), "rolls"
+/// (a roll, the Log, the Barbarian Barrel, the Giant Snowball: not yet), "at_once" (an area, a strike, a summon, a
+/// Clone, ...: no flight to be on), or "not_a_spell".
+pub fn in_flight_kind(def: &crate::card::CardDef) -> &'static str {
+    if def.kind != crate::card::CardKind::Spell {
+        return "not_a_spell";
+    }
+    match shape_of(def).map(|s| &s.shape) {
+        None => "not_a_spell",
+        Some(SpellShape::Projectile { .. }) => "flies",
+        Some(SpellShape::Rolling { .. } | SpellShape::CaptureRoll(_)) => "rolls",
+        Some(_) => "at_once",
+    }
+}
+
 #[inline]
 pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::SpellDef> {
     def.spell

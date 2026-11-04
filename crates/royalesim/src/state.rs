@@ -37072,11 +37072,16 @@ impl BattleState {
     /// Arrows volley's delay) keeps its delay. Refused for a spell that does not fly (an area at once, a roll).
     pub fn scenario_spell_in_flight(&mut self, team: Team, card: &str, level: Option<i32>, pos: Vec2, aim: Vec2) -> Result<(), String> {
         let idx = self.cfg.cards.index(card).ok_or_else(|| format!("no card {card}"))?;
+        // Asked first, as a copy's builder can (`spell::in_flight_kind`): a spell that does not fly is named by its kind.
+        let kind = spell::in_flight_kind(self.cfg.cards.get(idx));
+        if kind != "flies" {
+            return Err(format!("{card} does not fly ({kind}): only a spell in flight can be put down on its way"));
+        }
         let level = level.unwrap_or_else(|| self.card_level_of(team, idx));
         self.cfg.cards.check_levels(idx, level)?;
         let mut v = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, idx, level, aim, self.tick)?;
         if v.is_empty() || !v.iter().all(|s| matches!(s.motion, spell::SpellMotion::Flight { .. })) {
-            return Err(format!("{card} does not fly: only a spell in flight can be put down on its way"));
+            return Err(format!("{card} does not fly (at_once): only a spell in flight can be put down on its way"));
         }
         #[cfg(not(clash_plant = "copy_spell_flight_from_launch"))]
         for s in v.iter_mut() {

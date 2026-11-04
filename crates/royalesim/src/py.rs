@@ -2225,6 +2225,18 @@ impl Battle {
         Ok(self.s()?.hand_costs(t).to_vec())
     }
 
+    /// How catalogue card `card_id` stands to `reset`'s `spells_in_flight` (spell.rs `in_flight_kind`): "flies" (it can
+    /// be put on its way), "rolls" (a roll, the Log or the Barbarian Barrel: not yet), "at_once" (an area, a strike, a
+    /// summon: no flight to be on) or "not_a_spell". A copy's builder asks first and leaves out what does not fly.
+    fn spell_in_flight_kind(&self, card_id: i64) -> PyResult<&'static str> {
+        let idx = usize::try_from(card_id)
+            .ok()
+            .and_then(|c| self.catalogue.get(c))
+            .copied()
+            .ok_or_else(|| PyValueError::new_err(format!("unknown card id {card_id}")))?;
+        Ok(crate::spell::in_flight_kind(self.cards.get(idx)))
+    }
+
     /// The catalogue id of the card a Mirror played by `team` now would copy (state.rs `mirror_target`), -1 when
     /// there is none. The same id is each player's `mirror_target` in `state_json`.
     fn mirror_target(&self, team: i64) -> PyResult<i32> {

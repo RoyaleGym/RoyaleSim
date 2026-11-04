@@ -148,5 +148,14 @@ fn a_fireball_on_its_flight_lands_when_the_same_flight_does() {
     assert_eq!(copy_land, land - m as u32, "the copy from tick {m}'s point ({:?})", path[m - 1]);
     let mut zap = battle();
     let e = zap.scenario_spell_in_flight(Team::Blue, "Zap", None, aim, aim).expect_err("a Zap does not fly");
-    assert!(e.contains("does not fly"), "{e}");
+    assert!(e.contains("does not fly (at_once)"), "{e}");
+    // asked first (spell.rs `in_flight_kind`), as a copy's builder does
+    let db = zap.cards().clone();
+    let kind = |n: &str| royalesim::spell::in_flight_kind(db.get(db.index(n).unwrap_or_else(|| panic!("{n}"))));
+    assert_eq!(
+        ["Fireball", "Rocket", "Arrows", "Log", "BarbLog", "Snowball", "Zap", "Knight"].map(kind),
+        ["flies", "flies", "flies", "rolls", "rolls", "rolls", "at_once", "not_a_spell"]
+    );
+    let e = zap.scenario_spell_in_flight(Team::Blue, "Log", None, aim, aim).expect_err("the Log rolls");
+    assert!(e.contains("does not fly (rolls)"), "{e}");
 }
