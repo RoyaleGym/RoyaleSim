@@ -21,12 +21,12 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! evo_giant`):
 //!   - evo_rage_never_armed -> 3, 4, 5, 6, 7, 10 and 11 red;
-//!   - evo_rage_clock_late -> 3 red;
+//!   - evo_rage_clock_late -> 3, 6 and 10 red;
 //!   - evo_rage_hits_uncounted -> 4 red;
 //!   - evo_rage_largest_always -> 4 red;
-//!   - evo_rage_offset_ahead -> 5 red;
+//!   - evo_rage_offset_ahead -> 3, 5 and 7 red;
 //!   - evo_rage_clock_unheld -> 6 red;
-//!   - evo_rage_area_at_once -> 3 red;
+//!   - evo_rage_area_at_once -> 1 and 3 red;
 //!   - evo_rage_block_unread -> 1 red (the form is refused, so every scene of it is red too);
 //!   - clone_copies_the_form -> 8 red.
 #![allow(unexpected_cfgs)]
