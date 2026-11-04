@@ -6813,8 +6813,8 @@ struct RawIceCube {
 /// reads is not here: the loader refuses that form (an evolution block or an ability kind it does not know).
 ///
 /// A path starts at a section of the file: `cards[]`, `evolutions[]` and `hero_forms[]` are lists of records named by
-/// their `name`, `units{}` a map named by its keys. Then one key per step; `[]` after a key steps into each element of
-/// a list.
+/// their `name`; `units{}`, `buffs{}`, `area_effect_objects{}` and `projectiles{}` are maps named by their keys. Then one
+/// key per step; `[]` after a key steps into each element of a list.
 pub const UNMODELLED_KEYS: &[(&str, &str)] = &[
     ("cards[].ability.refund_window_ms", "a button's refund window (RefundWindow); unmeasured"),
     ("hero_forms[].ability.refund_window_ms", "a hero button's refund window (RefundWindow); unmeasured"),
@@ -15953,7 +15953,8 @@ mod tests {
         assert_eq!(unmodelled_in(&v), want.map(|(r, k)| (r.to_string(), k.to_string())).to_vec());
         for (path, _) in UNMODELLED_KEYS {
             let section = path.split('.').next().unwrap_or_default();
-            assert!(["cards[]", "units{}", "evolutions[]", "hero_forms[]"].contains(&section), "{path}: no such section");
+            let sections = ["cards[]", "units{}", "evolutions[]", "hero_forms[]", "buffs{}", "area_effect_objects{}", "projectiles{}"];
+            assert!(sections.contains(&section), "{path}: no such section");
         }
     }
 

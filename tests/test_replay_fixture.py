@@ -2200,11 +2200,13 @@ def test_a_capture_is_made_on_the_table_of_its_own_content(m):
     # the 16.635 table takes its own stamp and no other (CONTENTS_20261103); no 16.402 table takes a 16.635 stamp
     c16635 = "160635007-20261103"
     assert m.content_refusal(c16635, "16.635.8") is None
+    assert m.content_refusal(c16635, "16.635.1") is None, "the install pack's stamp: the same table"
     assert "known to fit" in m.content_refusal(c16635, "16.402.22")
     assert "known to fit" in m.content_refusal(c16635, "16.635.9")
-    assert m.content_refusal(c16635, None) is not None
+    assert "every 16.635 capture carries" in m.content_refusal(c16635, None)
     for t in (new, old, s88):
         assert "--table 160635007-20261103" in m.content_refusal(t, "16.635.8"), t
+        assert "--table 160635007-20261103" in m.content_refusal(t, "16.635.1"), t
         assert "no 16.402 table" in m.content_refusal(t, "16.635.9"), t
     assert m.content_refusal("15.535.29", "16.402.19") is None
     assert m.content_refusal("15.535.29", None) is None

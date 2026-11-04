@@ -154,6 +154,9 @@ fn the_20261103_arm_loads_the_16635_table() {
     let listed = |db: &CardDb, key: &str| db.unmodelled.iter().any(|(n, p)| n == "GoldenKnight" && p == key);
     assert!(listed(&db, "cards[].ability.refund_until_delivered"), "the Golden Knight's button: {:?}", db.unmodelled);
     assert!(!listed(&db, "cards[].ability.refund_window_ms") && listed(&s88, "cards[].ability.refund_window_ms"));
+    // a map section other than units{}: the Evo Cannon's barrage buff stacks by cast
+    let buff = ("Cannon_EV1_barrage_damage_buff".to_string(), "buffs{}.cast_id_specific".to_string());
+    assert!(db.unmodelled.contains(&buff) && !s88.unmodelled.contains(&buff), "{:?}", db.unmodelled);
     let names = |db: &CardDb| db.cards.iter().take_while(|c| c.name != "PrincessTower").map(|c| c.name.clone()).collect::<Vec<_>>();
     assert_eq!(names(&db), names(&s88), "the same catalogue");
 }

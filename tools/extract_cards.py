@@ -1158,8 +1158,35 @@ def load_tables(vintage: str | Vintage | None = None, hero: dict | None = None) 
 # so each reader meets the 16.402 graph: a SubActions entry (at delay 0) is dropped, a NextAction to a marker takes
 # the marker's own NextAction (and its NextActionWait, which must be the pointing action's), and an
 # ActionRunOnInstigator that only runs a marker goes too. That last one (the Hero Ice Wizard's death spawns) may lead on
-# to a variable write alone: the death group that runs the spawns resets the same variable itself (`ice_cube_button`).
+# to one variable write alone, and only where a group that reaches the run makes that same write itself at delay 0 (the
+# Hero Ice Wizard's death group resets the in-flight flag it leads to; `ice_cube_button` reads the reset), so dropping
+# it loses nothing. Once stripped, nothing in any table or button may still name a marker.
 DELIVERY_MARKER_KEYS = {"ClassType", "NextAction", "NextActionWait"}
+
+
+def _named_actions(v) -> list[str]:
+    """Every string in `v` (a row value: a name, a list, an inline table), depth first."""
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, dict):
+        return [x for w in v.values() for x in _named_actions(w)]
+    if isinstance(v, list):
+        return [x for w in v for x in _named_actions(w)]
+    return []
+
+
+def _reaches(acts, start: str, goal: str) -> bool:
+    """Whether action `goal` is reachable from action `start` through the names its rows hold."""
+    seen, todo = set(), [start]
+    while todo:
+        n = todo.pop()
+        if n == goal:
+            return True
+        if n in seen or acts.get(n) is None:
+            continue
+        seen.add(n)
+        todo += _named_actions(dict(acts.records[n])) + _named_actions(acts.arrays.get(n, {}))
+    return False
 
 
 def strip_delivery_markers(t: Tables) -> None:
@@ -1179,6 +1206,18 @@ def strip_delivery_markers(t: Tables) -> None:
         if acts.set_fields.get(r) != {"ClassType", "ActionToExecute"} \
                 or (nxt is not None and (acts.get(nxt) or {}).get("ClassType") != "ActionSetVariable"):
             raise SystemExit(f"actions.{r}: a run of the delivery marker {m} that does more than mark it")
+        if nxt is None:
+            continue
+        # The write the run leads to must be one a group reaching the run makes itself, at delay 0.
+        def writes_it(g: str, write: str, run: str) -> bool:
+            subs = acts.arrays.get(g, {}).get("SubActions") or [acts.records[g].get("SubActions")]
+            delays = acts.arrays.get(g, {}).get("SubActionsDelay") or [acts.records[g].get("SubActionsDelay")]
+            return any(s == write and d == 0 for s, d in zip(subs, delays, strict=False)) and _reaches(acts, g, run)
+        groups = [g for g, row in acts.records.items()
+                  if row.get("ClassType") == "ActionGroup" and writes_it(g, nxt, r)]
+        if not groups:
+            raise SystemExit(f"actions.{r}: the delivery marker {m} leads on to {nxt}, which no group reaching it "
+                             "makes itself at delay 0")
     gone = marks | runs
     for name, rec in acts.records.items():
         if name in gone:
@@ -1207,7 +1246,7 @@ def strip_delivery_markers(t: Tables) -> None:
             m = acts.records[nxt]
             after = m.get("NextAction") if nxt in marks else None
             if after is None:
-                rec["NextAction"] = None
+                rec.pop("NextAction", None)
                 seen.discard("NextAction")
                 if rec.get("NextActionWait") is not None:
                     raise SystemExit(f"actions.{name}: waits on a delivery marker that leads nowhere")
@@ -1218,13 +1257,15 @@ def strip_delivery_markers(t: Tables) -> None:
     for n in gone:
         for d in (acts.records, acts.arrays, acts.set_fields, acts.overlaid):
             d.pop(n, None)
-    # Nothing else may name a marker (a button's OnActivationAction, a filter's branch): it would dangle.
-    for name, rec in acts.records.items():
-        named = [v for v in rec.values() if isinstance(v, str)]
-        named += [x for vals in acts.arrays.get(name, {}).values() for x in vals if isinstance(x, str)]
-        left = sorted(gone.intersection(named))
+    # Nothing else may name a marker: a row of any table (an inline table's strings too), or a button
+    # (OnActivationAction). It would dangle.
+    holders = [(f"{k}.{n}", dict(rec), tb.arrays.get(n, {})) for k, tb in t.items() if isinstance(tb, OverlayTable)
+               for n, rec in tb.records.items()]
+    holders += [(f"abilities.{n}", dict(a), {}) for n, a in (getattr(t, "abilities", None) or {}).items()]
+    for where, row, arrays in holders:
+        left = sorted(gone.intersection(_named_actions(row) + _named_actions(arrays)))
         if left:
-            raise SystemExit(f"actions.{name}: still names the delivery marker {left}")
+            raise SystemExit(f"{where}: still names the delivery marker {left}")
 
 
 # THE 16.402 TARGETING AND DAMAGE FORMAT (build 160402017 on). An area no longer carries HitsAir, HitsGround,

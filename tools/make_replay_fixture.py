@@ -950,8 +950,11 @@ UPDATE_20261006_CONTENT = (16, 402, 19)
 CONTENTS_20261006 = {(16, 402, 19), (16, 402, 21)}
 #: THE SEASON 88 MID-SEASON UPDATE'S CONTENT (2026-10-19 16:48Z), and every stamp the 2026-10-19 table is known to fit.
 CONTENTS_20261019 = {(16, 402, 22)}
-#: THE 16.635 CLIENT'S CONTENT (the 2026-11-03 Play update, build 160635007), and every stamp its table is known to fit.
-CONTENTS_20261103 = {(16, 635, 8)}
+#: THE 16.635 CLIENT'S CONTENT (the 2026-11-03 Play update, build 160635007), and every stamp its table is known to fit:
+#: the update's 16.635.8, and the install pack's own 16.635.1 (a device that has not taken the update). The two packs
+#: differ in four files: the update releases the Evo Giant and the Evo Mirror, which the table builds neither of, and
+#: reorders three starter decks, so the install pack extracts to the same table but for its provenance.
+CONTENTS_20261103 = {(16, 635, 1), (16, 635, 8)}
 #: The tables of the 160402017 client (16.402), which no 16.635 capture fits.
 TABLES_16402 = ("160402017", "160402017-20261006", "160402017-20261019")
 
@@ -964,6 +967,9 @@ def content_refusal(table: str, content: str | None) -> str | None:
     if table not in (*TABLES_16402, "160635007-20261103"):
         return None
     if content is None:
+        if table == "160635007-20261103":
+            return ("the capture has no content stamp, which every 16.635 capture carries: it was recorded on the "
+                    "16.402 client before its 2026-10-06 update, so make it with --table 160402017")
         if table != "160402017":
             return ("the capture has no content stamp, so it was recorded before the 2026-10-06 update: "
                     "make it with --table 160402017")
