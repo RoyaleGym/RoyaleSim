@@ -139,7 +139,8 @@ fn under_client16402_max_hp_while_healing_a_tower_waits_after_killing_a_healing_
     }
 }
 
+/// Since parity r85 (ignored before it; client 15.535.29 keeps ignored).
 #[test]
-fn the_shipped_arm_reads_no_heal_buff() {
-    assert_eq!(Calib::shipped().doomed_heal_buff, DoomedHealBuff::Ignored);
+fn the_shipped_doomed_heal_buff_is_client16402_max_hp_while_healing() {
+    assert_eq!(Calib::shipped().doomed_heal_buff, DoomedHealBuff::Client16402MaxHpWhileHealing);
 }

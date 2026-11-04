@@ -305,7 +305,8 @@ fn under_client16402_ring_clamps_a_back_row_generals_point_takes_the_soldiers_cl
     }
 }
 
+/// Since parity r85 (unclamped before it; client 15.535.29 keeps unclamped).
 #[test]
-fn the_shipped_general_is_unclamped() {
-    assert_eq!(royalesim::state::Calib::shipped().army_general_clamp, ArmyGeneralClamp::Unclamped);
+fn the_shipped_general_takes_the_ring_clamps() {
+    assert_eq!(royalesim::state::Calib::shipped().army_general_clamp, ArmyGeneralClamp::Client16402RingClamps);
 }

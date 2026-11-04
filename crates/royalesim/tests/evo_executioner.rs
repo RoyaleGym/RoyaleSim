@@ -169,7 +169,8 @@ fn under_client16402_wait_kept_a_knock_leaves_the_executioners_wait() {
     assert_eq!(old[k].0, 0, "reset: the knock left his wait: {:?}", &old[t..=k + 1]);
 }
 
+/// Since parity r85 (reset before it; client 15.535.29 keeps reset).
 #[test]
-fn the_shipped_knock_resets_the_wait() {
-    assert_eq!(royalesim::state::Calib::shipped().pingpong_wait_reset, PingpongWaitReset::Reset);
+fn the_shipped_knock_keeps_the_wait() {
+    assert_eq!(royalesim::state::Calib::shipped().pingpong_wait_reset, PingpongWaitReset::Client16402WaitKept);
 }

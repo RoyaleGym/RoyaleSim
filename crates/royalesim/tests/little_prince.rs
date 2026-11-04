@@ -2206,7 +2206,8 @@ fn under_client16402_passes_over_leap_a_leaping_hog_takes_the_charge_out_of_its_
     }
 }
 
+/// Since parity r85 (hit before it; client 15.535.29 keeps hit).
 #[test]
-fn the_shipped_charge_hits_a_leaper() {
-    assert_eq!(royalesim::state::Calib::shipped().guard_charge_leap, GuardChargeLeap::Hit);
+fn the_shipped_charge_passes_over_a_leaper() {
+    assert_eq!(royalesim::state::Calib::shipped().guard_charge_leap, GuardChargeLeap::Client16402PassesOverLeap);
 }
