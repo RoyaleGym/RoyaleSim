@@ -219,6 +219,16 @@
     }
   },
   "targeting": {
+    "DOOMED_HEAL_BUFF": {
+      "value": "ignored",
+      "status": "measured",
+      "candidates": ["ignored", "client16402_max_hp_while_healing", "client16402_max_hp_while_healing_wait_only"],
+      "confidence": "MEDIUM-HIGH for client16402_max_hp_while_healing on client 16.402 (parity r85, 2026-11-04): crown-tower kills of an Evo Bat (834 losses): with the bat's heal buff on, its maximum above one arrow and no other homing shooter on it, the tower waited (no target the kill + 1 .. + 5, the next on + 6) in 192 of 208; with the arrow covering the maximum it was freed on the kill + 1 in 136 of 151, without the heal in 337 of 387; troop shooters split alike by damage against the maximum (Ice Wizard 33 waits of 34 healing, 14 of 28 not); the engine freed the first group in 20 of 22 traced before each battle's first divergence. The 16.402 client's doomed test ANDs (no buff with HealPerSecond > 0) || (the pending damage >= the target's maximum hitpoints at its level). The targeting side (keeping or dropping a doomed healing bat) has 4 instances only, hence the _wait_only arm. A candidate until scored. Client 15.535.29 keeps ignored (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-11-04, r85) on client 16.402, the ob14 set (maker b21765e5, live14), traced on r84's engine (agents25): crown-tower kills of an Evo Bat (834 losses): with the bat's heal buff on, its maximum above one arrow and no other homing shooter on it, the tower waited (no target the kill + 1 .. + 5, the next on + 6) in 192 of 208; with the arrow covering the maximum it was freed on the kill + 1 in 136 of 151, without the heal in 337 of 387; troop shooters split alike by damage against the maximum (Ice Wizard 33 waits of 34 healing, 14 of 28 not); the engine freed the first group in 20 of 22 traced before each battle's first divergence. The 16.402 client's doomed test ANDs (no buff with HealPerSecond > 0) || (the pending damage >= the target's maximum hitpoints at its level).",
+      "meaning": "ignored: the engine's; the doomed test reads no buff. client16402_max_hp_while_healing: a target carrying a buff with HealPerSecond > 0 (an Evo Bat's BatsEV1_Heal for 1,000 ms after each of its hits, the Battle Healer's self heal, a Heal Spirit's area) is doomed by the homing shots in flight at it only when their damage also reaches its maximum hitpoints (Entities::max_hp), in both doomed sets: the targeting drop and keep (targeting.DOOMED_TARGET_DROP, DOOMED_LANE_TOWER), and the post-kill wait's clause (c) (combat.POST_KILL_RETARGET_WAIT). client16402_max_hp_while_healing_wait_only: the post-kill wait's clause (c) alone.",
+      "open": "Only the Evo Bat was measured (the code reads any HealPerSecond buff; the Battle Healer's 15 victims were decided alike in both streams). The client's other doomed-test exemptions (a shield in the hitpoints component, a MorphKeepTarget or lifetime unit, a dash-immune dasher) are leads, unread here.",
+      "engine": "combat.rs doomed_by_shots_in_flight (`heal`, from state.rs doom_heal) and state.rs phase_target_with's doomed_now, selected by Calib::doomed_heal_buff; tests/doomed_heal_buff.rs."
+    },
     "DASH_TARGET_SCAN": {
       "value": "client16402_held_mid_dash",
       "status": "measured",
@@ -1906,6 +1916,36 @@
     }
   },
   "combat": {
+    "UPPERCUT_STAND_VICTIM": {
+      "value": "enters",
+      "status": "measured",
+      "candidates": ["enters", "client16402_held_to_stand_end"],
+      "confidence": "MEDIUM-HIGH for client16402_held_to_stand_end on client 16.402 (parity r85, 2026-11-04): every live14 throw (103 throws in 42 battles): 30 of the Evo Mega Knight's first attacks after a throw were on the retaken victim, every retake on the hit + 19, none entered before the hit + 22; the 14 retaken in reach on the hit + 19 entered on the hit + 22 at LoadTime - 150 + 100 (his timer 150 on the hit + 21), 14 of 14, while other ground units attacked the victim from the hit + 19; another target in reach he entered inside the stand on the tick after he took it, 17 of 17; the engine entered on the hit + 19 in 4 of 4 (its blow on the same tick, its stand 3 ticks short). A candidate until scored. Client 15.535.29 keeps enters (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-11-04, r85) on client 16.402, the ob14 set (maker b21765e5, live14), traced on r84's engine (agents25): every live14 throw (103 throws in 42 battles): 30 of the Evo Mega Knight's first attacks after a throw were on the retaken victim, every retake on the hit + 19, none entered before the hit + 22; the 14 retaken in reach on the hit + 19 entered on the hit + 22 at LoadTime - 150 + 100 (his timer 150 on the hit + 21), 14 of 14, while other ground units attacked the victim from the hit + 19; another target in reach he entered inside the stand on the tick after he took it, 17 of 17; the engine entered on the hit + 19 in 4 of 4 (its blow on the same tick, its stand 3 ticks short).",
+      "meaning": "enters: the engine's; the Evo Mega Knight standing after a throw (combat.UPPERCUT_STAND) attacks his retaken victim at once when it is in reach (on the hit + 19), which ends his stand. client16402_held_to_stand_end: in that stand he does not enter an attack on the unit he threw; his load timer runs and he enters on the first tick it reads 100 (the hit + 22, at LoadTime - 150 + 100). Another target in reach he attacks at once.",
+      "open": "Its score value is the stand's length (the blow's tick is unchanged): score it with combat.UPPERCUT_STAND_CONTACT.",
+      "engine": "state.rs phase_attack_for (the per-unit hold), selected by Calib::uppercut_stand_victim; tests/evo_mega_knight.rs."
+    },
+    "GUARD_CHARGE_LEAP": {
+      "value": "hit",
+      "status": "measured",
+      "candidates": ["hit", "client16402_passes_over_leap"],
+      "confidence": "MEDIUM for client16402_passes_over_leap on client 16.402 (parity r85, 2026-11-04): every guard charge in live14 against every enemy ground troop in its river leap with its centre within 2,500 + its radius of the guard on some charge tick (4 events in 3 battles: a Prince, two Royal Hogs, a Hog Rider, in reach on 1 to 6 leap ticks each): the charge's hit landed on the first tick out of the leap in 4 of 4 and on a leap tick in 0, the leap's steps unchanged through it and the push ladder from the landing; the engine hit (and pushed) on a leap tick in 4 of 4. A candidate until scored. Client 15.535.29 keeps hit (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-11-04, r85) on client 16.402, the ob14 set (maker b21765e5, live14), traced on r84's engine (agents25): every guard charge in live14 against every enemy ground troop in its river leap with its centre within 2,500 + its radius of the guard on some charge tick (4 events in 3 battles: a Prince, two Royal Hogs, a Hog Rider, in reach on 1 to 6 leap ticks each): the charge's hit landed on the first tick out of the leap in 4 of 4 and on a leap tick in 0, the leap's steps unchanged through it and the push ladder from the landing; the engine hit (and pushed) on a leap tick in 4 of 4.",
+      "meaning": "hit: the engine's; a troop in its river leap is hit and pushed by the Little Prince's guard charge as a ground troop. client16402_passes_over_leap: the charge's hit and push pass over a troop in its river leap; it takes the hit once, and the push, on its first tick out of the leap if the charge still reaches it.",
+      "open": "n is 4; the push's re-arm after the landing was read on one unit.",
+      "engine": "state.rs guard_moves (the charge's and the landing's hit loops), selected by Calib::guard_charge_leap; tests/little_prince.rs."
+    },
+    "HOOK_DRAG_ROUNDING": {
+      "value": "subtile",
+      "status": "measured",
+      "candidates": ["subtile", "client16402_native_axes"],
+      "confidence": "MEDIUM for client16402_native_axes on client 16.402 (parity r85, 2026-11-04): every Fisherman drag in live14 (65 with a full step and a found thrower): the 216 full steps with one standing thrower lie in (-1.1, +0.6] per axis against the exact 510 d / |d| toward the thrower (a truncated native step), where the engine's traced steps are 510.0 long; every drag re-run from the truth's own start point and thrower (47) gives the truth's step count 47 of 47 and its end within 2 native 38 of 47 under the native-axes step, 45 of 47 and 25 of 47 under the engine's subtile step (two Giant Buffer drags a step short, each ending within 4 of the stop). A candidate until scored. Client 15.535.29 keeps subtile (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-11-04, r85) on client 16.402, the ob14 set (maker b21765e5, live14), traced on r84's engine (agents25): every Fisherman drag in live14 (65 with a full step and a found thrower): the 216 full steps with one standing thrower lie in (-1.1, +0.6] per axis against the exact 510 d / |d| toward the thrower (a truncated native step), where the engine's traced steps are 510.0 long; every drag re-run from the truth's own start point and thrower (47) gives the truth's step count 47 of 47 and its end within 2 native 38 of 47 under the native-axes step, 45 of 47 and 25 of 47 under the engine's subtile step (two Giant Buffer drags a step short, each ending within 4 of the stop).",
+      "meaning": "subtile: the engine's; the Fisherman's drag step of 510 is computed on subtile positions, 510.0 long. client16402_native_axes: it is computed on the native centres, each axis truncated toward zero (trunc(510 dx / isqrt(dx^2 + dy^2)) per axis), so a diagonal step is up to ~0.7 shorter and a long drag can end one step later.",
+      "open": "The per-step exact match is 127 of 216 (the truth's points carry the client's rounding of other moves); 9 drags end 3 to 17 off under every model (another mechanism); only 2 drags in live14 separate the arms on the count. The thrower's self-pull to a building (combat.HOOK_BUILDINGS) is unmeasured.",
+      "engine": "state.rs step_hook_drags (the victim's step), selected by Calib::hook_drag_rounding; tests/hook_release.rs."
+    },
     "HOOK_WATER_LANDING": {
       "value": "client16402_nearest_land_lattice",
       "status": "measured",
@@ -4619,6 +4659,16 @@
     }
   },
   "knockback": {
+    "PINGPONG_WAIT_RESET": {
+      "value": "reset",
+      "status": "measured",
+      "candidates": ["reset", "client16402_wait_kept"],
+      "confidence": "MEDIUM for client16402_wait_kept on client 16.402 (parity r85, 2026-11-04): every Executioner in live14 (38 battles, 954 waits: a truth run of state 2 with the progress unchanged above 0, 361 of them exactly 32 ticks): of the 12 waits a knock landed in (a hit on the landing tick and a slide step of 180 or more; Tornado pulls left out), the truth kept state 2 and the progress on the landing tick and through the slide in 12 of 12, and he took no walk step after it; the engine reset 2 of 2 traced before a first divergence (Idle, progress 0) and walked off after the slide; the other 18 pushed waits it traced held in both streams. A candidate until scored. Client 15.535.29 keeps reset (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-11-04, r85) on client 16.402, the ob14 set (maker b21765e5, live14), traced on r84's engine (agents25): every Executioner in live14 (38 battles, 954 waits: a truth run of state 2 with the progress unchanged above 0, 361 of them exactly 32 ticks): of the 12 waits a knock landed in (a hit on the landing tick and a slide step of 180 or more; Tornado pulls left out), the truth kept state 2 and the progress on the landing tick and through the slide in 12 of 12, and he took no walk step after it; the engine reset 2 of 2 traced before a first divergence (Idle, progress 0) and walked off after the slide; the other 18 pushed waits it traced held in both streams.",
+      "meaning": "reset: the engine's; a knock resets a waiting Executioner's attack as any other (Idle, progress 0), so he walks off after the slide and starts his next throw from a fresh entry. client16402_wait_kept: a knock that lands while the unit's own pingpong throw is out (the Executioner's axe, combat.RANGE_PROJECTILE's wait) leaves its attack (phase, progress, lock, target) as it is; he slides, stands, and his progress steps again on the throw's T + 32.",
+      "open": "n is small (9 Executioners in 3 battles, 8 of the knocks in one); a knock whose slide outlasts the axe's return (the wait ending inside the ladder) is unmeasured.",
+      "engine": "state.rs apply_effects (the knockback.ATTACK_RESET block), selected by Calib::pingpong_wait_reset; tests/evo_executioner.rs."
+    },
     "UPPERCUT_ROOT_WINDOW": {
       "value": "client16402_after_a_free_step",
       "status": "measured",
@@ -7284,6 +7334,16 @@
     }
   },
   "formation": {
+    "ARMY_GENERAL_CLAMP": {
+      "value": "unclamped",
+      "status": "measured",
+      "candidates": ["unclamped", "client16402_ring_clamps"],
+      "confidence": "MEDIUM-HIGH for client16402_ring_clamps on client 16.402 (parity r85, 2026-11-04): every Evo Skeleton Army play in live14 (23 plays; the General the deploy's last key, made after the 15 soldiers), both streams' first points: the 3 plays on a back row stood the General where the ring's clamps put a soldier (side 1 on y 31000 twice, the column's own y 1000; side 0 on y 250, the column's 0 then the arena margin), where the engine laid it on y 32499 and -500, past the arena's edge; the 15 other traced plays (taps from (1500, 12500) to (15500, 25500)) stood it exact in both streams, inside its column's range, which the clamp leaves alone. A candidate until scored. Client 15.535.29 keeps unclamped (CLIENT15535_ARMS; unread there).",
+      "provenance": "MEASURED by parity (2026-11-04, r85) on client 16.402, the ob14 set (maker b21765e5, live14), traced on r84's engine (agents25): every Evo Skeleton Army play in live14 (23 plays; the General the deploy's last key, made after the 15 soldiers), both streams' first points: the 3 plays on a back row stood the General where the ring's clamps put a soldier (side 1 on y 31000 twice, the column's own y 1000; side 0 on y 250, the column's 0 then the arena margin), where the engine laid it on y 32499 and -500, past the arena's edge; the 15 other traced plays (taps from (1500, 12500) to (15500, 25500)) stood it exact in both streams, inside its column's range, which the clamp leaves alone.",
+      "meaning": "unclamped: the engine's; the Evo Skeleton Army's General is laid at its offset (1000 behind, owner's frame) from the ring centre with no clamp, so a back-row play puts it past the arena's back edge. client16402_ring_clamps: its point takes the soldiers' clamps, the tap column's y range under formation.GROUND_Y_CLAMP and the arena-bounds margin (half a cell).",
+      "open": "A General's point on water (formation.MEMBER_WATER_POINT is not applied to it); n is 3, two of them after their battle's first divergence.",
+      "engine": "state.rs enqueue_with (the Evo Skeleton Army's General), selected by Calib::army_general_clamp; tests/evo_skeleton_army.rs."
+    },
     "MEMBER_WATER_POINT": {
       "value": "client16402_kept_on_water",
       "status": "measured",

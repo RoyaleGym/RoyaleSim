@@ -1189,6 +1189,30 @@ pub struct Calib {
     /// `InWater`, what a battle saved before it ran.
     #[serde(default = "hook_water_landing_default")]
     pub hook_water_landing: HookWaterLanding,
+    /// targeting.DOOMED_HEAL_BUFF (whether the doomed set reads a target's heal buff). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Ignored`, what a battle saved before it ran.
+    #[serde(default = "doomed_heal_buff_default")]
+    pub doomed_heal_buff: DoomedHealBuff,
+    /// formation.ARMY_GENERAL_CLAMP (whether the Evo Skeleton Army's General's point takes the soldiers' clamps). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Unclamped`, what a battle saved before it ran.
+    #[serde(default = "army_general_clamp_default")]
+    pub army_general_clamp: ArmyGeneralClamp,
+    /// combat.HOOK_DRAG_ROUNDING (how a Fisherman hook's drag step is rounded). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Subtile`, what a battle saved before it ran.
+    #[serde(default = "hook_drag_rounding_default")]
+    pub hook_drag_rounding: HookDragRounding,
+    /// knockback.PINGPONG_WAIT_RESET (whether a knock resets a unit waiting for its own pingpong throw). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Reset`, what a battle saved before it ran.
+    #[serde(default = "pingpong_wait_reset_default")]
+    pub pingpong_wait_reset: PingpongWaitReset,
+    /// combat.GUARD_CHARGE_LEAP (whether the guard's charge hits a troop in its river leap). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Hit`, what a battle saved before it ran.
+    #[serde(default = "guard_charge_leap_default")]
+    pub guard_charge_leap: GuardChargeLeap,
+    /// combat.UPPERCUT_STAND_VICTIM (whether the Evo Mega Knight attacks his thrown victim in his uppercut stand). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Enters`, what a battle saved before it ran.
+    #[serde(default = "uppercut_stand_victim_default")]
+    pub uppercut_stand_victim: UppercutStandVictim,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3339,6 +3363,30 @@ fn dash_start_contact_default() -> DashStartContact {
 
 fn hook_water_landing_default() -> HookWaterLanding {
     HookWaterLanding::InWater
+}
+
+fn doomed_heal_buff_default() -> DoomedHealBuff {
+    DoomedHealBuff::Ignored
+}
+
+fn army_general_clamp_default() -> ArmyGeneralClamp {
+    ArmyGeneralClamp::Unclamped
+}
+
+fn hook_drag_rounding_default() -> HookDragRounding {
+    HookDragRounding::Subtile
+}
+
+fn pingpong_wait_reset_default() -> PingpongWaitReset {
+    PingpongWaitReset::Reset
+}
+
+fn guard_charge_leap_default() -> GuardChargeLeap {
+    GuardChargeLeap::Hit
+}
+
+fn uppercut_stand_victim_default() -> UppercutStandVictim {
+    UppercutStandVictim::Enters
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -11355,6 +11403,76 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.DOOMED_HEAL_BUFF -- whether a target carrying a buff with HealPerSecond > 0 is doomed by the homing shots in
+    /// flight at it only when they also cover its maximum hitpoints (combat.rs `doomed_by_shots_in_flight`, state.rs
+    /// `phase_target_with`'s post-kill doomed test).
+    DoomedHealBuff {
+        /// The engine's: the doomed test reads no buff.
+        Ignored = "ignored",
+        /// Client 16.402 (parity r85, live14): a healing target is doomed only when the pending damage covers its maximum
+        /// hitpoints too, in both doomed sets (the targeting drop and keep, the post-kill wait's clause (c)).
+        Client16402MaxHpWhileHealing = "client16402_max_hp_while_healing",
+        /// As client16402_max_hp_while_healing in the post-kill wait's clause (c) alone; the targeting set reads no buff.
+        Client16402MaxHpWhileHealingWaitOnly = "client16402_max_hp_while_healing_wait_only",
+    }
+);
+calib_enum!(
+    /// formation.ARMY_GENERAL_CLAMP -- whether the Evo Skeleton Army's General's point takes the ring's clamps, the tap
+    /// column's y range (formation.GROUND_Y_CLAMP) and the arena-bounds margin (state.rs `enqueue_with`).
+    ArmyGeneralClamp {
+        /// The engine's: it is laid at its offset (1000 behind, owner's frame) from the ring centre with no clamp, so a
+        /// back-row play puts it past the arena's back edge.
+        Unclamped = "unclamped",
+        /// Client 16.402 (parity r85, live14): its point takes the soldiers' clamps, the column's y range, then the
+        /// arena-bounds margin (half a cell inside every edge).
+        Client16402RingClamps = "client16402_ring_clamps",
+    }
+);
+calib_enum!(
+    /// combat.HOOK_DRAG_ROUNDING -- how the Fisherman hook's 510 drag step toward the thrower is computed (state.rs
+    /// `step_hook_drags`, the victim's step; not the thrower's self-pull to a building).
+    HookDragRounding {
+        /// The engine's: on subtile positions, 510.0 long.
+        Subtile = "subtile",
+        /// Client 16.402 (parity r85, live14): on the native centres, each axis truncated toward zero (trunc(510 dx /
+        /// isqrt(dx^2 + dy^2)) per axis), so a diagonal step is up to ~0.7 native shorter.
+        Client16402NativeAxes = "client16402_native_axes",
+    }
+);
+calib_enum!(
+    /// knockback.PINGPONG_WAIT_RESET -- whether a landed knock resets the attack of a unit whose own pingpong throw is
+    /// still out (combat.rs `throwers_out`: the Executioner's axe), state.rs `apply_effects`.
+    PingpongWaitReset {
+        /// The engine's: knockback.ATTACK_RESET resets it as any other attack (Idle, progress 0).
+        Reset = "reset",
+        /// Client 16.402 (parity r85, live14): the knock leaves its attack as it is (phase, progress, lock, target); it
+        /// slides, stands, and its progress steps again when the throw is back.
+        Client16402WaitKept = "client16402_wait_kept",
+    }
+);
+calib_enum!(
+    /// combat.GUARD_CHARGE_LEAP -- whether the Little Prince guard's charge (and its landing ticks) hits and pushes a troop
+    /// in its river leap (Entities::jumping), state.rs `guard_moves`.
+    GuardChargeLeap {
+        /// The engine's: a leaping troop is hit and pushed as any ground troop.
+        Hit = "hit",
+        /// Client 16.402 (parity r85, live14): the charge passes over a troop in its leap; it takes the hit once, and the
+        /// push, on its first tick out of the leap if the charge still reaches it.
+        Client16402PassesOverLeap = "client16402_passes_over_leap",
+    }
+);
+calib_enum!(
+    /// combat.UPPERCUT_STAND_VICTIM -- whether the Evo Mega Knight in his uppercut stand (combat.UPPERCUT_STAND) enters an
+    /// attack on the unit he threw (state.rs `phase_attack_for`).
+    UppercutStandVictim {
+        /// The engine's: he attacks his retaken victim at once when it is in reach, which ends his stand.
+        Enters = "enters",
+        /// Client 16.402 (parity r85, live14): in that stand he enters no attack on the unit he threw; he enters on the first
+        /// tick his load timer reads 100 (the hit + 22). Another target in reach he attacks at once.
+        Client16402HeldToStandEnd = "client16402_held_to_stand_end",
+    }
+);
+calib_enum!(
     /// targeting.ATTACK_RANGE_RULE -- see target.rs `in_attack_range`.
     AttackRangeRule {
         /// Range + the attacker's CollisionRadius + the target's, centre to centre
@@ -11969,6 +12087,12 @@ impl Calib {
             guard_charge_buildings: pick(&v, &["combat", "GUARD_CHARGE_BUILDINGS", "value"], GuardChargeBuildings::from_calibration_name)?,
             dash_start_contact: pick(&v, &["combat", "DASH_START_CONTACT", "value"], DashStartContact::from_calibration_name)?,
             hook_water_landing: pick(&v, &["combat", "HOOK_WATER_LANDING", "value"], HookWaterLanding::from_calibration_name)?,
+            doomed_heal_buff: pick(&v, &["targeting", "DOOMED_HEAL_BUFF", "value"], DoomedHealBuff::from_calibration_name)?,
+            army_general_clamp: pick(&v, &["formation", "ARMY_GENERAL_CLAMP", "value"], ArmyGeneralClamp::from_calibration_name)?,
+            hook_drag_rounding: pick(&v, &["combat", "HOOK_DRAG_ROUNDING", "value"], HookDragRounding::from_calibration_name)?,
+            pingpong_wait_reset: pick(&v, &["knockback", "PINGPONG_WAIT_RESET", "value"], PingpongWaitReset::from_calibration_name)?,
+            guard_charge_leap: pick(&v, &["combat", "GUARD_CHARGE_LEAP", "value"], GuardChargeLeap::from_calibration_name)?,
+            uppercut_stand_victim: pick(&v, &["combat", "UPPERCUT_STAND_VICTIM", "value"], UppercutStandVictim::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -17053,7 +17177,7 @@ impl BattleState {
 
     fn snipe_pass(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
-        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus());
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus(), self.doom_heal());
         let mut snipers = std::mem::take(&mut self.evo.snipers);
         for s in snipers.iter_mut() {
             let (id, ammo, kept) = *s;
@@ -21160,7 +21284,7 @@ impl BattleState {
         // and in the Path phase (`Scratch::lane_doomed`, target.rs `lane_fallen`).
         let lane = self.cfg.calib.doomed_lane_tower != DoomedLaneTower::Standing;
         let doomed_drop: Vec<bool> = if self.cfg.calib.doomed_target_drop.drops() || lane {
-            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus())
+            combat::doomed_by_shots_in_flight(&self.ents, in_flight, self.cfg.calib.crown_rounding, self.cfg.calib.tick_ms, target::DOOMED_ETA_LIMIT_MS, self.cfg.calib.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus(), self.doom_heal())
         } else {
             Vec::new()
         };
@@ -21271,8 +21395,21 @@ impl BattleState {
             // combat.DOOMED_READ_IN_PASS = client15535_at_turn: an attacker deciding on the pass's start reads the doom
             // against the hitpoints the pass has left at its turn (`Scratch::turn_hp`, set for that turn alone).
             let turn = &self.scratch.turn_hp;
+            // targeting.DOOMED_HEAL_BUFF = client16402_max_hp_while_healing (and _wait_only): a victim carrying a buff with
+            // HealPerSecond > 0 is doomed only when the pending damage covers its maximum hitpoints too. Measured on client
+            // 16.402 (parity r85, live14): crown towers that killed a heal-buffed Evo Bat whose maximum one arrow does not
+            // cover waited 192 of 208; the engine freed them 20 of 22. PLANT (regression) doom_heal_clause_unread: no buff read.
+            #[cfg(not(clash_plant = "doom_heal_clause_unread"))]
+            let heal_arm = calib.doomed_heal_buff != DoomedHealBuff::Ignored;
+            #[cfg(clash_plant = "doom_heal_clause_unread")]
+            let heal_arm = false;
             (0..self.ents.capacity())
-                .map(|j| pending[j] > 0 && pending[j] >= turn.get(j).copied().unwrap_or(self.ents.hp[j]) as i64 && eta_limit.map_or(true, |l| last_ms[j] <= l))
+                .map(|j| {
+                    pending[j] > 0
+                        && pending[j] >= turn.get(j).copied().unwrap_or(self.ents.hp[j]) as i64
+                        && eta_limit.map_or(true, |l| last_ms[j] <= l)
+                        && !(heal_arm && pending[j] < self.ents.max_hp[j].max(0) as i64 && self.ents.buffs_of(&cards.buffs, j).any(|b| b.heal_per_second > 0))
+                })
                 .collect()
         } else {
             Vec::new()
@@ -23820,9 +23957,15 @@ impl BattleState {
                 #[cfg(clash_plant = "landing_push_stops")]
                 let push_on = false;
                 let mut pushes: Vec<(usize, i32)> = Vec::new();
+                // combat.GUARD_CHARGE_LEAP = client16402_passes_over_leap: a troop in its river leap is passed over (as the
+                // charge passes it, below). PLANT (regression) guard_charge_hits_leaper: the new arm still hits it.
+                #[cfg(not(clash_plant = "guard_charge_hits_leaper"))]
+                let leap_skip = self.cfg.calib.guard_charge_leap == GuardChargeLeap::Client16402PassesOverLeap;
+                #[cfg(clash_plant = "guard_charge_hits_leaper")]
+                let leap_skip = false;
                 for j in 0..self.ents.capacity() {
                     let e = &self.ents;
-                    if !e.alive[j] || e.team[j] == r.team || e.flying[j] || e.kind[j] != EntityKind::Troop {
+                    if !e.alive[j] || e.team[j] == r.team || e.flying[j] || e.kind[j] != EntityKind::Troop || (leap_skip && e.jumping[j]) {
                         continue;
                     }
                     let id = e.id_of(j);
@@ -23995,10 +24138,18 @@ impl BattleState {
             let bld_arm = self.cfg.calib.guard_charge_buildings == GuardChargeBuildings::Client16402BuildingsHit;
             #[cfg(clash_plant = "guard_charge_buildings_spared")]
             let bld_arm = false;
+            // combat.GUARD_CHARGE_LEAP = client16402_passes_over_leap: the charge's hit and push pass over a troop in its river
+            // leap; it stays off the hit list, so it takes the hit once on its first tick out of the leap in reach. Measured on
+            // client 16.402 (parity r85, live14): 4 of 4 leapers in reach were hit on that tick, none on a leap tick; the
+            // engine hit 4 of 4 mid-leap. PLANT (regression) guard_charge_hits_leaper: the new arm still hits it.
+            #[cfg(not(clash_plant = "guard_charge_hits_leaper"))]
+            let leap_skip = self.cfg.calib.guard_charge_leap == GuardChargeLeap::Client16402PassesOverLeap;
+            #[cfg(clash_plant = "guard_charge_hits_leaper")]
+            let leap_skip = false;
             for j in 0..self.ents.capacity() {
                 let e = &self.ents;
                 let building = bld_arm && e.alive[j] && e.kind[j] == EntityKind::Building && !crate::target::hidden_from_targeting(&self.cfg.calib, e, j) && !e.underground(j);
-                if !e.alive[j] || e.team[j] == r.team || e.flying[j] || (e.kind[j] != EntityKind::Troop && !building) {
+                if !e.alive[j] || e.team[j] == r.team || e.flying[j] || (e.kind[j] != EntityKind::Troop && !building) || (leap_skip && e.jumping[j]) {
                     continue;
                 }
                 let d2 = e.pos[j].dist2(at);
@@ -29975,6 +30126,13 @@ impl BattleState {
         // (combat.rs `throwers_out`), read before the pass; a throw made in it is its thrower's own
         // and first holds it next tick. Empty, and nothing below reads it, in a battle without one.
         let waiting = combat::throwers_out(&self.ents, &self.projectiles);
+        // combat.UPPERCUT_STAND_VICTIM = client16402_held_to_stand_end: in his uppercut stand the Evo Mega Knight enters no
+        // attack on the unit he threw (`victim_hold` below). PLANT (regression) uppercut_stand_enters_victim: the new arm still
+        // enters it at once.
+        #[cfg(not(clash_plant = "uppercut_stand_enters_victim"))]
+        let hold_victim = self.cfg.calib.uppercut_stand_victim == UppercutStandVictim::Client16402HeldToStandEnd;
+        #[cfg(clash_plant = "uppercut_stand_enters_victim")]
+        let hold_victim = false;
         // combat.UPPERCUT_FINISH = client16402_finish_on_hit_plus_1: after an uppercut that throws (its run's mark one or two
         // ticks back, the victim alive), the Evo Mega Knight whose count is back at 0 and who holds that victim is out of his
         // attack on the hit + 1 and + 2: his swing ends on the hit + 1 and no new one enters on either (Idle, progress 0, the
@@ -30022,11 +30180,22 @@ impl BattleState {
             // it idle, and removing the term turns no test red.
             // ... and a thrower waiting for its pingpong throw (combat.rs `throwers_out`): the
             // progress stands at the throw's value until the tick the throw is gone.
+            // ... and an Evo Mega Knight in his uppercut stand (count 0, out of his attack, his load timer above 100 after
+            // this tick's decrement) whose target is the unit he threw (a live uppercut run's), under
+            // combat.UPPERCUT_STAND_VICTIM = client16402_held_to_stand_end: he enters on the first tick it reads 100 (the hit
+            // + 22). Measured on client 16.402 (parity r85, live14): 14 of 14 retaken victims in reach on the hit + 19 entered
+            // on the hit + 22, none of 30 earlier; the engine on the hit + 19 in 4 of 4.
+            let victim_hold = hold_victim
+                && e.attack_phase[i] == AttackPhase::Idle
+                && e.attack_load_ms[i] - self.cfg.calib.tick_ms > 100
+                && self.evo.uppercut_counts.iter().any(|(m, n)| *n == 0 && *m == e.id_of(i))
+                && e.target[i].is_some_and(|t| self.evo.uppercuts.iter().any(|r| r.id == t));
             let held = e.held(&self.cfg.cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun)
                 || e.knocked(i)
                 || e.retarget_wait[i] > 0
                 || e.death_sliding(i)
-                || waiting.get(i).copied().unwrap_or(false);
+                || waiting.get(i).copied().unwrap_or(false)
+                || victim_hold;
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing). The
@@ -31045,7 +31214,21 @@ impl BattleState {
                 }
                 continue;
             }
-            let np = Vec2::new(p.x + ((d.x as i64) * (step as i64) / (len as i64)) as i32, p.y + ((d.y as i64) * (step as i64) / (len as i64)) as i32);
+            // combat.HOOK_DRAG_ROUNDING = client16402_native_axes: the step is taken on the native centres, each axis truncated
+            // toward zero. Measured on client 16.402 (parity r85, live14): every drag re-run from the truth, 47 of 47 step counts
+            // and 38 of 47 ends within 2 native (the subtile step 45 and 25: two drags a step short by the stop). PLANT
+            // (regression) hook_drag_subtile_step: the new arm still steps on subtiles.
+            #[cfg(not(clash_plant = "hook_drag_subtile_step"))]
+            let native = self.cfg.calib.hook_drag_rounding == HookDragRounding::Client16402NativeAxes;
+            #[cfg(clash_plant = "hook_drag_subtile_step")]
+            let native = false;
+            let np = if native {
+                let (nx, ny) = ((q.x.div_euclid(K) - p.x.div_euclid(K)) as i64, (q.y.div_euclid(K) - p.y.div_euclid(K)) as i64);
+                let ln = isqrt(nx * nx + ny * ny).max(1);
+                Vec2::new(p.x + (nx * HOOK_DRAG_STEP as i64 / ln) as i32 * K, p.y + (ny * HOOK_DRAG_STEP as i64 / ln) as i32 * K)
+            } else {
+                Vec2::new(p.x + ((d.x as i64) * (step as i64) / (len as i64)) as i32, p.y + ((d.y as i64) * (step as i64) / (len as i64)) as i32)
+            };
             self.ents.pos[i] = Vec2::new(np.x.clamp(0, width), np.y.clamp(0, height));
             moved = true;
         }
@@ -32310,6 +32493,14 @@ impl BattleState {
                 }
             }
         }
+        // knockback.PINGPONG_WAIT_RESET = client16402_wait_kept: a knock on a unit waiting for its own pingpong throw (combat.rs
+        // `throwers_out`: the Executioner's axe) leaves its attack as it is. Measured on client 16.402 (parity r85, live14): 12
+        // of 12 knocked waits kept state 2 and the progress through the slide; the engine reset 2 of 2 and walked off.
+        // PLANT (regression) pingpong_wait_knock_resets: the new arm still resets the wait.
+        #[cfg(not(clash_plant = "pingpong_wait_knock_resets"))]
+        let keep_wait = if c.pingpong_wait_reset == PingpongWaitReset::Client16402WaitKept { combat::throwers_out(&self.ents, &self.projectiles) } else { Vec::new() };
+        #[cfg(clash_plant = "pingpong_wait_knock_resets")]
+        let keep_wait: Vec<bool> = Vec::new();
         let mut moved = false;
         for (i, s) in sum.iter().enumerate() {
             let Some(d) = *s else { continue };
@@ -32331,6 +32522,7 @@ impl BattleState {
             };
             #[cfg(clash_plant = "knockback_keeps_windup")]
             let resets = false; // PLANT: a push leaves the windup running.
+            let resets = resets && !keep_wait.get(i).copied().unwrap_or(false);
             // knockback.LADDER_PATH_REQUEST = client15535_on_release: the knocked unit is noted with the target it holds; a
             // fight the knock ends (its attack running or its target locked) owes it one request (`phase_path16402_for`).
             if c.ladder_path_request == LadderPathRequest::Client15535OnRelease && !e.flying[i] {
@@ -34924,6 +35116,30 @@ impl BattleState {
                 (0, 0)
             };
             let at = self.cfg.arena.from_frame(team, Vec2::new(own.x + (dx - a.general_offset_x) * K, own.y + (dy - a.general_offset_y) * K));
+            // formation.ARMY_GENERAL_CLAMP = client16402_ring_clamps: the General's point takes the soldiers' clamps, the column's
+            // y range (formation.GROUND_Y_CLAMP) and the arena-bounds margin. Measured on client 16.402 (parity r85, live14): 3
+            // of 3 back-row plays stood it on the soldiers' clamp (side 1 on y 31000, side 0 on 250), the engine past the edge;
+            // 15 of 15 other plays unchanged. PLANT (regression) army_general_unclamped: the new arm still lays it unclamped.
+            #[cfg(not(clash_plant = "army_general_unclamped"))]
+            let clamp = self.cfg.calib.army_general_clamp == ArmyGeneralClamp::Client16402RingClamps && !self.cfg.cards.get(a.general.unit).is_flying();
+            #[cfg(clash_plant = "army_general_unclamped")]
+            let clamp = false;
+            let at = if clamp {
+                let tap = Vec2::new(own.x / K, own.y / K);
+                let mut p = Vec2::new(tap.x + dx - a.general_offset_x, tap.y + dy - a.general_offset_y);
+                let y_range = match self.cfg.calib.formation_ground_y_clamp {
+                    GroundYClamp::None => None,
+                    GroundYClamp::Client16402DeployColumnRange | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
+                };
+                if let Some((lo, hi)) = y_range {
+                    p.y = if p.y <= lo { lo } else { p.y.min(hi) };
+                }
+                let (w, h, margin) = (self.cfg.arena.width / K, self.cfg.arena.height / K, self.cfg.arena.cell / K / 2);
+                p = Vec2::new(p.x.clamp(margin, w - margin), p.y.clamp(margin, h - margin));
+                self.cfg.arena.from_frame(team, Vec2::new(p.x * K, p.y * K))
+            } else {
+                at
+            };
             let lvl = self.cfg.cards.unit_level(idx, a.general.unit, None, level).expect("the General's level is validated at try_new");
             self.spawn_queue.push(PendingSpawn { team, card: a.general.unit, level: lvl, pos: at, deploy_ms: None, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: false, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: idx });
         }
@@ -37794,6 +38010,17 @@ impl BattleState {
         on.then_some(&self.cfg.cards)
     }
 
+    /// targeting.DOOMED_HEAL_BUFF = client16402_max_hp_while_healing: the buff table the doomed set reads (combat.rs
+    /// `doomed_by_shots_in_flight`'s `heal`); None under ignored and under client16402_max_hp_while_healing_wait_only.
+    fn doom_heal(&self) -> Option<&[crate::status::BuffDef]> {
+        // PLANT (regression) doom_heal_clause_unread: the new arm's doom reads no buff.
+        #[cfg(not(clash_plant = "doom_heal_clause_unread"))]
+        let on = self.cfg.calib.doomed_heal_buff == DoomedHealBuff::Client16402MaxHpWhileHealing;
+        #[cfg(clash_plant = "doom_heal_clause_unread")]
+        let on = false;
+        on.then_some(&self.cfg.cards.buffs[..])
+    }
+
     /// THE DOOMED SET'S READING of unit `id` on the state as it stands between ticks, which the next tick's Target phase
     /// reads (targeting.DOOMED_TARGET_DROP; combat.rs `doomed_by_shots_in_flight`): the damage the shots in flight at it
     /// deal, the ETA in ms of the one that lands last, its hitpoints plus shield, and whether it is doomed (the damage
@@ -37806,7 +38033,7 @@ impl BattleState {
         let c = &self.cfg.calib;
         let i = id.index as usize;
         let (pending, last_ms) = combat::shots_in_flight_at(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, c.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus());
-        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus());
+        let doomed = combat::doomed_by_shots_in_flight(&self.ents, &self.projectiles, c.crown_rounding, c.tick_ms, target::DOOMED_ETA_LIMIT_MS, c.projectile_step, self.homing_only(), self.spears_doom(), self.doom_bonus(), self.doom_heal());
         Some(DoomReading { pending: pending[i], last_ms: last_ms[i], hp: self.ents.hp[i].max(0) + self.ents.shield[i].max(0), doomed: doomed[i] })
     }
     /// Live spell objects (in flight, rolling, or an area effect about to apply).
@@ -41123,6 +41350,18 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.HOOK_WATER_LANDING: Calib gained hook_water_landing (serde default the old arm, in_water), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.DOOMED_HEAL_BUFF: Calib gained doomed_heal_buff (serde default the old arm, ignored), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, formation.ARMY_GENERAL_CLAMP: Calib gained army_general_clamp (serde default the old arm, unclamped), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HOOK_DRAG_ROUNDING: Calib gained hook_drag_rounding (serde default the old arm, subtile), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, knockback.PINGPONG_WAIT_RESET: Calib gained pingpong_wait_reset (serde default the old arm, reset), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GUARD_CHARGE_LEAP: Calib gained guard_charge_leap (serde default the old arm, hit), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.UPPERCUT_STAND_VICTIM: Calib gained uppercut_stand_victim (serde default the old arm, enters), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -42266,6 +42505,18 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("dash_start_contact".into(), serde_json::to_value(DashStartContact::StartTickBody).map_err(|e| e.to_string())?);
     // combat.HOOK_WATER_LANDING: a format-3 battle ran combat.HOOK_WATER_LANDING's old arm.
     sh.insert("hook_water_landing".into(), serde_json::to_value(HookWaterLanding::InWater).map_err(|e| e.to_string())?);
+    // targeting.DOOMED_HEAL_BUFF: a format-3 battle ran targeting.DOOMED_HEAL_BUFF's old arm.
+    sh.insert("doomed_heal_buff".into(), serde_json::to_value(DoomedHealBuff::Ignored).map_err(|e| e.to_string())?);
+    // formation.ARMY_GENERAL_CLAMP: a format-3 battle ran formation.ARMY_GENERAL_CLAMP's old arm.
+    sh.insert("army_general_clamp".into(), serde_json::to_value(ArmyGeneralClamp::Unclamped).map_err(|e| e.to_string())?);
+    // combat.HOOK_DRAG_ROUNDING: a format-3 battle ran combat.HOOK_DRAG_ROUNDING's old arm.
+    sh.insert("hook_drag_rounding".into(), serde_json::to_value(HookDragRounding::Subtile).map_err(|e| e.to_string())?);
+    // knockback.PINGPONG_WAIT_RESET: a format-3 battle ran knockback.PINGPONG_WAIT_RESET's old arm.
+    sh.insert("pingpong_wait_reset".into(), serde_json::to_value(PingpongWaitReset::Reset).map_err(|e| e.to_string())?);
+    // combat.GUARD_CHARGE_LEAP: a format-3 battle ran combat.GUARD_CHARGE_LEAP's old arm.
+    sh.insert("guard_charge_leap".into(), serde_json::to_value(GuardChargeLeap::Hit).map_err(|e| e.to_string())?);
+    // combat.UPPERCUT_STAND_VICTIM: a format-3 battle ran combat.UPPERCUT_STAND_VICTIM's old arm.
+    sh.insert("uppercut_stand_victim".into(), serde_json::to_value(UppercutStandVictim::Enters).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);

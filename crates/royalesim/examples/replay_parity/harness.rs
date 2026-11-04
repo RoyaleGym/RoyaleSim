@@ -1716,6 +1716,16 @@ pub fn own_client_card_values(f: &Fixture, overrides: &BTreeMap<String, String>)
 /// `royalesim.client_arms("15.535.29")` hands a Python caller too, so the harness and the wheel run one copy.
 pub use royalesim::client_arms::CLIENT15535_ARMS;
 
+/// harness.EVO_UNIT_ROOT = source_card (parity r85): an evo form's unit roots to the form when its own source card (the entity
+/// view's `source`, the card whose play put it on the board) is the form, however long after the form's death it lands: an
+/// Evo Mortar's shell puts its Goblin down up to ~45 ticks after it was fired, past the DEATH_SPAWN_LOOKBACK the root's other
+/// alternatives allow. A Goblin Drill's or a Goblin Barrel's Goblin carries its own card, so it stays no Mortar's. Measured on
+/// live14: 4 of 4 Goblins landing after their Mortar's death stood unpaired beside the engine's own, 27 of 27 earlier ones
+/// paired. PLANT (regression) replay_evo_unit_source_unread: the source card is not read.
+pub fn evo_unit_roots_by_source(forms: &[u16], source: u16) -> bool {
+    !cfg!(clash_plant = "replay_evo_unit_source_unread") && forms.contains(&source)
+}
+
 /// The client version a capture names (card_table.game_version), when it is 15.535.29's.
 fn capture_client15535(f: &Fixture) -> bool {
     f.card_table.as_ref().and_then(|c| c.game_version.as_deref()).is_some_and(|v| v == "15.535.29" || v.starts_with("15.535."))
@@ -2081,6 +2091,7 @@ pub fn replay(f: &Fixture, db: &CardDb, register: &BTreeMap<String, Vec<String>>
                 cfg!(clash_plant = "replay_roots_evo_unit_without_its_form")
                     || s.entities().any(|o| o.team == e.team && forms.contains(&o.card_idx))
                     || recent_deaths.iter().any(|(t, team, c, _)| *team == e.team && forms.contains(c) && tick.saturating_sub(*t) <= DEATH_SPAWN_LOOKBACK)
+                    || evo_unit_roots_by_source(forms, e.source)
             }) {
                 // the Evo Royal Ghost's pair: the truth names each by the form's card (its base, `base_of_form`)
                 (db.get(forms[0]).name.clone(), "evo-unit")

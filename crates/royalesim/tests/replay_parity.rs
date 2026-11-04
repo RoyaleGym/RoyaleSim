@@ -1890,3 +1890,16 @@ fn a_ticks_plays_are_issued_in_the_truths_key_order() {
     same_tick_issue_order(&mut list);
     assert_eq!(list.iter().map(|(i, _)| *i).collect::<Vec<_>>(), vec![0, 2, 1], "a keyless spell keeps its slot");
 }
+
+/// harness.EVO_UNIT_ROOT = source_card (parity r85, live14: 4 of 4 Evo Mortar Goblins landing after their Mortar's death were
+/// unpaired beside the engine's own): a unit an evo form names roots to the form by its own source card (tests/evo_mortar.rs:
+/// a shell in flight at the Mortar's death still puts its Goblin down with the form as its source); a unit whose source is
+/// another card (a Goblin Drill's Goblin) does not. Plant: replay_evo_unit_source_unread.
+#[test]
+fn an_evo_units_source_card_roots_it_to_its_form() {
+    let db = common::cards();
+    let form = db.index("Mortar_EV1").expect("the Evo Mortar's card");
+    let drill = db.index("GoblinDrill").expect("the Goblin Drill's card");
+    assert!(evo_unit_roots_by_source(&[form], form), "a Goblin whose source is the Evo Mortar is not rooted to it");
+    assert!(!evo_unit_roots_by_source(&[form], drill), "a Goblin Drill's Goblin was rooted to the Evo Mortar");
+}

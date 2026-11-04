@@ -90,3 +90,39 @@ fn each_shot_puts_a_goblin_down_where_it_lands_on_its_landing_frame() {
     assert!(second.3, "deploying");
     assert_eq!(landings[1].0 - landings[0].0, 94, "HitSpeed 4700 between shots at a standing target");
 }
+
+/// harness.EVO_UNIT_ROOT's premise (parity r85, live14: an Evo Mortar's shell puts its Goblin down up to ~45 ticks after it
+/// was fired, after the Mortar's death for 4 of 32 Goblins): the form at (9500, 8500) fires at a red Giant held 6000 ahead and
+/// is killed on the tick its first shell is in flight; that shell still puts its Goblin down after the death, and the
+/// Goblin's source card is the form (the harness roots it by it, `evo_unit_roots_by_source`).
+#[test]
+fn a_shell_in_flight_at_the_mortars_death_still_puts_its_goblin_down_as_the_forms() {
+    let mut s = battle();
+    s.spawn_unit(Team::Blue, "Mortar_EV1", n(9500, 8500), None).expect("the Mortar");
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", n(9500, 14500), None).expect("a red Giant");
+    let top = s.entity(giant).expect("the Giant").max_hp;
+    s.tick();
+    let mortar = find_live(&s, Team::Blue, "Mortar_EV1").first().expect("the Mortar").id;
+    let form = s.cards().index("Mortar_EV1").expect("the form's card");
+    let (mut killed, mut late) = (None, Vec::new());
+    for k in 0..300 {
+        assert!(s.debug_set_pos(giant, n(9500, 14500)));
+        assert!(s.debug_set_hp(giant, top));
+        s.tick();
+        if killed.is_none() && s.projectiles().iter().any(|p| p.firer == Some(mortar)) {
+            assert!(s.debug_set_hp(mortar, 0));
+            killed = Some(k);
+        }
+        if killed.is_some() {
+            for g in find_live(&s, Team::Blue, "Goblin") {
+                if !late.iter().any(|(id, _, _)| *id == g.id) {
+                    late.push((g.id, k, g.source));
+                }
+            }
+        }
+    }
+    let d = killed.expect("the scene drifted: the Mortar never fired");
+    assert!(s.entity(mortar).is_none(), "the Mortar outlived its 0 hitpoints");
+    assert!(!late.is_empty(), "the shell in flight at the Mortar's death put no Goblin down");
+    assert!(late.iter().all(|(_, k, src)| *k > d && *src == form), "the late Goblin's source is not the form ({form}): {late:?}");
+}

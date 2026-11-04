@@ -10,6 +10,8 @@
 //! the first tick after S on which the victim acts, as S + n: a Knight's attack under way, a Giant's first step.
 //!
 //! PLANT (regression): hook_release_next_tick -> `the_victim_idles_the_tick_after_the_stop` red.
+//! PLANT (regression, parity r85): hook_drag_subtile_step ->
+//!   `under_client16402_native_axes_a_diagonal_drag_steps_on_the_native_centres_truncated` red.
 //!   RUSTFLAGS='--cfg clash_plant="hook_release_next_tick"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //!   hook_release
 #![allow(unexpected_cfgs)]
@@ -18,7 +20,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, HookRelease, HookWaterLanding, SpecialHook};
+use royalesim::state::{BattleState, Calib, HookDragRounding, HookRelease, HookWaterLanding, SpecialHook};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -117,4 +119,57 @@ fn under_client16402_nearest_land_lattice_a_victim_dragged_onto_the_river_stands
 #[test]
 fn the_shipped_hook_water_landing_is_client16402_nearest_land_lattice() {
     assert_eq!(Calib::shipped().hook_water_landing, HookWaterLanding::Client16402NearestLandLattice);
+}
+
+/// One full drag tick of `drag_steps`: (the Giant's native point before it, the Fisherman's before it, the Giant's after it).
+type DragStep = ((i64, i64), (i64, i64), (i64, i64));
+
+/// A Blue Fisherman at (9000, 11000) hooks a Red Giant walking in from (11500, 17500) (a diagonal drag), under
+/// combat.HOOK_DRAG_ROUNDING = `arm` (HOOK_RELEASE = client_idle_tick): every full drag tick's (the Giant's native point
+/// before it, the Fisherman's before it, the Giant's after it).
+fn drag_steps(arm: HookDragRounding) -> Vec<DragStep> {
+    let mut cfg = config();
+    cfg.calib.special_hook = SpecialHook::ClientHookDrag;
+    cfg.calib.hook_release = HookRelease::ClientIdleTick;
+    cfg.calib.hook_drag_rounding = arm;
+    let mut s = BattleState::new(0, cfg);
+    let f = s.scenario_spawn_now(Team::Blue, "Fisherman", at((9000, 11000)), None).expect("the Fisherman");
+    let v = s.scenario_spawn_now(Team::Red, "Giant", at((11500, 17500)), None).expect("the Giant");
+    let nat = |p: Vec2| ((p.x / K) as i64, (p.y / K) as i64);
+    let mut rows = Vec::new();
+    for _ in 0..200 {
+        let (Some(a), Some(b)) = (s.entity(v).map(|e| e.pos), s.entity(f).map(|e| e.pos)) else { break };
+        s.tick();
+        let Some(e) = s.entity(v) else { break };
+        let (p, q, n) = (nat(a), nat(b), nat(e.pos));
+        let (dx, dy) = (n.0 - p.0, n.1 - p.1);
+        if (505..=515).contains(&isqrt(dx * dx + dy * dy)) {
+            rows.push((p, q, n));
+        }
+    }
+    rows
+}
+
+/// combat.HOOK_DRAG_ROUNDING = client16402_native_axes (client 16.402, parity r85, live14: 47 of 47 drags' step counts and 38 of
+/// 47 ends within 2 native re-run under the native-axes step, the subtile step two short). Plant: hook_drag_subtile_step.
+#[test]
+fn under_client16402_native_axes_a_diagonal_drag_steps_on_the_native_centres_truncated() {
+    let model = |p: (i64, i64), f: (i64, i64)| {
+        let (dx, dy) = (f.0 - p.0, f.1 - p.1);
+        let l = isqrt(dx * dx + dy * dy);
+        (p.0 + dx * 510 / l, p.1 + dy * 510 / l)
+    };
+    let new = drag_steps(HookDragRounding::Client16402NativeAxes);
+    assert!(new.len() >= 5, "the scene drifted: under 5 drag steps: {new:?}");
+    let (p0, f0, _) = new[0];
+    assert!((f0.0 - p0.0).abs() >= 1000 && (f0.1 - p0.1).abs() >= 1000, "the scene drifted: the drag is not diagonal: {new:?}");
+    assert!(new.iter().all(|(p, f, a)| model(*p, *f) == *a), "client16402_native_axes: each step the truncated native one: {new:?}");
+    // NOT VACUOUS: the subtile step's native shadow is not the truncated native step on a diagonal
+    let old = drag_steps(HookDragRounding::Subtile);
+    assert!(old.iter().any(|(p, f, a)| model(*p, *f) != *a), "subtile: every step was the truncated native one: {old:?}");
+}
+
+#[test]
+fn the_shipped_drag_step_is_subtile() {
+    assert_eq!(Calib::shipped().hook_drag_rounding, HookDragRounding::Subtile);
 }

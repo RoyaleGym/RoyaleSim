@@ -19,13 +19,15 @@
 //!   - spectral_visible -> `nothing_targets_a_spectral` red;
 //!   - obstacle_tag_unread -> `the_general_stands_on_its_point_through_its_deploy` red;
 //!   - obstacle_tag_pushes_nothing -> `the_general_still_pushes_a_unit_off_it` red;
-//!   - army_general_from_tap -> `the_general_is_laid_off_the_ring_centre` red (item 325, formation.ARMY_GENERAL_POINT).
+//!   - army_general_from_tap -> `the_general_is_laid_off_the_ring_centre` red (item 325, formation.ARMY_GENERAL_POINT);
+//!   - army_general_unclamped -> `under_client16402_ring_clamps_a_back_row_generals_point_takes_the_soldiers_clamps` red
+//!     (parity r85, formation.ARMY_GENERAL_CLAMP).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{ArmyGeneralPoint, AvoidanceObstacleTag, BattleConfig, BattleState};
+use royalesim::state::{ArmyGeneralClamp, ArmyGeneralPoint, AvoidanceObstacleTag, BattleConfig, BattleState};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -270,4 +272,40 @@ fn the_general_is_laid_off_the_ring_centre() {
     assert_eq!(general_at(new, Team::Blue, TAP), (9500, 10500), "side 0 on the right half: as off the tap");
     // NOT VACUOUS: the old arm lays it off the play's point.
     assert_eq!(general_at(ArmyGeneralPoint::Tap, Team::Red, (3500, 17500)), (3500, 18500), "tap: side 1 on the left half");
+}
+
+/// formation.ARMY_GENERAL_CLAMP = client16402_ring_clamps (client 16.402, parity r85, live14: 3 of 3 back-row plays stood the
+/// General on the soldiers' clamp, the engine past the arena's edge; 15 of 15 other plays unchanged). Plant:
+/// army_general_unclamped.
+#[test]
+fn under_client16402_ring_clamps_a_back_row_generals_point_takes_the_soldiers_clamps() {
+    let general_at = |arm: ArmyGeneralClamp, team: Team, tap: (i32, i32)| -> (i32, i32) {
+        let mut cfg: BattleConfig = config();
+        cfg.calib.army_general_point = ArmyGeneralPoint::Client15535GroundPoint;
+        cfg.calib.army_general_clamp = arm;
+        cfg.calib.avoidance_obstacle_tag = AvoidanceObstacleTag::Client15535UnpushedObstacle;
+        cfg.card_level = [11, 11];
+        cfg.tower_level = [11, 11];
+        let mut s = BattleState::new(7, cfg);
+        past_deploy_lockout(&mut s);
+        s.spawn_unit(team, "SkeletonArmy_EV1", n(tap.0, tap.1), None).expect("the play");
+        s.tick();
+        let g = find_live(&s, team, "SkeletonArmy_EV1_General")[0].pos;
+        (g.x / K, g.y / K)
+    };
+    let new = ArmyGeneralClamp::Client16402RingClamps;
+    assert_eq!(general_at(new, Team::Blue, (9500, 500)), (9500, 250), "side 0 on its back row: the column's 0, then the margin (20261017-013417-A)");
+    assert_eq!(general_at(new, Team::Red, (8500, 31500)), (8499, 31000), "side 1 on its back row: the column's own y 1000 (20261018-165456-A)");
+    // NOT VACUOUS: unclamped lays it past the arena's edge
+    assert_eq!(general_at(ArmyGeneralClamp::Unclamped, Team::Blue, (9500, 500)), (9500, -500), "unclamped: side 0");
+    assert_eq!(general_at(ArmyGeneralClamp::Unclamped, Team::Red, (8500, 31500)), (8499, 32499), "unclamped: side 1");
+    // a play inside its column: the clamp binds nothing
+    for arm in [ArmyGeneralClamp::Unclamped, new] {
+        assert_eq!(general_at(arm, Team::Blue, TAP), (9500, 10500), "{arm:?}: a play inside its column");
+    }
+}
+
+#[test]
+fn the_shipped_general_is_unclamped() {
+    assert_eq!(royalesim::state::Calib::shipped().army_general_clamp, ArmyGeneralClamp::Unclamped);
 }

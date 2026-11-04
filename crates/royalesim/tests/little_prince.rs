@@ -39,7 +39,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
-use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingArea, GuardLandingAvoidance, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, GuardChargeBuildings, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook, DashImmuneBuffs, PressLoadTimer, RampKnockReset, VariableDamageImmuneTarget};
+use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingArea, GuardLandingAvoidance, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, GuardChargeBuildings, GuardChargeLeap, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook, DashImmuneBuffs, PressLoadTimer, RampKnockReset, VariableDamageImmuneTarget};
 use royalesim::entity::AttackPhase;
 use royalesim::{EntityId, Team};
 
@@ -2157,4 +2157,56 @@ fn under_client16402_buildings_hit_his_guards_charge_hits_a_cannon_near_its_path
     assert_eq!(hit(&l0), 0, "troops: the Cannon was hit: {l0:?}");
     // out of reach (3,400 off the path): no hit under either arm
     assert_eq!(hit(&cannon_hits(GuardChargeBuildings::Client16402BuildingsHit, 3400)), 0, "a Cannon out of reach was hit");
+}
+
+/// Where the Little Prince is held in the leap scenes: his guard's charge runs at a Hog Rider leaping the river beside him.
+const LEAP_AT: (i32, i32) = (12500, 13500);
+
+/// A red Hog Rider put down at `hog` and let walk (its river leap on its way to blue's princess tower), the Little Prince
+/// held at LEAP_AT, his ability pressed `press` ticks in, under combat.GUARD_CHARGE_LEAP = `arm`: per tick (the Hog Rider
+/// in its leap after the tick, its hitpoint loss over the tick).
+fn leap_rows(arm: GuardChargeLeap, hog: (i32, i32), press: usize) -> Vec<(bool, i32)> {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_charge_leap = arm, &[]);
+    let towers: Vec<EntityId> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    let h = s.scenario_spawn_now(Team::Red, "HogRider", n(hog), None).expect("the Hog Rider");
+    let mut out = Vec::new();
+    for k in 0..100 {
+        assert!(s.debug_set_pos(lp, n(LEAP_AT)));
+        if k == press {
+            s.press_ability_button(Team::Blue, 0).expect("the press");
+        }
+        let Some(before) = s.entity(h).map(|e| e.hp) else { break };
+        s.tick();
+        let Some(e) = s.entity(h) else { break };
+        out.push((e.jumping, before - e.hp));
+    }
+    out
+}
+
+/// combat.GUARD_CHARGE_LEAP = client16402_passes_over_leap (client 16.402, parity r85, live14: 4 of 4 leapers in reach were
+/// hit on their first tick out of the leap, none on a leap tick). The scene: the first Hog Rider start and press whose charge
+/// hit (256 or more) lands on a leap tick under hit. Plant: guard_charge_hits_leaper.
+#[test]
+fn under_client16402_passes_over_leap_a_leaping_hog_takes_the_charge_out_of_its_leap() {
+    let charge = |l: i32| l >= 256;
+    let (hog, press) = [11000, 12000, 13000]
+        .iter()
+        .flat_map(|x| [19000, 19500, 20000, 20500, 21000, 21500, 22000].map(|y| (*x, y)))
+        .find_map(|hog| (0..60).step_by(2).find(|&p| leap_rows(GuardChargeLeap::Hit, hog, p).iter().any(|(j, l)| *j && charge(*l))).map(|p| (hog, p)))
+        .expect("the scene drifted: no press whose charge hits the Hog Rider in its leap");
+    let new = leap_rows(GuardChargeLeap::Client16402PassesOverLeap, hog, press);
+    assert!(new.iter().any(|(j, _)| *j), "the scene drifted: no leap: {new:?}");
+    assert!(!new.iter().any(|(j, l)| *j && charge(*l)), "client16402_passes_over_leap: the charge hit it in its leap: {new:?}");
+    assert!(new.iter().filter(|(_, l)| charge(*l)).count() <= 1, "client16402_passes_over_leap: two charge hits: {new:?}");
+    if let Some(k) = new.iter().position(|(_, l)| charge(*l)) {
+        assert!(k > 0 && new[k - 1].0 && !new[k].0, "client16402_passes_over_leap: the hit not on its first tick out of the leap: {new:?}");
+    }
+}
+
+#[test]
+fn the_shipped_charge_hits_a_leaper() {
+    assert_eq!(royalesim::state::Calib::shipped().guard_charge_leap, GuardChargeLeap::Hit);
 }

@@ -2861,8 +2861,12 @@ pub fn ticks_to_land(ents: &Entities, p: &Projectile, step: ProjectileStep) -> i
 /// are straight shots. THE RUNE GIANT'S PROJECTILE (`Projectile::enchant`) deals nothing and flies at a friend, and
 /// is skipped too. A shot's enchant bonus (`Projectile::bonus`) is part of what it deals. `homing_only`: see
 /// `shots_in_flight_at`.
+///
+/// targeting.DOOMED_HEAL_BUFF = client16402_max_hp_while_healing (`heal` names the buff table): a target carrying a buff with
+/// HealPerSecond > 0 is doomed only when the damage also covers its maximum hitpoints (the 16.402 client's doomed
+/// test).
 #[allow(clippy::too_many_arguments)]
-pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>, spears: bool, bonus: bool) -> Vec<bool> {
+pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], rounding: CrownRounding, tick_ms: i32, limit_ms: i32, step: ProjectileStep, homing_only: Option<&CardDb>, spears: bool, bonus: bool, heal: Option<&[crate::status::BuffDef]>) -> Vec<bool> {
     let cap = ents.capacity();
     let (pending, last_ms) = shots_in_flight_at(ents, projectiles, rounding, tick_ms, step, homing_only, spears, bonus);
     #[cfg(not(clash_plant = "doomed_eta_ignored"))]
@@ -2873,7 +2877,12 @@ pub fn doomed_by_shots_in_flight(ents: &Entities, projectiles: &[Projectile], ro
         true // PLANT (regression): damage lands whenever it lands.
     };
     (0..cap)
-        .map(|t| pending[t] > 0 && pending[t] >= (ents.hp[t].max(0) + ents.shield[t].max(0)) as i64 && within(t))
+        .map(|t| {
+            pending[t] > 0
+                && pending[t] >= (ents.hp[t].max(0) + ents.shield[t].max(0)) as i64
+                && within(t)
+                && heal.map_or(true, |tb| pending[t] >= ents.max_hp[t].max(0) as i64 || !ents.buffs_of(tb, t).any(|b| b.heal_per_second > 0))
+        })
         .collect()
 }
 

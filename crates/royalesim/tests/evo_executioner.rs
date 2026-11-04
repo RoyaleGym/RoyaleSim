@@ -16,7 +16,7 @@ mod common;
 use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, PingpongWaitReset};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -107,4 +107,69 @@ fn a_strong_hit_on_the_way_out_pushes_its_victim_away_and_the_back_hit_does_not(
     let (b, amount) = back.expect("the back hit");
     assert_eq!(amount, 240, "the back hit");
     assert!(b + 6 < xs.len() && xs[b + 6] <= xs[b] + 100, "not pushed by the back hit: {:?}", &xs[b.saturating_sub(1)..(b + 8).min(xs.len())]);
+}
+
+/// The plain Executioner on AT throwing at a red Golem 3000 to his right (the Golem held and topped up; he is held until
+/// `cast`), under knockback.PINGPONG_WAIT_RESET = `arm`, a red Fireball cast on his point on tick `cast` (None: none): per
+/// tick (his attack_ms after it, his hitpoints after it).
+fn axe_rows(arm: PingpongWaitReset, cast: Option<usize>) -> Vec<(i32, i32)> {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.pingpong_wait_reset = arm;
+    cfg.decks = [vec!["AxeMan".into(), "Knight".into()], vec!["Golem".into(), "Fireball".into()]];
+    cfg.forms = [vec![0, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == EntityKind::PrincessTower).map(|e| e.id).collect();
+    for t in towers {
+        assert!(s.debug_set_hp(t, 0));
+    }
+    s.tick();
+    let ax = s.scenario_spawn_now(Team::Blue, "AxeMan", n(AT.0, AT.1), None).expect("the Executioner");
+    let g = s.scenario_spawn_now(Team::Red, "Golem", n(AT.0 + 3000, AT.1), None).expect("the Golem");
+    let mut rows = Vec::new();
+    for k in 0..200 {
+        assert!(s.debug_set_pos(g, n(AT.0 + 3000, AT.1)));
+        let top = s.entity(g).expect("the Golem").max_hp;
+        assert!(s.debug_set_hp(g, top));
+        if !matches!(cast, Some(c) if c <= k) {
+            assert!(s.debug_set_pos(ax, n(AT.0, AT.1)));
+        }
+        if cast == Some(k) {
+            s.spawn_unit(Team::Red, "Fireball", n(AT.0, AT.1), None).expect("the Fireball");
+        }
+        s.tick();
+        let e = s.entity(ax).expect("the Executioner");
+        rows.push((e.attack_ms, e.hp));
+    }
+    rows
+}
+
+/// knockback.PINGPONG_WAIT_RESET = client16402_wait_kept (client 16.402, parity r85, live14: 12 of 12 knocked waits kept).
+/// The scene: his first throw's wait T .. (his progress unchanged above 0 from T), and a cast tick whose Fireball lands on him
+/// (his hitpoints drop) on K in T + 2 ..= T + 20. Plant: pingpong_wait_knock_resets.
+#[test]
+fn under_client16402_wait_kept_a_knock_leaves_the_executioners_wait() {
+    let base = axe_rows(PingpongWaitReset::Reset, None);
+    let t = (1..base.len()).find(|&k| base[k].0 > 0 && base[k].0 == base[k - 1].0).expect("the scene drifted: no wait") - 1;
+    let landing = |rows: &[(i32, i32)], c: usize| (c.max(1)..rows.len()).find(|&k| rows[k].1 < rows[k - 1].1);
+    let (c, k) = (t.saturating_sub(70)..t)
+        .find_map(|c| {
+            let rows = axe_rows(PingpongWaitReset::Client16402WaitKept, Some(c));
+            landing(&rows, c).filter(|k| (t + 2..=t + 20).contains(k)).map(|k| (c, k))
+        })
+        .expect("the scene drifted: no Fireball cast lands inside his wait");
+    let new = axe_rows(PingpongWaitReset::Client16402WaitKept, Some(c));
+    let w = new[k - 1].0;
+    assert!(w > 0 && new[t].0 == w, "the scene drifted: he was not in his wait before the landing: {:?}", &new[t..=k]);
+    assert!(new[k..=t + 25].iter().all(|r| r.0 == w), "client16402_wait_kept: his progress stood through the knock: {:?}", &new[t..=t + 26]);
+    // NOT VACUOUS: reset zeroes his wait on the landing tick
+    let old = axe_rows(PingpongWaitReset::Reset, Some(c));
+    assert_eq!(old[k].0, 0, "reset: the knock left his wait: {:?}", &old[t..=k + 1]);
+}
+
+#[test]
+fn the_shipped_knock_resets_the_wait() {
+    assert_eq!(royalesim::state::Calib::shipped().pingpong_wait_reset, PingpongWaitReset::Reset);
 }

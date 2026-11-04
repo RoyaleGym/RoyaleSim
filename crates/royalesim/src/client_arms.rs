@@ -436,6 +436,12 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   client16402_nearest_land_lattice does); kept until a 15.535.29 run scores it.
 ///   combat.DASH_PUSHBACK = client_ladder_from_landing: client 15.535.29's 3 Knights the jump blow hit slid the ladder
 ///   from the landing point; the tick of their first step is unread there.
+///   targeting.DOOMED_HEAL_BUFF = ignored: unread on client 15.535.29.
+///   formation.ARMY_GENERAL_CLAMP = unclamped: client 15.535.29's 4 measured plays lie inside their columns.
+///   combat.HOOK_DRAG_ROUNDING = subtile: client 15.535.29's drags are straight (509-510 a step); unread there.
+///   knockback.PINGPONG_WAIT_RESET = reset: unread on client 15.535.29.
+///   combat.GUARD_CHARGE_LEAP = hit: unread on client 15.535.29.
+///   combat.UPPERCUT_STAND_VICTIM = enters: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -691,6 +697,12 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.DASH_START_CONTACT", "\"start_tick_body\""),
     ("combat.HOOK_WATER_LANDING", "\"in_water\""),
     ("combat.DASH_PUSHBACK", "\"client_ladder_from_landing\""),
+    ("targeting.DOOMED_HEAL_BUFF", "\"ignored\""),
+    ("formation.ARMY_GENERAL_CLAMP", "\"unclamped\""),
+    ("combat.HOOK_DRAG_ROUNDING", "\"subtile\""),
+    ("knockback.PINGPONG_WAIT_RESET", "\"reset\""),
+    ("combat.GUARD_CHARGE_LEAP", "\"hit\""),
+    ("combat.UPPERCUT_STAND_VICTIM", "\"enters\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -32,7 +32,7 @@ use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{
     BattleConfig, BattleState, UppercutCount, UppercutFinish, UppercutFlightContact, UppercutFlightHold, UppercutFlightTargetability, UppercutRootWindow,
-    UppercutStand, UppercutStandContact, UppercutStandDash, UppercutThrowAim,
+    UppercutStand, UppercutStandContact, UppercutStandDash, UppercutStandVictim, UppercutThrowAim,
 };
 use royalesim::entity::AttackPhase;
 use royalesim::EntityId;
@@ -827,4 +827,61 @@ fn under_client16402_from_hit_plus_2_a_ground_holder_drops_the_thrown_unit_a_tic
 #[test]
 fn the_shipped_uppercut_flight_targetability_is_client16402_from_hit_plus_2() {
     assert_eq!(royalesim::state::Calib::shipped().uppercut_flight_targetability, UppercutFlightTargetability::Client16402FromHitPlus2);
+}
+
+/// `victim_entry`'s run: per tick (his attack_ms, his target), the second hit's tick h2, the red Knight.
+type VictimEntry = (Vec<(i32, Option<EntityId>)>, usize, EntityId);
+
+/// The throw scene of `every_second_hit_throws_its_target_toward_its_king` under combat.UPPERCUT_STAND =
+/// client16402_after_a_throw and combat.UPPERCUT_STAND_VICTIM = `arm`: the red Knight held 1400 ahead until his second hit,
+/// let fly, and held there again from the hit + 19 (in his reach); per tick (his attack_ms, his target) and the second hit's
+/// tick h2.
+fn victim_entry(arm: UppercutStandVictim) -> VictimEntry {
+    let mut s = battle_with(|c| {
+        c.calib.uppercut_stand = UppercutStand::Client16402AfterAThrow;
+        c.calib.uppercut_stand_victim = arm;
+    });
+    let (at, kn_at) = (n(9000, 12500), n(9000, 13900));
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kn_at, None).expect("a red Knight");
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    let (mut hits, mut rows) = (Vec::new(), Vec::new());
+    for k in 0..200 {
+        assert!(s.debug_set_pos(mk, at));
+        let top = s.entity(knight).expect("the Knight").max_hp;
+        if hits.len() < 2 || hits.get(1).is_some_and(|h2: &usize| k >= h2 + 19) {
+            assert!(s.debug_set_pos(knight, kn_at));
+        }
+        assert!(s.debug_set_hp(knight, top));
+        s.tick();
+        if top - s.entity(knight).expect("the Knight").hp == 268 {
+            hits.push(k);
+        }
+        let m = s.entity(mk).expect("the Mega Knight");
+        rows.push((m.attack_ms, m.target));
+        if hits.len() >= 2 && k > hits[1] + 30 {
+            break;
+        }
+    }
+    assert!(hits.len() >= 2, "the scene drifted: two hits of 268: {hits:?}");
+    (rows, hits[1], knight)
+}
+
+/// combat.UPPERCUT_STAND_VICTIM = client16402_held_to_stand_end (client 16.402, parity r85, live14: 14 of 14 retaken victims in
+/// reach on the hit + 19 entered on the hit + 22, none of 30 earlier). Plant: uppercut_stand_enters_victim.
+#[test]
+fn under_client16402_held_to_stand_end_he_attacks_his_thrown_victim_when_his_load_reads_100() {
+    let (r, h2, knight) = victim_entry(UppercutStandVictim::Client16402HeldToStandEnd);
+    assert_eq!(r[h2 + 19].1, Some(knight), "the scene drifted: he did not retake the Knight on the hit + 19: {:?}", &r[h2..h2 + 24]);
+    assert!(r[h2 + 19..=h2 + 21].iter().all(|x| x.0 == 0), "client16402_held_to_stand_end: he entered inside his stand: {:?}", &r[h2..h2 + 24]);
+    assert!(r[h2 + 22].0 > 0, "client16402_held_to_stand_end: no entry on the hit + 22: {:?}", &r[h2..h2 + 24]);
+    // NOT VACUOUS: enters on the hit + 19
+    let (o, h0, _) = victim_entry(UppercutStandVictim::Enters);
+    assert!(o[h0 + 19].0 > 0, "enters: no entry on the hit + 19: {:?}", &o[h0..h0 + 24]);
+}
+
+#[test]
+fn the_shipped_knight_enters_his_victim() {
+    assert_eq!(royalesim::state::Calib::shipped().uppercut_stand_victim, UppercutStandVictim::Enters);
 }
