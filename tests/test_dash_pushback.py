@@ -3,8 +3,10 @@
 WHAT THIS PINS. On client 15.535.29 (the Mega Knight's single-card scenario and its two jump scenarios) and on the
 16.402 corpus (one battle), each Knight the jump blow hit slid 199 or 200, 174 or 175, 149 or 150, 124 or 125, 99 or
 100, 74 or 75, 49 or 50, 24 or 25 from the next tick (4 of 4, within 2), away from the Mega Knight's position on the
-blow tick: the knockback ladder of Pushback 1000 that spells and the Mega Knight's deploy blow already run. Today's
-engine loads DashPushBack and never applies it, so the Knight stays in melee and keeps hitting the Mega Knight.
+blow tick: the knockback ladder of Pushback 1000 that spells and the Mega Knight's deploy blow already run. The engine
+before the key (not_read) loaded DashPushBack and never applied it, so the Knight stayed in melee and kept hitting the
+Mega Knight. Client 16.402 ships client16402_ladder_in_pass (a victim created after the Mega Knight steps on the blow
+tick itself: crates/royalesim/tests/dash_pushback.rs); this file reads the ladder.
 
 THE SCENE IS THE CLIENT'S. A red Knight stands hitting the blue right princess tower at (14231, 9182), where it stood
 when the client's Mega Knight landed on it. A blue Mega Knight set down at (9500, 6500) walks, jumps and lands its
@@ -90,7 +92,7 @@ def test_old_arm_is_the_pre_flip_engine():
     assert rows[b + 1][1] == 0, f"{OLD_ARM}: the Knight moved {rows[b + 1][1]:.1f} on the tick after the blow"
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM, "client16402_ladder_in_pass"])
 def test_a_giant_that_ignores_pushback_is_not_moved(arm):
     rows = scene(arm, "Giant", GIANT_AT, MK_FOR_GIANT)
     b = blow_tick(rows)

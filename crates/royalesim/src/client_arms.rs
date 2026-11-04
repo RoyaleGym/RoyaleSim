@@ -93,7 +93,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   movement.CAST_HOLD_HEADING = client15535_not_counted: a unit in its own ability's cast steers no neighbour by its
 ///   heading (a walker passing the Skeleton King turned on his cast's first frame; read, LOW).
 ///   spawner.DEATH_BOMB_TIMING_SCOPE = client15535_every_bomb: a plain death bomb lands on its fuse's last tick (5 of 5).
-///   knockback.DEATH_PUSHBACK = every_death_bomb_ladder: a Giant Skeleton's bomb pushes the troops it hits (1 of 1).
+///   knockback.DEATH_PUSHBACK = every_death_bomb_ladder: a Giant Skeleton's bomb pushes the troops it hits (1 of 1); the
+///   ledger's arm too since parity r84.
 ///   targeting.CHASE_DROP_MEASURE = client15535_lane_dy: the chase-drop limit is measured on |dy| (41 of 42 drops; 19
 ///   of 19 targets past it across alone kept).
 ///   targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: the edge lets go of a troop that walked away as the
@@ -213,7 +214,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   targeting.LAUNCH_BEYOND_KEEP = client15535_plain_keep: a projectile troop that launched from beyond its reach still keeps
 ///   its target within Range + both radii + 25 (8 of 8 within, 5 of 5 past it let go).
 ///   targeting.UPPERCUT_FLIGHT_TARGETABILITY = client15535_airborne: a unit in the Evo Mega Knight's uppercut flight is a target
-///   only for an attacker that attacks air (1 of 1, the Mega Knight letting its flying Knight go).
+///   only for an attacker that attacks air (1 of 1, the Mega Knight letting its flying Knight go). The 16.402 corpus runs
+///   client16402_from_hit_plus_2 (parity r84, live14: ground holders dropped it on the hit + 2, 70 of 70).
 ///   spells.CLONE_SLIDE_ROUTE = client15535_dropped: a Clone's slide drops the unit's route on its last tick, and a fresh
 ///   one is planned on the next (every Clone slide read in the battery and sp-event-GlobalClone-s0).
 ///   combat.UPPERCUT_STAND = client15535_until_load_100: an Evo Mega Knight out of his attack after his uppercut stands until
@@ -406,7 +408,9 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.LOAD_FIRST_HIT_HOLD = held: client 15.535.29's Sparky holds are unread.
 ///   targeting.BUILDING_KEEP_REACH = range_plus_extension: client 15.535.29's building keeps in the band are unread.
 ///   status.DASH_IMMUNE_BUFFS = landed: client 15.535.29's holds on a charging guard are unread.
-///   combat.PRESS_LOAD_TIMER = zeroed: client 15.535.29's presses are read on its own Little Prince scenes, which zero it.
+///   combat.PRESS_LOAD_TIMER = zeroed: client 15.535.29's presses without KeepCurrentTarget zero the load timer (the Hero
+///   Musketeer's casts, 4 of 4: a fresh entry after the cast); its Little Prince's button keeps his target. The 16.402
+///   corpus runs client16402_runs_every_cast (parity r84, live14: 130 of 131).
 ///   combat.RAMP_KNOCK_RESET = kept: unread on client 15.535.29.
 ///   targeting.VARIABLE_DAMAGE_IMMUNE_TARGET = taken: unread on client 15.535.29.
 ///   combat.WARP_STRIKE_REVEAL = with_the_shot: unread on client 15.535.29.
@@ -427,7 +431,11 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.WARP_RETURN_FREE = held: unread on client 15.535.29.
 ///   combat.GUARD_CHARGE_BUILDINGS = troops: unread on client 15.535.29.
 ///   combat.DASH_START_CONTACT = start_tick_body: unread on client 15.535.29.
-///   combat.HOOK_WATER_LANDING = in_water: unread on client 15.535.29.
+///   combat.HOOK_WATER_LANDING = in_water: read once on client 15.535.29 (mech-fisherman-near-s0, combat.HOOK_RELEASE's
+///   open item: the river-dragged Knight moved (-250, -250) out of the water on its idle tick, as
+///   client16402_nearest_land_lattice does); kept until a 15.535.29 run scores it.
+///   combat.DASH_PUSHBACK = client_ladder_from_landing: client 15.535.29's 3 Knights the jump blow hit slid the ladder
+///   from the landing point; the tick of their first step is unread there.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -682,6 +690,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.GUARD_CHARGE_BUILDINGS", "\"troops\""),
     ("combat.DASH_START_CONTACT", "\"start_tick_body\""),
     ("combat.HOOK_WATER_LANDING", "\"in_water\""),
+    ("combat.DASH_PUSHBACK", "\"client_ladder_from_landing\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

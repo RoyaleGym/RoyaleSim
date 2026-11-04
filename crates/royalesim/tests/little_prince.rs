@@ -1752,10 +1752,16 @@ fn under_client16402_runs_every_cast_his_guard_press_is_unchanged() {
     assert_eq!(press_entry(PressLoadTimer::Client16402RunsEveryCast), press_entry(PressLoadTimer::Client16402RunsUnlessStunned));
 }
 
-/// Since parity r83 (zeroed before it; client 15.535.29 keeps zeroed).
+/// Since parity r84 (client16402_runs_unless_stunned from parity r83, zeroed before it; client 15.535.29 keeps zeroed).
 #[test]
-fn the_shipped_press_load_timer_is_client16402_runs_unless_stunned() {
-    assert_eq!(royalesim::state::Calib::shipped().press_load_timer, PressLoadTimer::Client16402RunsUnlessStunned);
+fn the_shipped_press_load_timer_is_client16402_runs_every_cast() {
+    assert_eq!(royalesim::state::Calib::shipped().press_load_timer, PressLoadTimer::Client16402RunsEveryCast);
+}
+
+/// Since parity r84 (troops before it; client 15.535.29 keeps troops).
+#[test]
+fn the_shipped_guard_charge_buildings_is_client16402_buildings_hit() {
+    assert_eq!(royalesim::state::Calib::shipped().guard_charge_buildings, GuardChargeBuildings::Client16402BuildingsHit);
 }
 
 /// Under combat.RAMP_KNOCK_RESET = `arm` (Blue's princess towers down): his ramp at its third speed on a red Golem held 5000

@@ -432,7 +432,8 @@ def test_the_thin_slice_report_is_small_and_the_catalogue_report_is_not(cards):
     # 92 -> 95 when the Skeleton Barrel, the Suspicious Bush, the Lumberjack, the Goblin Giant, the Clone, the Vines
     # and the Void load (the Graveyard loads fully read). THE SKELETON BARREL joins with DeathPushBack and
     # DeathSpawnMinRadius (its container's, and the card row's DeathPushBack is read only for a container under
-    # knockback.DEATH_PUSHBACK's shipped arm), DeployDelay, FlyDirectPaths, IgnoreResurrect, IsBuilding,
+    # knockback.DEATH_PUSHBACK's then-shipped containers_ladder), DeployDelay, FlyDirectPaths, IgnoreResurrect,
+    # IsBuilding,
     # OnStartingAction (its balloon pops, read as cosmetic) and SpawnConstPriority. THE GOBLIN GIANT with
     # DeathInheritIgnoreList, DeathSpawnDeployTime and DeathSpawnRadius (its own row's, which the measured dismount
     # does not read), DeployDelay, IgnoreResurrect and the projectile's only_enemies; THE LUMBERJACK with

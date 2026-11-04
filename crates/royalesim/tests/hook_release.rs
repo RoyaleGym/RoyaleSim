@@ -112,3 +112,9 @@ fn under_client16402_nearest_land_lattice_a_victim_dragged_onto_the_river_stands
     assert!(d.0.abs() % 500 == 250 && d.1.abs() % 500 == 250, "client16402_nearest_land_lattice: an odd multiple of 250 on each axis: {d:?}");
     assert!(idle_on_land, "client16402_nearest_land_lattice: still on water at {idle_new:?}");
 }
+
+/// Since parity r84 (in_water before it; client 15.535.29 keeps in_water).
+#[test]
+fn the_shipped_hook_water_landing_is_client16402_nearest_land_lattice() {
+    assert_eq!(Calib::shipped().hook_water_landing, HookWaterLanding::Client16402NearestLandLattice);
+}

@@ -696,6 +696,9 @@ fn throw_rows(tweak: impl FnOnce(&mut BattleConfig), other: Option<Other>) -> Ve
     cfg.calib.uppercut_count = UppercutCount::HitsAndDashBlows;
     cfg.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
     cfg.calib.uppercut_root_window = UppercutRootWindow::OnDelay;
+    // and the flight targetable as before parity r84 (client15535_airborne, the arm these scenes were read under): the shipped
+    // client16402_from_hit_plus_2 lets him retake the landed Knight on the hit + 19, which hands his jump stand to it
+    cfg.calib.uppercut_flight_targetability = UppercutFlightTargetability::Client15535Airborne;
     tweak(&mut cfg);
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
@@ -818,4 +821,10 @@ fn under_client16402_from_hit_plus_2_a_ground_holder_drops_the_thrown_unit_a_tic
     // NOT VACUOUS: client15535_airborne lets the Blue Knight keep it on the hit + 2
     let old = throw_rows(|c| c.calib.uppercut_flight_targetability = UppercutFlightTargetability::Client15535Airborne, other);
     assert!(old[2].6, "client15535_airborne: the Blue Knight dropped it on the hit + 2: {old:?}");
+}
+
+/// Since parity r84 (client15535_airborne from parity r66, ground before it; client 15.535.29 keeps client15535_airborne).
+#[test]
+fn the_shipped_uppercut_flight_targetability_is_client16402_from_hit_plus_2() {
+    assert_eq!(royalesim::state::Calib::shipped().uppercut_flight_targetability, UppercutFlightTargetability::Client16402FromHitPlus2);
 }

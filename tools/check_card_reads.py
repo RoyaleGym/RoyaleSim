@@ -381,9 +381,9 @@ LOADED_NOT_RUN = {
     "AttackPushBack": ("knockback.ATTACK_PUSHBACK", ("ladder_away_from_target",)),
     # The Skeleton Barrel's delayed death (card.rs `CardDef::kamikaze_time_ms`), run by either drain arm.
     "KamikazeTime": ("combat.KAMIKAZE_TIME", ("flat_drain_to_zero", "flat_drain_then_expire")),
-    # A death bomb's push (card.rs `CardDef::death_pushback`). Per column, so conservative: under the shipped
-    # containers_ladder the gate calls it unread on every row, which is true for the Golem, the Golemite and the Giant
-    # Skeleton's bomb, and false only for the Skeleton Barrel's container, which is a unit row and not a card row.
+    # A death bomb's push (card.rs `CardDef::death_pushback`). Per column: under the shipped every_death_bomb_ladder
+    # (since parity r84) it runs on every bomb row that carries it (the Giant Skeleton's, the Skeleton Barrel's
+    # container, the Mighty Miner's dropped bomb); the Golem's and the Golemite's are knockback.TROOP_DEATH_PUSHBACK's.
     "DeathPushBack": ("knockback.DEATH_PUSHBACK", ("every_death_bomb_ladder",)),
     # The Fisherman's hook (card.rs `SpecialDef`, the `special` block).
     "SpecialRange": ("combat.SPECIAL_HOOK", ("client_hook_drag",)),

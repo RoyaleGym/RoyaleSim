@@ -17,7 +17,9 @@
 //!   - the Skeletons deploy on T + 12 to T + 21 and first step on T + 23; an enemy first targets one on T + 19.
 //!
 //! THE ARMS. combat.KAMIKAZE_TIME ships flat_drain_to_zero, spawner.DEATH_BOMB_SPAWN_TIMING at_fuse_end and
-//! knockback.DEATH_PUSHBACK containers_ladder, the measured arms (no card that loaded before this change reads them).
+//! knockback.DEATH_PUSHBACK every_death_bomb_ladder since parity r84 (containers_ladder before it; measured on client
+//! 15.535.29 on sp-il-323a's Musketeer, it moves the Giant Skeleton's bomb too, whose test names containers_ladder), the
+//! measured arms (no card that loaded before this change reads the other two).
 //! spawner.DEATH_SPAWN_PUSHBACK ships client_ring_slide, the measured arm, since parity scored its flip (it had shipped
 //! not_read, its old arm, while the slide's move of the Golem and the Lava Hound waited for that score). The ring tests
 //! still select client_ring_slide by name (`ring_slide`), and the old arm's test selects not_read (`old_ring`).
@@ -42,9 +44,9 @@
 //!  10. not_read, the old arm: the Skeletons at DeathSpawnRadius, no slide -- death_ring_slide_ignores_arm;
 //!  11. the hit's reach: 2434 to a 500-radius Knight's centre hit, 3086 missed, a deploying flier hit, the ring at 81
 //!      -- aoe_centre_to_centre;
-//!  12. the push (shipped containers_ladder) -- death_pushback_unread;
+//!  12. the push (shipped every_death_bomb_ladder; containers_ladder pushes a container alike) -- death_pushback_unread;
 //!  13. not_read, the old arm: no push;
-//!  14. every_death_bomb_ladder pushes from the Giant Skeleton's bomb and the shipped arm does not
+//!  14. the shipped every_death_bomb_ladder pushes from the Giant Skeleton's bomb and containers_ladder, the old arm, does not
 //!      -- death_pushback_unread;
 //!  15. an enemy Cannon first targets a Skeleton on T + 19 -- container_members_acquire_at_once;
 //!  16. the Skeletons deploy on T + 12 to T + 21 and first step on T + 23 -- release_deferred;
@@ -100,7 +102,7 @@ fn shipped() -> BattleConfig {
     let c = &cfg.calib;
     assert_eq!(c.kamikaze_time, KamikazeTime::FlatDrainToZero, "the shipped combat.KAMIKAZE_TIME");
     assert_eq!(c.death_bomb_spawn_timing, DeathBombSpawnTiming::UnitsAtFuseEnd, "the shipped spawner.DEATH_BOMB_SPAWN_TIMING (client 16.402)");
-    assert_eq!(c.death_pushback, DeathPushbackScope::ContainersLadder, "the shipped knockback.DEATH_PUSHBACK");
+    assert_eq!(c.death_pushback, DeathPushbackScope::EveryDeathBombLadder, "the shipped knockback.DEATH_PUSHBACK");
     assert_eq!(c.death_spawn_pushback, DeathSpawnPushback::ClientRingSlide, "the shipped spawner.DEATH_SPAWN_PUSHBACK");
     assert_eq!(c.attack_cycle, AttackCycle::ProgressCredit, "the shipped combat.ATTACK_CYCLE, whose counter the fire is read on");
     // The ring points were pinned with the members born through the sine table (spawner.DEATH_SLIDE_BIRTH =
@@ -506,7 +508,8 @@ fn steps(track: &[i32]) -> Vec<i32> {
 
 #[test]
 fn the_death_pushback_is_the_knockback_ladder_from_the_death_point() {
-    // Shipped containers_ladder. Plant death_pushback_unread (it never moves).
+    // Shipped every_death_bomb_ladder (a container's push is the same under containers_ladder). Plant death_pushback_unread
+    // (it never moves).
     let track = push_track(shipped());
     assert_eq!(track[0], 2159, "scene: the Mega Minion stands 2159 from C on T + 12");
     assert_eq!(steps(&track), vec![200, 175, 150, 125, 100, 75, 50, 25, 0, -25], "its steps away from C on T + 13 .. T + 22 (measured 200, 175, ..., 25, 0, then 25 back)");
@@ -551,11 +554,11 @@ fn giant_skeleton_push(cfg: BattleConfig) -> i32 {
 
 #[test]
 fn only_the_arm_that_reaches_every_bomb_pushes_from_the_giant_skeletons() {
-    // Shipped containers_ladder leaves the Giant Skeleton's bomb as it was; every_death_bomb_ladder pushes from it.
-    // Plant death_pushback_unread (every_death_bomb_ladder pushes nothing either).
-    assert_eq!(giant_skeleton_push(shipped()), 0, "the shipped arm pushes from a plain bomb");
-    let moved = giant_skeleton_push(with(|c| c.death_pushback = DeathPushbackScope::EveryDeathBombLadder));
-    assert!(moved > 0, "every_death_bomb_ladder: the victim moved {moved} from the Giant Skeleton's bomb");
+    // containers_ladder, the old arm, leaves the Giant Skeleton's bomb as it was; the shipped every_death_bomb_ladder pushes
+    // from it. Plant death_pushback_unread (every_death_bomb_ladder pushes nothing either).
+    assert_eq!(giant_skeleton_push(with(|c| c.death_pushback = DeathPushbackScope::ContainersLadder)), 0, "containers_ladder, the old arm, pushes from a plain bomb");
+    let moved = giant_skeleton_push(shipped());
+    assert!(moved > 0, "the shipped every_death_bomb_ladder: the victim moved {moved} from the Giant Skeleton's bomb");
 }
 
 // ---------------------------------------------------------------------------

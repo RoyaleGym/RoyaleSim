@@ -45,7 +45,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::py::{apply_commands, ids_of_indices, state_json_text};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, TapSnap, WaitedPressCast, HAND_SIZE};
+use royalesim::state::{BattleConfig, BattleState, Calib, DeployError, PressLoadTimer, TapSnap, WaitedPressCast, HAND_SIZE};
 use royalesim::{EntityId as EntityIdOf, Team};
 use std::collections::BTreeMap;
 
@@ -521,8 +521,11 @@ fn a_cast_keeps_her_target_and_restarts_her_attack_clock() {
     // sp-h2 in miniature (client 15.535.29): she holds a far Knight when pressed and a nearer Knight stands in sight;
     // she comes out of the 950 ms cast still on the far Knight, her attack progress and load timer 0 through the cast,
     // and enters a fresh cycle on it (progress LoadTime + 50 = 350, load 300). The plant cast_releases_target (the lock
-    // let go for a rescan at the hold's end) turns this red.
-    let (mut s, hid) = hero_on_first_frame(config(), vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
+    // let go for a rescan at the hold's end) turns this red. Under combat.PRESS_LOAD_TIMER = zeroed, the arm client 15.535.29
+    // runs (CLIENT15535_ARMS); the shipped client16402_runs_every_cast leaves her load timer running through the cast.
+    let mut cfg = config();
+    cfg.calib.press_load_timer = PressLoadTimer::Zeroed;
+    let (mut s, hid) = hero_on_first_frame(cfg, vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], "Musketeer", "Musketeer_hero", t(900, 800));
     run_until(&mut s, 40, |s| s.entity(hid).is_some_and(|e| e.deploy_ms == 0));
     let p = s.entity(hid).unwrap().pos;
     s.spawn_unit(Team::Red, "Knight", p.add(native(0, 5500)), None).expect("the far Knight");

@@ -685,7 +685,7 @@ pub struct Calib {
     /// 20; the `default` is the old arm.
     #[serde(default = "dash_first_sight_trigger_default")]
     pub dash_first_sight_trigger: DashFirstSightTrigger,
-    /// combat.DASH_PUSHBACK: whether a dash blow pushes its victims DashPushBack (`land_dash_blows`). Added after
+    /// combat.DASH_PUSHBACK: whether a dash blow pushes its victims DashPushBack, and on which tick (`land_dash_blows`). Added after
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "dash_pushback_default")]
     pub dash_pushback: DashPushback,
@@ -1117,7 +1117,7 @@ pub struct Calib {
     /// `Landed`, what a battle saved before it ran.
     #[serde(default = "dash_immune_buffs_default")]
     pub dash_immune_buffs: DashImmuneBuffs,
-    /// combat.PRESS_LOAD_TIMER (what the Little Prince's press does to his load timer). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// combat.PRESS_LOAD_TIMER (what a press without KeepCurrentTarget does to the hero's load timer). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
     /// `Zeroed`, what a battle saved before it ran.
     #[serde(default = "press_load_timer_default")]
     pub press_load_timer: PressLoadTimer,
@@ -9098,16 +9098,18 @@ calib_enum!(
     /// combat.DASH_PUSHBACK -- what a dash blow with a DashRadius (the Mega Knight's jump) does to the enemies it hits
     /// besides DashDamage (`land_dash_blows`).
     DashPushback {
-        /// Today's engine: DashPushBack is loaded and never applied; the victims stay where the blow found them.
+        /// The engine before the key: DashPushBack is loaded and never applied; the victims stay where the blow found them.
         NotRead = "not_read",
         /// Measured on client 15.535.29 and the 16.402 corpus: every enemy troop the blow hits is pushed DashPushBack
         /// through the knockback ladder, radially from the dasher's position on the blow tick, under the eligibility
         /// of a spell's push (IgnorePushback refuses it unless PushbackAll; buildings and towers are never moved). 4 of
         /// 4 Knights hit by a jump slid 199, 174, 149, ... 24, 0 and 25 back from the next tick, away from the landing
-        /// point within 0.1 degree; 2 of 2 Giants (IgnorePushback) and a princess tower did not move.
+        /// point within 0.1 degree; 2 of 2 Giants (IgnorePushback) and a princess tower did not move. Client 15.535.29's
+        /// arm (CLIENT15535_ARMS); shipped for client 16.402 until parity r84.
         ClientLadderFromLanding = "client_ladder_from_landing",
         /// Client 16.402 (parity r84, live14): as client_ladder_from_landing, but a victim created after the Mega Knight takes
-        /// its first ladder step on the blow tick (his blow lands in his own update of the creation-order pass).
+        /// its first ladder step on the blow tick (his blow lands in his own update of the creation-order pass). Shipped
+        /// for client 16.402 by parity r84.
         Client16402LadderInPass = "client16402_ladder_in_pass",
     }
 );
@@ -11139,7 +11141,8 @@ calib_enum!(
     }
 );
 calib_enum!(
-    /// combat.PRESS_LOAD_TIMER -- the Little Prince's press (a cast hold without KeepCurrentTarget; state.rs `start_ability`,
+    /// combat.PRESS_LOAD_TIMER -- a press with a cast hold and no KeepCurrentTarget (the Little Prince's guard press; every
+    /// such press under client16402_runs_every_cast; state.rs `start_ability`,
     /// combat.rs `attack_step_progress`, Entities::press_load_runs).
     PressLoadTimer {
         /// The engine's: his press sets his load timer to 0, and the hold keeps it there.
@@ -15326,9 +15329,9 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32, by_
         e.attack_load_ms[i] = cards.get(e.card[i]).load_time_ms.max(0);
         e.target_locked[i] = false;
     }
-    // combat.PRESS_LOAD_TIMER = client16402_runs_unless_stunned: a hold landing on a Little Prince in his press's cast stands his
-    // timer for its own length (Entities::press_stun_ms); a hit's or a reflect's runs it once more first (`load_hold` 3, read
-    // by the shipped client16402_hit_hold_lag). Measured on client 16.402 (parity r83, live13): 7 of 7 stunned casts with the
+    // combat.PRESS_LOAD_TIMER = client16402_runs_unless_stunned (and _runs_every_cast): a hold landing on a hero in its press's
+    // cast stands its timer for its own length (Entities::press_stun_ms); a hit's or a reflect's runs it once more first
+    // (`load_hold` 3, read by the shipped client16402_hit_hold_lag). Measured on client 16.402 (parity r83, live13): 7 of 7 stunned casts with the
     // timer above 0 ran it on the stun's first tick, stood it through the stun and ran it again on the retake. PLANT
     // (regression) press_stun_runs: the new arm runs through it.
     #[cfg(not(clash_plant = "press_stun_runs"))]
@@ -21925,7 +21928,10 @@ impl BattleState {
     /// eligibility of a spell's push). The push rides the tick's knockback buffer, which Resolve drains, so the victim
     /// takes its first ladder step on the next tick, as it does under a spell. Measured on client 15.535.29 and the
     /// 16.402 corpus: 4 of 4 Knights hit by the Mega Knight's jump slid 199, 174, 149, ... from the blow's next tick,
-    /// away from its landing point; Giants (IgnorePushback) and a princess tower did not move.
+    /// away from its landing point; Giants (IgnorePushback) and a princess tower did not move. Under
+    /// client16402_ladder_in_pass (shipped for client 16.402 by parity r84) a victim created after the dasher takes its first
+    /// step on the blow tick itself, one created before it on the next; client 15.535.29 keeps client_ladder_from_landing
+    /// (CLIENT15535_ARMS).
     /// THE CHAIN'S BLOWS (`phase_path16402_for`'s `chain_hits`): DashDamage at the champion's level on the target, in
     /// this tick's Resolve (measured on client 15.535.29: 335 at level 11, 7 of 7, on the hit tick), and the chain
     /// lands (`ChainRun`: Landed from this tick, the target hit, one dash fewer). No push: the table's DashPushBack
@@ -23965,8 +23971,9 @@ impl BattleState {
             if r.arrived == Some(tick) && self.cfg.calib.guard_landing_area == GuardLandingArea::Client16402BodilessPassedOver {
                 self.ents.landing_until[gi] = tick + crate::card::GUARD_LANDING_UNSCANNED_TICKS;
             }
-            // The hit: once each, ground troops of the other side within the reach of the guard's centre (its push
-            // radius and their own). THE PUSH: on every tick of the charge, each of them whose CENTRE lies within the
+            // The hit: once each, ground troops of the other side (under the shipped combat.GUARD_CHARGE_BUILDINGS =
+            // client16402_buildings_hit its buildings too, hit and not pushed) within the reach of the guard's centre (its
+            // push radius and their own). THE PUSH: on every tick of the charge, each of them whose CENTRE lies within the
             // push radius, by the knockback ladder from the guard's point, m = push - d (ContinuosPushBack,
             // DistanceProportinalPush), the new ladder replacing the running one unless its start is the smaller
             // (`rearm_ladder`). Read off the client code by Oracle and checked tick for tick on client 15.535.29
@@ -26096,7 +26103,7 @@ impl BattleState {
                     #[cfg(not(clash_plant = "dash_pushback_unapplied"))]
                     let pushes = matches!(self.cfg.calib.dash_pushback, DashPushback::ClientLadderFromLanding | DashPushback::Client16402LadderInPass);
                     #[cfg(clash_plant = "dash_pushback_unapplied")]
-                    let pushes = false; // PLANT (regression): the new arm leaves the victims where the blow found them.
+                    let pushes = false; // PLANT (regression): the pushing arms leave the victims where the blow found them.
                     if let (true, Some(pb)) = (pushes, d.pushback_raw) {
                         let k = crate::card::KnockbackDef { distance: crate::fixed::milli(pb), all: false };
                         let team = self.ents.team[a];
@@ -30921,7 +30928,9 @@ impl BattleState {
     /// 1,200 (200 + 500 + 500), so it ends 1,450, 1,607, 1,671, 1,231 and 1,227 apart. The
     /// victim neither walks nor attacks meanwhile (`Entities::knocked`). The position is written
     /// straight, over water too: the measured drag is a straight line, and a victim's ground
-    /// rules resume with its walk. A thrower that is gone ends the drag where it stands (what
+    /// rules resume with its walk (on its idle tick a ground victim left on water stands on the nearest land point of
+    /// guard_land_point's lattice under the shipped combat.HOOK_WATER_LANDING = client16402_nearest_land_lattice).
+    /// A thrower that is gone ends the drag where it stands (what
     /// cancels a drag is OPEN), and a knockback on the victim runs first while the drag waits.
     fn step_hook_drags(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
@@ -36378,8 +36387,10 @@ impl BattleState {
 
     /// A PRESS STARTS (`fire_scheduled`, on the hero's first free tick after the press): a CastTime holds the hero
     /// from now for that long, as the Clone's hold does (no walk, no attack). She KEEPS her target, and her attack
-    /// cycle restarts: progress and load timer 0 for the whole hold, so her first attacking tick after it enters a
-    /// fresh cycle on the target she kept (combat.ATTACK_CYCLE: progress LoadTime + 50, load LoadTime).
+    /// cycle restarts: progress 0 for the whole hold. Under combat.PRESS_LOAD_TIMER = zeroed (client 15.535.29's arm) her
+    /// load timer is 0 too, so her first attacking tick after it enters a fresh cycle on the target she kept
+    /// (combat.ATTACK_CYCLE: progress LoadTime + 50, load LoadTime); the shipped client16402_runs_every_cast leaves the
+    /// timer running 50 a tick through the hold (a hold landing in the cast stands it).
     ///
     /// Measured on client 15.535.29, every Hero Musketeer cast in the scenes: the progress reads 0 through the cast
     /// (9 of 9); a target still alive at the cast's end is kept (7 of 7), though a nearer enemy stood in sight

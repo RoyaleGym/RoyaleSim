@@ -1700,7 +1700,9 @@ impl BurstDef {
 /// `guard_release`, `guard_bind`, `guard_moves`). At the trigger `hold` (NO_MOVE, speed -100) lands on him for its time;
 /// `spawn_delay_ms` on, `unit` is put down deploying at his point + GUARD_SPAWN_OFFSET (his side's frame), and from
 /// GUARD_DASH_START_TICKS after its first frame it charges GUARD_STEP a tick to his point + GUARD_END_OFFSET, hitting
-/// each ground troop whose centre comes within `push_radius` + its radius once, `push_damage` (level-scaled), and on
+/// each ground troop whose centre comes within `push_radius` + its radius once, `push_damage` (level-scaled; under the
+/// shipped combat.GUARD_CHARGE_BUILDINGS = client16402_buildings_hit each enemy building within `push_radius` + its
+/// collision radius too, not pushed), and on
 /// every tick of the charge pushing each whose centre is within `push_radius` by the knockback ladder from its point,
 /// `push` less that distance (state.rs `rearm_ladder`); GUARD_LANDING_TICKS after it arrives it is free.
 ///
@@ -2395,7 +2397,7 @@ pub struct DashDef {
     /// DashRadius: the landing blow's radius. None: the blow is on the target alone.
     pub radius: Option<i32>,
     /// DashPushBack, raw millitiles: the push each victim of a radius blow takes (calibration combat.DASH_PUSHBACK,
-    /// state.rs `land_dash_blows`; read under client_ladder_from_landing only).
+    /// state.rs `land_dash_blows`; read under client_ladder_from_landing and client16402_ladder_in_pass).
     pub pushback_raw: Option<i32>,
     /// DashImmuneToDamageTime, ms. None: the dash gives no immunity.
     pub immune_ms: Option<i32>,
@@ -3422,8 +3424,8 @@ pub struct CardDef {
     /// characters / buildings DeathPushBack (cards.json `death_pushback_milli`, 15.535 rows only),
     /// SUBTILES; 0 on a blank. The push a DEATH BOMB's hit gives the units it lands on, radially
     /// from the bomb, under knockback.DEATH_PUSHBACK (spell.rs `step_spells`: the Skeleton Barrel's
-    /// container 1000). Loaded on every row: the Golem's 1800 and the Giant Skeleton's bomb's 1800
-    /// stay unread under the shipped arm.
+    /// container 1000). Loaded on every row: the Giant Skeleton's bomb's 1800 runs under the shipped
+    /// every_death_bomb_ladder; the Golem's 1800 is knockback.TROOP_DEATH_PUSHBACK's.
     pub death_pushback: i32,
     /// A BOMB A CHAMPION'S BUTTON DROPS (`LaneSwitchDef::bomb`, the Mighty Miner's): its DeathPushBack pushes under
     /// knockback.DEATH_PUSHBACK = containers_ladder too (spell.rs `death_bomb_push`). Measured on client 15.535.29
@@ -10238,8 +10240,9 @@ fn hitpointless_building(raw: &RawCard) -> Option<Hitpointless> {
 ///
 /// DeathPushBack (cards.json `death_pushback_milli`; GiantSkeletonBomb 1800, the Skeleton
 /// Barrel's container 1000) is loaded as `CardDef::death_pushback` and run on the bomb's
-/// hit under knockback.DEATH_PUSHBACK (spell.rs `step_spells`). The shipped arm runs it on a
-/// container alone, so the Giant Skeleton's bomb still damages without shoving.
+/// hit under knockback.DEATH_PUSHBACK (spell.rs `step_spells`, `death_bomb_push`). The shipped
+/// every_death_bomb_ladder runs it on every bomb whose row sets it, the Giant Skeleton's among them;
+/// containers_ladder, the old arm, on a container and a button's dropped bomb alone.
 ///
 /// A CONTAINER (`with_spawn`: `Hitpointless::BombWithDeathSpawn`, the Skeleton Barrel's
 /// SkeletonContainerNew) also carries its row's DeathSpawn block. When the fuse ends the

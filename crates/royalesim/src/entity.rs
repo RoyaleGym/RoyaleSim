@@ -278,9 +278,9 @@ pub struct Entities {
     /// to its last flight step; its load timer runs through the flight's hold. Written under that arm only; hashed only when set.
     #[serde(default)]
     pub throw_flight: Vec<bool>,
-    /// combat.PRESS_LOAD_TIMER = client16402_runs_unless_stunned: the ms left of a hold that landed on a Little Prince in his
-    /// press's cast (`land_stun`), on the stun's clock; his load timer stands while it is above 0. Written under that arm
-    /// only; hashed only when set.
+    /// combat.PRESS_LOAD_TIMER = client16402_runs_unless_stunned or client16402_runs_every_cast: the ms left of a hold that
+    /// landed on a hero in its press's cast (`land_stun`), on the stun's clock; its load timer stands while it is above 0.
+    /// Written under those arms only; hashed only when set.
     #[serde(default)]
     pub press_stun_ms: Vec<i32>,
     /// status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick: a hit's hold landed on the unit last tick, and its target
@@ -288,10 +288,11 @@ pub struct Entities {
     /// under that arm only; hashed only when set. `default` and sized on load like `charge_fresh`.
     #[serde(default)]
     pub stun_clear_due: Vec<bool>,
-    /// combat.PRESS_LOAD_TIMER = client16402_runs_through_cast: a Little Prince in his press's cast, whose load timer runs while he
-    /// holds a target (state.rs `start_ability` sets it, `casting_heroes` clears it at the cast's end; combat.rs
-    /// `attack_step_progress` reads it). Written true under that arm only; hashed only when set. `default` and sized on load
-    /// like `charge_fresh`.
+    /// combat.PRESS_LOAD_TIMER = client16402_runs_through_cast and the arms after it: a hero in its press's cast (the Little
+    /// Prince's guard press; every press without KeepCurrentTarget under client16402_runs_every_cast), whose load timer runs
+    /// while it holds a target (state.rs `start_ability` sets it, `casting_heroes` clears it at the cast's end; combat.rs
+    /// `attack_step_progress` reads it). Written true under those arms only; hashed only when set. `default` and sized on
+    /// load like `charge_fresh`.
     #[serde(default)]
     pub press_load_runs: Vec<bool>,
     /// targeting.VARIABLE_DAMAGE_WALK_REACH (the r80 ground arms): the unit's own walk stepped on the last move pass (its requested

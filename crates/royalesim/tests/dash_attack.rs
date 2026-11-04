@@ -827,3 +827,9 @@ fn under_client16402_out_from_start_a_unit_made_before_a_dasher_is_not_pushed_by
     // a Skeleton made after her: passed over under both arms
     assert_eq!(start_contact(DashStartContact::StartTickBody, false), start_contact(DashStartContact::Client16402OutFromStart, false), "a Skeleton made after her");
 }
+
+/// Since parity r84 (start_tick_body before it; client 15.535.29 keeps start_tick_body).
+#[test]
+fn the_shipped_dash_start_contact_is_client16402_out_from_start() {
+    assert_eq!(royalesim::state::Calib::shipped().dash_start_contact, DashStartContact::Client16402OutFromStart);
+}
