@@ -107,15 +107,15 @@ fn frozen(s: &BattleState, id: EntityId) -> bool {
 /// level 11, so 1 or 2): a loss above it is a hit.
 const DRAIN_MAX: i32 = 2;
 
-/// The scene most tests share: an Evo Giant of `team` held on its own half against an enemy Cannon held 1500 ahead of
-/// it (it stands and hits it, facing it), both topped up; the giant side's princess towers down, so no tower shot
-/// reaches the Cannon (the king, 9000 from it, is out of its reach): (the battle, the giant, the Cannon).
+/// The scene most tests share: an Evo Giant of `team` held on its own half against an enemy Cannon held 1500 ahead of it
+/// (it stands and hits it, facing it), both topped up. Every tower stands and none reaches the Cannon: a tower reaches
+/// its range plus both radii (targeting.ATTACK_RANGE_RULE), so the giant side's princess towers (7500 + 1000 + 600) are
+/// 9462 from it, short by 362, and its king (7000 + 1400 + 600) 11200; the other side's towers are 12000 and more from
+/// the giant. (11-03: with the princess towers down, the woken king reached the Cannon at (9000, 12000), exactly 9000
+/// away, and shot it for 109.) (the battle, the giant, the Cannon).
 fn against_a_cannon(team: Team) -> (BattleState, EntityId, EntityId) {
     let mut s = battle();
-    let (g_at, c_at) = if team == Team::Blue { ((9000, 10500), (9000, 12000)) } else { ((9000, 21500), (9000, 20000)) };
-    for k in [1, 2] {
-        s.scenario_set_tower_hp(team, k, 0).expect("a princess tower down");
-    }
+    let (g_at, c_at) = if team == Team::Blue { ((9000, 12700), (9000, 14200)) } else { ((9000, 19300), (9000, 17800)) };
     let g = giant(&mut s, team, g_at);
     let c = s.scenario_spawn_now(team.other(), "Cannon", n(c_at.0, c_at.1), None).expect("the Cannon");
     (s, g, c)
