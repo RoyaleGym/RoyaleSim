@@ -199,7 +199,12 @@ fn load_rejects_corruption_and_foreign_card_data() {
     // must refuse rather than resume against the wrong cards.
     let foreign = BattleState::new(1, royalesim::state::BattleConfig::with_cards(royalesim::card::CardDb::fallback()));
     let fb = foreign.save();
-    assert!(BattleState::load(&fb).is_err(), "a fallback-card snapshot loaded against cards.json");
+    // The refusal says why and what to do (Gym's SnapshotStateMutator passes it to the user as is), and keeps the
+    // substring it has always carried.
+    match BattleState::load(&fb) {
+        Ok(_) => panic!("a fallback-card snapshot loaded against cards.json"),
+        Err(e) => assert!(e.contains("saved against different card data") && e.contains("make it again with this release"), "{e}"),
+    }
 }
 
 /// An enchant (entity.rs `EnchantSlot`) that names a card carrying no enchant is refused as an inconsistent

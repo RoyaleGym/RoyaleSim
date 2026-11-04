@@ -42170,7 +42170,7 @@ impl BattleState {
         // (`with_card_values`), and its fingerprint is of that data.
         let cards = with_card_values(&snap.calib, cards)?;
         if remap.is_none() && snap.cards_fingerprint != cards_fingerprint(&cards) {
-            return Err("snapshot was saved against different card data".into());
+            return Err("snapshot was saved against different card data (another royalesim release or card table): make it again with this release".into());
         }
         if snap.arena_fingerprint != fingerprint_debug(&arena) {
             return Err("snapshot was saved against a different arena".into());
