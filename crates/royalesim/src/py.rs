@@ -1836,7 +1836,18 @@ impl Battle {
     /// `levels`: [blue, red], each empty or parallel to its deck: the unified level of each deck card (a real deck's
     /// cards each have their own). `tower_levels`: [blue, red], each side's crown towers' level. None plays both sides
     /// at the object's `card_level()` and `tower_level()`, as before.
-    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None))]
+    /// A COPY OF A BATTLE UNDER WAY (each None leaves the fresh battle's state): `king_active`: [blue, red], each king
+    /// awake as if its activation delay had elapsed (it took damage, or a princess tower fell), or asleep.
+    /// `evo_counts`: [blue, red], each empty or parallel to its deck: an evolved card's basic plays since its last
+    /// evolved one (its next play is evolved once the count reaches the form's cycle); 0 for every other card.
+    /// `unit_spawns`: (unit, team, x, y, hp or -1, level or -1), beside `spawns`: any unit by its record's NAME, a
+    /// summoned or death-spawned one included (a Golemite, a Battle Ram's Barbarian, a Witch's Skeleton), standing and
+    /// deployed at that unified level (-1: its deck entry's, else the side's card level). Both lists go down in one
+    /// canonical order.
+    /// `spells_in_flight`: (card_id, team, x, y, aim_x, aim_y, level or -1): a spell on its way (a Fireball, a Rocket,
+    /// an Arrows volley), cast at its aim and put at (x, y) on its flight, so it lands when its flight from there ends
+    /// (its time left follows from its speed). A spell that does not fly (an area at once, the Log's roll) is refused.
+    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_active = None, evo_counts = None, unit_spawns = None, spells_in_flight = None))]
     #[allow(clippy::too_many_arguments)]
     fn reset(
         &mut self,
@@ -1850,6 +1861,10 @@ impl Battle {
         forms: Option<Vec<Vec<u8>>>,
         levels: Option<Vec<Vec<i32>>>,
         tower_levels: Option<Vec<i32>>,
+        king_active: Option<Vec<bool>>,
+        evo_counts: Option<Vec<Vec<u8>>>,
+        unit_spawns: Option<Vec<(String, i64, i32, i32, i32, i32)>>,
+        spells_in_flight: Option<Vec<(i64, i64, i32, i32, i32, i32, i32)>>,
     ) -> PyResult<()> {
         if decks.len() != 2 {
             return Err(PyValueError::new_err("decks must be [blue, red]"));
@@ -1957,16 +1972,61 @@ impl Battle {
         }
         // One batch, so the engine spawns in its canonical order and the LIST
         // order cannot reach team_seq (state.rs `scenario_spawn_batch`).
-        let mut specs: Vec<(Team, String, Vec2, Option<i32>)> = Vec::with_capacity(spawns.len());
+        let mut specs: Vec<(Team, String, Vec2, Option<i32>, Option<i32>)> = Vec::with_capacity(spawns.len());
         for &(team, cid, x, y, hp) in &spawns {
             let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("bad spawn team {team}")))?;
-            specs.push((t, name_of(cid)?, Vec2::new(x, y), (hp >= 0).then_some(hp)));
+            specs.push((t, name_of(cid)?, Vec2::new(x, y), (hp >= 0).then_some(hp), None));
         }
-        let refs: Vec<(Team, &str, Vec2, Option<i32>)> = specs.iter().map(|(t, n, p, h)| (*t, n.as_str(), *p, *h)).collect();
-        s.scenario_spawn_batch(&refs).map_err(|(k, e)| {
-            let (_, name, p, _) = refs[k];
+        // A UNIT BY ITS RECORD'S NAME (`unit_spawns`): any record the table loads, the catalogue's or not.
+        for (unit, team, x, y, hp, level) in unit_spawns.unwrap_or_default() {
+            let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("bad unit spawn team {team}")))?;
+            // It reports under the catalogue card that produces it (`ids_of_indices`), so a unit no catalogue card can put
+            // on the board is refused: its rows would read card -1, and a save of the battle would not load.
+            match self.cards.index(&unit) {
+                None => return Err(PyValueError::new_err(format!("unit spawn {unit}: no such record in this battle's card table"))),
+                Some(i) if self.id_of_idx.get(i as usize).map_or(true, |c| *c < 0) => {
+                    return Err(PyValueError::new_err(format!("unit spawn {unit}: no card of this catalogue puts it on the board")));
+                }
+                Some(_) => {}
+            }
+            specs.push((t, unit, Vec2::new(x, y), (hp >= 0).then_some(hp), (level >= 0).then_some(level)));
+        }
+        let refs: Vec<(Team, &str, Vec2, Option<i32>, Option<i32>)> = specs.iter().map(|(t, n, p, h, l)| (*t, n.as_str(), *p, *h, *l)).collect();
+        s.scenario_spawn_batch_levels(&refs).map_err(|(k, e)| {
+            let (_, name, p, _, _) = refs[k];
             PyValueError::new_err(format!("spawn {name} at ({}, {}): {e:?}", p.x, p.y))
         })?;
+        // A COPY OF A BATTLE UNDER WAY: the woken kings and the evolved cards' counters (by card, so a shuffle of the
+        // deck cannot move them).
+        match king_active {
+            None => {}
+            Some(k) if k.len() == 2 => {
+                s.scenario_set_king_active(Team::Blue, k[0]);
+                s.scenario_set_king_active(Team::Red, k[1]);
+            }
+            Some(_) => return Err(PyValueError::new_err("king_active must be [blue, red]")),
+        }
+        match evo_counts {
+            None => {}
+            Some(c) if c.len() == 2 => {
+                for (t, (side, team)) in c.iter().zip([Team::Blue, Team::Red]).enumerate() {
+                    if !side.is_empty() && side.len() != decks[t].len() {
+                        return Err(PyValueError::new_err(format!("evo_counts[{t}] has {} entries for a deck of {}: one count per deck card, or none", side.len(), decks[t].len())));
+                    }
+                    for (k, n) in side.iter().enumerate().filter(|(_, n)| **n > 0) {
+                        let name = name_of(decks[t][k])?;
+                        s.scenario_set_evo_plays(team, &name, *n).map_err(|e| PyValueError::new_err(format!("evo_counts[{t}][{k}]: {e}")))?;
+                    }
+                }
+            }
+            Some(_) => return Err(PyValueError::new_err("evo_counts must be [blue, red]")),
+        }
+        for (k, &(cid, team, x, y, ax, ay, level)) in spells_in_flight.unwrap_or_default().iter().enumerate() {
+            let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("spells_in_flight[{k}]: bad team {team}")))?;
+            let name = name_of(cid)?;
+            s.scenario_spell_in_flight(t, &name, (level >= 0).then_some(level), Vec2::new(x, y), Vec2::new(ax, ay))
+                .map_err(|e| PyValueError::new_err(format!("spells_in_flight[{k}]: {e}")))?;
+        }
         self.state = Some(s);
         self.step_commands.clear();
         Ok(())

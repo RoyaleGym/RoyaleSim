@@ -37055,6 +37055,57 @@ impl BattleState {
         Ok(())
     }
 
+    /// Wake or sleep `team`'s king tower now (`king_active`): a king the copied battle had woken (it took damage, or a
+    /// princess tower fell) is awake as if its activation delay elapsed in the past, as `scenario_set_tower_hp` leaves
+    /// it when a princess starts destroyed; false puts it asleep with no activation under way.
+    pub fn scenario_set_king_active(&mut self, team: Team, active: bool) {
+        let t = team as usize;
+        #[cfg(clash_plant = "copy_king_active_unset")]
+        let active = self.king_active[t]; // PLANT: the king stays as the fresh battle has it.
+        self.king_active[t] = active;
+        self.king_wake_ms[t] = active.then_some(self.cfg.calib.king_activate_time_ms);
+    }
+
+    /// Put `team`'s spell `card` in flight now, as a copy of a battle under way: cast at `aim` as a play of it would be
+    /// (`spell::cast`, at `level`, else its deck entry's), each flying object then moved to `pos` on its way, so it
+    /// lands when its flight from there ends: its time left follows from its own speed. A wave not yet launched (an
+    /// Arrows volley's delay) keeps its delay. Refused for a spell that does not fly (an area at once, a roll).
+    pub fn scenario_spell_in_flight(&mut self, team: Team, card: &str, level: Option<i32>, pos: Vec2, aim: Vec2) -> Result<(), String> {
+        let idx = self.cfg.cards.index(card).ok_or_else(|| format!("no card {card}"))?;
+        let level = level.unwrap_or_else(|| self.card_level_of(team, idx));
+        self.cfg.cards.check_levels(idx, level)?;
+        let mut v = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, team, idx, level, aim, self.tick)?;
+        if v.is_empty() || !v.iter().all(|s| matches!(s.motion, spell::SpellMotion::Flight { .. })) {
+            return Err(format!("{card} does not fly: only a spell in flight can be put down on its way"));
+        }
+        #[cfg(not(clash_plant = "copy_spell_flight_from_launch"))]
+        for s in v.iter_mut() {
+            if let spell::SpellMotion::Flight { pos: p, frac, .. } = &mut s.motion {
+                *p = pos;
+                *frac = Vec2::default();
+            }
+        }
+        #[cfg(clash_plant = "copy_spell_flight_from_launch")]
+        let _ = pos; // PLANT: the spell flies its whole flight from its launch point.
+        self.spells.extend(v);
+        Ok(())
+    }
+
+    /// Set the basic plays of `team`'s evolved deck card `card` since its last evolved play (`EvoCounter::plays`): the
+    /// next play is evolved once the count reaches the form's cycle. Refused for a card the deck does not carry
+    /// evolved, or a count past its cycle.
+    pub fn scenario_set_evo_plays(&mut self, team: Team, card: &str, plays: u8) -> Result<(), String> {
+        let idx = self.cfg.cards.index(card).ok_or_else(|| format!("no card {card}"))?;
+        let c = self.players[team as usize].evo.iter_mut().find(|c| c.card == idx).ok_or_else(|| format!("{card} is not an evolved card of {team:?}'s deck"))?;
+        if plays > c.cycles {
+            return Err(format!("{card}: {plays} basic plays past its cycle of {}", c.cycles));
+        }
+        #[cfg(clash_plant = "copy_evo_plays_unset")]
+        let plays = c.plays; // PLANT: the counter stays at the fresh battle's 0.
+        c.plays = plays;
+        Ok(())
+    }
+
     /// Put ONE entity of a card on the board now, already deployed (no formation,
     /// no deploy timer), optionally at a given hp. Ignores hand, elixir and zones;
     /// a ground unit still may not stand on water.
@@ -37062,16 +37113,17 @@ impl BattleState {
     /// ONE AT A TIME, CALL ORDER DECIDES `team_seq`. For a whole MatchSetup use
     /// `scenario_spawn_batch`, which makes the order canonical.
     pub fn scenario_spawn_now(&mut self, team: Team, card_name: &str, pos: Vec2, hp: Option<i32>) -> Result<EntityId, DeployError> {
-        let (idx, _) = self.setup_spawn_check(team, card_name, pos)?;
-        let id = self.setup_spawn_place(team, idx, pos, hp)?;
+        let (idx, _) = self.setup_spawn_check(team, card_name, pos, None)?;
+        let id = self.setup_spawn_place(team, idx, pos, hp, None)?;
         self.hash.rebuild(&self.ents);
         Ok(id)
     }
 
-    /// Validate one setup spawn: (card index, the hp it would start with).
-    fn setup_spawn_check(&self, team: Team, card_name: &str, pos: Vec2) -> Result<(u16, i32), DeployError> {
+    /// Validate one setup spawn: (card index, the hp it would start with). `level`: the unified level it is put down
+    /// at, else its deck entry's (`card_level_of`).
+    fn setup_spawn_check(&self, team: Team, card_name: &str, pos: Vec2, level: Option<i32>) -> Result<(u16, i32), DeployError> {
         let idx = self.simulable(card_name)?;
-        let level = self.card_level_of(team, idx);
+        let level = level.unwrap_or_else(|| self.card_level_of(team, idx));
         let card = self.cfg.cards.get(idx);
         if card.kind == CardKind::Spell {
             return Err(DeployError::UnsupportedCard(card.name.clone(), "a spell is not a board unit; it cannot be a setup spawn".into()));
@@ -37104,8 +37156,11 @@ impl BattleState {
     /// Materialise one validated setup spawn (no hash rebuild). A CREATION, NOT A PLAY: the unit puts its spawn area
     /// object down as every creation does (spawner.SPAWN_AREA_OBJECT_SCOPE, `spawn_now`), and its card's deploy effects,
     /// the deploy projectile and the deploy area effect, are not cast (`deploy_blow`, `phase_spawn`).
-    fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>) -> Result<EntityId, DeployError> {
-        let (idx, level) = self.setup_record(idx, self.card_level_of(team, idx)).map_err(DeployError::InvalidLevel)?;
+    fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>, level: Option<i32>) -> Result<EntityId, DeployError> {
+        #[cfg(clash_plant = "copy_spawn_level_ignored")]
+        let level: Option<i32> = level.and(None); // PLANT: every setup spawn at its deck entry's level.
+        let level = level.unwrap_or_else(|| self.card_level_of(team, idx));
+        let (idx, level) = self.setup_record(idx, level).map_err(DeployError::InvalidLevel)?;
         let kind = if self.cfg.cards.get(idx).kind == CardKind::Building { EntityKind::Building } else { EntityKind::Troop };
         #[cfg(not(clash_plant = "setup_spawn_skips_spawn_area"))]
         let id = self.spawn_now(team, idx, level, pos, kind).map_err(DeployError::InvalidLevel)?;
@@ -37145,9 +37200,18 @@ impl BattleState {
     ///
     /// Returns ids in INPUT order. Plant: setup_spawn_list_order.
     pub fn scenario_spawn_batch(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>)]) -> Result<Vec<EntityId>, (usize, DeployError)> {
+        let with: Vec<(Team, &str, Vec2, Option<i32>, Option<i32>)> = spawns.iter().map(|&(t, n, p, h)| (t, n, p, h, None)).collect();
+        self.scenario_spawn_batch_levels(&with)
+    }
+
+    /// `scenario_spawn_batch` with a unified LEVEL per spawn (None: its deck entry's, `card_level_of`): a copy of a
+    /// battle under way puts each unit down at the level it had, a summoned or death-spawned unit (a Golemite, a Battle
+    /// Ram's Barbarian) by its own record's name at its root card's level. The canonical order's key ends with the
+    /// level, so two specs that differ in it alone keep a list-independent order.
+    pub fn scenario_spawn_batch_levels(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>, Option<i32>)]) -> Result<Vec<EntityId>, (usize, DeployError)> {
         let mut checked = Vec::with_capacity(spawns.len());
-        for (k, &(team, name, pos, hp)) in spawns.iter().enumerate() {
-            let (idx, full_hp) = self.setup_spawn_check(team, name, pos).map_err(|e| (k, e))?;
+        for (k, &(team, name, pos, hp, level)) in spawns.iter().enumerate() {
+            let (idx, full_hp) = self.setup_spawn_check(team, name, pos, level).map_err(|e| (k, e))?;
             checked.push((idx, hp.unwrap_or(full_hp)));
         }
         #[allow(unused_mut)]
@@ -37161,7 +37225,7 @@ impl BattleState {
             let first_blue = spawns.iter().position(|s| s.0 == Team::Blue).unwrap_or(0);
             order.sort_by(|&a, &b| {
                 let key = |k: usize| {
-                    let (team, name, pos, _) = spawns[k];
+                    let (team, name, pos, _, level) = spawns[k];
                     let f = arena.to_frame(team, pos);
                     #[cfg(not(clash_plant = "setup_spawn_team_list_order"))]
                     let team_rank = team as u8 as usize;
@@ -37169,15 +37233,15 @@ impl BattleState {
                     // canonical, but SLOT order (and so state_hash) follows the list.
                     #[cfg(clash_plant = "setup_spawn_team_list_order")]
                     let team_rank = if team == Team::Red { first_red } else { first_blue };
-                    (team_rank, f.y, f.x, name, checked[k].1)
+                    (team_rank, f.y, f.x, name, checked[k].1, level)
                 };
                 key(a).cmp(&key(b))
             });
         }
         let mut ids = vec![EntityId::default(); spawns.len()];
         for k in order {
-            let (team, _, pos, hp) = spawns[k];
-            ids[k] = self.setup_spawn_place(team, checked[k].0, pos, hp).map_err(|e| (k, e))?;
+            let (team, _, pos, hp, level) = spawns[k];
+            ids[k] = self.setup_spawn_place(team, checked[k].0, pos, hp, level).map_err(|e| (k, e))?;
         }
         self.hash.rebuild(&self.ents);
         Ok(ids)
