@@ -36,7 +36,7 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, LevelledSpawn};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -147,7 +147,7 @@ fn spawns_that_differ_in_level_alone_go_down_in_one_order() {
     let at = n(9000, 20000);
     let hash_of = |order: [i32; 2]| {
         let mut s = battle();
-        let specs: Vec<(Team, &str, Vec2, Option<i32>, Option<i32>)> = order.iter().map(|l| (Team::Red, "Golemite", at, Some(100), Some(*l))).collect();
+        let specs: Vec<LevelledSpawn> = order.iter().map(|l| (Team::Red, "Golemite", at, Some(100), Some(*l))).collect();
         s.scenario_spawn_batch_levels(&specs).expect("two Golemites");
         s.state_hash()
     };
