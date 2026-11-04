@@ -52,11 +52,19 @@ position in that list. `catalogue_json()` lists each card with its cost, kind an
 own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck card (or empty), and
 `tower_levels=[blue, red]`. A Mirror's copy is one level above the Mirror.
 
-**A battle under way.** `reset` can also start from the middle of a battle. `unit_spawns` puts down any unit by its
-name, a summoned one too (a Golemite, a Witch's Skeleton), each at its own level: `(name, team, x, y, hp, level)`,
-with -1 for the default. `king_active=[blue, red]` wakes a king tower. `evo_counts=[blue, red]` gives each evolved deck
-card's plays since its last evolved one, one count per deck card. `spells_in_flight` puts a flying spell (a Fireball, a
-Rocket, Arrows) on its way: `(card_id, team, x, y, aim_x, aim_y, level)`.
+**A battle under way.** `reset` can also start from the middle of a battle:
+
+- `unit_spawns` puts down a unit by its name, a summoned one too (a Golemite, a Witch's Skeleton), each at its own
+  level: `(name, team, x, y, hp, level)`, with -1 for the default. The unit must come from a card in the Battle's card
+  list (a Golemite needs the Golem). An evolved or hero form, or a rider, cannot be put down on its own.
+- `king_wake_ms=[blue, red]` sets each king tower's wake clock: the milliseconds since it was first hit or lost a
+  princess tower, or -1. A player row's `king_wake_ms` in `state_json` reads it back.
+- `evo_counts=[blue, red]` gives each evolved deck card's plays since its last evolved one, one count per deck card.
+- `last_played=[blue, red]` is the card id each side's Mirror would copy, or -1.
+- `spells_in_flight` puts one flying spell object on its way:
+  `(card_id, form, team, x, y, aim_x, aim_y, level, delay_ms)`. One Arrows wave is one entry. `form` is 0 for the
+  card, 1 for its evolution, 2 for its hero form and 3 for an evolution's decoy. Ask
+  `spell_in_flight_kind(card_id, form)` first: only `"flies"` can be put in flight.
 
 **Commands.** A command is `(team, hand_slot, x, y)`. `step` returns one row per command:
 `(card_id, reason, tick, x, y)`, where `reason` indexes `DEPLOY_REASONS` (`0` is accepted) and `x, y` is where

@@ -574,6 +574,21 @@ fn command_row(tick: u32, r: &crate::state::CommandRun, id_of_idx: &[i32]) -> (u
     (tick, r.command.team as i64, kind.to_string(), what, reason_of(&r.result.clone().map(|_| ())))
 }
 
+/// The record a flying object of catalogue card `card_id` with `form` is (`Battle.reset`'s `spells_in_flight`): the
+/// card (0), its evolved form (1) or hero form (2) (card.rs `form_card`), or its evolution's decoy (3, `EvoDef::mirror`).
+pub fn flight_record(cards: &CardDb, catalogue: &[u16], card_id: i64, form: u8) -> Result<u16, String> {
+    let base = usize::try_from(card_id).ok().and_then(|c| catalogue.get(c)).copied().ok_or_else(|| format!("unknown card id {card_id}"))?;
+    let name = &cards.get(base).name;
+    match form {
+        0..=2 => cards.form_card(base, form).ok_or_else(|| format!("{name} has no form {form} in this table")),
+        3 => cards
+            .form_card(base, crate::card::FORM_EVOLUTION)
+            .and_then(|e| cards.get(e).evo.as_ref().and_then(|v| v.mirror))
+            .ok_or_else(|| format!("{name} has no decoy (form 3) in this table")),
+        f => Err(format!("unknown form {f}: 0 the card, 1 evolved, 2 hero, 3 the evolution's decoy")),
+    }
+}
+
 /// Why a restored battle cannot run behind this catalogue, or Ok. Every card the
 /// battle can still produce -- a hand slot, the cycle queue, a pending spawn, a
 /// non-tower entity on the board -- must have a catalogue id, or `state_json`
@@ -1189,7 +1204,7 @@ pub fn state_json_text_with(
         o.push(']');
         let _ = write!(
             o,
-            ",\"next_card\":{next},\"crowns\":{},\"tower_hp\":[{},{},{}],\"tower_max_hp\":[{},{},{}],\"king_active\":{}}}",
+            ",\"next_card\":{next},\"crowns\":{},\"tower_hp\":[{},{},{}],\"tower_max_hp\":[{},{},{}],\"king_active\":{},\"king_wake_ms\":{}}}",
             crowns[ti],
             by_slot[0],
             by_slot[1],
@@ -1198,6 +1213,7 @@ pub fn state_json_text_with(
             max_by_slot[1],
             max_by_slot[2],
             s.king_active(team),
+            s.king_wake_ms(team).unwrap_or(-1),
         );
     }
     o.push_str("],\"entities\":[");
@@ -1836,18 +1852,22 @@ impl Battle {
     /// `levels`: [blue, red], each empty or parallel to its deck: the unified level of each deck card (a real deck's
     /// cards each have their own). `tower_levels`: [blue, red], each side's crown towers' level. None plays both sides
     /// at the object's `card_level()` and `tower_level()`, as before.
-    /// A COPY OF A BATTLE UNDER WAY (each None leaves the fresh battle's state): `king_active`: [blue, red], each king
-    /// awake as if its activation delay had elapsed (it took damage, or a princess tower fell), or asleep.
+    /// A COPY OF A BATTLE UNDER WAY (each None leaves the fresh battle's state): `king_wake_ms`: [blue, red], each king's
+    /// ms since its wake trigger (it took damage, or a princess tower fell), -1 for none: awake from the activation
+    /// delay on, waking before it (a player row's `king_wake_ms`); -1 is refused with a princess of the side down.
+    /// `last_played`: [blue, red], the catalogue id a Mirror of the side would copy, -1 for none.
     /// `evo_counts`: [blue, red], each empty or parallel to its deck: an evolved card's basic plays since its last
     /// evolved one (its next play is evolved once the count reaches the form's cycle); 0 for every other card.
     /// `unit_spawns`: (unit, team, x, y, hp or -1, level or -1), beside `spawns`: any unit by its record's NAME, a
     /// summoned or death-spawned one included (a Golemite, a Battle Ram's Barbarian, a Witch's Skeleton), standing and
     /// deployed at that unified level (-1: its deck entry's, else the side's card level). Both lists go down in one
     /// canonical order.
-    /// `spells_in_flight`: (card_id, team, x, y, aim_x, aim_y, level or -1): a spell on its way (a Fireball, a Rocket,
-    /// an Arrows volley), cast at its aim and put at (x, y) on its flight, so it lands when its flight from there ends
-    /// (its time left follows from its speed). A spell that does not fly (an area at once, the Log's roll) is refused.
-    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_active = None, evo_counts = None, unit_spawns = None, spells_in_flight = None))]
+    /// `spells_in_flight`: (card_id, form, team, x, y, aim_x, aim_y, level or -1, delay_ms): ONE flying object (a
+    /// Fireball, a Rocket, one Arrows wave: a volley is one entry per wave, as a state row lists them), cast at its aim
+    /// and put at (x, y) with delay_ms still to wait, so it lands when its flight from there ends (its time left follows
+    /// from its speed). `form`: 0 the card, 1 its evolved form, 2 its hero form, 3 its evolution's decoy (the Evo Goblin
+    /// Barrel's). A record that does not fly (`spell_in_flight_kind`) is refused.
+    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_wake_ms = None, evo_counts = None, unit_spawns = None, spells_in_flight = None, last_played = None))]
     #[allow(clippy::too_many_arguments)]
     fn reset(
         &mut self,
@@ -1861,10 +1881,11 @@ impl Battle {
         forms: Option<Vec<Vec<u8>>>,
         levels: Option<Vec<Vec<i32>>>,
         tower_levels: Option<Vec<i32>>,
-        king_active: Option<Vec<bool>>,
+        king_wake_ms: Option<Vec<i32>>,
         evo_counts: Option<Vec<Vec<u8>>>,
         unit_spawns: Option<Vec<(String, i64, i32, i32, i32, i32)>>,
-        spells_in_flight: Option<Vec<(i64, i64, i32, i32, i32, i32, i32)>>,
+        spells_in_flight: Option<Vec<(i64, u8, i64, i32, i32, i32, i32, i32, i32)>>,
+        last_played: Option<Vec<i64>>,
     ) -> PyResult<()> {
         if decks.len() != 2 {
             return Err(PyValueError::new_err("decks must be [blue, red]"));
@@ -1987,6 +2008,18 @@ impl Battle {
                 Some(i) if self.id_of_idx.get(i as usize).map_or(true, |c| *c < 0) => {
                     return Err(PyValueError::new_err(format!("unit spawn {unit}: no card of this catalogue puts it on the board")));
                 }
+                // A record that cannot stand alone: a form (its form's own state, an Evo Musketeer's snipes, is made by its
+                // play) or a rider (its mount makes it).
+                Some(i) if self.cards.is_form(i) || self.cards.is_hero_record(i) => {
+                    return Err(PyValueError::new_err(format!("unit spawn {unit}: an evolved or hero form is not put down alone (its form's state comes with its play)")));
+                }
+                // A card of the catalogue stands alone even where it also rides (the Bomb Tower's Bomber).
+                Some(i)
+                    if !self.catalogue.contains(&i)
+                        && (0..self.cards.cards.len() as u16).any(|c| self.cards.unit_refs(c).iter().any(|(r, u, _)| matches!(r, UnitRef::Attach) && *u == i)) =>
+                {
+                    return Err(PyValueError::new_err(format!("unit spawn {unit}: a rider is not put down alone (its mount makes it)")));
+                }
                 Some(_) => {}
             }
             specs.push((t, unit, Vec2::new(x, y), (hp >= 0).then_some(hp), (level >= 0).then_some(level)));
@@ -1998,13 +2031,24 @@ impl Battle {
         })?;
         // A COPY OF A BATTLE UNDER WAY: the woken kings and the evolved cards' counters (by card, so a shuffle of the
         // deck cannot move them).
-        match king_active {
+        match king_wake_ms {
             None => {}
             Some(k) if k.len() == 2 => {
-                s.scenario_set_king_active(Team::Blue, k[0]);
-                s.scenario_set_king_active(Team::Red, k[1]);
+                for (ms, team) in k.iter().zip([Team::Blue, Team::Red]) {
+                    s.scenario_set_king_wake(team, (*ms >= 0).then_some(*ms)).map_err(|e| PyValueError::new_err(format!("king_wake_ms: {e}")))?;
+                }
             }
-            Some(_) => return Err(PyValueError::new_err("king_active must be [blue, red]")),
+            Some(_) => return Err(PyValueError::new_err("king_wake_ms must be [blue, red]")),
+        }
+        match last_played {
+            None => {}
+            Some(l) if l.len() == 2 => {
+                for (cid, team) in l.iter().zip([Team::Blue, Team::Red]) {
+                    let name = if *cid < 0 { None } else { Some(name_of(*cid)?) };
+                    s.scenario_set_last_played(team, name.as_deref()).map_err(|e| PyValueError::new_err(format!("last_played: {e}")))?;
+                }
+            }
+            Some(_) => return Err(PyValueError::new_err("last_played must be [blue, red]")),
         }
         match evo_counts {
             None => {}
@@ -2021,10 +2065,11 @@ impl Battle {
             }
             Some(_) => return Err(PyValueError::new_err("evo_counts must be [blue, red]")),
         }
-        for (k, &(cid, team, x, y, ax, ay, level)) in spells_in_flight.unwrap_or_default().iter().enumerate() {
+        for (k, &(cid, form, team, x, y, ax, ay, level, delay_ms)) in spells_in_flight.unwrap_or_default().iter().enumerate() {
             let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("spells_in_flight[{k}]: bad team {team}")))?;
-            let name = name_of(cid)?;
-            s.scenario_spell_in_flight(t, &name, (level >= 0).then_some(level), Vec2::new(x, y), Vec2::new(ax, ay))
+            let record = flight_record(&self.cards, &self.catalogue, cid, form).map_err(|e| PyValueError::new_err(format!("spells_in_flight[{k}]: {e}")))?;
+            let name = self.cards.get(record).name.clone();
+            s.scenario_spell_in_flight(t, &name, (level >= 0).then_some(level), Vec2::new(x, y), Vec2::new(ax, ay), delay_ms)
                 .map_err(|e| PyValueError::new_err(format!("spells_in_flight[{k}]: {e}")))?;
         }
         self.state = Some(s);
@@ -2228,12 +2273,10 @@ impl Battle {
     /// How catalogue card `card_id` stands to `reset`'s `spells_in_flight` (spell.rs `in_flight_kind`): "flies" (it can
     /// be put on its way), "rolls" (a roll, the Log or the Barbarian Barrel: not yet), "at_once" (an area, a strike, a
     /// summon: no flight to be on) or "not_a_spell". A copy's builder asks first and leaves out what does not fly.
-    fn spell_in_flight_kind(&self, card_id: i64) -> PyResult<&'static str> {
-        let idx = usize::try_from(card_id)
-            .ok()
-            .and_then(|c| self.catalogue.get(c))
-            .copied()
-            .ok_or_else(|| PyValueError::new_err(format!("unknown card id {card_id}")))?;
+    /// `form` as in `spells_in_flight` (0 the card, 1 its evolved form, 2 its hero form, 3 its evolution's decoy).
+    #[pyo3(signature = (card_id, form = 0))]
+    fn spell_in_flight_kind(&self, card_id: i64, form: u8) -> PyResult<&'static str> {
+        let idx = flight_record(&self.cards, &self.catalogue, card_id, form).map_err(PyValueError::new_err)?;
         Ok(crate::spell::in_flight_kind(self.cards.get(idx)))
     }
 

@@ -37055,22 +37055,50 @@ impl BattleState {
         Ok(())
     }
 
-    /// Wake or sleep `team`'s king tower now (`king_active`): a king the copied battle had woken (it took damage, or a
-    /// princess tower fell) is awake as if its activation delay elapsed in the past, as `scenario_set_tower_hp` leaves
-    /// it when a princess starts destroyed; false puts it asleep with no activation under way.
-    pub fn scenario_set_king_active(&mut self, team: Team, active: bool) {
+    /// Set `team`'s king tower's WAKE CLOCK now (`king_wake_ms`), as a copy of a battle under way: None, no trigger yet
+    /// (asleep); Some(ms), the ms since its trigger (it took damage, or a princess tower fell): awake from
+    /// KING_ACTIVATE_TIME_MS on, and before that waking, on its own clock from there (`phase_status`). None is refused
+    /// while a princess of the side is down, since that fall was a trigger; a negative clock is refused.
+    pub fn scenario_set_king_wake(&mut self, team: Team, wake_ms: Option<i32>) -> Result<(), String> {
         let t = team as usize;
-        #[cfg(clash_plant = "copy_king_active_unset")]
-        let active = self.king_active[t]; // PLANT: the king stays as the fresh battle has it.
-        self.king_active[t] = active;
-        self.king_wake_ms[t] = active.then_some(self.cfg.calib.king_activate_time_ms);
+        if wake_ms.is_none() && (self.towers_down[t][1] || self.towers_down[t][2]) {
+            return Err(format!("{team:?}'s king cannot be asleep with a princess tower down: its fall woke it"));
+        }
+        if wake_ms.is_some_and(|m| m < 0) {
+            return Err(format!("{team:?}'s king: a negative wake clock"));
+        }
+        #[cfg(clash_plant = "copy_king_wake_unset")]
+        let wake_ms = self.king_wake_ms[t]; // PLANT: the king stays as the fresh battle has it.
+        self.king_wake_ms[t] = wake_ms;
+        self.king_active[t] = wake_ms.is_some_and(|m| m >= self.cfg.calib.king_activate_time_ms);
+        Ok(())
     }
 
-    /// Put `team`'s spell `card` in flight now, as a copy of a battle under way: cast at `aim` as a play of it would be
-    /// (`spell::cast`, at `level`, else its deck entry's), each flying object then moved to `pos` on its way, so it
-    /// lands when its flight from there ends: its time left follows from its own speed. A wave not yet launched (an
-    /// Arrows volley's delay) keeps its delay. Refused for a spell that does not fly (an area at once, a roll).
-    pub fn scenario_spell_in_flight(&mut self, team: Team, card: &str, level: Option<i32>, pos: Vec2, aim: Vec2) -> Result<(), String> {
+    /// `team`'s king tower's wake clock (`scenario_set_king_wake`): None before its trigger, else the ms since it.
+    pub fn king_wake_ms(&self, team: Team) -> Option<i32> {
+        self.king_wake_ms[team as usize]
+    }
+
+    /// Set the card `team`'s Mirror would copy now (`PlayerState::last_played`), as a copy of a battle under way: None
+    /// before the side's first play.
+    pub fn scenario_set_last_played(&mut self, team: Team, card: Option<&str>) -> Result<(), String> {
+        let idx = match card {
+            None => None,
+            Some(n) => Some(self.cfg.cards.index(n).ok_or_else(|| format!("no card {n}"))?),
+        };
+        #[cfg(clash_plant = "copy_last_played_unset")]
+        let idx = self.players[team as usize].last_played; // PLANT: the Mirror has nothing to copy, as in a fresh battle.
+        self.players[team as usize].last_played = idx;
+        Ok(())
+    }
+
+    /// Put ONE flying object of `team`'s spell record `card` on its way now, as a copy of a battle under way: cast at
+    /// `aim` as a play of it would be (`spell::cast`, at `level`, else its deck entry's), its first object kept and put at
+    /// `pos` with `delay_ms` still to wait before it moves, so it lands when its flight from there ends: its time left
+    /// follows from its own speed. A volley is one entry per wave (an Arrows wave still waiting stands at its launch
+    /// point with its own delay), as `state_json` lists them. `card` is the record that flies: a form's own (the Evo
+    /// Goblin Barrel) or a decoy's. Refused for a record that does not fly (`spell::in_flight_kind`).
+    pub fn scenario_spell_in_flight(&mut self, team: Team, card: &str, level: Option<i32>, pos: Vec2, aim: Vec2, delay_ms: i32) -> Result<(), String> {
         let idx = self.cfg.cards.index(card).ok_or_else(|| format!("no card {card}"))?;
         // Asked first, as a copy's builder can (`spell::in_flight_kind`): a spell that does not fly is named by its kind.
         let kind = spell::in_flight_kind(self.cfg.cards.get(idx));
@@ -37083,15 +37111,18 @@ impl BattleState {
         if v.is_empty() || !v.iter().all(|s| matches!(s.motion, spell::SpellMotion::Flight { .. })) {
             return Err(format!("{card} does not fly (at_once): only a spell in flight can be put down on its way"));
         }
+        if delay_ms < 0 {
+            return Err(format!("{card}: a negative delay"));
+        }
+        v.truncate(1);
         #[cfg(not(clash_plant = "copy_spell_flight_from_launch"))]
-        for s in v.iter_mut() {
-            if let spell::SpellMotion::Flight { pos: p, frac, .. } = &mut s.motion {
-                *p = pos;
-                *frac = Vec2::default();
-            }
+        if let spell::SpellMotion::Flight { pos: p, frac, delay_ms: d, .. } = &mut v[0].motion {
+            *p = pos;
+            *frac = Vec2::default();
+            *d = delay_ms;
         }
         #[cfg(clash_plant = "copy_spell_flight_from_launch")]
-        let _ = pos; // PLANT: the spell flies its whole flight from its launch point.
+        let _ = (pos, delay_ms); // PLANT: the spell flies its whole flight from its launch point.
         self.spells.extend(v);
         Ok(())
     }
