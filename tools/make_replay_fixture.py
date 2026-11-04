@@ -830,9 +830,11 @@ THE CLIENT'S GENERATOR (`rng`)
     the harness syncs its client generator (harness.rs
     `RngColumn`, `scenario_set_client_rng`) and the Skeleton King's soul copies land where
     the client's did. `algorithm` is the header's `rng_algorithm` with its binary prefix
-    replaced by "client", else client_xorshift32_v<the header client build>. No live capture
-    carries it yet (ob12: no rng, seed or state field in any frame or header): the live
-    reader must record it first.
+    replaced by "client", else client_xorshift32_v<the header client build>. A live capture's
+    states are taken only where its reader read them at the place its build keeps the
+    generator (`rng_unread`, RNG_OFF_BY_BUILD): the 16.635 client moved it from +0xA0 to
+    +0xA4, where +0xA0 became a clock, so a 16.635 capture whose start event does not name
+    rng_off 0xa4 gets no `rng`, and `rng_unread` says why.
 
 AN ABILITY PRESS
     A press of a champion's or hero's button is a row of kind "ability" (the harness's
@@ -5437,10 +5439,43 @@ def build(
         }
     )
     # -- THE CLIENT'S GENERATOR (module doc): the battle xorshift32's state after each frame, where the capture has it
-    rng = client_rng_column(header, frames)
+    # and its reader read it where the client keeps it (`rng_unread`)
+    rng_why = rng_unread(header)
+    rng = None if rng_why else client_rng_column(header, frames)
     if rng is not None:
         fx["rng"] = rng
+    elif rng_why and any(f.get("rng_state") is not None for f in frames):
+        fx["rng_unread"] = rng_why
     return fx
+
+
+#: THE CLIENT'S GENERATOR'S PLACE in its object, per client build, as the live reader's start event names it
+#: (`rng_off`). The 16.635 client moved the state from +0xA0 to +0xA4, and +0xA0 became a millisecond clock, fixed per
+#: battle (2026-11-03: its generator is the 16.402 client's xorshift32, byte for byte; 50 battles read at +0xA0 showed
+#: no change). A build not listed keeps +0xA0, the offset a start event without rng_off read.
+RNG_OFF_BY_BUILD = {"160635007": 0xA4}
+RNG_OFF_DEFAULT = 0xA0
+
+
+def rng_unread(header: dict | None) -> str | None:
+    """THE CLIENT'S GENERATOR, NOT READ (module doc): why a live capture's rng_state is not the generator's state, or
+    None. A live reader's capture (header source live_reader) is trusted only when its start event (header
+    live_start) names the offset its build keeps the state at (RNG_OFF_BY_BUILD), no rng_off reading as +0xA0: every
+    16.635 capture before the reader took its build's offset read the clock instead. Any other capture: None."""
+    h = header or {}
+    if h.get("source") != "live_reader":
+        return None
+    build = str((h.get("client") or {}).get("build") or "")
+    want = RNG_OFF_BY_BUILD.get(build, RNG_OFF_DEFAULT)
+    raw = (h.get("live_start") or {}).get("rng_off")
+    try:
+        got = RNG_OFF_DEFAULT if raw is None else int(str(raw), 16)
+    except ValueError:
+        got = None
+    if got == want:
+        return None
+    read = "no rng_off (+0xa0)" if raw is None else f"rng_off {raw}"
+    return f"the reader read the generator at {read}, where build {build or '?'} keeps it at {want:#x}: not its state"
 
 
 def client_rng_column(header: dict | None, frames: list[dict]) -> dict | None:

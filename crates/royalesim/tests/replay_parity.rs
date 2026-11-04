@@ -1263,7 +1263,7 @@ fn the_017_clients_recorded_generator_is_read() {
         changes: vec![[105, 9], [120, 11]],
         note: None,
     };
-    for alg in ["client_xorshift32_v150535029", "client_xorshift32_v160402017"] {
+    for alg in ["client_xorshift32_v150535029", "client_xorshift32_v160402017", "client_xorshift32_v160635007"] {
         let c = column(alg);
         assert_eq!((c.state_after(99), c.state_after(100), c.state_after(110), c.state_after(130)), (None, Some(7), Some(9), Some(11)), "{alg}");
     }

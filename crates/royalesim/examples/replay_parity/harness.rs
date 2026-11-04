@@ -661,8 +661,10 @@ pub struct RngColumn {
 /// fixture's `rng.algorithm` by its tail: the generator and the client version. Client 160402017 runs the same generator:
 /// its recorded states replay exactly under it (Oracle's 017 specials: the Skeleton King's soul ring, 7 of 7 state
 /// changes in every sk-souls scene, every copy not moved off the river on its point). Until this listed it, every 017
-/// fixture's column was read as another algorithm and its draws were the engine's own.
-pub const RNG_ALGORITHM_TAILS: [&str; 4] = ["_xorshift32_v150535029", "_xorshift32_v160402017", "_xorshift32_v160402012", "_xorshift32_v160402020"];
+/// fixture's column was read as another algorithm and its draws were the engine's own. Client 160635007 (16.635) runs it
+/// too: its generator is 16.402's byte for byte, its state moved to another place in its object (the fixture maker's
+/// `rng_unread` drops a column read at the old one).
+pub const RNG_ALGORITHM_TAILS: [&str; 5] = ["_xorshift32_v150535029", "_xorshift32_v160402017", "_xorshift32_v160402012", "_xorshift32_v160402020", "_xorshift32_v160635007"];
 
 impl RngColumn {
     /// The state after frame `tick`: the latest recorded at or before it; None before the first frame or under another

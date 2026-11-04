@@ -3652,7 +3652,41 @@ def test_the_rng_column_is_the_frames_state_as_the_specials_fixtures_carry_it(m)
     assert m.client_rng_column({"client": {"build": 160402012}}, [{"tick": 3}, {"tick": 4}]) is None
 
 
-HP_TOWERS = [(1, 0, 9000, 3000, 4824), (2, 0, 3500, 6500, 3052), (3, 0, 14500, 6500, 3052),
+def test_a_16635_live_capture_reads_its_generator_only_at_its_builds_offset(m):
+    """THE CLIENT'S GENERATOR, NOT READ: the 16.635 client keeps it at +0xA4, so a live capture of build 160635007 is
+    read only when its start event names rng_off 0xa4; no rng_off (the reader before 2026-11-03) read the clock at
+    +0xA0. A 16.402 capture reads as before, with or without rng_off 0xa0; a capture of another source is not judged."""
+    def live(build, start):
+        return {"source": "live_reader", "client": {"build": build}, "live_start": start}
+
+    why = m.rng_unread(live(160635007, {"event": "start", "schema_version": 2}))
+    assert why is not None
+    assert "0xa4" in why
+    assert m.rng_unread(live(160635007, {"rng_off": "0xa4"})) is None
+    assert m.rng_unread(live(160635007, {"rng_off": "0xa0"})) is not None
+    assert m.rng_unread(live(160402017, {"event": "start"})) is None, "16.402: no rng_off reads +0xA0, its place"
+    assert m.rng_unread(live(160402017, {"rng_off": "0xa0"})) is None
+    assert m.rng_unread(live(160402017, {"rng_off": "0xa4"})) is not None
+    assert m.rng_unread({"rng_algorithm": "libg_xorshift32_v160635007"}) is None, "not a live reader's capture"
+
+
+@needs_modern_cards
+def test_a_generator_read_off_its_place_writes_no_rng_and_says_why(m, tmp_path):
+    knight = [(None, None, None)] + [(1766, 1766, 11)] * 4
+    states = [5, 5, 9, 9, 12]
+    good = tmp_path / "good" / "frames-synthetic.native.oracle.jsonl.gz"
+    _hp_capture(good, knight, rng=states, header_extra={"source": "live_reader", "live_start": {"rng_off": "0xa0"}})
+    fx = _hp_build(m, good)
+    assert fx["rng"]["changes"] == [[2, 9], [4, 12]]
+    assert "rng_unread" not in fx
+    off = tmp_path / "off" / "frames-synthetic.native.oracle.jsonl.gz"
+    _hp_capture(off, knight, rng=states, header_extra={"source": "live_reader", "live_start": {"rng_off": "0xa8"}})
+    fx = _hp_build(m, off)
+    assert "rng" not in fx
+    assert "rng_off 0xa8" in fx["rng_unread"]
+
+
+HP_TOWERS =[(1, 0, 9000, 3000, 4824), (2, 0, 3500, 6500, 3052), (3, 0, 14500, 6500, 3052),
           (4, 1, 9000, 29000, 4824), (5, 1, 3500, 25500, 3052), (6, 1, 14500, 25500, 3052)]
 
 
