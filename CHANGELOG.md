@@ -3,6 +3,36 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.44 (2026-11-04)
+
+- The Evo Giant runs on the 16.635 table (`cards.CARD_TABLE` `"client160635007_20261103"`). Below half its
+  hitpoints it puts a Rage area down behind it at once and then every 1500 ms, held while it is stunned or frozen.
+  Each area is wider the more hits the giant has made since (2 to 3.5 tiles). The areas rage its own side only and
+  deal no damage. A Clone of it makes a plain Giant. This is read off the game's table and not yet measured. The
+  Evo Mirror is still not supported.
+- 10 more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A Poison does not touch a unit exactly on its edge (`spells.PULSE_EDGE`).
+  - The Inferno Tower, Inferno Dragon and Mighty Miner wait one tick more after a guard's charge before they target
+    it (`targeting.VARIABLE_DAMAGE_IMMUNE_TARGET`).
+  - A dashing Bandit, Boss Bandit or Mega Knight keeps its target (`targeting.DASH_TARGET_SCAN`).
+  - The Dark Witch's Bats come out at her facing's eighth of a turn (`spawner.SPAWN_POINT`).
+  - The Little Prince: a charging guard is not slowed (`status.DASH_IMMUNE_BUFFS`), an area hit passes over a guard
+    on its first landing ticks (`combat.GUARD_LANDING_AREA`), and his load timer runs through his cast unless he is
+    stunned (`combat.PRESS_LOAD_TIMER`).
+  - A unit the Evo Mega Knight throws takes one free step, then is rooted (`knockback.UPPERCUT_ROOT_WINDOW`).
+  - A walker does not count a dasher's attack stand as a walk stand (`movement.DASH_STAND_HEADING`).
+  - The Hero Mega Minion marks its warp target before the press (`combat.WARP_PICK`).
+- Replay fixtures (`tools/make_replay_fixture.py`) carry a shielded unit's shield, and `replay_parity` scores it on
+  its own, apart from hitpoints. A recording without shields gives the same fixture as before.
+- `replay_parity` follows the 16.635 client's random number generator, the same as 16.402's. The fixture maker drops
+  the generator's states from a 16.635 recording that read them at the old place in memory, and says so in the
+  fixture's `rng_unread`. A 16.635 fixture's generator column is read only when it names the place its states were
+  read at (`rng.place`), so one made by an earlier maker plays on the engine's own draws.
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles.
+- Battles saved by an earlier release do not load: a saved battle is checked against the card data it ran on, and
+  the Evo Giant's support changed that data on every table (`SNAPSHOT_FORMAT` is still 20).
+
 ## 0.1.43 (2026-11-03)
 
 - A new card table: the 16.635 client's, from the game update of 2026-11-03 (content 16.635.8). Pick it with
