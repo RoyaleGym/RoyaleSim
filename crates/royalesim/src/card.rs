@@ -2652,6 +2652,8 @@ pub struct EvoDef {
     pub ring: Option<RingDef>,
     /// Evo Electro Giant (16.402 on): the pulse that takes a level off each enemy it reaches (`DelevelPulseDef`).
     pub delevel_pulse: Option<DelevelPulseDef>,
+    /// Evo Giant (the 16.635 table): below a share of its hitpoints, a Rage area behind it on a clock (`RageAreasDef`).
+    pub rage_areas: Option<RageAreasDef>,
     /// Evo Wizard: the blast its shield's loss makes on it (state.rs `shield_blasts`; spell.rs `shape_of`), a one-hit
     /// area. Read off the table, not measured: the client's scene never broke the shield.
     pub shield_blast: Option<SpellDef>,
@@ -5275,6 +5277,8 @@ struct RawEvolution {
     evo_ring: Option<RawRing>,
     /// The Evo Electro Giant's pulse (`delevel_pulse_block`; 16.402 on).
     evo_delevel_pulse: Option<RawDelevelPulse>,
+    /// The Evo Giant's rage areas (`rage_areas_block`; the 16.635 table).
+    evo_rage_areas: Option<RawRageAreas>,
     /// The Evo Royal Recruits' charge after the shield (`charge_after_shield_block`): the buff it spawns.
     evo_charge_after_shield: Option<RawChargeAfterShield>,
     /// The Evo Wizard's blast (`shield_blast_block`): the area and the buff that only shows.
@@ -6083,6 +6087,50 @@ pub struct DelevelPulseDef {
     /// The ring passes over the Clone spell's copies (its filter CommonAreaDamageFilterNoClones, content 16.402.20 on:
     /// the 2026-10-08 update; its `filter.filter_clones`). False on a table before it (CommonAreaDamageFilter).
     pub skips_clones: bool,
+}
+
+/// cards.json `evolutions[].evo_rage_areas` (tools/extract_cards.py `rage_areas_block`; the 16.635 table). Every key the
+/// block writes is declared and read; the ones the engine does not run on are pinned to their one reading.
+#[derive(Deserialize)]
+struct RawRageAreas {
+    health_pct: Option<i32>,
+    first_ms: Option<i32>,
+    every_ms: Option<i32>,
+    paused_by: Option<String>,
+    hit_speed_scaled: Option<bool>,
+    spawn_speed_scaled: Option<bool>,
+    counts_hits_after_rage: Option<bool>,
+    thresholds: Option<Vec<i32>>,
+    areas: Option<Vec<String>>,
+    offset_milli: Option<i32>,
+    older_kill_delay_ms: Option<i32>,
+}
+
+/// The parts (spell.rs `SpellMotion::Attached`) that name the Evo Giant's four rage areas (`RageAreasDef::areas`), by
+/// the count of hits it has made since its rage began.
+pub const EVO_RAGE_AREAS: [u8; 4] = [u8::MAX - 7, u8::MAX - 8, u8::MAX - 9, u8::MAX - 10];
+
+/// THE EVO GIANT'S RAGE (characters/giant_ev1.toml; tools/extract_cards.py `rage_areas_block`; state.rs EvoBoard
+/// `rage_areas`, `rage_area_arm`, `rage_area_pass`), on the 16.635 table: the first time its hitpoints are at or below
+/// `at_hp_pct` of its maximum, a clock starts that fires at once (`first_ms` 0) and then every `every_ms`, held while
+/// the giant is (PauseTag COMBAT_DISABLED) and not scaled by its hit or spawn speed. Each firing puts down a standing
+/// Rage area `offset` along its facing (a negative offset: behind it), the larger the more hits it has made since the
+/// clock started: `areas[k]`, k the number of `thresholds` the count has reached. Each area is its row's pulsing Rage
+/// (own side, no damage), first applying one HitSpeed after it is made, as the Evo Firecracker's fireworks do. The
+/// table's kill of an older area inside a newer one never acts (a newer area comes when the older one's life ends,
+/// and the kill waits 150 ms): the loader refuses a table where it could. A Clone copies the giant as the base Giant
+/// (`EvoDef::cloned_as`), which has no rage. Offset in subtiles.
+///
+/// Read off the table, not measured: the first area's tick, the point's sign and rounding, the first application, the
+/// count's first hit, the clock under a freeze.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RageAreasDef {
+    pub at_hp_pct: i32,
+    pub first_ms: i32,
+    pub every_ms: i32,
+    pub thresholds: [u32; 3],
+    pub areas: [AttachedArea; 4],
+    pub offset: i32,
 }
 
 /// cards.json `evolutions[].evo_first_hit` (tools/extract_cards.py `first_hit_block`): the buff and its time.
@@ -12256,6 +12304,13 @@ impl CardDb {
             extra.evo_first_hit.is_some(),
             extra.evo_ring.is_some(),
             extra.evo_delevel_pulse.is_some(),
+            {
+                #[cfg(not(clash_plant = "evo_rage_block_unread"))]
+                let rage = extra.evo_rage_areas.is_some();
+                #[cfg(clash_plant = "evo_rage_block_unread")]
+                let rage = false; // PLANT: the loader skips the block, so the form is refused.
+                rage
+            },
             extra.evo_charge_after_shield.is_some(),
             extra.evo_shield_blast.is_some(),
             extra.evo_data_only.is_some(),
@@ -12317,6 +12372,10 @@ impl CardDb {
             // The pulse's interval, its firing's group, spawn and charge flag, and their effects (`delevel_pulse_block`
             // reads them, the area's hit and the debuff whole).
             &["ActionGroup", "ActionInterval", "ActionPlayEffect", "ActionSetVariable", "ActionSpawn"]
+        } else if extra.evo_rage_areas.is_some() {
+            // The health trigger, its group and clock, the area's choice and spawns, the areas' register and kill, the
+            // hit count, the attack entries' select and their effects (`rage_areas_block` reads them whole).
+            &["ActionBlackboardSetInt", "ActionGroup", "ActionInterval", "ActionKill", "ActionPlayEffect", "ActionRunActionAtHealth", "ActionSelect", "ActionSetAttackSequenceIndex", "ActionSetVariable", "ActionSpawnToLocation", "ActionWaitToActivate"]
         } else if extra.evo_charge_after_shield.is_some() {
             // The shield's loss: the charge-range buff's spawn (`charge_after_shield_block` reads it whole).
             &["ActionSpawn"]
@@ -12451,6 +12510,10 @@ impl CardDb {
         let pulse_spawns = |g: &RawActionGraph| {
             extra.evo_delevel_pulse.as_ref().and_then(|p| p.area.as_deref()).is_some_and(|a| g.spawns.iter().all(|s| s == &format!("AreaEffectType:{a}")))
         };
+        // THE RAGE AREAS are their block's too (`rage_areas_block` reads them whole).
+        let rage_spawns = |g: &RawActionGraph| {
+            extra.evo_rage_areas.as_ref().and_then(|r| r.areas.as_ref()).is_some_and(|a| g.spawns.iter().all(|s| a.iter().any(|n| s == &format!("AreaEffectType:{n}"))))
+        };
         // THE DECOY BARREL is its block's too (`mirror_block` reads it whole).
         let mirror_spawns = |g: &RawActionGraph| extra.evo_mirror.is_some() && g.spawns.iter().all(|s| s.starts_with("ProjectileType:"));
         // THE CHAIN'S LIGHTNINGS are its block's too (`evo_chain_block` reads them whole).
@@ -12462,7 +12525,7 @@ impl CardDb {
             })
         };
         if let Some(g) = raw.action_graph.as_ref().filter(|g| g.mechanic.unwrap_or(false)) {
-            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !pulse_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g) && !mirror_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str()) && !reads_16402(c)) {
+            if (!g.spawns.is_empty() && !army_spawns(g) && !fall_spawns(g) && !ghost_spawns(g) && !ring_spawns(g) && !pulse_spawns(g) && !rage_spawns(g) && !charge_spawns(g) && !blast_spawns(g) && !attack_spawns(g) && !death_spawns(g) && !soul_spawns(g) && !below_spawns(g) && !furnace_spawns(g) && !chain_spawns(g) && !mirror_spawns(g)) || g.class_types.iter().any(|c| !reads.contains(&c.as_str()) && !reads_16402(c)) {
                 return Err(format!("runs an action graph its block does not read ({})", g.class_types.join(", ")));
             }
         }
@@ -12620,6 +12683,7 @@ impl CardDb {
                     first_hit: None,
                     ring: None,
                     delevel_pulse: None,
+                    rage_areas: None,
                     shield_blast: None,
                     bounce: None,
                     attack_area: None,
@@ -12832,6 +12896,7 @@ impl CardDb {
             first_hit: None,
             ring: None,
             delevel_pulse: None,
+            rage_areas: None,
             shield_blast: None,
             bounce: None,
             attack_area: None,
@@ -12969,6 +13034,57 @@ impl CardDb {
                 hits_ground: p.hits_ground.unwrap_or(false),
                 skips_clones,
             });
+        }
+        // THE RAGE AREAS (the Evo Giant's, the 16.635 table): a clock under a health share, a Rage area behind the giant
+        // on each firing, by the hits since. Every reading the engine does not make is refused by name (state.rs
+        // `rage_area_pass`).
+        if let Some(r) = &extra.evo_rage_areas {
+            let what = "the rage areas";
+            let refuse = |why: &str| Err(format!("{what}: {why}; not simulated"));
+            if c.kind != CardKind::Troop {
+                return refuse("on a card that is not a troop");
+            }
+            let at_hp_pct = r.health_pct.filter(|p| (1..100).contains(p)).ok_or_else(|| format!("{what}: no health share"))?;
+            if r.first_ms != Some(0) {
+                return refuse("a first area other than at once");
+            }
+            let every_ms = r.every_ms.filter(|m| *m > 0).ok_or_else(|| format!("{what}: no Interval"))?;
+            if r.paused_by.as_deref() != Some("COMBAT_DISABLED") || r.hit_speed_scaled != Some(false) || r.spawn_speed_scaled != Some(false) {
+                return refuse("a clock held by another tag, or scaled by hit or spawn speed");
+            }
+            if r.counts_hits_after_rage != Some(true) {
+                return refuse("a count of hits made before the rage");
+            }
+            let thresholds = match r.thresholds.as_deref() {
+                Some(&[a, b, c3]) if 1 <= a && a < b && b < c3 => [a as u32, b as u32, c3 as u32],
+                _ => return refuse("other than three thresholds rising from 1"),
+            };
+            let offset = r.offset_milli.filter(|o| *o != 0).ok_or_else(|| format!("{what}: no offset"))?;
+            let names = r.areas.as_deref().filter(|a| a.len() == 4).ok_or_else(|| format!("{what}: other than four areas"))?;
+            let mut area = |name: &str| -> Result<AttachedArea, String> {
+                let aeo = ctx.aeos.get(name).ok_or_else(|| format!("{what} {name}: no area_effect_objects record"))?;
+                let (shape, aneeds) = convert_area_effect(aeo, buffs, ctx).map_err(|e| format!("{what} {name}: {e}"))?;
+                match shape {
+                    SpellShape::PulsingAreaEffect { hit, life_ms, hit_speed_ms, child: None }
+                        if aneeds.is_empty() && hit_speed_ms > 0 && hit.buff.is_some() && hit.damage == 0 && hit.only_own_troops =>
+                    {
+                        #[cfg(not(clash_plant = "evo_rage_area_at_once"))]
+                        let first_ms = hit_speed_ms;
+                        #[cfg(clash_plant = "evo_rage_area_at_once")]
+                        let first_ms = 50; // PLANT: each area first applies on its first update.
+                        Ok(AttachedArea { hit, level_scaled: true, life_ms, hit_speed_ms, first_ms, follow: false, stay: true, end: None, hero_offsetless: false })
+                    }
+                    _ => Err(format!("{what} {name} is not a plain own-side pulsing area that hangs a buff; not simulated")),
+                }
+            };
+            let areas = [area(&names[0])?, area(&names[1])?, area(&names[2])?, area(&names[3])?];
+            // The table's kill of an older area inside a newer one: inert while a newer one comes when the older one's
+            // life ends and the kill waits a tick or more past that.
+            let kill_ms = r.older_kill_delay_ms.ok_or_else(|| format!("{what}: no kill delay"))?;
+            if areas.iter().any(|a| every_ms < a.life_ms) || kill_ms < 100 {
+                return refuse("an older area the newer one can kill");
+            }
+            evo.rage_areas = Some(RageAreasDef { at_hp_pct, first_ms: 0, every_ms, thresholds, areas, offset: milli(offset) });
         }
         // THE BOUNCE (the Evo Bomber's): on a card whose shot splashes.
         if let Some(b) = &extra.evo_bounce {

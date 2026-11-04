@@ -157,7 +157,10 @@ fn the_20261103_arm_loads_the_16635_table() {
     // a map section other than units{}: the Evo Cannon's barrage buff stacks by cast
     let buff = ("Cannon_EV1_barrage_damage_buff".to_string(), "buffs{}.cast_id_specific".to_string());
     assert!(db.unmodelled.contains(&buff) && !s88.unmodelled.contains(&buff), "{:?}", db.unmodelled);
-    let names = |db: &CardDb| db.cards.iter().take_while(|c| c.name != "PrincessTower").map(|c| c.name.clone()).collect::<Vec<_>>();
+    // the Evo Giant, a form of the 16.635 table alone
+    let rage = db.index("Giant_EV1").and_then(|i| db.get(i).evo.as_ref()).and_then(|v| v.rage_areas);
+    assert!(rage.is_some() && s88.index("Giant_EV1").is_none(), "the Evo Giant: {:?}", db.rejected_evolutions);
+    let names =|db: &CardDb| db.cards.iter().take_while(|c| c.name != "PrincessTower").map(|c| c.name.clone()).collect::<Vec<_>>();
     assert_eq!(names(&db), names(&s88), "the same catalogue");
 }
 

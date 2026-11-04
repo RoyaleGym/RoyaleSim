@@ -5454,7 +5454,7 @@ calib_enum!(
         Client160402017Oct19 = "client160402017_20261019",
         /// The 16.635 client's table (build 160635007, the 2026-11-03 Play update, with its content 16.635.8:
         /// the 16.402 numbers, hero buttons refunded until their ability is delivered, the Evo Electro Giant's pulse
-        /// on CommonAreaDamageFilter again; Evo Giant and Evo Mirror not built), data/derived/
+        /// on CommonAreaDamageFilter again; the Evo Giant built, the Evo Mirror not), data/derived/
         /// cards-160635007-20261103.json, `EMBEDDED_CARDS_160635007_20261103_JSON`. What a capture stamped 16.635.8 is
         /// scored against; cards.CLIENT16402_VALUES does not apply to it.
         Client160635007Nov03 = "client160635007_20261103",
@@ -12734,6 +12734,20 @@ pub struct EvoBoard {
     /// (`evo_copies`). `default` so a battle saved before it still loads; hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub copies_due: Vec<EvoCopy>,
+    /// Each Evo Giant whose rage has begun (`rage_area_arm`, `rage_area_pass`). `default` so a battle saved before it
+    /// still loads; hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rage_areas: Vec<RageAreaRun>,
+}
+
+/// AN EVO GIANT'S RAGE UNDER WAY (card.rs `RageAreasDef`; `rage_area_arm`, `rage_area_pass`): the giant, the first tick
+/// its clock runs, the ms to its next area, and its hits since the rage began.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RageAreaRun {
+    pub id: EntityId,
+    pub from: u32,
+    pub left_ms: i32,
+    pub hits: u32,
 }
 
 /// AN EVO LUMBERJACK'S GHOST (card.rs `RageGhostDef`): his side, his card and level, his death point (the Rage's) and
@@ -12948,6 +12962,7 @@ impl EvoBoard {
             && self.rage_ghosts.is_empty()
             && self.snipe_last.is_empty()
             && self.copies_due.is_empty()
+            && self.rage_areas.is_empty()
     }
 
     /// Is unit `id` an Evo Battle Ram whose own recoil's ladder is running (`RamState::recoil`)?
@@ -16125,6 +16140,14 @@ impl BattleState {
         let cards = self.cfg.cards.clone();
         let Some(evo) = cards.get(self.ents.card[i]).evo.as_ref() else { return };
         let id = self.ents.id_of(i);
+        // THE EVO GIANT'S COUNT (card.rs `RageAreasDef`): each hit once its rage has begun (OnHitTargetAction, run while
+        // giant_evo_started_rage > 0).
+        #[cfg(not(clash_plant = "evo_rage_hits_uncounted"))]
+        if evo.rage_areas.is_some() {
+            if let Some(r) = self.evo.rage_areas.iter_mut().find(|r| r.id == id) {
+                r.hits += 1;
+            }
+        }
         // THE EVO ROYAL HOGS' FALL ON ITS ATTACK (card.rs `FallDef::on_attack`): its first hit triggers it, on this tick.
         #[cfg(not(clash_plant = "fall_on_attack_unread"))]
         if let Some(f) = evo.fall.as_ref().filter(|f| f.on_attack) {
@@ -17028,7 +17051,10 @@ impl BattleState {
             let Some(SpellShape::Clone { hold, rules, .. }) = self.cfg.cards.get(o.card).spell.as_ref().map(|d| d.shape.clone()) else { continue };
             let (team, card, kind, pos, facing, own_level) = (self.ents.team[i], self.ents.card[i], self.ents.kind[i], self.ents.pos[i], self.ents.facing[i], self.ents.level[i]);
             // AN EVOLVED UNIT IS COPIED AS ITS ClonedVersion, its base card (unmeasured; the table's reading).
+            #[cfg(not(clash_plant = "clone_copies_the_form"))]
             let card = self.cfg.cards.get(card).evo.as_ref().and_then(|v| v.cloned_as).unwrap_or(card);
+            #[cfg(clash_plant = "clone_copies_the_form")]
+            let card = card; // PLANT: the copy is the evolved form itself.
             #[cfg(not(clash_plant = "clone_level_from_original"))]
             let level = match self.cfg.calib.clone_level {
                 CloneLevel::SpellLevel => o.level,
@@ -19957,6 +19983,8 @@ impl BattleState {
         self.fire_scheduled();
         // The Evo Skeleton Barrels' drops at their health line (`barrel_pass`).
         self.barrel_pass();
+        // The Evo Giants' rage at their health line (`rage_area_arm`).
+        self.rage_area_arm();
         // The Hero Wizard's lifts, after the tick's presses fired (`lift_pass`).
         if !self.lifts.is_empty() {
             self.lift_pass();
@@ -24619,6 +24647,80 @@ impl BattleState {
             }
         }
         self.evo.rings = rings;
+    }
+
+    /// THE EVO GIANTS' RAGE AT THEIR HEALTH LINE (card.rs `RageAreasDef`), at the top of the Status phase: a deployed
+    /// giant whose hitpoints are at or below `at_hp_pct` of its maximum, seen here for the first time, starts its clock
+    /// on the next tick, once (healed back above the line, it keeps it), as the Evo Goblin Giant's interval does.
+    fn rage_area_arm(&mut self) {
+        let cards = self.cfg.cards.clone();
+        for i in 0..self.ents.capacity() {
+            let e = &self.ents;
+            if !e.alive[i] || e.hp[i] <= 0 || e.deploy_ms[i] > 0 {
+                continue;
+            }
+            let Some(d) = cards.get(e.card[i]).evo.as_ref().and_then(|v| v.rage_areas) else { continue };
+            let id = e.id_of(i);
+            if self.evo.rage_areas.iter().any(|r| r.id == id) {
+                continue;
+            }
+            #[cfg(not(clash_plant = "evo_rage_never_armed"))]
+            let below = i64::from(e.hp[i]) * 100 <= i64::from(e.max_hp[i]) * i64::from(d.at_hp_pct);
+            #[cfg(clash_plant = "evo_rage_never_armed")]
+            let below = d.at_hp_pct < 0; // PLANT: the rage never begins.
+            if below {
+                #[cfg(not(clash_plant = "evo_rage_clock_late"))]
+                let from = self.tick + 1;
+                #[cfg(clash_plant = "evo_rage_clock_late")]
+                let from = self.tick + 2; // PLANT: its clock starts a tick late.
+                self.evo.rage_areas.push(RageAreaRun { id, from, left_ms: d.first_ms, hits: 0 });
+            }
+        }
+    }
+
+    /// THE EVO GIANTS' RAGE AREAS (card.rs `RageAreasDef`), after the Projectile phase's releases: each clock that runs,
+    /// held while its giant is (PauseTag COMBAT_DISABLED: `Entities::held`), puts a standing Rage area `offset` along
+    /// the giant's facing when it runs out, its overshoot carried; the area is `areas[k]`, k the thresholds its hits
+    /// since the rage began have reached. The giants in the order their rage began; a dead giant's run goes with it,
+    /// and its areas live out their life.
+    fn rage_area_pass(&mut self) {
+        let (tick, tick_ms) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let cards = self.cfg.cards.clone();
+        let mut runs = std::mem::take(&mut self.evo.rage_areas);
+        runs.retain(|r| self.ents.is_alive(r.id));
+        for r in runs.iter_mut().filter(|r| tick >= r.from) {
+            let i = r.id.index as usize;
+            let Some(d) = cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.rage_areas) else { continue };
+            #[cfg(not(clash_plant = "evo_rage_clock_unheld"))]
+            if self.ents.held(&cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun) {
+                continue;
+            }
+            r.left_ms -= tick_ms;
+            if r.left_ms > 0 {
+                continue;
+            }
+            r.left_ms += d.every_ms;
+            #[cfg(not(clash_plant = "evo_rage_largest_always"))]
+            let k = d.thresholds.iter().filter(|t| r.hits >= **t).count();
+            #[cfg(clash_plant = "evo_rage_largest_always")]
+            let k = 3; // PLANT: the largest area at every count.
+            // direction_offset_x/y(offset): the offset along the facing, as the Evo Battle Ram's push centre (`ram_pass`).
+            let f = self.ents.facing[i];
+            let flen = isqrt(f.len2());
+            if flen == 0 {
+                continue;
+            }
+            #[cfg(not(clash_plant = "evo_rage_offset_ahead"))]
+            let off = d.offset as i64;
+            #[cfg(clash_plant = "evo_rage_offset_ahead")]
+            let off = -(d.offset as i64); // PLANT: the area ahead of the giant.
+            let p = self.ents.pos[i];
+            let at = Vec2::new(p.x + (f.x as i64 * off / flen) as i32, p.y + (f.y as i64 * off / flen) as i32);
+            let (team, card, level) = (self.ents.team[i], self.ents.card[i], self.ents.level[i]);
+            let s = spell::attached_area(&cards, &self.cfg.calib, team, card, level, r.id, at, crate::card::EVO_RAGE_AREAS[k]).expect("rage area level validated at deploy");
+            self.spells.push(s);
+        }
+        self.evo.rage_areas = runs;
     }
 
     /// THE EVO ELECTRO GIANTS' PULSES (card.rs `DelevelPulseDef`), at the Target phase's start, on start-of-tick points:
@@ -31155,6 +31257,10 @@ impl BattleState {
                 }
             }
             self.spells.extend(v);
+        }
+        // THE EVO GIANTS' RAGE AREAS, made after the releases, so each first updates next tick (`rage_area_pass`).
+        if !self.evo.rage_areas.is_empty() {
+            self.rage_area_pass();
         }
         // Projectiles fired by spell objects: this tick's `step_projectiles` has run, so
         // they first step next tick.
@@ -38961,6 +39067,17 @@ impl BattleState {
                     }
                 }
             }
+            // The Evo Giants' rage runs, only when there are some.
+            if !b.rage_areas.is_empty() {
+                h.u32(0x5241_4745);
+                h.u32(b.rage_areas.len() as u32);
+                for r in &b.rage_areas {
+                    h.id(r.id);
+                    h.u32(r.from);
+                    h.i32(r.left_ms);
+                    h.u32(r.hits);
+                }
+            }
             // The Evo Goblin Cages' captures, only when there are some.
             if !b.cages.is_empty() {
                 h.u32(0x4341_4745);
@@ -40520,6 +40637,9 @@ impl BattleState {
 /// 20, unchanged, the card table (cards.CARD_TABLE): Calib gained `card_table` (serde default client15535, the table
 ///    every earlier blob ran), so a blob saved before it deserializes as it did; `load` reads it to pick the table it
 ///    restores against. Not hashed: the card fingerprint already names the table a battle ran.
+/// 20, unchanged, the Evo Giant (card.rs `RageAreasDef`, the 16.635 table): EvoDef gained `rage_areas`, so the card
+///    fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data. EvoBoard
+///    gained `rage_areas` (serde default empty, hashed only when not empty).
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

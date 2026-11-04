@@ -141,6 +141,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import itertools
 import json
 import re
 import sys
@@ -240,6 +241,9 @@ class Vintage:
     # The 16.402 targeting and damage format (`normalize_16402`): areas name a Filter, damage is
     # {BaseDamage, TowerDamage}.
     filters_format: bool = False
+    # The forms first in play in the 16.635 client (EVOLUTIONS_16635_ONLY): its packs carry their rows, every earlier
+    # pack a NotInUse placeholder.
+    forms_16635: bool = False
 
     @property
     def is_2018(self) -> bool:
@@ -467,6 +471,7 @@ VINTAGES = {
         overlays=OVERLAYS_16402,
         character_dirs=("characters", "events"),
         filters_format=True,
+        forms_16635=True,
     ),
 }
 # The 15.535 file became the default once it passed every gate (cargo test, clippy,
@@ -5513,9 +5518,10 @@ def globals_block(v: Vintage) -> dict:
     return out
 
 
-# THE EVOLVED FORMS THIS BUILD LOADS (15.535 only), each a spells_evolved row: the evolved form of the base card
-# whose EvolvedSpells names it. Only these three: the engine runs their mechanics (card.rs `EvoDef`), and a form
-# nobody asked for is not extracted. Written under the top-level list `evolutions`, never in `cards`.
+# THE EVOLVED FORMS THIS BUILD LOADS (15.535 on), each a spells_evolved row: the evolved form of the base card whose
+# EvolvedSpells names it. Only these: the engine runs their mechanics (card.rs `EvoDef`), and a form nobody asked for
+# is not extracted. Written under the top-level list `evolutions`, never in `cards`, in this order (a form added later
+# goes at the end, so no other form's record moves).
 EVOLUTIONS = (
     "Skeletons_EV1", "Cannon_EV1", "Musketeer_EV1", "AngryBarbarians_EV1", "Zap_EV1", "BattleRam_EV1",
     "InfernoDragon_EV1", "BabyDragon_EV1", "Ghost_EV1", "SkeletonArmy_EV1", "Snowball_EV1", "SkeletonBalloon_EV1",
@@ -5525,6 +5531,7 @@ EVOLUTIONS = (
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
     "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1", "GoblinBarrel_EV1", "RageBarbarian_EV1",
     "ElectroGiant_EV1",  # 16.402 on (EVOLUTIONS_16402_ONLY)
+    "Giant_EV1",  # 16.635 on (EVOLUTIONS_16635_ONLY)
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -8314,6 +8321,246 @@ def delevel_pulse_block(t: Tables, card: dict) -> dict:
     }
 
 
+# THE EVO GIANT'S RAGE (`rage_areas_block`; characters/giant_ev1.toml), read whole or the build stops. 16.635 on: the
+# 160635007 pack is the first to carry the form in play (every earlier Giant_EV1 row is a NotInUse Knight placeholder),
+# so the row is built on a forms_16635 vintage alone (EVOLUTIONS_16635_ONLY).
+EVOLUTIONS_16635_ONLY = frozenset({"Giant_EV1"})
+# The unit row's own columns: the ones it reads, and the display one beside DATA_ONLY_DISPLAY and COSMETIC (PrefabAsset:
+# the 3D model). Base and ClonedVersion (DATA_ONLY_DISPLAY) are pinned to the base card's unit below.
+RAGE_ROW = {"OnStartingAction", "OnHitTargetAction", "AttackSequenceMode", "AttackSequence", "AttackSequenceList",
+            "StopMovementAfterMS", "WaitMS"}
+RAGE_ROW_DISPLAY = {"PrefabAsset"}
+# The start (an ActionGroup with every entry at 0), the health trigger, the rage's group and its clock, every key read.
+RAGE_START = {"ClassType", "SubActions"}
+RAGE_AT_HEALTH = {"ClassType", "HealthPercentages", "Actions", "StatsTags"}
+RAGE_GROUP = {"ClassType", "SubActions", "ContextMode"}
+RAGE_INTERVAL = {"ClassType", "Interval", "ActionToExecute", "PauseTag"}
+RAGE_PAUSE_TAG = "COMBAT_DISABLED"
+# The attack entry's clock, and the two selects (the area's by the count, the attack entry's).
+RAGE_ATTACK_CLOCK = {"ClassType", "Interval", "ActionToExecute"}
+RAGE_SELECT = {"ClassType", "PerActionConditions", "SubActions"}
+RAGE_ATTACK_SELECT = ("is_enough_to_kill_target(damage) && target_hp > 0", "{flag} <= 0", "attack_count % 2 == 0")
+RAGE_ENTRY = {"ClassType", "SubActions", "ExecuteIfTrue"}
+# The area's spawn, on one offset along the facing.
+RAGE_SPAWN = {"ClassType", "SpawnType", "SpawnData", "XPositionExpression", "YPositionExpression", "ShareContext",
+              "ActionToRunOnSpawned"}
+RAGE_X = re.compile(r"^x \+ direction_offset_x\((\w+)\)$")
+RAGE_Y = "y + direction_offset_y({v})"
+RAGE_BELOW = re.compile(r"^(\w+) < (\d+)$")
+# Each area's register on the shared blackboard, its wait and its kill (of an older area inside a newer one).
+RAGE_REGISTER = {"Radius": "collision_radius()", "PosX": "x", "PosY": "y", "GlobalID": "self"}
+RAGE_WAIT = ("is_contained_by_circle(as_int(#Radius), as_int(#PosX), as_int(#PosY)) > 0 "
+             "&& as_int(#GlobalID) != self")
+RAGE_KILL = {"ClassType", "ActionDelay"}
+# The hit count, run once the rage has begun.
+RAGE_HIT = {"ClassType", "Variable", "Value", "ExecuteIfTrue"}
+RAGE_SET = {"ClassType", "Variable", "Value"}
+# The area rows: each its own Radius over one base row, itself over the Rage spell's area (AEO.Rage).
+RAGE_AREA_OWN = {"Base", "Radius", "ScaledEffect", "OnLifeTimeEndAction", "StatsTags", "SpawnAreaEffectObject"}
+RAGE_AREA_BASE = {"Base", "LifeDuration", "ScaledEffect", "OneShotEffect", "LoopingEffect", "SpawnAreaEffectObject",
+                  "StatsTags"}
+RAGE_AREA_SPELL = "AEO.Rage"
+
+
+def rage_areas_block(t: Tables, card: dict) -> dict:
+    """THE EVO GIANT'S RAGE (characters/giant_ev1.toml Giant_EV1, an [EXT] of CHARACTER.Giant that walks without the
+    Giant's stomp: StopMovementAfterMS and WaitMS 0), read whole or the build stops:
+      - OnStartingAction: an ActionGroup (every entry at 0) of an ActionRunActionAtHealth and a 50 ms ActionInterval of
+        the attack entry's select (display only: every AttackSequenceList entry sets effects alone, so each hit is the
+        row's own);
+      - the trigger: one HealthPercentages share (`health_pct`) running one ActionGroup (ContextMode Create) of effects,
+        the rage's flag set to 1 and an ActionInterval: every `every_ms` (Interval), the first at once (no
+        StartCounterAt: `first_ms` 0), held while the giant carries `paused_by` (PauseTag COMBAT_DISABLED), scaled by
+        neither its hit nor its spawn speed;
+      - each firing: an ActionSelect on the count of hits ("count < 1", "< 2", "< 3", ">= 3": `thresholds`) of four
+        ActionSpawnToLocation of an AreaEffectType (`areas`) at x + direction_offset_x(off),
+        y + direction_offset_y(off), off a [VARIABLE] no action sets (`offset_milli`, its DefaultValue);
+      - each area: its own Radius over one base row (its LifeDuration) over the Rage spell's area (its Buff for
+        BuffTime, capped by the area's life, own troops only, every HitSpeed), no damage and no child; each registers
+        itself on the shared blackboard and waits to kill, `older_kill_delay_ms` on, an older area its circle holds;
+      - OnHitTargetAction: the count plus 1, run while the flag is above 0 (`counts_hits_after_rage`).
+    The giant's [VARIABLE]s (the count, the flag, the offset and the attack entry's) are named by these rows alone. Its
+    one-member summon list at the tap is the single summon, and is dropped."""
+    unit = card["summon_character"]
+    table, row = unit_record(t, unit)
+    acts, tb = t["actions"], t["area_effect_objects"]
+
+    def need(ok: bool, what: str) -> None:
+        if not ok:
+            raise SystemExit(f"{unit}: {what}")
+
+    def is_int(v, lo: int) -> bool:
+        return isinstance(v, int) and not isinstance(v, bool) and v >= lo
+
+    def act(name, cls: str, keys: set[str], what: str) -> dict:
+        a = acts.get(name) if isinstance(name, str) else None
+        need(a is not None and a["ClassType"] == cls and _present(a) == keys,
+             f"{what} {name!r} sets {sorted(_present(a)) if a else None}")
+        return a
+
+    need(t.vintage.forms_16635, "the rage before 16.635")
+    own = t[table].set_fields.get(unit, set())
+    extra = {c for c in own - RAGE_ROW - RAGE_ROW_DISPLAY - DATA_ONLY_DISPLAY
+             if not COSMETIC.search(c) and not c.startswith("Prestige") and c != "TID"}
+    need(not extra, f"its row sets {sorted(extra)}")
+    base = card["form_of"]
+    need(row["Base"] == f"CHARACTER.{base}" and row["ClonedVersion"] == base, f"its row extends {row['Base']!r}")
+    need(row["StopMovementAfterMS"] == 0 and row["WaitMS"] == 0, "its walk stops")
+    arrays = t[table].arrays.get(unit, {})
+    seq, entries = arrays.get("AttackSequence"), arrays.get("AttackSequenceList")
+    need(row["AttackSequenceMode"] == "None" and seq == [0, 1, 2, 3] and isinstance(entries, list) and len(entries) == 4
+         and all(COSMETIC.search(k) for e in entries for k in e), f"its attack entries {entries}")
+
+    # THE START: the trigger and the attack entry's clock.
+    start_name = row["OnStartingAction"]
+    act(start_name, "ActionGroup", RAGE_START, "its start")
+    start = col_list(acts, start_name, "SubActions")
+    by: dict[str, list[str]] = {}
+    for n in start:
+        by.setdefault((acts.get(n) or {}).get("ClassType"), []).append(n)
+    need(sorted(by) == ["ActionInterval", "ActionRunActionAtHealth"] and all(len(v) == 1 for v in by.values()),
+         f"its start runs {start}")
+
+    # THE TRIGGER AND THE RAGE: one share, one group of effects, the flag and the clock.
+    trig_name = by["ActionRunActionAtHealth"][0]
+    trig = acts.get(trig_name)
+    need(_present(trig) <= RAGE_AT_HEALTH, f"its trigger sets {sorted(_present(trig))}")
+    shares, runs = col_list(acts, trig_name, "HealthPercentages"), col_list(acts, trig_name, "Actions")
+    need(len(shares) == 1 and is_int(shares[0], 1) and shares[0] < 100 and len(runs) == 1,
+         f"its trigger's shares {shares} for {runs}")
+    grp = act(runs[0], "ActionGroup", RAGE_GROUP, "its rage")
+    subs = col_list(acts, runs[0], "SubActions")
+    sets = [n for n in subs if (acts.get(n) or {}).get("ClassType") == "ActionSetVariable"]
+    ivs = [n for n in subs if (acts.get(n) or {}).get("ClassType") == "ActionInterval"]
+    need(grp["ContextMode"] == "Create" and len(sets) == 1 and len(ivs) == 1
+         and all(n in sets or n in ivs or _cosmetic_action(acts, n) for n in subs), f"its rage runs {subs}")
+    fs = act(sets[0], "ActionSetVariable", RAGE_SET, "its rage's flag")
+    need(fs["Value"] == "1", f"its rage's flag is set to {fs['Value']!r}")
+    flag = fs["Variable"]
+    iv = act(ivs[0], "ActionInterval", RAGE_INTERVAL, "its rage's clock")
+    need(iv["PauseTag"] == RAGE_PAUSE_TAG and is_int(iv["Interval"], 1), f"its rage's clock {ivs[0]}")
+
+    # EACH FIRING: the area by the count, on the offset.
+    choose = iv["ActionToExecute"]
+    act(choose, "ActionSelect", RAGE_SELECT, "its area's choice")
+    conds, spawns = col_list(acts, choose, "PerActionConditions"), col_list(acts, choose, "SubActions")
+    below = [RAGE_BELOW.fullmatch(str(c)) for c in conds[:-1]]
+    need(len(conds) == 4 and len(spawns) == 4 and all(below) and len({m.group(1) for m in below}) == 1,
+         f"its area's choice {conds}")
+    count = below[0].group(1)
+    thresholds = [int(m.group(2)) for m in below]
+    need(thresholds[0] == 1 and all(a < b for a, b in itertools.pairwise(thresholds))
+         and conds[-1] == f"{count} >= {thresholds[-1]}", f"its area's choice {conds}")
+    areas, offs, on_spawned = [], set(), set()
+    for n in spawns:
+        sp = act(n, "ActionSpawnToLocation", RAGE_SPAWN, "its area's spawn")
+        mx = RAGE_X.fullmatch(str(sp["XPositionExpression"]))
+        need(sp["SpawnType"] == "AreaEffectType" and sp["ShareContext"] is True and mx is not None
+             and sp["YPositionExpression"] == RAGE_Y.format(v=mx.group(1)), f"its area's spawn {n}")
+        offs.add(mx.group(1))
+        on_spawned.add(sp["ActionToRunOnSpawned"])
+        areas.append(sp["SpawnData"])
+    need(len(offs) == 1 and len(on_spawned) == 1, f"its spawns' offsets {sorted(offs)} and starts {on_spawned}")
+    off = offs.pop()
+    step = (t.variables.get(off) or {}).get("DefaultValue")
+    need(isinstance(step, int) and not isinstance(step, bool) and step != 0, f"its offset {off} = {step!r}")
+    need(set(_mentions(acts, off)) == set(spawns), f"{off} is named elsewhere")
+
+    # EACH AREA'S START: its register and its wait to kill an older area its circle holds.
+    osp = on_spawned.pop()
+    og = act(osp, "ActionGroup", RAGE_GROUP, "its area's start")
+    osubs = col_list(acts, osp, "SubActions")
+    need(og["ContextMode"] == "Inherit" and len(osubs) == 2, f"its area's start runs {osubs}")
+    reg = act(osubs[0], "ActionGroup", RAGE_GROUP, "its area's register")
+    keys = {}
+    for n in col_list(acts, osubs[0], "SubActions"):
+        b = act(n, "ActionBlackboardSetInt", {"ClassType", "Key", "Value"}, "its area's register")
+        keys[b["Key"]] = b["Value"]
+    need(reg["ContextMode"] == "Inherit" and keys == RAGE_REGISTER
+         and len(col_list(acts, osubs[0], "SubActions")) == len(RAGE_REGISTER), f"its area's register {keys}")
+    w = act(osubs[1], "ActionWaitToActivate", {"ClassType", "Condition", "OnActivateAction"}, "its area's wait")
+    need(w["Condition"] == RAGE_WAIT, f"its area's wait {w['Condition']!r}")
+    kill = act(w["OnActivateAction"], "ActionKill", RAGE_KILL, "its area's kill")
+    need(is_int(kill["ActionDelay"], 0), f"its area's kill delay {kill['ActionDelay']!r}")
+
+    # THE AREAS: their own radius over one base row over the Rage spell's area.
+    rows = []
+    for name in areas:
+        r = tb.get(name)
+        need(r is not None and not (tb.set_fields.get(name, set()) - RAGE_AREA_OWN), f"the area {name!r}")
+        bname = r["Base"].removeprefix("AEO.") if isinstance(r["Base"], str) and r["Base"].startswith("AEO.") else None
+        b = tb.get(bname) if bname else None
+        need(b is not None and not (tb.set_fields.get(bname, set()) - RAGE_AREA_BASE) and b["Base"] == RAGE_AREA_SPELL,
+             f"the area {name!r}'s base {r['Base']!r}")
+        need(r["SpawnAreaEffectObject"] is None and r["Damage"] is None and r["TowerDamage"] is None
+             and r["Buff"] == "Rage" and is_int(r["BuffTime"], 1) and r["CapBuffTimeToAreaEffectTime"] is True
+             and is_int(r["HitSpeed"], 1) and is_int(r["LifeDuration"], 1) and is_int(r["Radius"], 1)
+             and r["Filter"] == "all_friendly_troops" and r["OnlyOwnTroops"] is True and r["OnlyEnemies"] is False
+             and r["OnStartingAction"] is None and r["OnHitAction"] is None and r["FollowBehaviour"] is None
+             and _cosmetic_action(acts, r["OnLifeTimeEndAction"]), f"the area {name!r} is not a plain Rage")
+        rows.append(r)
+    need(len({(r["LifeDuration"], r["HitSpeed"]) for r in rows}) == 1
+         and all(a["Radius"] < b["Radius"] for a, b in itertools.pairwise(rows)), "the areas' lives or radii")
+    # The kill of an older area: inert while a newer one comes when the older one's life ends, and waits a tick or more
+    # past that.
+    need(iv["Interval"] >= rows[0]["LifeDuration"] and kill["ActionDelay"] >= 100,
+         "an older area the newer one can kill: not simulated")
+
+    # THE COUNT, AND THE ATTACK ENTRY'S SELECT (display only).
+    hit_name = row["OnHitTargetAction"]
+    h = act(hit_name, "ActionSetVariable", RAGE_HIT, "its hit")
+    need(h["Variable"] == count and h["Value"] == f"{count} + 1" and h["ExecuteIfTrue"] == f"{flag} > 0",
+         f"its hit {hit_name}")
+    clock = act(by["ActionInterval"][0], "ActionInterval", RAGE_ATTACK_CLOCK, "its attack entry's clock")
+    pick = clock["ActionToExecute"]
+    act(pick, "ActionSelect", RAGE_SELECT, "its attack entry's select")
+    need(tuple(col_list(acts, pick, "PerActionConditions")) == tuple(c.format(flag=flag) for c in RAGE_ATTACK_SELECT),
+         f"its attack entry's select {col_list(acts, pick, 'PerActionConditions')}")
+    picks, seq_vars, seq_sets, ks = col_list(acts, pick, "SubActions"), set(), set(), []
+    need(len(picks) == len(seq), f"its attack entry's select runs {picks}")
+    for g in picks:
+        ga = act(g, "ActionGroup", RAGE_ENTRY, "its attack entry")
+        gsubs = col_list(acts, g, "SubActions")
+        need(len(gsubs) == 2, f"its attack entry {g} runs {gsubs}")
+        sv = act(gsubs[0], "ActionSetVariable", RAGE_SET, "its attack entry's set")
+        ix = act(gsubs[1], "ActionSetAttackSequenceIndex", {"ClassType", "AttackIndex"}, "its attack entry's index")
+        k = ix["AttackIndex"]
+        need(sv["Value"] == str(k) and ga["ExecuteIfTrue"] == f"{sv['Variable']} != {k}", f"its attack entry {g}")
+        seq_vars.add(sv["Variable"])
+        seq_sets.add(gsubs[0])
+        ks.append(k)
+    need(len(seq_vars) == 1 and sorted(ks) == sorted(seq), f"its attack entries' indices {ks}")
+    entry = seq_vars.pop()
+
+    # ITS [VARIABLE]S: none with a start other than 0, each named by the rows above alone.
+    need(len({count, flag, entry, off}) == 4, "its variables")
+    for v in (count, flag, entry):
+        need((t.variables.get(v) or {}).get("DefaultValue") in (None, 0), f"the [VARIABLE] {v} starts at a value")
+    need(set(_mentions(acts, count)) == {choose, hit_name}, f"{count} is named elsewhere")
+    need(set(_mentions(acts, flag)) == {sets[0], hit_name, pick}, f"{flag} is named elsewhere")
+    need(set(_mentions(acts, entry)) == set(picks) | seq_sets, f"{entry} is named elsewhere")
+
+    # THE SUMMON: one member at the tap, the single summon.
+    need(card.get("summon_members") == [{"character": unit, "offset_x_milli": 0, "offset_y_milli": 0}],
+         f"its summon {card.get('summon_members')}")
+    del card["summon_members"]
+    card.pop("summon_offsets_x_mirrored", None)
+
+    return {
+        "health_pct": shares[0],
+        "first_ms": 0,
+        "every_ms": iv["Interval"],
+        "paused_by": iv["PauseTag"],
+        "hit_speed_scaled": False,
+        "spawn_speed_scaled": False,
+        "counts_hits_after_rage": True,
+        "thresholds": thresholds,
+        "areas": areas,
+        "offset_milli": step,
+        "older_kill_delay_ms": kill["ActionDelay"],
+    }
+
+
 def hero_file_links(v: Vintage) -> dict[str, list]:
     """Each base card's EvolvedSpells as the hero form files set it ([SPELL_CHARACTER.<base>] or [SPELL_BUILDING.<base>]
     in characters/hero_form/*_spell.toml), by base name."""
@@ -8453,6 +8700,8 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
             card["evo_rage_ghost"] = rage_ghost_block(t, card, b)
         elif name == "ElectroGiant_EV1":
             card["evo_delevel_pulse"] = delevel_pulse_block(t, card)
+        elif name == "Giant_EV1":
+            card["evo_rage_areas"] = rage_areas_block(t, card)
         elif name == "Valkyrie_EV1":
             card["evo_attack_area"] = attack_area_block(t, card, ATTACK_AREA_READ)
         elif name == "RoyalGiant_EV1":
@@ -8476,6 +8725,9 @@ def evolution_records(t: Tables, rarities: dict) -> list[dict]:
     for name in EVOLUTIONS:
         # A form whose pack row is a placeholder before 16.402 (EVOLUTIONS_16402_ONLY) is built from 16.402 on alone.
         if name in EVOLUTIONS_16402_ONLY and not t.vintage.filters_format:
+            continue
+        # A form whose pack row is a placeholder before 16.635 (EVOLUTIONS_16635_ONLY) is built from 16.635 on alone.
+        if name in EVOLUTIONS_16635_ONLY and not t.vintage.forms_16635:
             continue
         card = census(f"spells_evolved.{name}", one, name)
         if card is not None:

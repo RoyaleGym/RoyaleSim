@@ -8,9 +8,9 @@ Little Prince's guard charge leaves out the dash-immune, the Evo Battle Ram's pu
 Mega Knight stands while its uppercut runs and its root lets a pull move the victim, the Hero Electro Wizard's surge
 stuns 600 ms and no longer stands, the Evo Electro Giant's pulse is back on CommonAreaDamageFilter (it takes a Clone
 copy again), the Evo Cannon's and Evo Firecracker's damage buffs stack by cast (CastIdSpecificBuff), and an Evo
-Skeletons copy takes no duplication. The Evo Giant's unit and rage areas are new rows; the Evo Giant and the Evo Mirror
-are not built. Every changed value is pinned, old and new: a regenerated table that moves anything else, or moves one
-of these to another value, turns this red, so a reader change cannot ride in unseen.
+Skeletons copy takes no duplication. The Evo Giant's unit and rage areas are new rows, and the Evo Giant a new form,
+the evolutions' last; the Evo Mirror is not built. Every changed value is pinned, old and new: a regenerated table that
+moves anything else, or moves one of these to another value, turns this red, so a reader change cannot ride in unseen.
 """
 
 import json
@@ -100,10 +100,11 @@ def test_the_cards_differ_by_the_clients_changes_alone():
 def test_the_evolutions_and_hero_forms_differ_by_the_clients_changes_alone():
     old, new = load(OLD), load(NEW)
     got = {}
-    for sec in ("evolutions", "hero_forms"):
+    for sec, added in (("evolutions", ["Giant_EV1"]), ("hero_forms", [])):
         a = {e["name"]: e for e in old[sec]}
         b = {e["name"]: e for e in new[sec]}
-        assert sorted(a) == sorted(b), f"{sec}: the Evo Giant and the Evo Mirror are not built"
+        assert [e["name"] for e in new[sec]] == [e["name"] for e in old[sec]] + added, (
+            f"{sec}: the Evo Giant at the end, the Evo Mirror not built")
         for n in sorted(a):
             d = changes(a[n], b[n])
             if d:
