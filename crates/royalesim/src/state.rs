@@ -16123,13 +16123,29 @@ impl BattleState {
         if evo.ram.is_some() {
             self.evo.rams.push(RamState { id, armed_at: None, struck: Vec::new(), recoil: false });
         }
-        // AN EVO SKELETON ARMY'S SOLDIER OR GENERAL joins its play's group, the one this phase gave its side.
+        // AN EVO SKELETON ARMY'S SOLDIER OR GENERAL joins its play's group, the one this phase gave its side. A copy's
+        // Spectral (`scenario_spawn_copy`; a play makes none, a soldier's death does, `army_spectrals`) joins it as a
+        // Spectral, with its Invisible buff for good, as made. PLANT copy_spectral_as_soldier: a Soldier, seen.
         if let Some(a) = evo.army {
             let g = *groups[team as usize].get_or_insert_with(|| {
                 self.evo.next_group += 1;
                 self.evo.next_group
             });
-            let role = if card == a.general.unit { ArmyRole::General } else { ArmyRole::Soldier };
+            #[cfg(not(clash_plant = "copy_spectral_as_soldier"))]
+            let spectral = card == a.spectral.unit;
+            #[cfg(clash_plant = "copy_spectral_as_soldier")]
+            let spectral = false;
+            let role = if card == a.general.unit {
+                ArmyRole::General
+            } else if spectral {
+                ArmyRole::Spectral
+            } else {
+                ArmyRole::Soldier
+            };
+            if spectral {
+                let h = crate::status::BuffHit::plain(id, a.spectral_buff.buff, a.spectral_buff.time_ms, 0);
+                land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+            }
             self.evo.armies.push(ArmyMember { id, group: g, role });
         }
     }
@@ -37223,6 +37239,12 @@ impl BattleState {
         self.deploy_blow(team, idx, level, pos, false); // PLANT: the setup spawn lands its card's deploy projectile.
         // A COPY'S FORM, started as a play starts it (`phase_spawn`): the Evo Mega Knight's count as his deploy blow leaves
         // it, and the evolution's own start (`evo_created`) but its barrage. PLANT copy_form_unstarted: as a setup spawn.
+        // Nor its other creation blow: the Evo Tesla's ring at its creation (`spawn_with`, card.rs `RingDef::on_start`),
+        // its OnStartingAction as the barrage is the Evo Cannon's. PLANT copy_rings_at_creation: the ring stays.
+        #[cfg(not(clash_plant = "copy_rings_at_creation"))]
+        if fresh.is_some() {
+            self.evo.rings.retain(|r| r.id != id);
+        }
         #[cfg(not(clash_plant = "copy_form_unstarted"))]
         if let Some(groups) = fresh {
             if self.cfg.calib.uppercut_count == UppercutCount::Client16402DeployBlowNotDash {
@@ -37283,8 +37305,9 @@ impl BattleState {
     /// `fresh`): an Evo Musketeer's snipes full, an Evo Witch's wave clock and an Evo Hunter's net from now, a hero's
     /// charge unspent. Its play's own effects are not cast (the Evo Cannon's barrage, a deploy blow). The batch's evolved
     /// units of one side form one group, as one play's do (an Evo Skeleton Army's soldiers and General, Evo
-    /// Skeletons). A record whose state has no fresh value is refused (card.rs `copy_refusal`: a hero's record a press
-    /// makes, the Hero Tombstone's waiting monster).
+    /// Skeletons); a Spectral among them hangs its Invisible buff, as one made. Its play's creation blows are not cast
+    /// either (the Evo Tesla's ring). A record whose state has no fresh value is refused (card.rs `copy_refusal`: a
+    /// hero's record a press makes, the Hero Tombstone's waiting monster, the Evo Lumberjack's ghost).
     pub fn scenario_spawn_copy(&mut self, spawns: &[(Team, &str, Vec2, Option<i32>, Option<i32>)]) -> Result<Vec<EntityId>, (usize, DeployError)> {
         self.spawn_batch(spawns, true)
     }

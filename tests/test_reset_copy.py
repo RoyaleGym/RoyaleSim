@@ -87,6 +87,26 @@ def test_a_copys_builder_can_ask_each_units_kind_first():
         b.unit_spawn_kind("MusketeerTurret", 1)
 
 
+def test_a_unit_rows_unit_type_name_puts_it_back():
+    # a hero form's unit_type is its unit name (KnightHero), not its record's (Knight_hero); a Skeletons card's skeleton's
+    # is Skeleton, which names no unit this catalogue puts down but the card's own
+    def put(cards, decks, spawns=(), unit_spawns=()):
+        b = royalesim.Battle(cards, [[0, 1, 2], [0, 1, 2]])
+        b.reset(0, decks, 0, 200, [10_000, 10_000], None, list(spawns), unit_spawns=list(unit_spawns))
+        return b
+
+    cases = [(CARDS, DECKS, [], [("Knight", 0, 9000 * SUB, 8000 * SUB, -1, -1, 2)]),
+             (["Skeletons", "Knight"], [[0] * 8, [1] * 8], [(0, 0, 9000 * SUB, 8000 * SUB, -1)], [])]
+    for cards, decks, spawns, unit_spawns in cases:
+        b = put(cards, decks, spawns, unit_spawns)
+        (e,) = units(b)
+        name = unit_types(b)[e[F["unit_type"]]]
+        assert name in ("KnightHero", "Skeleton"), name
+        again = put(cards, decks, unit_spawns=[(name, 0, 9000 * SUB, 8000 * SUB, -1, -1, 0)])
+        (f,) = units(again)
+        assert (f[F["unit_type"]], f[F["card_id"]]) == (e[F["unit_type"]], e[F["card_id"]]), name
+
+
 def test_a_unit_no_catalogue_card_puts_down_is_refused():
     # a catalogue without the Golem: no card of it puts a Golemite on the board
     with pytest.raises(ValueError, match="no card of this catalogue"):

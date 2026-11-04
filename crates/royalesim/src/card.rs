@@ -14938,21 +14938,29 @@ impl CardDb {
     }
 
     /// WHY A COPY OF A BATTLE UNDER WAY CANNOT PUT RECORD `idx` DOWN ALONE with its form's state at a fresh unit's
-    /// (state.rs `scenario_spawn_copy`), as (kind, why), or None when it can. An evolution's records all can: what a
-    /// play of the form starts on them has a fresh value (its snipes full, its spear held, no captive, its counts at
-    /// 0). A hero's can when its play makes them: the form's row and the unit that holds its charge (the Hero
-    /// Goblins' flag, the Hero Barbarian Barrel's Barbarian). The rest of a hero's records cannot:
+    /// (state.rs `scenario_spawn_copy`), as (kind, why), or None when it can. An evolution's records can, but one: what
+    /// a play of the form starts on them has a fresh value (its snipes full, its spear held, no captive, its counts at
+    /// 0; an Evo Skeleton Army's Spectral its Invisible buff and its army's group). A hero's can when its play or its
+    /// death makes them: the form's row, the unit that holds its charge (the Hero Goblins' flag, the Hero Barbarian
+    /// Barrel's Barbarian) and its death spawn (the Hero Balloon's bomb). The rest cannot:
+    ///   - "by_death": the Evo Lumberjack's ghost, which only its Rage's lapse or its life (`RageGhostRun`) kills;
     ///   - "by_its_tomb": the Hero Tombstone's waiting monster, which its tomb puts down with it;
     ///   - "by_press": a record a press makes or turns the hero into (the Hero Musketeer's turret, the Hero Bowler's
     ///     siege, the Hero Dark Prince's walk, the active tomb monster), whose state is the press's.
     pub fn copy_refusal(&self, idx: u16) -> Option<(&'static str, &'static str)> {
+        if self.cards.iter().any(|c| c.evo.as_ref().and_then(|v| v.rage_ghost.as_ref()).is_some_and(|r| r.ghost.unit == idx)) {
+            return Some(("by_death", "a death makes it, and only its Rage's lapse or its life ends it"));
+        }
         if !self.is_hero_record(idx) || self.hero_forms.iter().any(|(_, f)| *f == idx) {
             return None;
         }
-        let made_by_play = self.hero_forms.iter().any(|&(_, f)| match self.get(f).ability.as_ref().map(|a| &a.effect) {
-            Some(AbilityEffect::FlagSpawns(d)) => d.flag == idx,
-            Some(AbilityEffect::ReRoll(r)) => r.unit == idx,
-            _ => false,
+        let made_by_play = self.hero_forms.iter().any(|&(_, f)| {
+            self.get(f).death_spawn.as_ref().is_some_and(|d| d.unit == idx)
+                || match self.get(f).ability.as_ref().map(|a| &a.effect) {
+                    Some(AbilityEffect::FlagSpawns(d)) => d.flag == idx,
+                    Some(AbilityEffect::ReRoll(r)) => r.unit == idx,
+                    _ => false,
+                }
         });
         let by_tomb = self.hero_forms.iter().any(|&(_, f)| matches!(self.get(f).ability.as_ref().map(|a| &a.effect), Some(AbilityEffect::TombMonster(t)) if t.passive == idx));
         if made_by_play {

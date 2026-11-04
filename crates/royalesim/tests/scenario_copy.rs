@@ -14,7 +14,10 @@
 //!      with its own delay (an Arrows wave); a record that does not fly is refused by its kind;
 //!   7. a copy's evolved unit starts its form as its play does (an Evo Musketeer snipes, where a setup spawn's does
 //!      not), but casts none of the play's own effects (no Evo Cannon barrage); a hero's record its play makes stands
-//!      with its button, and one a press makes, or the tomb's waiting monster, is refused.
+//!      with its button, and one a press makes, or the tomb's waiting monster, is refused;
+//!   8. a copy's Evo Skeleton Army Spectral is invisible, as one a soldier's death makes; a copy's Evo Tesla rings when
+//!      it comes up, not at its creation, as a setup spawn's does; the Evo Lumberjack's ghost is refused, the Hero
+//!      Balloon's bomb is not.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! scenario_copy`):
@@ -24,7 +27,9 @@
 //!   - copy_spawn_level_ignored -> 4 red;
 //!   - copy_spell_flight_from_launch -> 6 red;
 //!   - copy_form_unstarted -> 7 red (and tests/evo_mega_knight.rs `..._a_copys_knight_counts_as_a_played_one`);
-//!   - copy_casts_barrage -> 7 red.
+//!   - copy_casts_barrage -> 7 red;
+//!   - copy_spectral_as_soldier -> 8 red;
+//!   - copy_rings_at_creation -> 8 red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -272,4 +277,45 @@ fn a_copys_form_starts_as_its_play_does() {
         assert!(s.clone().scenario_spawn_batch_levels(&[(Team::Blue, unit, n(9000, 14000), None, None)]).is_ok(), "{unit}: a setup spawn takes it");
     }
     assert_eq!(["Knight_hero", "Musketeer_EV1", "SkeletonArmy_EV1", "Knight"].map(|u| db.copy_refusal(db.index(u).expect(u))), [None; 4]);
+}
+
+/// The ring hits (148 at level 11, one each) a red Knight held 2500 ahead of an Evo Tesla takes in 120 ticks from the
+/// Tesla's creation, the Tesla put down by a copy or by a setup spawn.
+fn ring_hits(copy: bool) -> usize {
+    let mut s = battle();
+    let at = n(9000, 11000);
+    let tesla = [(Team::Blue, "Tesla_EV1", at, None, None)];
+    (if copy { s.scenario_spawn_copy(&tesla) } else { s.scenario_spawn_batch_levels(&tesla) }).expect("the Tesla");
+    let p = n(9000, 13500);
+    let k = s.scenario_spawn_now(Team::Red, "Knight", p, None).expect("a red Knight");
+    let top = s.entity(k).expect("the Knight").max_hp;
+    let mut hits = 0;
+    for _ in 0..120 {
+        assert!(s.debug_set_pos(k, p) && s.debug_set_hp(k, top));
+        s.tick();
+        hits += usize::from(top - s.entity(k).expect("the Knight held alive").hp == 148);
+    }
+    hits
+}
+
+#[test]
+fn a_copys_evolved_unit_is_as_made() {
+    // a Spectral: invisible from its first frame, as a soldier's death makes it; a setup spawn's is not
+    let invisible = |copy: bool| {
+        let mut s = battle();
+        let sp = [(Team::Blue, "SkeletonArmy_EV1_Spectral", n(9000, 12000), None, None)];
+        let id = if copy { s.scenario_spawn_copy(&sp) } else { s.scenario_spawn_batch_levels(&sp) }.expect("the Spectral")[0];
+        s.entity(id).expect("the Spectral").status_flags & 2 != 0
+    };
+    assert!(invisible(true), "a copy's Spectral is invisible to its enemies");
+    assert!(!invisible(false), "the control: a setup spawn's is not");
+    // the Evo Tesla: its creation ring is the play's, so a copy's rings once (as it comes up), a setup spawn's twice
+    assert_eq!((ring_hits(true), ring_hits(false)), (1, 2), "(copy, setup spawn)");
+    // the Evo Lumberjack's ghost lives on its Rage's run, which no copy has; the Hero Balloon's bomb is its death's
+    let s = battle();
+    let db = s.cards().clone();
+    let kind = |u: &str| db.copy_refusal(db.index(u).unwrap_or_else(|| panic!("{u}"))).map(|(k, _)| k);
+    assert_eq!(kind("RageBarbarianEvoGhost"), Some("by_death"));
+    assert!(s.clone().scenario_spawn_copy(&[(Team::Blue, "RageBarbarianEvoGhost", n(9000, 12000), None, None)]).is_err());
+    assert_eq!(kind("BalloonHero_Bomb"), None, "the Hero Balloon's bomb: its death's, as the plain Balloon's is");
 }

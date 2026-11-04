@@ -593,13 +593,32 @@ pub fn spell_form(cards: &CardDb, idx: u16) -> i32 {
 }
 
 /// THE RECORD A COPY'S UNIT SPAWN NAMES (`Battle.reset`'s `unit_spawns`, `unit_spawn_kind`): with `form` 0 the record
-/// `name` names, as `unit_types_json` does (a form's own record too); with 1 or 2 a card's form (its evolution, its
-/// hero form: card.rs `form_card`), named by the card or by the form's record (card.rs `record_form`).
-pub fn copy_record(cards: &CardDb, name: &str, form: u8) -> Result<u16, String> {
+/// `name` names, a form's own record too; with 1 or 2 a card's form (its evolution, its hero form: card.rs
+/// `form_card`), named by the card or by the form's record (card.rs `record_form`). `name` is a record's name, or a
+/// unit row's `unit_type` name (`unit_types_json`, a record's `unit_name`: the Hero Knight's KnightHero, the Skeletons
+/// card's Skeleton): a record of that name that a catalogue card puts down (`id_of_idx`), else the one record with that
+/// unit name a catalogue card puts down, the catalogue's own card first. Several such records are refused by name.
+pub fn copy_record(cards: &CardDb, catalogue: &[u16], id_of_idx: &[i32], name: &str, form: u8) -> Result<u16, String> {
     if form > 2 {
         return Err(format!("unit spawn {name}: unknown form {form} (0 the record named, 1 an evolution's, 2 a hero's)"));
     }
-    let idx = cards.index(name).ok_or_else(|| format!("unit spawn {name}: no such record in this battle's card table"))?;
+    let reached = |i: u16| id_of_idx.get(i as usize).is_some_and(|c| *c >= 0);
+    let idx = match cards.index(name) {
+        Some(i) if reached(i) => i,
+        named => {
+            let by_unit: Vec<u16> = (0..cards.cards.len() as u16).filter(|&i| cards.get(i).unit_name == name && reached(i)).collect();
+            let own: Vec<u16> = by_unit.iter().copied().filter(|i| catalogue.contains(i)).collect();
+            match (own.as_slice(), by_unit.as_slice(), named) {
+                ([i], _, _) | ([], [i], _) => *i,
+                ([], [], Some(i)) => i,
+                ([], [], None) => return Err(format!("unit spawn {name}: no such record in this battle's card table")),
+                _ => {
+                    let all: Vec<&str> = by_unit.iter().map(|i| cards.get(*i).name.as_str()).collect();
+                    return Err(format!("unit spawn {name}: names several records ({}): name one", all.join(", ")));
+                }
+            }
+        }
+    };
     let own = cards.record_form(idx);
     if form == 0 || own == form {
         return Ok(idx);
@@ -1920,9 +1939,9 @@ impl Battle {
     /// evolved one (its next play is evolved once the count reaches the form's cycle); 0 for every other card.
     /// `unit_spawns`: (unit, team, x, y, hp or -1, level or -1, form), beside `spawns`: any unit by its record's NAME, a
     /// summoned or death-spawned one included (a Golemite, a Battle Ram's Barbarian, a Witch's Skeleton), standing and
-    /// deployed at that unified level (-1: its deck entry's, else the side's card level). `form`: 0 the record named, a
-    /// form's own record too (a unit row's `unit_type` name); 1 or 2 a card's evolution or hero form, as a deck names
-    /// it, by the card's name or the form record's (copy_record). A form's record stands with its
+    /// deployed at that unified level (-1: its deck entry's, else the side's card level). `unit` is a record's name or
+    /// a unit row's `unit_type` name. `form`: 0 the unit named, an evolved or hero one too; 1 or 2 a card's evolution
+    /// or hero form, as a deck names it, by the card's name or the form record's (`copy_record`). A form's record stands with its
     /// form's state at a fresh unit's, as its play leaves it, but for the play's own effects (state.rs
     /// `scenario_spawn_copy`; `unit_spawn_kind` says which records can). Both lists go down in one canonical order.
     /// `spells_in_flight`: (card_id, form, team, x, y, aim_x, aim_y, level or -1, delay_ms): ONE flying object (a
@@ -2064,7 +2083,7 @@ impl Battle {
         // A UNIT BY ITS RECORD'S NAME (`unit_spawns`): any record the table loads, the catalogue's or not.
         for (unit, team, x, y, hp, level, form) in unit_spawns.unwrap_or_default() {
             let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("bad unit spawn team {team}")))?;
-            let i = copy_record(&self.cards, &unit, form).map_err(PyValueError::new_err)?;
+            let i = copy_record(&self.cards, &self.catalogue, &self.id_of_idx, &unit, form).map_err(PyValueError::new_err)?;
             match self.copy_kind(i) {
                 // It reports under the catalogue card that produces it (`ids_of_indices`), so a unit no catalogue card can
                 // put on the board is refused: its rows would read card -1, and a save of the battle would not load.
@@ -2335,12 +2354,13 @@ impl Battle {
     /// How a unit record stands to `reset`'s `unit_spawns` (`name` and `form` as there): "stands" (a plain record, put
     /// down as it is), "fresh" (an evolved or hero form's, put down with its form's state at a fresh unit's), or why it
     /// is refused: "by_press" (a hero's press makes it: the Hero Musketeer's turret, the Hero Bowler's siege),
-    /// "by_its_tomb" (the Hero Tombstone's waiting monster: put the tomb down), "rider" (its mount makes it),
+    /// "by_its_tomb" (the Hero Tombstone's waiting monster: put the tomb down), "by_death" (the Evo Lumberjack's ghost,
+    /// which only its Rage ends), "rider" (its mount makes it),
     /// "not_in_catalogue" (no card of this Battle's catalogue puts it on the board) or "not_a_unit" (a spell's record).
     /// A copy's builder asks first and leaves out what is refused.
     #[pyo3(signature = (name, form = 0))]
     fn unit_spawn_kind(&self, name: &str, form: u8) -> PyResult<&'static str> {
-        let idx = copy_record(&self.cards, name, form).map_err(PyValueError::new_err)?;
+        let idx = copy_record(&self.cards, &self.catalogue, &self.id_of_idx, name, form).map_err(PyValueError::new_err)?;
         Ok(self.copy_kind(idx))
     }
 
@@ -2351,8 +2371,9 @@ impl Battle {
         Ok(self.s()?.mirror_target(t).map_or(-1, |i| self.id_of_idx.get(i as usize).copied().unwrap_or(-1)))
     }
 
-    /// SNIPES: `(uid, snipes_left)` for every living Evo Musketeer (state.rs `snipes_left`): 0 once she has fired her
-    /// AmmoCount, and for one `spawns` put down. A hero's charge is each player's `abilities` row in `state_json`.
+    /// SNIPES: `(uid, snipes_left)` for every living Evo Musketeer (state.rs `snipes_left`): her AmmoCount when played or
+    /// put down by `unit_spawns`, 0 once she has fired it. A hero's charge is each player's `abilities` row in
+    /// `state_json`.
     fn snipe_states(&self) -> PyResult<Vec<(i64, i32)>> {
         let s = self.s()?;
         Ok(s.snipes_left()
