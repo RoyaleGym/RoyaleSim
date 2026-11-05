@@ -442,6 +442,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   knockback.PINGPONG_WAIT_RESET = reset: unread on client 15.535.29.
 ///   combat.GUARD_CHARGE_LEAP = hit: unread on client 15.535.29.
 ///   combat.UPPERCUT_STAND_VICTIM = enters: unread on client 15.535.29.
+///   targeting.CHASE_HOLD_BACKWARDS = chase_limit: client 15.535.29 kept 158 of 159 troop holds past round sight inside the limit.
+///   combat.GOBLIN_MACHINE_ROCKET = unbuilt: unread on client 15.535.29.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -703,6 +705,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("knockback.PINGPONG_WAIT_RESET", "\"reset\""),
     ("combat.GUARD_CHARGE_LEAP", "\"hit\""),
     ("combat.UPPERCUT_STAND_VICTIM", "\"enters\""),
+    ("targeting.CHASE_HOLD_BACKWARDS", "\"chase_limit\""),
+    ("combat.GOBLIN_MACHINE_ROCKET", "\"unbuilt\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

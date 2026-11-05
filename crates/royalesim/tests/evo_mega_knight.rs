@@ -631,6 +631,70 @@ fn thrown_rows(victim: &str, hold: UppercutFlightHold, root: UppercutRootWindow)
     panic!("{victim} {hold:?}: the scene drifted: no second hit");
 }
 
+/// The thrown red Knight's free step (the hit + 21, under knockback.UPPERCUT_FLIGHT_HOLD = client16402_reset_from_hit_plus_1 and
+/// UPPERCUT_ROOT_WINDOW = client16402_after_a_free_step) under knockback.UPPERCUT_FLIGHT_CONTACT = `arm`, as `thrown_rows`, with
+/// (when `neighbour`) a red friend Knight held from the hit + 21's tick on at its hit + 20 point + (700, 0) (the radii sum 1,000:
+/// an overlap of 300; a friend, so the landed Knight keeps its target and steps: a Blue Knight there is its new target and it
+/// swings instead), until then on Red's side: the step's length, native.
+fn free_step(arm: UppercutFlightContact, neighbour: bool) -> i64 {
+    let mut s = battle_with(|c| {
+        c.calib.uppercut_throw_aim = UppercutThrowAim::OwnKing;
+        c.calib.uppercut_flight_hold = UppercutFlightHold::Client16402ResetFromHitPlus1;
+        c.calib.uppercut_root_window = UppercutRootWindow::Client16402AfterAFreeStep;
+        c.calib.uppercut_flight_contact = arm;
+    });
+    let (at, v_at, b_at) = (n(9000, 12500), n(9000, 13900), n(3000, 28000));
+    s.spawn_unit(Team::Blue, "MegaKnight_EV1", at, None).expect("the Mega Knight");
+    let v = s.scenario_spawn_now(Team::Red, "Knight", v_at, None).expect("the victim");
+    let b = neighbour.then(|| s.scenario_spawn_now(Team::Red, "Knight", b_at, None).expect("the red friend"));
+    s.tick();
+    let mk = find_live(&s, Team::Blue, "MegaKnight_EV1").first().expect("the Mega Knight").id;
+    let (mut hits, mut out) = (0, Vec::<Vec2>::new());
+    for _ in 0..300 {
+        assert!(s.debug_set_pos(mk, at));
+        let top = s.entity(v).expect("the victim").max_hp;
+        if hits < 2 {
+            assert!(s.debug_set_pos(v, v_at));
+        }
+        assert!(s.debug_set_hp(v, top));
+        if let Some(b) = b {
+            let p = if out.len() >= 21 { Vec2::new(out[20].x + 700 * K, out[20].y) } else { b_at };
+            assert!(s.debug_set_pos(b, p));
+            let full = s.entity(b).expect("the red friend").max_hp;
+            assert!(s.debug_set_hp(b, full));
+        }
+        s.tick();
+        let e = s.entity(v).expect("the victim");
+        if hits < 2 && top - e.hp == 268 {
+            hits += 1;
+        }
+        if hits >= 2 {
+            out.push(e.pos);
+            if out.len() > 21 {
+                let (dx, dy) = (i64::from((out[21].x - out[20].x) / K), i64::from((out[21].y - out[20].y) / K));
+                return royalesim::fixed::isqrt(dx * dx + dy * dy);
+            }
+        }
+    }
+    panic!("{arm:?}: the scene drifted: no second hit");
+}
+
+/// knockback.UPPERCUT_FLIGHT_CONTACT = client16402_out_of_pass_through_free_step (client 16.402 / 16.635, parity r86: attacking
+/// neighbours overlapping the thrown unit unmoved on 20 of 21 free-step ticks; its own free step a plain walk or still in 33 of
+/// 34 overlaps): with a red friend overlapping the landed red Knight on the hit + 21, its free step is its step without the
+/// neighbour; under client15535_out_of_pass it is back in the pass on that tick and the overlap pushes it. Plant:
+/// uppercut_free_step_collides.
+#[test]
+fn under_client16402_out_of_pass_through_free_step_the_landed_unit_walks_its_free_step() {
+    let alone = free_step(UppercutFlightContact::Client16402OutOfPassThroughFreeStep, false);
+    assert!(alone > 0, "the scene drifted: no free step on the hit + 21");
+    let new = free_step(UppercutFlightContact::Client16402OutOfPassThroughFreeStep, true);
+    assert!((new - alone).abs() <= 2, "client16402_out_of_pass_through_free_step: its free step {new} beside the red friend, {alone} alone");
+    // NOT VACUOUS: client15535_out_of_pass separates it from the red friend on its free step
+    let old = free_step(UppercutFlightContact::Client15535OutOfPass, true);
+    assert!((old - alone).abs() > 2, "client15535_out_of_pass: its free step {old} beside the red friend, {alone} alone");
+}
+
 /// knockback.UPPERCUT_FLIGHT_HOLD = client16402_reset_from_hit_plus_1 (client 16.402, parity r83, live13: 45 of 46 attacking
 /// victims read progress 0 on the hit + 2; the engine paused 11 of 11 swings and resumed them after the flight): a Musketeer
 /// shooting him, thrown: its swing resets on the hit + 2 and re-enters fresh after the flight. (A running attack's load timer
@@ -687,6 +751,12 @@ type Other = (Team, &'static str, (i32, i32), Option<(i32, i32)>);
 /// `other` put down first: (side, card, point, held each tick at the knight's point + this offset from the hit on, else held at
 /// its point until the hit). 60 rows from the hit.
 fn throw_rows(tweak: impl FnOnce(&mut BattleConfig), other: Option<Other>) -> Vec<ThrowRow> {
+    throw_rows_holding(tweak, other, &[])
+}
+
+/// `throw_rows`, with the thrown Knight held on every row from the first `(k, point)` of `knight_at` on at the point (native /
+/// 1000 units, as `at`) of the last entry whose k the row has reached.
+fn throw_rows_holding(tweak: impl FnOnce(&mut BattleConfig), other: Option<Other>, knight_at: &[(usize, (i32, i32))]) -> Vec<ThrowRow> {
     let mut cfg: BattleConfig = config();
     cfg.decks = [vec!["MegaKnight".into(), "Knight".into()], vec!["Knight".into(), "Musketeer".into()]];
     cfg.forms = [vec![1, 0], Vec::new()];
@@ -718,6 +788,9 @@ fn throw_rows(tweak: impl FnOnce(&mut BattleConfig), other: Option<Other>) -> Ve
     for _ in 0..300 {
         if hits < 2 {
             assert!(s.debug_set_pos(mk, at) && s.debug_set_pos(knight, kn_at));
+        }
+        if let Some((_, p)) = knight_at.iter().rev().find(|(k0, _)| hits >= 2 && out.len() >= *k0) {
+            assert!(s.debug_set_pos(knight, n(p.0, p.1)));
         }
         if let Some((id, p, follow)) = o {
             if let Some(full) = s.entity(id).map(|v| v.max_hp) {
@@ -806,6 +879,44 @@ fn under_client16402_held_by_the_stand_he_jumps_only_after_his_stand() {
     let old = throw_rows(|c| c.calib.uppercut_stand_dash = UppercutStandDash::Runs, other);
     let j0 = jump(&old).unwrap_or_else(|| panic!("runs: no jump: {old:?}"));
     assert!(old[j0 - 1].3 > 100, "runs: the jump came after the stand: {old:?}");
+}
+
+/// combat.UPPERCUT_STAND_DASH = client16402_trigger_held_by_the_stand (client 16.402 / 16.635, parity r86: replayed on the
+/// truth's rows, 12 of 16 live14 jumps after a throw on the stand's end + 17, no jump in 87 of 87 throws without one): the thrown
+/// Knight (1,400 ahead until the hit: he swings at it from his first tick, so his jump holds no first sight of it) held from the
+/// hit + 19 at 5,200 ahead, beyond the jump's minimum range and inside DashMaxRange + its radius, so his retake there is an
+/// unblocked first sight. Under the new arm he jumps on his stand's end + 17; under runs he jumps on the retake + 17, inside his
+/// stand. Retaken instead at 4,000 ahead (inside the minimum range) and held at 5,200 from the stand's end, the new arm's first
+/// sight is the blocked retake and he never jumps; under client16402_held_by_the_stand the frozen bookkeeping first sees the
+/// Knight on the stand's end, at 5,200, and he jumps on its + 17. Plant: uppercut_stand_bookkeeping_frozen.
+#[test]
+fn under_client16402_trigger_held_by_the_stand_he_jumps_on_his_stands_end_plus_17() {
+    let jump = |r: &[ThrowRow]| r.iter().enumerate().skip(1).find(|(k, x)| x.2 != r[k - 1].2 && {
+        let (dx, dy) = (i64::from(x.2 .0 - r[k - 1].2 .0), i64::from(x.2 .1 - r[k - 1].2 .1));
+        dx * dx + dy * dy > 200 * 200
+    }).map(|(k, _)| k);
+    let far = [(19, (9000, 12500 + 5200))];
+    let run = |arm: UppercutStandDash, knight_at: &[(usize, (i32, i32))]| {
+        throw_rows_holding(|c| {
+            c.calib.uppercut_stand_dash = arm;
+            c.calib.uppercut_flight_targetability = UppercutFlightTargetability::Client16402FromHitPlus2;
+        }, None, knight_at)
+    };
+    let new = run(UppercutStandDash::Client16402TriggerHeldByTheStand, &far);
+    let l100 = new.iter().skip(3).position(|x| x.3 <= 100).map(|k| k + 3).expect("no stand end");
+    assert!(new[l100].4 && l100 >= 21, "the scene drifted: he does not hold the Knight at his stand's end ({l100}), or it ends by the hit + 20: {new:?}");
+    assert_eq!(jump(&new), Some(l100 + 17), "client16402_trigger_held_by_the_stand: his jump (the stand ended at {l100}): {new:?}");
+    // NOT VACUOUS: runs jumps inside the stand
+    let old = run(UppercutStandDash::Runs, &far);
+    let j0 = jump(&old).unwrap_or_else(|| panic!("runs: no jump: {old:?}"));
+    assert!(j0 < l100 + 17, "runs: the jump on {j0}, not before the stand's end + 17: {old:?}");
+    // and the bookkeeping runs in the stand: a blocked retake inside it holds the new arm's jump off; the held arm's frozen
+    // bookkeeping first sees the Knight on the stand's end, unblocked
+    let near_then_far = [(19, (9000, 12500 + 4000)), (l100, (9000, 12500 + 5200))];
+    let blocked = run(UppercutStandDash::Client16402TriggerHeldByTheStand, &near_then_far);
+    assert_eq!(jump(&blocked), None, "client16402_trigger_held_by_the_stand: a jump after the blocked retake: {blocked:?}");
+    let held = run(UppercutStandDash::Client16402HeldByTheStand, &near_then_far);
+    assert_eq!(jump(&held), Some(l100 + 17), "client16402_held_by_the_stand: his jump (the stand ended at {l100}): {held:?}");
 }
 
 /// targeting.UPPERCUT_FLIGHT_TARGETABILITY = client16402_from_hit_plus_2 (client 16.402, parity r84, live14: ground holders dropped

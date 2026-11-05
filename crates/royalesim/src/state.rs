@@ -1213,6 +1213,14 @@ pub struct Calib {
     /// `Enters`, what a battle saved before it ran.
     #[serde(default = "uppercut_stand_victim_default")]
     pub uppercut_stand_victim: UppercutStandVictim,
+    /// targeting.CHASE_HOLD_BACKWARDS (whether a target held past round sight needs a backwards path). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `ChaseLimit`, what a battle saved before it ran.
+    #[serde(default = "chase_hold_backwards_default")]
+    pub chase_hold_backwards: ChaseHoldBackwards,
+    /// combat.GOBLIN_MACHINE_ROCKET (whether the Goblin Machine fires its rocket). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Unbuilt`, what a battle saved before it ran.
+    #[serde(default = "goblin_machine_rocket_default")]
+    pub goblin_machine_rocket: GoblinMachineRocket,
     /// spawner.LIFE_STATE_WAKE_REACH, LIFE_STATE_WAKE_TARGETS and ACTION_SPAWNER_SPAWN_SPEED (the Goblin Hut's
     /// controller, `life_state_pass`). Added after SNAPSHOT_FORMAT 20; no battle saved before them held one.
     #[serde(default = "life_state_wake_reach_default")]
@@ -3387,6 +3395,14 @@ fn guard_charge_leap_default() -> GuardChargeLeap {
 
 fn uppercut_stand_victim_default() -> UppercutStandVictim {
     UppercutStandVictim::Enters
+}
+
+fn chase_hold_backwards_default() -> ChaseHoldBackwards {
+    ChaseHoldBackwards::ChaseLimit
+}
+
+fn goblin_machine_rocket_default() -> GoblinMachineRocket {
+    GoblinMachineRocket::Unbuilt
 }
 
 fn life_state_wake_reach_default() -> LifeWakeReach {
@@ -8215,6 +8231,10 @@ calib_enum!(
         /// Client 16.402 (parity r83, live13): client15535_out_of_pass from the hit + 1 (k = 0; its own walking step that tick
         /// still runs) through its last flight step.
         Client16402OutOfPassFromHitPlus1 = "client16402_out_of_pass_from_hit_plus_1",
+        /// Client 16.402 / 16.635 (parity r86): as client15535_out_of_pass, through the thrown unit's free step as well: out of
+        /// the move pass from the hit + 2 to the hit + 21 (its flight and its free step); from the root's first tick its kept
+        /// point is a body again.
+        Client16402OutOfPassThroughFreeStep = "client16402_out_of_pass_through_free_step",
     }
 );
 calib_enum!(
@@ -10539,6 +10559,10 @@ calib_enum!(
         /// Client 16.402: nothing is held; a projectile's hit landing on the immunity's last tick lands (its test reads the
         /// next tick), melee and every earlier hit are dropped as before (parity's r74 census of the live11 set (client 16.402): over 46 Bandit and Boss Bandit dashes, projectiles reaching her from the dash start to her immunity's last tick but one landed 0 of 24 (both); on its last tick (her last dash frame + 3) 5 of 5 landed in the truth, 0 of 5 in the engine; melee blows there were dropped (0 of 2, both); later, 3 of 3 on both. r73's client16402_held_to_immunity_end held about 15 shots the client dropped (-1,526 by score)).
         Client16402ProjectileLandsOnLastImmuneTick = "client16402_projectile_lands_on_last_immune_tick",
+        /// Client 16.402 / 16.635 (parity r86, live15n): as client16402_projectile_lands_on_last_immune_tick, but only a shot that
+        /// was already flying at the unit when its dash or a guard's charge began (`Projectile::held`, marked there) lands on
+        /// the immunity's last tick; one launched during the dash is dropped there as every earlier hit.
+        Client16402LastTickLandsIfFlyingAtDashStart = "client16402_last_tick_lands_if_flying_at_dash_start",
     }
 );
 calib_enum!(
@@ -11355,6 +11379,10 @@ calib_enum!(
         /// Client 16.402 (parity r84, live14): while the uppercut stand holds him no dash trigger runs; on its first tick off
         /// (load at 100 or under) the trigger runs as for any walker.
         Client16402HeldByTheStand = "client16402_held_by_the_stand",
+        /// Client 16.402 / 16.635 (parity r86): while the uppercut stand holds him no jump stand begins, but each retarget is
+        /// still a first sight (dash target and blocked read at that tick's distance); on his first tick out of the stand a kept,
+        /// unblocked target in reach triggers (the jump on that tick + 17), a blocked one is walked to.
+        Client16402TriggerHeldByTheStand = "client16402_trigger_held_by_the_stand",
     }
 );
 calib_enum!(
@@ -11470,6 +11498,34 @@ calib_enum!(
         /// Client 16.402 (parity r85, live14): in that stand he enters no attack on the unit he threw; he enters on the first
         /// tick his load timer reads 100 (the hit + 22). Another target in reach he attacks at once.
         Client16402HeldToStandEnd = "client16402_held_to_stand_end",
+    }
+);
+calib_enum!(
+    /// targeting.CHASE_HOLD_BACKWARDS -- what keeps a walker's troop target past its round sight when the rescan
+    /// finds nothing (target.rs `decide`; the flag `Entities::path_backwards`, written by state.rs `phase_path_2026`).
+    ChaseHoldBackwards {
+        /// The engine's: held while its |dy| stays inside the chase-drop limit (targeting.CHASE_HOLD_PAST_LIMIT
+        /// decides past it), for every holder.
+        ChaseLimit = "chase_limit",
+        /// Client 16.402 (parity r86, live14; and 16.635): a melee ground walker holds it only while its path to it goes
+        /// backwards (a waypoint farther from the target than the walker at planning; kept from the replan that found it until a
+        /// route of under 2 waypoints); without it, and for every flyer, the lane tower. Projectile holders keep chase_limit.
+        Client16402BackwardsPath = "client16402_backwards_path",
+        /// As client16402_backwards_path, the flag rewritten at every replan toward the target (the client's literal store).
+        Client16402BackwardsPathStored = "client16402_backwards_path_stored",
+    }
+);
+calib_enum!(
+    /// combat.GOBLIN_MACHINE_ROCKET -- the Goblin Machine's OnStartingAction goblin_machine_rocket, an
+    /// ActionTargetIndicatorAttack (state.rs `rocket_pass`, the clock `EvoBoard::rockets`).
+    GoblinMachineRocket {
+        /// The engine's: the action is not run; the machine never fires its rocket.
+        Unbuilt = "unbuilt",
+        /// Client 16.402 (parity r86, live14): the rocket clock loads 1500 ms from the
+        /// tick after the 1000 ms deploy; with no rocket up and its 4000 ms cooldown spent it marks the closest enemy between
+        /// MinimumRange 2500 and Range 5000 (plus both radii), fires 1000 ms later from 1200 behind itself at the fixed mark,
+        /// 119 (Common, its level; crown towers 50 %) within 1500 of it.
+        Client16402IndicatorAttack = "client16402_indicator_attack",
     }
 );
 calib_enum!(
@@ -12093,6 +12149,8 @@ impl Calib {
             pingpong_wait_reset: pick(&v, &["knockback", "PINGPONG_WAIT_RESET", "value"], PingpongWaitReset::from_calibration_name)?,
             guard_charge_leap: pick(&v, &["combat", "GUARD_CHARGE_LEAP", "value"], GuardChargeLeap::from_calibration_name)?,
             uppercut_stand_victim: pick(&v, &["combat", "UPPERCUT_STAND_VICTIM", "value"], UppercutStandVictim::from_calibration_name)?,
+            chase_hold_backwards: pick(&v, &["targeting", "CHASE_HOLD_BACKWARDS", "value"], ChaseHoldBackwards::from_calibration_name)?,
+            goblin_machine_rocket: pick(&v, &["combat", "GOBLIN_MACHINE_ROCKET", "value"], GoblinMachineRocket::from_calibration_name)?,
             life_state_wake_reach: pick(&v, &["spawner", "LIFE_STATE_WAKE_REACH", "value"], LifeWakeReach::from_calibration_name)?,
             life_state_wake_targets: pick(&v, &["spawner", "LIFE_STATE_WAKE_TARGETS", "value"], LifeWakeTargets::from_calibration_name)?,
             action_spawner_spawn_speed: pick(&v, &["spawner", "ACTION_SPAWNER_SPAWN_SPEED", "value"], ActionSpawnSpeed::from_calibration_name)?,
@@ -12968,6 +13026,10 @@ pub struct EvoBoard {
     /// hashed only when not empty.
     #[serde(default)]
     pub nets: Vec<NetRun>,
+    /// Each Goblin Machine's rocket clock (combat.GOBLIN_MACHINE_ROCKET, `rocket_pass`). `default` so a battle saved before
+    /// it still loads; hashed only when not empty.
+    #[serde(default)]
+    pub rockets: Vec<RocketRun>,
     /// Each unit an Evo Dart Goblin's darts have poisoned (card.rs `DartPoisonDef`, `poison_pass`). `default` so a
     /// battle saved before it still loads; hashed only when not empty.
     #[serde(default)]
@@ -13197,6 +13259,20 @@ pub struct NetRun {
     pub target: Option<EntityId>,
     pub since: u32,
     pub throw_at: Option<u32>,
+}
+
+/// A GOBLIN MACHINE'S ROCKET CLOCK (combat.GOBLIN_MACHINE_ROCKET = client16402_indicator_attack, `rocket_pass`): the machine,
+/// its load and cooldown (ms; the cooldown -1 until its first fire or a search that found nothing), and its indication: up,
+/// its timer (ms), the marked point and the rocket's landing tick.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RocketRun {
+    pub id: EntityId,
+    pub load_ms: i32,
+    pub cd_ms: i32,
+    pub up: bool,
+    pub timer_ms: i32,
+    pub aim: Vec2,
+    pub lands: Option<u32>,
 }
 
 /// AN EVO GOBLIN CAGE'S CAPTURE (card.rs `CageDef`, `cage_pass`): the cage, its captive with the grab's tick (a captive
@@ -23007,6 +23083,139 @@ impl BattleState {
 
     /// Hunter `i`'s net at `t` (`net_pass`): a homing shot from his ProjectileStartRadius plus the net's extra toward it, of
     /// the net's speed and no damage, carrying the snare; it first steps next tick.
+    /// THE GOBLIN MACHINE'S ROCKET (combat.GOBLIN_MACHINE_ROCKET = client16402_indicator_attack; client 16.402's
+    /// ActionTargetIndicatorAttack), in the Projectile phase after the shots step (a rocket fired here
+    /// first steps next tick). Per machine (its clock made on the first pass that sees it): the load counts from its spawn +
+    /// 20 (the tick after its 1000 ms deploy) and must pass 1500 ms; with no rocket up and the cooldown spent (or never run)
+    /// it marks the closest enemy between MinimumRange 2500 and Range 5000 plus both radii (none: search again next tick); the
+    /// indication's timer reaching 1000 ms (AttackDelay; TargetIndicatorDelay 0) fires the rocket from 1200 behind the
+    /// machine along its facing to the mark, a fixed projectile with the GoblinMachineRocketProjectile row's 119 (Common, the
+    /// machine's level), crown towers 50 %, radius 1500, air and ground; the cooldown counts from the fire; the indication
+    /// ends on the first tick after the landing. Measured on client 16.402 (parity r86, live14): 34 of 35 matched rockets on
+    /// the tick. PLANT (regression) goblin_rocket_unbuilt: the new arm fires nothing.
+    fn rocket_pass(&mut self) {
+        const LOAD_MS: i32 = 1500;
+        const DELAY_MS: i32 = 1000;
+        const COOLDOWN_MS: i32 = 4000;
+        const RANGE: i32 = 5000;
+        const MIN_RANGE: i32 = 2500;
+        const BEHIND: i64 = 1200;
+        const SPEED: i32 = 350;
+        const DAMAGE: i32 = 119;
+        const RADIUS: i32 = 1500;
+        let k = crate::fixed::SUBTILE_PER_MILLITILE;
+        let (tick, dt) = (self.tick, self.cfg.calib.tick_ms.max(1));
+        let mut runs = std::mem::take(&mut self.evo.rockets);
+        runs.retain(|r| self.ents.is_alive(r.id));
+        for i in 0..self.ents.pos.len() {
+            let id = self.ents.id_of(i);
+            if self.ents.is_alive(id) && self.cfg.cards.get(self.ents.card[i]).name == "GoblinMachine" && !runs.iter().any(|r| r.id == id) {
+                runs.push(RocketRun { id, load_ms: 0, cd_ms: -1, up: false, timer_ms: 0, aim: Vec2::default(), lands: None });
+            }
+        }
+        let mut fired = Vec::new();
+        for r in runs.iter_mut() {
+            let i = r.id.index as usize;
+            if tick >= self.ents.spawn_tick[i] + 20 {
+                r.load_ms += dt;
+            }
+            if r.load_ms <= LOAD_MS {
+                continue;
+            }
+            if !r.up && (r.cd_ms < 0 || r.cd_ms >= COOLDOWN_MS) {
+                let (team, p, ri) = (self.ents.team[i], self.ents.pos[i], i64::from(self.ents.radius[i]));
+                let mut best: Option<(i64, usize)> = None;
+                for j in 0..self.ents.pos.len() {
+                    let jd = self.ents.id_of(j);
+                    if !self.ents.is_alive(jd) || self.ents.team[j] == team || self.ents.hp[j] <= 0 || self.ents.underground(j) {
+                        continue;
+                    }
+                    let (dx, dy) = (i64::from(self.ents.pos[j].x - p.x), i64::from(self.ents.pos[j].y - p.y));
+                    let d2 = dx * dx + dy * dy;
+                    let rr = ri + i64::from(self.ents.radius[j]);
+                    let (far, near) = (i64::from(RANGE * k) + rr, i64::from(MIN_RANGE * k) + rr);
+                    if d2 <= far * far && d2 > near * near && best.map_or(true, |(b, _)| d2 < b) {
+                        best = Some((d2, j));
+                    }
+                }
+                match best {
+                    Some((_, j)) => {
+                        r.up = true;
+                        r.timer_ms = 0;
+                        r.aim = self.ents.pos[j];
+                        r.lands = None;
+                    }
+                    None => r.cd_ms = -1,
+                }
+            }
+            if r.up {
+                if r.lands.is_some_and(|l| tick <= l) || r.timer_ms < DELAY_MS {
+                } else if r.timer_ms >= DELAY_MS + dt || r.lands.is_some() {
+                    r.up = false;
+                    r.lands = None;
+                } else {
+                    let (p, f) = (self.ents.pos[i], self.ents.facing[i]);
+                    let fl = crate::fixed::isqrt(i64::from(f.x) * i64::from(f.x) + i64::from(f.y) * i64::from(f.y)).max(1);
+                    let back = i64::from(k) * BEHIND;
+                    let start = Vec2::new(p.x - (i64::from(f.x) * back / fl) as i32, p.y - (i64::from(f.y) * back / fl) as i32);
+                    let (dx, dy) = (i64::from(r.aim.x - start.x), i64::from(r.aim.y - start.y));
+                    let speed = (SPEED * self.cfg.calib.projectile_speed_to_subtiles_per_tick).max(1);
+                    let d = crate::fixed::isqrt(dx * dx + dy * dy);
+                    r.lands = Some(tick + ((d + i64::from(speed) - 1) / i64::from(speed)) as u32);
+                    r.cd_ms = 0;
+                    fired.push((i, start, r.aim, speed));
+                }
+            }
+            if r.up {
+                r.timer_ms += dt;
+            }
+            if r.cd_ms >= 0 {
+                r.cd_ms += dt;
+            }
+        }
+        self.evo.rockets = runs;
+        #[cfg(clash_plant = "goblin_rocket_unbuilt")]
+        fired.clear(); // PLANT (regression): the new arm fires nothing.
+        for (i, start, aim, speed) in fired {
+            let Ok(damage) = self.cfg.cards.rarity_scaled("Common", self.ents.level[i], DAMAGE) else { continue };
+            self.projectiles.push(Projectile {
+                team: self.ents.team[i],
+                pos: start,
+                // No unit: the rocket flies to its mark (`fixed`) and splashes there.
+                target: EntityId { index: u32::MAX, generation: 0 },
+                aim,
+                speed,
+                damage,
+                crown_pct: 50,
+                splash: RADIUS * k,
+                hits_air: true,
+                hits_ground: true,
+                frac: Vec2::default(),
+                fresh: false,
+                buff: None,
+                pulse: 0,
+                firer_card: Some(self.ents.card[i]),
+                firer: Some(self.ents.id_of(i)),
+                deflected: false,
+                held: false,
+                straight: None,
+                hook: None,
+                carrier: None,
+                fixed: true,
+                release: None,
+                buff_first: false,
+                src_level: self.ents.level[i],
+                enchant: None,
+                bonus: 0,
+                bonus_crown: 0,
+                trail: None,
+                chain: None,
+                bounce: None,
+                pancake: false,
+            });
+        }
+    }
+
     fn throw_net(&mut self, i: usize, t: EntityId, nd: &crate::card::NetDef) {
         let ti = t.index as usize;
         let (src, tgt) = (self.ents.pos[i], self.ents.pos[ti]);
@@ -23999,6 +24208,16 @@ impl BattleState {
             // Move, and the next Status spends one before that tick's walk.
             self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(2 * dt);
             if immune && tick + 1 >= r.born + crate::card::GUARD_DASH_START_TICKS {
+                // combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_dash_start: the shots flying at it as its
+                // charge's immunity begins are marked (`Projectile::held`): only they may land on the immunity's last tick.
+                if self.ents.dash_immune_until[gi] != u32::MAX
+                    && self.cfg.calib.dash_immune_hits == DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart
+                {
+                    let gid = self.ents.id_of(gi);
+                    for p in self.projectiles.iter_mut().filter(|p| p.target == gid) {
+                        p.held = true;
+                    }
+                }
                 self.ents.dash_immune_until[gi] = u32::MAX;
             }
             // spells.STRIKE_DASH_IMMUNE = client16402_charge_skipped: from its first charge frame to its arrival a strike's pick
@@ -26377,7 +26596,9 @@ impl BattleState {
             #[cfg(not(clash_plant = "uppercut_flight_collides"))]
             let out_of_pass = matches!(
                 self.cfg.calib.uppercut_flight_contact,
-                UppercutFlightContact::Client15535OutOfPass | UppercutFlightContact::Client16402OutOfPassFromHitPlus1
+                UppercutFlightContact::Client15535OutOfPass
+                    | UppercutFlightContact::Client16402OutOfPassFromHitPlus1
+                    | UppercutFlightContact::Client16402OutOfPassThroughFreeStep
             );
             #[cfg(clash_plant = "uppercut_flight_collides")]
             let out_of_pass = false;
@@ -26389,8 +26610,16 @@ impl BattleState {
                 let decel = crate::move16402::PUSHBACK_DECEL;
                 for r in self.evo.uppercuts.iter().filter(|r| self.ents.is_alive(r.id)) {
                     let last = crate::move16402::ladder_speed(r.push) / decel + 1;
+                    // knockback.UPPERCUT_FLIGHT_CONTACT = client16402_out_of_pass_through_free_step: its free step (k = last + 1, the
+                    // hit + 21) too. Measured on client 16.402 (parity r86, live14; and 16.635, live15n): attacking neighbours
+                    // overlapping it unmoved on 20 of 21 free-step ticks, its own free step a plain walk or still in 33 of 34
+                    // overlaps. PLANT (regression) uppercut_free_step_collides: the new arm puts it back in the pass on its free step.
+                    #[cfg(not(clash_plant = "uppercut_free_step_collides"))]
+                    let last_k = if self.cfg.calib.uppercut_flight_contact == UppercutFlightContact::Client16402OutOfPassThroughFreeStep { last + 1 } else { last };
+                    #[cfg(clash_plant = "uppercut_free_step_collides")]
+                    let last_k = last;
                     let k = self.tick as i32 - r.mark as i32 - 1;
-                    if (first_k..=last).contains(&k) {
+                    if (first_k..=last_k).contains(&k) {
                         v[r.id.index as usize] = true;
                     }
                 }
@@ -26493,6 +26722,16 @@ impl BattleState {
         let stand_holds_dash = self.cfg.calib.uppercut_stand_dash == UppercutStandDash::Client16402HeldByTheStand;
         #[cfg(clash_plant = "uppercut_stand_dash_runs")]
         let stand_holds_dash = false;
+        // combat.UPPERCUT_STAND_DASH = client16402_trigger_held_by_the_stand: the stand holds only the trigger; its retargets
+        // are still first sights. Measured on client 16.402 (parity r86, live14, replayed on the truth's rows): 12 of 16 jumps
+        // after a throw on the predicted tick, no jump in 87 of 87 throws without one (client16402_held_by_the_stand: 1 of 17
+        // and 4 false jumps). PLANT (regression) uppercut_stand_bookkeeping_frozen: the new arm freezes the first-sight
+        // bookkeeping as client16402_held_by_the_stand does.
+        let trigger_held = self.cfg.calib.uppercut_stand_dash == UppercutStandDash::Client16402TriggerHeldByTheStand;
+        #[cfg(not(clash_plant = "uppercut_stand_bookkeeping_frozen"))]
+        let trigger_only = trigger_held;
+        #[cfg(clash_plant = "uppercut_stand_bookkeeping_frozen")]
+        let (trigger_only, stand_holds_dash) = (false, stand_holds_dash || trigger_held);
         // combat.WARP_RETURN_FREE = client16402_walks_and_retargets: a return's steps carry the hero's walk (`adds` below).
         let return_free = self.warp_return_free();
         // enchant.ON_BUFF_HOLD_CONTACT = client16402_unpushed: a Rune Giant stood in his hold (his swing held, its phase kept;
@@ -28070,6 +28309,8 @@ impl BattleState {
                     };
                     if dash_state[i] == DashState::None {
                         let walking = !deploying && e.attack_phase[i] == AttackPhase::Idle && e.retarget_wait[i] == 0 && !(stand_holds_dash && uppercut_stand[i]);
+                        // combat.UPPERCUT_STAND_DASH = client16402_trigger_held_by_the_stand: no stand begins inside his uppercut stand.
+                        let held = trigger_only && uppercut_stand[i];
                         if let (true, Some(t)) = (walking, live(e.target[i])) {
                             let ti = t.index as usize;
                             let near = (d.min_range + e.radius[i] + e.radius[ti]) as i64;
@@ -28084,7 +28325,7 @@ impl BattleState {
                                 // first sight already within the trigger distance: it stands this tick too
                                 #[cfg(not(clash_plant = "dash_first_sight_walks"))]
                                 {
-                                    dash_stand = within && !dash_blocked[i];
+                                    dash_stand = within && !dash_blocked[i] && !held;
                                 }
                                 // combat.DASH_FIRST_SIGHT_TRIGGER = first_sight_tick: that first-sight tick IS the
                                 // trigger (measured on client 15.535.29: 12 of 12 dashers first seeing their target
@@ -28094,11 +28335,11 @@ impl BattleState {
                                 let on_sight = calib.dash_first_sight_trigger == DashFirstSightTrigger::FirstSightTick;
                                 #[cfg(clash_plant = "dash_first_sight_next_tick")]
                                 let on_sight = false; // PLANT (regression): the new arm triggers on the tick after first sight.
-                                if on_sight && within && !dash_blocked[i] {
+                                if on_sight && within && !dash_blocked[i] && !held {
                                     dash_state[i] = DashState::Standing;
                                     dash_mark[i] = self.tick + ((d.cooldown_ms / tk).max(1) - 1) as u32;
                                 }
-                            } else if !dash_blocked[i] && within {
+                            } else if !dash_blocked[i] && within && !held {
                                 dash_state[i] = DashState::Standing;
                                 dash_mark[i] = self.tick + ((d.cooldown_ms / tk).max(1) - 1) as u32;
                             }
@@ -28870,7 +29111,10 @@ impl BattleState {
         // before a Bandit's dash and reaching her inside the immunity landed on its end, 5 of 5.
         // PLANT (regression) dash_immune_hit_discarded: the new arm still drops them.
         #[cfg(not(clash_plant = "dash_immune_hit_discarded"))]
-        let hold = self.cfg.calib.dash_immune_hits == DashImmuneHits::Client16402HeldToImmunityEnd;
+        let hold = matches!(
+            self.cfg.calib.dash_immune_hits,
+            DashImmuneHits::Client16402HeldToImmunityEnd | DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart
+        );
         #[cfg(clash_plant = "dash_immune_hit_discarded")]
         let hold = false;
         if hold && !dash_began.is_empty() {
@@ -29267,6 +29511,7 @@ impl BattleState {
     /// Applying a made-up deflection here would corrupt the one law that IS
     /// measured.
     fn phase_path_2026(&mut self) {
+        let mut backwards: Vec<(usize, EntityId, bool, bool)> = Vec::new();
         // The units under ground first, under every path arm (movement.SPAWN_PATHFIND_STATES).
         self.phase_tunnel();
         self.build_obstacles();
@@ -29393,6 +29638,17 @@ impl BattleState {
                     let (route, ok) = path2026::plan_waypoints(&world, calib, &req);
                     feasible = ok;
                     routes[i] = route.into_iter().map(|p| arena.from_frame(team, p)).collect();
+                    // targeting.CHASE_HOLD_BACKWARDS: does this route toward the unit's own troop target go backwards (a
+                    // waypoint farther from the target than the unit; the client's flag after each path computation)?
+                    if calib.chase_hold_backwards != ChaseHoldBackwards::ChaseLimit && e.target[i] == Some(goal_id) && !e.kind[gi].is_building() {
+                        let d2 = |a: Vec2, b: Vec2| {
+                            let (dx, dy) = (i64::from(a.x - b.x), i64::from(a.y - b.y));
+                            dx * dx + dy * dy
+                        };
+                        let far = d2(e.pos[i], e.pos[gi]);
+                        let back = routes[i].len() >= 2 && routes[i].iter().any(|w| d2(*w, e.pos[gi]) > far);
+                        backwards.push((i, goal_id, back, routes[i].len() >= 2));
+                    }
                     goals[i] = Some(cell_v);
                     planned[i] = epoch;
                     // A new segment: its direction is frozen on the next heading
@@ -29482,6 +29738,16 @@ impl BattleState {
         }
         self.ents.route = routes;
         self.ents.route_goal = goals;
+        // targeting.CHASE_HOLD_BACKWARDS: the replans' flags. client16402_backwards_path keeps a flag from the replan that set
+        // it (per target) until a route of under 2 waypoints; _stored rewrites it at every replan toward the target.
+        let stored = self.cfg.calib.chase_hold_backwards == ChaseHoldBackwards::Client16402BackwardsPathStored;
+        for (i, t, back, long) in backwards {
+            if back {
+                self.ents.path_backwards[i] = Some(t);
+            } else if !long || stored || self.ents.path_backwards[i] != Some(t) {
+                self.ents.path_backwards[i] = None;
+            }
+        }
         self.ents.last_plan_tick = planned;
         self.ents.seg_dir = segs;
         self.ents.move_ticks = kticks;
@@ -31581,6 +31847,11 @@ impl BattleState {
             self.cage_pass();
         }
         // The Evo Hunters' nets, on this tick's targets and moved points (`net_pass`).
+        // combat.GOBLIN_MACHINE_ROCKET = client16402_indicator_attack: the Goblin Machines' rockets, on this tick's moved points
+        // (`rocket_pass`).
+        if self.cfg.calib.goblin_machine_rocket == GoblinMachineRocket::Client16402IndicatorAttack {
+            self.rocket_pass();
+        }
         if !self.evo.nets.is_empty() {
             self.net_pass();
         }
@@ -38630,6 +38901,12 @@ impl BattleState {
                         h.u32(f.map_or(0, |t| t.generation));
                     }
                 }
+                // targeting.CHASE_HOLD_BACKWARDS: the backwards-path target, only when set (None under chase_limit).
+                if let Some(t) = e.path_backwards[i] {
+                    h.u32(0x4348_4257);
+                    h.u32(t.index);
+                    h.u32(t.generation);
+                }
                 // targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: the position the last Target phase read,
                 // written under that arm alone, so a battle under the others hashes as it did before the column.
                 if self.cfg.calib.chase_drop_walking_away == ChaseDropWalkingAway::Client15535GrowingAway {
@@ -39932,6 +40209,21 @@ impl BattleState {
                     h.u32(r.under_at);
                     h.u32(r.wave_at);
                     h.u32(u32::from(r.wave));
+                }
+            }
+            // The Goblin Machines' rocket clocks, only when there are some.
+            if !b.rockets.is_empty() {
+                h.u32(0x524f_434b);
+                h.u32(b.rockets.len() as u32);
+                for r in &b.rockets {
+                    h.id(r.id);
+                    h.i32(r.load_ms);
+                    h.i32(r.cd_ms);
+                    h.bool(r.up);
+                    h.i32(r.timer_ms);
+                    h.i32(r.aim.x);
+                    h.i32(r.aim.y);
+                    h.u32(r.lands.unwrap_or(u32::MAX));
                 }
             }
             // The Evo Hunters' net clocks, only when there are some.
@@ -41362,6 +41654,10 @@ impl BattleState {
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.UPPERCUT_STAND_VICTIM: Calib gained uppercut_stand_victim (serde default the old arm, enters), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.CHASE_HOLD_BACKWARDS: Calib gained chase_hold_backwards (serde default the old arm, chase_limit), Entities::path_backwards (serde default None, hashed only under the new arms),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.GOBLIN_MACHINE_ROCKET: Calib gained goblin_machine_rocket (serde default the old arm, unbuilt), EvoBoard::rockets (serde default empty, hashed only when not empty),
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, combat.DASH_CHAIN_ATTACK_CYCLE: Calib gained dash_chain_attack_cycle (serde default the old arm, kept),
 ///    no new state (the new arm writes the saved attack columns at the chain's end), so a blob saved before it
 ///    deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
@@ -42517,6 +42813,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_charge_leap".into(), serde_json::to_value(GuardChargeLeap::Hit).map_err(|e| e.to_string())?);
     // combat.UPPERCUT_STAND_VICTIM: a format-3 battle ran combat.UPPERCUT_STAND_VICTIM's old arm.
     sh.insert("uppercut_stand_victim".into(), serde_json::to_value(UppercutStandVictim::Enters).map_err(|e| e.to_string())?);
+    // targeting.CHASE_HOLD_BACKWARDS: a format-3 battle ran targeting.CHASE_HOLD_BACKWARDS's old arm.
+    sh.insert("chase_hold_backwards".into(), serde_json::to_value(ChaseHoldBackwards::ChaseLimit).map_err(|e| e.to_string())?);
+    // combat.GOBLIN_MACHINE_ROCKET: a format-3 battle ran combat.GOBLIN_MACHINE_ROCKET's old arm.
+    sh.insert("goblin_machine_rocket".into(), serde_json::to_value(GoblinMachineRocket::Unbuilt).map_err(|e| e.to_string())?);
     // pathfinding.FLYER_GOAL_BUILDINGS: a format-3 battle ranked a boxed cell below the free ones for a flyer too; it
     // keeps that whatever the ledger ships (the same rule).
     sh.insert("flyer_goal_buildings".into(), serde_json::to_value(FlyerGoalBuildings::Demoted).map_err(|e| e.to_string())?);
@@ -42935,6 +43235,7 @@ impl BattleState {
         snap.ents.idle_back.resize(n, 0);
         snap.ents.chase_dropped.resize(n, None);
         snap.ents.chase_inside.resize(n, None);
+        snap.ents.path_backwards.resize(n, None);
         snap.ents.source.resize(n, NO_CARD);
         snap.ents.load_hold.resize(n, 0);
         snap.ents.wait_held.resize(n, false);

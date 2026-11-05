@@ -1572,6 +1572,18 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 #[cfg(not(clash_plant = "chase_held_only_inside_limit"))]
                 let holds = !past_chase_limit(ctx.calib, ctx.cards, e, a, ti)
                     || (ctx.calib.chase_hold_past_limit == ChaseHoldPastLimit::Client15535TroopsKept && !e.kind[a].is_building());
+                // targeting.CHASE_HOLD_BACKWARDS = client16402_backwards_path: the client's search keeps a target it no longer
+                // sees only while the holder's path to it goes backwards; a melee walker without that
+                // flag, and a flyer (no path), takes its lane tower. Measured on client 16.402 (parity r86, live14): 223 of 230
+                // flagged holds kept, 110 of 122 unflagged let go, flyers 15 of 15; 16.635 47 of 48, 7 of 7. PLANT (regression)
+                // chase_hold_backwards_unread: the new arm still holds on the chase limit.
+                #[cfg(not(clash_plant = "chase_hold_backwards_unread"))]
+                let holds = match ctx.calib.chase_hold_backwards {
+                    crate::state::ChaseHoldBackwards::ChaseLimit => holds,
+                    _ if e.flying[a] => false,
+                    _ if card.projectile.is_none() && !e.kind[a].is_building() => e.path_backwards[a] == Some(t),
+                    _ => holds,
+                };
                 // targeting.CHASE_HOLD_SCOPE = client15535_walkers_only: a holder still in its attack (its projectile hold
                 // just ended by a launch from beyond reach) lets the target go: client 15.535.29, 16 of 19 such holders
                 // took a tower (sp-form-RoyalHogs-evo-s0 t1268: a Musketeer's shot at an Evo Royal Hog 7,263 away).

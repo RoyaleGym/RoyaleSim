@@ -422,6 +422,12 @@ pub struct Entities {
     /// `chase_dropped`.
     #[serde(default)]
     pub chase_inside: Vec<Option<EntityId>>,
+    /// targeting.CHASE_HOLD_BACKWARDS = client16402_backwards_path: the target this unit's last replan toward it found a
+    /// backwards path to (a waypoint farther from it than the unit; state.rs `phase_path_2026`), kept until a route of under
+    /// 2 waypoints; `decide` holds a target past round sight only when this names it. None on every unit under chase_limit.
+    /// `default` and sized on load like `chase_inside`.
+    #[serde(default)]
+    pub path_backwards: Vec<Option<EntityId>>,
     /// targeting.CHASE_DROP_WALKING_AWAY = client15535_growing_away: where this unit stood as the last Target phase read
     /// it (state.rs `chase_pass_end`), against which the next one reads its own step and the growth of its distances
     /// (target.rs `walks_away`). Its creation point until a Target phase has read it; written under that arm alone.
@@ -1057,6 +1063,7 @@ impl Entities {
             self.idle_back[i] = 0;
             self.chase_dropped[i] = None;
             self.chase_inside[i] = None;
+            self.path_backwards[i] = None;
             self.load_hold[i] = 0;
             self.wait_held[i] = false;
             self.burst[i] = None;
@@ -1179,6 +1186,7 @@ impl Entities {
             self.idle_back.push(0);
             self.chase_dropped.push(None);
             self.chase_inside.push(None);
+            self.path_backwards.push(None);
             self.load_hold.push(0);
             self.wait_held.push(false);
             self.burst.push(None);
@@ -1361,6 +1369,7 @@ impl Entities {
         self.launched_beyond[i] = false;
         self.chase_dropped[i] = None;
         self.chase_inside[i] = None;
+        self.path_backwards[i] = None;
         self.load_hold[i] = 0;
         self.wait_held[i] = false;
         self.burst[i] = None;

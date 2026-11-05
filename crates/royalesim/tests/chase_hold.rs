@@ -23,7 +23,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::BattleState;
+use royalesim::state::{BattleState, ChaseHoldBackwards};
 use royalesim::Team;
 
 fn at(x: i32, y: i32) -> Vec2 {
@@ -111,4 +111,47 @@ fn past_limit_scene(arm: royalesim::state::ChaseHoldPastLimit, kept: bool) {
             return;
         }
     }
+}
+
+/// The scene of `a_target_past_round_sight_inside_the_chase_limit_is_kept` under targeting.CHASE_HOLD_BACKWARDS = `arm`: of the
+/// 5 ticks the red Knight stands past the blue one's round sight (inside the chase limit), those on which it is still held.
+fn held_past_round_sight(arm: ChaseHoldBackwards) -> usize {
+    let mut cfg = config_pre_flip();
+    cfg.calib.chase_hold_backwards = arm;
+    let deck: Vec<String> = ["Knight", "Archers", "Giant", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    let (me, near, far) = ((5000, 10000), (7100, 12100), (9800, 14800));
+    let blue = s.scenario_spawn_now(Team::Blue, "Knight", at(me.0, me.1), None).expect("the blue Knight");
+    let red = s.scenario_spawn_now(Team::Red, "Knight", at(near.0, near.1), None).expect("the red Knight");
+    let took = (0..60).any(|_| {
+        assert!(s.debug_set_pos(blue, at(me.0, me.1)));
+        assert!(s.debug_set_pos(red, at(near.0, near.1)));
+        s.tick();
+        s.entity(blue).expect("the blue Knight").target == Some(red)
+    });
+    assert!(took, "the scene drifted: the blue Knight never took the red Knight");
+    (0..5)
+        .filter(|_| {
+            assert!(s.debug_set_pos(blue, at(me.0, me.1)));
+            assert!(s.debug_set_pos(red, at(far.0, far.1)));
+            s.tick();
+            s.entity(blue).expect("the blue Knight").target == Some(red)
+        })
+        .count()
+}
+
+/// targeting.CHASE_HOLD_BACKWARDS = client16402_backwards_path (client 16.402, parity r86, live14: 110 of 122 unflagged melee holds
+/// past round sight let go, 223 of 230 flagged kept; the client's search keeps such a target only while the holder's path to it
+/// goes backwards): the straight chase of the scene above never goes backwards, so the new arms let the red Knight go on the first
+/// tick past round sight, where chase_limit keeps it all 5. Plant: chase_hold_backwards_unread.
+#[test]
+fn under_client16402_backwards_path_a_straight_chase_lets_a_target_past_round_sight_go() {
+    assert_eq!(held_past_round_sight(ChaseHoldBackwards::Client16402BackwardsPath), 0, "client16402_backwards_path: held on a straight path");
+    assert_eq!(held_past_round_sight(ChaseHoldBackwards::Client16402BackwardsPathStored), 0, "client16402_backwards_path_stored: held on a straight path");
+    // NOT VACUOUS: chase_limit holds it inside the |dy| limit
+    assert_eq!(held_past_round_sight(ChaseHoldBackwards::ChaseLimit), 5, "chase_limit: let go inside the limit");
 }

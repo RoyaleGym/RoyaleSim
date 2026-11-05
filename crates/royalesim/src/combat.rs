@@ -2433,7 +2433,11 @@ pub fn step_projectiles(
         }
         // combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end: a shot that was flying at its target when the target's
         // dash began waits on it while it is dash-immune (its first tick out of the immunity is its landing).
-        if p.held && alive && ents.dash_immune(p.target.index as usize, tick) {
+        if p.held
+            && calib.dash_immune_hits == crate::state::DashImmuneHits::Client16402HeldToImmunityEnd
+            && alive
+            && ents.dash_immune(p.target.index as usize, tick)
+        {
             return true;
         }
         // THE RUNE GIANT'S PROJECTILE deals no damage either. Its landing on a live friend is handed to Resolve
@@ -2537,7 +2541,16 @@ pub fn step_projectiles(
             }
         } else if alive {
             let ti = p.target.index as usize;
-            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: shot_passes_hide(calib), own: false, shot: true });
+            // combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_dash_start: only a shot marked at its target's
+            // dash start (`held`) is a last-tick shot. Measured on client 16.635 (parity r86, live15n 20261103-192522-A): a tower
+            // arrow launched into a guard's charge and arriving on its immunity's last tick took nothing; every 16.402 landing
+            // there (parity r73/r74) was a shot fired before the dash.
+            // PLANT (regression) last_immune_launch_ignored: the new arm still lands a shot launched during the dash.
+            #[cfg(not(clash_plant = "last_immune_launch_ignored"))]
+            let shot = p.held || calib.dash_immune_hits != crate::state::DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart;
+            #[cfg(clash_plant = "last_immune_launch_ignored")]
+            let shot = true;
+            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: shot_passes_hide(calib), own: false, shot });
             if let Some(f) = p.firer.filter(|_| ice_firer(cards, p.firer_card)) {
                 dmg.firers.push((f, p.target));
             }
@@ -2997,7 +3010,13 @@ pub fn resolve(
         // engine's 0; melee there and every earlier hit dropped on both.
         // PLANT (regression) last_immune_shot_dropped: the new arm still drops it.
         #[cfg(not(clash_plant = "last_immune_shot_dropped"))]
-        let last_lands = h.shot && calib.dash_immune_hits == crate::state::DashImmuneHits::Client16402ProjectileLandsOnLastImmuneTick && !ents.dash_immune(h.target.index as usize, tick + 1);
+        let last_lands = h.shot
+            && matches!(
+                calib.dash_immune_hits,
+                crate::state::DashImmuneHits::Client16402ProjectileLandsOnLastImmuneTick
+                    | crate::state::DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart
+            )
+            && !ents.dash_immune(h.target.index as usize, tick + 1);
         #[cfg(clash_plant = "last_immune_shot_dropped")]
         let last_lands = false;
         #[cfg(not(clash_plant = "dash_not_immune"))]

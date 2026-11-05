@@ -596,6 +596,54 @@ fn under_client16402_projectile_lands_on_last_immune_tick_an_arrow_on_its_last_t
     assert!(parted > 0, "vacuous: no start put a tower arrow on her immunity's last tick");
 }
 
+/// Under combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_dash_start, the Bandit put down at `me` beside the
+/// red tower, run up to row `row`'s tick: the `held` mark (in flight at her dash's start) of the shots then flying at her, one
+/// of which lands on that row; None when none flies or their marks differ.
+fn flying_held_before(me: (i32, i32), row: u32) -> Option<bool> {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_immune_hits = DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart;
+    let mut s = BattleState::new(0, cfg);
+    let a = s.scenario_spawn_now(Team::Blue, "Assassin", at(me), None).expect("spawn");
+    for _ in 0..row {
+        s.tick();
+    }
+    let marks: Vec<bool> = s.projectiles().iter().filter(|p| p.target == a).map(|p| p.held).collect();
+    marks.first().copied().filter(|m| marks.iter().all(|x| x == m))
+}
+
+/// combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_dash_start (parity r86: live15n 20261103-192522-A, a
+/// tower arrow launched into a guard's charge and arriving on its immunity's last tick took nothing; every 16.402 landing there
+/// was a shot fired before the dash): over the r82 test's starts, wherever client16402_projectile_lands_on_last_immune_tick
+/// lands an arrow on her immunity's last tick (the arrival + 1), the new arm lands it only when that arrow was in flight at her
+/// dash's start (marked `held`), and drops it (as discarded does) when it was launched during the dash (an earlier arrow that was
+/// flying at the start may have fallen inside the immunity). Plant: last_immune_launch_ignored.
+#[test]
+fn under_client16402_last_tick_lands_if_flying_at_dash_start_an_arrow_launched_in_the_dash_is_dropped_on_its_last_tick() {
+    let (mut kept, mut dropped) = (0, 0);
+    for y in (16500..=19000).step_by(50) {
+        let (_, _, _, old) = scene_at_tower_with((3500, y), 60, DashImmuneHits::Discarded);
+        let (_, _, _, last) = scene_at_tower_with((3500, y), 60, DashImmuneHits::Client16402ProjectileLandsOnLastImmuneTick);
+        let (_, _, _, new) = scene_at_tower_with((3500, y), 60, DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart);
+        let d = trigger(&old, 7000);
+        let arrival = dash_rows(&old, d + BANDIT_STAND as usize).last().unwrap().t;
+        let Some((a, b)) = old.iter().zip(last.iter()).find(|(a, b)| a.own_loss != b.own_loss) else { continue };
+        assert_eq!(a.t, arrival + 1, "start y {y}: the r82 arms parted on {}, not on her immunity's last tick", a.t);
+        let n = new.iter().find(|r| r.t == a.t).map(|r| r.own_loss).expect("the new arm's row");
+        match flying_held_before((3500, y), a.t) {
+            Some(true) => {
+                assert_eq!(n, b.own_loss, "start y {y}: the arrow flying at her dash's start did not land on {} (old {}, r82 {})", a.t, a.own_loss, b.own_loss);
+                kept += 1;
+            }
+            Some(false) => {
+                assert_eq!(n, a.own_loss, "start y {y}: the arrow launched in her dash landed on her immunity's last tick {} (r82 {})", a.t, b.own_loss);
+                dropped += 1;
+            }
+            None => {}
+        }
+    }
+    assert!(dropped > 0, "vacuous: no start put an arrow launched in the dash on her immunity's last tick (kept {kept})");
+}
+
 /// The Mega Knight scene under combat.DASH_STAND_CONTACT = `contact` and combat.DASH_STAND_RETARGET = `retarget`, run to the
 /// tick he comes within MK_TRIGGER of the Giant (his stand's start, d), then `then(battle, mega knight, giant)` before each of
 /// the next 30 ticks: (his greatest distance from his point on d over d + 1 .. d + 15, native; the first tick after d he moves
