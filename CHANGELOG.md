@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.47 (2026-11-05)
+
+- 2 more settings default to the current client's behaviour, each measured against its recorded battles:
+  - The Evo Mega Knight no longer starts a jump while he is still standing after an uppercut. If a target is in
+    reach when the stand ends, he jumps then (`combat.UPPERCUT_STAND_DASH`).
+  - The Goblin Machine fires its rocket. It marks where the closest enemy 2.5 to 5 tiles away stands and, a second
+    later, fires a rocket that damages every enemy near that spot, once every 5 seconds while targets are in reach.
+    The setting is new (`combat.GOBLIN_MACHINE_ROCKET`); its old value leaves the rocket out.
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles.
+
 ## 0.1.46 (2026-11-04)
 
 - 4 more settings default to the current client's behaviour, each measured against its recorded battles:
@@ -17,6 +28,9 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
     fresh throw (`knockback.PINGPONG_WAIT_RESET`).
 - Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
   `replay_parity` use the old values for the older client's battles.
+- New settings `combat.HOOK_DRAG_ROUNDING` (how the Fisherman's drag step is rounded) and
+  `combat.UPPERCUT_STAND_VICTIM` (when the Evo Mega Knight may attack a unit he has just thrown). The defaults are
+  unchanged, and `client_arms("15.535.29")` lists both.
 
 ## 0.1.45 (2026-11-04)
 
@@ -38,7 +52,8 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
     `spell_in_flight_kind(card_id, form)` first: only `"flies"` can be put in flight.
 - `state_json` gains columns, each after the existing ones: a player's `king_wake_ms`, and a spell row's `level` and
   `form` (0 the card, 1 its evolution, 2 its hero form, 3 an evolution's decoy).
-- A battle saved by another release, or against another card table, is refused with a message that says so.
+- A battle saved against different card data (a release that changed the cards, or another card table) is refused
+  with a message that says so.
 - 7 more settings default to the current client's behaviour, each measured against its recorded battles:
   - A hero's attack keeps loading while it uses its ability (the Skeleton King, Archer Queen, Monk, Boss Bandit,
     Mighty Miner and the hero forms), unless it is stunned (`combat.PRESS_LOAD_TIMER`).
