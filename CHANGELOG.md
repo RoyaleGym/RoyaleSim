@@ -3,6 +3,21 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.46 (2026-11-04)
+
+- 4 more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A unit being healed (an Evo Bat after each of its hits, a Battle Healer, a unit in a Heal Spirit's area) is not
+    written off as doomed until the homing shots in flight at it add up to its full hitpoints
+    (`targeting.DOOMED_HEAL_BUFF`).
+  - The Evo Skeleton Army's General stays inside the arena when the army is played on the back row
+    (`formation.ARMY_GENERAL_CLAMP`).
+  - The Little Prince's guard's charge passes over a troop leaping the river. The troop takes the hit, and the push,
+    on its first tick out of the leap if the charge still reaches it (`combat.GUARD_CHARGE_LEAP`).
+  - An Executioner knocked back while his axe is out keeps his attack and waits for the axe, instead of starting a
+    fresh throw (`knockback.PINGPONG_WAIT_RESET`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` use the old values for the older client's battles.
+
 ## 0.1.45 (2026-11-04)
 
 - Upgrade royalegym to 0.1.27 with this release. Its state reader carries the new columns below; an older royalegym
