@@ -13,6 +13,8 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
     The setting is new (`combat.GOBLIN_MACHINE_ROCKET`); its old value leaves the rocket out.
 - Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
   `replay_parity` use the old values for the older client's battles.
+- New setting `targeting.CHASE_HOLD_BACKWARDS`: how long a troop keeps chasing a target that has left its sight when
+  nothing else is in sight. The default is unchanged, and `client_arms("15.535.29")` lists it.
 
 ## 0.1.46 (2026-11-04)
 
