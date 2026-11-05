@@ -3366,6 +3366,15 @@ def test_one_exact_victim_wins_a_payment_whose_press_shows_nothing(m, doc16402):
     ticks, ents, rows, deploys = _exact_victim_inputs(m, doc16402, hp=(200, 0))
     assert m.cost_only_casts(hdr, deploys, doc16402, cards, names, ents, rows, ticks, []) == []
     assert len(m.cost_only_casts(_zap_header(0, 745), deploys, doc16402, cards, names, ents, rows, ticks, [])) == 1
+    # its cast state after the side's next payment of 2 (t747) is that payment's press, not this one's
+    ticks, ents, rows, deploys = _exact_victim_inputs(m, doc16402)
+    for i, r in enumerate(rows):
+        r[12] = _zap_row(m, 9000, 20000, 1000, m.CAST_STATE if i >= ticks.index(748) else 1)
+    assert m.press_unseen(ents, rows, ticks, ticks.index(745), 0, 2, doc16402, cards, next_payment=747)
+    two = {**hdr, "opponent_plays": hdr["opponent_plays"] + [
+        {"tick": 747, "side": 0, "card": "SkeletonKing", "cost": 2, "evidence": "ability"}]}
+    assert [(d["tick"], d["card"]) for d in m.cost_only_casts(two, deploys, doc16402, cards, names, ents, rows, ticks,
+                                                              [])] == [(745, "Zap")]
     # the Hero Ice Golem's press holds no cast, so it may show nothing
     ticks, ents, rows, deploys = _exact_victim_inputs(m, doc16402, hero="IceGolemite", hero_id=203000038)
     hdr_i = _zap_header(0, 745, "ability", "IceGolemite", ("Zap", "IceGolemite"))
@@ -3441,6 +3450,62 @@ def test_a_unit_that_took_the_zap_and_another_hit_is_aimed_at_but_reads_no_level
     lp = m.area_body(doc16402, ents[23])
     assert m.cast_tile([((13731, 13996), lp)], [], 2500)[0] == [13500, 13500]
     assert not m.area_reaches((13500, 13500), (13743, 17156), guard, 2500)
+    # a dashing guard (a state no area reaches) took no part of the area: the cast stays on the kill's tile
+    for i, r in enumerate(rows):
+        if 41 in r:
+            r[41] = _zap_row(m, 13743, 17156, 614 if i < ticks.index(1633) else 135, state=3)
+    got = m.cost_only_casts(_zap_header(1, 1633), deploys, doc16402, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["pos"], d["aim"]) for d in got] == [
+        ([13500, 13500], "the tile centre reaching 1 of the 1 units its damage hit and 0 of the 0 it spared")], got
+
+
+def test_a_summed_unit_no_tile_reaches_pulls_nothing(m, doc16402):
+    """A HIT SUMMED WITH ANOTHER: a unit no tile reaching the victims reaches took no part of the area, so it does not
+    draw the centroid. Live 20261009-194300 t1748: a level-14 Zap kills a Skeleton at (15016, 11807) and a Cannon 6.9
+    tiles off loses 273 to something else on that frame; counted in the centroid it drew the cast from (15500, 11500)
+    to (12500, 10500), 2.8 tiles off its victim (the reach is 3)."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    skel, cannon = ((15016, 11807), (False, 500)), ((8500, 9500), (True, 600))
+    assert m.cast_tile([skel], [], 2500) == ([15500, 11500], 1, 0, 0)
+    assert m.cast_tile([skel], [], 2500, [cannon]) == ([15500, 11500], 1, 0, 0)
+    assert m.cast_tile([skel], [], 2500, [((15000, 30000), (False, 500))]) == ([15500, 11500], 1, 0, 0)
+    # through cost_only_casts: the Skeleton dies, the far Cannon loses 273
+    ticks = [1745, 1746, 1747, 1748, 1749]
+    ents = {
+        7: {"key": 7, "side": 0, "card_id": 26000010, "card": "Skeletons", "unit": "Skeleton", "role": "summon"},
+        9: {"key": 9, "side": 0, "card_id": 27000000, "card": "Cannon", "unit": "Cannon", "role": "summon",
+            "max_hp": 1316},
+    }
+    rows = _zap_bats_die(m, ents, ticks, ticks.index(1748), {7: (15016, 11807, 81)}, {9: (8500, 9500, 772, 499)})
+    deploys = [{"tick": 100, "first_seen": 100, "side": 1, "level": 14}]
+    got = m.cost_only_casts(_zap_header(1, 1748), deploys, doc16402, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["tick"], d["pos"], d["aim"]) for d in got] == [
+        (1748, [15500, 11500], "the tile centre reaching 1 of the 1 units its damage hit and 0 of the 0 it spared,"
+         " and 0 of the 1 that took it with another hit")], got
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# A CAST FIRST SEEN AFTER A FRAME GAP
+
+
+def test_a_row_first_seen_after_a_frame_gap_explains_the_payment_before_it(m, doc16402):
+    """A CAST FIRST SEEN AFTER A FRAME GAP (module doc, A COST-ONLY SPELL): an Evo Zap's objects first seen on 3143,
+    frame 3142 missed, and the payment logged on 3141 (live 20261103-211240): the effect row explains it, so no
+    second, cost-only Zap is read off it. A row of another card does not, nor a Zap row two frames on with no frame
+    missed between."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    names = {"Zap": 28000008}
+    ticks = [3139, 3140, 3141, 3143, 3144]
+    ents = {8: _zap_bat(8, 0), 9: _zap_bat(9, 0)}
+    rows = _zap_bats_die(m, ents, ticks, ticks.index(3143), {8: (5500, 10000, 100), 9: (5800, 10600, 100)})
+    evo = {"tick": 3143, "first_seen": 3143, "side": 1, "card": "Zap", "card_id": 13000085, "level": 16}
+    hdr = _zap_header(1, 3141)
+    assert m.cost_only_casts(hdr, [evo], doc16402, cards, names, ents, rows, ticks, []) == []
+    other = {**evo, "card": "Knight", "card_id": 26000000}
+    assert [d["tick"] for d in m.cost_only_casts(hdr, [other], doc16402, cards, names, ents, rows, ticks, [])] == [3143]
+    ticks = [3139, 3140, 3141, 3142, 3143, 3144]
+    rows = _zap_bats_die(m, ents, ticks, ticks.index(3143), {8: (5500, 10000, 100), 9: (5800, 10600, 100)})
+    assert [d["tick"] for d in m.cost_only_casts(hdr, [evo], doc16402, cards, names, ents, rows, ticks, [])] == [3143]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -3548,6 +3613,28 @@ def test_an_evo_zap_is_published_as_one_evolved_cast_on_its_areas_point(m, maker
     assert [(d["tick"], d["card_id"], d.get("form"), d.get("form_row"), d["cast_objects"]) for d in balls] == [
         (2, 28000017, "ev1", "Snowball_EV1", 1)], balls
     assert balls[0]["form_evidence"] == "its evolved area object (id 13000094, 1 object) from 5"
+    # an Evo Goblin Barrel: its two mirrored barrels say the evolution and its aim (AN EVOLVED MIRROR CAST), and the
+    # area on its real barrel's target is that cast's, which adds nothing
+    header, frames = _battle()
+    for f in frames:
+        t = f["tick"]
+        f["effects"] = [e for e in f["effects"] if e["card_id"] != ARROWS]
+        if 2 <= t <= 5:
+            k = t - 2
+            f["effects"] += [_obj(1, 28000004, oid, (9000 + (tx - 9000) * (k + 1) // 4, 28400 - 600 * k),
+                                  (9000 + (tx - 9000) * k // 4, 29000 - 600 * k), (tx, 26000))
+                             for oid, tx in (("r", 13500), ("d", 4500))]
+        if t >= 5:
+            f["effects"].append(_area(1, 13000081, "ga", (13500, 26000)))
+        f["elixir_raw"] = [f["elixir_raw"][0], 70000 + 178 * t - (30000 if t >= 2 else 0)]
+    path = tmp_path / "evobarrel" / "frames-synthetic.native.oracle.jsonl.gz"
+    _write_capture(path, header, frames)
+    fx = _build(m, maker_inputs, path)
+    barrels = [d for d in fx["deploys"] if d["card"] == "GoblinBarrel"]
+    assert [(d["tick"], d["card_id"], d.get("form"), d.get("form_row"), d["pos"]) for d in barrels] == [
+        (2, 28000004, "ev1", "GoblinBarrel_EV1", [13500, 26000])], barrels
+    assert barrels[0]["aim"].startswith("an evolved mirror cast"), barrels
+    assert "form_evidence" not in barrels[0], barrels
 
 
 # ---------------------------------------------------------------------------------------------------------------------

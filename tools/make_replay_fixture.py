@@ -540,6 +540,10 @@ A COST-ONLY SPELL
     explained): the engine lands an instant area on its row's tick (r73's traces: 33 of 33),
     and 8 of ob12's 219 hits come one to five ticks after the drop (20261011-213425: drop 371,
     frame 372 missing, hit 373).
+    A CAST FIRST SEEN AFTER A FRAME GAP: a row of the same card first seen after missed frames
+    explains a payment on the frame before them, as one within a tick does (20261103-211240
+    t3141: an Evo Zap's objects first seen on 3143, 3142 missed, and the payment, logged on
+    3141, was read as a second, cost-only Zap).
     THE CAST'S TILE (`cast_tile`): every spell's point is a tile centre (placement.TAP_SNAP),
     so the cast goes on the tile centre whose area reaches the most victims, then the fewest
     of the units it SPARED (an enemy it could have reached that lost less than its damage
@@ -556,12 +560,19 @@ A COST-ONLY SPELL
     A BUILDING'S DECAY ON THE HIT FRAME (`decay_slack`): a building victim may also lose its
     own lifetime decay over the frame, its max hp over its lifetime's ticks rounded up, beyond
     SPELL_HIT_SLACK (20261017-015724 t2092: our level-16 Cannon took 309, the Zap's 306 and 3
-    of decay, and the cast was left unresolved for want of a victim).
+    of decay, and the cast was left unresolved for want of a victim). It can also put the hit
+    on an earlier frame: 20261017-022842's Zap hit on its drop's frame 3246 (our Evo Cannon
+    -309, a princess tower the crown hit 77), which was read on 3249, where the Cannon's decay
+    death passed for a kill.
     A HIT SUMMED WITH ANOTHER: a unit that lost more than the damage and its slack on the hit
     frame took the area and another hit together. It votes for no level, but the tile should
     reach it: after the fewest spared, the tile reaching the most of them, and the centroid
-    counts them (20261008-021040 t1633: the Little Prince's guard lost 479, the Zap's 306 and
-    a 173 hit, and the tile aimed at the killed Prince alone missed it by 3.66 tiles).
+    counts the ones those tiles reach (20261008-021040 t1633: the Little Prince's guard lost
+    479, the Zap's 306 and a 173 hit, and the tile aimed at the killed Prince alone missed it
+    by 3.66 tiles). One no such tile reaches took no part of the area, nor does one in a state
+    no area reaches (UNREACHABLE_STATES): counted, a unit 6 to 8 tiles off drew the cast 1.6 to
+    2.8 tiles off its victims (live ob14: 20261002-060350 t2504, 20261009-194300 t1748,
+    20261011-234940 t3172).
     A PRESS THE SPELL'S DAMAGE OVERRULES: the live reader logs a payment "ability" whenever a
     hero or a champion whose ability costs as much is up, so a Zap paid beside a Hero Ice
     Golem was its press (20261008-064926 t745: three Bats die and a princess tower takes 77
@@ -577,10 +588,10 @@ A COST-ONLY SPELL
     A PRESS THAT SHOWS NOTHING OF ITSELF (`press_unseen`): one victim is enough when it took
     the damage exactly (a kill fits many levels) and no press the payment could be shows,
     each hero or champion of that cost holding a cast (one without could press unseen) and
-    none entering CAST_STATE or putting its ability's unit down within PRESS_ONSET_TICKS, as
-    `ability_presses` reads a press (20261012-030450 t838: a 2-elixir payment logged as a
-    Skeleton King press, our Little Prince -306 and no Soul Summoning skeletons; neither row
-    was written).
+    none entering CAST_STATE or putting its ability's unit down within PRESS_ONSET_TICKS and
+    before the side's next payment of that cost, as `ability_presses` reads a press
+    (20261012-030450 t838: a 2-elixir payment logged as a Skeleton King press, our Little
+    Prince -306 and no Soul Summoning skeletons; neither row was written).
 
 AN AREA SHOWN AFTER ITS DROP
     Live's measurement over 580 area plays (2026-10-09): 532 areas appear on their elixir
@@ -3124,13 +3135,10 @@ def area_reaches(point: tuple[int, int], at: tuple[int, int], body: tuple[bool, 
 def cast_tile(hits: list, spared: list, radius: int, summed: list = ()) -> tuple[list[int], int, int, int]:
     """THE CAST'S TILE (module doc, A COST-ONLY SPELL): the tile centre whose area reaches the most of `hits`, then the
     fewest of `spared`, then the most of `summed` (A HIT SUMMED WITH ANOTHER), then the one nearest the centroid of the
-    hits and the summed (a crown tower's centre counts only when nothing else was hit), then the lowest (x, y).
-    `hits`, `spared` and `summed` are [(position, area_body)]. Returns (point, hits reached, spared reached, summed
-    reached)."""
-    took = list(hits) + list(summed)
-    own = [p for p, b in took if b != (True, CROWN_SQUARE_HALF_NATIVE)] or [p for p, _ in took]
-    cx, cy = sum(p[0] for p in own) / len(own), sum(p[1] for p in own) / len(own)
-    best = None
+    hits and of the summed units those best tiles reach (a crown tower's centre counts only when nothing else was hit;
+    a summed unit no best tile reaches took no part of the area and pulls nothing), then the lowest (x, y). `hits`,
+    `spared` and `summed` are [(position, area_body)]. Returns (point, hits reached, spared reached, summed reached)."""
+    cands = []
     for x in range(TILE_NATIVE // 2, ARENA_W_NATIVE, TILE_NATIVE):
         for y in range(TILE_NATIVE // 2, ARENA_H_NATIVE, TILE_NATIVE):
             h = sum(area_reaches((x, y), p, b, radius) for p, b in hits)
@@ -3138,15 +3146,19 @@ def cast_tile(hits: list, spared: list, radius: int, summed: list = ()) -> tuple
                 continue
             s = sum(area_reaches((x, y), p, b, radius) for p, b in spared)
             a = sum(area_reaches((x, y), p, b, radius) for p, b in summed)
-            key = (-h, s, -a, (x - cx) ** 2 + (y - cy) ** 2, x, y)
-            if best is None or key < best:
-                best = key
-    if best is None:
+            cands.append(((-h, s, -a), x, y))
+    top = min((c[0] for c in cands), default=None)
+    tiles = [(x, y) for k, x, y in cands if k == top]
+    took = list(hits) + [(p, b) for p, b in summed if any(area_reaches(t, p, b, radius) for t in tiles)]
+    own = [p for p, b in took if b != (True, CROWN_SQUARE_HALF_NATIVE)] or [p for p, _ in took]
+    cx, cy = sum(p[0] for p in own) / len(own), sum(p[1] for p in own) / len(own)
+    if not tiles:
         # no tile reaches a victim (an area of no radius): the centroid's own tile
         tile = [int(cx) // TILE_NATIVE * TILE_NATIVE + TILE_NATIVE // 2, int(cy) // TILE_NATIVE * TILE_NATIVE
                 + TILE_NATIVE // 2]
         return tile, 0, 0, 0
-    return [best[4], best[5]], -best[0], best[1], -best[2]
+    best = min(((x - cx) ** 2 + (y - cy) ** 2, x, y) for x, y in tiles)
+    return [best[1], best[2]], -top[0], top[1], -top[2]
 
 
 def held_press_at(
@@ -3173,16 +3185,20 @@ def held_press_at(
 
 
 def press_unseen(
-    ents: dict, per_tick_rows: list, ticks: list[int], i0: int, side: int, cost: int, doc: dict, cards_by_name: dict
+    ents: dict, per_tick_rows: list, ticks: list[int], i0: int, side: int, cost: int, doc: dict, cards_by_name: dict,
+    next_payment: int | None = None,
 ) -> bool:
     """A PRESS THAT SHOWS NOTHING OF ITSELF (module doc, A PRESS THE SPELL'S DAMAGE OVERRULES): whether no press of
     `cost` by `side` on drop frame `i0` is what the capture shows. Every hero or champion of that side alive on the
     frame before the drop whose ability costs `cost` holds a cast (`cast_ms` > 0; one without could press unseen), and
     none shows a press as `ability_presses` reads one: its unit entering CAST_STATE from one frame before the drop to
-    PRESS_ONSET_TICKS after it, or its ability's own unit first seen within PRESS_ONSET_TICKS."""
+    PRESS_ONSET_TICKS after it, or its ability's own unit first seen within PRESS_ONSET_TICKS, either before the
+    side's next payment of that cost (`next_payment`, its tick), which a later press is read off."""
     hero_rows = {r["form_of"]: r for r in doc.get("hero_forms") or [] if r.get("form_of")}
     ist = TRUTH_COLUMNS.index("state")
     until = ticks[i0] + PRESS_ONSET_TICKS
+    if next_payment is not None:
+        until = min(until, next_payment - 1)
     for e in ents.values():
         card = cards_by_name.get(e.get("card") or "")
         if e["side"] != side or card is None or e.get("role") not in ("summon", "spawned"):
@@ -3252,6 +3268,14 @@ def cost_only_casts(
         if len(fits) != 1:
             continue
         name = fits[0]
+        # A CAST FIRST SEEN AFTER A FRAME GAP: a row of this card first seen after missed frames explains a payment on
+        # the frame before them
+        if any(
+            d["side"] == side and d["card"] == name and (j := index_of.get(d["first_seen"])) and ticks[j - 1] <= tick
+            for d in deploys + out
+            if d.get("first_seen") is not None and d["first_seen"] > tick
+        ):
+            continue
         card = cards_by_name[name]
         i0 = index_of.get(tick)
         if i0 is None or i0 == 0:
@@ -3321,7 +3345,10 @@ def cost_only_casts(
         # proves the spell where no press the payment could be shows
         alone = (
             contested and len(victims) < CONTESTED_MIN_VICTIMS and any(not h[2] for h in victims)
-            and press_unseen(ents, per_tick_rows, ticks, i0, side, cost, doc, cards_by_name)
+            and press_unseen(ents, per_tick_rows, ticks, i0, side, cost, doc, cards_by_name, min(
+                (q["tick"] for q in plays if q.get("side") == side and q.get("cost") == cost and q["tick"] > tick),
+                default=None,
+            ))
         )
         if contested and (
             mode is None or abs(level - mode) > CONTESTED_LEVEL_SLACK
@@ -3338,11 +3365,12 @@ def cost_only_casts(
             and not ((doc.get("units") or {}).get(h[3].get("unit") or "") or {}).get("shield_hitpoints")
         ]
         # A HIT SUMMED WITH ANOTHER: a unit that lost more than the damage and its slack took the area and another hit
-        # on that frame; it reads no level, and the tile should reach it
+        # on that frame; it reads no level, and the tile should reach it (not one in a state no area reaches)
         summed = [
             h for h in hit
             if h[3]["card_id"] >= 0 and h[1] > dmg + h[5]
             and h[3].get("role") not in ("display", "unknown", "unknown_object")
+            and not (h[4] is not None and h[4][ist] in UNREACHABLE_STATES)
         ]
         radius = (card.get("spell") or {}).get("radius_milli") or card.get("area_damage_radius_milli") or 0
         pos, reached, overreached, summed_reached = cast_tile(
