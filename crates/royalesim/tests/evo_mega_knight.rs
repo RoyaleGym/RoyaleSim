@@ -919,6 +919,12 @@ fn under_client16402_trigger_held_by_the_stand_he_jumps_on_his_stands_end_plus_1
     assert_eq!(jump(&held), Some(l100 + 17), "client16402_held_by_the_stand: his jump (the stand ended at {l100}): {held:?}");
 }
 
+/// Since parity r86 (runs before it; client 15.535.29 keeps runs).
+#[test]
+fn the_shipped_uppercut_stand_dash_is_client16402_trigger_held_by_the_stand() {
+    assert_eq!(royalesim::state::Calib::shipped().uppercut_stand_dash, UppercutStandDash::Client16402TriggerHeldByTheStand);
+}
+
 /// targeting.UPPERCUT_FLIGHT_TARGETABILITY = client16402_from_hit_plus_2 (client 16.402, parity r84, live14: ground holders dropped
 /// the thrown unit on the hit + 2 in 70 of 70; the thrower on + 3, 95 of 97): a Blue Knight held 2500 beside the red Knight until
 /// the hit (out of its reach, walking at it). Plant: uppercut_flight_drop_late.

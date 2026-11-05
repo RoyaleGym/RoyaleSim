@@ -80,3 +80,9 @@ fn under_client16402_indicator_attack_the_machine_rockets_the_golem_every_100_ti
     let old = golem_rockets(GoblinMachineRocket::Unbuilt);
     assert!(old.is_empty(), "unbuilt: a rocket's 304 on the Golem: {old:?}");
 }
+
+/// Since parity r86 (unbuilt before it; client 15.535.29 keeps unbuilt).
+#[test]
+fn the_shipped_goblin_machine_rocket_is_client16402_indicator_attack() {
+    assert_eq!(royalesim::state::Calib::shipped().goblin_machine_rocket, GoblinMachineRocket::Client16402IndicatorAttack);
+}
