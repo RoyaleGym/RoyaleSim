@@ -3318,6 +3318,239 @@ def test_an_ability_payment_needs_the_spells_proof(m, doc16402):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# A PRESS THAT SHOWS NOTHING OF ITSELF
+
+
+def _exact_victim_inputs(m, doc16402, hero="SkeletonKing", hero_id=26000069, hp=(1116, 810)):
+    """_zap_press_inputs with no Bats and no tower hit: a side-1 Little Prince at (14000, 22000) goes from hp[0] to
+    hp[1] (0: gone) on the drop's frame t745 (live 20261012-030450 t838: -306, the level-16 Zap's damage exactly)."""
+    ticks, ents, rows, _, deploys = _zap_press_inputs(m, doc16402, hero, hero_id, victims={}, tower_after=3000)
+    hit = ticks.index(745)
+    ents[40] = {"key": 40, "side": 1, "card_id": 26000093, "card": "LittlePrince", "unit": "LittlePrince",
+                "role": "summon"}
+    for i, r in enumerate(rows):
+        if i < hit or hp[1] > 0:
+            r[40] = _zap_row(m, 14000, 22000, hp[0] if i < hit else hp[1])
+    return ticks, ents, rows, deploys
+
+
+def test_one_exact_victim_wins_a_payment_whose_press_shows_nothing(m, doc16402):
+    """A PRESS THAT SHOWS NOTHING OF ITSELF (module doc, A PRESS THE SPELL'S DAMAGE OVERRULES): the live reader logged
+    a 2-elixir payment as a Skeleton King press (its Soul Summoning costs 2 and holds a 933 ms cast), and the one
+    victim, a Little Prince, lost the level-16 Zap's 306 exactly (live 20261012-030450 t838). CONTESTED_MIN_VICTIMS
+    left it to the press, which `ability_presses` did not write either: the King never entered CAST_STATE and put no
+    skeleton down. With no press showing, the one exact victim makes it the Zap. A press that shows (its cast state
+    after the drop's frame and its neighbours, or its skeletons), a kill instead of the exact loss, or a hero whose
+    press holds no cast (the Hero Ice Golem's) keeps the press."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    names = {"Zap": 28000008}
+    assert (cards["SkeletonKing"]["ability"]["mana_cost"], cards["SkeletonKing"]["ability"]["cast_ms"]) == (2, 933)
+    hdr = _zap_header(0, 745, "ability", "SkeletonKing", ("Zap", "SkeletonKing"))
+    ticks, ents, rows, deploys = _exact_victim_inputs(m, doc16402)
+    assert m.press_unseen(ents, rows, ticks, ticks.index(745), 0, 2, doc16402, cards)
+    got = m.cost_only_casts(hdr, deploys, doc16402, cards, names, ents, rows, ticks, [])
+    assert [(d["tick"], d["card"], d["level"]) for d in got] == [(745, "Zap", 16)], got
+    assert "logged as a SkeletonKing press, which shows nothing of itself" in got[0]["tick_evidence"]
+    # its cast state three frames after the drop, past held_press_at's frames but inside PRESS_ONSET_TICKS
+    ticks, ents, rows, deploys = _exact_victim_inputs(m, doc16402)
+    for i, r in enumerate(rows):
+        r[12] = _zap_row(m, 9000, 20000, 1000, m.CAST_STATE if i >= ticks.index(748) else 1)
+    assert not m.held_press_at(ents, rows, ticks.index(745), 0, 2, doc16402, cards)
+    assert m.cost_only_casts(hdr, deploys, doc16402, cards, names, ents, rows, ticks, []) == []
+    # its skeletons, first seen two ticks after the drop
+    ticks, ents, rows, deploys = _exact_victim_inputs(m, doc16402)
+    ents[50] = {"key": 50, "side": 0, "card_id": 26000069, "card": "SkeletonKing", "unit": "SkeletonKingSkeleton",
+                "role": "spawned", "first_index": ticks.index(747), "last_index": len(ticks) - 1}
+    assert m.cost_only_casts(hdr, deploys, doc16402, cards, names, ents, rows, ticks, []) == []
+    # a kill fits many levels: the Prince at 200 dies to any Zap of 198 or more
+    ticks, ents, rows, deploys = _exact_victim_inputs(m, doc16402, hp=(200, 0))
+    assert m.cost_only_casts(hdr, deploys, doc16402, cards, names, ents, rows, ticks, []) == []
+    assert len(m.cost_only_casts(_zap_header(0, 745), deploys, doc16402, cards, names, ents, rows, ticks, [])) == 1
+    # the Hero Ice Golem's press holds no cast, so it may show nothing
+    ticks, ents, rows, deploys = _exact_victim_inputs(m, doc16402, hero="IceGolemite", hero_id=203000038)
+    hdr_i = _zap_header(0, 745, "ability", "IceGolemite", ("Zap", "IceGolemite"))
+    assert not m.press_unseen(ents, rows, ticks, ticks.index(745), 0, 2, doc16402, cards)
+    assert m.cost_only_casts(hdr_i, deploys, doc16402, cards, names, ents, rows, ticks, []) == []
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# A BUILDING'S DECAY ON THE HIT FRAME
+
+
+def test_a_buildings_decay_on_the_hit_frame_is_part_of_what_it_took(m, doc16402):
+    """A BUILDING'S DECAY ON THE HIT FRAME (module doc, A COST-ONLY SPELL): on the Zap's frame our level-16 Cannon
+    (1316 hp over its 30 s lifetime, 2 or 3 a tick) took 309, the level-16 306 and 3 of decay, and a princess tower
+    the Zap's 77 (live 20261017-015724 t2092). SPELL_HIT_SLACK alone left the cast with no victim to aim it; with the
+    Cannon's decay it votes level 16, and the cast goes on a tile reaching both. A troop's 309 is still no Zap's."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    cannon = {"key": 38, "side": 0, "card_id": 27000000, "card": "Cannon", "unit": "Cannon", "role": "summon",
+              "max_hp": 1316}
+    assert m.decay_slack(doc16402, cannon, 1) == 3  # 1316 * 50 / 30000 = 2.19, up
+    assert m.decay_slack(doc16402, _zap_bat(9, 0), 1) == 0
+    ticks = [2089, 2090, 2091, 2092, 2093]
+    others = {38: (8500, 9500, 1146, 837), 2: (3500, 6500, 1409, 1332)}
+    ents = {38: cannon, 2: _zap_tower(2, 0)}
+    rows = _zap_bats_die(m, ents, ticks, ticks.index(2092), {}, others)
+    deploys = [{"tick": 100, "first_seen": 100, "side": 1, "level": 16}]
+    names = {"Zap": 28000008}
+    got = m.cost_only_casts(_zap_header(1, 2092), deploys, doc16402, cards, names, ents, rows, ticks, [])
+    assert [(d["tick"], d["level"], d["pos"]) for d in got] == [(2092, 16, [6500, 8500])], got
+    assert got[0]["level_evidence"] == (
+        "cost-only cast: 1 victims took its level-16 damage on 2092, 1 crown towers its crown hit 77"
+    )
+    assert all(m.area_reaches(tuple(got[0]["pos"]), p, b, 2500)
+               for p, b in (((8500, 9500), (True, 600)), ((3500, 6500), (True, 1000))))
+    # the same 309 off a troop: no level's damage, no victim
+    ents[38] = {**cannon, "card_id": 26000000, "card": "Knight", "unit": "Knight", "max_hp": 1766}
+    unresolved = []
+    assert m.cost_only_casts(_zap_header(1, 2092), deploys, doc16402, cards, names, ents, rows, ticks, unresolved) == []
+    assert [u["why"] for u in unresolved] == ["a cost-only Zap (elixir drop of 2) with no victim to aim it: not played"]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# A HIT SUMMED WITH ANOTHER
+
+
+def test_a_unit_that_took_the_zap_and_another_hit_is_aimed_at_but_reads_no_level(m, doc16402):
+    """A HIT SUMMED WITH ANOTHER (module doc, A COST-ONLY SPELL): a level-16 Zap kills a Little Prince (183 hp) at
+    (13731, 13996), and on the same frame its guard, 3,160 above, loses 479, the Zap's 306 and a 173 hit (live
+    20261008-021040 t1633). The guard votes for no level, but the cast goes on a tile reaching it too, (13500, 15500);
+    aimed at the kill alone it went on (13500, 13500), 3.66 tiles from the guard, which the engine's Zap then
+    missed."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    ticks = [1630, 1631, 1632, 1633, 1634]
+    ents = {
+        23: {"key": 23, "side": 0, "card_id": 26000093, "card": "LittlePrince", "unit": "LittlePrince",
+             "role": "summon"},
+        41: {"key": 41, "side": 0, "card_id": 26000093, "card": "LittlePrince", "unit": "ChampionGuard",
+             "role": "spawned"},
+    }
+    rows = _zap_bats_die(m, ents, ticks, ticks.index(1633), {23: (13731, 13996, 183)},
+                         {41: (13743, 17156, 614, 135)})
+    deploys = [{"tick": 100, "first_seen": 100, "side": 1, "level": 16}]
+    got = m.cost_only_casts(_zap_header(1, 1633), deploys, doc16402, cards, {"Zap": 28000008}, ents, rows, ticks, [])
+    assert [(d["tick"], d["level"], d["pos"]) for d in got] == [(1633, 16, [13500, 15500])], got
+    assert got[0]["level_evidence"] == "cost-only cast: 1 victims took its level-16 damage on 1633"
+    assert got[0]["aim"] == (
+        "the tile centre reaching 1 of the 1 units its damage hit and 0 of the 0 it spared, and 1 of the 1 that took"
+        " it with another hit"
+    )
+    guard = m.area_body(doc16402, ents[41])
+    assert m.area_reaches((13500, 15500), (13743, 17156), guard, 2500)
+    # the old aim, the kill alone, misses the guard
+    lp = m.area_body(doc16402, ents[23])
+    assert m.cast_tile([((13731, 13996), lp)], [], 2500)[0] == [13500, 13500]
+    assert not m.area_reaches((13500, 13500), (13743, 17156), guard, 2500)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# AN EVOLVED SPELL'S AREA
+
+
+def _area(side, cid, oid, pos):
+    return {"side": side, "card_id": cid, "id": oid, "x": pos[0], "y": pos[1], "level": 0, "area": True}
+
+
+def _evo_zap_frames(t0=3523, side=0, at=(15500, 12500)):
+    """An Evo Zap's area objects as live 20261008-003238 shows its cast of t3523 (13000085 each): one from t0 to
+    t0 + 99, one from t0 + 1 to t0 + 31, and the echo's from t0 + 29 to t0 + 37."""
+    frames = []
+    for t in range(t0, t0 + 100):
+        effs = [_area(side, 13000085, "a", at)]
+        if t0 + 1 <= t <= t0 + 31:
+            effs.append(_area(side, 13000085, "b", at))
+        if t0 + 29 <= t <= t0 + 37:
+            effs.append(_area(side, 13000085, "echo", at))
+        frames.append({"tick": t, "effects": effs})
+    return frames
+
+
+def test_an_evolved_spells_area_objects_are_one_cast_in_its_evolved_form(m, doc16402):
+    """AN EVOLVED SPELL'S AREA (module doc): the Evo Zap leaves no class-28 object, and its three area objects carry
+    its evolved id (live 20261008-003238 t3523): one run of them, the echo's object inside it, is one cast, which
+    `evo_area_casts` keeps. A class-13 object that is not an area is no cast. An Evo Snowball's area beside its
+    flight is that cast's (`evo_area`), not a second; one out of CAST_GAP_TICKS of any flight is a cast of its own;
+    an evolved unit's area (the Evo Cannon's 13000096) is none."""
+    cards = {c["name"]: c for c in doc16402["cards"]}
+    ids = {13000085: "Zap", 28000008: "Zap", 13000094: "Snowball", 28000017: "Snowball", 13000096: "Cannon"}
+    frames = _evo_zap_frames()
+    ticks = [f["tick"] for f in frames]
+    casts = m.spell_casts(frames)
+    assert [(c["card_id"], c["side"], c["objects"], c["aim"], c["first_area"]) for c in casts] == [
+        (13000085, 0, 3, [15500, 12500], True)], casts
+    assert [ticks[c["last_index"]] for c in casts] == [3622]
+    assert m.evo_area_casts(casts, ids, cards, ticks) == casts
+    # not areas: no cast
+    bare = [{**f, "effects": [{k: v for k, v in e.items() if k != "area"} for e in f["effects"]]} for f in frames]
+    assert m.spell_casts(bare) == []
+    # an Evo Snowball's flight (100..108) and its area (108..112), an area alone at 200, an Evo Cannon's bombs at 300
+    frames = []
+    for t in range(100, 320):
+        effs = []
+        if t <= 108:
+            effs.append(_obj(1, 28000017, "s", (9000, 26000 - 500 * (t - 100)), (9000, 26500 - 500 * (t - 100)),
+                             (9000, 22000)))
+        if 108 <= t <= 112:
+            effs.append(_area(1, 13000094, "sa", (9000, 22000)))
+        if 200 <= t <= 203:
+            effs.append(_area(1, 13000094, "sb", (5000, 20000)))
+        if 300 <= t <= 303:
+            effs.append(_area(0, 13000096, "cb", (5000, 10000)))
+        frames.append({"tick": t, "effects": effs})
+    ticks = [f["tick"] for f in frames]
+    casts = m.spell_casts(frames)
+    assert [(c["card_id"], ticks[c["first_index"]]) for c in casts] == [
+        (28000017, 100), (13000094, 108), (13000094, 200), (13000096, 300)], casts
+    kept = m.evo_area_casts(casts, ids, cards, ticks)
+    assert [(c["card_id"], ticks[c["first_index"]]) for c in kept] == [(28000017, 100), (13000094, 200)], kept
+    assert kept[0]["evo_area"] == {"card_id": 13000094, "first_seen": 108, "objects": 1}
+    assert "evo_area" not in kept[1]
+
+
+@needs_modern_cards
+def test_an_evo_zap_is_published_as_one_evolved_cast_on_its_areas_point(m, maker_inputs, tmp_path):
+    """AN EVOLVED SPELL'S AREA, through the maker: side 1 casts an Evo Zap on t2 (its elixir drop of 2) instead of the
+    battle's Arrows; its area objects, the echo's among them, publish one Zap row in the evolved form (`form` "ev1",
+    `form_row` Zap_EV1) on the areas' point, with its 3 objects. An Evo Snowball whose area follows its flight
+    publishes one Snowball row, evolved by its area."""
+    _skip_without_the_id_table(m)
+    header, frames = _battle()
+    for f in frames:
+        t = f["tick"]
+        f["effects"] = [e for e in f["effects"] if e["card_id"] != ARROWS]
+        # its two objects from 2 and 3, the echo's from 5 (the battle's frames are 0, 1, 2, 3, 5, 6)
+        f["effects"] += [_area(1, 13000085, oid, (9500, 23500)) for oid, t0 in (("a", 2), ("b", 3), ("echo", 5))
+                         if t >= t0]
+        f["elixir_raw"] = [f["elixir_raw"][0], 70000 + 178 * t - (20000 if t >= 2 else 0)]
+    path = tmp_path / "evozap" / "frames-synthetic.native.oracle.jsonl.gz"
+    _write_capture(path, header, frames)
+    fx = _build(m, maker_inputs, path)
+    zaps = [d for d in fx["deploys"] if d["card"] == "Zap"]
+    assert [(d["tick"], d["side"], d["card_id"], d.get("form"), d.get("form_row"), d["pos"], d["cast_objects"])
+            for d in zaps] == [(2, 1, 13000085, "ev1", "Zap_EV1", [9500, 23500], 3)], zaps
+    assert zaps[0]["form_evidence"] == "its evolved area objects (id 13000085, 3 objects) from 2"
+    # an Evo Snowball: its flight from side 1's king on t2, its area on its target from t5
+    header, frames = _battle()
+    for f in frames:
+        t = f["tick"]
+        f["effects"] = [e for e in f["effects"] if e["card_id"] != ARROWS]
+        if 2 <= t <= 5:
+            k = t - 2
+            f["effects"].append(_obj(1, 28000017, "s", (9000, 28400 - 600 * k), (9000, 29000 - 600 * k),
+                                     (9000, 26000)))
+        if t >= 5:
+            f["effects"].append(_area(1, 13000094, "sa", (9000, 26000)))
+        f["elixir_raw"] = [f["elixir_raw"][0], 70000 + 178 * t - (20000 if t >= 2 else 0)]
+    path = tmp_path / "evosnow" / "frames-synthetic.native.oracle.jsonl.gz"
+    _write_capture(path, header, frames)
+    fx = _build(m, maker_inputs, path)
+    balls = [d for d in fx["deploys"] if d["card"] == "Snowball"]
+    assert [(d["tick"], d["card_id"], d.get("form"), d.get("form_row"), d["cast_objects"]) for d in balls] == [
+        (2, 28000017, "ev1", "Snowball_EV1", 1)], balls
+    assert balls[0]["form_evidence"] == "its evolved area object (id 13000094, 1 object) from 5"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # the existing test's one changed expectation
 
 

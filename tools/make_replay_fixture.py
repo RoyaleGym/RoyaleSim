@@ -482,6 +482,20 @@ AN EVOLVED ROLL CAST
     the evolution, `form_evidence`; `evo_roll_cast`), which the harness plays as the form
     (deploy_play), its ball's capture included.
 
+AN EVOLVED SPELL'S AREA
+    A capture that lists area objects lists an evolved spell's under its evolved id, class 13
+    (the Evo Zap's 13000085, area: true; the converter passes the Zap's, the Snowball's and the
+    Goblin Barrel's). The Evo Zap leaves no class-28 object: live 20261008-003238 t3523, side
+    0's three objects at its tile from 3523 (one stands to 3622, one to 3554, the echo 3552 to
+    3560, which strikes on 3553), so one run of them is one cast, the echo's object inside it.
+    Read as a cost-only Zap, the cast was a basic Zap a tile off. A run of class-13 area
+    objects of a spell card is that card's cast in its evolved form (`form` "ev1" by
+    `deploy_form`, `form_evidence`), on the area's point; where a class-28 run of the same card
+    and side lies within CAST_GAP_TICKS (an Evo Snowball's flight, an Evo Goblin Barrel's
+    barrels) it is that cast's area, no second cast, and says the evolution only where the
+    mirror and roll rules read none (`evo_area_casts`). A class-13 run of a card that is no
+    spell is no cast.
+
 A SPELL'S HIT FRAMES
     A cast the effects stream shows is read where and when its objects strike (`hit_span`), not
     on the first drop after its tick: a projectile spell's hit is its landing (the first
@@ -539,6 +553,15 @@ A COST-ONLY SPELL
     reached exactly the truth's victims and none it spared in 161, the fitted tile in 216 (a
     victim missed 35 -> 2, a spared unit reached 28 -> 1); r73's engine on its own positions,
     before each battle's first divergence, 24 -> 31 of 33.
+    A BUILDING'S DECAY ON THE HIT FRAME (`decay_slack`): a building victim may also lose its
+    own lifetime decay over the frame, its max hp over its lifetime's ticks rounded up, beyond
+    SPELL_HIT_SLACK (20261017-015724 t2092: our level-16 Cannon took 309, the Zap's 306 and 3
+    of decay, and the cast was left unresolved for want of a victim).
+    A HIT SUMMED WITH ANOTHER: a unit that lost more than the damage and its slack on the hit
+    frame took the area and another hit together. It votes for no level, but the tile should
+    reach it: after the fewest spared, the tile reaching the most of them, and the centroid
+    counts them (20261008-021040 t1633: the Little Prince's guard lost 479, the Zap's 306 and
+    a 173 hit, and the tile aimed at the killed Prince alone missed it by 3.66 tiles).
     A PRESS THE SPELL'S DAMAGE OVERRULES: the live reader logs a payment "ability" whenever a
     hero or a champion whose ability costs as much is up, so a Zap paid beside a Hero Ice
     Golem was its press (20261008-064926 t745: three Bats die and a princess tower takes 77
@@ -551,6 +574,13 @@ A COST-ONLY SPELL
     revealed the Zap: 10 hero presses become Zaps (none shows its hero's own trace: no Ice
     Golem pulse, no Balloon trooper, no ice cube), 13 payments no row explained become Zaps,
     and 20 presses and 3 unexplained payments stay.
+    A PRESS THAT SHOWS NOTHING OF ITSELF (`press_unseen`): one victim is enough when it took
+    the damage exactly (a kill fits many levels) and no press the payment could be shows,
+    each hero or champion of that cost holding a cast (one without could press unseen) and
+    none entering CAST_STATE or putting its ability's unit down within PRESS_ONSET_TICKS, as
+    `ability_presses` reads a press (20261012-030450 t838: a 2-elixir payment logged as a
+    Skeleton King press, our Little Prince -306 and no Soul Summoning skeletons; neither row
+    was written).
 
 AN AREA SHOWN AFTER ITS DROP
     Live's measurement over 580 area plays (2026-10-09): 532 areas appear on their elixir
@@ -2800,7 +2830,8 @@ def launch_tick(frame: dict, side: int, cid: int) -> tuple[int, str] | None:
 
 def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
     """The casts in the `effects` stream: one per run of class-28 objects of one (side,
-    card) with no gap over CAST_GAP_TICKS between sightings (CAST_GAP_TICKS). Each:
+    card) with no gap over CAST_GAP_TICKS between sightings (CAST_GAP_TICKS), and of an
+    evolved spell's class-13 area objects alike (AN EVOLVED SPELL'S AREA). Each:
     side, card_id, first_index, last_index, frames (sightings), objects (distinct
     object ids over the run), aim = the mean of the projectile targets
     (`projectile_x/y`, else x/y) of the objects on the FIRST frame -- one object's own
@@ -2821,7 +2852,9 @@ def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
         by_key: dict[tuple, list[dict]] = defaultdict(list)
         for eff in f.get("effects") or []:
             cid = eff.get("card_id", -1)
-            if cid < 0 or cid // 1_000_000 != SPELL_CLASS:
+            if cid < 0 or not (
+                cid // 1_000_000 == SPELL_CLASS or (cid // 1_000_000 == EVO_CLASS and eff.get("area"))
+            ):
                 continue
             by_key[(eff["side"], cid)].append(eff)
         for key, effs in by_key.items():
@@ -2876,6 +2909,37 @@ def spell_casts(frames: list[dict], rotate: bool = False) -> list[dict]:
         c["departures"] = departures(tracks)
         c.pop("last_tick")
     out.sort(key=lambda c: (c["first_index"], c["side"], c["card_id"]))
+    return out
+
+
+def evo_area_casts(casts: list[dict], id_table: dict[int, str], cards_by_name: dict, ticks: list[int]) -> list[dict]:
+    """AN EVOLVED SPELL'S AREA (module doc): the casts of `spell_casts` to play. A run of an evolved spell's class-13
+    area objects is its card's cast in that form, unless a class-28 run of the same card and side lies within
+    CAST_GAP_TICKS of it: then it is that cast's area (an Evo Snowball's, an Evo Goblin Barrel's), kept on the
+    projectile cast as `evo_area` and no cast of its own. A class-13 run of a card that is no spell is no cast; one
+    the id table does not name stays, for the cast loop to report."""
+    plain = [c for c in casts if c["card_id"] // 1_000_000 == SPELL_CLASS]
+    out = []
+    for c in casts:
+        name = id_table.get(c["card_id"])
+        if c["card_id"] // 1_000_000 != EVO_CLASS or name is None:
+            out.append(c)
+            continue
+        if (cards_by_name.get(name) or {}).get("kind") != "spell":
+            continue
+        lo, hi = ticks[c["first_index"]], ticks[c["last_index"]]
+        host = next(
+            (
+                p for p in plain
+                if p["side"] == c["side"] and id_table.get(p["card_id"]) == name
+                and ticks[p["first_index"]] - CAST_GAP_TICKS <= hi and lo <= ticks[p["last_index"]] + CAST_GAP_TICKS
+            ),
+            None,
+        )
+        if host is None:
+            out.append(c)
+        elif "evo_area" not in host:
+            host["evo_area"] = {"card_id": c["card_id"], "first_seen": lo, "objects": c["objects"]}
     return out
 
 
@@ -3024,6 +3088,18 @@ def instant_crown_hit_at(doc: dict, card: dict, level: int) -> int | None:
     return scaled_at(doc, card, ae.get("tower_damage"), level)
 
 
+def decay_slack(doc: dict, e: dict, ticks_between: int) -> int:
+    """A BUILDING'S DECAY ON THE HIT FRAME (module doc, A COST-ONLY SPELL): the most a building `e` loses to its own
+    lifetime decay over `ticks_between` ticks, its max hp over its lifetime's ticks rounded up; 0 for a unit with no
+    lifetime. Live 20261017-015724 t2092: our level-16 Cannon (1316 hp over 30 s) loses 2 or 3 a tick and took 309 on
+    the Zap's frame, its level-16 306 and 3 of decay."""
+    u = (doc.get("units") or {}).get(e.get("unit") or "") or {}
+    life = u.get("lifetime_ms")
+    if u.get("source_table") != "buildings" or not life or (e.get("max_hp") or 0) <= 0:
+        return 0
+    return -(-e["max_hp"] * ticks_between * TICK_MS // life)
+
+
 def area_body(doc: dict, e: dict) -> tuple[bool, int]:
     """How an area reaches entity `e` in the engine (spell.rs `impact`): (square, size). A crown tower is a square of
     half-side CROWN_SQUARE_HALF_NATIVE (spells.CROWN_TOWER_SPELL_REACH), an ordinary building a square of half-side its
@@ -3045,12 +3121,14 @@ def area_reaches(point: tuple[int, int], at: tuple[int, int], body: tuple[bool, 
     return dx * dx + dy * dy <= (radius + size) * (radius + size)
 
 
-def cast_tile(hits: list, spared: list, radius: int) -> tuple[list[int], int, int]:
+def cast_tile(hits: list, spared: list, radius: int, summed: list = ()) -> tuple[list[int], int, int, int]:
     """THE CAST'S TILE (module doc, A COST-ONLY SPELL): the tile centre whose area reaches the most of `hits`, then the
-    fewest of `spared`, then the one nearest the hits' centroid (a crown tower's centre counts only when nothing else
-    was hit), then the lowest (x, y). `hits` and `spared` are [(position, area_body)]. Returns (point, hits reached,
-    spared reached)."""
-    own = [p for p, b in hits if b != (True, CROWN_SQUARE_HALF_NATIVE)] or [p for p, _ in hits]
+    fewest of `spared`, then the most of `summed` (A HIT SUMMED WITH ANOTHER), then the one nearest the centroid of the
+    hits and the summed (a crown tower's centre counts only when nothing else was hit), then the lowest (x, y).
+    `hits`, `spared` and `summed` are [(position, area_body)]. Returns (point, hits reached, spared reached, summed
+    reached)."""
+    took = list(hits) + list(summed)
+    own = [p for p, b in took if b != (True, CROWN_SQUARE_HALF_NATIVE)] or [p for p, _ in took]
     cx, cy = sum(p[0] for p in own) / len(own), sum(p[1] for p in own) / len(own)
     best = None
     for x in range(TILE_NATIVE // 2, ARENA_W_NATIVE, TILE_NATIVE):
@@ -3059,15 +3137,16 @@ def cast_tile(hits: list, spared: list, radius: int) -> tuple[list[int], int, in
             if not h:
                 continue
             s = sum(area_reaches((x, y), p, b, radius) for p, b in spared)
-            key = (-h, s, (x - cx) ** 2 + (y - cy) ** 2, x, y)
+            a = sum(area_reaches((x, y), p, b, radius) for p, b in summed)
+            key = (-h, s, -a, (x - cx) ** 2 + (y - cy) ** 2, x, y)
             if best is None or key < best:
                 best = key
     if best is None:
         # no tile reaches a victim (an area of no radius): the centroid's own tile
         tile = [int(cx) // TILE_NATIVE * TILE_NATIVE + TILE_NATIVE // 2, int(cy) // TILE_NATIVE * TILE_NATIVE
                 + TILE_NATIVE // 2]
-        return tile, 0, 0
-    return [best[3], best[4]], -best[0], best[1]
+        return tile, 0, 0, 0
+    return [best[4], best[5]], -best[0], best[1], -best[2]
 
 
 def held_press_at(
@@ -3091,6 +3170,44 @@ def held_press_at(
             if r is not None and r[ist] == CAST_STATE and (q is None or q[ist] != CAST_STATE):
                 return True
     return False
+
+
+def press_unseen(
+    ents: dict, per_tick_rows: list, ticks: list[int], i0: int, side: int, cost: int, doc: dict, cards_by_name: dict
+) -> bool:
+    """A PRESS THAT SHOWS NOTHING OF ITSELF (module doc, A PRESS THE SPELL'S DAMAGE OVERRULES): whether no press of
+    `cost` by `side` on drop frame `i0` is what the capture shows. Every hero or champion of that side alive on the
+    frame before the drop whose ability costs `cost` holds a cast (`cast_ms` > 0; one without could press unseen), and
+    none shows a press as `ability_presses` reads one: its unit entering CAST_STATE from one frame before the drop to
+    PRESS_ONSET_TICKS after it, or its ability's own unit first seen within PRESS_ONSET_TICKS."""
+    hero_rows = {r["form_of"]: r for r in doc.get("hero_forms") or [] if r.get("form_of")}
+    ist = TRUTH_COLUMNS.index("state")
+    until = ticks[i0] + PRESS_ONSET_TICKS
+    for e in ents.values():
+        card = cards_by_name.get(e.get("card") or "")
+        if e["side"] != side or card is None or e.get("role") not in ("summon", "spawned"):
+            continue
+        if not e.get("first_index", 0) <= i0 - 1 <= e.get("last_index", len(ticks) - 1):
+            continue
+        row = hero_rows.get(card["name"]) if e["card_id"] // 1_000_000 == HERO_CLASS else card
+        ab = (row or {}).get("ability") or {}
+        if ab.get("mana_cost") != cost:
+            continue
+        if not ab.get("cast_ms"):
+            return False
+        for j in range(max(i0 - 1, 1), len(per_tick_rows)):
+            if ticks[j] > until:
+                break
+            r, q = per_tick_rows[j].get(e["key"]), per_tick_rows[j - 1].get(e["key"])
+            if r is not None and r[ist] == CAST_STATE and (q is None or q[ist] != CAST_STATE):
+                return False
+        unit = (ab.get("effect") or {}).get("unit")
+        if unit and any(
+            o["side"] == side and o.get("unit") == unit and ticks[i0] <= ticks[o["first_index"]] <= until
+            for o in ents.values() if "first_index" in o
+        ):
+            return False
+    return True
 
 
 def cost_only_casts(
@@ -3158,14 +3275,16 @@ def cost_only_casts(
                 killed = b is None or b[ihp] <= 0
                 # where it stood when the area struck: the hit frame (the engine's area strikes after the tick's move)
                 at = (b[ix], b[iy]) if b is not None else (a[ix], a[iy])
-                hit.append((at, took, killed, e, b))
+                # A BUILDING'S DECAY ON THE HIT FRAME: a building may also lose its decay over the frame
+                slack = SPELL_HIT_SLACK + decay_slack(doc, e, ticks[i] - ticks[i - 1])
+                hit.append((at, took, killed, e, b, slack))
             votes = {}
             for lv in levels:
                 dmg = spell_damage_at(doc, card, lv)
                 ok = [
                     h for h in hit
                     if h[3]["card_id"] >= 0
-                    and ((dmg <= h[1] <= dmg + SPELL_HIT_SLACK) or (h[2] and h[1] <= dmg + SPELL_HIT_SLACK))
+                    and ((dmg <= h[1] <= dmg + h[5]) or (h[2] and h[1] <= dmg + h[5]))
                 ]
                 if ok:
                     votes[lv] = ok
@@ -3198,8 +3317,15 @@ def cost_only_casts(
                     key=lambda lv: (abs(lv - mode) if mode is not None else 0, lv))
         dmg, crown = spell_damage_at(doc, card, level), instant_crown_hit_at(doc, card, level)
         victims = votes[level]
+        # A PRESS THAT SHOWS NOTHING OF ITSELF: one victim that took the damage exactly (a kill fits many levels)
+        # proves the spell where no press the payment could be shows
+        alone = (
+            contested and len(victims) < CONTESTED_MIN_VICTIMS and any(not h[2] for h in victims)
+            and press_unseen(ents, per_tick_rows, ticks, i0, side, cost, doc, cards_by_name)
+        )
         if contested and (
-            mode is None or abs(level - mode) > CONTESTED_LEVEL_SLACK or len(victims) < CONTESTED_MIN_VICTIMS
+            mode is None or abs(level - mode) > CONTESTED_LEVEL_SLACK
+            or (len(victims) < CONTESTED_MIN_VICTIMS and not alone)
         ):
             continue  # left to the press (`ability_presses`)
         # THE UNITS IT SPARED: every other foe it could have reached that lost less than its damage there and lived
@@ -3211,14 +3337,25 @@ def cost_only_casts(
             and h[4][ist] not in UNREACHABLE_STATES
             and not ((doc.get("units") or {}).get(h[3].get("unit") or "") or {}).get("shield_hitpoints")
         ]
+        # A HIT SUMMED WITH ANOTHER: a unit that lost more than the damage and its slack took the area and another hit
+        # on that frame; it reads no level, and the tile should reach it
+        summed = [
+            h for h in hit
+            if h[3]["card_id"] >= 0 and h[1] > dmg + h[5]
+            and h[3].get("role") not in ("display", "unknown", "unknown_object")
+        ]
         radius = (card.get("spell") or {}).get("radius_milli") or card.get("area_damage_radius_milli") or 0
-        pos, reached, overreached = cast_tile(
-            [(h[0], area_body(doc, h[3])) for h in victims], [(h[0], area_body(doc, h[3])) for h in spared], radius
+        pos, reached, overreached, summed_reached = cast_tile(
+            [(h[0], area_body(doc, h[3])) for h in victims], [(h[0], area_body(doc, h[3])) for h in spared], radius,
+            [(h[0], area_body(doc, h[3])) for h in summed],
         )
         if contested and reached < len(victims):
             continue
         n_towers = sum(1 for h in victims if h[3].get("role") == "tower")
-        how = f"the payment the live reader logged as a {p.get('card') or 'hero'} press; " if contested else ""
+        how = (
+            f"the payment the live reader logged as a {p.get('card') or 'hero'} press"
+            + (", which shows nothing of itself" if alone else "") + "; "
+        ) if contested else ""
         out.append(
             {
                 # dated on its damage's frame: the engine lands an instant area on its row's tick (r73: 33 of 33)
@@ -3245,6 +3382,7 @@ def cost_only_casts(
                 "aim": (
                     f"the tile centre reaching {reached} of the {len(victims)} units its damage hit"
                     f" and {overreached} of the {len(spared)} it spared"
+                    + (f", and {summed_reached} of the {len(summed)} that took it with another hit" if summed else "")
                 ),
             }
         )
@@ -4901,13 +5039,16 @@ def build(
 
     # -- spells: from the effects stream, else from taps with the measured latency
     evo_by_card = {r["form_of"]: r for r in doc.get("evolutions") or [] if r.get("form_of")}
-    for cast in spell_casts(frames, rotate):
+    for cast in evo_area_casts(spell_casts(frames, rotate), id_table, cards_by_name, ticks):
         cid, fi = cast["card_id"], cast["first_index"]
         name = id_table.get(cid)
         if name is None:
             unknown_ids.add(cid)
             reasons.append(f"spell id {cid} is not in the id table")
             continue
+        # AN EVOLVED SPELL'S AREA: its objects carry the evolved id; a tap log records the card's base id
+        evo_area = cid // 1_000_000 == EVO_CLASS
+        tap_id = name_to_id.get(name, cid) if evo_area else cid
         ax, ay = cast["aim"]  # already in the fixture's frame
         # AN EVOLVED MIRROR CAST (module doc): the real object's target, not the mean with its decoy's
         evo_row = evo_by_card.get(name)
@@ -4934,7 +5075,7 @@ def build(
                 struck = None
         tap_ix = None
         for ix, t in enumerate(taps):
-            if ix in used_taps or t["kind"] != "cast" or t["side"] != side or t["id"] != cid:
+            if ix in used_taps or t["kind"] != "cast" or t["side"] != side or t["id"] != tap_id:
                 continue
             if t["tick"] + TAP_MIN <= tick <= t["tick"] + TAP_MAX:
                 tap_ix = ix
@@ -4976,6 +5117,17 @@ def build(
             d["form"], d["form_row"], d["aim"] = "ev1", evo_row["name"], mirror_why
         elif roll_why is not None:
             d["form"], d["form_row"], d["form_evidence"] = "ev1", evo_row["name"], roll_why
+        elif evo_area or cast.get("evo_area"):
+            # AN EVOLVED SPELL'S AREA says the evolution: the cast's own objects, or the area kept on its projectile
+            area = cast if evo_area else cast["evo_area"]
+            form = deploy_form(area["card_id"], form_rows, name) if form_rows is not None else {}
+            if form.get("form") == "ev1":
+                d.update(form)
+                d["form_evidence"] = (
+                    f"its evolved area object{'s' if area['objects'] > 1 else ''} (id {area['card_id']}, "
+                    f"{area['objects']} object{'s' if area['objects'] > 1 else ''}) from "
+                    f"{ticks[fi] if evo_area else area['first_seen']}"
+                )
         # AN EFFECT CAST IS BACKED BY ITS CASTER'S ELIXIR. On every corpus cast the cost leaves the pool
         # on the first projectile frame (94 of 98 effect casts, within EFFECT_DROP_SLACK). The other
         # four are two cases: (a) the drop is EARLIER, at the tap -- Lightning is an invisible area whose
