@@ -1,7 +1,8 @@
-"""A COPY OF A BATTLE UNDER WAY through `Battle.reset` (py.rs): `unit_spawns`, `king_wake_ms`, `evo_counts`,
-`last_played` and `spells_in_flight`, and `Battle.spell_in_flight_kind` and `Battle.unit_spawn_kind`. The engine's own
-rules for each are pinned in crates/royalesim/tests/scenario_copy.rs; here the binding's half: what each argument
-takes, what it refuses and how what it sets reads back.
+"""A COPY OF A BATTLE UNDER WAY through `Battle.reset` (py.rs): `unit_spawns`, `unit_deploy_ticks`, `king_wake_ms`,
+`evo_counts`, `last_played`, `spells_in_flight` and `projectiles_in_flight`, and `Battle.spell_in_flight_kind`,
+`Battle.unit_spawn_kind` and `Battle.projectile_in_flight_kind`. The engine's own rules for each are pinned in
+crates/royalesim/tests/scenario_copy.rs; here the binding's half: what each argument takes, what it refuses and how
+what it sets reads back.
   1. a summoned unit goes down by its record's name at the level given, and reads under the card that produces it; a
      form goes down by its card's name and form, as a deck names it, or by its record's name and own form, alike;
   2. a record the table does not hold, one no catalogue card puts on the board, a form the record is not, a rider and
@@ -10,7 +11,12 @@ takes, what it refuses and how what it sets reads back.
   4. a king's wake clock and a Mirror's last play are taken, and read back in `state_json` and `mirror_target`;
   5. a Fireball put on its flight is on the board and lands; a record that does not fly is refused by its kind, and a
      copy's builder can ask the kind first, by form;
-  6. each argument of the wrong shape is refused by name.
+  6. each argument of the wrong shape is refused by name;
+  7. a unit's deploy ticks left read back in its row and run down to its deploy;
+  8. a shot goes down from the copy's own firer at the copy's own target (a unit_spawns entry, `spawns` ahead of them,
+     or a crown tower by its tower index), reads back in `projectiles` and lands where the copy without it lands
+     nothing; one whose target is gone goes down with None; a target of the firer's own side is refused; a copy's
+     builder can ask the kind first.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ import pytest
 royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
+TILE = 1000 * SUB
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 CARDS = ["Golem", "Knight", "BabyDragon", "Fireball", "Zap", "Log", "Snowball", "GoblinGiant", "Musketeer", "Mirror"]
 GOLEM, KNIGHT, DRAGON, FIREBALL, ZAP, LOG, SNOWBALL, GOBLIN_GIANT, MUSKETEER, MIRROR = range(10)
@@ -217,7 +224,100 @@ def test_a_copys_builder_can_ask_what_flies_first():
     ({"evo_counts": [[]]}, "evo_counts must be"),
     ({"unit_spawns": [("Golemite", 2, 0, 0, -1, -1, 0)]}, "bad unit spawn team"),
     ({"spells_in_flight": [(FIREBALL, 0, 3, 0, 0, 0, 0, -1, 0)]}, "bad team"),
+    ({"unit_deploy_ticks": [5]}, "unit_deploy_ticks has 1 entries for 0 unit spawns"),
+    ({"unit_spawns": [("Knight", 0, 9 * TILE, 8 * TILE, -1, -1, 0)], "unit_deploy_ticks": [-1]}, "negative deploy"),
+    ({"projectiles_in_flight": [(0, 0, 0, 0, 0, 0, None)]}, "no unit_spawns entry 0"),
+    ({"projectiles_in_flight": [(-1, 2, 0, 0, 0, 0, None)]}, "bad team"),
 ])
 def test_an_argument_of_the_wrong_shape_is_refused(kw, why):
     with pytest.raises(ValueError, match=why):
         battle(**kw)
+
+
+def test_a_units_deploy_ticks_left_read_back_and_run_down():
+    b = battle(unit_spawns=[("Knight", 0, 9000 * SUB, 8000 * SUB, -1, -1, 0)], unit_deploy_ticks=[12])
+    left = []
+    for _ in range(13):
+        (e,) = units(b)
+        left.append(e[F["deploy_ticks"]])
+        b.step([], 1)
+    assert left == list(range(12, -1, -1)), "12 ticks left, one a tick, then deployed"
+    (e,) = units(battle(unit_spawns=[("Knight", 0, 9000 * SUB, 8000 * SUB, -1, -1, 0)], unit_deploy_ticks=[0]))
+    assert e[F["deploy_ticks"]] == 0, "0: deployed, as without the list"
+
+
+P = {name: i for i, name in enumerate(royalesim.PROJECTILE_FIELDS)}
+#: A blue Musketeer and a red Knight 5 tiles before her, and her shot at him (unit_spawns entry 1) 3 tiles on its way.
+DUEL = [("Musketeer", 0, 9 * TILE, 9 * TILE, -1, -1, 0), ("Knight", 1, 9 * TILE, 14 * TILE, -1, -1, 0)]
+HER_SHOT = (0, 0, 9 * TILE, 11 * TILE, 9 * TILE, 14 * TILE, 1)
+
+
+def red_units(b) -> list:
+    return [e for e in units(b) if e[F["team"]] == 1]
+
+
+def towers(b, team) -> dict:
+    return {e[F["tower_slot"]]: e[F["hp"]] for e in json.loads(b.state_json())["entities"]
+            if e[F["tower_slot"]] >= 0 and e[F["team"]] == team}
+
+
+def test_a_shot_goes_down_from_the_copys_firer_at_the_copys_target():
+    b = battle(unit_spawns=DUEL, projectiles_in_flight=[HER_SHOT])
+    (p,) = json.loads(b.state_json())["projectiles"]
+    (knight,) = red_units(b)
+    assert (p[P["team"]], p[P["x"]], p[P["y"]], p[P["aim_x"]], p[P["aim_y"]]) == (0, *HER_SHOT[2:6])
+    assert (p[P["target_uid"]], p[P["firer_card_id"]]) == (knight[F["uid"]], MUSKETEER), "her shot at the Knight"
+
+    def knight_hp(shots) -> list:
+        b = battle(unit_spawns=DUEL, projectiles_in_flight=shots)
+        hp = []
+        for _ in range(12):
+            b.step([], 1)
+            hp.append(red_units(b)[0][F["hp"]])
+        return hp
+
+    shot, none = knight_hp([HER_SHOT]), knight_hp(None)
+    lands = next((t for t, (a, c) in enumerate(zip(shot, none, strict=True)) if a != c), None)
+    assert lands is not None, f"the shot changes nothing: {shot}"
+    assert shot[lands] < none[lands], f"it lands on him, where the copy without it does not: {shot} {none}"
+
+
+def test_spawns_go_first_and_the_lists_name_the_unit_spawns_entries():
+    # a catalogue spawn ahead of them: `unit_deploy_ticks` and the shot's refs are the unit_spawns entries'
+    b = battle(spawns=[(1, KNIGHT, 3 * TILE, 20 * TILE, -1)], unit_spawns=DUEL, unit_deploy_ticks=[0, 7],
+               projectiles_in_flight=[HER_SHOT])
+    spawned, copied = sorted(red_units(b), key=lambda e: e[F["x"]])
+    assert (spawned[F["deploy_ticks"]], copied[F["deploy_ticks"]]) == (0, 7), "the 7 is the unit_spawns Knight's"
+    (p,) = json.loads(b.state_json())["projectiles"]
+    assert p[P["target_uid"]] == copied[F["uid"]], "target 1 is the unit_spawns Knight, not the spawn"
+
+
+def test_a_shot_at_a_crown_tower_lands_on_that_tower():
+    # a red Musketeer's shot at Blue's crown tower 1 (-2): that tower loses hitpoints, the king and tower 2 do not
+    b = battle(unit_spawns=[("Musketeer", 1, 3500 * SUB, 12500 * SUB, -1, -1, 0)])
+    full = towers(b, 0)
+    b = battle(unit_spawns=[("Musketeer", 1, 3500 * SUB, 12500 * SUB, -1, -1, 0)],
+               projectiles_in_flight=[(0, 1, 3500 * SUB, 9000 * SUB, 3500 * SUB, 7000 * SUB, -2)])
+    for _ in range(8):
+        b.step([], 1)
+    now = towers(b, 0)
+    assert (now[0], now[2]) == (full[0], full[2]), f"the king and tower 2 untouched: {full} -> {now}"
+    assert now[1] < full[1], f"tower 1 hit: {full} -> {now}"
+    # a crown tower's shot by its tower index, whose target is gone: it is the tower's, and flies at no one
+    b = battle(projectiles_in_flight=[(-2, 0, 3500 * SUB, 8000 * SUB, 3500 * SUB, 11000 * SUB, None)])
+    (p,) = json.loads(b.state_json())["projectiles"]
+    assert (p[P["target_uid"]], p[P["firer_card_id"]]) == (-1, -1), "no target; a crown tower's"
+
+
+def test_a_copys_builder_can_ask_what_shots_fly_first():
+    b = battle()
+    names = ("Musketeer", "PrincessTower", "KingTower", "Knight", "BabyDragon")
+    assert [b.projectile_in_flight_kind(u) for u in names] == ["flies", "flies", "flies", "no_projectile", "flies"]
+    assert b.projectile_in_flight_kind("Musketeer", 1) == "form_shot", "the Evo Musketeer's snipe"
+    with pytest.raises(ValueError, match=r"fires no single shot \(no_projectile\)"):
+        battle(unit_spawns=DUEL, projectiles_in_flight=[(1, 1, 0, 0, 0, 0, None)])
+    with pytest.raises(ValueError, match="is not of team 1"):
+        battle(unit_spawns=DUEL, projectiles_in_flight=[(0, 1, 0, 0, 0, 0, None)])
+    friend = [*DUEL, ("Knight", 0, 9 * TILE, 8 * TILE, -1, -1, 0)]
+    with pytest.raises(ValueError, match="of its own side"):
+        battle(unit_spawns=friend, projectiles_in_flight=[(0, 0, 9 * TILE, 9 * TILE, 9 * TILE, 8 * TILE, 2)])

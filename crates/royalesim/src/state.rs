@@ -37975,6 +37975,78 @@ impl BattleState {
         Ok(())
     }
 
+    /// Put ONE shot of `firer` (a unit or a crown tower on this board) on its way now, as a copy of a battle under way:
+    /// the shot its attack makes at `target` (an enemy on the board; None: a shot whose target is gone, flown on to
+    /// `aim`), put at `pos` flying to `aim`. It is made by the firer's own fire (combat.rs `fire`) on a scratch copy of
+    /// the board, the target standing on the firer's point there so the fire is never cancelled for reach (the shot is
+    /// already made), so it carries what a shot of the firer carries at its level now (its damage, crown share, splash,
+    /// attack buff, sparks and released area; a buff the copy's firer does not carry is not in it) and keeps its aim as
+    /// one would (a non-homing splash shot's). The firer has fired at the target (`fired_at`, its target), as a firer
+    /// whose shot flies has. Shots go down in call order, as `state_json` lists them. Refused for a firer whose attack
+    /// is no single shot the fire makes whole (combat.rs `shot_kind`), for a target of the firer's own side, and for a
+    /// firer or target not on the board.
+    pub fn scenario_projectile_in_flight(&mut self, firer: EntityId, target: Option<EntityId>, pos: Vec2, aim: Vec2) -> Result<(), String> {
+        if !self.ents.is_alive(firer) {
+            return Err("the firer is not on the board".into());
+        }
+        let a = firer.index as usize;
+        let name = self.cfg.cards.get(self.ents.card[a]).name.clone();
+        let kind = combat::shot_kind(&self.cfg.cards, &self.cfg.calib, self.ents.card[a]);
+        if kind != "flies" {
+            return Err(format!("{name} fires no single shot ({kind}): only a shot in flight can be put down on its way"));
+        }
+        if !self.cfg.arena.in_bounds(pos) || !self.cfg.arena.in_bounds(aim) {
+            return Err(format!("{name}'s shot: a point off the arena"));
+        }
+        // THE STAND-IN the fire aims at: the target, or for a gone one an enemy of the firer's (a king first).
+        let enemy = self.ents.team[a].other();
+        let stand = match target {
+            Some(t) if !self.ents.is_alive(t) => return Err(format!("{name}'s shot: its target is not on the board")),
+            Some(t) if self.ents.team[t.index as usize] != enemy => return Err(format!("{name}'s shot: its target is of its own side")),
+            Some(t) => t,
+            None => (0..self.ents.capacity())
+                .filter(|&i| self.ents.alive[i] && self.ents.team[i] == enemy)
+                .min_by_key(|&i| (!self.ents.kind[i].is_crown_tower(), i))
+                .map(|i| self.ents.id_of(i))
+                .ok_or_else(|| format!("{name}'s shot: no enemy on the board to aim it"))?,
+        };
+        let mut board = self.ents.clone();
+        board.pos[stand.index as usize] = board.pos[a];
+        let (mut dmg, mut fx, mut shots, mut scratch) = (DamageBuffer::default(), EffectBuffer::default(), Vec::new(), Vec::new());
+        let (mut rng, mut client_rng) = (self.rng, self.client_rng);
+        combat::fire(&board, &self.hash, &self.cfg.cards, &self.cfg.calib, a, stand, &mut dmg, &mut fx, &mut shots, &mut scratch, &mut rng, &mut client_rng, &[], self.tick);
+        let made = shots.len() == 1 && dmg.hits.is_empty() && shots.iter().all(|p| p.straight.is_none() && p.hook.is_none() && p.trail.is_none() && !p.pancake);
+        if !made {
+            return Err(format!("{name}'s attack makes no single shot ({} shots, {} hits)", shots.len(), dmg.hits.len()));
+        }
+        let mut p = shots.remove(0);
+        #[cfg(not(clash_plant = "copy_shot_from_launch"))]
+        {
+            p.pos = pos;
+            p.frac = Vec2::default();
+        }
+        #[cfg(clash_plant = "copy_shot_from_launch")]
+        let _ = pos; // PLANT: the shot flies its whole flight from the firer's launch point.
+        p.aim = aim;
+        p.fresh = false;
+        p.target = target.unwrap_or(combat::GONE_TARGET);
+        // A spark carrier releases its sparks across its line from its launch point, which `pos` is on.
+        if let Some(c) = p.carrier.as_mut() {
+            c.from = p.pos;
+        }
+        self.projectiles.push(p);
+        // THE FIRER HAS FIRED: it holds the target its shot flies at, and keeps it once the shot dooms it
+        // (targeting.DOOMED_TARGET_DROP, target.rs `drops_when_doomed`). PLANT copy_shot_firer_unmarked: a fresh firer.
+        #[cfg(not(clash_plant = "copy_shot_firer_unmarked"))]
+        if let Some(t) = target {
+            self.ents.target[a] = Some(t);
+            if self.cfg.calib.doomed_target_drop.drops() {
+                self.ents.fired_at[a] = Some(t);
+            }
+        }
+        Ok(())
+    }
+
     /// Set the basic plays of `team`'s evolved deck card `card` since its last evolved play (`EvoCounter::plays`): the
     /// next play is evolved once the count reaches the form's cycle. Refused for a card the deck does not carry
     /// evolved, or a count past its cycle.
@@ -37998,7 +38070,7 @@ impl BattleState {
     /// `scenario_spawn_batch`, which makes the order canonical.
     pub fn scenario_spawn_now(&mut self, team: Team, card_name: &str, pos: Vec2, hp: Option<i32>) -> Result<EntityId, DeployError> {
         let (idx, _) = self.setup_spawn_check(team, card_name, pos, None)?;
-        let id = self.setup_spawn_place(team, idx, pos, hp, None, None)?;
+        let id = self.setup_spawn_place(team, idx, pos, hp, None, None, 0)?;
         self.hash.rebuild(&self.ents);
         Ok(id)
     }
@@ -38040,8 +38112,10 @@ impl BattleState {
     /// Materialise one validated setup spawn (no hash rebuild). A CREATION, NOT A PLAY: the unit puts its spawn area
     /// object down as every creation does (spawner.SPAWN_AREA_OBJECT_SCOPE, `spawn_now`), and its card's deploy effects,
     /// the deploy projectile and the deploy area effect, are not cast (`deploy_blow`, `phase_spawn`). `fresh`: a copy's
-    /// unit (`scenario_spawn_copy`), whose form starts as a play starts it, the batch's groups given.
-    fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>, level: Option<i32>, fresh: Option<&mut [Option<u32>; 2]>) -> Result<EntityId, DeployError> {
+    /// unit (`scenario_spawn_copy`), whose form starts as a play starts it, the batch's groups given. `deploy_ms`: its
+    /// deploy time still to run (`scenario_spawn_copy_deploying`), 0 deployed now.
+    #[allow(clippy::too_many_arguments)]
+    fn setup_spawn_place(&mut self, team: Team, idx: u16, pos: Vec2, hp: Option<i32>, level: Option<i32>, fresh: Option<&mut [Option<u32>; 2]>, deploy_ms: i32) -> Result<EntityId, DeployError> {
         #[cfg(clash_plant = "copy_spawn_level_ignored")]
         let level: Option<i32> = level.and(None); // PLANT: every setup spawn at its deck entry's level.
         let level = level.unwrap_or_else(|| self.card_level_of(team, idx));
@@ -38073,8 +38147,38 @@ impl BattleState {
         #[cfg(clash_plant = "copy_form_unstarted")]
         let _ = fresh;
         let i = id.index as usize;
-        self.ents.deploy_ms[i] = 0;
-        self.on_deployed(i);
+        // A UNIT STILL DEPLOYING (a copy's): its timer runs on from what is left and the countdown deploys it
+        // (`deploy_countdown`, `on_deployed`), its riders' timers with its own under rider.DEPLOY = mirror_mount.
+        // PLANT copy_deploy_left_unset: deployed now, as every setup spawn.
+        #[cfg(clash_plant = "copy_deploy_left_unset")]
+        let deploy_ms = deploy_ms.min(0);
+        if deploy_ms > 0 {
+            self.ents.deploy_ms[i] = deploy_ms;
+            let own = self.cfg.cards.get(idx).deploy_time_ms;
+            // A FORMATION MEMBER'S STAGGER WAIT (`PendingSpawn::stagger_ms`): its deploy time is its own plus its wait and
+            // the two run down together, so what it has over its own is the wait still to run. PLANT copy_stagger_unset:
+            // no wait.
+            #[cfg(not(clash_plant = "copy_stagger_unset"))]
+            {
+                self.ents.stagger_ms[i] = (deploy_ms - own).max(0);
+            }
+            // ITS AGE: a unit with no wait left has run (own - left) / TICK_MS ticks of its countdown, one a tick from its
+            // creation tick on (match.TICK_ORDER = client16402), so it was made that many ticks ago, and what counts from
+            // its creation (`spawn_tick`: a Furnace's first spirit, the Goblin Machine's load, a hero's warp) counts from
+            // then. A member still in its wait is taken as made now. An evolved or hero form's own clocks start at the
+            // copy (`evo_created`). PLANT copy_age_unset: made now.
+            #[cfg(not(clash_plant = "copy_age_unset"))]
+            {
+                let ran = ((own - deploy_ms).max(0) / self.cfg.calib.tick_ms.max(1)) as u32;
+                self.ents.spawn_tick[i] = self.tick.saturating_sub(ran);
+            }
+            if self.cfg.calib.rider_deploy == RiderDeploy::MirrorMount {
+                self.rider_deploy_lockstep();
+            }
+        } else {
+            self.ents.deploy_ms[i] = 0;
+            self.on_deployed(i);
+        }
         if let Some(h) = hp {
             self.ents.hp[i] = h;
         }
@@ -38113,7 +38217,7 @@ impl BattleState {
     /// Ram's Barbarian) by its own record's name at its root card's level. The canonical order's key ends with the
     /// level, so two specs that differ in it alone keep a list-independent order.
     pub fn scenario_spawn_batch_levels(&mut self, spawns: &[LevelledSpawn]) -> Result<Vec<EntityId>, (usize, DeployError)> {
-        self.spawn_batch(spawns, false)
+        self.spawn_batch(spawns, false, &[])
     }
 
     /// A COPY OF A BATTLE UNDER WAY'S UNITS (py.rs `unit_spawns`): `scenario_spawn_batch_levels`, but an evolved or hero
@@ -38125,16 +38229,42 @@ impl BattleState {
     /// either (the Evo Tesla's ring). A record whose state has no fresh value is refused (card.rs `copy_refusal`: a
     /// hero's record a press makes, the Hero Tombstone's waiting monster, the Evo Lumberjack's ghost).
     pub fn scenario_spawn_copy(&mut self, spawns: &[LevelledSpawn]) -> Result<Vec<EntityId>, (usize, DeployError)> {
-        self.spawn_batch(spawns, true)
+        self.spawn_batch(spawns, true, &[])
     }
 
-    /// `scenario_spawn_batch_levels` and `scenario_spawn_copy` (`fresh`).
-    fn spawn_batch(&mut self, spawns: &[LevelledSpawn], fresh: bool) -> Result<Vec<EntityId>, (usize, DeployError)> {
+    /// `scenario_spawn_copy` with each unit's DEPLOY TIME STILL TO RUN, ms, parallel to `spawns` (empty: every unit
+    /// deployed): a unit put down mid-deploy (deploy_ms > 0) stands as a play's unit stands until its timer ends, and
+    /// what its deploy end does (`on_deployed`: a spawner's start, a hide's, the first-hit load) happens then. A
+    /// formation member keeps the stagger wait its time left over its own deploy time says, and a unit past its wait
+    /// counts from the creation its time left says (`setup_spawn_place`). The canonical order's key ends with the time
+    /// left. Refused for a negative time, and for a record with no deploy time of its own, which its creation deploys at
+    /// once.
+    pub fn scenario_spawn_copy_deploying(&mut self, spawns: &[LevelledSpawn], deploy_ms: &[i32]) -> Result<Vec<EntityId>, (usize, DeployError)> {
+        self.spawn_batch(spawns, true, deploy_ms)
+    }
+
+    /// `scenario_spawn_batch_levels` and `scenario_spawn_copy` (`fresh`), with `scenario_spawn_copy_deploying`'s
+    /// `deploy_ms`.
+    fn spawn_batch(&mut self, spawns: &[LevelledSpawn], fresh: bool, deploy_ms: &[i32]) -> Result<Vec<EntityId>, (usize, DeployError)> {
+        if !deploy_ms.is_empty() && deploy_ms.len() != spawns.len() {
+            return Err((0, DeployError::UnsupportedCard(String::new(), format!("{} deploy times for {} spawns: one per spawn, or none", deploy_ms.len(), spawns.len()))));
+        }
+        let left = |k: usize| deploy_ms.get(k).copied().unwrap_or(0);
         let mut checked = Vec::with_capacity(spawns.len());
         for (k, &(team, name, pos, hp, level)) in spawns.iter().enumerate() {
             let (idx, full_hp) = self.setup_spawn_check(team, name, pos, level).map_err(|e| (k, e))?;
             if let Some((_, why)) = self.cfg.cards.copy_refusal(idx).filter(|_| fresh) {
                 return Err((k, DeployError::UnsupportedCard(name.to_string(), why.to_string())));
+            }
+            if left(k) < 0 {
+                return Err((k, DeployError::UnsupportedCard(name.to_string(), format!("a negative deploy time ({} ms)", left(k)))));
+            }
+            if left(k) > 0 {
+                let lvl = level.unwrap_or_else(|| self.card_level_of(team, idx));
+                let (on_board, _) = self.setup_record(idx, lvl).map_err(|e| (k, DeployError::InvalidLevel(e)))?;
+                if self.cfg.cards.get(on_board).deploy_time_ms == 0 {
+                    return Err((k, DeployError::UnsupportedCard(name.to_string(), "it has no deploy time: its creation deploys it at once, so it cannot be put down mid-deploy".into())));
+                }
             }
             checked.push((idx, hp.unwrap_or(full_hp)));
         }
@@ -38157,7 +38287,7 @@ impl BattleState {
                     // canonical, but SLOT order (and so state_hash) follows the list.
                     #[cfg(clash_plant = "setup_spawn_team_list_order")]
                     let team_rank = if team == Team::Red { first_red } else { first_blue };
-                    (team_rank, f.y, f.x, name, checked[k].1, level)
+                    (team_rank, f.y, f.x, name, checked[k].1, level, left(k))
                 };
                 key(a).cmp(&key(b))
             });
@@ -38166,7 +38296,7 @@ impl BattleState {
         let mut groups: [Option<u32>; 2] = [None, None];
         for k in order {
             let (team, _, pos, hp, level) = spawns[k];
-            ids[k] = self.setup_spawn_place(team, checked[k].0, pos, hp, level, fresh.then_some(&mut groups)).map_err(|e| (k, e))?;
+            ids[k] = self.setup_spawn_place(team, checked[k].0, pos, hp, level, fresh.then_some(&mut groups), left(k)).map_err(|e| (k, e))?;
         }
         self.hash.rebuild(&self.ents);
         Ok(ids)

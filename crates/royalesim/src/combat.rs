@@ -1204,6 +1204,44 @@ pub fn attack_reach(ents: &Entities, card: &crate::card::CardDef, a: usize) -> i
     }
 }
 
+/// THE TARGET OF A SHOT WHOSE TARGET IS GONE, put down by a copy (state.rs `scenario_projectile_in_flight`): no entity
+/// is ever this one (`Entities::is_alive` reads it as dead), so the shot flies on to its aim, as one whose target died.
+pub const GONE_TARGET: EntityId = EntityId { index: u32::MAX, generation: u32::MAX };
+
+/// How an attack of `card` stands to a copy's shot in flight (state.rs `scenario_projectile_in_flight`), by the branch
+/// of `fire` its plain attack takes and what its shots carry later: "flies" (one shot, homing or keeping its aim, whose
+/// fire makes all of it), or why one is refused: "no_projectile" (a melee or instant hit), "kamikaze" (the firer goes
+/// with its shot, so it is never on the board to fire it), "straight" (a straight shot or a fan of them,
+/// combat.RANGE_PROJECTILE = straight_to_range or MULTIPLE_PROJECTILES = client_fan: each flies a line from its launch
+/// and hits what it passes), "hops" (a chain or a bounce, card.rs `ChainHitDef`, `BounceDef`, `EvoChainDef`: a hop in
+/// flight carries the hops and victims behind it, which no shot made fresh has), "form_shot" (an evolution whose count
+/// remakes some of its shots after the fire, state.rs `evo_after_fire`: the Evo Musketeer's snipe, the Evo Princess's
+/// freezing volley, the Evo Archer's far shot) or "warp_shot" (a hero whose warp remakes its shots, `strike_after_fire`).
+pub fn shot_kind(cards: &CardDb, calib: &Calib, card: u16) -> &'static str {
+    let c = cards.get(card);
+    if c.projectile.is_none() {
+        return "no_projectile";
+    }
+    if c.kamikaze {
+        return "kamikaze";
+    }
+    let custom = calib.custom_first_projectile == CustomFirstProjectile::ClientFirstOfVolley && c.custom_first_projectile.is_some();
+    if !custom && c.range_shot.is_some() && (calib.range_projectile == RangeProjectile::StraightToRange || fan_count(calib, c) > 1) {
+        return "straight";
+    }
+    let evo = c.evo.as_ref();
+    if c.chain_hit.is_some() || evo.is_some_and(|v| v.bounce.is_some() || v.chain.is_some()) {
+        return "hops";
+    }
+    if evo.is_some_and(|v| v.snipe.is_some() || v.freeze_volley.is_some() || v.far_shot.is_some()) {
+        return "form_shot";
+    }
+    if matches!(c.ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::Warp(_))) {
+        return "warp_shot";
+    }
+    "flies"
+}
+
 /// Turn a completed windup into damage: a projectile, or an instant hit.
 ///
 /// `rng` is drawn only for the release delays of a fan (combat.MULTIPLE_PROJECTILES =

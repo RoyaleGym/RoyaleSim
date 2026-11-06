@@ -64,6 +64,11 @@ own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck c
   `"fresh"` can be put down. A rider, a spell, a unit a hero's button makes (the Hero Musketeer's turret), the Hero
   Tombstone's waiting monster and the Evo Lumberjack's ghost cannot. `snipe_states()` gives each Evo Musketeer's
   snipes left.
+- `unit_deploy_ticks` gives each `unit_spawns` entry its deploy ticks still to run, one per entry (a unit row's
+  `deploy_ticks`), 0 for a deployed unit. A unit still deploying stands until its timer ends, then deploys: a Tesla
+  hides then and a Furnace starts its spirits. A member of a group (a Royal Recruit) keeps the wait the group's
+  stagger gives it. An evolved or hero unit's own clocks start at the copy. Leave out a unit that is under ground (a
+  Miner on its way).
 - `king_wake_ms=[blue, red]` sets each king tower's wake clock: the milliseconds since it was first hit or lost a
   princess tower, or -1. A player row's `king_wake_ms` in `state_json` reads it back.
 - `evo_counts=[blue, red]` gives each evolved deck card's plays since its last evolved one, one count per deck card.
@@ -72,6 +77,15 @@ own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck c
   `(card_id, form, team, x, y, aim_x, aim_y, level, delay_ms)`. One Arrows wave is one entry. `form` is 0 for the
   card, 1 for its evolution, 2 for its hero form and 3 for an evolution's decoy. Ask
   `spell_in_flight_kind(card_id, form)` first: only `"flies"` can be put in flight.
+- `projectiles_in_flight` puts one shot of a unit or crown tower on its way:
+  `(firer, team, x, y, aim_x, aim_y, target)`. `firer` and `target` point at the copy's own board: 0 and up is that
+  `unit_spawns` entry, and -1, -2, -3 are crown towers 0, 1, 2 in the order `reset`'s `tower_hp` takes them, 0 the
+  king (the firer's of `team`, the target's of the other side). A row's `tower_slot` is not that order, and a row's
+  `target_uid` -1 is `None` here, not -1. `target=None` is a shot whose target is gone: it flies on to its aim. The
+  shot is the firer's own, at its level, so the firer must be on the board, and the target must be an enemy. Ask
+  `projectile_in_flight_kind(name, form)` first: only `"flies"` can be put in flight. A straight shot (the Hunter's),
+  a chain or bounce (the Electro Dragon's), an evolution's special shot (the Evo Musketeer's snipe) and a melee hit
+  cannot.
 
 **Commands.** A command is `(team, hand_slot, x, y)`. `step` returns one row per command:
 `(card_id, reason, tick, x, y)`, where `reason` indexes `DEPLOY_REASONS` (`0` is accepted) and `x, y` is where

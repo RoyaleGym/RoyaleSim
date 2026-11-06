@@ -147,7 +147,7 @@ use crate::entity::EntityKind;
 use crate::fixed::Vec2;
 use crate::spell::SpellMotion;
 use crate::state::{deploy_rule, BattleConfig, BattleState, Calib, DeployError, LevelledSpawn, Outcome, SpawnPathfindDestination, ABILITY_BUTTONS, HAND_SIZE};
-use crate::{Rng, Team};
+use crate::{EntityId, Rng, Team};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -717,6 +717,9 @@ pub type PendingRow = (String, i64, i32, i32, u32, i32);
 pub type UnitSpawn = (String, i64, i32, i32, i32, i32, u8);
 /// A `reset` `spells_in_flight` entry: (card_id, form, team, x, y, aim_x, aim_y, level or -1, delay_ms).
 pub type SpellInFlight = (i64, u8, i64, i32, i32, i32, i32, i32, i32);
+/// A `reset` `projectiles_in_flight` entry: (firer, team, x, y, aim_x, aim_y, target or None), firer and target as
+/// `board_ref` reads them.
+pub type ProjectileInFlight = (i64, i64, i32, i32, i32, i32, Option<i64>);
 /// A `spawns` or `unit_spawns` entry as `reset` hands it to the engine: (team, record name, point, hp, level).
 type OwnedSpawn = (Team, String, Vec2, Option<i32>, Option<i32>);
 
@@ -1950,17 +1953,33 @@ impl Battle {
     /// evolved one (its next play is evolved once the count reaches the form's cycle); 0 for every other card.
     /// `unit_spawns`: (unit, team, x, y, hp or -1, level or -1, form), beside `spawns`: any unit by its record's NAME, a
     /// summoned or death-spawned one included (a Golemite, a Battle Ram's Barbarian, a Witch's Skeleton), standing and
-    /// deployed at that unified level (-1: its deck entry's, else the side's card level). `unit` is a record's name or
+    /// deployed (unless `unit_deploy_ticks` says otherwise) at that unified level (-1: its deck entry's, else the side's card level). `unit` is a record's name or
     /// a unit row's `unit_type` name. `form`: 0 the unit named, an evolved or hero one too; 1 or 2 a card's evolution
     /// or hero form, as a deck names it, by the card's name or the form record's (`copy_record`). A form's record stands with its
     /// form's state at a fresh unit's, as its play leaves it, but for the play's own effects (state.rs
     /// `scenario_spawn_copy`; `unit_spawn_kind` says which records can). Both lists go down in one canonical order.
+    /// `unit_deploy_ticks`: parallel to `unit_spawns`, each unit's deploy ticks still to run (a unit row's
+    /// `deploy_ticks`), 0 deployed: a unit put down mid-deploy stands as a play's does until its timer ends, and its
+    /// deploy end (a spawner's start, a hide's) comes then (state.rs `scenario_spawn_copy_deploying`). A formation
+    /// member keeps the stagger wait its time left over its own deploy time says, and a unit past its wait counts from
+    /// the creation its time left says (a Furnace's first spirit); an evolved or hero form's own clocks start at the
+    /// copy. None deploys every unit at once. A record with no deploy time of its own is refused a time above 0. A unit
+    /// under ground (a row's underground bit: a Miner or a Goblin Drill on its way) is not one to put down so.
     /// `spells_in_flight`: (card_id, form, team, x, y, aim_x, aim_y, level or -1, delay_ms): ONE flying object (a
     /// Fireball, a Rocket, one Arrows wave: a volley is one entry per wave, as a state row lists them), cast at its aim
     /// and put at (x, y) with delay_ms still to wait, so it lands when its flight from there ends (its time left follows
     /// from its speed). `form`: 0 the card, 1 its evolved form, 2 its hero form, 3 its evolution's decoy (the Evo Goblin
     /// Barrel's). A record that does not fly (`spell_in_flight_kind`) is refused.
-    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_wake_ms = None, evo_counts = None, unit_spawns = None, spells_in_flight = None, last_played = None))]
+    /// `projectiles_in_flight`: (firer, team, x, y, aim_x, aim_y, target or None): ONE shot of a unit or crown tower of
+    /// this copy, put at (x, y) flying to its aim (a state row's `projectiles` gives those, but not its firer), at
+    /// `target` (None: its target is gone, it flies on to the aim; a row's target_uid -1). `firer` and `target` name the
+    /// copy's own board: k >= 0 the `unit_spawns` entry k, -1 - k the crown tower k in engine order, as this `tower_hp`
+    /// takes them (0 the king), of `team` for the firer and of the other side for the target. The shot is the firer's
+    /// own at its level, made as its fire makes it (state.rs `scenario_projectile_in_flight`), and the firer has fired
+    /// at the target. Refused: a firer whose shots no fire makes whole (`projectile_in_flight_kind`), a firer or target
+    /// not on the board (a crown tower destroyed), a target of the firer's own side. In list order, as a state row
+    /// lists them.
+    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_wake_ms = None, evo_counts = None, unit_spawns = None, spells_in_flight = None, last_played = None, unit_deploy_ticks = None, projectiles_in_flight = None))]
     #[allow(clippy::too_many_arguments)]
     fn reset(
         &mut self,
@@ -1979,6 +1998,8 @@ impl Battle {
         unit_spawns: Option<Vec<UnitSpawn>>,
         spells_in_flight: Option<Vec<SpellInFlight>>,
         last_played: Option<Vec<i64>>,
+        unit_deploy_ticks: Option<Vec<i32>>,
+        projectiles_in_flight: Option<Vec<ProjectileInFlight>>,
     ) -> PyResult<()> {
         if decks.len() != 2 {
             return Err(PyValueError::new_err("decks must be [blue, red]"));
@@ -2092,7 +2113,21 @@ impl Battle {
             specs.push((t, name_of(cid)?, Vec2::new(x, y), (hp >= 0).then_some(hp), None));
         }
         // A UNIT BY ITS RECORD'S NAME (`unit_spawns`): any record the table loads, the catalogue's or not.
-        for (unit, team, x, y, hp, level, form) in unit_spawns.unwrap_or_default() {
+        let unit_spawns = unit_spawns.unwrap_or_default();
+        // Each one's deploy time still to run (`unit_deploy_ticks`), in ms behind `spawns`' zeros.
+        let deploy_ms: Vec<i32> = match unit_deploy_ticks {
+            None => Vec::new(),
+            Some(d) if d.len() == unit_spawns.len() => {
+                let tick_ms = s.config().calib.tick_ms;
+                let mut v = vec![0; spawns.len()];
+                for (k, t) in d.iter().enumerate() {
+                    v.push(t.checked_mul(tick_ms).ok_or_else(|| PyValueError::new_err(format!("unit_deploy_ticks[{k}]: {t} ticks is out of range")))?);
+                }
+                v
+            }
+            Some(d) => return Err(PyValueError::new_err(format!("unit_deploy_ticks has {} entries for {} unit spawns: one per unit spawn, or none", d.len(), unit_spawns.len()))),
+        };
+        for (unit, team, x, y, hp, level, form) in unit_spawns {
             let t = team_of(team).ok_or_else(|| PyValueError::new_err(format!("bad unit spawn team {team}")))?;
             let i = copy_record(&self.cards, &self.catalogue, &self.id_of_idx, &unit, form).map_err(PyValueError::new_err)?;
             match self.copy_kind(i) {
@@ -2107,7 +2142,7 @@ impl Battle {
         }
         let refs: Vec<LevelledSpawn> = specs.iter().map(|(t, n, p, h, l)| (*t, n.as_str(), *p, *h, *l)).collect();
         // `spawns` names catalogue cards only, which no form's start reaches, so one batch takes both lists.
-        s.scenario_spawn_copy(&refs).map_err(|(k, e)| {
+        let ids = s.scenario_spawn_copy_deploying(&refs, &deploy_ms).map_err(|(k, e)| {
             let (_, name, p, _, _) = refs[k];
             PyValueError::new_err(format!("spawn {name} at ({}, {}): {e:?}", p.x, p.y))
         })?;
@@ -2153,6 +2188,26 @@ impl Battle {
             let name = self.cards.get(record).name.clone();
             s.scenario_spell_in_flight(t, &name, (level >= 0).then_some(level), Vec2::new(x, y), Vec2::new(ax, ay), delay_ms)
                 .map_err(|e| PyValueError::new_err(format!("spells_in_flight[{k}]: {e}")))?;
+        }
+        // A SHOT'S FIRER OR TARGET on this board: k >= 0 the `unit_spawns` entry k (`ids` follow `spawns`), -1 - k crown
+        // tower k of `team`.
+        let unit_ids = &ids[spawns.len()..];
+        let board_ref = |s: &BattleState, r: i64, team: Team| -> Result<EntityId, String> {
+            if r >= 0 {
+                return unit_ids.get(r as usize).copied().ok_or_else(|| format!("no unit_spawns entry {r}"));
+            }
+            let k = usize::try_from(-1 - r).map_err(|_| format!("bad board reference {r}"))?;
+            s.tower_ids(team).get(k).copied().flatten().filter(|t| s.entity(*t).is_some()).ok_or_else(|| format!("no crown tower {k} of {team:?} standing"))
+        };
+        for (k, &(firer, team, x, y, ax, ay, target)) in projectiles_in_flight.unwrap_or_default().iter().enumerate() {
+            let at = |e: String| PyValueError::new_err(format!("projectiles_in_flight[{k}]: {e}"));
+            let t = team_of(team).ok_or_else(|| at(format!("bad team {team}")))?;
+            let by = board_ref(&s, firer, t).map_err(at)?;
+            if s.entity(by).map(|e| e.team) != Some(t) {
+                return Err(at(format!("its firer (unit_spawns entry {firer}) is not of team {team}")));
+            }
+            let to = target.map(|r| board_ref(&s, r, t.other())).transpose().map_err(at)?;
+            s.scenario_projectile_in_flight(by, to, Vec2::new(x, y), Vec2::new(ax, ay)).map_err(at)?;
         }
         self.state = Some(s);
         self.step_commands.clear();
@@ -2373,6 +2428,24 @@ impl Battle {
     fn unit_spawn_kind(&self, name: &str, form: u8) -> PyResult<&'static str> {
         let idx = copy_record(&self.cards, &self.catalogue, &self.id_of_idx, name, form).map_err(PyValueError::new_err)?;
         Ok(self.copy_kind(idx))
+    }
+
+    /// How a unit record's shots stand to `reset`'s `projectiles_in_flight` (`name` and `form` as `unit_spawns` takes
+    /// them, or a crown tower's record: "KingTower", "PrincessTower"): "flies" (one shot, homing or keeping its aim, put
+    /// down on its way), or why one is refused (combat.rs `shot_kind`): "no_projectile" (a melee or instant hit),
+    /// "kamikaze" (the firer goes with its shot: the spirits), "straight" (a straight shot or a fan of them, which flies a
+    /// line from its launch: the Hunter's, the Executioner's axe), "hops" (a chain or a bounce: the Electro Dragon's, the
+    /// Evo Bomber's), "form_shot" (an evolution whose count remakes some of its shots: the Evo Musketeer's snipe, the Evo
+    /// Princess's volley, the Evo Archer's far shot) or "warp_shot" (a hero whose warp remakes its shots). A copy's
+    /// builder asks first and leaves out what is refused.
+    #[pyo3(signature = (name, form = 0))]
+    fn projectile_in_flight_kind(&self, name: &str, form: u8) -> PyResult<&'static str> {
+        let idx = match self.cards.index(name).filter(|_| matches!(name, KING_TOWER | PRINCESS_TOWER)) {
+            Some(i) => i,
+            None => copy_record(&self.cards, &self.catalogue, &self.id_of_idx, name, form).map_err(PyValueError::new_err)?,
+        };
+        let calib = self.battle_calib().map_err(PyValueError::new_err)?;
+        Ok(crate::combat::shot_kind(&self.cards, &calib, idx))
     }
 
     /// The catalogue id of the card a Mirror played by `team` now would copy (state.rs `mirror_target`), -1 when

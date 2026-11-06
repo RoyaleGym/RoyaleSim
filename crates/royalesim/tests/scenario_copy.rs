@@ -1,8 +1,8 @@
 //! A COPY OF A BATTLE UNDER WAY (state.rs `scenario_set_king_wake`, `scenario_set_evo_plays`,
-//! `scenario_set_last_played`, `scenario_spawn_batch_levels`, `scenario_spawn_copy`, `scenario_spell_in_flight`;
-//! card.rs `copy_refusal`; spell.rs `in_flight_kind`;
-//! py.rs `Battle.reset`'s king_wake_ms, evo_counts, last_played, unit_spawns and spells_in_flight): the pieces of
-//! state a fresh battle does not have, set at the start.
+//! `scenario_set_last_played`, `scenario_spawn_batch_levels`, `scenario_spawn_copy`, `scenario_spawn_copy_deploying`,
+//! `scenario_spell_in_flight`, `scenario_projectile_in_flight`; card.rs `copy_refusal`; spell.rs `in_flight_kind`;
+//! combat.rs `shot_kind`; py.rs `Battle.reset`'s king_wake_ms, evo_counts, last_played, unit_spawns, unit_deploy_ticks,
+//! spells_in_flight and projectiles_in_flight): the pieces of state a fresh battle does not have, set at the start.
 //!   1. a king's wake clock: awake at the activation delay targets from the first ticks, one still waking wakes on its
 //!      own clock, none is asleep, and none is refused with a princess down (that fall was a trigger);
 //!   2. an evolved card's count makes its next play the one it says, and a count past its cycle, or for a card the deck
@@ -18,6 +18,14 @@
 //!   8. a copy's Evo Skeleton Army Spectral is invisible, as one a soldier's death makes; a copy's Evo Tesla rings when
 //!      it comes up, not at its creation, as a setup spawn's does; the Evo Lumberjack's ghost is refused, the Hero
 //!      Balloon's bomb is not.
+//!   9. units put down mid-deploy (`scenario_spawn_copy_deploying`) run tick for tick as the played ones with that
+//!      time left do: a Knight deploys and walks, a Tesla hides at its deploy end, a Furnace's first spirit comes on
+//!      the played one's tick, Royal Recruits keep their stagger wait under a Musketeer's fire; a negative time, one for
+//!      a record with no deploy time and a list of the wrong length are refused;
+//!  10. a princess tower's arrow put on its way carries what the fired one carries and lands on its tick for its
+//!      damage; one whose target is gone flies on to its aim and lands on nothing; a unit's shot carries its level's
+//!      damage, and is put down past its firer's reach; its firer keeps the target the shot dooms; a firer whose shots
+//!      no fire makes whole (by kind), one not on the board and a target of the firer's own side are refused.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! scenario_copy`):
@@ -29,11 +37,17 @@
 //!   - copy_form_unstarted -> 7 red (and tests/evo_mega_knight.rs `..._a_copys_knight_counts_as_a_played_one`);
 //!   - copy_casts_barrage -> 7 red;
 //!   - copy_spectral_as_soldier -> 8 red;
-//!   - copy_rings_at_creation -> 8 red.
+//!   - copy_rings_at_creation -> 8 red;
+//!   - copy_deploy_left_unset -> 9 red;
+//!   - copy_age_unset -> 9 red (the Furnace);
+//!   - copy_stagger_unset -> 9 red (the Recruits);
+//!   - copy_shot_from_launch -> 10 red;
+//!   - copy_shot_firer_unmarked -> 10 red (the doomed Knight).
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
+use royalesim::combat::Projectile;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
 use royalesim::state::{BattleConfig, BattleState, LevelledSpawn};
@@ -324,4 +338,210 @@ fn a_copys_evolved_unit_is_as_made() {
     assert_eq!(kind("RageBarbarianEvoGhost"), Some("by_death"));
     assert!(s.clone().scenario_spawn_copy(&[(Team::Blue, "RageBarbarianEvoGhost", n(9000, 12000), None, None)]).is_err());
     assert_eq!(kind("BalloonHero_Bomb"), None, "the Hero Balloon's bomb: its death's, as the plain Balloon's is");
+}
+
+/// One of a side's units as a played battle and its copy compare them: (record, deploy ms left, point, hp, shield,
+/// status bits).
+type Unit = (String, i32, (i32, i32), i32, i32, i32);
+
+/// Blue's units but its crown towers, in a fixed order.
+fn blue_units(s: &BattleState) -> Vec<Unit> {
+    let towers = s.tower_ids(Team::Blue);
+    let mut v: Vec<Unit> = s
+        .entities()
+        .filter(|e| e.team == Team::Blue && !towers.contains(&Some(e.id)))
+        .map(|e| (e.card.to_string(), e.deploy_ms, (e.pos.x, e.pos.y), e.hp, e.shield, e.status_flags))
+        .collect();
+    v.sort();
+    v
+}
+
+/// `card` played by Blue at `at` and, `k` ticks into its deploy, a copy of the units it has put down, each with the time
+/// it has left (`scenario_spawn_copy_deploying`), a red `foe` (if any) put down beside them in both then: Blue's units
+/// on each of the next `ticks` ticks, (played, copy).
+fn played_and_copied(card: &str, at: Vec2, k: u32, ticks: u32, foe: Option<(&str, Vec2)>) -> (Vec<Vec<Unit>>, Vec<Vec<Unit>>) {
+    let mut played = battle();
+    played.spawn_unit(Team::Blue, card, at, None).unwrap_or_else(|e| panic!("{card} played: {e:?}"));
+    for _ in 0..k {
+        played.tick();
+    }
+    let now = blue_units(&played);
+    assert!(!now.is_empty() && now.iter().all(|u| u.1 > 0), "the scene drifted: {card} {k} ticks in is not all deploying: {now:?}");
+    let specs: Vec<LevelledSpawn> = now.iter().map(|u| (Team::Blue, u.0.as_str(), Vec2::new(u.2 .0, u.2 .1), Some(u.3), None)).collect();
+    let left: Vec<i32> = now.iter().map(|u| u.1).collect();
+    let mut copy = battle();
+    copy.scenario_spawn_copy_deploying(&specs, &left).unwrap_or_else(|(k, e)| panic!("{card}'s copy, spawn {k}: {e:?}"));
+    assert_eq!(blue_units(&copy), now, "{card}: the copy stands as the played one does");
+    if let Some((f, p)) = foe {
+        for s in [&mut played, &mut copy] {
+            s.scenario_spawn_now(Team::Red, f, p, None).unwrap_or_else(|e| panic!("the {f}: {e:?}"));
+        }
+    }
+    let run = |s: &mut BattleState| {
+        (0..ticks)
+            .map(|_| {
+                s.tick();
+                blue_units(s)
+            })
+            .collect::<Vec<_>>()
+    };
+    (run(&mut played), run(&mut copy))
+}
+
+#[test]
+fn a_unit_put_down_mid_deploy_deploys_as_a_played_one() {
+    // a Knight 6 ticks into his deploy stands until it ends, then walks on the played one's ticks
+    let (want, got) = played_and_copied("Knight", n(9000, 10000), 6, 40, None);
+    assert!(want.windows(2).any(|w| w[0][0].1 == 0 && w[1][0].2 != w[0][0].2), "the control: the played Knight walks once deployed");
+    assert_eq!(got, want, "the Knight");
+    // a Tesla takes its hide's start state at its deploy end (`on_deployed`), not at the copy
+    let (want, got) = played_and_copied("Tesla", n(9000, 10000), 4, 30, None);
+    let hides = |v: &[Vec<Unit>]| v.iter().position(|b| b[0].5 & 4 != 0);
+    assert!(hides(&want).is_some_and(|t| t > 0), "the control: the played Tesla hides once deployed, not before ({:?})", hides(&want));
+    assert_eq!(got, want, "the Tesla");
+    // a Furnace counts its first spirit from its creation (`spawn_tick`), not from the copy
+    let (want, got) = played_and_copied("FirespiritHut", n(9000, 8000), 5, 60, None);
+    assert!(want.last().is_some_and(|b| b.len() > 1), "the control: the played Furnace has made a spirit");
+    assert_eq!(got, want, "the Furnace and its spirits");
+    // Royal Recruits 2 ticks in, a red Musketeer in reach: each member keeps its stagger wait, so the Musketeer passes
+    // over the members still in theirs as it passes over the played ones
+    let (want, got) = played_and_copied("RoyalRecruits", n(9000, 12000), 2, 60, Some(("Musketeer", n(9000, 17500))));
+    let whole = want[0].iter().map(|u| u.3 + u.4).max().unwrap_or(0);
+    assert!(want.last().is_some_and(|b| b.iter().any(|u| u.3 + u.4 < whole)), "the control: the Musketeer hits a played Recruit");
+    assert_eq!(got, want, "the Recruits");
+    // 0 is deployed now, as `scenario_spawn_copy` puts every unit
+    let at = n(9000, 10000);
+    let mut now = battle();
+    now.scenario_spawn_copy_deploying(&[(Team::Blue, "Knight", at, None, None)], &[0]).expect("deployed");
+    assert_eq!(now.entities().find(|e| e.card == "Knight").map(|e| e.deploy_ms), Some(0));
+    // refused: a negative time, a time for a record with no deploy time, a list of another length
+    let s = battle();
+    let knight = [(Team::Blue, "Knight", at, None, None)];
+    assert!(s.clone().scenario_spawn_copy_deploying(&knight, &[-50]).is_err(), "a negative time");
+    assert!(s.clone().scenario_spawn_copy_deploying(&knight, &[50, 50]).is_err(), "two times for one unit");
+    let db = s.cards().clone();
+    let instant = (0..db.cards.len() as u16)
+        .map(|i| db.get(i).name.clone())
+        .find(|u| db.get(db.index(u).expect(u)).deploy_time_ms == 0 && s.clone().scenario_spawn_copy(&[(Team::Blue, u, at, None, None)]).is_ok())
+        .expect("a record with no deploy time that a copy puts down");
+    let e = s.clone().scenario_spawn_copy_deploying(&[(Team::Blue, &instant, at, None, None)], &[50]).expect_err(&instant);
+    assert!(format!("{e:?}").contains("no deploy time"), "{instant}: {e:?}");
+}
+
+/// A shot as the copy compares it: its own fields, without the board's ids (target, firer), its point and carry.
+fn shot_fields(p: &Projectile) -> Projectile {
+    Projectile { pos: Vec2::default(), frac: Vec2::default(), fresh: false, target: EntityId::default(), firer: None, ..p.clone() }
+}
+
+/// The tick, of `ticks`, on which the red Knight `k` held at `p` first loses hitpoints, and that loss.
+fn first_loss(s: &mut BattleState, k: EntityId, p: Vec2, ticks: u32) -> Option<(u32, i32)> {
+    let hp = s.entity(k).expect("the Knight").hp;
+    for t in 1..=ticks {
+        assert!(s.debug_set_pos(k, p));
+        s.tick();
+        let now = s.entity(k).expect("the Knight held alive").hp;
+        if now < hp {
+            return Some((t, hp - now));
+        }
+    }
+    None
+}
+
+#[test]
+fn a_shot_put_on_its_way_lands_as_the_fired_one_does() {
+    // a princess tower's arrow at a red Knight held 4,500 in front of it, 2 ticks after it is fired
+    let at = n(3500, 11000);
+    let mut played = battle();
+    let k = played.scenario_spawn_now(Team::Red, "Knight", at, None).expect("the Knight");
+    let tower_shot = |s: &BattleState| s.projectiles().iter().find(|p| p.team == Team::Blue && !p.fresh).cloned();
+    let mut shot = None;
+    for _ in 0..60 {
+        assert!(played.debug_set_pos(k, at));
+        played.tick();
+        if let Some(p) = tower_shot(&played) {
+            assert!(played.debug_set_pos(k, at));
+            played.tick();
+            shot = played.projectiles().iter().find(|q| q.firer == p.firer && q.team == Team::Blue).cloned();
+            break;
+        }
+    }
+    let shot = shot.expect("the scene drifted: no tower shot in flight within 60 ticks");
+    let firer_at = played.entity(shot.firer.expect("a fired shot names its firer")).expect("the tower").pos;
+    let hp = played.entity(k).expect("the Knight").hp;
+    // the copy: the Knight at that hp, the shot from the tower standing where the firer stands
+    let mut copy = battle();
+    let ck = copy.scenario_spawn_copy(&[(Team::Red, "Knight", at, Some(hp), None)]).expect("the copy's Knight")[0];
+    let tower = copy.tower_ids(Team::Blue).into_iter().flatten().find(|t| copy.entity(*t).is_some_and(|e| e.pos == firer_at)).expect("the tower");
+    copy.scenario_projectile_in_flight(tower, Some(ck), shot.pos, shot.aim).expect("the shot in flight");
+    let put = copy.projectiles().last().expect("the shot").clone();
+    assert_eq!((put.pos, put.aim, put.target, put.firer), (shot.pos, shot.aim, ck, Some(tower)), "where it is, where it goes, at whom, from whom");
+    assert_eq!(shot_fields(&put), shot_fields(&shot), "what it carries is the fired shot's");
+    let (want, got) = (first_loss(&mut played, k, at, 40), first_loss(&mut copy, ck, at, 40));
+    assert!(want.is_some(), "the control: the fired shot lands");
+    assert_eq!(got, want, "the copy's shot lands on the fired one's tick, for its damage");
+    // a shot whose target is gone flies on, closer to its aim each tick, lands there and is gone, on nothing
+    let mut gone = battle();
+    let tower = gone.tower_ids(Team::Blue).into_iter().flatten().find(|t| gone.entity(*t).is_some_and(|e| e.pos == firer_at)).expect("the tower");
+    gone.scenario_projectile_in_flight(tower, None, shot.pos, shot.aim).expect("a shot with no target");
+    let left = |s: &BattleState| s.projectiles().first().map(|p| p.pos.dist2(shot.aim));
+    let mut flight = vec![left(&gone).expect("the shot")];
+    loop {
+        gone.tick();
+        match left(&gone) {
+            Some(d) => flight.push(d),
+            None => break,
+        }
+        assert!(flight.len() < 40, "it never lands");
+    }
+    assert!(flight.len() >= 3 && flight.windows(2).all(|w| w[1] < w[0]), "it flies on to its aim: {flight:?}");
+    assert!(gone.entities().all(|e| e.hp == e.max_hp), "and lands on nothing");
+    // a unit's shot: a Musketeer's, from the copy's own Musketeer, carries her damage at her level, and is put down
+    // whatever its target has done since (one past her reach)
+    let mut s = battle();
+    let ids = s
+        .scenario_spawn_copy(&[(Team::Blue, "Musketeer", n(9000, 9000), None, Some(9)), (Team::Red, "Knight", n(9000, 14000), None, None)])
+        .expect("the Musketeer and a Knight");
+    s.scenario_projectile_in_flight(ids[0], Some(ids[1]), n(9000, 11000), n(9000, 14000)).expect("her shot");
+    let p = s.projectiles().last().expect("her shot").clone();
+    let db = s.cards().clone();
+    let musketeer = db.index("Musketeer").expect("the Musketeer");
+    assert_eq!((p.firer_card, p.damage), (Some(musketeer), db.scaled(musketeer, 9, db.get(musketeer).damage).expect("level 9")), "her card, her level-9 damage");
+    s.clone().scenario_projectile_in_flight(ids[0], Some(ids[1]), n(9000, 20000), n(9000, 22000)).expect("a shot past her reach");
+    // the firer has fired: a red Knight her shot dooms stays her target over a whole one nearer, where a fresh
+    // Musketeer takes the nearer (targeting.DOOMED_TARGET_DROP)
+    let doomed = |shot: bool| {
+        let mut s = battle();
+        let ids = s
+            .scenario_spawn_copy(&[(Team::Blue, "Musketeer", n(9000, 9000), None, None), (Team::Red, "Knight", n(9000, 14000), Some(40), None), (Team::Red, "Knight", n(9000, 13000), None, None)])
+            .expect("the Musketeer and two Knights");
+        if shot {
+            s.scenario_projectile_in_flight(ids[0], Some(ids[1]), n(9000, 13000), n(9000, 14000)).expect("her shot");
+        }
+        s.tick();
+        (s.entity(ids[0]).expect("the Musketeer").target, ids[1], ids[2])
+    };
+    let (t, _, whole) = doomed(false);
+    assert_eq!(t, Some(whole), "the control: with no shot she takes the nearer Knight");
+    let (t, low, _) = doomed(true);
+    assert_eq!(t, Some(low), "with her shot at the low one in flight she keeps it, as a firer does");
+    // refused: a firer whose attack is no single shot its fire makes whole, a firer not on the board, a target of its
+    // own side
+    let kind = |u: &str| royalesim::combat::shot_kind(&db, &s.config().calib, db.index(u).unwrap_or_else(|| panic!("{u}")));
+    assert_eq!(
+        ["Musketeer", "PrincessTower", "KingTower", "Hunter", "Knight", "FireSpirits", "ElectroDragon", "Bomber_EV1", "Musketeer_EV1", "Archer_EV1"].map(kind),
+        ["flies", "flies", "flies", "straight", "no_projectile", "kamikaze", "hops", "hops", "form_shot", "form_shot"]
+    );
+    let warps: Vec<u16> = (0..db.cards.len() as u16).filter(|&i| matches!(db.get(i).ability.as_ref().map(|a| &a.effect), Some(royalesim::card::AbilityEffect::Warp(_)))).collect();
+    assert!(!warps.is_empty(), "the table has a warping hero");
+    for i in warps {
+        let want = if db.get(i).projectile.is_some() { "warp_shot" } else { "no_projectile" };
+        assert_eq!(royalesim::combat::shot_kind(&db, &s.config().calib, i), want, "{}", db.get(i).name);
+    }
+    let knight = s.scenario_spawn_copy(&[(Team::Blue, "Knight", n(9000, 8000), None, None)]).expect("a blue Knight")[0];
+    let e = s.clone().scenario_projectile_in_flight(knight, Some(ids[1]), n(9000, 11000), n(9000, 14000)).expect_err("a Knight fires nothing");
+    assert!(e.contains("no single shot (no_projectile)"), "{e}");
+    let e = s.clone().scenario_projectile_in_flight(royalesim::combat::GONE_TARGET, None, n(9000, 11000), n(9000, 14000)).expect_err("no firer");
+    assert!(e.contains("not on the board"), "{e}");
+    let e = s.clone().scenario_projectile_in_flight(ids[0], Some(knight), n(9000, 9000), n(9000, 8000)).expect_err("a friend");
+    assert!(e.contains("of its own side"), "{e}");
 }
