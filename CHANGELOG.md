@@ -3,6 +3,24 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.48 (2026-11-06)
+
+- `reset` takes two more optional arguments for copying a battle under way. Leaving them out keeps the old
+  behaviour:
+  - `unit_deploy_ticks` gives each `unit_spawns` entry its deploy ticks still to run, one per entry (a unit row's
+    `deploy_ticks`), 0 for a deployed unit. A unit still deploying stands until its timer ends, then deploys. A
+    negative count, and a count above 0 for a unit that has no deploy time, are refused.
+  - `projectiles_in_flight` puts one shot of a unit or crown tower on its way:
+    `(firer, team, x, y, aim_x, aim_y, target)`. `firer` and `target` point at the copy's own board: 0 and up is
+    that `unit_spawns` entry, and -1, -2, -3 are crown towers 0, 1, 2 in `reset`'s `tower_hp` order. `target=None`
+    is a shot whose target is gone: it flies on to its aim. The shot is the firer's own, at its level, so the firer
+    must be on the board.
+- New `projectile_in_flight_kind(name, form=0)` says first whether a unit's or crown tower's shot can be put in
+  flight. Only `"flies"` can. The others are `"straight"` (the Hunter's shots), `"hops"` (a chain or bounce),
+  `"form_shot"` (an evolution's special shot), `"warp_shot"` (a hero whose warp remakes its shots), `"kamikaze"`
+  and `"no_projectile"` (a melee hit). A crown tower is `"KingTower"` or `"PrincessTower"`.
+- `state_json` is unchanged, so royalegym needs no upgrade.
+
 ## 0.1.47 (2026-11-05)
 
 - 2 more settings default to the current client's behaviour, each measured against its recorded battles:
