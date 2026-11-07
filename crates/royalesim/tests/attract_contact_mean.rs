@@ -21,6 +21,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
+use royalesim::move16402;
 use royalesim::state::{AttractContactMean, BattleConfig, BattleState, Calib};
 use royalesim::Team;
 
@@ -32,20 +33,25 @@ const HELD_AT: (i32, i32) = (9000, 10300);
 
 /// The first Knight's step per tick (native) over the Tornado's life, under `arm`.
 fn steps(arm: AttractContactMean) -> Vec<(i32, i32)> {
+    steps_beside(arm, HELD_AT)
+}
+
+/// As `steps`, the held Knight on `held_at`.
+fn steps_beside(arm: AttractContactMean, held_at: (i32, i32)) -> Vec<(i32, i32)> {
     let mut cfg: BattleConfig = config();
     cfg.calib.attract_contact_mean = arm;
     let mut s = BattleState::new(0, cfg);
     let knight = s.scenario_spawn_now(Team::Blue, "Knight", at((9000, 9000)), None).expect("the Knight");
-    let held = s.scenario_spawn_now(Team::Blue, "Knight", at(HELD_AT), None).expect("the held Knight");
+    let held = s.scenario_spawn_now(Team::Blue, "Knight", at(held_at), None).expect("the held Knight");
     for _ in 0..3 {
-        assert!(s.debug_set_pos(held, at(HELD_AT)));
+        assert!(s.debug_set_pos(held, at(held_at)));
         s.tick();
     }
     let p = s.entity(knight).expect("the Knight").pos;
     s.spawn_unit(Team::Red, "Tornado", Vec2::new(p.x, p.y + 900 * K), None).expect("cast the Tornado");
     let mut out = Vec::new();
     for _ in 0..24 {
-        assert!(s.debug_set_pos(held, at(HELD_AT)));
+        assert!(s.debug_set_pos(held, at(held_at)));
         let a = s.entity(knight).expect("the scene drifted: the Knight died").pos;
         s.tick();
         let b = s.entity(knight).expect("the scene drifted: the Knight died").pos;
@@ -65,6 +71,24 @@ fn a_pulled_unit_takes_the_pull_into_its_contact_mean_under_client15535_in_mean(
     // The held Knight stands north: its push on the pulled one is south, the pull north; in the mean the pull is halved
     // with the push, so the step north is shorter than the after-mean's walk + capped push + whole pull.
     assert!(new[part].1 < old[part].1, "client15535_in_mean: the step on the first contact tick is not shorter north ({:?} vs {:?})", new[part], old[part]);
+}
+
+/// The contact push `move16402::move_towards` applies for an accumulator of (400, 0) over 2 entries (a mean of 200), standing
+/// still, with `uncapped` set or not.
+fn applied_push(uncapped: bool) -> (i32, i32) {
+    let mut con = move16402::Contact { acc: (400, 0), count: 2, offset: 0, uncapped };
+    move16402::move_towards((9000, 9000), 9000, 9000, 0, false, &mut con, (0, 0), false, |_, _| false, 18, 32).push
+}
+
+/// collision.ATTRACT_CONTACT_MEAN = client16402_in_mean_uncapped (parity r88, the oracle's replays of 100 battles on client 16.402:
+/// a Royal Hog pulled by a Tornado while touching one neighbour stepped 210 to 300 a tick, (the 432 pull + its push) / 2, where
+/// the engine's mean was capped at 150): a mean that holds a pull (`Contact::uncapped`, set by the walk step under the new arm)
+/// is applied whole; any other mean of 150 or more is capped at 150. Plant: pulled_mean_capped.
+#[test]
+fn under_client16402_in_mean_uncapped_a_mean_holding_a_pull_is_not_capped() {
+    assert_eq!(applied_push(true), (200, 0), "client16402_in_mean_uncapped: a mean of 200 holding a pull was not applied whole");
+    // NOT VACUOUS: the same mean with no pull in it is capped
+    assert_eq!(applied_push(false), (150, 0), "the cap: a mean of 200 with no pull in it was not capped at 150");
 }
 
 #[test]

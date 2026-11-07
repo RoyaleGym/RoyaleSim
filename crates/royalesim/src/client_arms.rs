@@ -444,6 +444,11 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.UPPERCUT_STAND_VICTIM = enters: unread on client 15.535.29.
 ///   targeting.CHASE_HOLD_BACKWARDS = chase_limit: client 15.535.29 kept 158 of 159 troop holds past round sight inside the limit.
 ///   combat.GOBLIN_MACHINE_ROCKET = unbuilt: unread on client 15.535.29.
+///   combat.REFLECT_WHILE_HELD = answers: unread on client 15.535.29.
+///   combat.HOOK_DRAG_SPEED = constant_510: client 15.535.29's drags were of Knights (509-510); other victims unread.
+///   combat.SHIELD_BREAK_RESETS_ATTACK = kept: unread on client 15.535.29.
+///   spells.REROLL_HIDE_WINDOW = at_trigger: client 15.535.29's one scene (sp-form-BarbLog-hero-s0) was read for the slide and
+///   the ride only.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -707,6 +712,10 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.UPPERCUT_STAND_VICTIM", "\"enters\""),
     ("targeting.CHASE_HOLD_BACKWARDS", "\"chase_limit\""),
     ("combat.GOBLIN_MACHINE_ROCKET", "\"unbuilt\""),
+    ("combat.REFLECT_WHILE_HELD", "\"answers\""),
+    ("combat.HOOK_DRAG_SPEED", "\"constant_510\""),
+    ("combat.SHIELD_BREAK_RESETS_ATTACK", "\"kept\""),
+    ("spells.REROLL_HIDE_WINDOW", "\"at_trigger\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

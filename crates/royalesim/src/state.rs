@@ -2272,6 +2272,22 @@ pub struct Calib {
     pub pulsing_area_offsets: Vec<(String, i32)>,
     /// movement.STOMP_PAUSE_SCHEDULE: the buffable millisecond clock, or the tick index.
     pub stomp_schedule: StompSchedule,
+    /// combat.REFLECT_WHILE_HELD (whether a held reflecting unit answers a hit). Added after SNAPSHOT_FORMAT 20; the default is
+    /// the old arm, `Answers`, what a battle saved before it ran.
+    #[serde(default = "reflect_while_held_default")]
+    pub reflect_while_held: ReflectWhileHeld,
+    /// combat.HOOK_DRAG_SPEED (the Fisherman's drag step). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `Constant510`, what a battle saved before it ran.
+    #[serde(default = "hook_drag_speed_default")]
+    pub hook_drag_speed: HookDragSpeed,
+    /// combat.SHIELD_BREAK_RESETS_ATTACK (whether a shield's break restarts the ramping attackers on it). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `Kept`, what a battle saved before it ran.
+    #[serde(default = "shield_break_resets_attack_default")]
+    pub shield_break_resets_attack: ShieldBreakResetsAttack,
+    /// spells.REROLL_HIDE_WINDOW (when the Hero Barbarian Barrel's re-rolled Barbarian is hidden). Added after SNAPSHOT_FORMAT
+    /// 20; the default is the old arm, `AtTrigger`, what a battle saved before it ran.
+    #[serde(default = "reroll_hide_window_default")]
+    pub reroll_hide_window: RerollHideWindow,
 }
 
 impl Calib {
@@ -3399,6 +3415,22 @@ fn uppercut_stand_victim_default() -> UppercutStandVictim {
 
 fn chase_hold_backwards_default() -> ChaseHoldBackwards {
     ChaseHoldBackwards::ChaseLimit
+}
+
+fn reflect_while_held_default() -> ReflectWhileHeld {
+    ReflectWhileHeld::Answers
+}
+
+fn hook_drag_speed_default() -> HookDragSpeed {
+    HookDragSpeed::Constant510
+}
+
+fn shield_break_resets_attack_default() -> ShieldBreakResetsAttack {
+    ShieldBreakResetsAttack::Kept
+}
+
+fn reroll_hide_window_default() -> RerollHideWindow {
+    RerollHideWindow::AtTrigger
 }
 
 fn goblin_machine_rocket_default() -> GoblinMachineRocket {
@@ -5997,6 +6029,10 @@ const HOOK_SELF_DRAG_STEP: i32 = 450;
 /// to the special projectile's DragBackSpeed (850) is OPEN, and a target other than a Knight is
 /// not measured.
 const HOOK_DRAG_STEP: i32 = 510;
+
+/// combat.HOOK_DRAG_SPEED = client16402_victim_speed: the special projectile's DragBackSpeed, a percent of the victim's Speed
+/// column (`BattleState::hook_drag_step`; 850 x 60 / 100 is the Knight's 510).
+const HOOK_DRAG_BACK_SPEED: i32 = 850;
 calib_enum!(
     /// movement.WAITING_HEADING -- what a member still WAITING OUT ITS STAGGER
     /// (formation.STAGGER_WAIT's measured arm, entity.rs `stagger_ms` > 0) is in a walker's
@@ -8117,6 +8153,10 @@ calib_enum!(
         /// 32 of 32 pulled steps with an overlapping neighbour (sp-form-Wizard-hero-s0's Musketeer pulled into a Knight
         /// t248-t251, sp-form-Valkyrie-evo-s0's Knight among Skeletons), the after-mean reading 0 of 32.
         Client15535InMean = "client15535_in_mean",
+        /// As client15535_in_mean, and the mean that holds a pull is not capped at 150 (client 16.402, parity r88, the
+        /// oracle's replays: a Royal Hog pulled by a Tornado while touching one neighbour stepped 210 to 300 a tick, (the
+        /// 432 pull + its push) / 2, where the cap held the engine's at 150).
+        Client16402InMeanUncapped = "client16402_in_mean_uncapped",
     }
 );
 calib_enum!(
@@ -9221,6 +9261,61 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// combat.REFLECT_WHILE_HELD -- whether a reflecting unit (the Electro Giant) held by a stun or a freeze answers a hit
+    /// (`reflect_melee_hit`, `reflect_landed_shot`, `reflect_held`).
+    ReflectWhileHeld {
+        /// The engine's: it answers as when free.
+        Answers = "answers",
+        /// Client 16.402 (parity r88, the oracle's replays of 100 battles): a held one does not answer. 37 of 40 hits on a
+        /// stunned Electro Giant within its reach drew no reflect; the 3 that did landed on the stun's last held tick.
+        Client16402HeldNoReflect = "client16402_held_no_reflect",
+        /// As client16402_held_no_reflect, except on the stun's last held tick (its stun at most a tick long), where it answers.
+        Client16402HeldNoReflectButLast = "client16402_held_no_reflect_but_last",
+    }
+);
+calib_enum!(
+    /// spells.REROLL_HIDE_WINDOW -- when the Hero Barbarian Barrel's re-rolled Barbarian is hidden (`fire_ability`'s ReRoll,
+    /// `reroll_pass`).
+    RerollHideWindow {
+        /// The engine's: hidden from the trigger to the landing, then deploying and a target at once.
+        AtTrigger = "at_trigger",
+        /// Client 16.402 (parity r88, the oracle's replays of 100 battles, 43 re-rolls): visible and hittable through its
+        /// back-slide (damage in that window in 22 of 43, the engine's 0), hidden from its log's tick (after the heal; its
+        /// attackers let it go on the next tick, 69 of 84), nobody's target before its landing + 2 (26 of 26 re-acquired
+        /// soon), and its stand-up deploy a tick longer (its first step on the landing + 21 or + 22, 18 of 18, the engine's
+        /// + 20).
+        Client16402LogTickToLandPlus2 = "client16402_log_tick_to_land_plus_2",
+    }
+);
+calib_enum!(
+    /// combat.SHIELD_BREAK_RESETS_ATTACK -- what a shield's break does to the enemies attacking its unit
+    /// (`shield_break_resets`, called from `shield_blasts` on both of its paths).
+    ShieldBreakResetsAttack {
+        /// The engine's: nothing; their attacks run on.
+        Kept = "kept",
+        /// Client 16.402 (parity r88, the oracle's replays of 100 battles): every enemy targeting it whose row ramps
+        /// (VariableDamage: the Inferno Dragon, the Inferno Tower) or combos (the Monk) restarts its attack on the break's
+        /// tick: progress 0, target and load timer kept, so an Inferno's ramp starts again at its first stage. Attackers
+        /// targeting a Royal Recruit reset just before its first hp loss: Inferno Dragon 12 of 16, Inferno Tower 3 of 3, Monk 10
+        /// of 17; Knight 0 of 82, Valkyrie 0 of 21, Mini P.E.K.K.A 0 of 7.
+        Client16402VariableRowsRestart = "client16402_variable_rows_restart",
+        /// As client16402_variable_rows_restart for the ramping rows alone (the Infernos, 15 of 19); a combo row (the Monk, 10
+        /// of 17) runs on (parity r88: the Monk's reset moved an oracle battle's first divergence a tick earlier).
+        Client16402InfernoRowsRestart = "client16402_inferno_rows_restart",
+    }
+);
+calib_enum!(
+    /// combat.HOOK_DRAG_SPEED -- the Fisherman's drag step on its victim (`step_hook_drags`, `hook_drag_step`).
+    HookDragSpeed {
+        /// The engine's: 510 native a tick whatever the victim (measured on Knights).
+        Constant510 = "constant_510",
+        /// Client 16.402 (parity r88, the oracle's replays): the victim's Speed column times the special projectile's
+        /// DragBackSpeed (850) / 100: a Recruit (60) 510 in 48 of 53 steps, a Goblin Brawler (90) 765 in 10 of 12, a Royal
+        /// Hog (120) 1010-1020 in 17 of 21.
+        Client16402VictimSpeed = "client16402_victim_speed",
+    }
+);
+calib_enum!(
     /// combat.REFLECT_ATTACK -- what a unit whose card carries a reflect (card.rs `ReflectDef`:
     /// the Electro Giant) does when a melee hit lands on it.
     ReflectAttack {
@@ -9966,6 +10061,10 @@ calib_enum!(
         /// Tower, Tombstone, Goblin Cage, Goblin Hut and Barbarian Hut are first targeted on F + 0 (a Tesla, which comes
         /// up out of its hide, on F + 9) in the client and the engine alike.
         Client8thFrameActionBuildings = "client_8th_frame_action_buildings",
+        /// Client 16.402 (parity r88, the oracle's replays of 100 battles): client_8th_frame_action_buildings, and a unit a
+        /// DEATH projectile releases (the Phoenix's egg) waits too: six enemies (both towers, two Royal Recruits, a Goblin
+        /// Brawler, the Dart Barrell) first took an egg on its F + 7, the engine's on F + 1.
+        Client16402DeathShots = "client16402_8th_frame_death_shots",
     }
 );
 calib_enum!(
@@ -12518,6 +12617,10 @@ impl Calib {
             spawn_pathfind_body: pick(&v, &["movement", "SPAWN_PATHFIND_BODY", "value"], SpawnPathfindBody::from_calibration_name)?,
             morph_birth_drain: pick(&v, &["movement", "SPAWN_PATHFIND_MORPH_BIRTH", "value"], MorphBirthDrain::from_calibration_name)?,
             spawn_pathfind_destination: pick(&v, &["placement", "SPAWN_PATHFIND_DESTINATION", "value"], SpawnPathfindDestination::from_calibration_name)?,
+            reflect_while_held: pick(&v, &["combat", "REFLECT_WHILE_HELD", "value"], ReflectWhileHeld::from_calibration_name)?,
+            hook_drag_speed: pick(&v, &["combat", "HOOK_DRAG_SPEED", "value"], HookDragSpeed::from_calibration_name)?,
+            shield_break_resets_attack: pick(&v, &["combat", "SHIELD_BREAK_RESETS_ATTACK", "value"], ShieldBreakResetsAttack::from_calibration_name)?,
+            reroll_hide_window: pick(&v, &["spells", "REROLL_HIDE_WINDOW", "value"], RerollHideWindow::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -17668,7 +17771,7 @@ impl BattleState {
         let troop = true; // PLANT: a death-spawned building waits too.
         // targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame_action_buildings: an action's building waits too.
         #[cfg(not(clash_plant = "action_building_acquired_at_once"))]
-        let action_building = action_made && arm == SpawnedUnitAcquireDelay::Client8thFrameActionBuildings;
+        let action_building = action_made && matches!(arm, SpawnedUnitAcquireDelay::Client8thFrameActionBuildings | SpawnedUnitAcquireDelay::Client16402DeathShots);
         #[cfg(clash_plant = "action_building_acquired_at_once")]
         let action_building = false; // PLANT (regression): the new arm exempts the turret, as client_8th_frame does.
         if on && (troop || action_building) {
@@ -22398,11 +22501,36 @@ impl BattleState {
         self.evo.barrel_drops.retain(|id| ents.is_alive(*id));
     }
 
+    /// combat.SHIELD_BREAK_RESETS_ATTACK = client16402_variable_rows_restart: on the tick the units in `broke` lost their shields,
+    /// every live enemy targeting one of them whose row ramps (VariableDamage) or combos restarts its attack: progress 0
+    /// (combat.rs `hit_damage` reads an Inferno's stage off it), target and load timer kept. PLANT (regression)
+    /// shield_break_keeps_attack: the new arm leaves the attacks running.
+    fn shield_break_resets(&mut self, broke: &[EntityId]) {
+        let arm = self.cfg.calib.shield_break_resets_attack;
+        if arm == ShieldBreakResetsAttack::Kept || cfg!(clash_plant = "shield_break_keeps_attack") {
+            return;
+        }
+        let combos = arm == ShieldBreakResetsAttack::Client16402VariableRowsRestart;
+        for a in 0..self.ents.capacity() {
+            if !self.ents.alive[a] || !self.ents.target[a].is_some_and(|t| broke.contains(&t)) {
+                continue;
+            }
+            let c = self.cfg.cards.get(self.ents.card[a]);
+            if c.variable_damage.is_some() || (combos && c.combo.is_some()) {
+                self.ents.attack_ms[a] = 0;
+            }
+        }
+    }
+
     /// THE SHIELD'S BLAST (card.rs `EvoDef::shield_blast`, the Evo Wizard's), in the Resolve phase right after the tick's
     /// damage: each unit whose shield went to 0 makes its blast on its point, at its level, as a cast of its card (the area
     /// strikes on its first update). Read off the table, not measured.
-    fn shield_blasts(&mut self, broke: Vec<EntityId>) {
+    fn shield_blasts(&mut self, mut broke: Vec<EntityId>) {
+        self.shield_break_resets(&broke);
         let cards = self.cfg.cards.clone();
+        // combat.SHIELD_BREAK_RESETS_ATTACK's new arm records every break (combat.rs `every_break`): the blasts are a shield
+        // blast's card's alone.
+        broke.retain(|id| self.ents.is_alive(*id) && cards.get(self.ents.card[id.index as usize]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()));
         for id in broke {
             if !self.ents.is_alive(id) {
                 continue;
@@ -27814,7 +27942,7 @@ impl BattleState {
                     // or frozen unit through its ladder is the engine's guess, recorded
                     // on knockback.DISPLACEMENT_LAW's open list -- no capture has a
                     // stunned unit mid-ladder)
-                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
+                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i], uncapped: false };
                     let mut rem = push_speed[i];
                     if rem > 0 {
                         // the separation scan while the speed is still positive (the
@@ -27985,7 +28113,7 @@ impl BattleState {
                             }
                         }
                     }
-                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
+                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i], uncapped: false };
                     if !tag_off[i] {
                         move16402::separation_scan_with(&index, &bodies, i, &mut con, &mut scratch, no_ally[i]);
                     }
@@ -28581,7 +28709,7 @@ impl BattleState {
                         jumping[i] = false;
                         continue;
                     };
-                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
+                    let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i], uncapped: false };
                     move16402::decay_offset(&mut con); // unconditional
                     // JumpSpeed raw -- no buff, no charge multiplier
                     let speed = jump.speed;
@@ -28848,7 +28976,7 @@ impl BattleState {
                     }
                 }
                 // ---- 3. the contact scans
-                let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i] };
+                let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i], uncapped: false };
                 let waypoint = if routes[i].len() >= 2 { routes[i].last().map(|&p| node_centre(p)) } else { None };
                 // collision.HELD_UNIT_AVOIDANCE = masked: a held unit (`held_walk`) is masked out of the scan as an
                 // attacking one is; the decay below still runs.
@@ -29036,13 +29164,16 @@ impl BattleState {
                 // overlapping neighbour); with none it stays whole, after the (empty) mean.
                 // PLANT (regression) attract_after_mean: the new arm adds the pull after the mean.
                 #[cfg(not(clash_plant = "attract_after_mean"))]
-                let in_mean = calib.attract_contact_mean == AttractContactMean::Client15535InMean;
+                let in_mean = matches!(calib.attract_contact_mean, AttractContactMean::Client15535InMean | AttractContactMean::Client16402InMeanUncapped);
                 #[cfg(clash_plant = "attract_after_mean")]
                 let in_mean = false;
                 let pull = if in_mean && pull != (0, 0) && con.count > 0 {
                     con.acc.0 += pull.0;
                     con.acc.1 += pull.1;
                     con.count += attract_n[i].max(1);
+                    // collision.ATTRACT_CONTACT_MEAN = client16402_in_mean_uncapped: the mean that holds a pull is not capped
+                    // (move16402.rs `collision_mean`).
+                    con.uncapped = calib.attract_contact_mean == AttractContactMean::Client16402InMeanUncapped;
                     (0, 0)
                 } else {
                     pull
@@ -31160,12 +31291,31 @@ impl BattleState {
     /// ReflectedAttackRadius of the victim's edge, a crown tower with ReflectAttackCrownTowerDamage, at the victim's level,
     /// the stun landed here and now. Measured on client 16.402 (the live population, parity's eg_reflect2.py: 136 truth
     /// reflect events, 103 on projectile attackers and crown towers, the edge gap topping out at 1943-2008).
+    /// combat.REFLECT_WHILE_HELD: does reflecting unit `v`, held by a stun or a freeze (entity.rs `held`), withhold its
+    /// answer? Never under answers; under client16402_held_no_reflect_but_last it answers on its stun's last held tick (a stun
+    /// of at most one tick left). PLANT (regression) held_unit_reflects: the new arms still answer.
+    fn reflect_held(&self, v: usize) -> bool {
+        let arm = self.cfg.calib.reflect_while_held;
+        if arm == ReflectWhileHeld::Answers || cfg!(clash_plant = "held_unit_reflects") {
+            return false;
+        }
+        if !self.ents.held(&self.cfg.cards.buffs, v, self.cfg.calib.full_stop_buff_is_stun) {
+            return false;
+        }
+        let last = self.ents.stun_ms[v] > 0 && self.ents.stun_ms[v] <= self.cfg.calib.tick_ms;
+        !(arm == ReflectWhileHeld::Client16402HeldNoReflectButLast && last)
+    }
+
     fn reflect_landed_shot(&mut self, firer: EntityId, victim: EntityId) {
         if !self.ents.is_alive(firer) || !self.ents.is_alive(victim) {
             return;
         }
         let (a, v) = (firer.index as usize, victim.index as usize);
         let Some(r) = self.cfg.cards.get(self.ents.card[v]).reflect else { return };
+        // combat.REFLECT_WHILE_HELD: a held reflecting unit withholds its answer (`reflect_held`).
+        if self.reflect_held(v) {
+            return;
+        }
         let e = &self.ents;
         if e.hide[v] == HideState::Hidden || !crate::fixed::in_range_edge(e.pos[v], e.pos[a], r.radius + e.radius[v], e.radius[a]) {
             return;
@@ -31215,6 +31365,10 @@ impl BattleState {
             #[cfg(clash_plant = "reflect_ignores_victim_card")]
             let reflect = self.cfg.cards.cards.iter().find_map(|c| c.reflect);
             let Some(r) = reflect else { continue };
+            // combat.REFLECT_WHILE_HELD: a held reflecting unit withholds its answer (`reflect_held`).
+            if self.reflect_held(v) {
+                continue;
+            }
             // PLANTS (regression): reflect_ignores_reach drops this test alone, so a hit from any
             // distance is answered; reflect_every_attack drops it and the shot return above.
             // combat.REFLECT_RANGED = client16402_landing_edge: the attacker's edge within the radius of the reflecting
@@ -31446,6 +31600,19 @@ impl BattleState {
     /// guard_land_point's lattice under the shipped combat.HOOK_WATER_LANDING = client16402_nearest_land_lattice).
     /// A thrower that is gone ends the drag where it stands (what
     /// cancels a drag is OPEN), and a knockback on the victim runs first while the drag waits.
+    /// combat.HOOK_DRAG_SPEED: hooked victim `i`'s drag step, native a tick: HOOK_DRAG_STEP under constant_510; under
+    /// client16402_victim_speed its Speed column times HOOK_DRAG_BACK_SPEED / 100 (a Speed of 0: HOOK_DRAG_STEP). PLANT
+    /// (regression) hook_drag_constant: the new arm still steps 510.
+    fn hook_drag_step(&self, i: usize) -> i32 {
+        if self.cfg.calib.hook_drag_speed == HookDragSpeed::Client16402VictimSpeed && !cfg!(clash_plant = "hook_drag_constant") {
+            let speed = self.cfg.cards.get(self.ents.card[i]).speed;
+            if speed > 0 {
+                return speed * HOOK_DRAG_BACK_SPEED / 100;
+            }
+        }
+        HOOK_DRAG_STEP
+    }
+
     fn step_hook_drags(&mut self) {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
         let (width, height) = (self.cfg.arena.width, self.cfg.arena.height);
@@ -31519,7 +31686,8 @@ impl BattleState {
             let d = q.sub(p);
             let len = isqrt(d.len2()) as i32;
             let stop = sp.drag_margin + self.ents.radius[i] + self.ents.radius[bi];
-            let step = HOOK_DRAG_STEP * K;
+            let drag = self.hook_drag_step(i);
+            let step = drag * K;
             #[cfg(not(clash_plant = "hook_drag_steps_inside_margin"))]
             let room = len - step >= stop;
             #[cfg(clash_plant = "hook_drag_steps_inside_margin")]
@@ -31566,7 +31734,7 @@ impl BattleState {
             let np = if native {
                 let (nx, ny) = ((q.x.div_euclid(K) - p.x.div_euclid(K)) as i64, (q.y.div_euclid(K) - p.y.div_euclid(K)) as i64);
                 let ln = isqrt(nx * nx + ny * ny).max(1);
-                Vec2::new(p.x + (nx * HOOK_DRAG_STEP as i64 / ln) as i32 * K, p.y + (ny * HOOK_DRAG_STEP as i64 / ln) as i32 * K)
+                Vec2::new(p.x + (nx * drag as i64 / ln) as i32 * K, p.y + (ny * drag as i64 / ln) as i32 * K)
             } else {
                 Vec2::new(p.x + ((d.x as i64) * (step as i64) / (len as i64)) as i32, p.y + ((d.y as i64) * (step as i64) / (len as i64)) as i32)
             };
@@ -32027,8 +32195,14 @@ impl BattleState {
                     }
                 }
             };
+            // targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client16402_8th_frame_death_shots: a unit a DEATH projectile releases (the
+            // Phoenix's egg; its source card carries the projectile) waits for its F + 7 as a death spawn does. PLANT
+            // (regression) death_shot_unit_acquired_at_once: the new arm leaves the egg a target from its first frame.
+            let death_shot = self.cfg.calib.spawned_unit_acquire_delay == SpawnedUnitAcquireDelay::Client16402DeathShots
+                && self.cfg.cards.get(r.source).death_projectile.is_some()
+                && !cfg!(clash_plant = "death_shot_unit_acquired_at_once");
             for p in points {
-                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: false, first_update: release_first, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: r.source });
+                self.release(PendingSpawn { team: r.team, card: r.unit, level: r.level, pos: p, deploy_ms: r.deploy_ms, owner: None, stagger_ms: 0, slide_centre: Vec2::default(), slide_radius: 0, slide_ticks: 0, slide_end: Vec2::default(), acquire_delay: death_shot, first_update: release_first, facing: None, summon_x: None, morph_birth: false, cloned: false, action_made: false, source: r.source });
             }
         }
         // A SCHEDULED AREA'S UNITS (the Graveyard's Skeletons, the Suspicious Bush's goblins), each at its own point
@@ -33375,6 +33549,12 @@ impl BattleState {
     /// frame); on the log's tick it heals `heal_missing_pct` of its missing hitpoints and notes its point (the log's);
     /// after it, it stands where the log stood the tick before, and when the log's roll is done it stands up there with
     /// a deploy of `deploy_ms`, its hide off and its target dropped. A Barbarian gone ends the run (its log rolls on).
+    /// spells.REROLL_HIDE_WINDOW = client16402_log_tick_to_land_plus_2? PLANT (regression) reroll_hidden_at_trigger: the new
+    /// arm still hides the Barbarian at the trigger.
+    fn reroll_hides_late(&self) -> bool {
+        self.cfg.calib.reroll_hide_window == RerollHideWindow::Client16402LogTickToLandPlus2 && !cfg!(clash_plant = "reroll_hidden_at_trigger")
+    }
+
     fn reroll_pass(&mut self) {
         let tick_ms = self.cfg.calib.tick_ms.max(1);
         let runs = std::mem::take(&mut self.warps.rerolls);
@@ -33400,6 +33580,11 @@ impl BattleState {
                 let (hp, max) = (self.ents.hp[i], self.ents.max_hp[i]);
                 self.ents.hp[i] = hp + (max - hp).max(0) * rr.heal_missing_pct / 100;
                 r.start = Some(self.ents.pos[i]);
+                // spells.REROLL_HIDE_WINDOW = client16402_log_tick_to_land_plus_2: hidden from here, after the heal.
+                if self.reroll_hides_late() {
+                    let h = crate::status::BuffHit::plain(r.id, rr.hide.buff, rr.hide.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                }
             } else if let Some(start) = r.start {
                 let Some(crate::card::SpellDef { shape: crate::card::SpellShape::Rolling { speed, range, .. }, .. }) = self.cfg.cards.get(rr.log).spell else { continue };
                 let step = speed * self.cfg.calib.projectile_speed_to_subtiles_per_tick;
@@ -33409,7 +33594,13 @@ impl BattleState {
                 moved = true;
                 #[cfg(not(clash_plant = "reroll_never_lands"))]
                 if rode >= len {
-                    self.ents.deploy_ms[i] = rr.deploy_ms;
+                    // spells.REROLL_HIDE_WINDOW = client16402_log_tick_to_land_plus_2: nobody's target before the landing
+                    // + 2, and the stand-up deploy counted from the landing + 1.
+                    let late = self.reroll_hides_late();
+                    self.ents.deploy_ms[i] = rr.deploy_ms + if late { tick_ms } else { 0 };
+                    if late {
+                        self.ents.acquirable_from[i] = self.ents.acquirable_from[i].max(self.tick + 2);
+                    }
                     self.ents.target[i] = None;
                     self.ents.target_locked[i] = false;
                     self.ents.stun_ms[i] = 0;
@@ -37321,8 +37512,12 @@ impl BattleState {
             crate::card::AbilityEffect::ReRoll(rr) => {
                 #[cfg(not(clash_plant = "reroll_never"))]
                 {
-                    let h = crate::status::BuffHit::plain(hero, rr.hide.buff, rr.hide.time_ms, 0);
-                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    // spells.REROLL_HIDE_WINDOW = client16402_log_tick_to_land_plus_2: hidden from its log's tick instead
+                    // (`reroll_pass`).
+                    if !self.reroll_hides_late() {
+                        let h = crate::status::BuffHit::plain(hero, rr.hide.buff, rr.hide.time_ms, 0);
+                        land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    }
                     self.warps.rerolls.retain(|r| r.id != hero);
                     self.warps.rerolls.push(RerollRun { id: hero, card, level, made: self.tick, start: None });
                 }
@@ -41898,6 +42093,15 @@ impl BattleState {
 /// 20, unchanged, the Evo Giant (card.rs `RageAreasDef`, the 16.635 table): EvoDef gained `rage_areas`, so the card
 ///    fingerprint moves: a snapshot saved by an earlier build is refused as saved against other card data. EvoBoard
 ///    gained `rage_areas` (serde default empty, hashed only when not empty).
+/// 20, unchanged, combat.REFLECT_WHILE_HELD: Calib gained reflect_while_held (serde default the old arm, answers), no new
+///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.HOOK_DRAG_SPEED: Calib gained hook_drag_speed (serde default the old arm, constant_510), no new
+///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, combat.SHIELD_BREAK_RESETS_ATTACK: Calib gained shield_break_resets_attack (serde default the old arm,
+///    kept), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at
+///    the old arm.
+/// 20, unchanged, spells.REROLL_HIDE_WINDOW: Calib gained reroll_hide_window (serde default the old arm, at_trigger), no new
+///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -43064,6 +43268,14 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     // spawner.SCHEDULED_UNIT_FIRST_UPDATE: a format-3 battle's scheduled units took their first update on the next tick;
     // it keeps that whatever the ledger ships (the same rule).
     sh.insert("scheduled_unit_first_update".into(), serde_json::to_value(ScheduledUnitFirstUpdate::NextTick).map_err(|e| e.to_string())?);
+    // combat.REFLECT_WHILE_HELD: a format-3 battle ran combat.REFLECT_WHILE_HELD's old arm.
+    sh.insert("reflect_while_held".into(), serde_json::to_value(ReflectWhileHeld::Answers).map_err(|e| e.to_string())?);
+    // combat.HOOK_DRAG_SPEED: a format-3 battle ran combat.HOOK_DRAG_SPEED's old arm.
+    sh.insert("hook_drag_speed".into(), serde_json::to_value(HookDragSpeed::Constant510).map_err(|e| e.to_string())?);
+    // combat.SHIELD_BREAK_RESETS_ATTACK: a format-3 battle ran combat.SHIELD_BREAK_RESETS_ATTACK's old arm.
+    sh.insert("shield_break_resets_attack".into(), serde_json::to_value(ShieldBreakResetsAttack::Kept).map_err(|e| e.to_string())?);
+    // spells.REROLL_HIDE_WINDOW: a format-3 battle ran spells.REROLL_HIDE_WINDOW's old arm.
+    sh.insert("reroll_hide_window".into(), serde_json::to_value(RerollHideWindow::AtTrigger).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

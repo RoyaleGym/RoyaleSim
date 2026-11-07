@@ -243,6 +243,32 @@ fn death_scene(cfg: BattleConfig, side: Team, parent: &str) -> Scene {
 // ---------------------------------------------------------------------------
 // (1) the law
 
+/// targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client16402_8th_frame_death_shots (parity r88, the oracle's replays of 100 battles on
+/// client 16.402: six enemies, both towers among them, first took a Phoenix's egg on its F + 7, the engine's on F + 1): the
+/// egg a Blue Phoenix's death projectile releases at the death point is first taken by the idle Red Cannon on its F + 7, and
+/// by nobody before; under client_8th_frame_action_buildings the Cannon takes it earlier. Plant:
+/// death_shot_unit_acquired_at_once.
+#[test]
+fn under_client16402_8th_frame_death_shots_a_phoenix_egg_is_first_targeted_on_its_8th_frame() {
+    let egg = |arm: SpawnedUnitAcquireDelay| {
+        let mut s = BattleState::new(7, with_arm(config(), arm));
+        let cannon = s.scenario_spawn_now(Team::Red, "Cannon", cannon_point(), None).unwrap();
+        let p = s.scenario_spawn_now(Team::Blue, "Phoenix", death_point(), None).unwrap();
+        assert!(s.debug_set_hp(p, 0));
+        let mut w = Watch::new(&s);
+        w.tick(&mut s, 4 * EIGHTH);
+        let eggs = w.newborns("PhoenixEgg", Team::Blue);
+        assert_eq!(eggs.len(), 1, "scene: the Phoenix left no egg: {:?}", w.born);
+        (w.early(&eggs), w.first_look(&eggs, Some(cannon)))
+    };
+    let (early, first) = egg(SpawnedUnitAcquireDelay::Client16402DeathShots);
+    assert!(early.is_empty(), "client16402_8th_frame_death_shots: the egg was targeted before its 8th frame: {early:?}");
+    assert_eq!(first, Some(EIGHTH), "client16402_8th_frame_death_shots: the idle Cannon's first look at the egg, as F + k");
+    // NOT VACUOUS: the shipped arm leaves the egg a target before its 8th frame
+    let (_, old) = egg(SHIPPED);
+    assert!(old.is_some_and(|k| k < EIGHTH), "the scene drifted: under the shipped arm the Cannon took the egg at {old:?}");
+}
+
 #[test]
 fn a_death_spawn_is_first_targeted_on_its_8th_frame() {
     // Plant acquire_delay_unread: the Cannon takes the Brawler and a Golemite on F + 1. Plant

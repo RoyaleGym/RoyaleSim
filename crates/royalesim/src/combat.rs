@@ -3123,7 +3123,7 @@ pub fn resolve(
                 out.king_hit[ents.team[i] as usize] = true;
             }
             ents.shield[i] = shield_left[i] as i32;
-            if ents.shield[i] == 0 && cards.get(ents.card[i]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) {
+            if ents.shield[i] == 0 && (cards.get(ents.card[i]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) || every_break(calib)) {
                 out.shield_broke.push(ents.id_of(i));
             }
             if overflow[i] > 0 {
@@ -3144,7 +3144,7 @@ pub fn resolve(
         }
         if ents.shield[i] > 0 {
             ents.shield[i] = (ents.shield[i] as i64 - s).max(0) as i32;
-            if ents.shield[i] == 0 && cards.get(ents.card[i]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) {
+            if ents.shield[i] == 0 && (cards.get(ents.card[i]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) || every_break(calib)) {
                 out.shield_broke.push(ents.id_of(i));
             }
         } else {
@@ -3259,6 +3259,13 @@ pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, undergrou
 /// and alive, an Evo shield taken to 0 -- is returned for the same tick's Resolve to fold into its own (state.rs
 /// `phase_resolve`), so a strike's blast and buff land when a buffered hit's would.
 #[allow(clippy::too_many_arguments)]
+/// combat.SHIELD_BREAK_RESETS_ATTACK = client16402_variable_rows_restart: every shield's break is recorded in `shield_broke`
+/// (state.rs `shield_break_resets`), not only a shield blast's card's (state.rs `shield_blasts` keeps its blasts to those).
+#[inline]
+fn every_break(calib: &Calib) -> bool {
+    calib.shield_break_resets_attack != crate::state::ShieldBreakResetsAttack::Kept
+}
+
 pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[Hit], hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> StrikeOut {
     let mut out = StrikeOut::default();
     for h in hits {
@@ -3305,7 +3312,7 @@ pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[
         if ents.shield[t] > 0 {
             ents.shield[t] = (ents.shield[t] as i64 - amount).max(0) as i32;
             #[cfg(not(clash_plant = "strike_skips_resolve_effects"))]
-            if ents.shield[t] == 0 && cards.get(ents.card[t]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) && !out.shield_broke.contains(&ents.id_of(t)) {
+            if ents.shield[t] == 0 && (cards.get(ents.card[t]).evo.as_ref().is_some_and(|v| v.shield_blast.is_some()) || every_break(calib)) && !out.shield_broke.contains(&ents.id_of(t)) {
                 out.shield_broke.push(ents.id_of(t));
             }
         } else {

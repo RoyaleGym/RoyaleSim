@@ -258,6 +258,9 @@ pub struct Contact {
     pub count: i32,
     /// The avoidance offset, multiples of 10 in [-190, 190] between ticks.
     pub offset: i32,
+    /// collision.ATTRACT_CONTACT_MEAN = client16402_in_mean_uncapped: the accumulator holds a pull, so its mean is not capped
+    /// (`collision_mean`); cleared when the mean is taken.
+    pub uncapped: bool,
 }
 
 /// The avoidance scan. `me` is the index of the unit in
@@ -566,12 +569,16 @@ fn collision_mean(con: &mut Contact) -> ((i32, i32), i32) {
         return ((0, 0), 0);
     }
     let mut t = (tdiv(con.acc.0, con.count), tdiv(con.acc.1, con.count));
-    if len_sq(t.0, t.1) >= 22501 {
+    // collision.ATTRACT_CONTACT_MEAN = client16402_in_mean_uncapped: a mean holding a pull is not capped. PLANT (regression)
+    // pulled_mean_capped: it is capped all the same.
+    let uncapped = con.uncapped && !cfg!(clash_plant = "pulled_mean_capped");
+    if len_sq(t.0, t.1) >= 22501 && !uncapped {
         normalize_to(&mut t, 150);
     }
     let n = con.count;
     con.count = 0;
     con.acc = (0, 0);
+    con.uncapped = false;
     (t, n)
 }
 

@@ -20,7 +20,7 @@ mod common;
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, HookDragRounding, HookRelease, HookWaterLanding, SpecialHook};
+use royalesim::state::{BattleState, Calib, HookDragRounding, HookDragSpeed, HookRelease, HookWaterLanding, SpecialHook};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -167,6 +167,43 @@ fn under_client16402_native_axes_a_diagonal_drag_steps_on_the_native_centres_tru
     // NOT VACUOUS: the subtile step's native shadow is not the truncated native step on a diagonal
     let old = drag_steps(HookDragRounding::Subtile);
     assert!(old.iter().any(|(p, f, a)| model(*p, *f) != *a), "subtile: every step was the truncated native one: {old:?}");
+}
+
+/// A Blue Fisherman at (9000, 11000) hooks a Red `victim` put down at (9000, 17500) under combat.HOOK_DRAG_SPEED = `arm`: the
+/// victim's step lengths, native, over 200 ticks.
+fn victim_steps(arm: HookDragSpeed, victim: &str) -> Vec<i64> {
+    let mut cfg = config();
+    cfg.calib.special_hook = SpecialHook::ClientHookDrag;
+    cfg.calib.hook_release = HookRelease::ClientIdleTick;
+    cfg.calib.hook_drag_speed = arm;
+    let mut s = BattleState::new(0, cfg);
+    s.scenario_spawn_now(Team::Blue, "Fisherman", at((9000, 11000)), None).expect("the Fisherman");
+    let v = s.scenario_spawn_now(Team::Red, victim, at((9000, 17500)), None).expect("the victim");
+    let mut out = Vec::new();
+    for _ in 0..200 {
+        let Some(a) = s.entity(v).map(|e| e.pos) else { break };
+        s.tick();
+        let Some(e) = s.entity(v) else { break };
+        let (dx, dy) = ((e.pos.x / K - a.x / K) as i64, (e.pos.y / K - a.y / K) as i64);
+        out.push(isqrt(dx * dx + dy * dy));
+    }
+    out
+}
+
+/// combat.HOOK_DRAG_SPEED = client16402_victim_speed (parity r88, the oracle's replays of 100 battles on client 16.402: the drag
+/// step is the victim's Speed x 850 / 100, a Royal Hog's (120) 1010 to 1020 in 17 of 21 steps, a Recruit's (60) 510): a Hog
+/// Rider (Speed 120) is dragged 1020 a tick, where constant_510 drags it 510; a Knight (60) is dragged 510 under both. Plant:
+/// hook_drag_constant.
+#[test]
+fn under_client16402_victim_speed_the_drag_step_is_the_victims_speed_times_850_over_100() {
+    let fast = victim_steps(HookDragSpeed::Client16402VictimSpeed, "HogRider");
+    assert!(fast.iter().filter(|&&d| (1015..=1025).contains(&d)).count() >= 2, "client16402_victim_speed: a Hog Rider's drag is not 1020 a step: {fast:?}");
+    // NOT VACUOUS: the old arm drags the same Hog Rider 510 a step
+    let old = victim_steps(HookDragSpeed::Constant510, "HogRider");
+    assert!(old.iter().filter(|&&d| (505..=515).contains(&d)).count() >= 2, "the scene drifted: constant_510 drags no Hog Rider 510: {old:?}");
+    assert!(!old.iter().any(|&d| (1015..=1025).contains(&d)), "constant_510: a 1020 step: {old:?}");
+    let knight = victim_steps(HookDragSpeed::Client16402VictimSpeed, "Knight");
+    assert!(knight.iter().filter(|&&d| (505..=515).contains(&d)).count() >= 2, "client16402_victim_speed: a Knight's drag is not 510 a step: {knight:?}");
 }
 
 #[test]

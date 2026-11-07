@@ -2705,7 +2705,7 @@ fn contact_step16402(
     let arena = Arena::shipped();
     let index = ml::Index::new(arena.cols, arena.rows);
     let mut scratch = Vec::new();
-    let mut con = ml::Contact { acc: (0, 0), count: 0, offset };
+    let mut con = ml::Contact { acc: (0, 0), count: 0, offset, uncapped: false };
     let mut popped = false;
     if !attacking {
         popped = ml::avoidance_scan(&index, &bodies, me, &mut con, waypoint, false, &mut scratch);
@@ -2754,7 +2754,7 @@ fn pushback_step16402(bodies: Vec<Vec<i64>>, me: usize, target: (i32, i32), rema
     let arena = Arena::shipped();
     let index = ml::Index::new(arena.cols, arena.rows);
     let mut scratch = Vec::new();
-    let mut con = ml::Contact { acc: (0, 0), count: 0, offset };
+    let mut con = ml::Contact { acc: (0, 0), count: 0, offset, uncapped: false };
     let mut rem = remaining;
     let is_water = |c: i32, r: i32| arena.cell_bits(c, r) & arena.bit_water != 0;
     if rem > 0 {
