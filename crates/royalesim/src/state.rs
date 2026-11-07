@@ -11522,12 +11522,38 @@ calib_enum!(
         /// Client 16.402 (parity r87): the flyers' half of client16402_backwards_path alone: a flyer (no path) lets the target
         /// go for the lane tower (live14 15 of 15); every walker keeps chase_limit.
         Client16402FlyersLetGo = "client16402_flyers_let_go",
+        /// Client 16.402 (parity r87, the oracle's scenes): as client16402_backwards_path_stored for a troop target; a building
+        /// target keeps chase_limit (the oracle's sp-side-Knight-11500-s0 on client 16.402: a Knight holds a Cannon across the
+        /// centre line all the way round by the bridge).
+        Client16402BackwardsPathStoredTroops = "client16402_backwards_path_stored_troops",
+        /// Client 16.402 (parity r87): as client16402_backwards_path_stored, the flag also written for a building target.
+        Client16402BackwardsPathStoredAll = "client16402_backwards_path_stored_all",
     }
 );
 impl ChaseHoldBackwards {
     /// Do the path searches write `Entities::path_backwards` under this arm (the two path arms)?
     pub fn writes_path_flag(&self) -> bool {
-        matches!(self, Self::Client16402BackwardsPath | Self::Client16402BackwardsPathStored)
+        matches!(
+            self,
+            Self::Client16402BackwardsPath
+                | Self::Client16402BackwardsPathStored
+                | Self::Client16402BackwardsPathStoredTroops
+                | Self::Client16402BackwardsPathStoredAll
+        )
+    }
+
+    /// Is the flag rewritten at every path computation toward the target (the client's literal store)?
+    pub fn rewrites_path_flag(&self) -> bool {
+        matches!(
+            self,
+            Self::Client16402BackwardsPathStored | Self::Client16402BackwardsPathStoredTroops | Self::Client16402BackwardsPathStoredAll
+        )
+    }
+
+    /// Do the path searches write the flag for a building target too (client16402_backwards_path_stored_all)? PLANT
+    /// (regression) building_flag_unwritten: that arm still writes none for a building.
+    pub fn flags_buildings(&self) -> bool {
+        matches!(self, Self::Client16402BackwardsPathStoredAll) && !cfg!(clash_plant = "building_flag_unwritten")
     }
 }
 calib_enum!(
@@ -28809,7 +28835,10 @@ impl BattleState {
                             // Skeleton swarms, whose holders' routes went backwards).
                             // PLANT (regression) backwards_flag_unplanned: the shipped search still writes no flag.
                             #[cfg(not(clash_plant = "backwards_flag_unplanned"))]
-                            if calib.chase_hold_backwards.writes_path_flag() && e.target[i] == Some(gid) && !e.kind[gi].is_building() {
+                            if calib.chase_hold_backwards.writes_path_flag()
+                                && e.target[i] == Some(gid)
+                                && (!e.kind[gi].is_building() || calib.chase_hold_backwards.flags_buildings())
+                            {
                                 let long = routes[i].len() >= 2;
                                 backwards.push((i, gid, long && Self::route_goes_backwards(&routes[i], e.pos[i], e.pos[gi]), long));
                             }
@@ -29557,7 +29586,7 @@ impl BattleState {
     /// more). client16402_backwards_path keeps a flag from the computation that set it (per target) until a route of under 2
     /// waypoints; _stored rewrites it at every computation toward the target.
     fn write_backwards_flags(&mut self, flags: Vec<(usize, EntityId, bool, bool)>) {
-        let stored = self.cfg.calib.chase_hold_backwards == ChaseHoldBackwards::Client16402BackwardsPathStored;
+        let stored = self.cfg.calib.chase_hold_backwards.rewrites_path_flag();
         for (i, t, back, long) in flags {
             if back {
                 self.ents.path_backwards[i] = Some(t);
@@ -29697,7 +29726,10 @@ impl BattleState {
                     routes[i] = route.into_iter().map(|p| arena.from_frame(team, p)).collect();
                     // targeting.CHASE_HOLD_BACKWARDS: does this route toward the unit's own troop target go backwards (a
                     // waypoint farther from the target than the unit; the client's flag after each path computation)?
-                    if calib.chase_hold_backwards.writes_path_flag() && e.target[i] == Some(goal_id) && !e.kind[gi].is_building() {
+                    if calib.chase_hold_backwards.writes_path_flag()
+                        && e.target[i] == Some(goal_id)
+                        && (!e.kind[gi].is_building() || calib.chase_hold_backwards.flags_buildings())
+                    {
                         let long = routes[i].len() >= 2;
                         backwards.push((i, goal_id, long && Self::route_goes_backwards(&routes[i], e.pos[i], e.pos[gi]), long));
                     }

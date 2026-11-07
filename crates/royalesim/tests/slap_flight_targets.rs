@@ -23,7 +23,7 @@ use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::fixed::isqrt;
-use royalesim::state::{BattleConfig, BattleState, Calib, ChaseDropMeasure, ChaseHoldPastLimit, SlapFlightSightHold, SlapFlightTargetability};
+use royalesim::state::{BattleConfig, BattleState, Calib, ChaseDropMeasure, ChaseHoldBackwards, ChaseHoldPastLimit, SlapFlightSightHold, SlapFlightTargetability};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["Giant", "Knight", "Archer", "Musketeer", "MiniPekka", "HogRider", "Fireball", "Zap"];
@@ -110,13 +110,15 @@ const BATS_AT: (i32, i32) = (RED.0 + 4000, RED.1);
 /// From the throw on, every flight frame and every blue Bat holding the red Knight on the frame before: (its start-of-tick
 /// centre distance to the red Knight less its round sight, SightRange 5,500 + both radii, native; whether it still held the
 /// red Knight after the tick), under targeting.SLAP_FLIGHT_SIGHT_HOLD = `arm` and the client's chase arms
-/// (SLAP_FLIGHT_TARGETABILITY airborne, CHASE_HOLD_PAST_LIMIT troops kept, CHASE_DROP_MEASURE lane |dy|). The Bats wait
+/// (SLAP_FLIGHT_TARGETABILITY airborne, CHASE_HOLD_PAST_LIMIT troops kept, CHASE_DROP_MEASURE lane |dy|, CHASE_HOLD_BACKWARDS
+/// chase_limit: client 15.535.29's, under which a flyer holds past round sight). The Bats wait
 /// held at BATS_AT and chase from the throw, falling back 130 a tick on the 250 a tick flight.
 fn bat_holds(arm: SlapFlightSightHold) -> Vec<(i64, bool)> {
     let mut cfg: BattleConfig = config();
     cfg.calib.slap_flight_targetability = SlapFlightTargetability::Client15535Airborne;
     cfg.calib.chase_hold_past_limit = ChaseHoldPastLimit::Client15535TroopsKept;
     cfg.calib.chase_drop_measure = ChaseDropMeasure::Client15535LaneDy;
+    cfg.calib.chase_hold_backwards = ChaseHoldBackwards::ChaseLimit;
     cfg.calib.slap_flight_sight_hold = arm;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];

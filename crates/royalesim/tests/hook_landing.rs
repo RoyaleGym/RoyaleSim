@@ -28,17 +28,20 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, HookLanding};
+use royalesim::state::{BattleState, Calib, ChaseHoldBackwards, HookLanding};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
     Vec2::new(p.0 * K, p.1 * K)
 }
 
-/// Per tick after the tick: the Knight's step, native.
+/// Per tick after the tick: the Knight's step, native. Under targeting.CHASE_HOLD_BACKWARDS = chase_limit, the arm the scene
+/// was read on: the shipped client16402_backwards_path_stored (parity r87) keeps the Knight's target a tick longer (its
+/// route round by the bridge goes backwards), 574, as client15535_troops_kept does.
 fn steps(arm: HookLanding) -> Vec<i64> {
     let mut cfg = config();
     cfg.calib.hook_landing = arm;
+    cfg.calib.chase_hold_backwards = ChaseHoldBackwards::ChaseLimit;
     let mut s = BattleState::new(0, cfg);
     s.scenario_spawn_now(Team::Blue, "Fisherman", at((9000, 11000)), None).expect("the Fisherman");
     let k = s.scenario_spawn_now(Team::Red, "Knight", at((9000, 17500)), None).expect("the Knight");

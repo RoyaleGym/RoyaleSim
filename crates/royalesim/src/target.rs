@@ -1581,6 +1581,14 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 // client16402_flyers_let_go (parity r87): the flyers' half alone; every walker keeps chase_limit.
                 let holds = match ctx.calib.chase_hold_backwards {
                     crate::state::ChaseHoldBackwards::ChaseLimit => holds,
+                    // client16402_backwards_path_stored_troops (parity r87): a building target keeps chase_limit (the oracle's
+                    // sp-side-Knight-11500-s0: a Knight holds a Cannon across the centre line round by the bridge). PLANT
+                    // (regression) building_target_backwards_rule: the building target still under the backwards rule.
+                    crate::state::ChaseHoldBackwards::Client16402BackwardsPathStoredTroops
+                        if e.kind[ti].is_building() && !cfg!(clash_plant = "building_target_backwards_rule") =>
+                    {
+                        holds
+                    }
                     _ if e.flying[a] => false,
                     crate::state::ChaseHoldBackwards::Client16402FlyersLetGo => holds,
                     _ if card.projectile.is_none() && !e.kind[a].is_building() => e.path_backwards[a] == Some(t),

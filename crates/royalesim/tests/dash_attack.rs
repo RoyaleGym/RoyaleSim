@@ -902,3 +902,9 @@ fn under_client16402_out_from_start_a_unit_made_before_a_dasher_is_not_pushed_by
 fn the_shipped_dash_start_contact_is_client16402_out_from_start() {
     assert_eq!(royalesim::state::Calib::shipped().dash_start_contact, DashStartContact::Client16402OutFromStart);
 }
+
+/// Since parity r87 (client16402_projectile_lands_on_last_immune_tick before it; client 15.535.29 keeps discarded).
+#[test]
+fn the_shipped_dash_immune_hits_is_client16402_last_tick_lands_if_flying_at_guard_charge_start() {
+    assert_eq!(royalesim::state::Calib::shipped().dash_immune_hits, DashImmuneHits::Client16402LastTickLandsIfFlyingAtGuardChargeStart);
+}

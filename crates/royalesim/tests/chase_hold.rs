@@ -33,6 +33,9 @@ fn at(x: i32, y: i32) -> Vec2 {
 #[test]
 fn a_target_past_round_sight_inside_the_chase_limit_is_kept() {
     let mut cfg = config_pre_flip();
+    // targeting.CHASE_HOLD_BACKWARDS = chase_limit: this scene measures the chase limit (parity r87 ships
+    // client16402_backwards_path_stored, under which this straight chase lets go past round sight).
+    cfg.calib.chase_hold_backwards = ChaseHoldBackwards::ChaseLimit;
     let deck: Vec<String> = ["Knight", "Archers", "Giant", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.card_level = [11, 11];
@@ -77,6 +80,9 @@ fn the_shipped_arm_lets_a_never_inside_target_go_past_the_limit() {
 /// 6,700 off (past both) for 5 ticks: is it kept every tick (`kept`) or let go on the first?
 fn past_limit_scene(arm: royalesim::state::ChaseHoldPastLimit, kept: bool) {
     let mut cfg = config_pre_flip();
+    // targeting.CHASE_HOLD_BACKWARDS = chase_limit: this scene measures the chase limit (parity r87 ships
+    // client16402_backwards_path_stored, under which this straight chase lets go past round sight).
+    cfg.calib.chase_hold_backwards = ChaseHoldBackwards::ChaseLimit;
     cfg.calib.chase_hold_past_limit = arm;
     let deck: Vec<String> = ["Knight", "Archers", "Giant", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
@@ -198,4 +204,58 @@ fn under_client16402_flyers_let_go_a_flyer_lets_a_target_past_round_sight_go_and
     assert!(kept > 0, "chase_limit (the vacuity check): the Minion let go at once");
     assert_eq!(minion(ChaseHoldBackwards::Client16402FlyersLetGo), 0, "client16402_flyers_let_go: the Minion held past round sight (chase_limit {kept})");
     assert_eq!(held_past_round_sight(ChaseHoldBackwards::Client16402FlyersLetGo), held_past_round_sight(ChaseHoldBackwards::ChaseLimit), "client16402_flyers_let_go: a walker left chase_limit");
+}
+
+/// Under the shipped search and targeting.CHASE_HOLD_BACKWARDS = `arm`: a blue Knight put down on (11500, 13500) walks for a red
+/// Cannon on (7500, 18500), wholly across the centre line (client 16.402's own recording of the scene,
+/// sp-side-Knight-11500-s0: the Knight holds the Cannon from its first target tick, round by the bridge): of the 90 ticks after it
+/// first takes the Cannon, those on which it holds it.
+fn knight_on_the_cannon(arm: ChaseHoldBackwards) -> usize {
+    let mut cfg = config();
+    cfg.calib.chase_hold_backwards = arm;
+    assert_eq!(cfg.calib.path_search, royalesim::state::PathSearch::Client16402, "the scene drifted: not the shipped search");
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at(7500, 18500), None).expect("the Cannon");
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", at(11500, 13500), None).expect("the Knight");
+    let took = (0..60).any(|_| {
+        s.tick();
+        s.entity(knight).and_then(|e| e.target) == Some(cannon)
+    });
+    assert!(took, "the scene drifted: the Knight never took the Cannon");
+    (0..90)
+        .filter(|_| {
+            s.tick();
+            s.entity(knight).and_then(|e| e.target) == Some(cannon)
+        })
+        .count()
+}
+
+/// targeting.CHASE_HOLD_BACKWARDS on a BUILDING target (parity r87, the oracle's scenes on client 16.402: sp-side-Knight-11500-s0,
+/// a Knight holds a Cannon across the centre line all the way round by the bridge; sp-form-Mortar-evo-s0, a Knight holds a
+/// Mortar the same way): _stored writes the flag for a troop target only, so its Knight lets the Cannon go; _stored_troops keeps
+/// chase_limit for a building target and _stored_all writes the flag for one: both hold it all 90 ticks, as chase_limit does. On a
+/// troop target both are _stored. Plants: building_target_backwards_rule, building_flag_unwritten.
+#[test]
+fn under_client16402_backwards_path_stored_troops_and_all_a_knight_holds_a_cannon_across_the_centre_line() {
+    assert_eq!(knight_on_the_cannon(ChaseHoldBackwards::ChaseLimit), 90, "chase_limit (the vacuity check): the Knight let the Cannon go");
+    let stored = knight_on_the_cannon(ChaseHoldBackwards::Client16402BackwardsPathStored);
+    assert!(stored < 90, "client16402_backwards_path_stored (the vacuity check): the Knight held the Cannon");
+    for arm in [ChaseHoldBackwards::Client16402BackwardsPathStoredTroops, ChaseHoldBackwards::Client16402BackwardsPathStoredAll] {
+        assert_eq!(knight_on_the_cannon(arm), 90, "{arm:?}: the Knight let the Cannon go (_stored held it {stored})");
+        assert_eq!(
+            held_across_the_river(arm),
+            held_across_the_river(ChaseHoldBackwards::Client16402BackwardsPathStored),
+            "{arm:?}: a troop target across the river left _stored"
+        );
+        assert_eq!(held_past_round_sight(arm), 0, "{arm:?}: a troop target held on a straight path");
+    }
+}
+
+/// Since parity r87 (chase_limit before it; client 15.535.29 keeps chase_limit).
+#[test]
+fn the_shipped_chase_hold_backwards_is_client16402_backwards_path_stored_all() {
+    assert_eq!(royalesim::state::Calib::shipped().chase_hold_backwards, ChaseHoldBackwards::Client16402BackwardsPathStoredAll);
 }
