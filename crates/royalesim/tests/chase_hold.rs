@@ -118,28 +118,33 @@ fn past_limit_scene(arm: royalesim::state::ChaseHoldPastLimit, kept: bool) {
 fn held_past_round_sight(arm: ChaseHoldBackwards) -> usize {
     let mut cfg = config_pre_flip();
     cfg.calib.chase_hold_backwards = arm;
+    held_in(cfg, "Knight", (5000, 10000), (7100, 12100), (9800, 14800))
+}
+
+/// A blue `card` held on `me` takes a red Knight held on `near`; the red Knight is then put on `far`: of the next 5 ticks, those
+/// on which the blue unit still holds it.
+fn held_in(mut cfg: royalesim::state::BattleConfig, card: &str, me: (i32, i32), near: (i32, i32), far: (i32, i32)) -> usize {
     let deck: Vec<String> = ["Knight", "Archers", "Giant", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"].iter().map(|c| c.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
     let mut s = BattleState::try_new(0, cfg).expect("the decks load");
     past_deploy_lockout(&mut s);
-    let (me, near, far) = ((5000, 10000), (7100, 12100), (9800, 14800));
-    let blue = s.scenario_spawn_now(Team::Blue, "Knight", at(me.0, me.1), None).expect("the blue Knight");
+    let blue = s.scenario_spawn_now(Team::Blue, card, at(me.0, me.1), None).expect("the blue unit");
     let red = s.scenario_spawn_now(Team::Red, "Knight", at(near.0, near.1), None).expect("the red Knight");
     let took = (0..60).any(|_| {
         assert!(s.debug_set_pos(blue, at(me.0, me.1)));
         assert!(s.debug_set_pos(red, at(near.0, near.1)));
         s.tick();
-        s.entity(blue).expect("the blue Knight").target == Some(red)
+        s.entity(blue).expect("the blue unit").target == Some(red)
     });
-    assert!(took, "the scene drifted: the blue Knight never took the red Knight");
+    assert!(took, "the scene drifted: the blue {card} never took the red Knight");
     (0..5)
         .filter(|_| {
             assert!(s.debug_set_pos(blue, at(me.0, me.1)));
             assert!(s.debug_set_pos(red, at(far.0, far.1)));
             s.tick();
-            s.entity(blue).expect("the blue Knight").target == Some(red)
+            s.entity(blue).expect("the blue unit").target == Some(red)
         })
         .count()
 }
@@ -154,4 +159,43 @@ fn under_client16402_backwards_path_a_straight_chase_lets_a_target_past_round_si
     assert_eq!(held_past_round_sight(ChaseHoldBackwards::Client16402BackwardsPathStored), 0, "client16402_backwards_path_stored: held on a straight path");
     // NOT VACUOUS: chase_limit holds it inside the |dy| limit
     assert_eq!(held_past_round_sight(ChaseHoldBackwards::ChaseLimit), 5, "chase_limit: let go inside the limit");
+}
+
+/// Under the shipped search (pathfinding.PATH_SEARCH = client16402) and targeting.CHASE_HOLD_BACKWARDS = `arm`: a blue Knight held
+/// on (9000, 12500) takes a red Knight held across the river on (9000, 17500), 5,000 away (in round sight 6,500); its route goes
+/// round by a bridge, a waypoint farther from the red Knight than it is. The red Knight is then put on (4300, 17200), 6,647
+/// away (past round sight, inside the chase limit's 5,500 square): of the next 5 ticks, those on which it is still held.
+fn held_across_the_river(arm: ChaseHoldBackwards) -> usize {
+    let mut cfg = config();
+    cfg.calib.chase_hold_backwards = arm;
+    assert_eq!(cfg.calib.path_search, royalesim::state::PathSearch::Client16402, "the scene drifted: not the shipped search");
+    held_in(cfg, "Knight", (9000, 12500), (9000, 17500), (4300, 17200))
+}
+
+/// targeting.CHASE_HOLD_BACKWARDS = client16402_backwards_path under the SHIPPED search (parity r87: r86 wrote the flag only in
+/// the older search, so under client16402 every melee walker past round sight let go, live14's two Skeleton swarms among them):
+/// the blue Knight's route to the red one across the river went backwards, so it holds it all 5 ticks past round sight;
+/// _stored rewrites the flag on the straight replan to the new point and lets go; chase_limit holds it inside the limit (the
+/// vacuity check). Plant: backwards_flag_unplanned.
+#[test]
+fn under_client16402_backwards_path_the_shipped_search_holds_a_target_whose_route_went_backwards() {
+    assert_eq!(held_across_the_river(ChaseHoldBackwards::Client16402BackwardsPath), 5, "client16402_backwards_path: let go after a backwards route");
+    assert!(held_across_the_river(ChaseHoldBackwards::Client16402BackwardsPathStored) < 5, "client16402_backwards_path_stored: held on after a straight replan");
+    assert_eq!(held_across_the_river(ChaseHoldBackwards::ChaseLimit), 5, "chase_limit (the vacuity check): let go inside the limit");
+}
+
+/// targeting.CHASE_HOLD_BACKWARDS = client16402_flyers_let_go (parity r87: the flyers' half of client16402_backwards_path, live14
+/// 15 of 15 flyers past round sight let go): the scene above with a blue Minion lets the red Knight go on the first tick past
+/// round sight, where chase_limit holds it; a Knight keeps chase_limit's count. Plant: chase_hold_backwards_unread.
+#[test]
+fn under_client16402_flyers_let_go_a_flyer_lets_a_target_past_round_sight_go_and_a_walker_keeps_the_chase_limit() {
+    let minion = |arm: ChaseHoldBackwards| {
+        let mut cfg = config_pre_flip();
+        cfg.calib.chase_hold_backwards = arm;
+        held_in(cfg, "Minions", (5000, 10000), (7475, 12475), (9800, 14800))
+    };
+    let kept = minion(ChaseHoldBackwards::ChaseLimit);
+    assert!(kept > 0, "chase_limit (the vacuity check): the Minion let go at once");
+    assert_eq!(minion(ChaseHoldBackwards::Client16402FlyersLetGo), 0, "client16402_flyers_let_go: the Minion held past round sight (chase_limit {kept})");
+    assert_eq!(held_past_round_sight(ChaseHoldBackwards::Client16402FlyersLetGo), held_past_round_sight(ChaseHoldBackwards::ChaseLimit), "client16402_flyers_let_go: a walker left chase_limit");
 }

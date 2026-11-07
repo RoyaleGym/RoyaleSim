@@ -2582,10 +2582,20 @@ pub fn step_projectiles(
             // combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_dash_start: only a shot marked at its target's
             // dash start (`held`) is a last-tick shot. Measured on client 16.635 (parity r86, live15n 20261103-192522-A): a tower
             // arrow launched into a guard's charge and arriving on its immunity's last tick took nothing; every 16.402 landing
-            // there (parity r73/r74) was a shot fired before the dash.
-            // PLANT (regression) last_immune_launch_ignored: the new arm still lands a shot launched during the dash.
+            // there (parity r73/r74) was a shot fired before the dash. _guard_charge_start (parity r87): on the guard's charge
+            // alone; r86's earlier first divergences were a Golden Knight's chain and a Boss Bandit's dash.
+            // PLANT (regression) last_immune_launch_ignored: the new arms still land a shot launched during the dash.
+            // PLANT (regression) guard_launch_rule_every_dash: _guard_charge_start drops a launched shot on every dash.
             #[cfg(not(clash_plant = "last_immune_launch_ignored"))]
-            let shot = p.held || calib.dash_immune_hits != crate::state::DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart;
+            let shot = p.held
+                || match calib.dash_immune_hits {
+                    crate::state::DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart => false,
+                    #[cfg(not(clash_plant = "guard_launch_rule_every_dash"))]
+                    crate::state::DashImmuneHits::Client16402LastTickLandsIfFlyingAtGuardChargeStart => !cards.is_guard_unit(ents.card[ti]),
+                    #[cfg(clash_plant = "guard_launch_rule_every_dash")]
+                    crate::state::DashImmuneHits::Client16402LastTickLandsIfFlyingAtGuardChargeStart => false,
+                    _ => true,
+                };
             #[cfg(clash_plant = "last_immune_launch_ignored")]
             let shot = true;
             dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: shot_passes_hide(calib), own: false, shot });
@@ -3053,6 +3063,7 @@ pub fn resolve(
                 calib.dash_immune_hits,
                 crate::state::DashImmuneHits::Client16402ProjectileLandsOnLastImmuneTick
                     | crate::state::DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart
+                    | crate::state::DashImmuneHits::Client16402LastTickLandsIfFlyingAtGuardChargeStart
             )
             && !ents.dash_immune(h.target.index as usize, tick + 1);
         #[cfg(clash_plant = "last_immune_shot_dropped")]

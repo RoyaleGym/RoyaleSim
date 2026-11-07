@@ -644,6 +644,27 @@ fn under_client16402_last_tick_lands_if_flying_at_dash_start_an_arrow_launched_i
     assert!(dropped > 0, "vacuous: no start put an arrow launched in the dash on her immunity's last tick (kept {kept})");
 }
 
+/// combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_guard_charge_start (parity r87: r86's launch rule on the
+/// guard's charge alone; live14's earlier first divergences under r86's arm were a Golden Knight's chain and a Boss Bandit's
+/// dash): a Bandit's dash is not a guard's charge, so over the r86 test's starts the new arm takes every hit r82's arm takes,
+/// the arrows launched in her dash that land on her immunity's last tick too, which _dash_start drops (the vacuity check).
+/// Plant: guard_launch_rule_every_dash.
+#[test]
+fn under_client16402_last_tick_lands_if_flying_at_guard_charge_start_a_bandits_dash_keeps_the_last_tick_landing() {
+    let losses = |rows: &[Row]| rows.iter().map(|r| (r.t, r.own_loss)).collect::<Vec<_>>();
+    let mut parted = 0;
+    for y in (16500..=19000).step_by(50) {
+        let (_, _, _, last) = scene_at_tower_with((3500, y), 60, DashImmuneHits::Client16402ProjectileLandsOnLastImmuneTick);
+        let (_, _, _, guard) = scene_at_tower_with((3500, y), 60, DashImmuneHits::Client16402LastTickLandsIfFlyingAtGuardChargeStart);
+        assert_eq!(losses(&guard), losses(&last), "start y {y}: _guard_charge_start left r82's landing on a Bandit's dash");
+        let (_, _, _, wide) = scene_at_tower_with((3500, y), 60, DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart);
+        if losses(&wide) != losses(&last) {
+            parted += 1;
+        }
+    }
+    assert!(parted > 0, "vacuous: no start where _dash_start drops a hit r82's arm takes");
+}
+
 /// The Mega Knight scene under combat.DASH_STAND_CONTACT = `contact` and combat.DASH_STAND_RETARGET = `retarget`, run to the
 /// tick he comes within MK_TRIGGER of the Giant (his stand's start, d), then `then(battle, mega knight, giant)` before each of
 /// the next 30 ticks: (his greatest distance from his point on d over d + 1 .. d + 15, native; the first tick after d he moves

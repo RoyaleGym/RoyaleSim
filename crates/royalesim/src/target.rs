@@ -1578,9 +1578,11 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
                 // flagged holds kept, 110 of 122 unflagged let go, flyers 15 of 15; 16.635 47 of 48, 7 of 7. PLANT (regression)
                 // chase_hold_backwards_unread: the new arm still holds on the chase limit.
                 #[cfg(not(clash_plant = "chase_hold_backwards_unread"))]
+                // client16402_flyers_let_go (parity r87): the flyers' half alone; every walker keeps chase_limit.
                 let holds = match ctx.calib.chase_hold_backwards {
                     crate::state::ChaseHoldBackwards::ChaseLimit => holds,
                     _ if e.flying[a] => false,
+                    crate::state::ChaseHoldBackwards::Client16402FlyersLetGo => holds,
                     _ if card.projectile.is_none() && !e.kind[a].is_building() => e.path_backwards[a] == Some(t),
                     _ => holds,
                 };

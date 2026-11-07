@@ -10563,6 +10563,11 @@ calib_enum!(
         /// was already flying at the unit when its dash or a guard's charge began (`Projectile::held`, marked there) lands on
         /// the immunity's last tick; one launched during the dash is dropped there as every earlier hit.
         Client16402LastTickLandsIfFlyingAtDashStart = "client16402_last_tick_lands_if_flying_at_dash_start",
+        /// Client 16.635 (parity r87): client16402_last_tick_lands_if_flying_at_dash_start on the guard's charge alone (the
+        /// live15n landing was a guard's); on every other dash a projectile landing on the immunity's last tick lands, as under
+        /// client16402_projectile_lands_on_last_immune_tick (r86's three earlier first divergences were a Golden Knight's chain
+        /// and a Boss Bandit's dash).
+        Client16402LastTickLandsIfFlyingAtGuardChargeStart = "client16402_last_tick_lands_if_flying_at_guard_charge_start",
     }
 );
 calib_enum!(
@@ -11502,7 +11507,8 @@ calib_enum!(
 );
 calib_enum!(
     /// targeting.CHASE_HOLD_BACKWARDS -- what keeps a walker's troop target past its round sight when the rescan
-    /// finds nothing (target.rs `decide`; the flag `Entities::path_backwards`, written by state.rs `phase_path_2026`).
+    /// finds nothing (target.rs `decide`; the flag `Entities::path_backwards`, written by state.rs `phase_path16402_for` and
+    /// `phase_path_2026` through `write_backwards_flags`).
     ChaseHoldBackwards {
         /// The engine's: held while its |dy| stays inside the chase-drop limit (targeting.CHASE_HOLD_PAST_LIMIT
         /// decides past it), for every holder.
@@ -11513,8 +11519,17 @@ calib_enum!(
         Client16402BackwardsPath = "client16402_backwards_path",
         /// As client16402_backwards_path, the flag rewritten at every replan toward the target (the client's literal store).
         Client16402BackwardsPathStored = "client16402_backwards_path_stored",
+        /// Client 16.402 (parity r87): the flyers' half of client16402_backwards_path alone: a flyer (no path) lets the target
+        /// go for the lane tower (live14 15 of 15); every walker keeps chase_limit.
+        Client16402FlyersLetGo = "client16402_flyers_let_go",
     }
 );
+impl ChaseHoldBackwards {
+    /// Do the path searches write `Entities::path_backwards` under this arm (the two path arms)?
+    pub fn writes_path_flag(&self) -> bool {
+        matches!(self, Self::Client16402BackwardsPath | Self::Client16402BackwardsPathStored)
+    }
+}
 calib_enum!(
     /// combat.GOBLIN_MACHINE_ROCKET -- the Goblin Machine's OnStartingAction goblin_machine_rocket, an
     /// ActionTargetIndicatorAttack (state.rs `rocket_pass`, the clock `EvoBoard::rockets`).
@@ -24208,10 +24223,14 @@ impl BattleState {
             // Move, and the next Status spends one before that tick's walk.
             self.ents.stun_ms[gi] = self.ents.stun_ms[gi].max(2 * dt);
             if immune && tick + 1 >= r.born + crate::card::GUARD_DASH_START_TICKS {
-                // combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_dash_start: the shots flying at it as its
-                // charge's immunity begins are marked (`Projectile::held`): only they may land on the immunity's last tick.
+                // combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_dash_start and _guard_charge_start: the
+                // shots flying at it as its charge's immunity begins are marked (`Projectile::held`): only they may land on the
+                // immunity's last tick.
                 if self.ents.dash_immune_until[gi] != u32::MAX
-                    && self.cfg.calib.dash_immune_hits == DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart
+                    && matches!(
+                        self.cfg.calib.dash_immune_hits,
+                        DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart | DashImmuneHits::Client16402LastTickLandsIfFlyingAtGuardChargeStart
+                    )
                 {
                     let gid = self.ents.id_of(gi);
                     for p in self.projectiles.iter_mut().filter(|p| p.target == gid) {
@@ -26928,6 +26947,8 @@ impl BattleState {
         let advances: Vec<i32> = (0..cap).map(|i| self.stomp_advance(i)).collect();
         let mut facing = std::mem::take(&mut self.ents.facing);
         let mut offsets = std::mem::take(&mut self.ents.avoid_offset);
+        // targeting.CHASE_HOLD_BACKWARDS: this pass's path computations' flags (`write_backwards_flags`).
+        let mut backwards: Vec<(usize, EntityId, bool, bool)> = Vec::new();
         // DIAGNOSTIC, cleared every tick so a stale push from an earlier tick cannot be
         // read as this one's. Zero is a real answer here -- most ticks nothing overlaps --
         // so the reader tells absent from zero by whether the row carries the field at all.
@@ -28782,6 +28803,16 @@ impl BattleState {
                                     }
                                 }
                             }
+                            // targeting.CHASE_HOLD_BACKWARDS: the flag of this path computation, as `phase_path_2026`'s: does the
+                            // route toward the unit's own troop target go backwards? Parity r87: r86's arms read a flag only the
+                            // older search wrote, so under this one every melee walker past round sight let go (live14's two
+                            // Skeleton swarms, whose holders' routes went backwards).
+                            // PLANT (regression) backwards_flag_unplanned: the shipped search still writes no flag.
+                            #[cfg(not(clash_plant = "backwards_flag_unplanned"))]
+                            if calib.chase_hold_backwards.writes_path_flag() && e.target[i] == Some(gid) && !e.kind[gi].is_building() {
+                                let long = routes[i].len() >= 2;
+                                backwards.push((i, gid, long && Self::route_goes_backwards(&routes[i], e.pos[i], e.pos[gi]), long));
+                            }
                             goals[i] = cell_v;
                             planned[i] = epoch;
                         }
@@ -29063,6 +29094,7 @@ impl BattleState {
         }
         self.ents.route = routes;
         self.ents.route_goal = goals;
+        self.write_backwards_flags(backwards);
         self.ents.last_plan_tick = planned;
         self.ents.seg_dir = segs;
         self.ents.move_ticks = kticks;
@@ -29510,6 +29542,31 @@ impl BattleState {
     /// +-190 and then walks it by +-10 per tick in a way no decay explains).
     /// Applying a made-up deflection here would corrupt the one law that IS
     /// measured.
+    /// targeting.CHASE_HOLD_BACKWARDS: does `route` (2 waypoints or more) go backwards, a waypoint farther from `target` than
+    /// the walker at `me` (the client's flag after each path computation)?
+    fn route_goes_backwards(route: &[Vec2], me: Vec2, target: Vec2) -> bool {
+        let d2 = |a: Vec2, b: Vec2| {
+            let (dx, dy) = (i64::from(a.x - b.x), i64::from(a.y - b.y));
+            dx * dx + dy * dy
+        };
+        let far = d2(me, target);
+        route.len() >= 2 && route.iter().any(|w| d2(*w, target) > far)
+    }
+
+    /// targeting.CHASE_HOLD_BACKWARDS: the path computations' flags (unit, its target, backwards, a route of 2 waypoints or
+    /// more). client16402_backwards_path keeps a flag from the computation that set it (per target) until a route of under 2
+    /// waypoints; _stored rewrites it at every computation toward the target.
+    fn write_backwards_flags(&mut self, flags: Vec<(usize, EntityId, bool, bool)>) {
+        let stored = self.cfg.calib.chase_hold_backwards == ChaseHoldBackwards::Client16402BackwardsPathStored;
+        for (i, t, back, long) in flags {
+            if back {
+                self.ents.path_backwards[i] = Some(t);
+            } else if !long || stored || self.ents.path_backwards[i] != Some(t) {
+                self.ents.path_backwards[i] = None;
+            }
+        }
+    }
+
     fn phase_path_2026(&mut self) {
         let mut backwards: Vec<(usize, EntityId, bool, bool)> = Vec::new();
         // The units under ground first, under every path arm (movement.SPAWN_PATHFIND_STATES).
@@ -29640,14 +29697,9 @@ impl BattleState {
                     routes[i] = route.into_iter().map(|p| arena.from_frame(team, p)).collect();
                     // targeting.CHASE_HOLD_BACKWARDS: does this route toward the unit's own troop target go backwards (a
                     // waypoint farther from the target than the unit; the client's flag after each path computation)?
-                    if calib.chase_hold_backwards != ChaseHoldBackwards::ChaseLimit && e.target[i] == Some(goal_id) && !e.kind[gi].is_building() {
-                        let d2 = |a: Vec2, b: Vec2| {
-                            let (dx, dy) = (i64::from(a.x - b.x), i64::from(a.y - b.y));
-                            dx * dx + dy * dy
-                        };
-                        let far = d2(e.pos[i], e.pos[gi]);
-                        let back = routes[i].len() >= 2 && routes[i].iter().any(|w| d2(*w, e.pos[gi]) > far);
-                        backwards.push((i, goal_id, back, routes[i].len() >= 2));
+                    if calib.chase_hold_backwards.writes_path_flag() && e.target[i] == Some(goal_id) && !e.kind[gi].is_building() {
+                        let long = routes[i].len() >= 2;
+                        backwards.push((i, goal_id, long && Self::route_goes_backwards(&routes[i], e.pos[i], e.pos[gi]), long));
                     }
                     goals[i] = Some(cell_v);
                     planned[i] = epoch;
@@ -29738,16 +29790,7 @@ impl BattleState {
         }
         self.ents.route = routes;
         self.ents.route_goal = goals;
-        // targeting.CHASE_HOLD_BACKWARDS: the replans' flags. client16402_backwards_path keeps a flag from the replan that set
-        // it (per target) until a route of under 2 waypoints; _stored rewrites it at every replan toward the target.
-        let stored = self.cfg.calib.chase_hold_backwards == ChaseHoldBackwards::Client16402BackwardsPathStored;
-        for (i, t, back, long) in backwards {
-            if back {
-                self.ents.path_backwards[i] = Some(t);
-            } else if !long || stored || self.ents.path_backwards[i] != Some(t) {
-                self.ents.path_backwards[i] = None;
-            }
-        }
+        self.write_backwards_flags(backwards);
         self.ents.last_plan_tick = planned;
         self.ents.seg_dir = segs;
         self.ents.move_ticks = kticks;

@@ -41,6 +41,7 @@ use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::card::CardDb;
 use royalesim::state::{BattleConfig, BattleState, CardTable, GuardChargeImmunity, GuardChargeStep, GuardBirthPoint, GuardFreeTick, GuardLandingArea, GuardLandingAvoidance, GuardLandingHits, GuardPressContact, GuardPressHold, GuardPushAttackReset, GuardWaterLanding, GuardBirthPassThrough, DashImmunePush, LoadTimerTargetLoss, StrikeDashImmune, GuardBirthGoal, GuardChargeBuildings, GuardChargeLeap, EnchantGuardCharge, RampGraceMove, RampGraceReset, RampHookReset, RampLevelDrop, RampPressHold, RampStunRestart, SpecialHook, DashImmuneBuffs, PressLoadTimer, RampKnockReset, VariableDamageImmuneTarget};
 use royalesim::entity::AttackPhase;
+use royalesim::state::DashImmuneHits;
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["LittlePrince", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -1067,6 +1068,80 @@ fn under_client16402_through_last_dash_plus_1_his_guard_is_immune_a_tick_longer(
     assert!(!new.iter().any(|l| l.0 == a + 2), "client16402_through_last_dash_plus_1: the Zap on its arrival + 2 took hp: {new:?}");
     let (later, _) = guard_zapped(GuardChargeImmunity::Client16402ThroughLastDashPlus1, &[a + 3]);
     assert!(later.iter().any(|l| l.0 == a + 3), "client16402_through_last_dash_plus_1: the Zap on its arrival + 3 took nothing: {later:?}");
+}
+
+/// The Little Prince held on (9000, 11500), pressed after 30 ticks, under combat.DASH_IMMUNE_HITS = `arm`; a red Musketeer put
+/// down (held, its hp kept) `off` from his guard's first point as it appears, behind it, so the guard is its nearest enemy and
+/// its shots fly as the guard charges away: the guard's hp losses (tick from the press, hp) over 70 ticks.
+fn guard_musketeer_losses(arm: DashImmuneHits, off: (i32, i32)) -> Vec<(u32, i32)> {
+    let at = (9000, 11500);
+    let mut cfg = config();
+    cfg.calib.dash_immune_hits = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let lp = s.scenario_spawn_now(Team::Blue, "LittlePrince", n(at), None).expect("the Little Prince");
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(lp, n(at)));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let press = s.tick_count();
+    let mut musketeer: Option<(EntityId, Vec2)> = None;
+    let mut hp_was: Option<i32> = None;
+    let mut out: Vec<(u32, i32)> = Vec::new();
+    for _ in 0..70 {
+        if s.entity(lp).is_some() {
+            assert!(s.debug_set_pos(lp, n(at)));
+        }
+        if let Some((m, p)) = musketeer {
+            if let Some(full) = s.entity(m).map(|e| e.max_hp) {
+                assert!(s.debug_set_pos(m, p));
+                assert!(s.debug_set_hp(m, full));
+            }
+        }
+        s.tick();
+        let Some((pos, hp)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.hp)) else { continue };
+        if musketeer.is_none() {
+            let p = Vec2::new(pos.x + off.0 * K, pos.y + off.1 * K);
+            musketeer = Some((s.scenario_spawn_now(Team::Red, "Musketeer", p, None).expect("the Musketeer"), p));
+        }
+        if let Some(h) = hp_was.filter(|h| hp < *h) {
+            out.push((s.tick_count() - 1 - press, h - hp));
+        }
+        hp_was = Some(hp);
+    }
+    out
+}
+
+/// combat.DASH_IMMUNE_HITS = client16402_last_tick_lands_if_flying_at_guard_charge_start (client 16.635, parity r86/r87: live15n
+/// 20261103-192522-A, a tower arrow launched mid-charge and arriving on the guard's immunity's last tick took nothing): over
+/// the Musketeer's offsets, wherever r82's client16402_projectile_lands_on_last_immune_tick and the new arm part, the new arm
+/// drops a hit r82's takes (a shot launched in the charge, unmarked, on the immunity's last tick) and takes nothing r82's does
+/// not; on a guard it is _dash_start's rule exactly. Plant: last_immune_launch_ignored.
+#[test]
+fn under_client16402_last_tick_lands_if_flying_at_guard_charge_start_an_arrow_launched_in_his_guards_charge_is_dropped() {
+    let mut dropped = 0;
+    for dx in (-3000..=3000).step_by(1000) {
+        for dy in (1000..=4000).step_by(500) {
+            let off = (dx, -dy);
+            let last = guard_musketeer_losses(DashImmuneHits::Client16402ProjectileLandsOnLastImmuneTick, off);
+            let guard = guard_musketeer_losses(DashImmuneHits::Client16402LastTickLandsIfFlyingAtGuardChargeStart, off);
+            assert_eq!(guard, guard_musketeer_losses(DashImmuneHits::Client16402LastTickLandsIfFlyingAtDashStart, off), "offset {off:?}: on a guard the two launch arms part");
+            if guard == last {
+                continue;
+            }
+            let missing: Vec<&(u32, i32)> = last.iter().filter(|l| !guard.iter().any(|g| g.0 == l.0)).collect();
+            let extra: Vec<&(u32, i32)> = guard.iter().filter(|g| !last.iter().any(|l| l.0 == g.0)).collect();
+            assert!(extra.is_empty(), "offset {off:?}: the new arm took hits r82's did not: {extra:?} (r82 {last:?})");
+            assert!(!missing.is_empty(), "offset {off:?}: the arms parted on the amounts alone: {guard:?} / {last:?}");
+            dropped += 1;
+        }
+    }
+    assert!(dropped > 0, "vacuous: no offset put a shot launched in the guard's charge on its last immune tick");
 }
 
 /// The Little Prince at AT pressed with a Red Knight held at `red_at`, near his guard's end point, let go once the guard comes
