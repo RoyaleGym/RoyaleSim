@@ -83,8 +83,11 @@ const EIGHTH: u32 = 7;
 
 const NEW: SpawnedUnitAcquireDelay = SpawnedUnitAcquireDelay::Client8thFrame;
 const OLD: SpawnedUnitAcquireDelay = SpawnedUnitAcquireDelay::None;
-/// The shipped arm since the 2026-09-28 round 9 flip: NEW, and an action-made building waits too.
-const SHIPPED: SpawnedUnitAcquireDelay = SpawnedUnitAcquireDelay::Client8thFrameActionBuildings;
+/// The shipped arm since parity r88: NEW, an action-made building waits too (the 2026-09-28 round 9 flip), and so does a unit
+/// a death projectile releases (the Phoenix's egg).
+const SHIPPED: SpawnedUnitAcquireDelay = SpawnedUnitAcquireDelay::Client16402DeathShots;
+/// The shipped arm from round 9 to parity r88.
+const ROUND9: SpawnedUnitAcquireDelay = SpawnedUnitAcquireDelay::Client8thFrameActionBuildings;
 
 fn with_arm(mut cfg: BattleConfig, arm: SpawnedUnitAcquireDelay) -> BattleConfig {
     cfg.calib.spawned_unit_acquire_delay = arm;
@@ -265,8 +268,8 @@ fn under_client16402_8th_frame_death_shots_a_phoenix_egg_is_first_targeted_on_it
     assert!(early.is_empty(), "client16402_8th_frame_death_shots: the egg was targeted before its 8th frame: {early:?}");
     assert_eq!(first, Some(EIGHTH), "client16402_8th_frame_death_shots: the idle Cannon's first look at the egg, as F + k");
     // NOT VACUOUS: the shipped arm leaves the egg a target before its 8th frame
-    let (_, old) = egg(SHIPPED);
-    assert!(old.is_some_and(|k| k < EIGHTH), "the scene drifted: under the shipped arm the Cannon took the egg at {old:?}");
+    let (_, old) = egg(ROUND9);
+    assert!(old.is_some_and(|k| k < EIGHTH), "the scene drifted: under client_8th_frame_action_buildings the Cannon took the egg at {old:?}");
 }
 
 #[test]
@@ -430,7 +433,7 @@ fn open_a_death_spawned_building_is_targeted_at_once() {
 #[test]
 fn the_old_arm_targets_on_f1_and_the_new_arm_ships() {
     // Plant acquire_delay_ignores_arm: the Cannon waits for F + 7 under none as well.
-    assert_eq!(Calib::shipped().spawned_unit_acquire_delay, SHIPPED, "the ledger ships client_8th_frame_action_buildings");
+    assert_eq!(Calib::shipped().spawned_unit_acquire_delay, SHIPPED, "the ledger ships client16402_8th_frame_death_shots");
     assert_eq!(config().calib.spawned_unit_acquire_delay, SHIPPED);
     for parent in ["GoblinCage", "Golem"] {
         let mut sc = death_scene(with_arm(config(), OLD), Team::Blue, parent);

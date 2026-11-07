@@ -294,9 +294,11 @@ fn the_turrets_blow_lands_on_c2_under_client_on_landing_action_at_2() {
 fn the_shipped_arms() {
     let c = Calib::shipped();
     assert_eq!(c.ability_unit_first_update, NEW_UPDATE, "spawner.ABILITY_UNIT_FIRST_UPDATE ships client_next_tick");
-    assert_eq!(c.spawned_unit_acquire_delay, NEW_DELAY, "targeting.SPAWNED_UNIT_ACQUIRE_DELAY ships client_8th_frame_action_buildings");
+    // Since parity r88 the shipped acquire delay is client16402_8th_frame_death_shots: NEW_DELAY (an action's building waits)
+    // and a death projectile's unit too; the turret scenes here name NEW_DELAY.
+    assert_eq!(c.spawned_unit_acquire_delay, SpawnedUnitAcquireDelay::Client16402DeathShots, "targeting.SPAWNED_UNIT_ACQUIRE_DELAY ships client16402_8th_frame_death_shots");
     assert_eq!(config().calib.ability_unit_first_update, NEW_UPDATE);
-    assert_eq!(config().calib.spawned_unit_acquire_delay, NEW_DELAY);
+    assert_eq!(config().calib.spawned_unit_acquire_delay, SpawnedUnitAcquireDelay::Client16402DeathShots);
     assert_eq!(c.deploy_projectile, DeployProjectile::ClientOnLandingActionAt2, "combat.DEPLOY_PROJECTILE ships client_on_landing_action_at_2");
     assert_eq!(config().calib.deploy_projectile, DeployProjectile::ClientOnLandingActionAt2);
 }

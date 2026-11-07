@@ -30,7 +30,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE};
-use royalesim::state::{BattleConfig, BattleState, Calib, HookDragRoute};
+use royalesim::state::{BattleConfig, BattleState, Calib, HookDragRoute, HookDragSpeed};
 use royalesim::Team;
 
 const NEW: HookDragRoute = HookDragRoute::Client16402Dropped;
@@ -41,6 +41,9 @@ const TICKS: usize = 140;
 
 fn with(arm: HookDragRoute) -> BattleConfig {
     let mut cfg = config();
+    // combat.HOOK_DRAG_SPEED = constant_510: this scene was read on the 510 drag (parity r88 ships client16402_victim_speed,
+    // under which a victim's step is its Speed x 850 / 100).
+    cfg.calib.hook_drag_speed = HookDragSpeed::Constant510;
     cfg.calib.hook_drag_route = arm;
     cfg
 }

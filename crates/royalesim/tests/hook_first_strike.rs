@@ -27,7 +27,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, SpecialHook};
+use royalesim::state::{BattleState, HookDragSpeed, SpecialHook};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -37,6 +37,9 @@ fn at(p: (i32, i32)) -> Vec2 {
 /// Per tick after the tick: (the Knight's step, native, its hp).
 fn scene() -> Vec<(i64, i32)> {
     let mut cfg = config();
+    // combat.HOOK_DRAG_SPEED = constant_510: this scene was read on the 510 drag (parity r88 ships client16402_victim_speed,
+    // under which a victim's step is its Speed x 850 / 100).
+    cfg.calib.hook_drag_speed = HookDragSpeed::Constant510;
     assert_eq!(cfg.calib.special_hook, SpecialHook::ClientHookDrag, "the shipped combat.SPECIAL_HOOK");
     cfg.calib.special_hook = SpecialHook::ClientHookDrag;
     let mut s = BattleState::new(0, cfg);

@@ -9313,6 +9313,9 @@ calib_enum!(
         /// DragBackSpeed (850) / 100: a Recruit (60) 510 in 48 of 53 steps, a Goblin Brawler (90) 765 in 10 of 12, a Royal
         /// Hog (120) 1010-1020 in 17 of 21.
         Client16402VictimSpeed = "client16402_victim_speed",
+        /// As client16402_victim_speed with the victim's Speed floored at 60: a slower victim is dragged 510 as a Knight is (the
+        /// 16.402 corpus's 20260920-081819: a Giant, Speed 45, dragged 510 a step, both seats).
+        Client16402VictimSpeedFloor60 = "client16402_victim_speed_floor_60",
     }
 );
 calib_enum!(
@@ -31601,11 +31604,15 @@ impl BattleState {
     /// A thrower that is gone ends the drag where it stands (what
     /// cancels a drag is OPEN), and a knockback on the victim runs first while the drag waits.
     /// combat.HOOK_DRAG_SPEED: hooked victim `i`'s drag step, native a tick: HOOK_DRAG_STEP under constant_510; under
-    /// client16402_victim_speed its Speed column times HOOK_DRAG_BACK_SPEED / 100 (a Speed of 0: HOOK_DRAG_STEP). PLANT
-    /// (regression) hook_drag_constant: the new arm still steps 510.
+    /// client16402_victim_speed its Speed column times HOOK_DRAG_BACK_SPEED / 100 (a Speed of 0: HOOK_DRAG_STEP), under
+    /// _floor_60 that Speed floored at 60. PLANTS (regression): hook_drag_constant, the new arms still step 510;
+    /// hook_drag_floor_ignored, _floor_60 drags a slow victim at its own Speed.
     fn hook_drag_step(&self, i: usize) -> i32 {
-        if self.cfg.calib.hook_drag_speed == HookDragSpeed::Client16402VictimSpeed && !cfg!(clash_plant = "hook_drag_constant") {
+        let arm = self.cfg.calib.hook_drag_speed;
+        if arm != HookDragSpeed::Constant510 && !cfg!(clash_plant = "hook_drag_constant") {
             let speed = self.cfg.cards.get(self.ents.card[i]).speed;
+            let floor = arm == HookDragSpeed::Client16402VictimSpeedFloor60 && !cfg!(clash_plant = "hook_drag_floor_ignored");
+            let speed = if floor { speed.max(60) } else { speed };
             if speed > 0 {
                 return speed * HOOK_DRAG_BACK_SPEED / 100;
             }

@@ -28,7 +28,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, ChaseHoldBackwards, HookLanding};
+use royalesim::state::{BattleState, Calib, ChaseHoldBackwards, HookDragSpeed, HookLanding};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -40,6 +40,9 @@ fn at(p: (i32, i32)) -> Vec2 {
 /// route round by the bridge goes backwards), 574, as client15535_troops_kept does.
 fn steps(arm: HookLanding) -> Vec<i64> {
     let mut cfg = config();
+    // combat.HOOK_DRAG_SPEED = constant_510: this scene was read on the 510 drag (parity r88 ships client16402_victim_speed,
+    // under which a victim's step is its Speed x 850 / 100).
+    cfg.calib.hook_drag_speed = HookDragSpeed::Constant510;
     cfg.calib.hook_landing = arm;
     cfg.calib.chase_hold_backwards = ChaseHoldBackwards::ChaseLimit;
     let mut s = BattleState::new(0, cfg);

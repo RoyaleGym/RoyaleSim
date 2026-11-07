@@ -30,7 +30,6 @@ fn progress_at_break(arm: ShieldBreakResetsAttack) -> (i32, i32) {
     let dragon = s.scenario_spawn_now(Team::Blue, "InfernoDragon", at((9000, 12000)), None).expect("the Inferno Dragon");
     let prince = s.scenario_spawn_now(Team::Red, "DarkPrince", at((9000, 14500)), None).expect("the Dark Prince");
     let mut armed = false;
-    let mut before = 0;
     for _ in 0..400 {
         assert!(s.debug_set_pos(prince, at((9000, 14500))));
         let (target, progress) = s.entity(dragon).map(|d| (d.target, d.attack_ms)).expect("the scene drifted: the Dragon died");
@@ -38,7 +37,7 @@ fn progress_at_break(arm: ShieldBreakResetsAttack) -> (i32, i32) {
             assert!(s.debug_set_shield(prince, 1));
             armed = true;
         }
-        before = progress;
+        let before = progress;
         s.tick();
         let p = s.entity(prince).expect("the scene drifted: the Prince died");
         if armed && p.shield == 0 {
@@ -63,7 +62,8 @@ fn under_client16402_variable_rows_restart_a_shields_break_restarts_an_infernos_
     assert!(a > b, "kept: the Dragon's progress went {b} -> {a} at the break");
 }
 
+/// Since parity r88 (kept before it; client 15.535.29 keeps kept).
 #[test]
-fn the_shipped_shield_break_resets_attack_is_kept() {
-    assert_eq!(Calib::shipped().shield_break_resets_attack, ShieldBreakResetsAttack::Kept);
+fn the_shipped_shield_break_resets_attack_is_client16402_inferno_rows_restart() {
+    assert_eq!(Calib::shipped().shield_break_resets_attack, ShieldBreakResetsAttack::Client16402InfernoRowsRestart);
 }

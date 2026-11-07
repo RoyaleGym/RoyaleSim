@@ -135,7 +135,8 @@ fn under_client16402_log_tick_to_land_plus_2_the_barbarian_is_hittable_on_its_sl
     assert!(old.iter().find(|r| r.0 == 2).is_some_and(|r| r.1), "at_trigger: not hidden on P + 2: {old:?}");
 }
 
+/// Since parity r88 (at_trigger before it; client 15.535.29 keeps at_trigger).
 #[test]
-fn the_shipped_reroll_hide_window_is_at_trigger() {
-    assert_eq!(Calib::shipped().reroll_hide_window, RerollHideWindow::AtTrigger);
+fn the_shipped_reroll_hide_window_is_client16402_log_tick_to_land_plus_2() {
+    assert_eq!(Calib::shipped().reroll_hide_window, RerollHideWindow::Client16402LogTickToLandPlus2);
 }

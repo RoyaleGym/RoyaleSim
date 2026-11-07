@@ -27,7 +27,8 @@ royalesim = pytest.importorskip("royalesim")
 
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "targeting.SPAWNED_UNIT_ACQUIRE_DELAY"
-SHIPPED_ARM, NONE_ARM = "client_8th_frame_action_buildings", "none"
+# the shipped arm since parity r88 (client_8th_frame_action_buildings before it; a death spawn waits under both)
+SHIPPED_ARM, NONE_ARM = "client16402_8th_frame_death_shots", "none"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 #: the 8th frame of a unit whose first frame is F
 EIGHTH = 7

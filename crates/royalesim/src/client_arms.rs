@@ -447,6 +447,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.REFLECT_WHILE_HELD = answers: unread on client 15.535.29.
 ///   combat.HOOK_DRAG_SPEED = constant_510: client 15.535.29's drags were of Knights (509-510); other victims unread.
 ///   combat.SHIELD_BREAK_RESETS_ATTACK = kept: unread on client 15.535.29.
+///   targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame_action_buildings: client 15.535.29's Phoenix eggs unread.
 ///   spells.REROLL_HIDE_WINDOW = at_trigger: client 15.535.29's one scene (sp-form-BarbLog-hero-s0) was read for the slide and
 ///   the ride only.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -715,6 +716,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.REFLECT_WHILE_HELD", "\"answers\""),
     ("combat.HOOK_DRAG_SPEED", "\"constant_510\""),
     ("combat.SHIELD_BREAK_RESETS_ATTACK", "\"kept\""),
+    ("targeting.SPAWNED_UNIT_ACQUIRE_DELAY", "\"client_8th_frame_action_buildings\""),
     ("spells.REROLL_HIDE_WINDOW", "\"at_trigger\""),
 ];
 

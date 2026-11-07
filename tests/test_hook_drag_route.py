@@ -40,7 +40,9 @@ TICKS = 140
 
 
 def overrides(arm: str) -> dict:
-    return {KEY: json.dumps(arm)}
+    # combat.HOOK_DRAG_SPEED = constant_510: the scene was read on the 510 drag (parity r88 ships a drag at the
+    # victim's speed).
+    return {KEY: json.dumps(arm), "combat.HOOK_DRAG_SPEED": json.dumps("constant_510")}
 
 
 def run(arm: str, victim: str = "Giant") -> list:

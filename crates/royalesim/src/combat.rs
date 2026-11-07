@@ -3242,6 +3242,13 @@ pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, undergrou
     (underground_immune && ents.underground(v)) || (hidden_immune && !ignores_hide && ents.hide_shut(v))
 }
 
+/// combat.SHIELD_BREAK_RESETS_ATTACK = client16402_variable_rows_restart: every shield's break is recorded in `shield_broke`
+/// (state.rs `shield_break_resets`), not only a shield blast's card's (state.rs `shield_blasts` keeps its blasts to those).
+#[inline]
+fn every_break(calib: &Calib) -> bool {
+    calib.shield_break_resets_attack != crate::state::ShieldBreakResetsAttack::Kept
+}
+
 /// LAND ONE DIRECT STRIKE AT ONCE (calibration match.TICK_ORDER = client_sequential_strike;
 /// state.rs `land_strike`): `hits` are the hits one `fire` of a unit with no projectile buffered,
 /// applied as `resolve` applies a tick's hits -- a dead target and a non-positive amount skipped,
@@ -3259,13 +3266,6 @@ pub fn untouchable_now(ents: &Entities, v: usize, hidden_immune: bool, undergrou
 /// and alive, an Evo shield taken to 0 -- is returned for the same tick's Resolve to fold into its own (state.rs
 /// `phase_resolve`), so a strike's blast and buff land when a buffered hit's would.
 #[allow(clippy::too_many_arguments)]
-/// combat.SHIELD_BREAK_RESETS_ATTACK = client16402_variable_rows_restart: every shield's break is recorded in `shield_broke`
-/// (state.rs `shield_break_resets`), not only a shield blast's card's (state.rs `shield_blasts` keeps its blasts to those).
-#[inline]
-fn every_break(calib: &Calib) -> bool {
-    calib.shield_break_resets_attack != crate::state::ShieldBreakResetsAttack::Kept
-}
-
 pub fn land_at_once(ents: &mut Entities, cards: &CardDb, calib: &Calib, hits: &[Hit], hidden_immune: bool, underground_immune: bool, riders_immune: bool, tick: u32) -> StrikeOut {
     let mut out = StrikeOut::default();
     for h in hits {

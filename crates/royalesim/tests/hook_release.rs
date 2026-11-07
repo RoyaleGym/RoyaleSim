@@ -31,6 +31,9 @@ fn at(p: (i32, i32)) -> Vec2 {
 /// S + n.
 fn acts_after_stop(arm: HookRelease, victim: &str) -> usize {
     let mut cfg = config();
+    // combat.HOOK_DRAG_SPEED = constant_510: this scene was read on the 510 drag (parity r88 ships client16402_victim_speed,
+    // under which a victim's step is its Speed x 850 / 100).
+    cfg.calib.hook_drag_speed = HookDragSpeed::Constant510;
     cfg.calib.special_hook = SpecialHook::ClientHookDrag;
     cfg.calib.hook_release = arm;
     let mut s = BattleState::new(0, cfg);
@@ -79,6 +82,9 @@ type WaterStop = (usize, (i32, i32), (i32, i32), (bool, bool));
 /// (HOOK_RELEASE = client_idle_tick): (S, the stop tick; the Giant's point on S and on S + 1, native; whether each is off water).
 fn water_stop(arm: HookWaterLanding) -> WaterStop {
     let mut cfg = config();
+    // combat.HOOK_DRAG_SPEED = constant_510: this scene was read on the 510 drag (parity r88 ships client16402_victim_speed,
+    // under which a victim's step is its Speed x 850 / 100).
+    cfg.calib.hook_drag_speed = HookDragSpeed::Constant510;
     cfg.calib.special_hook = SpecialHook::ClientHookDrag;
     cfg.calib.hook_release = HookRelease::ClientIdleTick;
     cfg.calib.hook_water_landing = arm;
@@ -129,6 +135,9 @@ type DragStep = ((i64, i64), (i64, i64), (i64, i64));
 /// before it, the Fisherman's before it, the Giant's after it).
 fn drag_steps(arm: HookDragRounding) -> Vec<DragStep> {
     let mut cfg = config();
+    // combat.HOOK_DRAG_SPEED = constant_510: this scene was read on the 510 drag (parity r88 ships client16402_victim_speed,
+    // under which a victim's step is its Speed x 850 / 100).
+    cfg.calib.hook_drag_speed = HookDragSpeed::Constant510;
     cfg.calib.special_hook = SpecialHook::ClientHookDrag;
     cfg.calib.hook_release = HookRelease::ClientIdleTick;
     cfg.calib.hook_drag_rounding = arm;
@@ -204,6 +213,26 @@ fn under_client16402_victim_speed_the_drag_step_is_the_victims_speed_times_850_o
     assert!(!old.iter().any(|&d| (1015..=1025).contains(&d)), "constant_510: a 1020 step: {old:?}");
     let knight = victim_steps(HookDragSpeed::Client16402VictimSpeed, "Knight");
     assert!(knight.iter().filter(|&&d| (505..=515).contains(&d)).count() >= 2, "client16402_victim_speed: a Knight's drag is not 510 a step: {knight:?}");
+}
+
+/// combat.HOOK_DRAG_SPEED = client16402_victim_speed_floor_60 (parity r88: the 16.402 corpus's 20260920-081819 drags a Giant,
+/// Speed 45, 510 a step, where Speed x 850 / 100 is 382): a Giant is dragged 510 a tick, a Hog Rider 1020; under
+/// client16402_victim_speed the Giant is dragged at its own Speed (382). Plant: hook_drag_floor_ignored.
+#[test]
+fn under_client16402_victim_speed_floor_60_a_slow_victim_is_dragged_510() {
+    let giant = victim_steps(HookDragSpeed::Client16402VictimSpeedFloor60, "Giant");
+    assert!(giant.iter().filter(|&&d| (505..=515).contains(&d)).count() >= 2, "client16402_victim_speed_floor_60: a Giant's drag is not 510 a step: {giant:?}");
+    let fast = victim_steps(HookDragSpeed::Client16402VictimSpeedFloor60, "HogRider");
+    assert!(fast.iter().filter(|&&d| (1015..=1025).contains(&d)).count() >= 2, "client16402_victim_speed_floor_60: a Hog Rider's drag is not 1020 a step: {fast:?}");
+    // NOT VACUOUS: the unfloored arm drags the Giant at its own Speed
+    let raw = victim_steps(HookDragSpeed::Client16402VictimSpeed, "Giant");
+    assert!(raw.iter().filter(|&&d| (375..=390).contains(&d)).count() >= 2, "the scene drifted: client16402_victim_speed drags no Giant at 382: {raw:?}");
+}
+
+/// Since parity r88 (constant_510 before it; client 15.535.29 keeps constant_510).
+#[test]
+fn the_shipped_hook_drag_speed_is_client16402_victim_speed_floor_60() {
+    assert_eq!(Calib::shipped().hook_drag_speed, HookDragSpeed::Client16402VictimSpeedFloor60);
 }
 
 #[test]

@@ -72,7 +72,8 @@ fn under_client16402_held_no_reflect_a_stunned_electro_giant_does_not_answer() {
     assert!(old.len() >= 2, "the scene drifted: answers gave under 2 answers in the window: {old:?}");
 }
 
+/// Since parity r88 (answers before it; client 15.535.29 keeps answers).
 #[test]
-fn the_shipped_reflect_while_held_is_answers() {
-    assert_eq!(Calib::shipped().reflect_while_held, ReflectWhileHeld::Answers);
+fn the_shipped_reflect_while_held_is_client16402_held_no_reflect() {
+    assert_eq!(Calib::shipped().reflect_while_held, ReflectWhileHeld::Client16402HeldNoReflect);
 }
