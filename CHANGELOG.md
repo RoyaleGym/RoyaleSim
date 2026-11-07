@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.49 (2026-11-07)
+
+- 2 more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A troop chasing a target that has left its sight keeps it only while its path to it goes backwards (round by a
+    bridge, for one), whether the target is a troop or a building. Otherwise it turns to the lane's tower. A flying
+    troop lets such a target go (`targeting.CHASE_HOLD_BACKWARDS`).
+  - A shot launched while the Little Prince's guard is charging no longer lands on the last tick of the guard's
+    immunity. A shot that was already flying at it when the charge began still does (`combat.DASH_IMMUNE_HITS`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` keep the older client's values for its battles.
+
 ## 0.1.48 (2026-11-06)
 
 - `reset` takes two more optional arguments for copying a battle under way. Leaving them out keeps the old
