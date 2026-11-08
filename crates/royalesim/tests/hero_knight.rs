@@ -28,7 +28,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, TauntEndsWait};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -40,7 +40,11 @@ const DECK: [&str; 8] = ["Knight", "Archer", "Giant", "Musketeer", "MiniPekka", 
 const AT: (i32, i32) = (9000, 10000);
 
 fn battle() -> BattleState {
-    let mut cfg: BattleConfig = config();
+    battle_cfg(config())
+}
+
+/// `battle` on `cfg`.
+fn battle_cfg(mut cfg: BattleConfig) -> BattleState {
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
@@ -173,4 +177,87 @@ fn the_taunt_leaves_a_building_only_attacker_on_its_building() {
         step(&mut s, hero, &held);
         assert_eq!(s.entity(giant).expect("the Giant").target, Some(before), "the Giant's target {k} ticks after the press");
     }
+}
+
+/// Under targeting.TAUNT_ENDS_WAIT = `arm`: a red Knight on a blue Archer at 1 hp (its next hit kills it), 4717 from the hero,
+/// a blue Knight 1500 from it (its next target once the Archer is gone, the hero being farther), everyone held and both
+/// Knights topped up; the hero's taunt pressed on tick `press_at` when given. Returns (the tick the Archer died, the first tick the
+/// red Knight targets the hero), each None when it does not happen in 90 ticks.
+fn taunt_after_kill(arm: TauntEndsWait, press_at: Option<u32>) -> (Option<u32>, Option<u32>) {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.taunt_ends_wait = arm;
+    let mut s = battle_cfg(cfg);
+    s.spawn_unit(Team::Blue, "Knight_hero", n(AT.0, AT.1), None).expect("the hero");
+    s.spawn_unit_resolved(Team::Blue, "Archer", n(5000, 13500), None).expect("the Archer");
+    s.spawn_unit_resolved(Team::Red, "Knight", n(5000, 12500), None).expect("the Knight");
+    s.spawn_unit_resolved(Team::Blue, "Knight", n(5000, 14000), None).expect("the blue Knight");
+    s.tick();
+    let hero = find_live(&s, Team::Blue, "Knight_hero")[0].id;
+    let archer = s.entities().find(|e| e.team == Team::Blue && e.card == "Archer").expect("the Archer").id;
+    let red = s.entities().find(|e| e.team == Team::Red && e.card == "Knight").expect("the Knight").id;
+    let blue = s.entities().find(|e| e.team == Team::Blue && e.card == "Knight").expect("the blue Knight").id;
+    let hold = |s: &mut BattleState| {
+        assert!(s.debug_set_pos(hero, n(AT.0, AT.1)));
+        assert!(s.debug_set_pos(red, n(5000, 12500)));
+        assert!(s.debug_set_pos(blue, n(5000, 14000)));
+        for k in [blue, red] {
+            let max = s.entity(k).expect("a topped-up Knight").max_hp;
+            assert!(s.debug_set_hp(k, max));
+        }
+        if s.entity(archer).is_some() {
+            assert!(s.debug_set_pos(archer, n(5000, 13500)));
+        }
+    };
+    for _ in 0..40 {
+        hold(&mut s);
+        s.tick();
+    }
+    assert_eq!(s.entity(red).expect("the red Knight").target, Some(archer), "the scene drifted: the Knight is not on the Archer");
+    assert!(s.debug_set_hp(archer, 1));
+    let (mut kill, mut on_hero) = (None, None);
+    for _ in 0..90 {
+        if press_at == Some(s.tick_count()) {
+            s.press_ability_button(Team::Blue, 0).expect("the press");
+        }
+        hold(&mut s);
+        s.tick();
+        let now = s.tick_count() - 1;
+        if kill.is_none() && s.entity(archer).is_none() {
+            kill = Some(now);
+        }
+        if on_hero.is_none() && s.entity(red).expect("the red Knight").target == Some(hero) {
+            on_hero = Some(now);
+        }
+    }
+    (kill, on_hero)
+}
+
+/// targeting.TAUNT_ENDS_WAIT = client16402_taunt_ends_wait (parity r89, the oracle's replays of 100 recorded battles on client
+/// 16.402: three Royal Recruits whose Goblin died the tick before took the taunting Hero Knight on the taunt's first tick, the
+/// engine's 5 ticks later): over presses just before the red Knight's kill, some reach it inside its post-kill wait; there the
+/// new arm takes the hero sooner than waits, and it is never later. Plant: taunt_waits.
+#[test]
+fn under_client16402_taunt_ends_wait_a_taunt_ends_a_post_kill_wait() {
+    let (k, never) = taunt_after_kill(TauntEndsWait::Waits, None);
+    let k = k.expect("the scene drifted: the Archer never died");
+    assert!(never.is_none(), "the scene drifted: the Knight took the hero with no taunt");
+    let mut sooner = 0;
+    for lead in 0..=12u32 {
+        let at = Some(k.saturating_sub(lead));
+        let (ko, old) = taunt_after_kill(TauntEndsWait::Waits, at);
+        let (kn, new) = taunt_after_kill(TauntEndsWait::Client16402TauntEndsWait, at);
+        // a press whose taunt turned the Knight before its kill is not this scene
+        if ko != Some(k) || kn != Some(k) {
+            continue;
+        }
+        let (Some(o), Some(w)) = (old, new) else { continue };
+        assert!(w <= o, "lead {lead}: client16402_taunt_ends_wait took the hero later ({w} vs {o})");
+        sooner += u32::from(w < o);
+    }
+    assert!(sooner > 0, "NOT VACUOUS: no press reached the Knight inside its post-kill wait");
+}
+
+#[test]
+fn the_shipped_taunt_ends_wait_is_waits() {
+    assert_eq!(royalesim::state::Calib::shipped().taunt_ends_wait, TauntEndsWait::Waits);
 }

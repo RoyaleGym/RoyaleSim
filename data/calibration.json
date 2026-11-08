@@ -229,6 +229,16 @@
       "open": "Projectile holders (their sight is not modelled: they keep chase_limit); the flag's clears (the sticky reading fits the truth better than the literal store; 19 residual ticks); 15.535.29 unread. Parity r87: r86's scores of the two path arms (live14 +7,723, identical) ran with no flag written under the shipped search (PATH_SEARCH = client16402), i.e. every melee walker past round sight let go; the flag is written there from r87, and the arms are scored again. Parity r87's gate (the oracle's scenes, sp017): the flag written for troop targets only let a Knight's building target (a Cannon, a Mortar) go across the centre line, where the client holds it round by the bridge; the shipped arm writes it for a building target too.",
       "engine": "target.rs decide (the hold past round sight); state.rs phase_path16402_for and phase_path_2026 (the path computations' flags, write_backwards_flags); entity.rs path_backwards; tests/chase_hold.rs."
     },
+    "TAUNT_ENDS_WAIT": {
+      "value": "waits",
+      "status": "measured",
+      "candidates": ["waits", "client16402_taunt_ends_wait"],
+      "confidence": "MEDIUM-HIGH for client16402_taunt_ends_wait on client 16.402 (parity r89, 2026-11-08): across the oracle's replays of 100 recorded battles on client 16.402 (content 160402017-20261006; ilb17), traced on the r87 head (parity r88 diagnosis, 2026-11-07), one battle (24649b88): the Hero Knight's taunt took effect on t2484 for every unit in reach; Royal Recruits 60, 62 and 68 switched to him on t2484 in both the truth and the engine, and recruits 63, 64 and 65, whose Goblin died on t2483, took him on t2484 in the truth, where the engine had them serve their post-kill wait and take him on t2489.",
+      "provenance": "MEASURED by parity (2026-11-08, r89) on the oracle's replays of 100 recorded battles on client 16.402 (content 160402017-20261006; ilb17), traced on the r87 head (parity r88 diagnosis, 2026-11-07).",
+      "meaning": "waits: the engine's; a unit serving its post-kill retarget wait takes the taunting hero when the wait ends. client16402_taunt_ends_wait: the taunt ends the wait, and the unit takes the hero on the taunt's tick.",
+      "open": "One battle; a taunt landing during other holds (a stun's) is unread; client 15.535.29 unread.",
+      "engine": "state.rs phase_target (after taunt_override), selected by Calib::taunt_ends_wait; tests/hero_knight.rs."
+    },
     "DOOMED_HEAL_BUFF": {
       "value": "client16402_max_hp_while_healing",
       "status": "measured",

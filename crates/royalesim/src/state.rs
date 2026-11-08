@@ -2288,6 +2288,10 @@ pub struct Calib {
     /// 20; the default is the old arm, `AtTrigger`, what a battle saved before it ran.
     #[serde(default = "reroll_hide_window_default")]
     pub reroll_hide_window: RerollHideWindow,
+    /// targeting.TAUNT_ENDS_WAIT (whether a taunt ends a post-kill retarget wait). Added after SNAPSHOT_FORMAT 20; the default is
+    /// the old arm, `Waits`, what a battle saved before it ran.
+    #[serde(default = "taunt_ends_wait_default")]
+    pub taunt_ends_wait: TauntEndsWait,
 }
 
 impl Calib {
@@ -3431,6 +3435,10 @@ fn shield_break_resets_attack_default() -> ShieldBreakResetsAttack {
 
 fn reroll_hide_window_default() -> RerollHideWindow {
     RerollHideWindow::AtTrigger
+}
+
+fn taunt_ends_wait_default() -> TauntEndsWait {
+    TauntEndsWait::Waits
 }
 
 fn goblin_machine_rocket_default() -> GoblinMachineRocket {
@@ -9274,6 +9282,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// targeting.TAUNT_ENDS_WAIT -- whether a taunt (`taunt_override`) that turns a unit on its hero ends the unit's post-kill
+    /// retarget wait (`retarget_wait`).
+    TauntEndsWait {
+        /// The engine's: the wait runs out first; the unit takes the hero when it ends.
+        Waits = "waits",
+        /// Client 16.402 (parity r89, the oracle's replays of 100 battles): the taunt ends the wait, so the unit takes the hero
+        /// on the taunt's tick (24649b88: three Royal Recruits whose Goblin died the tick before took the Hero Knight on the
+        /// taunt's first tick with the rest, the engine's 5 ticks later).
+        Client16402TauntEndsWait = "client16402_taunt_ends_wait",
+    }
+);
+calib_enum!(
     /// spells.REROLL_HIDE_WINDOW -- when the Hero Barbarian Barrel's re-rolled Barbarian is hidden (`fire_ability`'s ReRoll,
     /// `reroll_pass`).
     RerollHideWindow {
@@ -12624,6 +12644,7 @@ impl Calib {
             hook_drag_speed: pick(&v, &["combat", "HOOK_DRAG_SPEED", "value"], HookDragSpeed::from_calibration_name)?,
             shield_break_resets_attack: pick(&v, &["combat", "SHIELD_BREAK_RESETS_ATTACK", "value"], ShieldBreakResetsAttack::from_calibration_name)?,
             reroll_hide_window: pick(&v, &["spells", "REROLL_HIDE_WINDOW", "value"], RerollHideWindow::from_calibration_name)?,
+            taunt_ends_wait: pick(&v, &["targeting", "TAUNT_ENDS_WAIT", "value"], TauntEndsWait::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -21573,7 +21594,14 @@ impl BattleState {
         }
         // A TAUNTED ENEMY takes the hero that taunted it (`taunt_override`).
         if !self.taunts.taunted.is_empty() {
-            self.taunt_override(&mut decisions);
+            let turned = self.taunt_override(&mut decisions);
+            // targeting.TAUNT_ENDS_WAIT = client16402_taunt_ends_wait: the taunt ends a post-kill wait, so the unit takes the
+            // hero now. PLANT (regression) taunt_waits: the new arm still waits it out.
+            if self.cfg.calib.taunt_ends_wait == TauntEndsWait::Client16402TauntEndsWait && !cfg!(clash_plant = "taunt_waits") {
+                for i in turned {
+                    self.ents.retarget_wait[i] = 0;
+                }
+            }
         }
         let carry = self.cfg.calib.resume_retarget_windup == ResumeWindup::Carry;
         let retarget_resets_charge = self.cfg.calib.charge_reset_on_retarget;
@@ -25833,7 +25861,9 @@ impl BattleState {
     /// (sp-taunt-giant-s0): a Giant 3,760 from the hero (the taunt's radius 6,500) kept the Cannon it walked to through
     /// the whole taunt, where the engine had turned it on the hero (the scene's first divergence). The taunt row's
     /// AllowBuildingRetargeting (TRUE) does not make such a unit take a troop; what else it allows is not measured.
-    fn taunt_override(&self, decisions: &mut [(usize, target::TargetDecision)]) {
+    /// Returns the units it turned on their hero (targeting.TAUNT_ENDS_WAIT reads them).
+    fn taunt_override(&self, decisions: &mut [(usize, target::TargetDecision)]) -> Vec<usize> {
+        let mut turned = Vec::new();
         let e = &self.ents;
         for (i, d) in decisions.iter_mut() {
             let i = *i;
@@ -25860,10 +25890,12 @@ impl BattleState {
             #[cfg(not(clash_plant = "taunt_unread"))]
             {
                 d.target = Some(t.by);
+                turned.push(i);
             }
             #[cfg(clash_plant = "taunt_unread")]
             let _ = d; // PLANT: a taunted enemy decides as if untaunted.
         }
+        turned
     }
 
     /// THE EVOLVED FLIERS THAT FALL (card.rs `FallDef`, `FallRun`), in the Status phase: a flier still in the air whose
@@ -42109,6 +42141,8 @@ impl BattleState {
 ///    the old arm.
 /// 20, unchanged, spells.REROLL_HIDE_WINDOW: Calib gained reroll_hide_window (serde default the old arm, at_trigger), no new
 ///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.TAUNT_ENDS_WAIT: Calib gained taunt_ends_wait (serde default the old arm, waits), no new state,
+///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -43283,6 +43317,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("shield_break_resets_attack".into(), serde_json::to_value(ShieldBreakResetsAttack::Kept).map_err(|e| e.to_string())?);
     // spells.REROLL_HIDE_WINDOW: a format-3 battle ran spells.REROLL_HIDE_WINDOW's old arm.
     sh.insert("reroll_hide_window".into(), serde_json::to_value(RerollHideWindow::AtTrigger).map_err(|e| e.to_string())?);
+    // targeting.TAUNT_ENDS_WAIT: a format-3 battle ran targeting.TAUNT_ENDS_WAIT's old arm.
+    sh.insert("taunt_ends_wait".into(), serde_json::to_value(TauntEndsWait::Waits).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

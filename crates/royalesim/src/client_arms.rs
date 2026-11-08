@@ -718,6 +718,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.SHIELD_BREAK_RESETS_ATTACK", "\"kept\""),
     ("targeting.SPAWNED_UNIT_ACQUIRE_DELAY", "\"client_8th_frame_action_buildings\""),
     ("spells.REROLL_HIDE_WINDOW", "\"at_trigger\""),
+    ("targeting.TAUNT_ENDS_WAIT", "\"waits\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
