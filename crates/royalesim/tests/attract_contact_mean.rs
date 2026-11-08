@@ -91,7 +91,8 @@ fn under_client16402_in_mean_uncapped_a_mean_holding_a_pull_is_not_capped() {
     assert_eq!(applied_push(false), (150, 0), "the cap: a mean of 200 with no pull in it was not capped at 150");
 }
 
+/// Since parity r89 (client15535_in_mean before it; client 15.535.29 keeps client15535_in_mean).
 #[test]
-fn the_shipped_arm_adds_the_pull_after_the_mean() {
-    assert_eq!(Calib::shipped().attract_contact_mean, AttractContactMean::Client15535InMean);
+fn the_shipped_arm_is_client16402_in_mean_uncapped() {
+    assert_eq!(Calib::shipped().attract_contact_mean, AttractContactMean::Client16402InMeanUncapped);
 }
