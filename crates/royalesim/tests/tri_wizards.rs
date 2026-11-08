@@ -34,10 +34,12 @@
 //!      (C + 6); a save that lost either fails the load's own check. The area stands on C .. C + 8, nine frames of its
 //!      500 ms;
 //!   6. an idle enemy Cannon that reaches one unit alone first targets the TriWizard on C + 6, its next frame, and each
-//!      wizard on C + 7, its first (a played troop's frame); none waits for its 8th frame, as a Graveyard's Skeleton
-//!      does. In the client's own scene the Knight takes the TriWizard on C + 6, as the client's did, and the Ice
-//!      Wizard on C + 7: A FRAME BEFORE THE CLIENT'S C + 8, a gap this file pins rather than hides (a wizard is created in
-//!      the Spawn phase, before the Target phase of its first tick).
+//!      wizard on C + 8, its next (spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME = client16635_unseen_on_creation_tick,
+//!      shipped by parity r90); none waits for its 8th frame, as a Graveyard's Skeleton does. In the client's own scene
+//!      the Knight takes the TriWizard on C + 6 and the Ice Wizard on C + 8, as the client's did. Under
+//!      seen_on_creation_tick, the arm CLIENT15535_ARMS keeps for client 15.535.29, each wizard is taken on C + 7, its
+//!      first frame (a wizard is created in the Spawn phase, before the Target phase of its first tick), a frame before
+//!      the client's Knight.
 //!
 //! The owner's fast lane for new cards: no ledger arm (one behaviour per card, a plain test that the card puts down
 //! what the client puts down). One plant, for the rule an enemy reads, compiled in with `--cfg clash_plant="..."`
@@ -56,7 +58,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource, SpawnOffset, SpawnVia, SpellShape, UnitRef};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::SpellMotion;
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, DeployAreaCharacterFirstFrame};
 use royalesim::{EntityId, Team};
 use std::collections::BTreeMap;
 
@@ -313,23 +315,35 @@ fn first_targeted(cfg: BattleConfig) -> BTreeMap<String, (u32, u32)> {
     taken
 }
 
+/// The shipped config under spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME = seen_on_creation_tick, the arm client 15.535.29
+/// keeps (CLIENT15535_ARMS).
+fn seen_on_creation_tick() -> BattleConfig {
+    let mut cfg = config();
+    assert_eq!(cfg.calib.deploy_area_character_first_frame, DeployAreaCharacterFirstFrame::Client16635UnseenOnCreationTick, "the shipped arm");
+    cfg.calib.deploy_area_character_first_frame = DeployAreaCharacterFirstFrame::SeenOnCreationTick;
+    cfg
+}
+
 /// Plant: deploy_spawn_area_acquire_delayed.
 #[test]
 fn no_unit_of_the_area_waits_for_its_eighth_frame() {
-    let got = first_targeted(config());
-    let want: BTreeMap<String, (u32, u32)> = [("TriWizards", (5, 6)), ("ElectroWizard", (7, 7)), ("IceWizard", (7, 7))].into_iter().map(|(n, v)| (n.to_string(), v)).collect();
+    let want = |wizard: (u32, u32)| -> BTreeMap<String, (u32, u32)> {
+        [("TriWizards", (5, 6)), ("ElectroWizard", wizard), ("IceWizard", wizard)].into_iter().map(|(n, v)| (n.to_string(), v)).collect()
+    };
     assert_eq!(
-        got, want,
-        "(first frame, first frame an idle enemy Cannon targets it), from C: the TriWizard on its next frame, each wizard on its first; \
+        first_targeted(config()),
+        want((7, 8)),
+        "(first frame, first frame an idle enemy Cannon targets it), from C: each unit on its next frame; \
          a death spawn's or a Graveyard Skeleton's delay would put each one 7 frames after its first"
     );
+    assert_eq!(first_targeted(seen_on_creation_tick()), want((7, 7)), "under seen_on_creation_tick each wizard on its first frame");
 }
 
 /// The client's scene, sweep-TriWizards (client 15.535.29): a Red Knight played at (9500, 18499) on tick 100 walks the
 /// right lane; the Tri Wizards are played at the tap on tick 217, so C is tick 218. The Knight's target on each frame
 /// from C + 4, as the card name of the unit it targets.
-fn the_knights_targets() -> Vec<(u32, String)> {
-    let mut s = BattleState::new(15, config());
+fn the_knights_targets(cfg: BattleConfig) -> Vec<(u32, String)> {
+    let mut s = BattleState::new(15, cfg);
     while s.tick_count() < 100 {
         s.tick();
     }
@@ -356,12 +370,17 @@ fn the_knights_targets() -> Vec<(u32, String)> {
 
 /// Plant: deploy_spawn_area_acquire_delayed.
 #[test]
-fn in_the_clients_scene_the_knight_takes_the_triwizard_on_c_plus_6_and_the_ice_wizard_on_c_plus_7() {
-    let got = the_knights_targets();
-    let want: Vec<(u32, String)> = [(4, "PrincessTower"), (5, "PrincessTower"), (6, "TriWizards"), (7, "IceWizard"), (8, "IceWizard"), (9, "IceWizard")].into_iter().map(|(f, n)| (f, n.to_string())).collect();
+fn in_the_clients_scene_the_knight_takes_the_triwizard_on_c_plus_6_and_the_ice_wizard_on_c_plus_8() {
+    let want = |v: [&str; 6]| -> Vec<(u32, String)> { (4..).zip(v).map(|(f, n)| (f, n.to_string())).collect() };
     assert_eq!(
-        got, want,
-        "the Knight's target from C + 4: the TriWizard on C + 6, as the client's Knight; the Ice Wizard on C + 7, a frame before the client's C + 8"
+        the_knights_targets(config()),
+        want(["PrincessTower", "PrincessTower", "TriWizards", "TriWizards", "IceWizard", "IceWizard"]),
+        "the Knight's target from C + 4: the TriWizard on C + 6 and the Ice Wizard on C + 8, as the client's Knight"
+    );
+    assert_eq!(
+        the_knights_targets(seen_on_creation_tick()),
+        want(["PrincessTower", "PrincessTower", "TriWizards", "IceWizard", "IceWizard", "IceWizard"]),
+        "under seen_on_creation_tick the Ice Wizard on C + 7, a frame before the client's C + 8"
     );
 }
 

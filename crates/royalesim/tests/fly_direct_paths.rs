@@ -64,10 +64,13 @@ fn not_read_flies_the_barrel_at_its_cell() {
 }
 
 
+/// One tick's (barrel facing, facing toward the reach point, facing toward the tower's centre).
+type Facings = ((i32, i32), (i32, i32), (i32, i32));
+
 /// Under client16635_reach_point: the barrel's facing on each tick it flies, with the facing toward the reach point
 /// (`move16402::direct_aim`, Range plus its radius short of the tower) and toward the tower's centre, from its start-of-tick
 /// point, each normalised as the engine normalises a segment.
-fn reach_flight() -> Vec<((i32, i32), (i32, i32), (i32, i32))> {
+fn reach_flight() -> Vec<Facings> {
     let mut cfg = config();
     cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
     cfg.card_level = [11, 11];
