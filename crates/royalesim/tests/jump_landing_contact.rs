@@ -84,10 +84,11 @@ fn a_lander_is_no_contact_body_on_its_landing_tick_under_client_next_tick() {
     assert_ne!(new_next, Vec2::default(), "client_next_tick: the Knight takes no push on L + 1 either");
 }
 
+/// Since parity r90 (client_next_tick before it; client 15.535.29 keeps client_next_tick).
 #[test]
-fn client_next_tick_ships() {
-    assert_eq!(Calib::shipped().jump_landing_contact, JumpLandingContact::NextTick, "movement.JUMP_LANDING_CONTACT ships client_next_tick");
-    assert_eq!(config().calib.jump_landing_contact, JumpLandingContact::NextTick);
+fn client16635_air_body_on_landing_tick_ships() {
+    assert_eq!(Calib::shipped().jump_landing_contact, JumpLandingContact::Client16635AirBodyOnLandingTick, "movement.JUMP_LANDING_CONTACT ships client16635_air_body_on_landing_tick");
+    assert_eq!(config().calib.jump_landing_contact, JumpLandingContact::Client16635AirBodyOnLandingTick);
 }
 
 

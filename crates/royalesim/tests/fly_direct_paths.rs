@@ -106,3 +106,9 @@ fn under_client16635_reach_point_a_skeleton_barrel_faces_the_reach_point_on_its_
     }
     assert!(f.iter().any(|(_, aim, centre)| aim != centre), "NOT VACUOUS: the reach point and the centre never part here");
 }
+
+/// Since parity r90 (read before it; client 15.535.29 keeps read).
+#[test]
+fn the_shipped_arm_is_client16635_reach_point() {
+    assert_eq!(royalesim::state::Calib::shipped().fly_direct_paths, FlyDirectPaths::Client16635ReachPoint);
+}

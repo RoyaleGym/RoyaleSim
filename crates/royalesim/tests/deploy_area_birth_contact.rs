@@ -135,14 +135,16 @@ fn under_client16635_unseen_on_creation_tick_no_unit_takes_a_played_electro_wiza
 }
 
 
+/// Since parity r90 (each key's old arm before it; client 15.535.29 keeps the old arms): five of r90's new keys ship their
+/// client 16.635 arm, and enchant.ON_BUFF_HOLD_ATTRACT is held at pulled.
 #[test]
-fn the_shipped_parity_r90_keys_are_their_old_arms() {
+fn the_shipped_parity_r90_keys() {
     use royalesim::state::{Calib, DashStandAttack, DeployAreaCharacterFirstFrame, GuardPushRearm, LoadFirstHitCorpseSwitch, OnBuffHoldAttract, SelectorReach};
     let c = Calib::shipped();
-    assert_eq!(c.deploy_area_character_first_frame, DeployAreaCharacterFirstFrame::SeenOnCreationTick);
-    assert_eq!(c.load_first_hit_corpse_switch, LoadFirstHitCorpseSwitch::KeptInReach);
-    assert_eq!(c.guard_push_rearm, GuardPushRearm::KeepFaster);
-    assert_eq!(c.dash_stand_attack, DashStandAttack::AttackEndsStand);
-    assert_eq!(c.selector_reach, SelectorReach::RadiusPlusTargetRadius);
+    assert_eq!(c.deploy_area_character_first_frame, DeployAreaCharacterFirstFrame::Client16635UnseenOnCreationTick);
+    assert_eq!(c.load_first_hit_corpse_switch, LoadFirstHitCorpseSwitch::Client16635RefundAndReenter);
+    assert_eq!(c.guard_push_rearm, GuardPushRearm::Client16635LatestReplaces);
+    assert_eq!(c.dash_stand_attack, DashStandAttack::Client16635StandHoldsAttack);
+    assert_eq!(c.selector_reach, SelectorReach::Client16635BuildingSquareStrict);
     assert_eq!(c.on_buff_hold_attract, OnBuffHoldAttract::Pulled);
 }

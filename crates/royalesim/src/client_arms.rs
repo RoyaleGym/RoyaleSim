@@ -725,6 +725,8 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.DASH_STAND_ATTACK", "\"attack_ends_stand\""),
     ("spells.SELECTOR_REACH", "\"radius_plus_target_radius\""),
     ("enchant.ON_BUFF_HOLD_ATTRACT", "\"pulled\""),
+    ("movement.JUMP_LANDING_CONTACT", "\"client_next_tick\""),
+    ("movement.FLY_DIRECT_PATHS", "\"read\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
