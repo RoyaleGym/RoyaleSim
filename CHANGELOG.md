@@ -3,6 +3,24 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.50 (2026-11-07)
+
+- 5 more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A stunned or frozen Electro Giant no longer reflects a hit. The setting is new (`combat.REFLECT_WHILE_HELD`); its
+    old value reflects.
+  - A Phoenix's egg can't be targeted until its 8th frame (`targeting.SPAWNED_UNIT_ACQUIRE_DELAY`).
+  - The Hero Barbarian Barrel's re-rolled Barbarian can be hit while it slides back. It becomes untargetable from its
+    log's tick and can be targeted again two ticks after it lands. The setting is new (`spells.REROLL_HIDE_WINDOW`); its
+    old value hides it from the trigger.
+  - When a unit's shield breaks, an Inferno Dragon or Inferno Tower attacking it restarts its attack, and its damage
+    ramp starts over. The setting is new (`combat.SHIELD_BREAK_RESETS_ATTACK`); its old value keeps the attack.
+  - The Fisherman drags a victim at a speed set by the victim's own speed, never slower than a Knight's: a Hog is
+    dragged twice as fast as a Knight, a Giant as fast as a Knight. The setting is new (`combat.HOOK_DRAG_SPEED`); its
+    old value drags every victim at one speed.
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and
+  `replay_parity` keep the older client's values for its battles.
+- A battle saved by 0.1.49 loads on 0.1.50: the new settings read their old values from a save that lacks them.
+
 ## 0.1.49 (2026-11-07)
 
 - 2 more settings default to the current client's behaviour, each measured against its recorded battles:
