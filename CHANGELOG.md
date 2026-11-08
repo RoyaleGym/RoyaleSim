@@ -3,6 +3,16 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.51 (2026-11-08)
+
+- 1 more setting defaults to the current client's behaviour, measured against its recorded battles: a unit pulled by a
+  Tornado while it touches another unit is no longer slowed to 150 a tick. The pull and the push between the two are
+  averaged with no cap (`collision.ATTRACT_CONTACT_MEAN`).
+- New setting `targeting.TAUNT_ENDS_WAIT`: whether a taunt that turns a unit onto a hero ends that unit's wait to
+  retarget after a kill. The default is unchanged (it waits).
+- The older behaviour stays available as the setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  keep the older client's values for its battles. A battle saved by 0.1.50 loads on 0.1.51.
+
 ## 0.1.50 (2026-11-07)
 
 - 5 more settings default to the current client's behaviour, each measured against its recorded battles:
