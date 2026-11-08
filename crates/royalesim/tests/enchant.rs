@@ -1231,3 +1231,49 @@ fn under_client16402_walks_on_to_goal_cell_he_stands_once_in_his_goal_cell() {
     let first_swing = |r: &[Row]| r.iter().position(|y| y.3).map(|k| k as u32);
     assert_eq!((first_swing(&old), first_swing(&new)), (Some(l + 14), Some(l + 14)), "his swing on L + 14 under both");
 }
+
+
+/// The 16.402 shape's Rune Giant holding on his first launch (`hold_pushed`'s scene) under enchant.ON_BUFF_HOLD_ATTRACT = `arm`:
+/// a Red Tornado cast 2000 west of him on L; his greatest move (native) over L + 1 .. L + 10, inside his hold.
+fn hold_pulled(arm: royalesim::state::OnBuffHoldAttract) -> i64 {
+    let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+    c.calib.enchant_on_buff_pause = royalesim::state::EnchantOnBuffPause::Client16402ConditionalNoMove;
+    c.calib.on_buff_hold_attract = arm;
+    let mut s = BattleState::new(0, c);
+    let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 13600)), None).expect("a red Cannon");
+    let full = s.entity(cannon).expect("the Cannon").max_hp;
+    s.scenario_spawn_now(Team::Blue, "Knight", at((9000, 10500)), None).expect("a blue Knight");
+    let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", at((9000, 12000)), None).expect("the Rune Giant");
+    let mut prev: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+    let mut launched = false;
+    for _ in 0..60 {
+        assert!(s.debug_set_hp(cannon, full), "the Cannon stands");
+        s.tick();
+        let now: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+        if now.iter().any(|t| !prev.contains(t)) {
+            launched = true;
+            break;
+        }
+        prev = now;
+    }
+    assert!(launched, "the scene drifted: no launch within 60 ticks");
+    let g0 = s.entity(giant).expect("him").pos;
+    s.spawn_unit(Team::Red, "Tornado", Vec2::new(g0.x - 2000 * K, g0.y), None).expect("the Tornado");
+    let mut most = 0;
+    for _ in 0..10 {
+        assert!(s.debug_set_hp(cannon, full));
+        s.tick();
+        most = most.max(dist(g0, s.entity(giant).expect("him").pos));
+    }
+    most
+}
+
+/// enchant.ON_BUFF_HOLD_ATTRACT = client16635_unpulled_through_hold (client 16.635, parity r90, live15n 20261103-202541-A: in a
+/// Tornado through his hold he stood still 14 ticks): a Tornado beside the holding Rune Giant does not move him; under pulled
+/// (the vacuity check) it does. Plant: buff_hold_pulled.
+#[test]
+fn under_client16635_unpulled_through_hold_a_tornado_does_not_move_a_holding_rune_giant() {
+    use royalesim::state::OnBuffHoldAttract as H;
+    assert!(hold_pulled(H::Pulled) > 0, "pulled (the vacuity check): the Tornado never moved the holding Rune Giant");
+    assert_eq!(hold_pulled(H::Client16635UnpulledThroughHold), 0, "client16635_unpulled_through_hold: the holding Rune Giant moved");
+}

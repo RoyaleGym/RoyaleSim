@@ -2286,3 +2286,94 @@ fn under_client16402_passes_over_leap_a_leaping_hog_takes_the_charge_out_of_its_
 fn the_shipped_charge_passes_over_a_leaper() {
     assert_eq!(royalesim::state::Calib::shipped().guard_charge_leap, GuardChargeLeap::Client16402PassesOverLeap);
 }
+
+
+/// The guard's charge past a red Knight 1600 left of the Little Prince and 500 ahead under combat.GUARD_PUSH_REARM = `arm`:
+/// (the Knight, the guard) at the end of each tick from the one the guard first stands within 2500 of the Knight. The guard
+/// passes the Knight while it still charges, so a later charge tick's ladder starts slower than the running one.
+fn rearm_rows(arm: royalesim::state::GuardPushRearm) -> Vec<(Vec2, Vec2)> {
+    let (mut s, lp, reds) = scene_cfg(
+        |c| {
+            c.calib.guard_charge_step = GuardChargeStep::Rescaled;
+            c.calib.guard_birth_point = GuardBirthPoint::Client15535FixedOffset;
+            c.calib.guard_free_tick = GuardFreeTick::FreeOnArrivalPlus1;
+            c.calib.guard_push_rearm = arm;
+        },
+        &[("Knight", (AT.0 - 1600, AT.1 + 500))],
+    );
+    let knight = reds[0].0;
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut rows: Vec<(Vec2, Vec2)> = Vec::new();
+    let mut held = true;
+    for _ in 0..70 {
+        if s.entity(lp).is_some() {
+            assert!(s.debug_set_pos(lp, n(AT)));
+        }
+        if held {
+            assert!(s.debug_set_pos(knight, reds[0].1));
+        }
+        s.tick();
+        let Some(g) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos) else { continue };
+        let k = s.entity(knight).expect("the Knight").pos;
+        if held && guard_dist(g, k) < 2500 {
+            held = false;
+        }
+        if !held {
+            rows.push((k, g));
+        }
+    }
+    assert!(rows.len() > 20, "the scene drifted: the guard never came within 2500 of the Knight");
+    rows
+}
+
+fn guard_dist(a: Vec2, b: Vec2) -> i64 {
+    let (dx, dy) = (((a.x - b.x) / K) as i64, ((a.y - b.y) / K) as i64);
+    royalesim::fixed::isqrt(dx * dx + dy * dy)
+}
+
+/// The rows' Knight steps checked against the ladder model whose re-arm rule is `replaces(new start, running)`: Ok(the steps
+/// checked, the ticks a re-arm was refused) or Err(the first miss).
+fn ladder_model(rows: &[(Vec2, Vec2)], replaces: impl Fn(i32, i32) -> bool) -> Result<(Vec<i32>, usize), String> {
+    let mut cur = 0;
+    let (mut checked, mut refused) = (Vec::new(), 0);
+    for i in 1..rows.len() {
+        let (k0, g0) = rows[i - 1];
+        let charging = i == 1 || rows[i - 2].1 != g0;
+        if charging && guard_dist(g0, k0) < 2500 {
+            let start = royalesim::move16402::ladder_speed(2500 - guard_dist(g0, k0) as i32);
+            if cur <= 0 || replaces(start, cur) {
+                cur = start;
+            } else {
+                refused += 1;
+            }
+        }
+        cur -= 25;
+        if cur < 0 {
+            break;
+        }
+        let step = guard_dist(rows[i].0, k0) as i32;
+        if (step - cur).abs() > 3 {
+            return Err(format!("row {i}: a step of {step}, the ladder's {cur}; checked {checked:?}"));
+        }
+        checked.push(step);
+    }
+    Ok((checked, refused))
+}
+
+/// combat.GUARD_PUSH_REARM = client16635_latest_replaces (client 16.635, parity r90, live15n: the newest ladder replaced the
+/// running one on 62 of 76 discriminating ticks): the Knight's steps follow the model where every charge tick's ladder replaces
+/// the running one; under keep_faster (the vacuity check) they follow the keep-the-faster model, which refuses a re-arm in this
+/// scene, and the replace-always model misses them. Plant: guard_push_rearm_keeps.
+#[test]
+fn under_client16635_latest_replaces_his_guards_newest_ladder_replaces_the_running_one() {
+    use royalesim::state::GuardPushRearm as G;
+    let old = rearm_rows(G::KeepFaster);
+    let (_, refused) = ladder_model(&old, |start, cur| start >= cur).expect("keep_faster: the keep-the-faster model");
+    assert!(refused > 0, "the scene drifted: keep_faster never refused a re-arm");
+    assert!(ladder_model(&old, |_, _| true).is_err(), "the scene drifted: the two models agree on keep_faster's steps");
+    let new = rearm_rows(G::Client16635LatestReplaces);
+    let (checked, _) = ladder_model(&new, |_, _| true).unwrap_or_else(|e| panic!("client16635_latest_replaces: {e}"));
+    assert!(checked.len() >= 6, "the scene drifted: {} ladder steps checked: {checked:?}", checked.len());
+    let rows = rearm_rows(G::Client16635ReplacesUnless50Slower);
+    ladder_model(&rows, |start, cur| start >= cur - 50).unwrap_or_else(|e| panic!("client16635_replaces_unless_50_slower: {e}"));
+}

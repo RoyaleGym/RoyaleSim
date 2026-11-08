@@ -62,3 +62,47 @@ fn not_read_flies_the_barrel_at_its_cell() {
     assert!(f.len() >= 40, "the scene drifted: the barrel flew {} ticks", f.len());
     assert!(f.iter().take(10).all(|(got, want)| (got.0 - want.0).abs() >= 2), "the cell and the tower's centre do not part here: {:?}", &f[..10]);
 }
+
+
+/// Under client16635_reach_point: the barrel's facing on each tick it flies, with the facing toward the reach point
+/// (`move16402::direct_aim`, Range plus its radius short of the tower) and toward the tower's centre, from its start-of-tick
+/// point, each normalised as the engine normalises a segment.
+fn reach_flight() -> Vec<((i32, i32), (i32, i32), (i32, i32))> {
+    let mut cfg = config();
+    cfg.decks = [DECK.iter().map(|c| c.to_string()).collect(), DECK.iter().map(|c| c.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.fly_direct_paths = FlyDirectPaths::Client16635ReachPoint;
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    let b = s.scenario_spawn_now(Team::Blue, "SkeletonBalloon", Vec2::new(15500 * K, 3500 * K), None).expect("the barrel");
+    let reach = (card_stat(&s, "SkeletonBalloon").range + s.entity(b).unwrap().radius) / K;
+    let mut out = Vec::new();
+    for _ in 0..120 {
+        let before = s.entity(b).expect("the barrel").pos;
+        s.tick();
+        let e = s.entity(b).expect("the barrel flies");
+        if e.pos == before {
+            continue;
+        }
+        let me = (before.x / K, before.y / K);
+        let aim = royalesim::move16402::direct_aim(me, (TOWER.0 as i32, TOWER.1 as i32), reach);
+        let to_aim = royalesim::move16402::segment_dir(me.0, me.1, aim);
+        let to_centre = royalesim::move16402::segment_dir(me.0, me.1, (TOWER.0 as i32, TOWER.1 as i32));
+        out.push(((e.facing.x, e.facing.y), to_aim, to_centre));
+    }
+    out
+}
+
+/// movement.FLY_DIRECT_PATHS = client16635_reach_point (client 16.635, parity r90, live15n: the Skeleton Balloon's steps fit the
+/// reach point on 355 of 355, the goal's centre on 345): the barrel faces the reach point on every flying tick, and that facing
+/// parts from the centre's on some. Plant: fly_reach_point_centre.
+#[test]
+fn under_client16635_reach_point_a_skeleton_barrel_faces_the_reach_point_on_its_tower() {
+    let f = reach_flight();
+    assert!(f.len() >= 40, "the scene drifted: the barrel flew {} ticks", f.len());
+    for (k, (got, aim, _)) in f.iter().enumerate() {
+        assert_eq!(got, aim, "flying tick {k}: facing {got:?}, the reach point gives {aim:?}");
+    }
+    assert!(f.iter().any(|(_, aim, centre)| aim != centre), "NOT VACUOUS: the reach point and the centre never part here");
+}

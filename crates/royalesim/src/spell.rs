@@ -1530,6 +1530,17 @@ fn selector_candidates(ctx: &SpellCtx, team: Team, def: &StrikeDef, sel: &Select
             let edge = e.radius[v];
             #[cfg(clash_plant = "selector_centre_in_radius")]
             let edge = 0; // PLANT: the refuted centre-in-radius reach.
+            // spells.SELECTOR_REACH = client16635_building_square_strict: an ordinary building by its square (client 16.635,
+            // parity r90, live15n: 2 of 2 Vines catches of a building fit the square, 0 the circle; 20261103-190440-A's first
+            // divergence, a Cannon 3162 from the centre). PLANT (regression) selector_building_circle: the new arm reads the
+            // circle.
+            #[cfg(not(clash_plant = "selector_building_circle"))]
+            let square = ctx.calib.selector_reach == crate::state::SelectorReach::Client16635BuildingSquareStrict && e.kind[v] == EntityKind::Building;
+            #[cfg(clash_plant = "selector_building_circle")]
+            let square = false;
+            if square {
+                return in_square(pos, e.pos[v], e.radius[v], def.hit.radius);
+            }
             in_range_edge(pos, e.pos[v], def.hit.radius, edge)
         })
         .collect();

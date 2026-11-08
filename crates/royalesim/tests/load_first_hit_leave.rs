@@ -27,7 +27,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, LoadFirstHitHold, LoadFirstHitKillWait, LoadFirstHitLeave};
+use royalesim::state::{BattleState, Calib, LoadFirstHitCorpseSwitch, LoadFirstHitHold, LoadFirstHitKillWait, LoadFirstHitLeave};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -188,4 +188,68 @@ fn under_client16402_hold_recharges_a_zapped_sparky_charges_again() {
 #[test]
 fn the_shipped_load_first_hit_hold_is_client16402_hold_recharges() {
     assert_eq!(Calib::shipped().load_first_hit_hold, LoadFirstHitHold::Client16402HoldRecharges);
+}
+
+
+/// Under combat.LOAD_FIRST_HIT_CORPSE_SWITCH = `arm`: the kill scene with a second red Knight (BIG hp) held beside the first, in
+/// the Sparky's reach: (its progress on the death tick, its (progress, load timer) on the tick after, the tick of its first shot).
+fn corpse_switch(arm: LoadFirstHitCorpseSwitch) -> (i32, (i32, i32), u32) {
+    let mut cfg = config();
+    cfg.calib.load_first_hit_corpse_switch = arm;
+    cfg.calib.load_first_hit_kill_wait = LoadFirstHitKillWait::Client15535Skipped;
+    let mut s = BattleState::new(3, cfg);
+    let sparky = s.scenario_spawn_now(Team::Blue, "ZapMachine", at((9000, 6500)), None).expect("the Sparky");
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", at((9000, 10500)), Some(100_000)).expect("the Knight");
+    let second = s.scenario_spawn_now(Team::Red, "Knight", at((9600, 10500)), Some(100_000)).expect("the second Knight");
+    let mut ticks_in = 0;
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(second, at((9600, 10500))));
+        if s.entity(knight).is_some() {
+            assert!(s.debug_set_pos(knight, at((9000, 10500))));
+        }
+        if ticks_in == 4 {
+            assert!(s.debug_set_hp(knight, 1));
+            s.spawn_unit(Team::Blue, "Zap", at((9000, 10200)), None).expect("the Zap");
+        }
+        s.tick();
+        if s.entity(sparky).expect("the Sparky").attack_ms > 0 {
+            ticks_in += 1;
+            if ticks_in == 5 {
+                break;
+            }
+        }
+    }
+    assert_eq!(ticks_in, 5, "the scene drifted: the Sparky never wound up on the Knight");
+    assert!(s.entity(knight).is_none(), "the scene drifted: the Knight outlived the Zap");
+    assert!(s.entity(second).is_some(), "the scene drifted: the Zap killed the second Knight");
+    let p = s.entity(sparky).expect("the Sparky").attack_ms;
+    let shots = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(sparky)).count();
+    let known = shots(&s);
+    assert!(s.debug_set_pos(second, at((9600, 10500))));
+    s.tick();
+    let v = s.entity(sparky).expect("the Sparky");
+    let after = (v.attack_ms, v.attack_load_ms);
+    for _ in 0..120 {
+        assert!(s.debug_set_pos(second, at((9600, 10500))));
+        s.tick();
+        if shots(&s) > known {
+            return (p, after, s.tick_count() - 1);
+        }
+    }
+    panic!("{arm:?}: the scene drifted: no shot at the second Knight (death-tick progress {p}, after {after:?})");
+}
+
+/// combat.LOAD_FIRST_HIT_CORPSE_SWITCH = client16635_refund_and_reenter (client 16.635, parity r90, live15n 20261103-174813-A: 5
+/// of 5 Sparky corpse switches re-entered with the timer at LoadTime): the Sparky whose Knight dies mid-windup with a second
+/// Knight in reach enters fresh on it, its load timer at LoadTime, where under kept_in_reach (the vacuity check) its swing runs
+/// on with the timer as it was; the shots part. Plant: lfh_corpse_switch_kept.
+#[test]
+fn under_client16635_refund_and_reenter_a_sparky_enters_fresh_on_a_corpses_replacement_in_reach() {
+    let lt = config().cards.get(config().cards.index("ZapMachine").expect("the Sparky's row")).load_time_ms;
+    let (p0, old, old_shot) = corpse_switch(LoadFirstHitCorpseSwitch::KeptInReach);
+    let (p1, new, new_shot) = corpse_switch(LoadFirstHitCorpseSwitch::Client16635RefundAndReenter);
+    assert_eq!(p0, p1, "the scene drifted between the arms");
+    assert!(old.0 > p0, "kept_in_reach (the vacuity check): the swing did not run on ({old:?}, death-tick progress {p0})");
+    assert_eq!(new.1, lt, "client16635_refund_and_reenter: the timer on the re-entry is not LoadTime ({new:?}, death-tick progress {p1})");
+    assert_ne!((new, new_shot), (old, old_shot), "the arms do not part: (progress, load) {new:?}, shot {new_shot}");
 }

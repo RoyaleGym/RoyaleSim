@@ -719,6 +719,12 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.SPAWNED_UNIT_ACQUIRE_DELAY", "\"client_8th_frame_action_buildings\""),
     ("spells.REROLL_HIDE_WINDOW", "\"at_trigger\""),
     ("targeting.TAUNT_ENDS_WAIT", "\"waits\""),
+    ("spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME", "\"seen_on_creation_tick\""),
+    ("combat.LOAD_FIRST_HIT_CORPSE_SWITCH", "\"kept_in_reach\""),
+    ("combat.GUARD_PUSH_REARM", "\"keep_faster\""),
+    ("combat.DASH_STAND_ATTACK", "\"attack_ends_stand\""),
+    ("spells.SELECTOR_REACH", "\"radius_plus_target_radius\""),
+    ("enchant.ON_BUFF_HOLD_ATTRACT", "\"pulled\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

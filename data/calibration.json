@@ -2306,6 +2306,16 @@
       "open": "Client 15.535.29's landing ticks.",
       "engine": "state.rs guard_moves (the landing branch), selected by Calib::guard_landing_push; tests/little_prince.rs."
     },
+    "GUARD_PUSH_REARM": {
+      "value": "keep_faster",
+      "status": "measured",
+      "candidates": ["keep_faster", "client16635_latest_replaces", "client16635_replaces_unless_50_slower"],
+      "confidence": "MEDIUM-HIGH for client16635_latest_replaces on client 16.635 (parity r90, 2026-11-08): across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08), where a Little Prince's guard re-armed a victim's ladder with a smaller one, the newest replaced the running one on 62 of 76 discriminating ticks; in 10 of 10 victims whose refusal the engine made before a battle's first divergence the truth took the smaller ladder (20261103-194635-A's and -180302-A's first divergences, reproduced to the native). The outer-band exceptions (the new step 50 or less) often kept the running ladder: client16635_replaces_unless_50_slower fits one such counter-case and is a fit, not a reading.",
+      "provenance": "MEASURED by parity (2026-11-08, r90) on the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08).",
+      "meaning": "How a continuous push's new knockback ladder (the Little Prince's guard's charge and landing pushes, rearm_ladder) meets the one running on its victim. keep_faster: the engine's; the running ladder is kept when the new starts slower. client16635_latest_replaces: the newest always replaces it. client16635_replaces_unless_50_slower: it replaces unless it starts more than 50 slower.",
+      "open": "The boundary for small new ladders (d of 2400 or more); client 15.535.29 and 16.402 unread for this split.",
+      "engine": "state.rs rearm_ladder, selected by Calib::guard_push_rearm; tests/little_prince.rs."
+    },
     "SHIELD_TICK_SUM": {
       "value": "client16402_each_hit",
       "status": "measured",
@@ -2325,6 +2335,16 @@
       "meaning": "cancelled: the engine's; a standing dasher whose target dies or changes walks. client16402_kept_to_mark: a live new target takes over dash_target and the stand runs on to its mark, the dash aiming at the new target; with no live target, or once it attacks, the stand ends as before.",
       "open": "A new target outside the dash range; client 15.535.29.",
       "engine": "state.rs phase_path16402_for (the stand's end), selected by Calib::dash_stand_retarget; tests/dash_attack.rs."
+    },
+    "DASH_STAND_ATTACK": {
+      "value": "attack_ends_stand",
+      "status": "measured",
+      "candidates": ["attack_ends_stand", "client16635_stand_holds_attack"],
+      "confidence": "MEDIUM-HIGH for client16635_stand_holds_attack on client 16.635 (parity r90, 2026-11-08): across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08), the two dashers that took a target inside their attack reach mid-stand dashed on the stand's mark with no swing: a Boss Bandit in 20261103-170325-A (a surfacing Miner 1374 away, her dash blow on the mark + 1) and a Mega Knight in 20261103-172113-A (a guard at an edge gap of 1194, inside his Range); the engine swung and ended the stand in both, their battles' first divergences.",
+      "provenance": "MEASURED by parity (2026-11-08, r90) on the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08).",
+      "meaning": "attack_ends_stand: the engine's; a dasher standing before its dash may start an attack on a target in its reach, which ends the stand. client16635_stand_holds_attack: it starts no attack through the stand (can_act false while DashState::Standing), and the stand becomes the dash on its mark at its current target (combat.DASH_STAND_RETARGET).",
+      "open": "Two events; client 15.535.29 and 16.402 unread.",
+      "engine": "state.rs phase_attack_for (can_act), selected by Calib::dash_stand_attack; tests/dash_attack.rs."
     },
     "DASH_STAND_CONTACT": {
       "value": "client16402_unpushed",
@@ -2756,6 +2776,16 @@
       "open": "The other LoadFirstHit rows; 16.402.",
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_refund_at_death (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "combat.rs attack_step_progress (`refund`, `leave`), selected by Calib::load_first_hit_leave; tests/load_first_hit_leave.rs."
+    },
+    "LOAD_FIRST_HIT_CORPSE_SWITCH": {
+      "value": "kept_in_reach",
+      "status": "measured",
+      "candidates": ["kept_in_reach", "client16635_refund_and_reenter"],
+      "confidence": "HIGH for client16635_refund_and_reenter on client 16.635 (parity r90, 2026-11-08): across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08), 5 of 5 Sparky corpse switches (20261103-174813-A on t2528, t2530, t3654 and t5355; 20261103-210706-A on t5403) gave the windup back on the death and re-entered with the timer at LoadTime, even with the replacement in reach; the engine kept the swing. In 174813 two quick switches put the client's Sparky 100 ms ahead, its shot and recoil on t2551, which the engine missed.",
+      "provenance": "MEASURED by parity (2026-11-08, r90) on the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08).",
+      "meaning": "kept_in_reach: the engine's; a LoadFirstHit unit whose target died keeps its swing when the replacement stands in reach (combat.CORPSE_SWITCH_REACH), as any unit. client16635_refund_and_reenter: a LoadFirstHit unit never keeps its swing over a corpse; combat.LOAD_FIRST_HIT_LEAVE's refund runs and it enters fresh on the replacement.",
+      "open": "Sparky only (the one LoadFirstHit troop in the set); client 15.535.29 and 16.402 unread.",
+      "engine": "state.rs phase_attack_for (replaced_a_corpse), selected by Calib::load_first_hit_corpse_switch; tests/load_first_hit_leave.rs."
     },
     "LOAD_FIRST_HIT": {
       "value": "load_time_from_deploy_end",
@@ -4048,6 +4078,16 @@
       "open": "'Stays a body' rests on 1 exact case (171315); the Wizard's neighbours displaced beyond the 150 cap on its creation tick (194558.b1, 185927) are unexplained.",
       "engine": "state.rs phase_spawn (Scratch::area_born) and phase_path16402_for (own_scan_off), selected by Calib::deploy_area_birth_contact; tests/deploy_area_birth_contact.rs."
     },
+    "DEPLOY_AREA_CHARACTER_FIRST_FRAME": {
+      "value": "seen_on_creation_tick",
+      "status": "measured",
+      "candidates": ["seen_on_creation_tick", "client16635_unseen_on_creation_tick"],
+      "confidence": "HIGH for client16635_unseen_on_creation_tick on client 16.635 (parity r90, 2026-11-08): across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08), none of 70 characters a played card's deploy area made (Electro Wizards, Ice Wizards) was any unit's target on its creation tick, where 8.3% of other troops were; the engine let them be taken on that tick 11 times in 9 battles. In 20261103-164637-A an enemy Little Prince took the new Electro Wizard on its creation tick and started a fresh cycle (its load timer at LoadTime), which the deploy zap's stun then froze; the truth's Little Prince walked on.",
+      "provenance": "MEASURED by parity (2026-11-08, r90) on the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08).",
+      "meaning": "seen_on_creation_tick: the engine's; the character is a target from its creation tick. client16635_unseen_on_creation_tick: the area makes its character after the tick's update (as spells.DEPLOY_AREA_BIRTH_CONTACT reads), so no unit acquires it before the next tick (acquirable_from = spawn tick + 1); its own zap and damage dealt to it are unchanged.",
+      "open": "Client 15.535.29 and 16.402 unread.",
+      "engine": "state.rs phase_spawn (the deploy area effect's character), selected by Calib::deploy_area_character_first_frame; tests/deploy_area_birth_contact.rs."
+    },
     "SPAWN_AREA_FIRST_PULSE": {
       "value": "frequency_less_tick",
       "status": "measured",
@@ -4675,14 +4715,14 @@
     },
     "SELECTOR_REACH": {
       "value": "radius_plus_target_radius",
-      "candidates": ["radius_plus_target_radius", "centre_in_radius"],
+      "candidates": ["radius_plus_target_radius", "centre_in_radius", "client16635_building_square_strict"],
       "status": "measured",
       "confidence": "HIGH for troops on client 15.535.29. Buildings are open.",
-      "provenance": "Measured on client 15.535.29: the Vines caught a Skeleton at centre 2633-2718 from their 2500 circle, and the Void hit a Knight at centre 2874-2993 from its 2500 and missed it at 3352, on the strike tick's positions. The shape's radius plus the unit's own radius fits both; a pure 2500 centre test (centre_in_radius) is refuted and has no engine arm. A Mortar was caught 62 beyond 2500 plus its radius 600: the bound for a building is open, and the engine uses the troop law for every kind.",
-      "meaning": "How far an action's selector (the Vines' catches, the Void's strikes) reaches: its shape's radius plus the unit's own radius, measured from the unit's centre on this tick's post-move position.",
+      "provenance": "Measured on client 15.535.29: the Vines caught a Skeleton at centre 2633-2718 from their 2500 circle, and the Void hit a Knight at centre 2874-2993 from its 2500 and missed it at 3352, on the strike tick's positions. The shape's radius plus the unit's own radius fits both; a pure 2500 centre test (centre_in_radius) is refuted and has no engine arm. A Mortar was caught 62 beyond 2500 plus its radius 600: the bound for a building is open, and the engine uses the troop law for every kind. Parity r90 (2026-11-08), client 16.635, across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08): 2 of 2 Vines catches of a building fit its square and 0 the circle; in 20261103-190440-A a Cannon 3162 from the centre (its square 2433 from it) was caught first (the most hp in reach), its attack held 40 ticks and pulsed twice, where the engine caught a Little Prince; that battle's first divergence.",
+      "meaning": "How far an action's selector (the Vines' catches, the Void's strikes) reaches: its shape's radius plus the unit's own radius, measured from the unit's centre on this tick's post-move position. client16635_building_square_strict (parity r90): an ordinary building is reached when the distance from the shape's centre to its square of half-side its collision radius is strictly below the radius (spell.rs in_square, as spells.BUILDING_SPELL_REACH = client_square_radius_strict); troops as before.",
       "open": "The bound for a building (a footprint, or a larger radius).",
       "promotion_rules": "Settled for troops. A building caught or missed at centre 3100-3300 settles buildings.",
-      "engine": "read by crates/royalesim (state.rs Calib::from_json, the only() rule); spell.rs selector_candidates"
+      "engine": "read by crates/royalesim (state.rs Calib::from_json, Calib::selector_reach); spell.rs selector_candidates"
     },
     "AIR_TO_GROUND_WINDOW": {
       "value": "total_plus_both_transitions",
@@ -7173,12 +7213,13 @@
       "status": "hypothesis",
       "candidates": [
         "landing_tick",
-        "client_next_tick"
+        "client_next_tick",
+        "client16635_air_body_on_landing_tick"
       ],
       "confidence": "MEDIUM for the shipped arm client_next_tick (since the 2026-09-28 round 9 flip): two landing events with an overlapping neighbour, one per client (15.535.29 and 16.402), agree, and replayed under it every Royal Hog row of the three reports that hold them stands on the client's point to the unit; but they are two events, and the other 8 landings of the corpus traces have no overlapping neighbour and cannot separate the arms. LOW for landing_tick, the engine before the flip and never measured: it pushes the neighbour on the landing tick, and the two events do not fit it",
-      "provenance": "READ OFF the captures (the 2026-09-28 round 8). Client 15.535.29, sweep-RoyalHogs t291: Hog 9 lands overlapping Hog 10; the client pushes neither on t291, and on t292 Hog 9 takes a 250-long step (its walk plus the push), where the engine pushes Hog 10 by (-57, -139) on t291. Client 16.402, 20260920-002736, both seats, t545: Hog 11 lands next to Hog 12; the client's Hog 12 walks its plain step on t545 and the pair push apart on t546, where the engine pushes Hog 12 by (-84, -123) on t545. Of the 9 landings in the corpus traces, 8 have no overlapping neighbour and agree under both arms; this is the ninth. It is sweep-RoyalHogs' first divergence. FLIPPED at the 2026-09-28 round 9, on parity's ruling: scored by override on the round 8 build (RoyaleSim eb3f028), no total moves in the corpus, the sweep, the special-form or the hog scenes (the push it removes, about 80, is inside the 250 tolerance), but the trace is exact under it: sweep-RoyalHogs' Hogs 9 and 10 match the client to the unit on t291-292, where landing_tick leaves them about 80 off. Re-scored by sim on RoyaleSim 847c61c (replay_parity --prefix, towers left out): within 250, both alive and hp exact move by 0 unit-ticks in all four populations, report by report. Read off the traces (--trace) instead, the Royal Hog rows that stand on the client's point to the unit go from 555 to 914 of 914 in sweep-RoyalHogs (Hog 10 150 off on t291 and about 80 off after, Hog 9 about 80 off from t293, under landing_tick), from 751 to 1356 of 1356 in 20260920-002736-A and from 785 to 1388 of 1388 in -B (Hog 12 149 off on t545, Hogs 11 and 12 about 42 off after).",
+      "provenance": "READ OFF the captures (the 2026-09-28 round 8). Client 15.535.29, sweep-RoyalHogs t291: Hog 9 lands overlapping Hog 10; the client pushes neither on t291, and on t292 Hog 9 takes a 250-long step (its walk plus the push), where the engine pushes Hog 10 by (-57, -139) on t291. Client 16.402, 20260920-002736, both seats, t545: Hog 11 lands next to Hog 12; the client's Hog 12 walks its plain step on t545 and the pair push apart on t546, where the engine pushes Hog 12 by (-84, -123) on t545. Of the 9 landings in the corpus traces, 8 have no overlapping neighbour and agree under both arms; this is the ninth. It is sweep-RoyalHogs' first divergence. FLIPPED at the 2026-09-28 round 9, on parity's ruling: scored by override on the round 8 build (RoyaleSim eb3f028), no total moves in the corpus, the sweep, the special-form or the hog scenes (the push it removes, about 80, is inside the 250 tolerance), but the trace is exact under it: sweep-RoyalHogs' Hogs 9 and 10 match the client to the unit on t291-292, where landing_tick leaves them about 80 off. Re-scored by sim on RoyaleSim 847c61c (replay_parity --prefix, towers left out): within 250, both alive and hp exact move by 0 unit-ticks in all four populations, report by report. Read off the traces (--trace) instead, the Royal Hog rows that stand on the client's point to the unit go from 555 to 914 of 914 in sweep-RoyalHogs (Hog 10 150 off on t291 and about 80 off after, Hog 9 about 80 off from t293, under landing_tick), from 751 to 1356 of 1356 in 20260920-002736-A and from 785 to 1388 of 1388 in -B (Hog 12 149 off on t545, Hogs 11 and 12 about 42 off after). Parity r90 (2026-11-08), client 16.635, across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08): 6 of 6 fliers created after a river leaper and overlapping it were pushed 149-150 on its landing tick, directly away from its landing point, 0 of 5 created before it, none during a leap (20261103-183743-A's first divergence: a Bat pushed 150 off a landing Dark Prince; 20261103-205701-A's the same).",
       "supersedes": ["\"landing_tick\", status hypothesis, shipped until the 2026-09-28 round 9 flip. Its confidence: 'LOW-MEDIUM for client_next_tick: two landing events with an overlapping neighbour, one per client (15.535.29 and 16.402), agree; the other 8 landings of the corpus traces have none and cannot separate the arms. landing_tick is the engine before the key, never measured.'. Its provenance: 'READ OFF the captures (the 2026-09-28 round 8). Client 15.535.29, sweep-RoyalHogs t291: Hog 9 lands overlapping Hog 10; the client pushes neither on t291, and on t292 Hog 9 takes a 250-long step (its walk plus the push), where the engine pushes Hog 10 by (-57, -139) on t291. Client 16.402, 20260920-002736, both seats, t545: Hog 11 lands next to Hog 12; the client's Hog 12 walks its plain step on t545 and the pair push apart on t546, where the engine pushes Hog 12 by (-84, -123) on t545. Of the 9 landings in the corpus traces, 8 have no overlapping neighbour and agree under both arms; this is the ninth. It is sweep-RoyalHogs' first divergence.'"],
-      "meaning": "landing_tick: a unit landing from a river jump (movement.JUMP_WATER_HOP's leap) is a contact body for the units the move pass updates after it on its landing tick L. client_next_tick: it becomes one on L + 1; on L it neither pushes nor is pushed.",
+      "meaning": "landing_tick: a unit landing from a river jump (movement.JUMP_WATER_HOP's leap) is a contact body for the units the move pass updates after it on its landing tick L. client_next_tick: it becomes one on L + 1; on L it neither pushes nor is pushed. client16635_air_body_on_landing_tick (parity r90): on L the lander is a body in the AIR layer for the units updated after it (a flier made on or overlapping its landing point is pushed off it on L by the contact mean and its 150 cap); ground units' scans skip it as under client_next_tick, and from L + 1 it is a ground body.",
       "open": "Whether the lander's own step on L + 1 carries the push the engine applies on L to its neighbour (sweep-RoyalHogs' 250-long step suggests the push lands on the lander); whether a unit updated BEFORE the lander on L sees it (in the engine it does not, under both arms: the bodies are built with the jumper out).",
       "promotion_rules": "SHIPPED at the 2026-09-28 round 9 flip as a hypothesis (see provenance): it put both events on the client to the unit and no report lost. The test file (crates/royalesim/tests/jump_landing_contact.rs) passes. What would raise it to measured: a third landing with an overlapping neighbour, in another battle or scene, where the neighbour walks its plain step on L; what would overturn it: one where the neighbour is pushed on L.",
       "engine": "state.rs phase_path16402_for, the leap's landing (`bodies[i].collidable`), selected by Calib::jump_landing_contact; tests/jump_landing_contact.rs."
@@ -7274,10 +7315,10 @@
     "FLY_DIRECT_PATHS": {
       "value": "read",
       "status": "measured",
-      "candidates": ["not_read", "read"],
+      "candidates": ["not_read", "read", "client16635_reach_point"],
       "confidence": "HIGH for read on the Skeleton Barrel on client 15.535.29 (482 of 484 ticks, three barrels in one scene); UNMEASURED on 16.402, whose corpus has no Skeleton Barrel (the column is in its 2018-vintage table too)",
-      "provenance": "MEASURED by parity (2026-10-01) over every flying unit in the client 15.535.29 sp and il records walking with a target and a route, on the ticks where a step at the target's centre and a step at the route's next cell differ under the engine's move_towards numerics (heading trunc(d*256/dist), step trunc(heading*Speed/256), Speed the row's): the Skeleton Barrels of sp-form-SkeletonBalloon-evo-s0 (three, the last an evolution) took the target's centre on 482 of 484 such ticks; every other flyer took its next cell (Baby Dragon 1,857 next, none target; Balloon 2,867 next, none target; Inferno Dragon 2,062 next, 2 target; Minions, Bats and the Minion Horde next, with a group's pushes and avoidance turns leaving a quarter to a half of their ticks on neither aim and 9 on the target's). The 16.402 corpus: every flyer next (Minion 10,285 next, 30 target). The barrel's row is the one flying row that sets FlyDirectPaths (its evolution inherits it through Base). The engine flew the barrel at its cell and was 189 off in x by t341.",
-      "meaning": "not_read: every flyer aims at its route's next cell (the engine before this key). read: a flyer whose row sets FlyDirectPaths aims at its goal's position every tick (its target, or the tower it heads for); the cell stays its route.",
+      "provenance": "MEASURED by parity (2026-10-01) over every flying unit in the client 15.535.29 sp and il records walking with a target and a route, on the ticks where a step at the target's centre and a step at the route's next cell differ under the engine's move_towards numerics (heading trunc(d*256/dist), step trunc(heading*Speed/256), Speed the row's): the Skeleton Barrels of sp-form-SkeletonBalloon-evo-s0 (three, the last an evolution) took the target's centre on 482 of 484 such ticks; every other flyer took its next cell (Baby Dragon 1,857 next, none target; Balloon 2,867 next, none target; Inferno Dragon 2,062 next, 2 target; Minions, Bats and the Minion Horde next, with a group's pushes and avoidance turns leaving a quarter to a half of their ticks on neither aim and 9 on the target's). The 16.402 corpus: every flyer next (Minion 10,285 next, 30 target). The barrel's row is the one flying row that sets FlyDirectPaths (its evolution inherits it through Base). The engine flew the barrel at its cell and was 189 off in x by t341. Parity r90 (2026-11-08), client 16.635, across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08): the Skeleton Balloon's flying steps fit the reach point on 355 of 355 and the goal's centre on 345 (10 steps one native apart in 6 battles); in 20261103-224743-A one such step grew through two mass-ratio pushes and an avoidance look circle into that battle's first divergence. The reach (Range + radius = 850) is the engine's own; 350 and 500 fit as well.",
+      "meaning": "not_read: every flyer aims at its route's next cell (the engine before this key). read: a flyer whose row sets FlyDirectPaths aims at its goal's position every tick (its target, or the tower it heads for); the cell stays its route. client16635_reach_point (parity r90): it aims at the reach point on its goal (move16402::direct_aim, its Range plus its own radius short of the goal's position on the line to itself), as the empty-route walk does; the route stays its cell.",
       "open": "Whether 16.402 reads the column (no Skeleton Barrel in its corpus). The aim on an empty route is move16402::direct_aim under both arms (it lies on the same line).",
       "promotion_rules": "A 16.402 Skeleton Barrel flight off the line from its deploy to its goal cell would confirm the shipped arm there; one flown at the cell would split the key per client.",
       "engine": "state.rs phase_path16402_for (the step's aim), selected by Calib::fly_direct_paths and CardDef::fly_direct_paths (cards.json `fly_direct_paths`, tools/extract_cards.py); tests/fly_direct_paths.rs."
@@ -7705,6 +7746,16 @@
       "meaning": "pushed: the engine's; in his enchant's hold (enchant.ON_BUFF_PAUSE) the Rune Giant takes no step but an overlapping unit pushes him. client16402_unpushed: while he stands in his hold (his swing held, its phase kept; a Rune Giant walking at the launch walks on) he runs no separation scan of his own; he stays a body to his neighbours.",
       "open": "Whether he pushes others in the hold; client 15.535.29.",
       "engine": "state.rs phase_path16402_for (own_scan_off), selected by Calib::on_buff_hold_contact; tests/enchant.rs."
+    },
+    "ON_BUFF_HOLD_ATTRACT": {
+      "value": "pulled",
+      "status": "measured",
+      "candidates": ["pulled", "client16635_unpulled_through_hold"],
+      "confidence": "MEDIUM for client16635_unpulled_through_hold on client 16.635 (parity r90, 2026-11-08): across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08), one Rune Giant launched his enchant inside an enemy Tornado with his swing under way (20261103-202541-A): he stood still for the hold's 14 ticks, where the engine pulled him; that battle's first divergence. The pull last set on him seemed to be taken once on the hold's first free tick (unread: one measurement).",
+      "provenance": "MEASURED by parity (2026-11-08, r90) on the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r89 head (parity r90 diagnosis, 2026-11-08).",
+      "meaning": "pulled: the engine's; a pull moves a Rune Giant inside his enchant launch's hold. client16635_unpulled_through_hold: the hold's NO_MOVE stops the pull too, as status.GUARD_PRESS_ATTRACT reads the Little Prince's press hold.",
+      "open": "One event; the deferred step on the hold's end is unread; client 15.535.29 and 16.402 unread.",
+      "engine": "state.rs phase_path16402 (the attract pre-pass), selected by Calib::on_buff_hold_attract; tests/enchant.rs."
     },
     "COLLECT_DELAY_ORIGIN": {
       "value": "from_creation",

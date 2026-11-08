@@ -58,7 +58,7 @@ use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{
     BattleConfig, BattleState, DashAttack, DashEndContact, DashStartContact, DashImmuneHits, DashKillRetarget, DashStandContact, DashStandHeading,
-    DashStandRetarget, DASH_BLOW_TO_END_TICKS,
+    DashStandAttack, DashStandRetarget, DASH_BLOW_TO_END_TICKS,
 };
 use royalesim::{EntityId, Team};
 
@@ -907,4 +907,63 @@ fn the_shipped_dash_start_contact_is_client16402_out_from_start() {
 #[test]
 fn the_shipped_dash_immune_hits_is_client16402_last_tick_lands_if_flying_at_guard_charge_start() {
     assert_eq!(royalesim::state::Calib::shipped().dash_immune_hits, DashImmuneHits::Client16402LastTickLandsIfFlyingAtGuardChargeStart);
+}
+
+
+/// The Mega Knight's stand (`stand_scene`'s, combat.DASH_STAND_RETARGET = client16402_kept_to_mark) under combat.DASH_STAND_ATTACK
+/// = `arm`: the Giant he stands for dies on d + 5 and a Red Knight is put and held just inside his attack reach toward it, so it
+/// becomes his target mid-stand: (his greatest attack progress over d + 1 .. d + 30, his greatest distance from his point on d).
+fn stand_swing(arm: DashStandAttack) -> (i32, i64) {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_stand_retarget = DashStandRetarget::Client16402KeptToMark;
+    cfg.calib.dash_stand_attack = arm;
+    let mut s = BattleState::new(0, cfg);
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Red, "Giant", at(GIANT_AT), None), (Team::Blue, "MegaKnight", at(MK_AT), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let (giant, mk) = (ids[0], ids[1]);
+    let mut t = 0;
+    while dist(s.entity(mk).unwrap().pos, s.entity(giant).unwrap().pos) > MK_TRIGGER {
+        s.tick();
+        t += 1;
+        assert!(t < 60, "the scene drifted: the Mega Knight never came within the trigger");
+    }
+    let p0 = s.entity(mk).unwrap().pos;
+    let range = i64::from(card_stat(&s, "MegaKnight").range / K);
+    let r_mk = i64::from(s.entity(mk).unwrap().radius / K);
+    let (mut knight, mut q) = (None, p0);
+    let (mut most_ms, mut most_d) = (0, 0i64);
+    for k in 1..=30u32 {
+        if k == 5 {
+            let gp = s.entity(giant).unwrap().pos;
+            let (dx, dy) = (((gp.x - p0.x) / K) as i64, ((gp.y - p0.y) / K) as i64);
+            let n = isqrt(dx * dx + dy * dy).max(1);
+            let reach = range + r_mk + 500 - 60;
+            q = Vec2::new(p0.x + (dx * reach / n) as i32 * K, p0.y + (dy * reach / n) as i32 * K);
+            knight = Some(s.scenario_spawn_now(Team::Red, "Knight", q, Some(100_000)).expect("the Knight"));
+            assert!(s.debug_set_hp(giant, 0));
+        }
+        if let Some(kn) = knight {
+            if s.entity(kn).is_some() {
+                assert!(s.debug_set_pos(kn, q));
+            }
+        }
+        s.tick();
+        let v = s.entity(mk).expect("the Mega Knight");
+        most_ms = most_ms.max(v.attack_ms);
+        most_d = most_d.max(dist(p0, v.pos));
+    }
+    (most_ms, most_d)
+}
+
+/// combat.DASH_STAND_ATTACK = client16635_stand_holds_attack (client 16.635, parity r90, live15n: a Boss Bandit and a Mega Knight
+/// took a target in reach mid-stand and dashed on the mark): he starts no swing through the stand and jumps at the Knight, where
+/// under attack_ends_stand (the vacuity check) he swings at it where he stands. Plant: dash_stand_swings.
+#[test]
+fn under_client16635_stand_holds_attack_a_standing_mega_knight_jumps_at_a_target_taken_in_reach() {
+    let (old_ms, old_d) = stand_swing(DashStandAttack::AttackEndsStand);
+    assert!(old_ms > 0, "attack_ends_stand (the vacuity check): he never swung at the Knight in reach");
+    let (new_ms, new_d) = stand_swing(DashStandAttack::Client16635StandHoldsAttack);
+    assert!(new_d > old_d + 300, "client16635_stand_holds_attack: he did not jump at the Knight (moved {new_d}, attack_ends_stand {old_d})");
+    let _ = new_ms;
 }

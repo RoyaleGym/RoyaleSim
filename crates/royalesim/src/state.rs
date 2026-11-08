@@ -2292,6 +2292,30 @@ pub struct Calib {
     /// the old arm, `Waits`, what a battle saved before it ran.
     #[serde(default = "taunt_ends_wait_default")]
     pub taunt_ends_wait: TauntEndsWait,
+    /// spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME (whether a deploy area's character is a target on its creation tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm, `SeenOnCreationTick`, what a battle saved
+    /// before it ran.
+    #[serde(default = "deploy_area_character_first_frame_default")]
+    pub deploy_area_character_first_frame: DeployAreaCharacterFirstFrame,
+    /// combat.LOAD_FIRST_HIT_CORPSE_SWITCH (whether a LoadFirstHit unit's dead target replaced in reach keeps its swing). Added after SNAPSHOT_FORMAT 20; the default is the old arm, `KeptInReach`, what a battle saved
+    /// before it ran.
+    #[serde(default = "load_first_hit_corpse_switch_default")]
+    pub load_first_hit_corpse_switch: LoadFirstHitCorpseSwitch,
+    /// combat.GUARD_PUSH_REARM (when a continuous push's new ladder replaces the running one). Added after SNAPSHOT_FORMAT 20; the default is the old arm, `KeepFaster`, what a battle saved
+    /// before it ran.
+    #[serde(default = "guard_push_rearm_default")]
+    pub guard_push_rearm: GuardPushRearm,
+    /// combat.DASH_STAND_ATTACK (whether a dasher standing before its dash starts an attack). Added after SNAPSHOT_FORMAT 20; the default is the old arm, `AttackEndsStand`, what a battle saved
+    /// before it ran.
+    #[serde(default = "dash_stand_attack_default")]
+    pub dash_stand_attack: DashStandAttack,
+    /// spells.SELECTOR_REACH (how far an action's selector reaches a building). Added after SNAPSHOT_FORMAT 20; the default is the old arm, `RadiusPlusTargetRadius`, what a battle saved
+    /// before it ran.
+    #[serde(default = "selector_reach_default")]
+    pub selector_reach: SelectorReach,
+    /// enchant.ON_BUFF_HOLD_ATTRACT (whether a pull moves a Rune Giant inside his enchant launch's hold). Added after SNAPSHOT_FORMAT 20; the default is the old arm, `Pulled`, what a battle saved
+    /// before it ran.
+    #[serde(default = "on_buff_hold_attract_default")]
+    pub on_buff_hold_attract: OnBuffHoldAttract,
 }
 
 impl Calib {
@@ -3439,6 +3463,30 @@ fn reroll_hide_window_default() -> RerollHideWindow {
 
 fn taunt_ends_wait_default() -> TauntEndsWait {
     TauntEndsWait::Waits
+}
+
+fn deploy_area_character_first_frame_default() -> DeployAreaCharacterFirstFrame {
+    DeployAreaCharacterFirstFrame::SeenOnCreationTick
+}
+
+fn load_first_hit_corpse_switch_default() -> LoadFirstHitCorpseSwitch {
+    LoadFirstHitCorpseSwitch::KeptInReach
+}
+
+fn guard_push_rearm_default() -> GuardPushRearm {
+    GuardPushRearm::KeepFaster
+}
+
+fn dash_stand_attack_default() -> DashStandAttack {
+    DashStandAttack::AttackEndsStand
+}
+
+fn selector_reach_default() -> SelectorReach {
+    SelectorReach::RadiusPlusTargetRadius
+}
+
+fn on_buff_hold_attract_default() -> OnBuffHoldAttract {
+    OnBuffHoldAttract::Pulled
 }
 
 fn goblin_machine_rocket_default() -> GoblinMachineRocket {
@@ -9282,6 +9330,72 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME -- whether the character a played card's deploy area effect makes (the Electro
+    /// Wizard, the Ice Wizard) can be any unit's target on its creation tick (`phase_spawn`).
+    DeployAreaCharacterFirstFrame {
+        /// The engine's: it is a target from its creation tick, as any spawn.
+        SeenOnCreationTick = "seen_on_creation_tick",
+        /// Client 16.635 (parity r90, live15n): the area makes its character after the tick's update, so no unit takes it
+        /// before the next tick (`acquirable_from` = its spawn tick + 1).
+        Client16635UnseenOnCreationTick = "client16635_unseen_on_creation_tick",
+    }
+);
+calib_enum!(
+    /// combat.LOAD_FIRST_HIT_CORPSE_SWITCH -- whether a LoadFirstHit unit (the Sparky) whose target died keeps its swing when
+    /// the replacement stands in its reach (`phase_attack_for`'s `replaced_a_corpse`).
+    LoadFirstHitCorpseSwitch {
+        /// The engine's: the corpse switch in reach keeps the swing, as for any unit (combat.CORPSE_SWITCH_REACH).
+        KeptInReach = "kept_in_reach",
+        /// Client 16.635 (parity r90, live15n): it gives its windup back on the death and enters its attack fresh on the
+        /// replacement (combat.LOAD_FIRST_HIT_LEAVE's refund), in reach or not.
+        Client16635RefundAndReenter = "client16635_refund_and_reenter",
+    }
+);
+calib_enum!(
+    /// combat.GUARD_PUSH_REARM -- when a continuous push's new knockback ladder (the Little Prince's guard's charge and landing
+    /// pushes, `rearm_ladder`) replaces the one running on its victim.
+    GuardPushRearm {
+        /// The engine's: the running ladder is kept when the new one starts slower.
+        KeepFaster = "keep_faster",
+        /// Client 16.635 (parity r90, live15n): the newest ladder always replaces the running one.
+        Client16635LatestReplaces = "client16635_latest_replaces",
+        /// The same, but a new ladder starting more than 50 slower than the running one is ignored (a fit to one counter-case).
+        Client16635ReplacesUnless50Slower = "client16635_replaces_unless_50_slower",
+    }
+);
+calib_enum!(
+    /// combat.DASH_STAND_ATTACK -- whether a dasher standing before its dash (DashState::Standing) can start an attack on a target
+    /// in its reach (`phase_attack_for`'s `can_act`), which ends the stand.
+    DashStandAttack {
+        /// The engine's: it may swing, and the swing ends its stand.
+        AttackEndsStand = "attack_ends_stand",
+        /// Client 16.635 (parity r90, live15n): it starts no attack through the stand and dashes on the stand's mark.
+        Client16635StandHoldsAttack = "client16635_stand_holds_attack",
+    }
+);
+calib_enum!(
+    /// spells.SELECTOR_REACH -- how far an action's selector (the Vines' catches, the Void's strikes) reaches
+    /// (spell.rs `selector_candidates`).
+    SelectorReach {
+        /// Its radius plus the unit's own, from the unit's centre, for every kind.
+        RadiusPlusTargetRadius = "radius_plus_target_radius",
+        /// Client 16.635 (parity r90, live15n): an ordinary building is reached by its square of half-side its collision
+        /// radius, strictly inside the radius (spell.rs `in_square`, as spells.BUILDING_SPELL_REACH); troops as before.
+        Client16635BuildingSquareStrict = "client16635_building_square_strict",
+    }
+);
+calib_enum!(
+    /// enchant.ON_BUFF_HOLD_ATTRACT -- whether a pull (a Tornado's) moves a Rune Giant inside his enchant launch's hold
+    /// (`enchant_hold`, the conditional NO_MOVE).
+    OnBuffHoldAttract {
+        /// The engine's: the pull moves him.
+        Pulled = "pulled",
+        /// Client 16.635 (parity r90, live15n): the hold's NO_MOVE stops the pull too, as for the Little Prince's press hold
+        /// (status.GUARD_PRESS_ATTRACT).
+        Client16635UnpulledThroughHold = "client16635_unpulled_through_hold",
+    }
+);
+calib_enum!(
     /// targeting.TAUNT_ENDS_WAIT -- whether a taunt (`taunt_override`) that turns a unit on its hero ends the unit's post-kill
     /// retarget wait (`retarget_wait`).
     TauntEndsWait {
@@ -9583,6 +9697,10 @@ calib_enum!(
         NotRead = "not_read",
         /// A FlyDirectPaths flyer aims at its goal's position every tick (client 15.535.29: 482 of 484 ticks).
         Read = "read",
+        /// Client 16.635 (parity r90, live15n): it aims at the reach point on its goal, its Range plus its own radius short of
+        /// the goal's position on the line to itself (`move16402::direct_aim`), as the empty-route walk does; the route stays
+        /// its cell.
+        Client16635ReachPoint = "client16635_reach_point",
     }
 );
 calib_enum!(
@@ -9625,6 +9743,9 @@ calib_enum!(
         /// L + 1) and client 16.402 (20260920-002736, both seats, t545: the neighbour walks its plain step on L and
         /// the pair push apart on L + 1). The other 8 landings of the corpus traces have no overlapping neighbour.
         NextTick = "client_next_tick",
+        /// Client 16.635 (parity r90, live15n): on L it is a body in the AIR layer for the units updated after it (a flier made
+        /// on its landing point is pushed off it on L); ground units' scans skip it, as under client_next_tick.
+        Client16635AirBodyOnLandingTick = "client16635_air_body_on_landing_tick",
     }
 );
 calib_enum!(
@@ -11975,7 +12096,6 @@ impl Calib {
         only(&v, &["spells", "CLONE_COPY_STATE", "value"], "fresh")?;
         only(&v, &["spells", "MULTI_CATCH_RANKING", "value"], "repick_each_catch")?;
         only(&v, &["spells", "COUNT_TIER_RULE", "value"], "by_count")?;
-        only(&v, &["spells", "SELECTOR_REACH", "value"], "radius_plus_target_radius")?;
         only(&v, &["spells", "TARGET_FILTER_ABSENT_FLAG", "value"], "absent_means_not_filtered")?;
         only(&v, &["movement", "CONTACT_DOMAIN", "value"], "isolated_unit_only")?;
         {
@@ -12645,6 +12765,12 @@ impl Calib {
             shield_break_resets_attack: pick(&v, &["combat", "SHIELD_BREAK_RESETS_ATTACK", "value"], ShieldBreakResetsAttack::from_calibration_name)?,
             reroll_hide_window: pick(&v, &["spells", "REROLL_HIDE_WINDOW", "value"], RerollHideWindow::from_calibration_name)?,
             taunt_ends_wait: pick(&v, &["targeting", "TAUNT_ENDS_WAIT", "value"], TauntEndsWait::from_calibration_name)?,
+            deploy_area_character_first_frame: pick(&v, &["spells", "DEPLOY_AREA_CHARACTER_FIRST_FRAME", "value"], DeployAreaCharacterFirstFrame::from_calibration_name)?,
+            load_first_hit_corpse_switch: pick(&v, &["combat", "LOAD_FIRST_HIT_CORPSE_SWITCH", "value"], LoadFirstHitCorpseSwitch::from_calibration_name)?,
+            guard_push_rearm: pick(&v, &["combat", "GUARD_PUSH_REARM", "value"], GuardPushRearm::from_calibration_name)?,
+            dash_stand_attack: pick(&v, &["combat", "DASH_STAND_ATTACK", "value"], DashStandAttack::from_calibration_name)?,
+            selector_reach: pick(&v, &["spells", "SELECTOR_REACH", "value"], SelectorReach::from_calibration_name)?,
+            on_buff_hold_attract: pick(&v, &["enchant", "ON_BUFF_HOLD_ATTRACT", "value"], OnBuffHoldAttract::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -20868,6 +20994,16 @@ impl BattleState {
                 if self.cfg.calib.deploy_area_birth_contact == DeployAreaBirthContact::Client16402UnpushedCreationTick {
                     self.scratch.area_born.push(id);
                 }
+                // spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME = client16635_unseen_on_creation_tick: for the same reason no unit
+                // takes it as a target on C. Measured on client 16.635 (parity r90, live15n): of 70 such characters none was
+                // targeted on C, other troops 8.3%; the engine's were taken on C 11 times in 9 battles (20261103-164637-A's
+                // first divergence: a Little Prince's load timer). PLANT (regression) area_character_seen_on_creation: the new
+                // arm still lets it be taken on C.
+                #[cfg(not(clash_plant = "area_character_seen_on_creation"))]
+                if self.cfg.calib.deploy_area_character_first_frame == DeployAreaCharacterFirstFrame::Client16635UnseenOnCreationTick {
+                    let i = id.index as usize;
+                    self.ents.acquirable_from[i] = self.ents.acquirable_from[i].max(self.ents.spawn_tick[i] + 1);
+                }
             }
         }
         self.hash.rebuild(&self.ents);
@@ -22015,7 +22151,16 @@ impl BattleState {
                     let ti = t.index as usize;
                     target::in_attack_range(calib, e.pos[i], cards.get(e.card[i]).range, e.radius[i], e.pos[ti], e.radius[ti])
                 });
-            let replaced_a_corpse = keep_cycle_when_dead && was.is_none() && d.target.is_some() && corpse_keeps;
+            // combat.LOAD_FIRST_HIT_CORPSE_SWITCH = client16635_refund_and_reenter: a LoadFirstHit unit (the Sparky) never keeps
+            // its swing over a corpse: it gives its windup back (combat.LOAD_FIRST_HIT_LEAVE, below) and enters fresh on the
+            // replacement. Measured on client 16.635 (parity r90, live15n 20261103-174813-A): 5 of 5 Sparky corpse switches
+            // re-entered with the timer at LoadTime, the engine kept the swing. PLANT (regression) lfh_corpse_switch_kept: the
+            // new arm still keeps it.
+            #[cfg(not(clash_plant = "lfh_corpse_switch_kept"))]
+            let lfh_reenters = calib.load_first_hit_corpse_switch == LoadFirstHitCorpseSwitch::Client16635RefundAndReenter && cards.get(e.card[i]).load_first_hit;
+            #[cfg(clash_plant = "lfh_corpse_switch_kept")]
+            let lfh_reenters = false;
+            let replaced_a_corpse = keep_cycle_when_dead && was.is_none() && d.target.is_some() && corpse_keeps && !lfh_reenters;
             // combat.RETARGET_PROGRESS = keep_when_dead_or_in_reach: a switch from a LIVE target to one already in
             // attack range this tick keeps the swing as well. Only the `changed` route is widened: a
             // `cancel_attack` from a broken lock still cancels.
@@ -27087,6 +27232,22 @@ impl BattleState {
                 }
             }
         }
+        // enchant.ON_BUFF_HOLD_ATTRACT = client16635_unpulled_through_hold: the Rune Giant's launch hold (the same NO_MOVE tag)
+        // stops a pull as well. Measured on client 16.635 (parity r90, live15n 20261103-202541-A): in a Tornado through his
+        // hold he stood still 14 ticks, the engine pulled him. PLANT (regression) buff_hold_pulled: the new arm still pulls him.
+        #[cfg(not(clash_plant = "buff_hold_pulled"))]
+        let hold_unpulled = self.cfg.calib.on_buff_hold_attract == OnBuffHoldAttract::Client16635UnpulledThroughHold;
+        #[cfg(clash_plant = "buff_hold_pulled")]
+        let hold_unpulled = false;
+        if hold_unpulled {
+            for i in 0..attract.len().min(self.ents.enchant_hold.len()) {
+                let h = self.ents.enchant_hold[i];
+                if h > 0 && self.tick <= h {
+                    attract[i] = (0, 0);
+                    attract_n[i] = 0;
+                }
+            }
+        }
         let mut deltas = std::mem::take(&mut self.scratch.deltas);
         deltas.clear();
         deltas.resize(cap, Vec2::default());
@@ -28802,6 +28963,18 @@ impl BattleState {
                         if now {
                             bodies[i].collidable = true;
                         }
+                        // client16635_air_body_on_landing_tick: on L it is a body in the AIR layer for the units the pass
+                        // updates after it, so a flier made on or overlapping its landing point is pushed off it on L (by the
+                        // contact mean and its 150 cap); ground units' scans still skip it, and from L + 1 it is a ground body.
+                        // Measured on client 16.635 (parity r90, live15n): 6 of 6 fliers created after a lander and overlapping
+                        // it were pushed on L, 0 of 5 created before it (20261103-183743-A's first divergence: a Bat pushed 150
+                        // off a landing Dark Prince). PLANT (regression) lander_air_body_unbuilt: the new arm behaves as
+                        // client_next_tick.
+                        #[cfg(not(clash_plant = "lander_air_body_unbuilt"))]
+                        if calib.jump_landing_contact == JumpLandingContact::Client16635AirBodyOnLandingTick {
+                            bodies[i].collidable = true;
+                            bodies[i].air = true;
+                        }
                     }
                     continue;
                 }
@@ -29131,7 +29304,20 @@ impl BattleState {
                 // the cell stays its route. Client 15.535.29: 482 of 484 ticks where the two aims part
                 // (sp-form-SkeletonBalloon-evo-s0's three barrels); every other flyer took its route's cell.
                 #[cfg(not(clash_plant = "fly_direct_paths_ignored"))]
-                let fly_direct_aim = if card.fly_direct_paths && calib.fly_direct_paths == FlyDirectPaths::Read { target_abs } else { None };
+                let fly_direct_aim = if card.fly_direct_paths && calib.fly_direct_paths == FlyDirectPaths::Read {
+                    target_abs
+                } else if card.fly_direct_paths && calib.fly_direct_paths == FlyDirectPaths::Client16635ReachPoint {
+                    // client16635_reach_point: the reach point on the goal (client 16.635, parity r90, live15n: the Skeleton
+                    // Balloon's steps 355 of 355, the goal's centre 345 of 355; 20261103-224743-A's first divergence grew
+                    // from one such step). PLANT (regression) fly_reach_point_centre: the new arm aims at the centre.
+                    #[cfg(not(clash_plant = "fly_reach_point_centre"))]
+                    let reach = target_abs.map(|t| move16402::direct_aim(actor, t, (card.range + walk_own) / K));
+                    #[cfg(clash_plant = "fly_reach_point_centre")]
+                    let reach = target_abs;
+                    reach
+                } else {
+                    None
+                };
                 #[cfg(clash_plant = "fly_direct_paths_ignored")]
                 let fly_direct_aim: Option<(i32, i32)> = None; // PLANT (regression): the column is read and ignored.
                 // movement.HELD_FACING = client15535_toward_waypoint: a held unit with a route aims at its next waypoint at
@@ -30723,6 +30909,15 @@ impl BattleState {
                 || (self.warps.warp_holds_swing(e.id_of(i)) && !(return_free && self.warps.returning(e.id_of(i))));
             // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: a Rune Giant inside his launch's hold.
             let enchant_held = e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i];
+            // combat.DASH_STAND_ATTACK = client16635_stand_holds_attack: a dasher standing before its dash starts no attack, so a
+            // target taken in its reach mid-stand is dashed at on the stand's mark. Measured on client 16.635 (parity r90,
+            // live15n): a Boss Bandit (20261103-170325-A) and a Mega Knight (20261103-172113-A) took a target in reach
+            // mid-stand and dashed on the mark; the engine swung and ended the stand. PLANT (regression) dash_stand_swings: the
+            // new arm still swings.
+            #[cfg(not(clash_plant = "dash_stand_swings"))]
+            let stand_holds = self.cfg.calib.dash_stand_attack == DashStandAttack::Client16635StandHoldsAttack;
+            #[cfg(clash_plant = "dash_stand_swings")]
+            let stand_holds = false;
             // combat.BUILDING_DEPLOY_LAST_TICK = client16402_acts_on_last_tick: a building on its deploy's last tick acts.
             let can_act = (e.deploy_ms[i] == 0 || target::acts_on_last_deploy_tick(&self.cfg.calib, e, i, self.cfg.cards.get(e.card[i]).hide.is_some()))
                 && !held
@@ -30730,6 +30925,7 @@ impl BattleState {
                 && !chaining
                 && !e.jumping[i]
                 && e.dash_state[i] != DashState::Dashing
+                && !(stand_holds && e.dash_state[i] == DashState::Standing)
                 && target::hide_acts(&self.cfg.calib, e, i)
                 && (e.kind[i] != EntityKind::KingTower || self.king_active[e.team[i] as usize]);
             // combat.SPECIAL_HOOK = client_hook_drag: while this unit's special is under way, or
@@ -33371,7 +33567,21 @@ impl BattleState {
         let Some(start) = move16402::start_pushback(pos, from, m, c.max_pushback_length, zero_dir) else {
             return false;
         };
-        if e.push_active[i] && start.speed < e.push_speed[i] {
+        // combat.GUARD_PUSH_REARM: keep_faster keeps a running ladder that starts faster than the new one. Client 16.635
+        // (parity r90, live15n): the newest ladder replaced the running one on 62 of 76 discriminating ticks, and in 10 of 10
+        // victims whose refusal the engine made before a first divergence (20261103-194635-A, -180302-A).
+        // PLANT (regression) guard_push_rearm_keeps: the new arms still keep the faster ladder.
+        #[cfg(not(clash_plant = "guard_push_rearm_keeps"))]
+        let rearm = c.guard_push_rearm;
+        #[cfg(clash_plant = "guard_push_rearm_keeps")]
+        let rearm = GuardPushRearm::KeepFaster;
+        let keep = e.push_active[i]
+            && match rearm {
+                GuardPushRearm::KeepFaster => start.speed < e.push_speed[i],
+                GuardPushRearm::Client16635LatestReplaces => false,
+                GuardPushRearm::Client16635ReplacesUnless50Slower => start.speed < e.push_speed[i] - 50,
+            };
+        if keep {
             return false;
         }
         e.push_target[i] = Vec2::new(start.target.0, start.target.1);
@@ -42143,6 +42353,11 @@ impl BattleState {
 ///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 /// 20, unchanged, targeting.TAUNT_ENDS_WAIT: Calib gained taunt_ends_wait (serde default the old arm, waits), no new state,
 ///    so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, parity r90 (spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME, combat.LOAD_FIRST_HIT_CORPSE_SWITCH,
+///    combat.GUARD_PUSH_REARM, combat.DASH_STAND_ATTACK, spells.SELECTOR_REACH, enchant.ON_BUFF_HOLD_ATTRACT): Calib gained six
+///    fields (serde default each one's old arm), no new state, so a blob saved before them deserializes and hashes as it did;
+///    movement.JUMP_LANDING_CONTACT and movement.FLY_DIRECT_PATHS gained an arm each. migrate_v3 runs a migrated battle at the
+///    old arms.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -43319,6 +43534,18 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("reroll_hide_window".into(), serde_json::to_value(RerollHideWindow::AtTrigger).map_err(|e| e.to_string())?);
     // targeting.TAUNT_ENDS_WAIT: a format-3 battle ran targeting.TAUNT_ENDS_WAIT's old arm.
     sh.insert("taunt_ends_wait".into(), serde_json::to_value(TauntEndsWait::Waits).map_err(|e| e.to_string())?);
+    // spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME: a format-3 battle ran spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME's old arm.
+    sh.insert("deploy_area_character_first_frame".into(), serde_json::to_value(DeployAreaCharacterFirstFrame::SeenOnCreationTick).map_err(|e| e.to_string())?);
+    // combat.LOAD_FIRST_HIT_CORPSE_SWITCH: a format-3 battle ran combat.LOAD_FIRST_HIT_CORPSE_SWITCH's old arm.
+    sh.insert("load_first_hit_corpse_switch".into(), serde_json::to_value(LoadFirstHitCorpseSwitch::KeptInReach).map_err(|e| e.to_string())?);
+    // combat.GUARD_PUSH_REARM: a format-3 battle ran combat.GUARD_PUSH_REARM's old arm.
+    sh.insert("guard_push_rearm".into(), serde_json::to_value(GuardPushRearm::KeepFaster).map_err(|e| e.to_string())?);
+    // combat.DASH_STAND_ATTACK: a format-3 battle ran combat.DASH_STAND_ATTACK's old arm.
+    sh.insert("dash_stand_attack".into(), serde_json::to_value(DashStandAttack::AttackEndsStand).map_err(|e| e.to_string())?);
+    // spells.SELECTOR_REACH: a format-3 battle ran spells.SELECTOR_REACH's old arm.
+    sh.insert("selector_reach".into(), serde_json::to_value(SelectorReach::RadiusPlusTargetRadius).map_err(|e| e.to_string())?);
+    // enchant.ON_BUFF_HOLD_ATTRACT: a format-3 battle ran enchant.ON_BUFF_HOLD_ATTRACT's old arm.
+    sh.insert("on_buff_hold_attract".into(), serde_json::to_value(OnBuffHoldAttract::Pulled).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

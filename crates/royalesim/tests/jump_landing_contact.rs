@@ -89,3 +89,32 @@ fn client_next_tick_ships() {
     assert_eq!(Calib::shipped().jump_landing_contact, JumpLandingContact::NextTick, "movement.JUMP_LANDING_CONTACT ships client_next_tick");
     assert_eq!(config().calib.jump_landing_contact, JumpLandingContact::NextTick);
 }
+
+
+/// Under `arm`: a Blue `card` put on the Hog's landing point on L - 1 (after the Hog, so the pass updates it after him): its
+/// push on L.
+fn pushed_on_landing(arm: JumpLandingContact, card: &str) -> Vec2 {
+    let (landing, at) = probe(arm);
+    let mut s = BattleState::new(3, with_arm(arm));
+    let hog = s.scenario_spawn_now(Team::Blue, "HogRider", Vec2::new(HOG_AT.0 * K, HOG_AT.1 * K), None).expect("the Hog");
+    for _ in 1..landing {
+        s.tick();
+    }
+    assert!(s.entity(hog).is_some_and(|e| e.jumping), "the Hog is not in the air on L - 1");
+    let u: EntityId = s.scenario_spawn_now(Team::Blue, card, Vec2::new(at.x + 100 * K, at.y), None).unwrap_or_else(|e| panic!("the {card}: {e:?}"));
+    s.tick();
+    assert!(s.entity(hog).is_some_and(|e| !e.jumping), "the {card} moved the Hog's landing");
+    s.entity(u).unwrap_or_else(|| panic!("the {card} on L")).push_applied
+}
+
+/// movement.JUMP_LANDING_CONTACT = client16635_air_body_on_landing_tick (client 16.635, parity r90, live15n: 6 of 6 fliers made
+/// after a lander and overlapping it were pushed on L, 0 of 5 made before it): a Bat put on the landing point is pushed on L,
+/// where under client_next_tick (the vacuity check) it is not; a Knight there is not pushed on L under either. Plant:
+/// lander_air_body_unbuilt.
+#[test]
+fn under_client16635_air_body_on_landing_tick_a_bat_on_the_landing_point_is_pushed_on_the_landing_tick() {
+    let new = JumpLandingContact::Client16635AirBodyOnLandingTick;
+    assert_ne!(pushed_on_landing(new, "Bat"), Vec2::default(), "client16635_air_body_on_landing_tick: the Bat takes no push on L");
+    assert_eq!(pushed_on_landing(JumpLandingContact::NextTick, "Bat"), Vec2::default(), "client_next_tick: the Bat is pushed on L");
+    assert_eq!(pushed_on_landing(new, "Knight"), Vec2::default(), "client16635_air_body_on_landing_tick: a Knight is pushed on L");
+}

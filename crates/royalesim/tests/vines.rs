@@ -450,3 +450,29 @@ fn the_16402_vines_catches_on_c_plus_18_23_and_28() {
     assert!(hp[0] > hp[1] && hp[1] > hp[2], "the scene drifted: the hp order is not tower, Mortar, Cannon: {hp:?}");
     assert_eq!(first_held(&mut s, &ids, tap, 40), vec![Some(18), Some(23), Some(28)], "biggest first, 250 ms apart, the last at the life's end");
 }
+
+
+/// Under spells.SELECTOR_REACH = `arm`: Blue's Vines on (6500, 22500) and a lone Red Cannon at `cannon` (deployed first): the
+/// tick k after the cast on which the Cannon is held, if any.
+fn cannon_caught(arm: royalesim::state::SelectorReach, cannon: (i32, i32)) -> Option<u32> {
+    let mut c = shipped();
+    c.calib.selector_reach = arm;
+    let mut s = BattleState::new(0, c);
+    let id = s.scenario_spawn_now(Team::Red, "Cannon", at(cannon), None).expect("the Cannon");
+    for _ in 0..30 {
+        s.tick();
+    }
+    first_held(&mut s, &[id], at((6500, 22500)), 40)[0]
+}
+
+/// spells.SELECTOR_REACH = client16635_building_square_strict (client 16.635, parity r90, live15n: 2 of 2 Vines catches of a
+/// building fit its square, 0 the circle): a Cannon 3162 from the centre (its square 2433 from it) is caught, where under
+/// radius_plus_target_radius (the vacuity check) it is out of reach; one 100 further (its square 2532 away) is out under both.
+/// Plant: selector_building_circle.
+#[test]
+fn under_client16635_building_square_strict_the_vines_reach_a_cannon_by_its_square() {
+    use royalesim::state::SelectorReach as R;
+    assert_eq!(cannon_caught(R::RadiusPlusTargetRadius, (9500, 21500)), None, "radius_plus_target_radius (the vacuity check): the Cannon was caught");
+    assert!(cannon_caught(R::Client16635BuildingSquareStrict, (9500, 21500)).is_some(), "client16635_building_square_strict: the Cannon was not caught");
+    assert_eq!(cannon_caught(R::Client16635BuildingSquareStrict, (9600, 21500)), None, "client16635_building_square_strict: a Cannon outside its square's reach was caught");
+}
