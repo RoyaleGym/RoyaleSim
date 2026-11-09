@@ -2320,6 +2320,10 @@ pub struct Calib {
     /// before it ran.
     #[serde(default = "evo_barrel_offset_frame_default")]
     pub evo_barrel_offset_frame: EvoBarrelOffsetFrame,
+    /// combat.DASH_TARGET_DEATH (a Bandit-type dash whose target is gone, `dash_ends_now` and the move pass's dash). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `Ends`, what a battle saved before it ran.
+    #[serde(default = "dash_target_death_default")]
+    pub dash_target_death: DashTargetDeath,
 }
 
 impl Calib {
@@ -3495,6 +3499,10 @@ fn on_buff_hold_attract_default() -> OnBuffHoldAttract {
 
 fn evo_barrel_offset_frame_default() -> EvoBarrelOffsetFrame {
     EvoBarrelOffsetFrame::OwnerFrame
+}
+
+fn dash_target_death_default() -> DashTargetDeath {
+    DashTargetDeath::Ends
 }
 
 fn goblin_machine_rocket_default() -> GoblinMachineRocket {
@@ -7753,6 +7761,9 @@ calib_enum!(
         /// Client 16.402 (parity r80, live13): every one-way straight shot (the Magic Archer's arrow as well as the
         /// Hunter's pellets) reaches a building's square.
         Client16402EveryStraightShot = "client16402_every_straight_shot",
+        /// Client 16.635 (parity r92, live15n): a Firecracker's spark as well, on its landing tick (ProjectileRadius +
+        /// ProjectileStartExtraRadius) and in flight (ProjectileRadius).
+        Client16635SparksToo = "client16635_sparks_too",
     }
 );
 calib_enum!(
@@ -9413,6 +9424,17 @@ calib_enum!(
         /// Client 16.635 (parity r91, live15n): x as written, y turned with the side (a Red barrel's (-350, 450) falls at
         /// (-350, -450) from it).
         Client16635XAsWritten = "client16635_x_as_written",
+    }
+);
+calib_enum!(
+    /// combat.DASH_TARGET_DEATH -- a dash with no DashConstantTime (the Bandit's) whose dash target is gone mid-dash (the move
+    /// pass's dash, `dash_ends_now`).
+    DashTargetDeath {
+        /// The engine's: the dash ends on the tick its target is gone, with no blow; the unit walks.
+        Ends = "ends",
+        /// Client 16.635 (parity r92, live15n): it runs on at its JumpSpeed to its goal, with no range test and no blow, and
+        /// ends there.
+        Client16635RunsToGoal = "client16635_runs_to_goal",
     }
 );
 calib_enum!(
@@ -12792,6 +12814,7 @@ impl Calib {
             selector_reach: pick(&v, &["spells", "SELECTOR_REACH", "value"], SelectorReach::from_calibration_name)?,
             on_buff_hold_attract: pick(&v, &["enchant", "ON_BUFF_HOLD_ATTRACT", "value"], OnBuffHoldAttract::from_calibration_name)?,
             evo_barrel_offset_frame: pick(&v, &["spawner", "EVO_BARREL_OFFSET_FRAME", "value"], EvoBarrelOffsetFrame::from_calibration_name)?,
+            dash_target_death: pick(&v, &["combat", "DASH_TARGET_DEATH", "value"], DashTargetDeath::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -15893,6 +15916,16 @@ pub const ENCHANT_LAUNCHING: u8 = 3;
 /// radius + target radius, native) short of `target`'s centre on the line to `actor`, the target's centre itself when
 /// the two coincide. Measured on client 15.535.29: 7 of 7 Bandit dashes head at it within 0.1 degree, and the Mega
 /// Knight lands on it.
+/// combat.DASH_TARGET_DEATH = client16635_runs_to_goal: a dash whose target is gone ends while its goal is less than a whole
+/// step (JumpSpeed, `speed`) from `p`, native: it never takes the part-step onto it (`BattleState::dash_runs_to_goal`).
+/// PLANT (regression) dash_target_death_part_step: it takes the part-step.
+fn dash_short_of_goal(p: (i32, i32), goal: (i32, i32), speed: i32) -> bool {
+    #[cfg(not(clash_plant = "dash_target_death_part_step"))]
+    return move16402::distance(p.0, p.1, goal.0, goal.1) < speed;
+    #[cfg(clash_plant = "dash_target_death_part_step")]
+    return false;
+}
+
 fn dash_goal_native(actor: (i32, i32), target: Vec2, rr: i64) -> (i32, i32) {
     use crate::fixed::SUBTILE_PER_MILLITILE as K;
     let (tx, ty) = (target.x / K, target.y / K);
@@ -26911,7 +26944,24 @@ impl BattleState {
         let mut p = (e.pos[i].x / k, e.pos[i].y / k);
         match d.constant_time_ms {
             None => {
-                let Some(t) = e.dash_target[i].filter(|t| e.is_alive(*t)) else { return true };
+                let Some(t) = e.dash_target[i].filter(|t| e.is_alive(*t)) else {
+                    // combat.DASH_TARGET_DEATH = client16635_runs_to_goal: a dash whose target is gone ends a whole step
+                    // short of its goal (`dash_short_of_goal`), or on it.
+                    if self.dash_runs_to_goal() {
+                        if dash_short_of_goal(p, goal, d.speed) {
+                            return true;
+                        }
+                        for _ in 0..2 {
+                            let (q, arrived) = move16402::dash_half_step(p, goal, d.speed / 2);
+                            p = q;
+                            if arrived {
+                                return true;
+                            }
+                        }
+                        return dash_short_of_goal(p, goal, d.speed);
+                    }
+                    return true;
+                };
                 let ti = t.index as usize;
                 for _ in 0..2 {
                     let (q, arrived) = move16402::dash_half_step(p, goal, d.speed / 2);
@@ -26925,6 +26975,20 @@ impl BattleState {
             }
             Some(ct) => self.tick >= e.dash_mark[i] + (ct / self.cfg.calib.tick_ms.max(1)) as u32 + DASH_BLOW_TO_END_TICKS,
         }
+    }
+
+    /// combat.DASH_TARGET_DEATH = client16635_runs_to_goal: a dash with no DashConstantTime (the Bandit's, the Boss Bandit's)
+    /// whose target is gone runs on at its JumpSpeed toward its goal, with no range test and no blow, and ends on the step
+    /// that leaves the goal less than a whole step off (`dash_short_of_goal`; `dash_ends_now`, the move pass's dash).
+    /// Measured on client 16.635 (parity r92, live15n): 20261103-215952-A t1433, a Bandit whose Giant Buffer was gone on its
+    /// dash's second tick stepped 498 a tick through t1439 and walked from t1440, its goal 300 off; 20261103-170325-A t2819,
+    /// a Boss Bandit's the same through t2825, its goal 435 off. The engine ended both dashes on the death. PLANT
+    /// (regression) dash_target_death_ends: the new arm still ends the dash.
+    fn dash_runs_to_goal(&self) -> bool {
+        #[cfg(not(clash_plant = "dash_target_death_ends"))]
+        return self.cfg.calib.dash_target_death == DashTargetDeath::Client16635RunsToGoal;
+        #[cfg(clash_plant = "dash_target_death_ends")]
+        return false;
     }
 
     fn end_dashes(&mut self, ended: Vec<usize>) {
@@ -28829,7 +28893,31 @@ impl BattleState {
                         #[cfg(clash_plant = "timed_jump_flies_past_blow")]
                         let stops_at_blow = false;
                         let mut blow_stop = false;
+                        // combat.DASH_TARGET_DEATH = client16635_runs_to_goal (`dash_runs_to_goal`). PLANT (regression)
+                        // dash_target_death_ends: the new arm still ends the dash.
+                        #[cfg(not(clash_plant = "dash_target_death_ends"))]
+                        let runs_to_goal = calib.dash_target_death == DashTargetDeath::Client16635RunsToGoal;
+                        #[cfg(clash_plant = "dash_target_death_ends")]
+                        let runs_to_goal = false;
                         match d.constant_time_ms {
+                            // combat.DASH_TARGET_DEATH = client16635_runs_to_goal: a dash whose target is gone runs on toward
+                            // its goal in whole steps, two half-steps a tick, no range test and no blow, and ends on the step
+                            // that leaves the goal less than a whole step off (`dash_runs_to_goal`, `dash_short_of_goal`).
+                            None if live(dash_target[i]).is_none() && runs_to_goal => {
+                                if dash_short_of_goal(p, goal, d.speed) {
+                                    ended = true;
+                                } else {
+                                    for _ in 0..2 {
+                                        let (q, arrived) = move16402::dash_half_step(p, goal, d.speed / 2);
+                                        p = q;
+                                        if arrived {
+                                            ended = true;
+                                            break;
+                                        }
+                                    }
+                                    ended = ended || dash_short_of_goal(p, goal, d.speed);
+                                }
+                            }
                             None => match live(dash_target[i]) {
                                 None => ended = true,
                                 Some(t) => {
@@ -42397,6 +42485,9 @@ impl BattleState {
 /// 20, unchanged, parity r91 (spawner.EVO_BARREL_OFFSET_FRAME): Calib gained evo_barrel_offset_frame (serde default the old
 ///    arm, owner_frame), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, parity r92 (combat.DASH_TARGET_DEATH): Calib gained dash_target_death (serde default the old arm, ends), no
+///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
+///    arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -43587,6 +43678,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("on_buff_hold_attract".into(), serde_json::to_value(OnBuffHoldAttract::Pulled).map_err(|e| e.to_string())?);
     // spawner.EVO_BARREL_OFFSET_FRAME: a format-3 battle ran spawner.EVO_BARREL_OFFSET_FRAME's old arm.
     sh.insert("evo_barrel_offset_frame".into(), serde_json::to_value(EvoBarrelOffsetFrame::OwnerFrame).map_err(|e| e.to_string())?);
+    // combat.DASH_TARGET_DEATH: a format-3 battle ran combat.DASH_TARGET_DEATH's old arm.
+    sh.insert("dash_target_death".into(), serde_json::to_value(DashTargetDeath::Ends).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

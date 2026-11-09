@@ -2074,6 +2074,9 @@ fn straight_hits(
     // circle). Measured on client 16.402 (parity r80, live13): 6 of 6 Magic Archer arrows passing a princess tower 1314..1422
     // from its centre (outside the circle, inside the square's reach) hit it. PLANT (regression) straight_square_pellets_only:
     // the new arm still squares the CheckCollisions shots alone.
+    // client16635_sparks_too: a Firecracker's spark as well. Measured on client 16.635 (parity r92, live15n): the five sparks'
+    // hit ticks on a building of 11 of 11 rocket landings read off the square, none off the circle. PLANT (regression)
+    // spark_building_circle: the new arm still tests a building's circle for a spark.
     #[cfg(not(clash_plant = "pellet_building_circle"))]
     let square = match calib.straight_shot_building_reach {
         StraightShotBuildingReach::Circle => false,
@@ -2082,6 +2085,10 @@ fn straight_hits(
         StraightShotBuildingReach::Client16402EveryStraightShot => s.stop_on_hit || (s.period == 0 && !spark),
         #[cfg(clash_plant = "straight_square_pellets_only")]
         StraightShotBuildingReach::Client16402EveryStraightShot => s.stop_on_hit,
+        #[cfg(not(clash_plant = "spark_building_circle"))]
+        StraightShotBuildingReach::Client16635SparksToo => s.stop_on_hit || s.period == 0,
+        #[cfg(clash_plant = "spark_building_circle")]
+        StraightShotBuildingReach::Client16635SparksToo => s.stop_on_hit || (s.period == 0 && !spark),
     };
     #[cfg(clash_plant = "pellet_building_circle")]
     let square = false;

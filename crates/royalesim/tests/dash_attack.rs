@@ -51,13 +51,17 @@
 //!   * `dash_stand_keeps_walk_heading` -- a standing dasher keeps its walking heading: (10) goes red.
 //!   * `dash_step_direct_rescale` -- a dash step rescales straight to its length and lands on the goal:
 //!     `every_dash_step_is_the_walks_arithmetic_with_no_snap` and (7)'s rest go red.
+//!   * `dash_target_death_ends` -- combat.DASH_TARGET_DEATH = client16635_runs_to_goal still ends the dash when its target is
+//!     gone: `under_client16635_runs_to_goal_a_bandit_whose_target_dies_dashes_on_in_whole_steps` goes red.
+//!   * `dash_target_death_part_step` -- that arm takes the part-step onto the goal:
+//!     `under_client16635_runs_to_goal_a_bandit_whose_target_dies_dashes_on_in_whole_steps` goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::state::{
-    BattleConfig, BattleState, DashAttack, DashEndContact, DashStartContact, DashImmuneHits, DashKillRetarget, DashStandContact, DashStandHeading,
+    BattleConfig, BattleState, DashAttack, DashEndContact, DashStartContact, DashImmuneHits, DashKillRetarget, DashStandContact, DashStandHeading, DashTargetDeath,
     DashStandAttack, DashStandRetarget, DASH_BLOW_TO_END_TICKS,
 };
 use royalesim::{EntityId, Team};
@@ -966,4 +970,50 @@ fn under_client16635_stand_holds_attack_a_standing_mega_knight_jumps_at_a_target
     let (new_ms, new_d) = stand_swing(DashStandAttack::Client16635StandHoldsAttack);
     assert!(new_d > old_d + 300, "client16635_stand_holds_attack: he did not jump at the Knight (moved {new_d}, attack_ends_stand {old_d})");
     let _ = new_ms;
+}
+
+/// The Bandit's dash at the scenes' Knight (BANDIT_AT, KNIGHT_AT), the Knight put to 0 hitpoints after the first tick the Bandit
+/// moves 400 or more (its dash under way), under combat.DASH_TARGET_DEATH = `arm`: the Bandit's steps (native) on the 12
+/// ticks after.
+fn bandit_target_dies(arm: DashTargetDeath) -> Vec<i64> {
+    let mut cfg = with(DashAttack::ClientDash);
+    cfg.calib.dash_target_death = arm;
+    let mut s = BattleState::new(0, cfg);
+    let ids = s
+        .scenario_spawn_batch(&[(Team::Red, "Knight", at(KNIGHT_AT), None), (Team::Blue, "Assassin", at(BANDIT_AT), None)])
+        .unwrap_or_else(|(k, e)| panic!("spawn {k}: {e:?}"));
+    let (k, a) = (ids[0], ids[1]);
+    let (mut killed, mut steps) = (false, Vec::new());
+    for _ in 0..200 {
+        let a0 = s.entity(a).expect("the Bandit").pos;
+        s.tick();
+        let step = dist(a0, s.entity(a).expect("the Bandit").pos);
+        if killed {
+            steps.push(step);
+            if steps.len() == 12 {
+                break;
+            }
+        } else if step >= 400 {
+            assert!(s.debug_set_hp(k, 0), "the Knight stands at the dash");
+            killed = true;
+        }
+    }
+    assert!(killed, "the Bandit never dashed");
+    steps
+}
+
+/// combat.DASH_TARGET_DEATH = client16635_runs_to_goal (client 16.635, parity r92, live15n 20261103-215952-A t1433 and
+/// 20261103-170325-A t2819: a Bandit and a Boss Bandit whose targets were gone mid-dash stepped 498 a tick on and stopped
+/// with their goals 300 and 435 off; the engine ended both dashes and walked): the Bandit dashes on after its Knight dies, in
+/// whole steps, and ends with no part-step onto its goal; under ends (the vacuity check) it walks from the tick after.
+/// Plants: dash_target_death_ends, dash_target_death_part_step.
+#[test]
+fn under_client16635_runs_to_goal_a_bandit_whose_target_dies_dashes_on_in_whole_steps() {
+    let old = bandit_target_dies(DashTargetDeath::Ends);
+    assert!(old[1] < 400, "ends (the vacuity check): the Bandit dashed on after its Knight died ({old:?})");
+    let new = bandit_target_dies(DashTargetDeath::Client16635RunsToGoal);
+    let run = new[1..].iter().take_while(|&&d| d > 150).count();
+    assert!(run >= 2, "client16635_runs_to_goal: the Bandit stopped dashing when its Knight died ({new:?})");
+    assert!(1 + run < new.len(), "client16635_runs_to_goal: the dash never ended ({new:?})");
+    assert!(new[1..1 + run].iter().all(|&d| d >= 490), "client16635_runs_to_goal: a part-step onto its goal ({new:?})");
 }
