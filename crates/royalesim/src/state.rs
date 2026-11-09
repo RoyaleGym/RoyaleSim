@@ -2316,6 +2316,10 @@ pub struct Calib {
     /// before it ran.
     #[serde(default = "on_buff_hold_attract_default")]
     pub on_buff_hold_attract: OnBuffHoldAttract,
+    /// spawner.EVO_BARREL_OFFSET_FRAME (the frame the Evo Skeleton Barrel's drop offsets are read in, `evo_barrel_offset`). Added after SNAPSHOT_FORMAT 20; the default is the old arm, `OwnerFrame`, what a battle saved
+    /// before it ran.
+    #[serde(default = "evo_barrel_offset_frame_default")]
+    pub evo_barrel_offset_frame: EvoBarrelOffsetFrame,
 }
 
 impl Calib {
@@ -3487,6 +3491,10 @@ fn selector_reach_default() -> SelectorReach {
 
 fn on_buff_hold_attract_default() -> OnBuffHoldAttract {
     OnBuffHoldAttract::Pulled
+}
+
+fn evo_barrel_offset_frame_default() -> EvoBarrelOffsetFrame {
+    EvoBarrelOffsetFrame::OwnerFrame
 }
 
 fn goblin_machine_rocket_default() -> GoblinMachineRocket {
@@ -9396,6 +9404,18 @@ calib_enum!(
     }
 );
 calib_enum!(
+    /// spawner.EVO_BARREL_OFFSET_FRAME -- the frame the Evo Skeleton Barrel's two drop offsets (card.rs `BarrelDef`: the
+    /// health line's `extra_offset`, the death's `death_offset`) are read in (`evo_barrel_offset`).
+    EvoBarrelOffsetFrame {
+        /// The engine's: the owner's frame, both coordinates turned with the side (a Red barrel's (-350, 450) falls at
+        /// (350, -450) from it).
+        OwnerFrame = "owner_frame",
+        /// Client 16.635 (parity r91, live15n): x as written, y turned with the side (a Red barrel's (-350, 450) falls at
+        /// (-350, -450) from it).
+        Client16635XAsWritten = "client16635_x_as_written",
+    }
+);
+calib_enum!(
     /// targeting.TAUNT_ENDS_WAIT -- whether a taunt (`taunt_override`) that turns a unit on its hero ends the unit's post-kill
     /// retarget wait (`retarget_wait`).
     TauntEndsWait {
@@ -12771,6 +12791,7 @@ impl Calib {
             dash_stand_attack: pick(&v, &["combat", "DASH_STAND_ATTACK", "value"], DashStandAttack::from_calibration_name)?,
             selector_reach: pick(&v, &["spells", "SELECTOR_REACH", "value"], SelectorReach::from_calibration_name)?,
             on_buff_hold_attract: pick(&v, &["enchant", "ON_BUFF_HOLD_ATTRACT", "value"], OnBuffHoldAttract::from_calibration_name)?,
+            evo_barrel_offset_frame: pick(&v, &["spawner", "EVO_BARREL_OFFSET_FRAME", "value"], EvoBarrelOffsetFrame::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -22632,6 +22653,20 @@ impl BattleState {
         later
     }
 
+    /// The offset (`x`, `y` as the table writes it, card.rs `BarrelDef`) a `team` Evo Skeleton Barrel's drop falls at from
+    /// it. spawner.EVO_BARREL_OFFSET_FRAME = owner_frame turns both coordinates with the side; client16635_x_as_written
+    /// turns y alone. Measured on client 16.635 (parity r91, live15n): a Red barrel's 5 health-line drops each fell 700 left
+    /// of the owner's frame's point, on its y, and its death drops 620 to 760 right; a Blue barrel's stand on either arm's.
+    fn evo_barrel_offset(&self, team: Team, x: i32, y: i32) -> Vec2 {
+        let fwd = spell::forward_dy(team);
+        // PLANT (regression) barrel_offset_x_turned: the new arm still turns x with the side.
+        #[cfg(not(clash_plant = "barrel_offset_x_turned"))]
+        let as_written = self.cfg.calib.evo_barrel_offset_frame == EvoBarrelOffsetFrame::Client16635XAsWritten;
+        #[cfg(clash_plant = "barrel_offset_x_turned")]
+        let as_written = false;
+        Vec2::new(if as_written { x } else { fwd * x }, fwd * y)
+    }
+
     fn barrel_pass(&mut self) {
         let tick = self.cfg.calib.tick_ms;
         let mut made = Vec::new();
@@ -22653,8 +22688,8 @@ impl BattleState {
             let level = self.cfg.cards.unit_level(self.ents.card[i], b.extra.unit, None, self.ents.level[i]).expect("the drop's level validated at deploy");
             let damage = self.cfg.cards.scaled(b.extra.unit, level, unit.death_damage).expect("the drop's level validated at deploy");
             let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
-            let fwd = spell::forward_dy(team);
-            let offset = Vec2::new(fwd * b.extra_offset_x, fwd * b.extra_offset_y);
+            // spawner.EVO_BARREL_OFFSET_FRAME: the frame the offset is read in (`evo_barrel_offset`).
+            let offset = self.evo_barrel_offset(team, b.extra_offset_x, b.extra_offset_y);
             let at = Vec2::new(pos.x + offset.x, pos.y + offset.y);
             // spawner.EVO_BARREL_DROP_TICK = client16402_tick_later: a tick later (client 16.402: t974 -> t988).
             let later = if self.evo_barrel_later() { tick } else { 0 };
@@ -34575,12 +34610,13 @@ impl BattleState {
                     let base = unit.death_damage;
                     let damage = self.cfg.cards.scaled(ds.unit, level, base).expect("death bomb level validated at deploy");
                     let (team, pos) = (self.ents.team[i], self.ents.pos[i]);
-                    // An Evo Skeleton Barrel's death drop falls `death_offset` from it in the owner's frame (`BarrelDef`).
+                    // An Evo Skeleton Barrel's death drop falls `death_offset` from it (`BarrelDef`), in the frame
+                    // spawner.EVO_BARREL_OFFSET_FRAME names (`evo_barrel_offset`).
                     let evo_barrel = self.cfg.cards.get(self.ents.card[i]).evo.as_ref().and_then(|v| v.barrel);
                     let pos = match evo_barrel {
                         Some(b) => {
-                            let fwd = spell::forward_dy(team);
-                            Vec2::new(pos.x + fwd * b.death_offset_x, pos.y + fwd * b.death_offset_y)
+                            let o = self.evo_barrel_offset(team, b.death_offset_x, b.death_offset_y);
+                            Vec2::new(pos.x + o.x, pos.y + o.y)
                         }
                         None => pos,
                     };
@@ -42358,6 +42394,9 @@ impl BattleState {
 ///    fields (serde default each one's old arm), no new state, so a blob saved before them deserializes and hashes as it did;
 ///    movement.JUMP_LANDING_CONTACT and movement.FLY_DIRECT_PATHS gained an arm each. migrate_v3 runs a migrated battle at the
 ///    old arms.
+/// 20, unchanged, parity r91 (spawner.EVO_BARREL_OFFSET_FRAME): Calib gained evo_barrel_offset_frame (serde default the old
+///    arm, owner_frame), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -43546,6 +43585,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("selector_reach".into(), serde_json::to_value(SelectorReach::RadiusPlusTargetRadius).map_err(|e| e.to_string())?);
     // enchant.ON_BUFF_HOLD_ATTRACT: a format-3 battle ran enchant.ON_BUFF_HOLD_ATTRACT's old arm.
     sh.insert("on_buff_hold_attract".into(), serde_json::to_value(OnBuffHoldAttract::Pulled).map_err(|e| e.to_string())?);
+    // spawner.EVO_BARREL_OFFSET_FRAME: a format-3 battle ran spawner.EVO_BARREL_OFFSET_FRAME's old arm.
+    sh.insert("evo_barrel_offset_frame".into(), serde_json::to_value(EvoBarrelOffsetFrame::OwnerFrame).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

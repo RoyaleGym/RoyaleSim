@@ -450,6 +450,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   targeting.SPAWNED_UNIT_ACQUIRE_DELAY = client_8th_frame_action_buildings: client 15.535.29's Phoenix eggs unread.
 ///   spells.REROLL_HIDE_WINDOW = at_trigger: client 15.535.29's one scene (sp-form-BarbLog-hero-s0) was read for the slide and
 ///   the ride only.
+///   spawner.EVO_BARREL_OFFSET_FRAME = owner_frame: client 15.535.29's one scene (sp-form-SkeletonBalloon-evo-s0) is a Blue
+///   barrel's, which both arms put on the same points.
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -727,6 +729,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("enchant.ON_BUFF_HOLD_ATTRACT", "\"pulled\""),
     ("movement.JUMP_LANDING_CONTACT", "\"client_next_tick\""),
     ("movement.FLY_DIRECT_PATHS", "\"read\""),
+    ("spawner.EVO_BARREL_OFFSET_FRAME", "\"owner_frame\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

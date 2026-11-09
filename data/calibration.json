@@ -5678,6 +5678,17 @@
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at client15535_fuse (examples/replay_parity/harness.rs CLIENT15535_ARMS).",
       "engine": "state.rs barrel_pass, phase_reap (the evo barrel's death bomb), selected by Calib::evo_barrel_drop_tick; tests/evo_skeleton_barrel.rs."
     },
+    "EVO_BARREL_OFFSET_FRAME": {
+      "value": "owner_frame",
+      "status": "measured",
+      "candidates": ["owner_frame", "client16635_x_as_written"],
+      "confidence": "HIGH for client16635_x_as_written on client 16.635 (parity r91, 2026-11-08): across the Live battles recorded on client 16.635 (content 160635007-20261103; live15n), traced on the r90 head, 5 of the 6 health-line drops of a Red Evo Skeleton Barrel (20261103-202950-A t1828 and t3629, 20261103-173436-A t2320 and t5420, 20261103-203839-A t3108) put all seven Skeletons exactly 700 left of the engine's points on their y (the sixth, after its battle's first divergence, 555), and each of the 6 death drops that followed one 620 to 760 right of the engine's; the Blue barrels' drops stood on the engine's points (two drops of sp-form-SkeletonBalloon-evo-s0 on 160402017), as did the plain barrel's (no offset) on either side. Read: the client turns the offsets' y with the side and leaves x as written.",
+      "provenance": "MEASURED by parity (2026-11-08, r91 diagnosis) on Live's client 16.635 battles (ob15, live15n): each drop's seven Skeletons compared on their first frame, truth against the r90 engine's, with the barrel on the same point on the tick before.",
+      "meaning": "owner_frame: the engine's; both offsets ((-350, 450) for the health line's drop, (350, 0) for the death's) turned with the side, x and y. client16635_x_as_written: x as the table writes it, y turned with the side.",
+      "open": "Client 16.402 unread for a Red barrel (its one scene is Blue's). The y turn read off the hit drops' y alone.",
+      "promotion_rules": "replay_parity runs a client 15.535.29 capture at owner_frame (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "state.rs evo_barrel_offset (barrel_pass, phase_reap's evo barrel death bomb), selected by Calib::evo_barrel_offset_frame; tests/evo_skeleton_barrel.rs."
+    },
     "EVO_COPY_TICK": {
       "value": "client16402_next_tick",
       "status": "measured",

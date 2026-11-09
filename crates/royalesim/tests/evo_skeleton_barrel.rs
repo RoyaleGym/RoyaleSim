@@ -16,6 +16,7 @@
 //!   - barrel_drop_never -> `under_75_percent_it_drops_seven_skeletons_13_ticks_on` red.
 //!   - barrel_point_before_move -> `under_client15535_after_move_the_drop_falls_a_step_further` red.
 //!   - evo_barrel_drop_on_fuse -> `under_client16402_tick_later_both_drops_land_a_tick_later` red.
+//!   - barrel_offset_x_turned -> `under_client16635_x_as_written_a_red_barrels_drops_keep_their_x` red.
 //!
 //! spawner.EVO_BARREL_DROP_TICK = client16402_tick_later (client 16.402, sp-form-SkeletonBalloon-evo-s0 on 160402017: t974 ->
 //! t988, t1033 -> t1046): both drops a tick later.
@@ -23,6 +24,9 @@
 //! spawner.BARREL_DROP_POINT = client15535_after_move (item 306; sp-form-SkeletonBalloon-evo-s0 t987): the health-line
 //! drop falls from the barrel's point after its step on the tick it is made, its seven Skeletons on the same tick, one
 //! step (89 at its speed) further along its path than under status_phase.
+//!
+//! spawner.EVO_BARREL_OFFSET_FRAME = client16635_x_as_written (client 16.635, parity r91, live15n): a Red barrel's drops fall
+//! at the offsets' x as written and their y turned with the side; owner_frame turns both.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -198,4 +202,71 @@ fn under_client16402_tick_later_both_drops_land_a_tick_later() {
     let gone = hp.iter().position(|h| h.is_none()).expect("the barrel dies");
     let more = (gone..skel.len()).find(|&k| skel[k].len() > skel[k - 1].len()).expect("the death drop");
     assert_eq!(more, gone + 13, "its Skeletons 13 frames after (t1033 -> t1046)");
+}
+
+/// A Red form held at AT under spawner.EVO_BARREL_OFFSET_FRAME = `arm` (the 15.535.29 scenes' drop point and tick), under
+/// the line on frame 2 and killed on frame 20: the points of its health line's seven and of its death's seven, each on its
+/// first frame.
+fn red_drops(arm: royalesim::state::EvoBarrelOffsetFrame) -> (Vec<Vec2>, Vec<Vec2>) {
+    use royalesim::state::{BarrelDropPoint, EvoBarrelDropTick};
+    let mut cfg: BattleConfig = config();
+    cfg.calib.barrel_drop_point = BarrelDropPoint::StatusPhase;
+    cfg.calib.evo_barrel_drop_tick = EvoBarrelDropTick::Client15535Fuse;
+    cfg.calib.evo_barrel_offset_frame = arm;
+    cfg.decks = [vec!["Knight".into()], vec!["SkeletonBalloon".into(), "Knight".into()]];
+    cfg.forms = [Vec::new(), vec![1, 0]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    s.spawn_unit(Team::Red, "SkeletonBalloon_EV1", n(AT.0, AT.1), None).expect("the barrel");
+    s.tick();
+    let barrel = find_live(&s, Team::Red, "SkeletonBalloon_EV1")[0].id;
+    for _ in 0..25 {
+        assert!(s.debug_set_pos(barrel, n(AT.0, AT.1)));
+        s.tick();
+    }
+    let mut seen: Vec<EntityId> = Vec::new();
+    let mut drops: Vec<Vec<Vec2>> = Vec::new();
+    for k in 0..40 {
+        if s.entity(barrel).is_some() {
+            assert!(s.debug_set_pos(barrel, n(AT.0, AT.1)));
+        }
+        if k == 2 {
+            assert!(s.debug_set_hp(barrel, 400));
+        }
+        if k == 20 {
+            assert!(s.debug_set_hp(barrel, 0));
+        }
+        s.tick();
+        let new: Vec<_> = find_live(&s, Team::Red, "Skeleton").into_iter().filter(|e| !seen.contains(&e.id)).collect();
+        if !new.is_empty() {
+            seen.extend(new.iter().map(|e| e.id));
+            drops.push(new.iter().map(|e| e.pos).collect());
+        }
+    }
+    assert_eq!(drops.len(), 2, "the scene drifted: {} drops", drops.len());
+    (drops[0].clone(), drops[1].clone())
+}
+
+/// spawner.EVO_BARREL_OFFSET_FRAME = client16635_x_as_written (client 16.635, parity r91, live15n: a Red barrel's 5 health-line
+/// drops each 700 left of the owner's frame's point, its death drops 620 to 760 right): a Red barrel's two drops fall
+/// (-350, -450) and (350, 0) from it, where under owner_frame (the vacuity check) they fall (350, -450) and (-350, 0). The
+/// health line's seven stand in a ring about 250 round its point; the death's ring is centred within 150 of its point from
+/// AT (the barrel takes its step, 90 toward its tower, on its death tick; the two arms' points lie 700 apart). Plant:
+/// barrel_offset_x_turned.
+#[test]
+fn under_client16635_x_as_written_a_red_barrels_drops_keep_their_x() {
+    use royalesim::state::EvoBarrelOffsetFrame;
+    let ring = |r: &[Vec2], (x, y): (i32, i32)| r.len() == 7 && r.iter().all(|p| (200..=300).contains(&(p.dist(n(x, y)) / K)));
+    let centred = |r: &[Vec2], (x, y): (i32, i32)| {
+        let (cx, cy) = (r.iter().map(|p| p.x / K).sum::<i32>() / r.len() as i32, r.iter().map(|p| p.y / K).sum::<i32>() / r.len() as i32);
+        r.len() == 7 && (cx - x).pow(2) + (cy - y).pow(2) <= 150 * 150
+    };
+    let (line, death) = red_drops(EvoBarrelOffsetFrame::Client16635XAsWritten);
+    assert!(ring(&line, (AT.0 - 350, AT.1 - 450)), "the health line's seven about 250 from (-350, -450): {line:?}");
+    assert!(centred(&death, (AT.0 + 350, AT.1)), "the death's seven round (350, 0): {death:?}");
+    let (line, death) = red_drops(EvoBarrelOffsetFrame::OwnerFrame);
+    assert!(ring(&line, (AT.0 + 350, AT.1 - 450)), "owner_frame: the health line's seven about 250 from (350, -450): {line:?}");
+    assert!(centred(&death, (AT.0 - 350, AT.1)), "owner_frame: the death's seven round (-350, 0): {death:?}");
 }
