@@ -54,12 +54,14 @@ fn a_pellet_reaches_a_buildings_square_under_client15535_rounded_square() {
     );
 }
 
-/// Both clients reach a building's square (client 15.535.29: 136 of 136 pellet ends; client 16.402: 35 of 35). Client 16.402
-/// ships client16402_every_straight_shot since parity r80, which squares the pellets as client15535_rounded_square does
-/// (below); client 15.535.29 keeps client15535_rounded_square (CLIENT15535_ARMS).
+/// Both clients reach a building's square (client 15.535.29: 136 of 136 pellet ends; client 16.402: 35 of 35). Clients 16.402
+/// and 16.635 ship client16635_sparks_too since parity r92 (client16402_every_straight_shot from r80), which squares the
+/// pellets as client15535_rounded_square does (below) and a Firecracker's sparks too (tests/spark_building_square.rs); client
+/// 15.535.29 keeps client15535_rounded_square (CLIENT15535_ARMS).
 #[test]
 fn the_shipped_arm_reaches_the_square() {
-    assert_eq!(Calib::shipped().straight_shot_building_reach, StraightShotBuildingReach::Client16402EveryStraightShot);
+    assert_eq!(Calib::shipped().straight_shot_building_reach, StraightShotBuildingReach::Client16635SparksToo);
+    assert_eq!(config().calib.straight_shot_building_reach, StraightShotBuildingReach::Client16635SparksToo);
 }
 
 /// Red's princess tower on (14500, 25500), its square of half-side 1000 (its radius) and the circle of 250 + 1000 a straight shot

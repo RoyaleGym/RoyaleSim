@@ -1017,3 +1017,11 @@ fn under_client16635_runs_to_goal_a_bandit_whose_target_dies_dashes_on_in_whole_
     assert!(1 + run < new.len(), "client16635_runs_to_goal: the dash never ended ({new:?})");
     assert!(new[1..1 + run].iter().all(|&d| d >= 490), "client16635_runs_to_goal: a part-step onto its goal ({new:?})");
 }
+
+/// Since parity r92 (ends before it; client 15.535.29 keeps ends).
+#[test]
+fn the_shipped_arm_is_client16635_runs_to_goal() {
+    use royalesim::state::Calib;
+    assert_eq!(Calib::shipped().dash_target_death, DashTargetDeath::Client16635RunsToGoal, "combat.DASH_TARGET_DEATH ships client16635_runs_to_goal");
+    assert_eq!(config().calib.dash_target_death, DashTargetDeath::Client16635RunsToGoal);
+}
