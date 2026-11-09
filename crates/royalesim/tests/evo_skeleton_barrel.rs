@@ -270,3 +270,11 @@ fn under_client16635_x_as_written_a_red_barrels_drops_keep_their_x() {
     assert!(ring(&line, (AT.0 + 350, AT.1 - 450)), "owner_frame: the health line's seven about 250 from (350, -450): {line:?}");
     assert!(centred(&death, (AT.0 - 350, AT.1)), "owner_frame: the death's seven round (-350, 0): {death:?}");
 }
+
+/// Since parity r91 (owner_frame before it; client 15.535.29 keeps owner_frame).
+#[test]
+fn the_shipped_arm_is_client16635_x_as_written() {
+    use royalesim::state::{Calib, EvoBarrelOffsetFrame};
+    assert_eq!(Calib::shipped().evo_barrel_offset_frame, EvoBarrelOffsetFrame::Client16635XAsWritten, "spawner.EVO_BARREL_OFFSET_FRAME ships client16635_x_as_written");
+    assert_eq!(config().calib.evo_barrel_offset_frame, EvoBarrelOffsetFrame::Client16635XAsWritten);
+}
