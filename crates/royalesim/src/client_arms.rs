@@ -453,6 +453,9 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   spawner.EVO_BARREL_OFFSET_FRAME = owner_frame: client 15.535.29's one scene (sp-form-SkeletonBalloon-evo-s0) is a Blue
 ///   barrel's, which both arms put on the same points.
 ///   combat.DASH_TARGET_DEATH = ends: unread on client 15.535.29 (its Bandit scenes' targets lived through their dashes).
+///   combat.GUARD_CHARGE_ATTRACT = pulled, combat.GUARD_KNOCKED_CHARGE = charges: unread on client 15.535.29 (no guard of its
+///   scenes charged in a pull or out of a knockback).
+///   status.LIFT_CAST_END_SHOT = dropped: unread on client 15.535.29 (its one Hero Wizard scene's primed target lived).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -732,6 +735,9 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.FLY_DIRECT_PATHS", "\"read\""),
     ("spawner.EVO_BARREL_OFFSET_FRAME", "\"owner_frame\""),
     ("combat.DASH_TARGET_DEATH", "\"ends\""),
+    ("combat.GUARD_CHARGE_ATTRACT", "\"pulled\""),
+    ("combat.GUARD_KNOCKED_CHARGE", "\"charges\""),
+    ("status.LIFT_CAST_END_SHOT", "\"dropped\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -788,3 +788,25 @@ fn under_client16402_kept_on_water_a_member_laid_on_the_river_stays_there() {
     let new = bank_skeletons_on_water(M::Client16402KeptOnWater);
     assert!(new.iter().any(|w| *w), "client16402_kept_on_water: no member on the water: {new:?}");
 }
+
+/// formation.GROUND_Y_CLAMP = client16635_deploy_column_range_own_buildings (client 16.635, parity r93, live15n 20261103-151318-A:
+/// a Red Rascal Boy tapped in its own Mortar's column stood on the column's river bound with the Mortar's rows left out): a Blue
+/// Cannon standing on the tap's column 2,000 ahead keeps every Barbarian on the rows behind its box (the column's last row before
+/// it, centre 11500); client16402_deploy_column_range (the vacuity check) lays the forward one among the Cannon's rows. Plant:
+/// column_own_buildings_unread.
+#[test]
+fn under_client16635_deploy_column_range_own_buildings_an_own_building_ends_the_column() {
+    let k = royalesim::fixed::SUBTILE_PER_MILLITILE;
+    let tap = Vec2::new(10_500 * k, 11_500 * k);
+    let forward = |arm: GroundYClamp| {
+        let mut cfg = config();
+        cfg.calib.formation_ground_y_clamp = arm;
+        let mut s = BattleState::new(1, cfg);
+        s.scenario_spawn_now(Team::Blue, "Cannon", Vec2::new(10_500 * k, 13_500 * k), None).expect("the Cannon");
+        s.formation_preview(Team::Blue, "Barbarians", tap).unwrap().iter().map(|(_, p, _)| p.y / k).max().unwrap()
+    };
+    let old = forward(GroundYClamp::Client16402DeployColumnRange);
+    assert!(old > 12_000, "client16402_deploy_column_range (the vacuity check): no Barbarian among the Cannon's rows ({old})");
+    let new = forward(GroundYClamp::Client16635DeployColumnRangeOwnBuildings);
+    assert!(new <= 11_500, "client16635_deploy_column_range_own_buildings: a Barbarian past the column's last row before the Cannon ({new})");
+}

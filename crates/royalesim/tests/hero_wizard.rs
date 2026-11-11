@@ -231,3 +231,105 @@ fn under_client_next_tick_late_descent_the_knight_keeps_it_through_p_plus_4() {
     let old = keeps(LiftTiming::EngineReading);
     assert!(!old[4], "engine_reading: kept on P + 4: {old:?}");
 }
+
+/// The Wizard (the shot's scene, SHOT_SHIFT west) pressed after `40 + wait` ticks with a second red Knight 1,300 ahead, his
+/// target and in his instant range, under status.LIFT_CAST_END_SHOT = `arm`; the first Knight held 9,500 ahead of him, out of his
+/// sight, until P + 15 and from there 5,300 off, in his reach, so no target replaces the near one at once. The near Knight is put
+/// to 0 hitpoints before frame `kill`; or, when `low`, held at 1 hitpoint from the press, so the first hit landing on it (a shot,
+/// after the frame's target pass) kills it. Returns the frame (P + d) on which the first Knight first loses hitpoints, the first
+/// frame after which his swing reads primed (a windup one tick short of his HitSpeed: his trigger's), and the near Knight's death
+/// frame.
+fn primed_run(arm: royalesim::state::LiftCastEndShot, kill: usize, wait: usize, low: bool) -> (Option<usize>, Option<usize>, Option<usize>) {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.attract_onset = AttractOnset::ClientNextTick;
+    cfg.calib.lift_cast_end_shot = arm;
+    let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
+    cfg.decks = [deck.clone(), deck];
+    cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    let lockout = s.config().calib.deploy_lockout_ticks as u32;
+    s.scenario_set_tick(lockout);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let (wiz, near, far, reach) = (shifted(WIZARD), shifted((9500, 12800)), (shifted(WIZARD).0, WIZARD.1 + 9500), shifted((13640, 14790)));
+    s.spawn_unit(Team::Blue, "Wizard_hero", n(wiz.0, wiz.1), None).expect("the hero");
+    s.spawn_unit_resolved(Team::Red, "Knight", n(near.0, near.1), None).expect("the near Knight");
+    s.spawn_unit_resolved(Team::Red, "Knight", n(far.0, far.1), None).expect("the far Knight");
+    s.tick();
+    let hero = find_live(&s, Team::Blue, "Wizard_hero")[0].id;
+    let find = |s: &BattleState, p: (i32, i32)| s.entities().find(|e| e.team == Team::Red && e.card == "Knight" && e.pos == n(p.0, p.1)).expect("the unit where it was put").id;
+    let (sk, kn) = (find(&s, near), find(&s, far));
+    // `d`: the frame about to run (None before the press).
+    let hold = |s: &mut BattleState, d: Option<usize>| {
+        if s.entity(hero).is_some() {
+            assert!(s.debug_set_pos(hero, n(wiz.0, wiz.1)));
+        }
+        let kn_at = if d.is_some_and(|d| d >= 15) { reach } else { far };
+        for (id, p) in [(sk, near), (kn, kn_at)] {
+            if let Some(full) = s.entity(id).map(|e| e.max_hp) {
+                assert!(s.debug_set_pos(id, n(p.0, p.1)));
+                let hp = match d {
+                    None => full,
+                    Some(_) if id == sk && low => 1,
+                    Some(d) if d < kill => full,
+                    _ => continue,
+                };
+                assert!(s.debug_set_hp(id, hp));
+            }
+        }
+    };
+    for _ in 0..40 + wait {
+        hold(&mut s, None);
+        s.tick();
+    }
+    hold(&mut s, None);
+    assert_eq!(s.entity(hero).expect("the hero").target, Some(sk), "the scene drifted: the Wizard does not hold the near Knight at the press");
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let top = s.entity(kn).expect("the Knight").max_hp;
+    let tick_ms = s.config().calib.tick_ms;
+    let (mut primed, mut death) = (None, None);
+    for d in 0..90 {
+        hold(&mut s, Some(d));
+        if d == kill && !low {
+            assert!(s.debug_set_hp(sk, 0), "the near Knight stands to frame {kill}");
+        }
+        s.tick();
+        if let Some(h) = s.entity(hero) {
+            let hs = s.config().cards.get(h.card_idx).hit_speed_ms;
+            if primed.is_none() && h.attack_phase == royalesim::entity::AttackPhase::Windup && h.attack_ms == (hs - tick_ms).max(tick_ms) {
+                primed = Some(d);
+            }
+        }
+        if death.is_none() && s.entity(sk).is_none() {
+            death = Some(d);
+        }
+        if s.entity(kn).is_some_and(|e| e.hp < top) {
+            return (Some(d), primed, death);
+        }
+    }
+    (None, primed, death)
+}
+
+/// status.LIFT_CAST_END_SHOT = client16635_primed_shot_survives_retarget (client 16.635, parity r93, live15n 20261103-183005-A:
+/// pressed with a Bat in reach that the takeoff killed on the frame before his trigger, the Hero Wizard fired at the Miner on press
+/// + 19): (1) his target killed on the trigger's frame (primed as ever), the cast keeps the swing through the loss and he hits
+/// the Knight he takes from his cast's end before P + 30, where dropped (the vacuity check) loads afresh, after it (plant
+/// primed_shot_dropped); (2) his target killed by a hit landing on the frame before the trigger (the dead target still held there),
+/// the swing is primed all the same, so the same (plant lost_target_unprimed).
+#[test]
+fn under_client16635_primed_shot_survives_retarget_his_primed_swing_fires_at_his_next_target() {
+    use royalesim::state::LiftCastEndShot as L;
+    let trigger = primed_run(L::Dropped, 999, 0, false).1.expect("the scene drifted: the Wizard's swing was never primed with his target alive");
+    assert!(trigger >= 1, "the scene drifted: primed on the press's own frame");
+    let hit = |arm, kill, wait, low| primed_run(arm, kill, wait, low).0;
+    let (new, old) = (hit(L::Client16635PrimedShotSurvivesRetarget, trigger, 0, false), hit(L::Dropped, trigger, 0, false));
+    assert!(new.is_some_and(|n| n < 30), "client16635_primed_shot_survives_retarget: his target killed on the trigger's frame {trigger}, his first hit on the Knight came on {new:?}");
+    assert!(old.map_or(true, |o| o >= 30), "dropped (the vacuity check): his target killed on the trigger's frame, his first hit on the Knight came on {old:?}");
+    let wait = (0..40)
+        .find(|&w| primed_run(L::Dropped, 999, w, true).2 == Some(trigger - 1))
+        .unwrap_or_else(|| panic!("the scene drifted: no press time lands a hit on the near Knight on the frame before the trigger ({trigger})"));
+    let (new, old) = (hit(L::Client16635PrimedShotSurvivesRetarget, 999, wait, true), hit(L::Dropped, 999, wait, true));
+    assert!(new.is_some_and(|n| n < 30), "client16635_primed_shot_survives_retarget: his target killed on the frame before the trigger (wait {wait}), his first hit on the Knight came on {new:?}");
+    assert!(old.map_or(true, |o| o >= 30), "dropped (the vacuity check): his target killed on the frame before the trigger (wait {wait}), his first hit on the Knight came on {old:?}");
+}

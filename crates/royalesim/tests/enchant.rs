@@ -1277,3 +1277,64 @@ fn under_client16635_unpulled_through_hold_a_tornado_does_not_move_a_holding_run
     assert!(hold_pulled(H::Pulled) > 0, "pulled (the vacuity check): the Tornado never moved the holding Rune Giant");
     assert_eq!(hold_pulled(H::Client16635UnpulledThroughHold), 0, "client16635_unpulled_through_hold: the holding Rune Giant moved");
 }
+
+/// `hold_pulled`'s scene with the Rune Giant put at y `start_y` and his Knight 1,500 behind him (from 12000 he swings at the
+/// Cannon as he launches: the hold stands him; from 9000 he is still walking: the hold's walk-on, enchant.ON_BUFF_HOLD_WALK),
+/// under enchant.ON_BUFF_HOLD_ATTRACT = `arm`, a Red Tornado cast 2000 west of him on L when `tornado`: his points over L + 1
+/// .. L + 10, and whether his swing was under way on L.
+fn hold_track(arm: royalesim::state::OnBuffHoldAttract, start_y: i32, tornado: bool) -> (Vec<Vec2>, bool) {
+    let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+    c.calib.enchant_on_buff_pause = royalesim::state::EnchantOnBuffPause::Client16402ConditionalNoMove;
+    c.calib.on_buff_hold_attract = arm;
+    let mut s = BattleState::new(0, c);
+    let cannon = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 13600)), None).expect("a red Cannon");
+    let full = s.entity(cannon).expect("the Cannon").max_hp;
+    s.scenario_spawn_now(Team::Blue, "Knight", at((9000, start_y - 1500)), None).expect("a blue Knight");
+    let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", at((9000, start_y)), None).expect("the Rune Giant");
+    let mut prev: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+    let mut launched = false;
+    for _ in 0..90 {
+        assert!(s.debug_set_hp(cannon, full), "the Cannon stands");
+        s.tick();
+        let now: Vec<EntityId> = bolts(&s).iter().map(|b| b.0).collect();
+        if now.iter().any(|t| !prev.contains(t)) {
+            launched = true;
+            break;
+        }
+        prev = now;
+    }
+    assert!(launched, "the scene drifted: no launch within 90 ticks (from y {start_y})");
+    let g = s.entity(giant).expect("him");
+    let (g0, swinging) = (g.pos, g.attack_phase != royalesim::entity::AttackPhase::Idle);
+    if tornado {
+        s.spawn_unit(Team::Red, "Tornado", Vec2::new(g0.x - 2000 * K, g0.y), None).expect("the Tornado");
+    }
+    let mut track = Vec::new();
+    for _ in 0..10 {
+        assert!(s.debug_set_hp(cannon, full));
+        s.tick();
+        track.push(s.entity(giant).expect("him").pos);
+    }
+    (track, swinging)
+}
+
+/// enchant.ON_BUFF_HOLD_ATTRACT = client16635_unpulled_while_standing (client 16.635, parity r93, live15n: 20261103-202541-A's
+/// Rune Giant, swinging as his hold began in a Tornado, stood still; 20261103-213904-A's, walking as his began, walked on
+/// pulled): a Tornado leaves a Rune Giant held standing where he stands, and moves one walking on through his hold, where
+/// client16635_unpulled_through_hold (the vacuity check) holds him through it: the two arms part on the walking one. Plant:
+/// hold_walk_pull_stopped.
+#[test]
+fn under_client16635_unpulled_while_standing_a_tornado_moves_a_holding_rune_giant_only_while_he_walks() {
+    use royalesim::state::OnBuffHoldAttract as H;
+    let (stood, swinging) = hold_track(H::Client16635UnpulledWhileStanding, 12000, false);
+    assert!(swinging, "the scene drifted: the Rune Giant from 12000 was not swinging at his launch");
+    assert_eq!(hold_track(H::Client16635UnpulledWhileStanding, 12000, true).0, stood, "client16635_unpulled_while_standing: the Tornado moved the standing Rune Giant");
+    let (walked, swinging) = hold_track(H::Client16635UnpulledWhileStanding, 9000, false);
+    assert!(!swinging, "the scene drifted: the Rune Giant from 9000 was swinging at his launch");
+    assert_ne!(hold_track(H::Client16635UnpulledWhileStanding, 9000, true).0, walked, "client16635_unpulled_while_standing: the Tornado did not move the walking Rune Giant");
+    assert_ne!(
+        hold_track(H::Client16635UnpulledThroughHold, 9000, true).0,
+        hold_track(H::Client16635UnpulledWhileStanding, 9000, true).0,
+        "the vacuity check: client16635_unpulled_through_hold pulls the walking Rune Giant as client16635_unpulled_while_standing does"
+    );
+}

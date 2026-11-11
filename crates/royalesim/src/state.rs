@@ -2324,6 +2324,18 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the default is the old arm, `Ends`, what a battle saved before it ran.
     #[serde(default = "dash_target_death_default")]
     pub dash_target_death: DashTargetDeath,
+    /// combat.GUARD_CHARGE_ATTRACT (a pull on a charging guard, the path pass's attract). Added after SNAPSHOT_FORMAT 20; the
+    /// default is the old arm, `Pulled`, what a battle saved before it ran.
+    #[serde(default = "guard_charge_attract_default")]
+    pub guard_charge_attract: GuardChargeAttract,
+    /// combat.GUARD_KNOCKED_CHARGE (a guard knocked back on its first charge frame, `guard_moves`). Added after SNAPSHOT_FORMAT
+    /// 20; the default is the old arm, `Charges`, what a battle saved before it ran.
+    #[serde(default = "guard_knocked_charge_default")]
+    pub guard_knocked_charge: GuardKnockedCharge,
+    /// status.LIFT_CAST_END_SHOT (the Hero Wizard's primed swing when his target is lost inside his cast, `phase_target_with`).
+    /// Added after SNAPSHOT_FORMAT 20; the default is the old arm, `Dropped`, what a battle saved before it ran.
+    #[serde(default = "lift_cast_end_shot_default")]
+    pub lift_cast_end_shot: LiftCastEndShot,
 }
 
 impl Calib {
@@ -3503,6 +3515,18 @@ fn evo_barrel_offset_frame_default() -> EvoBarrelOffsetFrame {
 
 fn dash_target_death_default() -> DashTargetDeath {
     DashTargetDeath::Ends
+}
+
+fn guard_charge_attract_default() -> GuardChargeAttract {
+    GuardChargeAttract::Pulled
+}
+
+fn guard_knocked_charge_default() -> GuardKnockedCharge {
+    GuardKnockedCharge::Charges
+}
+
+fn lift_cast_end_shot_default() -> LiftCastEndShot {
+    LiftCastEndShot::Dropped
 }
 
 fn goblin_machine_rocket_default() -> GoblinMachineRocket {
@@ -9412,6 +9436,9 @@ calib_enum!(
         /// Client 16.635 (parity r90, live15n): the hold's NO_MOVE stops the pull too, as for the Little Prince's press hold
         /// (status.GUARD_PRESS_ATTRACT).
         Client16635UnpulledThroughHold = "client16635_unpulled_through_hold",
+        /// Client 16.635 (parity r93, live15n): as client16635_unpulled_through_hold while the hold stands him (his swing under
+        /// way, the conditional NO_MOVE); walking on through it (enchant.ON_BUFF_HOLD_WALK, no swing under way) he is pulled.
+        Client16635UnpulledWhileStanding = "client16635_unpulled_while_standing",
     }
 );
 calib_enum!(
@@ -9435,6 +9462,39 @@ calib_enum!(
         /// Client 16.635 (parity r92, live15n): it runs on at its JumpSpeed to its goal, with no range test and no blow, and
         /// ends there.
         Client16635RunsToGoal = "client16635_runs_to_goal",
+    }
+);
+calib_enum!(
+    /// combat.GUARD_CHARGE_ATTRACT -- whether a pull (a Tornado's, a Hero Wizard's lift: the path pass's attract) moves a Little
+    /// Prince's guard through its charge (`guard_moves`: its first charge frame to its landing).
+    GuardChargeAttract {
+        /// The engine's: the pull adds to the charge's steps.
+        Pulled = "pulled",
+        /// Client 16.635 (parity r93, live15n): no pull moves it from its first charge frame to its landing.
+        Client16635UnpulledInCharge = "client16635_unpulled_in_charge",
+    }
+);
+calib_enum!(
+    /// combat.GUARD_KNOCKED_CHARGE -- a Little Prince's guard held by a knockback on its first charge frame (`guard_moves`).
+    GuardKnockedCharge {
+        /// The engine's: it charges as ever, the charge's steps on top of the knockback's.
+        Charges = "charges",
+        /// Client 16.635 (parity r93, live15n 20261103-174413-A): it takes no charge step and the knockback carries it; the
+        /// charge's clock runs on from where it stood (`GuardRun::ghost`), so it lands when that charge would have, and its
+        /// charge hit and push run from where it stands.
+        Client16635KnockReplacesCharge = "client16635_knock_replaces_charge",
+    }
+);
+calib_enum!(
+    /// status.LIFT_CAST_END_SHOT -- the Hero Wizard's swing primed at his lift's trigger (its target in his instant range: set
+    /// one tick short of his HitSpeed, `start_ability`) when that target is lost inside his cast (`phase_target_with`).
+    LiftCastEndShot {
+        /// The engine's: the loss cancels the primed swing as any windup's; he loads afresh at the target he takes.
+        Dropped = "dropped",
+        /// Client 16.635 (parity r93, live15n 20261103-183005-A): a target held at the press and gone by the trigger primes
+        /// the swing too, and the primed swing survives the loss through his cast (the cancel and the post-kill wait's last
+        /// tick), so he fires on its end at the target he then holds.
+        Client16635PrimedShotSurvivesRetarget = "client16635_primed_shot_survives_retarget",
     }
 );
 calib_enum!(
@@ -9910,6 +9970,9 @@ calib_enum!(
         DeployColumnRangeOwnFrame = "deploy_column_range_own_frame",
         /// No clamp: a member past the bank is water-ejected like a release.
         None = "none",
+        /// Client 16.635 (parity r93, live15n 20261103-151318-A): client16402_deploy_column_range with the rows an own standing
+        /// building's box covers (`building_box`, its tile centre inside) left out of the column (crown towers kept).
+        Client16635DeployColumnRangeOwnBuildings = "client16635_deploy_column_range_own_buildings",
     }
 );
 
@@ -12815,6 +12878,9 @@ impl Calib {
             on_buff_hold_attract: pick(&v, &["enchant", "ON_BUFF_HOLD_ATTRACT", "value"], OnBuffHoldAttract::from_calibration_name)?,
             evo_barrel_offset_frame: pick(&v, &["spawner", "EVO_BARREL_OFFSET_FRAME", "value"], EvoBarrelOffsetFrame::from_calibration_name)?,
             dash_target_death: pick(&v, &["combat", "DASH_TARGET_DEATH", "value"], DashTargetDeath::from_calibration_name)?,
+            guard_charge_attract: pick(&v, &["combat", "GUARD_CHARGE_ATTRACT", "value"], GuardChargeAttract::from_calibration_name)?,
+            guard_knocked_charge: pick(&v, &["combat", "GUARD_KNOCKED_CHARGE", "value"], GuardKnockedCharge::from_calibration_name)?,
+            lift_cast_end_shot: pick(&v, &["status", "LIFT_CAST_END_SHOT", "value"], LiftCastEndShot::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -13910,6 +13976,10 @@ pub struct LiftRun {
     pub id: EntityId,
     pub fired: u32,
     pub ground: u16,
+    /// His swing was primed at the trigger (his target in his instant range). status.LIFT_CAST_END_SHOT reads it. Absent in
+    /// older snapshots; serialized only when set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub primed: bool,
 }
 
 /// THE SLAPS (card.rs `SlapDef`, the Hero Giant's): each slap under way (`SlapRun`). Saved and hashed
@@ -14144,6 +14214,11 @@ pub struct GuardRun {
     pub born: u32,
     pub arrived: Option<u32>,
     pub hit: Vec<EntityId>,
+    /// combat.GUARD_KNOCKED_CHARGE = client16635_knock_replaces_charge: the point its charge has reached, the guard itself held
+    /// by the knockback it was in on its first charge frame (the charge's clock runs on here, and it lands when this does).
+    /// Absent in older snapshots; serialized only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ghost: Option<Vec2>,
 }
 
 /// A HERO GOBLINS' FLAG STANDING (card.rs `FlagSpawnsDef`; `flag_pass`): the flag, its form, its creation tick and its
@@ -21858,6 +21933,24 @@ impl BattleState {
         // combat.RANGE_PROJECTILE = straight_to_range: the units whose pingpong throw is still out
         // (combat.rs `throwers_out`). Empty in a battle without one.
         let waiting = combat::throwers_out(&self.ents, &self.projectiles);
+        // status.LIFT_CAST_END_SHOT = client16635_primed_shot_survives_retarget: the Hero Wizards whose lift primed their swing
+        // and whose cast still holds them (`HeroUnit::casting`); a loss of target there keeps the swing (below). Measured on
+        // client 16.635 (parity r93, live15n 20261103-183005-A: pressed t472 with a Bat in reach, the takeoff killed it; on
+        // press + 19 he fired at the Miner he then held, its hit on t497; the engine dropped the swing and loaded afresh, its hit
+        // on t522; in the 5 presses whose primed target lived both fired on press + 19). PLANT (regression)
+        // primed_shot_dropped: the new arm still cancels the primed swing.
+        #[cfg(not(clash_plant = "primed_shot_dropped"))]
+        let cast_primed: Vec<usize> = if calib.lift_cast_end_shot == LiftCastEndShot::Client16635PrimedShotSurvivesRetarget {
+            self.hero_units
+                .iter()
+                .filter(|u| u.casting && self.lifts.iter().any(|l| l.id == u.id && l.primed))
+                .map(|u| u.id.index as usize)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        #[cfg(clash_plant = "primed_shot_dropped")]
+        let cast_primed: Vec<usize> = Vec::new();
         for &(i, d) in &decisions {
             let e = &mut self.ents;
             // A thrower waiting for its pingpong throw takes no decision: it keeps its target while
@@ -22092,7 +22185,9 @@ impl BattleState {
                         e.wait_out[i] = self.tick;
                     }
                     if e.retarget_wait[i] > 0 {
-                        if e.retarget_wait[i] == 1 {
+                        // status.LIFT_CAST_END_SHOT = client16635_primed_shot_survives_retarget: through his cast the wait's last
+                        // tick leaves a Hero Wizard's primed swing standing (`cast_primed`).
+                        if e.retarget_wait[i] == 1 && !cast_primed.contains(&i) {
                             e.attack_phase[i] = AttackPhase::Idle;
                             e.attack_ms[i] = 0;
                         }
@@ -22256,7 +22351,9 @@ impl BattleState {
             let lost_runs_on = calib.lost_target_swing == LostTargetSwing::Client15535RunsOnInReach && switched_in_reach;
             #[cfg(clash_plant = "lost_target_swing_cancelled")]
             let lost_runs_on = false;
+            let primed_keeps = e.attack_phase[i] == AttackPhase::Windup && cast_primed.contains(&i);
             if !replaced_a_corpse
+                && !primed_keeps
                 && ((d.cancel_attack && !lost_runs_on)
                     || (changed
                         && (e.attack_phase[i] == AttackPhase::Windup || hit_tick_corpse)
@@ -24664,7 +24761,21 @@ impl BattleState {
                 continue;
             }
             let end = guard_point(r.team, r.from, crate::card::GUARD_END_OFFSET);
-            let p = self.ents.pos[gi];
+            // combat.GUARD_KNOCKED_CHARGE = client16635_knock_replaces_charge: held by a knockback on its first charge frame, the
+            // guard takes no charge step; the knockback carries it and the charge's clock runs on from where it stood (`ghost`),
+            // so it lands when that charge would have, its charge hit and push from where it stands. Measured on client 16.635
+            // (parity r93, live15n 20261103-174413-A: a Fireball knocked a guard on its age 5; it slid with the knockback t338
+            // .. t345 and charged not at all, its dash state t338 .. t349 a charge's; the engine stepped the charge on the slide
+            // and its push took a Skeleton the client's did not). PLANT (regression) guard_knocked_charges: the new arm still
+            // charges.
+            #[cfg(not(clash_plant = "guard_knocked_charges"))]
+            let knock_law = self.cfg.calib.guard_knocked_charge == GuardKnockedCharge::Client16635KnockReplacesCharge;
+            #[cfg(clash_plant = "guard_knocked_charges")]
+            let knock_law = false;
+            if knock_law && tick == r.born + crate::card::GUARD_DASH_START_TICKS && self.ents.knocked(gi) {
+                r.ghost = Some(self.ents.pos[gi]);
+            }
+            let p = r.ghost.unwrap_or(self.ents.pos[gi]);
             // combat.GUARD_CHARGE_STEP = client15535_substeps_to_aim: its JumpSpeed in pieces of 250 and 150, each re-aimed at
             // his point + GUARD_AIM_OFFSET through the walk's 1/256 direction, ending before a piece that starts within
             // GUARD_STOP of it (native units, as the walk's).
@@ -24708,8 +24819,13 @@ impl BattleState {
                 }
                 #[cfg(not(clash_plant = "guard_never_charges"))]
                 {
-                    self.ents.pos[gi] = Vec2::new(q.0 * k, q.1 * k);
-                    moved = true;
+                    let np = Vec2::new(q.0 * k, q.1 * k);
+                    if r.ghost.is_some() {
+                        r.ghost = Some(np);
+                    } else {
+                        self.ents.pos[gi] = np;
+                        moved = true;
+                    }
                 }
                 if arrives {
                     r.arrived = Some(tick);
@@ -24729,8 +24845,13 @@ impl BattleState {
                 }
                 #[cfg(not(clash_plant = "guard_never_charges"))]
                 {
-                    self.ents.pos[gi] = Vec2::new(q.0 * k, q.1 * k);
-                    moved = true;
+                    let np = Vec2::new(q.0 * k, q.1 * k);
+                    if r.ghost.is_some() {
+                        r.ghost = Some(np);
+                    } else {
+                        self.ents.pos[gi] = np;
+                        moved = true;
+                    }
                 }
                 if done {
                     r.arrived = Some(tick);
@@ -24741,10 +24862,15 @@ impl BattleState {
                 let step = (crate::card::GUARD_STEP * crate::fixed::SUBTILE_PER_MILLITILE) as i64;
                 #[cfg(not(clash_plant = "guard_never_charges"))]
                 {
-                    self.ents.pos[gi] = if d <= step { end } else { Vec2::new(p.x + (dx * step / d) as i32, p.y + (dy * step / d) as i32) };
-                    moved = true;
+                    let np = if d <= step { end } else { Vec2::new(p.x + (dx * step / d) as i32, p.y + (dy * step / d) as i32) };
+                    if r.ghost.is_some() {
+                        r.ghost = Some(np);
+                    } else {
+                        self.ents.pos[gi] = np;
+                        moved = true;
+                    }
                 }
-                if self.ents.pos[gi] == end {
+                if r.ghost.unwrap_or(self.ents.pos[gi]) == end {
                     r.arrived = Some(tick);
                 }
             }
@@ -27334,14 +27460,42 @@ impl BattleState {
         // enchant.ON_BUFF_HOLD_ATTRACT = client16635_unpulled_through_hold: the Rune Giant's launch hold (the same NO_MOVE tag)
         // stops a pull as well. Measured on client 16.635 (parity r90, live15n 20261103-202541-A): in a Tornado through his
         // hold he stood still 14 ticks, the engine pulled him. PLANT (regression) buff_hold_pulled: the new arm still pulls him.
+        // client16635_unpulled_while_standing: only while the hold stands him (his swing under way: the conditional NO_MOVE, the
+        // move pass's `buff_hold_off`); walking on through it (enchant.ON_BUFF_HOLD_WALK) he is pulled. Measured on client 16.635
+        // (parity r93, live15n): 20261103-202541-A's Rune Giant, attacking in a Tornado as his hold began, stood still through
+        // it; 20261103-213904-A's, walking in one as his began (t371), walked on pulled (about 150 a tick) where
+        // client16635_unpulled_through_hold held him (that battle's first divergence then t500, before it t1138). PLANT
+        // (regression) hold_walk_pull_stopped: the new arm still stops a walking Rune Giant's pull.
         #[cfg(not(clash_plant = "buff_hold_pulled"))]
-        let hold_unpulled = self.cfg.calib.on_buff_hold_attract == OnBuffHoldAttract::Client16635UnpulledThroughHold;
+        let hold_unpulled = matches!(self.cfg.calib.on_buff_hold_attract, OnBuffHoldAttract::Client16635UnpulledThroughHold | OnBuffHoldAttract::Client16635UnpulledWhileStanding);
         #[cfg(clash_plant = "buff_hold_pulled")]
         let hold_unpulled = false;
+        #[cfg(not(clash_plant = "hold_walk_pull_stopped"))]
+        let standing_only = self.cfg.calib.on_buff_hold_attract == OnBuffHoldAttract::Client16635UnpulledWhileStanding;
+        #[cfg(clash_plant = "hold_walk_pull_stopped")]
+        let standing_only = false;
         if hold_unpulled {
             for i in 0..attract.len().min(self.ents.enchant_hold.len()) {
                 let h = self.ents.enchant_hold[i];
-                if h > 0 && self.tick <= h {
+                if h > 0 && self.tick <= h && (!standing_only || self.ents.attack_phase[i] != AttackPhase::Idle) {
+                    attract[i] = (0, 0);
+                    attract_n[i] = 0;
+                }
+            }
+        }
+        // combat.GUARD_CHARGE_ATTRACT = client16635_unpulled_in_charge: no pull moves a Little Prince's guard from its first charge
+        // frame to its landing (this pass runs before the tick's charge step, `guard_moves`). Measured on client 16.635 (parity
+        // r93, live15n): the four charges run inside a pull (two Tornadoes, 20261103-170325-A; two Hero Wizard lifts,
+        // 20261103-201708-A and 20261103-204734-A) stepped the charge's steps alone in the client; the engine added the pull's
+        // (to 613 a tick). PLANT (regression) guard_charge_pulled: the new arm still pulls it.
+        #[cfg(not(clash_plant = "guard_charge_pulled"))]
+        let charge_unpulled = self.cfg.calib.guard_charge_attract == GuardChargeAttract::Client16635UnpulledInCharge;
+        #[cfg(clash_plant = "guard_charge_pulled")]
+        let charge_unpulled = false;
+        if charge_unpulled {
+            for r in self.warps.guards.iter().filter(|r| r.arrived.is_none() && r.guard.is_some() && self.tick >= r.born + crate::card::GUARD_DASH_START_TICKS) {
+                let i = r.guard.expect("filtered").index as usize;
+                if i < attract.len() {
                     attract[i] = (0, 0);
                     attract_n[i] = 0;
                 }
@@ -36039,7 +36193,7 @@ impl BattleState {
                 let mut p = Vec2::new(tap.x + dx - a.general_offset_x, tap.y + dy - a.general_offset_y);
                 let y_range = match self.cfg.calib.formation_ground_y_clamp {
                     GroundYClamp::None => None,
-                    GroundYClamp::Client16402DeployColumnRange | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
+                    GroundYClamp::Client16402DeployColumnRange | GroundYClamp::Client16635DeployColumnRangeOwnBuildings | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
                 };
                 if let Some((lo, hi)) = y_range {
                     p.y = if p.y <= lo { lo } else { p.y.min(hi) };
@@ -36309,7 +36463,7 @@ impl BattleState {
                 }
                 let ground_tap = tap.add(ground_delta);
                 let y_range = match calib.formation_ground_y_clamp {
-                    GroundYClamp::Client16402DeployColumnRange | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
+                    GroundYClamp::Client16402DeployColumnRange | GroundYClamp::Client16635DeployColumnRangeOwnBuildings | GroundYClamp::DeployColumnRangeOwnFrame => self.ground_y_range(team, idx, tap),
                     GroundYClamp::None => None,
                 };
                 // The arena-bounds clamp, native: half a cell inside every edge.
@@ -36397,24 +36551,41 @@ impl BattleState {
         let h = arena.height / K;
         let col = tap_own_native.x / tile;
         let rows = h / tile;
+        // formation.GROUND_Y_CLAMP = client16635_deploy_column_range_own_buildings: the rows an own standing building's box
+        // covers (its tile centre inside, `building_box`) are not deployable rows of the column; crown towers are kept (the
+        // 16.402 range was measured with them standing). Measured on client 16.635 (parity r93, live15n 20261103-151318-A: a Red
+        // Rascal Boy tapped in its own Mortar's column stood on 20499, the column's river bound with the Mortar's rows 17 .. 19
+        // left out; the engine's on 19768, its two Rascal Girls 1,000 off; of 23 ground formations tapped in a column with an own
+        // building, the one whose member reached past the raised bound). PLANT (regression) column_own_buildings_unread: the
+        // new arm still counts an own building's rows.
+        #[cfg(not(clash_plant = "column_own_buildings_unread"))]
+        let own_boxes: Vec<crate::arena::Rect> = if self.cfg.calib.formation_ground_y_clamp == GroundYClamp::Client16635DeployColumnRangeOwnBuildings {
+            self.ents.live_indices().filter(|&i| self.ents.team[i] == team && self.ents.kind[i] == EntityKind::Building).map(|i| self.building_box(i)).collect()
+        } else {
+            Vec::new()
+        };
+        #[cfg(clash_plant = "column_own_buildings_unread")]
+        let own_boxes: Vec<crate::arena::Rect> = Vec::new();
         // The deployable rows of the tap's column, OWN-FRAME row numbers.
         let deployable: Vec<i32> = (0..rows)
             .filter(|&r| {
                 let centre_own = Vec2::new((col * tile + tile / 2) * K, (r * tile + tile / 2) * K);
-                arena.territory_zone(arena.from_frame(team, centre_own), team, territory, &rects).is_ok()
+                let centre = arena.from_frame(team, centre_own);
+                arena.territory_zone(centre, team, territory, &rects).is_ok() && !own_boxes.iter().any(|b| b.contains_closed(centre))
             })
             .collect();
         let (lo, hi) = match (self.cfg.calib.formation_ground_y_clamp, team) {
             (GroundYClamp::None, _) => return None,
             // Side 0's formula: lo over the rows' near edges, hi over their centres.
             // Own frame = absolute for Blue.
-            (GroundYClamp::DeployColumnRangeOwnFrame, _) | (GroundYClamp::Client16402DeployColumnRange, Team::Blue) => {
+            (GroundYClamp::DeployColumnRangeOwnFrame, _)
+            | (GroundYClamp::Client16402DeployColumnRange | GroundYClamp::Client16635DeployColumnRangeOwnBuildings, Team::Blue) => {
                 (deployable.iter().map(|r| r * tile).min()?, deployable.iter().map(|r| r * tile + tile / 2).max()?)
             }
             // Side 1's formula as measured: lo over the rows' centres, minus one, hi
             // over their near edges -- in ABSOLUTE rows, then turned into the owner's
             // frame (y_own = H - y_abs).
-            (GroundYClamp::Client16402DeployColumnRange, Team::Red) => {
+            (GroundYClamp::Client16402DeployColumnRange | GroundYClamp::Client16635DeployColumnRangeOwnBuildings, Team::Red) => {
                 let abs_rows = deployable.iter().map(|r| rows - 1 - r);
                 let lo_abs = abs_rows.clone().map(|r| r * tile + tile / 2).min()? - 1;
                 let hi_abs = abs_rows.map(|r| r * tile).max()?;
@@ -37800,15 +37971,34 @@ impl BattleState {
                         self.ents.flying[i] = true;
                     }
                     self.lifts.retain(|l| l.id != hero);
-                    self.lifts.push(LiftRun { id: hero, fired: self.tick, ground: card });
+                    self.lifts.push(LiftRun { id: hero, fired: self.tick, ground: card, primed: false });
                 }
+                // status.LIFT_CAST_END_SHOT = client16635_primed_shot_survives_retarget: a target he held at the press and lost by
+                // the trigger primes the swing too (20261103-183005-A: the takeoff killed the Bat he held on t475, the trigger t476;
+                // the client fired on press + 19, the engine primed nothing and loaded afresh). PLANT (regression)
+                // lost_target_unprimed: the new arm still primes for a live target alone.
+                #[cfg(not(clash_plant = "lost_target_unprimed"))]
+                let lost_primes = self.cfg.calib.lift_cast_end_shot == LiftCastEndShot::Client16635PrimedShotSurvivesRetarget
+                    && self.ents.target[i].is_some_and(|t| !self.ents.is_alive(t));
+                #[cfg(clash_plant = "lost_target_unprimed")]
+                let lost_primes = false;
                 #[cfg(not(clash_plant = "instant_hit_dropped"))]
-                if let Some(t) = self.ents.target[i].filter(|t| self.ents.is_alive(*t)) {
+                if lost_primes {
+                    let (hs, tick) = (self.cfg.cards.get(card).hit_speed_ms, self.cfg.calib.tick_ms);
+                    self.ents.attack_phase[i] = AttackPhase::Windup;
+                    self.ents.attack_ms[i] = (hs - tick).max(tick);
+                    if let Some(l) = self.lifts.iter_mut().find(|l| l.id == hero) {
+                        l.primed = true;
+                    }
+                } else if let Some(t) = self.ents.target[i].filter(|t| self.ents.is_alive(*t)) {
                     let ti = t.index as usize;
                     if target::in_attack_range(&self.cfg.calib, pos, instant_range, self.ents.radius[i], self.ents.pos[ti], self.ents.radius[ti]) {
                         let (hs, tick) = (self.cfg.cards.get(card).hit_speed_ms, self.cfg.calib.tick_ms);
                         self.ents.attack_phase[i] = AttackPhase::Windup;
                         self.ents.attack_ms[i] = (hs - tick).max(tick);
+                        if let Some(l) = self.lifts.iter_mut().find(|l| l.id == hero) {
+                            l.primed = true;
+                        }
                     }
                 }
                 let _ = (team, level);
@@ -37935,7 +38125,7 @@ impl BattleState {
                     let extra = if longer { crate::card::GUARD_PRESS_HOLD_EXTRA_TICKS * self.cfg.calib.tick_ms } else { 0 };
                     let h = crate::status::BuffHit::plain(hero, g.hold.buff, g.hold.time_ms + extra, 0);
                     land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
-                    self.warps.guards.push(GuardRun { team, card, level, made: self.tick, from: pos, guard: None, born: 0, arrived: None, hit: Vec::new() });
+                    self.warps.guards.push(GuardRun { team, card, level, made: self.tick, from: pos, guard: None, born: 0, arrived: None, hit: Vec::new(), ghost: None });
                 }
                 let _ = g;
             }
@@ -42488,6 +42678,13 @@ impl BattleState {
 /// 20, unchanged, parity r92 (combat.DASH_TARGET_DEATH): Calib gained dash_target_death (serde default the old arm, ends), no
 ///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
 ///    arm.
+/// 20, unchanged, parity r93 (combat.GUARD_CHARGE_ATTRACT, combat.GUARD_KNOCKED_CHARGE): Calib gained guard_charge_attract and
+///    guard_knocked_charge (serde defaults the old arms, pulled and charges); GuardRun gained `ghost` (serde default None,
+///    skipped when None, so a run saved before it deserializes and hashes as it did). migrate_v3 runs a migrated battle at the
+///    old arms.
+/// 20, unchanged, parity r93 (status.LIFT_CAST_END_SHOT): Calib gained lift_cast_end_shot (serde default the old arm, dropped);
+///    LiftRun gained `primed` (serde default false, skipped when false, so a lift saved before it deserializes and hashes as it
+///    did). migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -43680,6 +43877,11 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("evo_barrel_offset_frame".into(), serde_json::to_value(EvoBarrelOffsetFrame::OwnerFrame).map_err(|e| e.to_string())?);
     // combat.DASH_TARGET_DEATH: a format-3 battle ran combat.DASH_TARGET_DEATH's old arm.
     sh.insert("dash_target_death".into(), serde_json::to_value(DashTargetDeath::Ends).map_err(|e| e.to_string())?);
+    // combat.GUARD_CHARGE_ATTRACT, combat.GUARD_KNOCKED_CHARGE: a format-3 battle ran their old arms.
+    sh.insert("guard_charge_attract".into(), serde_json::to_value(GuardChargeAttract::Pulled).map_err(|e| e.to_string())?);
+    sh.insert("guard_knocked_charge".into(), serde_json::to_value(GuardKnockedCharge::Charges).map_err(|e| e.to_string())?);
+    // status.LIFT_CAST_END_SHOT: a format-3 battle ran its old arm.
+    sh.insert("lift_cast_end_shot".into(), serde_json::to_value(LiftCastEndShot::Dropped).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

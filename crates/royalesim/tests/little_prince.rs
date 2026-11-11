@@ -22,7 +22,9 @@
 //! press_contact_pushed (`under_client16402_unpushed_a_knight_on_him_does_not_move_him_in_his_press` red),
 //! guard_birth_fixed and guard_birth_no_step (`under_client16402_behind_2000_first_step_his_guard_is_born_2000_behind_and_steps` red),
 //! guard_free_on_arrival_plus_1 (`under_client16402_held_through_arrival_plus_1_his_guard_targets_a_tick_later` red),
-//! press_hold_pulled (`under_client16402_unpulled_through_hold_a_tornado_does_not_move_him_in_his_press` red).
+//! press_hold_pulled (`under_client16402_unpulled_through_hold_a_tornado_does_not_move_him_in_his_press` red),
+//! guard_charge_pulled (`under_client16635_unpulled_in_charge_a_tornado_does_not_move_his_charging_guard` red),
+//! guard_knocked_charges (`under_client16635_knock_replaces_charge_a_guard_knocked_back_into_its_charge_does_not_charge` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -2376,4 +2378,98 @@ fn under_client16635_latest_replaces_his_guards_newest_ladder_replaces_the_runni
     assert!(checked.len() >= 6, "the scene drifted: {} ladder steps checked: {checked:?}", checked.len());
     let rows = rearm_rows(G::Client16635ReplacesUnless50Slower);
     ladder_model(&rows, |start, cur| start >= cur - 50).unwrap_or_else(|e| panic!("client16635_replaces_unless_50_slower: {e}"));
+}
+
+/// The Little Prince held at AT and pressed, under combat.GUARD_CHARGE_ATTRACT = `arm`; when `tornado`, a Red Tornado cast 2,500
+/// east and 2,000 ahead of his guard on its age 6 (the tick before its first charge frame): the guard's points on its ages 7
+/// .. 14, its charge.
+fn guard_charge_track(arm: royalesim::state::GuardChargeAttract, tornado: bool) -> Vec<Vec2> {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_charge_attract = arm, &[]);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut first: Option<u32> = None;
+    let mut track = Vec::new();
+    for _ in 0..60 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        if let (Some(f), true, Some(p)) = (first, tornado, find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos)) {
+            if s.tick_count() - f == 6 {
+                s.spawn_unit(Team::Red, "Tornado", Vec2::new(p.x + 2500 * K, p.y + 2000 * K), None).expect("the Tornado");
+            }
+        }
+        s.tick();
+        let Some(p) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| e.pos) else { continue };
+        let f = *first.get_or_insert(s.tick_count() - 1);
+        let age = s.tick_count() - 1 - f;
+        if (7..=14).contains(&age) {
+            track.push(p);
+        }
+        if age >= 14 {
+            break;
+        }
+    }
+    track
+}
+
+/// combat.GUARD_CHARGE_ATTRACT = client16635_unpulled_in_charge (client 16.635, parity r93, live15n: the four guards charging
+/// inside a pull, two Tornadoes' and two Hero Wizards' lifts, stepped the charge alone; the engine added the pull): a Tornado
+/// cast beside the guard's path as its charge starts leaves the charge's points as without it; under pulled (the vacuity
+/// check) it moves them. Plant: guard_charge_pulled.
+#[test]
+fn under_client16635_unpulled_in_charge_a_tornado_does_not_move_his_charging_guard() {
+    use royalesim::state::GuardChargeAttract as G;
+    let bare = guard_charge_track(G::Client16635UnpulledInCharge, false);
+    assert_eq!(bare.len(), 8, "the scene drifted: the guard's charge track {bare:?}");
+    assert_eq!(guard_charge_track(G::Pulled, false), bare, "the scene: the two arms part with no pull");
+    assert_ne!(guard_charge_track(G::Pulled, true), bare, "pulled (the vacuity check): the Tornado never moved the charging guard");
+    assert_eq!(guard_charge_track(G::Client16635UnpulledInCharge, true), bare, "client16635_unpulled_in_charge: the Tornado moved the charging guard");
+}
+
+/// The Little Prince held at AT and pressed on the scene's tick 40, under combat.GUARD_KNOCKED_CHARGE = `arm`; when `cast`, a Red
+/// Fireball cast on that tick at `aim`: per tick the guard stands, (its age, its point, its hitpoints).
+fn guard_fireball(arm: royalesim::state::GuardKnockedCharge, cast: Option<(u32, Vec2)>) -> Vec<(u32, Vec2, i32)> {
+    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_knocked_charge = arm, &[]);
+    let mut first: Option<u32> = None;
+    let mut rows = Vec::new();
+    for k in 0..90u32 {
+        assert!(s.debug_set_pos(lp, n(AT)));
+        if let Some((c, aim)) = cast.filter(|c| c.0 == k) {
+            s.spawn_unit(Team::Red, "Fireball", aim, None).expect("the Fireball");
+            let _ = c;
+        }
+        if k == 40 {
+            s.press_ability_button(Team::Blue, 0).expect("the press");
+        }
+        s.tick();
+        let Some((p, hp)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.hp)) else { continue };
+        let f = *first.get_or_insert(s.tick_count() - 1);
+        rows.push((s.tick_count() - 1 - f, p, hp));
+        if s.tick_count() - 1 - f >= 20 {
+            break;
+        }
+    }
+    rows
+}
+
+/// combat.GUARD_KNOCKED_CHARGE = client16635_knock_replaces_charge (client 16.635, parity r93, live15n 20261103-174413-A: a guard
+/// Fireballed on its age 5 slid with the knockback and charged not at all): a Red Fireball landing 600 ahead of the guard on its
+/// birth frames (its knockback still running on the first charge frame, age 7) leaves it south of its birth point through its
+/// age 16; under charges (the vacuity check) it charges north past it. Plant: guard_knocked_charges.
+#[test]
+fn under_client16635_knock_replaces_charge_a_guard_knocked_back_into_its_charge_does_not_charge() {
+    use royalesim::state::GuardKnockedCharge as G;
+    let bare = guard_fireball(G::Charges, None);
+    let birth = bare.first().expect("the scene drifted: no guard").1;
+    let aim = Vec2::new(birth.x, birth.y + 600 * K);
+    let hit_age = |rows: &[(u32, Vec2, i32)]| rows.windows(2).find(|w| w[1].2 < w[0].2).map(|w| w[1].0);
+    let cast = (0..40u32)
+        .find(|&c| hit_age(&guard_fireball(G::Charges, Some((c, aim)))).is_some_and(|a| (3..=6).contains(&a)))
+        .expect("the scene drifted: no cast tick lands the Fireball on the guard's ages 3 .. 6");
+    let y_at = |rows: &[(u32, Vec2, i32)], age: u32| rows.iter().find(|r| r.0 == age).map(|r| r.1.y).expect("a row");
+    let old = guard_fireball(G::Charges, Some((cast, aim)));
+    assert!(y_at(&old, 16) > birth.y + 2000 * K, "charges (the vacuity check): the knocked guard did not charge (cast {cast}): {old:?}");
+    let new = guard_fireball(G::Client16635KnockReplacesCharge, Some((cast, aim)));
+    assert_eq!(hit_age(&new), hit_age(&old), "the Fireball's hit, the same under both");
+    assert!(
+        new.iter().filter(|r| (7..=16).contains(&r.0)).all(|r| r.1.y < birth.y),
+        "client16635_knock_replaces_charge: the knocked guard charged (cast {cast}): {new:?}"
+    );
 }
