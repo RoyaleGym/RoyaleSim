@@ -3,6 +3,56 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.52 (2026-11-11)
+
+- 15 more settings default to the current client's behaviour, each measured against its recorded battles:
+  - A troop landing from a leap over the river pushes a flying troop off its landing point on the landing tick, if the
+    flier was played after it. Before, the landing troop never pushed a flier (`movement.JUMP_LANDING_CONTACT`).
+  - A newly played Electro Wizard or Ice Wizard, the Tri-Wizards' among them, can't be targeted on the tick it appears.
+    The setting is new (`spells.DEPLOY_AREA_CHARACTER_FIRST_FRAME`); its old value lets it be targeted on that tick.
+  - A Sparky whose target dies while it charges, and that turns to a new target, starts its charge again from the full
+    load time, even when the new target is already in reach. The setting is new
+    (`combat.LOAD_FIRST_HIT_CORPSE_SWITCH`); its old value keeps the charge for a target in reach.
+  - When the Little Prince's guard pushes a unit again, the new push replaces the one already running, even when it is
+    slower. The setting is new (`combat.GUARD_PUSH_REARM`); its old value keeps the faster push.
+  - A Bandit, Boss Bandit or Mega Knight standing before a dash no longer swings at a target that comes into reach; it
+    dashes at it. The setting is new (`combat.DASH_STAND_ATTACK`); its old value swings.
+  - The Skeleton Barrel flies at the point from which it reaches its target, not at the target's centre
+    (`movement.FLY_DIRECT_PATHS`).
+  - Vines and the Void reach a building by the square around its circle, not by the circle itself; crown towers are
+    unchanged (`spells.SELECTOR_REACH`).
+  - An Evo Skeleton Barrel on the red side drops its Skeletons at the same left-right offset as a blue one, both when
+    its health falls to its drop point and when it bursts. The setting is new (`spawner.EVO_BARREL_OFFSET_FRAME`); its
+    old value mirrors the offset for red.
+  - A Firecracker's sparks hit a building or a crown tower by the square around its circle, as other straight shots
+    already do, not by the circle itself (`combat.STRAIGHT_SHOT_BUILDING_REACH`).
+  - A Bandit or Boss Bandit whose target dies mid-dash keeps dashing toward where it was headed and stops just short,
+    instead of ending the dash at once and walking. The setting is new (`combat.DASH_TARGET_DEATH`); its old value ends
+    the dash.
+  - A Little Prince's guard knocked back just before its charge no longer charges: it slides with the knockback and
+    lands when the charge would have. The setting is new (`combat.GUARD_KNOCKED_CHARGE`); its old value charges.
+  - A card that puts down several troops, deployed in a column whose river end one of its own buildings covers, keeps
+    its troops behind the building: the building's rows no longer count as rows they can stand on
+    (`formation.GROUND_Y_CLAMP`).
+  - While a Rune Giant pauses to cast his enchant in the middle of an attack, a pull (a Tornado's) does not move him; if
+    he walks on during the pause, he is pulled. The setting is new (`enchant.ON_BUFF_HOLD_ATTRACT`); its old value
+    always pulls him.
+  - If the Hero Wizard loses his target just after his ability is pressed, he still fires the shot his ability readied
+    when his cast ends, at whatever target he has by then. The setting is new (`status.LIFT_CAST_END_SHOT`); its old
+    value drops the shot.
+  - On red's own left lane, the red side's Three Musketeers put their two back Musketeers in each other's places,
+    compared with the mirror image of a blue deploy (`formation.EXPLICIT_OFFSETS_FRAME`).
+- `formation.EXPLICIT_OFFSETS_FRAME` and `spawner.EVO_BARREL_OFFSET_FRAME` treat the two sides differently, as the game
+  does. A seat-symmetry check can turn each off with `calibration_overrides`:
+  `{"formation.EXPLICIT_OFFSETS_FRAME": '"owner_frame_negated"'}` and
+  `{"spawner.EVO_BARREL_OFFSET_FRAME": '"owner_frame"'}` (each value is JSON).
+- New setting `combat.GUARD_CHARGE_ATTRACT`: whether a pull (a Tornado's, the Hero Wizard's lift) moves the Little
+  Prince's guard while it charges. The default is unchanged (it is pulled).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  keep the older client's values for its battles. The Three Musketeers' order is the exception: the older client's
+  battles show the same order, so they get it too. A battle saved by 0.1.51 loads on 0.1.52: the new settings read
+  their old values from a save that lacks them.
+
 ## 0.1.51 (2026-11-08)
 
 - 1 more setting defaults to the current client's behaviour, measured against its recorded battles: a unit pulled by a
