@@ -312,8 +312,8 @@ fn primed_run(arm: royalesim::state::LiftCastEndShot, kill: usize, wait: usize, 
 }
 
 /// status.LIFT_CAST_END_SHOT = client16635_primed_shot_survives_retarget (client 16.635, parity r93, live15n 20261103-183005-A:
-/// pressed with a Bat in reach that the takeoff killed on the frame before his trigger, the Hero Wizard fired at the Miner on press
-/// + 19): (1) his target killed on the trigger's frame (primed as ever), the cast keeps the swing through the loss and he hits
+/// pressed with a Bat in reach that the takeoff killed on the frame before his trigger, the Hero Wizard fired at the Miner on the
+/// press's 19th frame): (1) his target killed on the trigger's frame (primed as ever), the cast keeps the swing through the loss and he hits
 /// the Knight he takes from his cast's end before P + 30, where dropped (the vacuity check) loads afresh, after it (plant
 /// primed_shot_dropped); (2) his target killed by a hit landing on the frame before the trigger (the dead target still held there),
 /// the swing is primed all the same, so the same (plant lost_target_unprimed).
