@@ -1338,3 +1338,11 @@ fn under_client16635_unpulled_while_standing_a_tornado_moves_a_holding_rune_gian
         "the vacuity check: client16635_unpulled_through_hold pulls the walking Rune Giant as client16635_unpulled_while_standing does"
     );
 }
+
+/// Since parity r93 (pulled before it; client 15.535.29 keeps pulled).
+#[test]
+fn the_shipped_hold_attract_arm_is_client16635_unpulled_while_standing() {
+    use royalesim::state::{Calib, OnBuffHoldAttract};
+    assert_eq!(Calib::shipped().on_buff_hold_attract, OnBuffHoldAttract::Client16635UnpulledWhileStanding);
+    assert_eq!(config().calib.on_buff_hold_attract, OnBuffHoldAttract::Client16635UnpulledWhileStanding);
+}

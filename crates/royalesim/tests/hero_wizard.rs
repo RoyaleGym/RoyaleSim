@@ -333,3 +333,11 @@ fn under_client16635_primed_shot_survives_retarget_his_primed_swing_fires_at_his
     assert!(new.is_some_and(|n| n < 30), "client16635_primed_shot_survives_retarget: his target killed on the frame before the trigger (wait {wait}), his first hit on the Knight came on {new:?}");
     assert!(old.map_or(true, |o| o >= 30), "dropped (the vacuity check): his target killed on the frame before the trigger (wait {wait}), his first hit on the Knight came on {old:?}");
 }
+
+/// Since parity r93 (dropped before it; client 15.535.29 keeps dropped).
+#[test]
+fn the_shipped_arm_is_client16635_primed_shot_survives_retarget() {
+    use royalesim::state::{Calib, LiftCastEndShot};
+    assert_eq!(Calib::shipped().lift_cast_end_shot, LiftCastEndShot::Client16635PrimedShotSurvivesRetarget);
+    assert_eq!(config().calib.lift_cast_end_shot, LiftCastEndShot::Client16635PrimedShotSurvivesRetarget);
+}

@@ -124,16 +124,17 @@ fn side_0_stands_its_members_at_the_negated_offsets() {
 
 /// Plant: explicit_offsets_as_ring.
 #[test]
-fn side_1_is_the_rotation_under_the_shipped_arm_and_mirrors_x_on_its_own_left_under_the_other() {
+fn side_1_is_the_rotation_under_the_old_arm_and_mirrors_x_on_its_own_left_under_the_shipped_one() {
     // Absolute x 3500 is side 1's own RIGHT lane, absolute x 14500 its own LEFT.
     let right = (3500, 21000);
     let left = (14500, 21000);
-    // The shipped arm: the rotation of side 0 on both lanes. On the own right this is the client's layout.
+    // The old arm (owner_frame_negated, shipped before parity r93): the rotation of side 0 on both lanes. On the own right
+    // this is the client's layout.
     for tap in [right, left] {
         let m = members(Team::Red, tap, ExplicitOffsetsFrame::OwnerFrameNegated, true);
-        assert_eq!(shape(&m), [(-1000, 2000), (1000, 2000)], "side 1 at {tap:?} under the shipped arm: {m:?}");
+        assert_eq!(shape(&m), [(-1000, 2000), (1000, 2000)], "side 1 at {tap:?} under the old arm: {m:?}");
     }
-    // With the ground point off, the shipped arm is exactly the rotation of side 0's deploy at the rotated tap.
+    // With the ground point off, the old arm is exactly the rotation of side 0's deploy at the rotated tap.
     let (w, h) = {
         let s = BattleState::new(0, config());
         (s.arena().width / K, s.arena().height / K)
@@ -141,8 +142,10 @@ fn side_1_is_the_rotation_under_the_shipped_arm_and_mirrors_x_on_its_own_left_un
     let blue = members(Team::Blue, (w - left.0, h - left.1), ExplicitOffsetsFrame::OwnerFrameNegated, false);
     let red = members(Team::Red, left, ExplicitOffsetsFrame::OwnerFrameNegated, false);
     let rotated: Vec<(i32, i32)> = blue.iter().map(|m| (w - m.1 .0, h - m.1 .1)).collect();
-    assert_eq!(red.iter().map(|m| m.1).collect::<Vec<_>>(), rotated, "the shipped arm is seat-symmetric");
-    // The side-1 arm: the own right unchanged, the own left x-mirrored (the client's layout there).
+    assert_eq!(red.iter().map(|m| m.1).collect::<Vec<_>>(), rotated, "the old arm is seat-symmetric");
+    // The side-1 arm, shipped since parity r93 (client 16.635, live15n: 8 of 8 deploys, the old arm 5 of 8): the own right
+    // unchanged, the own left x-mirrored (the client's layout there).
+    assert_eq!(config().calib.explicit_offsets_frame, ExplicitOffsetsFrame::OwnerFrameNegatedSide1LeftLaneXMirror, "the shipped arm");
     let arm = ExplicitOffsetsFrame::OwnerFrameNegatedSide1LeftLaneXMirror;
     assert_eq!(shape(&members(Team::Red, right, arm, true)), [(-1000, 2000), (1000, 2000)]);
     assert_eq!(shape(&members(Team::Red, left, arm, true)), [(1000, 2000), (-1000, 2000)]);

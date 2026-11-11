@@ -456,6 +456,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.GUARD_CHARGE_ATTRACT = pulled, combat.GUARD_KNOCKED_CHARGE = charges: unread on client 15.535.29 (no guard of its
 ///   scenes charged in a pull or out of a knockback).
 ///   status.LIFT_CAST_END_SHOT = dropped: unread on client 15.535.29 (its one Hero Wizard scene's primed target lived).
+///   formation.GROUND_Y_CLAMP = client16402_deploy_column_range: the corpus ruling's arm; client16635_deploy_column_range_own_buildings
+///   is unread on client 15.535.29 (no formation of its scenes was tapped in an own building's column).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("movement.DYING_UNIT_VISIBILITY", "\"client_doomed_static\""),
     ("match.TICK_ORDER", "\"client_sequential_strike\""),
@@ -738,6 +740,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("combat.GUARD_CHARGE_ATTRACT", "\"pulled\""),
     ("combat.GUARD_KNOCKED_CHARGE", "\"charges\""),
     ("status.LIFT_CAST_END_SHOT", "\"dropped\""),
+    ("formation.GROUND_Y_CLAMP", "\"client16402_deploy_column_range\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

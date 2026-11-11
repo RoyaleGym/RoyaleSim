@@ -502,7 +502,9 @@ fn the_shipped_ground_clamp_is_the_measured_per_side_formula() {
     // Goblins of capture 20260918-164951-B (the back edge) and of capture
     // 20260918-121158 t2439 (the river).
     let s = BattleState::new(1, config_pre_flip());
-    assert_eq!(s.config().calib.formation_ground_y_clamp, GroundYClamp::Client16402DeployColumnRange);
+    // Since parity r93 the shipped arm is client16635_deploy_column_range_own_buildings, which is this formula with an own
+    // building's rows left out (no building stands here).
+    assert_eq!(s.config().calib.formation_ground_y_clamp, GroundYClamp::Client16635DeployColumnRangeOwnBuildings);
     let a = s.arena().clone();
     let tile = a.cell * 2;
     let back_blue = Vec2::new(a.width / 4, tile / 2); // row 0's centre
@@ -629,7 +631,7 @@ fn nearest_lane_is_left_of_the_centre_column_and_swaps_under_the_rotation() {
 fn the_ground_clamp_holds_a_bank_deploy_on_the_bank_and_the_bounds_clamp_the_edge() {
     let db = cards();
     let calib = royalesim::state::Calib::shipped();
-    assert_eq!(calib.formation_ground_y_clamp, GroundYClamp::Client16402DeployColumnRange);
+    assert_eq!(calib.formation_ground_y_clamp, GroundYClamp::Client16635DeployColumnRangeOwnBuildings);
     let s = BattleState::new(1, config_pre_flip());
     let a = s.arena().clone();
     // Blue Skeletons on the last dry row before the river: the forward member

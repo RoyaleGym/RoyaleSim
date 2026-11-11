@@ -146,5 +146,6 @@ fn the_shipped_parity_r90_keys() {
     assert_eq!(c.guard_push_rearm, GuardPushRearm::Client16635LatestReplaces);
     assert_eq!(c.dash_stand_attack, DashStandAttack::Client16635StandHoldsAttack);
     assert_eq!(c.selector_reach, SelectorReach::Client16635BuildingSquareStrict);
-    assert_eq!(c.on_buff_hold_attract, OnBuffHoldAttract::Pulled);
+    // enchant.ON_BUFF_HOLD_ATTRACT ships client16635_unpulled_while_standing since parity r93 (pulled before it).
+    assert_eq!(c.on_buff_hold_attract, OnBuffHoldAttract::Client16635UnpulledWhileStanding);
 }

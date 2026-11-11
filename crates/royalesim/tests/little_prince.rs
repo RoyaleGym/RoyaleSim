@@ -2473,3 +2473,11 @@ fn under_client16635_knock_replaces_charge_a_guard_knocked_back_into_its_charge_
         "client16635_knock_replaces_charge: the knocked guard charged (cast {cast}): {new:?}"
     );
 }
+
+/// Since parity r93 (charges before it; client 15.535.29 keeps charges).
+#[test]
+fn the_shipped_arm_is_client16635_knock_replaces_charge() {
+    use royalesim::state::{Calib, GuardKnockedCharge};
+    assert_eq!(Calib::shipped().guard_knocked_charge, GuardKnockedCharge::Client16635KnockReplacesCharge);
+    assert_eq!(config().calib.guard_knocked_charge, GuardKnockedCharge::Client16635KnockReplacesCharge);
+}

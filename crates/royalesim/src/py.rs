@@ -221,6 +221,10 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     "troop_relocation_tie_order",
     // {"placement.ENEMY_BUILDING_TAPS": "ignored"}: client15535_tile_box_ring floors a box's corner in arena coordinates.
     "placement_enemy_building_taps",
+    // No kwarg: {"formation.EXPLICIT_OFFSETS_FRAME": "owner_frame_negated"}. The shipped owner_frame_negated_side1_left_lane_x_mirror
+    // (parity r93) mirrors x for side 1 on its own left lane alone (the Three Musketeers), so a Red deploy there is not the
+    // rotation of its Blue twin; owner_frame_negated is the same for both seats.
+    "explicit_offsets_frame",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 

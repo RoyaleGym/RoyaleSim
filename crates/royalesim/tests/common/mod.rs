@@ -138,6 +138,11 @@ pub fn symmetric_config() -> BattleConfig {
     // low corner to the tile grid in ARENA coordinates, which moves an off-grid building's box (a hero's turret) one way
     // for Blue and the other for its rotated twin; ignored centres every box on its building's point.
     c.calib.placement_enemy_building_taps = royalesim::state::EnemyBuildingTaps::Ignored;
+    // A deploy at explicit offsets (formation.EXPLICIT_OFFSETS_FRAME, the Three Musketeers): the shipped
+    // owner_frame_negated_side1_left_lane_x_mirror mirrors x for side 1 on its own left lane alone, as measured, so a Red deploy
+    // there is not the rotation of its Blue twin; owner_frame_negated, the old arm, is the same for both seats. No kwarg:
+    // {"formation.EXPLICIT_OFFSETS_FRAME": "owner_frame_negated"} (py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS).
+    c.calib.explicit_offsets_frame = royalesim::state::ExplicitOffsetsFrame::OwnerFrameNegated;
     c.calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
     c
 }
