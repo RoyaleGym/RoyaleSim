@@ -231,6 +231,28 @@ fn an_enchant_naming_a_card_without_one_is_refused() {
     assert!(err.starts_with("snapshot self-check failed"), "the Rune Giant's card passes the table check: {err}");
 }
 
+/// A buff slot (status.rs `BuffSlot`) whose id is past the card table's buffs is refused as an inconsistent snapshot:
+/// every reader indexes the table by it, and a row's `buffs` name (py.rs `buff_kind_name`) has none. The table's last
+/// buff passes that check (the control: the edit itself is not what is refused). Plant: load_skips_buff_ids.
+#[test]
+fn a_buff_slot_past_the_card_tables_buffs_is_refused() {
+    let (s, _) = scripted_until(300);
+    let n = s.cards().buffs.len() as u64;
+    let mut v: serde_json::Value = serde_json::from_slice(&s.save()).expect("a snapshot is JSON");
+    assert!(v["ents"]["buffs"].as_array().is_some_and(|b| !b.is_empty()), "the snapshot has no buff column");
+    let with_id = |v: &mut serde_json::Value, id: u64| {
+        v["ents"]["buffs"][0]["id"] = serde_json::json!(id);
+        BattleState::load(&serde_json::to_vec(v).unwrap())
+    };
+    match with_id(&mut v, n + 1) {
+        Ok(_) => panic!("a buff slot past the table's {n} buffs loaded"),
+        Err(e) => assert!(e.contains("inconsistent"), "refused for another reason: {e}"),
+    }
+    if let Err(e) = with_id(&mut v, n) {
+        assert!(!e.contains("inconsistent"), "the table's last buff was refused as past it: {e}");
+    }
+}
+
 #[test]
 fn save_is_reasonably_small_and_fast() {
     let (s, _) = scripted_until(2000);

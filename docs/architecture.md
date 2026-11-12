@@ -178,6 +178,9 @@ The crate itself has no Python dependency and builds alone.
   `unit_types_json()`. That list holds every troop and building unit name in the loaded card table,
   towers included, sorted, so one unit type has one id whichever card made it, and
   `unit_types_digest()` (FNV-1a 64 of the list's JSON) tells two tables' numberings apart.
+  `buffs` names each buff on the entity from the same table: `buff_kinds_json()` lists every name a
+  row can carry, sorted, with `buff_kinds_digest()` beside it. A name is one buff's row, or the rows
+  the loader merged into one buff because their values are identical, joined by `|`.
   `unit_hitpoints(card_id, level)` lists every unit a card puts on the board, as (role, unit name,
   hitpoints) at the level each one takes. The card's own row comes first; the other roles are
   `second_summon`, `spawn`, `death_spawn` and `release` (`royalesim.UNIT_ROLES`). So a unit that

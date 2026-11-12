@@ -44297,6 +44297,9 @@ impl BattleState {
         if snap.lifetime_acc.len() > n
             || snap.lifetime_ms.len() > n
             || snap.ents.card.iter().any(|c| (*c as usize) >= cards.cards.len())
+            // A buff slot names a buff of this card data's table (0 = empty): every reader indexes `cards.buffs` by it.
+            // PLANT (regression, tests/save_load.rs) load_skips_buff_ids: a slot past the table loads.
+            || (cfg!(not(clash_plant = "load_skips_buff_ids")) && snap.ents.buffs.iter().any(|b| (b.id as usize) > cards.buffs.len()))
             // A saved spell must run SOME shape under this card data. Asked through
             // spell.rs `shape_of`, the one resolution `cast` and `step_spells` use,
             // so a death's area release -- an ordinary `Spell` under the DYING

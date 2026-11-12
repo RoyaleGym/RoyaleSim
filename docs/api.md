@@ -101,7 +101,9 @@ hero's ability are spells too, each under the card that was played.
 Witch's Skeletons report the Witch. `unit_type` is the unit itself: an index into `unit_types_json()`, a sorted list of
 unit names. Every Skeleton has the same `unit_type`, whichever card made it. The list is the same for every Battle
 built on one card table. `unit_types_digest()` is a short hash of it, so you can tell when a new table changes the
-numbering.
+numbering. `buffs` lists what is on the unit as `[name, milliseconds left]` pairs. `buff_kinds_json()` lists every name
+a unit can carry under the card table, sorted, and `buff_kinds_digest()` is its short hash. Some names join several of
+the table's buffs with `|`, where the table gives them identical values, so split a name on `|` for the buffs in it.
 
 **Saving.** `save()` returns bytes, and `load(blob)` restores them into a Battle with the same cards.
 

@@ -349,6 +349,7 @@ pub const ENTITY_FIELDS: [&str; 28] = [
     "attack_phase",
     "facing",
     "shield",
+    // [[name, ms left], ...]; every name is in `Battle.buff_kinds_json()` (added 2026-11-11, `buff_kinds_of`)
     "buffs",
     // added 2026-09-25: the engine's own status bits (entity.rs `Entities::status_flags`):
     // bit 0 underground, bit 1 invisible to enemies, bit 2 hidden by its own hide; bit 3 an evolved unit;
@@ -867,6 +868,28 @@ pub fn unit_types_of(cards: &CardDb) -> (Vec<String>, Vec<i32>) {
     (list, of_idx)
 }
 
+/// The name an ENTITY_FIELDS `buffs` entry carries for a buff slot `id` (status.rs `BuffSlot::id`, a `CardDb::buffs`
+/// index plus one): the buff's row name, or the names of every row the loader merged into that index (rows whose
+/// columns are identical, card.rs `BuffTable::intern`) joined by '|' in load order. None for 0 and past the table.
+pub fn buff_kind_name(cards: &CardDb, id: u16) -> Option<&str> {
+    cards.buff_names.get((id as usize).checked_sub(1)?).map(String::as_str)
+}
+
+/// THE BUFF-KIND VOCABULARY (ENTITY_FIELDS `buffs`, `Battle.buff_kinds_json`): every name `buff_kind_name` gives for
+/// the loaded card table, a '|'-joined group whole, sorted and unique. THE WHOLE TABLE, as `unit_types_of`: one list
+/// per data build, the same whatever `card_names` a battle lists, and complete by construction, since a row's `buffs`
+/// names are read from the same table. A data build that adds a buff, or merges rows differently, changes the list:
+/// `buff_kinds_digest` names it. The members of a group (split on '|') are the stable names a pin can hold.
+pub fn buff_kinds_of(cards: &CardDb) -> Vec<String> {
+    let ids = 1..=cards.buffs.len().min(u16::MAX as usize) as u16;
+    #[cfg(not(clash_plant = "buff_kinds_members_only"))]
+    let names: std::collections::BTreeSet<&str> = ids.filter_map(|id| buff_kind_name(cards, id)).collect();
+    // PLANT (regression) buff_kinds_members_only: the list holds the members, so a merged group's name is missing.
+    #[cfg(clash_plant = "buff_kinds_members_only")]
+    let names: std::collections::BTreeSet<&str> = ids.filter_map(|id| buff_kind_name(cards, id)).flat_map(|n| n.split('|')).collect();
+    names.into_iter().map(str::to_string).collect()
+}
+
 /// FNV-1a 64 of `bytes` as 16 lowercase hex digits: RoyaleGym's `protocol.fnv1a64`, the hash its card-table stamps
 /// use, so a digest taken here compares with one taken there as a plain string.
 pub fn fnv1a64_hex(bytes: &[u8]) -> String {
@@ -1349,7 +1372,10 @@ pub fn state_json_text_with(
             if buffs.len() > 1 {
                 buffs.push(',');
             }
-            let name = cards.buff_names.get(b.id as usize - 1).map(String::as_str).unwrap_or("");
+            // A name from `buff_kind_name`, so every name a row carries is in `buff_kinds_of`. An id past the table is
+            // refused, not written as "": none can arise (state.rs `land_buff` and `load_with` refuse one).
+            let name = buff_kind_name(cards, b.id)
+                .ok_or_else(|| format!("entity {uid}: buff id {} is past the card table's {} buffs", b.id, cards.buffs.len()))?;
             let _ = write!(buffs, "[{},{}]", serde_json::Value::from(name), b.ms);
         }
         buffs.push(']');
@@ -2370,6 +2396,20 @@ impl Battle {
         fnv1a64_hex(self.unit_types_json().as_bytes())
     }
 
+    /// THE BUFF-KIND VOCABULARY as JSON text: every name an entity row's `buffs` entry can carry under the loaded card
+    /// table, sorted and unique (`buff_kinds_of`). A name is one buff's row, or a '|'-joined group of rows the table
+    /// gives identical values; split it on '|' for the row names. One list per data build, the same for any
+    /// `card_names`. Needs no `reset`.
+    fn buff_kinds_json(&self) -> String {
+        serde_json::to_string(&buff_kinds_of(&self.cards)).expect("a list of strings serializes")
+    }
+
+    /// FNV-1a 64 (16 lowercase hex digits) of exactly the bytes `buff_kinds_json()` returns, UTF-8, as
+    /// `unit_types_digest`: a pin made under one list can tell another apart.
+    fn buff_kinds_digest(&self) -> String {
+        fnv1a64_hex(self.buff_kinds_json().as_bytes())
+    }
+
     /// The calibration overrides this object applies to every battle it starts, as
     /// `{"section.KEY": json}`; empty for an unmodified engine. `build_digest` cannot
     /// report these -- it hashes the compiled-in ledger -- so this, and the
@@ -2848,6 +2888,33 @@ mod tests {
     //! `Battle.step` call (grep the call sites; nothing else is in between).
     use super::*;
     use crate::state::BattleConfig;
+
+    /// THE BUFF-KIND VOCABULARY NAMES EVERY BUFF A ROW CAN CARRY, on every card table a wheel carries: each buff id the
+    /// table holds gives a name, and that name is in the list; the list is sorted and unique, and no name or member is
+    /// empty. Not vacuous: some table merges rows into a '|' group, which the list must hold whole. Plant
+    /// buff_kinds_members_only (the list holds the members only) turns it red.
+    #[test]
+    fn buff_kinds_name_every_buff_a_row_can_carry() {
+        use crate::state::CardTable as T;
+        let mut groups = 0;
+        for (t, label) in [(T::Client15535, "15.535"), (T::Client160402017, "16.402"), (T::Client160402017Oct19, "16.402 Oct 19"), (T::Client160635007Nov03, "16.635")] {
+            let db = CardDb::load_table(t).unwrap_or_else(|e| panic!("{label}: {e}"));
+            assert_eq!(db.buff_names.len(), db.buffs.len(), "{label}: a buff without a name");
+            let kinds = buff_kinds_of(&db);
+            assert!(kinds.windows(2).all(|w| w[0] < w[1]), "{label}: the list is not sorted and unique");
+            for k in &kinds {
+                assert!(!k.is_empty() && k.split('|').all(|m| !m.is_empty()), "{label}: an empty name or member in {k:?}");
+            }
+            for id in 1..=db.buffs.len() as u16 {
+                let name = buff_kind_name(&db, id).unwrap_or_else(|| panic!("{label}: buff id {id} has no name"));
+                assert!(kinds.binary_search_by(|k| k.as_str().cmp(name)).is_ok(), "{label}: buff id {id}'s {name:?} is not in the list");
+                groups += usize::from(name.contains('|'));
+            }
+            assert_eq!(buff_kind_name(&db, 0), None, "{label}: the empty slot has a name");
+            assert_eq!(buff_kind_name(&db, db.buffs.len() as u16 + 1), None, "{label}: an id past the table has a name");
+        }
+        assert!(groups > 0, "no table merges buff rows into a group, so nothing here checks that a group is kept whole");
+    }
 
     /// THE DEFAULT CATALOGUE KEEPS ITS IDS: its first cards are CATALOGUE_ORDER, in that order, every other loadable card
     /// after them, so a card that begins to load takes the next id and moves no other.
