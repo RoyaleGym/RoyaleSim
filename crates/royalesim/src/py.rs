@@ -382,6 +382,12 @@ pub const ENTITY_FIELDS: [&str; 28] = [
     "unit_type",
 ];
 
+/// THE EXTRA ENTITY COLUMNS (added 2026-11-11), in order, which `Battle.state_json(extra=True)` appends to every entity
+/// row after ENTITY_FIELDS (state.rs `BattleState::entity_extras` says what each holds). OPT-IN, so a reader that
+/// pins ENTITY_FIELDS' length keeps reading the rows it knows: without `extra` the rows are byte-for-byte as before.
+/// Each column's "nothing" is 0 (100 for the two percents), never -1.
+pub const ENTITY_EXTRA_FIELDS: [&str; 7] = ["spawn_ms", "spawn_wave_left", "dash_state", "dash_ticks", "speed_pct", "hit_speed_pct", "jumping"];
+
 /// THE STATUS BITS of an entity row's `status_flags` (ENTITY_FIELDS), in bit order: name k is bit k (value 1 << k).
 /// A reader asks this list for a bit by name; a bit missing from it is one this engine does not report, never one it
 /// reports as unset. Pinned to the export by `status_bits_name_every_bit_the_export_sets`.
@@ -1174,6 +1180,20 @@ pub fn state_json_text_with(
     slot_of_k: &[[i32; 3]; 2],
     overrides: &BTreeMap<String, serde_json::Value>,
 ) -> Result<String, String> {
+    state_json_text_opts(s, cards, id_of_idx, unit_type_of_idx, slot_of_k, overrides, false)
+}
+
+/// `state_json_text_with`, and with `extra` every entity row followed by its ENTITY_EXTRA_FIELDS values
+/// (`BattleState::entity_extras`). Without `extra` the text is `state_json_text_with`'s, byte for byte.
+pub fn state_json_text_opts(
+    s: &BattleState,
+    cards: &CardDb,
+    id_of_idx: &[i32],
+    unit_type_of_idx: &[i32],
+    slot_of_k: &[[i32; 3]; 2],
+    overrides: &BTreeMap<String, serde_json::Value>,
+    extra: bool,
+) -> Result<String, String> {
     let c = &s.config().calib;
     let tick_ms = c.tick_ms as i64;
     let regular_ms = (c.regular_time_s as i64) * 1000;
@@ -1403,6 +1423,15 @@ pub fn state_json_text_with(
             e.tunnel_dest.map_or(-1, |d| d.y),
             e.ability_ticks,
         );
+        // ENTITY_EXTRA_FIELDS, opt-in: the row's closing bracket moves past them.
+        if extra {
+            let x = s.entity_extras(e.id).ok_or_else(|| format!("entity {uid}: no extra values for a live row"))?;
+            o.pop();
+            for v in x {
+                let _ = write!(o, ",{v}");
+            }
+            o.push(']');
+        }
     }
     o.push_str("],\"spells\":[");
     for (k, sp) in s.spells().iter().enumerate() {
@@ -2375,9 +2404,13 @@ impl Battle {
 
     /// protocol.py `BattleState` as JSON bytes (EntityState rows are arrays), with the
     /// spell extensions of the module doc (SPELLS).
-    fn state_json<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+    ///
+    /// `extra=True` appends ENTITY_EXTRA_FIELDS (spawner clock, dash, buff speed percents, jumping) to every entity row;
+    /// the default leaves the rows exactly as ENTITY_FIELDS lists them.
+    #[pyo3(signature = (extra=false))]
+    fn state_json<'py>(&self, py: Python<'py>, extra: bool) -> PyResult<Bound<'py, PyBytes>> {
         let s = self.s()?;
-        let o = state_json_text_with(s, &self.cards, &self.id_of_idx, &self.unit_type_of_idx, &self.slot_of_k, &self.calib_overrides)
+        let o = state_json_text_opts(s, &self.cards, &self.id_of_idx, &self.unit_type_of_idx, &self.slot_of_k, &self.calib_overrides, extra)
             .map_err(PyValueError::new_err)?;
         Ok(PyBytes::new_bound(py, o.as_bytes()))
     }
@@ -2853,6 +2886,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pushback_step16402, m)?)?;
     m.add("DEPLOY_REASONS", DEPLOY_REASONS.to_vec())?;
     m.add("ENTITY_FIELDS", ENTITY_FIELDS.to_vec())?;
+    m.add("ENTITY_EXTRA_FIELDS", ENTITY_EXTRA_FIELDS.to_vec())?;
     m.add("STATUS_BITS", STATUS_BITS.to_vec())?;
     m.add("UNIT_ROLES", UNIT_ROLES.to_vec())?;
     m.add("PROJECTILE_FIELDS", PROJECTILE_FIELDS.to_vec())?;
@@ -2914,6 +2948,100 @@ mod tests {
             assert_eq!(buff_kind_name(&db, db.buffs.len() as u16 + 1), None, "{label}: an id past the table has a name");
         }
         assert!(groups > 0, "no table merges buff rows into a group, so nothing here checks that a group is kept whole");
+    }
+
+    /// THE EXTRA ENTITY COLUMNS (ENTITY_EXTRA_FIELDS, `state_json(extra=True)`), each read against what the battle then
+    /// does rather than against its own formula:
+    /// - a row with `extra` is the row without it and then one value per extra column;
+    /// - a Mega Knight's `dash_ticks` falls by one a tick through his stand, and the stand turns into the dash on the
+    ///   tick after it reads 1; through the dash it falls by one a tick to his blow, which lands (the red Knight's hp
+    ///   drops) on the tick after it reads 1;
+    /// - a Tombstone's `spawn_ms` falls by TICK_MS a tick between its waves and is loaded again when a wave goes out;
+    /// - a unit with no buff reads 100 and 100; a Hog Rider reads `jumping` on his leap over the river, not before.
+    /// Plant dash_ticks_to_blow_off_by_one turns it red.
+    #[test]
+    fn extra_entity_columns_read_what_the_battle_then_does() {
+        let db = cards();
+        let mut s = battle(&db, &["Knight", "MegaKnight", "Tombstone", "HogRider", "Archer", "Giant", "Musketeer", "Valkyrie"]);
+        for team in [Team::Blue, Team::Red] {
+            for k in 0..3 {
+                s.scenario_set_tower_hp(team, k, 1_000_000).unwrap();
+            }
+        }
+        let at = |x: i32, y: i32| Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(y));
+        for (team, card, x, y) in [(Team::Blue, "MegaKnight", 9, 3), (Team::Red, "Knight", 9, 9), (Team::Blue, "Tombstone", 2, 4), (Team::Blue, "HogRider", 15, 11)] {
+            s.spawn_unit(team, card, at(x, y), None).unwrap_or_else(|e| panic!("{card}: {e:?}"));
+        }
+        let id_of = |s: &BattleState, team: Team, card: &str| s.entities().find(|e| e.team == team && e.card == card).map(|e| e.id).unwrap();
+        let (mk, knight, tomb, hog) =
+            (id_of(&s, Team::Blue, "MegaKnight"), id_of(&s, Team::Red, "Knight"), id_of(&s, Team::Blue, "Tombstone"), id_of(&s, Team::Blue, "HogRider"));
+        let hp = |s: &BattleState, id: EntityId| s.entities().find(|e| e.id == id).map_or(0, |e| e.hp);
+        let ids = ids_of_indices(&db, &(0..db.cards.len() as u16).collect::<Vec<_>>());
+        let types = unit_types_of(&db).1;
+        let tick_ms = i64::from(s.config().calib.tick_ms);
+        let (mut stands, mut blows, mut waits, mut reloads, mut leapt, mut rows_checked) = (0, 0, 0, 0, false, 0);
+        for t in 0..700 {
+            if t % 50 == 0 {
+                let plain = state_json_text_with(&s, &db, &ids, &types, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new()).unwrap();
+                let with = state_json_text_opts(&s, &db, &ids, &types, &[[0, 1, 2], [0, 2, 1]], &BTreeMap::new(), true).unwrap();
+                let (p, w): (serde_json::Value, serde_json::Value) = (serde_json::from_str(&plain).unwrap(), serde_json::from_str(&with).unwrap());
+                let (p, w) = (p["entities"].as_array().unwrap().clone(), w["entities"].as_array().unwrap().clone());
+                assert_eq!(p.len(), w.len());
+                for (a, b) in p.iter().zip(&w) {
+                    let (a, b) = (a.as_array().unwrap(), b.as_array().unwrap());
+                    assert_eq!(a.len(), ENTITY_FIELDS.len());
+                    assert_eq!(b.len(), ENTITY_FIELDS.len() + ENTITY_EXTRA_FIELDS.len(), "an extra row's length");
+                    assert_eq!(&b[..a.len()], &a[..], "an extra row does not begin with the plain row");
+                    let buffs = ENTITY_FIELDS.iter().position(|f| *f == "buffs").unwrap();
+                    if a[buffs].as_array().is_some_and(|l| l.is_empty()) {
+                        let pct = |k: &str| b[ENTITY_FIELDS.len() + ENTITY_EXTRA_FIELDS.iter().position(|f| *f == k).unwrap()].as_i64();
+                        assert_eq!((pct("speed_pct"), pct("hit_speed_pct")), (Some(100), Some(100)), "an unbuffed unit's percents");
+                    }
+                    rows_checked += 1;
+                }
+            }
+            let before = [mk, tomb, hog].map(|id| s.entity_extras(id));
+            let knight_hp = hp(&s, knight);
+            s.tick();
+            let after = [mk, tomb, hog].map(|id| s.entity_extras(id));
+            if let (Some(b), Some(a)) = (before[0], after[0]) {
+                match (b[2], a[2]) {
+                    (1, 1) => assert_eq!(a[3], b[3] - 1, "tick {t}: the stand's dash_ticks did not fall by one"),
+                    (1, 2) => {
+                        assert_eq!(b[3], 1, "tick {t}: the dash started with dash_ticks at {}", b[3]);
+                        stands += 1;
+                    }
+                    (2, 2) if b[3] > 0 => {
+                        assert_eq!(a[3], b[3] - 1, "tick {t}: the dash's dash_ticks did not fall by one");
+                        if b[3] == 1 {
+                            assert!(hp(&s, knight) < knight_hp, "tick {t}: dash_ticks read 1 and no blow landed on the Knight");
+                            blows += 1;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let (Some(b), Some(a)) = (before[1], after[1]) {
+                if b[0] > 0 && a[0] > 0 {
+                    if a[0] == b[0] - tick_ms {
+                        waits += 1;
+                    } else {
+                        assert!(a[0] > b[0], "tick {t}: the Tombstone's clock went {} -> {}", b[0], a[0]);
+                        reloads += 1;
+                    }
+                }
+            }
+            if let Some(a) = after[2] {
+                leapt |= a[6] == 1;
+                if t < 20 {
+                    assert_eq!(a[6], 0, "tick {t}: the Hog Rider leaps while it deploys");
+                }
+            }
+        }
+        assert!(stands > 0 && blows > 0, "the Mega Knight never dashed at the Knight ({stands} stands, {blows} blows)");
+        assert!(waits >= 5 && reloads > 0, "the Tombstone's clock was not seen running ({waits} waits, {reloads} reloads)");
+        assert!(leapt, "the Hog Rider never read jumping");
+        assert!(rows_checked > 0);
     }
 
     /// THE DEFAULT CATALOGUE KEEPS ITS IDS: its first cards are CATALOGUE_ORDER, in that order, every other loadable card

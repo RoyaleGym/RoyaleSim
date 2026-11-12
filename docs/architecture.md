@@ -181,6 +181,10 @@ The crate itself has no Python dependency and builds alone.
   `buffs` names each buff on the entity from the same table: `buff_kinds_json()` lists every name a
   row can carry, sorted, with `buff_kinds_digest()` beside it. A name is one buff's row, or the rows
   the loader merged into one buff because their values are identical, joined by `|`.
+  `state_json(extra=True)` appends `ENTITY_EXTRA_FIELDS` to every entity row (state.rs
+  `BattleState::entity_extras`, a read): a spawner's clock and wave, the dash state and the ticks to
+  the dash or the Mega Knight's blow, the buff speed percents and the river leap. Opt-in, so a
+  reader that pins `ENTITY_FIELDS`' length is untouched.
   `unit_hitpoints(card_id, level)` lists every unit a card puts on the board, as (role, unit name,
   hitpoints) at the level each one takes. The card's own row comes first; the other roles are
   `second_summon`, `spawn`, `death_spawn` and `release` (`royalesim.UNIT_ROLES`). So a unit that

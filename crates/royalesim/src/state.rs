@@ -39460,6 +39460,63 @@ impl BattleState {
     pub fn entities(&self) -> impl Iterator<Item = EntityView<'_>> + '_ {
         self.ents.live_indices().map(move |i| self.view(i))
     }
+
+    /// THE EXTRA ENTITY VALUES of the live entity `id` (py.rs ENTITY_EXTRA_FIELDS, `Battle.state_json(extra=True)`), in
+    /// that order; None for an id that is not alive. A read: nothing is written, so no battle moves.
+    /// - spawn_ms, spawn_wave_left: a spawner's clock (entity.rs `spawn_ms`, ms) and the units its wave still has to
+    ///   put down, on an entity that has a spawner and has finished deploying; 0 and 0 on any other. The spawner fires
+    ///   on the pass (`spawner_pass`) that takes the clock to 0 or below: each pass takes TICK_MS off it, or the
+    ///   composed SpawnSpeed share of TICK_MS where spawner.*_SPAWN_SPEED reads it, and a pass a stun or a hold pauses
+    ///   takes nothing.
+    /// - dash_state: entity.rs `DashState`, 0 none, 1 standing, 2 dashing.
+    /// - dash_ticks: standing, the dash starts on the dash_ticks-th next tick; dashing with a DashConstantTime (the
+    ///   Mega Knight), its blow lands on the dash_ticks-th next tick, and 0 once it has; 0 otherwise. (The tick counter
+    ///   steps at the end of a tick, so a stand that starts on the tick numbered `dash_mark` is dash_mark + 1 - now
+    ///   ticks off.)
+    /// - speed_pct, hit_speed_pct: the percent the unit's buffs make its walking speed and its attack clock, 100 with
+    ///   no buff: movement.BUFF_SPEED_COMPOSITION's and combat.HIT_SPEED_BUFF's compositions (`buffed_speed`,
+    ///   combat.rs `attack_step_progress`) of 100. A charge is not a buff: `charge` and status bit 8 carry it.
+    /// - jumping: 1 while the unit leaps the river (entity.rs `jumping`), 0 otherwise.
+    pub fn entity_extras(&self, id: EntityId) -> Option<[i64; 7]> {
+        if !self.ents.is_alive(id) {
+            return None;
+        }
+        let (e, i) = (&self.ents, id.index as usize);
+        let now = i64::from(self.tick);
+        let tk = self.cfg.calib.tick_ms.max(1);
+        let (spawn_ms, wave_left) = if e.deploy_ms[i] <= 0 && self.spawner_of(i).is_some() {
+            (i64::from(e.spawn_ms[i]), i64::from(e.spawn_wave_left[i]))
+        } else {
+            (0, 0)
+        };
+        let dash_ticks = match e.dash_state[i] {
+            DashState::Standing => (i64::from(e.dash_mark[i]) + 1 - now).max(1),
+            // PLANT (regression) dash_ticks_to_blow_off_by_one: the blow counted from the tick counter as it will read.
+            #[cfg(not(clash_plant = "dash_ticks_to_blow_off_by_one"))]
+            DashState::Dashing => self.cfg.cards.get(e.card[i]).dash.and_then(|d| d.constant_time_ms).map_or(0, |ct| (i64::from(e.dash_mark[i]) + i64::from(ct / tk) + 1 - now).max(0)),
+            #[cfg(clash_plant = "dash_ticks_to_blow_off_by_one")]
+            DashState::Dashing => self.cfg.cards.get(e.card[i]).dash.and_then(|d| d.constant_time_ms).map_or(0, |ct| (i64::from(e.dash_mark[i]) + i64::from(ct / tk) - now).max(0)),
+            DashState::None => 0,
+        };
+        let table = &self.cfg.cards.buffs;
+        let speed_pct = if e.buff_slots(i).iter().all(|s| s.is_empty()) {
+            100
+        } else {
+            match self.cfg.calib.buff_speed_composition {
+                BuffComposition::StrongestUpAndDown => e.buffed(table, i, Sel::Speed, 100),
+                BuffComposition::SingleMultiplierFloor => match e.buffs_of(table, i).map(|b| b.speed_pct).find(|m| *m != 0) {
+                    Some(m) if m > 0 => m,
+                    Some(m) => (100 + m).max(0),
+                    None => 100,
+                },
+            }
+        };
+        let hit_speed_pct = match self.cfg.calib.hit_speed_buff {
+            HitSpeedBuff::ProgressScaled => e.buffed(table, i, Sel::HitSpeed, 100),
+            HitSpeedBuff::None => 100,
+        };
+        Some([spawn_ms, wave_left, e.dash_state[i] as i64, dash_ticks, i64::from(speed_pct), i64::from(hit_speed_pct), i64::from(e.jumping[i])])
+    }
     pub fn live_count(&self) -> usize {
         self.ents.live_count()
     }

@@ -105,6 +105,16 @@ numbering. `buffs` lists what is on the unit as `[name, milliseconds left]` pair
 a unit can carry under the card table, sorted, and `buff_kinds_digest()` is its short hash. Some names join several of
 the table's buffs with `|`, where the table gives them identical values, so split a name on `|` for the buffs in it.
 
+**More per unit.** `state_json(extra=True)` adds the columns `ENTITY_EXTRA_FIELDS` names to the end of every unit row.
+Without it the rows are exactly as before. They are:
+- `spawn_ms` and `spawn_wave_left`: a spawner's clock in milliseconds and the units its wave still has to put down (0
+  and 0 for a unit that spawns nothing). The spawner fires on the tick that takes the clock to 0 or below.
+- `dash_state` (0 none, 1 standing before a dash, 2 dashing) and `dash_ticks`: while standing, the dash starts that many
+  ticks from now; while a Mega Knight dashes, his blow lands that many ticks from now. 0 otherwise.
+- `speed_pct` and `hit_speed_pct`: how its buffs change the unit's walking speed and attack speed, in percent (100
+  with no buff, 0 frozen). A charge is not a buff and is in `charge`.
+- `jumping`: 1 while the unit leaps over the river.
+
 **Saving.** `save()` returns bytes, and `load(blob)` restores them into a Battle with the same cards.
 
 **Play delay.** `set_command_delay_ticks(blue, red)` makes a play land that many ticks after it is sent, like the
