@@ -1445,6 +1445,8 @@ pub enum AbilityEffect {
     TombMonster(TombMonsterDef),
     /// THE ICE CUBE (the Hero Ice Wizard's; `IceCubeDef`).
     IceCube(IceCubeDef),
+    /// THE SURGE (the Hero Electro Wizard's; `SurgeDef`).
+    Surge(SurgeDef),
 }
 
 /// The parts of an ice cube's areas (spell.rs `attached_def`): the bridge, then the freeze.
@@ -1976,6 +1978,32 @@ pub struct SiegeDef {
 /// combat.SIEGE_RESET_HOLD = client15535_two_tick_hold: the ticks the Hero Bowler is held after its siege's target
 /// reset (its scan and swing wait): measured, its first swing on the reset + 3 (state.rs `siege_pass`).
 pub const SIEGE_RESET_HOLD_TICKS: i32 = 2;
+
+/// THE SURGE (the Hero Electro Wizard's ElectroWizardHero_Ability; state.rs `SurgeRun`, `surge_pass`; combat.rs `fire`):
+/// from its trigger the hero carries `buff` (its CharacterCrownTowerDamagePercent, so a crown tower takes half of each
+/// bolt) and `rate` (its AttackSequenceList entry's HitSpeedMultiplier as an own buff, 360: the attack clock gains 180 a
+/// tick, a pair of bolts every 10 ticks) for `buff`'s time. His attacks of the surge entry (`attack_seq` 1) deal
+/// `damage` (level-scaled on his own ladder) and land his ZapFreeze for `stun_ms` in place of the row's time; his two
+/// bolts are the row's MultipleTargets and AllTargetsHit, as the entry's. A tick after the buff is gone his entry is 0
+/// again and the swing in flight is dropped; he attacks nothing for `no_attack_ms` and walks, and is rooted
+/// (`root`, no walk and no push) for its time while his target stands within `root_range` (subtiles) of him.
+///
+/// Measured on client 16.402 (Live, 6 presses; P the first frame of the cast): the cast holds P..P+8; bolts at 50 x the
+/// level ladder (204 at 16) every 10 ticks, each crown tower bolt halved through P+63; a swing begun on P+61 hit on P+64
+/// with the surge's damage and no crown share; the recovery P+65..P+74 held the attack alone (the hero walked), a fresh
+/// normal swing from P+75. The 16.402 entry holds each surge swing 500 ms first (AttackStartDelay), which loads only
+/// where it is 0 (client 16.635), so the 16.402 tables keep refusing the form. Read and not run: the entry's remembered
+/// targets (no recording separates it) and the hero's spawn instant hit (measured on client 16.635: it never fired).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SurgeDef {
+    pub buff: BuffApply,
+    pub rate: BuffApply,
+    pub damage: i32,
+    pub stun_ms: i32,
+    pub no_attack_ms: i32,
+    pub root: BuffApply,
+    pub root_range: i32,
+}
 
 /// THE POWER SHOT (the Hero Magic Archer's AttackSequenceList entry 1; combat.rs `fire`, `power_copies`): `middle` is
 /// fired as the hero's straight shot is (its range from the hero's centre), and `count` copies of `side` stand `distance`
@@ -6816,6 +6844,17 @@ struct RawAbilityEffect {
     bridge: Option<RawIceArea>,
     cube: Option<RawIceCube>,
     freeze: Option<RawIceArea>,
+    /// `surge` (tools/extract_cards.py `surge_effect`; `buff`, `buff_ms`, `unit`, `damage` and `hit_speed_multiplier`
+    /// above): the entry's targets, stun and start delay, and the recovery's holds.
+    multiple_targets: Option<i32>,
+    remember_targets: Option<bool>,
+    attack_start_delay_ms: Option<i32>,
+    stun_ms: Option<i32>,
+    recovery_no_attack_ms: Option<i32>,
+    recovery_root_ms: Option<i32>,
+    recovery_root_range_milli: Option<i32>,
+    spawn_instant_range_milli: Option<i32>,
+    entry_stand_ms: Option<i32>,
 }
 
 /// An `ice_cube` find's resolver (tools/extract_cards.py `ice_cube_button`).
@@ -14714,6 +14753,47 @@ impl CardDb {
                     after,
                     on_kill: e.on_kill == Some(true),
                     on_death: e.on_death == Some(true),
+                })
+            }
+            // THE SURGE (the Hero Electro Wizard's; `SurgeDef`): two own buffs, the entry's damage and stun, the recovery.
+            // PLANT (regression) surge_effect_refused: the form is refused as before.
+            #[cfg(not(clash_plant = "surge_effect_refused"))]
+            "surge" => {
+                let e = &a.effect;
+                let time = |v: Option<i32>, k: &str| v.filter(|x| *x >= 0).ok_or_else(|| format!("{what}: a surge's {k}"));
+                let raw_buff = e.buff.as_ref().ok_or_else(|| format!("{what}: a surge with no buff"))?;
+                let buff = buffs.apply_own(raw_buff, e.buff_ms, &format!("{what} buff"))?;
+                let mult = e.hit_speed_multiplier.filter(|m| *m > 0).ok_or_else(|| format!("{what}: a surge with no rate"))?;
+                // Raw, as every row's HitSpeedMultiplier is (status.rs `compose`: a speed-up counts above 100), as the siege's.
+                let rate = buffs.push_own(crate::status::BuffDef { hit_speed_pct: mult, ..Default::default() }, &format!("{} surge rate", a.name))?;
+                // NO_MOVE_ALLOW_ATTRACT, read as no walk and no push (the decoy's stay, a hold's -100).
+                let root = buffs.push_own(
+                    crate::status::BuffDef { speed_pct: -100, no_pushed_by_ally: true, no_pushed_by_enemy: true, ..Default::default() },
+                    &format!("{} surge root", a.name),
+                )?;
+                if time(e.attack_start_delay_ms, "start delay")? != 0 {
+                    return Err(format!("{what}: a surge entry's start delay (AttackStartDelay) is not simulated"));
+                }
+                // The 2026-10-19 table's entry stands 150 ms first (client 16.402.22 on); 16.635's does not.
+                if e.entry_stand_ms.is_some_and(|ms| ms > 0) {
+                    return Err(format!("{what}: a surge entry's stand is not simulated"));
+                }
+                if e.multiple_targets.is_some_and(|n| n != c.multiple_targets) {
+                    return Err(format!("{what}: a surge entry whose targets are not its row's MultipleTargets"));
+                }
+                let damage = e.damage.filter(|d| *d > 0).ok_or_else(|| format!("{what}: a surge with no damage"))?;
+                if c.attack_buff.is_none() {
+                    return Err(format!("{what}: a surge's stun with no BuffOnDamage on the row"));
+                }
+                let _ = (e.remember_targets, e.spawn_instant_range_milli); // read, not run (`SurgeDef`)
+                AbilityEffect::Surge(SurgeDef {
+                    buff,
+                    rate: BuffApply { buff: rate, time_ms: buff.time_ms },
+                    damage,
+                    stun_ms: time(e.stun_ms, "stun")?,
+                    no_attack_ms: time(e.recovery_no_attack_ms, "recovery hold")?,
+                    root: BuffApply { buff: root, time_ms: time(e.recovery_root_ms, "recovery root")? },
+                    root_range: milli(time(e.recovery_root_range_milli, "root range")?),
                 })
             }
             other => return Err(format!("{what}: effect {other} is not simulated")),

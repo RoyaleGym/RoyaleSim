@@ -1299,6 +1299,13 @@ pub fn fire(
     // ATTACKER's level-scaled figure, computed once, because the victim does not know
     // the attacker's level.
     let atk_buff = card.attack_buff;
+    // THE HERO ELECTRO WIZARD'S SURGE (card.rs `SurgeDef`): an attack of its entry (`attack_seq` 1, set by his button:
+    // state.rs `fire_ability`) lands his ZapFreeze for the entry's own time (CustomBuffOnDamageTime) in place of the row's.
+    #[cfg(not(clash_plant = "surge_stun_unread"))]
+    let atk_buff = match card.ability.as_ref().map(|x| &x.effect) {
+        Some(crate::card::AbilityEffect::Surge(sg)) if ents.attack_seq[a] == 1 => atk_buff.map(|b| BuffApply { time_ms: sg.stun_ms, ..b }),
+        _ => atk_buff,
+    };
     // combat.DIRECT_HIT_BUFF_COUNTDOWN = client15535_landing_tick: the buff an INSTANT hit lands (below: the melee entry,
     // the single-target hit, its extra bolts, the instant splash) is counted down on its landing tick, as one landing in
     // the attacker's turn is; a projectile carries `atk_buff` whole to its arrival.
@@ -1350,6 +1357,13 @@ pub fn fire(
     #[cfg(not(clash_plant = "far_shot_never"))]
     let amount = match card.evo.as_ref().and_then(|v| v.far_shot) {
         Some(fs) if ents.attack_seq[a] == 1 => cards.scaled(ents.card[a], ents.level[a], fs.damage).expect("level validated at spawn"),
+        _ => amount,
+    };
+    // THE HERO ELECTRO WIZARD'S SURGE (card.rs `SurgeDef`): an attack of its entry deals its Damage, level-scaled on his own
+    // ladder, in place of his own; its crown share is the surge buff's while that is on (`own_crown_pct`, below).
+    #[cfg(not(clash_plant = "surge_damage_unread"))]
+    let amount = match card.ability.as_ref().map(|x| &x.effect) {
+        Some(crate::card::AbilityEffect::Surge(sg)) if ents.attack_seq[a] == 1 => cards.scaled(ents.card[a], ents.level[a], sg.damage).expect("level validated at spawn"),
         _ => amount,
     };
     let amount = own_damage(ents, cards, a, amount);

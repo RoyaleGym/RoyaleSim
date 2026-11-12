@@ -14013,6 +14013,9 @@ pub struct WarpBoard {
     /// The Hero Bowler's sieges under way (`SiegeRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sieges: Vec<SiegeRun>,
+    /// The Hero Electro Wizard's surges under way (`SurgeRun`). Absent in older snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surges: Vec<SurgeRun>,
     /// The Hero Barbarian Barrel's re-rolls under way (`RerollRun`). Absent in older snapshots, and hashed only when not
     /// empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -14233,7 +14236,13 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.blows.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
+        self.runs.is_empty() && self.blows.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.surges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
+    }
+
+    /// A surge's recovery holds its hero's attack (card.rs `SurgeDef::no_attack_ms`; `surge_pass` sets `hold_until`): from
+    /// the tick his entry is 0 again until `hold_until`. He walks meanwhile.
+    pub fn surge_holds_attack(&self, id: EntityId, tick: u32) -> bool {
+        self.surges.iter().any(|r| r.id == id && r.ended.is_some() && tick < r.hold_until)
     }
 
     /// Is hero `id` on a return warp (combat.WARP_LAW = client16402_brake_and_return), not yet home?
@@ -14313,6 +14322,19 @@ pub struct SiegeRun {
     pub id: EntityId,
     pub form: u16,
     pub made: u32,
+}
+
+/// A HERO ELECTRO WIZARD'S SURGE UNDER WAY (card.rs `SurgeDef`; `surge_pass`): its hero, its form and the trigger's tick;
+/// once its entry is 0 again, the tick that happened (`ended`), the first tick its recovery lets him attack (`hold_until`)
+/// and whether its root still holds him (`rooted`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SurgeRun {
+    pub id: EntityId,
+    pub form: u16,
+    pub made: u32,
+    pub ended: Option<u32>,
+    pub hold_until: u32,
+    pub rooted: bool,
 }
 
 /// A HERO ICE WIZARD'S BUTTON UNDER WAY (card.rs `IceCubeDef`; `ice_finds`, `ice_pass`, `ice_kills`, `ice_reap`): its
@@ -20821,6 +20843,10 @@ impl BattleState {
         if !self.warps.sieges.is_empty() {
             self.siege_pass();
         }
+        // The Hero Electro Wizard's surges: their ends and their recoveries (`surge_pass`).
+        if !self.warps.surges.is_empty() {
+            self.surge_pass();
+        }
         // The Mighty Miners' lane switches (`lane_pass`).
         if !self.warps.lanes.is_empty() {
             self.lane_pass();
@@ -25009,6 +25035,70 @@ impl BattleState {
             keep.push(r);
         }
         self.warps.sieges = keep;
+    }
+
+    /// THE SURGES (card.rs `SurgeDef`; `SurgeRun`), in Status, before this tick's attacks. The entry stays 1 while the
+    /// buff is on and through the tick it goes, so a swing begun inside it hits with its damage (its crown share gone with
+    /// the buff); on the trigger + the buff's ticks + 1 his entry is 0, the swing in flight is dropped and the recovery
+    /// begins: no attack until `hold_until` (`WarpBoard::surge_holds_attack`, read in the attack pass), and the root (no
+    /// walk, no push) for its time while his target stands within its range by the attack reach's rule, let go for good
+    /// the first tick it does not. Measured on client 16.402 (P the cast's first frame, the trigger P + 4): his entry 0 and
+    /// the swing in flight dropped on P + 65, no attack P + 65..P + 74, a fresh swing from P + 75.
+    fn surge_pass(&mut self) {
+        let tick_ms = self.cfg.calib.tick_ms.max(1);
+        let runs = std::mem::take(&mut self.warps.surges);
+        let mut keep = Vec::new();
+        for mut r in runs {
+            if !self.ents.is_alive(r.id) {
+                continue;
+            }
+            let Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::Surge(sg), .. }) = self.cfg.cards.get(r.form).ability else { continue };
+            let i = r.id.index as usize;
+            let in_reach = |s: &Self| {
+                let e = &s.ents;
+                e.target[i].filter(|t| e.is_alive(*t)).is_some_and(|t| {
+                    let ti = t.index as usize;
+                    target::in_attack_range(&s.cfg.calib, e.pos[i], sg.root_range, e.radius[i], e.pos[ti], e.radius[ti])
+                })
+            };
+            let end = r.made + (sg.buff.time_ms / tick_ms) as u32 + 1;
+            // PLANT (regression) surge_never_ends: the entry stays 1 and no recovery comes.
+            #[cfg(not(clash_plant = "surge_never_ends"))]
+            if r.ended.is_none() && self.tick >= end {
+                self.ents.attack_seq[i] = 0;
+                // PLANT (regression) surge_swing_kept: the swing in flight runs on into the recovery's end.
+                #[cfg(not(clash_plant = "surge_swing_kept"))]
+                {
+                    self.ents.attack_phase[i] = AttackPhase::Idle;
+                    self.ents.attack_ms[i] = 0;
+                }
+                r.ended = Some(self.tick);
+                r.hold_until = self.tick + (sg.no_attack_ms / tick_ms) as u32;
+                if sg.root.time_ms > 0 && in_reach(self) {
+                    let h = crate::status::BuffHit::plain(r.id, sg.root.buff, sg.root.time_ms, 0);
+                    land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    r.rooted = true;
+                }
+            }
+            let Some(ended) = r.ended else {
+                keep.push(r);
+                continue;
+            };
+            // The root lets go the first tick his target is not within its range (the table's condition), for good.
+            if r.rooted && !in_reach(self) {
+                let root = sg.root.buff + 1;
+                for slot in self.ents.buff_slots_mut(i).iter_mut().filter(|s| s.id == root) {
+                    *slot = crate::status::BuffSlot::default();
+                }
+                r.rooted = false;
+            }
+            let root_until = ended + (sg.root.time_ms / tick_ms) as u32;
+            if self.tick >= r.hold_until && self.tick >= root_until {
+                continue;
+            }
+            keep.push(r);
+        }
+        self.warps.surges = keep;
     }
 
     /// status.WARP_BACK_CLOAK = client16402_trigger_plus_1: the Boss Bandit's cloak lands a tick after her trigger
@@ -31183,7 +31273,9 @@ impl BattleState {
                 || self.lifts.iter().any(|l| l.id == e.id_of(i) && self.lift_descending(l))
                 // A warp holds it too, until it arrives (`WarpBoard::warp_holds_swing`) -- but not a return under
                 // combat.WARP_RETURN_FREE = client16402_walks_and_retargets.
-                || (self.warps.warp_holds_swing(e.id_of(i)) && !(return_free && self.warps.returning(e.id_of(i))));
+                || (self.warps.warp_holds_swing(e.id_of(i)) && !(return_free && self.warps.returning(e.id_of(i))))
+                // A surge's recovery holds it (its NO_ATTACK, `surge_pass`); he walks.
+                || (cfg!(not(clash_plant = "surge_recovery_unheld")) && self.warps.surge_holds_attack(e.id_of(i), self.tick));
             // enchant.ON_BUFF_PAUSE = client16402_conditional_no_move: a Rune Giant inside his launch's hold.
             let enchant_held = e.enchant_hold[i] > 0 && self.tick <= e.enchant_hold[i];
             // combat.DASH_STAND_ATTACK = client16635_stand_holds_attack: a dasher standing before its dash starts no attack, so a
@@ -37677,9 +37769,11 @@ impl BattleState {
                 q.stopped = true;
             }
         }
-        // A DECOY WARP (the Hero Magic Archer's) and a SIEGE (the Hero Bowler's) land EARLY_TRIGGER_TICKS before that too.
+        // A DECOY WARP (the Hero Magic Archer's) and a SIEGE (the Hero Bowler's) land EARLY_TRIGGER_TICKS before that too, and
+        // a SURGE (the Hero Electro Wizard's: measured on client 16.402, its buff's 3000 ms gone by P + 64, P the cast's first
+        // frame, so it landed on P + 4).
         #[cfg(not(clash_plant = "early_trigger_late"))]
-        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::LaneSwitch(_) | crate::card::AbilityEffect::SoulSummon(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_) | crate::card::AbilityEffect::ReRoll(_) | crate::card::AbilityEffect::Dismount(_)) {
+        if matches!(a.effect, crate::card::AbilityEffect::DecoyWarp(_) | crate::card::AbilityEffect::Surge(_) | crate::card::AbilityEffect::Siege(_) | crate::card::AbilityEffect::WarpBack(_) | crate::card::AbilityEffect::LaneSwitch(_) | crate::card::AbilityEffect::SoulSummon(_) | crate::card::AbilityEffect::FlagSpawns(_) | crate::card::AbilityEffect::Guard(_) | crate::card::AbilityEffect::Tether(_) | crate::card::AbilityEffect::ReRoll(_) | crate::card::AbilityEffect::Dismount(_)) {
             ms -= EARLY_TRIGGER_TICKS * self.cfg.calib.tick_ms;
         }
         self.scheduled.push(Scheduled { ms, action: ScheduledAction::Ability { hero: id, team, cost: a.cost, started: false, waited: false } });
@@ -38067,6 +38161,22 @@ impl BattleState {
                     self.ents.attack_seq[i] = 1;
                     self.warps.sieges.retain(|r| r.id != hero);
                     self.warps.sieges.push(SiegeRun { id: hero, form: card, made: self.tick });
+                }
+                let _ = (team, level, pos, sg);
+            }
+            // THE SURGE (the Hero Electro Wizard's; `SurgeRun`): its two buffs land now, and his attacks are its entry's
+            // (`attack_seq` 1: combat.rs `fire`) until the tick after the buff is gone (`surge_pass`). The cast holds him
+            // and reset his swing at the press, as every press without KeepCurrentTarget does (`start_ability`).
+            crate::card::AbilityEffect::Surge(sg) => {
+                #[cfg(not(clash_plant = "surge_never"))]
+                {
+                    for b in [sg.buff, sg.rate] {
+                        let h = crate::status::BuffHit::plain(hero, b.buff, b.time_ms, 0);
+                        land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
+                    }
+                    self.ents.attack_seq[i] = 1;
+                    self.warps.surges.retain(|r| r.id != hero);
+                    self.warps.surges.push(SurgeRun { id: hero, form: card, made: self.tick, ended: None, hold_until: 0, rooted: false });
                 }
                 let _ = (team, level, pos, sg);
             }
