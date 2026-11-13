@@ -16,7 +16,7 @@
 //!   - surge_effect_refused -> every test red (the form does not load);
 //!   - surge_never, surge_damage_unread -> `a_press_bolts_a_pair_every_10_ticks_at_its_damage` red;
 //!   - surge_stun_unread -> `its_bolts_stun_100_ms_longer_than_the_rows` red;
-//!   - surge_never_ends, surge_recovery_unheld -> `the_recovery_holds_his_attack_10_ticks_from_p_plus_65` red;
+//!   - surge_never_ends, surge_recovery_unheld -> `the_recovery_holds_his_attack_10_ticks_from_p_plus_65` red (its attack clock);
 //!   - surge_swing_kept -> `the_swing_in_flight_is_dropped_at_the_end` red.
 #![allow(unexpected_cfgs)]
 mod common;
@@ -203,9 +203,12 @@ fn the_recovery_holds_his_attack_10_ticks_from_p_plus_65() {
     assert!(hits(&f, 65, 74).is_empty(), "no attack P + 65 .. P + 74: {:?}", hits(&f, 65, 74));
     let after = hits(&f, 65, 139);
     let (k, d) = *after.first().expect("a normal pair after the recovery");
-    assert_eq!(d, 2 * scaled(&db, 46), "the row's own pair again");
-    // A fresh swing from P + 75 (the row's 1800 at 50 a tick from its load): not before P + 82.
-    assert!(k >= 82, "the first normal pair on P + {k}, too soon for a swing begun on P + 75");
+    assert_eq!(d, 2 * scaled(&db, 46), "the row's own pair again (P + {k})");
+    // The hold itself: his attack clock stands at 0 from P + 65 through P + 74 and runs again from P + 75.
+    for k in 65..=74 {
+        assert_eq!(f[k].hero_attack_ms, 0, "his attack clock ran on P + {k}, inside the recovery");
+    }
+    assert!((75..=77).any(|k| f[k].hero_attack_ms > 0), "his attack clock never ran again after the recovery");
 }
 
 #[test]

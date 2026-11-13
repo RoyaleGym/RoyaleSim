@@ -2981,6 +2981,10 @@ mod tests {
         let (mk, knight, tomb, hog) =
             (id_of(&s, Team::Blue, "MegaKnight"), id_of(&s, Team::Red, "Knight"), id_of(&s, Team::Blue, "Tombstone"), id_of(&s, Team::Blue, "HogRider"));
         let hp = |s: &BattleState, id: EntityId| s.entities().find(|e| e.id == id).map_or(0, |e| e.hp);
+        let blow = {
+            let e = s.entities().find(|e| e.id == mk).expect("the Mega Knight");
+            db.scaled(e.card_idx, e.level, db.get(e.card_idx).dash.as_ref().expect("his dash").damage).expect("a level he has")
+        };
         let ids = ids_of_indices(&db, &(0..db.cards.len() as u16).collect::<Vec<_>>());
         let types = unit_types_of(&db).1;
         let tick_ms = i64::from(s.config().calib.tick_ms);
@@ -3025,7 +3029,8 @@ mod tests {
                     (2, 2) if b[3] > 0 => {
                         assert_eq!(a[3], b[3] - 1, "tick {t}: the dash's dash_ticks did not fall by one");
                         if b[3] == 1 {
-                            assert!(hp(&s, knight) < knight_hp, "tick {t}: dash_ticks read 1 and no blow landed on the Knight");
+                            // At least the blow's DashDamage (blue's crown towers also shoot the Knight, for less).
+                            assert!(knight_hp - hp(&s, knight) >= blow, "tick {t}: dash_ticks read 1 and no blow ({blow}) landed on the Knight");
                             blows += 1;
                         }
                     }
