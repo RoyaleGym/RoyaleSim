@@ -205,8 +205,8 @@ fn the_recovery_holds_his_attack_10_ticks_from_p_plus_65() {
     let (k, d) = *after.first().expect("a normal pair after the recovery");
     assert_eq!(d, 2 * scaled(&db, 46), "the row's own pair again (P + {k})");
     // The hold itself: his attack clock stands at 0 from P + 65 through P + 74 and runs again from P + 75.
-    for k in 65..=74 {
-        assert_eq!(f[k].hero_attack_ms, 0, "his attack clock ran on P + {k}, inside the recovery");
+    for (k, fr) in f.iter().enumerate().take(75).skip(65) {
+        assert_eq!(fr.hero_attack_ms, 0, "his attack clock ran on P + {k}, inside the recovery");
     }
     assert!((75..=77).any(|k| f[k].hero_attack_ms > 0), "his attack clock never ran again after the recovery");
 }
