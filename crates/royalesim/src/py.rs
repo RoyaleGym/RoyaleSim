@@ -2958,6 +2958,7 @@ mod tests {
     ///   drops) on the tick after it reads 1;
     /// - a Tombstone's `spawn_ms` falls by TICK_MS a tick between its waves and is loaded again when a wave goes out;
     /// - a unit with no buff reads 100 and 100; a Hog Rider reads `jumping` on his leap over the river, not before.
+    ///
     /// Plant dash_ticks_to_blow_off_by_one turns it red.
     #[test]
     fn extra_entity_columns_read_what_the_battle_then_does() {
