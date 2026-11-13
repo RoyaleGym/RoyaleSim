@@ -8,7 +8,9 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
 - The Hero Electro Wizard plays on the current client's card table (`cards.CARD_TABLE = "client160635007_20261103"`).
   For 3 seconds after his button his attack runs at 360 %: a pair of bolts every half second, each at his surge
   damage, stunning 600 ms and dealing half to a crown tower. Then he attacks nothing for half a second while he walks,
-  rooted only while his target stands in reach. The older card tables still refuse the form.
+  rooted only while his target stands in reach. The older card tables still refuse the form. On that table
+  `unit_types()` gains `ElectroWizardHero`, so every unit type after it in the sorted list moves up one
+  (`unit_types_digest` names the list). The other tables' lists are unchanged.
 - `Battle.buff_kinds_json()` lists every name an entity row's `buffs` can carry under the loaded card table, sorted,
   and `buff_kinds_digest()` is a short hash of it. Some names join several of the table's buffs with `|`, where the
   table gives them identical values, so split a name on `|` for the buffs in it.
