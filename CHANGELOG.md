@@ -3,6 +3,22 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.53 (2026-11-13)
+
+- The Hero Electro Wizard plays on the current client's card table (`cards.CARD_TABLE = "client160635007_20261103"`).
+  For 3 seconds after his button his attack runs at 360 %: a pair of bolts every half second, each at his surge
+  damage, stunning 600 ms and dealing half to a crown tower. Then he attacks nothing for half a second while he walks,
+  rooted only while his target stands in reach. The older card tables still refuse the form.
+- `Battle.buff_kinds_json()` lists every name an entity row's `buffs` can carry under the loaded card table, sorted,
+  and `buff_kinds_digest()` is a short hash of it. Some names join several of the table's buffs with `|`, where the
+  table gives them identical values, so split a name on `|` for the buffs in it.
+- `state_json(extra=True)` adds the columns `ENTITY_EXTRA_FIELDS` names to the end of every unit row: a spawner's clock
+  and the units its wave still has to put down, the dash state and the ticks until the dash starts or the Mega
+  Knight's blow lands, how its buffs change the unit's walking and attack speed in percent, and whether it is leaping
+  over the river. Without `extra` the rows are exactly as before.
+- A saved battle with a buff the card table does not have is refused at load. A battle saved by 0.1.52 loads on
+  0.1.53.
+
 ## 0.1.52 (2026-11-11)
 
 - 15 more settings default to the current client's behaviour, each measured against its recorded battles:

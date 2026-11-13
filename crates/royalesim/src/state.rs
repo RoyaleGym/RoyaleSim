@@ -42852,6 +42852,9 @@ impl BattleState {
 /// 20, unchanged, parity r93 (status.LIFT_CAST_END_SHOT): Calib gained lift_cast_end_shot (serde default the old arm, dropped);
 ///    LiftRun gained `primed` (serde default false, skipped when false, so a lift saved before it deserializes and hashes as it
 ///    did). migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, Sim 0.1.53 (the Hero Electro Wizard's surge): WarpBoard gained `surges` (serde default empty, skipped
+///    when empty, so a board saved before it deserializes and hashes as it did); a buff slot past the card table's
+///    buffs is refused at load.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
