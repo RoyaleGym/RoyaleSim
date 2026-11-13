@@ -61,6 +61,9 @@ fn battle() -> BattleState {
     cfg.card_level = [LEVEL, LEVEL];
     cfg.tower_level = [LEVEL, LEVEL];
     let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
+    // Past the battle's opening lockout, so the button can be pressed once the hero stands (as tests/hero_wizard.rs).
+    let lockout = s.config().calib.deploy_lockout_ticks as u32;
+    s.scenario_set_tick(lockout);
     let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == EntityKind::PrincessTower).map(|e| e.id).collect();
     for t in towers {
         assert!(s.debug_set_hp(t, 0));
@@ -91,19 +94,20 @@ enum Victim {
 /// P + k (P the press's first frame). `kill_at`: the victim dies on that frame (the scene's target gone).
 fn scene(victim: Victim, frames: usize, kill_at: Option<usize>) -> Vec<Frame> {
     let mut s = battle();
-    let (hero_at, vid) = match victim {
+    // Spawns land on the next tick: the Knight is found after it.
+    let (hero_at, tower) = match victim {
         Victim::Knight(p) => {
             s.spawn_unit_resolved(Team::Red, "Knight", n(p.0, p.1), None).expect("the Knight");
-            let id = s.entities().find(|e| e.team == Team::Red && e.card == "Knight").expect("the Knight").id;
-            (n(AT.0, AT.1), id)
+            (n(AT.0, AT.1), None)
         }
         Victim::Tower => {
             let t = s.entities().filter(|e| e.team == Team::Red && e.kind == EntityKind::PrincessTower).min_by_key(|e| e.pos.x).expect("red's left tower");
-            (Vec2::new(t.pos.x, t.pos.y - 4500 * K), t.id)
+            (Vec2::new(t.pos.x, t.pos.y - 4500 * K), Some(t.id))
         }
     };
     s.spawn_unit(Team::Blue, HERO, hero_at, None).expect("the hero");
     s.tick();
+    let vid = tower.unwrap_or_else(|| s.entities().find(|e| e.team == Team::Red && e.card == "Knight").expect("the Knight").id);
     let hero: EntityId = find_live(&s, Team::Blue, HERO)[0].id;
     let vpos = s.entity(vid).expect("the victim").pos;
     let (vtop, htop) = (s.entity(vid).unwrap().max_hp, s.entity(hero).unwrap().max_hp);

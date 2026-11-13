@@ -2969,9 +2969,14 @@ mod tests {
             }
         }
         let at = |x: i32, y: i32| Vec2::new(crate::fixed::tiles(x), crate::fixed::tiles(y));
-        for (team, card, x, y) in [(Team::Blue, "MegaKnight", 9, 3), (Team::Red, "Knight", 9, 9), (Team::Blue, "Tombstone", 2, 4), (Team::Blue, "HogRider", 15, 11)] {
+        for (team, card, x, y) in [(Team::Blue, "MegaKnight", 9, 3), (Team::Red, "Knight", 9, 9), (Team::Blue, "Tombstone", 2, 4)] {
             s.spawn_unit(team, card, at(x, y), None).unwrap_or_else(|e| panic!("{card}: {e:?}"));
         }
+        // Where the recorded Hog Rider's river hop began (tests/jump16402.rs, capture 20260920-002736-B): a planner that
+        // prices water still routes most starts over a bridge, and this one leaps.
+        let k = crate::fixed::SUBTILE_PER_MILLITILE;
+        s.spawn_unit(Team::Blue, "HogRider", Vec2::new(9500 * k, 12500 * k), None).unwrap_or_else(|e| panic!("HogRider: {e:?}"));
+        s.tick(); // spawns land on the next tick
         let id_of = |s: &BattleState, team: Team, card: &str| s.entities().find(|e| e.team == team && e.card == card).map(|e| e.id).unwrap();
         let (mk, knight, tomb, hog) =
             (id_of(&s, Team::Blue, "MegaKnight"), id_of(&s, Team::Red, "Knight"), id_of(&s, Team::Blue, "Tombstone"), id_of(&s, Team::Blue, "HogRider"));
@@ -2999,6 +3004,12 @@ mod tests {
                     }
                     rows_checked += 1;
                 }
+            }
+            // The Knight held where it stands with its hp topped up, so the Mega Knight's dash lands its blow on it.
+            let top = s.entities().find(|e| e.id == knight).map(|e| e.max_hp);
+            if let Some(top) = top {
+                assert!(s.debug_set_pos(knight, at(9, 9)));
+                assert!(s.debug_set_hp(knight, top));
             }
             let before = [mk, tomb, hog].map(|id| s.entity_extras(id));
             let knight_hp = hp(&s, knight);
