@@ -52,6 +52,10 @@ position in that list. `catalogue_json()` lists each card with its cost, kind an
 own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck card (or empty), and
 `tower_levels=[blue, red]`. A Mirror's copy is one level above the Mirror.
 
+**Tower troops.** Pass `tower_troops=[blue, red]` to `reset`. Each entry is `None` for the Princess,
+or a loaded tower troop's record name: `Cannoneer`, `DaggerDuchess`, or `ChefTower`.
+The two sides can select different troops. Omitting the argument preserves the default Princess towers.
+
 **A battle under way.** `reset` can also start from the middle of a battle:
 
 - `unit_spawns` puts down a unit by its name, a summoned one too (a Golemite, a Witch's Skeleton), each at its own
