@@ -47,6 +47,7 @@ use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
     AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, RandomDelayStream, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, LaunchBeyondCancelRange, MultipleProjectiles, ProjectileLaunch,
     ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, StraightShotBuildingReach, DirectHitBuffCountdown, TargetBuffScope, VariableDamage,
+    CreationHitKnock,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
@@ -1619,9 +1620,31 @@ pub fn fire(
                         if let Some(s) = shot.straight.as_mut() {
                             s.reach += start_extra;
                         }
+                        let knocks_from = fx.knocks.len();
                         let hit = straight_hits(ents, hash, cards, calib, &mut shot, pos, dmg, fx, scratch, tick);
                         if let Some(s) = shot.straight.as_mut() {
                             s.reach -= start_extra;
+                        }
+                        // knockback.CREATION_HIT_KNOCK = client16635_at_once: the hit lands inside the firer's own update of the
+                        // client's creation-order pass, so a victim created after the firer takes its ladder's first step on this
+                        // tick (`ladder_step_now`) and strikes nothing on it (state.rs `phase_attack_for`, Scratch::creation_knocked);
+                        // one created before, already updated, as under next_tick. Measured on client 16.635 (parity r94, live15n):
+                        // 4 of 4 Bowler creation-tick knocks on younger victims (20261103-190056-A t778, 20261103-202541-A t764 and
+                        // t814, 20261103-223536-A t1078) moved the victim on the hit's tick, and the one strike due on it (202541-A
+                        // t814) was lost; the engine moved them a tick later and landed it. Every other knockback already steps on
+                        // the client's tick. PLANT (regression) creation_knock_next_tick: the new arm still steps it next tick.
+                        #[cfg(not(clash_plant = "creation_knock_next_tick"))]
+                        let at_once = calib.creation_hit_knock == CreationHitKnock::Client16635AtOnce;
+                        #[cfg(clash_plant = "creation_knock_next_tick")]
+                        let at_once = false;
+                        if at_once {
+                            for k in fx.knocks[knocks_from..].iter_mut() {
+                                if let crate::spell::Knock::Push { id, now, .. } = k {
+                                    if ents.creation_seq[id.index as usize] > ents.creation_seq[a] {
+                                        *now = true;
+                                    }
+                                }
+                            }
                         }
                         if hit && stop_on_hit {
                             continue;

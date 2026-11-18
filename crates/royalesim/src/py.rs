@@ -225,6 +225,10 @@ pub const SYMMETRY_SELECTABLE_CALIB_FIELDS: &[&str] = &[
     // (parity r93) mirrors x for side 1 on its own left lane alone (the Three Musketeers), so a Red deploy there is not the
     // rotation of its Blue twin; owner_frame_negated is the same for both seats.
     "explicit_offsets_frame",
+    // No kwarg: {"spawner.EVO_BARREL_OFFSET_FRAME": "owner_frame"}. The shipped client16635_x_as_written (parity r91) turns a drop
+    // offset's y with the side and leaves its x as written, so a Red Evo Skeleton Barrel's drop is not the rotation of its Blue
+    // twin's; owner_frame turns both for both seats. (Found by Sim's 0.1.52 changelog review: the mirror gates drop no barrel.)
+    "evo_barrel_offset_frame",
 ];
 pub const EMBEDDED_ARENA_JSON: &str = include_str!("../../../data/derived/arena.json");
 
@@ -2754,6 +2758,7 @@ fn bodies16402(bodies: &[Vec<i64>], me: usize) -> PyResult<Vec<crate::move16402:
             group_walker: false,
             // the array is given in update order, which is creation order: its position is the tie-break
             seq: k as u32,
+            separation_only: false,
         });
     }
     if me >= out.len() {

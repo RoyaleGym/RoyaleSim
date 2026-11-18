@@ -158,3 +158,75 @@ fn under_client16402_two_ticks_after_fuse_his_bomb_strikes_a_tick_later() {
     let step = (row(32).knight.0 - row(31).knight.0, row(32).knight.1 - row(31).knight.1);
     assert_eq!(step, (-250, 0), "P + 32: the ladder of 1800's first step, 250 capped, away from the bomb");
 }
+
+/// The Mighty Miner at AT pressed (no Knight in his way), under movement.LANE_SWITCH_FIRST_STEP_CONTACT = `arm`; when `red_at` is
+/// given, a red Knight held there until the tick before his first underground step: (the tick, from P, of his first step under
+/// ground; his point after it; the Knight's point after each of that tick and the next).
+fn first_step_push(arm: royalesim::state::LaneSwitchFirstStepContact, red_at: Option<Vec2>) -> (u32, Vec2, Option<(Vec2, Vec2)>) {
+    let mut cfg = config();
+    cfg.calib.lane_switch_first_step_contact = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let mm = s.scenario_spawn_now(Team::Blue, "MightyMiner", n(AT), None).expect("the Mighty Miner");
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(mm, n(AT)));
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    // the first underground step's tick, from a bare run of the same scene (the press's ticks do not depend on the Knight)
+    let kn = red_at.map(|p| s.scenario_spawn_now(Team::Red, "Knight", p, None).expect("a red Knight"));
+    let mut under_at = None;
+    let mut knight = None;
+    for k in 1..=40u32 {
+        let first = under_at.is_none();
+        if let (Some(kn), Some(p), true) = (kn, red_at, first) {
+            if s.entity(kn).is_some() {
+                assert!(s.debug_set_pos(kn, p));
+            }
+        }
+        s.tick();
+        let m = s.entity(mm).expect("him");
+        if first && m.status_flags & 1 == 1 {
+            under_at = Some((k, m.pos));
+            let a = kn.and_then(|kn| s.entity(kn)).map(|e| e.pos);
+            s.tick();
+            let b = kn.and_then(|kn| s.entity(kn)).map(|e| e.pos);
+            knight = a.zip(b);
+            break;
+        }
+    }
+    let (k, p) = under_at.expect("the scene drifted: he never went under ground");
+    (k, p, knight)
+}
+
+/// movement.LANE_SWITCH_FIRST_STEP_CONTACT = client16635_first_step_pushes (client 16.635, parity r94, live15n 20261103-191213-A
+/// t538: a Hog Rider his first underground step landed on was pushed the 150 cap straight away from his new point): a red Knight
+/// put 600 past his first underground point is pushed on that tick, away from it and by at most 150, against its own step under
+/// tunnel (the vacuity check: met by nothing); on the next tick no second push (his later steps push nothing). Plant: lane_first_step_unpushed.
+#[test]
+fn under_client16635_first_step_pushes_his_first_underground_step_pushes_a_knight_he_lands_on() {
+    use royalesim::state::LaneSwitchFirstStepContact as L;
+    let (k, p, _) = first_step_push(L::Tunnel, None);
+    let (k2, p2, _) = first_step_push(L::Client16635FirstStepPushes, None);
+    assert_eq!((k, p), (k2, p2), "the scene: the two arms put his first step on one tick and point");
+    // 600 further along his step (he heads for the other lane's mirror point, the arena's width less his x)
+    let dir_x = if p.x < n(AT).x { -1 } else { 1 };
+    let red = Vec2::new(p.x + dir_x * 600 * K, p.y);
+    let old = first_step_push(L::Tunnel, Some(red)).2.expect("the Knight stands");
+    let new = first_step_push(L::Client16635FirstStepPushes, Some(red)).2.expect("the Knight stands");
+    let push = ((new.0.x - old.0.x) / K, (new.0.y - old.0.y) / K);
+    let away = ((red.x - p.x) / K, (red.y - p.y) / K);
+    assert!(push != (0, 0), "client16635_first_step_pushes: the Knight he landed on was not pushed (tunnel {old:?}, new {new:?})");
+    assert!(push.0 * away.0 + push.1 * away.1 > 0, "client16635_first_step_pushes: the push {push:?} is not away from his point (Knight - Miner {away:?})");
+    assert!(push.0 * push.0 + push.1 * push.1 <= 151 * 151, "client16635_first_step_pushes: the push {push:?} is past the 150 cap");
+    // the next tick: no second push (the gap between the two arms' Knights grows by less than a push; their steps may part a
+    // little, as the client's Hog's did after its push)
+    let gap1 = ((new.0.x - old.0.x) / K, (new.0.y - old.0.y) / K);
+    let gap2 = ((new.1.x - old.1.x) / K, (new.1.y - old.1.y) / K);
+    let grew = (gap2.0 - gap1.0, gap2.1 - gap1.1);
+    assert!(grew.0 * grew.0 + grew.1 * grew.1 < 60 * 60, "the next tick: a second push ({gap1:?} -> {gap2:?})");
+}

@@ -1346,3 +1346,108 @@ fn the_shipped_hold_attract_arm_is_client16635_unpulled_while_standing() {
     assert_eq!(Calib::shipped().on_buff_hold_attract, OnBuffHoldAttract::Client16635UnpulledWhileStanding);
     assert_eq!(config().calib.on_buff_hold_attract, OnBuffHoldAttract::Client16635UnpulledWhileStanding);
 }
+
+/// The Rune Giant (the 16.402 shape) held at (3500, 12000) and a blue Hog Rider held on his lane behind him, warmed 40 ticks
+/// 9,000 off (out of every reach; his looks find nobody), then each tick put `start` behind him at the tick's start (it walks
+/// up the lane toward him), under enchant.PICK_REACH = `arm`: whether a bolt leaves within 60 ticks, the Hog's step (native) on
+/// its last warm tick and its radius (native).
+fn hog_pick(arm: royalesim::state::EnchantPickReach, start: i64) -> (bool, i64, i64) {
+    let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+    c.calib.enchant_pick_reach = arm;
+    let mut s = BattleState::new(0, c);
+    let g_at = at((3500, 12000));
+    let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", g_at, None).expect("the Rune Giant");
+    let far = Vec2::new(g_at.x, g_at.y - 9000 * K);
+    let hog = s.scenario_spawn_now(Team::Blue, "HogRider", far, None).expect("a blue Hog Rider");
+    let mut step = 0;
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(giant, g_at) && s.debug_set_pos(hog, far));
+        s.tick();
+        step = dist(far, s.entity(hog).expect("the Hog").pos);
+    }
+    assert!(bolts(&s).is_empty(), "the scene drifted: a launch with the Hog out of every reach");
+    let radius = (s.entity(hog).expect("the Hog").radius / K) as i64;
+    let h_at = Vec2::new(g_at.x, g_at.y - start as i32 * K);
+    for _ in 0..60 {
+        assert!(s.debug_set_pos(giant, g_at) && s.debug_set_pos(hog, h_at));
+        s.tick();
+        if !bolts(&s).is_empty() {
+            return (true, step, radius);
+        }
+    }
+    (false, step, radius)
+}
+
+/// enchant.PICK_REACH = client16635_after_move_7000_plus_friend_radius (client 16.635, parity r94, live15n: 20 of 21 radius-500
+/// launches and 3 of 4 guards' where the friend walked into reach): a Hog Rider put each tick a third of its step outside 7000 + its
+/// radius (beyond centre_start_of_tick_7550's 7550 as well) walks inside 7000 + its radius on that tick, and the Rune Giant
+/// picks it; centre_start_of_tick_7550 (the vacuity check) never does. Plant: enchant_look_at_spawn.
+#[test]
+fn under_client16635_after_move_7000_plus_friend_radius_a_friend_walking_into_reach_is_picked_on_that_tick() {
+    use royalesim::state::EnchantPickReach as R;
+    let (_, step, radius) = hog_pick(R::Client16635AfterMove7000PlusFriendRadius, 9_000);
+    assert!(step > 0, "the scene drifted: the Hog does not walk");
+    // a third of its step outside 7000 + its radius (the Rune Giant's own step, slower, takes part of the rest back)
+    let start = 7000 + radius + step / 3;
+    assert!(start > 7550, "the scene drifted: the start ({start}) is inside centre_start_of_tick_7550's reach (radius {radius}, step {step})");
+    assert!(hog_pick(R::Client16635AfterMove7000PlusFriendRadius, start).0, "client16635_after_move_7000_plus_friend_radius: the Hog walking into reach was never picked (start {start})");
+    assert!(!hog_pick(R::Centre7550, start).0, "centre_start_of_tick_7550 (the vacuity check): the Hog {start} off at each tick's start was picked");
+}
+
+/// The Rune Giant (the 16.402 shape) at (9000, 12000) with a blue Knight held 1,500 beside him (in reach), under
+/// enchant.STUN_AT_PICK = `arm`; a red Zap on him on tick `zap` when given: (the tick his first bolt leaves, the ticks his stun
+/// timer reads above 0, the first of them).
+fn first_launch(arm: royalesim::state::EnchantStunAtPick, zap: Option<u32>) -> (Option<u32>, u32, Option<u32>) {
+    let mut c = BattleConfig::with_cards(rune_giant_16402(true));
+    c.calib.enchant_stun_at_pick = arm;
+    let mut s = BattleState::new(0, c);
+    let (g_at, k_at) = (at((9000, 12000)), at((7500, 12000)));
+    let giant = s.scenario_spawn_now(Team::Blue, "GiantBuffer", g_at, None).expect("the Rune Giant");
+    let knight = s.scenario_spawn_now(Team::Blue, "Knight", k_at, None).expect("a blue Knight");
+    let (mut held, mut first_held) = (0u32, None);
+    for t in 0..200u32 {
+        if zap == Some(t) {
+            s.spawn_unit(Team::Red, "Zap", g_at, None).expect("the Zap");
+        }
+        if let Some(e) = s.entity(giant) {
+            let full = e.max_hp;
+            assert!(s.debug_set_pos(giant, g_at) && s.debug_set_hp(giant, full));
+        }
+        if let Some(e) = s.entity(knight) {
+            let full = e.max_hp;
+            assert!(s.debug_set_pos(knight, k_at) && s.debug_set_hp(knight, full));
+        }
+        s.tick();
+        if s.entity(giant).is_some_and(|e| e.stun_ms > 0) {
+            held += 1;
+            first_held.get_or_insert(t);
+        }
+        if !bolts(&s).is_empty() {
+            return (Some(t), held, first_held);
+        }
+    }
+    (None, held, first_held)
+}
+
+/// enchant.STUN_AT_PICK = client16635_cooldown_pauses_held_less_one (client 16.635, parity r94, live15n: 12 of 17 cycles with
+/// stuns alone in them gained the stun's ticks less one): a Zap stunning the Rune Giant inside his first wait delays his first
+/// launch by one tick less than timer_pauses (the vacuity check) delays it, and pick_waits_for_stun_end not at all.
+/// Plant: stun_pause_full_span.
+#[test]
+fn under_client16635_cooldown_pauses_held_less_one_a_stun_in_his_wait_delays_his_launch_its_ticks_less_one() {
+    use royalesim::state::EnchantStunAtPick as A;
+    let base = first_launch(A::Client16635CooldownPausesHeldLessOne, None).0.expect("the scene drifted: no launch");
+    // a Zap whose stun lies inside the wait, ending at least 3 ticks before the look
+    let zap = (0..base)
+        .find(|&z| {
+            let (_, held, first) = first_launch(A::PickWaitsForStunEnd, Some(z));
+            held >= 2 && first.is_some_and(|f| f + held + 3 < base)
+        })
+        .unwrap_or_else(|| panic!("the scene drifted: no Zap tick stuns him inside his first wait (launch {base})"));
+    let (new, held, _) = first_launch(A::Client16635CooldownPausesHeldLessOne, Some(zap));
+    let new = new.expect("client16635_cooldown_pauses_held_less_one: no launch");
+    let pauses = first_launch(A::TimerPauses, Some(zap)).0.expect("timer_pauses: no launch");
+    assert!(new > base, "client16635_cooldown_pauses_held_less_one: a {held}-tick stun did not delay the launch ({base})");
+    assert_eq!(pauses - new, 1, "client16635_cooldown_pauses_held_less_one: not one tick short of timer_pauses (the vacuity check) for a {held}-tick stun (base {base}, new {new}, timer_pauses {pauses})");
+    assert_eq!(first_launch(A::PickWaitsForStunEnd, Some(zap)).0, Some(base), "pick_waits_for_stun_end: the stun moved the launch");
+}

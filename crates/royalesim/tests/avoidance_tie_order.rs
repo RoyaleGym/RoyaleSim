@@ -63,6 +63,7 @@ fn body(x: i32, y: i32, r: i32, mover: bool, seq: u32) -> Body {
         avoid_static: false,
         group_walker: false,
         seq,
+        separation_only: false,
     }
 }
 

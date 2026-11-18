@@ -2336,6 +2336,14 @@ pub struct Calib {
     /// Added after SNAPSHOT_FORMAT 20; the default is the old arm, `Dropped`, what a battle saved before it ran.
     #[serde(default = "lift_cast_end_shot_default")]
     pub lift_cast_end_shot: LiftCastEndShot,
+    /// movement.LANE_SWITCH_FIRST_STEP_CONTACT (a Mighty Miner's lane switch's first step, the path pass's bodies). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `Tunnel`, what a battle saved before it ran.
+    #[serde(default = "lane_switch_first_step_contact_default")]
+    pub lane_switch_first_step_contact: LaneSwitchFirstStepContact,
+    /// knockback.CREATION_HIT_KNOCK (a one-way shot's creation-tick hit, combat.rs `fire`; the attack pass's `held`). Added
+    /// after SNAPSHOT_FORMAT 20; the default is the old arm, `NextTick`, what a battle saved before it ran.
+    #[serde(default = "creation_hit_knock_default")]
+    pub creation_hit_knock: CreationHitKnock,
 }
 
 impl Calib {
@@ -3527,6 +3535,14 @@ fn guard_knocked_charge_default() -> GuardKnockedCharge {
 
 fn lift_cast_end_shot_default() -> LiftCastEndShot {
     LiftCastEndShot::Dropped
+}
+
+fn lane_switch_first_step_contact_default() -> LaneSwitchFirstStepContact {
+    LaneSwitchFirstStepContact::Tunnel
+}
+
+fn creation_hit_knock_default() -> CreationHitKnock {
+    CreationHitKnock::NextTick
 }
 
 fn goblin_machine_rocket_default() -> GoblinMachineRocket {
@@ -6721,6 +6737,9 @@ calib_enum!(
         Centre7000 = "centre_7000",
         /// 7750: refuted (a friend at 7560 was not picked).
         Centre7750 = "centre_7750",
+        /// Client 16.635 (parity r94, live15n): on the positions after the tick's moves (the look runs in a late pass of the
+        /// Move phase, `enchant_look_late`), the centre distance at most DistanceToGetTargets plus the friend's CollisionRadius.
+        Client16635AfterMove7000PlusFriendRadius = "client16635_after_move_7000_plus_friend_radius",
     }
 );
 calib_enum!(
@@ -6771,6 +6790,9 @@ calib_enum!(
         TimerPauses = "timer_pauses",
         /// A stun changes nothing: refuted.
         Ignored = "ignored",
+        /// Client 16.635 (parity r94, live15n): his clocks stop while he is held, but for the hold's last tick (a stun of N
+        /// ticks pauses them N - 1); a look that falls while he is held waits, as under pick_waits_for_stun_end.
+        Client16635CooldownPausesHeldLessOne = "client16635_cooldown_pauses_held_less_one",
     }
 );
 calib_enum!(
@@ -9136,6 +9158,9 @@ calib_enum!(
         /// Client 16.402 (parity r82, live13): a hold delivered by a hit (BuffHit::by_hit) or the Electro Giant's reflect clears
         /// the target on the victim's next Target phase (H + 1), its lock at once; an area's hold clears on landing.
         Client16402HitHoldNextTick = "client16402_hit_hold_next_tick",
+        /// Client 16.635 (parity r94, live15n): as client16402_hit_hold_next_tick, but a target already dead at the H + 1 clear
+        /// is left for the post-kill check: the kill is seen and its wait follows, paused by the hold.
+        Client16635KillBeforeLateClear = "client16635_kill_before_late_clear",
     }
 );
 calib_enum!(
@@ -9483,6 +9508,10 @@ calib_enum!(
         /// charge's clock runs on from where it stood (`GuardRun::ghost`), so it lands when that charge would have, and its
         /// charge hit and push run from where it stands.
         Client16635KnockReplacesCharge = "client16635_knock_replaces_charge",
+        /// Client 16.635 (parity r94, live15n 20261103-174413-A; 20261012-002126-A on 16.402): as
+        /// client16635_knock_replaces_charge, but it lands 3 ticks after the last tick its knockback holds it (freed 2 later),
+        /// not when the ghost charge would have (`GuardRun::knock_last`).
+        Client16635LandsAfterLadder = "client16635_lands_after_ladder",
     }
 );
 calib_enum!(
@@ -9495,6 +9524,31 @@ calib_enum!(
         /// the swing too, and the primed swing survives the loss through his cast (the cancel and the post-kill wait's last
         /// tick), so he fires on its end at the target he then holds.
         Client16635PrimedShotSurvivesRetarget = "client16635_primed_shot_survives_retarget",
+    }
+);
+calib_enum!(
+    /// movement.LANE_SWITCH_FIRST_STEP_CONTACT -- whether a Mighty Miner's lane switch (`lane_pass`) meets the units his first
+    /// underground step overlaps (the path pass's bodies).
+    LaneSwitchFirstStepContact {
+        /// The engine's: the whole switch runs as a tunnel; he meets nothing.
+        Tunnel = "tunnel",
+        /// Client 16.635 (parity r94, live15n 20261103-191213-A): on his first underground step he is a body to the separation
+        /// scans from his new point (no avoidance scan meets him), so a unit he overlaps is pushed by the contact law; his later
+        /// steps push nothing.
+        Client16635FirstStepPushes = "client16635_first_step_pushes",
+    }
+);
+calib_enum!(
+    /// knockback.CREATION_HIT_KNOCK -- when a one-way shot's creation-tick hit (combat.rs `fire`, the Attack phase's test on its
+    /// launch point: a Bowler's boulder) moves its victim, and whether the victim's own update of that pass runs.
+    CreationHitKnock {
+        /// The engine's: the push is armed at Resolve and the next tick's move pass takes its first step; the victim's
+        /// update of the hit's tick runs (a strike due on it lands).
+        NextTick = "next_tick",
+        /// Client 16.635 (parity r94, live15n): a victim created after the firer is knocked inside the firer's own update of
+        /// the creation-order pass: its ladder's first step is taken on the hit's tick (`ladder_step_now`) and it strikes
+        /// nothing on that tick. A victim created before the firer as under next_tick.
+        Client16635AtOnce = "client16635_at_once",
     }
 );
 calib_enum!(
@@ -12881,6 +12935,8 @@ impl Calib {
             guard_charge_attract: pick(&v, &["combat", "GUARD_CHARGE_ATTRACT", "value"], GuardChargeAttract::from_calibration_name)?,
             guard_knocked_charge: pick(&v, &["combat", "GUARD_KNOCKED_CHARGE", "value"], GuardKnockedCharge::from_calibration_name)?,
             lift_cast_end_shot: pick(&v, &["status", "LIFT_CAST_END_SHOT", "value"], LiftCastEndShot::from_calibration_name)?,
+            lane_switch_first_step_contact: pick(&v, &["movement", "LANE_SWITCH_FIRST_STEP_CONTACT", "value"], LaneSwitchFirstStepContact::from_calibration_name)?,
+            creation_hit_knock: pick(&v, &["knockback", "CREATION_HIT_KNOCK", "value"], CreationHitKnock::from_calibration_name)?,
         };
         // combat.TOWER_HITPOINT_LADDER: the four AT/AFTER_TOURNAMENTCAP rates are one
         // number in the shipped globals (10); the engine reads the one it names above
@@ -14222,6 +14278,10 @@ pub struct GuardRun {
     /// Absent in older snapshots; serialized only when set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ghost: Option<Vec2>,
+    /// combat.GUARD_KNOCKED_CHARGE = client16635_lands_after_ladder: the last tick its knockback held it (`guard_moves`); it lands
+    /// 3 ticks after. Absent in older snapshots; serialized only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knock_last: Option<u32>,
 }
 
 /// A HERO GOBLINS' FLAG STANDING (card.rs `FlagSpawnsDef`; `flag_pass`): the flag, its form, its creation tick and its
@@ -15070,6 +15130,12 @@ pub const SCHEDULED_EDGE_MARGIN: i32 = 250;
 
 #[derive(Default, Clone, Debug)]
 struct Scratch {
+    /// knockback.CREATION_HIT_KNOCK = client16635_at_once: the victims a fresh shot's creation-tick hit knocked at once on the
+    /// tick noted (combat.rs `fire` set their pushes' `now`), held through the rest of that tick's attack pass.
+    creation_knocked: Vec<(EntityId, u32)>,
+    /// movement.LANE_SWITCH_FIRST_STEP_CONTACT = client16635_first_step_pushes: the Mighty Miners whose lane switch went under
+    /// ground on the tick noted (`lane_pass`, the Status phase), read by that tick's path pass (their first underground step).
+    lane_first: Vec<(EntityId, u32)>,
     /// combat.AREA_EFFECT_ON_HIT = client16402_cast_at_attacker: the units whose hit this tick puts their area on hit down
     /// (card.rs `CardDef::hit_area`), in attack order; cast in this tick's Resolve (`hit_areas`). Empty between ticks.
     hit_areas: Vec<EntityId>,
@@ -15887,14 +15953,14 @@ fn land_stun(e: &mut Entities, cards: &CardDb, c: &Calib, i: usize, ms: i32, by_
     // client 16.402 (parity r82, live13): 142 of 155 hit holds and 48 of 60 reflects on H + 1, 40 of 40 area holds on H.
     // PLANT (regression) hit_hold_clears_at_landing: the new arm clears a hit's hold on landing.
     #[cfg(not(clash_plant = "hit_hold_clears_at_landing"))]
-    let late = by_hit && c.stun_clears_target == StunClearsTarget::Client16402HitHoldNextTick;
+    let late = by_hit && matches!(c.stun_clears_target, StunClearsTarget::Client16402HitHoldNextTick | StunClearsTarget::Client16635KillBeforeLateClear);
     #[cfg(clash_plant = "hit_hold_clears_at_landing")]
     let late = {
         let _ = by_hit;
         false
     };
     #[cfg(not(clash_plant = "stun_keeps_target"))]
-    if matches!(c.stun_clears_target, StunClearsTarget::ClientCleared | StunClearsTarget::Client16402HitHoldNextTick) {
+    if matches!(c.stun_clears_target, StunClearsTarget::ClientCleared | StunClearsTarget::Client16402HitHoldNextTick | StunClearsTarget::Client16635KillBeforeLateClear) {
         if late {
             e.target_locked[i] = false;
             e.stun_clear_due[i] = true;
@@ -16840,6 +16906,7 @@ impl BattleState {
             avoid_static: calib.waiting_heading == WaitingHeading::StaticObstacle && calib.formation_stagger_wait.waits() && e.stagger_ms[i] > 0,
             group_walker: false,
             seq: e.creation_seq[i],
+            separation_only: false,
         }
     }
 
@@ -19056,6 +19123,24 @@ impl BattleState {
     ///   comes Cooldown after the launch (enchant.COOLDOWN_ORIGIN);
     /// - a stun or a freeze holds a look, not his clocks (enchant.STUN_AT_PICK).
     fn enchant_pass(&mut self) {
+        self.enchant_pass_with(false);
+    }
+
+    /// enchant.PICK_REACH = client16635_after_move_7000_plus_friend_radius: the Rune Giants' looks run in a late pass after the
+    /// tick's moves (`Phase::Move`), on the positions the moves left; the Spawn phase's pass runs their clocks alone. Measured on
+    /// client 16.635 (parity r94, live15n 20261103-180736-A t432: a Skeleton 7,576 off at the tick's start and 7,497 after its
+    /// move was picked on that tick; the engine's start-of-tick look took it a tick later). PLANT (regression)
+    /// enchant_look_at_spawn: the new arm still looks in the Spawn phase.
+    fn enchant_look_late(&self) -> bool {
+        #[cfg(not(clash_plant = "enchant_look_at_spawn"))]
+        return self.cfg.calib.enchant_pick_reach == EnchantPickReach::Client16635AfterMove7000PlusFriendRadius;
+        #[cfg(clash_plant = "enchant_look_at_spawn")]
+        return false;
+    }
+
+    /// `enchant_pass`, or (`late`) its looks alone, after the tick's moves (`enchant_look_late`).
+    fn enchant_pass_with(&mut self, late: bool) {
+        let look_late = self.enchant_look_late();
         let cards = Arc::clone(&self.cfg.cards);
         let dt = self.cfg.calib.tick_ms;
         let c = &self.cfg.calib;
@@ -19066,9 +19151,21 @@ impl BattleState {
                 continue;
             }
             let Some(def) = cards.get(self.ents.card[i]).enchant.as_ref() else { continue };
+            if late && self.ents.enchant_state[i] != ENCHANT_LOOKING {
+                continue;
+            }
             let held = self.ents.held(&cards.buffs, i, self.cfg.calib.full_stop_buff_is_stun);
+            // enchant.STUN_AT_PICK = client16635_cooldown_pauses_held_less_one: the clocks stop while he is held, but for the
+            // hold's last tick (his stun timer within its last tick). Measured on client 16.635 (parity r94, live15n): in the
+            // cycles whose only no-target windows were stuns, 12 of 17 gained exactly 9 ticks per 10- or 11-tick stun
+            // (20261103-175901-A: two Electro Dragon stuns, +18); the engine's clocks ran on (+0 in all 17), timer_pauses gained
+            // a tick too many. PLANT (regression) stun_pause_full_span: the new arm pauses through the hold's last tick too.
+            #[cfg(not(clash_plant = "stun_pause_full_span"))]
+            let last_held_tick = self.ents.stun_ms[i] > 0 && self.ents.stun_ms[i] <= dt;
+            #[cfg(clash_plant = "stun_pause_full_span")]
+            let last_held_tick = false;
             #[cfg(not(clash_plant = "enchant_stun_pauses_timer"))]
-            let paused = held && stun == EnchantStunAtPick::TimerPauses;
+            let paused = held && (stun == EnchantStunAtPick::TimerPauses || (stun == EnchantStunAtPick::Client16635CooldownPausesHeldLessOne && !last_held_tick));
             #[cfg(clash_plant = "enchant_stun_pauses_timer")]
             let paused = held; // PLANT: a stun stops his clocks.
             if self.ents.enchant_state[i] == ENCHANT_NOT_STARTED {
@@ -19122,6 +19219,10 @@ impl BattleState {
                 false // PLANT: he looks while he is held.
             };
             if waits {
+                continue;
+            }
+            // enchant.PICK_REACH = client16635_after_move_7000_plus_friend_radius: the look waits for the late pass.
+            if look_late && !late {
                 continue;
             }
             let max = usize::from(def.max_targets);
@@ -19203,6 +19304,7 @@ impl BattleState {
             EnchantPickReach::Centre7550 => ENCHANT_PICK_REACH_EXTRA,
             EnchantPickReach::Centre7000 => 0,
             EnchantPickReach::Centre7750 => ENCHANT_PICK_REACH_EXTRA_7750,
+            EnchantPickReach::Client16635AfterMove7000PlusFriendRadius => 0,
         };
         #[cfg(clash_plant = "enchant_reach_7500")]
         let extra = {
@@ -19232,6 +19334,9 @@ impl BattleState {
             }
             let (dx, dy) = ((e.pos[j].x / K - e.pos[i].x / K) as i64, (e.pos[j].y / K - e.pos[i].y / K) as i64);
             let d2 = dx * dx + dy * dy;
+            // client16635_after_move_7000_plus_friend_radius: the friend's CollisionRadius on top (the look itself runs after the
+            // tick's moves, `enchant_look_late`).
+            let reach = if self.cfg.calib.enchant_pick_reach == EnchantPickReach::Client16635AfterMove7000PlusFriendRadius { reach + (e.radius[j] / K) as i64 } else { reach };
             if d2 > reach * reach {
                 continue;
             }
@@ -19951,6 +20056,11 @@ impl BattleState {
                     // The Hero Ice Wizards' finds, bridges, cubes and freezes, after the tick's walks (`ice_finds`).
                     if !self.warps.ices.is_empty() {
                         self.ice_finds();
+                    }
+                    // enchant.PICK_REACH = client16635_after_move_7000_plus_friend_radius: the Rune Giants' looks, on the
+                    // positions the tick's moves left (`enchant_look_late`).
+                    if self.enchant_look_late() {
+                        self.enchant_pass_with(true);
                     }
                 }
                 Phase::Attack => self.phase_attack(),
@@ -21788,10 +21898,21 @@ impl BattleState {
         }
         self.hash.rebuild(&self.ents);
         // status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick: a hit's hold that landed last tick clears the target now.
+        // client16635_kill_before_late_clear: a target already dead is left for the post-kill check below, which sees the kill and
+        // starts the wait (paused by the hold). Measured on client 16.635 (parity r94, live15n): 2 of 2 guards whose target died
+        // on the tick a hit's stun landed on them (20261103-164637-A key 10, an Electro Wizard's stun; 20261103-190440-A key 33, an
+        // Electro Giant's reflect) served the wait and walked at the stun's end + 5; the engine cleared them and walked at + 1.
+        // PLANT (regression) stun_kill_cleared: the new arm still clears the dead target.
+        #[cfg(not(clash_plant = "stun_kill_cleared"))]
+        let kill_first = self.cfg.calib.stun_clears_target == StunClearsTarget::Client16635KillBeforeLateClear;
+        #[cfg(clash_plant = "stun_kill_cleared")]
+        let kill_first = false;
         for i in 0..self.ents.stun_clear_due.len() {
             if self.ents.stun_clear_due[i] && only.map_or(true, |o| o.contains(&i)) {
                 self.ents.stun_clear_due[i] = false;
-                self.ents.target[i] = None;
+                if !(kill_first && self.ents.target[i].is_some_and(|t| !self.ents.is_alive(t))) {
+                    self.ents.target[i] = None;
+                }
             }
         }
         let mut decisions = std::mem::take(&mut self.scratch.decisions);
@@ -24795,7 +24916,7 @@ impl BattleState {
             // and its push took a Skeleton the client's did not). PLANT (regression) guard_knocked_charges: the new arm still
             // charges.
             #[cfg(not(clash_plant = "guard_knocked_charges"))]
-            let knock_law = self.cfg.calib.guard_knocked_charge == GuardKnockedCharge::Client16635KnockReplacesCharge;
+            let knock_law = matches!(self.cfg.calib.guard_knocked_charge, GuardKnockedCharge::Client16635KnockReplacesCharge | GuardKnockedCharge::Client16635LandsAfterLadder);
             #[cfg(clash_plant = "guard_knocked_charges")]
             let knock_law = false;
             if knock_law && tick == r.born + crate::card::GUARD_DASH_START_TICKS && self.ents.knocked(gi) {
@@ -24899,6 +25020,22 @@ impl BattleState {
                 if r.ghost.unwrap_or(self.ents.pos[gi]) == end {
                     r.arrived = Some(tick);
                 }
+            }
+            // combat.GUARD_KNOCKED_CHARGE = client16635_lands_after_ladder: a knocked guard's landing is its knockback's, 3 ticks
+            // after the last tick the knockback holds it, whatever its ghost charge reached. Measured on client 16.635 (parity r94,
+            // live15n 20261103-174413-A: the slide's last step t345, freed t350; and 20261012-002126-A on 16.402, t3530 -> t3535):
+            // 2 of 2 freed 5 ticks after the slide's last step; the ghost landing freed them 3 and 5 ticks late. PLANT
+            // (regression) ladder_landing_unread: the new arm still lands with the ghost charge.
+            #[cfg(not(clash_plant = "ladder_landing_unread"))]
+            let ladder_landing = self.cfg.calib.guard_knocked_charge == GuardKnockedCharge::Client16635LandsAfterLadder;
+            #[cfg(clash_plant = "ladder_landing_unread")]
+            let ladder_landing = false;
+            if ladder_landing && r.ghost.is_some() {
+                if self.ents.knocked(gi) {
+                    r.knock_last = Some(tick);
+                }
+                let landed = !self.ents.knocked(gi) && r.knock_last.is_some_and(|k| tick >= k + crate::card::GUARD_LADDER_LANDING_TICKS);
+                r.arrived = landed.then_some(tick);
             }
             // combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over: area tests pass over the landed guard through its
             // arrival + 4 (a unit's shot splash + 3). Measured on client 16.402 (parity r83, live13): 1 area hit in that window over
@@ -25675,6 +25812,8 @@ impl BattleState {
     /// 15.535.29 (sp-champ-MightyMiner-s0): standing on the trigger P + 10, his first step under ground on P + 11, the
     /// Knight that held him on a tower that tick.
     fn lane_pass(&mut self) {
+        let tick = self.tick;
+        self.scratch.lane_first.retain(|(_, t)| *t == tick);
         let runs = std::mem::take(&mut self.warps.lanes);
         let mut keep = Vec::new();
         for r in runs {
@@ -25692,6 +25831,7 @@ impl BattleState {
             let i = r.id.index as usize;
             let p = self.ents.pos[i];
             self.ents.tunnel_dest[i] = Some(Vec2::new(self.cfg.arena.width - p.x, p.y));
+            self.scratch.lane_first.push((r.id, self.tick));
             self.ents.target[i] = None;
             self.ents.target_locked[i] = false;
             self.ents.attack_phase[i] = AttackPhase::Idle;
@@ -28066,6 +28206,22 @@ impl BattleState {
             // spawner.ABILITY_UNIT_FIRST_UPDATE = client_next_tick: a unit a hero's button put down on this tick
             // (`Scratch::action_born`) takes no update on it, its contact included.
             let action_born = &self.scratch.action_born;
+            // movement.LANE_SWITCH_FIRST_STEP_CONTACT = client16635_first_step_pushes: a Mighty Miner on his lane switch's first
+            // underground step (`lane_pass` marked him this tick; `phase_tunnel` stepped him first in this phase) is a body to the
+            // separation scans from his new point, met by no avoidance scan, so a unit he overlaps is pushed by the contact law.
+            // Measured on client 16.635 (parity r94, live15n 20261103-191213-A t538: a Hog Rider his first step landed on was
+            // pushed exactly the 150 cap straight away from his new point, its walk unchanged; his later steps pushed nothing).
+            // PLANT (regression) lane_first_step_unpushed: the new arm still runs the step as a tunnel.
+            #[cfg(not(clash_plant = "lane_first_step_unpushed"))]
+            let lane_arm = calib.lane_switch_first_step_contact == LaneSwitchFirstStepContact::Client16635FirstStepPushes;
+            #[cfg(clash_plant = "lane_first_step_unpushed")]
+            let lane_arm = false;
+            let lane_firsts: Vec<usize> = if lane_arm {
+                self.scratch.lane_first.iter().filter(|(id, t)| *t == self.tick && e.is_alive(*id)).map(|(id, _)| id.index as usize).collect()
+            } else {
+                Vec::new()
+            };
+            let lane_body = |i: usize| lane_firsts.contains(&i);
             let mut bodies: Vec<move16402::Body> = (0..cap)
                 .map(|i| {
                     let alive = e.alive[i];
@@ -28099,7 +28255,8 @@ impl BattleState {
                         // a unit mid river-jump is skipped by every neighbour's scans
                         // (jump16402.rs), and so is a dashing one (combat.DASH_ATTACK), and an
                         // attached rider, which pushes nothing (`carry_riders`)
-                        collidable: alive
+                        collidable: lane_body(i)
+                            || alive
                             && !fallen[i]
                             && !drill_off[i]
                             && !held
@@ -28149,6 +28306,7 @@ impl BattleState {
                         // creation order breaks a tie inside one group (`move16402::Index::query`): a slot is
                         // reused, a creation order is not
                         seq: e.creation_seq[i],
+                        separation_only: lane_body(i),
                     }
                 })
                 .collect();
@@ -28256,6 +28414,7 @@ impl BattleState {
                         // after every entity in a tie, where their place after the slots put them before the tie
                         // went by creation order
                         seq: u32::MAX,
+                        separation_only: false,
                     });
                 }
             }
@@ -28294,6 +28453,7 @@ impl BattleState {
                         avoid_static: false,
                         group_walker: false,
                         seq: u32::MAX,
+                        separation_only: false,
                     });
                 }
             }
@@ -31182,6 +31342,8 @@ impl BattleState {
 
     fn phase_attack_for(&mut self, only: Option<&[usize]>) {
         let return_free = self.warp_return_free();
+        let now_tick = self.tick;
+        self.scratch.creation_knocked.retain(|(_, t)| *t == now_tick);
         // combat.RANGE_PROJECTILE = straight_to_range: the units whose pingpong throw is still out
         // (combat.rs `throwers_out`), read before the pass; a throw made in it is its thrower's own
         // and first holds it next tick. Empty, and nothing below reads it, in a battle without one.
@@ -31255,7 +31417,9 @@ impl BattleState {
                 || e.retarget_wait[i] > 0
                 || e.death_sliding(i)
                 || waiting.get(i).copied().unwrap_or(false)
-                || victim_hold;
+                || victim_hold
+                // knockback.CREATION_HIT_KNOCK = client16635_at_once: knocked earlier in this pass by a creation-tick hit.
+                || self.scratch.creation_knocked.iter().any(|(id, t)| *t == now_tick && *id == e.id_of(i));
             // Under ground or coming up: no attack (target.rs `decide` already gave it
             // no target; this keeps a windup from advancing under the
             // time_since_last_shot arm, where a building can go under mid-swing). The
@@ -31481,6 +31645,7 @@ impl BattleState {
                 let shot = (self.cfg.cards.get(self.ents.card[i]).projectile.is_some() && !melee) || throw;
                 let strike_from = self.dmg.hits.len();
                 let shots_from = self.projectiles.len();
+                let knocks_from = self.effects.knocks.len();
                 // enchant.BONUS_ATTACKS: every fire of an enchanted unit counts toward its bonus, a shot that hits nothing
                 // included (measured on client 15.535.29); `combat::enchant_bonus` reads the count inside `fire`.
                 #[cfg(not(clash_plant = "enchant_shots_uncounted"))]
@@ -31506,6 +31671,16 @@ impl BattleState {
                     &bolts,
                     self.tick,
                 );
+                // knockback.CREATION_HIT_KNOCK = client16635_at_once: the victims this shot's creation-tick hit knocked at once
+                // (combat.rs `fire` set `now` on the pushes of those created after the firer) are knocked before their own
+                // update in this pass, so they strike nothing on this tick (`held` above).
+                if shot && self.cfg.calib.creation_hit_knock == CreationHitKnock::Client16635AtOnce {
+                    for k in &self.effects.knocks[knocks_from..] {
+                        if let spell::Knock::Push { id, now: true, .. } = k {
+                            self.scratch.creation_knocked.push((*id, now_tick));
+                        }
+                    }
+                }
                 // combat.AREA_EFFECT_ON_HIT = client16402_cast_at_attacker: the hit puts the unit's area on hit down on its point in
                 // this tick's Resolve (`hit_areas`). Measured on client 16.402 (parity r74 batch 7): the Battle Healer's friends in
                 // reach healed 78 of 78 on the hit + 6, 11, 16, 21; the engine's 0.
@@ -33374,7 +33549,8 @@ impl BattleState {
         // hit's buff (`BuffHit::by_hit`) or an area's holds now (both: no lag).
         let lag_arm = c.load_timer_target_loss == LoadTimerTargetLoss::Client16402HitHoldLag && fx.buffs.iter().any(|b| b.by_hit);
         // status.STUN_CLEARS_TARGET = client16402_hit_hold_next_tick reads the same split of hit and area holds.
-        let track = lag_arm || (c.stun_clears_target == StunClearsTarget::Client16402HitHoldNextTick && fx.buffs.iter().any(|b| b.by_hit));
+        let track = lag_arm
+            || (matches!(c.stun_clears_target, StunClearsTarget::Client16402HitHoldNextTick | StunClearsTarget::Client16635KillBeforeLateClear) && fx.buffs.iter().any(|b| b.by_hit));
         let pre_held: Vec<bool> = if track {
             (0..cap).map(|i| self.ents.alive[i] && self.ents.held(&self.cfg.cards.buffs, i, c.full_stop_buff_is_stun)).collect()
         } else {
@@ -38235,7 +38411,7 @@ impl BattleState {
                     let extra = if longer { crate::card::GUARD_PRESS_HOLD_EXTRA_TICKS * self.cfg.calib.tick_ms } else { 0 };
                     let h = crate::status::BuffHit::plain(hero, g.hold.buff, g.hold.time_ms + extra, 0);
                     land_buff(&mut self.ents, &self.cfg.cards, &self.cfg.calib, i, &h);
-                    self.warps.guards.push(GuardRun { team, card, level, made: self.tick, from: pos, guard: None, born: 0, arrived: None, hit: Vec::new(), ghost: None });
+                    self.warps.guards.push(GuardRun { team, card, level, made: self.tick, from: pos, guard: None, born: 0, arrived: None, hit: Vec::new(), ghost: None, knock_last: None });
                 }
                 let _ = g;
             }
@@ -42855,6 +43031,12 @@ impl BattleState {
 /// 20, unchanged, Sim 0.1.53 (the Hero Electro Wizard's surge): WarpBoard gained `surges` (serde default empty, skipped
 ///    when empty, so a board saved before it deserializes and hashes as it did); a buff slot past the card table's
 ///    buffs is refused at load.
+/// 20, unchanged, parity r94 (movement.LANE_SWITCH_FIRST_STEP_CONTACT): Calib gained lane_switch_first_step_contact (serde default
+///    the old arm, tunnel), no new state (the first step's mark is a tick's scratch), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, parity r94 (knockback.CREATION_HIT_KNOCK): Calib gained creation_hit_knock (serde default the old arm,
+///    next_tick), no new state (the pass's knocked victims are a tick's scratch), so a blob saved before it deserializes and
+///    hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -44052,6 +44234,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("guard_knocked_charge".into(), serde_json::to_value(GuardKnockedCharge::Charges).map_err(|e| e.to_string())?);
     // status.LIFT_CAST_END_SHOT: a format-3 battle ran its old arm.
     sh.insert("lift_cast_end_shot".into(), serde_json::to_value(LiftCastEndShot::Dropped).map_err(|e| e.to_string())?);
+    // movement.LANE_SWITCH_FIRST_STEP_CONTACT: a format-3 battle ran its old arm.
+    sh.insert("lane_switch_first_step_contact".into(), serde_json::to_value(LaneSwitchFirstStepContact::Tunnel).map_err(|e| e.to_string())?);
+    // knockback.CREATION_HIT_KNOCK: a format-3 battle ran its old arm.
+    sh.insert("creation_hit_knock".into(), serde_json::to_value(CreationHitKnock::NextTick).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

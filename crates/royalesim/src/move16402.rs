@@ -164,6 +164,9 @@ pub struct Body {
     /// The body's place in CREATION order (`Entities::creation_seq`), which breaks a tie between two bodies first
     /// sighted in one group (`Index::query`).
     pub seq: u32,
+    /// Met by the separation scans alone, by no avoidance scan: a Mighty Miner on his lane switch's first underground step
+    /// under movement.LANE_SWITCH_FIRST_STEP_CONTACT = client16635_first_step_pushes (state.rs `lane_first`).
+    pub separation_only: bool,
 }
 
 /// The order neighbours are visited in, which decides the steering: the vote below
@@ -285,7 +288,7 @@ pub fn avoidance_scan(index: &Index, bodies: &[Body], me: usize, con: &mut Conta
         if u.air != e.air {
             continue;
         }
-        if !e.collidable {
+        if !e.collidable || e.separation_only {
             continue;
         }
         // side = (e.x - x) * dir.y + (y - e.y) * dir.x
@@ -955,7 +958,7 @@ mod tests {
     use super::*;
 
     fn body(x: i32, y: i32, r: i32, mass: i32, mover: bool, side: u8) -> Body {
-        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false, group_walker: false, seq: 0 }
+        Body { x, y, start_x: x, start_y: y, side, r, mass, air: false, mover, alive: true, collidable: true, offset: 0, dir: (0, 256), heading_counts: true, avoid_static: false, group_walker: false, seq: 0, separation_only: false }
     }
 
     #[test]

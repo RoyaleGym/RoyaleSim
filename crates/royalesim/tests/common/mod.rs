@@ -143,6 +143,10 @@ pub fn symmetric_config() -> BattleConfig {
     // there is not the rotation of its Blue twin; owner_frame_negated, the old arm, is the same for both seats. No kwarg:
     // {"formation.EXPLICIT_OFFSETS_FRAME": "owner_frame_negated"} (py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS).
     c.calib.explicit_offsets_frame = royalesim::state::ExplicitOffsetsFrame::OwnerFrameNegated;
+    // An Evo Skeleton Barrel's drop offsets (spawner.EVO_BARREL_OFFSET_FRAME): the shipped client16635_x_as_written keeps x as
+    // written and turns y with the side, so a Red drop is not the rotation of a Blue one; owner_frame, the old arm, turns both.
+    // No kwarg: {"spawner.EVO_BARREL_OFFSET_FRAME": "owner_frame"} (py.rs SYMMETRY_SELECTABLE_CALIB_FIELDS).
+    c.calib.evo_barrel_offset_frame = royalesim::state::EvoBarrelOffsetFrame::OwnerFrame;
     c.calib.validate().unwrap_or_else(|e| panic!("symmetric_config() is a calibration the loader refuses: {e}"));
     c
 }

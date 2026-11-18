@@ -1735,6 +1735,9 @@ pub const GUARD_END_OFFSET: (i32, i32) = (239, 3083);
 /// Ticks from the guard's first frame to its charge's first step: measured, 7 (6 deploying frames and one in its dash
 /// state).
 pub const GUARD_DASH_START_TICKS: u32 = 7;
+/// combat.GUARD_KNOCKED_CHARGE = client16635_lands_after_ladder: a knocked guard lands this many ticks after the last tick its
+/// knockback holds it (client 16.635, parity r94: 2 of 2, each freed 5 ticks after its slide's last step).
+pub const GUARD_LADDER_LANDING_TICKS: u32 = 3;
 /// combat.GUARD_LANDING_AREA = client16402_bodiless_passed_over: area tests pass over a landed guard through its arrival + this
 /// (its body back on + 5, combat.GUARD_LANDING_AVOIDANCE's window).
 pub const GUARD_LANDING_UNSCANNED_TICKS: u32 = 4;
