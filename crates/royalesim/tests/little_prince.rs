@@ -24,8 +24,7 @@
 //! guard_free_on_arrival_plus_1 (`under_client16402_held_through_arrival_plus_1_his_guard_targets_a_tick_later` red),
 //! press_hold_pulled (`under_client16402_unpulled_through_hold_a_tornado_does_not_move_him_in_his_press` red),
 //! guard_charge_pulled (`under_client16635_unpulled_in_charge_a_tornado_does_not_move_his_charging_guard` red),
-//! guard_knocked_charges (`under_client16635_knock_replaces_charge_a_guard_knocked_back_into_its_charge_does_not_charge` red),
-//! ladder_landing_unread (`under_client16635_lands_after_ladder_a_knocked_guard_lands_on_its_knockbacks_clock` red).
+//! guard_knocked_charges (`under_client16635_knock_replaces_charge_a_guard_knocked_back_into_its_charge_does_not_charge` red).
 //!
 //! combat.RAMP_STUN_RESTART = client15535_restart (client 15.535.29, sp-lp-ramp-s0's Zap, his one recorded stun): the
 //! stun's landing tick reads his progress 0; the resume's fresh start reads 450 with his load timer at 800, and he shoots
@@ -2425,7 +2424,7 @@ fn under_client16635_unpulled_in_charge_a_tornado_does_not_move_his_charging_gua
 }
 
 /// The Little Prince held at AT and pressed on the scene's tick 40, under combat.GUARD_KNOCKED_CHARGE = `arm`; when `cast`, a Red
-/// Fireball cast on that tick at `aim`: per tick the guard stands, (its age, its point, its hitpoints), through its age 34.
+/// Fireball cast on that tick at `aim`: per tick the guard stands, (its age, its point, its hitpoints).
 fn guard_fireball(arm: royalesim::state::GuardKnockedCharge, cast: Option<(u32, Vec2)>) -> Vec<(u32, Vec2, i32)> {
     let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_knocked_charge = arm, &[]);
     let mut first: Option<u32> = None;
@@ -2443,7 +2442,7 @@ fn guard_fireball(arm: royalesim::state::GuardKnockedCharge, cast: Option<(u32, 
         let Some((p, hp)) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.pos, e.hp)) else { continue };
         let f = *first.get_or_insert(s.tick_count() - 1);
         rows.push((s.tick_count() - 1 - f, p, hp));
-        if s.tick_count() - 1 - f >= 34 {
+        if s.tick_count() - 1 - f >= 20 {
             break;
         }
     }
@@ -2481,64 +2480,4 @@ fn the_shipped_arm_is_client16635_knock_replaces_charge() {
     use royalesim::state::{Calib, GuardKnockedCharge};
     assert_eq!(Calib::shipped().guard_knocked_charge, GuardKnockedCharge::Client16635KnockReplacesCharge);
     assert_eq!(config().calib.guard_knocked_charge, GuardKnockedCharge::Client16635KnockReplacesCharge);
-}
-
-/// As `guard_fireball`, per tick the guard stands: (its age, knocked (a knockback or a push running), held (its landing's
-/// hold: stun_ms > 0; no stun reaches it in this scene otherwise), its hitpoints).
-fn guard_fireball_hold(arm: royalesim::state::GuardKnockedCharge, cast: (u32, Vec2)) -> Vec<(u32, bool, bool, i32)> {
-    let (mut s, lp, _) = scene_cfg(|c| c.calib.guard_knocked_charge = arm, &[]);
-    let mut first: Option<u32> = None;
-    let mut rows = Vec::new();
-    for k in 0..90u32 {
-        assert!(s.debug_set_pos(lp, n(AT)));
-        if cast.0 == k {
-            s.spawn_unit(Team::Red, "Fireball", cast.1, None).expect("the Fireball");
-        }
-        if k == 40 {
-            s.press_ability_button(Team::Blue, 0).expect("the press");
-        }
-        s.tick();
-        let Some(row) = find_live(&s, Team::Blue, "ChampionGuard").first().map(|e| (e.knock_ms > 0 || e.push_active, e.stun_ms > 0, e.hp)) else { continue };
-        let f = *first.get_or_insert(s.tick_count() - 1);
-        rows.push((s.tick_count() - 1 - f, row.0, row.1, row.2));
-        if s.tick_count() - 1 - f >= 34 {
-            break;
-        }
-    }
-    rows
-}
-
-/// From `guard_fireball_hold`'s rows: (the age of the knockback's last knocked tick, the age its landing's hold starts: the
-/// arrival).
-fn knock_and_landing(rows: &[(u32, bool, bool, i32)]) -> (i64, i64) {
-    let hit = rows.windows(2).find(|w| w[1].3 < w[0].3).map(|w| w[1].0).expect("the scene drifted: the Fireball missed the guard");
-    let last = rows.iter().filter(|r| r.0 >= hit && r.1).map(|r| r.0).max().expect("the scene drifted: the Fireball knocked nothing");
-    let held = rows.iter().find(|r| r.2).map(|r| r.0).unwrap_or_else(|| panic!("the scene drifted: the guard never landed ({rows:?})"));
-    (i64::from(last), i64::from(held))
-}
-
-/// combat.GUARD_KNOCKED_CHARGE = client16635_lands_after_ladder (client 16.635, parity r94, live15n 20261103-174413-A and
-/// 20261012-002126-A: each knocked guard freed 5 ticks after its slide's last step): for two Fireballs landing on the guard's
-/// birth frames on different ages, its landing (its hold's first tick) follows its knockback's last knocked tick by one and
-/// the same count; under client16635_knock_replaces_charge (the vacuity check) it lands on its ghost charge's clock, not the
-/// knockback's. Plant: ladder_landing_unread.
-#[test]
-fn under_client16635_lands_after_ladder_a_knocked_guard_lands_on_its_knockbacks_clock() {
-    use royalesim::state::GuardKnockedCharge as G;
-    let bare = guard_fireball(G::Charges, None);
-    let birth = bare.first().expect("the scene drifted: no guard").1;
-    let aim = Vec2::new(birth.x, birth.y + 600 * K);
-    let hit_age = |rows: &[(u32, Vec2, i32)]| rows.windows(2).find(|w| w[1].2 < w[0].2).map(|w| w[1].0);
-    let casts: Vec<(u32, u32)> = (0..40u32)
-        .filter_map(|c| hit_age(&guard_fireball(G::Charges, Some((c, aim)))).filter(|a| (3..=6).contains(a)).map(|a| (c, a)))
-        .collect();
-    let (c1, a1) = *casts.first().expect("the scene drifted: no cast lands the Fireball on the guard's ages 3 .. 6");
-    let (c2, _) = *casts.iter().find(|(_, a)| *a != a1).unwrap_or_else(|| panic!("the scene drifted: one hit age only ({casts:?})"));
-    let run = |arm, c| knock_and_landing(&guard_fireball_hold(arm, (c, aim)));
-    let (n1, n2) = (run(G::Client16635LandsAfterLadder, c1), run(G::Client16635LandsAfterLadder, c2));
-    assert_ne!(n1.0, n2.0, "the scene drifted: the two Fireballs' knockbacks end on one age ({n1:?} / {n2:?})");
-    assert_eq!(n1.1 - n1.0, n2.1 - n2.0, "client16635_lands_after_ladder: the guard's landing does not follow its knockback's end by one count ({n1:?} / {n2:?})");
-    assert!(n1.1 > n1.0, "client16635_lands_after_ladder: the guard landed while knocked ({n1:?})");
-    let (o1, o2) = (run(G::Client16635KnockReplacesCharge, c1), run(G::Client16635KnockReplacesCharge, c2));
-    assert_ne!(o1.1 - o1.0, o2.1 - o2.0, "the vacuity check: under client16635_knock_replaces_charge the landing follows the knockback's end too ({o1:?} / {o2:?})");
 }

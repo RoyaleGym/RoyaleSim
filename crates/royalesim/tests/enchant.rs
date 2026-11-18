@@ -123,7 +123,7 @@ fn shipped() -> BattleConfig {
     let c = &cfg.calib;
     assert_eq!(c.enchant_collect_delay_origin, EnchantDelayOrigin::FromCreation, "the shipped enchant.COLLECT_DELAY_ORIGIN");
     assert_eq!(c.enchant_launch_delay, EnchantLaunchDelay::BuffDelayCeilPlusOne, "the shipped enchant.LAUNCH_DELAY");
-    assert_eq!(c.enchant_pick_reach, EnchantPickReach::Centre7550, "the shipped enchant.PICK_REACH");
+    assert_eq!(c.enchant_pick_reach, EnchantPickReach::Client16635AfterMove7000PlusFriendRadius, "the shipped enchant.PICK_REACH");
     assert_eq!(c.enchant_pick_order, EnchantPickOrder::NearestThenTeamSeq, "the shipped enchant.PICK_ORDER");
     assert_eq!(c.enchant_slots, EnchantSlots::HeldAtOnce, "the shipped enchant.SLOTS");
     assert_eq!(c.enchant_empty_pick, EnchantEmptyPick::RetryEachTick, "the shipped enchant.EMPTY_PICK");
@@ -429,11 +429,13 @@ fn reach_scene(cfg: BattleConfig, dx: i32) -> Option<(u32, bool)> {
     got.first().map(|&(k, t)| (k - f, t == knight))
 }
 
+/// enchant.PICK_REACH = centre_start_of_tick_7550 (shipped for clients 16.402 and 16.635 until parity r94; client 15.535.29's), named.
 /// Plant: enchant_reach_7500.
 #[test]
 fn the_reach_on_start_of_tick_positions() {
-    assert_eq!(reach_scene(shipped(), 7537), Some((27, true)), "7537: picked on F + 20 (the bound lies in [7536.9, 7560))");
-    assert_eq!(reach_scene(shipped(), 7560), None, "7560: not picked on F + 20");
+    let c7550 = || with(|c| c.enchant_pick_reach = EnchantPickReach::Centre7550);
+    assert_eq!(reach_scene(c7550(), 7537), Some((27, true)), "7537: picked on F + 20 (the bound lies in [7536.9, 7560))");
+    assert_eq!(reach_scene(c7550(), 7560), None, "7560: not picked on F + 20");
     assert_eq!(reach_scene(with(|c| c.enchant_pick_reach = EnchantPickReach::Centre7000), 7537), None, "centre_7000, named: 7537 is out");
     assert_eq!(reach_scene(with(|c| c.enchant_pick_reach = EnchantPickReach::Centre7750), 7560), Some((27, true)), "centre_7750, named: 7560 is in");
 }

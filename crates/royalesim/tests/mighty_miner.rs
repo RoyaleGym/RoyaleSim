@@ -230,3 +230,11 @@ fn under_client16635_first_step_pushes_his_first_underground_step_pushes_a_knigh
     let grew = (gap2.0 - gap1.0, gap2.1 - gap1.1);
     assert!(grew.0 * grew.0 + grew.1 * grew.1 < 60 * 60, "the next tick: a second push ({gap1:?} -> {gap2:?})");
 }
+
+/// Since parity r94 (tunnel before it; client 15.535.29 keeps tunnel).
+#[test]
+fn the_shipped_arm_is_client16635_first_step_pushes() {
+    use royalesim::state::{Calib, LaneSwitchFirstStepContact};
+    assert_eq!(Calib::shipped().lane_switch_first_step_contact, LaneSwitchFirstStepContact::Client16635FirstStepPushes);
+    assert_eq!(config().calib.lane_switch_first_step_contact, LaneSwitchFirstStepContact::Client16635FirstStepPushes);
+}

@@ -117,3 +117,11 @@ fn a_bomb_leaves_the_path_grid_when_it_bursts_under_client15535_fused_building()
     let (off, far) = giant_after(DeathBombObstacle::Client15535FusedBuilding, "BombTower", 75);
     assert!(off <= 60 && far > 21500, "client15535_fused_building: after the burst the Giant still went round the bomb's cells (off {off}, far {far})");
 }
+
+/// Since parity r94 for clients 16.402 and 16.635 (none before it; client 15.535.29 ran client15535_fused_building already).
+#[test]
+fn the_shipped_arm_is_client15535_fused_building() {
+    use royalesim::state::Calib;
+    assert_eq!(Calib::shipped().death_bomb_obstacle, DeathBombObstacle::Client15535FusedBuilding);
+    assert_eq!(config().calib.death_bomb_obstacle, DeathBombObstacle::Client15535FusedBuilding);
+}

@@ -21,8 +21,8 @@
 //!   6. a striking area's clock is state: a save edited only in it fails the load's hash self-check.
 //!   7. a Knight walking out of reach, inside it on the strike tick and outside it on the predicted next position, is
 //!      not struck.
-//!   8. client 16.402 (the shipped STRIKE_REACH = radius_plus_target_radius, parity r73): test 5's Cannon, within the
-//!      + 170 but past Radius + its radius, is not struck.
+//!   8. client 16.402 (STRIKE_REACH = radius_plus_target_radius, shipped for it from parity r73 to r93): test 5's Cannon,
+//!      within the + 170 but past Radius + its radius, is not struck.
 //!
 //! Tests 3, 5 and 7 run client 15.535.29's spells.STRIKE_TIE_BREAK and STRIKE_REACH (`client15535`, CLIENT15535_ARMS).
 //!
@@ -189,7 +189,7 @@ fn a_target_within_the_170_margin_is_struck() {
     assert_eq!(hit, Some(10), "a Cannon {d} away (Radius + r = {bare}) is struck on D + 9, its loss on D + 10");
 }
 
-/// spells.STRIKE_REACH = radius_plus_target_radius, shipped for client 16.402 (parity r73's census of the live9 set: a troop
+/// spells.STRIKE_REACH = radius_plus_target_radius, shipped for client 16.402 from parity r73 to r93 (r73's census of the live9 set: a troop
 /// counts only within Radius + its collision radius, no + 170): test 5's Cannon, within the + 170 but past Radius + its
 /// radius, is not struck; under client 15.535.29's arm (test 5) it is.
 #[test]
@@ -296,4 +296,13 @@ fn tie_by_distance(arm: StrikeTieBreak) -> usize {
 fn under_client16402_nearest_centre_a_tie_goes_to_the_nearer_knight() {
     assert_eq!(tie_by_distance(StrikeTieBreak::Client16402NearestCentreThenEarliest), 1, "client16402_nearest_centre_then_earliest: the nearer Knight first");
     assert_eq!(tie_by_distance(StrikeTieBreak::EarliestCreated), 0, "earliest_created: the earlier created first");
+}
+
+/// Since parity r94 for clients 16.402 and 16.635 (radius_plus_target_radius for client 16.402 from parity r73 to r93; client
+/// 15.535.29 ran edge_within_radius_plus_170_now_and_next already).
+#[test]
+fn the_shipped_arm_is_edge_within_radius_plus_170_now_and_next() {
+    use royalesim::state::Calib;
+    assert_eq!(Calib::shipped().strike_reach, StrikeReach::EdgeNowAndNext);
+    assert_eq!(config().calib.strike_reach, StrikeReach::EdgeNowAndNext);
 }

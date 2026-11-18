@@ -67,3 +67,11 @@ fn under_client16635_at_once_a_boulder_s_creation_tick_hit_moves_its_victim_on_t
     assert_eq!(m_old, h_old + 1, "the vacuity check: next_tick moves him on the tick after the hit (d = {d})");
     assert_eq!(m_new, h_new, "client16635_at_once: the Knight hit on tick {h_new} moved on tick {m_new}, not on the hit's tick (d = {d})");
 }
+
+/// Since parity r94 (next_tick before it; client 15.535.29 keeps next_tick).
+#[test]
+fn the_shipped_arm_is_client16635_at_once() {
+    use royalesim::state::Calib;
+    assert_eq!(Calib::shipped().creation_hit_knock, CreationHitKnock::Client16635AtOnce);
+    assert_eq!(config().calib.creation_hit_knock, CreationHitKnock::Client16635AtOnce);
+}

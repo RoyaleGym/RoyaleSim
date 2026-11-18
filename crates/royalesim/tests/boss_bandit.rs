@@ -320,3 +320,11 @@ fn under_client16402_holders_drop_plus_1_shots_lost_at_warp_no_shot_follows_her_
     assert!(old > 0, "client16402_holders_drop_plus_1 (the vacuity check): no shot was flying at her when she warped");
     assert_eq!(new, 0, "client16402_holders_drop_plus_1_shots_lost_at_warp: a shot flew at her after her warp");
 }
+
+/// Since parity r94 (with_the_trigger before it; client 15.535.29 keeps with_the_trigger).
+#[test]
+fn the_shipped_arm_is_client16402_holders_drop_plus_1() {
+    use royalesim::state::Calib;
+    assert_eq!(Calib::shipped().warp_back_cloak, WarpBackCloak::Client16402HoldersDropPlus1);
+    assert_eq!(config().calib.warp_back_cloak, WarpBackCloak::Client16402HoldersDropPlus1);
+}
