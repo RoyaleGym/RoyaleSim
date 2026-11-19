@@ -37,7 +37,7 @@ mod common;
 use common::*;
 use royalesim::card::{AbilityEffect, CardDb, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CardTable, CubeLossWait, IceFindMarks, IceReleaseAttack, IceReleaseTarget};
+use royalesim::state::{BattleConfig, BattleState, CardTable, CubeLossWait, IceCubeHeroDeath, IceFindMarks, IceFindOwnMark, IceKillCubeTick, IceReleaseAttack, IceReleaseTarget};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["IceWizard", "Knight", "Archer", "Giant", "Musketeer", "Minions", "Fireball", "Zap"];
@@ -618,4 +618,157 @@ fn the_shipped_arm_is_client16635_target_next_tick() {
 fn the_shipped_arm_is_client16635_cube_waits() {
     assert_eq!(royalesim::state::Calib::shipped().cube_loss_wait, royalesim::state::CubeLossWait::Client16635CubeWaits);
     assert_eq!(config().calib.cube_loss_wait, royalesim::state::CubeLossWait::Client16635CubeWaits);
+}
+
+
+/// status.ICE_FIND_OWN_MARK = `arm`: a red Knight held at AT + (0, 4000) is slowed by hero A's first shot; A dies; a second hero
+/// B, held at (3000, 4000) out of its reach, presses inside A's slow. The press tick and the first cube's tick within 20 ticks.
+fn own_mark_cube(arm: IceFindOwnMark) -> (u32, Option<u32>) {
+    let mut s = battle_with(|c| c.calib.ice_find_own_mark = arm);
+    let kat = n(AT.0, AT.1 + 4000);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    let a = hero_in(&mut s);
+    first_hit(&mut s, knight, kat, 120);
+    assert!(s.debug_set_hp(a, 0), "hero A killed after its mark");
+    assert!(s.debug_set_pos(knight, kat));
+    s.tick();
+    let bat = n(3000, 4000);
+    s.spawn_unit(Team::Blue, HERO, bat, None).expect("hero B");
+    s.tick();
+    let b = find_live(&s, Team::Blue, HERO).first().map(|e| e.id).expect("hero B stands");
+    for _ in 0..25 {
+        assert!(s.debug_set_pos(b, bat) && s.debug_set_pos(knight, kat));
+        s.tick();
+    }
+    let p = s.tick_count();
+    s.press_ability_button(Team::Blue, 0).expect("B's press");
+    let mut seen = None;
+    for _ in 0..20 {
+        assert!(s.debug_set_pos(b, bat) && s.debug_set_pos(knight, kat));
+        s.tick();
+        if seen.is_none() && cube(&s).is_some() {
+            seen = Some(s.tick_count() - 1);
+        }
+    }
+    (p, seen)
+}
+
+/// status.ICE_FIND_OWN_MARK = client16635_own_shot (client 16.635, parity r97, the oracle's il-mg-16635 set: 5 first
+/// divergences, 0 against): hero B's press finds nothing on a Knight only dead hero A's shot slowed; under any_hero (the vacuity
+/// check) it fires on it. Plant: ice_find_any_hero.
+#[test]
+fn under_client16635_own_shot_a_mark_by_the_dead_first_hero_is_not_found() {
+    let (_, old) = own_mark_cube(IceFindOwnMark::AnyHero);
+    assert!(old.is_some(), "any_hero (the vacuity check): no cube on A's mark");
+    let (_, new) = own_mark_cube(IceFindOwnMark::Client16635OwnShot);
+    assert_eq!(new, None, "client16635_own_shot: B's press fired on A's mark");
+}
+
+/// `a_kill_while_the_press_waits_fires_behind_the_dead_unit`'s scene under spawner.ICE_KILL_CUBE_TICK = `arm`: (the kill's tick,
+/// the cube's first frame, the cube's point, the dead Skeleton's last point and radius).
+fn kill_cube(arm: IceKillCubeTick) -> (u32, u32, Vec2, Vec2, i32) {
+    let mut s = battle_with(|c| c.calib.ice_kill_cube_tick = arm);
+    hero_in(&mut s);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..3 {
+        s.tick();
+    }
+    assert!(cube(&s).is_none());
+    let sat = n(AT.0, AT.1 + 4000);
+    let skel = s.scenario_spawn_now(Team::Red, "Skeleton", sat, None).expect("the Skeleton");
+    let (mut last, mut died) = (None, None);
+    for _ in 0..120 {
+        if s.entity(skel).is_some() {
+            assert!(s.debug_set_pos(skel, sat));
+        }
+        s.tick();
+        match s.entity(skel) {
+            Some(e) => last = Some((e.pos, e.radius)),
+            None if died.is_none() => died = Some(s.tick_count() - 1),
+            None => {}
+        }
+        if died.is_some() {
+            break;
+        }
+    }
+    let k = died.expect("the hero's shot kills the Skeleton");
+    let (sp, sr) = last.expect("seen");
+    let mut seen = None;
+    for _ in 0..8 {
+        s.tick();
+        if seen.is_none() {
+            seen = cube(&s).map(|(_, p)| (s.tick_count() - 1, p));
+        }
+    }
+    let (c, cp) = seen.expect("a kill fires the cube");
+    (k, c, cp, sp, sr)
+}
+
+/// spawner.ICE_KILL_CUBE_TICK = client16635_kill_plus_2 (client 16.635, parity r97, the oracle's il-mg-16635 set: 5 of 5 in
+/// sync): a kill-fired cube's first frame on the kill's tick + 2, behind the dead Skeleton; under kill_plus_3 (the vacuity
+/// check) on + 3. Plant: ice_kill_cube_late.
+#[test]
+fn under_client16635_kill_plus_2_a_kill_fired_cube_comes_a_tick_sooner() {
+    let (k, c, _, _, _) = kill_cube(IceKillCubeTick::KillPlus3);
+    assert_eq!(c, k + 3, "kill_plus_3 (the vacuity check): the cube's first frame");
+    let (k, c, cp, sp, sr) = kill_cube(IceKillCubeTick::Client16635KillPlus2);
+    assert_eq!(c, k + 2, "client16635_kill_plus_2: the cube's first frame");
+    let (x, y) = native(sp);
+    assert_eq!(native(cp), (x, y + sr / K + 1000), "client16635_kill_plus_2: behind the dead Skeleton");
+}
+
+/// spawner.ICE_CUBE_HERO_DEATH = `arm`: a red Knight at AT + (0, 4000) marked by the hero's first shot, the press found on F
+/// (the Knight free to walk from then), the hero set to 0 hitpoints after F + `die_after` (dying on F + die_after + 1). (F, every
+/// cube frame (tick, point) through F + 20, the Knight's point after each tick from F.)
+#[allow(clippy::type_complexity)]
+fn death_window(arm: IceCubeHeroDeath, die_after: u32) -> (u32, Vec<(u32, (i32, i32))>, Vec<(u32, (i32, i32))>) {
+    let mut s = battle_with(|c| c.calib.ice_cube_hero_death = arm);
+    let kat = n(AT.0, AT.1 + 4000);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    let hero = hero_in(&mut s);
+    first_hit(&mut s, knight, kat, 120);
+    assert!(s.debug_set_pos(knight, kat));
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    let f = s.tick_count() - 1;
+    let mut kpos = vec![(f, native(s.entity(knight).expect("the Knight").pos))];
+    let mut cubes = Vec::new();
+    for k in 1..=20 {
+        if k == die_after + 1 {
+            assert!(s.debug_set_hp(hero, 0), "the hero killed");
+        }
+        s.tick();
+        let t = s.tick_count() - 1;
+        kpos.push((t, native(s.entity(knight).expect("the Knight lives").pos)));
+        if let Some((_, cp)) = cube(&s) {
+            cubes.push((t, native(cp)));
+        }
+    }
+    (f, cubes, kpos)
+}
+
+/// spawner.ICE_CUBE_HERO_DEATH = client16635_death_window (client 16.635, parity r97, the oracle's il-mg-16635 set: 5 of 5): a
+/// hero dying on its find + 1 puts the cube down on that tick, behind the Knight's point of that tick; under cube_comes (the
+/// vacuity check) the cube comes on F + 5 behind its find's point. Plant: ice_death_fired_unread.
+#[test]
+fn under_client16635_death_window_a_hero_dead_on_the_find_plus_1_puts_the_cube_down_on_its_death_tick() {
+    let (f, cubes, kpos) = death_window(IceCubeHeroDeath::CubeComes, 0);
+    assert!(!cubes.iter().any(|(t, _)| *t == f + 1), "cube_comes (the vacuity check): a cube on F + 1");
+    let (kx, ky) = kpos[0].1;
+    assert_eq!(cubes.first().copied(), Some((f + 5, (kx, ky + 1500))), "cube_comes (the vacuity check): the cube on F + 5");
+    let (f, cubes, kpos) = death_window(IceCubeHeroDeath::Client16635DeathWindow, 0);
+    let (kx, ky) = kpos[1].1;
+    assert_eq!(cubes.first().copied(), Some((f + 1, (kx, ky + 1500))), "client16635_death_window: the cube on the death tick F + 1");
+    assert!(cubes.iter().all(|(_, p)| *p == (kx, ky + 1500)), "client16635_death_window: a second cube {cubes:?}");
+}
+
+/// spawner.ICE_CUBE_HERO_DEATH = client16635_death_window (client 16.635, parity r97, the oracle's il-mg-16635 set: 2 of 2): a hero
+/// dying on its find + 4 puts no cube down; under cube_comes (the vacuity check) the cube comes on F + 5. Plant:
+/// ice_death_fired_unread.
+#[test]
+fn under_client16635_death_window_a_hero_dead_on_the_find_plus_4_puts_no_cube_down() {
+    let (f, cubes, _) = death_window(IceCubeHeroDeath::CubeComes, 3);
+    assert_eq!(cubes.first().map(|(t, _)| *t), Some(f + 5), "cube_comes (the vacuity check): the cube on F + 5");
+    let (_, cubes, _) = death_window(IceCubeHeroDeath::Client16635DeathWindow, 3);
+    assert!(cubes.is_empty(), "client16635_death_window: a cube after a death on F + 4 {cubes:?}");
 }

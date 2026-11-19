@@ -974,6 +974,17 @@
       "candidates": ["rescan_on_landing_keep_progress", "rank_last_only", "not_read"],
       "promotion_rules": "The 15.535.29 ram-rider-deprioritize scenario: two troops in the rider's reach, the nearer one snared; which one it takes after a landing, and on which tick. Every arm is the same on a battle without a Ram Rider.",
       "engine": "state.rs drop_deprioritized_targets (apply_effects); target.rs deprioritized, scan_with"
+    },
+    "LANE_SWITCH_TARGET": {
+      "value": "rescans",
+      "status": "measured",
+      "candidates": ["rescans", "client16635_held_through_tunnel"],
+      "confidence": "HIGH for client16635_held_through_tunnel on client 16.635 (parity r97): the oracle's il-mg-16635 set, 30 lane switches before their battle's first divergence. The client's target was the same from the trigger - 1 to the last tunnel frame in 30 of 30, none on the surfacing frame in 30 of 30, the next on the surfacing + 20 in 30 of 30, attack progress 0 throughout in 30 of 30. The engine changed target mid-tunnel in 21 of 30 and wound up under ground in 5. The reference engine's differential runs: all 5 crawl Mighty Miner target partings are this. A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 per-tick truth: a tunnelling Mighty Miner makes no target decision, 30 of 30.",
+      "meaning": "rescans: the engine's; his target is cleared when he goes under and his own scan runs while he tunnels. client16635_held_through_tunnel: while he tunnels he makes no target decision and no attack update; the target he held when he went under stays (dropped if it died); his surfacing clears it, and his first decision is the one after his deploy.",
+      "open": "A target that becomes untargetable mid-tunnel and targetable again.",
+      "promotion_rules": "Score on il-mg-16635 and Live (Mighty Miner battles). replay_parity runs a client 15.535.29 capture at rescans (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "target.rs lane_tunnel_held (decide, phase_attack_for's can_act); state.rs lane_pass, lane_under_now and surface, selected by Calib::lane_switch_target; tests/mighty_miner.rs."
     }
   },
   "collision": {
@@ -1327,6 +1338,17 @@
       "open": "The right half's Drill taps and an enemy-side side-1 tap; the tie rule rests on two King-box taps.",
       "promotion_rules": "A Drill tap that relocates with a tie away from the King box.",
       "engine": "state.rs enqueue, building_placement, resolve_point"
+    },
+    "SPELL_AS_DEPLOY_NO_DEPLOY_CELLS": {
+      "value": "refuse",
+      "status": "measured",
+      "candidates": ["refuse", "client16635_can_place_on_buildings"],
+      "confidence": "HIGH for client16635_can_place_on_buildings on client 16.635 (parity r97): the oracle's il-mg-16635 set. Every Barbarian Barrel play whose tap touches an own NO_DEPLOY cell: 52 of 52 accepted by the client, each Barbarian released 4500 ahead of the tap (226ef901 t1491 (8500, 4500) -> (8500, 9000); 07772c32 t2761 (500, 14500) -> (500, 19000); 20eb1aea t2321 (500, 500) -> (500, 5000); 32885430 t2601 side 1 (17500, 31500) -> (17500, 27000)). The play path refuses all 20 distinct taps NO_DEPLOY (r96 ship wheel, check_deploy). Against: 0. The replay harness casts spell rows through spawn_unit, which skips the zone, so the il-mg score does not move. A candidate until scored on the play path.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 fixtures' accepted plays: a Barbarian Barrel tapped on its own king block, back-row edge strip or river-corner cells was cast there, 52 of 52; the engine's play path refused each NO_DEPLOY. The crawl's 16.635 battles record 282 Barbarian Barrel, 8 Log and 1 Royal Delivery plays on such cells, Live's 1.",
+      "meaning": "refuse: the engine's; a tap touching a NO_DEPLOY cell is refused for every card. client16635_can_place_on_buildings: a spell placed as a deploy that may stand on buildings (SpellAsDeploy, no CanDeployOnEnemySide, CanPlaceOnBuildings: the Log, the Barbarian Barrel, the Royal Delivery and their hero forms) skips the NO_DEPLOY test; out of the arena, water and its territory (the river band, the alive enemy crown towers' rects) still refuse it. The Heal (CanPlaceOnBuildings false) and every troop keep the test.",
+      "open": "The Log and the Royal Delivery on such cells (crawl-recorded, not traced). A tap whose touched cells include water beside a NO_DEPLOY cell.",
+      "promotion_rules": "Score on the play path (Gym/py check_deploy and the reference engine's differential runs). Hold the value flip until RoyaleGym's action mask opens NO_DEPLOY cells for code 3 under this arm. replay_parity runs a client 15.535.29 capture at refuse (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "arena.rs deploy_zone_cells_open; state.rs no_deploy_cells_open / zone_for, read by check_position, resolve_point_judged and clamp_to_legal_edge, selected by Calib::spell_as_deploy_no_deploy_cells; tests/spell_no_deploy_cells.rs."
     }
   },
   "pathfinding": {
@@ -4855,6 +4877,17 @@
       "open": "A victim the bomb's damage covers only with another hit of the tick; a shielded victim whose shield the bomb breaks.",
       "promotion_rules": "client16635_before_attack SHIPS for clients 16.402 and 16.635 since parity r96 (2026-11-18); client 15.535.29 keeps after_attack_before_move (src/client_arms.rs CLIENT15535_ARMS). Before: replay_parity runs a client 15.535.29 capture at after_attack_before_move (src/client_arms.rs CLIENT15535_ARMS).",
       "engine": "state.rs land_barrage_before_attack (Scratch::barrage_down, the attack pass's `held`), land_barrage_early, selected by Calib::barrage_landing_phase; tests/barrage_landing_phase.rs."
+    },
+    "CROWN_SQUARE_HALF_SIDE": {
+      "value": "fixed_1000",
+      "status": "measured",
+      "candidates": ["fixed_1000", "client16635_collision_radius"],
+      "confidence": "MEDIUM for client16635_collision_radius on client 16.635 (parity r97): the oracle's il-mg-16635 set. Every spell cast between the enemy King's 1000-square and 1400-square reach that the set can read: 3 of 3 took the King in the client and not in the engine, on the tick the same cast took the princess tower in both (6bd1b5b5 t3371, a Snowball at (5500, 4500), King -72; d6fe1c0f t3431, a Zap at (12500, 1500), King -77; b434124b t3582, a Fireball at (5500, 27500), King -253). All three are 2550 from the King's 1000-square and 2102 from its 1400-square; any half-side above 1046 fits, 1400 is the table's CollisionRadius. Against on 16.635: 0. Against on client 15.535.29: ub-b1-ec4-zap (spells.CROWN_TOWER_SPELL_REACH). The King under a troop's splash: unmeasured. A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 per-tick truth: a spell landing 2550 from the King's 1000-square took it, 3 of 3, where the engine's 1000 square misses.",
+      "meaning": "fixed_1000: the engine's; a crown tower's square (spells.CROWN_TOWER_SPELL_REACH's, combat.TROOP_SPLASH_CROWN_REACH's) has half-side 1000 for both kinds. client16635_collision_radius: its half-side is the tower's collision radius, 1000 for a princess tower, 1400 for the King; the strict test is unchanged.",
+      "open": "A troop's splash on a King (no case read); Lightning on a crown tower (spells.STRIKE_REACH keeps the disc); death damage and the Log on a King (still on the disc); why client 15.535.29's Zap at (-3500, -500) missed.",
+      "promotion_rules": "Score on il-mg-16635 and Live (King hits move the King's activation). replay_parity runs a client 15.535.29 capture at fixed_1000 (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "spell.rs crown_square_half / crown_square_corner / in_crown_square_half, read by spell.rs's area impact and combat.rs splash_passing_sq, selected by Calib::crown_square_half_side; tests/crown_square_half_side.rs."
     }
   },
   "knockback": {
@@ -5683,6 +5716,28 @@
       "open": "The 6 agreeing re-acquisitions (another hold?); a unit let go whose target died in the hold.",
       "promotion_rules": "client16635_target_next_tick SHIPS for clients 16.402 and 16.635 since parity r96 (2026-11-18); client 15.535.29 keeps with_the_walk (src/client_arms.rs CLIENT15535_ARMS). Before: replay_parity runs a client 15.535.29 capture at with_the_walk (src/client_arms.rs CLIENT15535_ARMS).",
       "engine": "state.rs ice_let_go (WarpBoard::ice_freed, pushed under either ICE_RELEASE arm), phase_target_with (the decide loop's test), selected by Calib::ice_release_target; tests/hero_ice_wizard.rs."
+    },
+    "ICE_FIND_OWN_MARK": {
+      "value": "any_hero",
+      "status": "measured",
+      "candidates": ["any_hero", "client16635_own_shot"],
+      "confidence": "MEDIUM-HIGH for client16635_own_shot on client 16.635 (parity r97): the oracle's il-mg-16635 set. 5 first divergences: a press found nothing until its own hero's first shot landed (+ 1) while the found enemy carried another Hero Ice Wizard's slow (b434124b t2946, the slow by a dead hero; 670167210365 t3196, a hero dead on that tick; 02d9b639fa23 t3196, b882f775565e t3266 and e3cba4ce6bfe t2976, the other hero alive); the engine fired at the press. 7 in-sync presses with a second hero alive agreed in both (each pressing hero had marked its target itself). 0 against. A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 per-tick truth: a Hero Ice Wizard's find reads only its own shot's slow, 5 of 5.",
+      "meaning": "any_hero: the engine's; any Hero Ice Wizard's shot slow on an enemy marks it for every hero of the side. client16635_own_shot: a hero's waiting press, and its death branch, find only an enemy carrying a slow its own shot put on it within the slow's BuffTime; another hero's slow (alive or dead) does not count. The deploy chill (status.ICE_FIND_MARKS) is untouched.",
+      "open": "A Clone or Mirror hero's marks.",
+      "promotion_rules": "Score on il-mg-16635 and Live (Hero Ice Wizard battles). replay_parity runs a client 15.535.29 capture at any_hero (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "state.rs ice_mark_own (WarpBoard::ice_marks) and ice_pick, selected by Calib::ice_find_own_mark; tests/hero_ice_wizard.rs."
+    },
+    "SHOT_AREA_ATTRACT_ONSET": {
+      "value": "as_cast_area",
+      "status": "measured",
+      "candidates": ["as_cast_area", "client16635_first_update"],
+      "confidence": "HIGH for client16635_first_update on client 16.635 (parity r97). Live (20261103-172113-A: the lift's shot hit 3642, the client and the reference engine pulled from 3644 through 3654, 11 ticks, the engine from 3645; 20261103-175403-A: hit 2018, pulled from 2020, the engine 2021). The oracle's il-mg-16635 set: every first lift hit in sync, 5 of 5, pulled on the hit + 2 in the client and + 3 in the engine (2f2247e40101 t775, 3abf7bc5ce57 t322 and t1464, 471107747440 t543, bf68b14e5206 t296), the pull ending on + 12 in both. A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, Live's and the oracle's il-mg-16635 per-tick truth: the Hero Wizard's lift pulls from its shot's hit + 2, 7 of 7.",
+      "meaning": "as_cast_area: the engine's; a shot's pulling area starts pulling as a cast one does under status.ATTRACT_ONSET (client16402_area_plus_1: after its second update, from the hit + 3). client16635_first_update: under client16402_area_plus_1 a shot's pulling area pulls from the tick after its first update (the hit + 2 through + 12, 11 pulled ticks); its late tick holds its life, not its first pull. Cast pulling areas (the Tornado) and the damage area made with it are unchanged.",
+      "open": "Another shot-released pulling area (none but the lift in the 16.635 tables).",
+      "promotion_rules": "Score on il-mg-16635 and Live (Hero Wizard battles). replay_parity runs a client 15.535.29 capture at as_cast_area (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "spell.rs is_shot_area; state.rs's attract pre-pass, selected by Calib::shot_area_attract_onset; tests/hero_wizard.rs."
     }
   },
   "hide": {
@@ -5835,13 +5890,24 @@
     "DRILL_DIG_POINT": {
       "value": "stays",
       "status": "measured",
-      "candidates": ["stays", "client16635_keeps_tower_distance"],
-      "confidence": "MEDIUM for client16635_keeps_tower_distance on client 16.635 (parity r96, 2026-11-11): the oracle's il-mg-16635 set: of 32 hide lines crossed on the enemy half, 32 moved, all on exactly the under tick + 18, each to a knight offset (+-2000, +-3000) / (+-3000, +-2000) inside the arena at the same centre distance to the nearest live enemy crown tower, never back to its point before its previous move (needed in 6: e42fa5d4, 29185e78, 2ae53297 x 3, 883c1ff8 k133), the 11 ties to the candidate farthest from the enemy King (11 of 11); every play stood 2,550 from a princess tower and moved round it on that ring (08393a3e: (6000, 6000) -> (4000, 9000) -> (1000, 7000)). The one drill on its own half (1279146f, (2000, 18000)) had no such candidate and stayed, 2 of 2. Against: 0. Untested alternative: nearest the tower, never farther than now, off the tower and the river, which fits all 34 too (they part only off the 2,550 ring). A candidate until scored.",
+      "candidates": ["stays", "client16635_keeps_tower_distance", "client16635_princess_ring"],
+      "confidence": "MEDIUM-HIGH for client16635_princess_ring on client 16.635 (parity r97): the oracle's il-mg-16635 set's 34 of 34 Evo Goblin Drill hides (17 buildings, 11 battles) reproduced by the ring walk, 32 moved on the under tick + 18, the 2 on the building's own half on no ring. r96's hold of client16635_keeps_tower_distance was a scoring artifact: it was scored with hide.DRILL_LINE_TEST at post_hit_hitpoints, so its + 18 came a tick early on the 3 hit crossings (08393a3e, 2ae53297, 883c1ff8); on the r96 ship head it lands on the client's point and tick in all three. Both arms fit all 34 (all on the 2,550 points); they part on 48 of the 80 ring starts, where only the ring walks (unmeasured). MEDIUM for client16635_keeps_tower_distance on client 16.635 (parity r96, 2026-11-11): the oracle's il-mg-16635 set: of 32 hide lines crossed on the enemy half, 32 moved, all on exactly the under tick + 18, each to a knight offset (+-2000, +-3000) / (+-3000, +-2000) inside the arena at the same centre distance to the nearest live enemy crown tower, never back to its point before its previous move (needed in 6: e42fa5d4, 29185e78, 2ae53297 x 3, 883c1ff8 k133), the 11 ties to the candidate farthest from the enemy King (11 of 11); every play stood 2,550 from a princess tower and moved round it on that ring (08393a3e: (6000, 6000) -> (4000, 9000) -> (1000, 7000)). The one drill on its own half (1279146f, (2000, 18000)) had no such candidate and stayed, 2 of 2. Against: 0. Untested alternative: nearest the tower, never farther than now, off the tower and the river, which fits all 34 too (they part only off the 2,550 ring). A candidate until scored.",
       "provenance": "MEASURED by parity (2026-11-11, r96) on client 16.635, the oracle's il-mg-16635 set: an Evo Goblin Drill's building that went under on the enemy half moved on the under tick + 18 to a knight offset keeping its distance to the nearest enemy crown tower, 32 of 32, ties to the farthest from the enemy King, 11 of 11.",
-      "meaning": "stays: the engine's; the building comes up where it went under. client16635_keeps_tower_distance: on the under tick + 18 (still Hidden) it moves to one of the 8 knight offsets of (2000, 3000) from where it stands that lies inside the arena, at the same centre distance to the nearest live enemy crown tower (ties to the lower slot), and is not the point it stood on before its last move; on a tie the one farthest from the enemy King, the first listed after that; with none it stays. Its next hide's Goblins and its rise come from the new point.",
+      "meaning": "stays: the engine's; the building comes up where it went under. client16635_keeps_tower_distance: on the under tick + 18 (still Hidden) it moves to one of the 8 knight offsets of (2000, 3000) from where it stands that lies inside the arena, at the same centre distance to the nearest live enemy crown tower (ties to the lower slot), and is not the point it stood on before its last move; on a tie the one farthest from the enemy King, the first listed after that; with none it stays. Its next hide's Goblins and its rise come from the new point. client16635_princess_ring (parity r97): when it is made, the building finds whether it stands on the dig ring of a live enemy princess tower: the 20 half-tile points of the square of half-side 2,500 round the tower's half tile (the corners and the odd half-tile offsets, 1,000 apart), counted from (-2500, 2500) down the -x edge, along -y, up +x, back along +y. It fixes its direction once: backward when the point 5 steps backward is strictly farther from the enemy King, else forward. Each hide moves it 5 ring steps that way on the under tick + 18 (still Hidden), whatever has become of the tower. A building on no ring point stays. It gives client16635_keeps_tower_distance's moves on the (+-2500, +-500) / (+-500, +-2500) points and walks on where that arm finds no candidate (the corners, the 1,500 points).",
       "open": "A drill off the 2,550 ring (the untested alternative parts there); a tower lost while it is under.",
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at stays (src/client_arms.rs CLIENT15535_ARMS).",
-      "engine": "state.rs drill_pass (the move), drill_dig_to, DrillRun::from; card.rs DRILL_DIG_MOVE_TICKS, DRILL_DIG_OFFSETS; selected by Calib::drill_dig_point; tests/evo_goblin_drill.rs."
+      "engine": "state.rs drill_pass (the move), drill_dig_to, DrillRun::from; card.rs DRILL_DIG_MOVE_TICKS, DRILL_DIG_OFFSETS; selected by Calib::drill_dig_point; tests/evo_goblin_drill.rs. client16635_princess_ring: state.rs drill_ring_at (DrillRun::ring) and drill_pass; card.rs drill_ring_offset."
+    },
+    "LANE_SWITCH_UNDER_TICK": {
+      "value": "first_step",
+      "status": "measured",
+      "candidates": ["first_step", "client16635_trigger_tick"],
+      "confidence": "MEDIUM-HIGH for client16635_trigger_tick on client 16.635 (parity r97): the oracle's il-mg-16635 set. In 7 lane switches a hit landed on the trigger tick S in the engine and never in the client (0265b6634fae t2710 -143, its battle's first divergence t2847; 9b8bc0841f6c t4040 -130, first divergence t4175; 1b2a5f112695 t1700 -130; ac8763c5be8e t2810 -130; and 3 after a first divergence); 0 against. In all 7 the attackers held him on S in both and dropped him on S + 1, his positions identical, his first step on S + 1 in both. A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 per-tick truth: a Mighty Miner is untouchable from his lane switch's trigger tick (no hit resolved on it lands), 7 of 7.",
+      "meaning": "first_step: the engine's; he goes under ground on his first underground step, the tick after the trigger, so a hit resolved on the trigger tick lands. client16635_trigger_tick: he goes under ground at the end of the trigger tick's Move (he stood and was a body in its moves), so nothing resolved on it lands; his first step stays on the next tick.",
+      "open": "A buff or area landing on the trigger tick before the Move (none read).",
+      "promotion_rules": "Score on il-mg-16635 and Live (Mighty Miner battles). replay_parity runs a client 15.535.29 capture at first_step (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "state.rs lane_under_now (after phase_move) and lane_pass, selected by Calib::lane_switch_under_tick; tests/mighty_miner.rs."
     }
   },
   "spawner": {
@@ -6697,13 +6763,68 @@
     "DEATH_SPAWN_BIRTH_TARGET": {
       "value": "none",
       "status": "measured",
-      "candidates": ["none", "client16635_parent_target"],
-      "confidence": "MEDIUM for client16635_parent_target on client 16.635 (parity r96, 2026-11-11): the oracle's il-mg-16635 set, every Golemite born before its battle's first divergence: 34 of 36 held their dying Golem's target on their birth frame (the other 2, 4e354dcc k34/35, held a building while the Golem's last frame showed none); the engine held none in 36 of 36. On the first tick both had a route, 16 of 16 Golemites whose birth target was a non-tower building (8 Golem deaths in 6 battles) routed to that building in the client and to the princess tower in the engine (93185376 k67/68 t2941: a Cannon, goal (9250, 9750); the engine's (3750, 6750)); 20 of 20 on a crown tower agreed. Against: 0. Elixir Golem halves (not slide members) agreed on 83 of 83. A candidate until scored.",
+      "candidates": ["none", "client16635_parent_target", "client16635_birth_scan"],
+      "confidence": "HIGH for client16635_birth_scan on client 16.635 (parity r97), the birth target itself: the oracle's il-mg-16635 set's Golemites born before the first divergence 36 of 36 (client16635_parent_target 34 of 36: 4e354dcc's two, whose Golem held nothing, took the scan's Cannon), all 88 Golemites 88 of 88 (parent 78); Lava Pups 72 of 72 before the first divergence (parent 18), all 252 246 (the 6 others took a display twin's real unit: in effect 252 of 252; parent 48); live14's two Lava Hound battles 30 of 30 (parent 6). client16635_parent_target is refuted on the Pups. MEDIUM on scores until scored with spawner.DEATH_SLIDE_TARGET. MEDIUM for client16635_parent_target on client 16.635 (parity r96, 2026-11-11): the oracle's il-mg-16635 set, every Golemite born before its battle's first divergence: 34 of 36 held their dying Golem's target on their birth frame (the other 2, 4e354dcc k34/35, held a building while the Golem's last frame showed none); the engine held none in 36 of 36. On the first tick both had a route, 16 of 16 Golemites whose birth target was a non-tower building (8 Golem deaths in 6 battles) routed to that building in the client and to the princess tower in the engine (93185376 k67/68 t2941: a Cannon, goal (9250, 9750); the engine's (3750, 6750)); 20 of 20 on a crown tower agreed. Against: 0. Elixir Golem halves (not slide members) agreed on 83 of 83. A candidate until scored.",
       "provenance": "MEASURED by parity (2026-11-11, r96) on client 16.635, the oracle's il-mg-16635 set: a Golem's death-spawned Golemites were born holding the Golem's target, 34 of 36, and their birth route went to it (16 of 16 on a non-tower building).",
-      "meaning": "none: the engine's; a slide ring's death-spawned member is born with no target, its at-birth plan (spawner.DEATH_SPAWN_ROUTE = client_at_birth) going to its default tower. client16635_parent_target: it is born holding its dying parent's live target (a buildings-only member only a building or a crown tower), so its birth route goes there; other death spawns as under none.",
+      "meaning": "none: the engine's; a slide ring's death-spawned member is born with no target, its at-birth plan (spawner.DEATH_SPAWN_ROUTE = client_at_birth) going to its default tower. client16635_parent_target: it is born holding its dying parent's live target (a buildings-only member only a building or a crown tower), so its birth route goes there; other death spawns as under none. client16635_birth_scan (parity r97): a troop's slide-ring death spawn (a Golem's Golemites, a Lava Hound's Pups) takes its own target at birth: each member runs the scan its own Target phase would (its sight, filters and key) from the death point, on the board as Reap leaves it; nothing is inherited. Its at-birth route goes there from the death point. A container's release keeps the old arm. Scored with spawner.DEATH_SLIDE_TARGET = client16635_decides_while_sliding.",
       "open": "The 2 Golemites holding a building their Golem's last frame did not show; Lava Pups (flying, route-less, unmeasured).",
       "promotion_rules": "replay_parity runs a client 15.535.29 capture at none (src/client_arms.rs CLIENT15535_ARMS).",
-      "engine": "state.rs birth_target_of, phase_reap (Scratch::birth_targets), materialise_released, selected by Calib::death_spawn_birth_target; tests/death_spawn_pushback.rs."
+      "engine": "state.rs birth_target_of, phase_reap (Scratch::birth_targets), materialise_released, selected by Calib::death_spawn_birth_target; tests/death_spawn_pushback.rs. client16635_birth_scan: state.rs birth_scans / birth_scan (Scratch::birth_scans), phase_reap and materialise_released."
+    },
+    "DESTROY_AT_LIMIT": {
+      "value": "stays",
+      "status": "measured",
+      "candidates": ["stays", "client16635_leaves_after_last_firing"],
+      "confidence": "HIGH for client16635_leaves_after_last_firing on client 16.635 (parity r97): the oracle's il-mg-16635 set. Every Phoenix egg that hatched, 5 of 5, had its last client frame on the reborn Phoenix's first frame (the hatch tick H): 184ef862 k69 H 3018 (the engine's egg to 3055: the battle's first divergence, t3019), 184ef862 k83 H 3419 (engine 3669), 2054d4dc k35 H 1209 (1468), 2054d4dc k134 H 3352 (3405), 3f000018 k183 H 3430 (3546). Eggs killed before hatching left on the same tick in both, 7 of 7. A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 per-tick truth: a hatched Phoenix egg is gone on the tick after its hatch, 5 of 5; the engine's stood until killed, 25-256 ticks.",
+      "meaning": "stays: the engine's; a spawner with SpawnLimit and DestroyAtLimit (the Phoenix egg rows only, in the 16.635 tables) stands until it is killed. client16635_leaves_after_last_firing: it leaves on the tick after its last firing, without a death (no death spawn, no death area or damage, no crown, no elixir); on its last firing's tick it still stands beside the unit it made.",
+      "open": "A DestroyAtLimit spawner with a SpawnLimit above 1 (none in the 16.635 tables).",
+      "promotion_rules": "Score on il-mg-16635 and Live (the Phoenix battles). replay_parity runs a client 15.535.29 capture at stays (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "card.rs SpawnerDef::destroy_at_limit (the unit row's DestroyAtLimit with a SpawnLimit); state.rs leaves_at_limit / spawner_pass (Scratch::vanish), selected by Calib::destroy_at_limit; tests/phoenix_egg.rs."
+    },
+    "SPAWN_CHARACTER_WITH_DEPLOY": {
+      "value": "spawned_deploy_time",
+      "status": "measured",
+      "candidates": ["spawned_deploy_time", "client16635_own_deploy_time"],
+      "confidence": "HIGH for client16635_own_deploy_time on client 16.635 (parity r97): the oracle's il-mg-16635 set. Every reborn Phoenix (PhoenixNoRespawn, DeployTime 733), 5 of 5, stood deploying on its first 15 frames H..H + 14, still on H + 15, and first moved on H + 16 (184ef862 k73 H 3018, first step 3034; 184ef862 k93 H 3419, 3435; 2054d4dc k40 H 1209, 1225; 2054d4dc k140 H 3352, 3368; 3f000018 k189 H 3430, 3446); the engine's walked from its creation tick under spawner.SPAWNED_DEPLOY_TIME = zero. A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 per-tick truth: the reborn Phoenix deploys for its own DeployTime, 5 of 5.",
+      "meaning": "spawned_deploy_time: the engine's; the unit deploys as spawner.SPAWNED_DEPLOY_TIME says (zero: born walking). client16635_own_deploy_time: a periodic spawner row that sets SpawnCharacterWithDeploy (the Phoenix egg rows only, in the 16.635 tables) has its unit deploy for its own DeployTime, overriding SPAWNED_DEPLOY_TIME; an interval action's unit keeps its action's.",
+      "open": "Another row that sets the column (none in the 16.635 tables).",
+      "promotion_rules": "Score on il-mg-16635 and Live (the Phoenix battles). replay_parity runs a client 15.535.29 capture at spawned_deploy_time (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "card.rs SpawnerDef::with_deploy (the unit row's SpawnCharacterWithDeploy); state.rs spawner_pass, selected by Calib::spawn_character_with_deploy; tests/phoenix_egg.rs."
+    },
+    "ICE_KILL_CUBE_TICK": {
+      "value": "kill_plus_3",
+      "status": "measured",
+      "candidates": ["kill_plus_3", "client16635_kill_plus_2"],
+      "confidence": "MEDIUM for client16635_kill_plus_2 on client 16.635 (parity r97): the oracle's il-mg-16635 set. Every kill-fired cube in sync, 5 of 5, had its first frame on the kill's tick + 2 where the engine's came on + 3, at the same point (0762b426d2d1 kill 3732, cube 3734, the battle's first divergence next tick; 1400ae9f9e38 1997/1999; 97c41ce3ca3e 4879/4881; ad2e62d2486a 849/851; b82c8e010366 2433/2435); 10 more after a first divergence on + 2. The bridge's + 1 is the table's reading, unmeasured. A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 per-tick truth: a kill-fired cube comes on the kill + 2, 5 of 5 in sync.",
+      "meaning": "kill_plus_3: the engine's (the table's reading, unmeasured on client 16.402); a waiting press fired by its hero's kill puts its bridge on the kill + 2 and its cube's first frame on + 3, behind the dead unit. client16635_kill_plus_2: the bridge on + 1 and the cube on + 2.",
+      "open": "The bridge's tick (no kill-fired bridge victim read).",
+      "promotion_rules": "Score on il-mg-16635 and Live (Hero Ice Wizard battles). replay_parity runs a client 15.535.29 capture at kill_plus_3 (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "state.rs ice_kills, selected by Calib::ice_kill_cube_tick; tests/hero_ice_wizard.rs."
+    },
+    "ICE_CUBE_HERO_DEATH": {
+      "value": "cube_comes",
+      "status": "measured",
+      "candidates": ["cube_comes", "client16635_death_window"],
+      "confidence": "MEDIUM-HIGH for client16635_death_window on client 16.635 (parity r97): the oracle's il-mg-16635 set. Heroes dead on the find's tick F or F + 1: 5 of 5 put the cube down on their death tick at the target's death-tick point (42a04ee9c512 t2792, the battle's first divergence; 0ed564453eaf t3882; 44f58712bded t3022; bf41f6cf270e t3282; 5810a3aafcad t4381, a death on F), the engine's on F + 5 at the find's point; the reference engine's differential runs agree on 4 crawl cases. Dead on F + 3 or F + 4: 2 of 2 put no cube down (b79cf5755de1 t1935, the battle's first divergence; a1d5db180266 t5855). Dead on F + 5: the cube came in both. MEDIUM for the no-cube window (2 rows). A candidate until scored.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 per-tick truth: a Hero Ice Wizard dying on its find or the find + 1 puts the cube down on its death tick, 5 of 5; dying on the find + 3 or + 4, none, 2 of 2.",
+      "meaning": "cube_comes: the engine's; a found cube comes on the find + 5 whatever its hero does. client16635_death_window: a hero dead on its find's tick or the next puts the cube down on its death tick (no bridge), behind the closest mark found afresh from its last point on the death tick's positions, as a death while the press waits does; a hero dead on the find + 2 to + 4 puts no cube down (a bridge already out still lands); a death on the find + 5 or later changes nothing. A kill-fired run is unchanged.",
+      "open": "A death on the find + 2 (no case read).",
+      "promotion_rules": "Score on il-mg-16635 and Live (Hero Ice Wizard battles). Before the flip, the hero_ice_wizard.rs scenes that kill the hero right after the find need cube_comes pinned. replay_parity runs a client 15.535.29 capture at cube_comes (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "state.rs ice_finds (IceRun::found) and ice_reap, selected by Calib::ice_cube_hero_death; tests/hero_ice_wizard.rs."
+    },
+    "DEATH_SLIDE_TARGET": {
+      "value": "held_to_slide_end",
+      "status": "measured",
+      "candidates": ["held_to_slide_end", "client16635_decides_while_sliding"],
+      "confidence": "MEDIUM-HIGH for client16635_decides_while_sliding on client 16.635 (parity r97): every Golem whose Golemites' birth building died during the slide, in the oracle's il-mg-16635 set (d154143d t3417, 51070a48 t1590, 93185376 t2941, bff77ede t1826) and live14 (liveplay-20261008-042435-A t1808, liveplay-20261018-153127-A t1830): the client's target was none on the birth + 1 (the building removed) and the next goal on + 2, the route re-planned from each member's own point, still sliding. The engine held none to the slide's end and planned from there (live14's two first divergences moved 2093 -> 1851 and 1994 -> 1911 under the birth target alone). No case held a target through the slide while another became valid. A candidate until scored, with spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan.",
+      "provenance": "MEASURED by parity (r97) on client 16.635, the oracle's il-mg-16635 and Live's live14 per-tick truth: a sliding Golemite re-selects and re-plans on the birth + 2, 6 of 6 Golem deaths.",
+      "meaning": "held_to_slide_end: the engine's; a sliding member keeps what it holds, scans nothing until its slide ends, and keeps its birth route through the slide (target.rs decide's slide hold). client16635_decides_while_sliding: a troop death's slide-ring member (a Golemite, a Lava Pup) decides on every Target phase of its slide as an unheld unit does; a target gone is rescanned at once (no post-kill wait: it has not attacked), and a changed target re-plans its route from where it stands in that tick's Path phase (its slide step that tick unchanged). Only the first plan, on its first slide tick, is made from the death point.",
+      "open": "A Pup's mid-slide pick and the flier's exit from the slide; a Golemite's mid-slide lane switch (bff77ede).",
+      "promotion_rules": "Score on il-mg-16635 and Live together with spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan. replay_parity runs a client 15.535.29 capture at held_to_slide_end (src/client_arms.rs CLIENT15535_ARMS).",
+      "engine": "target.rs slide_decides (decide's slide hold); state.rs phase_target_with's re-plan and phase_path16402_for's slide plan, selected by Calib::death_slide_target; tests/death_spawn_pushback.rs."
     }
   },
   "economy": {

@@ -64,7 +64,7 @@ use crate::fixed::{in_range_edge, isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
 use crate::path::{advance, Obstacle};
 use crate::state::{
     AirToGroundWindow, DashImmunePush, AoeHitTest, AreaBuffSourceBinding, AreaProjectileIgnoreBuildings, AreaSpawnedAreaStart, BarrageReach, Calib, ChildAreaBirth, CrownPerHitScaling,
-    BuildingSpellReach, CrownTowerSpellReach,
+    BuildingSpellReach, CrownSquareHalfSide, CrownTowerSpellReach,
     DeathBombSpawnTiming, DeathPushbackScope, KnockLaw, KnockZeroVector, LaunchModel, OwnSideScope, PulsingArea, RollDirection, RollFirstStep, RollHitShape,
     StrikeAreaEnd, StrikeDue, StrikeHpRank, StrikeLeftover, StrikeReach, SubTickDelayRounding, SummonFuseStart, TargetBuffScope,
 };
@@ -405,6 +405,12 @@ pub fn in_flight_kind(def: &crate::card::CardDef) -> &'static str {
 /// refuses a saved `Spell` whose card runs no shape, and it has to ask the question
 /// the same way the step does. Asking it as `def.spell.is_some()` refused every
 /// battle saved on the one tick a death release is in the air.
+/// A card whose spell chain is the area its shot leaves (`CardDef::projectile_area`, nothing before it in `shape_of`): the
+/// Hero Wizard's lift (status.SHOT_AREA_ATTRACT_ONSET).
+pub(crate) fn is_shot_area(def: &crate::card::CardDef) -> bool {
+    shape_of(def).zip(def.projectile_area.as_ref()).is_some_and(|(a, b)| std::ptr::eq(a, b))
+}
+
 #[inline]
 pub(crate) fn shape_of(def: &crate::card::CardDef) -> Option<&crate::card::SpellDef> {
     def.spell
@@ -1044,6 +1050,35 @@ pub fn in_crown_square(centre: Vec2, tower: Vec2, radius: i32) -> bool {
     in_square(centre, tower, CROWN_SQUARE_HALF_MILLI * K, radius)
 }
 
+/// `in_crown_square` with the square's half-side `half` (subtiles; spells.CROWN_SQUARE_HALF_SIDE's, `crown_square_half`).
+pub fn in_crown_square_half(centre: Vec2, tower: Vec2, half: i32, radius: i32) -> bool {
+    in_square(centre, tower, half, radius)
+}
+
+/// spells.CROWN_SQUARE_HALF_SIDE: the half-side, subtiles, of crown tower `v`'s square. fixed_1000: 1000 for both kinds.
+/// client16635_collision_radius: the tower's collision radius, 1000 for a princess tower, 1400 for the King. Measured on client
+/// 16.635 (parity r97, the oracle's il-mg-16635 set: 3 of 3 spells landing 2550 from the King's 1000-square and 2102 from its
+/// 1400-square took it, on the tick the same cast took the princess tower in both engines). PLANT (regression)
+/// king_square_1000: the new arm keeps the fixed 1000.
+pub fn crown_square_half(rule: CrownSquareHalfSide, ents: &Entities, v: usize) -> i32 {
+    #[cfg(not(clash_plant = "king_square_1000"))]
+    if rule == CrownSquareHalfSide::Client16635CollisionRadius {
+        return ents.radius[v];
+    }
+    #[cfg(clash_plant = "king_square_1000")]
+    let _ = (rule, ents, v);
+    CROWN_SQUARE_HALF_MILLI * K
+}
+
+/// The neighbour query's reach to the largest crown square's corner, subtiles (`max_radius` the hash's largest radius).
+pub fn crown_square_corner(rule: CrownSquareHalfSide, max_radius: i32) -> i32 {
+    if rule == CrownSquareHalfSide::Client16635CollisionRadius {
+        max_radius * 1415 / 1000 + 1
+    } else {
+        CROWN_SQUARE_CORNER_MILLI * K
+    }
+}
+
 /// Whether an impact of `radius` at `centre` reaches the square of half-side `half` (subtiles) round `at`: the distance
 /// from `centre` to the square is STRICTLY below `radius`. A crown tower's (`in_crown_square`) and, under
 /// spells.BUILDING_SPELL_REACH = client_square_radius_strict, an ordinary building's, whose half-side is its collision
@@ -1088,7 +1123,7 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
     let square = ctx.calib.crown_tower_spell_reach == CrownTowerSpellReach::Square1000Strict;
     // spells.BUILDING_SPELL_REACH = client_square_radius_strict reaches an ordinary building's corner, its radius x 1.415.
     let building_square = ctx.calib.building_spell_reach == BuildingSpellReach::SquareRadiusStrict;
-    let wide = if square { ctx.hash.max_radius().max(CROWN_SQUARE_CORNER_MILLI * K) } else { ctx.hash.max_radius() };
+    let wide = if square { ctx.hash.max_radius().max(crown_square_corner(ctx.calib.crown_square_half_side, ctx.hash.max_radius())) } else { ctx.hash.max_radius() };
     let wide = if building_square { wide.max(ctx.hash.max_radius() * 1415 / 1000 + 1) } else { wide };
     ctx.hash.neighbours_within(e, centre, hit.radius + wide, nb);
     // the fixed_distance arm's zero-vector fallback, a unit axis per victim
@@ -1184,7 +1219,7 @@ fn impact(ctx: &SpellCtx, team: Team, card: u16, level: i32, centre: Vec2, hit: 
         #[cfg(clash_plant = "pulse_edge_inclusive")]
         let strict = false;
         let reached = if tower_square {
-            in_crown_square(centre, e.pos[v], hit.radius)
+            in_crown_square_half(centre, e.pos[v], crown_square_half(ctx.calib.crown_square_half_side, e, v), hit.radius)
         } else if on_building_square {
             in_square(centre, e.pos[v], e.radius[v], hit.radius)
         } else if strict {

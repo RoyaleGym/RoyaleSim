@@ -308,3 +308,132 @@ fn the_shipped_arm_is_client16635_dropped() {
     assert_eq!(royalesim::state::Calib::shipped().tunnel_shot, royalesim::state::TunnelShot::Client16635Dropped);
     assert_eq!(config().calib.tunnel_shot, royalesim::state::TunnelShot::Client16635Dropped);
 }
+
+
+/// The trigger-tick scene under hide.LANE_SWITCH_UNDER_TICK = `arm`: as `scene`, with no Knight and a red Musketeer held at
+/// (14500, 22500), out of everyone's reach, as a shot's firer; right after frame P + `put_after` a shot of the Musketeer's is
+/// put on the Miner, landing in the next tick's Projectile phase. (his hitpoints on P + put_after and P + put_after + 1, and his
+/// (point, under ground) on P + 10 and P + 11.)
+#[allow(clippy::type_complexity)]
+fn trigger_hit(arm: royalesim::state::LaneSwitchUnderTick, put_after: u32) -> (i32, i32, ((i32, i32), bool), ((i32, i32), bool)) {
+    let mut cfg = config();
+    cfg.calib.ability_bomb_fuse = AbilityBombFuse::Client15535TickAfterFuse;
+    cfg.calib.lane_switch_under_tick = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let mm = s.scenario_spawn_now(Team::Blue, "MightyMiner", n(AT), None).expect("the Mighty Miner");
+    let mu_at = n((14500, 22500));
+    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", mu_at, None).expect("a red Musketeer");
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(mm, n(AT)) && s.debug_set_pos(musk, mu_at));
+        s.tick();
+    }
+    // nothing in his reach: he walked a step on the last tick; back on his point before the press (the cast holds him from P + 1)
+    assert!(s.debug_set_pos(mm, n(AT)));
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut hp, mut rows) = (Vec::new(), Vec::new());
+    for k in 1..=12u32 {
+        assert!(s.debug_set_pos(musk, mu_at));
+        if k == put_after + 1 {
+            let at = s.entity(mm).expect("the Mighty Miner").pos;
+            s.scenario_projectile_in_flight(musk, Some(mm), at, at).expect("the shot");
+        }
+        s.tick();
+        let m = s.entity(mm).expect("the Mighty Miner lives");
+        hp.push(m.hp);
+        rows.push(((m.pos.x / K, m.pos.y / K), m.tunnel_dest.is_some()));
+    }
+    let p = put_after as usize;
+    (hp[p - 1], hp[p], rows[9], rows[10])
+}
+
+/// hide.LANE_SWITCH_UNDER_TICK = client16635_trigger_tick (client 16.635, parity r97, the oracle's il-mg-16635 set: 7 switches hit
+/// on the trigger tick in the engine, none in the client): a shot landing on the trigger tick P + 10 takes nothing; one landing
+/// on P + 9 still lands (both arms); under first_step (the vacuity check) the P + 10 shot lands. He is under ground from P + 10's
+/// frame, on his point, and takes his measured first step on P + 11. Plant: lane_trigger_tick_touchable.
+#[test]
+fn under_client16635_trigger_tick_a_shot_on_the_trigger_tick_does_not_land() {
+    use royalesim::state::LaneSwitchUnderTick as U;
+    for arm in [U::FirstStep, U::Client16635TriggerTick] {
+        let (a, b, _, _) = trigger_hit(arm, 8);
+        assert!(a > b, "{arm:?}: the shot on P + 9 did not land ({a} -> {b})");
+    }
+    let (a, b, _, _) = trigger_hit(U::FirstStep, 9);
+    assert!(a > b, "first_step (the vacuity check): the shot on the trigger tick did not land ({a} -> {b})");
+    let (a, b, r10, r11) = trigger_hit(U::Client16635TriggerTick, 9);
+    assert_eq!(a, b, "client16635_trigger_tick: the shot on the trigger tick landed ({a} -> {b})");
+    assert_eq!(r10, (AT, true), "client16635_trigger_tick: P + 10, on his point and under ground");
+    assert_eq!(r11, ((10667, 13224), true), "client16635_trigger_tick: P + 11, his measured first step");
+}
+
+/// The tunnel scene under targeting.LANE_SWITCH_TARGET = `arm`: as `scene`, the red Knight held on KNIGHT throughout and a
+/// second red Knight held at (7417, 14500), 1256 from his P + 16 point (nearer than the first's 1897). (target, attack phase,
+/// attack progress, under ground) on P + 1 ..= P + 19, and the first Knight.
+#[allow(clippy::type_complexity)]
+fn tunnel_rows(arm: royalesim::state::LaneSwitchTarget) -> (Vec<(Option<EntityId>, royalesim::entity::AttackPhase, i32, bool)>, EntityId) {
+    let mut cfg = config();
+    cfg.calib.ability_bomb_fuse = AbilityBombFuse::Client15535TickAfterFuse;
+    cfg.calib.lane_switch_target = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let mm = s.scenario_spawn_now(Team::Blue, "MightyMiner", n(AT), None).expect("the Mighty Miner");
+    let kn = s.scenario_spawn_now(Team::Red, "Knight", n(KNIGHT), None).expect("a red Knight");
+    let k2_at = n((7417, 14500));
+    let k2 = s.scenario_spawn_now(Team::Red, "Knight", k2_at, None).expect("a second red Knight");
+    let hold = |s: &mut BattleState| {
+        for (id, p) in [(kn, n(KNIGHT)), (k2, k2_at)] {
+            if let Some(e) = s.entity(id) {
+                let m = e.max_hp;
+                assert!(s.debug_set_pos(id, p) && s.debug_set_hp(id, m));
+            }
+        }
+    };
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(mm, n(AT)));
+        hold(&mut s);
+        s.tick();
+    }
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let mut rows = Vec::new();
+    for _ in 1..=19 {
+        hold(&mut s);
+        s.tick();
+        let m = s.entity(mm).expect("the Mighty Miner lives");
+        rows.push((m.target, m.attack_phase, m.attack_ms, m.tunnel_dest.is_some()));
+    }
+    (rows, kn)
+}
+
+/// targeting.LANE_SWITCH_TARGET = client16635_held_through_tunnel (client 16.635, parity r97, the oracle's il-mg-16635 set: 30 of
+/// 30): under ground he keeps the Knight he held, never winds up, and holds nothing on his surfacing frame; under rescans (the
+/// vacuity check) he re-picks or winds up under ground. Plant: lane_tunnel_rescans.
+#[test]
+fn under_client16635_held_through_tunnel_he_keeps_his_target_and_never_winds_up() {
+    use royalesim::entity::AttackPhase;
+    use royalesim::state::LaneSwitchTarget as A;
+    let (old, kn) = tunnel_rows(A::Rescans);
+    let row = |r: &Vec<(Option<EntityId>, AttackPhase, i32, bool)>, k: usize| r[k - 1];
+    assert!(
+        (11..=16).any(|k| row(&old, k).0 != Some(kn) || row(&old, k).1 != AttackPhase::Idle) || row(&old, 17).0.is_some(),
+        "rescans (the vacuity check): he kept the Knight, idle, through the tunnel and up: {:?}",
+        &old[9..17]
+    );
+    let (new, kn) = tunnel_rows(A::Client16635HeldThroughTunnel);
+    for k in 10..=16 {
+        assert_eq!(row(&new, k).0, Some(kn), "client16635_held_through_tunnel: P + {k}'s target {:?}", row(&new, k));
+    }
+    for k in 11..=16 {
+        assert!(row(&new, k).3, "the scene drifted: P + {k} not under ground");
+        assert_eq!((row(&new, k).1, row(&new, k).2), (AttackPhase::Idle, 0), "client16635_held_through_tunnel: P + {k} wound up");
+    }
+    assert!(!row(&new, 17).3, "the scene drifted: P + 17 still under ground");
+    assert_eq!(row(&new, 17).0, None, "client16635_held_through_tunnel: a target on the surfacing frame");
+}

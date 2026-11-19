@@ -77,6 +77,11 @@ pub fn symmetric_config() -> BattleConfig {
     // rather than the system under test. `none` lays the ring on the tap itself,
     // which is what a flying summon measures on both seats.
     c.calib.formation_ground_deploy_point = royalesim::state::GroundDeployPoint::None;
+    // The illegal troop tap (placement.ILLEGAL_TROOP_TAP): refuse, the scenario API's unrelocated placement. A relocating arm
+    // stacks distinct taps that land on one tile, and a stacked pair's split then reads the scene's creation order, not the
+    // system under test (parity r97: mirror_vines_and_void parted at tick 1 under client16635_nearest_legal_tile, its Knight
+    // stacked on its Giant on both seats and split 312.5 native by team_seq against the reversed Red creation order).
+    c.calib.illegal_troop_tap = royalesim::state::IllegalTroopTap::Refuse;
     // The death-spawn slide (spawner.DEATH_SPAWN_PUSHBACK): client_ring_slide, the shipped arm
     // since the round-6 flip, lays its ring in the ABSOLUTE frame for both seats, so a Red death
     // is not the rotation of a Blue one. This selects the old arm, not_read. Battle::new's

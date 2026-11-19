@@ -1317,6 +1317,41 @@ fn keep_own_radius(ctx: &TargetCtx, a: usize, card: &CardDef) -> i32 {
 }
 
 /// Decide attacker a's target for this tick. Reads only; the caller applies.
+/// targeting.LANE_SWITCH_TARGET = client16635_held_through_tunnel: `i` is a lane switcher (the Mighty Miner) under ground in
+/// his switch, so he makes no target decision and no attack update: the target he held when he went under stays (dropped if it
+/// died), and his surfacing clears it (state.rs `surface`). Measured on client 16.635 (parity r97, the oracle's il-mg-16635 set:
+/// 30 of 30 switches held their target from the trigger to the last tunnel frame, attack progress 0 throughout; the engine
+/// re-picked in 21 and wound up under ground in 5). PLANT (regression) lane_tunnel_rescans: the new arm still rescans.
+pub fn lane_tunnel_held(calib: &crate::state::Calib, cards: &CardDb, e: &Entities, i: usize) -> bool {
+    #[cfg(not(clash_plant = "lane_tunnel_rescans"))]
+    let on = calib.lane_switch_target == crate::state::LaneSwitchTarget::Client16635HeldThroughTunnel
+        && e.underground(i)
+        && matches!(cards.get(e.card[i]).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::LaneSwitch(_)));
+    #[cfg(clash_plant = "lane_tunnel_rescans")]
+    let on = {
+        let _ = (calib, cards, e, i);
+        false
+    };
+    on
+}
+
+/// spawner.DEATH_SLIDE_TARGET = client16635_decides_while_sliding: `a`, a troop death's slide-ring member (its root row has
+/// DeathSpawnPushback: a Golemite, a Lava Pup; a container's member is not one), decides while it slides. Measured on client
+/// 16.635 (parity r97: the oracle's il-mg-16635 set's 4 Golemite pairs whose birth building died during the slide, and live14's
+/// 2, each re-selected and re-planned on the birth + 2, still sliding; none held a target through the slide while another
+/// became valid). PLANT (regression) slide_target_held: the new arm still holds through the slide.
+pub fn slide_decides(ctx: &TargetCtx, a: usize) -> bool {
+    #[cfg(not(clash_plant = "slide_target_held"))]
+    let on = ctx.calib.death_slide_target == crate::state::DeathSlideTarget::Client16635DecidesWhileSliding
+        && ctx.cards.get(ctx.ents.producer(a)).death_spawn_pushback;
+    #[cfg(clash_plant = "slide_target_held")]
+    let on = {
+        let _ = (ctx, a);
+        false
+    };
+    on
+}
+
 pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecision {
     let e = ctx.ents;
     let cur = e.target[a];
@@ -1331,12 +1366,16 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     if !hide_acts(ctx.calib, e, a) {
         return TargetDecision { target: None, cancel_attack: true, resumed: false, chase_dropped: None };
     }
+    // targeting.LANE_SWITCH_TARGET = client16635_held_through_tunnel: a lane switcher under ground keeps what he held, scans nothing.
+    if lane_tunnel_held(ctx.calib, ctx.cards, e, a) {
+        return TargetDecision { target: cur.filter(|t| e.is_alive(*t)), cancel_attack: true, resumed: false, chase_dropped: None };
+    }
     // Stunned or mid-knockback (the slide, or the 16.402 ladder): keep what it
     // had, scan nothing. The same for a death-spawn member still sliding out
     // (spawner.DEATH_SPAWN_PUSHBACK = client_ring_slide): born with no target, it takes
     // none until the slide ends.
     #[cfg(not(clash_plant = "death_slide_targets"))]
-    let sliding = e.death_sliding(a);
+    let sliding = e.death_sliding(a) && !slide_decides(ctx, a);
     #[cfg(clash_plant = "death_slide_targets")]
     let sliding = false; // PLANT: a sliding member scans and takes a target.
     // targeting.LEAP_TARGET_SCAN = client16402_held_mid_leap: a troop in its river leap (`jumping`, set by the previous tick's

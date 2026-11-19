@@ -404,6 +404,9 @@ LOADED_NOT_RUN = {
     # Read straight out of the unit row's `raw` block (link 1): the Hunter's fan, the Electro
     # Wizard's second bolt and the Princess's first arrow.
     "MultipleProjectiles": ("combat.MULTIPLE_PROJECTILES", ("client_fan",)),
+    # The Phoenix egg's columns (card.rs `SpawnerDef::destroy_at_limit` / `with_deploy`), run under parity r97's arms.
+    "DestroyAtLimit": ("spawner.DESTROY_AT_LIMIT", ("client16635_leaves_after_last_firing",)),
+    "SpawnCharacterWithDeploy": ("spawner.SPAWN_CHARACTER_WITH_DEPLOY", ("client16635_own_deploy_time",)),
     "MultipleTargets": ("combat.MULTIPLE_TARGETS", ("client_bolts_per_target",)),
     "AllTargetsHit": ("combat.MULTIPLE_TARGETS", ("client_bolts_per_target",)),
     "CustomFirstProjectile": ("combat.CUSTOM_FIRST_PROJECTILE", ("client_first_of_volley",)),

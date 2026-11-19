@@ -25,7 +25,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AttractOnset, BattleConfig, BattleState, LiftTiming};
+use royalesim::state::{AttractOnset, BattleConfig, BattleState, LiftTiming, ShotAreaAttractOnset};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -44,6 +44,10 @@ fn battle() -> BattleState {
     let mut cfg: BattleConfig = config();
     // Client 15.535.29's pull onset (this file's measurements; client 16.402's client16402_area_plus_1 ships).
     cfg.calib.attract_onset = AttractOnset::ClientNextTick;
+    if let Some((a, sh)) = SHOT_ONSET.with(|c| c.get()) {
+        cfg.calib.attract_onset = a;
+        cfg.calib.shot_area_attract_onset = sh;
+    }
     if let Some(a) = LIFT_ARM.with(|a| a.get()) {
         cfg.calib.lift_timing = a;
     }
@@ -340,4 +344,32 @@ fn the_shipped_arm_is_client16635_primed_shot_survives_retarget() {
     use royalesim::state::{Calib, LiftCastEndShot};
     assert_eq!(Calib::shipped().lift_cast_end_shot, LiftCastEndShot::Client16635PrimedShotSurvivesRetarget);
     assert_eq!(config().calib.lift_cast_end_shot, LiftCastEndShot::Client16635PrimedShotSurvivesRetarget);
+}
+
+thread_local! {
+    /// status.ATTRACT_ONSET and status.SHOT_AREA_ATTRACT_ONSET for `battle` (none: client_next_tick, this file's).
+    static SHOT_ONSET: std::cell::Cell<Option<(AttractOnset, ShotAreaAttractOnset)>> = const { std::cell::Cell::new(None) };
+}
+
+/// The lift's scene (the shot hits on P + 25, its damage area on P + 26; the units free from P + 27) under
+/// status.ATTRACT_ONSET = client16402_area_plus_1 and status.SHOT_AREA_ATTRACT_ONSET = `arm`: the Knight's step on y on frames
+/// P + 27 and P + 28.
+fn lift_onset(arm: ShotAreaAttractOnset) -> (i32, i32) {
+    SHOT_ONSET.with(|c| c.set(Some((AttractOnset::Client16402AreaPlus1, arm))));
+    let (_, _, f) = scene(shifted(WIZARD), &[("Knight", shifted((13640, 14790))), ("Musketeer", shifted((13770, 17015)))], 40, Some(27), false);
+    SHOT_ONSET.with(|c| c.set(None));
+    let y = |d: usize| f[at(d)].reds[0].expect("the Knight stands").0.y;
+    (y(27) - y(26), y(28) - y(27))
+}
+
+/// status.SHOT_AREA_ATTRACT_ONSET = client16635_first_update (client 16.635, parity r97: Live's 2 lifts and the oracle's
+/// il-mg-16635 set's 5 in sync pulled from the hit + 2): under client16402_area_plus_1 the lift pulls the Knight up on its first
+/// free frame, P + 27; under as_cast_area (the vacuity check) it walks on P + 27 and is pulled from P + 28. Plant:
+/// shot_area_pull_late.
+#[test]
+fn under_client16635_first_update_the_lift_area_pulls_from_the_hit_plus_2_under_area_plus_1() {
+    let (a27, a28) = lift_onset(ShotAreaAttractOnset::AsCastArea);
+    assert!(a27 <= 0 && a28 > 0, "as_cast_area (the vacuity check): the Knight's steps {a27}, {a28}");
+    let (b27, b28) = lift_onset(ShotAreaAttractOnset::Client16635FirstUpdate);
+    assert!(b27 > 0 && b28 > 0, "client16635_first_update: the Knight's steps {b27}, {b28}");
 }

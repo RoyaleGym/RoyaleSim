@@ -19,6 +19,7 @@
 //!   - drill_rise_hidden -> `a_rising_building_is_a_target_again_under_client15535_targetable_on_rise` red;
 //!   - drill_line_reads_hits -> `under_client16635_after_drain_before_hits_a_hits_crossing_goes_under_a_tick_later` red;
 //!   - drill_dig_stays -> `under_client16635_keeps_tower_distance_the_building_digs_round_the_tower` red.
+//!   - drill_ring_stays -> `under_client16635_princess_ring_the_building_walks_its_towers_ring` red.
 #![allow(unexpected_cfgs)]
 // THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
 // (common::config_pre_flip); each flipped key's own tests read both arms.
@@ -356,6 +357,11 @@ fn under_client16635_after_drain_before_hits_a_hits_crossing_goes_under_a_tick_l
 /// hide.DRILL_DIG_POINT = `arm`, its hitpoints taken under each line in turn: its native point on each of 600 ticks, and the
 /// ticks it went under.
 fn dig_path(arm: royalesim::state::DrillDigPoint) -> (Vec<(i32, i32)>, Vec<usize>) {
+    dig_path_at(arm, (6000, 6000))
+}
+
+/// `dig_path` with the building made on `start`.
+fn dig_path_at(arm: royalesim::state::DrillDigPoint, start: (i32, i32)) -> (Vec<(i32, i32)>, Vec<usize>) {
     let mut cfg: BattleConfig = config_pre_flip();
     cfg.decks = [vec!["Knight".into()], vec!["GoblinDrill".into(), "Knight".into()]];
     cfg.forms = [Vec::new(), vec![1, 0]];
@@ -364,7 +370,7 @@ fn dig_path(arm: royalesim::state::DrillDigPoint) -> (Vec<(i32, i32)>, Vec<usize
     cfg.calib.drill_dig_point = arm;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
-    let d = s.scenario_spawn_now(Team::Red, "units.GoblinDrill_EV1", n(6000, 6000), None).expect("the drill's building");
+    let d = s.scenario_spawn_now(Team::Red, "units.GoblinDrill_EV1", n(start.0, start.1), None).expect("the drill's building");
     let (mut path, mut unders, mut was) = (Vec::new(), Vec::new(), false);
     for k in 0..600usize {
         let Some(e) = s.entity(d) else { break };
@@ -415,4 +421,32 @@ fn the_shipped_arm_is_client16635_after_drain_before_hits() {
         royalesim::state::DrillLineTest::Client16635AfterDrainBeforeHits
     );
     assert_eq!(config().calib.drill_line_test, royalesim::state::DrillLineTest::Client16635AfterDrainBeforeHits);
+}
+
+/// hide.DRILL_DIG_POINT = client16635_princess_ring (client 16.635, parity r97, the oracle's il-mg-16635 set: 34 of 34 hides): a Red
+/// building made on Blue's left princess tower's (3500, 6500) dig ring walks 5 ring steps a hide on the under tick + 18: from
+/// (6000, 6000) forward to (4000, 9000) then (1000, 7000) (08393a3e's path); from (3000, 4000) backward to (1000, 7000) then
+/// (4000, 9000) (883c1ff8 k43); from (6000, 8000), off the 2,550 points, to (2000, 9000) then (1000, 5000); on no ring point,
+/// (5000, 5000), it stays. Under stays and under client16635_keeps_tower_distance (the vacuity checks) the off-2,550 start
+/// stands. Plant: drill_ring_stays.
+#[test]
+fn under_client16635_princess_ring_the_building_walks_its_towers_ring() {
+    use royalesim::state::DrillDigPoint as P;
+    let walk = |arm: P, start: (i32, i32)| {
+        let (path, u) = dig_path_at(arm, start);
+        assert_eq!(u.len(), 2, "the scene drifted: {start:?} hid {u:?}");
+        assert!(path.len() > u[1] + 18, "the scene drifted: {start:?}'s building gone");
+        (path[u[0] + 17], path[u[0] + 18], path[u[1] + 18])
+    };
+    for (start, first, second) in [((6000, 6000), (4000, 9000), (1000, 7000)), ((3000, 4000), (1000, 7000), (4000, 9000)), ((6000, 8000), (2000, 9000), (1000, 5000))] {
+        let (before, a, b) = walk(P::Client16635PrincessRing, start);
+        assert_eq!(before, start, "client16635_princess_ring: {start:?} moved before its first hide's + 18");
+        assert_eq!((a, b), (first, second), "client16635_princess_ring: {start:?}'s walk");
+    }
+    let (_, a, _) = walk(P::Client16635PrincessRing, (5000, 5000));
+    assert_eq!(a, (5000, 5000), "client16635_princess_ring: a building on no ring point moved");
+    for arm in [P::Stays, P::Client16635KeepsTowerDistance] {
+        let (_, a, _) = walk(arm, (6000, 8000));
+        assert_eq!(a, (6000, 8000), "{arm:?} (the vacuity check): the off-2,550 start moved");
+    }
 }

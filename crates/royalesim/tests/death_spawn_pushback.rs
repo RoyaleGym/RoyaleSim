@@ -69,6 +69,9 @@
 //!      Golem carries the flag);
 //!  14. spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_parent_target: a Golem's Golemites are born holding its live target
 //!      -- golemite_birth_target_dropped.
+//!  15. spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan: a slide ring's members scan for their own target at birth
+//!      -- golemite_birth_scan_dropped.
+//!  16. spawner.DEATH_SLIDE_TARGET = client16635_decides_while_sliding: a sliding member re-selects mid-slide -- slide_target_held.
 //!
 //! Positions are compared in NATIVE units (subtiles / SUBTILE_PER_MILLITILE): the ring and
 //! the slide are laid on the native grid. The death point is the mean of the members' first
@@ -654,4 +657,88 @@ fn under_client16635_parent_target_a_golemite_is_born_holding_its_golems_target(
     assert!(old.iter().all(|t| t.is_none()), "none (the vacuity check): a Golemite was born holding {old:?}");
     let (new, cannon) = golemite_birth_targets(B::Client16635ParentTarget);
     assert!(new.iter().all(|t| *t == Some(cannon)), "client16635_parent_target: the Golemites were born holding {new:?}");
+}
+
+
+/// spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan (client 16.635, parity r97, the oracle's il-mg-16635 set: 88 of 88
+/// Golemites, the 4e354dcc exception a Golem that held nothing): a Golem killed on its first tick, still deploying (no target
+/// decided), leaves Golemites holding the Red Cannon 2000 ahead on the death frame; under none (the vacuity check) they hold
+/// nothing. Plant: golemite_birth_scan_dropped.
+#[test]
+fn under_client16635_birth_scan_a_golemite_takes_its_own_nearest_building() {
+    use royalesim::state::DeathSpawnBirthTarget as B;
+    for (arm, want_some) in [(B::None, false), (B::Client16635BirthScan, true)] {
+        let mut cfg = slide_config();
+        cfg.calib.death_spawn_birth_target = arm;
+        let s0 = BattleState::new(7, cfg.clone());
+        let c = Vec2::new(spot(&s0).x, spot(&s0).y + 2000 * K);
+        let (s, m) = kill(cfg, "Golem", &[(Team::Red, "Cannon", c)]);
+        let cannon = s.entities().find(|e| e.team == Team::Red && e.card == "Cannon").map(|e| e.id).expect("the Cannon");
+        for g in &m {
+            let t = s.entity(*g).expect("a Golemite").target;
+            if want_some {
+                assert_eq!(t, Some(cannon), "{arm:?}: a Golemite's birth target");
+            } else {
+                assert_eq!(t, None, "{arm:?} (the vacuity check): a Golemite's birth target");
+            }
+        }
+    }
+}
+
+/// spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan (client 16.635, parity r97: Lava Pups 72 of 72 before the first
+/// divergence, live14 30 of 30): a Lava Hound's six Pups hold the Red Knight 3500 ahead, in their own sight, on the death frame;
+/// under none (the vacuity check) they hold nothing. Plant: golemite_birth_scan_dropped.
+#[test]
+fn under_client16635_birth_scan_the_pups_take_the_enemy_in_their_own_sight() {
+    use royalesim::state::DeathSpawnBirthTarget as B;
+    for (arm, want_some) in [(B::None, false), (B::Client16635BirthScan, true)] {
+        let mut cfg = slide_config();
+        cfg.calib.death_spawn_birth_target = arm;
+        let s0 = BattleState::new(7, cfg.clone());
+        let k = Vec2::new(spot(&s0).x, spot(&s0).y + 3500 * K);
+        let (s, m) = kill(cfg, "LavaHound", &[(Team::Red, "Knight", k)]);
+        let knight = s.entities().find(|e| e.team == Team::Red && e.card == "Knight").map(|e| e.id).expect("the Knight");
+        assert_eq!(m.len(), 6, "the scene drifted: the Pups");
+        for p in &m {
+            let t = s.entity(*p).expect("a Pup").target;
+            assert_eq!(t.is_some(), want_some, "{arm:?}: a Pup's birth target {t:?}");
+            if want_some {
+                assert_eq!(t, Some(knight), "{arm:?}: a Pup's birth target");
+            }
+        }
+    }
+}
+
+/// spawner.DEATH_SLIDE_TARGET = client16635_decides_while_sliding (client 16.635, parity r97: 6 of 6 Golem deaths whose birth
+/// building died during the slide re-selected on the birth + 2, still sliding), with the birth scan: the Golemites born on the
+/// nearer of two Red Cannons, which is then destroyed, hold the farther one on the birth + 2 mid-slide; under held_to_slide_end
+/// (the vacuity check) they hold nothing while they slide. Plant: slide_target_held.
+#[test]
+fn under_client16635_decides_while_sliding_a_golemite_retargets_mid_slide() {
+    use royalesim::state::{DeathSlideTarget as D, DeathSpawnBirthTarget as B};
+    for (arm, retakes) in [(D::HeldToSlideEnd, false), (D::Client16635DecidesWhileSliding, true)] {
+        let mut cfg = slide_config();
+        cfg.calib.death_spawn_birth_target = B::Client16635BirthScan;
+        cfg.calib.death_slide_target = arm;
+        let s0 = BattleState::new(7, cfg.clone());
+        let (c1, c2) = (Vec2::new(spot(&s0).x, spot(&s0).y + 2000 * K), Vec2::new(spot(&s0).x, spot(&s0).y + 4000 * K));
+        let (mut s, m) = kill(cfg, "Golem", &[(Team::Red, "Cannon", c1), (Team::Red, "Cannon", c2)]);
+        let at = |s: &BattleState, p: Vec2| s.entities().find(|e| e.team == Team::Red && e.card == "Cannon" && e.pos == p).map(|e| e.id);
+        let (k1, k2) = (at(&s, c1).expect("the nearer Cannon"), at(&s, c2).expect("the farther Cannon"));
+        for g in &m {
+            assert_eq!(s.entity(*g).expect("a Golemite").target, Some(k1), "the scene drifted: {arm:?}'s birth target");
+        }
+        assert!(s.debug_set_hp(k1, 0));
+        s.tick();
+        s.tick();
+        for g in &m {
+            let e = s.entity(*g).expect("a Golemite");
+            assert!(e.death_slide_radius > 0, "the scene drifted: {arm:?}'s Golemite no longer slides on the birth + 2");
+            if retakes {
+                assert_eq!(e.target, Some(k2), "{arm:?}: the Golemite's target on the birth + 2");
+            } else {
+                assert_eq!(e.target, None, "{arm:?} (the vacuity check): the Golemite's target mid-slide");
+            }
+        }
+    }
 }

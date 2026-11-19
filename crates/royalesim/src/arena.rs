@@ -954,6 +954,24 @@ impl Arena {
         self.territory_zone(p, team, territory, enemy_rects)
     }
 
+    /// `deploy_zone` without the NO_DEPLOY-bit test (placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS =
+    /// client16635_can_place_on_buildings): the bounds, water on any touched cell, then the territory (`territory_zone`).
+    pub fn deploy_zone_cells_open(&self, p: Vec2, team: Team, territory: Territory, enemy_rects: &[Rect]) -> Result<(), ZoneError> {
+        if !(p.x > 0 && p.y > 0 && p.x < self.width && p.y < self.height) {
+            return Err(ZoneError::OutOfArena);
+        }
+        if territory == Territory::Anywhere {
+            return Ok(());
+        }
+        if self.touching_bits(p) & self.bit_water != 0 {
+            return Err(ZoneError::Water);
+        }
+        if territory == Territory::AnywhereButWater {
+            return Ok(());
+        }
+        self.territory_zone(p, team, territory, enemy_rects)
+    }
+
     /// `deploy_zone` with the KING BLOCKS judged HALF-OPEN in absolute coordinates
     /// (placement.TROOP_TOWER_TAPS = client16402_half_open_relocate): a point on a block's
     /// max edge is outside it, one on its min edge inside, on both axes and for both seats

@@ -2425,6 +2425,50 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the default is the old arm, `Ticks`, what a battle saved before it ran.
     #[serde(default = "dash_stand_clock_default")]
     pub dash_stand_clock: DashStandClock,
+    /// spells.CROWN_SQUARE_HALF_SIDE (a crown tower's square half-side). Added after SNAPSHOT_FORMAT 20; the default is the
+    /// old arm, `Fixed1000`, what a battle saved before it ran.
+    #[serde(default = "crown_square_half_side_default")]
+    pub crown_square_half_side: CrownSquareHalfSide,
+    /// placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS (a building-standing spell's NO_DEPLOY cells). Added after SNAPSHOT_FORMAT
+    /// 20; the default is the old arm, `Refuse`, what a battle saved before it ran.
+    #[serde(default = "spell_as_deploy_no_deploy_cells_default")]
+    pub spell_as_deploy_no_deploy_cells: SpellAsDeployNoDeployCells,
+    /// spawner.DESTROY_AT_LIMIT (a DestroyAtLimit spawner's leave). Added after SNAPSHOT_FORMAT 20; the default is the old
+    /// arm, `Stays`, what a battle saved before it ran.
+    #[serde(default = "destroy_at_limit_default")]
+    pub destroy_at_limit: DestroyAtLimit,
+    /// spawner.SPAWN_CHARACTER_WITH_DEPLOY (a SpawnCharacterWithDeploy row's unit deploy). Added after SNAPSHOT_FORMAT 20;
+    /// the default is the old arm, `SpawnedDeployTime`, what a battle saved before it ran.
+    #[serde(default = "spawn_character_with_deploy_default")]
+    pub spawn_character_with_deploy: SpawnCharacterWithDeploy,
+    /// hide.LANE_SWITCH_UNDER_TICK (a lane switch's under-ground tick). Added after SNAPSHOT_FORMAT 20; the default is the
+    /// old arm, `FirstStep`, what a battle saved before it ran.
+    #[serde(default = "lane_switch_under_tick_default")]
+    pub lane_switch_under_tick: LaneSwitchUnderTick,
+    /// targeting.LANE_SWITCH_TARGET (a lane switch's target under ground). Added after SNAPSHOT_FORMAT 20; the default is
+    /// the old arm, `Rescans`, what a battle saved before it ran.
+    #[serde(default = "lane_switch_target_default")]
+    pub lane_switch_target: LaneSwitchTarget,
+    /// status.ICE_FIND_OWN_MARK (a Hero Ice Wizard's own marks). Added after SNAPSHOT_FORMAT 20; the default is the old
+    /// arm, `AnyHero`, what a battle saved before it ran.
+    #[serde(default = "ice_find_own_mark_default")]
+    pub ice_find_own_mark: IceFindOwnMark,
+    /// spawner.ICE_KILL_CUBE_TICK (a kill-fired cube's tick). Added after SNAPSHOT_FORMAT 20; the default is the old arm,
+    /// `KillPlus3`, what a battle saved before it ran.
+    #[serde(default = "ice_kill_cube_tick_default")]
+    pub ice_kill_cube_tick: IceKillCubeTick,
+    /// spawner.ICE_CUBE_HERO_DEATH (a Hero Ice Wizard's death after its find). Added after SNAPSHOT_FORMAT 20; the default
+    /// is the old arm, `CubeComes`, what a battle saved before it ran.
+    #[serde(default = "ice_cube_hero_death_default")]
+    pub ice_cube_hero_death: IceCubeHeroDeath,
+    /// status.SHOT_AREA_ATTRACT_ONSET (a shot's pulling area's first pull). Added after SNAPSHOT_FORMAT 20; the default is
+    /// the old arm, `AsCastArea`, what a battle saved before it ran.
+    #[serde(default = "shot_area_attract_onset_default")]
+    pub shot_area_attract_onset: ShotAreaAttractOnset,
+    /// spawner.DEATH_SLIDE_TARGET (a sliding member's target decisions). Added after SNAPSHOT_FORMAT 20; the default is the
+    /// old arm, `HeldToSlideEnd`, what a battle saved before it ran.
+    #[serde(default = "death_slide_target_default")]
+    pub death_slide_target: DeathSlideTarget,
 }
 
 impl Calib {
@@ -3702,6 +3746,50 @@ fn dash_stand_clock_default() -> DashStandClock {
     DashStandClock::Ticks
 }
 
+fn crown_square_half_side_default() -> CrownSquareHalfSide {
+    CrownSquareHalfSide::Fixed1000
+}
+
+fn spell_as_deploy_no_deploy_cells_default() -> SpellAsDeployNoDeployCells {
+    SpellAsDeployNoDeployCells::Refuse
+}
+
+fn destroy_at_limit_default() -> DestroyAtLimit {
+    DestroyAtLimit::Stays
+}
+
+fn spawn_character_with_deploy_default() -> SpawnCharacterWithDeploy {
+    SpawnCharacterWithDeploy::SpawnedDeployTime
+}
+
+fn lane_switch_under_tick_default() -> LaneSwitchUnderTick {
+    LaneSwitchUnderTick::FirstStep
+}
+
+fn lane_switch_target_default() -> LaneSwitchTarget {
+    LaneSwitchTarget::Rescans
+}
+
+fn ice_find_own_mark_default() -> IceFindOwnMark {
+    IceFindOwnMark::AnyHero
+}
+
+fn ice_kill_cube_tick_default() -> IceKillCubeTick {
+    IceKillCubeTick::KillPlus3
+}
+
+fn ice_cube_hero_death_default() -> IceCubeHeroDeath {
+    IceCubeHeroDeath::CubeComes
+}
+
+fn shot_area_attract_onset_default() -> ShotAreaAttractOnset {
+    ShotAreaAttractOnset::AsCastArea
+}
+
+fn death_slide_target_default() -> DeathSlideTarget {
+    DeathSlideTarget::HeldToSlideEnd
+}
+
 fn grounded_flier_body_default() -> GroundedFlierBody {
     GroundedFlierBody::AirLayer
 }
@@ -4558,6 +4646,139 @@ macro_rules! calib_enum {
 }
 
 calib_enum!(
+    /// spawner.DEATH_SLIDE_TARGET -- whether a troop death's slide-ring member (a Golemite, a Lava Pup) makes target
+    /// decisions while it slides (target.rs `slide_decides`).
+    DeathSlideTarget {
+        /// The engine's: a sliding member keeps what it holds, scans nothing until its slide ends, and keeps its birth
+        /// route through the slide.
+        HeldToSlideEnd = "held_to_slide_end",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set and live14: every Golemite pair whose birth building
+        /// died during the slide re-selected and re-planned on the birth + 2, still sliding): a troop death's slide-ring
+        /// member decides on every Target phase of its slide, and a changed target re-plans its route from where it stands.
+        Client16635DecidesWhileSliding = "client16635_decides_while_sliding",
+    }
+);
+calib_enum!(
+    /// status.SHOT_AREA_ATTRACT_ONSET -- when a pulling area a shot leaves where it lands (card.rs `projectile_area`, the
+    /// Hero Wizard's lift) starts pulling (state.rs's attract pre-pass).
+    ShotAreaAttractOnset {
+        /// The engine's: a shot's pulling area starts pulling as a cast one does under status.ATTRACT_ONSET (under
+        /// client16402_area_plus_1, after its second update).
+        AsCastArea = "as_cast_area",
+        /// Client 16.635 (parity r97: Live's 2 Hero Wizard lifts and the oracle's il-mg-16635 set's 5 in sync pulled from
+        /// the shot's hit + 2, the engine's from + 3): under client16402_area_plus_1 a shot's pulling area pulls from the
+        /// tick after its first update; its late tick holds its life, not its first pull.
+        Client16635FirstUpdate = "client16635_first_update",
+    }
+);
+calib_enum!(
+    /// spawner.ICE_CUBE_HERO_DEATH -- what a Hero Ice Wizard's death between its find and its cube does (state.rs
+    /// `ice_reap`).
+    IceCubeHeroDeath {
+        /// The engine's: a found cube comes on the find + 5 whatever its hero does.
+        CubeComes = "cube_comes",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 heroes dead on the find or the find + 1 put the cube
+        /// down on their death tick; 2 dead on the find + 3 or + 4 put none down): a hero dying on its find or the find + 1
+        /// puts the cube down on its death tick behind the closest mark found afresh; one dying on the find + 2 to + 4 puts
+        /// none down.
+        Client16635DeathWindow = "client16635_death_window",
+    }
+);
+calib_enum!(
+    /// spawner.ICE_KILL_CUBE_TICK -- when a Hero Ice Wizard's kill-fired cube comes (state.rs `ice_kills`).
+    IceKillCubeTick {
+        /// The engine's (the table's reading, unmeasured on client 16.402): a kill-fired cube's first frame on the kill's
+        /// tick + 3, its bridge on + 2.
+        KillPlus3 = "kill_plus_3",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 of 5 kill-fired cubes in sync came on the kill's tick
+        /// + 2, the engine's on + 3): its first frame on the kill's tick + 2, its bridge on + 1.
+        Client16635KillPlus2 = "client16635_kill_plus_2",
+    }
+);
+calib_enum!(
+    /// status.ICE_FIND_OWN_MARK -- whose shot slow a Hero Ice Wizard's find reads (state.rs `ice_pick`).
+    IceFindOwnMark {
+        /// The engine's: any Hero Ice Wizard's shot slow on an enemy marks it for every hero of the side.
+        AnyHero = "any_hero",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 first divergences, each a press that waited for its
+        /// own hero's first shot landing + 1 with another hero's slow on the found enemy; 0 against): only this hero's own
+        /// shot slow marks an enemy for its find (WarpBoard::ice_marks).
+        Client16635OwnShot = "client16635_own_shot",
+    }
+);
+calib_enum!(
+    /// targeting.LANE_SWITCH_TARGET -- what a Mighty Miner's lane switch does with his target while he tunnels (target.rs
+    /// `lane_tunnel_held`).
+    LaneSwitchTarget {
+        /// The engine's: his target is cleared when he goes under, and his own scan runs while he tunnels.
+        Rescans = "rescans",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 30 of 30 lane switches held their target through the
+        /// tunnel, none on the surfacing frame, the next on the surfacing + 20): no target decision and no attack update
+        /// while he tunnels; his target is kept (dropped if dead) and cleared on his surfacing.
+        Client16635HeldThroughTunnel = "client16635_held_through_tunnel",
+    }
+);
+calib_enum!(
+    /// hide.LANE_SWITCH_UNDER_TICK -- when a Mighty Miner's lane switch puts him under ground (state.rs `lane_under_now` /
+    /// `lane_pass`).
+    LaneSwitchUnderTick {
+        /// The engine's: he goes under ground on his first underground step, the tick after his trigger.
+        FirstStep = "first_step",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 7 lane switches took a hit on the trigger tick in the
+        /// engine and none in the client): he goes under ground at the end of his trigger tick's Move, so nothing resolved
+        /// on it lands.
+        Client16635TriggerTick = "client16635_trigger_tick",
+    }
+);
+calib_enum!(
+    /// spawner.SPAWN_CHARACTER_WITH_DEPLOY -- how long a unit made by a periodic spawner whose row sets
+    /// SpawnCharacterWithDeploy (the Phoenix egg rows) deploys (state.rs `spawner_pass`).
+    SpawnCharacterWithDeploy {
+        /// The engine's: the unit deploys as spawner.SPAWNED_DEPLOY_TIME says (zero: born walking).
+        SpawnedDeployTime = "spawned_deploy_time",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 of 5 reborn Phoenixes deployed on their first 15
+        /// frames): a periodic spawner row that sets SpawnCharacterWithDeploy has its unit deploy for its own DeployTime.
+        Client16635OwnDeployTime = "client16635_own_deploy_time",
+    }
+);
+calib_enum!(
+    /// spawner.DESTROY_AT_LIMIT -- what a spawner with SpawnLimit and DestroyAtLimit (the Phoenix egg rows) does once its
+    /// SpawnLimit's firings are spent (state.rs `spawner_pass`).
+    DestroyAtLimit {
+        /// The engine's: a DestroyAtLimit spawner stands until it is killed.
+        Stays = "stays",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 of 5 hatched Phoenix eggs gone on the tick after the
+        /// hatch): a spawner with SpawnLimit and DestroyAtLimit leaves without a death on the tick after its last firing.
+        Client16635LeavesAfterLastFiring = "client16635_leaves_after_last_firing",
+    }
+);
+calib_enum!(
+    /// placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS -- whether a spell placed as a deploy that may stand on buildings
+    /// (SpellAsDeploy, no CanDeployOnEnemySide, CanPlaceOnBuildings: `SpellPlacement::TroopTerritory { on_buildings: true
+    /// }`; the Log, the Barbarian Barrel, the Royal Delivery) is refused on the tilemap's NO_DEPLOY cells (arena.rs
+    /// `deploy_zone`).
+    SpellAsDeployNoDeployCells {
+        /// The engine's: refused NO_DEPLOY on any touched NO_DEPLOY cell, every card.
+        Refuse = "refuse",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 52 of 52 Barbarian Barrels tapped on own NO_DEPLOY
+        /// cells were cast): such a spell is not refused there; out of the arena, water and its territory still limit it
+        /// (arena.rs `deploy_zone_cells_open`).
+        Client16635CanPlaceOnBuildings = "client16635_can_place_on_buildings",
+    }
+);
+calib_enum!(
+    /// spells.CROWN_SQUARE_HALF_SIDE -- the half-side of a crown tower's square, where spells.CROWN_TOWER_SPELL_REACH and
+    /// combat.TROOP_SPLASH_CROWN_REACH reach a crown tower by its square (spell.rs `crown_square_half`).
+    CrownSquareHalfSide {
+        /// The engine's (client 15.535.29's ub-b1-ec4-zap): half-side 1000 for both kinds (spell.rs
+        /// CROWN_SQUARE_HALF_MILLI).
+        Fixed1000 = "fixed_1000",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 3 of 3 spells 2550 from the King's 1000-square took
+        /// it): the tower's collision radius, 1000 for a princess tower, 1400 for the King.
+        Client16635CollisionRadius = "client16635_collision_radius",
+    }
+);
+calib_enum!(
     /// combat.DASH_STAND_CLOCK -- how a dasher's stand counts its DashCooldown (state.rs `phase_path16402_for`'s dash
     /// stand, Entities::dash_stand_ms).
     DashStandClock {
@@ -4584,6 +4805,10 @@ calib_enum!(
         /// held their Golem's target on their birth frame; 16 of 16 whose target was a non-tower building routed to it,
         /// where the engine routed to the princess tower.
         Client16635ParentTarget = "client16635_parent_target",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: every Golemite and Lava Pup birth matched, 36 of 36 and 72
+        /// of 72 before the first divergence; parent_target 34 of 36 and 18 of 72): each member takes its own target at birth,
+        /// the scan its own Target phase runs (target.rs `scan`) made from the death point (`birth_scan`); nothing inherited.
+        Client16635BirthScan = "client16635_birth_scan",
     }
 );
 calib_enum!(
@@ -4639,6 +4864,12 @@ calib_enum!(
         /// nearest live enemy crown tower equals its own, never back to the spot it stood on before its last move, the one
         /// farthest from the enemy King on a tie; with none it stays: 32 of 32 hides on the enemy half, 11 of 11 ties.
         Client16635KeepsTowerDistance = "client16635_keeps_tower_distance",
+        /// Client 16.635 (parity r97, the oracle's il-mg-16635 set: 34 of 34 hides): made on a point of a live enemy princess
+        /// tower's dig ring (the 20 half-tile points of the square of half-side 2500 round its half tile, card.rs
+        /// `drill_ring_offset`), the building fixes a direction once (backward when the point 5 steps backward is strictly
+        /// farther from the enemy King) and each hide moves it 5 ring steps that way on the under tick + 18; on no ring point it
+        /// stays (`drill_ring_at`).
+        Client16635PrincessRing = "client16635_princess_ring",
     }
 );
 calib_enum!(
@@ -13397,6 +13628,17 @@ impl Calib {
             troop_splash_crown_reach: pick(&v, &["combat", "TROOP_SPLASH_CROWN_REACH", "value"], TroopSplashCrownReach::from_calibration_name)?,
             building_territory: pick(&v, &["placement", "BUILDING_TERRITORY", "value"], BuildingTerritory::from_calibration_name)?,
             grounded_flier_body: pick(&v, &["movement", "GROUNDED_FLIER_BODY", "value"], GroundedFlierBody::from_calibration_name)?,
+            death_slide_target: pick(&v, &["spawner", "DEATH_SLIDE_TARGET", "value"], DeathSlideTarget::from_calibration_name)?,
+            shot_area_attract_onset: pick(&v, &["status", "SHOT_AREA_ATTRACT_ONSET", "value"], ShotAreaAttractOnset::from_calibration_name)?,
+            ice_cube_hero_death: pick(&v, &["spawner", "ICE_CUBE_HERO_DEATH", "value"], IceCubeHeroDeath::from_calibration_name)?,
+            ice_kill_cube_tick: pick(&v, &["spawner", "ICE_KILL_CUBE_TICK", "value"], IceKillCubeTick::from_calibration_name)?,
+            ice_find_own_mark: pick(&v, &["status", "ICE_FIND_OWN_MARK", "value"], IceFindOwnMark::from_calibration_name)?,
+            lane_switch_target: pick(&v, &["targeting", "LANE_SWITCH_TARGET", "value"], LaneSwitchTarget::from_calibration_name)?,
+            lane_switch_under_tick: pick(&v, &["hide", "LANE_SWITCH_UNDER_TICK", "value"], LaneSwitchUnderTick::from_calibration_name)?,
+            spawn_character_with_deploy: pick(&v, &["spawner", "SPAWN_CHARACTER_WITH_DEPLOY", "value"], SpawnCharacterWithDeploy::from_calibration_name)?,
+            destroy_at_limit: pick(&v, &["spawner", "DESTROY_AT_LIMIT", "value"], DestroyAtLimit::from_calibration_name)?,
+            spell_as_deploy_no_deploy_cells: pick(&v, &["placement", "SPELL_AS_DEPLOY_NO_DEPLOY_CELLS", "value"], SpellAsDeployNoDeployCells::from_calibration_name)?,
+            crown_square_half_side: pick(&v, &["spells", "CROWN_SQUARE_HALF_SIDE", "value"], CrownSquareHalfSide::from_calibration_name)?,
             dash_stand_clock: pick(&v, &["combat", "DASH_STAND_CLOCK", "value"], DashStandClock::from_calibration_name)?,
             death_spawn_birth_target: pick(&v, &["spawner", "DEATH_SPAWN_BIRTH_TARGET", "value"], DeathSpawnBirthTarget::from_calibration_name)?,
             release_water_point: pick(&v, &["spawner", "RELEASE_WATER_POINT", "value"], ReleaseWaterPoint::from_calibration_name)?,
@@ -14128,6 +14370,19 @@ pub struct DrillRun {
     /// set; absent in older snapshots = None.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<Vec2>,
+    /// hide.DRILL_DIG_POINT = client16635_princess_ring: the dig ring the building walks (`drill_ring_at`), fixed when it is
+    /// made. None off a ring and under every other arm; hashed only when set; absent in older snapshots = None.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring: Option<DrillRing>,
+}
+
+/// hide.DRILL_DIG_POINT = client16635_princess_ring: a building's dig ring: the enemy princess tower's half-tile centre, the
+/// ring point it stands on, and its fixed direction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DrillRing {
+    pub centre: Vec2,
+    pub index: u8,
+    pub backward: bool,
 }
 
 impl DrillRun {
@@ -14623,6 +14878,11 @@ pub struct WarpBoard {
     /// arm alone; absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ice_freed: Vec<(EntityId, u32)>,
+    /// status.ICE_FIND_OWN_MARK = client16635_own_shot: each (Hero Ice Wizard, enemy its shot slowed, the tick the slow's
+    /// BuffTime ends) (`ice_mark_own`), read by that hero's find (`ice_pick`). Written under that arm alone; absent in older
+    /// snapshots, and hashed only when not empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ice_marks: Vec<(EntityId, EntityId, u32)>,
 }
 
 /// A SKELETON KING'S SOULS (card.rs `SoulSummonDef`; `count_souls`): the troops' deaths since his last trigger.
@@ -14786,7 +15046,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.blows.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.surges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty()
+        self.runs.is_empty() && self.blows.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.surges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty() && self.ice_marks.is_empty()
     }
 
     /// A surge's recovery holds its hero's attack (card.rs `SurgeDef::no_attack_ms`; `surge_pass` sets `hold_until`): from
@@ -14897,6 +15157,10 @@ pub struct IceRun {
     pub level: i32,
     pub hero_at: Vec2,
     pub phase: IcePhase,
+    /// spawner.ICE_CUBE_HERO_DEATH = client16635_death_window: the tick its find fired it (`ice_finds`), read by its hero's death
+    /// window (`ice_reap`). Written under that arm alone; absent in older snapshots, and hashed only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub found: Option<u32>,
 }
 
 /// Where a Hero Ice Wizard's button is (`IceRun`).
@@ -14921,6 +15185,9 @@ const ICE_FREEZE_TICKS: u32 = 2;
 /// tick K + ICE_KILL_BRIDGE_TICKS, the cube on K + ICE_KILL_CUBE_TICKS, the find's chain without its 100 ms. Unmeasured on
 /// client 16.402 (no kill-fired cube in the live set).
 const ICE_KILL_BRIDGE_TICKS: u32 = 2;
+/// spawner.ICE_CUBE_HERO_DEATH = client16635_death_window: a hero dead on its find's tick F or F + ICE_DEATH_FIND_TICKS (the
+/// find's 100 ms step) puts the cube down on its death tick; one dead after that and before the cube, none.
+const ICE_DEATH_FIND_TICKS: u32 = 1;
 const ICE_KILL_CUBE_TICKS: u32 = 3;
 /// THE CUBE'S CHECK for an enemy still frozen starts after its freeze landed (born + 3). A check that finds none kills the
 /// cube `linger_ms` / 50 + 1 ticks on: its wait reads the check on its next update. Measured on one live cube
@@ -15624,6 +15891,9 @@ struct Scratch {
     /// (its team, the member card, the death point, the parent's live target), which `materialise_released` gives each
     /// member it creates from that ring. Emptied there.
     birth_targets: Vec<(Team, u16, Vec2, EntityId)>,
+    /// spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan: per slide ring a dying troop laid this tick (`phase_reap`), (its
+    /// team, the member card, the death point), whose members `materialise_released` has scan from that point. Emptied there.
+    birth_scans: Vec<(Team, u16, Vec2)>,
     /// transform.BECAME_BUILDING_TARGET = client16635_next_tick: the units that turned into a building row this tick (the
     /// transformation in `health_triggers`), which a buildings-only attacker's decision passes over (target.rs `can_target`).
     /// Emptied with `switched_reset`.
@@ -16972,7 +17242,8 @@ impl BattleState {
         self.lifetime_acc[i] = 0;
         // AN EVO GOBLIN DRILL'S BUILDING hides at its lines (`drill_pass`), however it was made.
         if kind == EntityKind::Building && c.evo.as_ref().is_some_and(|v| v.drill.is_some()) {
-            self.evo.drills.push(DrillRun { id, next: 0, under_at: 0, wave_at: 0, wave: 0, from: None });
+            let ring = self.drill_ring_at(team, pos);
+            self.evo.drills.push(DrillRun { id, next: 0, under_at: 0, wave_at: 0, wave: 0, from: None, ring });
         }
         #[cfg(clash_plant = "acquire_delay_every_unit")]
         self.delay_acquisition(i, false); // PLANT: every new troop waits, hand-played and periodic included.
@@ -17303,6 +17574,8 @@ impl BattleState {
     /// are created after every phase that would.
     fn materialise_released(&mut self) {
         let mut fresh: Vec<usize> = Vec::new();
+        // spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan: the members to scan from their death point, after the loop.
+        let mut scan_now: Vec<(usize, Vec2)> = Vec::new();
         for p in std::mem::take(&mut self.released) {
             let kind = match self.cfg.cards.get(p.card).kind {
                 CardKind::Building => EntityKind::Building,
@@ -17336,6 +17609,9 @@ impl BattleState {
             if p.first_update {
                 fresh.push(id.index as usize);
             }
+            if p.slide_radius > 0 && self.scratch.birth_scans.iter().any(|(tm, c, at)| *tm == p.team && *c == p.card && *at == p.slide_centre) {
+                scan_now.push((id.index as usize, p.slide_centre));
+            }
             // spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_parent_target: a slide ring's member takes its parent's target.
             if p.slide_radius > 0 {
                 if let Some(&(_, _, _, t)) = self.scratch.birth_targets.iter().find(|(tm, c, at, _)| *tm == p.team && *c == p.card && *at == p.slide_centre) {
@@ -17352,6 +17628,9 @@ impl BattleState {
             if p.morph_birth {
                 self.morph_birth(id.index as usize);
             }
+        }
+        if !scan_now.is_empty() {
+            self.birth_scan(&scan_now);
         }
         // spawner.SPAWNED_FIRST_STEP: the death spawns take their first update now.
         #[cfg(not(clash_plant = "first_step_siblings_push"))]
@@ -17403,6 +17682,7 @@ impl BattleState {
         // transform.DISMOUNT_MOUNT_BIRTH = client15535_hero_point: the heroes' pre-hop bodies served this first update only.
         self.scratch.mount_bodies.clear();
         self.scratch.birth_targets.clear();
+        self.scratch.birth_scans.clear();
         // spells.ROLL_RELEASE_WATER_POINT = client16635_end_point_first_push: a roll's unit no creation-tick update moved
         // stands as unpushed (P if valid, else the nearest dry centre).
         let left = std::mem::take(&mut self.scratch.water_fix);
@@ -18720,6 +19000,11 @@ impl BattleState {
 
     /// Entity `i`'s spawner block, if its card has one.
     #[inline]
+    /// spawner.DESTROY_AT_LIMIT = client16635_leaves_after_last_firing for `sp`, a spawner whose row sets DestroyAtLimit.
+    fn leaves_at_limit(&self, sp: &SpawnerDef) -> bool {
+        sp.destroy_at_limit && self.cfg.calib.destroy_at_limit == DestroyAtLimit::Client16635LeavesAfterLastFiring
+    }
+
     fn spawner_of(&self, i: usize) -> Option<SpawnerDef> {
         self.cfg.cards.get(self.ents.card[i]).spawner
     }
@@ -18981,6 +19266,8 @@ impl BattleState {
         let mut waves_begun: Vec<usize> = Vec::new();
         // The spawners armed below a health share this pass: (index, id, the tick their clock starts, StartCounterAt).
         let mut armed: Vec<(usize, EntityId, u32, i32)> = Vec::new();
+        // spawner.DESTROY_AT_LIMIT: the spawners leaving on this pass, without a death.
+        let mut leaving: Vec<EntityId> = Vec::new();
         self.evo.spawn_gates.retain(|(g, _)| self.ents.is_alive(*g));
         for i in 0..self.ents.capacity() {
             let e = &self.ents;
@@ -18988,6 +19275,16 @@ impl BattleState {
                 continue;
             }
             let Some(sp) = self.spawner_of(i) else { continue };
+            // spawner.DESTROY_AT_LIMIT = client16635_leaves_after_last_firing: a DestroyAtLimit spawner whose SpawnLimit's
+            // firings are spent leaves on this pass, the one after its last firing, WITHOUT a death (`scratch.vanish`, despawned
+            // in this tick's Reap). Measured on client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 of 5 hatched Phoenix
+            // eggs had their last frame on the reborn Phoenix's first). PLANT (regression) destroy_at_limit_stays: the new arm
+            // leaves the egg standing.
+            #[cfg(not(clash_plant = "destroy_at_limit_stays"))]
+            if self.leaves_at_limit(&sp) && sp.limit.is_some_and(|l| i64::from(e.spawn_waves[i]) >= i64::from(l)) {
+                leaving.push(e.id_of(i));
+                continue;
+            }
             // A SPAWNER ARMED BELOW A SHARE OF ITS UNIT'S HITPOINTS (card.rs `SpawnerDef::below_hp_pct`, the Evo Goblin
             // Giant's interval under half): nothing until its unit is there; the pass that first sees it arms it, and
             // its clock starts at StartCounterAt on the next pass.
@@ -19069,7 +19366,7 @@ impl BattleState {
             };
             #[cfg(clash_plant = "second_spawner_never_alternates")]
             let wave_card = sp.unit;
-            if sp.unit2.is_some() && left == 0 {
+            if (sp.unit2.is_some() || self.leaves_at_limit(&sp)) && left == 0 {
                 waves_begun.push(i);
             }
             let unit = cards.get(wave_card);
@@ -19140,6 +19437,17 @@ impl BattleState {
                     let action_deploy = sp.emit_deploy_ms;
                     #[cfg(clash_plant = "action_spawn_unit_deploy")]
                     let action_deploy: Option<i32> = None; // PLANT (regression): the unit's own DeployTime (1000).
+                    // spawner.SPAWN_CHARACTER_WITH_DEPLOY = client16635_own_deploy_time: a row that sets SpawnCharacterWithDeploy (the
+                    // Phoenix egg's) has its unit deploy for its own DeployTime (PhoenixNoRespawn's 733): created at the end of this
+                    // Move, it counts down from the next tick, deploying on 15 frames, standing on the 16th, its first step on the
+                    // 17th. Measured on client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 of 5 reborn Phoenixes). PLANT
+                    // (regression) spawn_with_deploy_born_walking: the new arm's unit is still born walking.
+                    #[cfg(not(clash_plant = "spawn_with_deploy_born_walking"))]
+                    let deploy_ms = if !action && sp.with_deploy && self.cfg.calib.spawn_character_with_deploy == SpawnCharacterWithDeploy::Client16635OwnDeployTime {
+                        None
+                    } else {
+                        deploy_ms
+                    };
                     let deploy_ms = if action { action_deploy } else { deploy_ms };
                     // targeting.SPAWNED_UNIT_ACQUIRE_DELAY: an interval ACTION's unit (the Furnace's ActionSpawnToLocation)
                     // is a target for enemies from its 8th frame, as every action's spawn is (`SpawnVia::Action`); a
@@ -19184,6 +19492,11 @@ impl BattleState {
         }
         for i in waves_begun {
             self.ents.spawn_waves[i] += 1;
+        }
+        for id in leaving {
+            if !self.scratch.vanish.contains(&id) {
+                self.scratch.vanish.push(id);
+            }
         }
         for (i, id, from, start) in armed {
             self.evo.spawn_gates.push((id, from));
@@ -19260,6 +19573,18 @@ impl BattleState {
                 if let Some(q) = self.drill_dig_to(self.ents.team[i], p, r.from) {
                     r.from = Some(p);
                     self.ents.pos[i] = q;
+                    self.hash.rebuild(&self.ents);
+                }
+            }
+            // hide.DRILL_DIG_POINT = client16635_princess_ring: on the 18th tick under it walks 5 ring steps (`drill_ring_at`),
+            // wherever the tower stands by then.
+            if r.under_at > 0 && tick == r.under_at + crate::card::DRILL_DIG_MOVE_TICKS {
+                if let Some(g) = r.ring.as_mut() {
+                    let (n, s) = (crate::card::DRILL_RING_POINTS, crate::card::DRILL_RING_STEPS);
+                    g.index = ((usize::from(g.index) + if g.backward { n - s } else { s }) % n) as u8;
+                    let (dx, dy) = crate::card::drill_ring_offset(usize::from(g.index));
+                    let half = 500 * crate::fixed::SUBTILE_PER_MILLITILE;
+                    self.ents.pos[i] = Vec2::new(g.centre.x + dx * half, g.centre.y + dy * half);
                     self.hash.rebuild(&self.ents);
                 }
             }
@@ -20666,6 +20991,10 @@ impl BattleState {
                 }
                 Phase::Move => {
                     self.phase_move();
+                    // hide.LANE_SWITCH_UNDER_TICK = client16635_trigger_tick: a lane switch triggered this tick goes under now.
+                    if !self.warps.lanes.is_empty() && self.lane_under_on_trigger() {
+                        self.lane_under_now();
+                    }
                     // The Hero Magic Archer's warps, after the tick's pushes (`magic_warps`).
                     if !self.warps.magic.is_empty() {
                         self.magic_warps();
@@ -22222,6 +22551,15 @@ impl BattleState {
                     self.warps.surfaced.retain(|(s, _)| *s != id);
                     self.warps.surfaced.push((id, self.tick));
                 }
+                // targeting.LANE_SWITCH_TARGET = client16635_held_through_tunnel: the target a lane switcher kept under ground
+                // goes on his surfacing frame; his first decision is the one after his deploy (the surfacing + 20).
+                let lane_kept = self.lane_target_held() && matches!(card.ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::LaneSwitch(_)));
+                if lane_kept {
+                    self.ents.target[i] = None;
+                    self.ents.target_locked[i] = false;
+                    self.ents.attack_phase[i] = AttackPhase::Idle;
+                    self.ents.attack_ms[i] = 0;
+                }
                 self.ents.tunnel_dest[i] = None;
                 self.ents.pos[i] = dest;
                 self.ents.deploy_ms[i] = deploy_ms;
@@ -23042,6 +23380,13 @@ impl BattleState {
                 }
             }
             let changed = e.target[i] != d.target;
+            // spawner.DEATH_SLIDE_TARGET = client16635_decides_while_sliding: a sliding member whose decision changed its target
+            // plans afresh this tick, from where it stands.
+            if changed && e.death_sliding(i) && calib.death_slide_target == DeathSlideTarget::Client16635DecidesWhileSliding && cards.get(e.producer(i)).death_spawn_pushback {
+                e.route[i].clear();
+                e.route_goal[i] = None;
+                e.seg_dir[i] = Vec2::default();
+            }
             // the target this unit had AND STILL HAS: `None` once it is dead, which is the
             // distinction both rules below turn on.
             let was = e.target[i].filter(|t| e.standing(*t, struck));
@@ -25996,8 +26341,41 @@ impl BattleState {
     /// cloned and riding units skipped; troops, buildings and crown towers alike. At one distance the later created
     /// (targeting.EQUAL_DISTANCE_TIE's measured arm; unmeasured here). Measured on client 16.402: the closest marked
     /// enemy to the pressing hero in 34 of 34 live cubes, a crown tower once.
-    fn ice_pick(&self, team: Team, from: Vec2, marks: [u16; 2]) -> Option<usize> {
+    /// status.ICE_FIND_OWN_MARK = client16635_own_shot is on. PLANT (regression) ice_find_any_hero: the new arm still finds by
+    /// any hero's mark.
+    fn ice_own_mark(&self) -> bool {
+        #[cfg(not(clash_plant = "ice_find_any_hero"))]
+        let on = self.cfg.calib.ice_find_own_mark == IceFindOwnMark::Client16635OwnShot;
+        #[cfg(clash_plant = "ice_find_any_hero")]
+        let on = false;
+        on
+    }
+
+    /// status.ICE_FIND_OWN_MARK = client16635_own_shot: this tick's Hero Ice Wizard shot hits (`firers`) mark their victims as
+    /// their hero's own until the slow's BuffTime ends (WarpBoard::ice_marks); an ended mark, or one whose hero or victim is
+    /// gone, is dropped. Measured on client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 presses with another hero's slow
+    /// on the found enemy waited for their own hero's first shot landing + 1, 5 first divergences; 7 in-sync presses with a
+    /// second hero alive agreed; 0 against).
+    fn ice_mark_own(&mut self, firers: &[(EntityId, EntityId)]) {
+        let tick = self.tick;
+        let ents = &self.ents;
+        self.warps.ice_marks.retain(|(a, v, u)| *u > tick && ents.is_alive(*a) && ents.is_alive(*v));
+        for &(f, v) in firers {
+            if !self.ents.is_alive(f) {
+                continue;
+            }
+            let Some(ms) = self.cfg.cards.get(self.ents.card[f.index as usize]).attack_buff.as_ref().map(|b| b.time_ms) else { continue };
+            let until = tick + (ms.max(0) / self.cfg.calib.tick_ms.max(1)) as u32;
+            self.warps.ice_marks.retain(|(a, w, _)| !(*a == f && *w == v));
+            self.warps.ice_marks.push((f, v, until));
+        }
+    }
+
+    fn ice_pick(&self, team: Team, from: Vec2, marks: [u16; 2], hero: EntityId) -> Option<usize> {
         let e = &self.ents;
+        // status.ICE_FIND_OWN_MARK = client16635_own_shot: the shot slow counts only where this hero put it (`ice_mark_own`).
+        let own = self.ice_own_mark();
+        let mine = |j: usize| !own || self.warps.ice_marks.iter().any(|(a, v, u)| *a == hero && *v == e.id_of(j) && *u > self.tick);
         // status.ICE_FIND_MARKS = client16635_shot_slow_only: the hero's shot slow (marks[1]) alone, not its deploy chill
         // (marks[0]). Measured on client 16.635 (parity r95, the oracle's il-mg-16635 set: 11 of 11 presses 30 ticks after the
         // hero's deploy with an enemy inside the chill found on the first shot's landing + 1, the engine at once; 13 first
@@ -26007,10 +26385,10 @@ impl BattleState {
         #[cfg(clash_plant = "ice_find_reads_chill")]
         let slow_only = false;
         #[cfg(not(clash_plant = "ice_find_ignores_marks"))]
-        let marked = |j: usize| e.buff_slots(j).iter().any(|s| (!slow_only && s.id == marks[0] + 1) || s.id == marks[1] + 1);
+        let marked = |j: usize| e.buff_slots(j).iter().any(|s| (!slow_only && s.id == marks[0] + 1) || (s.id == marks[1] + 1 && mine(j)));
         #[cfg(clash_plant = "ice_find_ignores_marks")]
         let marked = |_j: usize| {
-            let _ = (marks, slow_only);
+            let _ = (marks, slow_only, &mine);
             true // PLANT: the find takes the closest enemy, marked or not.
         };
         (0..e.capacity())
@@ -26063,9 +26441,13 @@ impl BattleState {
             }
             match r.phase {
                 IcePhase::Pending if alive => {
-                    if let Some(j) = self.ice_pick(r.team, self.ents.pos[r.hero.index as usize], d.marks) {
+                    if let Some(j) = self.ice_pick(r.team, self.ents.pos[r.hero.index as usize], d.marks, r.hero) {
                         let at = self.ice_point(j, d.ahead);
                         self.warps.ices[k].phase = IcePhase::Fired { at, bridge: tick + ICE_BRIDGE_TICKS, cube: tick + ICE_CUBE_TICKS };
+                        // spawner.ICE_CUBE_HERO_DEATH = client16635_death_window: the find's tick, for its hero's death window.
+                        if self.ice_death_window() {
+                            self.warps.ices[k].found = Some(tick);
+                        }
                     }
                 }
                 IcePhase::Fired { at, bridge, cube } => {
@@ -26158,7 +26540,15 @@ impl BattleState {
             }
             let Some(&(_, v)) = firers.iter().find(|(f, v)| *f == r.hero && self.death_queue.contains(v)) else { continue };
             let at = self.ice_point(v.index as usize, d.ahead);
-            self.warps.ices[k].phase = IcePhase::Fired { at, bridge: tick + ICE_KILL_BRIDGE_TICKS, cube: tick + ICE_KILL_CUBE_TICKS };
+            // spawner.ICE_KILL_CUBE_TICK = client16635_kill_plus_2: the cube's first frame on the kill's tick + 2, its bridge on + 1.
+            // Measured on client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 of 5 kill-fired cubes in sync came on the
+            // kill + 2, the engine's on + 3; 10 more after a first divergence on + 2). PLANT (regression) ice_kill_cube_late: the
+            // new arm's cube still comes on + 3.
+            #[cfg(not(clash_plant = "ice_kill_cube_late"))]
+            let lead = u32::from(self.cfg.calib.ice_kill_cube_tick == IceKillCubeTick::Client16635KillPlus2);
+            #[cfg(clash_plant = "ice_kill_cube_late")]
+            let lead = 0u32;
+            self.warps.ices[k].phase = IcePhase::Fired { at, bridge: tick + ICE_KILL_BRIDGE_TICKS - lead, cube: tick + ICE_KILL_CUBE_TICKS - lead };
         }
     }
 
@@ -26166,6 +26556,16 @@ impl BattleState {
     /// its run ends; a hero that died with its press waiting puts the cube itself (no bridge) behind the closest mark to
     /// its last point (the table's death branch; unmeasured on client 16.402), made with this tick's released units, or,
     /// with no mark, its press is lost. A cube in flight comes whatever its hero does.
+    /// spawner.ICE_CUBE_HERO_DEATH = client16635_death_window is on. PLANT (regression) ice_death_fired_unread: the new arm's
+    /// found cube still comes whatever its hero does.
+    fn ice_death_window(&self) -> bool {
+        #[cfg(not(clash_plant = "ice_death_fired_unread"))]
+        let on = self.cfg.calib.ice_cube_hero_death == IceCubeHeroDeath::Client16635DeathWindow;
+        #[cfg(clash_plant = "ice_death_fired_unread")]
+        let on = false;
+        on
+    }
+
     fn ice_reap(&mut self) {
         let tick = self.tick;
         // status.ICE_RELEASE_ATTACK: a let-go's hold is its next tick's alone
@@ -26183,11 +26583,29 @@ impl BattleState {
                 IcePhase::Pending if !self.ents.is_alive(r.hero) => {
                     #[cfg(not(clash_plant = "ice_death_unread"))]
                     if d.on_death {
-                        if let Some(j) = self.ice_pick(r.team, r.hero_at, d.marks) {
+                        if let Some(j) = self.ice_pick(r.team, r.hero_at, d.marks, r.hero) {
                             let at = self.ice_point(j, d.ahead);
                             self.ice_release_cube(&r, &d, at);
                             let kill = tick + (d.life_ms / self.cfg.calib.tick_ms.max(1)) as u32;
                             keep.push(IceRun { phase: IcePhase::Standing { cube: None, at, born: tick, kill, empty: false }, ..r });
+                        }
+                    }
+                    continue;
+                }
+                // spawner.ICE_CUBE_HERO_DEATH = client16635_death_window: a found run whose hero died before its cube. Dead on the
+                // find's tick F or F + 1, the hero puts the cube down on its death tick (no bridge) behind the closest mark found
+                // afresh from its last point, as a death while the press waits does; dead on F + 2 to F + 4, no cube (a bridge
+                // already out still lands). Measured on client 16.635 (parity r97, the oracle's il-mg-16635 set: 5 deaths on F or
+                // F + 1, each cube on the death tick at the target's death-tick point, one a first divergence; 2 on F + 3 or F + 4,
+                // no cube, one a first divergence; a death on F + 5 kept its cube in both).
+                IcePhase::Fired { cube, .. } if self.ice_death_window() && r.found.is_some() && tick < cube && !self.ents.is_alive(r.hero) => {
+                    let f = r.found.unwrap_or(tick);
+                    if tick <= f + ICE_DEATH_FIND_TICKS && d.on_death {
+                        if let Some(j) = self.ice_pick(r.team, r.hero_at, d.marks, r.hero) {
+                            let at = self.ice_point(j, d.ahead);
+                            self.ice_release_cube(&r, &d, at);
+                            let kill = tick + (d.life_ms / self.cfg.calib.tick_ms.max(1)) as u32;
+                            keep.push(IceRun { phase: IcePhase::Standing { cube: None, at, born: tick, kill, empty: false }, found: None, ..r });
                         }
                     }
                     continue;
@@ -26498,6 +26916,53 @@ impl BattleState {
     /// (`phase_tunnel`, `tunnel_step` at his `speed`) and he comes up as a Miner does (`surface`). Measured on client
     /// 15.535.29 (sp-champ-MightyMiner-s0): standing on the trigger P + 10, his first step under ground on P + 11, the
     /// Knight that held him on a tower that tick.
+    /// hide.LANE_SWITCH_UNDER_TICK = client16635_trigger_tick is on. PLANT (regression) lane_trigger_tick_touchable: the new arm
+    /// still puts him under on his first step.
+    fn lane_under_on_trigger(&self) -> bool {
+        #[cfg(not(clash_plant = "lane_trigger_tick_touchable"))]
+        let on = self.cfg.calib.lane_switch_under_tick == LaneSwitchUnderTick::Client16635TriggerTick;
+        #[cfg(clash_plant = "lane_trigger_tick_touchable")]
+        let on = false;
+        on
+    }
+
+    /// targeting.LANE_SWITCH_TARGET = client16635_held_through_tunnel is on (the switch keeps his target; target.rs
+    /// `lane_tunnel_held`). PLANT (regression) lane_tunnel_rescans.
+    fn lane_target_held(&self) -> bool {
+        #[cfg(not(clash_plant = "lane_tunnel_rescans"))]
+        let on = self.cfg.calib.lane_switch_target == LaneSwitchTarget::Client16635HeldThroughTunnel;
+        #[cfg(clash_plant = "lane_tunnel_rescans")]
+        let on = false;
+        on
+    }
+
+    /// hide.LANE_SWITCH_UNDER_TICK = client16635_trigger_tick: a lane switch triggered this tick (its run made now) goes under
+    /// ground at the end of this tick's Move, `lane_pass`'s due branch without the first step's contact entry (that stays on the
+    /// next tick, his first step's), so no strike, shot, area or buff resolved on the trigger tick lands on him; he still stood
+    /// and was a body in this tick's moves. Measured on client 16.635 (parity r97, the oracle's il-mg-16635 set: 7 switches took
+    /// a hit on the trigger tick in the engine and none in the client, 2 of them first divergences; 0 against).
+    fn lane_under_now(&mut self) {
+        let tick = self.tick;
+        let held = self.lane_target_held();
+        for k in 0..self.warps.lanes.len() {
+            let (id, made) = (self.warps.lanes[k].id, self.warps.lanes[k].made);
+            if made != tick || !self.ents.is_alive(id) {
+                continue;
+            }
+            let i = id.index as usize;
+            let p = self.ents.pos[i];
+            self.ents.tunnel_dest[i] = Some(Vec2::new(self.cfg.arena.width - p.x, p.y));
+            if !held {
+                self.ents.target[i] = None;
+                self.ents.target_locked[i] = false;
+            }
+            self.ents.attack_phase[i] = AttackPhase::Idle;
+            self.ents.attack_ms[i] = 0;
+            self.ents.route[i].clear();
+            self.ents.route_goal[i] = None;
+        }
+    }
+
     fn lane_pass(&mut self) {
         let tick = self.tick;
         self.scratch.lane_first.retain(|(_, t)| *t == tick);
@@ -26516,11 +26981,20 @@ impl BattleState {
                 continue;
             }
             let i = r.id.index as usize;
+            // hide.LANE_SWITCH_UNDER_TICK = client16635_trigger_tick: under ground since the trigger's Move (`lane_under_now`):
+            // this is his first step's tick (movement.LANE_SWITCH_FIRST_STEP_CONTACT); the run ends.
+            if self.lane_under_on_trigger() && self.ents.underground(i) {
+                self.scratch.lane_first.push((r.id, self.tick));
+                continue;
+            }
             let p = self.ents.pos[i];
             self.ents.tunnel_dest[i] = Some(Vec2::new(self.cfg.arena.width - p.x, p.y));
             self.scratch.lane_first.push((r.id, self.tick));
-            self.ents.target[i] = None;
-            self.ents.target_locked[i] = false;
+            // targeting.LANE_SWITCH_TARGET = client16635_held_through_tunnel: his target stays while he tunnels.
+            if !self.lane_target_held() {
+                self.ents.target[i] = None;
+                self.ents.target_locked[i] = false;
+            }
             self.ents.attack_phase[i] = AttackPhase::Idle;
             self.ents.attack_ms[i] = 0;
             self.ents.route[i].clear();
@@ -28259,6 +28733,16 @@ impl BattleState {
         let lag = matches!(self.cfg.calib.attract_onset, AttractOnset::ClientNextTick | AttractOnset::Client16402AreaPlus1);
         #[cfg(clash_plant = "attract_onset_area_first_tick")]
         let lag = false; // PLANT (regression): the new arm pulls from the area's first tick.
+        // status.SHOT_AREA_ATTRACT_ONSET = client16635_first_update: under client16402_area_plus_1 a shot's pulling area (the Hero
+        // Wizard's lift, `spell::is_shot_area`) is a source from the tick after its first update, its late tick holding its life
+        // and not its first pull: from the shot's hit + 2 through + 12. Measured on client 16.635 (parity r97: Live's 2 lifts and
+        // the oracle's il-mg-16635 set's 5 in sync pulled from the hit + 2, the engine's from + 3; the reference engine's agree).
+        // PLANT (regression) shot_area_pull_late: the new arm still waits the late tick.
+        #[cfg(not(clash_plant = "shot_area_pull_late"))]
+        let shot_first = self.cfg.calib.shot_area_attract_onset == ShotAreaAttractOnset::Client16635FirstUpdate
+            && self.cfg.calib.attract_onset == AttractOnset::Client16402AreaPlus1;
+        #[cfg(clash_plant = "shot_area_pull_late")]
+        let shot_first = false;
         let (mut attract, mut attract_n): (Vec<(i32, i32)>, Vec<i32>) = {
             let sources: Vec<AttractSource> = self
                 .spells
@@ -28282,7 +28766,12 @@ impl BattleState {
                         }
                         _ => return None,
                     };
-                    let live = if lag { left < whole && left > -self.cfg.calib.tick_ms } else { left > 0 };
+                    let start = if shot_first && matches!(s.motion, crate::spell::SpellMotion::Pulsing(_)) && crate::spell::is_shot_area(self.cfg.cards.get(s.card)) {
+                        whole + self.cfg.calib.tick_ms
+                    } else {
+                        whole
+                    };
+                    let live = if lag { left < start && left > -self.cfg.calib.tick_ms } else { left > 0 };
                     if !live {
                         return None;
                     }
@@ -29474,7 +29963,10 @@ impl BattleState {
                             let gi = gid.index as usize;
                             let walk_own = target::walking_own_radius(calib, card, e.radius[i]);
                             if !target::in_attack_range(calib, e.pos[i], card.range, walk_own, e.pos[gi], e.radius[gi]) {
-                                let actor = if slide_c[i] != Vec2::default() { (slide_c[i].x / K, slide_c[i].y / K) } else { (bodies[i].x, bodies[i].y) };
+                                // spawner.DEATH_SLIDE_TARGET = client16635_decides_while_sliding: only the first plan, on the first slide
+                                // tick, is made from the death point; a re-plan mid-slide starts from the member's own point.
+                                let first = ctx.tick <= e.spawn_tick[i] + 1 || calib.death_slide_target != DeathSlideTarget::Client16635DecidesWhileSliding;
+                                let actor = if slide_c[i] != Vec2::default() && first { (slide_c[i].x / K, slide_c[i].y / K) } else { (bodies[i].x, bodies[i].y) };
                                 let target = if calib.goal_target_position == GoalTargetPosition::CreationOrder { (bodies[gi].x, bodies[gi].y) } else { (e.pos[gi].x / K, e.pos[gi].y / K) };
                                 let goal_cell = path16402::choose_goal_cell(
                                     &g.terrain,
@@ -32199,6 +32691,7 @@ impl BattleState {
                 && e.dash_state[i] != DashState::Dashing
                 && !(stand_holds && e.dash_state[i] == DashState::Standing)
                 && target::hide_acts(&self.cfg.calib, e, i)
+                && !target::lane_tunnel_held(&self.cfg.calib, &self.cfg.cards, e, i)
                 && (e.kind[i] != EntityKind::KingTower || self.king_active[e.team[i] as usize]);
             // combat.SPECIAL_HOOK = client_hook_drag: while this unit's special is under way, or
             // from the tick it starts, it runs in place of the ordinary attack step
@@ -34998,6 +35491,10 @@ impl BattleState {
         }
         // THE HERO ICE WIZARDS' KILLS (`ice_kills`): its shots' hits this tick that killed.
         let firers = std::mem::take(&mut self.dmg.firers);
+        // status.ICE_FIND_OWN_MARK = client16635_own_shot: the tick's Hero Ice Wizard shot hits mark their victims as their own.
+        if self.ice_own_mark() && (!firers.is_empty() || !self.warps.ice_marks.is_empty()) {
+            self.ice_mark_own(&firers);
+        }
         if !firers.is_empty() && !self.warps.ices.is_empty() {
             self.ice_kills(&firers);
         }
@@ -36102,6 +36599,10 @@ impl BattleState {
                         self.scratch.birth_targets.push((team, ds.unit, self.ents.pos[i], t));
                     }
                 }
+                // spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan: the ring's members scan for their own target (`birth_scan`).
+                if slide_radius > 0 && self.birth_scans() {
+                    self.scratch.birth_scans.push((team, ds.unit, self.ents.pos[i]));
+                }
                 // spawner.SPAWNED_FIRST_STEP: a death spawn takes its first update on its death frame,
                 // except the members of a DeathSpawnPushback row, whose first movement is the slide:
                 // measured on client 16.402, a Golem's Golemites exist on the death frame and are inert
@@ -37176,6 +37677,46 @@ impl BattleState {
 
     /// hide.DRILL_DIG_POINT = client16635_keeps_tower_distance is on. PLANT (regression) drill_dig_stays: the new arm's building
     /// stays where it went under.
+    /// hide.DRILL_DIG_POINT = client16635_princess_ring is on. PLANT (regression) drill_ring_stays: the new arm's building keeps
+    /// its point.
+    fn drill_walks_ring(&self) -> bool {
+        #[cfg(not(clash_plant = "drill_ring_stays"))]
+        let on = self.cfg.calib.drill_dig_point == DrillDigPoint::Client16635PrincessRing;
+        #[cfg(clash_plant = "drill_ring_stays")]
+        let on = false;
+        on
+    }
+
+    /// hide.DRILL_DIG_POINT = client16635_princess_ring: the dig ring a `team` Evo Goblin Drill's building made on `p` walks: the
+    /// first live enemy princess tower (engine-left, then right) one of whose 20 ring points (card.rs `drill_ring_offset`, in
+    /// half tiles from its half tile) is `p`'s half tile, and the direction it fixes: backward when the point 5 steps backward
+    /// is strictly farther from the enemy King than the point 5 steps forward, else forward (a tie included). None off every
+    /// ring (it stays). Measured on client 16.635 (parity r97, the oracle's il-mg-16635 set: 34 hides by 17 buildings, all
+    /// reproduced; 8 of 16 enemy-half starts walked backward, each as the King rule picks).
+    fn drill_ring_at(&self, team: Team, p: Vec2) -> Option<DrillRing> {
+        if !self.drill_walks_ring() {
+            return None;
+        }
+        let half = 500 * crate::fixed::SUBTILE_PER_MILLITILE;
+        let enemy = 1 - team as usize;
+        let (hx, hy) = (p.x.div_euclid(half), p.y.div_euclid(half));
+        let king = self.towers[enemy][0].filter(|id| self.ents.is_alive(*id)).map(|id| self.ents.pos[id.index as usize]);
+        let (n, s) = (crate::card::DRILL_RING_POINTS, crate::card::DRILL_RING_STEPS);
+        for slot in 1..=2 {
+            let Some(t) = self.towers[enemy][slot].filter(|id| self.ents.is_alive(*id)) else { continue };
+            let c = self.ents.pos[t.index as usize];
+            let (cx, cy) = (c.x.div_euclid(half), c.y.div_euclid(half));
+            let at = |k: usize| {
+                let (dx, dy) = crate::card::drill_ring_offset(k);
+                Vec2::new((cx + dx) * half, (cy + dy) * half)
+            };
+            let Some(k) = (0..n).find(|&k| at(k) == Vec2::new(hx * half, hy * half)) else { continue };
+            let backward = king.is_some_and(|kp| at(k + n - s).dist2(kp) > at(k + s).dist2(kp));
+            return Some(DrillRing { centre: Vec2::new(cx * half, cy * half), index: k as u8, backward });
+        }
+        None
+    }
+
     fn drill_digs(&self) -> bool {
         #[cfg(not(clash_plant = "drill_dig_stays"))]
         let on = self.cfg.calib.drill_dig_point == DrillDigPoint::Client16635KeepsTowerDistance;
@@ -37239,6 +37780,56 @@ impl BattleState {
     /// 36); 16 of 16 whose target was a non-tower building routed to it (93185376 k67/68 t2941: a Cannon, goal (9250, 9750);
     /// the engine's (3750, 6750)), 20 of 20 on a crown tower agreed. PLANT (regression) golemite_birth_target_dropped: the new
     /// arm's members are born holding none.
+    /// spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan is on. PLANT (regression) golemite_birth_scan_dropped: the new
+    /// arm's members are born holding none.
+    fn birth_scans(&self) -> bool {
+        #[cfg(not(clash_plant = "golemite_birth_scan_dropped"))]
+        let on = self.cfg.calib.death_spawn_birth_target == DeathSpawnBirthTarget::Client16635BirthScan;
+        #[cfg(clash_plant = "golemite_birth_scan_dropped")]
+        let on = false;
+        on
+    }
+
+    /// spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan: each member (`members`: its index, its ring's death point) takes
+    /// the target its own Target phase's scan (target.rs `scan`: its sight, filters and key) finds from the death point, on the
+    /// board as Reap leaves it; all are scanned before any is given its pick. Measured on client 16.635 (parity r97, the oracle's
+    /// il-mg-16635 set: 88 of 88 Golemites and 246 of 252 Lava Pups, the 6 others a display twin's real unit; live14 30 of 30).
+    fn birth_scan(&mut self, members: &[(usize, Vec2)]) {
+        self.hash.rebuild(&self.ents);
+        let mut nb = Vec::new();
+        let mut picks = Vec::with_capacity(members.len());
+        for &(i, centre) in members {
+            let at = self.ents.pos[i];
+            self.ents.pos[i] = centre;
+            let t = {
+                let ctx = TargetCtx {
+                    ents: &self.ents,
+                    hash: &self.hash,
+                    cards: &self.cfg.cards,
+                    arena: &self.cfg.arena,
+                    calib: &self.cfg.calib,
+                    reading: self.cfg.tower_sight_reading,
+                    towers: &self.towers,
+                    king_active: self.king_active,
+                    tick: self.tick,
+                    doomed: &[],
+                    lane_doomed: &[],
+                    slap_air: &[],
+                    upper_air: &[],
+                    chase_walked: &[],
+                    became_building: &[],
+                };
+                target::scan(&ctx, i, &mut nb)
+            };
+            self.ents.pos[i] = at;
+            picks.push((i, t));
+        }
+        for (i, t) in picks {
+            self.ents.target[i] = t;
+        }
+        self.hash.rebuild(&self.ents);
+    }
+
     fn birth_target_of(&self, i: usize, unit: u16) -> Option<EntityId> {
         #[cfg(not(clash_plant = "golemite_birth_target_dropped"))]
         let on = self.cfg.calib.death_spawn_birth_target == DeathSpawnBirthTarget::Client16635ParentTarget;
@@ -38013,7 +38604,7 @@ impl BattleState {
         let zone = if half_open {
             self.cfg.arena.deploy_zone_king_half_open(pos, team, territory, &rects)
         } else {
-            self.cfg.arena.deploy_zone(pos, team, territory, &rects)
+            self.zone_for(card, pos, team, territory, &rects)
         };
         match zone {
             // spells.ILLEGAL_SPELL_TAP = clamp: a spell outside its territory, or on the water, is clamped, not refused
@@ -38152,7 +38743,7 @@ impl BattleState {
         if card.kind == CardKind::Spell && calib.illegal_spell_tap == IllegalSpellTap::ClampToLegalEdge {
             let (territory, _) = deploy_rule(calib, card);
             let rects = self.enemy_no_deploy_rects(team);
-            if self.cfg.arena.deploy_zone(p, team, territory, &rects).is_err_and(|e| self.clamps_spell_refusal(card, e)) {
+            if self.zone_for(card, p, team, territory, &rects).is_err_and(|e| self.clamps_spell_refusal(card, e)) {
                 if let Some(c) = self.clamp_spell_tap(team, idx, p) {
                     p = c;
                 }
@@ -38224,6 +38815,33 @@ impl BattleState {
     /// blue Log tapped on the water at (11156, 16000) rolls from (11500, 14500) and side 1's from (11500, 17500), as from a
     /// tap on the own half's boundary row; refused as water, the cast went down on the water tile and hit a Knight 9 and 5
     /// ticks early. A spell whose own rule refuses water (the Goblin Barrel, anywhere but water) is still refused there.
+    /// placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS = client16635_can_place_on_buildings: `card` is a spell placed as a deploy that
+    /// may stand on buildings (`SpellPlacement::TroopTerritory { on_buildings: true }`: the Log, the Barbarian Barrel, the Royal
+    /// Delivery), so the tilemap's NO_DEPLOY cells do not refuse it. Measured on client 16.635 (parity r97, the oracle's
+    /// il-mg-16635 set: 52 of 52 Barbarian Barrels tapped on own king-block, edge-strip or river-corner cells were cast, each
+    /// Barbarian released 4500 ahead). PLANT (regression) spell_no_deploy_cells_closed: the new arm still refuses those cells.
+    fn no_deploy_cells_open(&self, card: &CardDef) -> bool {
+        #[cfg(not(clash_plant = "spell_no_deploy_cells_closed"))]
+        let on = card.kind == CardKind::Spell
+            && self.cfg.calib.spell_as_deploy_no_deploy_cells == SpellAsDeployNoDeployCells::Client16635CanPlaceOnBuildings
+            && matches!(card.spell.as_ref().map(|s| s.placement), Some(SpellPlacement::TroopTerritory { on_buildings: true }));
+        #[cfg(clash_plant = "spell_no_deploy_cells_closed")]
+        let on = {
+            let _ = card;
+            false
+        };
+        on
+    }
+
+    /// The zone verdict for a tap of `card`: `deploy_zone`, or `deploy_zone_cells_open` under `no_deploy_cells_open`.
+    fn zone_for(&self, card: &CardDef, p: Vec2, team: Team, territory: Territory, rects: &[Rect]) -> Result<(), crate::arena::ZoneError> {
+        if self.no_deploy_cells_open(card) {
+            self.cfg.arena.deploy_zone_cells_open(p, team, territory, rects)
+        } else {
+            self.cfg.arena.deploy_zone(p, team, territory, rects)
+        }
+    }
+
     fn clamps_spell_refusal(&self, card: &CardDef, e: crate::arena::ZoneError) -> bool {
         if card.kind != CardKind::Spell || self.cfg.calib.illegal_spell_tap != IllegalSpellTap::ClampToLegalEdge {
             return false;
@@ -38307,12 +38925,13 @@ impl BattleState {
     /// Back along `tap`'s tile column, in the placer's frame, to the first tile centre `idx` may go down on.
     fn clamp_to_legal_edge(&self, team: Team, idx: u16, tap: Vec2) -> Option<Vec2> {
         let arena = &self.cfg.arena;
-        let (territory, _) = deploy_rule(&self.cfg.calib, self.cfg.cards.get(idx));
+        let card = self.cfg.cards.get(idx);
+        let (territory, _) = deploy_rule(&self.cfg.calib, card);
         let rects = self.enemy_no_deploy_rects(team);
         let t = arena.cell * 2;
         let own = arena.to_frame(team, tap);
         let (col, row0) = (own.x.div_euclid(t), own.y.div_euclid(t));
-        (0..=row0).rev().map(|r| arena.from_frame(team, Vec2::new(col * t + t / 2, r * t + t / 2))).find(|&c| arena.deploy_zone(c, team, territory, &rects).is_ok())
+        (0..=row0).rev().map(|r| arena.from_frame(team, Vec2::new(col * t + t / 2, r * t + t / 2))).find(|&c| self.zone_for(card, c, team, territory, &rects).is_ok())
     }
 
     /// placement.TROOP_TOWER_TAPS: a troop tap whose SNAPPED one-tile box shares positive area
@@ -39392,7 +40011,7 @@ impl BattleState {
                 #[cfg(not(clash_plant = "ice_cube_never"))]
                 {
                     self.warps.ices.retain(|r| r.hero != hero);
-                    self.warps.ices.push(IceRun { hero, team, form: card, level, hero_at: pos, phase: IcePhase::Pending });
+                    self.warps.ices.push(IceRun { hero, team, form: card, level, hero_at: pos, phase: IcePhase::Pending, found: None });
                 }
                 let _ = (team, level, pos);
             }
@@ -41437,7 +42056,8 @@ impl BattleState {
                 h.i32(e.spawn_wave_left[i]);
                 // A second periodic unit's wave count, only on a spawner that carries one: a battle with none hashes as
                 // before the column.
-                if self.cfg.cards.get(e.card[i]).spawner.is_some_and(|sp| sp.unit2.is_some()) {
+                // spawner.DESTROY_AT_LIMIT: a DestroyAtLimit spawner's count too, once it has fired (only under the new arm).
+                if self.cfg.cards.get(e.card[i]).spawner.is_some_and(|sp| sp.unit2.is_some() || (sp.destroy_at_limit && e.spawn_waves[i] > 0)) {
                     h.u32(e.spawn_waves[i]);
                 }
                 // A charmed unit's home side, only while a charm holds it: a battle with none hashes as before the column.
@@ -42256,6 +42876,19 @@ impl BattleState {
                             h.bool(empty);
                         }
                     }
+                    if let Some(f) = r.found {
+                        h.u32(0x464e_4400);
+                        h.u32(f);
+                    }
+                }
+            }
+            if !self.warps.ice_marks.is_empty() {
+                h.u32(0x4943_4d4b);
+                h.u32(self.warps.ice_marks.len() as u32);
+                for (a, v, u) in &self.warps.ice_marks {
+                    h.id(*a);
+                    h.id(*v);
+                    h.u32(*u);
                 }
             }
             if !self.warps.ice_freed.is_empty() {
@@ -42613,6 +43246,13 @@ impl BattleState {
                         h.u32(0x4447_4652);
                         h.i32(p.x);
                         h.i32(p.y);
+                    }
+                    // hide.DRILL_DIG_POINT = client16635_princess_ring: written only when set.
+                    if let Some(g) = r.ring {
+                        h.u32(0x4452_4e47);
+                        h.i32(g.centre.x);
+                        h.i32(g.centre.y);
+                        h.u32(u32::from(g.index) | (u32::from(g.backward) << 8));
                     }
                 }
             }
@@ -44204,6 +44844,42 @@ impl BattleState {
 ///    Entities gained dash_stand_ms (serde default empty, skipped when empty, sized and written only under the new arm,
 ///    hashed per unit only when not 0), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
 ///    migrated battle at the old arm.
+/// 20, unchanged, parity r97 (spells.CROWN_SQUARE_HALF_SIDE): Calib gained crown_square_half_side (serde default the old
+///    arm, fixed_1000), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
+/// 20, unchanged, parity r97 (placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS): Calib gained spell_as_deploy_no_deploy_cells
+///    (serde default the old arm, refuse), no new state, so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, parity r97 (spawner.DESTROY_AT_LIMIT): Calib gained destroy_at_limit (serde default the old arm, stays),
+///    no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
+///    arm.
+/// 20, unchanged, parity r97 (spawner.SPAWN_CHARACTER_WITH_DEPLOY): Calib gained spawn_character_with_deploy (serde default
+///    the old arm, spawned_deploy_time), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3
+///    runs a migrated battle at the old arm.
+/// 20, unchanged, parity r97 (hide.LANE_SWITCH_UNDER_TICK): Calib gained lane_switch_under_tick (serde default the old arm,
+///    first_step), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
+/// 20, unchanged, parity r97 (targeting.LANE_SWITCH_TARGET): Calib gained lane_switch_target (serde default the old arm,
+///    rescans), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle
+///    at the old arm.
+/// 20, unchanged, parity r97 (status.ICE_FIND_OWN_MARK): Calib gained ice_find_own_mark (serde default the old arm,
+///    any_hero), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle
+///    at the old arm.
+/// 20, unchanged, parity r97 (spawner.ICE_KILL_CUBE_TICK): Calib gained ice_kill_cube_tick (serde default the old arm,
+///    kill_plus_3), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
+/// 20, unchanged, parity r97 (spawner.ICE_CUBE_HERO_DEATH): Calib gained ice_cube_hero_death (serde default the old arm,
+///    cube_comes), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
+/// 20, unchanged, parity r97 (status.SHOT_AREA_ATTRACT_ONSET): Calib gained shot_area_attract_onset (serde default the old
+///    arm, as_cast_area), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, parity r97 (hide.DRILL_DIG_POINT = client16635_princess_ring): DrillRun gained ring (serde default None,
+///    skipped and unhashed when None, set only under the new arm).
+/// 20, unchanged, parity r97 (spawner.DEATH_SLIDE_TARGET): Calib gained death_slide_target (serde default the old arm,
+///    held_to_slide_end), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, parity r97 (spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_birth_scan): a new arm, no new state.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -45444,6 +46120,28 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("death_spawn_birth_target".into(), serde_json::to_value(DeathSpawnBirthTarget::None).map_err(|e| e.to_string())?);
     // combat.DASH_STAND_CLOCK: a format-3 battle ran its old arm.
     sh.insert("dash_stand_clock".into(), serde_json::to_value(DashStandClock::Ticks).map_err(|e| e.to_string())?);
+    // spells.CROWN_SQUARE_HALF_SIDE: a format-3 battle ran its old arm.
+    sh.insert("crown_square_half_side".into(), serde_json::to_value(CrownSquareHalfSide::Fixed1000).map_err(|e| e.to_string())?);
+    // placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS: a format-3 battle ran its old arm.
+    sh.insert("spell_as_deploy_no_deploy_cells".into(), serde_json::to_value(SpellAsDeployNoDeployCells::Refuse).map_err(|e| e.to_string())?);
+    // spawner.DESTROY_AT_LIMIT: a format-3 battle ran its old arm.
+    sh.insert("destroy_at_limit".into(), serde_json::to_value(DestroyAtLimit::Stays).map_err(|e| e.to_string())?);
+    // spawner.SPAWN_CHARACTER_WITH_DEPLOY: a format-3 battle ran its old arm.
+    sh.insert("spawn_character_with_deploy".into(), serde_json::to_value(SpawnCharacterWithDeploy::SpawnedDeployTime).map_err(|e| e.to_string())?);
+    // hide.LANE_SWITCH_UNDER_TICK: a format-3 battle ran its old arm.
+    sh.insert("lane_switch_under_tick".into(), serde_json::to_value(LaneSwitchUnderTick::FirstStep).map_err(|e| e.to_string())?);
+    // targeting.LANE_SWITCH_TARGET: a format-3 battle ran its old arm.
+    sh.insert("lane_switch_target".into(), serde_json::to_value(LaneSwitchTarget::Rescans).map_err(|e| e.to_string())?);
+    // status.ICE_FIND_OWN_MARK: a format-3 battle ran its old arm.
+    sh.insert("ice_find_own_mark".into(), serde_json::to_value(IceFindOwnMark::AnyHero).map_err(|e| e.to_string())?);
+    // spawner.ICE_KILL_CUBE_TICK: a format-3 battle ran its old arm.
+    sh.insert("ice_kill_cube_tick".into(), serde_json::to_value(IceKillCubeTick::KillPlus3).map_err(|e| e.to_string())?);
+    // spawner.ICE_CUBE_HERO_DEATH: a format-3 battle ran its old arm.
+    sh.insert("ice_cube_hero_death".into(), serde_json::to_value(IceCubeHeroDeath::CubeComes).map_err(|e| e.to_string())?);
+    // status.SHOT_AREA_ATTRACT_ONSET: a format-3 battle ran its old arm.
+    sh.insert("shot_area_attract_onset".into(), serde_json::to_value(ShotAreaAttractOnset::AsCastArea).map_err(|e| e.to_string())?);
+    // spawner.DEATH_SLIDE_TARGET: a format-3 battle ran its old arm.
+    sh.insert("death_slide_target".into(), serde_json::to_value(DeathSlideTarget::HeldToSlideEnd).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

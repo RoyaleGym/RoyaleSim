@@ -846,10 +846,11 @@ pub fn splash_passing(
     scratch: &mut Vec<u32>,
     pass: Option<(u32, bool, Option<EntityId>)>,
 ) {
-    splash_passing_sq(ents, hash, team, center, radius, hits_air, hits_ground, amount, crown_pct, rounding, out, scratch, pass, false);
+    splash_passing_sq(ents, hash, team, center, radius, hits_air, hits_ground, amount, crown_pct, rounding, out, scratch, pass, None);
 }
 
-/// `splash_passing`, a crown tower reached by its square when `crown_square` (combat.TROOP_SPLASH_CROWN_REACH =
+/// `splash_passing`, a crown tower reached by its square when `crown_square` is set, its half-side spells.CROWN_SQUARE_HALF_SIDE's
+/// rule (combat.TROOP_SPLASH_CROWN_REACH =
 /// client16635_crown_square_strict: half-side 1000, the distance from `center` to it strictly below `radius`, spell.rs
 /// `in_crown_square`). Measured on client 16.635 (parity r95, the oracle's il-mg-16635 set: an Ice Wizard's splash 2617 from a
 /// princess tower's centre and 1293 from its square took it and slowed it, 4 battles; 5 first divergences). PLANT (regression)
@@ -869,15 +870,18 @@ pub fn splash_passing_sq(
     out: &mut DamageBuffer,
     scratch: &mut Vec<u32>,
     pass: Option<(u32, bool, Option<EntityId>)>,
-    crown_square: bool,
+    crown_square: Option<crate::state::CrownSquareHalfSide>,
 ) {
     #[cfg(clash_plant = "troop_splash_crown_disc")]
-    let crown_square = {
+    let crown_square: Option<crate::state::CrownSquareHalfSide> = {
         let _ = crown_square;
-        false
+        None
     };
-    // the square's corner stands 1415 from a tower's centre
-    let broad = if crown_square { hash.max_radius().max(1415 * K) } else { hash.max_radius() };
+    // the square's corner stands half-side x 1.415 from a tower's centre
+    let broad = match crown_square {
+        Some(r) => hash.max_radius().max(crate::spell::crown_square_corner(r, hash.max_radius())),
+        None => hash.max_radius(),
+    };
     hash.neighbours_within(ents, center, radius + broad, scratch);
     let mut kept = 0usize;
     for i in 0..scratch.len() {
@@ -897,8 +901,8 @@ pub fn splash_passing_sq(
         if if ents.in_air(v) { !hits_air } else { !hits_ground } {
             continue;
         }
-        let reached = if crown_square && ents.kind[v].is_crown_tower() {
-            crate::spell::in_crown_square(center, ents.pos[v], radius)
+        let reached = if let (Some(r), true) = (crown_square, ents.kind[v].is_crown_tower()) {
+            crate::spell::in_crown_square_half(center, ents.pos[v], crate::spell::crown_square_half(r, ents, v), radius)
         } else {
             in_range_edge(center, ents.pos[v], radius, ents.radius[v])
         };
@@ -1849,7 +1853,7 @@ pub fn fire(
         let void = false; // PLANT (regression): the far area hit deals its damage, as before r21.
         if !void {
             let from = dmg.hits.len();
-            let crown_square = calib.troop_splash_crown_reach == crate::state::TroopSplashCrownReach::Client16635CrownSquareStrict;
+            let crown_square = (calib.troop_splash_crown_reach == crate::state::TroopSplashCrownReach::Client16635CrownSquareStrict).then_some(calib.crown_square_half_side);
             splash_passing_sq(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch, Some((tick, true, Some(target))), crown_square);
             add_splash_bonus(ents, calib, &mut dmg.hits[from..], direct, target);
             apply_attack_buff(ents, calib, direct_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
@@ -2666,7 +2670,7 @@ pub fn step_projectiles(
         let dead_hop_goes_on = false;
         if p.splash > 0 {
             let from = dmg.hits.len();
-            let crown_square = calib.troop_splash_crown_reach == crate::state::TroopSplashCrownReach::Client16635CrownSquareStrict;
+            let crown_square = (calib.troop_splash_crown_reach == crate::state::TroopSplashCrownReach::Client16635CrownSquareStrict).then_some(calib.crown_square_half_side);
             splash_passing_sq(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch, Some((tick, true, Some(p.target))), crown_square);
             // AN EVO BOMBER'S LATER LANDING spares every unit the throw's earlier landings hit (card.rs `BounceDef`).
             #[cfg(not(clash_plant = "bounce_rehits"))]

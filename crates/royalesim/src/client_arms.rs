@@ -466,6 +466,20 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.TROOP_SPLASH_CROWN_REACH = disc: unread on client 15.535.29.
 ///   placement.BUILDING_TERRITORY = own_half: unread on client 15.535.29 (no building tapped past the river).
 ///   movement.GROUNDED_FLIER_BODY = air_layer: unread on client 15.535.29 (its Vines scenes caught no flier over a ground unit).
+///   spawner.DEATH_SLIDE_TARGET = held_to_slide_end: unread on client 15.535.29.
+///   status.SHOT_AREA_ATTRACT_ONSET = as_cast_area: client 15.535.29 runs status.ATTRACT_ONSET = client_next_tick, where
+///   the arms agree.
+///   spawner.ICE_CUBE_HERO_DEATH = cube_comes: unread on client 15.535.29.
+///   spawner.ICE_KILL_CUBE_TICK = kill_plus_3: unread on client 15.535.29.
+///   status.ICE_FIND_OWN_MARK = any_hero: unread on client 15.535.29.
+///   targeting.LANE_SWITCH_TARGET = rescans: unread on client 15.535.29.
+///   hide.LANE_SWITCH_UNDER_TICK = first_step: unread on client 15.535.29.
+///   spawner.SPAWN_CHARACTER_WITH_DEPLOY = spawned_deploy_time: unread on client 15.535.29 (its Phoenix scenario saw the
+///   reborn Phoenix deploying, untimed).
+///   spawner.DESTROY_AT_LIMIT = stays: unread on client 15.535.29.
+///   placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS = refuse: unread on client 15.535.29.
+///   spells.CROWN_SQUARE_HALF_SIDE = fixed_1000: client 15.535.29's own (ub-b1-ec4-zap: a Zap at offset (-3500, -500) did
+///   not take the King).
 ///   combat.DASH_STAND_CLOCK = ticks: unread on client 15.535.29 (its dash scenes ran unbuffed, where both arms agree).
 ///   spawner.DEATH_SPAWN_BIRTH_TARGET = none: unread on client 15.535.29.
 ///   spawner.RELEASE_WATER_POINT = nearest_passable_ground: unread on client 15.535.29.
@@ -793,6 +807,17 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.RELEASE_WATER_POINT", "\"nearest_passable_ground\""),
     ("spawner.DEATH_SPAWN_BIRTH_TARGET", "\"none\""),
     ("combat.DASH_STAND_CLOCK", "\"ticks\""),
+    ("spells.CROWN_SQUARE_HALF_SIDE", "\"fixed_1000\""),
+    ("placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS", "\"refuse\""),
+    ("spawner.DESTROY_AT_LIMIT", "\"stays\""),
+    ("spawner.SPAWN_CHARACTER_WITH_DEPLOY", "\"spawned_deploy_time\""),
+    ("hide.LANE_SWITCH_UNDER_TICK", "\"first_step\""),
+    ("targeting.LANE_SWITCH_TARGET", "\"rescans\""),
+    ("status.ICE_FIND_OWN_MARK", "\"any_hero\""),
+    ("spawner.ICE_KILL_CUBE_TICK", "\"kill_plus_3\""),
+    ("spawner.ICE_CUBE_HERO_DEATH", "\"cube_comes\""),
+    ("status.SHOT_AREA_ATTRACT_ONSET", "\"as_cast_area\""),
+    ("spawner.DEATH_SLIDE_TARGET", "\"held_to_slide_end\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

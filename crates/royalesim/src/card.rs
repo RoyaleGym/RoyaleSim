@@ -2291,6 +2291,12 @@ pub struct SpawnerDef {
     /// `spawner_pass`, EvoBoard `spawn_gates`). Measured on client 15.535.29 (Oracle's sp-f3-gg-s0 and -s1, one side
     /// each): hit to 1475 of 3110 on C, its Goblins came on C + 2, C + 45 and C + 89. None: it runs from the start.
     pub below_hp_pct: Option<i32>,
+    /// DestroyAtLimit (the unit row's raw column; the Phoenix egg's), read with a SpawnLimit: the spawner leaves without a death
+    /// once its SpawnLimit's firings are spent (spawner.DESTROY_AT_LIMIT). False on every other block.
+    pub destroy_at_limit: bool,
+    /// SpawnCharacterWithDeploy (the unit row's raw column; the Phoenix egg's): its units deploy for their own DeployTime
+    /// (spawner.SPAWN_CHARACTER_WITH_DEPLOY). False on every other block.
+    pub with_deploy: bool,
 }
 
 /// Which columns a `SpawnerDef` came from.
@@ -4409,6 +4415,8 @@ fn interval_spawner_of(raw: &RawIntervalSpawner, graph: &Option<RawActionGraph>)
             emit_deploy_ms: deploy,
             below_hp_pct: raw.health_pct,
             unit2: None,
+            destroy_at_limit: false,
+            with_deploy: false,
         },
         unit,
     ))
@@ -5662,6 +5670,23 @@ pub const DRILL_RISE_TICKS: u32 = 19;
 /// hide.DRILL_DIG_POINT = client16635_keeps_tower_distance: the tick after going under on which an Evo Goblin Drill's building
 /// moves (state.rs `drill_dig_to`; client 16.635, parity r96: 32 of 32 on the under tick + 18).
 pub const DRILL_DIG_MOVE_TICKS: u32 = 18;
+
+/// hide.DRILL_DIG_POINT = client16635_princess_ring: the points of an enemy princess tower's dig ring and the ring steps one
+/// hide walks (state.rs `drill_ring_at`, `drill_pass`).
+pub const DRILL_RING_POINTS: usize = 20;
+pub const DRILL_RING_STEPS: usize = 5;
+
+/// Dig-ring point `k`, in half tiles from the tower's half tile: the square of half-side 5 half tiles, its corners and its odd
+/// half-tile offsets, counted from (-5, 5) down the -x edge, along -y, up +x, back along +y.
+pub fn drill_ring_offset(k: usize) -> (i32, i32) {
+    let s = (k % 5) as i32 * 2;
+    match (k % DRILL_RING_POINTS) / 5 {
+        0 => (-5, 5 - s),
+        1 => (-5 + s, -5),
+        2 => (5, -5 + s),
+        _ => (5 - s, 5),
+    }
+}
 
 /// hide.DRILL_DIG_POINT = client16635_keeps_tower_distance: the dig move's candidate offsets, native, in the order a tie keeps
 /// the first (state.rs `drill_dig_to`): the 8 knight moves of (2000, 3000).
@@ -9685,6 +9710,8 @@ fn convert_spawner(raw: Option<RawSpawner>) -> Result<Option<(SpawnerDef, String
             emit_deploy_ms: None,
             below_hp_pct: None,
             unit2: None,
+            destroy_at_limit: false,
+            with_deploy: false,
         },
         unit,
     )))
@@ -10996,6 +11023,14 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
     // says: the combat.MULTIPLE_PROJECTILES / CUSTOM_FIRST_PROJECTILE / MULTIPLE_TARGETS
     // arms decide whether anything reads them.
     let unit_raw = ctx.units.get(raw.summon_character.as_deref().unwrap_or(raw.name.as_str())).and_then(|u| u.get("raw"));
+    // spawner.DESTROY_AT_LIMIT / spawner.SPAWN_CHARACTER_WITH_DEPLOY: DestroyAtLimit (read with a SpawnLimit) and
+    // SpawnCharacterWithDeploy, off the unit row's raw columns (the Phoenix egg's), on a Spawn* block.
+    let raw_flag = |col: &str| unit_raw.and_then(|r| r.get(col)).and_then(serde_json::Value::as_bool).unwrap_or(false);
+    let mut spawner = spawner;
+    if let Some((sp, _)) = spawner.as_mut().filter(|(sp, _)| sp.source == SpawnerSource::Columns) {
+        sp.destroy_at_limit = sp.limit.is_some() && raw_flag("DestroyAtLimit");
+        sp.with_deploy = raw_flag("SpawnCharacterWithDeploy");
+    }
     let raw_count = |col: &str| -> Result<i32, String> {
         match unit_raw.and_then(|r| r.get(col)) {
             None | Some(serde_json::Value::Null) => Ok(1),
