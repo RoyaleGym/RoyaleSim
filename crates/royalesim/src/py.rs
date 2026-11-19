@@ -2008,6 +2008,8 @@ impl Battle {
     /// `levels`: [blue, red], each empty or parallel to its deck: the unified level of each deck card (a real deck's
     /// cards each have their own). `tower_levels`: [blue, red], each side's crown towers' level. None plays both sides
     /// at the object's `card_level()` and `tower_level()`, as before.
+    /// `tower_troops`: [blue, red], each None for the Princess or the loaded tower troop's record name
+    /// (`Cannoneer`, `DaggerDuchess`, `ChefTower`). The battle validates the names before it starts.
     /// A COPY OF A BATTLE UNDER WAY (each None leaves the fresh battle's state): `king_wake_ms`: [blue, red], each king's
     /// ms since its wake trigger (it took damage, or a princess tower fell), -1 for none: awake from the activation
     /// delay on, waking before it (a player row's `king_wake_ms`); -1 is refused with a princess of the side down.
@@ -2042,7 +2044,7 @@ impl Battle {
     /// at the target. Refused: a firer whose shots no fire makes whole (`projectile_in_flight_kind`), a firer or target
     /// not on the board (a crown tower destroyed), a target of the firer's own side. In list order, as a state row
     /// lists them.
-    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_wake_ms = None, evo_counts = None, unit_spawns = None, spells_in_flight = None, last_played = None, unit_deploy_ticks = None, projectiles_in_flight = None))]
+    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_wake_ms = None, evo_counts = None, unit_spawns = None, spells_in_flight = None, last_played = None, unit_deploy_ticks = None, projectiles_in_flight = None, tower_troops = None))]
     #[allow(clippy::too_many_arguments)]
     fn reset(
         &mut self,
@@ -2063,6 +2065,7 @@ impl Battle {
         last_played: Option<Vec<i64>>,
         unit_deploy_ticks: Option<Vec<i32>>,
         projectiles_in_flight: Option<Vec<ProjectileInFlight>>,
+        tower_troops: Option<Vec<Option<String>>>,
     ) -> PyResult<()> {
         if decks.len() != 2 {
             return Err(PyValueError::new_err("decks must be [blue, red]"));
@@ -2087,6 +2090,11 @@ impl Battle {
         cfg.cards = self.cards.clone();
         cfg.card_level = [self.level(); 2];
         cfg.tower_level = [self.tower_lvl(); 2];
+        match tower_troops {
+            None => {}
+            Some(t) if t.len() == 2 => cfg.tower_troops = [t[0].clone(), t[1].clone()],
+            Some(_) => return Err(PyValueError::new_err("tower_troops must be [blue, red]")),
+        }
         match levels {
             None => {}
             Some(l) if l.len() == 2 => {
