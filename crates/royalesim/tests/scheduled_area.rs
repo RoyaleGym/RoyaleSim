@@ -43,6 +43,9 @@
 //!   * `scheduled_spawn_unit_deploy_time` -- the Skeleton deploys its own 1000: (4) goes red.
 //!   * `scheduled_acquire_delay_dropped` -- the Skeleton is a target from its first frame: (4) goes red.
 //!   * `hash_skips_schedule_clock` -- the area's clock is not hashed: (7) goes red.
+//!   * `area_spawn_facing_256` -- spawner.AREA_SPAWN_FACING = client16635_unit_forward still starts the Skeletons at 256:
+//!     `under_client16635_unit_forward_a_graveyard_skeleton_is_born_facing_forward_at_length_1` goes red (and
+//!     tests/evo_skeleton_barrel.rs).
 //!
 //! (6) has no plant of its own: no arm of the engine lets a scheduled area land anything (the Graveyard's row carries no
 //! Damage, Buff or Pushback), so it pins the property against a change that would.
@@ -360,4 +363,41 @@ fn a_battle_with_a_graveyard_resumes_as_the_same_battle_and_its_clock_is_state()
         }),
         "the area's released entries are not hashed"
     );
+}
+
+/// A Red Graveyard cast at (9000, 9000) under spawner.AREA_SPAWN_FACING = `arm`: each Skeleton's facing on its first frame,
+/// and whether every one kept it on each frame it still deployed.
+fn first_facings(arm: royalesim::state::AreaSpawnFacing) -> (Vec<Vec2>, bool) {
+    let mut cfg = shipped();
+    cfg.calib.area_spawn_facing = arm;
+    let mut s = BattleState::new(0, cfg);
+    s.spawn_unit(Team::Red, "Graveyard", at((9000, 9000)), None).expect("cast the Graveyard");
+    let mut first: Vec<(EntityId, Vec2)> = Vec::new();
+    let mut kept = true;
+    for _ in 0..200 {
+        s.tick();
+        for e in s.entities().filter(|e| e.team == Team::Red && e.card == SKELETON) {
+            match first.iter().find(|(id, _)| *id == e.id) {
+                None => first.push((e.id, e.facing)),
+                Some((_, f)) => kept &= e.deploy_ms <= 0 || e.facing == *f,
+            }
+        }
+    }
+    (first.into_iter().map(|(_, f)| f).collect(), kept)
+}
+
+/// spawner.AREA_SPAWN_FACING = client16635_unit_forward (client 16.635, parity r96, the oracle's il-mg-16635 set: 832 of 832
+/// Graveyard Skeletons' first frames at (0, +-1), the engine's at (0, +-256)): every Skeleton of a Red Graveyard is born
+/// facing (0, -1) and keeps it while it deploys; under side_forward (the vacuity check) at (0, -256). Plant:
+/// area_spawn_facing_256.
+#[test]
+fn under_client16635_unit_forward_a_graveyard_skeleton_is_born_facing_forward_at_length_1() {
+    use royalesim::state::AreaSpawnFacing as A;
+    let (old, _) = first_facings(A::SideForward);
+    assert_eq!(old.len(), 12, "the scene drifted: {} Skeletons", old.len());
+    assert!(old.iter().all(|f| *f == Vec2::new(0, -256)), "side_forward (the vacuity check): {old:?}");
+    let (new, kept) = first_facings(A::Client16635UnitForward);
+    assert_eq!(new.len(), 12, "the scene drifted: {} Skeletons", new.len());
+    assert!(new.iter().all(|f| *f == Vec2::new(0, -1)), "client16635_unit_forward: {new:?}");
+    assert!(kept, "client16635_unit_forward: a deploying Skeleton turned");
 }

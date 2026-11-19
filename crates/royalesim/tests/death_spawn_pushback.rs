@@ -66,7 +66,9 @@
 //!  13. a flagged row whose death spawn is a BUILDING (a doctored Golem; no loaded row)
 //!      takes no slide, which only the troop Path loops would end -- death_slide_on_a_building
 //!      (death_spawn_pushback_unread reddens it too, on its scene check that the doctored
-//!      Golem carries the flag).
+//!      Golem carries the flag);
+//!  14. spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_parent_target: a Golem's Golemites are born holding its live target
+//!      -- golemite_birth_target_dropped.
 //!
 //! Positions are compared in NATIVE units (subtiles / SUBTILE_PER_MILLITILE): the ring and
 //! the slide are laid on the native grid. The death point is the mean of the members' first
@@ -611,4 +613,45 @@ fn a_flagged_row_whose_death_spawn_is_a_building_takes_no_slide() {
         let e = s.entity(*id).unwrap();
         assert_eq!((e.death_slide_centre, e.death_slide_radius), (Vec2::default(), 0), "a Cannon carries a slide");
     }
+}
+
+/// spawner.DEATH_SPAWN_BIRTH_TARGET (parity r96): a Blue Golem held at (9500, 19300) striking a Red Cannon at (9500, 20500)
+/// (its hitpoints kept), killed once it holds the Cannon, under `arm`: each Golemite's target on its birth frame, and the
+/// Cannon.
+fn golemite_birth_targets(arm: royalesim::state::DeathSpawnBirthTarget) -> (Vec<Option<EntityId>>, EntityId) {
+    let mut cfg = slide_config();
+    cfg.calib.death_spawn_birth_target = arm;
+    let mut s = BattleState::new(7, cfg);
+    let (gat, cat) = (Vec2::new(9500 * K, 19300 * K), Vec2::new(9500 * K, 20500 * K));
+    let golem = s.scenario_spawn_now(Team::Blue, "Golem", gat, None).expect("the Golem");
+    let cannon = s.scenario_spawn_now(Team::Red, "Cannon", cat, None).expect("the Cannon");
+    let ch = s.entity(cannon).expect("the Cannon").max_hp;
+    let mut held = false;
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(golem, gat) && s.debug_set_hp(cannon, ch));
+        s.tick();
+        if s.entity(golem).expect("the Golem").target == Some(cannon) {
+            held = true;
+            break;
+        }
+    }
+    assert!(held, "the scene drifted: the Golem never took the Cannon");
+    assert!(s.debug_set_hp(golem, 0) && s.debug_set_hp(cannon, ch));
+    s.tick();
+    let born: Vec<Option<EntityId>> = members_of(&s, Team::Blue, "Golemite").iter().map(|id| s.entity(*id).expect("a Golemite").target).collect();
+    assert_eq!(born.len(), 2, "the scene drifted: {} Golemites on the death frame", born.len());
+    (born, cannon)
+}
+
+/// spawner.DEATH_SPAWN_BIRTH_TARGET = client16635_parent_target (client 16.635, parity r96, the oracle's il-mg-16635 set: 34 of 36
+/// Golemites held their Golem's target on their birth frame, the engine none): both Golemites of a Golem killed striking a
+/// Cannon are born holding the Cannon; under none (the vacuity check) neither holds a target. Plant:
+/// golemite_birth_target_dropped.
+#[test]
+fn under_client16635_parent_target_a_golemite_is_born_holding_its_golems_target() {
+    use royalesim::state::DeathSpawnBirthTarget as B;
+    let (old, _) = golemite_birth_targets(B::None);
+    assert!(old.iter().all(|t| t.is_none()), "none (the vacuity check): a Golemite was born holding {old:?}");
+    let (new, cannon) = golemite_birth_targets(B::Client16635ParentTarget);
+    assert!(new.iter().all(|t| *t == Some(cannon)), "client16635_parent_target: the Golemites were born holding {new:?}");
 }

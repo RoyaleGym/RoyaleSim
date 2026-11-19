@@ -17,6 +17,10 @@
 //!   - barrel_point_before_move -> `under_client15535_after_move_the_drop_falls_a_step_further` red.
 //!   - evo_barrel_drop_on_fuse -> `under_client16402_tick_later_both_drops_land_a_tick_later` red.
 //!   - barrel_offset_x_turned -> `under_client16635_x_as_written_a_red_barrels_drops_keep_their_x` red.
+//!   - area_spawn_facing_256 -> `under_client16635_unit_forward_an_evo_barrel_drops_skeletons_are_born_facing_forward_at_length_1`
+//!     red.
+//!   - barrel_extra_never_at_death -> `under_client16635_with_death_drop_a_barrel_killed_above_its_line_drops_both_containers`
+//!     red.
 //!
 //! spawner.EVO_BARREL_DROP_TICK = client16402_tick_later (client 16.402, sp-form-SkeletonBalloon-evo-s0 on 160402017: t974 ->
 //! t988, t1033 -> t1046): both drops a tick later.
@@ -277,4 +281,91 @@ fn the_shipped_arm_is_client16635_x_as_written() {
     use royalesim::state::{Calib, EvoBarrelOffsetFrame};
     assert_eq!(Calib::shipped().evo_barrel_offset_frame, EvoBarrelOffsetFrame::Client16635XAsWritten, "spawner.EVO_BARREL_OFFSET_FRAME ships client16635_x_as_written");
     assert_eq!(config().calib.evo_barrel_offset_frame, EvoBarrelOffsetFrame::Client16635XAsWritten);
+}
+
+/// The form put at AT and held there under spawner.AREA_SPAWN_FACING = `arm` (the shipped drop tick), set to 448 of 665 on its
+/// 25th frame: the facing of each Skeleton of the health line's drop on its first frame.
+fn drop_facings(arm: royalesim::state::AreaSpawnFacing) -> Vec<Vec2> {
+    let mut cfg: BattleConfig = config();
+    cfg.calib.area_spawn_facing = arm;
+    cfg.decks = [vec!["SkeletonBalloon".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    s.spawn_unit(Team::Blue, "SkeletonBalloon_EV1", n(AT.0, AT.1), None).expect("the barrel");
+    s.tick();
+    let barrel = find_live(&s, Team::Blue, "SkeletonBalloon_EV1")[0].id;
+    for k in 0..80 {
+        if s.entity(barrel).is_some() {
+            assert!(s.debug_set_pos(barrel, n(AT.0, AT.1)));
+        }
+        if k == 25 {
+            assert!(s.debug_set_hp(barrel, 448));
+        }
+        s.tick();
+        let sk: Vec<Vec2> = find_live(&s, Team::Blue, "Skeleton").iter().map(|e| e.facing).collect();
+        if !sk.is_empty() {
+            return sk;
+        }
+    }
+    panic!("the scene drifted: no drop in 80 frames");
+}
+
+/// spawner.AREA_SPAWN_FACING = client16635_unit_forward (client 16.635, parity r96, the oracle's il-mg-16635 set: 588 of 588
+/// Evo-barrel-drop Skeletons' first frames at (0, +-1)): the health line's drop's seven Blue Skeletons are born facing (0, 1);
+/// under side_forward (the vacuity check) (0, 256). Plant: area_spawn_facing_256.
+#[test]
+fn under_client16635_unit_forward_an_evo_barrel_drops_skeletons_are_born_facing_forward_at_length_1() {
+    use royalesim::state::AreaSpawnFacing as A;
+    let old = drop_facings(A::SideForward);
+    assert!(old.len() == 7 && old.iter().all(|f| *f == Vec2::new(0, 256)), "side_forward (the vacuity check): {old:?}");
+    let new = drop_facings(A::Client16635UnitForward);
+    assert!(new.len() == 7 && new.iter().all(|f| *f == Vec2::new(0, 1)), "client16635_unit_forward: {new:?}");
+}
+
+/// The form held at AT, killed from full hitpoints on frame 5, under spawner.EVO_BARREL_EXTRA_AT_DEATH = `arm` (the 15.535.29
+/// scenes' drop point and tick): the Skeletons of the first frame that holds any.
+fn one_blow(arm: royalesim::state::EvoBarrelExtraAtDeath) -> Vec<Vec2> {
+    use royalesim::state::{BarrelDropPoint, EvoBarrelDropTick};
+    let mut cfg: BattleConfig = config();
+    cfg.calib.barrel_drop_point = BarrelDropPoint::StatusPhase;
+    cfg.calib.evo_barrel_drop_tick = EvoBarrelDropTick::Client15535Fuse;
+    cfg.calib.evo_barrel_extra_at_death = arm;
+    cfg.decks = [vec!["SkeletonBalloon".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let (_, skel, hp) = scene_at(s, 40, |k, s, b| {
+        if k == 5 {
+            assert!(s.debug_set_hp(b, 0));
+        }
+    });
+    assert_eq!(hp.iter().position(|h| h.is_none()), Some(5), "the scene drifted: the barrel not gone on the killing frame");
+    assert!(skel[..5].iter().all(|v| v.is_empty()), "the scene drifted: a drop before the death");
+    skel.into_iter().find(|v| !v.is_empty()).expect("the death drop")
+}
+
+/// spawner.EVO_BARREL_EXTRA_AT_DEATH = client16635_with_death_drop (client 16.635, parity r96, the oracle's il-mg-16635 set: 19
+/// of 19 barrels that died before their line's drop released 14 Skeletons in two rings): killed from full hitpoints by one
+/// blow, the barrel drops seven around AT + (-350, 450) (the line's container) and seven around AT + (350, 0) (the death's);
+/// under line_only (the vacuity check) the death's seven alone. Plant: barrel_extra_never_at_death.
+#[test]
+fn under_client16635_with_death_drop_a_barrel_killed_above_its_line_drops_both_containers() {
+    use royalesim::state::EvoBarrelExtraAtDeath as E;
+    let ring = |v: &[Vec2], c: (i32, i32), lo: i32, hi: i32| v.iter().filter(|p| (lo..=hi).contains(&(p.dist(n(c.0, c.1)) / K))).count();
+    let extra = (AT.0 - 350, AT.1 + 450);
+    let death = (AT.0 + 350, AT.1);
+    let old = one_blow(E::LineOnly);
+    assert_eq!(old.len(), 7, "line_only (the vacuity check): {} Skeletons at death", old.len());
+    assert_eq!(ring(&old, extra, 0, 400), 0, "line_only (the vacuity check): a Skeleton by the line container's point");
+    let new = one_blow(E::Client16635WithDeathDrop);
+    assert_eq!(new.len(), 14, "client16635_with_death_drop: {} Skeletons at death", new.len());
+    // within 400 of each nominal point: the barrel steps ~90 on its death tick (Move before Reap), each ring's members lie
+    // 160 .. 340 from their own point and at least 492 from the other's
+    assert_eq!(ring(&new, extra, 0, 400), 7, "client16635_with_death_drop: the line container's ring around {extra:?}");
+    assert_eq!(ring(&new, death, 0, 400), 7, "client16635_with_death_drop: the death container's ring around {death:?}");
 }

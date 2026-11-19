@@ -306,3 +306,37 @@ fn the_shipped_arm_is_edge_within_radius_plus_170_now_and_next() {
     assert_eq!(Calib::shipped().strike_reach, StrikeReach::EdgeNowAndNext);
     assert_eq!(config().calib.strike_reach, StrikeReach::EdgeNowAndNext);
 }
+
+/// A Red Cannon at (9000, 22000) and a Blue Lightning tapped (4000, 1000) off it (unsnapped; no crown tower in reach), under
+/// spells.STRIKE_REACH = `arm`: the tick (k) the Cannon first loses a strike, if it does.
+fn diagonal_cannon(arm: StrikeReach) -> Option<u32> {
+    let mut cfg = unsnapped();
+    cfg.calib.strike_reach = arm;
+    let mut s = BattleState::new(0, cfg);
+    let c = s.scenario_spawn_now(Team::Red, "Cannon", at((9000, 22000)), None).expect("spawn");
+    let r = s.entity(c).unwrap().radius / K;
+    assert_eq!(r, 600, "the scene drifted: the Cannon's radius");
+    let tap = at((5000, 21000));
+    s.spawn_unit(Team::Blue, "Lightning", tap, None).expect("cast Lightning");
+    for k in 0..40u32 {
+        let b = s.entity(c).map(|v| v.hp);
+        s.tick();
+        // a strike kills it or takes more than its lifetime decay
+        if let Some(b) = b {
+            if s.entity(c).map_or(0, |v| v.hp) < b - 100 {
+                return Some(k);
+            }
+        }
+    }
+    None
+}
+
+/// spells.STRIKE_REACH = client16635_building_square_strict (client 16.635, parity r95, the oracle's il-mg-16635 set: 14 first
+/// divergences, a Cannon or other building of radius 600 struck 4123 from the tap): a Cannon tapped (4000, 1000) off (4123 from
+/// its centre, past Radius + its radius 4100, its square 3423 away) is struck; under radius_plus_target_radius (the vacuity check)
+/// it is not. Plant: strike_building_disc.
+#[test]
+fn under_client16635_building_square_strict_a_cannon_inside_its_square_is_struck() {
+    assert_eq!(diagonal_cannon(StrikeReach::RadiusPlusTarget), None, "radius_plus_target_radius: the Cannon 4123 off was struck");
+    assert!(diagonal_cannon(StrikeReach::Client16635BuildingSquareStrict).is_some(), "client16635_building_square_strict: the Cannon inside its square was not struck");
+}

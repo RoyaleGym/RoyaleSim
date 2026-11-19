@@ -1303,9 +1303,20 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
     let reach_rule = StrikeReach::RadiusPlusTarget; // PLANT: the refuted Radius + r.
     let extra = match reach_rule {
         StrikeReach::EdgeNowAndNext => STRIKE_REACH_EXTRA * K,
-        StrikeReach::RadiusPlusTarget => 0,
+        StrikeReach::RadiusPlusTarget | StrikeReach::Client16635BuildingSquareStrict => 0,
     };
-    ctx.hash.neighbours_within(e, pos, def.hit.radius + extra + ctx.hash.max_radius(), nb);
+    // spells.STRIKE_REACH = client16635_building_square_strict: an ordinary building is in reach by its square (half-side its
+    // collision radius, strictly inside Radius: `in_square`), whose corner stands its radius x 1.415 from its centre (the
+    // query's reach); every other target by Radius + its radius. Measured on client 16.635 (parity r95, the oracle's il-mg-16635 set:
+    // 14 of 450 first divergences, a Cannon, Evo Cannon, Inferno Tower or Bomb Tower of radius 600 struck 4123 or 4242 from the
+    // tap, outside the 4100 disc and inside the square). PLANT (regression) strike_building_disc: the new arm still reaches a
+    // building by the disc.
+    #[cfg(not(clash_plant = "strike_building_disc"))]
+    let square = reach_rule == StrikeReach::Client16635BuildingSquareStrict;
+    #[cfg(clash_plant = "strike_building_disc")]
+    let square = false;
+    let broad = if square { ctx.hash.max_radius() * 1415 / 1000 + 1 } else { ctx.hash.max_radius() };
+    ctx.hash.neighbours_within(e, pos, def.hit.radius + extra + broad, nb);
     // (rank hp, -distance to the centre under STRIKE_TIE_BREAK's nearest arm, -team_seq, index): the greatest wins
     // spells.STRIKE_TIE_BREAK = client16402_nearest_centre_then_earliest: an hp tie goes to the nearest candidate, an exact
     // distance tie to the earliest created. Measured on client 16.402 (parity r73): the strictly nearest in 16 of 20 ties, the
@@ -1346,7 +1357,11 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
             let (dx, dy) = ((p.x / K - pos.x / K) as i64, (p.y / K - pos.y / K) as i64);
             dx * dx + dy * dy <= reach * reach
         };
-        if !within(e.pos[v]) {
+        if square && e.kind[v].is_building() && !e.kind[v].is_crown_tower() {
+            if !in_square(pos, e.pos[v], e.radius[v], def.hit.radius) {
+                continue;
+            }
+        } else if !within(e.pos[v]) {
             continue;
         }
         // ...and on the predicted next position, under the measured arm: a target about to leave is not picked

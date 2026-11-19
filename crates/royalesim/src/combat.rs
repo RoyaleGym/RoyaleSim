@@ -47,7 +47,7 @@ use crate::path::{advance, advance_client, native_in_frame};
 use crate::state::{
     AttackCombo, AttackCycle, Calib, ComboPushback, LoadFirstHitLeave, RandomDelayStream, DamageReductionLaw, IdleBuffLaw, ChargeLevelScaling, ChargedHitTiming, CustomFirstProjectile, HitBeyondCancelRange, HitSpeedBuff, LaunchBeyondCancelRange, MultipleProjectiles, ProjectileLaunch,
     ProjectileStep, ProjectileYOffset, RangeProjectile, SpawnPathfindBody, StraightShotBuildingReach, DirectHitBuffCountdown, TargetBuffScope, VariableDamage,
-    CreationHitKnock,
+    CreationHitKnock, MountBuffsOnClock, PingpongClock,
 };
 use crate::spell::{forward_dy, push_from, EffectBuffer, SpellCtx};
 use crate::status::{BuffApply, BuffHit, Sel};
@@ -549,6 +549,11 @@ pub struct Straight {
     /// every one-way shot. Hashed only when set; absent in older snapshots = None.
     #[serde(default)]
     pub thrower: Option<EntityId>,
+    /// combat.PINGPONG_CLOCK = client16635_thrower_hit_speed: the thrower's composed hit-speed tick read at the throw, ms
+    /// (`period` and `t` are then ms: PingpongVisualTime and the ms elapsed). 0 on every other shot and under the old arm,
+    /// where `period` and `t` count ticks. Hashed only when set; absent in older snapshots = 0.
+    #[serde(default)]
+    pub rate_ms: i32,
 }
 
 /// THE THROWERS WAITING FOR A PINGPONG THROW (combat.RANGE_PROJECTILE = straight_to_range on a
@@ -721,7 +726,7 @@ fn power_copies(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, ti: us
             hits_air: pw.side.shot.hits_air,
             hits_ground: pw.side.shot.hits_ground,
             frac: Vec2::default(),
-            straight: Some(Straight { origin: pos, reach: pw.side.shot.reach, push, push_all, only_enemies: pw.side.shot.only_enemies, hold: 1, period: 0, start: 0, t: 0, hit: Vec::new(), stop_on_hit: false, thrower: None }),
+            straight: Some(Straight { origin: pos, reach: pw.side.shot.reach, push, push_all, only_enemies: pw.side.shot.only_enemies, hold: 1, period: 0, start: 0, t: 0, hit: Vec::new(), stop_on_hit: false, thrower: None, rate_ms: 0 }),
             ..middle.clone()
         });
     }
@@ -841,7 +846,39 @@ pub fn splash_passing(
     scratch: &mut Vec<u32>,
     pass: Option<(u32, bool, Option<EntityId>)>,
 ) {
-    hash.neighbours_within(ents, center, radius + hash.max_radius(), scratch);
+    splash_passing_sq(ents, hash, team, center, radius, hits_air, hits_ground, amount, crown_pct, rounding, out, scratch, pass, false);
+}
+
+/// `splash_passing`, a crown tower reached by its square when `crown_square` (combat.TROOP_SPLASH_CROWN_REACH =
+/// client16635_crown_square_strict: half-side 1000, the distance from `center` to it strictly below `radius`, spell.rs
+/// `in_crown_square`). Measured on client 16.635 (parity r95, the oracle's il-mg-16635 set: an Ice Wizard's splash 2617 from a
+/// princess tower's centre and 1293 from its square took it and slowed it, 4 battles; 5 first divergences). PLANT (regression)
+/// troop_splash_crown_disc: the new arm still reaches it by the disc.
+#[allow(clippy::too_many_arguments)]
+pub fn splash_passing_sq(
+    ents: &Entities,
+    hash: &SpatialHash,
+    team: Team,
+    center: Vec2,
+    radius: i32,
+    hits_air: bool,
+    hits_ground: bool,
+    amount: i32,
+    crown_pct: i32,
+    rounding: CrownRounding,
+    out: &mut DamageBuffer,
+    scratch: &mut Vec<u32>,
+    pass: Option<(u32, bool, Option<EntityId>)>,
+    crown_square: bool,
+) {
+    #[cfg(clash_plant = "troop_splash_crown_disc")]
+    let crown_square = {
+        let _ = crown_square;
+        false
+    };
+    // the square's corner stands 1415 from a tower's centre
+    let broad = if crown_square { hash.max_radius().max(1415 * K) } else { hash.max_radius() };
+    hash.neighbours_within(ents, center, radius + broad, scratch);
     let mut kept = 0usize;
     for i in 0..scratch.len() {
         let v = scratch[i] as usize;
@@ -860,7 +897,12 @@ pub fn splash_passing(
         if if ents.in_air(v) { !hits_air } else { !hits_ground } {
             continue;
         }
-        if in_range_edge(center, ents.pos[v], radius, ents.radius[v]) {
+        let reached = if crown_square && ents.kind[v].is_crown_tower() {
+            crate::spell::in_crown_square(center, ents.pos[v], radius)
+        } else {
+            in_range_edge(center, ents.pos[v], radius, ents.radius[v])
+        };
+        if reached {
             out.hits.push(Hit { target: ents.id_of(v), amount: damage_against(ents.kind[v], amount, crown_pct, rounding), ignores_hide: false, own: false, shot: false });
             scratch[kept] = v as u32;
             kept += 1;
@@ -951,7 +993,17 @@ fn attack_step_progress(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize
     // Rage, 35 under an Ice Wizard's slow -- and when that is <= 0 the whole step is
     // skipped, so a -100 Freeze holds the cycle exactly where it stands. The LOAD
     // timer is NOT scaled: a flat 50 comes off it every tick.
+    // rider.MOUNT_BUFFS_ON_CLOCK = client16635_mount_buffs: an attached rider's clock reads its mount's buffs too (entity.rs
+    // `clock_buffed`). Measured on client 16.635 (parity r96, the oracle's il-mg-16635 set: on 308 of 308 ticks where a Ram
+    // Rider's rider and Ram both advanced, the rider's advance equalled the Ram's, 126 at 35 and 182 at 50; 17 slowed runs
+    // each began the tick after a chill or a Hero Ice Wizard shot on the Ram, the rider untouched). PLANT (regression)
+    // rider_mount_buffs_unread: the new arm still reads the rider's own buffs alone.
+    #[cfg(not(clash_plant = "rider_mount_buffs_unread"))]
+    let mount = calib.mount_buffs_on_clock == MountBuffsOnClock::Client16635MountBuffs;
+    #[cfg(clash_plant = "rider_mount_buffs_unread")]
+    let mount = false;
     let tick = match calib.hit_speed_buff {
+        HitSpeedBuff::ProgressScaled if mount => ents.clock_buffed(&cards.buffs, a, Sel::HitSpeed, calib.tick_ms),
         HitSpeedBuff::ProgressScaled => ents.buffed(&cards.buffs, a, Sel::HitSpeed, calib.tick_ms),
         HitSpeedBuff::None => calib.tick_ms,
     };
@@ -1496,9 +1548,20 @@ pub fn fire(
                     ProjectileLaunch::AttackerCentreSameTick => (src, false),
                 };
                 // A pingpong row (PingpongVisualTime) throws one shot out and back.
-                let period = match rs.pingpong_ms {
-                    Some(ms) if pellets == 1 => (ms / calib.tick_ms.max(1)).max(1),
-                    _ => 0,
+                // combat.PINGPONG_CLOCK = client16635_thrower_hit_speed: the clock in ms at the thrower's composed hit-speed
+                // tick read at the throw (`step_straight`). Measured on client 16.635 (parity r96, the oracle's il-mg-16635
+                // set: 223 Executioner throws; 202 of 202 unslowed axes lived 31 frames, 21 of 21 thrown at 35 lived 44 and
+                // their throwers stepped again on the throw + 45, 1 of 1 at 65 lived 25). PLANT (regression)
+                // pingpong_clock_unscaled: the new arm's clock runs at TICK_MS whatever the thrower's buffs.
+                #[cfg(not(clash_plant = "pingpong_clock_unscaled"))]
+                let pp_rate = ents.buffed(&cards.buffs, a, Sel::HitSpeed, calib.tick_ms).max(1);
+                #[cfg(clash_plant = "pingpong_clock_unscaled")]
+                let pp_rate = calib.tick_ms;
+                let pp_ms = calib.pingpong_clock == PingpongClock::Client16635ThrowerHitSpeed;
+                let (period, rate_ms) = match rs.pingpong_ms {
+                    Some(ms) if pellets == 1 && pp_ms => (ms.max(1), pp_rate),
+                    Some(ms) if pellets == 1 => ((ms / calib.tick_ms.max(1)).max(1), 0),
+                    _ => (0, 0),
                 };
                 let (push, push_all) = rs.knockback.map_or((0, false), |k| (k.distance, k.all));
                 // combat.PROJECTILE_COLLISIONS = client_columns: the row's CheckCollisions,
@@ -1589,6 +1652,7 @@ pub fn fire(
                             stop_on_hit,
                             // A pingpong throw holds its thrower until it is back (`throwers_out`).
                             thrower: if period > 0 { Some(ents.id_of(a)) } else { None },
+                            rate_ms,
                         }),
                         hook: None,
                         release: None,
@@ -1785,7 +1849,8 @@ pub fn fire(
         let void = false; // PLANT (regression): the far area hit deals its damage, as before r21.
         if !void {
             let from = dmg.hits.len();
-            splash_passing(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch, Some((tick, true, Some(target))));
+            let crown_square = calib.troop_splash_crown_reach == crate::state::TroopSplashCrownReach::Client16635CrownSquareStrict;
+            splash_passing_sq(ents, hash, ents.team[a], centre, splash_r, card.attacks_air, card.attacks_ground, amount, pct, calib.crown_rounding, dmg, scratch, Some((tick, true, Some(target))), crown_square);
             add_splash_bonus(ents, calib, &mut dmg.hits[from..], direct, target);
             apply_attack_buff(ents, calib, direct_buff, atk_pulse, (ents.level[a], card.attack_buff_first), target, scratch, fx);
         }
@@ -2354,6 +2419,26 @@ fn step_straight(
     // the tick it hits (measured on client 15.535.29: each of 134 Hunter pellets that hit a Knight
     // or a Giant in 7 runs was last seen the tick before the hit, and every drop is 84 a pellet gone).
     let stop = s.stop_on_hit;
+    // combat.PINGPONG_CLOCK = client16635_thrower_hit_speed: `t` and `period` are ms; the throw's clock advances its rate,
+    // capped at the period, and it is gone on the step after it reached it; its point is the whole degree t x 180 / period,
+    // the apex (90) standing where the step before stood. At rate 50 this is the tick clock's path exactly.
+    if s.period > 0 && s.rate_ms > 0 {
+        if s.t >= s.period {
+            return false;
+        }
+        let was = s.t;
+        s.t = (s.t + s.rate_ms).min(s.period);
+        if 2 * s.t > s.period && 2 * was <= s.period {
+            s.hit.clear();
+        }
+        let deg = s.t * 180 / s.period;
+        let deg = if deg == 90 { was * 180 / s.period } else { deg };
+        let (origin, start) = (s.origin, s.start);
+        let prev = p.pos;
+        let hit = straight_hits(ents, hash, cards, calib, p, prev, dmg, fx, nb, tick);
+        p.pos = pingpong_pos(origin, p.aim, start, deg, 180, p.team);
+        return !(hit && stop);
+    }
     if s.period > 0 {
         s.t += 1;
         if s.t > s.period {
@@ -2467,6 +2552,13 @@ pub fn step_projectiles(
             && !(calib.drill_under_shot == crate::state::DrillUnderShot::Client15535Dropped
                 && ents.hide[p.target.index as usize] == HideState::Hidden
                 && cards.get(ents.card[p.target.index as usize]).evo.as_ref().is_some_and(|v| v.drill.is_some()));
+        // hide.TUNNEL_SHOT = client16635_dropped: and so is a shot at a unit gone under ground (a Mighty Miner's lane switch):
+        // it flies to where he went under and lands on nothing. Measured on client 16.635 (parity r95, the oracle's il-mg-16635 set:
+        // 7 of 7 shots in flight at a switching Miner, a tower's arrow or an Ice Wizard's shot, ended on his dig point with no
+        // damage; the engine's landed on him 3-9 ticks after he surfaced). PLANT (regression) tunnel_shot_lands: the new arm
+        // still lands it.
+        #[cfg(not(clash_plant = "tunnel_shot_lands"))]
+        let alive = alive && !(calib.tunnel_shot == crate::state::TunnelShot::Client16635Dropped && ents.underground(p.target.index as usize));
         // A spark carrier flies to the point it was aimed at and never follows its target, and so does a shot
         // that keeps its aim (`Projectile::fixed`, combat.NON_HOMING_AIM = fixed_at_fire).
         #[cfg(not(clash_plant = "carrier_follows_target"))]
@@ -2574,7 +2666,8 @@ pub fn step_projectiles(
         let dead_hop_goes_on = false;
         if p.splash > 0 {
             let from = dmg.hits.len();
-            splash_passing(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch, Some((tick, true, Some(p.target))));
+            let crown_square = calib.troop_splash_crown_reach == crate::state::TroopSplashCrownReach::Client16635CrownSquareStrict;
+            splash_passing_sq(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch, Some((tick, true, Some(p.target))), crown_square);
             // AN EVO BOMBER'S LATER LANDING spares every unit the throw's earlier landings hit (card.rs `BounceDef`).
             #[cfg(not(clash_plant = "bounce_rehits"))]
             if let Some(b) = p.bounce.as_ref().filter(|b| !b.hit.is_empty()) {

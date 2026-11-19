@@ -1168,6 +1168,22 @@ impl Arena {
     ///
     /// Seat symmetry: the band is judged on the box's forward edge in the team's
     /// own frame, and the rotation maps one seat's box onto the other's.
+    /// `box_zone`, and under the troops' rule (`Territory::EnemyTowerRects`) the BOX against `enemy_rects` as well: a box that
+    /// overlaps an alive enemy crown tower's no-deploy rect (open overlap: sharing an edge is not overlapping) is
+    /// OutOfTerritory, though its centre is out of the rect. placement.BUILDING_TERRITORY's gap note: once a building takes
+    /// the rects, its box is what occupies the ground. Every other territory as `box_zone`. PLANT (regression)
+    /// building_box_rects_unread: the box is not judged against the rects.
+    pub fn box_zone_rects(&self, b: Rect, team: Team, territory: Territory, enemy_rects: &[Rect]) -> Result<(), ZoneError> {
+        self.box_zone(b, team, territory)?;
+        #[cfg(not(clash_plant = "building_box_rects_unread"))]
+        if matches!(territory, Territory::EnemyTowerRects { .. }) && enemy_rects.iter().any(|r| b.overlaps_open(r)) {
+            return Err(ZoneError::OutOfTerritory);
+        }
+        #[cfg(clash_plant = "building_box_rects_unread")]
+        let _ = enemy_rects;
+        Ok(())
+    }
+
     pub fn box_zone(&self, b: Rect, team: Team, territory: Territory) -> Result<(), ZoneError> {
         if b.min.x < 0 || b.min.y < 0 || b.max.x > self.width || b.max.y > self.height {
             return Err(ZoneError::OutOfArena);
@@ -1492,6 +1508,44 @@ mod tests {
         assert_eq!(a.box_zone(boxed(t + t / 2, t * 8 + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
         assert_eq!(a.box_zone(boxed(t * 6 + t / 2, t * 13 + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
         assert_eq!(a.box_zone(boxed(t * 6 + t / 2, t * 8 + t / 2), Team::Blue, Territory::OwnHalf), Ok(()));
+    }
+
+    /// placement.BUILDING_TERRITORY = enemy_tower_no_deploy_rects (`box_zone_rects`): with Red's left princess down, a box on
+    /// the opened ground that overlaps Red's king rect, its centre out of it, is refused under the troops' rule, where
+    /// `box_zone` alone (the gap the ledger noted) takes it; a box clear of the rects is taken. The king's NoDeploySize spans
+    /// the arena's width, so the box straddles the rect's river-side edge. Plant: building_box_rects_unread.
+    #[test]
+    fn a_box_that_overlaps_an_alive_enemy_rect_is_refused_under_the_troops_rule() {
+        const TR: Territory = Territory::EnemyTowerRects { open_bridge: false };
+        let a = Arena::shipped();
+        let t = tiles(1);
+        let rb = enemy_rects(&a, Team::Blue);
+        let alive = [rb[0], rb[2]];
+        let k = rb[0];
+        let mut found = None;
+        for x in (k.min.x.max(0)..k.max.x - 2 * t).step_by(t as usize / 2) {
+            // a 2 x 2 box straddling the king rect's river-side edge, its centre just short of it, clear of the alive princess
+            let b = Rect { min: Vec2::new(x, k.min.y - t - t / 2), max: Vec2::new(x + 2 * t, k.min.y + t / 2) };
+            let centre = Vec2::new((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2);
+            if b.overlaps_open(&k) && !k.contains_closed(centre) && !b.overlaps_open(&rb[2]) && a.box_zone(b, Team::Blue, TR).is_ok() {
+                found = Some(b);
+                break;
+            }
+        }
+        let b = found.expect("the scene drifted: no box on Red's king rect's river-side edge that box_zone takes");
+        assert_eq!(a.box_zone_rects(b, Team::Blue, TR, &alive), Err(ZoneError::OutOfTerritory), "the box overlapping the king rect");
+        // The control: a box on the opened pocket, clear of every alive rect, that box_zone takes, is taken.
+        let mut clear = None;
+        for y in (k.min.y - 6 * t..k.min.y - 2 * t + 1).step_by(t as usize / 2) {
+            for x in (0..k.max.x / 2).step_by(t as usize / 2) {
+                let c = Rect { min: Vec2::new(x, y), max: Vec2::new(x + 2 * t, y + 2 * t) };
+                if clear.is_none() && !alive.iter().any(|r| c.overlaps_open(r)) && a.box_zone(c, Team::Blue, TR).is_ok() {
+                    clear = Some(c);
+                }
+            }
+        }
+        let clear = clear.expect("the scene drifted: no box on the opened pocket clear of the rects");
+        assert_eq!(a.box_zone_rects(clear, Team::Blue, TR, &alive), Ok(()), "a box clear of the rects");
     }
 
     /// Catches a box zone rule that reads engine y instead of the placer's.

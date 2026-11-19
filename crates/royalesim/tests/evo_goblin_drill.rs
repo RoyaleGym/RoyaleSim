@@ -16,7 +16,9 @@
 //!   - evo_drill_death_ring_unlisted -> `its_buildings_death_goblins_are_laid_on_the_x_axis_ring` red;
 //!   - drill_under_shot_lands -> `a_shot_in_flight_at_a_building_that_goes_under_lands_on_nothing_under_client15535_dropped` red;
 //!   - drill_body_back_at_hide_time -> `its_body_returns_three_ticks_after_its_hide_time_under_client15535_hide_time_plus_3` red;
-//!   - drill_rise_hidden -> `a_rising_building_is_a_target_again_under_client15535_targetable_on_rise` red.
+//!   - drill_rise_hidden -> `a_rising_building_is_a_target_again_under_client15535_targetable_on_rise` red;
+//!   - drill_line_reads_hits -> `under_client16635_after_drain_before_hits_a_hits_crossing_goes_under_a_tick_later` red;
+//!   - drill_dig_stays -> `under_client16635_keeps_tower_distance_the_building_digs_round_the_tower` red.
 #![allow(unexpected_cfgs)]
 // THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
 // (common::config_pre_flip); each flipped key's own tests read both arms.
@@ -315,4 +317,91 @@ fn a_rising_building_is_a_target_again_under_client15535_targetable_on_rise() {
     // NOT VACUOUS: under hidden_through_rise it is no target before T + 40.
     let old = rise_pick(royalesim::state::DrillRiseTargetable::HiddenThroughRise);
     assert!(old >= 40, "hidden_through_rise: the Musketeer took the building on T + {old}");
+}
+
+/// The blue building at (9000, 10000) under hide.DRILL_LINE_TEST = `arm`, a red Giant held beside it striking it: until a
+/// strike lands its hitpoints are set to 892 before each tick (above its 66 % line, 879 of 1313, after one drain step), so
+/// the strike's tick C crosses the line: (whether it is under at the end of C, at the end of C + 1).
+fn hit_crossing(arm: royalesim::state::DrillLineTest) -> (bool, bool) {
+    let (mut s, d) = drill_battle(|c| c.calib.drill_line_test = arm);
+    let gat = n(9000, 11300);
+    let giant = s.scenario_spawn_now(Team::Red, "Giant", gat, None).expect("the Giant");
+    for _ in 0..300 {
+        assert!(s.debug_set_pos(giant, gat) && s.debug_set_hp(d, 892));
+        s.tick();
+        let e = s.entity(d).expect("the building");
+        if 892 - e.hp > 30 {
+            let c = e.hide_state == HideState::Hidden;
+            assert!(s.debug_set_pos(giant, gat));
+            s.tick();
+            let c1 = s.entity(d).expect("the building").hide_state == HideState::Hidden;
+            return (c, c1);
+        }
+    }
+    panic!("the scene drifted: the Giant never struck the building");
+}
+
+/// hide.DRILL_LINE_TEST = client16635_after_drain_before_hits (client 16.635, parity r96, the oracle's il-mg-16635 set: 22 of 22
+/// crossings a hit made went under on the next tick): the Giant's strike takes the building across its 66 % line on C; it is
+/// up at the end of C and under at the end of C + 1; under post_hit_hitpoints (the vacuity check) it is under at the end of
+/// C. Plant: drill_line_reads_hits.
+#[test]
+fn under_client16635_after_drain_before_hits_a_hits_crossing_goes_under_a_tick_later() {
+    use royalesim::state::DrillLineTest as D;
+    assert_eq!(hit_crossing(D::PostHitHitpoints).0, true, "post_hit_hitpoints (the vacuity check): up at the end of the strike's tick");
+    assert_eq!(hit_crossing(D::Client16635AfterDrainBeforeHits), (false, true), "client16635_after_drain_before_hits: (under at C, under at C + 1)");
+}
+
+/// A red building put at (6000, 6000) on blue's half (2,550 from blue's left princess tower at (3500, 6500)) under
+/// hide.DRILL_DIG_POINT = `arm`, its hitpoints taken under each line in turn: its native point on each of 600 ticks, and the
+/// ticks it went under.
+fn dig_path(arm: royalesim::state::DrillDigPoint) -> (Vec<(i32, i32)>, Vec<usize>) {
+    let mut cfg: BattleConfig = config_pre_flip();
+    cfg.decks = [vec!["Knight".into()], vec!["GoblinDrill".into(), "Knight".into()]];
+    cfg.forms = [Vec::new(), vec![1, 0]];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.drill_dig_point = arm;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let d = s.scenario_spawn_now(Team::Red, "units.GoblinDrill_EV1", n(6000, 6000), None).expect("the drill's building");
+    let (mut path, mut unders, mut was) = (Vec::new(), Vec::new(), false);
+    for k in 0..600usize {
+        let Some(e) = s.entity(d) else { break };
+        let (hp, top, hidden) = (e.hp, e.max_hp, e.hide_state == HideState::Hidden);
+        if !hidden && unders.len() < 2 {
+            // just above the next line: the drain takes it across on its own
+            let line = if unders.is_empty() { 66 } else { 33 };
+            let at = (line + 1) * top / 100 + 1;
+            if hp > at {
+                assert!(s.debug_set_hp(d, at));
+            }
+        }
+        s.tick();
+        let Some(e) = s.entity(d) else { break };
+        let hidden_now = e.hide_state == HideState::Hidden;
+        if hidden_now && !was {
+            unders.push(k);
+        }
+        was = hidden_now;
+        path.push((e.pos.x / K, e.pos.y / K));
+    }
+    (path, unders)
+}
+
+/// hide.DRILL_DIG_POINT = client16635_keeps_tower_distance (client 16.635, parity r96, the oracle's il-mg-16635 set: 32 of 32
+/// hides on the enemy half moved on the under tick + 18 round the nearest tower, 08393a3e (6000, 6000) -> (4000, 9000) ->
+/// (1000, 7000)): the building stands on (6000, 6000) on its first hide's + 17 and on (4000, 9000) on + 18 (the tie with
+/// (3000, 4000) to the farther from blue's King); on its second hide's + 18 on (1000, 7000), not back on (6000, 6000); under
+/// stays (the vacuity check) on (6000, 6000) on + 18. Plant: drill_dig_stays.
+#[test]
+fn under_client16635_keeps_tower_distance_the_building_digs_round_the_tower() {
+    use royalesim::state::DrillDigPoint as D;
+    let (old, u) = dig_path(D::Stays);
+    assert!(!u.is_empty() && old.len() > u[0] + 18, "the scene drifted: no first hide ({u:?})");
+    assert_eq!(old[u[0] + 18], (6000, 6000), "stays (the vacuity check): the building moved");
+    let (new, u) = dig_path(D::Client16635KeepsTowerDistance);
+    assert!(u.len() == 2 && new.len() > u[1] + 18, "the scene drifted: the hides {u:?}");
+    assert_eq!((new[u[0] + 17], new[u[0] + 18]), ((6000, 6000), (4000, 9000)), "client16635_keeps_tower_distance: the first dig");
+    assert_eq!((new[u[1] + 17], new[u[1] + 18]), ((4000, 9000), (1000, 7000)), "client16635_keeps_tower_distance: the second dig");
 }

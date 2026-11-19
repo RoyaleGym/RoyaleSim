@@ -26,14 +26,18 @@
 //!   - ice_valid_position_unread -> `a_far_point_on_water_falls_back_to_the_radius` red;
 //!   - ice_linger_unread -> `the_cube_dies_42_ticks_after_its_last_victim` red;
 //!   - ice_kill_unread -> `a_kill_while_the_press_waits_fires_behind_the_dead_unit` red;
-//!   - ice_death_unread -> `the_heros_death_while_the_press_waits_puts_the_cube_behind_the_closest_mark` red.
+//!   - ice_death_unread -> `the_heros_death_while_the_press_waits_puts_the_cube_behind_the_closest_mark` red;
+//!   - ice_find_reads_chill -> `under_client16635_shot_slow_only_a_press_inside_the_deploy_chill_waits_for_the_shot` red;
+//!   - ice_release_attack_now -> `under_client16635_attack_next_tick_a_let_go_knight_strikes_a_tick_later` red;
+//!   - ice_release_target_now -> `under_client16635_target_next_tick_a_let_go_knight_retakes_its_target_a_tick_later` red;
+//!   - cube_loss_frees -> `under_client16635_cube_waits_a_musketeer_that_doomed_a_cube_serves_the_wait` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::{AbilityEffect, CardDb, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CardTable};
+use royalesim::state::{BattleConfig, BattleState, CardTable, CubeLossWait, IceFindMarks, IceReleaseAttack, IceReleaseTarget};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["IceWizard", "Knight", "Archer", "Giant", "Musketeer", "Minions", "Fireball", "Zap"];
@@ -58,6 +62,11 @@ fn db() -> CardDb {
 /// A battle on the current client's table: blue's deck holds the hero form, both sides at level 11, blue's princess
 /// towers down so no crown tower reaches the scene.
 fn battle() -> BattleState {
+    battle_with(|_| {})
+}
+
+/// `battle()` with `f` applied to its config first.
+fn battle_with(f: impl FnOnce(&mut BattleConfig)) -> BattleState {
     let mut cfg = BattleConfig::with_cards(db());
     cfg.calib.card_table = CardTable::Client160402017;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
@@ -65,6 +74,7 @@ fn battle() -> BattleState {
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
+    f(&mut cfg);
     let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
     let towers: Vec<_> = s.entities().filter(|e| e.team == Team::Blue && e.kind == royalesim::entity::EntityKind::PrincessTower).map(|e| e.id).collect();
     for t in towers {
@@ -348,4 +358,223 @@ fn the_heros_death_while_the_press_waits_puts_the_cube_behind_the_closest_mark()
     let (_, cp) = cube(&s).expect("the death puts the cube down at once");
     let (kx, ky) = native(s.entity(knight).expect("the Knight").pos);
     assert_eq!(native(cp), (kx, ky + 1500));
+}
+
+/// A red Knight held 2500 ahead of AT from the start (inside the hero's deploy chill, short of its reach to strike back), the
+/// hero put down on AT on tick 70 and held there, the press on tick 95 (the opening lockout's end: 25 ticks after the deploy,
+/// before the hero's first shot lands), under status.ICE_FIND_MARKS = `arm`: (the press's tick, the cube's first frame).
+fn chilled_press(arm: IceFindMarks) -> (u32, u32) {
+    let mut s = battle_with(|c| c.calib.ice_find_marks = arm);
+    let kat = n(AT.0, AT.1 + 2500);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    while s.tick_count() < 70 {
+        assert!(s.debug_set_pos(knight, kat));
+        s.tick();
+    }
+    s.spawn_unit(Team::Blue, HERO, n(AT.0, AT.1), None).expect("the hero");
+    s.tick();
+    let hero = find_live(&s, Team::Blue, HERO)[0].id;
+    while s.tick_count() < 95 {
+        assert!(s.debug_set_pos(hero, n(AT.0, AT.1)) && s.debug_set_pos(knight, kat));
+        s.tick();
+    }
+    let press = s.tick_count();
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..80 {
+        assert!(s.debug_set_pos(knight, kat));
+        if s.entity(hero).is_some() {
+            assert!(s.debug_set_pos(hero, n(AT.0, AT.1)));
+        }
+        s.tick();
+        if cube(&s).is_some() {
+            return (press, s.tick_count() - 1);
+        }
+    }
+    panic!("the scene drifted: no cube within 80 ticks of the press");
+}
+
+/// status.ICE_FIND_MARKS = client16635_shot_slow_only (client 16.635, parity r95, the oracle's il-mg-16635 set: 11 of 11 presses 30
+/// ticks after the deploy with an enemy inside the deploy chill found on the hero's first shot's landing + 1): the press finds
+/// the chilled Knight later than under either_mark (the vacuity check: found at once, the cube on the press + 5). Plant:
+/// ice_find_reads_chill.
+#[test]
+fn under_client16635_shot_slow_only_a_press_inside_the_deploy_chill_waits_for_the_shot() {
+    let (p_old, c_old) = chilled_press(IceFindMarks::EitherMark);
+    assert_eq!(c_old, p_old + 5, "either_mark (the vacuity check): the chilled Knight is found at once");
+    let (p_new, c_new) = chilled_press(IceFindMarks::Client16635ShotSlowOnly);
+    assert_eq!(p_new, p_old, "the scene: one press tick");
+    assert!(c_new > c_old, "client16635_shot_slow_only: the cube came on {c_new}, not after either_mark's {c_old}");
+}
+
+/// A red Knight held on AT + (0, 4000) striking a blue Giant held 1000 behind it (its hitpoints kept), marked by the hero's
+/// shots, frozen by the press's cube (the hero killed after the find), under status.ICE_RELEASE_ATTACK = `arm`: (the cube's last
+/// frame, the Knight's first strike on the Giant after it).
+fn released_strike(arm: IceReleaseAttack) -> (u32, u32) {
+    let mut s = battle_with(|c| c.calib.ice_release_attack = arm);
+    let (kat, gat) = (n(AT.0, AT.1 + 4000), n(AT.0, AT.1 + 3000));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", gat, None).expect("the Giant");
+    let hero = hero_in(&mut s);
+    let gmax = s.entity(giant).expect("the Giant").max_hp;
+    first_hit(&mut s, knight, kat, 120);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let (mut seen, mut last) = (false, None);
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(knight, kat) && s.debug_set_pos(giant, gat) && s.debug_set_hp(giant, gmax));
+        s.tick();
+        let t = s.tick_count() - 1;
+        let here = cube(&s).is_some();
+        if here {
+            seen = true;
+        } else if seen && last.is_none() {
+            last = Some(t - 1);
+        }
+        if let Some(l) = last {
+            if s.entity(giant).expect("the Giant").hp < gmax {
+                return (l, t);
+            }
+        }
+    }
+    panic!("the scene drifted: no cube came and went, or no strike after it (seen {seen}, last frame {last:?})");
+}
+
+/// status.ICE_RELEASE_ATTACK = client16635_attack_next_tick (client 16.635, parity r95, the oracle's il-mg-16635 set: 37 let-go
+/// victims' attack clocks resumed on the cube's last frame + 3, the engine's on + 2): the Knight frozen mid-attack strikes the
+/// Giant one tick later after the cube than under with_the_walk (the vacuity check). Plant: ice_release_attack_now.
+#[test]
+fn under_client16635_attack_next_tick_a_let_go_knight_strikes_a_tick_later() {
+    let (l_old, h_old) = released_strike(IceReleaseAttack::WithTheWalk);
+    let (l_new, h_new) = released_strike(IceReleaseAttack::Client16635AttackNextTick);
+    assert_eq!(l_new, l_old, "the scene: one cube life under both arms");
+    assert_eq!(h_new, h_old + 1, "client16635_attack_next_tick: the first strike after the cube's last frame {l_new} on {h_new}, not with_the_walk's {h_old} + 1");
+}
+
+/// `released_strike`'s scene under status.ICE_RELEASE_ATTACK = client16635_attack_next_tick and status.ICE_RELEASE_TARGET =
+/// `arm`: the Knight's target on the cube's last frame + 2 and + 3, and the Giant.
+fn released_target(arm: IceReleaseTarget) -> (Option<EntityId>, Option<EntityId>, EntityId) {
+    let mut s = battle_with(|c| {
+        c.calib.ice_release_attack = IceReleaseAttack::Client16635AttackNextTick;
+        c.calib.ice_release_target = arm;
+    });
+    let (kat, gat) = (n(AT.0, AT.1 + 4000), n(AT.0, AT.1 + 3000));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", gat, None).expect("the Giant");
+    let hero = hero_in(&mut s);
+    let gmax = s.entity(giant).expect("the Giant").max_hp;
+    first_hit(&mut s, knight, kat, 120);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let (mut seen, mut last, mut at2) = (false, None, None);
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(knight, kat) && s.debug_set_pos(giant, gat) && s.debug_set_hp(giant, gmax));
+        s.tick();
+        let t = s.tick_count() - 1;
+        let here = cube(&s).is_some();
+        if here {
+            seen = true;
+        } else if seen && last.is_none() {
+            last = Some(t - 1);
+        }
+        if let Some(l) = last {
+            let tg = s.entity(knight).expect("the Knight").target;
+            if t == l + 2 {
+                at2 = Some(tg);
+            } else if t == l + 3 {
+                return (at2.expect("the last frame + 2 was read"), tg, giant);
+            }
+        }
+    }
+    panic!("the scene drifted: no cube came and went (seen {seen}, last frame {last:?})");
+}
+
+/// status.ICE_RELEASE_TARGET = client16635_target_next_tick (client 16.635, parity r96, the oracle's il-mg-16635 set: 101 of 107
+/// units a cube let go took their next target one tick after the engine's): the Knight frozen mid-attack has no target on the
+/// cube's last frame + 2 and takes the Giant on + 3; under with_the_walk (the vacuity check) it has taken the Giant on + 2.
+/// Plant: ice_release_target_now.
+#[test]
+fn under_client16635_target_next_tick_a_let_go_knight_retakes_its_target_a_tick_later() {
+    let (old2, _, giant) = released_target(IceReleaseTarget::WithTheWalk);
+    assert_eq!(old2, Some(giant), "with_the_walk (the vacuity check): the Knight's target on the last frame + 2");
+    let (new2, new3, giant) = released_target(IceReleaseTarget::Client16635TargetNextTick);
+    assert_eq!(new2, None, "client16635_target_next_tick: the Knight decided on the cube's last frame + 2");
+    assert_eq!(new3, Some(giant), "client16635_target_next_tick: the Knight's target on the last frame + 3");
+}
+
+/// A red Knight held on AT + (0, 4000), frozen by the press's cube (the hero killed after the find), under
+/// combat.CUBE_LOSS_WAIT = `arm`: once the cube has stood its 20-tick deploy, a red Musketeer held 3,000 beyond it comes and
+/// takes it; once it holds the cube, a blue Golem held 2,500 on the cube's other side comes as its next target (a Golem
+/// there from the start is the Musketeer's first target, the deploying cube no one's). When the Musketeer's shot is in
+/// flight at the cube, the cube is set to 1 hitpoint (the shot dooms it): (the cube's loss tick L, the first tick after L
+/// the Musketeer holds the Golem).
+fn cube_loss(arm: CubeLossWait) -> (u32, u32) {
+    let mut s = battle_with(|c| c.calib.cube_loss_wait = arm);
+    let kat = n(AT.0, AT.1 + 4000);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    let hero = hero_in(&mut s);
+    first_hit(&mut s, knight, kat, 120);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let mut cube_at = None;
+    for _ in 0..40 {
+        assert!(s.debug_set_pos(knight, kat));
+        s.tick();
+        if let Some(c) = cube(&s) {
+            cube_at = Some(c);
+            break;
+        }
+    }
+    let (cid, cpos) = cube_at.expect("the scene drifted: no cube");
+    for _ in 0..21 {
+        assert!(s.debug_set_pos(knight, kat));
+        s.tick();
+    }
+    assert!(s.entity(cid).is_some(), "the scene drifted: the cube went inside its deploy");
+    let (mat, gat) = (Vec2::new(cpos.x, cpos.y + 3000 * K), Vec2::new(cpos.x, cpos.y - 2500 * K));
+    let musk = s.scenario_spawn_now(Team::Red, "Musketeer", mat, None).expect("the Musketeer");
+    let mut golem = None;
+    let (mut doomed, mut lost) = (false, None);
+    for _ in 0..300 {
+        assert!(s.debug_set_pos(musk, mat));
+        if let Some(g) = golem {
+            assert!(s.debug_set_pos(g, gat));
+        }
+        if s.entity(knight).is_some() {
+            assert!(s.debug_set_pos(knight, kat));
+        }
+        if !doomed && s.entity(cid).is_some() && s.projectiles().iter().any(|p| p.target == cid) {
+            assert!(s.debug_set_hp(cid, 1));
+            doomed = true;
+        }
+        s.tick();
+        let t = s.tick_count() - 1;
+        if golem.is_none() && s.entity(cid).is_some() && s.entity(musk).and_then(|e| e.target) == Some(cid) {
+            golem = Some(s.scenario_spawn_now(Team::Blue, "Golem", gat, None).expect("the Golem"));
+        }
+        if lost.is_none() && s.entity(cid).is_none() {
+            assert!(doomed, "the scene drifted: the cube went before the Musketeer's shot doomed it");
+            assert!(golem.is_some(), "the scene drifted: the cube went before the Musketeer took it");
+            lost = Some(t);
+        }
+        if let (Some(l), Some(g)) = (lost, golem) {
+            if s.entity(musk).expect("the Musketeer").target == Some(g) {
+                return (l, t);
+            }
+        }
+    }
+    panic!("the scene drifted: no doomed cube lost, or the Musketeer never took the Golem (doomed {doomed}, lost {lost:?}, golem {golem:?})");
+}
+
+/// combat.CUBE_LOSS_WAIT = client16635_cube_waits (client 16.635, parity r96, the oracle's il-mg-16635 set: 153 of 153
+/// projectile attackers of a doomed cube served the wait): the Musketeer whose shot doomed the cube takes the Golem on the
+/// loss + 6; under doomed_frees (the vacuity check) it is freed and takes it on the loss + 1. Plant: cube_loss_frees.
+#[test]
+fn under_client16635_cube_waits_a_musketeer_that_doomed_a_cube_serves_the_wait() {
+    let (l_old, t_old) = cube_loss(CubeLossWait::DoomedFrees);
+    assert_eq!(t_old, l_old + 1, "doomed_frees (the vacuity check): the Musketeer took the Golem on {t_old}, the cube lost on {l_old}");
+    let (l_new, t_new) = cube_loss(CubeLossWait::Client16635CubeWaits);
+    assert_eq!(t_new, l_new + 6, "client16635_cube_waits: the Musketeer took the Golem on {t_new}, the cube lost on {l_new}");
 }

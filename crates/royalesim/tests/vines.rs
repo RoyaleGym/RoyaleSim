@@ -57,7 +57,7 @@ mod common;
 use common::*;
 use royalesim::card::{CardDb, CardSource, SpellShape, StrikePick};
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AirToGroundWindow, BattleConfig, BattleState};
+use royalesim::state::{AirToGroundWindow, BattleConfig, BattleState, GroundedFlierBody};
 use royalesim::{EntityId, Team};
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -475,4 +475,43 @@ fn under_client16635_building_square_strict_the_vines_reach_a_cannon_by_its_squa
     assert_eq!(cannon_caught(R::RadiusPlusTargetRadius, (9500, 21500)), None, "radius_plus_target_radius (the vacuity check): the Cannon was caught");
     assert!(cannon_caught(R::Client16635BuildingSquareStrict, (9500, 21500)).is_some(), "client16635_building_square_strict: the Cannon was not caught");
     assert_eq!(cannon_caught(R::Client16635BuildingSquareStrict, (9600, 21500)), None, "client16635_building_square_strict: a Cannon outside its square's reach was caught");
+}
+
+/// A Red Balloon held at (9000, 11000) (its hitpoints kept) and Blue's Vines cast on it on C; on C + 3 a Blue Knight played
+/// on the Balloon's point (deploying 20 ticks, so it neither walks nor targets through C + 22), under
+/// movement.GROUNDED_FLIER_BODY = `arm`: how far the Knight has moved from where it was put down by C + 22.
+fn caught_over_a_knight(arm: GroundedFlierBody) -> i64 {
+    let mut cfg = shipped();
+    cfg.calib.grounded_flier_body = arm;
+    let mut s = BattleState::new(0, cfg);
+    let bat = at((9000, 11000));
+    let balloon = s.scenario_spawn_now(Team::Red, "Balloon", bat, None).expect("the Balloon");
+    let full = s.entity(balloon).expect("it").max_hp;
+    s.spawn_unit(Team::Blue, "Vines", bat, None).expect("cast Vines");
+    let mut knight = None;
+    let mut put = None;
+    for k in 0..23u32 {
+        if s.entity(balloon).is_some() {
+            assert!(s.debug_set_pos(balloon, bat) && s.debug_set_hp(balloon, full));
+        }
+        if k == 3 {
+            s.spawn_unit(Team::Blue, "Knight", bat, None).expect("play the Knight");
+        }
+        s.tick();
+        if knight.is_none() {
+            knight = find_live(&s, Team::Blue, "Knight").first().map(|e| e.id);
+            put = knight.and_then(|id| s.entity(id)).map(|e| e.pos);
+        }
+    }
+    let (kn, p0) = (knight.expect("the Knight"), put.expect("its point"));
+    centre_distance(s.entity(kn).expect("the Knight").pos, p0)
+}
+
+/// movement.GROUNDED_FLIER_BODY = client16635_ground_body (client 16.635, parity r95, the oracle's il-mg-16635 set: 2 of 2 caught
+/// fliers pushed the deploying ground units under them): the deploying Knight under the caught Balloon is pushed; under
+/// air_layer (the vacuity check) it stays where it was put down. Plant: grounded_flier_air_body.
+#[test]
+fn under_client16635_ground_body_a_caught_balloon_pushes_the_knight_deploying_under_it() {
+    assert_eq!(caught_over_a_knight(GroundedFlierBody::AirLayer), 0, "air_layer (the vacuity check): the deploying Knight moved");
+    assert!(caught_over_a_knight(GroundedFlierBody::Client16635GroundBody) > 0, "client16635_ground_body: the caught Balloon pushed nothing");
 }

@@ -21,7 +21,8 @@
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test buff_death_spawn_first_update`):
 //!   * `buff_spawn_first_update_next_tick` -- the hog first moves on the next tick: (1) goes red;
 //!   * `buff_spawn_first_update_any_parent` -- the hog steps on its birth tick whatever killed its parent: (2) goes red;
-//!   * `buff_spawn_first_update_doomed_only` -- client16402_creation_tick still needs the doomed mask: (3) goes red.
+//!   * `buff_spawn_first_update_doomed_only` -- client16402_creation_tick still needs the doomed mask: (3) goes red;
+//!   * `hog_parent_blocker_doomed_only` -- client16635_parent_blocker_always still needs the doomed mask for the blocker: (4) goes red.
 //!
 //! (3) client16402_creation_tick (client 16.402, parity r75, live13: the 7 hogs born overlapping a body carried a push off it
 //! on their first frame in 7 of 7, the engine's in 0 of 7): a Blue Golem PUSHER held 700 south of the hog's birth point;
@@ -228,4 +229,19 @@ fn under_client16402_victim_facing_the_hog_scans_along_its_victims_facing() {
 #[test]
 fn the_shipped_buff_death_spawn_facing_is_client16402_victim_facing() {
     assert_eq!(Calib::shipped().buff_death_spawn_facing, BuffDeathSpawnFacing::Client16402VictimFacing);
+}
+
+/// (4) status.BUFF_DEATH_SPAWN_FIRST_UPDATE = client16635_parent_blocker_always (client 16.635, parity r95, the oracle's il-mg-16635
+/// set: 3 of 3 cursed hogs born with their dying parent in their look circle started at offset +-190, their parents killed
+/// after the move pass): the Red Knight's hitpoints set to 0 on a quiet tick (not doomed), the hog's avoidance offset on its
+/// creation tick is not 0 (its dead parent ahead, a blocker); under client16402_creation_tick (the vacuity check) it is 0.
+/// Plant: hog_parent_blocker_doomed_only.
+#[test]
+fn under_client16635_parent_blocker_always_a_quiet_kills_hog_meets_its_parent() {
+    let d = quiet_tick();
+    let (_, old) = scene(BuffDeathSpawnFirstUpdate::Client16402CreationTick, Some((d, 0)));
+    assert_eq!(old, Some(0), "client16402_creation_tick (the vacuity check): the hog met its not-doomed parent");
+    let (_, new) = scene(BuffDeathSpawnFirstUpdate::Client16635ParentBlockerAlways, Some((d, 0)));
+    let off = new.expect("the scene drifted: the Knight left no hog");
+    assert_ne!(off, 0, "client16635_parent_blocker_always: the hog took no offset off its dying parent");
 }

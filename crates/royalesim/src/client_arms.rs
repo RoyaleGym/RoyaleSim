@@ -461,6 +461,29 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   movement.LANE_SWITCH_FIRST_STEP_CONTACT = tunnel: unread on client 15.535.29 (its Mighty Miner scene's first step overlapped
 ///   nothing).
 ///   knockback.CREATION_HIT_KNOCK = next_tick: unread on client 15.535.29 (its boulder scenes' creation-tick knock timing).
+///   status.ICE_FIND_MARKS = either_mark and ICE_RELEASE_ATTACK = with_the_walk: unread on client 15.535.29 (no Hero Ice Wizard).
+///   hide.TUNNEL_SHOT = lands: unread on client 15.535.29 (its Mighty Miner scene's switch had no shot in flight at him).
+///   combat.TROOP_SPLASH_CROWN_REACH = disc: unread on client 15.535.29.
+///   placement.BUILDING_TERRITORY = own_half: unread on client 15.535.29 (no building tapped past the river).
+///   movement.GROUNDED_FLIER_BODY = air_layer: unread on client 15.535.29 (its Vines scenes caught no flier over a ground unit).
+///   combat.DASH_STAND_CLOCK = ticks: unread on client 15.535.29 (its dash scenes ran unbuffed, where both arms agree).
+///   spawner.DEATH_SPAWN_BIRTH_TARGET = none: unread on client 15.535.29.
+///   spawner.RELEASE_WATER_POINT = nearest_passable_ground: unread on client 15.535.29.
+///   transform.BECAME_BUILDING_TARGET = at_once: unread on client 15.535.29.
+///   spawner.EVO_WITCH_WAVE_SPAWN_SPEED = tick_ms: unread on client 15.535.29 (its Evo Witch scene ran unbuffed, where both
+///   arms agree).
+///   hide.DRILL_DIG_POINT = stays: unread on client 15.535.29 (its drill scene's building stood on its own half).
+///   hide.DRILL_LINE_TEST = post_hit_hitpoints: unread on client 15.535.29 (its drill scene's crossings were not told apart
+///   by hit and drain).
+///   combat.PINGPONG_CLOCK = ticks: unread on client 15.535.29 (its Executioner scenes ran unbuffed, where both arms
+///   agree).
+///   combat.CUBE_LOSS_WAIT = doomed_frees: unread on client 15.535.29 (no Hero Ice Wizard there).
+///   rider.MOUNT_BUFFS_ON_CLOCK = own_buffs: unread on client 15.535.29.
+///   spawner.EVO_BARREL_EXTRA_AT_DEATH = line_only: client 15.535.29's own (its barrel's container fuse; no death before
+///   the line measured).
+///   spells.BARRAGE_LANDING_PHASE = after_attack_before_move: unread on client 15.535.29.
+///   spawner.AREA_SPAWN_FACING = side_forward: unread on client 15.535.29.
+///   status.ICE_RELEASE_TARGET = with_the_walk: unread on client 15.535.29 (no Hero Ice Wizard there).
 ///   enchant.PICK_REACH = centre_start_of_tick_7550, enchant.STUN_AT_PICK = pick_waits_for_stun_end: client 15.535.29's own
 ///   measurements (sp-champ-GiantBuffer runs).
 pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
@@ -750,6 +773,26 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("enchant.PICK_REACH", "\"centre_start_of_tick_7550\""),
     ("enchant.STUN_AT_PICK", "\"pick_waits_for_stun_end\""),
     ("knockback.CREATION_HIT_KNOCK", "\"next_tick\""),
+    ("status.ICE_FIND_MARKS", "\"either_mark\""),
+    ("status.ICE_RELEASE_ATTACK", "\"with_the_walk\""),
+    ("hide.TUNNEL_SHOT", "\"lands\""),
+    ("combat.TROOP_SPLASH_CROWN_REACH", "\"disc\""),
+    ("placement.BUILDING_TERRITORY", "\"own_half\""),
+    ("movement.GROUNDED_FLIER_BODY", "\"air_layer\""),
+    ("status.ICE_RELEASE_TARGET", "\"with_the_walk\""),
+    ("spawner.AREA_SPAWN_FACING", "\"side_forward\""),
+    ("spells.BARRAGE_LANDING_PHASE", "\"after_attack_before_move\""),
+    ("spawner.EVO_BARREL_EXTRA_AT_DEATH", "\"line_only\""),
+    ("rider.MOUNT_BUFFS_ON_CLOCK", "\"own_buffs\""),
+    ("combat.CUBE_LOSS_WAIT", "\"doomed_frees\""),
+    ("combat.PINGPONG_CLOCK", "\"ticks\""),
+    ("hide.DRILL_LINE_TEST", "\"post_hit_hitpoints\""),
+    ("hide.DRILL_DIG_POINT", "\"stays\""),
+    ("spawner.EVO_WITCH_WAVE_SPAWN_SPEED", "\"tick_ms\""),
+    ("transform.BECAME_BUILDING_TARGET", "\"at_once\""),
+    ("spawner.RELEASE_WATER_POINT", "\"nearest_passable_ground\""),
+    ("spawner.DEATH_SPAWN_BIRTH_TARGET", "\"none\""),
+    ("combat.DASH_STAND_CLOCK", "\"ticks\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -547,6 +547,11 @@ pub struct Entities {
     pub dash_state: Vec<DashState>,
     #[serde(default)]
     pub dash_mark: Vec<u32>,
+    /// combat.DASH_STAND_CLOCK = client16635_hit_speed_scaled: the ms a dash stand has counted (its hit-speed ticks since the
+    /// trigger). Empty until that arm first runs a stand (sized then, by `phase_path16402_for`), `default` and skipped when
+    /// empty, so a battle under the old arm saves and hashes as before; hashed per unit only when not 0.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dash_stand_ms: Vec<i32>,
     #[serde(default)]
     pub dash_goal: Vec<Vec2>,
     #[serde(default)]
@@ -867,6 +872,16 @@ impl Entities {
         crate::status::compose(self.buffs_of(table, i), sel, value)
     }
 
+    /// rider.MOUNT_BUFFS_ON_CLOCK = client16635_mount_buffs: `value` put through an attached rider's own buffs and its live
+    /// mount's together (the strongest up and the strongest down over both, so a buff on both counts once); `buffed` for
+    /// every other entity.
+    pub fn clock_buffed(&self, table: &[BuffDef], i: usize, sel: Sel, value: i32) -> i32 {
+        match self.attached_to.get(i).copied().flatten().filter(|m| self.is_alive(*m)) {
+            Some(m) => crate::status::compose(self.buffs_of(table, i).chain(self.buffs_of(table, m.index as usize)), sel, value),
+            None => self.buffed(table, i, sel, value),
+        }
+    }
+
     /// Is entity `i` HELD -- stunned, or frozen by its buffs? The one predicate the walk, the attack and the stomp
     /// clock read. Frozen is status.FULL_STOP_BUFF_IS_STUN's: a composed speed of 0 under stun_timer (and under the
     /// refused buff_only); a composed speed AND hit speed of 0 under stun_timer_speed_and_hit_speed_zero, so a unit
@@ -1081,6 +1096,9 @@ impl Entities {
             self.acquirable_from[i] = 0;
             self.dash_state[i] = DashState::None;
             self.dash_mark[i] = 0;
+            if let Some(v) = self.dash_stand_ms.get_mut(i) {
+                *v = 0;
+            }
             self.dash_goal[i] = Vec2::default();
             self.dash_target[i] = None;
             self.dash_blocked[i] = false;
@@ -1303,6 +1321,9 @@ impl Entities {
         self.jumping[i] = false;
         self.dash_state[i] = DashState::None;
         self.dash_mark[i] = 0;
+        if let Some(v) = self.dash_stand_ms.get_mut(i) {
+            *v = 0;
+        }
         self.dash_goal[i] = Vec2::default();
         self.dash_target[i] = None;
         self.dash_blocked[i] = false;

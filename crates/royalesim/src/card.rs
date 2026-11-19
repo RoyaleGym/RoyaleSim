@@ -5659,6 +5659,14 @@ pub struct DrillDef {
 /// The ticks an Evo Goblin Drill takes to come back up after its HideTime (`DrillDef`): measured 19 (state 4).
 pub const DRILL_RISE_TICKS: u32 = 19;
 
+/// hide.DRILL_DIG_POINT = client16635_keeps_tower_distance: the tick after going under on which an Evo Goblin Drill's building
+/// moves (state.rs `drill_dig_to`; client 16.635, parity r96: 32 of 32 on the under tick + 18).
+pub const DRILL_DIG_MOVE_TICKS: u32 = 18;
+
+/// hide.DRILL_DIG_POINT = client16635_keeps_tower_distance: the dig move's candidate offsets, native, in the order a tie keeps
+/// the first (state.rs `drill_dig_to`): the 8 knight moves of (2000, 3000).
+pub const DRILL_DIG_OFFSETS: [(i32, i32); 8] = [(-2000, 3000), (2000, 3000), (-3000, 2000), (3000, 2000), (-3000, -2000), (3000, -2000), (-2000, -3000), (2000, -3000)];
+
 /// collision.DRILL_RISE_BODY = client15535_hide_time_plus_3: the ticks past its HideTime an Evo Goblin Drill building still
 /// meets no body (state.rs `drill_off`). Measured 3 on client 15.535.29: 2 of 2 overlapping units pushed first on T + 23.
 pub const DRILL_RISE_BODY_EXTRA_TICKS: u32 = 3;

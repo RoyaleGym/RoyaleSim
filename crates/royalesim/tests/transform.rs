@@ -68,6 +68,8 @@
 //!     arm: 9, 10, 11 red.
 //!   * `taunt_guard_blind` -- the data guard of 18 stops reading the area table: 18 red.
 //!   * `unit_refs_skips_new_paths` (tests/unit_refs.rs's) -- `unit_refs` drops the transformation: 19 red.
+//!   * `became_building_target_at_once` -- transform.BECAME_BUILDING_TARGET = client16635_next_tick's buildings-only attacker
+//!     takes the broken cannon at once: `under_client16635_next_tick_a_giant_takes_a_broken_cart_a_tick_later` red.
 //!   * `transform_heal_cancels` -- a read above the line drops the pending change: 16 red.
 //!   * `transform_rescheduled_while_pending` -- a unit with a change pending schedules another: 16 red, and 7 and 8
 //!     too (the second entry runs the change again on the kamikaze form a tick later).
@@ -917,4 +919,47 @@ fn under_client16402_stands_the_kamikaze_form_stands_on_its_switch_tick() {
     assert_eq!(s3, 0, "client16402_stands: a step on the switch tick");
     assert!(t4, "its tower the tick after the switch");
     assert!(s4 >= 100 && s5 >= 100, "the form walks from the tick after: {s4} {s5}");
+}
+
+/// A red Cannon Cart held at (9000, 13000) and a blue Giant held at (9000, 9500) (buildings only: the Cart is no target of
+/// his), under transform.BECAME_BUILDING_TARGET = `arm`: the Cart set below its line, the Giant's target on the tick the Cart
+/// is its cannon (T) and on T + 1, and the Cart.
+fn giant_on_broken_cart(arm: royalesim::state::BecameBuildingTarget) -> (Option<EntityId>, Option<EntityId>, EntityId) {
+    let mut cfg = shipped_arms();
+    cfg.calib.became_building_target = arm;
+    let mut s = BattleState::new(0, cfg);
+    let (cat, gat) = (at((9000, 13000)), at((9000, 9500)));
+    let cart = s.scenario_spawn_now(Team::Red, "MovingCannon", cat, None).expect("the Cart");
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", gat, None).expect("the Giant");
+    for _ in 0..30 {
+        assert!(s.debug_set_pos(cart, cat) && s.debug_set_pos(giant, gat));
+        s.tick();
+    }
+    let top = s.entity(cart).expect("the Cart").max_hp;
+    assert!(s.debug_set_hp(cart, top / 2 - 10));
+    for _ in 0..10 {
+        assert!(s.debug_set_pos(giant, gat));
+        s.tick();
+        if s.entity(cart).expect("the cannon").card == "BrokenCannon" {
+            let t0 = s.entity(giant).expect("the Giant").target;
+            assert!(s.debug_set_pos(giant, gat));
+            s.tick();
+            return (t0, s.entity(giant).expect("the Giant").target, cart);
+        }
+    }
+    panic!("the scene drifted: the Cart never became its cannon");
+}
+
+/// transform.BECAME_BUILDING_TARGET = client16635_next_tick (client 16.635, parity r96, the oracle's il-mg-16635 set: 3 of 3
+/// Minion Giants took a broken Cannon Cart a tick after the engine): the Giant does not take the Cart's cannon on the tick
+/// it became one and takes it on the next; under at_once (the vacuity check) he takes it at once. Plant:
+/// became_building_target_at_once.
+#[test]
+fn under_client16635_next_tick_a_giant_takes_a_broken_cart_a_tick_later() {
+    use royalesim::state::BecameBuildingTarget as B;
+    let (old0, _, cart) = giant_on_broken_cart(B::AtOnce);
+    assert_eq!(old0, Some(cart), "at_once (the vacuity check): the Giant's target on the cannon's first tick");
+    let (new0, new1, cart) = giant_on_broken_cart(B::Client16635NextTick);
+    assert_ne!(new0, Some(cart), "client16635_next_tick: the Giant took the cannon on its first tick");
+    assert_eq!(new1, Some(cart), "client16635_next_tick: the Giant's target on the cannon's second tick");
 }

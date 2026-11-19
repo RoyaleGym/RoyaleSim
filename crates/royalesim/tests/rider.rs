@@ -48,6 +48,8 @@
 //!   * `deprioritize_rule_off` -- a landing clears nothing: (8) and (9) go red.
 //!   * `deprioritize_ignored` -- a carrier ranks by distance: (9) goes red.
 //!   * `save_drops_rider_link` -- a save loses the rider's mount: (10) goes red.
+//!   * `rider_mount_buffs_unread` -- rider.MOUNT_BUFFS_ON_CLOCK = client16635_mount_buffs reads the rider's own buffs alone:
+//!     `under_client16635_mount_buffs_a_slow_on_the_ram_slows_the_riders_clock` goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -55,7 +57,7 @@ use common::*;
 use royalesim::card::{CardDb, CardSource};
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DeprioritizedTargetBuff, EntityView, RiderDeploy, RiderTargetable};
+use royalesim::state::{BattleConfig, BattleState, DeprioritizedTargetBuff, EntityView, MountBuffsOnClock, RiderDeploy, RiderTargetable};
 use royalesim::{EntityId, Team};
 
 /// The level of the measured battle.
@@ -496,4 +498,51 @@ fn a_red_ram_rider_is_the_rotation_of_a_blue_one() {
         last = Some((bram.pos, rram.pos));
     }
     assert!(moved >= 50, "vacuous: the Rams moved on {moved} ticks");
+}
+
+/// The standing scene with a red Musketeer at (9, 24) tiles under rider.MOUNT_BUFFS_ON_CLOCK = `arm`: once the rider's swing
+/// runs, a red Snowball is cast on the Ram's point; the rider's progress steps on the ticks after the Snowball lands.
+fn rider_steps(arm: MountBuffsOnClock) -> Vec<i32> {
+    let mut c = cfg();
+    c.calib.mount_buffs_on_clock = arm;
+    let (mut s, ram, rider) = standing(c, &[("Musketeer", (900, 2400))]);
+    let mut ran = false;
+    for _ in 0..200 {
+        s.tick();
+        if s.entity(rider).expect("the rider lives").attack_phase != AttackPhase::Idle {
+            ran = true;
+            break;
+        }
+    }
+    assert!(ran, "the scene drifted: the rider never swung");
+    let at = s.entity(ram).expect("the Ram").pos;
+    s.spawn_unit(Team::Red, "Snowball", at, None).expect("the Snowball");
+    let mut prev = s.entity(rider).expect("the rider lives").attack_ms;
+    let (mut landed, mut steps) = (false, Vec::new());
+    for _ in 0..80 {
+        let flying = !s.spells().is_empty();
+        s.tick();
+        let now = s.entity(rider).expect("the rider lives").attack_ms;
+        if landed && now > prev && now - prev < 100 {
+            steps.push(now - prev);
+        }
+        if flying && s.spells().is_empty() {
+            landed = true;
+        }
+        prev = now;
+    }
+    assert!(landed, "the scene drifted: the Snowball never landed");
+    steps
+}
+
+/// rider.MOUNT_BUFFS_ON_CLOCK = client16635_mount_buffs (client 16.635, parity r96, the oracle's il-mg-16635 set: 308 of 308
+/// ticks the rider's advance equalled its Ram's; 17 slowed runs from the tick after a slow on the Ram): a Snowball's slow on
+/// the Ram runs the rider's clock at 35 a tick; under own_buffs (the vacuity check) it stays at 50, the rider untouched by
+/// the Snowball. Plant: rider_mount_buffs_unread.
+#[test]
+fn under_client16635_mount_buffs_a_slow_on_the_ram_slows_the_riders_clock() {
+    let old = rider_steps(MountBuffsOnClock::OwnBuffs);
+    assert!(old.len() >= 5 && old[..5].iter().all(|d| *d == 50), "own_buffs (the vacuity check): the rider's steps {old:?}");
+    let new = rider_steps(MountBuffsOnClock::Client16635MountBuffs);
+    assert!(new.len() >= 5 && new[..5].iter().all(|d| *d == 35), "client16635_mount_buffs: the rider's steps {new:?}");
 }

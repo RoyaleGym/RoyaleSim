@@ -15,7 +15,8 @@
 //! illegal_troop_tap`):
 //!   - troop_tap_unclamped -> `a_bridge_tap_plays_as_the_tap_behind_the_river`,
 //!     `a_single_on_the_enemy_half_stands_on_the_own_front_row` and `the_play_path_takes_the_tap` red;
-//!   - bridge_tap_clamped -> `a_bridge_tap_into_an_open_lane_stands` red.
+//!   - bridge_tap_clamped -> `a_bridge_tap_into_an_open_lane_stands` red;
+//!   - troop_tap_column_search -> `under_client16635_nearest_legal_tile_a_tap_goes_to_the_nearest_legal_tile` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -98,4 +99,39 @@ fn the_play_path_takes_the_tap() {
         assert_eq!(s.check_deploy_slot(Team::Blue, slot, n(14500, 15001)), want, "{arm:?}: the bridge");
         assert_eq!(s.check_deploy_slot(Team::Blue, slot, n(9500, 15500)), Err(DeployError::Water), "{arm:?}: river water");
     }
+}
+
+/// Is `got` (one unit) within 2 of `want`?
+fn one_near(got: &[(i32, i32)], want: (i32, i32)) -> bool {
+    got.len() == 1 && (got[0].0 - want.0).abs() <= 2 && (got[0].1 - want.1).abs() <= 2
+}
+
+/// placement.ILLEGAL_TROOP_TAP = client16635_nearest_legal_tile (client 16.635, parity r96, the oracle's il-mg-16635 set: 50 of
+/// 54 relocated plays, the column search 38): a Blue Knight tapped at (17500, 20500), on the blocked river corner's column,
+/// every tower up, goes to (16500, 14500), the column search (the vacuity check) to (17500, 13500); with Red's left
+/// princess down, one tapped at (9500, 20500) goes sideways into the opened pocket, (8500, 20500), where the column search
+/// takes it back to (9500, 14500); one tapped at (9500, 20500) with every tower up goes to (9500, 14500) under both.
+/// Plant: troop_tap_column_search.
+#[test]
+fn under_client16635_nearest_legal_tile_a_tap_goes_to_the_nearest_legal_tile() {
+    let near = IllegalTroopTap::Client16635NearestLegalTile;
+    let corner_old = laid(CLAMP, Team::Blue, "Knight", "Knight", (17500, 20500), |_| {});
+    assert!(one_near(&corner_old, (17500, 13500)), "client15535_clamp_to_legal_edge (the vacuity check): the corner tap on {corner_old:?}");
+    let corner_new = laid(near, Team::Blue, "Knight", "Knight", (17500, 20500), |_| {});
+    assert!(one_near(&corner_new, (16500, 14500)), "client16635_nearest_legal_tile: the corner tap on {corner_new:?}");
+    let open = |s: &mut BattleState| {
+        let left = s
+            .entities()
+            .filter(|e| e.team == Team::Red && e.kind == royalesim::entity::EntityKind::PrincessTower)
+            .min_by_key(|e| e.pos.x)
+            .expect("Red's left princess")
+            .id;
+        assert!(s.debug_set_hp(left, 0));
+        s.tick();
+    };
+    let pocket_old = laid(CLAMP, Team::Blue, "Knight", "Knight", (9500, 20500), open);
+    assert!(one_near(&pocket_old, (9500, 14500)), "client15535_clamp_to_legal_edge (the vacuity check): the pocket-side tap on {pocket_old:?}");
+    let pocket_new = laid(near, Team::Blue, "Knight", "Knight", (9500, 20500), open);
+    assert!(one_near(&pocket_new, (8500, 20500)), "client16635_nearest_legal_tile: the pocket-side tap on {pocket_new:?}");
+    assert_eq!(laid(near, Team::Blue, "Knight", "Knight", (9500, 20500), |_| {}), laid(CLAMP, Team::Blue, "Knight", "Knight", (9500, 20500), |_| {}), "every tower up: the arms part");
 }

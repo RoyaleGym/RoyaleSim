@@ -93,6 +93,10 @@ pub struct TargetCtx<'a> {
     /// phase began (state.rs `Scratch::chase_walked`, `walking_now`). Empty under the other arms and outside the phase,
     /// where `walks_away` reads the units as they stand.
     pub chase_walked: &'a [bool],
+    /// transform.BECAME_BUILDING_TARGET = client16635_next_tick: the units that turned into a building row this tick (state.rs
+    /// `Scratch::became_building`), passed over by a buildings-only attacker's decision. Empty under at_once and outside
+    /// the Target phase.
+    pub became_building: &'a [EntityId],
 }
 
 /// targeting.DOOMED_TARGET_DROP: damage that lands later than this does not doom its target. The client
@@ -613,6 +617,14 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     }
     #[cfg(not(clash_plant = "giant_hits_troops"))]
     if card.target_only_buildings && !e.kind[c].is_building() {
+        return false;
+    }
+    // transform.BECAME_BUILDING_TARGET = client16635_next_tick: nor a unit that turned into a building row this tick. Measured on
+    // client 16.635 (parity r96, the oracle's il-mg-16635 set: 3 of 3 Minion Giants took a broken Cannon Cart on the crossing
+    // + 2, the engine on + 1; troop-targeting attackers agreed, 107 of 107). PLANT (regression)
+    // became_building_target_at_once: the new arm's buildings-only attacker takes it at once.
+    #[cfg(not(clash_plant = "became_building_target_at_once"))]
+    if card.target_only_buildings && ctx.became_building.contains(&e.id_of(c)) {
         return false;
     }
     // TargetOnlyTroops (card.rs `CardDef::target_only_troops`; the Ram Rider's rider): never a building or a crown

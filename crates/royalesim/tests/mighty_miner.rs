@@ -238,3 +238,66 @@ fn the_shipped_arm_is_client16635_first_step_pushes() {
     assert_eq!(Calib::shipped().lane_switch_first_step_contact, LaneSwitchFirstStepContact::Client16635FirstStepPushes);
     assert_eq!(config().calib.lane_switch_first_step_contact, LaneSwitchFirstStepContact::Client16635FirstStepPushes);
 }
+
+/// The Mighty Miner at AT held 40 ticks with a red Archer held 4500 north of him shooting at him (his hitpoints kept), then
+/// the press `delay` ticks later, under hide.TUNNEL_SHOT = `arm`: on the tick he goes under ground, whether an Archer's arrow
+/// is in flight at him; then the Archer is killed, and the hitpoints he loses in the next 40 ticks (None: never under, or
+/// dead).
+fn lane_shot(arm: royalesim::state::TunnelShot, delay: u32) -> Option<(bool, i32)> {
+    let mut cfg = config();
+    cfg.calib.tunnel_shot = arm;
+    cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    let mut s = BattleState::try_new(0, cfg).expect("the decks load");
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let mm = s.scenario_spawn_now(Team::Blue, "MightyMiner", n(AT), None).expect("the Mighty Miner");
+    let aat = n((AT.0, AT.1 + 4500));
+    let archer = s.scenario_spawn_now(Team::Red, "Archer", aat, None).expect("the Archer");
+    let full = s.entity(mm).expect("him").max_hp;
+    for _ in 0..40 + delay {
+        assert!(s.debug_set_pos(mm, n(AT)) && s.debug_set_hp(mm, full));
+        if s.entity(archer).is_some() {
+            assert!(s.debug_set_pos(archer, aat));
+        }
+        s.tick();
+    }
+    assert!(s.debug_set_hp(mm, full));
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    for _ in 0..40u32 {
+        if s.entity(archer).is_some() {
+            assert!(s.debug_set_pos(archer, aat));
+        }
+        s.tick();
+        let m = s.entity(mm)?;
+        if m.status_flags & 1 == 1 {
+            let flying = s.projectiles().iter().any(|p| p.team == Team::Red && p.target == mm);
+            let hp = m.hp;
+            if s.entity(archer).is_some() {
+                assert!(s.debug_set_hp(archer, 0));
+            }
+            for _ in 0..40 {
+                s.tick();
+            }
+            return Some((flying, hp - s.entity(mm)?.hp));
+        }
+    }
+    None
+}
+
+/// hide.TUNNEL_SHOT = client16635_dropped (client 16.635, parity r95, the oracle's il-mg-16635 set: 7 of 7 shots in flight at a
+/// switching Miner ended on his dig point with no damage): an Archer's arrow in flight at him as he goes under ground takes
+/// nothing from him; under lands (the vacuity check) it lands on him. Plant: tunnel_shot_lands.
+#[test]
+fn under_client16635_dropped_an_arrow_in_flight_as_he_goes_under_takes_nothing() {
+    use royalesim::state::TunnelShot as T;
+    let delay = (0..30u32)
+        .find(|&d| lane_shot(T::Lands, d).is_some_and(|(flying, _)| flying))
+        .expect("the scene drifted: no press delay leaves an arrow in flight at him as he goes under");
+    let (_, old) = lane_shot(T::Lands, delay).expect("lands: the scene");
+    assert!(old > 0, "lands (the vacuity check): the arrow in flight took nothing (delay {delay})");
+    let (flying, new) = lane_shot(T::Client16635Dropped, delay).expect("client16635_dropped: the scene");
+    assert!(flying, "the scene: no arrow in flight under the new arm");
+    assert_eq!(new, 0, "client16635_dropped: the arrow in flight took {new} from him (delay {delay})");
+}

@@ -10,13 +10,14 @@
 //!   - soul_drain_never -> `each_skeleton_she_spawned_that_dies_heals_her_153_on_its_death_plus_21` red;
 //!   - overheal_capped_at_max -> the same red;
 //!   - witch_waves_never -> `her_interval_waves_come_on_her_creation_plus_179_then_every_140` red;
-//!   - interval_units_send_souls -> `a_skeleton_of_her_interval_waves_sends_no_soul` red.
+//!   - interval_units_send_souls -> `a_skeleton_of_her_interval_waves_sends_no_soul` red;
+//!   - witch_wave_clock_unbuffed -> `under_client16635_buffed_a_freeze_on_her_puts_her_next_interval_wave_back` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, RingCreationOrder};
+use royalesim::state::{BattleConfig, BattleState, EvoWitchWaveSpawnSpeed, RingCreationOrder};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -224,4 +225,53 @@ fn interval_wave_order(arm: RingCreationOrder) -> Vec<(i32, i32)> {
 fn her_interval_waves_are_created_south_west_north_east_under_client_descending_angle() {
     assert_eq!(interval_wave_order(RingCreationOrder::ClientDescendingAngle), vec![(0, -1), (-1, 0), (0, 1), (1, 0)], "client_descending_angle");
     assert_eq!(interval_wave_order(RingCreationOrder::AscendingAngle), vec![(1, 0), (0, 1), (-1, 0), (0, -1)], "ascending_angle");
+}
+
+/// `her_interval_waves_come_on_her_creation_plus_179_then_every_140`'s scene under spawner.EVO_WITCH_WAVE_SPAWN_SPEED = `arm`,
+/// a red Freeze cast on her point on frame `freeze` when Some: the frames her waves after her row's first stand on.
+fn wave_frames(arm: EvoWitchWaveSpawnSpeed, freeze: Option<usize>) -> Vec<(usize, usize)> {
+    let mut cfg: BattleConfig = config();
+    cfg.decks = [vec!["Witch".into(), "Knight".into()], vec!["Knight".into()]];
+    cfg.forms = [vec![1, 0], Vec::new()];
+    cfg.card_level = [11, 11];
+    cfg.tower_level = [11, 11];
+    cfg.calib.evo_witch_wave_spawn_speed = arm;
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    let at = n(2500, 2500);
+    s.spawn_unit(Team::Blue, "Witch_EV1", at, None).expect("the Witch");
+    s.tick();
+    let w = find_live(&s, Team::Blue, "Witch_EV1").first().expect("the Witch").id;
+    let mut seen: Vec<EntityId> = Vec::new();
+    let mut arrivals: Vec<(usize, usize)> = Vec::new();
+    for k in 1..=480 {
+        if freeze == Some(k) {
+            s.spawn_unit(Team::Red, "Freeze", at, None).expect("the Freeze");
+        }
+        if s.entity(w).is_some() {
+            let hw = s.entity(w).expect("her").max_hp;
+            assert!(s.debug_set_pos(w, at) && s.debug_set_hp(w, hw));
+        }
+        s.tick();
+        let fresh: Vec<EntityId> = hers(&s, w).into_iter().filter(|id| !seen.contains(id)).collect();
+        if !fresh.is_empty() {
+            arrivals.push((k, fresh.len()));
+            seen.extend(fresh);
+        }
+    }
+    arrivals.into_iter().skip(1).collect()
+}
+
+/// spawner.EVO_WITCH_WAVE_SPAWN_SPEED = client16635_buffed (client 16.635, parity r96, the oracle's il-mg-16635 set: 22 of 22
+/// interval gaps with a spawn-speed change on her clock moved that way, 89 of 90 without one were 140 ticks): unbuffed her
+/// interval waves come on + 179, + 319 and + 459 as under tick_ms; a Freeze on her from + 200 puts the + 319 wave back,
+/// where tick_ms (the vacuity check) keeps it. Plant: witch_wave_clock_unbuffed.
+#[test]
+fn under_client16635_buffed_a_freeze_on_her_puts_her_next_interval_wave_back() {
+    use EvoWitchWaveSpawnSpeed as E;
+    assert_eq!(wave_frames(E::Client16635Buffed, None), vec![(179, 4), (319, 4), (459, 4)], "client16635_buffed unbuffed: the seed");
+    let old = wave_frames(E::TickMs, Some(200));
+    assert!(old.len() >= 2 && old[0].0 == 179 && old[1].0 == 319, "tick_ms (the vacuity check): her waves {old:?}");
+    let new = wave_frames(E::Client16635Buffed, Some(200));
+    assert!(new.len() >= 2 && new[0].0 == 179 && new[1].0 > 319, "client16635_buffed: her waves {new:?}");
 }

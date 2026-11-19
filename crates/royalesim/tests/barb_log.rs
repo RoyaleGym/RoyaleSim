@@ -24,6 +24,8 @@
 //!     `under_client16402_current_box_a_unit_born_behind_the_logs_box_is_not_hit` goes red.
 //!   * `rolling_hits_leapers` -- spells.ROLLING_SPARES_LEAPERS = client16402_spared_mid_leap still hits a leaper:
 //!     `under_client16402_spared_mid_leap_a_hog_rider_in_its_river_leap_is_not_hit` goes red.
+//!   * `release_water_point_at_release` -- spells.ROLL_RELEASE_WATER_POINT = client16635_end_point_first_push still lays the
+//!     Barbarian on the dry centre at release: both `under_client16635_end_point_first_push_*` tests go red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -310,4 +312,101 @@ fn under_client16402_own_cell_half_centre_a_barbarian_released_on_a_bridge_corne
     let (_, new) = released_at(R::Client16402OwnCellHalfCentre, (13500, 10500));
     assert_eq!(new, end, "client16402_own_cell_half_centre: the Barbarian left the corner");
     assert_eq!(released_on_water(R::Client16402OwnCellHalfCentre).1, released_on_water(R::Client16402HalfCellCentre).1, "the arms part on the river");
+}
+
+/// One Barbarian Barrel cast by `team` at `tap` under spells.ROLL_RELEASE_WATER_POINT = `arm`, with a `foe` Knight (its team
+/// and point) put 5 ticks before the release tick (found by a run without it), so it still deploys and stands when the
+/// Barbarian appears: (the roll's end, the Barbarian's first point).
+fn released_beside(arm: royalesim::state::RollReleaseWaterPoint, team: Team, tap: (i32, i32), foe: Option<(Team, (i32, i32))>) -> (Vec2, Vec2) {
+    let run = |foe_at: Option<u32>| -> (u32, Vec2, Vec2) {
+        let mut cfg: BattleConfig = config();
+        cfg.calib.roll_release_water_point = arm;
+        let mut s = BattleState::new(0, cfg);
+        s.spawn_unit(team, "BarbLog", at(tap), None).expect("cast the Barbarian Barrel");
+        let mut end = None;
+        for k in 0..80u32 {
+            if foe_at == Some(k) {
+                let (ft, p) = foe.expect("a foe");
+                s.spawn_unit_resolved(ft, "Knight", at(p), None).expect("put the Knight");
+            }
+            s.tick();
+            let fwd = royalesim::spell::forward_dy(team);
+            if let Some(p) = s.spells().iter().find_map(|sp| match &sp.motion {
+                SpellMotion::Rolling { pos, travelled, len, .. } => Some(Vec2::new(pos.x, pos.y + fwd * (len - travelled))),
+                _ => None,
+            }) {
+                end = Some(p);
+            }
+            if let Some(b) = s.entities().find(|v| v.card == "Barbarian") {
+                return (k, end.expect("the roll never stood"), b.pos);
+            }
+        }
+        panic!("the barrel released no Barbarian in 80 ticks");
+    };
+    let (k, end, first) = run(None);
+    if foe.is_none() {
+        return (end, first);
+    }
+    let (k2, end2, first2) = run(Some(k.saturating_sub(5)));
+    assert_eq!((k2, end2), (k, end), "the scene drifted: the Knight moved the release");
+    (end2, first2)
+}
+
+fn near(p: Vec2, q: (i32, i32), within: i32) -> bool {
+    let q = at(q);
+    ((p.x - q.x) as i64).pow(2) + ((p.y - q.y) as i64).pow(2) <= (i64::from(within) * i64::from(K)).pow(2)
+}
+
+/// spells.ROLL_RELEASE_WATER_POINT = client16635_end_point_first_push (client 16.635, parity r96, the oracle's il-mg-16635 set:
+/// 144 of 144 Barbarian Barrel releases whose end or first push met water): the Barbarian is made on the roll's end and takes
+/// its creation-tick push there. A: the roll ends on the river at (4500, 15000) beside a Red Knight on the bridge at (4000,
+/// 15500): pushed off it onto the bridge's dry cells it stands on the end plus the push (up and to the right of the end). B:
+/// the roll ends on the river at (4500, 16000), a Red Knight at (4215, 16206): the push's down component, pointing from the
+/// end back toward the nearest dry centre (4250, 15750), is dropped, so it stands on that centre's row, right of it. Under
+/// client16402_own_cell_half_centre (the vacuity check) it is laid on the dry centre at release and pushed from there.
+/// Plant: release_water_point_at_release.
+#[test]
+fn under_client16635_end_point_first_push_a_barbarian_takes_its_first_push_on_the_rolls_end() {
+    use royalesim::state::RollReleaseWaterPoint as R;
+    let a = BattleState::new(0, config()).arena().clone();
+    // A: pushed off the river onto the bridge
+    let red_a = Some((Team::Red, (4000, 15500)));
+    let (end, old) = released_beside(R::Client16402OwnCellHalfCentre, Team::Blue, (4500, 10500), red_a);
+    assert!(near(end, (4500, 15000), 2) && !a.is_valid_position(end), "the scene drifted: the roll's end {end:?}");
+    let pushed_off = |f: Vec2| a.is_valid_position(f) && near(f, (4500, 15000), 160) && f.x > end.x && f.y < end.y;
+    assert!(!pushed_off(old), "client16402_own_cell_half_centre (the vacuity check): {old:?} stood pushed off the end");
+    let (_, new) = released_beside(R::Client16635EndPointFirstPush, Team::Blue, (4500, 10500), red_a);
+    assert!(pushed_off(new), "client16635_end_point_first_push: {new:?} is not the end {end:?} plus a push away from the Knight");
+    // B: the push's component back toward the dry centre is dropped
+    let red_b = Some((Team::Red, (4215, 16206)));
+    let (end, old) = released_beside(R::Client16402OwnCellHalfCentre, Team::Blue, (4500, 11500), red_b);
+    assert!(near(end, (4500, 16000), 2) && !a.is_valid_position(end), "the scene drifted: the roll's end {end:?}");
+    let c = a.nearest_dry_half_centre(end).expect("a dry centre");
+    assert!(near(c, (4250, 15750), 1), "the scene drifted: the nearest dry centre {c:?}");
+    assert_ne!(old.y, c.y, "client16402_own_cell_half_centre (the vacuity check): {old:?} stood on the centre's row");
+    let (_, new) = released_beside(R::Client16635EndPointFirstPush, Team::Blue, (4500, 11500), red_b);
+    assert_eq!(new.y, c.y, "client16635_end_point_first_push: {new:?} left the dry centre's row (its down push kept)");
+    assert!(new.x > c.x && new.x <= at((4400, 0)).x, "client16635_end_point_first_push: {new:?} is not the centre {c:?} plus the push's right component");
+}
+
+/// spells.ROLL_RELEASE_WATER_POINT = client16635_end_point_first_push (parity r96, il-mg-16635: the 5 bridge-corner ends, 5 of
+/// 5): C: a Red Barrel's roll ends on the left bridge's corner (2500, 17000), whose own half-cell is dry, beside a Blue Knight
+/// at (2934, 17125) that pushes it onto the water: it stands on the nearest dry centre (2750, 16750) plus the whole push, where
+/// client16402_own_cell_half_centre (the vacuity check) leaves it on the water. D (the control): a roll ending on the river with
+/// nothing near stands on the nearest dry centre under both arms. Plant: release_water_point_at_release.
+#[test]
+fn under_client16635_end_point_first_push_a_barbarian_pushed_off_a_bridge_corner_onto_water_stands_beside_the_dry_centre() {
+    use royalesim::state::RollReleaseWaterPoint as R;
+    let a = BattleState::new(0, config()).arena().clone();
+    let blue = Some((Team::Blue, (2934, 17125)));
+    let (end, old) = released_beside(R::Client16402OwnCellHalfCentre, Team::Red, (2500, 21500), blue);
+    assert!(near(end, (2500, 17000), 2) && a.is_valid_position(end), "the scene drifted: the roll's end {end:?}");
+    assert!(!a.is_valid_position(old), "client16402_own_cell_half_centre (the vacuity check): {old:?} is off the water");
+    let (_, new) = released_beside(R::Client16635EndPointFirstPush, Team::Red, (2500, 21500), blue);
+    assert!(a.is_valid_position(new) && near(new, (2750, 16750), 160), "client16635_end_point_first_push: {new:?} is not beside the dry centre (2750, 16750)");
+    // D: the control
+    let (end, old) = released_beside(R::Client16402OwnCellHalfCentre, Team::Blue, (9500, 10500), None);
+    let c = a.nearest_dry_half_centre(end).expect("a dry centre");
+    let (_, new) = released_beside(R::Client16635EndPointFirstPush, Team::Blue, (9500, 10500), None);
+    assert_eq!((old, new), (c, c), "with nothing near, both arms stand on the nearest dry centre");
 }
