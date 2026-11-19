@@ -450,3 +450,13 @@ fn under_client16635_princess_ring_the_building_walks_its_towers_ring() {
         assert_eq!(a, (6000, 8000), "{arm:?} (the vacuity check): the off-2,550 start moved");
     }
 }
+
+/// Since parity r97 for clients 16.402 and 16.635 (stays before it; client 15.535.29 keeps stays).
+#[test]
+fn the_shipped_arm_is_client16635_princess_ring() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().drill_dig_point,
+        royalesim::state::DrillDigPoint::Client16635PrincessRing
+    );
+    assert_eq!(config().calib.drill_dig_point, royalesim::state::DrillDigPoint::Client16635PrincessRing);
+}

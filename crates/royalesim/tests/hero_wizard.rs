@@ -373,3 +373,13 @@ fn under_client16635_first_update_the_lift_area_pulls_from_the_hit_plus_2_under_
     let (b27, b28) = lift_onset(ShotAreaAttractOnset::Client16635FirstUpdate);
     assert!(b27 > 0 && b28 > 0, "client16635_first_update: the Knight's steps {b27}, {b28}");
 }
+
+/// Since parity r97 for clients 16.402 and 16.635 (as_cast_area before it; client 15.535.29 keeps as_cast_area).
+#[test]
+fn the_shipped_arm_is_client16635_first_update() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().shot_area_attract_onset,
+        royalesim::state::ShotAreaAttractOnset::Client16635FirstUpdate
+    );
+    assert_eq!(config().calib.shot_area_attract_onset, royalesim::state::ShotAreaAttractOnset::Client16635FirstUpdate);
+}

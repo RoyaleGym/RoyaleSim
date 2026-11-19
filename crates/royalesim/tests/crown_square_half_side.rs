@@ -107,3 +107,16 @@ fn under_client16635_collision_radius_an_ice_wizard_splash_beside_the_king_reach
     assert_eq!(splash_beside_king(CrownSquareHalfSide::Fixed1000), 0, "fixed_1000 (the vacuity check): the King lost hitpoints");
     assert!(splash_beside_king(CrownSquareHalfSide::Client16635CollisionRadius) > 0, "client16635_collision_radius: the King lost none");
 }
+
+/// Since parity r97 for clients 16.402 and 16.635 (fixed_1000 before it; client 15.535.29 keeps fixed_1000).
+#[test]
+fn the_shipped_arm_is_client16635_collision_radius() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().crown_square_half_side,
+        royalesim::state::CrownSquareHalfSide::Client16635CollisionRadius
+    );
+    assert_eq!(
+        config().calib.crown_square_half_side,
+        royalesim::state::CrownSquareHalfSide::Client16635CollisionRadius
+    );
+}

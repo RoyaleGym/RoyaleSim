@@ -11,9 +11,10 @@ the 15.535.29 Phoenix scenarios: the fireball's 163 on four enemies at 915-2517 
 2590 (killed), the egg on D+2 in all three runs, the hatch on the egg's first tick + 76 at (0, +1100). Today's engine
 reads no DeathSpawnProjectile: the Phoenix dies and nothing follows.
 
-ONE COLUMN OF THE EGG ROW IS NOT READ YET: DestroyAtLimit. On client 15.535.29 the egg is gone once its one Phoenix
-is out; the engine's egg lives on. test_the_egg_is_gone_once_its_phoenix_is_out is a strict xfail naming it. The egg
-row's SpawnCharacterWithDeploy (the new Phoenix deploys) is not pinned here.
+THE EGG ROW'S DestroyAtLimit: on client 15.535.29 the egg is gone once its one Phoenix is out, and so it is under the
+shipped spawner.DESTROY_AT_LIMIT = client16635_leaves_after_last_firing (test_the_egg_is_gone_once_its_phoenix_is_out;
+the arm's own scenes are crates/royalesim/tests/phoenix_egg.rs). The egg row's SpawnCharacterWithDeploy (the new
+Phoenix deploys) is not pinned here.
 
 NO CONTROL beyond the old arm: every other death spawn in the card data is a DeathSpawnCharacter, which the engine
 already reads and this key does not touch.
@@ -108,7 +109,6 @@ def test_the_egg_appears_on_d_plus_2_and_hatches_76_ticks_later():
     assert early == [], f"a Phoenix hatched early, on {early}"
 
 
-@pytest.mark.xfail(strict=True, reason="the PhoenixEgg row's DestroyAtLimit is not read: the egg outlives its hatch")
 def test_the_egg_is_gone_once_its_phoenix_is_out():
     rows = run(NEW_ARM, HATCH_SCENE)
     d, _ = death(rows)

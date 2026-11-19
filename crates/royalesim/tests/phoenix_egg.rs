@@ -116,3 +116,27 @@ fn the_loader_reads_destroy_at_limit_and_spawn_character_with_deploy_off_the_egg
     let tomb = db.get(db.index("Tombstone").expect("the Tombstone loads")).spawner.expect("the Tombstone's spawner");
     assert!(!tomb.destroy_at_limit && !tomb.with_deploy, "the Tombstone's: {tomb:?}");
 }
+
+/// Since parity r97 for clients 16.402 and 16.635 (stays before it; client 15.535.29 keeps stays).
+#[test]
+fn the_shipped_arm_is_client16635_leaves_after_last_firing() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().destroy_at_limit,
+        royalesim::state::DestroyAtLimit::Client16635LeavesAfterLastFiring
+    );
+    assert_eq!(config().calib.destroy_at_limit, royalesim::state::DestroyAtLimit::Client16635LeavesAfterLastFiring);
+}
+
+/// Since parity r97 for clients 16.402 and 16.635 (spawned_deploy_time before it; client 15.535.29 keeps
+/// spawned_deploy_time).
+#[test]
+fn the_shipped_arm_is_client16635_own_deploy_time() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().spawn_character_with_deploy,
+        royalesim::state::SpawnCharacterWithDeploy::Client16635OwnDeployTime
+    );
+    assert_eq!(
+        config().calib.spawn_character_with_deploy,
+        royalesim::state::SpawnCharacterWithDeploy::Client16635OwnDeployTime
+    );
+}

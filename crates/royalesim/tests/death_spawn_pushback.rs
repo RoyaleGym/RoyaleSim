@@ -361,14 +361,23 @@ fn the_pups_never_pass_the_radius_and_stop_on_it() {
 #[test]
 fn a_sliding_member_takes_no_target_until_the_slide_is_over() {
     // Plant death_slide_targets: the Pups take the Knight on the first tick.
-    let s0 = BattleState::new(7, slide_config());
+    // The engine's arms this scene measures: spawner.DEATH_SPAWN_BIRTH_TARGET = none and spawner.DEATH_SLIDE_TARGET =
+    // held_to_slide_end (under the shipped client16635_birth_scan + client16635_decides_while_sliding a member decides
+    // while it slides: the tests below).
+    let held = || {
+        let mut c = slide_config();
+        c.calib.death_spawn_birth_target = royalesim::state::DeathSpawnBirthTarget::None;
+        c.calib.death_slide_target = royalesim::state::DeathSlideTarget::HeldToSlideEnd;
+        c
+    };
+    let s0 = BattleState::new(7, held());
     let at = spot(&s0);
     // A Red Knight 3500 native up the arena from the death point: in every Pup's sight, a
     // ground unit that cannot hit them and that they can hit, and nothing else of Red's in
     // sight. It is not in contact with any Pup (air and ground do not touch).
     let knight_at = Vec2::new(at.x, at.y + 3500 * K);
     assert!(s0.arena().is_passable_ground(knight_at), "scene: the Knight's spot is dry ground");
-    let (mut s, ids) = kill(slide_config(), "LavaHound", &[(Team::Red, "Knight", knight_at)]);
+    let (mut s, ids) = kill(held(), "LavaHound", &[(Team::Red, "Knight", knight_at)]);
     let knight = find_live(&s, Team::Red, "Knight")[0].id;
     let mut was: Vec<bool> = ids.iter().map(|id| s.entity(*id).unwrap().death_slide_radius > 0).collect();
     let mut took_it = false;
@@ -741,4 +750,25 @@ fn under_client16635_decides_while_sliding_a_golemite_retargets_mid_slide() {
             }
         }
     }
+}
+
+/// Since parity r97 for clients 16.402 and 16.635 (none before it; client 15.535.29 keeps none).
+#[test]
+fn the_shipped_arm_is_client16635_birth_scan() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().death_spawn_birth_target,
+        royalesim::state::DeathSpawnBirthTarget::Client16635BirthScan
+    );
+    assert_eq!(config().calib.death_spawn_birth_target, royalesim::state::DeathSpawnBirthTarget::Client16635BirthScan);
+}
+
+/// Since parity r97 for clients 16.402 and 16.635 (held_to_slide_end before it; client 15.535.29 keeps
+/// held_to_slide_end).
+#[test]
+fn the_shipped_arm_is_client16635_decides_while_sliding() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().death_slide_target,
+        royalesim::state::DeathSlideTarget::Client16635DecidesWhileSliding
+    );
+    assert_eq!(config().calib.death_slide_target, royalesim::state::DeathSlideTarget::Client16635DecidesWhileSliding);
 }

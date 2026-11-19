@@ -95,8 +95,15 @@ fn scene_at(ticks: u32, hold_knight: u32, fuse: AbilityBombFuse) -> (Vec<Row>, E
 fn his_press_drops_a_bomb_and_takes_him_under_ground_to_the_other_lane() {
     let (rows, mm) = scene(40, 40);
     let row = |k: usize| rows[k - 1];
+    // hide.LANE_SWITCH_UNDER_TICK = client16635_trigger_tick (shipped): above ground to P + 9, under ground on the
+    // trigger P + 10 where he stands (under first_step, still above ground on it)
     for k in 1..=10 {
-        assert_eq!((row(k).miner, row(k).under), (AT, false), "P + {k}: he stands, above ground: {:?}", row(k));
+        assert_eq!(
+            (row(k).miner, row(k).under),
+            (AT, k == 10),
+            "P + {k}: he stands, under ground on the trigger alone: {:?}",
+            row(k)
+        );
     }
     assert!(row(10).knight_target == Some(mm), "the scene drifted: the Knight is not on him on the trigger: {:?}", row(10));
     let path = [(10667, 13224), (10017, 13237), (9367, 13242), (8717, 13243), (8067, 13244), (7417, 13244)];
@@ -188,9 +195,12 @@ fn first_step_push(arm: royalesim::state::LaneSwitchFirstStepContact, red_at: Op
                 assert!(s.debug_set_pos(kn, p));
             }
         }
+        let before = s.entity(mm).expect("him").pos;
         s.tick();
         let m = s.entity(mm).expect("him");
-        if first && m.status_flags & 1 == 1 {
+        // his first step under ground: under hide.LANE_SWITCH_UNDER_TICK = client16635_trigger_tick (shipped) he is
+        // under on the trigger already, standing where he stood, and steps on the next tick
+        if first && m.status_flags & 1 == 1 && m.pos != before {
             under_at = Some((k, m.pos));
             let a = kn.and_then(|kn| s.entity(kn)).map(|e| e.pos);
             s.tick();
@@ -436,4 +446,24 @@ fn under_client16635_held_through_tunnel_he_keeps_his_target_and_never_winds_up(
     }
     assert!(!row(&new, 17).3, "the scene drifted: P + 17 still under ground");
     assert_eq!(row(&new, 17).0, None, "client16635_held_through_tunnel: a target on the surfacing frame");
+}
+
+/// Since parity r97 for clients 16.402 and 16.635 (first_step before it; client 15.535.29 keeps first_step).
+#[test]
+fn the_shipped_arm_is_client16635_trigger_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().lane_switch_under_tick,
+        royalesim::state::LaneSwitchUnderTick::Client16635TriggerTick
+    );
+    assert_eq!(config().calib.lane_switch_under_tick, royalesim::state::LaneSwitchUnderTick::Client16635TriggerTick);
+}
+
+/// Since parity r97 for clients 16.402 and 16.635 (rescans before it; client 15.535.29 keeps rescans).
+#[test]
+fn the_shipped_arm_is_client16635_held_through_tunnel() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().lane_switch_target,
+        royalesim::state::LaneSwitchTarget::Client16635HeldThroughTunnel
+    );
+    assert_eq!(config().calib.lane_switch_target, royalesim::state::LaneSwitchTarget::Client16635HeldThroughTunnel);
 }

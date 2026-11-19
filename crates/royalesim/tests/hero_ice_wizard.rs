@@ -165,7 +165,10 @@ fn the_form_and_its_cube_load_on_the_current_clients_table() {
 /// ice_cube_walks, ice_cube_attacks.
 #[test]
 fn a_press_on_a_marked_knight_freezes_it_behind_the_knight() {
-    let mut s = battle();
+    // spawner.ICE_CUBE_HERO_DEATH = cube_comes, the arm this scene measures: it kills the hero on the find's tick + 1
+    // so no shot of its lands, and under the shipped client16635_death_window a hero dead on F or F + 1 puts the cube
+    // down on its death tick (under_client16635_death_window_*).
+    let mut s = battle_with(|c| c.calib.ice_cube_hero_death = IceCubeHeroDeath::CubeComes);
     let kat = n(AT.0, AT.1 + 4000);
     let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
     let hero = hero_in(&mut s);
@@ -239,7 +242,10 @@ fn an_unmarked_enemy_is_not_found_and_the_press_waits() {
 /// point y 15500 is in the river, so the cube stands on y 14500. Plant: ice_valid_position_unread.
 #[test]
 fn a_far_point_on_water_falls_back_to_the_radius() {
-    let mut s = battle();
+    // spawner.ICE_CUBE_HERO_DEATH = cube_comes, the arm this scene measures: it kills the hero on the find's tick + 1
+    // so no shot of its lands, and under the shipped client16635_death_window a hero dead on F or F + 1 puts the cube
+    // down on its death tick (under_client16635_death_window_*).
+    let mut s = battle_with(|c| c.calib.ice_cube_hero_death = IceCubeHeroDeath::CubeComes);
     let kat = n(9000, 14000);
     let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
     let hero = hero_in(&mut s);
@@ -260,7 +266,10 @@ fn a_far_point_on_water_falls_back_to_the_radius() {
 /// Plant: ice_linger_unread.
 #[test]
 fn the_cube_dies_42_ticks_after_its_last_victim() {
-    let mut s = battle();
+    // spawner.ICE_CUBE_HERO_DEATH = cube_comes, the arm this scene measures: it kills the hero on the find's tick + 1
+    // so no shot of its lands, and under the shipped client16635_death_window a hero dead on F or F + 1 puts the cube
+    // down on its death tick (under_client16635_death_window_*).
+    let mut s = battle_with(|c| c.calib.ice_cube_hero_death = IceCubeHeroDeath::CubeComes);
     let kat = n(AT.0, AT.1 + 4000);
     let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
     let hero = hero_in(&mut s);
@@ -290,7 +299,9 @@ fn the_cube_dies_42_ticks_after_its_last_victim() {
 /// on K; the cube's first frame is K + 3, behind the dead Skeleton (its radius + 1000). Plant: ice_kill_unread.
 #[test]
 fn a_kill_while_the_press_waits_fires_behind_the_dead_unit() {
-    let mut s = battle();
+    // spawner.ICE_KILL_CUBE_TICK = kill_plus_3, the arm this scene measures (the shipped client16635_kill_plus_2 puts
+    // the cube a tick sooner: under_client16635_kill_plus_2_*).
+    let mut s = battle_with(|c| c.calib.ice_kill_cube_tick = IceKillCubeTick::KillPlus3);
     hero_in(&mut s);
     s.press_ability_button(Team::Blue, 0).expect("the press");
     for _ in 0..3 {
@@ -771,4 +782,34 @@ fn under_client16635_death_window_a_hero_dead_on_the_find_plus_4_puts_no_cube_do
     assert_eq!(cubes.first().map(|(t, _)| *t), Some(f + 5), "cube_comes (the vacuity check): the cube on F + 5");
     let (_, cubes, _) = death_window(IceCubeHeroDeath::Client16635DeathWindow, 3);
     assert!(cubes.is_empty(), "client16635_death_window: a cube after a death on F + 4 {cubes:?}");
+}
+
+/// Since parity r97 for clients 16.402 and 16.635 (any_hero before it; client 15.535.29 keeps any_hero).
+#[test]
+fn the_shipped_arm_is_client16635_own_shot() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_find_own_mark,
+        royalesim::state::IceFindOwnMark::Client16635OwnShot
+    );
+    assert_eq!(config().calib.ice_find_own_mark, royalesim::state::IceFindOwnMark::Client16635OwnShot);
+}
+
+/// Since parity r97 for clients 16.402 and 16.635 (kill_plus_3 before it; client 15.535.29 keeps kill_plus_3).
+#[test]
+fn the_shipped_arm_is_client16635_kill_plus_2() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_kill_cube_tick,
+        royalesim::state::IceKillCubeTick::Client16635KillPlus2
+    );
+    assert_eq!(config().calib.ice_kill_cube_tick, royalesim::state::IceKillCubeTick::Client16635KillPlus2);
+}
+
+/// Since parity r97 for clients 16.402 and 16.635 (cube_comes before it; client 15.535.29 keeps cube_comes).
+#[test]
+fn the_shipped_arm_is_client16635_death_window() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_cube_hero_death,
+        royalesim::state::IceCubeHeroDeath::Client16635DeathWindow
+    );
+    assert_eq!(config().calib.ice_cube_hero_death, royalesim::state::IceCubeHeroDeath::Client16635DeathWindow);
 }

@@ -18,17 +18,21 @@ mod common;
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
 use royalesim::spell::in_crown_square;
-use royalesim::state::{BattleState, Calib, CrownTowerSpellReach};
+use royalesim::state::{BattleState, Calib, CrownSquareHalfSide, CrownTowerSpellReach};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
     Vec2::new(x * K, y * K)
 }
 
-/// The hp the tower standing at native (x, y) loses to Blue's `spell` cast at offset (dx, dy) from it, under `arm`.
+/// The hp the tower standing at native (x, y) loses to Blue's `spell` cast at offset (dx, dy) from it, under `arm`. The
+/// scenes are client 15.535.29's (the King's Zap is ub-b1-ec4-zap), whose crown square is 1000 for both kinds:
+/// spells.CROWN_SQUARE_HALF_SIDE = fixed_1000 (CLIENT15535_ARMS); clients 16.402 and 16.635 square the King by its
+/// collision radius (tests/crown_square_half_side.rs).
 fn tower_loss(arm: CrownTowerSpellReach, card: &str, tower: (i32, i32), off: (i32, i32)) -> i32 {
     let mut cfg = config();
     cfg.calib.crown_tower_spell_reach = arm;
+    cfg.calib.crown_square_half_side = CrownSquareHalfSide::Fixed1000;
     let mut s = BattleState::new(7, cfg);
     past_deploy_lockout(&mut s);
     let at = n(tower.0, tower.1);
