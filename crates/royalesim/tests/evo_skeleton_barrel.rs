@@ -369,3 +369,13 @@ fn under_client16635_with_death_drop_a_barrel_killed_above_its_line_drops_both_c
     assert_eq!(ring(&new, extra, 0, 400), 7, "client16635_with_death_drop: the line container's ring around {extra:?}");
     assert_eq!(ring(&new, death, 0, 400), 7, "client16635_with_death_drop: the death container's ring around {death:?}");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (line_only before it; client 15.535.29 keeps line_only).
+#[test]
+fn the_shipped_arm_is_client16635_with_death_drop() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().evo_barrel_extra_at_death,
+        royalesim::state::EvoBarrelExtraAtDeath::Client16635WithDeathDrop
+    );
+    assert_eq!(config().calib.evo_barrel_extra_at_death, royalesim::state::EvoBarrelExtraAtDeath::Client16635WithDeathDrop);
+}

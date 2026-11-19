@@ -401,3 +401,13 @@ fn under_client16635_unit_forward_a_graveyard_skeleton_is_born_facing_forward_at
     assert!(new.iter().all(|f| *f == Vec2::new(0, -1)), "client16635_unit_forward: {new:?}");
     assert!(kept, "client16635_unit_forward: a deploying Skeleton turned");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (side_forward before it; client 15.535.29 keeps side_forward).
+#[test]
+fn the_shipped_arm_is_client16635_unit_forward() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().area_spawn_facing,
+        royalesim::state::AreaSpawnFacing::Client16635UnitForward
+    );
+    assert_eq!(config().calib.area_spawn_facing, royalesim::state::AreaSpawnFacing::Client16635UnitForward);
+}

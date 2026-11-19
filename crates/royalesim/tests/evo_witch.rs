@@ -275,3 +275,13 @@ fn under_client16635_buffed_a_freeze_on_her_puts_her_next_interval_wave_back() {
     let new = wave_frames(E::Client16635Buffed, Some(200));
     assert!(new.len() >= 2 && new[0].0 == 179 && new[1].0 > 319, "client16635_buffed: her waves {new:?}");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (tick_ms before it; client 15.535.29 keeps tick_ms).
+#[test]
+fn the_shipped_arm_is_client16635_buffed() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().evo_witch_wave_spawn_speed,
+        royalesim::state::EvoWitchWaveSpawnSpeed::Client16635Buffed
+    );
+    assert_eq!(config().calib.evo_witch_wave_spawn_speed, royalesim::state::EvoWitchWaveSpawnSpeed::Client16635Buffed);
+}

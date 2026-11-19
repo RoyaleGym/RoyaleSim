@@ -301,3 +301,10 @@ fn under_client16635_dropped_an_arrow_in_flight_as_he_goes_under_takes_nothing()
     assert!(flying, "the scene: no arrow in flight under the new arm");
     assert_eq!(new, 0, "client16635_dropped: the arrow in flight took {new} from him (delay {delay})");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (lands before it; client 15.535.29 keeps lands).
+#[test]
+fn the_shipped_arm_is_client16635_dropped() {
+    assert_eq!(royalesim::state::Calib::shipped().tunnel_shot, royalesim::state::TunnelShot::Client16635Dropped);
+    assert_eq!(config().calib.tunnel_shot, royalesim::state::TunnelShot::Client16635Dropped);
+}

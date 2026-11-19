@@ -36,3 +36,13 @@ fn under_enemy_tower_no_deploy_rects_a_cannon_goes_down_in_the_opened_pocket() {
     assert!(!pocket_cannon(BuildingTerritory::EnemyTowerNoDeployRects, false), "enemy_tower_no_deploy_rects: the Cannon went down inside a standing princess's rect");
     assert!(pocket_cannon(BuildingTerritory::EnemyTowerNoDeployRects, true), "enemy_tower_no_deploy_rects: the Cannon was refused in the opened pocket");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (own_half before it; client 15.535.29 keeps own_half).
+#[test]
+fn the_shipped_arm_is_enemy_tower_no_deploy_rects() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().building_territory,
+        royalesim::state::BuildingTerritory::EnemyTowerNoDeployRects
+    );
+    assert_eq!(config().calib.building_territory, royalesim::state::BuildingTerritory::EnemyTowerNoDeployRects);
+}

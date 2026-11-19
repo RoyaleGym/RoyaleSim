@@ -123,11 +123,15 @@ fn a_hog_whose_parent_died_of_no_hit_waits_for_the_next_tick() {
     assert_eq!(new, Some(0), "client15535_doomed_parent: a hog whose parent the doomed mask did not hold stepped on its birth tick");
 }
 
-/// Since parity r81 client 16.402 ships client16402_creation_tick; client 15.535.29 keeps client15535_doomed_parent
-/// (CLIENT15535_ARMS).
+/// Since parity r96 for clients 16.402 and 16.635 (client16402_creation_tick for client 16.402 from parity r81 to r95;
+/// client 15.535.29 keeps client15535_doomed_parent).
 #[test]
-fn the_shipped_arm_is_the_client16402_creation_tick() {
-    assert_eq!(Calib::shipped().buff_death_spawn_first_update, BuffDeathSpawnFirstUpdate::Client16402CreationTick);
+fn the_shipped_arm_is_client16635_parent_blocker_always() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().buff_death_spawn_first_update,
+        royalesim::state::BuffDeathSpawnFirstUpdate::Client16635ParentBlockerAlways
+    );
+    assert_eq!(config().calib.buff_death_spawn_first_update, royalesim::state::BuffDeathSpawnFirstUpdate::Client16635ParentBlockerAlways);
 }
 
 /// 700 south of the hog's birth point (1100 south of the Red Knight): a Blue Golem there overlaps the newborn hog. A

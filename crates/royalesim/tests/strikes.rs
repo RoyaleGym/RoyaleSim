@@ -298,13 +298,16 @@ fn under_client16402_nearest_centre_a_tie_goes_to_the_nearer_knight() {
     assert_eq!(tie_by_distance(StrikeTieBreak::EarliestCreated), 0, "earliest_created: the earlier created first");
 }
 
-/// Since parity r94 for clients 16.402 and 16.635 (radius_plus_target_radius for client 16.402 from parity r73 to r93; client
-/// 15.535.29 ran edge_within_radius_plus_170_now_and_next already).
+/// Since parity r96 for clients 16.402 and 16.635 (edge_within_radius_plus_170_now_and_next since parity r94,
+/// radius_plus_target_radius for client 16.402 from parity r73 to r93; client 15.535.29 keeps
+/// edge_within_radius_plus_170_now_and_next).
 #[test]
-fn the_shipped_arm_is_edge_within_radius_plus_170_now_and_next() {
-    use royalesim::state::Calib;
-    assert_eq!(Calib::shipped().strike_reach, StrikeReach::EdgeNowAndNext);
-    assert_eq!(config().calib.strike_reach, StrikeReach::EdgeNowAndNext);
+fn the_shipped_arm_is_client16635_building_square_strict() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().strike_reach,
+        royalesim::state::StrikeReach::Client16635BuildingSquareStrict
+    );
+    assert_eq!(config().calib.strike_reach, royalesim::state::StrikeReach::Client16635BuildingSquareStrict);
 }
 
 /// A Red Cannon at (9000, 22000) and a Blue Lightning tapped (4000, 1000) off it (unsnapped; no crown tower in reach), under

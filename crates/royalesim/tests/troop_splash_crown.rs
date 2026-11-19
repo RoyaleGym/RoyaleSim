@@ -45,3 +45,13 @@ fn under_client16635_crown_square_strict_an_ice_wizard_splash_beside_a_tower_rea
     assert_eq!(splash_beside_tower(TroopSplashCrownReach::Disc), 0, "disc (the vacuity check): the splash reached the tower");
     assert!(splash_beside_tower(TroopSplashCrownReach::Client16635CrownSquareStrict) > 0, "client16635_crown_square_strict: the splash beside the tower took nothing from it");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (disc before it; client 15.535.29 keeps disc).
+#[test]
+fn the_shipped_arm_is_client16635_crown_square_strict() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().troop_splash_crown_reach,
+        royalesim::state::TroopSplashCrownReach::Client16635CrownSquareStrict
+    );
+    assert_eq!(config().calib.troop_splash_crown_reach, royalesim::state::TroopSplashCrownReach::Client16635CrownSquareStrict);
+}

@@ -54,3 +54,14 @@ fn under_client16635_kept_on_water_a_battle_rams_barbarian_stands_on_the_river()
     assert_eq!(wet_barbarians(ReleaseWaterPoint::NearestPassableGround), 0, "nearest_passable_ground (the vacuity check): a Barbarian on water");
     assert_eq!(wet_barbarians(ReleaseWaterPoint::Client16635KeptOnWater), 1, "client16635_kept_on_water: the Barbarians on water");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (nearest_passable_ground before it; client 15.535.29 keeps
+/// nearest_passable_ground).
+#[test]
+fn the_shipped_arm_is_client16635_kept_on_water() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().release_water_point,
+        royalesim::state::ReleaseWaterPoint::Client16635KeptOnWater
+    );
+    assert_eq!(config().calib.release_water_point, royalesim::state::ReleaseWaterPoint::Client16635KeptOnWater);
+}

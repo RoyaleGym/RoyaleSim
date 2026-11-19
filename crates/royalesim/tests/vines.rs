@@ -515,3 +515,13 @@ fn under_client16635_ground_body_a_caught_balloon_pushes_the_knight_deploying_un
     assert_eq!(caught_over_a_knight(GroundedFlierBody::AirLayer), 0, "air_layer (the vacuity check): the deploying Knight moved");
     assert!(caught_over_a_knight(GroundedFlierBody::Client16635GroundBody) > 0, "client16635_ground_body: the caught Balloon pushed nothing");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (air_layer before it; client 15.535.29 keeps air_layer).
+#[test]
+fn the_shipped_arm_is_client16635_ground_body() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().grounded_flier_body,
+        royalesim::state::GroundedFlierBody::Client16635GroundBody
+    );
+    assert_eq!(config().calib.grounded_flier_body, royalesim::state::GroundedFlierBody::Client16635GroundBody);
+}

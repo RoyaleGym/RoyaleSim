@@ -348,7 +348,7 @@ fn hit_crossing(arm: royalesim::state::DrillLineTest) -> (bool, bool) {
 #[test]
 fn under_client16635_after_drain_before_hits_a_hits_crossing_goes_under_a_tick_later() {
     use royalesim::state::DrillLineTest as D;
-    assert_eq!(hit_crossing(D::PostHitHitpoints).0, true, "post_hit_hitpoints (the vacuity check): up at the end of the strike's tick");
+    assert!(hit_crossing(D::PostHitHitpoints).0, "post_hit_hitpoints (the vacuity check): up at the end of the strike's tick");
     assert_eq!(hit_crossing(D::Client16635AfterDrainBeforeHits), (false, true), "client16635_after_drain_before_hits: (under at C, under at C + 1)");
 }
 
@@ -404,4 +404,15 @@ fn under_client16635_keeps_tower_distance_the_building_digs_round_the_tower() {
     assert!(u.len() == 2 && new.len() > u[1] + 18, "the scene drifted: the hides {u:?}");
     assert_eq!((new[u[0] + 17], new[u[0] + 18]), ((6000, 6000), (4000, 9000)), "client16635_keeps_tower_distance: the first dig");
     assert_eq!((new[u[1] + 17], new[u[1] + 18]), ((4000, 9000), (1000, 7000)), "client16635_keeps_tower_distance: the second dig");
+}
+
+/// Since parity r96 for clients 16.402 and 16.635 (post_hit_hitpoints before it; client 15.535.29 keeps
+/// post_hit_hitpoints).
+#[test]
+fn the_shipped_arm_is_client16635_after_drain_before_hits() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().drill_line_test,
+        royalesim::state::DrillLineTest::Client16635AfterDrainBeforeHits
+    );
+    assert_eq!(config().calib.drill_line_test, royalesim::state::DrillLineTest::Client16635AfterDrainBeforeHits);
 }

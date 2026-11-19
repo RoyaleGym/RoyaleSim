@@ -410,3 +410,14 @@ fn under_client16635_end_point_first_push_a_barbarian_pushed_off_a_bridge_corner
     let (_, new) = released_beside(R::Client16635EndPointFirstPush, Team::Blue, (9500, 10500), None);
     assert_eq!((old, new), (c, c), "with nothing near, both arms stand on the nearest dry centre");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (client16402_own_cell_half_centre before it; client 15.535.29 keeps
+/// nearest_passable_ground).
+#[test]
+fn the_shipped_arm_is_client16635_end_point_first_push() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().roll_release_water_point,
+        royalesim::state::RollReleaseWaterPoint::Client16635EndPointFirstPush
+    );
+    assert_eq!(config().calib.roll_release_water_point, royalesim::state::RollReleaseWaterPoint::Client16635EndPointFirstPush);
+}

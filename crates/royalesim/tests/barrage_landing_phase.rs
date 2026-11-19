@@ -83,3 +83,14 @@ fn under_client16635_before_attack_a_unit_a_barrage_bomb_kills_does_not_strike_o
     assert!(old > 0, "after_attack_before_move (the vacuity check): no strike on the bomb's tick");
     assert_eq!(new, 0, "client16635_before_attack: the Skeleton struck {new} on the bomb's tick I + {l_new}");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (after_attack_before_move before it; client 15.535.29 keeps
+/// after_attack_before_move).
+#[test]
+fn the_shipped_arm_is_client16635_before_attack() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().barrage_landing_phase,
+        royalesim::state::BarrageLandingPhase::Client16635BeforeAttack
+    );
+    assert_eq!(config().calib.barrage_landing_phase, royalesim::state::BarrageLandingPhase::Client16635BeforeAttack);
+}

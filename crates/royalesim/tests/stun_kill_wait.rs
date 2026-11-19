@@ -164,3 +164,14 @@ fn under_client16635_troop_kill_before_late_clear_a_tower_that_kills_on_the_stun
     assert_ne!(c_all, c_old, "client16635_kill_before_late_clear (the vacuity check): the tower's clock ran as under client16402_hit_hold_next_tick");
     assert_eq!(c_troop, c_old, "client16635_troop_kill_before_late_clear: the tower's clock left client16402_hit_hold_next_tick's");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (client16402_hit_hold_next_tick since parity r82, client_cleared
+/// before it; client 15.535.29 keeps client_cleared).
+#[test]
+fn the_shipped_arm_is_client16635_troop_kill_before_late_clear() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().stun_clears_target,
+        royalesim::state::StunClearsTarget::Client16635TroopKillBeforeLateClear
+    );
+    assert_eq!(config().calib.stun_clears_target, royalesim::state::StunClearsTarget::Client16635TroopKillBeforeLateClear);
+}

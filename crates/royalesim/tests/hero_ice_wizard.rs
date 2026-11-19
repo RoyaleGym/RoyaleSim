@@ -407,10 +407,14 @@ fn under_client16635_shot_slow_only_a_press_inside_the_deploy_chill_waits_for_th
 }
 
 /// A red Knight held on AT + (0, 4000) striking a blue Giant held 1000 behind it (its hitpoints kept), marked by the hero's
-/// shots, frozen by the press's cube (the hero killed after the find), under status.ICE_RELEASE_ATTACK = `arm`: (the cube's last
-/// frame, the Knight's first strike on the Giant after it).
+/// shots, frozen by the press's cube (the hero killed after the find), under status.ICE_RELEASE_ATTACK = `arm` and
+/// status.ICE_RELEASE_TARGET = with_the_walk (the scene isolates the attack arm; the shipped client16635_target_next_tick moves
+/// the retake too): (the cube's last frame, the Knight's first strike on the Giant after it).
 fn released_strike(arm: IceReleaseAttack) -> (u32, u32) {
-    let mut s = battle_with(|c| c.calib.ice_release_attack = arm);
+    let mut s = battle_with(|c| {
+        c.calib.ice_release_attack = arm;
+        c.calib.ice_release_target = IceReleaseTarget::WithTheWalk;
+    });
     let (kat, gat) = (n(AT.0, AT.1 + 4000), n(AT.0, AT.1 + 3000));
     let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
     let giant = s.scenario_spawn_now(Team::Blue, "Giant", gat, None).expect("the Giant");
@@ -577,4 +581,41 @@ fn under_client16635_cube_waits_a_musketeer_that_doomed_a_cube_serves_the_wait()
     assert_eq!(t_old, l_old + 1, "doomed_frees (the vacuity check): the Musketeer took the Golem on {t_old}, the cube lost on {l_old}");
     let (l_new, t_new) = cube_loss(CubeLossWait::Client16635CubeWaits);
     assert_eq!(t_new, l_new + 6, "client16635_cube_waits: the Musketeer took the Golem on {t_new}, the cube lost on {l_new}");
+}
+
+/// Since parity r96 for clients 16.402 and 16.635 (either_mark before it; client 15.535.29 keeps either_mark).
+#[test]
+fn the_shipped_arm_is_client16635_shot_slow_only() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_find_marks,
+        royalesim::state::IceFindMarks::Client16635ShotSlowOnly
+    );
+    assert_eq!(config().calib.ice_find_marks, royalesim::state::IceFindMarks::Client16635ShotSlowOnly);
+}
+
+/// Since parity r96 for clients 16.402 and 16.635 (with_the_walk before it; client 15.535.29 keeps with_the_walk).
+#[test]
+fn the_shipped_arm_is_client16635_attack_next_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_release_attack,
+        royalesim::state::IceReleaseAttack::Client16635AttackNextTick
+    );
+    assert_eq!(config().calib.ice_release_attack, royalesim::state::IceReleaseAttack::Client16635AttackNextTick);
+}
+
+/// Since parity r96 for clients 16.402 and 16.635 (with_the_walk before it; client 15.535.29 keeps with_the_walk).
+#[test]
+fn the_shipped_arm_is_client16635_target_next_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_release_target,
+        royalesim::state::IceReleaseTarget::Client16635TargetNextTick
+    );
+    assert_eq!(config().calib.ice_release_target, royalesim::state::IceReleaseTarget::Client16635TargetNextTick);
+}
+
+/// Since parity r96 for clients 16.402 and 16.635 (doomed_frees before it; client 15.535.29 keeps doomed_frees).
+#[test]
+fn the_shipped_arm_is_client16635_cube_waits() {
+    assert_eq!(royalesim::state::Calib::shipped().cube_loss_wait, royalesim::state::CubeLossWait::Client16635CubeWaits);
+    assert_eq!(config().calib.cube_loss_wait, royalesim::state::CubeLossWait::Client16635CubeWaits);
 }

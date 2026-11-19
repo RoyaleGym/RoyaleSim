@@ -89,3 +89,13 @@ fn under_client16635_thrower_hit_speed_a_slowed_executioners_axe_lives_44_frames
     assert_eq!(first_throw(PingpongClock::Ticks, false).0, 31, "ticks: an unslowed axe");
     assert_eq!(first_throw(PingpongClock::Client16635ThrowerHitSpeed, false).0, 31, "client16635_thrower_hit_speed: an unslowed axe");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (ticks before it; client 15.535.29 keeps ticks).
+#[test]
+fn the_shipped_arm_is_client16635_thrower_hit_speed() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().pingpong_clock,
+        royalesim::state::PingpongClock::Client16635ThrowerHitSpeed
+    );
+    assert_eq!(config().calib.pingpong_clock, royalesim::state::PingpongClock::Client16635ThrowerHitSpeed);
+}

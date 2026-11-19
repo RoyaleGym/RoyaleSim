@@ -69,3 +69,13 @@ fn under_client16635_hit_speed_scaled_a_raged_mega_knights_stand_is_shorter() {
     let new = jump_tick(DashStandClock::Client16635HitSpeedScaled, true);
     assert!((13..17).contains(&new), "client16635_hit_speed_scaled: the raged jump on + {new}, not 13 to 16");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (ticks before it; client 15.535.29 keeps ticks).
+#[test]
+fn the_shipped_arm_is_client16635_hit_speed_scaled() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().dash_stand_clock,
+        royalesim::state::DashStandClock::Client16635HitSpeedScaled
+    );
+    assert_eq!(config().calib.dash_stand_clock, royalesim::state::DashStandClock::Client16635HitSpeedScaled);
+}

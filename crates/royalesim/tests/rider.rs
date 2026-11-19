@@ -546,3 +546,13 @@ fn under_client16635_mount_buffs_a_slow_on_the_ram_slows_the_riders_clock() {
     let new = rider_steps(MountBuffsOnClock::Client16635MountBuffs);
     assert!(new.len() >= 5 && new[..5].iter().all(|d| *d == 35), "client16635_mount_buffs: the rider's steps {new:?}");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (own_buffs before it; client 15.535.29 keeps own_buffs).
+#[test]
+fn the_shipped_arm_is_client16635_mount_buffs() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().mount_buffs_on_clock,
+        royalesim::state::MountBuffsOnClock::Client16635MountBuffs
+    );
+    assert_eq!(config().calib.mount_buffs_on_clock, royalesim::state::MountBuffsOnClock::Client16635MountBuffs);
+}

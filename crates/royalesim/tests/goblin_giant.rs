@@ -246,11 +246,14 @@ fn a_giant_killed_walking_leaves_each_riders_spear_goblin_at_its_position_plus_t
 }
 
 /// A Blue Goblin Giant held on (9500, 10500), a Red Knight held 3,500 ahead (its riders' target), and on the 40th tick a Blue
-/// Rage on the Giant, under rider.OWN_AREA_BUFFS_WHILE_ATTACHED = `arm`: over the next 40 ticks, the riders' ticks whose
-/// attack progress stepped 65 (raged, x1.3) and those that stepped 50, and whether a rider carried a buff.
+/// Rage on the Giant, under rider.OWN_AREA_BUFFS_WHILE_ATTACHED = `arm` and rider.MOUNT_BUFFS_ON_CLOCK = own_buffs (the scene
+/// isolates the area-buff arm; under the shipped client16635_mount_buffs a rider's clock reads the raged Giant's buffs too):
+/// over the next 40 ticks, the riders' ticks whose attack progress stepped 65 (raged, x1.3) and those that stepped 50, and
+/// whether a rider carried a buff.
 fn raged_riders(arm: royalesim::state::OwnAreaBuffsWhileAttached) -> (u32, u32, bool) {
     let mut cfg = shipped();
     cfg.calib.own_area_buffs_while_attached = arm;
+    cfg.calib.mount_buffs_on_clock = royalesim::state::MountBuffsOnClock::OwnBuffs;
     let mut s = BattleState::new(0, cfg);
     let (g_at, k_at) = (at((9500, 10500)), at((9500, 14000)));
     s.spawn_unit(Team::Blue, "GoblinGiant", g_at, None).expect("play the Goblin Giant");

@@ -243,12 +243,15 @@ fn territory_is_rotation_invariant() {
     assert!(checked > 10_000);
 }
 
+/// Under placement.BUILDING_TERRITORY = own_half (the shipped arm until parity r96; the shipped enemy_tower_no_deploy_rects
+/// lets a building's box use the opened pocket: tests/building_territory.rs).
 #[test]
 fn buildings_stay_own_half_after_a_princess_falls() {
     let s = board(&[(Team::Red, 1)]);
     let pocket = t(350, 1900);
     assert_eq!(s.check_deploy_slot(Team::Blue, 0, pocket), Ok(()), "a troop may use the pocket");
     let mut cfg = config_pre_flip();
+    cfg.calib.building_territory = royalesim::state::BuildingTerritory::OwnHalf;
     let deck: Vec<String> = ["Cannon", "Tesla", "Cannon", "Tesla", "Cannon", "Tesla", "Cannon", "Tesla"].iter().map(|s| s.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     let mut b = BattleState::new(3, cfg);

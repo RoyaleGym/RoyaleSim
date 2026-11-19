@@ -963,3 +963,13 @@ fn under_client16635_next_tick_a_giant_takes_a_broken_cart_a_tick_later() {
     assert_ne!(new0, Some(cart), "client16635_next_tick: the Giant took the cannon on its first tick");
     assert_eq!(new1, Some(cart), "client16635_next_tick: the Giant's target on the cannon's second tick");
 }
+
+/// Since parity r96 for clients 16.402 and 16.635 (at_once before it; client 15.535.29 keeps at_once).
+#[test]
+fn the_shipped_arm_is_client16635_next_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().became_building_target,
+        royalesim::state::BecameBuildingTarget::Client16635NextTick
+    );
+    assert_eq!(config().calib.became_building_target, royalesim::state::BecameBuildingTarget::Client16635NextTick);
+}
