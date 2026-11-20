@@ -3,6 +3,39 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.55 (2026-11-19)
+
+- 12 more settings default to the current client's behaviour, each measured against its recorded battles (10 of the
+  settings are new, marked new):
+  - A spell landing beside the King's Tower reaches it by the tower's own square, which is wider than a princess
+    tower's (`spells.CROWN_SQUARE_HALF_SIDE`, new).
+  - A Phoenix egg disappears on the tick after its Phoenix hatches (`spawner.DESTROY_AT_LIMIT`, new).
+  - A Phoenix reborn from its egg deploys for its own deploy time before it moves
+    (`spawner.SPAWN_CHARACTER_WITH_DEPLOY`, new).
+  - A Mighty Miner switching lanes goes underground on the tick he starts the switch, so a hit landing on that tick
+    misses him (`hide.LANE_SWITCH_UNDER_TICK`, new).
+  - A Mighty Miner keeps his target while he tunnels to the other lane and does not start an attack underground
+    (`targeting.LANE_SWITCH_TARGET`, new).
+  - A Hero Ice Wizard's ability looks only for enemies slowed by his own shots, not by another Hero Ice Wizard's
+    (`status.ICE_FIND_OWN_MARK`, new).
+  - A Hero Ice Wizard's cube fired by a kill appears one tick sooner (`spawner.ICE_KILL_CUBE_TICK`, new).
+  - A Hero Ice Wizard who dies as his ability fires (on the tick it finds its target, or the next) still drops the
+    cube, on the tick he dies; if he dies a few ticks later, no cube comes (`spawner.ICE_CUBE_HERO_DEATH`, new).
+  - The Hero Wizard's lift starts pulling one tick sooner, two ticks after his shot hits
+    (`status.SHOT_AREA_ATTRACT_ONSET`, new).
+  - An Evo Goblin Drill placed on the ring just round an enemy princess tower moves along that ring each time it digs
+    (`hide.DRILL_DIG_POINT`).
+  - Golemites and Lava Pups pick their own target as soon as they appear, looking from where their parent died
+    (`spawner.DEATH_SPAWN_BIRTH_TARGET`).
+  - Golemites and Lava Pups can change target while they are still sliding out from their parent's death
+    (`spawner.DEATH_SLIDE_TARGET`, new).
+- New setting `placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS`: whether the Log, the Barbarian Barrel, the Royal Delivery and
+  their hero forms may be placed on no-deploy cells. The default is unchanged (`"refuse"`);
+  `"client16635_can_place_on_buildings"` is the current client's rule.
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  keep the older client's values for its battles. A battle saved by 0.1.54 loads on 0.1.55: the new settings read their
+  old values from a save that lacks them.
+
 ## 0.1.54 (2026-11-19)
 
 - 27 more settings default to the current client's behaviour, each measured against its recorded battles (19 of the
