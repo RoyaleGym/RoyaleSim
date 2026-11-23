@@ -1139,3 +1139,13 @@ fn under_client16402_hide_time_a_tesla_going_under_takes_hits_through_hide_plus_
     let (_, old) = zapped_going_under(HidingDamageWindow::ShutAtHide, &js);
     assert!(old.iter().all(|t| !t), "shut_at_hide: a Zap on the hidden Tesla was taken {old:?}");
 }
+
+/// Since parity r98 for clients 16.402 and 16.635 (client16402_kept before it; client 15.535.29 keeps dropped).
+#[test]
+fn the_shipped_arm_is_client16635_buildings_only_kept() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().hide_held_through,
+        royalesim::state::HeldThroughHide::Client16635BuildingsOnlyKept
+    );
+    assert_eq!(config().calib.hide_held_through, royalesim::state::HeldThroughHide::Client16635BuildingsOnlyKept);
+}

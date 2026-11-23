@@ -26,7 +26,7 @@ use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, SpinBegin, SpinChainEnd, SpinTargets};
+use royalesim::state::{BattleConfig, BattleState, SpinBegin, SpinChainEnd, SpinTargets};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -124,7 +124,12 @@ fn under_client16635_waits_again_a_spent_chain_begins_again_on_a_newcomer() {
     assert_eq!(target, Some(knight), "client16635_waits_again: the Knight, the closest she has not reached, her chain's target on T");
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (ends before it; client 15.535.29 keeps ends).
 #[test]
-fn the_shipped_arm_is_ends() {
-    assert_eq!(Calib::shipped().spin_chain_end, SpinChainEnd::Ends);
+fn the_shipped_arm_is_client16635_waits_again() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().spin_chain_end,
+        royalesim::state::SpinChainEnd::Client16635WaitsAgain
+    );
+    assert_eq!(config().calib.spin_chain_end, royalesim::state::SpinChainEnd::Client16635WaitsAgain);
 }

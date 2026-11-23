@@ -93,7 +93,7 @@ ledger disagree, because these figures went stale twice in one afternoon before 
   entries; one further entry, `pathfinding.PATHFINDING_COSTS.application`, is nested inside
   another and carries its own `measured` status, so counting every status in the file gives 699
   and 587 measured. The tools agree on 698 by convention, and the convention undercounts by one. 639 name the rivals the
-  value was chosen against and 534 state what would move it, and 513 do both. The gap is mostly
+  value was chosen against and 535 state what would move it, and 514 do both. The gap is mostly
   the 30 `datamined` keys, where the number was read out of a shipped table and no choice was
   made, so a candidate list would be a category error; those carry a vintage and an engine
   contract instead, which is the right shape for them. But the gap is not only those. 26 of

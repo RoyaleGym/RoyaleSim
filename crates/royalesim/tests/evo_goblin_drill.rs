@@ -513,7 +513,12 @@ fn under_client16635_dropped_its_holders_let_the_dug_building_go_on_the_under_ti
     assert_eq!(u1, (false, false), "client16635_dropped: neither holds it on U + 1");
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (kept before it; client 15.535.29 keeps kept).
 #[test]
-fn the_shipped_arm_is_kept() {
-    assert_eq!(royalesim::state::Calib::shipped().drill_under_held, royalesim::state::DrillUnderHeld::Kept);
+fn the_shipped_arm_is_client16635_dropped() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().drill_under_held,
+        royalesim::state::DrillUnderHeld::Client16635Dropped
+    );
+    assert_eq!(config().calib.drill_under_held, royalesim::state::DrillUnderHeld::Client16635Dropped);
 }

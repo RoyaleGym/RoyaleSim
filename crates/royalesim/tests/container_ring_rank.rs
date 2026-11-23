@@ -163,7 +163,12 @@ fn the_other_seat_ranks_its_ring_alike() {
     check(Team::Blue, turn(&s, P0), turn(&s, W0), -1);
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (none before it; client 15.535.29 keeps none).
 #[test]
-fn the_shipped_arm_is_none() {
-    assert_eq!(royalesim::state::Calib::shipped().container_ring_rank, ContainerRingRank::None);
+fn the_shipped_arm_is_client16635_ring_index_80() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().container_ring_rank,
+        royalesim::state::ContainerRingRank::Client16635RingIndex80
+    );
+    assert_eq!(config().calib.container_ring_rank, royalesim::state::ContainerRingRank::Client16635RingIndex80);
 }

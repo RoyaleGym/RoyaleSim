@@ -24,7 +24,7 @@ use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, SpinBegin, SpinTargets};
+use royalesim::state::{BattleConfig, BattleState, SpinBegin, SpinTargets};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -105,7 +105,12 @@ fn under_client16635_ground_characters_a_spin_begins_on_a_building_in_its_circle
     assert_eq!(target, Some(cannon), "client16635_ground_characters: the Cannon, the one ground character in the circle, her chain's target");
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (troops before it; client 15.535.29 keeps troops).
 #[test]
-fn the_shipped_arm_is_troops() {
-    assert_eq!(Calib::shipped().spin_targets, SpinTargets::Troops);
+fn the_shipped_arm_is_client16635_ground_characters() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().spin_targets,
+        royalesim::state::SpinTargets::Client16635GroundCharacters
+    );
+    assert_eq!(config().calib.spin_targets, royalesim::state::SpinTargets::Client16635GroundCharacters);
 }

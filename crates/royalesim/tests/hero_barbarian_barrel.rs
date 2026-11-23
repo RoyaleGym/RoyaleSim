@@ -245,8 +245,12 @@ fn under_client16635_log_tick_the_reroll_log_hits_on_its_own_tick() {
     assert_eq!(log_start_victim(RerollLogFirstHit::Client16635LogTick), (false, false), "client16635_log_tick: it falls on the log's tick, P + 8");
 }
 
-/// spells.REROLL_LOG_FIRST_HIT ships at next_tick.
+/// Since parity r98 for clients 16.402 and 16.635 (next_tick before it; client 15.535.29 keeps next_tick).
 #[test]
-fn the_shipped_arm_is_next_tick() {
-    assert_eq!(Calib::shipped().reroll_log_first_hit, RerollLogFirstHit::NextTick);
+fn the_shipped_arm_is_client16635_log_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().reroll_log_first_hit,
+        royalesim::state::RerollLogFirstHit::Client16635LogTick
+    );
+    assert_eq!(config().calib.reroll_log_first_hit, royalesim::state::RerollLogFirstHit::Client16635LogTick);
 }

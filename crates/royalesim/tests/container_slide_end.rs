@@ -220,7 +220,12 @@ fn the_right_edge_mirrors() {
     check(Team::Red, (w - P.0, h - P.1), 1);
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (ring_point before it; client 15.535.29 keeps ring_point).
 #[test]
-fn the_shipped_arm_is_ring_point() {
-    assert_eq!(royalesim::state::Calib::shipped().container_slide_end, ContainerSlideEnd::RingPoint);
+fn the_shipped_arm_is_client16635_arena_inset_250() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().container_slide_end,
+        royalesim::state::ContainerSlideEnd::Client16635ArenaInset250
+    );
+    assert_eq!(config().calib.container_slide_end, royalesim::state::ContainerSlideEnd::Client16635ArenaInset250);
 }

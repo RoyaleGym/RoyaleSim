@@ -29,7 +29,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, SpinBlows, SpinChainEnd, SpinTargets};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -40,6 +40,11 @@ const DECK: [&str; 8] = ["Valkyrie", "Knight", "Archer", "Giant", "Musketeer", "
 
 fn battle() -> BattleState {
     let mut cfg: BattleConfig = config_pre_flip();
+    // Since parity r98 clients 16.402 and 16.635 ship combat.SPIN_TARGETS, SPIN_CHAIN_END and SPIN_BLOWS at their
+    // client16635_* arms; these scenes are client 15.535.29's, which keeps the old arms (CLIENT15535_ARMS).
+    cfg.calib.spin_targets = SpinTargets::Troops;
+    cfg.calib.spin_chain_end = SpinChainEnd::Ends;
+    cfg.calib.spin_blows = SpinBlows::AfterMove;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];

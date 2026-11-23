@@ -119,7 +119,10 @@ fn under_client16635_flies_to_goal_the_hold_applies_after_the_landing() {
     }
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (ends_where_it_stands before it; client 15.535.29 keeps
+/// ends_where_it_stands).
 #[test]
-fn the_shipped_arm_is_ends_where_it_stands() {
-    assert_eq!(royalesim::state::Calib::shipped().dash_stun, DashStun::EndsWhereItStands);
+fn the_shipped_arm_is_client16635_flies_to_goal() {
+    assert_eq!(royalesim::state::Calib::shipped().dash_stun, royalesim::state::DashStun::Client16635FliesToGoal);
+    assert_eq!(config().calib.dash_stun, royalesim::state::DashStun::Client16635FliesToGoal);
 }

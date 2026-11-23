@@ -26,7 +26,7 @@ use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, SpinBegin, SpinBlows, SpinChainEnd, SpinTargets};
+use royalesim::state::{BattleConfig, BattleState, SpinBegin, SpinBlows, SpinChainEnd, SpinTargets};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -120,7 +120,9 @@ fn under_client16635_before_move_blows_come_from_her_start_point_the_first_a_tic
     assert_eq!(giant, Some(b + 1), "client16635_before_move: the Giant hit from her start-of-tick point on the begin + 1");
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (after_move before it; client 15.535.29 keeps after_move).
 #[test]
-fn the_shipped_arm_is_after_move() {
-    assert_eq!(Calib::shipped().spin_blows, SpinBlows::AfterMove);
+fn the_shipped_arm_is_client16635_before_move() {
+    assert_eq!(royalesim::state::Calib::shipped().spin_blows, royalesim::state::SpinBlows::Client16635BeforeMove);
+    assert_eq!(config().calib.spin_blows, royalesim::state::SpinBlows::Client16635BeforeMove);
 }

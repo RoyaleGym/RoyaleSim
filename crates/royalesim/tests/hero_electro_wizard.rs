@@ -329,7 +329,13 @@ fn under_client16635_remembered_the_second_bolt_keeps_its_last_enemy() {
     assert_eq!(out, [2 * bolt, 0, 0], "client16635_remembered: B in sight, out of reach: the bolt falls on A");
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (nearest_each_hit before it; client 15.535.29 keeps
+/// nearest_each_hit).
 #[test]
-fn the_shipped_arm_is_nearest_each_hit() {
-    assert_eq!(royalesim::state::Calib::shipped().surge_second_bolt, SurgeSecondBolt::NearestEachHit);
+fn the_shipped_arm_is_client16635_remembered() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().surge_second_bolt,
+        royalesim::state::SurgeSecondBolt::Client16635Remembered
+    );
+    assert_eq!(config().calib.surge_second_bolt, royalesim::state::SurgeSecondBolt::Client16635Remembered);
 }

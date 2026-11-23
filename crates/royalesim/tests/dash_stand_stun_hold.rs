@@ -178,7 +178,7 @@ fn cubed(arm: DashStandStunHold, m: (i32, i32), g: (i32, i32)) -> Option<Cubed> 
             s.press_ability_button(Team::Blue, 0).expect("the press");
             pressed = true;
         }
-        let here = find_live(&s, Team::Blue, CUBE).first().is_some();
+        let here = !find_live(&s, Team::Blue, CUBE).is_empty();
         if here && first.is_none() {
             first = Some(t);
             stood = prev_state == 1;
@@ -224,9 +224,14 @@ fn under_client16635_stand_kept_while_held_a_cube_let_go_tick_keeps_the_stand() 
     assert!(new.jump < old.jump, "client16635_stand_kept_while_held: the kept stand jumps sooner ({new:?} against {old:?})");
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (ends before it; client 15.535.29 keeps ends).
 #[test]
-fn the_shipped_arm_is_ends() {
-    assert_eq!(royalesim::state::Calib::shipped().dash_stand_stun_hold, DashStandStunHold::Ends);
+fn the_shipped_arm_is_client16635_stand_kept_while_held() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().dash_stand_stun_hold,
+        royalesim::state::DashStandStunHold::Client16635StandKeptWhileHeld
+    );
+    assert_eq!(config().calib.dash_stand_stun_hold, royalesim::state::DashStandStunHold::Client16635StandKeptWhileHeld);
 }
 
 /// (3) The Zap scene with the Knight held 1,500 above the Mega Knight from the tick after the Zap: (e0, the first tick from

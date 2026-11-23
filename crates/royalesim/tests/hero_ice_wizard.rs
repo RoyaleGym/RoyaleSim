@@ -819,10 +819,13 @@ fn the_shipped_arm_is_client16635_death_window() {
     assert_eq!(config().calib.ice_cube_hero_death, royalesim::state::IceCubeHeroDeath::Client16635DeathWindow);
 }
 
+/// `pulled_cube`'s result: the cube's first frame, the cast tick and each tick's cube step.
+type PulledCube = (u32, u32, Vec<(u32, (i32, i32))>);
+
 /// The marked-Knight scene (a_press_on_a_marked_knight_freezes_it_behind_the_knight's) under status.ICE_CUBE_ATTRACT = `arm`,
 /// with a red Tornado cast on (9500, 10500), 4,031 from the cube's point, on the press's tick + `cast`: (the cube's first
 /// frame c, the cast tick D, each tick's cube step from the tick before, native).
-fn pulled_cube(arm: IceCubeAttract, cast: u32) -> (u32, u32, Vec<(u32, (i32, i32))>) {
+fn pulled_cube(arm: IceCubeAttract, cast: u32) -> PulledCube {
     let mut s = battle_with(|c| {
         c.calib.ice_cube_hero_death = IceCubeHeroDeath::CubeComes;
         c.calib.ice_cube_attract = arm;
@@ -885,9 +888,9 @@ fn under_client16635_row_speed_a_tornado_pulls_the_cube_144_a_tick() {
     assert!(new.iter().filter(|(t, _)| *t > d + 22).all(|(_, v)| *v == (0, 0)), "no pull after the cast + 22");
 }
 
-/// status.ICE_CUBE_ATTRACT = client16635_row_speed (2 of 2 cubes born inside a live Tornado first pulled on their first frame
-/// + 2): a cube put down inside a Tornado cast on the press's tick + 1 takes no step on its first frame + 1 and a pull on + 2;
-/// under unpulled (the vacuity check) it takes none. Plant: ice_cube_pulled_at_birth.
+/// status.ICE_CUBE_ATTRACT = client16635_row_speed (2 of 2 cubes born inside a live Tornado first pulled on their first
+/// frame + 2): a cube put down inside a Tornado cast on the press's tick + 1 takes no step on its first frame + 1 and a pull
+/// on + 2; under unpulled (the vacuity check) it takes none. Plant: ice_cube_pulled_at_birth.
 #[test]
 fn under_client16635_row_speed_a_cube_born_in_a_tornado_is_first_pulled_on_its_first_frame_plus_2() {
     let (_, _, old) = pulled_cube(IceCubeAttract::Unpulled, 1);
@@ -898,9 +901,14 @@ fn under_client16635_row_speed_a_cube_born_in_a_tornado_is_first_pulled_on_its_f
     assert!((142..=144).contains(&len(at(c + 2))), "a pull on the cube's first frame + 2: {:?}", at(c + 2));
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (unpulled before it; client 15.535.29 keeps unpulled).
 #[test]
-fn the_shipped_arm_is_unpulled() {
-    assert_eq!(royalesim::state::Calib::shipped().ice_cube_attract, IceCubeAttract::Unpulled);
+fn the_shipped_arm_is_client16635_row_speed() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_cube_attract,
+        royalesim::state::IceCubeAttract::Client16635RowSpeed
+    );
+    assert_eq!(config().calib.ice_cube_attract, royalesim::state::IceCubeAttract::Client16635RowSpeed);
 }
 
 /// A red Knight held on (9000, 13000) walking at a blue Giant held on (6000, 13000) (its nearest enemy, out of its reach), frozen
@@ -974,7 +982,12 @@ fn under_client16635_route_kept_a_let_go_knight_walks_its_held_route() {
     }
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (replans before it; client 15.535.29 keeps replans).
 #[test]
-fn the_shipped_arm_is_replans() {
-    assert_eq!(royalesim::state::Calib::shipped().ice_release_walk, IceReleaseWalk::Replans);
+fn the_shipped_arm_is_client16635_route_kept() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_release_walk,
+        royalesim::state::IceReleaseWalk::Client16635RouteKept
+    );
+    assert_eq!(config().calib.ice_release_walk, royalesim::state::IceReleaseWalk::Client16635RouteKept);
 }

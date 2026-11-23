@@ -139,15 +139,22 @@ fn under_client16635_start_offset_a_creation_tick_step_turns_by_the_victims_offs
     assert_eq!(new0.step, old0.step, "no offset: the two arms step alike");
 }
 
-/// Since parity r94 (next_tick before it; client 15.535.29 keeps next_tick).
+/// Since parity r98 for clients 16.402 and 16.635 (client16635_at_once before it; client 15.535.29 keeps next_tick).
 #[test]
-fn the_shipped_arm_is_client16635_at_once() {
-    use royalesim::state::Calib;
-    assert_eq!(Calib::shipped().creation_hit_knock, CreationHitKnock::Client16635AtOnce);
-    assert_eq!(config().calib.creation_hit_knock, CreationHitKnock::Client16635AtOnce);
+fn the_shipped_arm_is_client16635_at_once_any_age() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().creation_hit_knock,
+        royalesim::state::CreationHitKnock::Client16635AtOnceAnyAge
+    );
+    assert_eq!(config().calib.creation_hit_knock, royalesim::state::CreationHitKnock::Client16635AtOnceAnyAge);
 }
 
+/// Since parity r98 for clients 16.402 and 16.635 (unrotated before it; client 15.535.29 keeps unrotated).
 #[test]
-fn the_shipped_arm_is_unrotated() {
-    assert_eq!(royalesim::state::Calib::shipped().creation_step_offset, CreationStepOffset::Unrotated);
+fn the_shipped_arm_is_client16635_start_offset() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().creation_step_offset,
+        royalesim::state::CreationStepOffset::Client16635StartOffset
+    );
+    assert_eq!(config().calib.creation_step_offset, royalesim::state::CreationStepOffset::Client16635StartOffset);
 }
