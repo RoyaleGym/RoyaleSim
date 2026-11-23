@@ -30,14 +30,18 @@
 //!   - ice_find_reads_chill -> `under_client16635_shot_slow_only_a_press_inside_the_deploy_chill_waits_for_the_shot` red;
 //!   - ice_release_attack_now -> `under_client16635_attack_next_tick_a_let_go_knight_strikes_a_tick_later` red;
 //!   - ice_release_target_now -> `under_client16635_target_next_tick_a_let_go_knight_retakes_its_target_a_tick_later` red;
-//!   - cube_loss_frees -> `under_client16635_cube_waits_a_musketeer_that_doomed_a_cube_serves_the_wait` red.
+//!   - cube_loss_frees -> `under_client16635_cube_waits_a_musketeer_that_doomed_a_cube_serves_the_wait` red;
+//!   - ice_cube_unpulled -> `under_client16635_row_speed_a_tornado_pulls_the_cube_144_a_tick` and
+//!     `under_client16635_row_speed_a_cube_born_in_a_tornado_is_first_pulled_on_its_first_frame_plus_2` red;
+//!   - ice_cube_pulled_at_birth -> `under_client16635_row_speed_a_cube_born_in_a_tornado_is_first_pulled_on_its_first_frame_plus_2` red;
+//!   - ice_release_replans -> `under_client16635_route_kept_a_let_go_knight_walks_its_held_route` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::{AbilityEffect, CardDb, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CardTable, CubeLossWait, IceCubeHeroDeath, IceFindMarks, IceFindOwnMark, IceKillCubeTick, IceReleaseAttack, IceReleaseTarget};
+use royalesim::state::{BattleConfig, BattleState, CardTable, CubeLossWait, IceCubeAttract, IceCubeHeroDeath, IceFindMarks, IceFindOwnMark, IceKillCubeTick, IceReleaseAttack, IceReleaseTarget, IceReleaseWalk};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["IceWizard", "Knight", "Archer", "Giant", "Musketeer", "Minions", "Fireball", "Zap"];
@@ -132,6 +136,7 @@ fn the_form_and_its_cube_load_on_the_current_clients_table() {
     let cube = db.get(d.unit);
     assert_eq!(cube.name, CUBE);
     assert_eq!((cube.speed, cube.hit_speed_ms), (0, 0), "the cube stands and never attacks");
+    assert_eq!(d.pull_speed, 40, "the cube's row Speed is kept for a pull");
     assert_eq!(cube.lifetime_ms, Some(5000));
     assert!(!cube.ignore_buffs.is_empty(), "the cube ignores the curses");
     // the base Ice Wizard's chill (the same -30 columns): not a mark
@@ -812,4 +817,164 @@ fn the_shipped_arm_is_client16635_death_window() {
         royalesim::state::IceCubeHeroDeath::Client16635DeathWindow
     );
     assert_eq!(config().calib.ice_cube_hero_death, royalesim::state::IceCubeHeroDeath::Client16635DeathWindow);
+}
+
+/// The marked-Knight scene (a_press_on_a_marked_knight_freezes_it_behind_the_knight's) under status.ICE_CUBE_ATTRACT = `arm`,
+/// with a red Tornado cast on (9500, 10500), 4,031 from the cube's point, on the press's tick + `cast`: (the cube's first
+/// frame c, the cast tick D, each tick's cube step from the tick before, native).
+fn pulled_cube(arm: IceCubeAttract, cast: u32) -> (u32, u32, Vec<(u32, (i32, i32))>) {
+    let mut s = battle_with(|c| {
+        c.calib.ice_cube_hero_death = IceCubeHeroDeath::CubeComes;
+        c.calib.ice_cube_attract = arm;
+        c.decks[1] = ["IceWizard", "Knight", "Archer", "Giant", "Musketeer", "Minions", "Fireball", "Tornado"].iter().map(|n| n.to_string()).collect();
+    });
+    let kat = n(AT.0, AT.1 + 4000);
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    let hero = hero_in(&mut s);
+    first_hit(&mut s, knight, kat, 120);
+    assert!(s.debug_set_pos(knight, kat));
+    let f = s.tick_count();
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let (mut c, mut d, mut last, mut steps) = (None, None, None, Vec::new());
+    for _ in 0..90 {
+        if s.tick_count() == f + cast {
+            s.spawn_unit(Team::Red, "Tornado", n(9500, 10500), None).expect("the Tornado");
+            d = Some(s.tick_count());
+        }
+        s.tick();
+        let t = s.tick_count() - 1;
+        if let Some((_, p)) = cube(&s) {
+            let p = native(p);
+            if c.is_none() {
+                c = Some(t);
+            } else if let Some(q) = last {
+                let q: (i32, i32) = q;
+                steps.push((t, (p.0 - q.0, p.1 - q.1)));
+            }
+            last = Some(p);
+        }
+    }
+    (c.expect("the scene drifted: no cube"), d.expect("the scene drifted: no Tornado"), steps)
+}
+
+fn len(v: (i32, i32)) -> i64 {
+    royalesim::fixed::isqrt(i64::from(v.0) * i64::from(v.0) + i64::from(v.1) * i64::from(v.1))
+}
+
+/// status.ICE_CUBE_ATTRACT = client16635_row_speed (client 16.635, parity r98, the oracle's il-mg-16635 set: 10 of 10 cubes
+/// inside a Tornado pulled 142 to 146 a tick): a Tornado cast 25 ticks after the cube's first frame pulls it 144 a tick (its
+/// row Speed 40 x the Tornado's 360 %) toward the Tornado's centre from the cast + 2 to + 22, and not after; under unpulled
+/// (the vacuity check) the cube never moves. Plant: ice_cube_unpulled.
+#[test]
+fn under_client16635_row_speed_a_tornado_pulls_the_cube_144_a_tick() {
+    let (_, _, old) = pulled_cube(IceCubeAttract::Unpulled, 30);
+    assert!(old.iter().all(|(_, v)| *v == (0, 0)), "unpulled (the vacuity check): the cube moved: {old:?}");
+    let (c, d, new) = pulled_cube(IceCubeAttract::Client16635RowSpeed, 30);
+    assert_eq!(d, c + 25, "the scene drifted: the cast is not on the cube's first frame + 25");
+    let at = |t: u32| new.iter().find(|(x, _)| *x == t).map(|(_, v)| *v).expect("a cube frame");
+    assert_eq!((at(d), at(d + 1)), ((0, 0), (0, 0)), "no pull on the cast and the cast + 1");
+    let mut total = (0, 0);
+    for t in d + 2..=d + 22 {
+        let v = at(t);
+        assert!((142..=144).contains(&len(v)) && v.1 < 0, "a pull of 142-144 toward the Tornado on {t}: {v:?}");
+        total = (total.0 + v.0, total.1 + v.1);
+    }
+    assert!(len(total) >= 21 * 142, "the cube's displacement over the pull: {total:?}");
+    assert!(new.iter().filter(|(t, _)| *t > d + 22).all(|(_, v)| *v == (0, 0)), "no pull after the cast + 22");
+}
+
+/// status.ICE_CUBE_ATTRACT = client16635_row_speed (2 of 2 cubes born inside a live Tornado first pulled on their first frame
+/// + 2): a cube put down inside a Tornado cast on the press's tick + 1 takes no step on its first frame + 1 and a pull on + 2;
+/// under unpulled (the vacuity check) it takes none. Plant: ice_cube_pulled_at_birth.
+#[test]
+fn under_client16635_row_speed_a_cube_born_in_a_tornado_is_first_pulled_on_its_first_frame_plus_2() {
+    let (_, _, old) = pulled_cube(IceCubeAttract::Unpulled, 1);
+    assert!(old.iter().all(|(_, v)| *v == (0, 0)), "unpulled (the vacuity check): the cube moved: {old:?}");
+    let (c, _, new) = pulled_cube(IceCubeAttract::Client16635RowSpeed, 1);
+    let at = |t: u32| new.iter().find(|(x, _)| *x == t).map(|(_, v)| *v).expect("a cube frame");
+    assert_eq!(at(c + 1), (0, 0), "no pull on the cube's first frame + 1");
+    assert!((142..=144).contains(&len(at(c + 2))), "a pull on the cube's first frame + 2: {:?}", at(c + 2));
+}
+
+#[test]
+fn the_shipped_arm_is_unpulled() {
+    assert_eq!(royalesim::state::Calib::shipped().ice_cube_attract, IceCubeAttract::Unpulled);
+}
+
+/// A red Knight held on (9000, 13000) walking at a blue Giant held on (6000, 13000) (its nearest enemy, out of its reach), frozen
+/// by the press's cube (the hero killed after the find), let go under status.ICE_RELEASE_WALK = `arm`; the Knight is held until
+/// the cube's first frame and free after. When `kill_giant`, the Giant dies on the cube's first frame + 10. (the Knight's route
+/// on the cube's last frame + 1, its points on the last frame, + 1 and + 2, its route on + 2).
+fn let_go(arm: IceReleaseWalk, gat: (i32, i32), kill_giant: bool) -> (Vec<Vec2>, Vec2, Vec2, Vec2, Vec<Vec2>) {
+    let mut s = battle_with(|c| {
+        c.calib.ice_release_attack = IceReleaseAttack::Client16635AttackNextTick;
+        c.calib.ice_release_target = IceReleaseTarget::Client16635TargetNextTick;
+        c.calib.ice_release_walk = arm;
+    });
+    let (kat, gat) = (n(AT.0, AT.1 + 4000), n(gat.0, gat.1));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", gat, None).expect("the Giant");
+    let hero = hero_in(&mut s);
+    let gmax = s.entity(giant).expect("the Giant").max_hp;
+    first_hit(&mut s, knight, kat, 120);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let (mut first, mut last, mut rows) = (None, None, Vec::new());
+    for _ in 0..220 {
+        if s.entity(giant).is_some() {
+            assert!(s.debug_set_pos(giant, gat) && s.debug_set_hp(giant, gmax));
+        }
+        if first.is_none() {
+            assert!(s.debug_set_pos(knight, kat));
+        }
+        s.tick();
+        let t = s.tick_count() - 1;
+        let k = s.entity(knight).expect("the Knight");
+        rows.push((t, k.pos, k.route.to_vec()));
+        let here = cube(&s).is_some();
+        if here && first.is_none() {
+            first = Some(t);
+        } else if !here && first.is_some() && last.is_none() {
+            last = Some(t - 1);
+        }
+        if kill_giant && first.is_some_and(|f| t == f + 10) && s.entity(giant).is_some() {
+            assert!(s.debug_set_hp(giant, 0));
+        }
+        if last.is_some_and(|l| t == l + 2) {
+            break;
+        }
+    }
+    let l = last.expect("the scene drifted: no cube came and went");
+    let row = |t: u32| rows.iter().find(|r| r.0 == t).cloned().expect("a frame");
+    (row(l + 1).2, row(l).1, row(l + 1).1, row(l + 2).1, row(l + 2).2)
+}
+
+/// status.ICE_RELEASE_WALK = client16635_route_kept (client 16.635, parity r98, the oracle's il-mg-16635 set: 107 of 107 ground
+/// units let go with a route stepped at its next waypoint; 64 of 64 whose engine replanned walked the route they held): on
+/// the cube's last frame + 2 the Knight walks the route it held toward the Giant (-x, its route's goal unchanged); under
+/// replans (the vacuity check) it plans afresh toward blue's King at (9000, 3000) (-y). Plant: ice_release_replans.
+#[test]
+fn under_client16635_route_kept_a_let_go_knight_walks_its_held_route() {
+    let step = |a: Vec2, b: Vec2| (native(b).0 - native(a).0, native(b).1 - native(a).1);
+    let (held, l0, l1, g, route_g) = let_go(IceReleaseWalk::Replans, (6000, 13000), false);
+    assert!(!held.is_empty(), "the scene drifted: the frozen Knight holds no route");
+    assert_eq!(l1, l0, "the Knight still stands on the cube's last frame + 1");
+    let v = step(l1, g);
+    assert!(v.1 <= -30 && v.0.abs() < v.1.abs(), "replans (the vacuity check): toward the King, not the held route: {v:?}");
+    assert_ne!(route_g.last(), held.last(), "replans: a fresh plan (another goal)");
+    for arm in [IceReleaseWalk::Client16635RouteKept, IceReleaseWalk::Client16635RouteKeptFliersToo] {
+        let (held, l0, l1, g, route_g) = let_go(arm, (6000, 13000), false);
+        assert_eq!(l1, l0, "{arm:?}: the Knight still stands on the cube's last frame + 1");
+        let v = step(l1, g);
+        assert!(v.0 <= -30 && v.1.abs() < v.0.abs(), "{arm:?}: along the held route toward the Giant: {v:?}");
+        assert_eq!(route_g.last(), held.last(), "{arm:?}: no replan (the route's goal kept)");
+    }
+}
+
+#[test]
+fn the_shipped_arm_is_replans() {
+    assert_eq!(royalesim::state::Calib::shipped().ice_release_walk, IceReleaseWalk::Replans);
 }

@@ -466,6 +466,22 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.TROOP_SPLASH_CROWN_REACH = disc: unread on client 15.535.29.
 ///   placement.BUILDING_TERRITORY = own_half: unread on client 15.535.29 (no building tapped past the river).
 ///   movement.GROUNDED_FLIER_BODY = air_layer: unread on client 15.535.29 (its Vines scenes caught no flier over a ground unit).
+///   spells.REROLL_LOG_FIRST_HIT = next_tick: unread on client 15.535.29 (its one re-roll scene, sp-form-BarbLog-hero-s0,
+///   was read for the slide and the ride, not the log's hits).
+///   spawner.CONTAINER_SLIDE_END = ring_point: unread on client 15.535.29.
+///   targeting.CONTAINER_RING_RANK = none: unread on client 15.535.29.
+///   combat.SPIN_BLOWS = after_move: client 15.535.29's own: sp-form-Valkyrie-hero-s0's blows on P + 1 + 5k, its begin.
+///   combat.SPIN_CHAIN_END = ends: unread on client 15.535.29 (its scene's chain reached its last target on the spin's last
+///   link).
+///   combat.SPIN_TARGETS = troops: unread on client 15.535.29 (its spin scene had troops alone in the circle).
+///   status.ICE_RELEASE_WALK = replans: unread on client 15.535.29 (no Hero Ice Wizard there).
+///   status.ICE_CUBE_ATTRACT = unpulled: unread on client 15.535.29 (no Hero Ice Wizard there).
+///   hide.DRILL_UNDER_HELD = kept: unread on client 15.535.29 (sp-f4-drill-s0's hide had a shot in flight, no holder).
+///   combat.SURGE_SECOND_BOLT = nearest_each_hit: no Hero Electro Wizard on client 15.535.29.
+///   knockback.CREATION_STEP_OFFSET = unrotated: 15.535 turns these steps through knockback.COMBO_PUSHBACK =
+///   client15535_ladder_armed_at_hit and COMBO_STEP_OFFSET = client15535_held_offset.
+///   combat.DASH_STUN = ends_where_it_stands: unread on client 15.535.29 (no jump a hold caught).
+///   combat.DASH_STAND_STUN_HOLD = ends: unread on client 15.535.29 (no stand a hold caught).
 ///   spawner.DEATH_SLIDE_TARGET = held_to_slide_end: unread on client 15.535.29.
 ///   status.SHOT_AREA_ATTRACT_ONSET = as_cast_area: client 15.535.29 runs status.ATTRACT_ONSET = client_next_tick, where
 ///   the arms agree.
@@ -818,6 +834,19 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.ICE_CUBE_HERO_DEATH", "\"cube_comes\""),
     ("status.SHOT_AREA_ATTRACT_ONSET", "\"as_cast_area\""),
     ("spawner.DEATH_SLIDE_TARGET", "\"held_to_slide_end\""),
+    ("combat.DASH_STAND_STUN_HOLD", "\"ends\""),
+    ("combat.DASH_STUN", "\"ends_where_it_stands\""),
+    ("knockback.CREATION_STEP_OFFSET", "\"unrotated\""),
+    ("combat.SURGE_SECOND_BOLT", "\"nearest_each_hit\""),
+    ("hide.DRILL_UNDER_HELD", "\"kept\""),
+    ("status.ICE_CUBE_ATTRACT", "\"unpulled\""),
+    ("status.ICE_RELEASE_WALK", "\"replans\""),
+    ("combat.SPIN_TARGETS", "\"troops\""),
+    ("combat.SPIN_CHAIN_END", "\"ends\""),
+    ("combat.SPIN_BLOWS", "\"after_move\""),
+    ("targeting.CONTAINER_RING_RANK", "\"none\""),
+    ("spawner.CONTAINER_SLIDE_END", "\"ring_point\""),
+    ("spells.REROLL_LOG_FIRST_HIT", "\"next_tick\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

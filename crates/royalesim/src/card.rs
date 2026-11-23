@@ -1487,6 +1487,9 @@ pub struct IceCubeDef {
     pub after: BuffApply,
     pub on_kill: bool,
     pub on_death: bool,
+    /// The cube's row Speed, native a tick (its walk is zeroed: NO_MOVE_ALLOW_ATTRACT): a pull's base under
+    /// status.ICE_CUBE_ATTRACT = client16635_row_speed.
+    pub pull_speed: i32,
 }
 
 /// THE ICE CUBE'S CLOCK (`IceCubeDef`), the table values the live timings were measured on; the loader refuses others:
@@ -1995,8 +1998,9 @@ pub const SIEGE_RESET_HOLD_TICKS: i32 = 2;
 /// level ladder (204 at 16) every 10 ticks, each crown tower bolt halved through P+63; a swing begun on P+61 hit on P+64
 /// with the surge's damage and no crown share; the recovery P+65..P+74 held the attack alone (the hero walked), a fresh
 /// normal swing from P+75. The 16.402 entry holds each surge swing 500 ms first (AttackStartDelay), which loads only
-/// where it is 0 (client 16.635), so the 16.402 tables keep refusing the form. Read and not run: the entry's remembered
-/// targets (no recording separates it) and the hero's spawn instant hit (measured on client 16.635: it never fired).
+/// where it is 0 (client 16.635), so the 16.402 tables keep refusing the form. `remember`, the entry's remembered targets,
+/// is run by combat.SURGE_SECOND_BOLT = client16635_remembered (state.rs `surge_bolts`). Read and not run: the hero's spawn
+/// instant hit (measured on client 16.635: it never fired).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SurgeDef {
     pub buff: BuffApply,
@@ -2006,6 +2010,8 @@ pub struct SurgeDef {
     pub no_attack_ms: i32,
     pub root: BuffApply,
     pub root_range: i32,
+    /// The entry's CustomRememberMultipleTargets (16.635: on): its hits remember what they reached (combat.SURGE_SECOND_BOLT).
+    pub remember: bool,
 }
 
 /// THE POWER SHOT (the Hero Magic Archer's AttackSequenceList entry 1; combat.rs `fire`, `power_copies`): `middle` is
@@ -14766,6 +14772,8 @@ impl CardDb {
                 if !self.rarities.iter().any(|r| r.name == u.rarity) {
                     return Err(format!("{what}: units.{name}: rarity {} not in rarities.csv", u.rarity));
                 }
+                // its row Speed, kept for a pull (status.ICE_CUBE_ATTRACT): the raw column, native a tick
+                let pull_speed = u.speed;
                 // NO_MOVE_ALLOW_ATTRACT: it stands where it is put. PLANT ice_cube_walks: its Speed 40 walks.
                 #[cfg(not(clash_plant = "ice_cube_walks"))]
                 {
@@ -14799,6 +14807,7 @@ impl CardDb {
                     after,
                     on_kill: e.on_kill == Some(true),
                     on_death: e.on_death == Some(true),
+                    pull_speed,
                 })
             }
             // THE SURGE (the Hero Electro Wizard's; `SurgeDef`): two own buffs, the entry's damage and stun, the recovery.
@@ -14831,7 +14840,7 @@ impl CardDb {
                 if c.attack_buff.is_none() {
                     return Err(format!("{what}: a surge's stun with no BuffOnDamage on the row"));
                 }
-                let _ = (e.remember_targets, e.spawn_instant_range_milli); // read, not run (`SurgeDef`)
+                let _ = e.spawn_instant_range_milli; // read, not run (`SurgeDef`)
                 AbilityEffect::Surge(SurgeDef {
                     buff,
                     rate: BuffApply { buff: rate, time_ms: buff.time_ms },
@@ -14840,6 +14849,7 @@ impl CardDb {
                     no_attack_ms: time(e.recovery_no_attack_ms, "recovery hold")?,
                     root: BuffApply { buff: root, time_ms: time(e.recovery_root_ms, "recovery root")? },
                     root_range: milli(time(e.recovery_root_range_milli, "root range")?),
+                    remember: e.remember_targets == Some(true),
                 })
             }
             other => return Err(format!("{what}: effect {other} is not simulated")),

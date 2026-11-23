@@ -512,10 +512,24 @@ pub fn acts_on_last_deploy_tick(calib: &Calib, e: &Entities, i: usize, hides: bo
 pub fn held_through_hide(calib: &Calib) -> bool {
     // PLANT (regression) held_tesla_dropped: the new arm still drops a held Tesla when it goes under.
     #[cfg(not(clash_plant = "held_tesla_dropped"))]
-    let on = calib.hide_held_through == crate::state::HeldThroughHide::Client16402Kept;
+    let on = matches!(calib.hide_held_through, crate::state::HeldThroughHide::Client16402Kept | crate::state::HeldThroughHide::Client16635BuildingsOnlyKept);
     #[cfg(clash_plant = "held_tesla_dropped")]
     let on = false;
     on
+}
+
+/// hide.DRILL_UNDER_HELD = client16635_dropped: is `c` an Evo Goblin Drill's building under ground, which no holder keeps?
+/// Measured on client 16.635 (parity r98, the oracle's il-mg-16635 set: 62 of 62 holders had let it go by the under tick + 1,
+/// 34 on it exactly; the engine kept 62 of 62: 883c1ff8 t2292, 5a9ad3e2 t1768, 2ae53297 t1956 its first divergences). The hide
+/// is drill_pass's in Resolve, so the first Target phase after it is the under tick + 1. PLANT (regression)
+/// drill_under_held_kept: the new arm still keeps it as a Tesla.
+#[inline]
+pub fn drill_under_dropped(ctx: &TargetCtx, c: usize) -> bool {
+    #[cfg(not(clash_plant = "drill_under_held_kept"))]
+    let on = ctx.calib.drill_under_held == crate::state::DrillUnderHeld::Client16635Dropped;
+    #[cfg(clash_plant = "drill_under_held_kept")]
+    let on = false;
+    on && ctx.ents.hide[c] == HideState::Hidden && ctx.cards.get(ctx.ents.card[c]).evo.as_ref().is_some_and(|v| v.drill.is_some())
 }
 
 /// Can attacker `a` ever target `c` (ignoring distance)? `keeping` is true when `c` is `a`'s current
@@ -529,7 +543,7 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     // hide.HELD_THROUGH_HIDE = client16402_kept: a kept target that goes under stays one (`decide` says who keeps it); a
     // scan's candidate under ground never is.
     #[cfg(not(clash_plant = "hidden_targetable"))]
-    if hidden_from_targeting(ctx.calib, e, c) && !(keeping && held_through_hide(ctx.calib)) {
+    if hidden_from_targeting(ctx.calib, e, c) && !(keeping && held_through_hide(ctx.calib) && !drill_under_dropped(ctx, c)) {
         return false;
     }
     // targeting.INVISIBILITY = client_until_hit: an invisible unit (the Royal Ghost) is nobody's target, a kept one
@@ -1043,7 +1057,7 @@ fn knocked_lets_go(ctx: &TargetCtx, a: usize, ti: usize) -> bool {
 
 /// Attacker a's sight radius toward candidate c.
 #[inline]
-fn sight_toward(ctx: &TargetCtx, a: usize, c: usize) -> i32 {
+pub(crate) fn sight_toward(ctx: &TargetCtx, a: usize, c: usize) -> i32 {
     let e = ctx.ents;
     let mut s = ctx.cards.get(e.card[a]).sight_range;
     match ctx.reading {
@@ -1063,6 +1077,10 @@ fn sight_toward(ctx: &TargetCtx, a: usize, c: usize) -> i32 {
     }
     s
 }
+
+/// targeting.CONTAINER_RING_RANK = client16635_ring_index_80: member i of a container's ring ranks (STEP x i)^2 native^2
+/// nearer (`key`).
+pub const CONTAINER_RING_RANK_STEP: i32 = 80;
 
 /// The mirror-symmetric preference key. Smaller is better.
 ///
@@ -1089,7 +1107,23 @@ fn key(ctx: &TargetCtx, a: usize, c: usize) -> (i64, i32, i32, u32) {
     #[cfg(clash_plant = "rank_centre_minus_radius")]
     let by_centre = false; // PLANT (regression): client16402_centre still ranks by centre minus the candidate's radius.
     let edge = if by_centre {
-        d2
+        // targeting.CONTAINER_RING_RANK = client16635_ring_index_80: member i of a container's ring (Entities::ring_rank,
+        // state.rs `release_fuse_end`) ranks as if (80 i)^2 native^2 nearer, floored at 0; member 0 and every other unit as
+        // before. Measured on client 16.635 (parity r98, the oracle's il-mg-16635 set: 13 of 13 picks of a farther Skeleton
+        // Barrel ring member took the higher-index one; 0 of 856 agreed picks against). The sight test (`scan_with`) reads
+        // the plain distance. PLANT (regression) ring_rank_unread: the new arm still ranks the members by their plain
+        // distance.
+        #[cfg(not(clash_plant = "ring_rank_unread"))]
+        let cut = match e.ring_rank.get(c).copied() {
+            Some(r) if r != 0 && ctx.calib.container_ring_rank == crate::state::ContainerRingRank::Client16635RingIndex80 => {
+                let q = i64::from(CONTAINER_RING_RANK_STEP * crate::fixed::SUBTILE_PER_MILLITILE) * i64::from(r);
+                q * q
+            }
+            _ => 0,
+        };
+        #[cfg(clash_plant = "ring_rank_unread")]
+        let cut = 0i64;
+        (d2 - cut).max(0)
     } else if ctx.calib.add_character_range_to_radius {
         (centre - e.radius[c]) as i64
     } else {
@@ -1451,7 +1485,8 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
         // hide.HELD_THROUGH_HIDE = client16402_kept: a current target under ground is judged as one being kept, whatever
         // keeps_fired (the doomed target's exemption) says, so the keep below decides it: a walking Giant out of its keep
         // reach keeps a Tesla gone under.
-        let held_hidden = e.is_alive(t) && held_through_hide(ctx.calib) && hidden_from_targeting(ctx.calib, e, t.index as usize);
+        let held_hidden =
+            e.is_alive(t) && held_through_hide(ctx.calib) && hidden_from_targeting(ctx.calib, e, t.index as usize) && !drill_under_dropped(ctx, t.index as usize);
         let targetable = e.is_alive(t) && can_target(ctx, a, t.index as usize, held_hidden || keeps_fired(ctx, a, t.index as usize));
         // targeting.MINIMUM_RANGE = client16402_edge_distance: a target inside the attacker's MinimumRange is dropped
         // on this tick with its swing cancelled (idle, progress 0), as a lost target and not a kill, so no post-kill
@@ -1462,9 +1497,16 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
             // hide.HELD_THROUGH_HIDE = client16402_kept: a current target under ground is kept by a melee or buildings-only
             // walker, and by a projectile attacker within its keep reach; a projectile attacker past it lets it go (the
             // rescan below finds no building under ground).
-            if held_through_hide(ctx.calib) && hidden_from_targeting(ctx.calib, e, ti) {
+            if held_through_hide(ctx.calib) && hidden_from_targeting(ctx.calib, e, ti) && !drill_under_dropped(ctx, ti) {
                 let keep = card.range + ctx.calib.range_extension_to_keep_target;
-                if card.projectile.is_none() || in_attack_range(ctx.calib, e.pos[a], keep, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
+                // hide.HELD_THROUGH_HIDE = client16635_buildings_only_kept: a buildings-only attacker keeps it whatever its reach
+                // (client 16.635, parity r98: 95de05e8 t500, a Minion Giant 7673 off kept a Tesla all 15 hidden frames).
+                // PLANT (regression) bonly_shooter_drops_hidden_tesla: the new arm's buildings-only shooter still lets it go.
+                #[cfg(not(clash_plant = "bonly_shooter_drops_hidden_tesla"))]
+                let bonly = ctx.calib.hide_held_through == crate::state::HeldThroughHide::Client16635BuildingsOnlyKept && card.target_only_buildings;
+                #[cfg(clash_plant = "bonly_shooter_drops_hidden_tesla")]
+                let bonly = false;
+                if card.projectile.is_none() || bonly || in_attack_range(ctx.calib, e.pos[a], keep, keep_own_radius(ctx, a, card), e.pos[ti], e.radius[ti]) {
                     return TargetDecision { target: Some(t), cancel_attack: false, resumed: false, chase_dropped: None };
                 }
                 return TargetDecision { target: scan(ctx, a, scratch), cancel_attack: cancel, resumed: false, chase_dropped: None };

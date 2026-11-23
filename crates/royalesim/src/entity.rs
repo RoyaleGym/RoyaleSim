@@ -552,6 +552,18 @@ pub struct Entities {
     /// empty, so a battle under the old arm saves and hashes as before; hashed per unit only when not 0.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dash_stand_ms: Vec<i32>,
+    /// combat.DASH_STAND_STUN_HOLD = client16635_stand_kept_while_held: a stand a hold caught, paused (its dash_stand_ms kept)
+    /// until the unit next holds a target unheld. Empty until that arm first runs (sized then, by `phase_path16402_for`),
+    /// `default` and skipped when empty, so a battle under the old arm saves and hashes as before; hashed per unit only when
+    /// true.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dash_paused: Vec<bool>,
+    /// targeting.CONTAINER_RING_RANK = client16635_ring_index_80: a container ring member's place in its ring (0..count in
+    /// creation order; state.rs `release_fuse_end` through PendingSpawn::ring_rank), which target.rs `key` reads. Empty
+    /// until that arm releases a ranked member (sized then, `BattleState::set_ring_rank`), `default` and skipped when
+    /// empty, so a battle under the old arm saves and hashes as before; hashed per unit only when not 0.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ring_rank: Vec<u8>,
     #[serde(default)]
     pub dash_goal: Vec<Vec2>,
     #[serde(default)]
@@ -1099,6 +1111,12 @@ impl Entities {
             if let Some(v) = self.dash_stand_ms.get_mut(i) {
                 *v = 0;
             }
+            if let Some(v) = self.dash_paused.get_mut(i) {
+                *v = false;
+            }
+            if let Some(v) = self.ring_rank.get_mut(i) {
+                *v = 0;
+            }
             self.dash_goal[i] = Vec2::default();
             self.dash_target[i] = None;
             self.dash_blocked[i] = false;
@@ -1322,6 +1340,12 @@ impl Entities {
         self.dash_state[i] = DashState::None;
         self.dash_mark[i] = 0;
         if let Some(v) = self.dash_stand_ms.get_mut(i) {
+            *v = 0;
+        }
+        if let Some(v) = self.dash_paused.get_mut(i) {
+            *v = false;
+        }
+        if let Some(v) = self.ring_rank.get_mut(i) {
             *v = 0;
         }
         self.dash_goal[i] = Vec2::default();

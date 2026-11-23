@@ -39,12 +39,15 @@
 //!   reach_loss_combo_kept              the new arm counts a re-picked or held knocked target as kept: (6) goes red.
 //!   reach_loss_combo_in_reach_taken    the new arm takes an enemy already in the Monk's reach at once: (7) goes red.
 //!   combo_step_unrotated               knockback.COMBO_STEP_OFFSET's new arm takes no rotation on the hit's tick: (8) goes red.
+//!   creation_turn_unmarked             knockback.CREATION_STEP_OFFSET's new arm turns the combo push too: (9) goes red.
 mod common;
 
 use common::*;
 use royalesim::entity::AttackPhase;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AttackCombo, BattleConfig, BattleState, Calib, ComboPushback, ComboStepOffset, RetargetWaitReachLoss, VariableDamageWalkReach};
+use royalesim::state::{
+    AttackCombo, BattleConfig, BattleState, Calib, ComboPushback, ComboStepOffset, CreationStepOffset, RetargetWaitReachLoss, VariableDamageWalkReach,
+};
 use royalesim::{EntityId, Team};
 
 const ME_AT: (i32, i32) = (3500, 9000);
@@ -377,4 +380,42 @@ fn a_combo_hits_first_step_turns_by_the_victims_held_offset_under_client15535_he
     // NOT VACUOUS: unrotated steps straight away.
     let (dx, dy) = third_hit_step(ComboStepOffset::Unrotated);
     assert!(dx.abs() <= 3 && (240..=252).contains(&dy), "unrotated: the step is not straight away from the Monk ({dx}, {dy})");
+}
+
+/// (9) knockback.CREATION_STEP_OFFSET = client16635_start_offset turns a fresh shot's creation-tick knock alone (state.rs
+/// Scratch::creation_steps): the Knight scene under the shipped COMBO_PUSHBACK (client15535_ladder_from_attacker_hit_tick, the
+/// push stepped on the hit's tick) and COMBO_STEP_OFFSET's old arm, the Knight's avoidance offset held at -170 at every tick's
+/// start until the third hit, CREATION_STEP_OFFSET = `turn`: the hit tick's move, native.
+fn third_hit_step_under_creation_turn(turn: CreationStepOffset) -> (i64, i64) {
+    let mut cfg = cfg_with(AttackCombo::SequenceAcrossTargets, ComboPushback::LadderFromAttackerHitTick, DRAGON_ONLY_REACH);
+    cfg.calib.combo_step_offset = ComboStepOffset::Unrotated;
+    cfg.calib.creation_step_offset = turn;
+    let (mut s, _monk, reds) = scene(cfg, "Monk", &[("Knight", (3500, 11000))]);
+    let knight = reds[0];
+    for _ in 0..160 {
+        assert!(s.debug_set_avoid_offset(knight, -170));
+        let (hp, at) = {
+            let k = s.entity(knight).expect("the Knight lives");
+            (k.hp, k.pos)
+        };
+        s.tick();
+        let k = s.entity(knight).expect("the Knight lives");
+        if hp - k.hp == 422 {
+            return (((k.pos.x - at.x) / K) as i64, ((k.pos.y - at.y) / K) as i64);
+        }
+    }
+    panic!("{turn:?}: the scene drifted: no third hit");
+}
+
+/// Plant: creation_turn_unmarked.
+#[test]
+fn under_client16635_start_offset_the_monks_combo_push_is_not_turned() {
+    let (dx, dy) = third_hit_step_under_creation_turn(CreationStepOffset::Unrotated);
+    let len = isqrt(dx * dx + dy * dy);
+    assert!((200..=300).contains(&len), "the scene drifted: the hit tick's move is not a first ladder step ({dx}, {dy})");
+    assert_eq!(
+        third_hit_step_under_creation_turn(CreationStepOffset::Client16635StartOffset),
+        (dx, dy),
+        "client16635_start_offset: the combo push's first step turned (the Knight holds -170)"
+    );
 }

@@ -17,7 +17,8 @@
 //!   - surge_never, surge_damage_unread -> `a_press_bolts_a_pair_every_10_ticks_at_its_damage` red;
 //!   - surge_stun_unread -> `its_bolts_stun_100_ms_longer_than_the_rows` red;
 //!   - surge_never_ends, surge_recovery_unheld -> `the_recovery_holds_his_attack_10_ticks_from_p_plus_65` red (its attack clock);
-//!   - surge_swing_kept -> `the_swing_in_flight_is_dropped_at_the_end` red.
+//!   - surge_swing_kept -> `the_swing_in_flight_is_dropped_at_the_end` red;
+//!   - surge_second_nearest -> `under_client16635_remembered_the_second_bolt_keeps_its_last_enemy` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -25,7 +26,7 @@ use common::*;
 use royalesim::card::{AbilityEffect, CardDb, SurgeDef, FORM_HERO};
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CardTable};
+use royalesim::state::{BattleConfig, BattleState, CardTable, SurgeSecondBolt};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["ElectroWizard", "Knight", "Archer", "Giant", "Musketeer", "HogRider", "Fireball", "Zap"];
@@ -53,6 +54,11 @@ fn surge(db: &CardDb) -> SurgeDef {
 /// A battle on 16.635's table, blue's deck holding the hero form, both sides at LEVEL, blue's princess towers down so no
 /// crown tower of blue's reaches a red unit in the scene.
 fn battle() -> BattleState {
+    battle_with(|_| {})
+}
+
+/// `battle()` with `f` applied to its config first.
+fn battle_with(f: impl FnOnce(&mut BattleConfig)) -> BattleState {
     let mut cfg = BattleConfig::with_cards(db());
     cfg.calib.card_table = CardTable::Client160635007Nov03;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
@@ -60,6 +66,7 @@ fn battle() -> BattleState {
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
     cfg.card_level = [LEVEL, LEVEL];
     cfg.tower_level = [LEVEL, LEVEL];
+    f(&mut cfg);
     let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
     // Past the battle's opening lockout, so the button can be pressed once the hero stands (as tests/hero_wizard.rs).
     let lockout = s.config().calib.deploy_lockout_ticks as u32;
@@ -240,4 +247,89 @@ fn a_crown_tower_takes_half_of_each_bolt() {
     for (k, d) in &surge {
         assert!((d - bolt).abs() <= 1, "P + {k}: two bolts at half on a crown tower ({d} against one bolt's {bolt})");
     }
+}
+
+/// The damage three red Knights A, B and C took on each surge hit of the remembered-bolt scene under combat.SURGE_SECOND_BOLT =
+/// `arm`: A on (9000, 12000), 3,000 off (his target); B on (11500, 12000), 3,905 off; C parked on (2000, 9000), 7,000 off,
+/// past his sight reach. f1, the first frame from P + 9 on which B took damage, is the first surge pair (A one bolt, B one):
+/// from f1 + 1 C stands on (7000, 12000), 3,606 off, nearer than B; after the next two surge hits (`two`) B stands on
+/// (14000, 12500), 6,103 off, past his attack reach of 6,000 and inside his sight reach of 6,500, for the hit after (`out`).
+/// Each Knight is held and topped up every tick. (the bolt's damage, two, out)
+fn remembered(arm: SurgeSecondBolt) -> (i32, Vec<[i32; 3]>, [i32; 3]) {
+    let mut s = battle_with(|c| c.calib.surge_second_bolt = arm);
+    let (a_at, b_at, c_park, c_near, b_far) = ((9000, 12000), (11500, 12000), (2000, 9000), (7000, 12000), (14000, 12500));
+    for p in [a_at, b_at, c_park] {
+        s.spawn_unit_resolved(Team::Red, "Knight", n(p.0, p.1), None).expect("a Knight");
+    }
+    s.spawn_unit(Team::Blue, HERO, n(AT.0, AT.1), None).expect("the hero");
+    s.tick();
+    let knights: Vec<EntityId> = [a_at, b_at, c_park]
+        .iter()
+        .map(|p| s.entities().filter(|e| e.team == Team::Red && e.card == "Knight").min_by_key(|e| e.pos.dist2(n(p.0, p.1))).expect("a Knight").id)
+        .collect();
+    let hero: EntityId = find_live(&s, Team::Blue, HERO)[0].id;
+    let top = s.entity(knights[0]).expect("A").max_hp;
+    let mut at = [a_at, b_at, c_park];
+    let hold = |s: &mut BattleState, at: &[(i32, i32); 3]| {
+        assert!(s.debug_set_pos(hero, n(AT.0, AT.1)));
+        for (k, p) in knights.iter().zip(at.iter()) {
+            assert!(s.debug_set_pos(*k, n(p.0, p.1)) && s.debug_set_hp(*k, top));
+        }
+    };
+    for _ in 0..40 {
+        hold(&mut s, &at);
+        s.tick();
+    }
+    hold(&mut s, &at);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut bolt, mut two, mut out) = (None, Vec::new(), None);
+    for k in 0..64usize {
+        hold(&mut s, &at);
+        s.tick();
+        let d: Vec<i32> = knights.iter().map(|id| top - s.entity(*id).expect("a Knight").hp).collect();
+        let d = [d[0], d[1], d[2]];
+        if bolt.is_none() {
+            if k >= 9 && d[1] > 0 {
+                bolt = Some(d[1]);
+                at[2] = c_near;
+            }
+        } else if two.len() < 2 {
+            if d[0] > 0 {
+                two.push(d);
+                if two.len() == 2 {
+                    at[1] = b_far;
+                }
+            }
+        } else if d[0] > 0 {
+            out = Some(d);
+            break;
+        }
+    }
+    let bolt = bolt.expect("the scene drifted: no surge pair on B from P + 9");
+    (bolt, two, out.expect("the scene drifted: no surge hit after B left his attack reach"))
+}
+
+/// combat.SURGE_SECOND_BOLT = client16635_remembered (client 16.635, parity r98, the oracle's il-mg-16635 set: 3 of 3 surge hits
+/// with a nearer enemy kept the remembered one): once B has taken a surge bolt, the next two hits keep B though C stands nearer;
+/// with B past his attack reach and inside his sight, the hit after puts both bolts on A. Under nearest_each_hit (the vacuity
+/// check) C takes them, then C again. Plant: surge_second_nearest.
+#[test]
+fn under_client16635_remembered_the_second_bolt_keeps_its_last_enemy() {
+    let (bolt, two, out) = remembered(SurgeSecondBolt::NearestEachHit);
+    assert_eq!(two.len(), 2, "the scene drifted: two surge hits after the first pair");
+    for d in &two {
+        assert_eq!(*d, [bolt, 0, bolt], "nearest_each_hit (the vacuity check): C, the nearer, takes the second bolt");
+    }
+    assert_eq!(out, [bolt, 0, bolt], "nearest_each_hit: with B out of reach C takes the second bolt");
+    let (bolt2, two, out) = remembered(SurgeSecondBolt::Client16635Remembered);
+    assert_eq!(bolt2, bolt, "the same bolt under both arms");
+    for d in &two {
+        assert_eq!(*d, [bolt, bolt, 0], "client16635_remembered: B, remembered, keeps the second bolt over the nearer C");
+    }
+    assert_eq!(out, [2 * bolt, 0, 0], "client16635_remembered: B in sight, out of reach: the bolt falls on A");
+}
+
+#[test]
+fn the_shipped_arm_is_nearest_each_hit() {
+    assert_eq!(royalesim::state::Calib::shipped().surge_second_bolt, SurgeSecondBolt::NearestEachHit);
 }

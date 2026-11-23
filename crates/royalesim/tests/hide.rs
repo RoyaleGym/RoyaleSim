@@ -43,6 +43,7 @@
 //! hide_despite_enemy_in_reach ->
 //! `under_the_shipped_rise_law_an_enemy_in_reach_at_the_waits_end_is_taken_without_going_under` red;
 //! held_tesla_dropped -> `under_client16402_kept_a_giant_keeps_a_tesla_that_goes_under` red.
+//! bonly_shooter_drops_hidden_tesla -> `under_client16635_buildings_only_kept_a_royal_giant_keeps_a_tesla_that_goes_under` red.
 
 mod common;
 
@@ -1020,12 +1021,17 @@ fn under_the_rising_phase_arm_a_knight_targets_a_rising_tesla_before_it_is_up() 
 /// and is out of the Tesla's wake reach), the Knight killed, under hide.HELD_THROUGH_HIDE = `arm`: per tick after the
 /// kill, (the Tesla under, the Giant's target is the Tesla).
 fn giant_on_a_hiding_tesla(arm: HeldThroughHide) -> Vec<(bool, bool)> {
+    holder_on_a_hiding_tesla(arm, "Giant")
+}
+
+/// `giant_on_a_hiding_tesla`'s scene with the red holder `card` held 7000 below the Tesla.
+fn holder_on_a_hiding_tesla(arm: HeldThroughHide, card: &str) -> Vec<(bool, bool)> {
     let mut s = bare(with_calib(|c| c.hide_held_through = arm));
     let at = Vec2::new(9 * SUBTILE, 12 * SUBTILE);
     let tesla = s.scenario_spawn_now(Team::Blue, "Tesla", at, None).expect("the Tesla");
     let knight = s.scenario_spawn_now(Team::Red, "Knight", Vec2::new(9 * SUBTILE, 14 * SUBTILE), None).expect("the Knight");
     let giant_at = Vec2::new(9 * SUBTILE, 19 * SUBTILE);
-    let giant = s.scenario_spawn_now(Team::Red, "Giant", giant_at, None).expect("the Giant");
+    let giant = s.scenario_spawn_now(Team::Red, card, giant_at, None).expect("the holder");
     for _ in 0..40 {
         assert!(s.debug_set_pos(giant, giant_at));
         s.tick();
@@ -1052,6 +1058,24 @@ fn under_client16402_kept_a_giant_keeps_a_tesla_that_goes_under() {
     assert!(kept.iter().filter(|r| r.0).all(|r| r.1), "client16402_kept: the Giant let the Tesla go under ground: {kept:?}");
     let dropped = giant_on_a_hiding_tesla(HeldThroughHide::Dropped);
     assert!(dropped.iter().any(|r| r.0 && !r.1), "dropped (the vacuity check): the Giant kept it: {dropped:?}");
+}
+
+/// hide.HELD_THROUGH_HIDE = client16635_buildings_only_kept (client 16.635, parity r98, the oracle's il-mg-16635 set: 95de05e8
+/// t500, a Minion Giant 7673 off kept a Tesla all 15 hidden frames): a Royal Giant held 7000 below the Tesla (its keep reach
+/// 5000 + 25 + its radius and the Tesla's, 6275, short of it) keeps the Tesla on every tick it is under; under
+/// client16402_kept (the vacuity check) it lets it go on some hidden tick; the Giant (a melee walker) keeps it under both.
+/// Plant: bonly_shooter_drops_hidden_tesla.
+#[test]
+fn under_client16635_buildings_only_kept_a_royal_giant_keeps_a_tesla_that_goes_under() {
+    let new = holder_on_a_hiding_tesla(HeldThroughHide::Client16635BuildingsOnlyKept, "RoyalGiant");
+    assert!(new.iter().any(|r| r.0), "precondition: the Tesla went under: {new:?}");
+    assert!(new.iter().filter(|r| r.0).all(|r| r.1), "client16635_buildings_only_kept: the Royal Giant let the Tesla go: {new:?}");
+    let old = holder_on_a_hiding_tesla(HeldThroughHide::Client16402Kept, "RoyalGiant");
+    assert!(old.iter().any(|r| r.0 && !r.1), "client16402_kept (the vacuity check): the Royal Giant kept it: {old:?}");
+    for arm in [HeldThroughHide::Client16402Kept, HeldThroughHide::Client16635BuildingsOnlyKept] {
+        let g = holder_on_a_hiding_tesla(arm, "Giant");
+        assert!(g.iter().filter(|r| r.0).all(|r| r.1), "{arm:?}: the Giant keeps it: {g:?}");
+    }
 }
 
 /// The ticks from a Red Zap's cast on `tesla` (up) to its damage: the first post-tick on which a zapped copy's hitpoints part

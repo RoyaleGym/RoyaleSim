@@ -1702,13 +1702,21 @@ pub fn fire(
                         // t814) was lost; the engine moved them a tick later and landed it. Every other knockback already steps on
                         // the client's tick. PLANT (regression) creation_knock_next_tick: the new arm still steps it next tick.
                         #[cfg(not(clash_plant = "creation_knock_next_tick"))]
-                        let at_once = calib.creation_hit_knock == CreationHitKnock::Client16635AtOnce;
+                        let at_once = matches!(calib.creation_hit_knock, CreationHitKnock::Client16635AtOnce | CreationHitKnock::Client16635AtOnceAnyAge);
                         #[cfg(clash_plant = "creation_knock_next_tick")]
                         let at_once = false;
+                        // knockback.CREATION_HIT_KNOCK = client16635_at_once_any_age: a victim created before the firer steps on
+                        // the hit's tick too (client 16.635, parity r98, the oracle's il-mg-16635 set: 3 of 3 boulder victims older
+                        // than the Bowler; 43 of 44 younger ones as client16635_at_once; 211 mid-flight hits a tick after in both).
+                        // PLANT (regression) creation_knock_younger_only: the new arm still steps only younger victims at once.
+                        #[cfg(not(clash_plant = "creation_knock_younger_only"))]
+                        let any_age = calib.creation_hit_knock == CreationHitKnock::Client16635AtOnceAnyAge;
+                        #[cfg(clash_plant = "creation_knock_younger_only")]
+                        let any_age = false;
                         if at_once {
                             for k in fx.knocks[knocks_from..].iter_mut() {
                                 if let crate::spell::Knock::Push { id, now, .. } = k {
-                                    if ents.creation_seq[id.index as usize] > ents.creation_seq[a] {
+                                    if any_age || ents.creation_seq[id.index as usize] > ents.creation_seq[a] {
                                         *now = true;
                                     }
                                 }

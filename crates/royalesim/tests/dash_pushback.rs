@@ -20,17 +20,21 @@
 //!   4. the shipped value is client16402_ladder_in_pass (client 15.535.29 keeps client_ladder_from_landing:
 //!      CLIENT15535_ARMS);
 //!   5. client16402_ladder_in_pass: a Knight made after the Mega Knight takes its first step on B, one made before him
-//!      on B + 1; client_ladder_from_landing leaves the later one still on B.
+//!      on B + 1; client_ladder_from_landing leaves the later one still on B;
+//!   6. knockback.CREATION_STEP_OFFSET = client16635_start_offset leaves the blow's first step unturned: (5)'s later Knight,
+//!      holding an avoidance offset of +100 until the blow, steps on B as under unrotated (state.rs Scratch::creation_steps).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test dash_pushback`):
 //!   * `dash_pushback_unapplied` -- no arm pushes anybody: (1) and (5) go red.
 //!   * `dash_blow_step_next_tick` -- client16402_ladder_in_pass still steps every victim on the next tick: (5) goes red.
+//!   * `creation_turn_unmarked` -- knockback.CREATION_STEP_OFFSET = client16635_start_offset turns the blow's first step:
+//!     (6) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, DashAttack, DashPushback};
+use royalesim::state::{BattleConfig, BattleState, CreationStepOffset, DashAttack, DashPushback};
 use royalesim::Team;
 
 fn with(arm: DashPushback) -> BattleConfig {
@@ -175,4 +179,48 @@ fn under_client16402_ladder_in_pass_a_victim_made_after_the_mega_knight_steps_on
     let (late_old, b0) = scene_ordered(DashPushback::ClientLadderFromLanding, false);
     let bo = blow_tick(&late_old, b0);
     assert_eq!(late_old[bo].1, 0, "client_ladder_from_landing: the Knight stepped on B: {:?}", &late_old[bo..bo + 3]);
+}
+
+/// (6) knockback.CREATION_STEP_OFFSET = client16635_start_offset turns a fresh shot's creation-tick knock alone (state.rs
+/// Scratch::creation_steps), not a jump blow: (5)'s scene with the Knight made after the Mega Knight under
+/// client16402_ladder_in_pass, its avoidance offset held at +100 at every tick's start until the blow, under
+/// CREATION_STEP_OFFSET = `turn`.
+fn scene_held_offset(turn: CreationStepOffset) -> (Vec<Row>, i32) {
+    let mut cfg = with(DashPushback::Client16402LadderInPass);
+    cfg.calib.creation_step_offset = turn;
+    let mut s = BattleState::new(0, cfg);
+    let m = s.scenario_spawn_now(Team::Blue, "MegaKnight", at(MK_FOR_KNIGHT), None).expect("the Mega Knight");
+    let v = s.scenario_spawn_now(Team::Red, "Knight", at(KNIGHT_AT), None).expect("the Knight");
+    let idx = s.cards().index("MegaKnight").expect("the Mega Knight is simulable");
+    let dash = s.cards().get(idx).dash.expect("the Mega Knight carries a dash block");
+    let blow = s.cards().scaled(idx, s.config().card_level[0], dash.damage).expect("a valid level");
+    let mut rows: Vec<Row> = Vec::new();
+    for _ in 0..90 {
+        let (Some(vv), Some(_)) = (s.entity(v), s.entity(m)) else { break };
+        let (v0, hp0) = (native(vv.pos), vv.hp);
+        if !rows.iter().any(|r| r.0 == blow) {
+            assert!(s.debug_set_avoid_offset(v, 100));
+        }
+        s.tick();
+        let (Some(vv), Some(mv)) = (s.entity(v), s.entity(m)) else { break };
+        let p = native(vv.pos);
+        let (dx, dy) = (p.0 - v0.0, p.1 - v0.1);
+        rows.push((hp0 - vv.hp, isqrt(dx * dx + dy * dy), native(mv.pos), p));
+    }
+    (rows, blow)
+}
+
+/// Plant: creation_turn_unmarked.
+#[test]
+fn under_client16635_start_offset_the_jump_blows_first_step_is_not_turned() {
+    let (old, b0) = scene_held_offset(CreationStepOffset::Unrotated);
+    let bo = blow_tick(&old, b0);
+    assert!((199..=201).contains(&old[bo].1), "the scene drifted: the Knight made after him does not step on B: {:?}", &old[bo..bo + 3]);
+    let (new, b1) = scene_held_offset(CreationStepOffset::Client16635StartOffset);
+    let bn = blow_tick(&new, b1);
+    assert_eq!(
+        (bn, &new[bn..bn + 3]),
+        (bo, &old[bo..bo + 3]),
+        "client16635_start_offset: the jump blow's first step turned (the Knight holds +100)"
+    );
 }

@@ -20,6 +20,7 @@
 //!   - drill_line_reads_hits -> `under_client16635_after_drain_before_hits_a_hits_crossing_goes_under_a_tick_later` red;
 //!   - drill_dig_stays -> `under_client16635_keeps_tower_distance_the_building_digs_round_the_tower` red.
 //!   - drill_ring_stays -> `under_client16635_princess_ring_the_building_walks_its_towers_ring` red.
+//!   - drill_under_held_kept -> `under_client16635_dropped_its_holders_let_the_dug_building_go_on_the_under_tick_plus_1` red.
 #![allow(unexpected_cfgs)]
 // THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
 // (common::config_pre_flip); each flipped key's own tests read both arms.
@@ -459,4 +460,60 @@ fn the_shipped_arm_is_client16635_princess_ring() {
         royalesim::state::DrillDigPoint::Client16635PrincessRing
     );
     assert_eq!(config().calib.drill_dig_point, royalesim::state::DrillDigPoint::Client16635PrincessRing);
+}
+
+/// Under hide.DRILL_UNDER_HELD = `arm` (and hide.HELD_THROUGH_HIDE = client16402_kept): a red Musketeer held 4,500 off and a red
+/// Knight held beside the building hold it; the building taken under (to its 66 % line) on U: (the Musketeer holds it, the
+/// Knight holds it) at the end of U and at the end of U + 1.
+fn dug_holders(arm: royalesim::state::DrillUnderHeld) -> ((bool, bool), (bool, bool)) {
+    let (mut s, d) = drill_battle(|c| {
+        c.calib.drill_under_held = arm;
+        c.calib.hide_held_through = royalesim::state::HeldThroughHide::Client16402Kept;
+    });
+    let (m_at, k_at) = (n(9000, 14500), n(9000, 11300));
+    let m = s.scenario_spawn_now(Team::Red, "Musketeer", m_at, None).expect("the Musketeer");
+    let k = s.scenario_spawn_now(Team::Red, "Knight", k_at, None).expect("the Knight");
+    let top = s.entity(d).expect("the building").max_hp;
+    let hold = |s: &mut BattleState| {
+        clear_blue_troops(s, &[]);
+        assert!(s.debug_set_pos(m, m_at) && s.debug_set_pos(k, k_at));
+    };
+    let mut both = false;
+    for _ in 0..60 {
+        hold(&mut s);
+        assert!(s.debug_set_hp(d, top));
+        s.tick();
+        if s.entity(m).and_then(|e| e.target) == Some(d) && s.entity(k).and_then(|e| e.target) == Some(d) {
+            both = true;
+            break;
+        }
+    }
+    assert!(both, "the scene drifted: the Musketeer and the Knight never both held the building");
+    let holds = |s: &BattleState| (s.entity(m).and_then(|e| e.target) == Some(d), s.entity(k).and_then(|e| e.target) == Some(d));
+    hold(&mut s);
+    assert!(s.debug_set_hp(d, 866));
+    s.tick();
+    assert_eq!(s.entity(d).expect("the building").hide_state, HideState::Hidden, "the scene drifted: it did not go under");
+    let at_u = holds(&s);
+    hold(&mut s);
+    s.tick();
+    (at_u, holds(&s))
+}
+
+/// hide.DRILL_UNDER_HELD = client16635_dropped (client 16.635, parity r98, the oracle's il-mg-16635 set: 62 of 62 holders had
+/// let a dug building go by the under tick + 1): both holders still hold it at the end of the under tick U (their Target phase
+/// ran before the hide) and neither on U + 1; under kept (the vacuity check) both still hold it on U + 1. Plant:
+/// drill_under_held_kept.
+#[test]
+fn under_client16635_dropped_its_holders_let_the_dug_building_go_on_the_under_tick_plus_1() {
+    let (u, u1) = dug_holders(royalesim::state::DrillUnderHeld::Kept);
+    assert_eq!((u, u1), ((true, true), (true, true)), "kept (the vacuity check): both keep it through U + 1");
+    let (u, u1) = dug_holders(royalesim::state::DrillUnderHeld::Client16635Dropped);
+    assert_eq!(u, (true, true), "client16635_dropped: both still hold it on U");
+    assert_eq!(u1, (false, false), "client16635_dropped: neither holds it on U + 1");
+}
+
+#[test]
+fn the_shipped_arm_is_kept() {
+    assert_eq!(royalesim::state::Calib::shipped().drill_under_held, royalesim::state::DrillUnderHeld::Kept);
 }
