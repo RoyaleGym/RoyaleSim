@@ -3,6 +3,44 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.56 (2026-11-23)
+
+- 15 more settings default to the current client's behaviour, each measured against its recorded battles (13 of the
+  settings are new, marked new):
+  - A Mega Knight caught mid-stand by a stun, a freeze or a Hero Ice Wizard's cube keeps the time he had already stood,
+    and jumps that much sooner once he can act again (`combat.DASH_STAND_STUN_HOLD`, new).
+  - A Mega Knight frozen or stunned in mid-jump finishes the jump and lands his blow; the hold takes effect where he
+    lands (`combat.DASH_STUN`, new).
+  - A Bowler's boulder that hits on the tick it is thrown moves every unit it hits on that same tick, including units
+    placed before the Bowler (`knockback.CREATION_HIT_KNOCK`).
+  - That first knockback step turns the way the hit unit was already steering around others
+    (`knockback.CREATION_STEP_OFFSET`, new).
+  - A Hero Electro Wizard's surge sends its second bolt to the enemy it last reached, not to whichever enemy is nearest
+    at that moment (`combat.SURGE_SECOND_BOLT`, new).
+  - Units attacking an Evo Goblin Drill's building let go of it as it goes underground (`hide.DRILL_UNDER_HELD`, new).
+  - Units that target only buildings keep attacking a building through its hide, whatever their reach
+    (`hide.HELD_THROUGH_HIDE`).
+  - A Tornado pulls a Hero Ice Wizard's cube along with everything else it pulls (`status.ICE_CUBE_ATTRACT`, new).
+  - A unit let go by a Hero Ice Wizard's cube walks on along the route it had before it was frozen; one with no route
+    stands still (`status.ICE_RELEASE_WALK`, new).
+  - A Hero Valkyrie's spin can begin on, and chain to, buildings and crown towers as well as troops
+    (`combat.SPIN_TARGETS`, new).
+  - When a Hero Valkyrie's spin has reached every enemy in its circle, it waits and begins again on the next enemy that
+    comes into the circle (`combat.SPIN_CHAIN_END`, new).
+  - A Hero Valkyrie's spin strikes from where she stood at the start of the tick, its first blow a tick after the spin
+    begins (`combat.SPIN_BLOWS`, new).
+  - When an attacker finds several members of a Skeleton Barrel ring at nearly the same distance, it picks the one with
+    the higher ring index (`targeting.CONTAINER_RING_RANK`, new).
+  - Skeleton Barrel ring members that would slide out past an arena side edge stop 250 inside it
+    (`spawner.CONTAINER_SLIDE_END`, new).
+  - A hero Barbarian Barrel's re-roll log hits the units it lands on during its first tick
+    (`spells.REROLL_LOG_FIRST_HIT`, new).
+- Two new values that are not defaults: `spells.REROLL_HIDE_WINDOW` `"client16635_holders_let_go_next_tick"` and
+  `status.ICE_RELEASE_WALK` `"client16635_route_kept_fliers_too"`.
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  keep the older client's values for its battles. A battle saved by 0.1.55 loads on 0.1.56: the new settings read their
+  old values from a save that lacks them.
+
 ## 0.1.55 (2026-11-19)
 
 - 12 more settings default to the current client's behaviour, each measured against its recorded battles (10 of the
