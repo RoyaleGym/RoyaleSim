@@ -57,6 +57,10 @@
 //!  19. a container a unit covers bursts where the contact law pushes it, its members' slides ending around its own
 //!      point (spawner.CONTAINER_BURST_PUSH = client15535_contact_push) -- container_burst_unpushed,
 //!      container_slide_from_pushed.
+//!  20. under spawner.CONTAINER_BURST_PUSH = client16635_member_body a container bursts as one of its members standing
+//!      on its point (a Skeleton's radius 500 and mass 1): two Skeletons, one past its own radius, average their
+//!      pushes, on both seats, and a Cannon past its radius pushes it; the slides still end around its own point --
+//!      burst_body_unread.
 //!
 //! THE SCENES. A barrel is put down with `scenario_spawn_now` and killed with `debug_set_hp` on the next tick (T); C is
 //! read off its container's spell, since a barrel with no building in reach moves on that tick. Victims are played
@@ -773,4 +777,192 @@ fn a_container_burst_on_the_river_keeps_its_members_in_its_cell_under_client1553
     let (old, cell_old) = wet_ring(royalesim::state::ContainerRingWater::EjectNearestLand);
     assert_eq!(cell_old, cell, "the scene drifted between the arms");
     assert!(!old.iter().all(inside), "eject_nearest_land: every member stayed in the cell: {old:?}");
+}
+
+// ---------------------------------------------------------------------------
+// (20) the burst as one of its members (spawner.CONTAINER_BURST_PUSH = client16635_member_body)
+
+/// One burst scene read on T + 12 (`burst_scene`): C, the members' offsets from C in creation order, their slide ends,
+/// and each held unit's (point, CollisionRadius (native), loaded Mass).
+struct Burst {
+    c: Vec2,
+    offsets: Vec<(i32, i32)>,
+    ends: Vec<Vec2>,
+    units: Vec<(Vec2, i32, i32)>,
+}
+
+/// Under spawner.CONTAINER_BURST_PUSH = `arm`: a `team` barrel killed at `p`. With `play`, a `team` Skeletons card is
+/// played there a tick before, so its three Skeletons deploy (and stand still) through T + 12; they are held at C +
+/// `held` (native) on every tick from T + 1, and the burst reads them where they stand. With `cannon`, a `team` Cannon
+/// is put down at C + `cannon` on T + 1. Read on T + 12.
+fn burst_scene(
+    arm: ContainerBurstPush,
+    team: Team,
+    p: (i32, i32),
+    play: Option<(i32, i32)>,
+    held: &[(i32, i32)],
+    cannon: Option<(i32, i32)>,
+) -> Burst {
+    let mut s = BattleState::new(9, with(|c| c.container_burst_push = arm));
+    if let Some(q) = play {
+        s.spawn_unit(team, "Skeletons", at(q), None).expect("the Skeletons play");
+        s.tick();
+    }
+    let (t, c) = kill_barrel(&mut s, team, p);
+    let mut sk: Vec<(u32, EntityId)> = s.entities().filter(|v| v.team == team && v.card == "Skeletons").map(|v| (v.team_seq, v.id)).collect();
+    sk.sort();
+    let sk: Vec<EntityId> = sk.into_iter().map(|(_, id)| id).collect();
+    assert_eq!(sk.len(), held.len(), "scene: the Skeletons play's units ({team:?})");
+    let cn = cannon.map(|o| s.scenario_spawn_now(team, "Cannon", c.add(at(o)), None).expect("the Cannon"));
+    while s.tick_count() <= t + 12 {
+        for (id, o) in sk.iter().zip(held) {
+            assert!(s.debug_set_pos(*id, c.add(at(*o))), "a held Skeleton died");
+        }
+        s.tick();
+    }
+    for id in &sk {
+        assert!(s.entity(*id).is_some_and(|v| v.deploying), "scene: a held Skeleton stood up by T + 12");
+    }
+    let db = s.cards();
+    let units = sk
+        .iter()
+        .copied()
+        .chain(cn)
+        .map(|id| {
+            let v = s.entity(id).expect("a held unit");
+            let r = v.radius / K;
+            (v.pos, r, royalesim::move16402::loaded_mass(db.get(v.card_idx).mass.unwrap_or(0), r))
+        })
+        .collect();
+    let m = members(&s, team);
+    assert_eq!(m.len(), 7, "{arm:?}: the seven Skeletons on T + 12");
+    Burst {
+        c,
+        offsets: m.iter().map(|id| offset(&s, *id, c)).collect(),
+        ends: m.iter().map(|id| s.entity(*id).expect("the member is alive").death_slide_end).collect(),
+        units,
+    }
+}
+
+/// The member's body, native: the Skeleton Barrel container's own death-spawn unit's CollisionRadius and loaded Mass.
+fn member_body() -> (i32, i32) {
+    let db = cards();
+    let container = db.get(db.index(BARREL).expect("the Skeleton Barrel loads")).death_spawn.expect("its death spawn").unit;
+    let unit = db.get(db.get(container).death_spawn.expect("the container's own death spawn").unit);
+    let r = unit.collision_radius / K;
+    (r, royalesim::move16402::loaded_mass(unit.mass.unwrap_or(0), r))
+}
+
+/// The push spawner.CONTAINER_BURST_PUSH gives the burst point `c` (state.rs `container_burst_point`), recomputed with the
+/// separation scan's integer arithmetic: a body of radius `own_r` and loaded mass `own_mass` (native) stands on `c`, and
+/// each of `units` (its point, radius and loaded mass) whose centre is within its radius and `own_r` of it adds its
+/// direction d scaled by mag, which is min(overlap x its mass / own_mass, 299) and 1, the overlap being the radii's sum
+/// less |d| (clamped to the range 0..300). The mean is capped at 150.
+fn body_push(c: Vec2, own_r: i32, own_mass: i32, units: &[(Vec2, i32, i32)]) -> (i32, i32) {
+    let (x, y) = (c.x / K, c.y / K);
+    let (mut acc, mut n) = ((0, 0), 0);
+    for &(p, r, mass) in units {
+        let reach = r + own_r;
+        let (dx, dy) = (x - p.x / K, y - p.y / K);
+        if dx.abs() > reach || dy.abs() > reach || dx * dx + dy * dy > reach * reach {
+            continue;
+        }
+        let dist = (isqrt(i64::from(dx * dx + dy * dy)) as i32).max(1);
+        let mag = ((reach - dist).clamp(0, 300) * mass / own_mass).min(299) + 1;
+        acc.0 += dx * mag / dist;
+        acc.1 += dy * mag / dist;
+        n += 1;
+    }
+    if n == 0 {
+        return (0, 0);
+    }
+    let (mut tx, mut ty) = (acc.0 / n, acc.1 / n);
+    if tx * tx + ty * ty >= 22501 {
+        let len = isqrt(i64::from(tx * tx + ty * ty)) as i32;
+        tx = tx * 150 / len;
+        ty = ty * 150 / len;
+    }
+    (tx, ty)
+}
+
+/// Every member of `b` stands at its ring offset (RING_SIDE0_LEFT, x times `sx`, y times `sy`) and `push` from C, to 2.
+fn assert_ring_at(b: &Burst, (sx, sy): (i32, i32), push: (i32, i32), what: &str) {
+    for (k, got) in b.offsets.iter().enumerate() {
+        let want = (sx * RING_SIDE0_LEFT[k].0 + push.0, sy * RING_SIDE0_LEFT[k].1 + push.1);
+        assert!((got.0 - want.0).abs() <= 2 && (got.1 - want.1).abs() <= 2, "{what}: member {k} at {got:?} from C, want {want:?}");
+    }
+}
+
+/// spawner.CONTAINER_BURST_PUSH = client16635_member_body (client 16.635, parity r99, the oracle's il-mg-16635 set: the 38
+/// Skeleton Barrel bursts where the two pushing arms part all stood where it puts them; this is 90ce5110 t2201's scene): a
+/// Blue barrel killed at (6000, 10000), three Blue Skeletons held, deploying, at (-292, 132) from C (320 off, inside a
+/// Skeleton's 500), (749, -123) (759 off, past 500 and inside 500 and the member's 500) and (0, -1010) (past both). Under
+/// client15535_contact_push (the vacuity check) the first alone pushes the point, (165, -74) capped to (137, -61); under
+/// client16635_member_body the first gives (273, -123) and the second (-238, 39), their mean (17, -42), where the client's
+/// ring stood. The slides end around the point the container fell on under both. Plant: burst_body_unread.
+#[test]
+fn a_container_bursts_as_a_body_of_its_members_radius() {
+    const HELD: [(i32, i32); 3] = [(-292, 132), (749, -123), (0, -1010)];
+    let member = member_body();
+    assert_eq!(member, (500, 1), "a Skeleton's CollisionRadius and Mass");
+    let mut pushes = Vec::new();
+    let mut ends = Vec::new();
+    for (arm, body, want) in [
+        (ContainerBurstPush::Client15535ContactPush, (0, 1), (137, -61)),
+        (ContainerBurstPush::Client16635MemberBody, member, (17, -42)),
+    ] {
+        let b = burst_scene(arm, Team::Blue, (6000, 10000), Some((6000, 12000)), &HELD, None);
+        let push = body_push(b.c, body.0, body.1, &b.units);
+        assert_eq!(push, want, "{arm:?}: the scene drifted (the push off the held Skeletons)");
+        assert_ring_at(&b, (1, 1), push, &format!("{arm:?}"));
+        pushes.push(push);
+        ends.push(b.ends);
+    }
+    let d = (pushes[1].0 - pushes[0].0, pushes[1].1 - pushes[0].1);
+    assert!(d.0.abs() + d.1.abs() >= 100, "vacuous: the two arms push alike: {pushes:?}");
+    assert!(ends[0].iter().all(|e| *e != Vec2::default()), "vacuous: the members have no slide end: {:?}", ends[0]);
+    assert_eq!(ends[0], ends[1], "client16635_member_body's slides end elsewhere than client15535_contact_push's");
+}
+
+/// spawner.CONTAINER_BURST_PUSH = client16635_member_body on the red seat: the scene above turned through the arena's
+/// centre (a Red barrel killed at (12000, 22000), Red Skeletons held at (292, -132), (-749, 123) and (0, 1010) from C)
+/// pushes the point (-137, 61) under client15535_contact_push and (-17, 42) under client16635_member_body, so each member
+/// stands (120, -19) apart between the arms, the Blue scene's (-120, 19) turned. Plant: burst_body_unread.
+#[test]
+fn the_red_seat_mirrors_the_member_body_push() {
+    const HELD: [(i32, i32); 3] = [(292, -132), (-749, 123), (0, 1010)];
+    let old = burst_scene(ContainerBurstPush::Client15535ContactPush, Team::Red, (12000, 22000), Some((12000, 20000)), &HELD, None);
+    let new = burst_scene(ContainerBurstPush::Client16635MemberBody, Team::Red, (12000, 22000), Some((12000, 20000)), &HELD, None);
+    let (r, mass) = member_body();
+    let pushes = (body_push(old.c, 0, 1, &old.units), body_push(new.c, r, mass, &new.units));
+    assert_eq!(pushes, ((-137, 61), (-17, 42)), "the scene drifted (the pushes off the held Skeletons)");
+    assert_ring_at(&old, (-1, -1), pushes.0, "client15535_contact_push");
+    assert_ring_at(&new, (-1, -1), pushes.1, "client16635_member_body");
+    for (k, (o, n)) in old.offsets.iter().zip(&new.offsets).enumerate() {
+        let d = (n.0 - o.0, n.1 - o.1);
+        assert!((d.0 - 120).abs() <= 2 && (d.1 + 19).abs() <= 2, "member {k} stands {d:?} apart between the arms, want (120, -19)");
+    }
+}
+
+/// spawner.CONTAINER_BURST_PUSH = client16635_member_body: a building past its own radius pushes the point (client 16.635,
+/// parity r99, the oracle's il-mg-16635 set: 1063d444 t1735, a Cannon 1039 off). A Blue Cannon (its radius 600, its
+/// loaded mass 13) put down at (1034, -109) from C, 1039 off, past its radius and inside its radius and the member's:
+/// under client15535_contact_push (the vacuity check) the members stand on their ring around C; under
+/// client16635_member_body the overlap of 61 and the mass of 13 make the mag 300, (-298, 31), capped to (-149, 15).
+/// Plant: burst_body_unread.
+#[test]
+fn a_building_beyond_its_radius_pushes_the_member_body() {
+    let member = member_body();
+    for (arm, body, want) in [
+        (ContainerBurstPush::Client15535ContactPush, (0, 1), (0, 0)),
+        (ContainerBurstPush::Client16635MemberBody, member, (-149, 15)),
+    ] {
+        let b = burst_scene(arm, Team::Blue, (6000, 10000), None, &[], Some((1034, -109)));
+        let (cp, r, mass) = b.units[0];
+        let off = radius_of((b.c.x / K - cp.x / K, b.c.y / K - cp.y / K));
+        assert!(off > r && off <= r + member.0, "the scene drifted: the Cannon stands {off} from C (its radius {r})");
+        let push = body_push(b.c, body.0, body.1, &b.units);
+        assert_eq!(push, want, "{arm:?}: the scene drifted (the Cannon's push: radius {r}, mass {mass})");
+        assert_ring_at(&b, (1, 1), push, &format!("{arm:?}"));
+    }
 }

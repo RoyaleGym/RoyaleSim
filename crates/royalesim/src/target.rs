@@ -532,6 +532,22 @@ pub fn drill_under_dropped(ctx: &TargetCtx, c: usize) -> bool {
     on && ctx.ents.hide[c] == HideState::Hidden && ctx.cards.get(ctx.ents.card[c]).evo.as_ref().is_some_and(|v| v.drill.is_some())
 }
 
+/// spawner.FIXED_RING_FACING = client16635_building_target: is `card` a building row on spawner.DEATH_SPAWN_RING's list
+/// whose row has no damage source but a Range and a HitSpeed (card.rs `CardDef::inert_attack_row`: the Goblin Drill's
+/// GoblinDrill and GoblinDrill_EV1)? Such a row takes targets with its row's attack sides (`can_target`), faces its target
+/// while in its attack and never lands its swing (state.rs `phase_attack_for`). Measured on client 16.635 (parity r99, the
+/// oracle's il-mg-16635 set): the drill faced its held target in 101 of 105 attacking deaths and on 126 of 126 attack ticks
+/// (0894a4ab, d0a12ca4), often a princess tower; the engine's held nothing. PLANT (regression) drill_building_inert: the new
+/// arm's building stays inert.
+#[inline]
+pub fn fixed_ring_attacker(calib: &Calib, card: &CardDef) -> bool {
+    #[cfg(not(clash_plant = "drill_building_inert"))]
+    let on = calib.fixed_ring_facing == crate::state::FixedRingFacing::Client16635BuildingTarget;
+    #[cfg(clash_plant = "drill_building_inert")]
+    let on = false;
+    on && card.inert_attack_row && calib.death_ring_units.contains(&card.unit_name)
+}
+
 /// Can attacker `a` ever target `c` (ignoring distance)? `keeping` is true when `c` is `a`'s current
 /// target being kept (`decide`), false when `c` is a candidate of a scan or a wake test.
 #[inline]
@@ -664,10 +680,14 @@ pub fn can_target(ctx: &TargetCtx, a: usize, c: usize, keeping: bool) -> bool {
     let airborne = (ctx.calib.leaping_unit_targetability == LeapingUnitTargetability::Airborne && e.jumping[c]) || thrown;
     #[cfg(clash_plant = "leap_targetable_by_ground")]
     let airborne = thrown; // PLANT (regression): a leaping troop stays a ground target under the new arm too.
+    // spawner.FIXED_RING_FACING = client16635_building_target: a damage-less building on the fixed death ring's list reads
+    // its row's attack sides (`fixed_ring_attacker`; the loader forces an inert building's to false).
+    let (hits_air, hits_ground) =
+        if fixed_ring_attacker(ctx.calib, card) { (card.row_attacks_air, card.row_attacks_ground) } else { (card.attacks_air, card.attacks_ground) };
     if e.in_air(c) || airborne {
-        card.attacks_air
+        hits_air
     } else {
-        card.attacks_ground
+        hits_ground
     }
 }
 

@@ -34,14 +34,18 @@
 //!   - ice_cube_unpulled -> `under_client16635_row_speed_a_tornado_pulls_the_cube_144_a_tick` and
 //!     `under_client16635_row_speed_a_cube_born_in_a_tornado_is_first_pulled_on_its_first_frame_plus_2` red;
 //!   - ice_cube_pulled_at_birth -> `under_client16635_row_speed_a_cube_born_in_a_tornado_is_first_pulled_on_its_first_frame_plus_2` red;
-//!   - ice_release_replans -> `under_client16635_route_kept_a_let_go_knight_walks_its_held_route` red.
+//!   - ice_release_replans -> `under_client16635_route_kept_a_let_go_knight_walks_its_held_route` red;
+//!   - ice_hold_masked ->
+//!     `under_client16635_cube_scanned_a_cube_victim_facing_the_cube_holds_190_and_turns_its_let_go_step` red;
+//!   - ice_press_on_let_go ->
+//!     `under_client16635_press_next_tick_a_press_waiting_through_the_hold_starts_a_tick_after_the_let_go` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::{AbilityEffect, CardDb, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, CardTable, CubeLossWait, IceCubeAttract, IceCubeHeroDeath, IceFindMarks, IceFindOwnMark, IceKillCubeTick, IceReleaseAttack, IceReleaseTarget, IceReleaseWalk};
+use royalesim::state::{BattleConfig, BattleState, CardTable, CubeLossWait, HeldUnitAvoidance, IceCubeAttract, IceCubeHeroDeath, IceFindMarks, IceFindOwnMark, IceKillCubeTick, IceReleaseAttack, IceReleasePress, IceReleaseTarget, IceReleaseWalk};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["IceWizard", "Knight", "Archer", "Giant", "Musketeer", "Minions", "Fireball", "Zap"];
@@ -990,4 +994,209 @@ fn the_shipped_arm_is_client16635_route_kept() {
         royalesim::state::IceReleaseWalk::Client16635RouteKept
     );
     assert_eq!(config().calib.ice_release_walk, royalesim::state::IceReleaseWalk::Client16635RouteKept);
+}
+
+/// Per tick: (tick, a unit's point, an i32 column of it).
+type TickRows = Vec<(u32, Vec2, i32)>;
+
+/// The row of tick `t` in `rows`.
+fn row_on(rows: &[(u32, Vec2, i32)], t: u32) -> (u32, Vec2, i32) {
+    rows.iter().find(|r| r.0 == t).copied().unwrap_or_else(|| panic!("no frame {t}: {rows:?}"))
+}
+
+/// The native step in `rows` into tick `t`.
+fn step_into(rows: &[(u32, Vec2, i32)], t: u32) -> (i32, i32) {
+    let (a, b) = (native(row_on(rows, t - 1).1), native(row_on(rows, t).1));
+    (b.0 - a.0, b.1 - a.1)
+}
+
+/// The first tick in `rows` whose i32 column reads `level`.
+fn first_level(rows: &[(u32, Vec2, i32)], level: i32) -> Option<u32> {
+    rows.iter().find(|r| r.2 == level).map(|r| r.0)
+}
+
+/// A HERO ICE WIZARD CUBE'S VICTIM FACING THE CUBE, under collision.HELD_UNIT_AVOIDANCE = `arm` (every other ice key at its
+/// shipped arm; spawner.ICE_CUBE_HERO_DEATH = cube_comes, the arm a_press_on_a_marked_knight_freezes_it_behind_the_knight
+/// measures, so the hero killed after the find leaves the cube's first frame on F + 5). The hero is put down first; then
+/// red Knight A on (9000, 12500), the find's target, held there until the hero's shot marks it, and red Knight B on
+/// (9000, 14950), 2,450 behind it (outside the shot's 1,500 splash, so unmarked; out of the hero's sight; on dry ground
+/// short of the river's bank on y 15000), walking -y. B is put back on its point before every tick through F + 4, so its
+/// facing is its walk's and its one F + 4 step, the bridge's tick, leaves the cube (1,500 behind A's point at the find)
+/// inside its look circle and out of its body's reach. (the cube's first frame c, its last frame L, and per tick from
+/// F + 1: (tick, B's point, B's avoid_offset)).
+fn cube_look(arm: HeldUnitAvoidance) -> (u32, u32, TickRows) {
+    let mut s = battle_with(|c| {
+        c.calib.held_unit_avoidance = arm;
+        c.calib.ice_cube_hero_death = IceCubeHeroDeath::CubeComes;
+    });
+    let hero = hero_in(&mut s);
+    let (kat, bat) = (n(9000, 12500), n(9000, 14950));
+    let a = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("Knight A");
+    let b = s.scenario_spawn_now(Team::Red, "Knight", bat, None).expect("Knight B");
+    let a_hp = s.entity(a).expect("Knight A").hp;
+    let mut marked = false;
+    for _ in 0..120 {
+        assert!(s.debug_set_pos(a, kat) && s.debug_set_pos(b, bat));
+        s.tick();
+        if s.entity(a).expect("Knight A").hp < a_hp {
+            marked = true;
+            break;
+        }
+    }
+    assert!(marked, "the scene drifted: no shot of the hero's reached Knight A in 120 ticks");
+    let bv = s.entity(b).expect("Knight B");
+    assert_eq!(bv.hp, bv.max_hp, "the scene drifted: Knight B was hit (and marked)");
+    assert!(s.debug_set_pos(a, kat) && s.debug_set_pos(b, bat));
+    let f = s.tick_count();
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick(); // F: the press is debited, fires and finds in the tick it lands in
+    let at_find = native(s.entity(a).expect("Knight A").pos);
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let (mut c, mut last): (Option<u32>, Option<u32>) = (None, None);
+    let mut cube_at: Option<(i32, i32)> = None;
+    let mut rows: TickRows = Vec::new();
+    let mut look: Vec<(u32, Vec2, bool)> = Vec::new();
+    for _ in 0..150 {
+        if s.tick_count() <= f + 4 {
+            assert!(s.debug_set_pos(b, bat));
+        }
+        s.tick();
+        let t = s.tick_count() - 1;
+        let e = s.entity(b).expect("Knight B");
+        rows.push((t, e.pos, e.avoid_offset));
+        look.push((t, e.facing, !e.route.is_empty()));
+        match cube(&s) {
+            Some((_, cp)) if c.is_none() => {
+                c = Some(t);
+                cube_at = Some(native(cp));
+            }
+            None if c.is_some() && last.is_none() => last = Some(t - 1),
+            _ => {}
+        }
+        if last.is_some_and(|l| t == l + 3) {
+            break;
+        }
+    }
+    let c = c.expect("the scene drifted: no cube came");
+    let l = last.expect("the scene drifted: the cube never went");
+    let cp = cube_at.expect("seen on c");
+    assert_eq!(c, f + 5, "the scene drifted: the cube's first frame is not F + 5");
+    assert_eq!(cp, (at_find.0, at_find.1 + 1500), "the scene drifted: the cube is not 1,500 behind Knight A's point at the find");
+    let facing = look.iter().find(|r| r.0 == c).map(|r| r.1).expect("a frame on c");
+    let routed = look.iter().find(|r| r.0 == l + 1).map(|r| r.2).expect("a frame on L + 1");
+    let held = native(row_on(&rows, l + 1).1);
+    let from_cube = |p: (i32, i32)| len((p.0 - cp.0, p.1 - cp.1));
+    assert!(from_cube(held) > 835, "the scene drifted: Knight B touches the cube on L + 1 ({held:?}, the cube {cp:?})");
+    let ahead = (held.0 + facing.x, held.1 + facing.y);
+    assert!(from_cube(ahead) < 835, "the scene drifted: the cube is out of Knight B's look circle ({held:?} facing {facing:?}, the cube {cp:?})");
+    assert_eq!(row_on(&rows, c + 2).1, row_on(&rows, l + 1).1, "the scene drifted: Knight B moved in the hold");
+    assert!(routed, "the scene drifted: Knight B holds no route on L + 1");
+    (c, l, rows)
+}
+
+/// collision.HELD_UNIT_AVOIDANCE = client16635_cube_scanned (client 16.635, parity r99, the oracle's il-mg-16635 raw
+/// frames: 35 of 35 walking victims whose look circle held the cube took the static answer on its first frame + 1, and
+/// 1,244 later ticks were held at 190): Knight B, held by the cube's bridge and freeze with the cube in its look circle,
+/// meets nothing on the cube's first frame c (the cube is no body in c's move pass), starts on c + 1 at 190 and holds it
+/// through the cube's death tick L + 1; on the let-go tick L + 2 the offset is 180 and turns its step (about 67 degrees
+/// off its -y route). Under masked (the vacuity check) its offset stays 0 and the let-go step runs along its route.
+/// Plant: ice_hold_masked.
+#[test]
+fn under_client16635_cube_scanned_a_cube_victim_facing_the_cube_holds_190_and_turns_its_let_go_step() {
+    let (c, l, old) = cube_look(HeldUnitAvoidance::Masked);
+    for t in c..=l + 2 {
+        assert_eq!(row_on(&old, t).2, 0, "masked (the vacuity check): an offset on {t} (c {c}, L {l})");
+    }
+    let v = step_into(&old, l + 2);
+    assert!(v.1 < 0 && v.0.abs() < v.1.abs(), "masked (the vacuity check): the let-go step along its -y route: {v:?}");
+    let (c, l, new) = cube_look(HeldUnitAvoidance::Client16635CubeScanned);
+    assert_eq!(row_on(&new, c).2, 0, "client16635_cube_scanned: an offset on the cube's first frame c");
+    let first = row_on(&new, c + 1).2;
+    assert_eq!(first.abs(), 190, "client16635_cube_scanned: the static answer on c + 1");
+    for t in c + 1..=l + 1 {
+        assert_eq!(row_on(&new, t).2, first, "client16635_cube_scanned: the offset held through the cube's death tick (tick {t}, c {c}, L {l})");
+    }
+    assert_eq!(row_on(&new, l + 2).2, first.signum() * 180, "client16635_cube_scanned: the decay on the let-go tick");
+    let v = step_into(&new, l + 2);
+    assert!(v != (0, 0) && v.0.abs() > v.1.abs(), "client16635_cube_scanned: the let-go step turned off its -y route: {v:?}");
+}
+
+/// A HERO'S PRESS WAITING THROUGH A CUBE'S HOLD, under status.ICE_RELEASE_PRESS = `arm` (every other ice key at its
+/// shipped arm; spawner.ICE_CUBE_HERO_DEATH = cube_comes, as in `cube_look`): red's deck holds the Hero Mini PEKKA. The
+/// Ice Wizard hero is put down first; then the Mini PEKKA on (9000, 13000), held there until the hero's shot marks it; the
+/// press finds it on F (the hero killed after) and the cube holds it; red presses its button on the cube's first frame
+/// c + 10, inside the hold. (the cube's last frame L, and per tick from F + 1: (tick, the Mini PEKKA's point, its level)).
+fn held_press(arm: IceReleasePress) -> (u32, TickRows) {
+    let mut s = battle_with(|c| {
+        c.calib.ice_release_press = arm;
+        c.calib.ice_cube_hero_death = IceCubeHeroDeath::CubeComes;
+        c.decks[1][0] = "MiniPekka".into();
+        c.forms[1] = vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0];
+    });
+    let hero = hero_in(&mut s);
+    s.scenario_set_elixir_milli(Team::Red, 10_000);
+    let kat = n(9000, 13000);
+    s.spawn_unit(Team::Red, "MiniPekka_hero", kat, None).expect("the Mini PEKKA");
+    s.tick();
+    let mp = find_live(&s, Team::Red, "MiniPekka_hero")[0].id;
+    first_hit(&mut s, mp, kat, 120);
+    assert!(s.debug_set_pos(mp, kat));
+    let f = s.tick_count();
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick(); // F
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let (mut c, mut last): (Option<u32>, Option<u32>) = (None, None);
+    let mut rows: TickRows = Vec::new();
+    for _ in 0..160 {
+        if c.is_some_and(|c0| s.tick_count() == c0 + 10) {
+            s.press_ability_button(Team::Red, 0).expect("the Mini PEKKA's press, inside the hold");
+        }
+        s.tick();
+        let t = s.tick_count() - 1;
+        let e = s.entity(mp).expect("the Mini PEKKA lives");
+        rows.push((t, e.pos, e.level));
+        let here = cube(&s).is_some();
+        if here && c.is_none() {
+            c = Some(t);
+        } else if !here && c.is_some() && last.is_none() {
+            last = Some(t - 1);
+        }
+        if last.is_some_and(|l| t == l + 8) {
+            break;
+        }
+    }
+    let c = c.expect("the scene drifted: no cube came");
+    let l = last.expect("the scene drifted: the cube never went");
+    assert_eq!(c, f + 5, "the scene drifted: the cube's first frame is not F + 5");
+    let held = row_on(&rows, c + 2).1;
+    for t in c + 2..=l + 1 {
+        assert_eq!(row_on(&rows, t).1, held, "the scene drifted: the Mini PEKKA moved in the hold (tick {t})");
+    }
+    assert!(rows.iter().filter(|r| r.0 <= l + 2).all(|r| r.2 == 11), "the scene drifted: a level set by the let-go tick: {rows:?}");
+    (l, rows)
+}
+
+/// status.ICE_RELEASE_PRESS = client16635_press_next_tick (client 16.635, parity r99, the oracle's il-mg-16635 set: 7 of 7
+/// presses waiting through a cube's hold did nothing on the let-go tick G, the cube's last frame + 2; a Hero Mini PEKKA's
+/// stood from G + 2 and healed on G + 4): the Mini PEKKA steps on G + 1, stands from G + 2, and its level set lands on
+/// G + 4; under with_the_walk (the vacuity check) its press starts on G, it stands from G + 1, and the level set lands on
+/// G + 3. Plant: ice_press_on_let_go.
+#[test]
+fn under_client16635_press_next_tick_a_press_waiting_through_the_hold_starts_a_tick_after_the_let_go() {
+    let (l, old) = held_press(IceReleasePress::WithTheWalk);
+    let g = l + 2;
+    assert_eq!(first_level(&old, 12), Some(g + 3), "with_the_walk (the vacuity check): the level set on G + 3 (G {g})");
+    assert_eq!(row_on(&old, g + 2).1, row_on(&old, g + 1).1, "with_the_walk: in its cast hold from G + 1");
+    let (l, new) = held_press(IceReleasePress::Client16635PressNextTick);
+    let g = l + 2;
+    assert_eq!(first_level(&new, 12), Some(g + 4), "client16635_press_next_tick: the level set on G + 4 (G {g})");
+    assert_ne!(row_on(&new, g + 1).1, row_on(&new, g).1, "client16635_press_next_tick: it steps on G + 1");
+    assert_eq!(row_on(&new, g + 2).1, row_on(&new, g + 1).1, "client16635_press_next_tick: in its cast hold from G + 2");
+}
+
+/// status.ICE_RELEASE_PRESS ships at with_the_walk (client16635_press_next_tick is a candidate until scored).
+#[test]
+fn the_shipped_arm_is_with_the_walk() {
+    assert_eq!(royalesim::state::Calib::shipped().ice_release_press, IceReleasePress::WithTheWalk);
+    assert_eq!(config().calib.ice_release_press, IceReleasePress::WithTheWalk);
 }

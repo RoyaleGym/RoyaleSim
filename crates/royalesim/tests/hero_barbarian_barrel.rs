@@ -10,14 +10,19 @@
 //! reroll_hidden_at_trigger (parity r88); parity r98:
 //!   - reroll_holders_drop_at_hide ->
 //!     `under_client16635_holders_let_go_next_tick_its_holder_keeps_it_through_the_logs_tick` red;
-//!   - reroll_log_hits_next_tick -> `under_client16635_log_tick_the_reroll_log_hits_on_its_own_tick` red.
+//!   - reroll_log_hits_next_tick -> `under_client16635_log_tick_the_reroll_log_hits_on_its_own_tick` red;
+//!
+//! parity r99:
+//!   - reroll_rider_is_body ->
+//!     `under_client16402_no_body_ride_to_land_plus_1_the_rider_meets_no_body_through_its_landing_plus_1` and
+//!     `under_client16402_no_body_ride_to_land_plus_1_the_logs_tick_is_still_a_body` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, RerollHideWindow, RerollLogFirstHit};
+use royalesim::state::{BattleState, Calib, RerollHideWindow, RerollLogFirstHit, RerollRideBody};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -253,4 +258,125 @@ fn the_shipped_arm_is_client16635_log_tick() {
         royalesim::state::RerollLogFirstHit::Client16635LogTick
     );
     assert_eq!(config().calib.reroll_log_first_hit, royalesim::state::RerollLogFirstHit::Client16635LogTick);
+}
+
+/// One tick of `ride_rows`: P + `k`; the Barbarian's point (native), the contact push applied to it on the tick (native)
+/// and its avoidance offset; the Knight's point (native) and whether it still deploys.
+#[derive(Clone, Copy, Debug)]
+struct RideRow {
+    k: u32,
+    barb: (i32, i32),
+    push: (i32, i32),
+    offset: i32,
+    knight: (i32, i32),
+    knight_deploying: bool,
+}
+
+/// `ride_rows`' row for P + `k`.
+fn ride_row(rows: &[RideRow], k: u32) -> RideRow {
+    *rows.iter().find(|r| r.k == k).unwrap_or_else(|| panic!("no row P + {k}: {rows:?}"))
+}
+
+/// Under collision.REROLL_RIDE_BODY = `arm` (and spells.REROLL_HIDE_WINDOW = client16402_log_tick_to_land_plus_2): the
+/// Barbarian held on (3500, 9500) and topped up, then the press (P). At the end of P + `put` a red Knight is put down
+/// mid-deploy (1000 ms: it stands, deploying, through P + `put` + 19) on `kn_at`, and held there before every tick after.
+/// A row per tick from P + `put` + 1 to P + `last`. The press's times, as
+/// `its_press_slides_it_back_heals_it_and_rides_it_2800_on` pins them: the trigger P + 1, the log's tick P + 8, the
+/// landing P + 23 on (3500, 11448).
+fn ride_rows(arm: RerollRideBody, kn_at: Vec2, put: u32, last: u32) -> Vec<RideRow> {
+    let (mut s, b) = barbarian_with(|c| {
+        c.reroll_hide_window = RerollHideWindow::Client16402LogTickToLandPlus2;
+        c.reroll_ride_body = arm;
+    });
+    let at = n(3500, 9500);
+    for _ in 0..3 {
+        assert!(s.debug_set_pos(b, at));
+        s.tick();
+    }
+    let max = s.entity(b).expect("the Barbarian").max_hp;
+    assert!(s.debug_set_hp(b, max) && s.debug_set_pos(b, at));
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press, on the Barbarian");
+    for _ in 0..put {
+        s.tick();
+    }
+    assert_eq!(s.tick_count() - 1, p + put);
+    let kn = s
+        .scenario_spawn_copy_deploying(&[(Team::Red, "Knight", kn_at, None, None)], &[1000])
+        .unwrap_or_else(|(_, e)| panic!("the Knight: {e:?}"))[0];
+    let native = |v: Vec2| (v.x / K, v.y / K);
+    let mut rows = Vec::new();
+    while s.tick_count() - 1 < p + last {
+        assert!(s.debug_set_pos(kn, kn_at), "the Knight died");
+        s.tick();
+        let e = s.entity(b).expect("the Barbarian");
+        let kv = s.entity(kn).expect("the Knight");
+        rows.push(RideRow {
+            k: s.tick_count() - 1 - p,
+            barb: native(e.pos),
+            push: (e.push_applied.x, e.push_applied.y),
+            offset: e.avoid_offset,
+            knight: native(kv.pos),
+            knight_deploying: kv.deploying,
+        });
+    }
+    rows
+}
+
+/// collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1 (clients 16.635 and 16.402, parity r99, the
+/// oracle's il-mg-16635 set and its 16.402 replays: no rider pushed in 28 and 145 ride overlap ticks, nor on its landing
+/// or the tick after; every overlap resolved two ticks after the landing; the rider's own offset first set there): a red
+/// Knight held, deploying, 700 beside the landing point (3500, 11448), the radius sum 1000, so the rider overlaps it from
+/// P + 20 (922 apart). From P + 9 to P + 24 the rider is pushed on no tick and rides on x 3500, it lands on its point,
+/// scans nothing on its landing and the tick after (offset 0), and the Knight is not pushed; on P + 25 the two part.
+/// Under held_body (the vacuity check) the held rider is pushed on P + 20 and scans on its landing, P + 23. Plant:
+/// reroll_rider_is_body.
+#[test]
+fn under_client16402_no_body_ride_to_land_plus_1_the_rider_meets_no_body_through_its_landing_plus_1() {
+    let kn_at = n(4200, 11448);
+    let rows = ride_rows(RerollRideBody::Client16402NoBodyRideToLandPlus1, kn_at, 8, 25);
+    assert!(rows.iter().all(|r| r.knight_deploying), "the scene drifted: the Knight stood up: {rows:?}");
+    assert_eq!(ride_row(&rows, 23).barb, (3500, 11448), "the scene drifted: no landing on (3500, 11448) on P + 23: {rows:?}");
+    for k in 9..=24 {
+        let r = ride_row(&rows, k);
+        assert!(
+            r.barb.0 == 3500 && r.push == (0, 0) && r.knight == (4200, 11448),
+            "client16402_no_body_ride_to_land_plus_1: a body on P + {k}: {r:?}"
+        );
+    }
+    for k in [23, 24] {
+        assert_eq!(ride_row(&rows, k).offset, 0, "client16402_no_body_ride_to_land_plus_1: an avoidance offset on P + {k}: {rows:?}");
+    }
+    let r = ride_row(&rows, 25);
+    assert!(r.barb.0 < 3500 && r.knight.0 > 4200, "client16402_no_body_ride_to_land_plus_1: the overlap does not part on P + 25: {r:?}");
+    // NOT VACUOUS: the held rider is pushed on its ride and scans on its landing.
+    let old = ride_rows(RerollRideBody::HeldBody, kn_at, 8, 23);
+    assert_ne!(ride_row(&old, 20).push, (0, 0), "held_body (the vacuity check): the rider unpushed on P + 20: {old:?}");
+    assert_ne!(ride_row(&old, 23).offset, 0, "held_body (the vacuity check): no avoidance offset on its landing, P + 23: {old:?}");
+}
+
+/// collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1 (client 16.402, parity r99, the oracle's replays:
+/// 4 of 4 clean overlaps on the log's tick pushed; the start on the tick after it read off the re-roll's tag word): a
+/// red Knight held, deploying, 700 beside the log's point (3500, 8648) from P + 8 on. The rider is pushed on its log's
+/// tick, P + 8, and on none of P + 9 .. P + 11; under held_body (the vacuity check) it is pushed on P + 9 too. Plant:
+/// reroll_rider_is_body.
+#[test]
+fn under_client16402_no_body_ride_to_land_plus_1_the_logs_tick_is_still_a_body() {
+    let kn_at = n(4200, 8648);
+    let rows = ride_rows(RerollRideBody::Client16402NoBodyRideToLandPlus1, kn_at, 7, 11);
+    assert!(rows.iter().all(|r| r.knight_deploying), "the scene drifted: the Knight stood up: {rows:?}");
+    assert_ne!(ride_row(&rows, 8).push, (0, 0), "client16402_no_body_ride_to_land_plus_1: no body on the log's tick, P + 8: {rows:?}");
+    for k in 9..=11 {
+        assert_eq!(ride_row(&rows, k).push, (0, 0), "client16402_no_body_ride_to_land_plus_1: a body on P + {k}: {rows:?}");
+    }
+    // NOT VACUOUS: the held rider is pushed on the tick after its log's too.
+    let old = ride_rows(RerollRideBody::HeldBody, kn_at, 7, 9);
+    assert_ne!(ride_row(&old, 9).push, (0, 0), "held_body (the vacuity check): the rider unpushed on P + 9: {old:?}");
+}
+
+/// collision.REROLL_RIDE_BODY ships at held_body (client 15.535.29 keeps it: CLIENT15535_ARMS).
+#[test]
+fn the_shipped_arm_is_held_body() {
+    assert_eq!(Calib::shipped().reroll_ride_body, RerollRideBody::HeldBody);
 }

@@ -2150,8 +2150,9 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the `default` is the old arm, `RawDirection`.
     #[serde(default = "death_ring_axis_default")]
     pub death_ring_axis: DeathRingAxis,
-    /// spawner.CONTAINER_BURST_PUSH: whether a container's burst point takes the contact law's push (`container_burst_point`).
-    /// Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
+    /// spawner.CONTAINER_BURST_PUSH: whether a container's burst point takes the contact law's push, and as which body: one
+    /// of no radius and no mass (client15535_contact_push) or one of its own members (client16635_member_body)
+    /// (`container_burst_point`). Added after SNAPSHOT_FORMAT 20; the `default` is the old arm.
     #[serde(default = "container_burst_push_default")]
     pub container_burst_push: ContainerBurstPush,
     /// spawner.DEATH_SPAWN_PUSHBACK: whether a dying unit whose row sets DeathSpawnPushback
@@ -2522,6 +2523,34 @@ pub struct Calib {
     /// SNAPSHOT_FORMAT 20; the default is the old arm, `NextTick`, what a battle saved before it ran.
     #[serde(default = "reroll_log_first_hit_default")]
     pub reroll_log_first_hit: RerollLogFirstHit,
+    /// status.ICE_RELEASE_PRESS (a waiting press's start after a cube's let-go, `fire_scheduled`). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `WithTheWalk`, what a battle saved before it ran.
+    #[serde(default = "ice_release_press_default")]
+    pub ice_release_press: IceReleasePress,
+    /// collision.REROLL_RIDE_BODY (a re-rolled Barbarian's body on its ride, `reroll_bodiless_at`). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `HeldBody`, what a battle saved before it ran.
+    #[serde(default = "reroll_ride_body_default")]
+    pub reroll_ride_body: RerollRideBody,
+    /// status.DEFLECT_TRIGGER_TICK (the tick the Monk's Deflect lands, `press_ability_button`). Added after SNAPSHOT_FORMAT
+    /// 20; the default is the old arm, `WholeTicks`, what a battle saved before it ran.
+    #[serde(default = "deflect_trigger_tick_default")]
+    pub deflect_trigger_tick: DeflectTriggerTick,
+    /// combat.SPIN_REACH_STEP (a Hero Valkyrie's tick after her last reach, `spin_pass` and `spin_steps_once`). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `Stands`, what a battle saved before it ran.
+    #[serde(default = "spin_reach_step_default")]
+    pub spin_reach_step: SpinReachStep,
+    /// spawner.THROWN_UNIT_FIRST_UPDATE (a thrown trooper's first update, `throw_pass`). Added after SNAPSHOT_FORMAT 20;
+    /// the default is the old arm, `NextTick`, what a battle saved before it ran.
+    #[serde(default = "thrown_unit_first_update_default")]
+    pub thrown_unit_first_update: ThrownUnitFirstUpdate,
+    /// combat.THROW_LANDING_BLOW (a throw's landing blow, `throw_pass`, BattleState::throw_blows). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `LandingTick`, what a battle saved before it ran.
+    #[serde(default = "throw_landing_blow_default")]
+    pub throw_landing_blow: ThrowLandingBlow,
+    /// spawner.FIXED_RING_FACING (a fixed-ring building's targets and facing, `phase_reap`). Added after SNAPSHOT_FORMAT
+    /// 20; the default is the old arm, `Forward`, what a battle saved before it ran.
+    #[serde(default = "fixed_ring_facing_default")]
+    pub fixed_ring_facing: FixedRingFacing,
 }
 
 impl Calib {
@@ -3895,6 +3924,34 @@ fn reroll_log_first_hit_default() -> RerollLogFirstHit {
     RerollLogFirstHit::NextTick
 }
 
+fn ice_release_press_default() -> IceReleasePress {
+    IceReleasePress::WithTheWalk
+}
+
+fn reroll_ride_body_default() -> RerollRideBody {
+    RerollRideBody::HeldBody
+}
+
+fn deflect_trigger_tick_default() -> DeflectTriggerTick {
+    DeflectTriggerTick::WholeTicks
+}
+
+fn spin_reach_step_default() -> SpinReachStep {
+    SpinReachStep::Stands
+}
+
+fn thrown_unit_first_update_default() -> ThrownUnitFirstUpdate {
+    ThrownUnitFirstUpdate::NextTick
+}
+
+fn throw_landing_blow_default() -> ThrowLandingBlow {
+    ThrowLandingBlow::LandingTick
+}
+
+fn fixed_ring_facing_default() -> FixedRingFacing {
+    FixedRingFacing::Forward
+}
+
 fn grounded_flier_body_default() -> GroundedFlierBody {
     GroundedFlierBody::AirLayer
 }
@@ -4750,6 +4807,114 @@ macro_rules! calib_enum {
     };
 }
 
+calib_enum!(
+    /// spawner.FIXED_RING_FACING -- a damage-less building on spawner.DEATH_SPAWN_RING's list (the Goblin Drill's): its
+    /// targets, its facing and its fixed death ring's facing (target.rs `fixed_ring_attacker`, state.rs `phase_attack_for`,
+    /// `phase_reap`).
+    FixedRingFacing {
+        /// The engine's: a building row with no damage source is inert (no target, its side's forward), and the fixed death
+        /// ring's members face their side's forward.
+        Forward = "forward",
+        /// Client 16.635 (parity r99, the oracle's il-mg-16635 set: 208 of 222 Goblin Drill death ring members faced the
+        /// dying building's last facing, the rest within a few units; the building faced its held target on 126 of 126
+        /// attack ticks and its side's forward when idle; its attack progress ran past HitSpeed with no hit): a building on
+        /// spawner.DEATH_SPAWN_RING's list whose row has no damage source (GoblinDrill, GoblinDrill_EV1;
+        /// CardDef::inert_attack_row) takes targets with its row's attack sides (target.rs `fixed_ring_attacker`), faces
+        /// its target while in its attack (movement.ATTACK_FACING) and never lands its swing (`phase_attack_for`); its
+        /// fixed ring's members start with its facing (`phase_reap`).
+        Client16635BuildingTarget = "client16635_building_target",
+    }
+);
+calib_enum!(
+    /// combat.THROW_LANDING_BLOW -- when a Hero Balloon throw's landing blow strikes (state.rs `throw_pass`, `ThrowBlow`).
+    ThrowLandingBlow {
+        /// The engine's (client 15.535.29, sp-balloon-g4500-s0): a Hero Balloon throw's landing blow, its trooper's spawn
+        /// area object, is cast as the trooper appears and strikes in the landing tick's spells step.
+        LandingTick = "landing_tick",
+        /// Client 16.635 (parity r99, the oracle's il-mg-16635 set: 14 of 14 landings with an enemy in the blow lost it two
+        /// ticks after the landing; the engine's on the landing tick in all in sync): the trooper appears on its landing
+        /// tick without its spawn area object, which is held (`ThrowBlow`, BattleState::throw_blows) and cast from the
+        /// landing point at the head of `throw_pass` THROW_LANDING_BLOW_TICKS ticks later, striking in that tick's spells
+        /// step on the enemies where they stand then.
+        Client16635LandingPlus2 = "client16635_landing_plus_2",
+    }
+);
+calib_enum!(
+    /// spawner.THROWN_UNIT_FIRST_UPDATE -- when the SkeletonTrooper a Hero Balloon's throw puts down takes its first update
+    /// (state.rs `throw_pass`, `first_update`).
+    ThrownUnitFirstUpdate {
+        /// The engine's: the SkeletonTrooper a Hero Balloon's throw puts down takes its first update on the next tick, so
+        /// on its landing frame it stands on the landing point.
+        NextTick = "next_tick",
+        /// Client 16.635 (parity r99, the oracle's il-mg-16635 set: 14 of 14 landings onto or beside a unit stood 150 off
+        /// the landing point on their first frame, the pick unmoved; the engine's moved a tick later in all 11 in sync):
+        /// the trooper takes its first update on its landing tick, at the end of `throw_pass` (`first_update`: its target
+        /// and attack decisions, which a deploying unit skips, then its avoidance scan and its separation, moving it
+        /// alone), so one landing on its pick is pushed one capped step off it on its first frame.
+        Client16635LandingTick = "client16635_landing_tick",
+    }
+);
+calib_enum!(
+    /// combat.SPIN_REACH_STEP -- what a Hero Valkyrie does on the tick after her chain reaches its target with no next link
+    /// (state.rs `spin_pass`, `SpinRun::step_at`, the move pass's in-reach branch).
+    SpinReachStep {
+        /// The engine's: a Hero Valkyrie whose chain reached its target with no next link stands from the next tick, under
+        /// the spin's NO_ATTACK.
+        Stands = "stands",
+        /// Client 16.635 (parity r99, the oracle's il-mg-16635 set: 26 of 26 reach endings with her centre farther than her
+        /// Range plus the target's radius from it stepped 118 to 120 straight at the target on the next tick and stood from
+        /// the tick after; the engine stood at once): on the next tick she takes one more walk step at her speed then (the
+        /// pending buff's 200 %) straight at the target she holds, unless her centre already stands within her Range plus
+        /// its radius of its centre (`spin_steps_once`).
+        Client16635OneMoreStep = "client16635_one_more_step",
+    }
+);
+calib_enum!(
+    /// status.DEFLECT_TRIGGER_TICK -- the tick the Monk's Deflect lands, counted from the cast's first frame P (state.rs
+    /// `press_ability_button`).
+    DeflectTriggerTick {
+        /// The engine's: the Monk's Deflect fires its TriggerDelay less its part-tick after the cast's first frame P,
+        /// floor(TriggerDelay / 50) ticks after it (`whole_ticks_ms`).
+        WholeTicks = "whole_ticks",
+        /// Client 16.635 (parity r99, the oracle's il-mg-16635 set: his stand state began on P + 13 in 13 of 13 presses; 2
+        /// of 2 hits on P + 14 cut to 35 %, 2 of 2 on P + 13 whole): on the tick whose 50 ms step completes its
+        /// TriggerDelay, ceil(TriggerDelay / 50) less one tick after P: 933 on P + 18 as before, 700 on P + 13.
+        Client16635LastPartialTick = "client16635_last_partial_tick",
+    }
+);
+calib_enum!(
+    /// collision.REROLL_RIDE_BODY -- whether a hero Barbarian Barrel's re-rolled Barbarian is a body on its ride (state.rs
+    /// `reroll_bodiless_at`, read by `phase_path16402_for`'s `drill_off` and `reroll_masked` and by `dying_body`;
+    /// WarpBoard::reroll_stood).
+    RerollRideBody {
+        /// The engine's: the re-roll's hold (the stun `reroll_pass` sets each tick) keeps the Barbarian in every scan under
+        /// collision.HELD_UNIT_CONTACT = client16402_speed_zero_update, so it is pushed and steers and pushes the walkers
+        /// it rides past; from its landing it is an ordinary body and scans at once.
+        HeldBody = "held_body",
+        /// Clients 16.402 and 16.635 (parity r99, the oracle's il-mg-16635 set and its 16.402 replays: no rider pushed in
+        /// 28 and 145 ride overlap ticks, nor on its landing or the tick after, every overlap resolved two ticks after the
+        /// landing; the re-roll's GameTagsToSetWhileOnReRolling carry DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS): from the
+        /// tick after its log's through the tick after its landing (`reroll_bodiless_at`, WarpBoard::reroll_stood) it is no
+        /// body to any unit's avoidance or separation scan, its own side's or the enemy's, and runs neither scan itself; a
+        /// body on its log's tick, and again from two ticks after its landing.
+        Client16402NoBodyRideToLandPlus1 = "client16402_no_body_ride_to_land_plus_1",
+    }
+);
+calib_enum!(
+    /// status.ICE_RELEASE_PRESS -- when a hero's press that waited through a Hero Ice Wizard cube's hold starts
+    /// (`fire_scheduled`), read where WarpBoard::ice_freed is written (status.ICE_RELEASE_TARGET =
+    /// client16635_target_next_tick). A press already started before the hold is not this key's.
+    IceReleasePress {
+        /// The engine's: a waiting press starts on the let-go tick G (the cube's last frame + 2) with the walk, its cast
+        /// hold after G's move (status.WAITED_PRESS_CAST).
+        WithTheWalk = "with_the_walk",
+        /// Client 16.635 (parity r99, the oracle's il-mg-16635 set: 7 of 7 presses waiting through a cube's hold did
+        /// nothing on the let-go tick G; 4 casts entered their cast state on G + 1, and 3 Golden Knight chains took their
+        /// target on G + 1 and chained on G + 2): the hero is not free on G, so its press starts on G + 1, its cast hold
+        /// after that tick's move.
+        Client16635PressNextTick = "client16635_press_next_tick",
+    }
+);
 calib_enum!(
     /// spells.REROLL_LOG_FIRST_HIT -- when the Hero Barbarian Barrel's re-roll log first hits (state.rs `reroll_pass`,
     /// `reroll_logs`, `reroll_log_spell`).
@@ -6139,7 +6304,8 @@ calib_enum!(
     /// collision.HELD_UNIT_AVOIDANCE -- whether a unit held by a freeze or a stun runs the avoidance scan in the update
     /// it takes at speed 0 under collision.HELD_UNIT_CONTACT = client16402_speed_zero_update (`phase_path16402_for`).
     /// The offset's decay, the separation scan and what the held unit's neighbours see of it are not this key's. Inert
-    /// under out_of_the_pass, where a held unit takes no update.
+    /// under out_of_the_pass, where a held unit takes no update. client16635_cube_scanned also reads which hold it is: a
+    /// Hero Ice Wizard cube's (`phase_path16402_for`'s `ice_held`).
     HeldUnitAvoidance {
         /// Today's engine: a held unit that is not attacking runs the avoidance scan as a walker does, so a neighbour
         /// in its look circle starts or refreshes its offset.
@@ -6148,6 +6314,12 @@ calib_enum!(
         /// decays 10 a tick. Read off the 16.402 corpus: in 2,024 held frames not one offset starts, where the walking
         /// rate predicts about 14, and a running offset decays 10 a frame while held (105 frames).
         Masked = "masked",
+        /// Client 16.635 (parity r99, the oracle's il-mg-16635 raw frames): masked, except that a unit a Hero Ice Wizard's
+        /// cube holds (its bridge's or its freeze's buff on it) scans as under scanned (an attacking one still does not);
+        /// the cube is a static obstacle in its look circle. 35 of 35 walking victims whose look circle held the cube took
+        /// the static answer on its first frame + 1, and 1,244 later ticks were held at 190; attacking victims none; 0
+        /// against.
+        Client16635CubeScanned = "client16635_cube_scanned",
     }
 );
 calib_enum!(
@@ -10377,6 +10549,10 @@ calib_enum!(
         /// Client 16.635 (parity r92, live15n): it runs on at its JumpSpeed to its goal, with no range test and no blow, and
         /// ends there.
         Client16635RunsToGoal = "client16635_runs_to_goal",
+        /// Client 16.635 (parity r99, the oracle's il-mg-16635 set: 3 of 3 runs whose last tick began 500 to 749 from the
+        /// goal moved 250 on it and ended; the engine moved 500): as client16635_runs_to_goal, but the end test
+        /// (`dash_short_of_goal`) runs after each half-step, so the run ends 250 to 499 short of its goal.
+        Client16635HalfStepEnd = "client16635_half_step_end",
     }
 );
 calib_enum!(
@@ -11027,6 +11203,11 @@ calib_enum!(
         /// as the separation scan pushes (the mean, capped at 150), and its members are laid around the pushed point.
         /// Client 15.535.29: sp-form-SkeletonBalloon-evo-s0 t368, (-130, +73) off a Skeleton 217 away, exact.
         Client15535ContactPush = "client15535_contact_push",
+        /// On its burst tick it is one of its own members standing on its point: the separation scan's push on a body of
+        /// the member's CollisionRadius and Mass (a Skeleton's 500 and 1), every ground unit within its radius and the
+        /// member's reaching it, the mean capped at 150. Client 16.635 (parity r99, the oracle's il-mg-16635 set): 38 of 38
+        /// bursts where the two pushing arms part stood where this one puts them.
+        Client16635MemberBody = "client16635_member_body",
     }
 );
 calib_enum!(
@@ -13925,6 +14106,13 @@ impl Calib {
             troop_splash_crown_reach: pick(&v, &["combat", "TROOP_SPLASH_CROWN_REACH", "value"], TroopSplashCrownReach::from_calibration_name)?,
             building_territory: pick(&v, &["placement", "BUILDING_TERRITORY", "value"], BuildingTerritory::from_calibration_name)?,
             grounded_flier_body: pick(&v, &["movement", "GROUNDED_FLIER_BODY", "value"], GroundedFlierBody::from_calibration_name)?,
+            fixed_ring_facing: pick(&v, &["spawner", "FIXED_RING_FACING", "value"], FixedRingFacing::from_calibration_name)?,
+            throw_landing_blow: pick(&v, &["combat", "THROW_LANDING_BLOW", "value"], ThrowLandingBlow::from_calibration_name)?,
+            thrown_unit_first_update: pick(&v, &["spawner", "THROWN_UNIT_FIRST_UPDATE", "value"], ThrownUnitFirstUpdate::from_calibration_name)?,
+            spin_reach_step: pick(&v, &["combat", "SPIN_REACH_STEP", "value"], SpinReachStep::from_calibration_name)?,
+            deflect_trigger_tick: pick(&v, &["status", "DEFLECT_TRIGGER_TICK", "value"], DeflectTriggerTick::from_calibration_name)?,
+            reroll_ride_body: pick(&v, &["collision", "REROLL_RIDE_BODY", "value"], RerollRideBody::from_calibration_name)?,
+            ice_release_press: pick(&v, &["status", "ICE_RELEASE_PRESS", "value"], IceReleasePress::from_calibration_name)?,
             reroll_log_first_hit: pick(&v, &["spells", "REROLL_LOG_FIRST_HIT", "value"], RerollLogFirstHit::from_calibration_name)?,
             container_slide_end: pick(&v, &["spawner", "CONTAINER_SLIDE_END", "value"], ContainerSlideEnd::from_calibration_name)?,
             container_ring_rank: pick(&v, &["targeting", "CONTAINER_RING_RANK", "value"], ContainerRingRank::from_calibration_name)?,
@@ -14995,6 +15183,19 @@ pub struct ThrowRun {
     pub moves: u32,
 }
 
+/// A HERO BALLOON THROW'S LANDING BLOW HELD TO ITS TICK (combat.THROW_LANDING_BLOW = client16635_landing_plus_2; `throw_pass`):
+/// the tick it strikes, and the trooper's side, card and level and the landing point its spawn area object is cast with
+/// (`spell::cast`, as `spawn_with` casts it). Written under that arm alone; saved, and hashed only when there are some
+/// (`BattleState::throw_blows`).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ThrowBlow {
+    pub due: u32,
+    pub team: Team,
+    pub unit: u16,
+    pub level: i32,
+    pub at: Vec2,
+}
+
 /// THE HERO BALLOON'S THROW, its ticks (`throw_pass`), measured on client 15.535.29 (Oracle's sp-balloon-g6000-s0,
 /// -g4500-s0, -g2500d-s0 and -failsafe-s0; the press's first frame P, the button firing on P + 1,
 /// `ABILITY_START_TICKS`): the seek on the tick after the button fires (P + 2: the seeker's Delay 50); a throw that has
@@ -15007,6 +15208,11 @@ pub const THROW_FAILSAFE_APPEAR_TICKS: u32 = 2;
 /// THE TICKS A THROW'S SPEED HOLDS (its ramp's Interval, 150 ms), from its first move. Measured: 12 moves at 201 native
 /// (the table's first four entries), then 3 at each of 243, 274, 299 and 320 (sp-balloon-g6000-s0).
 pub const THROW_SPEED_BLOCK_TICKS: u32 = 3;
+
+/// combat.THROW_LANDING_BLOW = client16635_landing_plus_2: the ticks from a throw's landing to its landing blow. Measured on
+/// client 16.635 (parity r99, the oracle's il-mg-16635 set): 14 of 14 landings with an enemy in the blow lost it on the
+/// landing tick plus 2.
+pub const THROW_LANDING_BLOW_TICKS: u32 = 2;
 
 /// A DASH CHAIN UNDER WAY (card.rs `AbilityEffect::DashChain`, the Golden Knight's button; `chain_pass`): the champion,
 /// the phase and the tick it began, the target, the targets hit (OncePerTarget) and the dashes left. Saved and hashed
@@ -15126,6 +15332,12 @@ pub struct WarpBoard {
     /// empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rerolls: Vec<RerollRun>,
+    /// collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: each re-rolled Barbarian that stood up and its
+    /// landing's tick (`reroll_pass`); no body through the tick after its landing (`reroll_bodiless_at`), dropped by
+    /// `reroll_pass` two ticks after it. Written under that arm alone; absent in older snapshots, and hashed only when not
+    /// empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reroll_stood: Vec<(EntityId, u32)>,
     /// Goblinstein's tethers under way (`TetherRun`). Absent in older snapshots, and hashed only when not empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tethers: Vec<TetherRun>,
@@ -15356,7 +15568,7 @@ pub struct FlagRun {
 
 impl WarpBoard {
     fn is_empty(&self) -> bool {
-        self.runs.is_empty() && self.blows.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.surges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty() && self.ice_marks.is_empty()
+        self.runs.is_empty() && self.blows.is_empty() && self.strikes.is_empty() && self.magic.is_empty() && self.sieges.is_empty() && self.surges.is_empty() && self.flags.is_empty() && self.flag_plays.is_empty() && self.ramps.is_empty() && self.guards.is_empty() && self.tethers.is_empty() && self.monster_falls.is_empty() && self.surfaced.is_empty() && self.rerolls.is_empty() && self.reroll_stood.is_empty() && self.dismounts.is_empty() && self.tombs.is_empty() && self.lanes.is_empty() && self.souls.is_empty() && self.soul_runs.is_empty() && self.backs.is_empty() && self.ices.is_empty() && self.ice_marks.is_empty()
     }
 
     /// A surge's recovery holds its hero's attack (card.rs `SurgeDef::no_attack_ms`; `surge_pass` sets `hold_until`): from
@@ -15578,6 +15790,11 @@ pub struct SpinRun {
     pub reached: Vec<EntityId>,
     pub left: i32,
     pub blows: u32,
+    /// combat.SPIN_REACH_STEP = client16635_one_more_step: the tick she takes her one more step on, after a reach that left
+    /// her chain nothing (`spin_pass`, `spin_steps_once`). None under stands; absent in older snapshots, hashed only when
+    /// set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_at: Option<u32>,
 }
 
 /// ONE ABILITY BUTTON as a side sees it (`BattleState::ability_buttons`).
@@ -16872,6 +17089,9 @@ pub struct BattleState {
     chains: Vec<ChainRun>,
     /// The throws under way (`ThrowRun`), in press order. Empty in every battle without one.
     throws: Vec<ThrowRun>,
+    /// combat.THROW_LANDING_BLOW = client16635_landing_plus_2: the landing blows held to their tick (`ThrowBlow`), in landing
+    /// order. Empty under the old arm.
+    throw_blows: Vec<ThrowBlow>,
     /// The spins under way (`SpinRun`), in press order. Empty in every battle without one.
     spins: Vec<SpinRun>,
     /// The lifts under way (`LiftRun`), in press order. Empty in every battle without one.
@@ -17432,6 +17652,7 @@ impl BattleState {
             hero_units: Vec::new(),
             chains: Vec::new(),
             throws: Vec::new(),
+            throw_blows: Vec::new(),
             spins: Vec::new(),
             lifts: Vec::new(),
             quests: Vec::new(),
@@ -18096,7 +18317,9 @@ impl BattleState {
             air: if self.grounded_fliers_walk_the_ground() { e.in_air(i) } else { e.flying[i] },
             mover: e.kind[i] == EntityKind::Troop,
             alive: true,
-            collidable: !held && !e.jumping[i] && e.dash_state[i] != DashState::Dashing && !e.attached(i),
+            // collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: a re-rolled Barbarian on its ride, its
+            // landing's tick or the next is no body (`reroll_bodiless_at`).
+            collidable: !held && !e.jumping[i] && e.dash_state[i] != DashState::Dashing && !e.attached(i) && !self.reroll_bodiless_at(i),
             offset: e.avoid_offset[i],
             dir: (e.facing[i].x, e.facing[i].y),
             heading_counts: e.attack_phase[i] == AttackPhase::Idle
@@ -21523,6 +21746,7 @@ impl BattleState {
         self.hero_units.clear();
         self.chains.clear();
         self.throws.clear();
+        self.throw_blows.clear();
         self.spins.clear();
         self.lifts.clear();
         self.quests.clear();
@@ -21914,6 +22138,17 @@ impl BattleState {
             })
             .filter(|h| self.dash_ends_now(h.index as usize))
             .collect();
+        // status.ICE_RELEASE_PRESS = client16635_press_next_tick: a hero a dead cube let go on the tick before
+        // (`ice_let_go`, in the Reap of the cube's death tick; read here at the top of the let-go tick's Status, before its
+        // Reap prunes the entry) is not free on its let-go tick, so its waiting press starts on the next, as a waited press
+        // (its cast hold after that tick's move under status.WAITED_PRESS_CAST = client_after_move). Measured on client
+        // 16.635 (parity r99, the oracle's il-mg-16635 set: 7 of 7 presses waiting through a cube's hold did nothing on the
+        // let-go tick; 4 casts entered their cast state on the next, the hero stepping on both).
+        let let_go: Vec<EntityId> = if self.ice_press_next() {
+            self.warps.ice_freed.iter().filter(|(_, t)| *t + 1 == self.tick).map(|(id, _)| *id).collect()
+        } else {
+            Vec::new()
+        };
         let (ents, cards) = (&self.ents, &self.cfg.cards);
         self.scheduled.retain_mut(|s| {
             if let ScheduledAction::Ability { hero, team, cost, started, waited } = &mut s.action {
@@ -21922,7 +22157,7 @@ impl BattleState {
                     return false;
                 }
                 if !*started {
-                    if !hero_free(ents, cards, hero.index as usize, dash_ends.contains(hero)) {
+                    if !hero_free(ents, cards, hero.index as usize, dash_ends.contains(hero)) || let_go.contains(hero) {
                         *waited |= after_move;
                         return true;
                     }
@@ -22306,8 +22541,9 @@ impl BattleState {
         if !self.warps.ramps.is_empty() {
             self.ramp_pass();
         }
-        // The Hero Barbarian Barrels' re-rolls (`reroll_pass`).
-        if !self.warps.rerolls.is_empty() {
+        // The Hero Barbarian Barrels' re-rolls (`reroll_pass`), and the stood-up Barbarians still with no body under
+        // collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1 (WarpBoard::reroll_stood).
+        if !self.warps.rerolls.is_empty() || !self.warps.reroll_stood.is_empty() {
             self.reroll_pass();
         }
         // The Hero Dark Princes' mounts (`dismount_pass`).
@@ -24203,11 +24439,40 @@ impl BattleState {
     /// after (a golem 60 ticks later drew nothing). Unmeasured: a tie in distance (the resolver's order is taken: the
     /// highest current hp, then the earliest created) and a hero gone before its seek (the table says the seek goes on:
     /// AbortIfInstigatorDies false; the engine ends it).
+    ///
+    /// combat.THROW_LANDING_BLOW = client16635_landing_plus_2: the trooper appears without its spawn area object (`spawn_with`,
+    /// no appearance), which is held (`ThrowBlow`) and cast from the landing point at the head of this pass
+    /// THROW_LANDING_BLOW_TICKS ticks later, so it strikes in that tick's spells step on the enemies where they stand then.
+    /// spawner.THROWN_UNIT_FIRST_UPDATE = client16635_landing_tick: the troopers landed in this pass take their first update at
+    /// its end (`first_update`), moving them alone; the tick's Move-phase columns (`Scratch::deltas`, `walk_step`, `pushed`,
+    /// `jumped`), which the move pass rebuilds for its movers, are kept as the Move phase left them for the rest of the tick.
     fn throw_pass(&mut self) {
         let tick = self.tick;
+        // combat.THROW_LANDING_BLOW = client16635_landing_plus_2: the held landing blows due now, cast before the spells step
+        // (the `cast` `spawn_with` makes at a creation), so each strikes this tick from its landing point.
+        if !self.throw_blows.is_empty() {
+            let (due, later): (Vec<ThrowBlow>, Vec<ThrowBlow>) = std::mem::take(&mut self.throw_blows).into_iter().partition(|b| b.due == tick);
+            self.throw_blows = later;
+            for b in due {
+                if let Ok(area) = spell::cast(&self.cfg.cards, &self.cfg.calib, &self.cfg.arena, b.team, b.unit, b.level, b.at, tick) {
+                    self.spells.extend(area);
+                }
+            }
+        }
         let mult = self.cfg.calib.projectile_speed_to_subtiles_per_tick;
         let mut runs = std::mem::take(&mut self.throws);
         let mut landed = false;
+        // spawner.THROWN_UNIT_FIRST_UPDATE: the slots of the troopers landed in this pass.
+        let mut fresh: Vec<usize> = Vec::new();
+        // combat.THROW_LANDING_BLOW = client16635_landing_plus_2: the landing blow is held to the landing tick plus
+        // THROW_LANDING_BLOW_TICKS. Measured on client 16.635 (parity r99, the oracle's il-mg-16635 set: 14 of 14 landings
+        // with an enemy in the blow lost it two ticks after the landing, Ice Wizards 368, a Knight, a Barbarian, Cannons
+        // 370 and 371; 7089df85's Cannon 22 stood to the landing plus 1). PLANT (regression) throw_blow_on_landing: the new
+        // arm still casts the blow as the trooper appears.
+        #[cfg(not(clash_plant = "throw_blow_on_landing"))]
+        let late_blow = self.cfg.calib.throw_landing_blow == ThrowLandingBlow::Client16635LandingPlus2;
+        #[cfg(clash_plant = "throw_blow_on_landing")]
+        let late_blow = false;
         runs.retain_mut(|r| {
             let Some(crate::card::AbilityEffect::Throw { radius, unit, unit_deploy_ms, start_offset, speeds }) = self.cfg.cards.get(r.card).ability.as_ref().map(|a| a.effect.clone()) else {
                 return false;
@@ -24257,16 +24522,46 @@ impl BattleState {
                 return true;
             }
             let lvl = self.cfg.cards.unit_level(r.card, unit, None, r.level).expect("the throw's unit level is validated at try_new");
-            if let Ok(id) = self.spawn_now(r.team, unit, lvl, r.aim, EntityKind::Troop) {
+            let made = if late_blow { self.spawn_with(r.team, unit, lvl, r.aim, EntityKind::Troop, false) } else { self.spawn_now(r.team, unit, lvl, r.aim, EntityKind::Troop) };
+            if let Ok(id) = made {
                 self.ents.deploy_ms[id.index as usize] = unit_deploy_ms;
                 self.scratch.thrown.push(id);
+                fresh.push(id.index as usize);
                 landed = true;
+                // The blow `spawn_with` would have cast at the creation (spawner.SPAWN_AREA_OBJECT_SCOPE = every_row), held.
+                if late_blow && self.cfg.calib.spawn_area_object_scope == SpawnAreaObjectScope::EveryRow && self.cfg.cards.get(unit).spawn_area_effect.is_some() {
+                    self.throw_blows.push(ThrowBlow { due: tick + THROW_LANDING_BLOW_TICKS, team: r.team, unit, level: lvl, at: r.aim });
+                }
             }
             false
         });
         self.throws = runs;
         if landed {
             self.hash.rebuild(&self.ents);
+        }
+        // spawner.THROWN_UNIT_FIRST_UPDATE = client16635_landing_tick: the landed troopers take their first update now (their
+        // target and attack decisions, which a deploying unit skips, then their avoidance scan and their separation, moving
+        // them alone; `first_update`, the update a death spawn takes on its creation tick). Measured on client 16.635 (parity
+        // r99, the oracle's il-mg-16635 set: 14 of 14 landings onto or beside a unit stood 150 off the landing point on their
+        // first frame, the pick unmoved that frame, pushed toward the trooper's own side; 3770b7a0 t814: the trooper 150 off
+        // the Ice Wizard's point on its first frame, the engine's on it). PLANT (regression) thrown_first_update_next_tick:
+        // the new arm's trooper still waits for the next tick.
+        #[cfg(not(clash_plant = "thrown_first_update_next_tick"))]
+        let first_now = self.cfg.calib.thrown_unit_first_update == ThrownUnitFirstUpdate::Client16635LandingTick;
+        #[cfg(clash_plant = "thrown_first_update_next_tick")]
+        let first_now = false;
+        if first_now && !fresh.is_empty() {
+            // The move pass rebuilds these for its movers alone; the rest of the tick (the spells step's `steps`, Reap's death
+            // ring direction, the status passes) reads them as the Move phase left them.
+            let deltas = self.scratch.deltas.clone();
+            let walk_step = self.scratch.walk_step.clone();
+            let pushed = self.scratch.pushed.clone();
+            let jumped = self.scratch.jumped.clone();
+            self.first_update(&fresh, false, &[], &[]);
+            self.scratch.deltas = deltas;
+            self.scratch.walk_step = walk_step;
+            self.scratch.pushed = pushed;
+            self.scratch.jumped = jumped;
         }
     }
 
@@ -28424,7 +28719,8 @@ impl BattleState {
     /// THE HERO VALKYRIE'S SPINS AFTER THE MOVE (`SpinRun`), in the Projectile phase before the spells step:
     ///   - a chain whose target stands in her attack reach (Range + both radii, `target::in_attack_range`) on the points
     ///     the move left has reached it: she takes the closest one not yet reached at once, or, with none or `count`
-    ///     reached, her chain ends: its buff comes off and she has no target (the next Target phase gives her one);
+    ///     reached, her chain ends: its buff comes off and she has no target (the next Target phase gives her one; under
+    ///     combat.SPIN_REACH_STEP = client16635_one_more_step she first takes one more step at it, `spin_steps_once`);
     ///   - on the spin's first tick and every `every_ms` after, her blow is made on her point (spell.rs `attached_area`,
     ///     the spin's one area): it strikes in this tick's spells step, once (combat.SPIN_BLOWS = after_move, the engine's;
     ///     under client16635_before_move `spin_seek` makes them before the move, and the spin still ends here);
@@ -28465,6 +28761,12 @@ impl BattleState {
                     if r.target.is_none() {
                         r.chaining = false;
                         self.drop_buff(i, chain_buff.buff);
+                        // combat.SPIN_REACH_STEP = client16635_one_more_step: she takes one more step on the next tick
+                        // (`spin_steps_once`). PLANT (regression) spin_reach_step_stands: the new arm never marks it.
+                        #[cfg(not(clash_plant = "spin_reach_step_stands"))]
+                        if self.cfg.calib.spin_reach_step == SpinReachStep::Client16635OneMoreStep {
+                            r.step_at = Some(self.tick + 1);
+                        }
                     }
                 }
             }
@@ -28629,6 +28931,19 @@ impl BattleState {
         #[cfg(clash_plant = "spin_blows_after_move")]
         let on = false;
         on
+    }
+
+    /// combat.SPIN_REACH_STEP = client16635_one_more_step: does Hero Valkyrie `i`, who holds `gi` in her reach, take her
+    /// one more step this tick? She does on the tick after her chain reached its target with no next link
+    /// (`SpinRun::step_at`, set by `spin_pass` under that arm alone), unless a chain runs again (combat.SPIN_CHAIN_END's
+    /// re-begin, which wins) or her centre already stands within her Range plus `gi`'s radius of its centre (her own radius
+    /// left out). Measured on client 16.635 (parity r99, the oracle's il-mg-16635 set: 26 of 26 such endings outside it
+    /// stepped 118 to 120 straight at the target, 0eedaa1b t737 and b20e731c t605 among them; 3 deeper in reach stood at
+    /// once).
+    fn spin_steps_once(&self, i: usize, gi: usize) -> bool {
+        let e = &self.ents;
+        self.spins.iter().any(|r| r.id.index as usize == i && r.step_at == Some(self.tick) && !r.chaining)
+            && !target::in_attack_range(&self.cfg.calib, e.pos[i], self.cfg.cards.get(e.card[i]).range, 0, e.pos[gi], e.radius[gi])
     }
 
     /// combat.DASH_TRIGGER_BUILDING = client16402_square: a building's or a crown tower's distance from `p` to its square
@@ -28932,10 +29247,11 @@ impl BattleState {
                         if dash_short_of_goal(p, goal, d.speed) {
                             return true;
                         }
+                        // client16635_half_step_end: the end test after each half-step (`dash_half_step_end`).
                         for _ in 0..2 {
                             let (q, arrived) = move16402::dash_half_step(p, goal, d.speed / 2);
                             p = q;
-                            if arrived {
+                            if arrived || (self.dash_half_step_end() && dash_short_of_goal(p, goal, d.speed)) {
                                 return true;
                             }
                         }
@@ -28967,8 +29283,21 @@ impl BattleState {
     /// (regression) dash_target_death_ends: the new arm still ends the dash.
     fn dash_runs_to_goal(&self) -> bool {
         #[cfg(not(clash_plant = "dash_target_death_ends"))]
-        return self.cfg.calib.dash_target_death == DashTargetDeath::Client16635RunsToGoal;
+        return matches!(self.cfg.calib.dash_target_death, DashTargetDeath::Client16635RunsToGoal | DashTargetDeath::Client16635HalfStepEnd);
         #[cfg(clash_plant = "dash_target_death_ends")]
+        return false;
+    }
+
+    /// combat.DASH_TARGET_DEATH = client16635_half_step_end: the run of a dash whose target is gone (`dash_runs_to_goal`)
+    /// tests its end (`dash_short_of_goal`) after each half-step, not after the tick's two only: it ends on the first
+    /// half-step that leaves its goal less than a whole step off, 250 to 499 short of it. Measured on client 16.635 (parity
+    /// r99, the oracle's il-mg-16635 set: 3 of 3 runs whose last tick began 500 to 749 from the goal moved 250 on it and
+    /// ended, 2dc95574 t596, 4d00ed2b t3430, 011d9189 t3565; the engine moved 500). PLANT (regression)
+    /// dash_half_step_end_whole_tick: the new arm tests the end after both half-steps only.
+    fn dash_half_step_end(&self) -> bool {
+        #[cfg(not(clash_plant = "dash_half_step_end_whole_tick"))]
+        return self.cfg.calib.dash_target_death == DashTargetDeath::Client16635HalfStepEnd;
+        #[cfg(clash_plant = "dash_half_step_end_whole_tick")]
         return false;
     }
 
@@ -29618,6 +29947,18 @@ impl BattleState {
         {
             drill_off[r.monster.index as usize] = true;
         }
+        // collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: a re-rolled Barbarian on its ride, its
+        // landing's tick and the next (`reroll_bodiless_at`): DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS. No scan meets its
+        // body, either side's, and its own are off (`reroll_masked` below; with no body its separation scan returns at
+        // once).
+        let reroll_off: Vec<bool> = if self.warps.rerolls.is_empty() && self.warps.reroll_stood.is_empty() {
+            vec![false; cap]
+        } else {
+            (0..cap).map(|i| self.reroll_bodiless_at(i)).collect()
+        };
+        for (d, &off) in drill_off.iter_mut().zip(&reroll_off) {
+            *d |= off;
+        }
         // THE MONK'S DEFLECT (card.rs `AbilityEffect::Deflect`, `deflects`; his ability's AVOIDANCE_AS_OBSTACLE): while it
         // is active he takes part in no contact either way (no other unit's separation meets him, and his own is held by
         // his `stay`), and every other unit's avoidance meets him as a static obstacle, as a building. Read off the 16.402
@@ -29707,6 +30048,43 @@ impl BattleState {
                 caged[c.index as usize] = true;
             }
         }
+        // collision.HELD_UNIT_AVOIDANCE = client16635_cube_scanned: the units a Hero Ice Wizard's cube holds, which
+        // `held_masked` below leaves in the scan: from the bridge's hold (the tick before the cube's first frame) through
+        // the cube's death tick D, a run standing in WarpBoard::ices from its find through the Reap of D. Its freeze's buff
+        // is a row of its own (`IceCubeDef::freeze_buff`; slot ids are index + 1, as `ice_let_go` reads them). Its bridge's
+        // buff is interned by value, so its index is shared with the other full stops (a Zap's, a Freeze's): it counts only
+        // on an enemy inside the bridge's circle, from the bridge's landing until the freeze has landed (the cube's first
+        // frame + 2). All false under every other arm.
+        let ice_held: Vec<bool> = if self.ice_hold_scans() && !self.warps.ices.is_empty() {
+            let (tick, e) = (self.tick, &self.ents);
+            let mut held = vec![false; e.capacity()];
+            for r in &self.warps.ices {
+                let Some(d) = self.ice_def(r.form) else { continue };
+                let bridge_at = match r.phase {
+                    IcePhase::Fired { at, bridge, .. } if tick >= bridge => Some(at),
+                    IcePhase::Standing { at, born, .. } if tick <= born + 2 => Some(at),
+                    _ => None,
+                };
+                for (i, h) in held.iter_mut().enumerate() {
+                    if !e.alive[i] || e.team[i] == r.team {
+                        continue;
+                    }
+                    let slots = e.buff_slots(i);
+                    let frozen = slots.iter().any(|s| s.id == d.freeze_buff + 1);
+                    let bridged = match (bridge_at, d.bridge.hit.buff) {
+                        (Some(at), Some(b)) => {
+                            let reach = i64::from(d.bridge.hit.radius + e.radius[i]);
+                            slots.iter().any(|s| s.id == b.buff + 1) && e.pos[i].dist2(at) <= reach * reach
+                        }
+                        _ => false,
+                    };
+                    *h |= frozen || bridged;
+                }
+            }
+            held
+        } else {
+            vec![false; self.ents.capacity()]
+        };
         // A chain on its first tick, seeking, before any blow (the press's trigger): its champion walks at his own speed
         // this tick (the pending run below starts on the next). Measured on client 15.535.29 (sp-champ-GK-empty-s0).
         let mut chain_fresh = vec![false; self.ents.capacity()];
@@ -31086,9 +31464,12 @@ impl BattleState {
                         // combat.DASH_TARGET_DEATH = client16635_runs_to_goal (`dash_runs_to_goal`). PLANT (regression)
                         // dash_target_death_ends: the new arm still ends the dash.
                         #[cfg(not(clash_plant = "dash_target_death_ends"))]
-                        let runs_to_goal = calib.dash_target_death == DashTargetDeath::Client16635RunsToGoal;
+                        let runs_to_goal = matches!(calib.dash_target_death, DashTargetDeath::Client16635RunsToGoal | DashTargetDeath::Client16635HalfStepEnd);
                         #[cfg(clash_plant = "dash_target_death_ends")]
                         let runs_to_goal = false;
+                        // combat.DASH_TARGET_DEATH = client16635_half_step_end: that run tests its end after each half-step
+                        // (`dash_half_step_end`).
+                        let half_end = self.dash_half_step_end();
                         match d.constant_time_ms {
                             // combat.DASH_TARGET_DEATH = client16635_runs_to_goal: a dash whose target is gone runs on toward
                             // its goal in whole steps, two half-steps a tick, no range test and no blow, and ends on the step
@@ -31097,10 +31478,12 @@ impl BattleState {
                                 if dash_short_of_goal(p, goal, d.speed) {
                                     ended = true;
                                 } else {
+                                    // client16635_half_step_end: it ends on the first half-step that leaves its goal
+                                    // less than a whole step off (a last tick that began 500 to 749 off moves 250).
                                     for _ in 0..2 {
                                         let (q, arrived) = move16402::dash_half_step(p, goal, d.speed / 2);
                                         p = q;
-                                        if arrived {
+                                        if arrived || (half_end && dash_short_of_goal(p, goal, d.speed)) {
                                             ended = true;
                                             break;
                                         }
@@ -31301,6 +31684,8 @@ impl BattleState {
                 // enchant.ON_BUFF_HOLD_WALK = client16402_walks_on: a Rune Giant walking on into his reach through his hold aims at
                 // his target's centre (the direct aim's reach 0).
                 let mut walk_in = false;
+                // combat.SPIN_REACH_STEP = client16635_one_more_step: her one more step this tick (`spin_steps_once`).
+                let mut spin_in = false;
                 let mut feasible = true;
                 // The route is cleared, as on any transition to attacking (SPEC 5.3).
                 // NOT clearing it was tried, on the argument that a held unit is already
@@ -31362,7 +31747,17 @@ impl BattleState {
                         && goals[i].is_some_and(|g| (actor.0 / path16402::CELL, actor.1 / path16402::CELL) == (g.x, g.y));
                     #[cfg(clash_plant = "hold_walk_past_goal_cell")]
                     let goal_stand = false;
-                    if in_reach && hold_walks && !goal_stand {
+                    // combat.SPIN_REACH_STEP = client16635_one_more_step: a Hero Valkyrie whose chain reached its target
+                    // with no next link on the tick before takes one more step, at her speed now (the pending buff's), her
+                    // route dropped, straight at the target she holds in her reach (`spin_steps_once`).
+                    let spin_once = in_reach && self.spin_steps_once(i, gi);
+                    if in_reach && (hold_walks || spin_once) && !goal_stand {
+                        if spin_once {
+                            routes[i].clear();
+                            goals[i] = None;
+                            segs[i] = Vec2::default();
+                            spin_in = true;
+                        }
                         target_abs = Some((bodies[gi].x, bodies[gi].y));
                         walk_in = true;
                     } else if in_reach {
@@ -31500,9 +31895,21 @@ impl BattleState {
                 let mut con = move16402::Contact { acc: (0, 0), count: 0, offset: offsets[i], uncapped: false };
                 let waypoint = if routes[i].len() >= 2 { routes[i].last().map(|&p| node_centre(p)) } else { None };
                 // collision.HELD_UNIT_AVOIDANCE = masked: a held unit (`held_walk`) is masked out of the scan as an
-                // attacking one is; the decay below still runs.
+                // attacking one is; the decay below still runs. client16635_cube_scanned masks it too, unless a Hero Ice
+                // Wizard's cube holds it (`ice_held`): that one scans as a walker does, and the cube, which carries
+                // AVOIDANCE_AS_OBSTACLE (`tag_off`), is a static obstacle in its look circle once the cube is a body (the
+                // tick after its first frame). Measured on client 16.635 (parity r99, the oracle's il-mg-16635 raw frames:
+                // 35 of 35 walking victims whose look circle held the cube took the static answer on its first frame + 1,
+                // and 1,244 later ticks were held at 190; attacking victims none).
                 #[cfg(not(clash_plant = "held_avoidance_scanned"))]
-                let held_masked = held_walk && calib.held_unit_avoidance == HeldUnitAvoidance::Masked;
+                let held_masked = held_walk
+                    && match calib.held_unit_avoidance {
+                        HeldUnitAvoidance::Scanned => false,
+                        HeldUnitAvoidance::Masked => true,
+                        HeldUnitAvoidance::Client16635CubeScanned => !ice_held[i],
+                    };
+                #[cfg(clash_plant = "held_avoidance_scanned")]
+                let _ = &ice_held;
                 #[cfg(clash_plant = "held_avoidance_scanned")]
                 let held_masked = false; // PLANT (regression): the new arm still scans a held unit.
                 // collision.CAGE_CAPTIVE_AVOIDANCE = client15535_masked: a caged captive (and a freed one in its release hold)
@@ -31519,7 +31926,11 @@ impl BattleState {
                 let landing_masked = guard_landed[i] && calib.guard_landing_avoidance == GuardLandingAvoidance::Client16402UnscannedBodiless;
                 #[cfg(clash_plant = "guard_landing_scans")]
                 let landing_masked = false;
-                if !attacking && !held_masked && !cage_masked && !landing_masked {
+                // collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: a re-rolled Barbarian scans nothing
+                // from the tick after its log's through the tick after its landing (`reroll_bodiless_at`; on the ride
+                // `held_masked` masks it already); the decay below still runs.
+                let reroll_masked = reroll_off[i];
+                if !attacking && !held_masked && !cage_masked && !landing_masked && !reroll_masked {
                     // The scan runs for walking and deploying units, not for an
                     // attacking one: an attacking unit is masked out of it (and a held
                     // one under collision.HELD_UNIT_AVOIDANCE = masked). A CHARGED
@@ -31645,12 +32056,17 @@ impl BattleState {
                 // at his target's centre. Measured on client 16.402 (parity r81, live13): the first routeless walk-on step kept
                 // the heading within 2 native in 13 of 13 (the engine turned to the centre in 13 of 13). PLANT (regression)
                 // hold_walk_turns_to_centre: the new arm still turns to the centre.
+                // combat.SPIN_REACH_STEP = client16635_one_more_step: her one more step goes at her target's centre.
                 #[cfg(not(clash_plant = "hold_walk_turns_to_centre"))]
                 let along = walk_in
+                    && !spin_in
                     && matches!(calib.enchant_on_buff_hold_walk, EnchantOnBuffHoldWalk::Client16402WalksOnHeading | EnchantOnBuffHoldWalk::Client16402WalksOnToGoalCell)
                     && facing[i] != Vec2::default();
                 #[cfg(clash_plant = "hold_walk_turns_to_centre")]
-                let along = false;
+                let along = {
+                    let _ = spin_in;
+                    false
+                };
                 let (aim, speed) = match routes[i].last() {
                     Some(&p) if !deploying && !attacking && !still => (fly_direct_aim.unwrap_or(node_centre(p)), native_speed),
                     Some(&p) if !deploying && !attacking && held_faces_waypoint => (node_centre(p), 0),
@@ -33367,6 +33783,18 @@ impl BattleState {
                 Some((pct, _, false)) => combat::attack_step_scaled(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act, pct),
                 None => combat::attack_step(&self.ents, &self.cfg.cards, &self.cfg.calib, i, can_act),
             };
+            // spawner.FIXED_RING_FACING = client16635_building_target: a damage-less building on the fixed death ring's list
+            // (target.rs `fixed_ring_attacker`, the Goblin Drill's) never lands its swing: on the tick its progress crosses
+            // HitSpeed it stays in its windup, its clock running on, with no hit and none of a hit's hooks (it still faces its
+            // target under movement.ATTACK_FACING below). Measured on client 16.635 (parity r99, the oracle's il-mg-16635 set:
+            // 0894a4ab key 10's progress read 2800 to 3000 at HitSpeed 1100 while the Cannon it held lost only its lifetime
+            // drain). PLANT (regression) fixed_ring_swing_lands: the swing lands.
+            #[cfg(not(clash_plant = "fixed_ring_swing_lands"))]
+            let step = if step.fired_at.is_some() && target::fixed_ring_attacker(&self.cfg.calib, self.cfg.cards.get(self.ents.card[i])) {
+                combat::AttackStep { phase: AttackPhase::Windup, fired_at: None, ..step }
+            } else {
+                step
+            };
             if let Some((_, depleted_now, _)) = burst {
                 self.burst_step(i, &step, depleted_now);
             }
@@ -34747,7 +35175,8 @@ impl BattleState {
         }
         // The Hero Balloon's throws, before the spells step, so a landing's blow strikes on its own tick (`throw_pass`).
         self.scratch.thrown.clear();
-        if !self.throws.is_empty() {
+        // combat.THROW_LANDING_BLOW = client16635_landing_plus_2: a held landing blow (`ThrowBlow`) runs the pass too.
+        if !self.throws.is_empty() || !self.throw_blows.is_empty() {
             self.throw_pass();
         }
         // The Hero Giant's slaps, on this tick's moved points, before the spells step (`slap_pass`).
@@ -35005,26 +35434,50 @@ impl BattleState {
     /// tick alone: the Skeleton covered the point from t365 and four pushes would have carried it 600. A container's row
     /// has no CollisionRadius and no Mass. `pos` under none. Only where the members are LAID moves: their slides end
     /// around `pos` (`release_fuse_end`).
-    fn container_burst_point(&self, team: Team, pos: Vec2) -> Vec2 {
+    ///
+    /// spawner.CONTAINER_BURST_PUSH = client16635_member_body: the body is one of the container's own members standing on
+    /// `pos`, `member` (the death-spawn unit's CollisionRadius, subtiles, and its Mass column: a Skeleton's 500 and 1).
+    /// Every ground unit whose centre is within its radius and the member's reaches it, its overlap their sum less |d|,
+    /// clamped to 0..300, its mag min(overlap x its mass / the member's mass, 299) and 1; the mean is capped at 150 as
+    /// before. Measured on client 16.635 (parity r99, the oracle's il-mg-16635 set: of its 219 Skeleton Barrel and Evo
+    /// Skeleton Barrel rings, the 38 where the two pushing arms part all stood where this arm puts them, to 2, none where
+    /// client15535_contact_push does; a body radius of 500 fits 199 of the 219, any other at most 188). The units in reach
+    /// were Skeletons, Knights, Rascals, Cannons, Evo Cannons and princess towers, alone or two or three at once.
+    fn container_burst_point(&self, team: Team, pos: Vec2, member: (i32, Option<i32>)) -> Vec2 {
         use crate::fixed::SUBTILE_PER_MILLITILE as K;
+        let calib_arm = self.cfg.calib.container_burst_push;
         #[cfg(not(clash_plant = "container_burst_unpushed"))]
-        let arm = self.cfg.calib.container_burst_push == ContainerBurstPush::Client15535ContactPush;
+        let arm = calib_arm != ContainerBurstPush::None;
         #[cfg(clash_plant = "container_burst_unpushed")]
-        let arm = false; // PLANT (regression): the new arm still lays the members around the point it fell on.
+        let arm = false; // PLANT (regression): the pushing arms still lay the members around the point it fell on.
         if !arm {
             return pos;
         }
+        // spawner.CONTAINER_BURST_PUSH = client16635_member_body: the body is one of its members, with its radius and mass.
+        #[cfg(not(clash_plant = "burst_body_unread"))]
+        let body = calib_arm == ContainerBurstPush::Client16635MemberBody;
+        #[cfg(clash_plant = "burst_body_unread")]
+        let body = false; // PLANT (regression): the new arm still pushes a body of no radius and no mass.
+        let (own_r, own_mass) = if body {
+            let r = member.0 / K;
+            (r, move16402::loaded_mass(member.1.unwrap_or(0), r))
+        } else {
+            (0, move16402::loaded_mass(0, 0))
+        };
         let e = &self.ents;
         let (x, y) = (pos.x / K, pos.y / K);
-        let own_mass = move16402::loaded_mass(0, 0);
         let mut con = move16402::Contact::default();
         for j in e.live_indices() {
-            if e.flying[j] || e.jumping[j] || e.attached(j) || e.hooked_by[j].is_some() {
+            // collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: a riding re-rolled Barbarian is no body to any
+            // separation scan, a burst's included (`reroll_bodiless_at`, false under held_body).
+            if e.flying[j] || e.jumping[j] || e.attached(j) || e.hooked_by[j].is_some() || self.reroll_bodiless_at(j) {
                 continue;
             }
             let r = e.radius[j] / K;
+            // Its reach: its own radius, and the member's under client16635_member_body (0 under client15535_contact_push).
+            let reach = r + own_r;
             let (mut dx, mut dy) = (x - e.pos[j].x / K, y - e.pos[j].y / K);
-            if r <= 0 || dx.abs() > r || dy.abs() > r {
+            if r <= 0 || dx.abs() > reach || dy.abs() > reach {
                 continue;
             }
             let mut d2 = dx * dx + dy * dy;
@@ -35033,11 +35486,11 @@ impl BattleState {
                 dx = 0;
                 d2 = 1;
             }
-            if d2 > r * r {
+            if d2 > reach * reach {
                 continue;
             }
             let dist = move16402::isqrt(d2).max(1);
-            let overlap = (r - dist).clamp(0, 300);
+            let overlap = (reach - dist).clamp(0, 300);
             let mass = move16402::loaded_mass(e.mass[j].unwrap_or(0), r);
             let mag = move16402::tdiv(overlap * mass, own_mass.max(1)).min(299) + 1;
             con.acc.0 += move16402::tdiv(dx * mag, dist);
@@ -35083,7 +35536,9 @@ impl BattleState {
     /// Under targeting.CONTAINER_RING_RANK = client16635_ring_index_80 each member carries its place in this ring
     /// (PendingSpawn::ring_rank, Entities::ring_rank), which every target scan reads (target.rs `key`). Under
     /// spawner.CONTAINER_SLIDE_END = client16635_arena_inset_250 the ring points are kept inside the arena's inset
-    /// (`slide_end_points`) and each member slides only the steps that reach its point.
+    /// (`slide_end_points`) and each member slides only the steps that reach its point. Under
+    /// spawner.CONTAINER_BURST_PUSH = client16635_member_body the point they are laid around is pushed as one of them, a
+    /// body of their unit's CollisionRadius and Mass (`container_burst_point`).
     fn release_fuse_end(&mut self, f: spell::FuseEnd) {
         // spawner.AREA_SPAWN_FACING = client16635_unit_forward: is this container one of an Evo Skeleton Barrel's two drops (the
         // health line's, `BarrelDef::extra`, or the death's, the form's death spawn)?
@@ -35096,6 +35551,9 @@ impl BattleState {
         let Some(ds) = bomb.death_spawn else { return };
         let level = cards.death_spawn_level(f.card, f.level).expect("death spawn level validated at deploy");
         let unit = cards.get(ds.unit);
+        // spawner.CONTAINER_BURST_PUSH = client16635_member_body: the burst point is pushed as one of these, a body of
+        // their CollisionRadius and Mass (`container_burst_point`).
+        let member = (unit.collision_radius, unit.mass);
         // The container itself has no collision radius: an own-radius default reads 0, as the zero default does.
         let radius = ds.radius.unwrap_or(0);
         let deploy_ms = ds.deploy_time_ms.or(match self.cfg.calib.death_spawn_deploy_default {
@@ -35126,8 +35584,10 @@ impl BattleState {
         // spawner.CONTAINER_BURST_PUSH = client15535_contact_push: the point the members are laid around; their slides
         // still end around the point the container fell on (client 15.535.29, sp-form-SkeletonBalloon-evo-s0 t372, the
         // slide's last tick: 6 of 7 members nearer the ends around the unpushed point, one 186 past its end around the
-        // pushed one).
-        let at = self.container_burst_point(f.team, f.pos);
+        // pushed one). Under client16635_member_body the push is a member's (`member`), and the slides still end around
+        // the point it fell on (client 16.635, parity r99: 1063d444 t1735, the first members' slides ended nearer the
+        // ends around the fall point than around the ring's centre).
+        let at = self.container_burst_point(f.team, f.pos, member);
         #[cfg(not(clash_plant = "container_slide_from_pushed"))]
         let slide_from = f.pos;
         #[cfg(clash_plant = "container_slide_from_pushed")]
@@ -36399,8 +36859,39 @@ impl BattleState {
         self.cfg.calib.reroll_log_first_hit == RerollLogFirstHit::Client16635LogTick && !cfg!(clash_plant = "reroll_log_hits_next_tick")
     }
 
+    /// collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: is entity `i` a re-rolled Barbarian from the
+    /// tick after its log's (its run's trigger and `spawn_delay_ms` in ticks, and one) to its landing (WarpBoard::rerolls),
+    /// or on its landing's tick or the next (WarpBoard::reroll_stood)? Then it is no body to the move pass
+    /// (`phase_path16402_for`'s `drill_off`, and `dying_body`) and runs no avoidance scan of its own (`reroll_masked`).
+    /// Always false under held_body. Measured on clients 16.635 and 16.402 (parity r99: the oracle's il-mg-16635 set, 28
+    /// ride overlap ticks in 5 re-rolls and 4 on the landing and the tick after, none pushed, both overlaps left resolved
+    /// two ticks after the landing; its 16.402 replays, 145 ride overlap ticks in 22 re-rolls, none pushed, 15 of 15
+    /// resolved two ticks after the landing). The re-roll's GameTagsToSetWhileOnReRolling carry
+    /// DISABLE_PHYSICAL_INTERACTIONS_WITH_OBJECTS, raised on each roll step and read from the next. PLANT (regression)
+    /// reroll_rider_is_body: the new arm's rider is a body.
+    fn reroll_bodiless_at(&self, i: usize) -> bool {
+        #[cfg(not(clash_plant = "reroll_rider_is_body"))]
+        let on = self.cfg.calib.reroll_ride_body == RerollRideBody::Client16402NoBodyRideToLandPlus1;
+        #[cfg(clash_plant = "reroll_rider_is_body")]
+        let on = false;
+        if !on || !self.ents.alive[i] {
+            return false;
+        }
+        let id = self.ents.id_of(i);
+        let dt = self.cfg.calib.tick_ms.max(1);
+        self.warps.rerolls.iter().any(|r| {
+            r.id == id
+                && matches!(self.cfg.cards.get(r.card).ability, Some(crate::card::AbilityDef { effect: crate::card::AbilityEffect::ReRoll(rr), .. })
+                    if self.tick > r.made + (rr.spawn_delay_ms / dt).max(1) as u32)
+        }) || self.warps.reroll_stood.iter().any(|&(s, land)| s == id && self.tick <= land + 1)
+    }
+
     fn reroll_pass(&mut self) {
         let tick_ms = self.cfg.calib.tick_ms.max(1);
+        // collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: a stood-up Barbarian is a body again two
+        // ticks after its landing.
+        let now = self.tick;
+        self.warps.reroll_stood.retain(|&(_, land)| now <= land + 1);
         let runs = std::mem::take(&mut self.warps.rerolls);
         let mut keep = Vec::new();
         let mut moved = false;
@@ -36462,6 +36953,11 @@ impl BattleState {
                         if slot.id == rr.hide.buff + 1 {
                             *slot = BuffSlot::default();
                         }
+                    }
+                    // collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: no body through the tick after
+                    // its landing (`reroll_bodiless_at`). Not gated on spells.REROLL_HIDE_WINDOW: the key stands alone.
+                    if self.cfg.calib.reroll_ride_body == RerollRideBody::Client16402NoBodyRideToLandPlus1 {
+                        self.warps.reroll_stood.push((r.id, self.tick));
                     }
                     continue;
                 }
@@ -37438,7 +37934,24 @@ impl BattleState {
                 let keeps_heading = self.cfg.calib.death_spawn_layout == DeathSpawnLayout::FacingRingRounded && !slide && emission.is_none() && !listed;
                 #[cfg(clash_plant = "death_ring_members_face_forward")]
                 let keeps_heading = false; // PLANT (regression): the members face their side's forward.
-                let member_facing = if keeps_heading { heading256 } else { None };
+                // spawner.FIXED_RING_FACING = client16635_building_target: a listed building's fixed ring starts with the
+                // building's own facing as it stands (its held target's direction while it attacked, its side's forward while
+                // idle), not the direction to its target; the members' creation-tick avoidance scan (the dying building its
+                // blocker) runs along it. Measured on client 16.635 (parity r99, the oracle's il-mg-16635 set: 208 of 222 Goblin
+                // Drill death ring members, 48 of 48 before their battle's first divergence, faced the dying building's last
+                // facing, the rest within a few units; 5 of 5 idle drills faced forward). PLANT (regression)
+                // fixed_ring_members_face_forward: the new arm's members still face their side's forward.
+                #[cfg(not(clash_plant = "fixed_ring_members_face_forward"))]
+                let listed_faces = listed && self.ents.kind[i].is_building() && self.cfg.calib.fixed_ring_facing == FixedRingFacing::Client16635BuildingTarget;
+                #[cfg(clash_plant = "fixed_ring_members_face_forward")]
+                let listed_faces = false;
+                let member_facing = if keeps_heading {
+                    heading256
+                } else if listed_faces {
+                    Some(self.ents.facing[i]).filter(|f| *f != Vec2::default())
+                } else {
+                    None
+                };
                 parents.push(i);
                 // spawner.DEATH_SLIDE_STOP = move_count: a member with an end point (DEATH_SLIDE_AIM = fixed_end_point)
                 // slides at most its move count (`slide_move_count`), from where it is born.
@@ -38413,6 +38926,31 @@ impl BattleState {
         #[cfg(not(clash_plant = "ice_release_target_now"))]
         let on = self.cfg.calib.ice_release_target == IceReleaseTarget::Client16635TargetNextTick;
         #[cfg(clash_plant = "ice_release_target_now")]
+        let on = false;
+        on
+    }
+
+    /// collision.HELD_UNIT_AVOIDANCE = client16635_cube_scanned (`phase_path16402_for`'s `ice_held`): a unit a Hero Ice
+    /// Wizard's cube holds runs the avoidance scan as a walker does. Measured on client 16.635 (parity r99, the oracle's
+    /// il-mg-16635 raw frames: 35 of 35 walking victims whose look circle held the cube took the static answer on its first
+    /// frame + 1, and 1,244 later ticks were held at 190; 0 against). PLANT (regression) ice_hold_masked: the new arm still
+    /// masks a cube's victims.
+    fn ice_hold_scans(&self) -> bool {
+        #[cfg(not(clash_plant = "ice_hold_masked"))]
+        let on = self.cfg.calib.held_unit_avoidance == HeldUnitAvoidance::Client16635CubeScanned;
+        #[cfg(clash_plant = "ice_hold_masked")]
+        let on = false;
+        on
+    }
+
+    /// status.ICE_RELEASE_PRESS = client16635_press_next_tick (`fire_scheduled`), read only where WarpBoard::ice_freed is
+    /// written (status.ICE_RELEASE_TARGET = client16635_target_next_tick). Measured on client 16.635 (parity r99, the
+    /// oracle's il-mg-16635 set: 7 of 7 presses waiting through a cube's hold did nothing on the let-go tick and started on
+    /// the next). PLANT (regression) ice_press_on_let_go: the new arm still starts on the let-go tick.
+    fn ice_press_next(&self) -> bool {
+        #[cfg(not(clash_plant = "ice_press_on_let_go"))]
+        let on = self.cfg.calib.ice_release_press == IceReleasePress::Client16635PressNextTick && self.ice_target_next();
+        #[cfg(clash_plant = "ice_press_on_let_go")]
         let on = false;
         on
     }
@@ -40476,6 +41014,21 @@ impl BattleState {
         // The effect: ABILITY_START_TICKS from the first free tick after the press, then TriggerDelay in whole ticks
         // (`whole_ticks_ms`).
         let mut ms = ABILITY_START_TICKS * self.cfg.calib.tick_ms + whole_ticks_ms(a.trigger_ms, self.cfg.calib.tick_ms);
+        // status.DEFLECT_TRIGGER_TICK = client16635_last_partial_tick: the Monk's Deflect lands on the tick whose 50 ms
+        // step completes its TriggerDelay, P + ceil(TriggerDelay / TICK_MS) - 1 from the cast's first frame P: 933 on
+        // P + 18 as under whole_ticks, 16.635's 700 on P + 13 (whole_ticks: P + 14). Measured on client 16.635 (parity r99,
+        // the oracle's il-mg-16635 set: his stand state from P + 13 in 13 of 13 presses; 2 of 2 hits on P + 14 cut to 35 %,
+        // 249c9115 t535 its first divergence's cause). PLANT (regression) deflect_trigger_whole_ticks: the new arm still
+        // counts whole ticks.
+        #[cfg(not(clash_plant = "deflect_trigger_whole_ticks"))]
+        let partial = self.cfg.calib.deflect_trigger_tick == DeflectTriggerTick::Client16635LastPartialTick;
+        #[cfg(clash_plant = "deflect_trigger_whole_ticks")]
+        let partial = false;
+        if partial && matches!(a.effect, crate::card::AbilityEffect::Deflect { .. }) {
+            let t = self.cfg.calib.tick_ms.max(1);
+            // ceil(ms / t) - 1 ticks: floor((ms - 1) / t), 0 for a TriggerDelay of 0
+            ms = ABILITY_START_TICKS * t + (a.trigger_ms - 1).div_euclid(t).max(0) * t;
+        }
         // A LEVEL SET (the Hero Mini PEKKA's) lands LEVEL_SET_EARLY_TICKS before that (`LEVEL_SET_EARLY_TICKS`), and the
         // press stops its quest for good (the table's ForceStopIfTrue: ABILITY_CASTED).
         if matches!(a.effect, crate::card::AbilityEffect::LevelUp { .. }) {
@@ -41103,7 +41656,7 @@ impl BattleState {
             crate::card::AbilityEffect::SpinChain { .. } => {
                 self.spins.retain(|r| r.id != hero);
                 #[cfg(not(clash_plant = "spin_never"))]
-                self.spins.push(SpinRun { id: hero, fired: self.tick, pending: false, began: None, chaining: false, target: None, reached: Vec::new(), left: 0, blows: 0 });
+                self.spins.push(SpinRun { id: hero, fired: self.tick, pending: false, began: None, chaining: false, target: None, reached: Vec::new(), left: 0, blows: 0, step_at: None });
                 let _ = (team, level, pos);
             }
             crate::card::AbilityEffect::ActionGroup { steps } => {
@@ -43462,6 +44015,19 @@ impl BattleState {
                 h.u32(r.moves);
             }
         }
+        // combat.THROW_LANDING_BLOW = client16635_landing_plus_2: the landing blows still to strike, only when there are some.
+        if !self.throw_blows.is_empty() {
+            h.u32(0x5442_4c57);
+            h.u32(self.throw_blows.len() as u32);
+            for b in &self.throw_blows {
+                h.u32(b.due);
+                h.u32(b.team as u32);
+                h.u32(u32::from(b.unit));
+                h.i32(b.level);
+                h.i32(b.at.x);
+                h.i32(b.at.y);
+            }
+        }
         // The slaps, only when there are some.
         if !self.slaps.runs.is_empty() {
             h.u32(0x534c_4150);
@@ -43548,6 +44114,16 @@ impl BattleState {
                         h.i32(p.x);
                         h.i32(p.y);
                     }
+                }
+            }
+            // collision.REROLL_RIDE_BODY = client16402_no_body_ride_to_land_plus_1: the stood-up Barbarians still with no
+            // body, written only when not empty.
+            if !self.warps.reroll_stood.is_empty() {
+                h.u32(0x5252_5354);
+                h.u32(self.warps.reroll_stood.len() as u32);
+                for (id, t) in &self.warps.reroll_stood {
+                    h.id(*id);
+                    h.u32(*t);
                 }
             }
             if !self.warps.blows.is_empty() {
@@ -43892,6 +44468,11 @@ impl BattleState {
                 }
                 h.i32(r.left);
                 h.u32(r.blows);
+                // combat.SPIN_REACH_STEP = client16635_one_more_step: written only under that arm.
+                if let Some(t) = r.step_at {
+                    h.u32(0x5354_4550);
+                    h.u32(t);
+                }
             }
         }
         // The scheduled actions (`Scheduled`), only when there are some: a battle with none -- every battle without a
@@ -45796,6 +46377,34 @@ impl BattleState {
 ///    next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle
 ///    at the old arm.
 /// 20, unchanged, parity r98 (spells.REROLL_HIDE_WINDOW = client16635_holders_let_go_next_tick): a new arm, no new state.
+/// 20, unchanged, parity r99 (status.ICE_RELEASE_PRESS): Calib gained ice_release_press (serde default the old arm,
+///    with_the_walk), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
+/// 20, unchanged, parity r99 (collision.HELD_UNIT_AVOIDANCE = client16635_cube_scanned): a new arm, no new state.
+/// 20, unchanged, parity r99 (collision.REROLL_RIDE_BODY): Calib gained reroll_ride_body (serde default the old arm,
+///    held_body) and WarpBoard gained reroll_stood (serde default empty, skipped when empty, written only under the new
+///    arm, hashed only when not empty), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, parity r99 (spawner.CONTAINER_BURST_PUSH = client16635_member_body): a new arm, no new state.
+/// 20, unchanged, parity r99 (combat.DASH_TARGET_DEATH = client16635_half_step_end): a new arm, no new state.
+/// 20, unchanged, parity r99 (status.DEFLECT_TRIGGER_TICK): Calib gained deflect_trigger_tick (serde default the old arm,
+///    whole_ticks), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated
+///    battle at the old arm.
+/// 20, unchanged, parity r99 (combat.SPIN_REACH_STEP): Calib gained spin_reach_step (serde default the old arm,
+///    stands) and SpinRun gained step_at (serde default None, skipped when None, written only under the new arm,
+///    hashed only when set), so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, parity r99 (spawner.THROWN_UNIT_FIRST_UPDATE): Calib gained thrown_unit_first_update (serde default the
+///    old arm, next_tick), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, parity r99 (combat.THROW_LANDING_BLOW): Calib gained throw_landing_blow (serde default the old
+///    arm, landing_tick) and BattleState gained throw_blows (serde default empty, skipped when empty, written only
+///    under the new arm, hashed only when not empty), so a blob saved before it deserializes and hashes as it did.
+///    migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, parity r99 (spawner.FIXED_RING_FACING): Calib gained fixed_ring_facing (serde default the old arm,
+///    forward), no new battle state. CardDef gained row_attacks_ground, row_attacks_air and inert_attack_row (the
+///    post-format-3 tail), so the card fingerprint moves: a blob saved by an earlier build is refused as saved against
+///    different card data (a battle's hash is unchanged). migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -45907,6 +46516,10 @@ struct Snapshot {
     /// The throws under way (`BattleState::throws`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     throws: Vec<ThrowRun>,
+    /// combat.THROW_LANDING_BLOW = client16635_landing_plus_2: the landing blows still to strike (`BattleState::throw_blows`).
+    /// Added after SNAPSHOT_FORMAT 20; `default` none, and skipped when empty, so a battle under the old arm saves as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    throw_blows: Vec<ThrowBlow>,
     /// The spins under way (`BattleState::spins`). Added after SNAPSHOT_FORMAT 20; `default` none.
     #[serde(default)]
     spins: Vec<SpinRun>,
@@ -46114,7 +46727,7 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                 // printed it, so the rebuilt text cannot match a format-3 fingerprint and every
                 // such blob is refused below as saved against different card data.
                 let tail = format!(
-                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?}, override_attack_finish: {}, chain_hit: {:?}, ramp: {:?}, avoidance_as_obstacle: {} }}",
+                    ", ignore_pushback: {}, spell: None, summon_only: false, stop_movement_after_ms: {}, wait_ms: {}, hide: {:?}, spawner: {:?}, death_spawn: {:?}, charge: {:?}, jump: {:?}, level_base: {:?}, formation: {:?}, projectile_start_radius: {}, kamikaze: {}, attack_buff: {:?}, projectile_homing: {}, death_area_effect: {:?}, death_spawn_pushback: {}, dash: {:?}, reflect: {:?}, range_shot: {:?}, multiple_projectiles: {}, custom_first_projectile: {:?}, multiple_targets: {}, all_targets_hit: {}, deploy_projectile: {:?}, load_first_hit: {}, variable_damage: {:?}, attack_pushback: {}, special: {:?}, death_projectile: {:?}, deploy_area_effect: {:?}, spawn_area_effect: {:?}, hovering: {}, minimum_range: {}, spark: {:?}, projectile_area: {:?}, life_state: {:?}, invisible_when_idle: {:?}, spawn_pathfind: {:?}, can_deploy_on_enemy_side: {}, mana: {:?}, omit_from_starting_hand: {}, attach: {:?}, target_only_troops: {}, deprioritize_buff: {:?}, summon_members: {:?}, summon_offsets_x_mirrored: {}, attack_select: {:?}, ignore_buffs: {:?}, attack_buff_first: {}, enchant: {:?}, transform_at_hp: {:?}, parry: {:?}, kamikaze_time_ms: {}, death_pushback: {}, ignore_clone: {}, projectile_y_offset: {}, evo: {:?}, form_of: {:?}, ability: {:?}, idle_buff: {:?}, idle_area: {:?}, deploy_spawn_area: {:?}, combo: {:?}, override_attack_finish: {}, chain_hit: {:?}, ramp: {:?}, avoidance_as_obstacle: {}, row_attacks_ground: {}, row_attacks_air: {}, inert_attack_row: {} }}",
                     c.ignore_pushback,
                     c.stop_movement_after_ms,
                     c.wait_ms,
@@ -46181,7 +46794,10 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
                     c.override_attack_finish,
                     c.chain_hit,
                     c.ramp,
-                    c.avoidance_as_obstacle
+                    c.avoidance_as_obstacle,
+                    c.row_attacks_ground,
+                    c.row_attacks_air,
+                    c.inert_attack_row
                 );
                 let d = format!("{c:?}");
                 d.strip_suffix(&tail).map(|head| format!("{head} }}")).ok_or_else(|| bad("CardDef Debug layout changed; the v3 fingerprint cannot be rebuilt"))
@@ -47084,6 +47700,20 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("container_slide_end".into(), serde_json::to_value(ContainerSlideEnd::RingPoint).map_err(|e| e.to_string())?);
     // spells.REROLL_LOG_FIRST_HIT: a format-3 battle ran its old arm.
     sh.insert("reroll_log_first_hit".into(), serde_json::to_value(RerollLogFirstHit::NextTick).map_err(|e| e.to_string())?);
+    // status.ICE_RELEASE_PRESS: a format-3 battle ran its old arm.
+    sh.insert("ice_release_press".into(), serde_json::to_value(IceReleasePress::WithTheWalk).map_err(|e| e.to_string())?);
+    // collision.REROLL_RIDE_BODY: a format-3 battle ran its old arm.
+    sh.insert("reroll_ride_body".into(), serde_json::to_value(RerollRideBody::HeldBody).map_err(|e| e.to_string())?);
+    // status.DEFLECT_TRIGGER_TICK: a format-3 battle ran its old arm.
+    sh.insert("deflect_trigger_tick".into(), serde_json::to_value(DeflectTriggerTick::WholeTicks).map_err(|e| e.to_string())?);
+    // combat.SPIN_REACH_STEP: a format-3 battle ran its old arm.
+    sh.insert("spin_reach_step".into(), serde_json::to_value(SpinReachStep::Stands).map_err(|e| e.to_string())?);
+    // spawner.THROWN_UNIT_FIRST_UPDATE: a format-3 battle ran its old arm.
+    sh.insert("thrown_unit_first_update".into(), serde_json::to_value(ThrownUnitFirstUpdate::NextTick).map_err(|e| e.to_string())?);
+    // combat.THROW_LANDING_BLOW: a format-3 battle ran its old arm.
+    sh.insert("throw_landing_blow".into(), serde_json::to_value(ThrowLandingBlow::LandingTick).map_err(|e| e.to_string())?);
+    // spawner.FIXED_RING_FACING: a format-3 battle ran its old arm.
+    sh.insert("fixed_ring_facing".into(), serde_json::to_value(FixedRingFacing::Forward).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }
@@ -47291,6 +47921,7 @@ impl BattleState {
             hero_units: self.hero_units.clone(),
             chains: self.chains.clone(),
             throws: self.throws.clone(),
+            throw_blows: self.throw_blows.clone(),
             spins: self.spins.clone(),
             lifts: self.lifts.clone(),
             quests: self.quests.clone(),
@@ -47606,6 +48237,7 @@ impl BattleState {
             hero_units: snap.hero_units,
             chains: snap.chains,
             throws: snap.throws,
+            throw_blows: snap.throw_blows,
             spins: snap.spins,
             lifts: snap.lifts,
             quests: snap.quests,

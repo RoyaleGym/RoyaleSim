@@ -54,6 +54,8 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   tick's deaths (6 of 6 hits on a group of 8 with a member dying that tick made none on client 15.535.29).
 ///   spawner.CONTAINER_BURST_PUSH = client15535_contact_push: a container's members are laid around the point the contact
 ///   law pushes it to (a Skeleton 217 off, (-130, +73), exact on client 15.535.29); their slides end around its own.
+///   client16635_member_body (client 16.635's: a body of the member's radius) is not read on 15.535.29: its one pushed
+///   burst, a Skeleton 217 off, gives the same push under both.
 ///   movement.AVOIDANCE_OBSTACLE_TAG = client15535_unpushed_obstacle: a row's AVOIDANCE_AS_OBSTACLE tag (the Evo Skeleton
 ///   Army's General) makes its carrier unpushed, still pushing, and a static avoidance obstacle (93 of 93 deploy ticks
 ///   unmoved).
@@ -466,6 +468,16 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.TROOP_SPLASH_CROWN_REACH = disc: unread on client 15.535.29.
 ///   placement.BUILDING_TERRITORY = own_half: unread on client 15.535.29 (no building tapped past the river).
 ///   movement.GROUNDED_FLIER_BODY = air_layer: unread on client 15.535.29 (its Vines scenes caught no flier over a ground unit).
+///   spawner.FIXED_RING_FACING = forward: unread on client 15.535.29.
+///   combat.THROW_LANDING_BLOW = landing_tick: sp-balloon-g4500-s0: the golem lost the blow on the landing frame.
+///   spawner.THROWN_UNIT_FIRST_UPDATE = next_tick: sp-balloon-*: the trooper on the golem's point on its landing frame.
+///   combat.SPIN_REACH_STEP = stands: unread on client 15.535.29: sp-form-Valkyrie-hero-s0 reached its last target (the
+///   Musketeer) on t241 and stood from t242, but whether she stood within her Range plus its radius there is unread.
+///   status.DEFLECT_TRIGGER_TICK = whole_ticks: client 15.535.29's TriggerDelay is 933, which both arms land 18 ticks after
+///   the cast's first frame.
+///   collision.REROLL_RIDE_BODY = held_body: unread on client 15.535.29 (its one re-roll scene, sp-form-BarbLog-hero-s0,
+///   rode past nothing).
+///   status.ICE_RELEASE_PRESS = with_the_walk: unread on client 15.535.29 (no Hero Ice Wizard there).
 ///   spells.REROLL_LOG_FIRST_HIT = next_tick: unread on client 15.535.29 (its one re-roll scene, sp-form-BarbLog-hero-s0,
 ///   was read for the slide and the ride, not the log's hits).
 ///   spawner.CONTAINER_SLIDE_END = ring_point: unread on client 15.535.29.
@@ -847,6 +859,13 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("targeting.CONTAINER_RING_RANK", "\"none\""),
     ("spawner.CONTAINER_SLIDE_END", "\"ring_point\""),
     ("spells.REROLL_LOG_FIRST_HIT", "\"next_tick\""),
+    ("status.ICE_RELEASE_PRESS", "\"with_the_walk\""),
+    ("collision.REROLL_RIDE_BODY", "\"held_body\""),
+    ("status.DEFLECT_TRIGGER_TICK", "\"whole_ticks\""),
+    ("combat.SPIN_REACH_STEP", "\"stands\""),
+    ("spawner.THROWN_UNIT_FIRST_UPDATE", "\"next_tick\""),
+    ("combat.THROW_LANDING_BLOW", "\"landing_tick\""),
+    ("spawner.FIXED_RING_FACING", "\"forward\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

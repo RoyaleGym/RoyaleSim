@@ -19,14 +19,17 @@
 //!   - throw_never -> `the_throw_lands_on_the_golem_on_p_plus_27` red;
 //!   - throw_speed_flat -> `the_throw_lands_on_the_golem_on_p_plus_27` red;
 //!   - throw_failsafe_on_time -> `with_nothing_in_reach_the_trooper_drops_on_the_balloon_on_p_plus_5` red;
-//!   - throw_pick_troops_only -> `under_client16402_ground_targets_edge_in_radius_it_throws_at_a_cannon_and_past_the_radius` red.
+//!   - throw_pick_troops_only -> `under_client16402_ground_targets_edge_in_radius_it_throws_at_a_cannon_and_past_the_radius` red;
+//!   - thrown_first_update_next_tick -> `under_client16635_landing_tick_the_trooper_is_pushed_off_its_pick_on_its_landing_frame`
+//!     red;
+//!   - throw_blow_on_landing -> `under_client16635_landing_plus_2_the_landing_blow_strikes_two_ticks_after_the_landing` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState};
+use royalesim::state::{BattleConfig, BattleState, Calib, ThrowLandingBlow, ThrownUnitFirstUpdate};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -39,12 +42,18 @@ const BALLOON: (i32, i32) = (10060, 8820);
 const GOLEM: (i32, i32) = (11722, 14451);
 
 fn battle() -> BattleState {
+    battle_with(|_| {})
+}
+
+/// `battle()` with `f` applied to its config first.
+fn battle_with(f: impl FnOnce(&mut BattleConfig)) -> BattleState {
     let mut cfg: BattleConfig = config();
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
+    f(&mut cfg);
     let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
     let lockout = s.config().calib.deploy_lockout_ticks as u32;
     s.scenario_set_tick(lockout);
@@ -65,7 +74,12 @@ struct Frame {
 /// The Balloon held at `balloon`, red Ice Golemites held at `golems` (none: nothing in reach), deployed; then the press
 /// and `frames` frames from k = 0 (P + 1). `kill_at`: the frame before whose tick the first golem is struck to 0.
 fn scene(balloon: (i32, i32), golems: &[(i32, i32)], frames: u32, kill_at: Option<u32>) -> Vec<Frame> {
-    let mut s = battle();
+    scene_with(|_| {}, balloon, golems, frames, kill_at)
+}
+
+/// `scene` with `f` applied to the battle's config first.
+fn scene_with(f: impl FnOnce(&mut BattleConfig), balloon: (i32, i32), golems: &[(i32, i32)], frames: u32, kill_at: Option<u32>) -> Vec<Frame> {
+    let mut s = battle_with(f);
     s.spawn_unit(Team::Blue, "Balloon_hero", n(balloon.0, balloon.1), None).expect("the hero");
     for g in golems {
         s.spawn_unit_resolved(Team::Red, "IceGolemite", n(g.0, g.1), None).expect("a golem");
@@ -249,4 +263,82 @@ fn under_client16402_ground_targets_edge_in_radius_it_throws_at_a_cannon_and_pas
         let (k, p, _) = first_trooper(P::Client16402GroundTargetsEdgeInRadius, red, pt);
         assert!(k > at(5) && far(p), "client16402_ground_targets_edge_in_radius, {red}: no throw at it (k {k}, {p:?})");
     }
+}
+
+/// spawner.THROWN_UNIT_FIRST_UPDATE: the g6000 scene (one standing Ice Golemite) under `arm`: the first frame a Skeletrooper
+/// stands (L), and the frames.
+fn first_update_scene(arm: ThrownUnitFirstUpdate) -> (usize, Vec<Frame>) {
+    let f = scene_with(|c| c.calib.thrown_unit_first_update = arm, BALLOON, &[GOLEM], 32, None);
+    let land = f.iter().position(|x| !x.troopers.is_empty()).unwrap_or_else(|| panic!("{arm:?}: the scene drifted: no landing"));
+    assert!(land + 1 < f.len(), "{arm:?}: the scene drifted: the landing on frame {land}");
+    (land, f)
+}
+
+/// spawner.THROWN_UNIT_FIRST_UPDATE = client16635_landing_tick (client 16.635, parity r99, the oracle's il-mg-16635 set: 14 of
+/// 14 landings onto or beside a unit stood 150 off the landing point on their first frame, the pick unmoved; the engine's on
+/// it until the next tick): the trooper takes its first update on its landing tick, so landing on the golem's point it is
+/// pushed one capped step (150) off it toward its own side's back (blue's -y, the separation's direction for two bodies on
+/// one point) on L, the golem standing where its own step left it; on L + 1 it is pushed on. Under next_tick (the vacuity
+/// check) it stands on the golem's point on L. Plant: thrown_first_update_next_tick.
+#[test]
+fn under_client16635_landing_tick_the_trooper_is_pushed_off_its_pick_on_its_landing_frame() {
+    let (l0, old) = first_update_scene(ThrownUnitFirstUpdate::NextTick);
+    let (l1, new) = first_update_scene(ThrownUnitFirstUpdate::Client16635LandingTick);
+    assert_eq!(l0, l1, "the same landing frame under both arms");
+    let golem = new[l1].golems[0].expect("the golem stands on L");
+    assert_eq!(Some(golem), old[l0].golems[0], "client16635_landing_tick: the trooper's first update moved the golem on L");
+    let (spot, _, deploying) = new[l1].troopers[0];
+    assert!(deploying, "the trooper deploys on L");
+    let (dx, dy) = ((spot.x - golem.x) / K, (spot.y - golem.y) / K);
+    let d2 = dx * dx + dy * dy;
+    assert!(
+        (145 * 145..=155 * 155).contains(&d2) && dy < 0,
+        "client16635_landing_tick: on L the trooper does not stand one capped step off the golem's point toward blue's back: ({dx}, {dy})"
+    );
+    assert_ne!(new[l1 + 1].troopers[0].0, spot, "client16635_landing_tick: the trooper was not pushed on L + 1");
+    // NOT VACUOUS: under next_tick it stands on the golem's point on its landing frame.
+    let (o_spot, _, _) = old[l0].troopers[0];
+    let o_golem = old[l0].golems[0].expect("the golem stands on L");
+    assert!(
+        (o_spot.x - o_golem.x).abs() / K <= 2 && (o_spot.y - o_golem.y).abs() / K <= 2,
+        "next_tick: the trooper is off the golem's point on L ({o_spot:?}, {o_golem:?})"
+    );
+}
+
+#[test]
+fn the_shipped_arm_is_next_tick() {
+    assert_eq!(Calib::shipped().thrown_unit_first_update, ThrownUnitFirstUpdate::NextTick);
+}
+
+/// combat.THROW_LANDING_BLOW: the g6000 scene under `arm`: the first frame a Skeletrooper stands (L), and the golem's
+/// hitpoint loss on L, L + 1 and L + 2.
+fn landing_blow(arm: ThrowLandingBlow) -> (usize, [i32; 3]) {
+    let f = scene_with(|c| c.calib.throw_landing_blow = arm, BALLOON, &[GOLEM], 32, None);
+    let land = f.iter().position(|x| !x.troopers.is_empty()).unwrap_or_else(|| panic!("{arm:?}: the scene drifted: no landing"));
+    assert!(land >= 1 && land + 2 < f.len(), "{arm:?}: the scene drifted: the landing on frame {land}");
+    for (k, x) in f.iter().enumerate().skip(land).take(3) {
+        assert_eq!(x.troopers.len(), 1, "{arm:?}: the trooper does not stand from L (frame {k})");
+    }
+    let hp = |k: usize| f[k].golem.unwrap_or_else(|| panic!("{arm:?}: the scene drifted: the golem died by frame {k}"));
+    (land, [hp(land - 1) - hp(land), hp(land) - hp(land + 1), hp(land + 1) - hp(land + 2)])
+}
+
+/// combat.THROW_LANDING_BLOW = client16635_landing_plus_2 (client 16.635, parity r99, the oracle's il-mg-16635 set: 14 of 14
+/// landings with an enemy in the blow lost it two ticks after the landing): the trooper stands from L under both arms; the
+/// blow the golem loses on L under landing_tick (the vacuity check) it loses on L + 2 instead, L + 1 unchanged (the golem
+/// survives it at level 11). Plant: throw_blow_on_landing.
+#[test]
+fn under_client16635_landing_plus_2_the_landing_blow_strikes_two_ticks_after_the_landing() {
+    let (l0, old) = landing_blow(ThrowLandingBlow::LandingTick);
+    let (l1, new) = landing_blow(ThrowLandingBlow::Client16635LandingPlus2);
+    assert_eq!(l0, l1, "the same landing frame under both arms");
+    let blow = old[0] - new[0];
+    assert!(blow > 0, "client16635_landing_plus_2: the golem still lost the blow on L (landing_tick {old:?}, client16635_landing_plus_2 {new:?})");
+    assert_eq!(new[1], old[1], "client16635_landing_plus_2: L + 1 moved (landing_tick {old:?}, client16635_landing_plus_2 {new:?})");
+    assert_eq!(new[2] - old[2], blow, "client16635_landing_plus_2: the blow did not strike on L + 2 (landing_tick {old:?}, client16635_landing_plus_2 {new:?})");
+}
+
+#[test]
+fn the_shipped_arm_is_landing_tick() {
+    assert_eq!(Calib::shipped().throw_landing_blow, ThrowLandingBlow::LandingTick);
 }

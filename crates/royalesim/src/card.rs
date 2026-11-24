@@ -3543,6 +3543,16 @@ pub struct CardDef {
     /// client15535_unpushed_obstacle contact never moves it, it still pushes its neighbours, and it is a static obstacle
     /// to every avoidance scan.
     pub avoidance_as_obstacle: bool,
+    /// spawner.FIXED_RING_FACING: the row's AttacksGround as the table gives it (blank reads true), before an inert
+    /// building's forcing (`attacks_ground` is false on a building with no damage source). Read by that key's
+    /// client16635_building_target arm alone (target.rs `fixed_ring_attacker`).
+    pub row_attacks_ground: bool,
+    /// spawner.FIXED_RING_FACING: the row's AttacksAir as the table gives it (blank reads false), as `row_attacks_ground`.
+    pub row_attacks_air: bool,
+    /// spawner.FIXED_RING_FACING: an inert building row (no damage, no projectile) that still carries a Range and a HitSpeed
+    /// (the Goblin Drill's GoblinDrill and GoblinDrill_EV1, also the GoblinCage's and the GoblinDrill card row); target.rs
+    /// `fixed_ring_attacker` reads it only for the buildings on spawner.DEATH_SPAWN_RING's fixed-ring list.
+    pub inert_attack_row: bool,
     // ^ THE POST-FORMAT-3 TAIL IS DECLARED LAST ON PURPOSE (in declared order; new fields
     // append here in landing order). state.rs `migrate_v3` rebuilds the FORMAT-3 card
     // fingerprint by stripping the fields added after format 3 off the END of this
@@ -8450,6 +8460,9 @@ fn stat_less(name: String, rarity: String, elixir: i32) -> CardDef {
         deploy_spawn_area: None,
         combo: None,
         avoidance_as_obstacle: false,
+        row_attacks_ground: false,
+        row_attacks_air: false,
+        inert_attack_row: false,
     }
 }
 
@@ -11230,6 +11243,9 @@ fn convert(raw: RawCard, buffs: &mut BuffTable, ctx: &LoadCtx) -> Result<Convert
         deploy_spawn_area: None,
         combo,
         avoidance_as_obstacle: raw.avoidance_as_obstacle.unwrap_or(false),
+        row_attacks_ground: raw.attacks_ground.unwrap_or(true),
+        row_attacks_air: raw.attacks_air.unwrap_or(false),
+        inert_attack_row: inert_building && raw.range_milli.is_some() && raw.hit_speed_ms.is_some(),
     }, display, units))
 }
 
