@@ -1781,6 +1781,28 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
         let fallen_lane_king = ctx.calib.fallen_lane_tower_pick == crate::state::FallenLaneTowerPick::Client16402SpawnLaneKing;
         #[cfg(clash_plant = "fallen_lane_by_x")]
         let fallen_lane_king = false; // PLANT (regression): the new arm still takes the tower of the current x.
+        // targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane: after the window, with ONE enemy princess tower
+        // down: the king when the spawn lane's tower is the one down, or when the lane strip the troop last walked
+        // over (`walk_lane`, state.rs `note_lanes`; its spawn lane until it touches one) is the fallen side's;
+        // otherwise its spawn lane's tower, wherever it stands. With both standing the pick stays by the current x.
+        if ctx.calib.fallen_lane_tower_pick == crate::state::FallenLaneTowerPick::Client16635LastLane
+            && ctx.calib.first_tower_pick.spawn_lane()
+            && e.spawn_lane[a] != 0
+        {
+            let lane_of = |bits: u8| if bits & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
+            let spawn = lane_of(e.spawn_lane[a]);
+            let walked = if e.walk_lane[a] != 0 { lane_of(e.walk_lane[a]) } else { spawn };
+            let standing = [Lane::Left, Lane::Right].map(|l| live(ctx.towers[enemy][1 + l as usize]));
+            if standing.iter().filter(|t| t.is_some()).count() == 1 {
+                let own = standing[spawn as usize];
+                if own.is_some() && walked == spawn {
+                    return own;
+                }
+                if let Some(k) = live(ctx.towers[enemy][0]) {
+                    return Some(k);
+                }
+            }
+        }
         if fallen_lane_king && ctx.calib.first_tower_pick.spawn_lane() && e.spawn_lane[a] != 0 {
             let lane = if e.spawn_lane[a] & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
             if live(ctx.towers[enemy][1 + lane as usize]).is_none() && live(ctx.towers[enemy][0]).is_some() {

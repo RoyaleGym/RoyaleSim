@@ -2877,7 +2877,8 @@ fn card_table_source() -> PyResult<String> {
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP (client_arms.rs `client_overrides`): a dict of
 /// `section.KEY` -> JSON value to pass as a Battle's `calibration_overrides`. "15.535.29" (or any "15.535.<build>")
 /// gives the older client's measured mechanics and the card tables' own values, what a replay of its capture runs;
-/// "16.402" gives {} (the ledger is the current client's). ValueError for any other client.
+/// "16.402" gives {} (the ledger is the current client's); "16.635" (or any "16.635.<build>") gives that client's card
+/// table and the mechanics read on it (client_arms.rs `CLIENT16635_ARMS`). ValueError for any other client.
 #[pyfunction]
 fn client_arms(client: &str) -> PyResult<BTreeMap<String, String>> {
     crate::client_arms::client_overrides(client).map_err(PyValueError::new_err)

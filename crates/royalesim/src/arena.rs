@@ -485,6 +485,10 @@ pub struct Arena {
     pub water_y_max: i32,
     /// King no-deploy blocks, sorted by y (Blue's first).
     pub king_blocks: Vec<Rect>,
+    /// Per half-cell row: a KING-AREA row, one with a lane-marked cell inside a king block's columns (rows 2..=9 and
+    /// 54..=61 on the shipped map: the lane marking that wraps around each king tower). Its lane cells move no troop's
+    /// walked lane (`circle_lane_bits`, targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane).
+    pub king_area_row: Vec<bool>,
 }
 
 impl Arena {
@@ -528,6 +532,17 @@ impl Arena {
         if king_blocks.len() != 2 {
             return Err(format!("expected 2 king blocks, got {}", king_blocks.len()));
         }
+        let lanes = raw.bits.lane_left | raw.bits.lane_right;
+        #[cfg(not(clash_plant = "king_area_lane_counts"))]
+        let king_area_row: Vec<bool> = (0..rows)
+            .map(|j| {
+                raw.king_blocks.iter().any(|k| {
+                    (k.half_cols[0]..=k.half_cols[1]).any(|i| cells[(j * cols + i) as usize] & lanes != 0)
+                })
+            })
+            .collect();
+        #[cfg(clash_plant = "king_area_lane_counts")]
+        let king_area_row: Vec<bool> = vec![false; rows as usize]; // PLANT (regression): the king areas count like the strips.
         Ok(Arena {
             cols,
             rows,
@@ -543,6 +558,7 @@ impl Arena {
             water_y_min: raw.water_half_rows[0] * cell,
             water_y_max: (raw.water_half_rows[1] + 1) * cell,
             king_blocks,
+            king_area_row,
         })
     }
 
@@ -778,6 +794,37 @@ impl Arena {
             }
         }
         false
+    }
+
+    /// The LANE bits (lane-left | lane-right) of every half-cell a circle of radius `r` centred on `p` overlaps, by
+    /// `circle_overlaps_water`'s test (a cell counts when its nearest point is strictly closer than `r`), KING-AREA
+    /// rows (`king_area_row`) left out: the lane strips between the king areas, the bridges included.
+    /// Read by state.rs `note_lanes` under targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane.
+    pub fn circle_lane_bits(&self, p: Vec2, r: i32) -> u8 {
+        let r = r.max(0);
+        let c = self.cell;
+        let lanes = self.bit_lane_left | self.bit_lane_right;
+        let (c0, c1) = ((p.x - r).div_euclid(c).max(0), (p.x + r).div_euclid(c).min(self.cols - 1));
+        let (r0, r1) = ((p.y - r).div_euclid(c).max(0), (p.y + r).div_euclid(c).min(self.rows - 1));
+        let rr = (r as i64) * (r as i64);
+        let mut acc = 0u8;
+        for row in r0..=r1 {
+            if self.king_area_row[row as usize] {
+                continue;
+            }
+            for col in c0..=c1 {
+                let bits = self.cell_bits(col, row) & lanes;
+                if bits == 0 || acc & bits == bits {
+                    continue;
+                }
+                let dx = (p.x - p.x.clamp(col * c, (col + 1) * c)) as i64;
+                let dy = (p.y - p.y.clamp(row * c, (row + 1) * c)) as i64;
+                if dx * dx + dy * dy < rr {
+                    acc |= bits;
+                }
+            }
+        }
+        acc
     }
 
     /// The tilemap's lane marking at a point. `None` off-lane, or when the point

@@ -21,6 +21,11 @@ scratch venv (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plan
 run this file: the named tests go red and the rest stay green.
   * `fallen_lane_by_x` -- the new value still takes the tower of the current x:
     test_a_troop_whose_spawn_lane_tower_is_down_walks_to_the_king.
+
+CLIENT 16.635 (client16635_last_lane, read on that client's own engine): a troop's lane is its spawn lane until it
+walks over the tilemap's lane cells (lane paths, bridges), then theirs; with one princess tower down the lane decides
+both ways -- its tower while it stands, wherever the troop stands, else the king. The case that separates it from the
+16.402 arm: the lane's tower standing, the troop on the fallen side (the flyer here stays off the lane strips).
 """
 
 from __future__ import annotations
@@ -36,6 +41,8 @@ royalesim = pytest.importorskip("royalesim")
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "targeting.FALLEN_LANE_TOWER_PICK"
 NEW_ARM, OLD_ARM = "client16402_spawn_lane_king", "current_x"
+#: client 16.635's arm (client_arms.rs CLIENT16635_ARMS), read on its own engine
+ARM_16635 = "client16635_last_lane"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 #: the flyer created left of the centre (and, for a control, right of it); the Cannon it chases on its own half, out
 #: of every tower's reach
@@ -51,14 +58,14 @@ def overrides(arm):
     return {KEY: json.dumps(arm)} if arm is not None else {}
 
 
-def run(arm, flyer_at, left_down=True, ticks=140):
+def run(arm, flyer_at, left_down=True, ticks=140, right_down=False):
     """The kill tick and the flyer's position there, the red crown towers {uid: (slot, x, y)}, and the flyer's positions
     from the kill up to the tick before it names a new target."""
     b = royalesim.Battle(["BabyDragon", "Cannon"], [[0, 1, 2], [0, 1, 2]], calibration_overrides=overrides(arm))
     b.reset(0, [[0] * 8, [0] * 8], 0, 200, [10_000, 10_000], None, [])
     start = json.loads(b.state_json())["entities"]
     hp = {(e[F["team"]], e[F["tower_slot"]]): e[F["hp"]] for e in start if e[F["tower_slot"]] >= 0}
-    red = [hp[(1, 0)], 0 if left_down else hp[(1, 1)], hp[(1, 2)]]
+    red = [hp[(1, 0)], 0 if left_down else hp[(1, 1)], 0 if right_down else hp[(1, 2)]]
     b.reset(
         0,
         [[0] * 8, [0] * 8],
@@ -93,10 +100,10 @@ def run(arm, flyer_at, left_down=True, ticks=140):
     return kill, towers, path
 
 
-def heading(arm, flyer_at, left_down=True):
+def heading(arm, flyer_at, left_down=True, right_down=False):
     """Which red crown tower the flyer's walk after the kill points at: (slot of the best-aligned tower, the kill, the
     number of walked ticks), with the scene's preconditions."""
-    kill, towers, path = run(arm, flyer_at, left_down)
+    kill, towers, path = run(arm, flyer_at, left_down, right_down=right_down)
     assert kill is not None, f"{arm}: the scene drifted: the Cannon never died"
     assert kill[0] > WINDOW_TICKS, f"{arm}: the scene drifted: the kill on {kill[0]} fell inside the lane window"
     assert kill[1][0] > W / 2, f"{arm}: the scene drifted: at the kill the flyer stood at x {kill[1][0]:.0f}, left"
@@ -111,7 +118,7 @@ def heading(arm, flyer_at, left_down=True):
     return best[0], kill, len(path)
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM])
+@pytest.mark.parametrize("arm", [NEW_ARM, ARM_16635])
 def test_a_troop_whose_spawn_lane_tower_is_down_walks_to_the_king(arm):
     slot, kill, n = heading(arm, FLYER_LEFT)
     assert slot == 0, (
@@ -128,13 +135,13 @@ def test_the_old_arm_walks_to_the_tower_of_the_current_x(arm):
     )
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM, ARM_16635])
 def test_a_troop_whose_spawn_lane_tower_stands_walks_to_the_tower_of_its_x(arm):
     slot, _, _ = heading(arm, FLYER_RIGHT)
     assert slot == 2, f"{arm}: created at x {FLYER_RIGHT[0]}, it walked to tower slot {slot}, not the right princess"
 
 
-@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM, ARM_16635])
 def test_with_both_princess_towers_standing_the_value_does_not_matter(arm):
     slot, _, _ = heading(arm, FLYER_LEFT, left_down=False)
     assert slot == 2, f"{arm}: with both towers standing it walked to tower slot {slot}, not the right princess"
@@ -143,4 +150,22 @@ def test_with_both_princess_towers_standing_the_value_does_not_matter(arm):
 def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["FALLEN_LANE_TOWER_PICK"]
     assert entry["value"] == NEW_ARM
-    assert entry["candidates"] == [OLD_ARM, NEW_ARM]
+    assert entry["candidates"] == [OLD_ARM, NEW_ARM, ARM_16635]
+
+
+@pytest.mark.parametrize("arm", [NEW_ARM, OLD_ARM])
+def test_on_the_fallen_side_the_16402_arms_walk_to_the_king(arm):
+    slot, kill, _ = heading(arm, FLYER_LEFT, left_down=False, right_down=True)
+    assert slot == 0, (
+        f"{arm}: after the kill at x {kill[1][0]:.0f}, right tower down, it walked to slot {slot}, not the king")
+
+
+def test_the_16635_arm_walks_to_its_spawn_lane_tower_while_it_stands():
+    """Client 16.635 (measured on its own engine): created on the left, the right princess tower down, standing on the
+    right after a chase and off the lane strips, the troop walks back to the standing LEFT princess tower, where the
+    16.402 arm (and the x rule) send it to the king."""
+    slot, kill, n = heading(ARM_16635, FLYER_LEFT, left_down=False, right_down=True)
+    assert slot == 1, (
+        f"{ARM_16635}: created at x {FLYER_LEFT[0]}, the right tower down, after the kill at x {kill[1][0]:.0f} it "
+        f"walked {n} ticks toward tower slot {slot}, not the left princess"
+    )

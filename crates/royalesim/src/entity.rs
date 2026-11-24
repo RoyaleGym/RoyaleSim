@@ -480,6 +480,11 @@ pub struct Entities {
     pub spawn_lane: Vec<u8>,
     #[serde(default)]
     pub lane_window_end: Vec<u32>,
+    /// targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane: the lane bits of the last lane cells this troop's body
+    /// overlapped (state.rs `note_lanes`, after each move), 0 until it overlaps one (then its spawn lane stands in).
+    /// 0 on every entity under every other arm. `default` and sized on load like `spawn_lane`.
+    #[serde(default)]
+    pub walk_lane: Vec<u8>,
     /// What is left of a formation member's DEPLOY_STAGGER wait, ms: set from PendingSpawn.stagger_ms
     /// when the member is created and counted down beside `deploy_ms`, so `deploy_ms - stagger_ms`
     /// stays the unit's own DeployTime. 0 for every unit that never staggered (a spell release and
@@ -1099,6 +1104,7 @@ impl Entities {
             self.combo_ix[i] = 0;
             self.spawn_lane[i] = 0;
             self.lane_window_end[i] = 0;
+            self.walk_lane[i] = 0;
             self.stagger_ms[i] = 0;
             self.death_slide_centre[i] = Vec2::default();
             self.death_slide_radius[i] = 0;
@@ -1231,6 +1237,7 @@ impl Entities {
             self.combo_ix.push(0);
             self.spawn_lane.push(0);
             self.lane_window_end.push(0);
+            self.walk_lane.push(0);
             self.stagger_ms.push(0);
             self.death_slide_centre.push(Vec2::default());
             self.death_slide_radius.push(0);
@@ -1300,7 +1307,8 @@ impl Entities {
     /// THE IN-PLACE TRANSFORMATION (state.rs `rebind_unit`): entity `i` takes the new row's columns (`RebindInit`) and
     /// stays the same entity. Every column is on one of three lists, and a column added to `Entities` must join one:
     ///   KEPT, what makes it the same entity: generation, alive, team, level, team_seq, spawn_tick, creation_seq, pos,
-    ///     hp, max_hp, shield, buffs, stun_ms, retarget_on_resume, spawned_by, source, spawn_lane, lane_window_end, facing,
+    ///     hp, max_hp, shield, buffs, stun_ms, retarget_on_resume, spawned_by, source, spawn_lane, lane_window_end, walk_lane,
+    ///     facing,
     ///     acquirable_from, reveal_from, parry_ms (0 on both rows: the loader refuses a transformation into a row with
     ///     a counter, and a row with a counter carries no other action block), idle_back (0 on both rows: the loader
     ///     refuses a transformation into a row with an idle buff, and the Super Knight transforms into nothing), tunnel_dest (None: a units row that

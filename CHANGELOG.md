@@ -3,6 +3,17 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## Unreleased
+
+- `client_arms("16.635")` (and any `"16.635.<build>"`) is new: client 16.635's card table and the mechanics measured
+  on that client apart from the ledger's (client 16.402's), each read on the client's own battle engine:
+  - Of two enemy troops at one distance, a unit takes the one with the lower x in its own frame
+    (`targeting.EQUAL_DISTANCE_TIE = "own_frame_low_x"`).
+  - Once one enemy princess tower is down, a troop goes for its spawn lane's tower wherever it stands, unless it
+    last walked over the other lane's path (the lane strips and bridges, not the cells around the kings); then it goes
+    for the king (`targeting.FALLEN_LANE_TOWER_PICK = "client16635_last_lane"`, new value).
+- The ledger's defaults (client 16.402's) are unchanged, and battles saved by 0.1.57 still load.
+
 ## 0.1.57 (2026-11-23)
 
 - **Saved battles from earlier versions do not load.** A Goblin Drill building's card gains three fields, so the card

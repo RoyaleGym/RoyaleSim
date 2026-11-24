@@ -868,14 +868,32 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.FIXED_RING_FACING", "\"forward\""),
 ];
 
+/// THE MECHANICS CLIENT 16.635 RUNS APART FROM THE LEDGER'S (16.402), and its card table. Each pair below was read on
+/// client 16.635.1's own battle engine, run headless on constructed scenes and compared with this engine on the same
+/// scene, card levels and deck order, x, y and hp of every unit on every tick. Each key's ledger entry carries the
+/// measurement.
+///   cards.CARD_TABLE = client160635007_20261103: the client's own card table (data/derived/cards-160635007-20261103.json).
+///   targeting.EQUAL_DISTANCE_TIE = own_frame_low_x: of two enemy troops at one distance, the lower x in the attacker's
+///     own frame. 2 of 2 exact troop ties at an acquisition, one of them with the lower-x troop the later created,
+///     which client15535_later_created misses. A tie between two crown towers is not read on 16.635.
+///   targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane: with one enemy princess tower down, the lane strip a
+///     troop last walked over decides its default tower, not its x (279 of 279 constructed scenes; the 16.402 arm
+///     misses 56).
+pub const CLIENT16635_ARMS: &[(&str, &str)] = &[
+    ("cards.CARD_TABLE", "\"client160635007_20261103\""),
+    ("targeting.EQUAL_DISTANCE_TIE", "\"own_frame_low_x\""),
+    ("targeting.FALLEN_LANE_TOWER_PICK", "\"client16635_last_lane\""),
+];
+
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's
 /// `calibration_overrides` (state.rs `Calib::shipped_with_overrides`):
 ///   - "16.402" or "16.402.<build>": none. The ledger ships the current client's setup.
+///   - "16.635" or "16.635.<build>": every `CLIENT16635_ARMS` pair (its card table and the mechanics read on it).
 ///   - "15.535" or "15.535.<build>": every `CLIENT15535_ARMS` pair, and cards.CLIENT16402_VALUES at arm none, so the
 ///     card tables' own values run (the Fire Spirits' Hitpoints 85, not the current client's 84). This is what a replay
 ///     of a 15.535.29 capture runs. It was measured on 15.535.29; another 15.535 build is given the same.
 ///
-/// Any other client is an error that names the two.
+/// Any other client is an error that names the three.
 pub fn client_overrides(client: &str) -> Result<BTreeMap<String, String>, String> {
     let is = |v: &str| {
         client == v
@@ -887,8 +905,11 @@ pub fn client_overrides(client: &str) -> Result<BTreeMap<String, String>, String
     if is("16.402") {
         return Ok(BTreeMap::new());
     }
+    if is("16.635") {
+        return Ok(CLIENT16635_ARMS.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect());
+    }
     if !is("15.535") {
-        return Err(format!("client {client:?}: the known clients are \"15.535.29\" and \"16.402\""));
+        return Err(format!("client {client:?}: the known clients are \"15.535.29\", \"16.402\" and \"16.635\""));
     }
     let mut out: BTreeMap<String, String> = CLIENT15535_ARMS.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
     // PLANT client_arms_keep_card_values (tests/client_arms.rs): the 15.535 setup leaves the current client's values on.

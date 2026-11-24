@@ -6401,6 +6401,14 @@ calib_enum!(
         /// tower is down walks to the king, wherever it stands, even when the other princess tower stands on its side
         /// of the centre. A troop whose spawn-lane tower stands takes the tower of its current x, as today.
         Client16402SpawnLaneKing = "client16402_spawn_lane_king",
+        /// Measured on client 16.635.1 (ground troops): client16402_spawn_lane_king with the troop's current x replaced
+        /// by the LAST LANE STRIP it walked over. With one enemy princess tower down, after FIRST_TOWER_PICK's window,
+        /// a targetless troop walks to the king when its spawn lane's tower is the one down, or when the lane cells its
+        /// body last overlapped (`walk_lane`, state.rs `note_lanes`: the lane strips and the bridges, not the lane cells
+        /// around the king towers) are the fallen side's; otherwise to its spawn lane's tower, wherever it stands. Off
+        /// the strips it keeps the last strip's lane (its spawn lane until it touches one). With both princess towers
+        /// standing, by its x as today. The ledger entry carries the measurement.
+        Client16635LastLane = "client16635_last_lane",
     }
 );
 calib_enum!(
@@ -20454,6 +20462,26 @@ impl BattleState {
     /// makes its first look (in DELAY with ActionDelay spent, so this tick's life-state pass looks), every live
     /// entity's position, before anything moves (`scratch.first_look_pos`). Nothing on any other tick, and nothing
     /// under post_move.
+    /// targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane: after the move, a troop whose body overlaps lane cells
+    /// of ONE lane (arena.rs `circle_lane_bits`: the lane strips and the bridges, the king areas left out) notes that lane
+    /// (`walk_lane`, read by target.rs `default_tower` beside the spawn lane); off the strips, or over both lanes' cells
+    /// at the centre of the king's row, it keeps the one it had. Only troops that have a spawn lane.
+    fn note_lanes(&mut self) {
+        let lanes = self.cfg.arena.bit_lane_left | self.cfg.arena.bit_lane_right;
+        let idx: Vec<usize> = self.ents.live_indices().collect();
+        for i in idx {
+            if self.ents.kind[i] != EntityKind::Troop || self.ents.spawn_lane[i] == 0 {
+                continue;
+            }
+            let bits = self.cfg.arena.circle_lane_bits(self.ents.pos[i], self.ents.radius[i]);
+            #[cfg(clash_plant = "walk_lane_never_moves")]
+            let bits = { let _ = bits; 0 }; // PLANT (regression): the walked lane stays the spawn lane.
+            if bits != 0 && bits != lanes {
+                self.ents.walk_lane[i] = bits;
+            }
+        }
+    }
+
     fn note_first_looks(&mut self) {
         self.scratch.first_look_pos.clear();
         if self.cfg.calib.life_state_first_look_aim != LifeStateFirstLookAim::StartOfTickOnFirstWave {
@@ -21582,6 +21610,10 @@ impl BattleState {
                 }
                 Phase::Move => {
                     self.phase_move();
+                    // targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane: a troop's lane follows the lane cells it walks over.
+                    if self.cfg.calib.fallen_lane_tower_pick == FallenLaneTowerPick::Client16635LastLane {
+                        self.note_lanes();
+                    }
                     // hide.LANE_SWITCH_UNDER_TICK = client16635_trigger_tick: a lane switch triggered this tick goes under now.
                     if !self.warps.lanes.is_empty() && self.lane_under_on_trigger() {
                         self.lane_under_now();
@@ -23171,6 +23203,7 @@ impl BattleState {
                 if self.cfg.calib.first_tower_pick.spawn_lane() && self.ents.kind[i] == EntityKind::Troop {
                     let team = self.ents.team[i];
                     self.ents.spawn_lane[i] = creation_lane(&self.cfg.arena, team, dest);
+                    self.ents.walk_lane[i] = 0;
                     self.ents.lane_window_end[i] = u32::MAX;
                 }
                 if deploy_ms == 0 {
@@ -43360,6 +43393,10 @@ impl BattleState {
                     h.u32(e.spawn_lane[i] as u32);
                     h.u32(e.lane_window_end[i]);
                 }
+                // targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane: the walked lane, written under that arm only.
+                if self.cfg.calib.fallen_lane_tower_pick == FallenLaneTowerPick::Client16635LastLane {
+                    h.u32(e.walk_lane[i] as u32);
+                }
                 if self.cfg.calib.doomed_target_drop.drops() {
                     let f = e.fired_at[i];
                     h.bool(f.is_some());
@@ -48107,6 +48144,7 @@ impl BattleState {
         snap.ents.combo_ix.resize(n, 0);
         snap.ents.spawn_lane.resize(n, 0);
         snap.ents.lane_window_end.resize(n, 0);
+        snap.ents.walk_lane.resize(n, 0);
         snap.ents.stagger_ms.resize(n, 0);
         snap.ents.death_slide_centre.resize(n, Vec2::default());
         snap.ents.death_slide_radius.resize(n, 0);
