@@ -966,3 +966,14 @@ fn a_building_beyond_its_radius_pushes_the_member_body() {
         assert_ring_at(&b, (1, 1), push, &format!("{arm:?}"));
     }
 }
+
+/// Since parity r99 for clients 16.402 and 16.635 (client15535_contact_push before it; client 15.535.29 keeps
+/// client15535_contact_push).
+#[test]
+fn the_shipped_arm_is_client16635_member_body() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().container_burst_push,
+        royalesim::state::ContainerBurstPush::Client16635MemberBody
+    );
+    assert_eq!(config().calib.container_burst_push, royalesim::state::ContainerBurstPush::Client16635MemberBody);
+}

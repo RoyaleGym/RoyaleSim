@@ -96,8 +96,8 @@ fn under_client16635_own_deploy_time_a_reborn_phoenix_deploys_for_its_own_deploy
     let old = hatch(DestroyAtLimit::Stays, SpawnCharacterWithDeploy::SpawnedDeployTime);
     assert!(!old.child[0].1 && old.child[1].0 != old.child[0].0, "spawned_deploy_time (the vacuity check): not born walking {:?}", &old.child[..2]);
     let new = hatch(DestroyAtLimit::Stays, SpawnCharacterWithDeploy::Client16635OwnDeployTime);
-    for k in 0..=14 {
-        assert!(new.child[k].1, "client16635_own_deploy_time: not deploying on H + {k}");
+    for (k, c) in new.child.iter().enumerate().take(15) {
+        assert!(c.1, "client16635_own_deploy_time: not deploying on H + {k}");
     }
     assert!(!new.child[15].1, "client16635_own_deploy_time: still deploying on H + 15");
     for k in 0..=15 {

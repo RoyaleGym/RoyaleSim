@@ -31,7 +31,7 @@ mod common;
 use common::*;
 use royalesim::entity::{AttackPhase, EntityKind};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, FixedRingFacing};
+use royalesim::state::{BattleConfig, BattleState, FixedRingFacing};
 use royalesim::{EntityId, Team};
 
 const DRILL: (i32, i32) = (9000, 20000);
@@ -173,8 +173,12 @@ fn under_client16635_building_target_the_drills_goblins_face_where_it_faced() {
     assert!(old.iter().all(|(a, b)| *a == forward && *b == forward), "forward: the death pair does not face blue's forward: {old:?}");
 }
 
-/// (3)
+/// Since parity r99 for clients 16.402 and 16.635 (forward before it; client 15.535.29 keeps forward).
 #[test]
-fn the_shipped_arm_is_forward() {
-    assert_eq!(Calib::shipped().fixed_ring_facing, FixedRingFacing::Forward);
+fn the_shipped_arm_is_client16635_building_target() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().fixed_ring_facing,
+        royalesim::state::FixedRingFacing::Client16635BuildingTarget
+    );
+    assert_eq!(config().calib.fixed_ring_facing, royalesim::state::FixedRingFacing::Client16635BuildingTarget);
 }

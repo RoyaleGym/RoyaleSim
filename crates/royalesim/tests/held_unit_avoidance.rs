@@ -144,7 +144,9 @@ fn a_held_units_running_offset_decays_and_the_static_in_its_look_circle_does_not
     );
 }
 
+/// Since parity r99 the shipped value is client16635_cube_scanned: masked (NEW here) for every hold but a Hero Ice Wizard
+/// cube's (tests/hero_ice_wizard.rs).
 #[test]
 fn the_shipped_value_is_the_new_arm() {
-    assert_eq!(Calib::shipped().held_unit_avoidance, NEW);
+    assert_eq!(Calib::shipped().held_unit_avoidance, HeldUnitAvoidance::Client16635CubeScanned);
 }

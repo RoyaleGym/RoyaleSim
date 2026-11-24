@@ -160,3 +160,13 @@ fn under_client16635_half_step_end_a_bandit_whose_target_dies_ends_on_the_half_s
     }
     assert!(whole >= 1, "client16635_runs_to_goal (the vacuity check): no run ended within 250 of its goal");
 }
+
+/// Since parity r99 for clients 16.402 and 16.635 (client16635_runs_to_goal before it; client 15.535.29 keeps ends).
+#[test]
+fn the_shipped_arm_is_client16635_half_step_end() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().dash_target_death,
+        royalesim::state::DashTargetDeath::Client16635HalfStepEnd
+    );
+    assert_eq!(config().calib.dash_target_death, royalesim::state::DashTargetDeath::Client16635HalfStepEnd);
+}

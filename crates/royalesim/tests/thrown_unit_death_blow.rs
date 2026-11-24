@@ -21,7 +21,9 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, DeathDamageTick, ThrownUnitDeathBlow};
+use royalesim::state::{
+    BattleConfig, BattleState, Calib, DeathDamageTick, ThrowLandingBlow, ThrownUnitDeathBlow, ThrownUnitFirstUpdate,
+};
 use royalesim::Team;
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -43,6 +45,10 @@ fn trooper(arm: ThrownUnitDeathBlow) -> (Vec<(i32, i32)>, bool) {
     cfg.tower_level = [11, 11];
     cfg.calib.thrown_unit_death_blow = arm;
     cfg.calib.death_damage_tick = DeathDamageTick::Client15535DeathTick;
+    // Since parity r99 clients 16.402 and 16.635 ship the throw's client16635_* arms; the scene is client 15.535.29's (the
+    // landing blow kills the golem on the landing tick), which keeps the old arms (CLIENT15535_ARMS).
+    cfg.calib.thrown_unit_first_update = ThrownUnitFirstUpdate::NextTick;
+    cfg.calib.throw_landing_blow = ThrowLandingBlow::LandingTick;
     let mut s = BattleState::try_new(7, cfg).unwrap_or_else(|e| panic!("the deck does not load: {e}"));
     let lockout = s.config().calib.deploy_lockout_ticks as u32;
     s.scenario_set_tick(lockout);

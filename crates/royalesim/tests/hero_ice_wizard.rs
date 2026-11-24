@@ -1194,9 +1194,22 @@ fn under_client16635_press_next_tick_a_press_waiting_through_the_hold_starts_a_t
     assert_eq!(row_on(&new, g + 2).1, row_on(&new, g + 1).1, "client16635_press_next_tick: in its cast hold from G + 2");
 }
 
-/// status.ICE_RELEASE_PRESS ships at with_the_walk (client16635_press_next_tick is a candidate until scored).
+/// Since parity r99 for clients 16.402 and 16.635 (with_the_walk before it; client 15.535.29 keeps with_the_walk).
 #[test]
-fn the_shipped_arm_is_with_the_walk() {
-    assert_eq!(royalesim::state::Calib::shipped().ice_release_press, IceReleasePress::WithTheWalk);
-    assert_eq!(config().calib.ice_release_press, IceReleasePress::WithTheWalk);
+fn the_shipped_arm_is_client16635_press_next_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().ice_release_press,
+        royalesim::state::IceReleasePress::Client16635PressNextTick
+    );
+    assert_eq!(config().calib.ice_release_press, royalesim::state::IceReleasePress::Client16635PressNextTick);
+}
+
+/// Since parity r99 for clients 16.402 and 16.635 (masked before it; client 15.535.29 keeps scanned).
+#[test]
+fn the_shipped_arm_is_client16635_cube_scanned() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().held_unit_avoidance,
+        royalesim::state::HeldUnitAvoidance::Client16635CubeScanned
+    );
+    assert_eq!(config().calib.held_unit_avoidance, royalesim::state::HeldUnitAvoidance::Client16635CubeScanned);
 }

@@ -148,11 +148,8 @@ fn under_client16402_log_tick_to_land_plus_2_the_barbarian_is_hittable_on_its_sl
     assert!(old.iter().find(|r| r.0 == 2).is_some_and(|r| r.1), "at_trigger: not hidden on P + 2: {old:?}");
 }
 
-/// Since parity r88 (at_trigger before it; client 15.535.29 keeps at_trigger).
-#[test]
-fn the_shipped_reroll_hide_window_is_client16402_log_tick_to_land_plus_2() {
-    assert_eq!(Calib::shipped().reroll_hide_window, RerollHideWindow::Client16402LogTickToLandPlus2);
-}
+// spells.REROLL_HIDE_WINDOW ships client16635_holders_let_go_next_tick since parity r99 (client16402_log_tick_to_land_plus_2
+// from r88): its pin is below, the_shipped_arm_is_client16635_holders_let_go_next_tick.
 
 /// `holder_rows`' rows: whether the Musketeer held the Barbarian at the end of P + `k`.
 fn held_on(rows: &[(u32, bool)], k: u32) -> bool {
@@ -375,8 +372,23 @@ fn under_client16402_no_body_ride_to_land_plus_1_the_logs_tick_is_still_a_body()
     assert_ne!(ride_row(&old, 9).push, (0, 0), "held_body (the vacuity check): the rider unpushed on P + 9: {old:?}");
 }
 
-/// collision.REROLL_RIDE_BODY ships at held_body (client 15.535.29 keeps it: CLIENT15535_ARMS).
+/// Since parity r99 for clients 16.402 and 16.635 (held_body before it; client 15.535.29 keeps held_body).
 #[test]
-fn the_shipped_arm_is_held_body() {
-    assert_eq!(Calib::shipped().reroll_ride_body, RerollRideBody::HeldBody);
+fn the_shipped_arm_is_client16402_no_body_ride_to_land_plus_1() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().reroll_ride_body,
+        royalesim::state::RerollRideBody::Client16402NoBodyRideToLandPlus1
+    );
+    assert_eq!(config().calib.reroll_ride_body, royalesim::state::RerollRideBody::Client16402NoBodyRideToLandPlus1);
+}
+
+/// Since parity r99 for clients 16.402 and 16.635 (client16402_log_tick_to_land_plus_2 before it; client 15.535.29
+/// keeps at_trigger).
+#[test]
+fn the_shipped_arm_is_client16635_holders_let_go_next_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().reroll_hide_window,
+        royalesim::state::RerollHideWindow::Client16635HoldersLetGoNextTick
+    );
+    assert_eq!(config().calib.reroll_hide_window, royalesim::state::RerollHideWindow::Client16635HoldersLetGoNextTick);
 }

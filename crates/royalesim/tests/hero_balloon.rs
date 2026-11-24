@@ -29,7 +29,7 @@ mod common;
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, ThrowLandingBlow, ThrownUnitFirstUpdate};
+use royalesim::state::{BattleConfig, BattleState, ThrowLandingBlow, ThrownUnitFirstUpdate};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -48,6 +48,10 @@ fn battle() -> BattleState {
 /// `battle()` with `f` applied to its config first.
 fn battle_with(f: impl FnOnce(&mut BattleConfig)) -> BattleState {
     let mut cfg: BattleConfig = config();
+    // Since parity r99 clients 16.402 and 16.635 ship spawner.THROWN_UNIT_FIRST_UPDATE and combat.THROW_LANDING_BLOW at their
+    // client16635_* arms; these scenes are client 15.535.29's, which keeps the old arms (CLIENT15535_ARMS). `f` may set either.
+    cfg.calib.thrown_unit_first_update = ThrownUnitFirstUpdate::NextTick;
+    cfg.calib.throw_landing_blow = ThrowLandingBlow::LandingTick;
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
@@ -305,9 +309,14 @@ fn under_client16635_landing_tick_the_trooper_is_pushed_off_its_pick_on_its_land
     );
 }
 
+/// Since parity r99 for clients 16.402 and 16.635 (next_tick before it; client 15.535.29 keeps next_tick).
 #[test]
-fn the_shipped_arm_is_next_tick() {
-    assert_eq!(Calib::shipped().thrown_unit_first_update, ThrownUnitFirstUpdate::NextTick);
+fn the_shipped_arm_is_client16635_landing_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().thrown_unit_first_update,
+        royalesim::state::ThrownUnitFirstUpdate::Client16635LandingTick
+    );
+    assert_eq!(config().calib.thrown_unit_first_update, royalesim::state::ThrownUnitFirstUpdate::Client16635LandingTick);
 }
 
 /// combat.THROW_LANDING_BLOW: the g6000 scene under `arm`: the first frame a Skeletrooper stands (L), and the golem's
@@ -338,7 +347,12 @@ fn under_client16635_landing_plus_2_the_landing_blow_strikes_two_ticks_after_the
     assert_eq!(new[2] - old[2], blow, "client16635_landing_plus_2: the blow did not strike on L + 2 (landing_tick {old:?}, client16635_landing_plus_2 {new:?})");
 }
 
+/// Since parity r99 for clients 16.402 and 16.635 (landing_tick before it; client 15.535.29 keeps landing_tick).
 #[test]
-fn the_shipped_arm_is_landing_tick() {
-    assert_eq!(Calib::shipped().throw_landing_blow, ThrowLandingBlow::LandingTick);
+fn the_shipped_arm_is_client16635_landing_plus_2() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().throw_landing_blow,
+        royalesim::state::ThrowLandingBlow::Client16635LandingPlus2
+    );
+    assert_eq!(config().calib.throw_landing_blow, royalesim::state::ThrowLandingBlow::Client16635LandingPlus2);
 }

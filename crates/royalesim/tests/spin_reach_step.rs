@@ -29,7 +29,7 @@ use common::*;
 use royalesim::card::{CardDb, FORM_HERO};
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, CardTable, SpinReachStep, SpinTargets};
+use royalesim::state::{BattleConfig, BattleState, CardTable, SpinReachStep, SpinTargets};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -151,7 +151,12 @@ fn a_reach_within_her_range_and_its_radius_stands_at_once_under_both_arms() {
     }
 }
 
+/// Since parity r99 for clients 16.402 and 16.635 (stands before it; client 15.535.29 keeps stands).
 #[test]
-fn the_shipped_arm_is_stands() {
-    assert_eq!(Calib::shipped().spin_reach_step, SpinReachStep::Stands);
+fn the_shipped_arm_is_client16635_one_more_step() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().spin_reach_step,
+        royalesim::state::SpinReachStep::Client16635OneMoreStep
+    );
+    assert_eq!(config().calib.spin_reach_step, royalesim::state::SpinReachStep::Client16635OneMoreStep);
 }
