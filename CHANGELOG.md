@@ -3,6 +3,37 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.57 (2026-11-23)
+
+- **Saved battles from earlier versions do not load.** A Goblin Drill building's card gains three fields, so the card
+  data's fingerprint changes, and a battle or bank saved by 0.1.56 or earlier is refused at load as saved against other
+  card data. Save again on 0.1.57.
+- 10 more settings default to the current client's behaviour, each measured against its recorded battles (6 of the
+  settings are new, marked new):
+  - A unit frozen by a Hero Ice Wizard's cube still steers around the cube while it is held, so it walks off at the
+    client's angle when the cube lets it go (`collision.HELD_UNIT_AVOIDANCE`).
+  - A hero ability pressed while its hero is frozen in a Hero Ice Wizard's cube starts one tick after the cube lets go
+    (`status.ICE_RELEASE_PRESS`, new).
+  - A hero Barbarian Barrel's re-rolled Barbarian neither pushes nor is pushed by other units while it rides its log,
+    until the tick after it lands (`collision.REROLL_RIDE_BODY`, new).
+  - Units attacking a re-rolling Barbarian keep it through the log's first tick and let it go on the next
+    (`spells.REROLL_HIDE_WINDOW`).
+  - A Skeleton Barrel's (and an Evo Skeleton Barrel's) skeletons burst out slightly pushed off nearby units, as one of
+    the skeletons would be (`spawner.CONTAINER_BURST_PUSH`).
+  - A Bandit or Boss Bandit whose dash target dies stops its dash half a step sooner when the goal is less than a step
+    away (`combat.DASH_TARGET_DEATH`).
+  - A Hero Valkyrie whose spin chain ends takes one more step toward her last target before she stands
+    (`combat.SPIN_REACH_STEP`, new).
+  - A Hero Balloon's thrown Skeleton Trooper is pushed off the unit it lands on, on the tick it lands
+    (`spawner.THROWN_UNIT_FIRST_UPDATE`, new).
+  - A Hero Balloon throw's landing blow strikes two ticks after the trooper lands (`combat.THROW_LANDING_BLOW`, new).
+  - A Goblin Drill building turns to face its targets (it never hits), and the Goblins from its death face the way it
+    last faced (`spawner.FIXED_RING_FACING`, new).
+- One new setting whose default is unchanged: `status.DEFLECT_TRIGGER_TICK` (default `"whole_ticks"`, also
+  `"client16635_last_partial_tick"`).
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  keep the older client's values for its battles.
+
 ## 0.1.56 (2026-11-23)
 
 - 15 more settings default to the current client's behaviour, each measured against its recorded battles (13 of the
