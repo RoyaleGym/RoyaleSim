@@ -279,6 +279,9 @@
    "characters/minion_horde_ev1.toml": {
     "sha256": "665ed995de2e1c04c1aee83af94ac6bdcd4ba4be9a19c17192224791709b8c36"
    },
+   "characters/mirror_ev1_spell.toml": {
+    "sha256": "039e05eb2bba636d6d88fccd914be3a3a9c0745a131c02b0fe1b7b884f0c7982"
+   },
    "characters/monk.toml": {
     "sha256": "89d0334d0eb98373e872516b3e12a821d3edafc090aa3919bad3041f69804f3c"
    },
@@ -84711,6 +84714,103 @@
     "older_kill_delay_ms": 150
    },
    "cloned_version": "Giant"
+  },
+  {
+   "name": "Mirror_EV1",
+   "display_name": "Mirror_EV1",
+   "kind": "spell",
+   "elixir": 1,
+   "rarity": "Epic",
+   "hitpoints": null,
+   "damage": null,
+   "damage_source": null,
+   "hit_speed_ms": null,
+   "load_time_ms": null,
+   "load_first_hit": false,
+   "speed": null,
+   "stop_movement_after_ms": null,
+   "wait_ms": null,
+   "range_milli": null,
+   "minimum_range_milli": null,
+   "sight_range_milli": null,
+   "collision_radius_milli": null,
+   "mass": null,
+   "deploy_time_ms": null,
+   "attacks_air": false,
+   "attacks_ground": false,
+   "target_only_buildings": false,
+   "flying_height": null,
+   "area_damage_radius_milli": null,
+   "self_as_aoe_center": false,
+   "projectile": null,
+   "shield_hitpoints": null,
+   "crown_tower_damage_percent": null,
+   "lifetime_ms": null,
+   "ignore_pushback": false,
+   "death_damage": null,
+   "death_damage_radius_milli": null,
+   "death_spawn": null,
+   "death_area_effect": null,
+   "spawner": null,
+   "spawn_radius_milli": null,
+   "spawn_angle_shift_deg": null,
+   "projectile_start_radius_milli": null,
+   "kamikaze": null,
+   "kamikaze_time_ms": null,
+   "spawn_pathfind": null,
+   "charge": null,
+   "dash": null,
+   "jump": null,
+   "hides_when_not_attacking": false,
+   "hide_time_ms": null,
+   "up_time_ms": null,
+   "buff_on_damage": null,
+   "defaults_applied": [],
+   "count": 1,
+   "spell": {
+    "radius_milli": null,
+    "first_projectile": null,
+    "multiple_projectiles": null,
+    "projectile_waves": null,
+    "projectile_wave_interval_ms": null,
+    "area_effect_object": null,
+    "spell_as_deploy": false,
+    "can_place_on_buildings": true,
+    "can_deploy_on_enemy_side": true,
+    "pushback_milli": null,
+    "duration_seconds": null,
+    "spawn": null,
+    "mirror": true
+   },
+   "level_scaling": {
+    "rarity": "Epic",
+    "level_count": 11,
+    "multiplier_percent_by_level": [
+     100,
+     110,
+     121,
+     133,
+     146,
+     160,
+     176,
+     193,
+     212,
+     233,
+     256
+    ],
+    "applies_to": [
+     "hitpoints",
+     "damage"
+    ],
+    "rounding": "floor -- MEASURED on the 16.402 live captures' max_hp (tests/levels.rs); the composition with crown-tower percent and shields is still calibration.json combat.DAMAGE_ARITHMETIC",
+    "relative_level": 5,
+    "reading": "object_rarity_local_1",
+    "ladder_rarity": "Epic",
+    "base_level": 6
+   },
+   "form_of": "Mirror",
+   "spells_evolved_row": 83,
+   "evo_cycles": 2
   }
  ],
  "hero_forms": [

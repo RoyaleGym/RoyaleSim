@@ -5531,7 +5531,7 @@ EVOLUTIONS = (
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
     "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1", "GoblinBarrel_EV1", "RageBarbarian_EV1",
     "ElectroGiant_EV1",  # 16.402 on (EVOLUTIONS_16402_ONLY)
-    "Giant_EV1",  # 16.635 on (EVOLUTIONS_16635_ONLY)
+    "Giant_EV1", "Mirror_EV1",  # 16.635 on (EVOLUTIONS_16635_ONLY)
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -8324,7 +8324,7 @@ def delevel_pulse_block(t: Tables, card: dict) -> dict:
 # THE EVO GIANT'S RAGE (`rage_areas_block`; characters/giant_ev1.toml), read whole or the build stops. 16.635 on: the
 # 160635007 pack is the first to carry the form in play (every earlier Giant_EV1 row is a NotInUse Knight placeholder),
 # so the row is built on a forms_16635 vintage alone (EVOLUTIONS_16635_ONLY).
-EVOLUTIONS_16635_ONLY = frozenset({"Giant_EV1"})
+EVOLUTIONS_16635_ONLY = frozenset({"Giant_EV1", "Mirror_EV1"})
 # The unit row's own columns: the ones it reads, and the display one beside DATA_ONLY_DISPLAY and COSMETIC (PrefabAsset:
 # the 3D model). Base and ClonedVersion (DATA_ONLY_DISPLAY) are pinned to the base card's unit below.
 RAGE_ROW = {"OnStartingAction", "OnHitTargetAction", "AttackSequenceMode", "AttackSequence", "AttackSequenceList",

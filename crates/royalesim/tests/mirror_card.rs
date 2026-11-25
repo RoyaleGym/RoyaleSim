@@ -133,6 +133,43 @@ fn a_mirror_replays_the_last_card_one_level_up_for_its_cost_plus_its_own() {
     }
 }
 
+/// The 16.635 table releases Mirror_EV1. Plant: mirror_evolution_ignored.
+#[test]
+fn the_charged_mirror_evolves_the_target_and_spends_only_its_own_cycle() {
+    use royalesim::state::{BattleConfig, CardTable};
+    let old = CardDb::load_table(CardTable::Client160402017Oct19).unwrap();
+    assert!(old.form_card(old.index("Mirror").unwrap(), royalesim::card::FORM_EVOLUTION).is_none());
+    for (first, counter, expected) in [
+        ("Knight", 0, "Knight"), ("Knight", 1, "Knight"), ("Knight", 2, "Knight_EV1"),
+        ("Zap", 2, "Zap_EV1"), ("Golem", 2, "Golem"),
+    ] {
+        let table = CardDb::load_table(CardTable::Client160635007Nov03).unwrap();
+        let mut cfg = BattleConfig::with_cards(table);
+        cfg.decks = [deck(first), deck(first)];
+        cfg.forms[0] = cfg.decks[0].iter().map(|n| u8::from(n == "Mirror")).collect();
+        cfg.shuffle_decks = false;
+        cfg.card_level = [11, 11];
+        let mut s = BattleState::new(7, cfg);
+        past_deploy_lockout(&mut s);
+        s.scenario_set_elixir_milli(Team::Blue, 10000);
+        s.deploy_slot(Team::Blue, 0, at(OWN)).unwrap();
+        s.scenario_set_evo_plays(Team::Blue, "Mirror", counter).unwrap();
+        let mirror = idx(&s, "Mirror");
+        let play = s.resolve_play(Team::Blue, 0).unwrap();
+        assert_eq!((play.in_slot, play.card, play.level), (mirror, idx(&s, expected), 12), "{first}, count {counter}");
+        assert_eq!(play.cost, s.config().cards.get(idx(&s, first)).elixir + 1);
+        // A refusal must leave the charge and Mirror target intact.
+        s.scenario_set_elixir_milli(Team::Blue, 0);
+        assert!(s.deploy_slot(Team::Blue, 0, at(OWN2)).is_err());
+        assert_eq!(s.resolve_play(Team::Blue, 0).unwrap(), play);
+        s.scenario_set_elixir_milli(Team::Blue, 10000);
+        s.deploy_slot(Team::Blue, 0, at(OWN2)).unwrap();
+        let entry = s.evo_counters(Team::Blue).iter().find(|k| k.card == mirror).unwrap();
+        assert_eq!(entry.plays, if counter == 2 { 0 } else { counter + 1 }, "{first}");
+        assert_eq!(s.mirror_target(Team::Blue), Some(idx(&s, first)));
+    }
+}
+
 /// Plant: mirror_same_level.
 #[test]
 fn the_copy_stands_one_level_up() {

@@ -50,7 +50,16 @@ position in that list. `catalogue_json()` lists each card with its cost, kind an
 
 **Levels.** Both sides play at one card level and one tower level unless you say otherwise. To give each side its
 own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck card (or empty), and
-`tower_levels=[blue, red]`. A Mirror's copy is one level above the Mirror.
+`tower_levels=[blue, red]`. To equip different tower troops, pass `tower_troops=["ChefTower", None]`
+to `reset`. Each side accepts `None` for the Princess, or `"ChefTower"`, `"Cannoneer"` or `"DaggerDuchess"`.
+`king_levels=[13, None]` sets the blue king's own level and uses the red side's tower level for its king.
+A Mirror's copy is one level above the Mirror. On the November 16.635 card table, a form-1 Mirror evolves
+its copied card after two basic Mirror plays wherever the target sits in the deck. A target with no
+evolution receives the usual copy.
+
+`state_json(extra=True)` also includes three fields per player. `queue` lists the draw queue in order.
+`ability_uids` gives the current carrier for each ability button, or null. `hand_plays` gives the resolved
+card name and form for each hand slot, or null when the slot has no target.
 
 **A battle under way.** `reset` can also start from the middle of a battle:
 

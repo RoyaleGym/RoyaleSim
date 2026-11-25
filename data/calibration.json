@@ -4145,6 +4145,15 @@
       "promotion_rules": "Stays measured.",
       "engine": "state.rs resolve_play (the Mirror arm; one arm, read with only())"
     },
+    "MIRROR_EVOLUTION": {
+      "value": "evolve_copied_card_if_available",
+      "status": "datamined",
+      "confidence": "The November release notes specify the copy and the fallback. The released form row supplies its cycle. No frame-by-frame measurement of this form is claimed.",
+      "provenance": "Supercell, King vs. King, https://supercell.com/en/games/clashroyale/blog/release-notes/new-season-king-vs-king/ and the 16.635 Mirror_EV1 spell row (Mirror and DarkElixirCost).",
+      "candidates": ["evolve_copied_card_if_available"],
+      "meaning": "A charged Mirror deploys the evolution of its copied card if that evolution exists on the active card table. The target can occupy an ordinary slot. A target with no evolution is copied normally. Only the Mirror spends its cycle.",
+      "engine": "state.rs resolve_play and deploy_slot; tests/mirror_card.rs."
+    },
     "MIRROR_PLACEMENT": {
       "value": "copied_card_rule",
       "status": "measured",

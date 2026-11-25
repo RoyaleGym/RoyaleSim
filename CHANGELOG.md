@@ -3,6 +3,13 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## Unreleased
+
+- Python callers can equip each side's tower troop and set its king level separately at reset.
+  `state_json(extra=True)` includes the draw queue, the resolved hand cards and the ability carrier IDs.
+- The November 16.635 table supports Mirror Evolution. A charged Mirror copies an evolved target
+  even when that card is in an ordinary deck slot. The November table fingerprint changes.
+
 ## 0.1.57 (2026-11-23)
 
 - **Saved battles from earlier versions do not load.** A Goblin Drill building's card gains three fields, so the card

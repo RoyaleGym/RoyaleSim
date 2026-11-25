@@ -14208,6 +14208,7 @@ impl Calib {
         // THE MIRROR AND THE VARIANT CARD (`resolve_play`): one implemented arm each.
         only(&v, &["match", "MIRROR_COST_RULE", "value"], "copied_elixir_plus_own_elixir")?;
         only(&v, &["match", "MIRROR_PLACEMENT", "value"], "copied_card_rule")?;
+        only(&v, &["match", "MIRROR_EVOLUTION", "value"], "evolve_copied_card_if_available")?;
         only(&v, &["match", "MIRROR_RECORD", "value"], "last_non_mirror_play")?;
         only(&v, &["match", "MIRROR_LEVEL_BEYOND_MAX", "value"], "refuse_play")?;
         only(&v, &["match", "MIRROR_OF_VARIANT", "value"], "played_form")?;
@@ -40742,7 +40743,8 @@ impl BattleState {
             return Ok(Play { in_slot: idx, card: o.card, level, cost });
         }
         // AN EVOLVED CARD'S PLAY AFTER ITS CYCLE (`EvoCounter::cycles`) puts its form down, at the base card's cost.
-        if let Some(k) = self.players[t].evo.iter().find(|k| k.card == idx && k.next_evolved()) {
+        let charged = self.players[t].evo.iter().find(|k| k.card == idx && k.next_evolved());
+        if let Some(k) = charged.filter(|_| !c.is_mirror()) {
             return Ok(Play { in_slot: idx, card: k.form, level, cost: c.elixir });
         }
         // A FORM-2 DECK ENTRY plays its hero form on every play (measured on client 16.402: 5 of 5 plays of the entry
@@ -40754,6 +40756,12 @@ impl BattleState {
         }
         if c.is_mirror() {
             let last = self.players[t].last_played.ok_or(DeployError::NothingToMirror)?;
+            // A charged Mirror evolves its target even when the target occupies an ordinary deck slot.
+            // Keep the last play for the usual cost and for cards with no evolution.
+            #[cfg(not(clash_plant = "mirror_evolution_ignored"))]
+            let copy = if charged.is_some() { cards.form_card(last, FORM_EVOLUTION).unwrap_or(last) } else { last };
+            #[cfg(clash_plant = "mirror_evolution_ignored")]
+            let copy = last;
             let offset = cards.globals.mirror_level_offset.expect("the loader refuses a Mirror without MIRROR_LEVEL_OFFSET");
             #[cfg(not(clash_plant = "mirror_same_level"))]
             let lvl = level + offset;
@@ -40762,12 +40770,12 @@ impl BattleState {
                 let _ = offset;
                 level // PLANT: the copy at the Mirror's own level.
             };
-            cards.check_levels(last, lvl).map_err(DeployError::InvalidLevel)?;
+            cards.check_levels(copy, lvl).map_err(DeployError::InvalidLevel)?;
             #[cfg(not(clash_plant = "mirror_flat_cost"))]
             let cost = cards.get(last).elixir + c.elixir;
             #[cfg(clash_plant = "mirror_flat_cost")]
             let cost = c.elixir; // PLANT: the Mirror's own cost alone.
-            return Ok(Play { in_slot: idx, card: last, level: lvl, cost });
+            return Ok(Play { in_slot: idx, card: copy, level: lvl, cost });
         }
         Ok(Play { in_slot: idx, card: idx, level, cost: c.elixir })
     }
@@ -41920,7 +41928,10 @@ impl BattleState {
         p.mana -= need;
         // THE HAND CARD'S EVOLUTION COUNTER: a basic play adds one, the evolved play starts the count again.
         if let Some(k) = p.evo.iter_mut().find(|k| k.card == play.in_slot) {
-            k.plays = if evolved { 0 } else { k.plays.saturating_add(1) };
+            // The counter belongs to the hand slot's card. A charged Mirror also
+            // completes its cycle when the copied card has no evolution.
+            let used_charge = if mirror { k.next_evolved() } else { evolved };
+            k.plays = if used_charge { 0 } else { k.plays.saturating_add(1) };
         }
         // THE HAND CARD cycles (a Mirror, a variant card), not the card it put down.
         p.queue.push_back(play.in_slot);
@@ -46462,6 +46473,11 @@ struct Snapshot {
     decks: [Vec<String>; 2],
     card_level: [i32; 2],
     tower_level: [i32; 2],
+    /// Equipment is also needed to report a fallen tower's original maximum HP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tower_troops: Option<[Option<String>; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    king_level: Option<[Option<i32>; 2]>,
     /// `BattleConfig::deck_levels`. Added after 0.1.6; `default` (empty: every card at `card_level`), what a battle
     /// saved before it played.
     #[serde(default)]
@@ -47884,6 +47900,8 @@ impl BattleState {
             decks: c.decks.clone(),
             card_level: c.card_level,
             tower_level: c.tower_level,
+            tower_troops: c.tower_troops.iter().any(Option::is_some).then(|| c.tower_troops.clone()),
+            king_level: c.king_level.iter().any(Option::is_some).then_some(c.king_level),
             deck_levels: c.deck_levels.clone(),
             shuffle_decks: c.shuffle_decks,
             bucket_subtiles: c.bucket_subtiles,
@@ -48204,9 +48222,8 @@ impl BattleState {
             bucket_subtiles: snap.bucket_subtiles,
             forms: snap.forms,
             command_delay_ticks: snap.command_delay_ticks,
-            // read at try_new alone: the restored towers are the snapshot's own entities, their records saved with them
-            tower_troops: [None, None],
-            king_level: [None, None],
+            tower_troops: snap.tower_troops.unwrap_or_default(),
+            king_level: snap.king_level.unwrap_or_default(),
         };
         let mut s = BattleState {
             cfg,
