@@ -19,7 +19,8 @@
 //!      refused);
 //!   4. both values: with both princess towers standing, the one created at 8500 heads for the right princess tower;
 //!   5. under FIRST_TOWER_PICK = current_x, which keeps no spawn lane, the new value reads nothing: the right princess;
-//!   6. the shipped value is client16402_spawn_lane_king.
+//!   6. the shipped value is client16635_last_lane (client 16.635's rule, which agrees with client16402_spawn_lane_king
+//!      on every case above; tests/walk_lane16635.rs and tests/test_walk_lane16635.py pin where they part).
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test fallen_lane_tower_pick`):
 //!   * `fallen_lane_by_x` -- the new value still takes the tower of the current x: (1) goes red.
@@ -145,6 +146,6 @@ fn with_both_princess_towers_standing_the_value_does_not_matter() {
 }
 
 #[test]
-fn the_shipped_value_is_the_new_one() {
-    assert_eq!(Calib::shipped().fallen_lane_tower_pick, NEW);
+fn the_shipped_value_is_client_16635s() {
+    assert_eq!(Calib::shipped().fallen_lane_tower_pick, FallenLaneTowerPick::Client16635LastLane);
 }

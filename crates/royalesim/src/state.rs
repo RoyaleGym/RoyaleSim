@@ -6401,7 +6401,8 @@ calib_enum!(
         /// tower is down walks to the king, wherever it stands, even when the other princess tower stands on its side
         /// of the centre. A troop whose spawn-lane tower stands takes the tower of its current x, as today.
         Client16402SpawnLaneKing = "client16402_spawn_lane_king",
-        /// Measured on client 16.635.1 (ground troops): client16402_spawn_lane_king with the troop's current x replaced
+        /// The shipped value. Measured on client 16.635.1 (ground troops; a flyer runs it, unread):
+        /// client16402_spawn_lane_king with the troop's current x replaced
         /// by the LAST LANE STRIP it walked over. With one enemy princess tower down, after FIRST_TOWER_PICK's window,
         /// a targetless troop walks to the king when its spawn lane's tower is the one down, or when the lane cells its
         /// body last overlapped (`walk_lane`, state.rs `note_lanes`: the lane strips and the bridges, not the lane cells
@@ -46442,6 +46443,11 @@ impl BattleState {
 ///    forward), no new battle state. CardDef gained row_attacks_ground, row_attacks_air and inert_attack_row (the
 ///    post-format-3 tail), so the card fingerprint moves: a blob saved by an earlier build is refused as saved against
 ///    different card data (a battle's hash is unchanged). migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane (the shipped value): Entities gained walk_lane
+///    (serde default empty, sized on load like spawn_lane, saved in every snapshot, hashed under that arm only). The
+///    arena fingerprint is unchanged (the king-area rows are read off the cells, arena.rs `king_area_row`), so a blob
+///    saved before it loads, keeps the arm it was saved under, and hashes as it did. migrate_v3 runs a migrated
+///    battle at current_x, as before.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {

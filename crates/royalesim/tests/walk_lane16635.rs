@@ -16,7 +16,7 @@ use royalesim::fixed::Vec2;
 #[test]
 fn the_king_area_rows_are_the_rows_around_each_king() {
     let a = Arena::shipped();
-    let rows: Vec<i32> = (0..a.rows).filter(|&j| a.king_area_row[j as usize]).collect();
+    let rows: Vec<i32> = (0..a.rows).filter(|&j| a.king_area_row(j)).collect();
     let want: Vec<i32> = (2..=9).chain(54..=61).collect();
     assert_eq!(rows, want);
 }
@@ -50,3 +50,17 @@ fn the_lane_cells_around_a_king_count_for_nothing() {
     assert_eq!(at(&a, 9000, 26600, 1), 0);
     assert_eq!(at(&a, 3500, 23800, 1), a.bit_lane_left);
 }
+
+/// FNV-1a over `Arena`'s Debug text, as state.rs `fingerprint_debug` takes a saved battle's arena fingerprint.
+fn arena_debug_fnv(a: &Arena) -> u64 {
+    format!("{a:?}").bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x0100_0000_01b3))
+}
+
+/// The king-area rows are read off the cells, not kept in `Arena`: its Debug text, a saved battle's arena
+/// fingerprint, is 0.1.57's, so a battle saved by 0.1.57 still loads (a field there refused every such blob).
+#[test]
+fn the_arena_fingerprint_is_0157s() {
+    assert_eq!(arena_debug_fnv(&Arena::shipped()), ARENA_0157);
+}
+/// `Arena::shipped()`'s fingerprint on royalesim 0.1.57.
+const ARENA_0157: u64 = 15_660_221_742_453_292_092;

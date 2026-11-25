@@ -485,10 +485,6 @@ pub struct Arena {
     pub water_y_max: i32,
     /// King no-deploy blocks, sorted by y (Blue's first).
     pub king_blocks: Vec<Rect>,
-    /// Per half-cell row: a KING-AREA row, one with a lane-marked cell inside a king block's columns (rows 2..=9 and
-    /// 54..=61 on the shipped map: the lane marking that wraps around each king tower). Its lane cells move no troop's
-    /// walked lane (`circle_lane_bits`, targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane).
-    pub king_area_row: Vec<bool>,
 }
 
 impl Arena {
@@ -532,17 +528,6 @@ impl Arena {
         if king_blocks.len() != 2 {
             return Err(format!("expected 2 king blocks, got {}", king_blocks.len()));
         }
-        let lanes = raw.bits.lane_left | raw.bits.lane_right;
-        #[cfg(not(clash_plant = "king_area_lane_counts"))]
-        let king_area_row: Vec<bool> = (0..rows)
-            .map(|j| {
-                raw.king_blocks.iter().any(|k| {
-                    (k.half_cols[0]..=k.half_cols[1]).any(|i| cells[(j * cols + i) as usize] & lanes != 0)
-                })
-            })
-            .collect();
-        #[cfg(clash_plant = "king_area_lane_counts")]
-        let king_area_row: Vec<bool> = vec![false; rows as usize]; // PLANT (regression): the king areas count like the strips.
         Ok(Arena {
             cols,
             rows,
@@ -558,7 +543,6 @@ impl Arena {
             water_y_min: raw.water_half_rows[0] * cell,
             water_y_max: (raw.water_half_rows[1] + 1) * cell,
             king_blocks,
-            king_area_row,
         })
     }
 
@@ -796,6 +780,20 @@ impl Arena {
         false
     }
 
+    /// Is half-cell row `row` a KING-AREA row, one with a lane-marked cell inside a king block's columns (rows 2..=9 and
+    /// 54..=61 on the shipped map: the lane marking that wraps around each king tower)? Its lane cells move no troop's
+    /// walked lane (`circle_lane_bits`, targeting.FALLEN_LANE_TOWER_PICK = client16635_last_lane). Read off the cells on
+    /// each call, not kept in a field: `Arena`'s Debug text is a saved battle's arena fingerprint (state.rs `save`).
+    pub fn king_area_row(&self, row: i32) -> bool {
+        #[cfg(clash_plant = "king_area_lane_counts")]
+        return { let _ = row; false }; // PLANT (regression): the king areas count like the strips.
+        #[cfg(not(clash_plant = "king_area_lane_counts"))]
+        {
+            let lanes = self.bit_lane_left | self.bit_lane_right;
+            self.king_blocks.iter().any(|k| (k.min.x / self.cell..k.max.x / self.cell).any(|col| self.cell_bits(col, row) & lanes != 0))
+        }
+    }
+
     /// The LANE bits (lane-left | lane-right) of every half-cell a circle of radius `r` centred on `p` overlaps, by
     /// `circle_overlaps_water`'s test (a cell counts when its nearest point is strictly closer than `r`), KING-AREA
     /// rows (`king_area_row`) left out: the lane strips between the king areas, the bridges included.
@@ -809,7 +807,7 @@ impl Arena {
         let rr = (r as i64) * (r as i64);
         let mut acc = 0u8;
         for row in r0..=r1 {
-            if self.king_area_row[row as usize] {
+            if self.king_area_row(row) {
                 continue;
             }
             for col in c0..=c1 {

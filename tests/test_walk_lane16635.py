@@ -1,17 +1,17 @@
 """Client 16.635's default crown tower once a princess tower is down (targeting.FALLEN_LANE_TOWER_PICK =
-client16635_last_lane), against the client's own engine.
+client16635_last_lane, the shipped value), against the client's own engine.
 
 WHAT THIS PINS. Each fixture in tests/data/walk_lane16635 is a constructed scene run in client 16.635.1's own battle
 engine, headless: the scene (seed, the client's deck order for that seed, card levels, the crown towers destroyed
-before the first update, the plays) and the client's track of the red Knight in it, x, y and hp on every tick. A blue
-Cannon, Giant or Hog Rider drags the Knight; once it is dead the Knight walks to its default tower. Under the 16.635
-setup (royalesim.client_arms("16.635")) RoyaleSim must reproduce the track exactly. The six cases, one per fixture
-(`why`):
+before the first update: Blue's princess tower on one side, in three scenes a red one as well, the plays) and the
+client's track of the red Knight in it, x, y and hp on every tick it lived. A blue Cannon, Giant or Hog Rider drags the
+Knight; once it is dead the Knight walks to its default tower. On the shipped calibration, with client 16.635's card
+table, RoyaleSim must reproduce the track exactly, tick for tick, and the Knight must live on the same ticks. The five
+cases, one per fixture (`why`):
   * off the lane strips on its own half it keeps its spawn lane's tower, wherever it stands;
   * over the other lane's bridge, or its lane strip, it takes that lane (that tower down: the king);
   * its spawn lane's tower down, the king, whatever it walked over;
-  * the lane cells around its own king count for nothing;
-  * with both princess towers standing, by x as before.
+  * the lane cells around its own king count for nothing.
 The ledger entry (data/calibration.json) carries the full measurement.
 
 PLANTS: `walk_lane_never_moves` -- the walked lane stays the spawn lane: test_the_knight_walks_as_in_the_client
@@ -33,12 +33,15 @@ F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 DATA = pathlib.Path(__file__).resolve().parent / "data" / "walk_lane16635"
 FIXTURES = sorted(DATA.glob("*.json"))
 KEY = "targeting.FALLEN_LANE_TOWER_PICK"
+#: the scenes ran on client 16.635, so on its card table (docs/api.md, "Card table")
+TABLE_16635 = {"cards.CARD_TABLE": json.dumps("client160635007_20261103")}
 
 
 def knight_track(fx, overrides=None):
-    """The red Knight's {tick: [x, y, hp]} (logic units) when the fixture's scene runs under the 16.635 setup."""
+    """The red Knight's {tick: [x, y, hp]} (logic units) when the fixture's scene runs on the shipped calibration with
+    client 16.635's card table (and `overrides`)."""
     b = royalesim.Battle(card_names=None, slot_of_k=[[0, 1, 2], [0, 1, 2]],
-                         calibration_overrides={**royalesim.client_arms("16.635"), **(overrides or {})})
+                         calibration_overrides={**TABLE_16635, **(overrides or {})})
     ids = {row[0]: i for i, row in enumerate(json.loads(b.catalogue_json()))}
     decks = [[ids[n] for n in side] for side in fx["order"]]
     reset = dict(seed=fx["seed"], decks=decks, shuffle=0, start_tick=0, elixir_milli=[5000, 5000], spawns=[],
@@ -46,10 +49,13 @@ def knight_track(fx, overrides=None):
     b.reset(tower_hp=None, **reset)
     down = {tuple(p) for p in fx["towers_down"]}
     hp = [[0, 0, 0], [0, 0, 0]]
+    matched = set()
     for e in json.loads(b.state_json())["entities"]:
         if e[F["tower_slot"]] >= 0:
             at = (e[F["x"]] // SUB, e[F["y"]] // SUB)
             hp[e[F["team"]]][e[F["tower_slot"]]] = 0 if at in down else e[F["hp"]]
+            matched |= {at} & down
+    assert matched == down, f"towers_down {sorted(down - matched)} match no crown tower"
     b.reset(tower_hp=hp, **reset)
     plays = {}
     for p in fx["plays"]:
@@ -75,9 +81,10 @@ def knight_track(fx, overrides=None):
 
 
 def first_split(want, got):
-    for t in sorted(want, key=int):
-        if got.get(t) != want[t]:
-            return t, want[t], got.get(t)
+    """The first tick where the two tracks differ, a tick the Knight lives in one and not the other included."""
+    for t in sorted(set(want) | set(got), key=int):
+        if got.get(t) != want.get(t):
+            return t, want.get(t), got.get(t)
     return None
 
 
@@ -95,5 +102,5 @@ def test_the_16402_arm_misses_the_cases_that_separate_them(stem):
     assert first_split(fx["knight"], knight_track(fx, {KEY: json.dumps("client16402_spawn_lane_king")})) is not None
 
 
-def test_there_are_six_fixtures():
-    assert len(FIXTURES) == 6
+def test_there_are_five_fixtures():
+    assert len(FIXTURES) == 5

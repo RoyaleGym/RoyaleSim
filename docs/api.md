@@ -69,6 +69,9 @@ own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck c
   hides then and a Furnace starts its spirits. A member of a group (a Royal Recruit) keeps the wait the group's
   stagger gives it. An evolved or hero unit's own clocks start at the copy. Leave out a unit that is under ground (a
   Miner on its way).
+- A troop put down by `unit_spawns` takes its spawn lane from the point it is put down on and has walked over no lane
+  strip yet, whatever the battle it was copied from. Once a princess tower is down it can walk to another crown tower
+  than its original would (`targeting.FALLEN_LANE_TOWER_PICK`). A unit row in `state_json` does not carry either lane.
 - `king_wake_ms=[blue, red]` sets each king tower's wake clock: the milliseconds since it was first hit or lost a
   princess tower, or -1. A player row's `king_wake_ms` in `state_json` reads it back.
 - `evo_counts=[blue, red]` gives each evolved deck card's plays since its last evolved one, one count per deck card.

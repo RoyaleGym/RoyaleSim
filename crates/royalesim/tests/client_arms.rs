@@ -4,8 +4,7 @@
 //!   * `client_arms_keep_card_values` -- the 15.535 setup leaves the current client's card values on:
 //!     the_15535_setup_runs_its_arms_and_the_tables_own_card_values.
 
-use std::collections::BTreeMap;
-use royalesim::client_arms::{client_overrides, CARD_VALUES_KEY, CLIENT15535_ARMS, CLIENT16635_ARMS};
+use royalesim::client_arms::{client_overrides, CARD_VALUES_KEY, CLIENT15535_ARMS};
 use royalesim::state::{Calib, CardValuesArm};
 use std::collections::BTreeSet;
 
@@ -36,7 +35,7 @@ fn the_current_client_is_the_ledger_and_an_unknown_client_is_refused() {
     assert!(client_overrides("16.402.17").expect("16.402.17").is_empty());
     for bad in ["", "15", "15.5", "15.535.", "15.535x", "15.535.29a", "16.4", "17.0"] {
         let err = client_overrides(bad).expect_err(bad);
-        assert!(err.contains("15.535.29") && err.contains("16.402") && err.contains("16.635"), "{bad}: {err}");
+        assert!(err.contains("15.535.29") && err.contains("16.402"), "{bad}: {err}");
     }
 }
 
@@ -50,18 +49,4 @@ fn every_arm_names_a_distinct_ledger_key_with_a_json_value() {
         assert!(serde_json::from_str::<serde_json::Value>(v).is_ok(), "{k}: {v} is not JSON");
     }
     assert!(!seen.contains(CARD_VALUES_KEY), "the card values key is the setup's own, not an arm");
-}
-
-/// THE 16.635 SETUP: its card table and the mechanics read on that client, for "16.635" and any 16.635 build; each
-/// value loads into a battle's calibration.
-#[test]
-fn the_16635_setup_runs_its_table_and_arms() {
-    let o = client_overrides("16.635").expect("16.635 is a known client");
-    let want: BTreeMap<String, String> = CLIENT16635_ARMS.iter().map(|(k, v)| ((*k).to_string(), (*v).to_string())).collect();
-    assert_eq!(o, want);
-    assert_eq!(client_overrides("16.635.1").expect("16.635.1"), o);
-    assert_eq!(o.get("targeting.EQUAL_DISTANCE_TIE").map(String::as_str), Some("\"own_frame_low_x\""));
-    assert_eq!(o.get("targeting.FALLEN_LANE_TOWER_PICK").map(String::as_str), Some("\"client16635_last_lane\""));
-    assert_eq!(o.get("cards.CARD_TABLE").map(String::as_str), Some("\"client160635007_20261103\""));
-    royalesim::state::Calib::shipped_with_overrides(&o).expect("the 16.635 overrides load");
 }

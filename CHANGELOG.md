@@ -5,14 +5,14 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
 
 ## Unreleased
 
-- `client_arms("16.635")` (and any `"16.635.<build>"`) is new: client 16.635's card table and the mechanics measured
-  on that client apart from the ledger's (client 16.402's), each read on the client's own battle engine:
-  - Of two enemy troops at one distance, a unit takes the one with the lower x in its own frame
-    (`targeting.EQUAL_DISTANCE_TIE = "own_frame_low_x"`).
-  - Once one enemy princess tower is down, a troop goes for its spawn lane's tower wherever it stands, unless it
-    last walked over the other lane's path (the lane strips and bridges, not the cells around the kings); then it goes
-    for the king (`targeting.FALLEN_LANE_TOWER_PICK = "client16635_last_lane"`, new value).
-- The ledger's defaults (client 16.402's) are unchanged, and battles saved by 0.1.57 still load.
+- **Battle logic: the crown tower a troop walks to once one princess tower is down.** It now goes by the lane strip
+  it last walked over, not by its current x (`targeting.FALLEN_LANE_TOWER_PICK = "client16635_last_lane"`, the new
+  shipped value, measured on client 16.635's own engine). The king when its spawn lane's tower is the one down, or when
+  that lane strip is the fallen side's; otherwise its spawn lane's tower, wherever it stands. The bridges and lane
+  paths count, the lane cells around the kings do not. `"client16402_spawn_lane_king"`, the value before, still runs by
+  override. A battle on the default calibration hashes differently from 0.1.57: the hash takes each troop's walked lane.
+- Battles saved by 0.1.57 still load, and keep the value they were saved under.
+- A troop put down by `reset`'s `unit_spawns` starts with no walked lane, so its spawn lane stands in (docs/api.md).
 
 ## 0.1.57 (2026-11-23)
 

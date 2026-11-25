@@ -14,7 +14,7 @@ default tower, and the heading between the kill and the first crown tower it nam
 WHY THE CONTROLS ARE HERE. "Walks to the king" also passes for an engine that sends every troop to the king once any
 princess tower is down, so a Baby Dragon created at x 9500 (its spawn lane's tower standing) must still head for the
 right princess tower under both values; and with both princess towers standing the value must not matter. The old
-value is the one the engine ran before the flip, and the shipped value is the new one.
+value is the one the engine ran before the 2026-09-27 flip; the shipped value is now client 16.635's (below).
 
 PLANTS. Each is a cfg in the engine source, aimed at the tests named. Prove one on a plant build of the module in a
 scratch venv (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant maturin develop --release`), then
@@ -22,10 +22,12 @@ run this file: the named tests go red and the rest stay green.
   * `fallen_lane_by_x` -- the new value still takes the tower of the current x:
     test_a_troop_whose_spawn_lane_tower_is_down_walks_to_the_king.
 
-CLIENT 16.635 (client16635_last_lane, read on that client's own engine): a troop's lane is its spawn lane until it
-walks over the tilemap's lane cells (lane paths, bridges), then theirs; with one princess tower down the lane decides
-both ways -- its tower while it stands, wherever the troop stands, else the king. The case that separates it from the
-16.402 arm: the lane's tower standing, the troop on the fallen side (the flyer here stays off the lane strips).
+CLIENT 16.635 (client16635_last_lane, the shipped value): a troop's lane is its spawn lane until it walks over the
+tilemap's lane cells (lane paths, bridges), then theirs; with one princess tower down the lane decides both ways -- its
+tower while it stands, wherever the troop stands, else the king. The case that separates it from the 16.402 arm: the
+lane's tower standing, the troop on the fallen side. The rule was measured on ground troops (a Knight,
+tests/test_walk_lane16635.py); the Baby Dragon here runs it, unread on the client, so these cases pin the engine's
+reading, not a measurement (the flyer stays off the lane strips, where the two readings would part).
 """
 
 from __future__ import annotations
@@ -41,7 +43,7 @@ royalesim = pytest.importorskip("royalesim")
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "targeting.FALLEN_LANE_TOWER_PICK"
 NEW_ARM, OLD_ARM = "client16402_spawn_lane_king", "current_x"
-#: client 16.635's arm (client_arms.rs CLIENT16635_ARMS), read on its own engine
+#: client 16.635's arm, the shipped value (measured on ground troops)
 ARM_16635 = "client16635_last_lane"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 #: the flyer created left of the centre (and, for a control, right of it); the Cannon it chases on its own half, out
@@ -147,9 +149,9 @@ def test_with_both_princess_towers_standing_the_value_does_not_matter(arm):
     assert slot == 2, f"{arm}: with both towers standing it walked to tower slot {slot}, not the right princess"
 
 
-def test_the_shipped_value_is_the_new_arm():
+def test_the_shipped_value_is_client_16635s_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["FALLEN_LANE_TOWER_PICK"]
-    assert entry["value"] == NEW_ARM
+    assert entry["value"] == ARM_16635
     assert entry["candidates"] == [OLD_ARM, NEW_ARM, ARM_16635]
 
 
@@ -161,9 +163,9 @@ def test_on_the_fallen_side_the_16402_arms_walk_to_the_king(arm):
 
 
 def test_the_16635_arm_walks_to_its_spawn_lane_tower_while_it_stands():
-    """Client 16.635 (measured on its own engine): created on the left, the right princess tower down, standing on the
-    right after a chase and off the lane strips, the troop walks back to the standing LEFT princess tower, where the
-    16.402 arm (and the x rule) send it to the king."""
+    """client16635_last_lane (the engine's reading for a flyer; the rule was measured on ground troops): created on the
+    left, the right princess tower down, standing on the right after a chase and off the lane strips, the troop walks
+    back to the standing LEFT princess tower, where the 16.402 arm (and the x rule) send it to the king."""
     slot, kill, n = heading(ARM_16635, FLYER_LEFT, left_down=False, right_down=True)
     assert slot == 1, (
         f"{ARM_16635}: created at x {FLYER_LEFT[0]}, the right tower down, after the kill at x {kill[1][0]:.0f} it "
