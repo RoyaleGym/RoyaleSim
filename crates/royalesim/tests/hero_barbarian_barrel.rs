@@ -15,14 +15,20 @@
 //! parity r99:
 //!   - reroll_rider_is_body ->
 //!     `under_client16402_no_body_ride_to_land_plus_1_the_rider_meets_no_body_through_its_landing_plus_1` and
-//!     `under_client16402_no_body_ride_to_land_plus_1_the_logs_tick_is_still_a_body` red.
+//!     `under_client16402_no_body_ride_to_land_plus_1_the_logs_tick_is_still_a_body` red;
+//!
+//! parity r100:
+//!   - reroll_cast_decides and reroll_standup_counts ->
+//!     `under_client16635_cast_end_wait_a_kill_in_the_cast_walks_on_the_landing_plus_22` red;
+//!   - reroll_clock_unread -> `under_client16635_cast_end_clock_the_stand_up_reenters_on_the_load_timer_the_ride_left`
+//!     red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, RerollHideWindow, RerollLogFirstHit, RerollRideBody};
+use royalesim::state::{BattleState, Calib, RerollHideWindow, RerollHoldEnd, RerollLogFirstHit, RerollRideBody};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -391,4 +397,176 @@ fn the_shipped_arm_is_client16635_holders_let_go_next_tick() {
         royalesim::state::RerollHideWindow::Client16635HoldersLetGoNextTick
     );
     assert_eq!(config().calib.reroll_hide_window, royalesim::state::RerollHideWindow::Client16635HoldersLetGoNextTick);
+}
+
+/// One tick of `standup_rows`: P + `k`; the Barbarian's point (native), its swing's progress and whether it deploys.
+#[derive(Clone, Copy, Debug)]
+struct StandRow {
+    k: u32,
+    at: (i32, i32),
+    attack_ms: i32,
+    deploying: bool,
+}
+
+/// `standup_rows`' row for P + `k`.
+fn stand_row(rows: &[StandRow], k: u32) -> StandRow {
+    *rows.iter().find(|r| r.k == k).unwrap_or_else(|| panic!("no row P + {k}: {rows:?}"))
+}
+
+/// The scene of `standup_rows` and `clock_rows`, under spells.REROLL_HOLD_END = `arm`: the Barbarian held on (3500, 9500)
+/// and topped up, a red Knight of 5000 hitpoints held on (3500, 10700), 1200 ahead, until the Barbarian holds it with a
+/// swing under way (and, with `loaded`, a load timer of 600 or more); then the press, issued on P. The battle, the
+/// Barbarian, the Knight, its point and P. The press's times, as `its_press_slides_it_back_heals_it_and_rides_it_2800_on`
+/// pins them: the trigger P + 1, its cast (CastTime 950) to P + 19, the cast's end P + 20, the landing P + 23.
+fn pressed_on_a_knight(arm: RerollHoldEnd, loaded: bool) -> (BattleState, EntityId, EntityId, Vec2, u32) {
+    let (mut s, b) = barbarian_with(|c| c.reroll_hold_end = arm);
+    let (at, kn_at) = (n(3500, 9500), n(3500, 10700));
+    let kn = s.scenario_spawn_now(Team::Red, "Knight", kn_at, Some(5000)).expect("the Knight");
+    let max = s.entity(b).expect("the Barbarian").max_hp;
+    let mut ready = false;
+    for _ in 0..60 {
+        assert!(
+            s.debug_set_pos(b, at) && s.debug_set_hp(b, max) && s.debug_set_pos(kn, kn_at) && s.debug_set_hp(kn, 5000),
+            "the scene drifted: the Knight died before the press"
+        );
+        s.tick();
+        if s.entity(b).is_some_and(|e| e.target == Some(kn) && e.attack_ms > 0 && (!loaded || e.attack_load_ms >= 600)) {
+            ready = true;
+            break;
+        }
+    }
+    assert!(ready, "the scene drifted: the Barbarian never swung at the Knight (loaded: {loaded})");
+    assert!(s.debug_set_pos(b, at) && s.debug_set_pos(kn, kn_at));
+    s.scenario_set_elixir_milli(Team::Blue, 10_000);
+    let p = s.tick_count() - 1;
+    s.press_ability_button(Team::Blue, 0).expect("the press, on the Barbarian");
+    (s, b, kn, kn_at, p)
+}
+
+/// Under spells.REROLL_HOLD_END = `arm`, `pressed_on_a_knight`'s scene: the Knight held on its point while it lives, and
+/// left 1 hitpoint at the end of P + 5 (the re-roll's log sweeps it about P + 13). A row per tick from P + 1 to P + 50,
+/// and whether the Knight was gone at the end of P + 18.
+fn standup_rows(arm: RerollHoldEnd) -> (Vec<StandRow>, bool) {
+    let (mut s, b, kn, kn_at, p) = pressed_on_a_knight(arm, false);
+    let native = |v: Vec2| (v.x / K, v.y / K);
+    let (mut rows, mut gone) = (Vec::new(), false);
+    while s.tick_count() - 1 < p + 50 {
+        if s.entity(kn).is_some() {
+            assert!(s.debug_set_pos(kn, kn_at));
+        }
+        s.tick();
+        let k = s.tick_count() - 1 - p;
+        if k == 5 {
+            assert!(s.debug_set_hp(kn, 1), "the scene drifted: the Knight died before the end of P + 5");
+        }
+        if k == 18 {
+            gone = s.entity(kn).is_none();
+        }
+        let e = s.entity(b).expect("the Barbarian");
+        rows.push(StandRow { k, at: native(e.pos), attack_ms: e.attack_ms, deploying: e.deploying });
+    }
+    (rows, gone)
+}
+
+/// spells.REROLL_HOLD_END = client16635_cast_end_wait (client 16.635 and its 16.402 replays, parity r100: 9 of 9 re-rolled
+/// Barbarians whose target died in the cast with a swing under way walked on the 22nd tick after their landing, the
+/// progress kept through the deploy and 0 on the 21st; 3b7dab80 t275, the engine's t274): the Knight dies in the cast;
+/// the Barbarian finds the loss on its cast's end (P + 20), its wait counts P + 20 to its landing (P + 23) and stands
+/// through its stand-up deploy; its swing is kept to P + 43 and zeroed on P + 44; it stands on its landing point to
+/// P + 44 and walks on P + 45. The same under client16635_cast_end_clock. Under held_to_landing (the vacuity check) the
+/// swing is 0 on P + 25 and it walks on P + 44. Plants: reroll_cast_decides, reroll_standup_counts.
+#[test]
+fn under_client16635_cast_end_wait_a_kill_in_the_cast_walks_on_the_landing_plus_22() {
+    for arm in [RerollHoldEnd::Client16635CastEndWait, RerollHoldEnd::Client16635CastEndClock] {
+        let (rows, gone) = standup_rows(arm);
+        assert!(gone, "{arm:?}: the scene drifted: the Knight stands at the end of P + 18: {rows:?}");
+        assert_eq!(rows.iter().find(|r| r.deploying).map(|r| r.k), Some(23), "{arm:?}: the scene drifted: the landing is not P + 23: {rows:?}");
+        for k in 23..=43 {
+            assert!(stand_row(&rows, k).attack_ms > 0, "{arm:?}: the swing not kept through the stand-up, P + {k}: {rows:?}");
+        }
+        assert_eq!(stand_row(&rows, 44).attack_ms, 0, "{arm:?}: the swing not zeroed on the landing + 21, P + 44: {rows:?}");
+        let landed = stand_row(&rows, 23).at;
+        for k in 23..=44 {
+            assert_eq!(stand_row(&rows, k).at, landed, "{arm:?}: it moved before the landing + 22, P + {k}: {rows:?}");
+        }
+        assert_ne!(stand_row(&rows, 45).at, stand_row(&rows, 44).at, "{arm:?}: it does not walk on the landing + 22, P + 45: {rows:?}");
+    }
+    // NOT VACUOUS: the engine's arm finds the loss in the cast, so the wait ends early in the deploy.
+    let (old, _) = standup_rows(RerollHoldEnd::HeldToLanding);
+    assert_eq!(stand_row(&old, 25).attack_ms, 0, "held_to_landing (the vacuity check): the swing not zeroed on P + 25: {old:?}");
+    assert_ne!(stand_row(&old, 44).at, stand_row(&old, 43).at, "held_to_landing (the vacuity check): it does not walk on P + 44: {old:?}");
+}
+
+/// One tick of `clock_rows`: P + `k`; the Barbarian's swing's progress, its load timer and whether it deploys.
+#[derive(Clone, Copy, Debug)]
+struct ClockRow {
+    k: u32,
+    attack_ms: i32,
+    load: i32,
+    deploying: bool,
+}
+
+/// `clock_rows`' row for P + `k`.
+fn clock_row(rows: &[ClockRow], k: u32) -> ClockRow {
+    *rows.iter().find(|r| r.k == k).unwrap_or_else(|| panic!("no row P + {k}: {rows:?}"))
+}
+
+/// Under spells.REROLL_HOLD_END = `arm`, `pressed_on_a_knight`'s scene pressed with a load timer of 600 or more, the Knight
+/// held on its point and topped up to 5000 every tick, so it lives: a row per tick from P + 1 to P + 50, and the
+/// Barbarian's LoadTime.
+fn clock_rows(arm: RerollHoldEnd) -> (Vec<ClockRow>, i32) {
+    let (mut s, b, kn, kn_at, p) = pressed_on_a_knight(arm, true);
+    let load_time = s.cards().get(s.entity(b).expect("the Barbarian").card_idx).load_time_ms;
+    let mut rows = Vec::new();
+    while s.tick_count() - 1 < p + 50 {
+        assert!(s.debug_set_pos(kn, kn_at) && s.debug_set_hp(kn, 5000), "the Knight died");
+        s.tick();
+        let e = s.entity(b).expect("the Barbarian");
+        rows.push(ClockRow { k: s.tick_count() - 1 - p, attack_ms: e.attack_ms, load: e.attack_load_ms, deploying: e.deploying });
+    }
+    (rows, load_time)
+}
+
+/// spells.REROLL_HOLD_END = client16635_cast_end_clock (client 16.635, parity r100, the oracle's il-mg-16635 set and its
+/// 16.402 replays: the swing zeroed on the cast's end in 22 of 22 with a live target or none; the load timer run 50 a tick
+/// from the cast's end to the landing and stood through the stand-up deploy in 27 of 27; the first swing after it on the
+/// entry's credit in 35 of 35; 3352f71b t1144 progress 500, the engine's 1300): with the Knight alive, the swing is 0 on
+/// the cast's end (P + 20); the load timer l of P + 19 runs 50 a tick to the landing (P + 23) and stands to P + 43; the
+/// first swing after it enters on P + 44 at LoadTime less the load timer's next value, and a tick. Under
+/// client16635_cast_end_wait and held_to_landing (the vacuity check) the kept swing runs on: P + 19's progress and 50 on
+/// P + 44. Plant: reroll_clock_unread.
+#[test]
+fn under_client16635_cast_end_clock_the_stand_up_reenters_on_the_load_timer_the_ride_left() {
+    let tick = config().calib.tick_ms;
+    let (rows, load_time) = clock_rows(RerollHoldEnd::Client16635CastEndClock);
+    let r = |k: u32| clock_row(&rows, k);
+    assert_eq!(rows.iter().find(|x| x.deploying).map(|x| x.k), Some(23), "the scene drifted: the landing is not P + 23: {rows:?}");
+    let l = r(19).load;
+    assert_eq!(r(20).attack_ms, 0, "client16635_cast_end_clock: the swing not started over on the cast's end, P + 20: {rows:?}");
+    for k in 20..=23 {
+        let want = (l - tick * (k as i32 - 19)).max(0);
+        assert_eq!(r(k).load, want, "client16635_cast_end_clock: the load timer on P + {k} ({l} on P + 19): {rows:?}");
+    }
+    assert!(r(23).load >= 300, "the scene drifted: the ride left a load timer of {} on P + 23: {rows:?}", r(23).load);
+    for k in 24..=43 {
+        assert_eq!(r(k).load, r(23).load, "client16635_cast_end_clock: the load timer moved in the stand-up deploy, P + {k}: {rows:?}");
+    }
+    let entry = rows.iter().find(|x| x.k >= 44 && x.attack_ms > 0).map(|x| x.k);
+    assert_eq!(entry, Some(44), "client16635_cast_end_clock: the first swing after the stand-up is not on P + 44: {rows:?}");
+    let credit = load_time - (r(43).load - tick).max(0) + tick;
+    assert_eq!(r(44).attack_ms, credit, "client16635_cast_end_clock: the first swing's entry credit on P + 44: {rows:?}");
+    // NOT VACUOUS: the other arms keep the swing through the ride, and it runs on after the stand-up.
+    for arm in [RerollHoldEnd::Client16635CastEndWait, RerollHoldEnd::HeldToLanding] {
+        let (old, _) = clock_rows(arm);
+        let want = clock_row(&old, 19).attack_ms + tick;
+        assert_eq!(clock_row(&old, 44).attack_ms, want, "{arm:?} (the vacuity check): the kept swing does not run on to P + 44: {old:?}");
+    }
+}
+
+/// spells.REROLL_HOLD_END ships held_to_landing: its new arms are parity r100 candidates (client 15.535.29 keeps
+/// held_to_landing).
+#[test]
+fn the_shipped_arm_is_held_to_landing() {
+    assert_eq!(Calib::shipped().reroll_hold_end, RerollHoldEnd::HeldToLanding);
+    assert_eq!(config().calib.reroll_hold_end, RerollHoldEnd::HeldToLanding);
 }

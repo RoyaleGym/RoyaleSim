@@ -34,6 +34,9 @@
 //!   * `own_area_skips_rider` and `rider_buff_dropped_in_resolve` -- rider.OWN_AREA_BUFFS_WHILE_ATTACHED = client16402_buffed
 //!     still refuses the rider (spell.rs `eligible`; state.rs `apply_effects`):
 //!     `under_client16402_buffed_an_own_rage_speeds_the_giants_riders` goes red.
+//!   * `rider_facing_noted_at_tick_start` -- rider.OFFSET_FACING = client16635_after_attack still notes the mounts'
+//!     facings at the top of the tick: `under_client16635_after_attack_the_riders_take_the_giants_attack_turn_on_its_tick`
+//!     goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -303,4 +306,131 @@ fn under_client16402_buffed_an_own_rage_speeds_the_giants_riders() {
     assert!(raged == 0 && !buffed, "immune: a rider carried the Rage ({raged} raged ticks, buffed {buffed})");
     let (raged, _, buffed) = raged_riders(A::Client16402Buffed);
     assert!(raged > 0 && buffed, "client16402_buffed: no rider raged ({raged} raged ticks, buffed {buffed})");
+}
+
+// ---------------------------------------------------------------------------
+// (4) rider.OFFSET_FACING
+
+use royalesim::entity::AttackPhase;
+use royalesim::state::RiderOffsetFacing;
+
+/// One tick of `attack_turn`: (the tick, the Giant's point, its facing, whether it is in its attack, its riders' points by
+/// rank).
+type TurnRow = (u32, Vec2, Vec2, bool, [Vec2; 2]);
+
+/// A RED GOBLIN GIANT THAT TURNS TO ATTACK, under rider.OFFSET_FACING = `arm`: the Giant put down deployed on
+/// (9000, 13000), out of every blue tower's sight, walks its lane for 11 ticks; then a blue Cannon is put down deployed
+/// 1,500 to its side, square to its heading (inside its reach, and the nearest building), so it takes the Cannon and
+/// starts its attack turned toward it (movement.ATTACK_FACING). (A, its first tick in its attack; per tick from its
+/// first: `TurnRow`).
+fn attack_turn(arm: RiderOffsetFacing) -> (u32, Vec<TurnRow>) {
+    let mut cfg = shipped();
+    cfg.calib.rider_offset_facing = arm;
+    let mut s = BattleState::new(0, cfg);
+    let g = s.scenario_spawn_now(Team::Red, "GoblinGiant", at((9000, 13000)), None).expect("the Giant");
+    let rs = riders(&s, g);
+    assert_eq!(rs.len(), 2, "two riders");
+    let row = |s: &BattleState| -> TurnRow {
+        let v = s.entity(g).expect("the Giant lives");
+        let r = [0usize, 1].map(|k| s.entity(rs[k]).expect("a rider lives").pos);
+        (s.tick_count() - 1, v.pos, v.facing, v.attack_phase != AttackPhase::Idle, r)
+    };
+    let mut rows: Vec<TurnRow> = Vec::new();
+    for _ in 0..11 {
+        s.tick();
+        rows.push(row(&s));
+    }
+    let last = *rows.last().expect("a row");
+    assert!(rows.iter().all(|r| !r.3), "the scene drifted: the Giant attacked before the Cannon");
+    assert_ne!(rows[0].1, last.1, "the scene drifted: the Giant did not walk");
+    let (p, f) = (native(last.1), last.2);
+    let side = (-f.y * 1500 / 256, f.x * 1500 / 256);
+    s.scenario_spawn_now(Team::Blue, "Cannon", at((p.0 + side.0, p.1 + side.1)), None).expect("the Cannon");
+    let mut a: Option<u32> = None;
+    for _ in 0..60 {
+        s.tick();
+        let r = row(&s);
+        rows.push(r);
+        if r.3 && a.is_none() {
+            a = Some(r.0);
+        }
+        if a.is_some_and(|a| r.0 == a + 1) {
+            break;
+        }
+    }
+    let a = a.expect("the scene drifted: the Giant never attacked the Cannon");
+    (a, rows)
+}
+
+/// The `attack_turn` row of tick `t`.
+fn turn_row(rows: &[TurnRow], t: u32) -> TurnRow {
+    *rows.iter().find(|r| r.0 == t).unwrap_or_else(|| panic!("no frame {t}"))
+}
+
+/// The scene's checks: the Giant walked into its attack on A, its facing turned there by enough to move each rider's arc
+/// 50 or more, and it holds that facing on A + 1.
+fn turned(prev: TurnRow, now: TurnRow, next: TurnRow) {
+    assert!(!prev.3 && now.3, "the scene drifted: not the attack's first tick");
+    assert_ne!(now.2, prev.2, "the scene drifted: the Giant's attack started without a turn");
+    for k in 0..2 {
+        let (a, b) = (arc(prev.2, k), arc(now.2, k));
+        let (dx, dy) = (i64::from(a.0 - b.0), i64::from(a.1 - b.1));
+        assert!(dx * dx + dy * dy >= 2500, "the scene drifted: rider {k}'s arc moves {a:?} -> {b:?} only");
+    }
+    assert_eq!(next.2, now.2, "the scene drifted: the Giant turned again on A + 1");
+}
+
+/// rider.OFFSET_FACING = client16635_after_attack (client 16.635, parity r100, the oracle's il-mg-16635 set: 38 of 38
+/// attack-phase turns of a Goblin Giant within 16, 24 exact; the old arm 78 to 541 off on all 26 attack starts): on the
+/// tick A its attack starts, each rider stands where the Giant stood on A - 1 plus the arc at the facing A's Attack phase
+/// gave it, and on A + 1 where it stood on A plus the same arc. Plant: rider_facing_noted_at_tick_start.
+#[test]
+fn under_client16635_after_attack_the_riders_take_the_giants_attack_turn_on_its_tick() {
+    let (a, rows) = attack_turn(RiderOffsetFacing::Client16635AfterAttack);
+    let (prev, now, next) = (turn_row(&rows, a - 1), turn_row(&rows, a), turn_row(&rows, a + 1));
+    turned(prev, now, next);
+    for (k, (r, r1)) in now.4.into_iter().zip(next.4).enumerate() {
+        assert_eq!(native(r.sub(prev.1)), arc(now.2, k as i32), "client16635_after_attack: rider {k} on A ({a})");
+        assert_eq!(native(r1.sub(now.1)), arc(now.2, k as i32), "client16635_after_attack: rider {k} on A + 1");
+    }
+}
+
+/// rider.OFFSET_FACING = tick_start (the vacuity check): on A each rider stands on the arc at the Giant's facing of A - 1,
+/// its walking heading; on A + 1 on the arc at the turned facing.
+#[test]
+fn under_tick_start_they_take_it_a_tick_later() {
+    let (a, rows) = attack_turn(RiderOffsetFacing::TickStart);
+    let (prev, now, next) = (turn_row(&rows, a - 1), turn_row(&rows, a), turn_row(&rows, a + 1));
+    turned(prev, now, next);
+    for (k, (r, r1)) in now.4.into_iter().zip(next.4).enumerate() {
+        assert_eq!(native(r.sub(prev.1)), arc(prev.2, k as i32), "tick_start: rider {k} on A ({a})");
+        assert_eq!(native(r1.sub(now.1)), arc(now.2, k as i32), "tick_start: rider {k} on A + 1");
+    }
+}
+
+/// A walking Giant's riders read its facing as the last tick left it under both arms of rider.OFFSET_FACING: the move
+/// pass turns it after the Path phase's note. Plant: rider_offset_ignored.
+#[test]
+fn under_both_offset_facing_arms_a_walking_giants_riders_take_its_last_ticks_facing() {
+    for arm in [RiderOffsetFacing::TickStart, RiderOffsetFacing::Client16635AfterAttack] {
+        let mut cfg = shipped();
+        cfg.calib.rider_offset_facing = arm;
+        for (team, p) in [(Team::Blue, (9500, 10500)), (Team::Red, (8500, 21500))] {
+            let (rows, walked, headings) = ride(cfg.clone(), team, p);
+            assert!(walked >= 30, "{arm:?}: vacuous: the {team:?} Giant walked on {walked} ticks");
+            assert!(headings.len() >= 2, "{arm:?}: vacuous: the {team:?} Giant walked at one heading: {headings:?}");
+            for (t, row) in rows.iter().enumerate() {
+                for (k, (got, want)) in row.iter().enumerate() {
+                    assert_eq!(got, want, "{arm:?}: {team:?} rider {k} on the Giant's tick {}", t + 1);
+                }
+            }
+        }
+    }
+}
+
+/// rider.OFFSET_FACING ships at tick_start (client16635_after_attack is a candidate until scored).
+#[test]
+fn the_shipped_arm_is_tick_start() {
+    assert_eq!(royalesim::state::Calib::shipped().rider_offset_facing, RiderOffsetFacing::TickStart);
+    assert_eq!(shipped().calib.rider_offset_facing, RiderOffsetFacing::TickStart);
 }

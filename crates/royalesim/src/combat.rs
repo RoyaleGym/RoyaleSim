@@ -2503,6 +2503,12 @@ fn step_straight(
     !(hit && stop)
 }
 
+/// combat.DEFLECT_RETURN_TOWER_SHARE: DEFLECTED_PRJ_TOWERS_DMG_MUL, the share in percent of its crown-tower damage a shot
+/// a Monk's Deflect sent back deals a crown tower (the client tables' globals: 25 in clients 15.535.29, 16.402 and 16.635),
+/// read under client16635_tower_quarter (`step_projectiles`). A troop or a building takes it whole
+/// (DEFLECTED_PRJ_UNITS_DMG_MUL 100).
+pub const DEFLECTED_PRJ_TOWERS_DMG_MUL: i32 = 25;
+
 /// Advance every projectile; arrivals write into the damage buffer. Each
 /// projectile depends only on its own state and the (unchanging during this
 /// phase) entity positions, so processing order is irrelevant. A straight shot
@@ -2747,7 +2753,20 @@ pub fn step_projectiles(
                 };
             #[cfg(clash_plant = "last_immune_launch_ignored")]
             let shot = true;
-            dmg.hits.push(Hit { target: p.target, amount: damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]), ignores_hide: shot_passes_hide(calib), own: false, shot });
+            let amount = damage_against(ents.kind[ti], p.damage, p.crown_pct, rounding) + bonus.on(ents.kind[ti]);
+            // combat.DEFLECT_RETURN_TOWER_SHARE = client16635_tower_quarter: a shot a Monk's Deflect sent back
+            // (`deflected`, single-target and homing: the splash branch above never sees one) deals a crown tower
+            // DEFLECTED_PRJ_TOWERS_DMG_MUL (25 %) of its crown-tower damage, truncated, before the tick's sum; a troop or a
+            // building takes it whole. Measured on client 16.635 (parity r100, the oracle's il-mg-16635 set: 66 of 66
+            // returned tower arrows took 43 of their 173 off their tower, 0 against). PLANT (regression)
+            // deflect_return_tower_whole: the new arm still deals it whole.
+            #[cfg(not(clash_plant = "deflect_return_tower_whole"))]
+            let amount = if p.deflected && ents.kind[ti].is_crown_tower() && calib.deflect_return_tower_share == crate::state::DeflectReturnTowerShare::Client16635TowerQuarter {
+                amount * DEFLECTED_PRJ_TOWERS_DMG_MUL / 100
+            } else {
+                amount
+            };
+            dmg.hits.push(Hit { target: p.target, amount, ignores_hide: shot_passes_hide(calib), own: false, shot });
             if let Some(f) = p.firer.filter(|_| ice_firer(cards, p.firer_card)) {
                 dmg.firers.push((f, p.target));
             }

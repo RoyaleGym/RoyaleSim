@@ -468,6 +468,19 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.TROOP_SPLASH_CROWN_REACH = disc: unread on client 15.535.29.
 ///   placement.BUILDING_TERRITORY = own_half: unread on client 15.535.29 (no building tapped past the river).
 ///   movement.GROUNDED_FLIER_BODY = air_layer: unread on client 15.535.29 (its Vines scenes caught no flier over a ground unit).
+///   targeting.FALLEN_LANE_TOWER_PICK = client16402_spawn_lane_king: unread on client 15.535.29; its 10 one-tower-down
+///   default picks agree with client16402_spawn_lane_king.
+///   combat.SIEGE_END_TICK = buff_end: client 15.535.29's row switch 146 ticks after the trigger (sp-bowler-siege-s0) read
+///   the row; its walk is unread.
+///   spawner.SPAWN_SPEED_READ = move_phase: unread on client 15.535.29.
+///   spawner.ICE_RELEASE_SPAWNER = runs: unread on client 15.535.29 (no Hero Ice Wizard there).
+///   status.ICE_RELEASE_LOAD_TIMER = runs: unread on client 15.535.29 (no Hero Ice Wizard there).
+///   rider.OFFSET_FACING = tick_start: unread on client 15.535.29 (its six measured headings were walks; an attack turn is
+///   unread).
+///   status.ATTRACT_VICTIM_ONSET = same_tick: unread on client 15.535.29 (its sweep scenes' victims stood before the cast).
+///   spells.REROLL_HOLD_END = held_to_landing: unread on client 15.535.29.
+///   combat.DEFLECT_RETURN_TOWER_SHARE = whole: unread on client 15.535.29: its Monk scenes return shots to troops alone
+///   (DEFLECTED_PRJ_UNITS_DMG_MUL 100; its table's tower share is 25 as well).
 ///   spawner.FIXED_RING_FACING = forward: unread on client 15.535.29.
 ///   combat.THROW_LANDING_BLOW = landing_tick: sp-balloon-g4500-s0: the golem lost the blow on the landing frame.
 ///   spawner.THROWN_UNIT_FIRST_UPDATE = next_tick: sp-balloon-*: the trooper on the golem's point on its landing frame.
@@ -866,6 +879,15 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.THROWN_UNIT_FIRST_UPDATE", "\"next_tick\""),
     ("combat.THROW_LANDING_BLOW", "\"landing_tick\""),
     ("spawner.FIXED_RING_FACING", "\"forward\""),
+    ("combat.DEFLECT_RETURN_TOWER_SHARE", "\"whole\""),
+    ("spells.REROLL_HOLD_END", "\"held_to_landing\""),
+    ("status.ATTRACT_VICTIM_ONSET", "\"same_tick\""),
+    ("rider.OFFSET_FACING", "\"tick_start\""),
+    ("status.ICE_RELEASE_LOAD_TIMER", "\"runs\""),
+    ("spawner.ICE_RELEASE_SPAWNER", "\"runs\""),
+    ("spawner.SPAWN_SPEED_READ", "\"move_phase\""),
+    ("combat.SIEGE_END_TICK", "\"buff_end\""),
+    ("targeting.FALLEN_LANE_TOWER_PICK", "\"client16402_spawn_lane_king\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

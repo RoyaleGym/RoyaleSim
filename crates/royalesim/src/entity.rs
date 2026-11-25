@@ -564,6 +564,13 @@ pub struct Entities {
     /// empty, so a battle under the old arm saves and hashes as before; hashed per unit only when not 0.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ring_rank: Vec<u8>,
+    /// status.ATTRACT_VICTIM_ONSET = client16635_seen_last_update: the first tick a pull may move this unit, when it was
+    /// made after its tick's main attract pre-pass (a release, a death spawn, a cube, a Move-phase spawner unit) or its
+    /// stagger ran out on that tick: that tick + 2. Empty until that arm writes one (sized then,
+    /// `BattleState::set_attract_from`), `default` and skipped when empty, so a battle under the old arm saves and hashes
+    /// as before; a value in the past is inert, so the hash reads it only while it is in the future.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attract_from: Vec<u32>,
     #[serde(default)]
     pub dash_goal: Vec<Vec2>,
     #[serde(default)]
@@ -1117,6 +1124,9 @@ impl Entities {
             if let Some(v) = self.ring_rank.get_mut(i) {
                 *v = 0;
             }
+            if let Some(v) = self.attract_from.get_mut(i) {
+                *v = 0;
+            }
             self.dash_goal[i] = Vec2::default();
             self.dash_target[i] = None;
             self.dash_blocked[i] = false;
@@ -1346,6 +1356,9 @@ impl Entities {
             *v = false;
         }
         if let Some(v) = self.ring_rank.get_mut(i) {
+            *v = 0;
+        }
+        if let Some(v) = self.attract_from.get_mut(i) {
             *v = 0;
         }
         self.dash_goal[i] = Vec2::default();

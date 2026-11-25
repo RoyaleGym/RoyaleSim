@@ -50,3 +50,25 @@ fn every_arm_names_a_distinct_ledger_key_with_a_json_value() {
     }
     assert!(!seen.contains(CARD_VALUES_KEY), "the card values key is the setup's own, not an arm");
 }
+
+/// EVERY CURRENT-CLIENT DEFAULT HAS A 15.535 ARM: each ledger key whose shipped value is a client16635_ arm (a law read on
+/// client 16.635) has its pair in `CLIENT15535_ARMS`, so a replay of a 15.535.29 capture (replay_parity merges exactly
+/// those pairs) and `client_overrides("15.535")` never run an arm that was measured on a later client.
+#[test]
+fn every_client16635_default_has_a_15535_arm() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/calibration.json");
+    let text = std::fs::read_to_string(path).expect("the ledger");
+    let v: serde_json::Value = serde_json::from_str(&text).expect("the ledger is JSON");
+    let pinned: BTreeSet<&str> = CLIENT15535_ARMS.iter().map(|(k, _)| *k).collect();
+    let mut n = 0;
+    for (sec, keys) in v.as_object().expect("the ledger's sections") {
+        let Some(keys) = keys.as_object() else { continue };
+        for (key, e) in keys {
+            if let Some(val) = e.get("value").and_then(|x| x.as_str()).filter(|x| x.starts_with("client16635_")) {
+                n += 1;
+                assert!(pinned.contains(format!("{sec}.{key}").as_str()), "{sec}.{key} ships {val} with no CLIENT15535_ARMS pair");
+            }
+        }
+    }
+    assert!(n >= 72, "the ledger ships {n} client16635_ defaults (72 on RoyaleSim 0.1.57)");
+}

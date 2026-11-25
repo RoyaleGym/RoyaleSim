@@ -36,6 +36,8 @@ royalesim = pytest.importorskip("royalesim")
 SUB = royalesim.SUBTILE_PER_MILLITILE
 KEY = "targeting.FALLEN_LANE_TOWER_PICK"
 NEW_ARM, OLD_ARM = "client16402_spawn_lane_king", "current_x"
+#: the parity r100 candidate (client 16.635), pinned by crates/royalesim/tests/fallen_lane_tower_pick.rs
+KING_ARM = "client16635_king_distance"
 F = {name: i for i, name in enumerate(royalesim.ENTITY_FIELDS)}
 #: the flyer created left of the centre (and, for a control, right of it); the Cannon it chases on its own half, out
 #: of every tower's reach
@@ -143,4 +145,4 @@ def test_with_both_princess_towers_standing_the_value_does_not_matter(arm):
 def test_the_shipped_value_is_the_new_arm():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["FALLEN_LANE_TOWER_PICK"]
     assert entry["value"] == NEW_ARM
-    assert entry["candidates"] == [OLD_ARM, NEW_ARM]
+    assert entry["candidates"] == [OLD_ARM, NEW_ARM, KING_ARM]

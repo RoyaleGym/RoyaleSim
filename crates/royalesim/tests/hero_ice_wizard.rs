@@ -38,7 +38,11 @@
 //!   - ice_hold_masked ->
 //!     `under_client16635_cube_scanned_a_cube_victim_facing_the_cube_holds_190_and_turns_its_let_go_step` red;
 //!   - ice_press_on_let_go ->
-//!     `under_client16635_press_next_tick_a_press_waiting_through_the_hold_starts_a_tick_after_the_let_go` red.
+//!     `under_client16635_press_next_tick_a_press_waiting_through_the_hold_starts_a_tick_after_the_let_go` red;
+//!   - ice_release_load_runs ->
+//!     `under_client16635_held_next_tick_a_let_go_knight_keeps_its_load_timer_on_the_let_go_tick` red;
+//!   - ice_release_spawner_runs ->
+//!     `under_client16635_held_next_tick_a_let_go_witch_keeps_her_spawn_clock_on_the_let_go_tick` red.
 #![allow(unexpected_cfgs)]
 mod common;
 
@@ -1212,4 +1216,211 @@ fn the_shipped_arm_is_client16635_cube_scanned() {
         royalesim::state::HeldUnitAvoidance::Client16635CubeScanned
     );
     assert_eq!(config().calib.held_unit_avoidance, royalesim::state::HeldUnitAvoidance::Client16635CubeScanned);
+}
+
+use royalesim::state::{IceReleaseLoadTimer, IceReleaseSpawner};
+
+/// Per tick: (tick, two i32 columns of a unit).
+type ClockRows = Vec<(u32, i32, i32)>;
+
+/// The row of tick `t` in `rows`: its two columns.
+fn clocks_on(rows: &[(u32, i32, i32)], t: u32) -> (i32, i32) {
+    rows.iter().find(|r| r.0 == t).map(|r| (r.1, r.2)).unwrap_or_else(|| panic!("no frame {t}"))
+}
+
+/// A LET-GO KNIGHT'S LOAD TIMER, under status.ICE_RELEASE_LOAD_TIMER = `arm` (status.ICE_RELEASE_ATTACK and
+/// ICE_RELEASE_TARGET at their new arms, the shipped ones, which write the let-go list): `released_strike`'s red Knight
+/// held on AT + (0, 4000) striking a blue Giant held 1,000 in front of it, its hitpoints kept. Once the hero's shot has
+/// marked the Knight, the scene waits for the Knight's next strike (its load timer LoadTime from it) and presses on the
+/// tick after, so the cube's hold catches the timer well above 0 (the hero killed after the find). (the cube's last
+/// frame L, and per tick from the press's: (tick, the Knight's attack_load_ms, its attack_ms)).
+fn released_load(arm: IceReleaseLoadTimer) -> (u32, ClockRows) {
+    let mut s = battle_with(|c| {
+        c.calib.ice_release_attack = IceReleaseAttack::Client16635AttackNextTick;
+        c.calib.ice_release_target = IceReleaseTarget::Client16635TargetNextTick;
+        c.calib.ice_release_load_timer = arm;
+    });
+    let (kat, gat) = (n(AT.0, AT.1 + 4000), n(AT.0, AT.1 + 3000));
+    let knight = s.scenario_spawn_now(Team::Red, "Knight", kat, None).expect("the Knight");
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", gat, None).expect("the Giant");
+    let hero = hero_in(&mut s);
+    let gmax = s.entity(giant).expect("the Giant").max_hp;
+    first_hit(&mut s, knight, kat, 120);
+    let mut struck = false;
+    for _ in 0..120 {
+        assert!(s.debug_set_pos(knight, kat) && s.debug_set_pos(giant, gat) && s.debug_set_hp(giant, gmax));
+        s.tick();
+        if s.entity(giant).expect("the Giant").hp < gmax {
+            struck = true;
+            break;
+        }
+    }
+    assert!(struck, "the scene drifted: the Knight never struck the Giant");
+    assert!(s.debug_set_pos(knight, kat) && s.debug_set_pos(giant, gat) && s.debug_set_hp(giant, gmax));
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let (mut seen, mut last) = (false, None);
+    let mut rows: ClockRows = Vec::new();
+    for _ in 0..200 {
+        assert!(s.debug_set_pos(knight, kat) && s.debug_set_pos(giant, gat) && s.debug_set_hp(giant, gmax));
+        s.tick();
+        let t = s.tick_count() - 1;
+        let k = s.entity(knight).expect("the Knight lives");
+        rows.push((t, k.attack_load_ms, k.attack_ms));
+        let here = cube(&s).is_some();
+        if here {
+            seen = true;
+        } else if seen && last.is_none() {
+            last = Some(t - 1);
+        }
+        if let Some(l) = last.filter(|l| t == *l + 4) {
+            return (l, rows);
+        }
+    }
+    panic!("the scene drifted: no cube came and went (seen {seen}, last frame {last:?})");
+}
+
+/// status.ICE_RELEASE_LOAD_TIMER = client16635_held_next_tick (client 16.635, parity r100, the oracle's il-mg-16635 set:
+/// 97 of 98 let-go victims kept their load timer on the let-go tick G, the cube's last frame + 2, and ran it from G + 1
+/// with their progress): the Knight's load timer stands on G with its progress (held on G under both arms,
+/// status.ICE_RELEASE_ATTACK); under runs (the vacuity check) it steps 50 on G. On G + 1 the new arm's clocks run one
+/// load step behind runs' (its progress less its load timer is runs' less 50, whether its swing ran on, restarted from
+/// 0 or stood idle). Plant: ice_release_load_runs.
+#[test]
+fn under_client16635_held_next_tick_a_let_go_knight_keeps_its_load_timer_on_the_let_go_tick() {
+    let (l_old, old) = released_load(IceReleaseLoadTimer::Runs);
+    let (l, new) = released_load(IceReleaseLoadTimer::Client16635HeldNextTick);
+    assert_eq!(l, l_old, "the scene: one cube life under both arms");
+    let g = l + 2;
+    let before = |rows: &[(u32, i32, i32)]| rows.iter().filter(|r| r.0 < g).copied().collect::<Vec<_>>();
+    assert_eq!(before(&new), before(&old), "the scene: the arms part before the let-go tick {g}");
+    let (load0, ms0) = clocks_on(&new, g - 1);
+    assert!(load0 >= 100, "the scene drifted: the Knight's load timer reads {load0} on G - 1 (G {g})");
+    let (load_old, ms_old) = clocks_on(&old, g);
+    assert_eq!(load_old, load0 - 50, "runs (the vacuity check): the load timer steps on G ({g})");
+    assert_eq!(ms_old, ms0, "runs: the progress held on G (status.ICE_RELEASE_ATTACK)");
+    assert_eq!(clocks_on(&new, g), (load0, ms0), "client16635_held_next_tick: both clocks held on G ({g})");
+    let ((lo, mo), (ln, mn)) = (clocks_on(&old, g + 1), clocks_on(&new, g + 1));
+    assert_eq!(mn - ln, mo - lo - 50, "client16635_held_next_tick: one load step behind runs on G + 1 (progress {mn}, load {ln}; runs' {mo}, {lo})");
+}
+
+/// The step the let-go slow (`IceCubeDef::after`) gives a buffed spawn clock a tick: TICK_MS at its composed SpawnSpeed.
+fn after_spawn_step() -> i32 {
+    let db = db();
+    let form = db.form_card(db.index("IceWizard").expect("the Ice Wizard"), FORM_HERO).expect("the hero form");
+    let d = match db.get(form).ability.as_ref().map(|a| &a.effect) {
+        Some(AbilityEffect::IceCube(d)) => *d,
+        _ => panic!("its button is the ice cube"),
+    };
+    let pct = royalesim::status::compose(std::iter::once(&db.buffs[d.after.buff as usize]), royalesim::status::Sel::SpawnSpeed, 100);
+    royalesim::state::Calib::shipped().tick_ms * pct / 100
+}
+
+/// A LET-GO WITCH'S SPAWN CLOCK, under spawner.ICE_RELEASE_SPAWNER = `arm` (status.ICE_RELEASE_ATTACK and
+/// ICE_RELEASE_TARGET at their new arms): the hero put down first; then a red Witch held on AT + (0, 4000) and a blue
+/// Giant held 1,000 in front of her (her target), both their hitpoints kept, and every other red troop (her Skeletons)
+/// put to 0 hitpoints as it comes, so the hero's shot and its press find her alone. Once a shot has marked her within
+/// the last 40 ticks (its slow's 2,500 ms) and a wave has reset her clock 3 to 10 ticks before, the press lands, so the
+/// cube's hold catches her clock far from a wave.
+/// (the cube's first frame c, its last frame L, and per tick from the press's: (tick, her spawn_ms, her spawn_wave_left)).
+fn released_witch(arm: IceReleaseSpawner) -> (u32, u32, ClockRows) {
+    let mut s = battle_with(|c| {
+        c.calib.ice_release_attack = IceReleaseAttack::Client16635AttackNextTick;
+        c.calib.ice_release_target = IceReleaseTarget::Client16635TargetNextTick;
+        c.calib.ice_release_spawner = arm;
+    });
+    let hero = hero_in(&mut s);
+    let (wat, gat) = (n(AT.0, AT.1 + 4000), n(AT.0, AT.1 + 3000));
+    let witch = s.scenario_spawn_now(Team::Red, "Witch", wat, None).expect("the Witch");
+    let giant = s.scenario_spawn_now(Team::Blue, "Giant", gat, None).expect("the Giant");
+    let (wmax, gmax) = (s.entity(witch).expect("the Witch").max_hp, s.entity(giant).expect("the Giant").max_hp);
+    let hold = |s: &mut BattleState| {
+        assert!(s.debug_set_pos(witch, wat) && s.debug_set_hp(witch, wmax));
+        assert!(s.debug_set_pos(giant, gat) && s.debug_set_hp(giant, gmax));
+        let others: Vec<EntityId> = s
+            .entities()
+            .filter(|e| e.team == Team::Red && e.kind == royalesim::entity::EntityKind::Troop && e.id != witch)
+            .map(|e| e.id)
+            .collect();
+        for o in others {
+            assert!(s.debug_set_hp(o, 0));
+        }
+    };
+    let (mut hit, mut reset, mut prev): (Option<u32>, Option<u32>, i32) = (None, None, s.entity(witch).expect("the Witch").spawn_ms);
+    let mut ready = false;
+    for _ in 0..600 {
+        hold(&mut s);
+        s.tick();
+        let t = s.tick_count() - 1;
+        let v = s.entity(witch).expect("the Witch lives");
+        if v.hp < wmax {
+            hit = Some(t);
+        }
+        if v.spawn_ms > prev {
+            reset = Some(t);
+        }
+        prev = v.spawn_ms;
+        if v.spawn_wave_left == 0 && hit.is_some_and(|h| t <= h + 40) && reset.is_some_and(|r| (r + 3..=r + 10).contains(&t)) {
+            ready = true;
+            break;
+        }
+    }
+    assert!(ready, "the scene drifted: no tick with the Witch marked just after a wave (last hit {hit:?}, last wave {reset:?})");
+    hold(&mut s);
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    s.tick();
+    assert!(s.debug_set_hp(hero, 0), "the hero killed after the find");
+    let (mut c, mut last): (Option<u32>, Option<u32>) = (None, None);
+    let mut rows: ClockRows = Vec::new();
+    for _ in 0..200 {
+        hold(&mut s);
+        s.tick();
+        let t = s.tick_count() - 1;
+        let v = s.entity(witch).expect("the Witch lives");
+        rows.push((t, v.spawn_ms, v.spawn_wave_left));
+        let here = cube(&s).is_some();
+        if here && c.is_none() {
+            c = Some(t);
+        } else if !here && c.is_some() && last.is_none() {
+            last = Some(t - 1);
+        }
+        if let (Some(c0), Some(l)) = (c, last.filter(|l| t == *l + 4)) {
+            return (c0, l, rows);
+        }
+    }
+    panic!("the scene drifted: no cube came and went over the Witch (first frame {c:?}, last frame {last:?})");
+}
+
+/// spawner.ICE_RELEASE_SPAWNER = client16635_held_next_tick (client 16.635, parity r100, the oracle's il-mg-16635 set: 3
+/// of 3 base-Witch waves after a cube's hold before their first divergences, and a Night Witch's after one, came a tick
+/// later than the engine's): the Witch's spawn clock stands on the let-go tick G, the cube's last frame + 2, and steps
+/// from G + 1 at the let-go slow's rate; under runs (the vacuity check) it steps on G at that rate. The hold's start and
+/// body are the same under both arms. Plant: ice_release_spawner_runs.
+#[test]
+fn under_client16635_held_next_tick_a_let_go_witch_keeps_her_spawn_clock_on_the_let_go_tick() {
+    let step = after_spawn_step();
+    assert!(step > 0, "the let-go slow stops a spawn clock ({step})");
+    let (c_old, l_old, old) = released_witch(IceReleaseSpawner::Runs);
+    let (c, l, new) = released_witch(IceReleaseSpawner::Client16635HeldNextTick);
+    assert_eq!((c, l), (c_old, l_old), "the scene: one cube under both arms");
+    let g = l + 2;
+    let before = |rows: &[(u32, i32, i32)]| rows.iter().filter(|r| r.0 < g).copied().collect::<Vec<_>>();
+    assert_eq!(before(&new), before(&old), "the scene: the arms part before the let-go tick {g}");
+    let (ms0, left0) = clocks_on(&new, g - 1);
+    assert!(ms0 > 3 * step && left0 == 0, "the scene drifted: her clock reads {ms0} (wave left {left0}) on G - 1 (G {g})");
+    assert_eq!(clocks_on(&new, c + 2).0, ms0, "the scene drifted: her clock ran in the cube's hold (c {c}, G {g})");
+    assert_eq!(ms0 - clocks_on(&old, g).0, step, "runs (the vacuity check): her clock steps on G ({g}) at the let-go slow's rate");
+    assert_eq!(clocks_on(&new, g).0, ms0, "client16635_held_next_tick: her clock held on G ({g})");
+    assert_eq!(ms0 - clocks_on(&new, g + 1).0, step, "client16635_held_next_tick: her clock steps on G + 1 at the let-go slow's rate");
+}
+
+/// status.ICE_RELEASE_LOAD_TIMER and spawner.ICE_RELEASE_SPAWNER ship at runs (client16635_held_next_tick is a candidate
+/// until scored).
+#[test]
+fn the_shipped_arm_is_runs() {
+    let c = royalesim::state::Calib::shipped();
+    assert_eq!((c.ice_release_load_timer, c.ice_release_spawner), (IceReleaseLoadTimer::Runs, IceReleaseSpawner::Runs));
+    assert_eq!(config().calib.ice_release_load_timer, IceReleaseLoadTimer::Runs);
+    assert_eq!(config().calib.ice_release_spawner, IceReleaseSpawner::Runs);
 }

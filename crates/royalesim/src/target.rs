@@ -1735,10 +1735,32 @@ pub fn decide(ctx: &TargetCtx, a: usize, scratch: &mut Vec<u32>) -> TargetDecisi
     TargetDecision { target: scan(ctx, a, scratch).or(held_past_sight), cancel_attack: cancel, resumed: false, chase_dropped: None }
 }
 
+/// targeting.FALLEN_LANE_TOWER_PICK = client16635_king_distance: does a troop at `u` take the princess tower at `p` over
+/// the king at `k` (engine subtiles)? The tower's octagonal length (move16402.rs `octagonal_len`), squared, against the
+/// king's exact squared centre distance, both on native points: strictly below, the tower. Measured on client 16.635
+/// (parity r100, the oracle's il-mg-16635 set): an Ice Wizard at (5068, 10196) kept the right princess tower (19,209
+/// squared against 369,051,040), at (5032, 10243) took the king (19,177 squared against 367,570,073); the exact distance
+/// on both sides misses 107 ticks of the set, the octagonal on both 190, this 2. PLANT (regression)
+/// king_distance_true_metric: the tower's exact distance.
+pub fn princess_nearer_than_king(u: Vec2, p: Vec2, k: Vec2) -> bool {
+    use crate::fixed::SUBTILE_PER_MILLITILE as K;
+    let (ux, uy) = (u.x / K, u.y / K);
+    let (dx, dy) = (p.x / K - ux, p.y / K - uy);
+    #[cfg(not(clash_plant = "king_distance_true_metric"))]
+    let dp = i64::from(crate::move16402::octagonal_len(dx, dy));
+    #[cfg(clash_plant = "king_distance_true_metric")]
+    let dp = isqrt(i64::from(dx) * i64::from(dx) + i64::from(dy) * i64::from(dy)); // PLANT (regression)
+    let (kx, ky) = (i64::from(k.x / K - ux), i64::from(k.y / K - uy));
+    dp * dp < kx * kx + ky * ky
+}
+
 /// Where a unit with no target walks: the enemy crown tower chosen by x
 /// (LOGIC_XPOS_BASED_TOWER_TARGETING), falling back to the king once that lane's
 /// princess tower is down (or, under targeting.DOOMED_LANE_TOWER's new arms, doomed: `lane_fallen`). With the global
-/// off, the nearest enemy crown tower.
+/// off, the nearest enemy crown tower. After targeting.FIRST_TOWER_PICK's window, targeting.FALLEN_LANE_TOWER_PICK reads a
+/// fallen princess tower: client16402_spawn_lane_king sends a troop whose spawn lane's tower is down to the king, and
+/// client16635_king_distance sends one with ONE princess tower standing to that tower when it is its spawn lane's and
+/// nearer than the king (`princess_nearer_than_king`), else to the king.
 pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
     let e = ctx.ents;
     let enemy = e.team[a].other() as usize;
@@ -1768,6 +1790,29 @@ pub fn default_tower(ctx: &TargetCtx, a: usize) -> Option<EntityId> {
         if lane_pick {
             let lane = if e.spawn_lane[a] & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
             return live(ctx.towers[enemy][1 + lane as usize]).or_else(|| live(ctx.towers[enemy][0]));
+        }
+        // targeting.FALLEN_LANE_TOWER_PICK = client16635_king_distance: after the window, with ONE enemy princess tower
+        // standing (and the king), that tower when it is the spawn lane's and nearer than the king by
+        // `princess_nearer_than_king`, else the king, read afresh on every pick. The other lane's tower is never a
+        // candidate. Both standing: the pick below by x, as before. Measured on client 16.635 (parity r100, the oracle's
+        // il-mg-16635 set: 164,059 out-of-sight ticks with one princess tower down, 2,502 troops; this arm fits 164,056,
+        // client16402_spawn_lane_king 163,746; the 12 troops that separate them all took their lane's tower, 3 of them
+        // flyers). PLANT (regression) king_distance_by_x: the new arm still takes the tower of the current x.
+        #[cfg(not(clash_plant = "king_distance_by_x"))]
+        let king_distance = ctx.calib.fallen_lane_tower_pick == crate::state::FallenLaneTowerPick::Client16635KingDistance;
+        #[cfg(clash_plant = "king_distance_by_x")]
+        let king_distance = false; // PLANT (regression): the new arm still takes the tower of the current x.
+        if king_distance && ctx.calib.first_tower_pick.spawn_lane() && e.spawn_lane[a] != 0 {
+            let standing = [live(ctx.towers[enemy][1]), live(ctx.towers[enemy][2])];
+            if let (1, Some(king)) = (standing.iter().flatten().count(), live(ctx.towers[enemy][0])) {
+                let lane = if e.spawn_lane[a] & ctx.arena.bit_lane_left != 0 { Lane::Left } else { Lane::Right };
+                if let Some(p) = standing[lane as usize] {
+                    if princess_nearer_than_king(e.pos[a], e.pos[p.index as usize], e.pos[king.index as usize]) {
+                        return Some(p);
+                    }
+                }
+                return Some(king);
+            }
         }
         // targeting.FALLEN_LANE_TOWER_PICK = client16402_spawn_lane_king: after the window, a troop whose SPAWN lane's
         // enemy princess tower is down walks to the king, wherever it stands; one whose spawn-lane tower stands takes

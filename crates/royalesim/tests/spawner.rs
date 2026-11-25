@@ -43,7 +43,10 @@
 //!      corpus Tombstone of 20260918-130203.b2 waits 95 ticks instead of 80; under
 //!      buffed a Zap holds it by its stun's ticks under either STUN_PAUSES_SPAWNER arm.
 //!      Plant spawn_spawner_speed_unread (the buffed arm keeps TICK_MS): the slowed
-//!      test and the Zap test's pause-off run go red.
+//!      test and the Zap test's pause-off run go red;
+//!  18. spawner.SPAWN_SPEED_READ = client16635_end_of_tick (client 16.635, parity r100): that slowed Tombstone's clock
+//!      steps at the slow's rate on the tick the slow lands and at TICK_MS on its last tick, a tick before move_phase's
+//!      window, which keeps its length; a Red Ice Wizard's shot landing on a release tick holds that release a tick.
 //!
 //! TICK ALIGNMENT (state.rs `spawner_pass`; spawner.EMISSION_TIMING =
 //! move_phase_immediate, measured): the timer is decremented in the MOVE phase, right
@@ -68,6 +71,10 @@
 //! Witch's [21, 21, 21, 21, 161, ...] against [20, 20, 20, 20, 160, ...], the Dark
 //! Witch's wave one post-tick late, the SpawnLimit refill at 62 instead of 61, and
 //! the candidate sweep's first_wave_after_one_pause row at 70 instead of 71.
+//! spawn_speed_read_move_phase -- (18)'s
+//! `under_client16635_end_of_tick_a_slow_steps_the_clock_on_its_landing_tick_and_not_on_its_last` goes red;
+//! spawn_speed_landing_unpredicted -- `under_client16635_end_of_tick_a_shot_slow_on_the_release_tick_holds_the_release`
+//! goes red (the slow's own test stays green: the end-of-tick correction alone sets its clock).
 
 // THE c4 FLIP (parity r66): this file's scenes were written on the engine before it, so they run its old arms
 // (common::config_pre_flip); each flipped key's own tests read both arms.
@@ -80,7 +87,8 @@ use royalesim::fixed::{isqrt, milli, Vec2, SUBTILE_PER_MILLITILE};
 use royalesim::state::{
     BattleConfig, BattleState, BuffExpiry, Calib, DeathAtEmission, DeathSpawnDeploy, DeathSpawnLayout, DeathSpawnPushback, DeathSpawnRadius,
     FirstWave, PauseAnchor,
-    ReleaseTiming, RingCreationOrder, RingPointBounds, SpawnPoint, SpawnedDeploy, SpawnedFirstStep, SpawnerEmission, StartTimeOrigin, TimerLeftover,
+    ReleaseTiming, RingCreationOrder, RingPointBounds, SpawnPoint, SpawnSpeedRead, SpawnedDeploy, SpawnedFirstStep, SpawnerEmission, StartTimeOrigin,
+    TimerLeftover,
 };
 use royalesim::{EntityId, Team};
 use std::collections::BTreeSet;
@@ -1709,4 +1717,174 @@ fn under_client16402_unseen_on_birth_tick_a_live_spawn_born_on_a_scan_tick_takes
         }
     }
     assert!(moved > 0, "vacuous: no hut-made unit was born on a scan tick over five offsets");
+}
+
+// ---------------------------------------------------------------------------
+// (18): when a spawner's clock reads its buffs (spawner.SPAWN_SPEED_READ)
+
+/// `slowed_tombstone`'s scene under spawner.SPAWN_SPEED_READ = `arm` (spawner.SPAWN_SPAWNER_SPAWN_SPEED = buffed): a Blue
+/// Tombstone for `horizon` post-ticks, and with `kill_at` the Red Ice Golem whose death area hangs IceWizardSlowDown on it.
+/// Per post-tick: (the post-tick, the Tombstone's spawn_ms, whether it carries IceWizardSlowDown); and the post-ticks its
+/// Skeletons first appear on.
+fn tomb_clock(arm: SpawnSpeedRead, kill_at: Option<u32>, horizon: u32) -> (Vec<(u32, i32, bool)>, Vec<u32>) {
+    let cfg = with_calib(|c| {
+        c.spawn_spawner_spawn_speed = royalesim::state::SpawnSpawnerSpawnSpeed::Buffed;
+        c.spawn_speed_read = arm;
+    });
+    assert_eq!(cfg.calib.buff_expiry, BuffExpiry::CeilFromNextTick, "the scene: the new arm reads under ceil_from_next_tick");
+    let mut s = bare(cfg);
+    let unit = unit_name(&s, spawner(&s, "Tombstone").unit);
+    let slow = slow_buff(&s).0;
+    let pos = blue_spot(&s);
+    let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
+    let behind = Vec2::new(pos.x, pos.y - milli(1500));
+    let (mut rows, mut waves) = (Vec::new(), Vec::new());
+    let mut known: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for k in 0..horizon {
+        if kill_at == Some(k) {
+            let golem = s.scenario_spawn_now(Team::Red, "IceGolemite", behind, None).expect("put the Ice Golem down");
+            assert!(s.debug_set_hp(golem, 0));
+        }
+        s.tick();
+        for e in find_live(&s, Team::Blue, &unit) {
+            if known.insert((e.id.index, e.id.generation)) {
+                waves.push(s.tick_count());
+            }
+        }
+        let t = s.entity(tomb).expect("the Tombstone outlives the scene");
+        rows.push((s.tick_count(), t.spawn_ms, t.buffs.iter().any(|b| b.id == slow)));
+    }
+    (rows, waves)
+}
+
+/// spawner.SPAWN_SPEED_READ = client16635_end_of_tick (client 16.635, parity r100, the oracle's il-mg-16635 set: inside an
+/// Ice Wizard slow's window 8 releases came a tick early in the engine, none late): the Ice Golem's death slow, carried on
+/// post-ticks L ..= E (E = L + 49), slows the clock's step on L, the tick it lands (Resolve's correction: an area's row is
+/// not foreseen), through E, and not on E + 1, when this tick's countdown empties its slot. Under move_phase (the vacuity
+/// check) it slows L + 1 ..= E + 1. The window keeps its length: the clock's loss over L ..= E + 1 and every wave are the
+/// same under both arms. Plant: spawn_speed_read_move_phase.
+#[test]
+fn under_client16635_end_of_tick_a_slow_steps_the_clock_on_its_landing_tick_and_not_on_its_last() {
+    let sp = spawner(&bare(config_pre_flip()), "Tombstone");
+    let horizon = first_wave_tick(&sp) + 3 * (ticks_of(sp.pause_time_ms) + ticks_of(sp.interval_ms)) + 30;
+    let (_, control) = tomb_clock(SpawnSpeedRead::MovePhase, None, horizon);
+    assert!(control.len() >= 4, "the scene: two waves before the slow, {control:?}");
+    // As in (17): the slow lands right after the second wave's last Skeleton, all of it inside one pause.
+    let kill_at = control[3] + 1;
+    let pct = slow_buff(&bare(config_pre_flip())).1;
+    let slowed = dt() * (100 + pct) / 100;
+    assert!(slowed < dt(), "data: IceWizardSlowDown slows SpawnSpeed ({pct})");
+    let mut seen = Vec::new();
+    for arm in [SpawnSpeedRead::Client16635EndOfTick, SpawnSpeedRead::MovePhase] {
+        let (rows, waves) = tomb_clock(arm, Some(kill_at), horizon);
+        let l = rows.iter().find(|r| r.2).map(|r| r.0).unwrap_or_else(|| panic!("{arm:?}: the scene drifted: the slow never landed"));
+        let e = rows.iter().rev().find(|r| r.2).map(|r| r.0).expect("seen on L");
+        assert_eq!(e, l + ticks_of(GOLEM_SLOW_MS) - 1, "{arm:?}: the scene drifted: the slow is not carried {} ticks", ticks_of(GOLEM_SLOW_MS));
+        assert_eq!(rows.iter().filter(|r| r.2).count() as u32, e - l + 1, "{arm:?}: the scene drifted: the slow is carried with a gap");
+        assert!(waves.iter().all(|w| *w + 1 < l || *w > e + 1), "{arm:?}: the scene drifted: a release in L - 1 ..= E + 1 ({waves:?}, L {l}, E {e})");
+        let ms = |t: u32| rows.iter().find(|r| r.0 == t).map(|r| r.1).unwrap_or_else(|| panic!("{arm:?}: no row {t}"));
+        let step_of = |t: u32| ms(t - 1) - ms(t);
+        let (on_l, after_e) = if arm == SpawnSpeedRead::Client16635EndOfTick { (slowed, dt()) } else { (dt(), slowed) };
+        assert_eq!(step_of(l), on_l, "{arm:?}: the step on L, the slow's landing tick (L {l})");
+        for t in l + 1..=e {
+            assert_eq!(step_of(t), slowed, "{arm:?}: the step on {t}, inside the slow (L {l}, E {e})");
+        }
+        assert_eq!(step_of(e + 1), after_e, "{arm:?}: the step on E + 1, the tick the slow's slot runs out (E {e})");
+        let loss: i32 = (l..=e + 1).map(step_of).sum();
+        seen.push((l, loss, waves));
+    }
+    assert_eq!(seen[0], seen[1], "the landing tick, the clock's whole advance over the window and every wave alike under both arms");
+}
+
+/// A Blue Tombstone on blue_spot under spawner.SPAWN_SPEED_READ = `arm` (spawner.SPAWN_SPAWNER_SPAWN_SPEED = buffed), and a
+/// Red Ice Wizard put down `k` ticks after it, 4,000 ahead, held there and topped up: the Tombstone is its only target in
+/// range. Each Skeleton is killed the post-tick it first appears, so nothing else draws the shots; the Tombstone is
+/// topped up after every tick, so it outlives the scene. (the post-ticks its Skeletons are released on, and the post-ticks
+/// a shot hits it: a drop above its lifetime drain). A release is the post-tick a Skeleton first appears on, or, with none
+/// seen, the one its clock reloads on: a Skeleton released on a hit's tick dies to the shot's splash before it is seen.
+fn shot_tomb(arm: SpawnSpeedRead, k: u32, horizon: u32) -> (Vec<u32>, Vec<u32>) {
+    let cfg = with_calib(|c| {
+        c.spawn_spawner_spawn_speed = royalesim::state::SpawnSpawnerSpawnSpeed::Buffed;
+        c.spawn_speed_read = arm;
+    });
+    let mut s = bare(cfg);
+    let unit = unit_name(&s, spawner(&s, "Tombstone").unit);
+    let pos = blue_spot(&s);
+    let tomb = s.scenario_spawn_now(Team::Blue, "Tombstone", pos, None).unwrap();
+    let wiz_at = Vec2::new(pos.x, pos.y + milli(4000));
+    let mut wiz: Option<EntityId> = None;
+    let (mut releases, mut hits) = (Vec::new(), Vec::new());
+    let mut clock = s.entity(tomb).expect("the Tombstone").spawn_ms;
+    let mut known: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for t in 0..horizon {
+        if t == k {
+            wiz = Some(s.scenario_spawn_now(Team::Red, "IceWizard", wiz_at, None).expect("put the Ice Wizard down"));
+        }
+        if let Some(w) = wiz {
+            let full = s.entity(w).expect("the Ice Wizard is held and topped up").max_hp;
+            assert!(s.debug_set_pos(w, wiz_at) && s.debug_set_hp(w, full));
+        }
+        let before = s.entity(tomb).expect("the Tombstone outlives the scene").hp;
+        s.tick();
+        let now = s.tick_count();
+        let e = s.entity(tomb).expect("the Tombstone outlives the scene");
+        if before - e.hp > 10 {
+            hits.push(now);
+        }
+        let full = e.max_hp;
+        let reloaded = e.spawn_ms > clock;
+        clock = e.spawn_ms;
+        assert!(s.debug_set_hp(tomb, full));
+        let fresh: Vec<EntityId> = find_live(&s, Team::Blue, &unit).iter().map(|e| e.id).filter(|id| known.insert((id.index, id.generation))).collect();
+        if fresh.is_empty() && reloaded {
+            releases.push(now);
+        }
+        for id in fresh {
+            releases.push(now);
+            assert!(s.debug_set_hp(id, 0));
+        }
+    }
+    (releases, hits)
+}
+
+/// spawner.SPAWN_SPEED_READ = client16635_end_of_tick (client 16.635, parity r100: 8b73fc79 t2921 and 84aefbf5 t5080, a hit
+/// on the release tick itself): a Red Ice Wizard's shot whose slow lands on a Tombstone release tick h is foreseen
+/// (`tick_landing_buffs`), so h's step is the slowed one and the release, due on h under move_phase with no overshoot,
+/// comes on h + 1. Over 80 put-down ticks every release under the new arm is the old arm's or a tick later; and where the
+/// Ice Wizard's FIRST hit lands on a release tick of the old arm (put down on 65 and 75: no slow has moved the clock
+/// before it, so the two arms agree up to it), that release comes a tick later and every release before it is the old
+/// arm's. Plant: spawn_speed_landing_unpredicted (the correction alone sets the clock right and the release still comes
+/// on h).
+#[test]
+fn under_client16635_end_of_tick_a_shot_slow_on_the_release_tick_holds_the_release() {
+    let horizon = 260;
+    let mut held = Vec::new();
+    for k in 0..80 {
+        let (old, hits) = shot_tomb(SpawnSpeedRead::MovePhase, k, horizon);
+        let (new, hits_new) = shot_tomb(SpawnSpeedRead::Client16635EndOfTick, k, horizon);
+        assert!(!hits.is_empty(), "k {k}: the scene drifted: no shot hit the Tombstone");
+        assert_eq!(hits_new, hits, "k {k}: the Ice Wizard's hits alike under both arms");
+        assert!(old.len() >= 4 && old.len().abs_diff(new.len()) <= 1, "k {k}: the releases {old:?} and {new:?}");
+        for (o, n) in old.iter().zip(new.iter()) {
+            assert!(*o <= *n && *n <= *o + 1, "k {k}: a release moved from {o} to {n} ({old:?} against {new:?}; hits {hits:?})");
+        }
+        if let Some(j) = old.iter().position(|o| *o == hits[0]) {
+            assert_eq!(new[..j], old[..j], "k {k}: a release before the first hit at {} moved ({old:?} against {new:?})", hits[0]);
+            assert_eq!(
+                new.get(j),
+                Some(&(hits[0] + 1)),
+                "client16635_end_of_tick: k {k}: the first hit's slow lands on the release tick {}, foreseen, so the release comes a tick later ({old:?} against {new:?})",
+                hits[0]
+            );
+            held.push(k);
+        }
+    }
+    assert!(!held.is_empty(), "the scene drifted: no put-down tick's first hit landed on a release tick (widen the sweep?)");
+}
+
+/// spawner.SPAWN_SPEED_READ ships at move_phase (client16635_end_of_tick is a candidate until scored).
+#[test]
+fn the_shipped_arm_is_move_phase() {
+    assert_eq!(Calib::shipped().spawn_speed_read, SpawnSpeedRead::MovePhase);
+    assert_eq!(config().calib.spawn_speed_read, SpawnSpeedRead::MovePhase);
 }

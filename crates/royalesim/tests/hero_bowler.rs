@@ -9,17 +9,22 @@
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --profile gate --test
 //! hero_bowler`): siege_never, siege_never_ends, siege_always_far, early_trigger_late, siege_reset_unheld
-//! (`its_first_shell_comes_on_the_press_plus_60_under_client15535_two_tick_hold` red).
+//! (`its_first_shell_comes_on_the_press_plus_60_under_client15535_two_tick_hold` red), siege_end_on_buff_end
+//! (`under_client16635_after_attack_the_hero_walks_a_tick_after_its_siege_buff` red).
 //!
 //! combat.SIEGE_RESET_HOLD = client15535_two_tick_hold (client 15.535.29, 2 of 2 sieges): held two ticks after the
 //! siege's target reset, the hero swings on P + 53 and makes its first shell on P + 60; the engine's on P + 58.
+//!
+//! combat.SIEGE_END_TICK = client16635_after_attack (client 16.635, parity r100, the oracle's il-mg-16635 set: 28 of 28
+//! sieges ending on their buff's time walked a tick after the engine's): on the trigger + 146 the hero still swings at
+//! the siege's rate and stands; its own row is back and it walks on the trigger + 147. buff_end: both on + 146.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::card::FORM_HERO;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, SiegeResetHold};
+use royalesim::state::{BattleConfig, BattleState, SiegeEndTick, SiegeResetHold};
 use royalesim::{EntityId, Team};
 
 fn n(x: i32, y: i32) -> Vec2 {
@@ -44,8 +49,13 @@ fn start(units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId,
 
 /// `start` under combat.SIEGE_RESET_HOLD = `arm`.
 fn start_with(arm: SiegeResetHold, units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
+    start_cfg(|c| c.calib.siege_reset_hold = arm, units)
+}
+
+/// `start` with `f` laid over the shipped config (combat.SIEGE_END_TICK's arms, `siege_end`).
+fn start_cfg(f: impl FnOnce(&mut BattleConfig), units: &[(&str, (i32, i32))]) -> (BattleState, EntityId, Vec<(EntityId, Vec2)>) {
     let mut cfg = config();
-    cfg.calib.siege_reset_hold = arm;
+    f(&mut cfg);
     let deck: Vec<String> = DECK.iter().map(|n| n.to_string()).collect();
     cfg.decks = [deck.clone(), deck];
     cfg.forms = [vec![FORM_HERO, 0, 0, 0, 0, 0, 0, 0], Vec::new()];
@@ -178,4 +188,89 @@ fn its_first_shell_comes_on_the_press_plus_60_under_client15535_two_tick_hold() 
     // NOT VACUOUS: the next-tick swing makes it two ticks early (the engine's P + 58).
     assert_eq!(first_shell(SiegeResetHold::NextTick), 58, "next_tick");
     assert_eq!(first_shell(SiegeResetHold::Client15535TwoTickHold), 60, "client15535_two_tick_hold");
+}
+
+/// What `siege_end` read: the siege's first tick `on` (its trigger, the press + 4), the first later tick the hero's own row
+/// is back, its first step after on + 100, its attack progress per tick (entity.rs `attack_ms`), and its new shots before
+/// on + 146, as `siege_shots` lists them.
+struct SiegeEnd {
+    on: u32,
+    row_back: u32,
+    first_step: u32,
+    progress: Vec<(u32, i32)>,
+    shots: Vec<(u32, i32, i32, i64)>,
+}
+
+impl SiegeEnd {
+    /// The hero's attack progress on tick `t`.
+    fn progress_on(&self, t: u32) -> i32 {
+        self.progress.iter().find(|r| r.0 == t).map(|r| r.1).unwrap_or_else(|| panic!("no frame {t}"))
+    }
+}
+
+/// A SIEGE RUN TO ITS BUFF'S END under combat.SIEGE_END_TICK = `arm` (combat.SIEGE_RESET_HOLD = next_tick, as `start`): a
+/// red Knight held 9000 ahead, past the boulder's 4000 and inside the siege's 11500, so the far entry keeps shooting it;
+/// once the siege is over the Knight is out of the hero's own sight, and the hero walks. The hero is not held after the
+/// press.
+fn siege_end(arm: SiegeEndTick) -> SiegeEnd {
+    let (mut s, hero, reds) = start_cfg(
+        |c| {
+            c.calib.siege_reset_hold = SiegeResetHold::NextTick;
+            c.calib.siege_end_tick = arm;
+        },
+        &[("Knight", (AT.0, AT.1 + 9000))],
+    );
+    let p = s.tick_count() - 1;
+    let mine = |s: &BattleState| s.projectiles().iter().filter(|q| q.firer == Some(hero)).map(|q| (q.speed, q.damage, q.pos)).collect::<Vec<_>>();
+    let mut known = mine(&s).len();
+    s.press_ability_button(Team::Blue, 0).expect("the press");
+    let (mut rows, mut shots) = (Vec::new(), Vec::new());
+    for _ in 0..220 {
+        hold(&mut s, &reds);
+        s.tick();
+        let now = s.tick_count() - 1;
+        let e = s.entity(hero).expect("the hero");
+        let at = e.pos;
+        rows.push((now, e.card.to_string(), e.pos, e.attack_ms));
+        let m = mine(&s);
+        for (sp, d, q) in m.iter().skip(known.min(m.len())) {
+            shots.push((now, *sp, *d, dist(*q, at)));
+        }
+        known = m.len();
+    }
+    let on = rows.iter().find(|r| r.1 == "BowlerHero_Siege").map(|r| r.0).expect("the scene drifted: no siege form");
+    assert_eq!(on, p + 4, "the scene drifted: the siege's trigger is not the press + 4");
+    let row_back = rows.iter().find(|r| r.0 > on && r.1 == "Bowler_hero").map(|r| r.0).expect("the scene drifted: its own row never came back");
+    let first_step = rows.windows(2).find(|w| w[1].0 > on + 100 && w[1].2 != w[0].2).map(|w| w[1].0).expect("the scene drifted: the hero never walked after its siege");
+    let progress = rows.iter().map(|r| (r.0, r.3)).collect();
+    shots.retain(|q| q.0 < on + 146);
+    SiegeEnd { on, row_back, first_step, progress, shots }
+}
+
+/// combat.SIEGE_END_TICK = client16635_after_attack (client 16.635, parity r100, the oracle's il-mg-16635 set: 28 of 28
+/// sieges ending on their buff's time walked a tick after the engine's, the progress still advancing at the siege's rate
+/// on the end tick): the hero's own row is back and it takes its first step on the trigger + 147, and on + 146 it still
+/// swings at the siege's rate; under buff_end (the vacuity check) both on + 146. The shells before + 146 are the same
+/// under both arms. Plant: siege_end_on_buff_end.
+#[test]
+fn under_client16635_after_attack_the_hero_walks_a_tick_after_its_siege_buff() {
+    let old = siege_end(SiegeEndTick::BuffEnd);
+    assert_eq!(old.row_back, old.on + 146, "buff_end (the vacuity check): its own row on the trigger + 146");
+    assert_eq!(old.first_step, old.on + 146, "buff_end: its first step on the trigger + 146");
+    let new = siege_end(SiegeEndTick::Client16635AfterAttack);
+    assert_eq!(new.on, old.on, "the trigger alike under both arms");
+    assert_eq!(new.row_back, new.on + 147, "client16635_after_attack: its own row on the trigger + 147");
+    assert_eq!(new.first_step, new.on + 147, "client16635_after_attack: its first step on the trigger + 147");
+    let (a, b, c) = (new.progress_on(new.on + 144), new.progress_on(new.on + 145), new.progress_on(new.on + 146));
+    assert!(c > b, "client16635_after_attack: it still swings on the end tick ({a}, {b}, {c})");
+    assert_eq!(c - b, b - a, "client16635_after_attack: its swing at the siege's rate on the end tick ({a}, {b}, {c})");
+    assert!(!old.shots.is_empty(), "vacuous: no shell before the siege's end");
+    assert_eq!(new.shots, old.shots, "the shells before the trigger + 146 alike under both arms");
+}
+
+/// combat.SIEGE_END_TICK ships at buff_end (client16635_after_attack is a candidate until scored).
+#[test]
+fn the_shipped_arm_is_buff_end() {
+    assert_eq!(royalesim::state::Calib::shipped().siege_end_tick, SiegeEndTick::BuffEnd);
+    assert_eq!(config().calib.siege_end_tick, SiegeEndTick::BuffEnd);
 }
