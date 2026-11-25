@@ -1208,7 +1208,6 @@ pub fn state_json_text_opts(
         Some(Outcome::Winner(t)) => t as i32,
         Some(Outcome::Draw) => 2,
     };
-    let tower_lvl = s.config().tower_level;
     let mut o = String::with_capacity(4096);
     let _ = write!(
         o,
@@ -1254,9 +1253,19 @@ pub fn state_json_text_opts(
             max_by_slot[slot] = match from_entity {
                 Some(m) => m,
                 None => {
-                    let card = if k == 0 { KING_TOWER } else { PRINCESS_TOWER };
-                    let idx = cards.index(card).expect("towers exist");
-                    cards.scaled(idx, tower_lvl[ti], cards.get(idx).hitpoints)?
+                    let cfg = s.config();
+                    let (card, level, kind) = if k == 0 {
+                        (KING_TOWER, cfg.king_level[ti].unwrap_or(cfg.tower_level[ti]), EntityKind::KingTower)
+                    } else {
+                        (cfg.tower_troops[ti].as_deref().unwrap_or(PRINCESS_TOWER), cfg.tower_level[ti], EntityKind::PrincessTower)
+                    };
+                    let idx = cards.index(card).ok_or_else(|| format!("no tower record {card}"))?;
+                    let base = cards.get(idx).hitpoints;
+                    if c.tower_ladder == crate::state::TowerLadder::GlobalsPercentPerLevelCompoundFloor {
+                        CardDb::scale(base, crate::state::tower_multiplier_percent(c, kind, level, c.tower_hp_pct)?)
+                    } else {
+                        cards.scaled(idx, level, base)?
+                    }
                 }
             };
         }
@@ -1314,6 +1323,19 @@ pub fn state_json_text_opts(
         // the row and `check_deploy` on the button agree), spent 1 when a hero has used its one charge (a champion's comes back,
         // so it is never spent), cost the press's elixir, card_id the button's base card, cooldown_ticks the ticks until
         // a champion's used charge is back (0 otherwise). Keyed, so a decoder that does not know it drops it.
+        if extra {
+            let queue: Vec<i32> = s.queue_cards(team).into_iter().map(|i| id_of_idx[i as usize]).collect();
+            let ability_uids: Vec<Option<i64>> = s.ability_buttons(team).iter().map(|b| {
+                b.hero.and_then(|id| s.entity(id)).map(|e| i64::from(e.team_seq) * 2 + ti as i64)
+            }).collect();
+            let resolved: Vec<_> = (0..HAND_SIZE).map(|slot| {
+                s.resolve_play(team, slot).ok().map(|p| (cards.get(p.card).name.as_str(), cards.record_form(p.card)))
+            }).collect();
+            let _ = write!(o, ",\"queue\":{},\"ability_uids\":{},\"hand_plays\":{}",
+                serde_json::to_string(&queue).expect("card ids"),
+                serde_json::to_string(&ability_uids).expect("optional unit ids"),
+                serde_json::to_string(&resolved).expect("optional card names and forms"));
+        }
         o.push_str(",\"abilities\":[");
         for (k, b) in s.ability_buttons(team).iter().enumerate() {
             if k > 0 {
@@ -2042,7 +2064,9 @@ impl Battle {
     /// at the target. Refused: a firer whose shots no fire makes whole (`projectile_in_flight_kind`), a firer or target
     /// not on the board (a crown tower destroyed), a target of the firer's own side. In list order, as a state row
     /// lists them.
-    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_wake_ms = None, evo_counts = None, unit_spawns = None, spells_in_flight = None, last_played = None, unit_deploy_ticks = None, projectiles_in_flight = None))]
+    /// `tower_troops`: optional blue and red flank tower record names (None for PrincessTower).
+    /// `king_levels`: optional per-side king levels when different from the flank towers.
+    #[pyo3(signature = (seed, decks, shuffle, start_tick, elixir_milli, tower_hp, spawns, forms = None, levels = None, tower_levels = None, king_wake_ms = None, evo_counts = None, unit_spawns = None, spells_in_flight = None, last_played = None, unit_deploy_ticks = None, projectiles_in_flight = None, *, tower_troops = None, king_levels = None))]
     #[allow(clippy::too_many_arguments)]
     fn reset(
         &mut self,
@@ -2063,6 +2087,8 @@ impl Battle {
         last_played: Option<Vec<i64>>,
         unit_deploy_ticks: Option<Vec<i32>>,
         projectiles_in_flight: Option<Vec<ProjectileInFlight>>,
+        tower_troops: Option<[Option<String>; 2]>,
+        king_levels: Option<[Option<i32>; 2]>,
     ) -> PyResult<()> {
         if decks.len() != 2 {
             return Err(PyValueError::new_err("decks must be [blue, red]"));
@@ -2084,6 +2110,12 @@ impl Battle {
             named[t] = d.iter().map(|c| name_of(*c)).collect::<PyResult<_>>()?;
         }
         let mut cfg = BattleConfig::with_cards(CardDb::clone(&self.cards));
+        if let Some(troops) = tower_troops {
+            cfg.tower_troops = troops;
+        }
+        if let Some(levels) = king_levels {
+            cfg.king_level = levels;
+        }
         cfg.cards = self.cards.clone();
         cfg.card_level = [self.level(); 2];
         cfg.tower_level = [self.tower_lvl(); 2];
@@ -2409,8 +2441,8 @@ impl Battle {
     /// protocol.py `BattleState` as JSON bytes (EntityState rows are arrays), with the
     /// spell extensions of the module doc (SPELLS).
     ///
-    /// `extra=True` appends ENTITY_EXTRA_FIELDS (spawner clock, dash, buff speed percents, jumping) to every entity row;
-    /// the default leaves the rows exactly as ENTITY_FIELDS lists them.
+    /// `extra=True` appends ENTITY_EXTRA_FIELDS to every entity row and adds the draw queue, ability carrier UIDs
+    /// and resolved hand plays to each player. The default keeps the entity rows in ENTITY_FIELDS order.
     #[pyo3(signature = (extra=false))]
     fn state_json<'py>(&self, py: Python<'py>, extra: bool) -> PyResult<Bound<'py, PyBytes>> {
         let s = self.s()?;

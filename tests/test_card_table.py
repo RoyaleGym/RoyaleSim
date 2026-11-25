@@ -35,6 +35,113 @@ def test_the_default_table_is_15535():
     assert battle("client15535").card_table() == "cards-15535.1"
 
 
+def test_reset_equips_chef_for_just_one_side_and_preserves_equipment_on_restore():
+    over = {KEY: json.dumps("client160635007_20261103")}
+    b = royalesim.Battle(["Ghost", "Knight", "Fireball"], SLOTS, calibration_overrides=over)
+    decks = [[0, 1] * 4, [2, 1, 0, 1, 0, 1, 0, 1]]
+    b.reset(3, decks, 0, 0, [5000, 5000], None, [], tower_troops=["ChefTower", None],
+            tower_levels=[11, 11], king_levels=[13, None])
+    state = json.loads(b.state_json())
+    types = json.loads(b.unit_types_json())
+    fields = royalesim.ENTITY_FIELDS
+    towers = [dict(zip(fields, row, strict=True)) for row in state["entities"]]
+    flanks = [t for t in towers if t["tower_slot"] in (1, 2)]
+    assert [(t["team"], types[t["unit_type"]]) for t in flanks if t["team"] == 0] == [(0, "ChefTower")] * 2
+    assert [(t["team"], types[t["unit_type"]]) for t in flanks if t["team"] == 1] == [(1, "PrincessTower")] * 2
+    blue, red = state["players"]
+    assert blue["tower_max_hp"][0] > red["tower_max_hp"][0]
+    assert blue["tower_max_hp"][1] < red["tower_max_hp"][1]
+    blob, fingerprint = b.save(), b.state_hash()
+    b.reset(5, decks, 0, 0, None, None, [])
+    b.load(blob)
+    assert b.state_hash() == fingerprint
+    with pytest.raises(ValueError, match="Knight"):
+        b.reset(3, decks, 0, 0, None, None, [], tower_troops=["Knight", None])
+    hp = [list(blue["tower_hp"]), list(red["tower_hp"])]
+    hp[0][:2] = [1, 0]
+    b.reset(3, decks, 0, 100, [5000, 5000], hp, [], tower_troops=["ChefTower", None],
+            tower_levels=[11, 11], king_levels=[13, None])
+    sub = royalesim.SUBTILE_PER_MILLITILE
+    assert b.step([(1, 0, 9000 * sub, 3000 * sub)], 100)[0][1] == 0
+    fallen = json.loads(b.state_json())["players"][0]
+    assert fallen["tower_hp"][:2] == [0, 0]
+    assert fallen["tower_max_hp"] == blue["tower_max_hp"]
+    blob = b.save()
+    b.reset(5, decks, 0, 0, None, None, [])
+    b.load(blob)
+    restored = json.loads(b.state_json())["players"][0]
+    assert restored["tower_hp"][:2] == [0, 0]
+    assert restored["tower_max_hp"] == blue["tower_max_hp"]
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("tower_troops", ["Missing", None], "tower troop Missing"),
+    ("tower_troops", ["Knight", None], "tower troop Knight"),
+    ("king_level", [0, None], "invalid tower level 0"),
+    ("king_level", [999, None], "has no level 999"),
+])
+def test_snapshot_refuses_invalid_tower_equipment_and_king_level(field, value, message):
+    b = battle("client160635007_20261103")
+    decks = [[0, 1] * 4] * 2
+    b.reset(3, decks, 0, 100, None, None, [], tower_troops=["ChefTower", None], king_levels=[13, None])
+    original = b.save()
+    corrupt = json.loads(original)
+    corrupt[field] = value
+    with pytest.raises(ValueError, match=message):
+        b.load(json.dumps(corrupt).encode())
+    assert b.save() == original
+
+
+def test_mirror_evolution_in_extra_state_and_at_the_play():
+    b = royalesim.Battle(None, SLOTS, calibration_overrides={KEY: json.dumps("client160635007_20261103")})
+    rows = json.loads(b.catalogue_json())
+    ids = {r[0]: i for i, r in enumerate(rows)}
+    names = ["Knight", "Archer", "Giant", "Musketeer", "Mirror", "Valkyrie", "HogRider", "Minions"]
+    deck = [ids[n] for n in names]
+    b.reset(9, [deck, deck], 0, 100, [10000, 10000], None, [], forms=[[0, 0, 0, 0, 1, 0, 0, 0], []],
+            evo_counts=[[0, 0, 0, 0, 2, 0, 0, 0], []])
+
+    def play(slot):
+        sub = royalesim.SUBTILE_PER_MILLITILE
+        return b.step([(0, slot, 9000 * sub, 10000 * sub)], 1)[0]
+
+    assert play(0)[1] == 0
+    blue = json.loads(b.state_json(extra=True))["players"][0]
+    assert blue["hand"][0] == ids["Mirror"]
+    assert blue["hand_plays"][0] == ["Knight_EV1", 1]
+    assert blue["queue"][0] == blue["next_card"]
+    assert play(0)[1] == 0
+    assert json.loads(b.state_json())["players"][0]["evo"] == [[ids["Mirror"], 0, 0, 2]]
+
+
+def test_chef_levels_its_own_troop_and_the_button_points_to_its_hero():
+    b = royalesim.Battle(None, SLOTS, level=11, tower_level=11,
+                         calibration_overrides={KEY: json.dumps("client160635007_20261103")})
+    ids = {row[0]: i for i, row in enumerate(json.loads(b.catalogue_json()))}
+    deck = [ids[n] for n in ("Golem", "MiniPekka", "Knight", "Fireball", "Archer", "Musketeer", "Arrows", "Skeletons")]
+    b.reset(2, [deck, deck], 0, 0, [10000, 10000], None, [], tower_troops=["ChefTower", None],
+            forms=[[0, 2, 0, 0, 0, 0, 0, 0], []])
+    b.step([], 660)
+    sub = royalesim.SUBTILE_PER_MILLITILE
+    assert [row[1] for row in b.step([(0, 0, 3500*sub, 3500*sub), (1, 0, 14500*sub, 28500*sub)], 65)] == [0, 0]
+    fields = royalesim.ENTITY_FIELDS + royalesim.ENTITY_EXTRA_FIELDS
+    def units(state):
+        return [dict(zip(fields, row, strict=True)) for row in state["entities"]]
+
+    state = json.loads(b.state_json(extra=True))
+    assert {u["team"]: u["level"] for u in units(state) if u["card_id"] == ids["Golem"]} == {0: 12, 1: 11}
+    b.step([], 110)
+    assert b.step([(0, 1, 3500*sub, 4500*sub)], 30)[0][1] == 0
+    state = json.loads(b.state_json(extra=True))
+    hero, = [u for u in units(state) if u["card_id"] == ids["MiniPekka"] and u["team"] == 0]
+    owner = state["players"][0]
+    assert owner["ability_uids"] == [hero["uid"]]
+    ready, _, cost, _, _ = owner["abilities"][0]
+    assert ready
+    assert b.step([(0, royalesim.HAND_SIZE, 0, 0)], 0)[0][1] == 0
+    assert json.loads(b.state_json())["players"][0]["elixir_milli"] == owner["elixir_milli"] - cost * 1000
+
+
 def test_the_override_runs_the_160402017_table():
     old, new = battle("client15535"), battle("client160402017_20261006")
     assert new.card_table() == "cards-160402017-20261006.1"

@@ -4145,6 +4145,16 @@
       "promotion_rules": "Stays measured.",
       "engine": "state.rs resolve_play (the Mirror arm; one arm, read with only())"
     },
+    "MIRROR_EVOLUTION": {
+      "value": "evolve_copied_card_if_available",
+      "status": "hypothesis",
+      "confidence": "Supercell's November notes describe the evolved copy and the ordinary fallback. The treatment of a hero play, the charge debit on a fallback and the full board result await a capture.",
+      "provenance": "Client 160635007, content 16.635.8 (2026-11-03). Supercell's King vs. King notes describe the rule: https://supercell.com/en/games/clashroyale/blog/release-notes/new-season-king-vs-king/. The Mirror_EV1 spell row gives the cycle of two and globals.csv gives MIRROR_EVO_LEVEL_OFFSET.",
+      "candidates": ["evolve_copied_card_if_available"],
+      "meaning": "A charged Mirror looks up the last play's base card. If it has an evolution, the copy uses that form and MIRROR_EVO_LEVEL_OFFSET. Otherwise the recorded form is copied as usual. A successful copy spends the Mirror's charge and leaves the copied card's own cycle alone.",
+      "promotion_rules": "Capture a charged Mirror on client content 16.635.8 after an ordinary-slot card with an evolution, after a hero play of a card with both forms, and after a card with no evolution. Read the spawned form, level, elixir debit and both evolution counters.",
+      "engine": "state.rs resolve_play and deploy_slot, tested in tests/mirror_card.rs."
+    },
     "MIRROR_PLACEMENT": {
       "value": "copied_card_rule",
       "status": "measured",

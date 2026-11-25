@@ -8,9 +8,9 @@ Little Prince's guard charge leaves out the dash-immune, the Evo Battle Ram's pu
 Mega Knight stands while its uppercut runs and its root lets a pull move the victim, the Hero Electro Wizard's surge
 stuns 600 ms and no longer stands, the Evo Electro Giant's pulse is back on CommonAreaDamageFilter (it takes a Clone
 copy again), the Evo Cannon's and Evo Firecracker's damage buffs stack by cast (CastIdSpecificBuff), and an Evo
-Skeletons copy takes no duplication. The Evo Giant's unit and rage areas are new rows, and the Evo Giant a new form,
-the evolutions' last; the Evo Mirror is not built. Every changed value is pinned, old and new: a regenerated table that
-moves anything else, or moves one of these to another value, turns this red, so a reader change cannot ride in unseen.
+Skeletons copy takes no duplication. The Evo Giant's unit and rage areas are new rows. The November table appends
+the Giant and Mirror evolutions in that order. The tests pin both clients' values so a change to the table reader
+cannot move another record unnoticed.
 """
 
 import json
@@ -100,11 +100,11 @@ def test_the_cards_differ_by_the_clients_changes_alone():
 def test_the_evolutions_and_hero_forms_differ_by_the_clients_changes_alone():
     old, new = load(OLD), load(NEW)
     got = {}
-    for sec, added in (("evolutions", ["Giant_EV1"]), ("hero_forms", [])):
+    for sec, added in (("evolutions", ["Giant_EV1", "Mirror_EV1"]), ("hero_forms", [])):
         a = {e["name"]: e for e in old[sec]}
         b = {e["name"]: e for e in new[sec]}
         assert [e["name"] for e in new[sec]] == [e["name"] for e in old[sec]] + added, (
-            f"{sec}: the Evo Giant at the end, the Evo Mirror not built")
+            f"{sec}: November appends only its newly supported forms")
         for n in sorted(a):
             d = changes(a[n], b[n])
             if d:
@@ -121,7 +121,7 @@ def test_the_records_differ_by_the_clients_changes_alone():
         changed = {n: changes(a[n], b[n]) for n in sorted(set(a) & set(b))}
         got[sec] = (sorted(set(b) - set(a)), {n: d for n, d in changed.items() if d})
     assert got == RECORDS
-    assert old["globals"] == new["globals"], "the read globals (Mirror, Clone) are unchanged"
+    assert changes(old["globals"], new["globals"]) == {"MIRROR_EVO_LEVEL_OFFSET": (None, 1)}
 
 
 def test_the_diff_names_an_unnamed_entry_by_its_index():

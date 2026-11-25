@@ -6764,7 +6764,7 @@ calib_enum!(
         Client160402017Oct19 = "client160402017_20261019",
         /// The 16.635 client's table (build 160635007, the 2026-11-03 Play update, with its content 16.635.8:
         /// the 16.402 numbers, hero buttons refunded until their ability is delivered, the Evo Electro Giant's pulse
-        /// on CommonAreaDamageFilter again; the Evo Giant built, the Evo Mirror not), data/derived/
+        /// on CommonAreaDamageFilter again, the Evo Giant and the Evo Mirror), data/derived/
         /// cards-160635007-20261103.json, `EMBEDDED_CARDS_160635007_20261103_JSON`. What a capture stamped 16.635.8 is
         /// scored against; cards.CLIENT16402_VALUES does not apply to it.
         Client160635007Nov03 = "client160635007_20261103",
@@ -14208,6 +14208,7 @@ impl Calib {
         // THE MIRROR AND THE VARIANT CARD (`resolve_play`): one implemented arm each.
         only(&v, &["match", "MIRROR_COST_RULE", "value"], "copied_elixir_plus_own_elixir")?;
         only(&v, &["match", "MIRROR_PLACEMENT", "value"], "copied_card_rule")?;
+        only(&v, &["match", "MIRROR_EVOLUTION", "value"], "evolve_copied_card_if_available")?;
         only(&v, &["match", "MIRROR_RECORD", "value"], "last_non_mirror_play")?;
         only(&v, &["match", "MIRROR_LEVEL_BEYOND_MAX", "value"], "refuse_play")?;
         only(&v, &["match", "MIRROR_OF_VARIANT", "value"], "played_form")?;
@@ -14344,8 +14345,8 @@ pub struct BattleConfig {
     /// THE LEVEL OF EACH DECK ENTRY per team, parallel to `decks`, unified levels: a real deck's cards each have their
     /// own (a climb capture's own 7-8 against the opponent's 8-10). Empty (the default) plays every card at the side's
     /// `card_level`. A play is at its hand card's entry's level (`resolve_play`): an evolution and a hero form at their
-    /// base card's, a Mirror at its own plus MIRROR_LEVEL_OFFSET, as measured (a Knight 11 copied by a Mirror 9 stood at
-    /// level 10). `try_new` checks each entry and every unit it can put down at its level.
+    /// base card's, a Mirror at its own plus the table's copy offset (see `resolve_play`). `try_new` checks each
+    /// entry and every unit it can put down at its level.
     pub deck_levels: [Vec<i32>; 2],
     /// Shuffle decks from the battle Rng at start.
     pub shuffle_decks: bool,
@@ -14365,17 +14366,30 @@ pub struct BattleConfig {
     pub command_delay_ticks: [u32; 2],
     /// THE CROWN TOWER TROOP per team (Blue, Red): a `card::TOWER_TROOPS` record name (the Dagger Duchess, the Cannoneer,
     /// the Chef) whose record a side's two princess towers are made with, in place of the PrincessTower's; None (the
-    /// default) the Princess. Read at `try_new` alone: a battle restored from a snapshot has its towers' saved records.
+    /// default) the Princess. Saved so the original maximum HP can be reported after a tower falls.
     pub tower_troops: [Option<String>; 2],
     /// THE KING TOWER'S OWN LEVEL per team (Blue, Red); None (the default) `tower_level`. A side's king can stand above
-    /// its princess towers (their level the crown tower troop's). Read at `try_new` alone, as `tower_troops`: a battle
-    /// restored from a snapshot has its king's saved values. Measured on client 16.402 (parity's r64 census over the ob3
+    /// its princess towers (their level the crown tower troop's). Saved for reporting the king's original maximum HP
+    /// after it falls. Measured on client 16.402 (parity's r64 census over the ob3
     /// live set): 19 sides field a king above their princesses; liveplay-20261007-155154-A's level-13 king (5832) beside
     /// level-10 princesses hit a Barbarian for 131 (50 x 262 %, level 13), the engine's king at 10 for 99.
     pub king_level: [Option<i32>; 2],
 }
 
 impl BattleConfig {
+    fn tower_troop_card(&self, team: Team) -> Result<Option<u16>, String> {
+        let Some(name) = self.tower_troops[team as usize].as_deref() else { return Ok(None) };
+        let idx = self
+            .cards
+            .index(name)
+            .filter(|&i| crate::card::TOWER_TROOPS.contains(&self.cards.get(i).name.as_str()))
+            .ok_or_else(|| format!("{team:?}'s tower troop {name} is not a loaded tower troop record"))?;
+        if self.cards.get(idx).no_deploy_size.is_none() {
+            return Err(format!("{name} has no no_deploy_size_tiles (regenerate cards.json)"));
+        }
+        Ok(Some(idx))
+    }
+
     /// Everything from calibration.json and the shipped arena, the given cards,
     /// no decks, decks unshuffled, and every card AND tower at the lowest unified
     /// level every rarity has (`CardDb::lowest_level_valid_for_every_rarity`, 9 on
@@ -17684,22 +17698,9 @@ impl BattleState {
             }
         }
         // A SIDE'S CROWN TOWER TROOP (`BattleConfig::tower_troops`): its princess towers made with the troop's record.
-        let mut princess_of = [princess, princess];
-        for team in [Team::Blue, Team::Red] {
-            if let Some(name) = s.cfg.tower_troops[team as usize].as_deref() {
-                let idx = cards
-                    .index(name)
-                    .filter(|&i| crate::card::TOWER_TROOPS.contains(&cards.get(i).name.as_str()))
-                    .ok_or_else(|| format!("{team:?}'s tower troop {name} is not a loaded tower troop record"))?;
-                if cards.get(idx).no_deploy_size.is_none() {
-                    return Err(format!("{name} has no no_deploy_size_tiles (regenerate cards.json)"));
-                }
-                princess_of[team as usize] = idx;
-            }
-        }
         for team in [Team::Blue, Team::Red] {
             let lvl = s.cfg.tower_level[team as usize];
-            let princess = princess_of[team as usize];
+            let princess = s.cfg.tower_troop_card(team)?.unwrap_or(princess);
             let kpos = arena.king_tower_pos(team);
             // THE KING'S OWN LEVEL (`BattleConfig::king_level`), else the side's tower level.
             // PLANT (regression) king_level_unread: the king at the side's tower level whatever its own.
@@ -40705,10 +40706,10 @@ impl BattleState {
     ///
     /// A MIRROR (card.rs `SpellShape::Mirror`) plays its side's last play (`PlayerState::last_played`) again, at the
     /// Mirror's own level plus the table's MIRROR_LEVEL_OFFSET (card.rs `CardGlobals`), for that card's cost plus the
-    /// Mirror's own (match.MIRROR_COST_RULE). Measured on client 15.535.29: a Knight 11 copied by a Mirror 9 stood at
-    /// level 10, so the level raised is the Mirror's (in this engine every card of a side has one level, so the two
-    /// readings part nowhere); a copy past the rarity's last level is refused (match.MIRROR_LEVEL_BEYOND_MAX); a
-    /// Mirror with nothing to copy is refused NothingToMirror.
+    /// Mirror's own (match.MIRROR_COST_RULE). A charged Mirror looks up the last play's base card and uses its evolution
+    /// with MIRROR_EVO_LEVEL_OFFSET when one exists (match.MIRROR_EVOLUTION). Otherwise it copies the recorded form.
+    /// Measured on client 15.535.29, a Knight 11 copied by a Mirror 9 stood at level 10. The engine refuses a copy
+    /// beyond the loaded ladder (match.MIRROR_LEVEL_BEYOND_MAX) and a Mirror with no target (NothingToMirror).
     pub fn resolve_play(&self, team: Team, slot: usize) -> Result<Play, DeployError> {
         let idx = self.hand_card(team, slot)?;
         let t = team as usize;
@@ -40742,7 +40743,8 @@ impl BattleState {
             return Ok(Play { in_slot: idx, card: o.card, level, cost });
         }
         // AN EVOLVED CARD'S PLAY AFTER ITS CYCLE (`EvoCounter::cycles`) puts its form down, at the base card's cost.
-        if let Some(k) = self.players[t].evo.iter().find(|k| k.card == idx && k.next_evolved()) {
+        let charged = self.players[t].evo.iter().find(|k| k.card == idx && k.next_evolved());
+        if let Some(k) = charged.filter(|_| !c.is_mirror()) {
             return Ok(Play { in_slot: idx, card: k.form, level, cost: c.elixir });
         }
         // A FORM-2 DECK ENTRY plays its hero form on every play (measured on client 16.402: 5 of 5 plays of the entry
@@ -40754,20 +40756,32 @@ impl BattleState {
         }
         if c.is_mirror() {
             let last = self.players[t].last_played.ok_or(DeployError::NothingToMirror)?;
-            let offset = cards.globals.mirror_level_offset.expect("the loader refuses a Mirror without MIRROR_LEVEL_OFFSET");
+            // The last play can name a hero or evolution record. Use its base card for the evolution lookup and
+            // keep the recorded form for the ordinary copy.
+            #[cfg(not(clash_plant = "mirror_evolution_ignored"))]
+            let evolution = charged.and_then(|_| cards.form_card(cards.get(last).form_of.unwrap_or(last), FORM_EVOLUTION));
+            #[cfg(clash_plant = "mirror_evolution_ignored")]
+            let evolution = None;
+            let (copy, offset) = match evolution {
+                Some(evolution) => (evolution, cards.globals.mirror_evo_level_offset.expect("the loader checks the Mirror evolution offset")),
+                None => (last, cards.globals.mirror_level_offset.expect("the loader checks the Mirror offset")),
+            };
             #[cfg(not(clash_plant = "mirror_same_level"))]
-            let lvl = level + offset;
+            let lvl = level
+                .checked_add(offset)
+                .filter(|&lvl| lvl >= 1)
+                .ok_or_else(|| DeployError::InvalidLevel(format!("Mirror level {level} plus {offset} is out of range")))?;
             #[cfg(clash_plant = "mirror_same_level")]
             let lvl = {
                 let _ = offset;
                 level // PLANT: the copy at the Mirror's own level.
             };
-            cards.check_levels(last, lvl).map_err(DeployError::InvalidLevel)?;
+            cards.check_levels(copy, lvl).map_err(DeployError::InvalidLevel)?;
             #[cfg(not(clash_plant = "mirror_flat_cost"))]
             let cost = cards.get(last).elixir + c.elixir;
             #[cfg(clash_plant = "mirror_flat_cost")]
             let cost = c.elixir; // PLANT: the Mirror's own cost alone.
-            return Ok(Play { in_slot: idx, card: last, level: lvl, cost });
+            return Ok(Play { in_slot: idx, card: copy, level: lvl, cost });
         }
         Ok(Play { in_slot: idx, card: idx, level, cost: c.elixir })
     }
@@ -41920,7 +41934,10 @@ impl BattleState {
         p.mana -= need;
         // THE HAND CARD'S EVOLUTION COUNTER: a basic play adds one, the evolved play starts the count again.
         if let Some(k) = p.evo.iter_mut().find(|k| k.card == play.in_slot) {
-            k.plays = if evolved { 0 } else { k.plays.saturating_add(1) };
+            // The counter belongs to the hand slot's card. A charged Mirror also
+            // completes its cycle when the copied card has no evolution.
+            let used_charge = if mirror { k.next_evolved() } else { evolved };
+            k.plays = if used_charge { 0 } else { k.plays.saturating_add(1) };
         }
         // THE HAND CARD cycles (a Mirror, a variant card), not the card it put down.
         p.queue.push_back(play.in_slot);
@@ -46405,6 +46422,9 @@ impl BattleState {
 ///    forward), no new battle state. CardDef gained row_attacks_ground, row_attacks_air and inert_attack_row (the
 ///    post-format-3 tail), so the card fingerprint moves: a blob saved by an earlier build is refused as saved against
 ///    different card data (a battle's hash is unchanged). migrate_v3 runs a migrated battle at the old arm.
+/// 20, unchanged, tower equipment and king levels are optional fields. Snapshots without them use the Princess
+///    and the side's tower level to report a fallen tower's maximum HP. Mirror_EV1 and its level offset change the
+///    November 16.635 table's card fingerprint.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -46462,6 +46482,11 @@ struct Snapshot {
     decks: [Vec<String>; 2],
     card_level: [i32; 2],
     tower_level: [i32; 2],
+    /// Equipment is also needed to report a fallen tower's original maximum HP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tower_troops: Option<[Option<String>; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    king_level: Option<[Option<i32>; 2]>,
     /// `BattleConfig::deck_levels`. Added after 0.1.6; `default` (empty: every card at `card_level`), what a battle
     /// saved before it played.
     #[serde(default)]
@@ -47884,6 +47909,8 @@ impl BattleState {
             decks: c.decks.clone(),
             card_level: c.card_level,
             tower_level: c.tower_level,
+            tower_troops: c.tower_troops.iter().any(Option::is_some).then(|| c.tower_troops.clone()),
+            king_level: c.king_level.iter().any(Option::is_some).then_some(c.king_level),
             deck_levels: c.deck_levels.clone(),
             shuffle_decks: c.shuffle_decks,
             bucket_subtiles: c.bucket_subtiles,
@@ -48204,10 +48231,22 @@ impl BattleState {
             bucket_subtiles: snap.bucket_subtiles,
             forms: snap.forms,
             command_delay_ticks: snap.command_delay_ticks,
-            // read at try_new alone: the restored towers are the snapshot's own entities, their records saved with them
-            tower_troops: [None, None],
-            king_level: [None, None],
+            tower_troops: snap.tower_troops.unwrap_or_default(),
+            king_level: snap.king_level.unwrap_or_default(),
         };
+        for team in [Team::Blue, Team::Red] {
+            let t = team as usize;
+            let king = cfg.cards.index(KING_TOWER).ok_or("snapshot has no KingTower card")?;
+            let flank = cfg.tower_troop_card(team)?.or_else(|| cfg.cards.index(PRINCESS_TOWER))
+                .ok_or("snapshot has no PrincessTower card")?;
+            let level = cfg.tower_level[t];
+            for (card, level) in [(king, cfg.king_level[t].unwrap_or(level)), (flank, level)] {
+                if level < 1 {
+                    return Err(format!("snapshot {team:?}'s {} has invalid tower level {level}", cfg.cards.get(card).name));
+                }
+                cfg.cards.level_multiplier(card, level).map_err(|e| format!("snapshot {team:?}'s tower: {e}"))?;
+            }
+        }
         let mut s = BattleState {
             cfg,
             ents: snap.ents,

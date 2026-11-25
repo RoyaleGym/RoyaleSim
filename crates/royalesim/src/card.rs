@@ -7240,7 +7240,7 @@ fn push_hero_area(r: &RawHeroArea, areas: &mut Vec<AttachedArea>, buffs: &mut Bu
 
 /// THE TABLE'S OWN GLOBALS THE LOADER READS (cards.json `globals`), typed. Part of the card fingerprint
 /// (state.rs `cards_fingerprint`): a snapshot saved against other globals is stale.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct CardGlobals {
     /// MIRROR_LEVEL_OFFSET: how many levels above the Mirror its copy is played (1 in 15.535.29). None when
     /// the file carries no such row: the Mirror card is then refused.
@@ -7250,6 +7250,23 @@ pub struct CardGlobals {
     /// `CLONE_GLOBALS` order.
     pub clone_numbers: [Option<i32>; 3],
     pub clone_flags: [Option<bool>; 8],
+    /// MIRROR_EVO_LEVEL_OFFSET, the level increase when a charged Mirror copies an evolution.
+    pub mirror_evo_level_offset: Option<i32>,
+}
+
+impl std::fmt::Debug for CardGlobals {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The snapshot fingerprint hashes this representation. Older tables do not carry the evolution offset.
+        let mut globals = f.debug_struct("CardGlobals");
+        globals
+            .field("mirror_level_offset", &self.mirror_level_offset)
+            .field("clone_numbers", &self.clone_numbers)
+            .field("clone_flags", &self.clone_flags);
+        if let Some(offset) = self.mirror_evo_level_offset {
+            globals.field("mirror_evo_level_offset", &offset);
+        }
+        globals.finish()
+    }
 }
 
 /// THE CLONE'S GLOBALS (globals.csv, 15.535.29), in `CardGlobals::clone_numbers` then `clone_flags` order.
@@ -7291,7 +7308,12 @@ impl CardGlobals {
         for (k, slot) in clone_flags.iter_mut().enumerate() {
             *slot = flag(CLONE_GLOBALS[3 + k])?;
         }
-        Ok(CardGlobals { mirror_level_offset: int("MIRROR_LEVEL_OFFSET")?, clone_numbers, clone_flags })
+        Ok(CardGlobals {
+            mirror_level_offset: int("MIRROR_LEVEL_OFFSET")?,
+            clone_numbers,
+            clone_flags,
+            mirror_evo_level_offset: int("MIRROR_EVO_LEVEL_OFFSET")?,
+        })
     }
 
     /// A CLONE_* number by name, None when the file does not carry it (or `name` is not one).
@@ -12392,6 +12414,9 @@ impl CardDb {
         let mut raw: RawCard = serde_json::from_value(v).map_err(|e| format!("evolutions: {e}"))?;
         let base = self.index(&extra.form_of).filter(|&b| self.get(b).name == extra.form_of).ok_or_else(|| format!("its base card {} does not load", extra.form_of))?;
         let bc = self.get(base).clone();
+        if bc.is_mirror() && ctx.globals.mirror_evo_level_offset.is_none() {
+            return Err("a Mirror evolution needs the table's MIRROR_EVO_LEVEL_OFFSET".into());
+        }
         // AN EVOLVED SPELL (the Evo Zap) evolves a spell card; its mechanic is its own spell object's (an echoing area,
         // `echo_area`), so it carries no block. Every other form evolves a troop or a building and carries one.
         let spell_form = bc.kind == CardKind::Spell && bc.spell.is_some();
@@ -15584,7 +15609,7 @@ impl CardDb {
     /// Cannoneer and ChefTower rows), registered under the row's name. The crown tower ladder scales it as it scales the
     /// Princess (state.rs `spawn_with`). A troop whose row is missing or does not load is not registered. Each record is
     /// spawn-only (`summon_only`), so no deck, catalogue (py.rs) or census names one; the records load after every other
-    /// slot, so no index moves. NOT modelled: the Duchess's dagger charges (her row's 500 ms throughout), the Chef's cooking.
+    /// slot. The Duchess's dagger charges and the Chef's cooking run in state.rs.
     fn load_tower_troops(&mut self, s: &str, buffs: &mut BuffTable, ctx: &LoadCtx) {
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(s) else { return };
         // THE ROYAL CHEF'S COOKING (`ChefCookingDef`): the king's block, its pancake's Speed off the projectiles table.

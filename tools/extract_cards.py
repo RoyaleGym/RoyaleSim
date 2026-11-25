@@ -5473,13 +5473,14 @@ def sha256_of(p: Path) -> str:
 
 # THE 15.535 GLOBALS THE LOADER READS (card.rs `CardDb::globals`): named rows of the vintage's own
 # globals.csv, typed -- NumberValue as an integer, BooleanValue as a boolean. Only the rows a loaded
-# mechanic reads are carried: the Mirror's MIRROR_LEVEL_OFFSET (read), with its two neighbours
-# MIRROR_CAP_TO_MAX_LEVEL and MIRROR_IGNORE_CHAMPIONS carried for the record (read by nothing), and the
+# mechanics read are carried. The Mirror's level offsets are read, with its two neighbours
+# MIRROR_CAP_TO_MAX_LEVEL and MIRROR_IGNORE_CHAMPIONS carried for the record (read by nothing). The
 # Clone's eleven CLONE_* rules (card.rs `clone_shape` reads every one). The engine's other globals still
-# come from the embedded 2018 globals.csv (state.rs `globals_number`). A named row the file lacks, or one
-# whose value is neither a number nor a boolean, stops the build.
+# come from the embedded 2018 globals.csv (state.rs `globals_number`). The evolution offset is optional
+# so older tables can still be generated. A missing required row or an untyped value stops the build.
 GLOBALS_READ = (
     "MIRROR_LEVEL_OFFSET",
+    "MIRROR_EVO_LEVEL_OFFSET",
     "MIRROR_CAP_TO_MAX_LEVEL",
     "MIRROR_IGNORE_CHAMPIONS",
     "CLONE_LEVEL_OFFSET",
@@ -5507,6 +5508,8 @@ def globals_block(v: Vintage) -> dict:
     for n in GLOBALS_READ:
         r = rows.get(n)
         if r is None:
+            if n == "MIRROR_EVO_LEVEL_OFFSET":
+                continue
             raise SystemExit(f"{path.name}: no row {n}")
         num, boo = (r.get("NumberValue") or "").strip(), (r.get("BooleanValue") or "").strip().upper()
         if num and not boo:
@@ -5531,7 +5534,7 @@ EVOLUTIONS = (
     "GoblinCage_EV1", "AxeMan_EV1", "GoblinGiant_EV1", "Princess_EV1", "Hunter_EV1", "BlowdartGoblin_EV1",
     "FirespiritHut_EV1", "ElectroDragon_EV1", "GoblinDrill_EV1", "GoblinBarrel_EV1", "RageBarbarian_EV1",
     "ElectroGiant_EV1",  # 16.402 on (EVOLUTIONS_16402_ONLY)
-    "Giant_EV1",  # 16.635 on (EVOLUTIONS_16635_ONLY)
+    "Giant_EV1", "Mirror_EV1",  # 16.635 on (EVOLUTIONS_16635_ONLY)
 )
 # THE EVO SKELETON BARREL'S DROPS (`barrel_block`): the keys its pop action may set (read, or display only), the keys
 # its health trigger may set, and the columns a drop's area may set; any other stops the build.
@@ -8324,7 +8327,7 @@ def delevel_pulse_block(t: Tables, card: dict) -> dict:
 # THE EVO GIANT'S RAGE (`rage_areas_block`; characters/giant_ev1.toml), read whole or the build stops. 16.635 on: the
 # 160635007 pack is the first to carry the form in play (every earlier Giant_EV1 row is a NotInUse Knight placeholder),
 # so the row is built on a forms_16635 vintage alone (EVOLUTIONS_16635_ONLY).
-EVOLUTIONS_16635_ONLY = frozenset({"Giant_EV1"})
+EVOLUTIONS_16635_ONLY = frozenset({"Giant_EV1", "Mirror_EV1"})
 # The unit row's own columns: the ones it reads, and the display one beside DATA_ONLY_DISPLAY and COSMETIC (PrefabAsset:
 # the 3D model). Base and ClonedVersion (DATA_ONLY_DISPLAY) are pinned to the base card's unit below.
 RAGE_ROW = {"OnStartingAction", "OnHitTargetAction", "AttackSequenceMode", "AttackSequence", "AttackSequenceList",
@@ -12106,8 +12109,7 @@ def build(t: Tables) -> dict:
         for r in doc["rarities"].values():
             del r["tournament_level_index"]
     else:
-        # The globals the loader reads, by name (`globals_block`). 15.535 only: the 2018 Mirror row
-        # carries no `spell.mirror` and stays refused, so that file needs none.
+        # The live globals the loader reads, by name (`globals_block`). The 2018 file needs none.
         doc["globals"] = globals_block(v)
         # The evolved forms the engine loads (`evolution_records`), after every other list, 15.535 only.
         doc["evolutions"] = evolution_records(t, rarities)
