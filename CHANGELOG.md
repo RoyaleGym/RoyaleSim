@@ -3,6 +3,34 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.58 (2026-11-25)
+
+- 4 more settings default to the current client's behaviour, each measured against its recorded battles (3 of the
+  settings are new, marked new):
+  - With one enemy princess tower down, a troop from the standing tower's lane walks to that tower when it is nearer
+    than the enemy king, and to the king otherwise. A troop from the fallen tower's lane still walks to the king
+    (`targeting.FALLEN_LANE_TOWER_PICK`, new value `"client16635_king_distance"`). Thanks to Kazox61, whose lane work
+    in PR #3 led to this rule and whose five client tracks are now its tests.
+  - A pulling area such as a Tornado moves only the units its update saw on the tick before. A unit just placed, the
+    Barbarian a Barbarian Barrel releases and a Bats member still waiting to deploy are first pulled a tick or two
+    later (`status.ATTRACT_VICTIM_ONSET`, new).
+  - A unit that spawns others on a timer, under a slow such as an Ice Wizard's shot or an Ice Golem's death, counts
+    down at the slowed rate from the tick the slow lands, a slow that lands on a release tick included, and at its own
+    rate again from the tick the slow runs out (`spawner.SPAWN_SPEED_READ`, new).
+  - A Hero Bowler's siege lasts one tick past its buffs: on that tick it still swings at the siege's rate, and it walks
+    from the next (`combat.SIEGE_END_TICK`, new).
+- 5 new settings whose defaults are unchanged: `combat.DEFLECT_RETURN_TOWER_SHARE` (default `"whole"`, also
+  `"client16635_tower_quarter"`), `rider.OFFSET_FACING` (default `"tick_start"`, also `"client16635_after_attack"`),
+  `spawner.ICE_RELEASE_SPAWNER` and `status.ICE_RELEASE_LOAD_TIMER` (default `"runs"`, also
+  `"client16635_held_next_tick"`), and `spells.REROLL_HOLD_END` (default `"held_to_landing"`, also
+  `"client16635_cast_end_wait"` and `"client16635_cast_end_clock"`).
+- One new value that is not a default: `combat.SPIN_REACH_STEP` `"client16635_one_more_chase_step"`.
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  keep the older client's values for its battles.
+- A battle or bank saved by 0.1.57 loads on 0.1.58, but it keeps the settings it was saved with, so it plays the four
+  changes above the old way. The new settings read their old values from a save that lacks them. Save banks again on
+  0.1.58 to get the new behaviour.
+
 ## 0.1.57 (2026-11-23)
 
 - **Saved battles from earlier versions do not load.** A Goblin Drill building's card gains three fields, so the card
