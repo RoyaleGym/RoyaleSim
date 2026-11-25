@@ -1259,7 +1259,7 @@ pub fn state_json_text_opts(
                     } else {
                         (cfg.tower_troops[ti].as_deref().unwrap_or(PRINCESS_TOWER), cfg.tower_level[ti], EntityKind::PrincessTower)
                     };
-                    let idx = cards.index(card).expect("towers exist");
+                    let idx = cards.index(card).ok_or_else(|| format!("no tower record {card}"))?;
                     let base = cards.get(idx).hitpoints;
                     if c.tower_ladder == crate::state::TowerLadder::GlobalsPercentPerLevelCompoundFloor {
                         CardDb::scale(base, crate::state::tower_multiplier_percent(c, kind, level, c.tower_hp_pct)?)
@@ -2441,8 +2441,8 @@ impl Battle {
     /// protocol.py `BattleState` as JSON bytes (EntityState rows are arrays), with the
     /// spell extensions of the module doc (SPELLS).
     ///
-    /// `extra=True` appends ENTITY_EXTRA_FIELDS (spawner clock, dash, buff speed percents, jumping) to every entity row;
-    /// the default leaves the rows exactly as ENTITY_FIELDS lists them.
+    /// `extra=True` appends ENTITY_EXTRA_FIELDS to every entity row and adds the draw queue, ability carrier UIDs
+    /// and resolved hand plays to each player. The default keeps the entity rows in ENTITY_FIELDS order.
     #[pyo3(signature = (extra=false))]
     fn state_json<'py>(&self, py: Python<'py>, extra: bool) -> PyResult<Bound<'py, PyBytes>> {
         let s = self.s()?;

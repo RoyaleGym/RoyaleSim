@@ -121,7 +121,7 @@ def test_the_records_differ_by_the_clients_changes_alone():
         changed = {n: changes(a[n], b[n]) for n in sorted(set(a) & set(b))}
         got[sec] = (sorted(set(b) - set(a)), {n: d for n, d in changed.items() if d})
     assert got == RECORDS
-    assert old["globals"] == new["globals"], "the read globals (Mirror, Clone) are unchanged"
+    assert changes(old["globals"], new["globals"]) == {"MIRROR_EVO_LEVEL_OFFSET": (None, 1)}
 
 
 def test_the_diff_names_an_unnamed_entry_by_its_index():

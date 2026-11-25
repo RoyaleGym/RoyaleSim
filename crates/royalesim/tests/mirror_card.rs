@@ -23,7 +23,9 @@
 //!   6. a Fireball copy is the Fireball cast one level up;
 //!   7. a copy one past the last level plays at it (a Knight 16's copy stands at 17, 3105 hp); two past is refused
 //!      and debits nothing;
-//!   8. the record survives a save and load, and is state where a Mirror is in the deck (and only there).
+//!   8. the record survives a save and load, and is state where a Mirror is in the deck (and only there);
+//!   9. a charged Mirror uses the target's evolution and the table's evolution offset when available. It preserves
+//!      the recorded form of a hero-only target and spends only its own charge on a successful play.
 //!
 //! PLANTS (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant cargo test --test mirror_card`):
 //!   * `mirror_flat_cost` -- the Mirror's own cost alone: (2) goes red.
@@ -31,13 +33,14 @@
 //!   * `variant_placement_of_hand_card` -- the Mirror's own row judges the tap: (5) goes red.
 //!   * `save_drops_last_play` -- the record is lost across a save: (8) goes red.
 //!   * `hash_skips_last_play` -- the record is not hashed: (8) goes red.
+//!   * `mirror_evolution_ignored` -- the charged Mirror never evolves its target: (9) goes red.
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
-use royalesim::card::{CardDb, CardSource, SpellShape};
+use royalesim::card::{CardDb, CardSource, SpellShape, EMBEDDED_CARDS_160635007_20261103_JSON, FORM_EVOLUTION, FORM_HERO};
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, DeployError, Play};
+use royalesim::state::{BattleConfig, BattleState, CardTable, DeployError, Play};
 use royalesim::Team;
 
 fn at(p: (i32, i32)) -> Vec2 {
@@ -133,41 +136,91 @@ fn a_mirror_replays_the_last_card_one_level_up_for_its_cost_plus_its_own() {
     }
 }
 
-/// The 16.635 table releases Mirror_EV1. Plant: mirror_evolution_ignored.
+fn after_playing_with_evo_mirror(
+    table: CardDb, first: &str, target_form: u8, mirror_plays: u8, mirror_level: i32,
+) -> BattleState {
+    let mut cfg = BattleConfig::with_cards(table);
+    cfg.decks = [deck(first), deck(first)];
+    cfg.forms[0] = vec![target_form, 0, 0, 0, FORM_EVOLUTION, 0, 0, 0];
+    cfg.shuffle_decks = false;
+    cfg.card_level = [11, 11];
+    cfg.deck_levels[0] = vec![11, 11, 11, 11, mirror_level, 11, 11, 11];
+    let mut s = BattleState::new(7, cfg);
+    past_deploy_lockout(&mut s);
+    s.scenario_set_elixir_milli(Team::Blue, 10000);
+    s.deploy_slot(Team::Blue, 0, at(OWN)).unwrap();
+    s.scenario_set_evo_plays(Team::Blue, "Mirror", mirror_plays).unwrap();
+    s.scenario_set_elixir_milli(Team::Blue, 10000);
+    s
+}
+
+/// Plant: mirror_evolution_ignored.
 #[test]
 fn the_charged_mirror_evolves_the_target_and_spends_only_its_own_cycle() {
-    use royalesim::state::{BattleConfig, CardTable};
     let old = CardDb::load_table(CardTable::Client160402017Oct19).unwrap();
-    assert!(old.form_card(old.index("Mirror").unwrap(), royalesim::card::FORM_EVOLUTION).is_none());
-    for (first, counter, expected) in [
-        ("Knight", 0, "Knight"), ("Knight", 1, "Knight"), ("Knight", 2, "Knight_EV1"),
-        ("Zap", 2, "Zap_EV1"), ("Golem", 2, "Golem"),
+    assert!(old.form_card(old.index("Mirror").unwrap(), FORM_EVOLUTION).is_none());
+    for (first, target_form, counter, expected) in [
+        ("Knight", 0, 0, "Knight"),
+        ("Knight", 0, 1, "Knight"),
+        ("Knight", 0, 2, "Knight_EV1"),
+        ("Knight", FORM_HERO, 2, "Knight_EV1"),
+        ("Knight", FORM_EVOLUTION, 2, "Knight_EV1"),
+        ("MegaMinion", FORM_HERO, 2, "MegaMinion_hero"),
+        ("Zap", 0, 2, "Zap_EV1"),
+        ("Golem", 0, 2, "Golem"),
     ] {
         let table = CardDb::load_table(CardTable::Client160635007Nov03).unwrap();
-        let mut cfg = BattleConfig::with_cards(table);
-        cfg.decks = [deck(first), deck(first)];
-        cfg.forms[0] = cfg.decks[0].iter().map(|n| u8::from(n == "Mirror")).collect();
-        cfg.shuffle_decks = false;
-        cfg.card_level = [11, 11];
-        let mut s = BattleState::new(7, cfg);
-        past_deploy_lockout(&mut s);
-        s.scenario_set_elixir_milli(Team::Blue, 10000);
-        s.deploy_slot(Team::Blue, 0, at(OWN)).unwrap();
-        s.scenario_set_evo_plays(Team::Blue, "Mirror", counter).unwrap();
+        let mut s = after_playing_with_evo_mirror(table, first, target_form, counter, 11);
         let mirror = idx(&s, "Mirror");
+        let target = s.mirror_target(Team::Blue).unwrap();
+        if target_form == FORM_HERO {
+            assert_eq!(target, s.cards().form_card(idx(&s, first), FORM_HERO).unwrap());
+        }
         let play = s.resolve_play(Team::Blue, 0).unwrap();
-        assert_eq!((play.in_slot, play.card, play.level), (mirror, idx(&s, expected), 12), "{first}, count {counter}");
-        assert_eq!(play.cost, s.config().cards.get(idx(&s, first)).elixir + 1);
-        // A refusal must leave the charge and Mirror target intact.
-        s.scenario_set_elixir_milli(Team::Blue, 0);
-        assert!(s.deploy_slot(Team::Blue, 0, at(OWN2)).is_err());
-        assert_eq!(s.resolve_play(Team::Blue, 0).unwrap(), play);
-        s.scenario_set_elixir_milli(Team::Blue, 10000);
+        assert_eq!((play.in_slot, play.card, play.level), (mirror, idx(&s, expected), 12), "{first} form {target_form}, count {counter}");
+        assert_eq!(play.cost, s.cards().get(idx(&s, first)).elixir + 1);
+        let (before, unit) = s.elixir_raw(Team::Blue);
         s.deploy_slot(Team::Blue, 0, at(OWN2)).unwrap();
         let entry = s.evo_counters(Team::Blue).iter().find(|k| k.card == mirror).unwrap();
         assert_eq!(entry.plays, if counter == 2 { 0 } else { counter + 1 }, "{first}");
-        assert_eq!(s.mirror_target(Team::Blue), Some(idx(&s, first)));
+        assert_eq!(s.mirror_target(Team::Blue), Some(target));
+        if target_form == FORM_EVOLUTION {
+            let knight = idx(&s, "Knight");
+            let entry = s.evo_counters(Team::Blue).iter().find(|k| k.card == knight).unwrap();
+            assert_eq!(entry.plays, 1, "the copy leaves the Knight's charge alone");
+        }
+        if expected == "Knight_EV1" {
+            assert_eq!(before - s.elixir_raw(Team::Blue).0, 4 * unit);
+            run_until(&mut s, 20, |s| !find_live(s, Team::Blue, "Knight_EV1").is_empty());
+            let copy = find_live(&s, Team::Blue, "Knight_EV1");
+            assert_eq!(copy.len(), 1);
+            assert_eq!(copy[0].level, 12);
+            if target_form == FORM_HERO {
+                let hero = find_live(&s, Team::Blue, "Knight_hero");
+                assert_eq!(hero.len(), 1);
+                assert_eq!(s.ability_buttons(Team::Blue)[0].hero, Some(hero[0].id));
+            }
+        }
     }
+}
+
+#[test]
+fn an_evolved_copy_uses_its_own_offset_and_preserves_charge_when_its_level_is_refused() {
+    let mut data: serde_json::Value = serde_json::from_str(EMBEDDED_CARDS_160635007_20261103_JSON).unwrap();
+    assert_eq!(data["globals"]["MIRROR_EVO_LEVEL_OFFSET"], 1);
+    data["globals"]["MIRROR_EVO_LEVEL_OFFSET"] = 2.into();
+    let table = CardDb::from_json_str(&data.to_string(), CardSource::DerivedJson).unwrap();
+    let mut s = after_playing_with_evo_mirror(table.clone(), "Knight", 0, 2, 11);
+    assert_eq!(s.resolve_play(Team::Blue, 0).unwrap().level, 13);
+    s.scenario_set_evo_plays(Team::Blue, "Mirror", 1).unwrap();
+    assert_eq!(s.resolve_play(Team::Blue, 0).unwrap().level, 12);
+
+    // A charged Mirror at level 16 would make an evolved Knight at 18. The normal offset would fit.
+    let mut s = after_playing_with_evo_mirror(table, "Knight", 0, 2, 16);
+    let before = s.state_hash();
+    assert!(matches!(s.deploy_slot(Team::Blue, 0, at(OWN2)), Err(DeployError::InvalidLevel(_))));
+    assert_eq!(s.state_hash(), before);
+    assert_eq!(s.evo_counters(Team::Blue)[0].plays, 2);
 }
 
 /// Plant: mirror_same_level.

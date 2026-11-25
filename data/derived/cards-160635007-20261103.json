@@ -279,9 +279,6 @@
    "characters/minion_horde_ev1.toml": {
     "sha256": "665ed995de2e1c04c1aee83af94ac6bdcd4ba4be9a19c17192224791709b8c36"
    },
-   "characters/mirror_ev1_spell.toml": {
-    "sha256": "039e05eb2bba636d6d88fccd914be3a3a9c0745a131c02b0fe1b7b884f0c7982"
-   },
    "characters/monk.toml": {
     "sha256": "89d0334d0eb98373e872516b3e12a821d3edafc090aa3919bad3041f69804f3c"
    },
@@ -76622,6 +76619,7 @@
  ],
  "globals": {
   "MIRROR_LEVEL_OFFSET": 1,
+  "MIRROR_EVO_LEVEL_OFFSET": 1,
   "MIRROR_CAP_TO_MAX_LEVEL": false,
   "MIRROR_IGNORE_CHAMPIONS": false,
   "CLONE_LEVEL_OFFSET": 0,

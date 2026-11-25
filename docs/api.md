@@ -50,16 +50,14 @@ position in that list. `catalogue_json()` lists each card with its cost, kind an
 
 **Levels.** Both sides play at one card level and one tower level unless you say otherwise. To give each side its
 own, pass `levels=[blue, red]` to `reset`, each a list with one level per deck card (or empty), and
-`tower_levels=[blue, red]`. To equip different tower troops, pass `tower_troops=["ChefTower", None]`
-to `reset`. Each side accepts `None` for the Princess, or `"ChefTower"`, `"Cannoneer"` or `"DaggerDuchess"`.
+`tower_levels=[blue, red]`. The keyword-only `tower_troops=["ChefTower", None]` equips different tower troops.
+Each side accepts `None` for the Princess, or `"ChefTower"`, `"Cannoneer"` or `"DaggerDuchess"`. The keyword-only
 `king_levels=[13, None]` sets the blue king's own level and uses the red side's tower level for its king.
-A Mirror's copy is one level above the Mirror. On the November 16.635 card table, a form-1 Mirror evolves
-its copied card after two basic Mirror plays wherever the target sits in the deck. A target with no
-evolution receives the usual copy.
 
-`state_json(extra=True)` also includes three fields per player. `queue` lists the draw queue in order.
-`ability_uids` gives the current carrier for each ability button, or null. `hand_plays` gives the resolved
-card name and form for each hand slot, or null when the slot has no target.
+**Mirror.** A Mirror's copy is one level above the Mirror on the shipped tables. On the November 16.635 card table,
+a form-1 Mirror charges after two basic Mirror plays. A charged Mirror uses the last play's base card to look up its
+evolution, including after a hero play or a play from an ordinary deck slot. When no evolution is available, it
+copies the last form as usual. The table gives the ordinary and evolved copies separate level offsets.
 
 **A battle under way.** `reset` can also start from the middle of a battle:
 
@@ -113,6 +111,11 @@ built on one card table. `unit_types_digest()` is a short hash of it, so you can
 numbering. `buffs` lists what is on the unit as `[name, milliseconds left]` pairs. `buff_kinds_json()` lists every name
 a unit can carry under the card table, sorted, and `buff_kinds_digest()` is its short hash. Some names join several of
 the table's buffs with `|`, where the table gives them identical values, so split a name on `|` for the buffs in it.
+
+**More per player.** `state_json(extra=True)` adds three player fields. `queue` lists the draw queue in order.
+`ability_uids` gives the live carrier's UID for each ability button, or null when there is no carrier.
+`hand_plays` gives `[card_name, form]` for each hand slot. An empty slot, a Mirror with no target or a copy
+beyond the loaded level ladder gives null.
 
 **More per unit.** `state_json(extra=True)` adds the columns `ENTITY_EXTRA_FIELDS` names to the end of every unit row.
 Without it the rows are exactly as before. They are:

@@ -36,8 +36,9 @@ def test_the_default_table_is_15535():
 
 
 def test_reset_equips_chef_for_just_one_side_and_preserves_equipment_on_restore():
-    b = battle("client160635007_20261103")
-    decks = [[0, 1] * 4] * 2
+    over = {KEY: json.dumps("client160635007_20261103")}
+    b = royalesim.Battle(["Ghost", "Knight", "Fireball"], SLOTS, calibration_overrides=over)
+    decks = [[0, 1] * 4, [2, 1, 0, 1, 0, 1, 0, 1]]
     b.reset(3, decks, 0, 0, [5000, 5000], None, [], tower_troops=["ChefTower", None],
             tower_levels=[11, 11], king_levels=[13, None])
     state = json.loads(b.state_json())
@@ -57,12 +58,38 @@ def test_reset_equips_chef_for_just_one_side_and_preserves_equipment_on_restore(
     with pytest.raises(ValueError, match="Knight"):
         b.reset(3, decks, 0, 0, None, None, [], tower_troops=["Knight", None])
     hp = [list(blue["tower_hp"]), list(red["tower_hp"])]
-    hp[0][1] = 0
-    b.reset(3, decks, 0, 100, None, hp, [], tower_troops=["ChefTower", None],
+    hp[0][:2] = [1, 0]
+    b.reset(3, decks, 0, 100, [5000, 5000], hp, [], tower_troops=["ChefTower", None],
             tower_levels=[11, 11], king_levels=[13, None])
-    assert json.loads(b.state_json())["players"][0]["tower_max_hp"] == blue["tower_max_hp"]
-    b.load(b.save())
-    assert json.loads(b.state_json())["players"][0]["tower_max_hp"] == blue["tower_max_hp"]
+    sub = royalesim.SUBTILE_PER_MILLITILE
+    assert b.step([(1, 0, 9000 * sub, 3000 * sub)], 100)[0][1] == 0
+    fallen = json.loads(b.state_json())["players"][0]
+    assert fallen["tower_hp"][:2] == [0, 0]
+    assert fallen["tower_max_hp"] == blue["tower_max_hp"]
+    blob = b.save()
+    b.reset(5, decks, 0, 0, None, None, [])
+    b.load(blob)
+    restored = json.loads(b.state_json())["players"][0]
+    assert restored["tower_hp"][:2] == [0, 0]
+    assert restored["tower_max_hp"] == blue["tower_max_hp"]
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("tower_troops", ["Missing", None], "tower troop Missing"),
+    ("tower_troops", ["Knight", None], "tower troop Knight"),
+    ("king_level", [0, None], "invalid tower level 0"),
+    ("king_level", [999, None], "has no level 999"),
+])
+def test_snapshot_refuses_invalid_tower_equipment_and_king_level(field, value, message):
+    b = battle("client160635007_20261103")
+    decks = [[0, 1] * 4] * 2
+    b.reset(3, decks, 0, 100, None, None, [], tower_troops=["ChefTower", None], king_levels=[13, None])
+    original = b.save()
+    corrupt = json.loads(original)
+    corrupt[field] = value
+    with pytest.raises(ValueError, match=message):
+        b.load(json.dumps(corrupt).encode())
+    assert b.save() == original
 
 
 def test_mirror_evolution_in_extra_state_and_at_the_play():

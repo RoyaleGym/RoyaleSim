@@ -5473,13 +5473,14 @@ def sha256_of(p: Path) -> str:
 
 # THE 15.535 GLOBALS THE LOADER READS (card.rs `CardDb::globals`): named rows of the vintage's own
 # globals.csv, typed -- NumberValue as an integer, BooleanValue as a boolean. Only the rows a loaded
-# mechanic reads are carried: the Mirror's MIRROR_LEVEL_OFFSET (read), with its two neighbours
-# MIRROR_CAP_TO_MAX_LEVEL and MIRROR_IGNORE_CHAMPIONS carried for the record (read by nothing), and the
+# mechanics read are carried. The Mirror's level offsets are read, with its two neighbours
+# MIRROR_CAP_TO_MAX_LEVEL and MIRROR_IGNORE_CHAMPIONS carried for the record (read by nothing). The
 # Clone's eleven CLONE_* rules (card.rs `clone_shape` reads every one). The engine's other globals still
-# come from the embedded 2018 globals.csv (state.rs `globals_number`). A named row the file lacks, or one
-# whose value is neither a number nor a boolean, stops the build.
+# come from the embedded 2018 globals.csv (state.rs `globals_number`). The evolution offset is optional
+# so older tables can still be generated. A missing required row or an untyped value stops the build.
 GLOBALS_READ = (
     "MIRROR_LEVEL_OFFSET",
+    "MIRROR_EVO_LEVEL_OFFSET",
     "MIRROR_CAP_TO_MAX_LEVEL",
     "MIRROR_IGNORE_CHAMPIONS",
     "CLONE_LEVEL_OFFSET",
@@ -5507,6 +5508,8 @@ def globals_block(v: Vintage) -> dict:
     for n in GLOBALS_READ:
         r = rows.get(n)
         if r is None:
+            if n == "MIRROR_EVO_LEVEL_OFFSET":
+                continue
             raise SystemExit(f"{path.name}: no row {n}")
         num, boo = (r.get("NumberValue") or "").strip(), (r.get("BooleanValue") or "").strip().upper()
         if num and not boo:
@@ -12106,8 +12109,7 @@ def build(t: Tables) -> dict:
         for r in doc["rarities"].values():
             del r["tournament_level_index"]
     else:
-        # The globals the loader reads, by name (`globals_block`). 15.535 only: the 2018 Mirror row
-        # carries no `spell.mirror` and stays refused, so that file needs none.
+        # The live globals the loader reads, by name (`globals_block`). The 2018 file needs none.
         doc["globals"] = globals_block(v)
         # The evolved forms the engine loads (`evolution_records`), after every other list, 15.535 only.
         doc["evolutions"] = evolution_records(t, rarities)

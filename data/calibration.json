@@ -4147,12 +4147,13 @@
     },
     "MIRROR_EVOLUTION": {
       "value": "evolve_copied_card_if_available",
-      "status": "datamined",
-      "confidence": "The November release notes specify the copy and the fallback. The released form row supplies its cycle. No frame-by-frame measurement of this form is claimed.",
-      "provenance": "Supercell, King vs. King, https://supercell.com/en/games/clashroyale/blog/release-notes/new-season-king-vs-king/ and the 16.635 Mirror_EV1 spell row (Mirror and DarkElixirCost).",
+      "status": "hypothesis",
+      "confidence": "Supercell's November notes describe the evolved copy and the ordinary fallback. The treatment of a hero play, the charge debit on a fallback and the full board result await a capture.",
+      "provenance": "Client 160635007, content 16.635.8 (2026-11-03). Supercell's King vs. King notes describe the rule: https://supercell.com/en/games/clashroyale/blog/release-notes/new-season-king-vs-king/. The Mirror_EV1 spell row gives the cycle of two and globals.csv gives MIRROR_EVO_LEVEL_OFFSET.",
       "candidates": ["evolve_copied_card_if_available"],
-      "meaning": "A charged Mirror deploys the evolution of its copied card if that evolution exists on the active card table. The target can occupy an ordinary slot. A target with no evolution is copied normally. Only the Mirror spends its cycle.",
-      "engine": "state.rs resolve_play and deploy_slot; tests/mirror_card.rs."
+      "meaning": "A charged Mirror looks up the last play's base card. If it has an evolution, the copy uses that form and MIRROR_EVO_LEVEL_OFFSET. Otherwise the recorded form is copied as usual. A successful copy spends the Mirror's charge and leaves the copied card's own cycle alone.",
+      "promotion_rules": "Capture a charged Mirror on client content 16.635.8 after an ordinary-slot card with an evolution, after a hero play of a card with both forms, and after a card with no evolution. Read the spawned form, level, elixir debit and both evolution counters.",
+      "engine": "state.rs resolve_play and deploy_slot, tested in tests/mirror_card.rs."
     },
     "MIRROR_PLACEMENT": {
       "value": "copied_card_rule",

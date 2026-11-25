@@ -5,10 +5,17 @@ and call the engine. Logic changes are listed by release in the [GitHub Releases
 
 ## Unreleased
 
-- Python callers can equip each side's tower troop and set its king level separately at reset.
-  `state_json(extra=True)` includes the draw queue, the resolved hand cards and the ability carrier IDs.
-- The November 16.635 table supports Mirror Evolution. A charged Mirror copies an evolved target
-  even when that card is in an ordinary deck slot. The November table fingerprint changes.
+- `Battle.reset` takes the keyword-only `tower_troops` and `king_levels` arguments. They equip each side's tower troop and
+  set its king level separately. `state_json(extra=True)` includes the draw queue, the resolved hand cards and the
+  ability carrier IDs.
+- On every table, a fallen tower's `tower_max_hp` now comes from the same ladder as its live maximum HP. A level-11
+  Princess Tower reports 3052 instead of 3584 after it falls.
+- The November 16.635 table supports Mirror Evolution (calibration `match.MIRROR_EVOLUTION`). A charged Mirror uses the
+  target's evolution and the table's `MIRROR_EVO_LEVEL_OFFSET` when an evolution is available. It can evolve a copy of an
+  ordinary-slot card or a hero play. Other targets are copied normally.
+- **Battles and banks saved by 0.1.57 on `client160635007_20261103` no longer load.** Recreate them with this build.
+  The fingerprint covers all loaded card data. The new evolution also shifts every hero-form and tower troop record
+  index by one, changing state hashes where those records are on the board.
 
 ## 0.1.57 (2026-11-23)
 

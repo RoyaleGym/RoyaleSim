@@ -566,8 +566,8 @@ Not modelled yet, in plain words:
   those cards show up in tests of one mechanic, such as the Golem's death spawn. Some, such as the Mega Knight, carry a
   mechanic the engine does not read, and a deck of 8 drawn at random from everything it plays
   will most likely hold one. If you pick decks in code, draw them from `thin_slice`.
-- Event-only morphs, air units beyond flying straight at their target, and tower troops. Evolutions, hero
-  forms and champions' buttons beyond the ones above.
+- Event-only morphs and air units beyond flying straight at their target. For card forms and tower troop equipment,
+  see [Mechanics](mechanics.md) and [Python API](api.md).
 - The growing damage of the Inferno Tower and the Inferno Dragon on the 2018 table. That table
   has no columns for it, so there the Infernos keep their first damage. (On the 15.535 table the
   growing damage and the Mortar's minimum range run since `126992a`, measured on the 16.402
