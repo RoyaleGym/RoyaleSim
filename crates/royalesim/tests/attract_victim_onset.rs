@@ -1,7 +1,7 @@
 //! WHICH UNITS A PULL MOVES ON A TICK -- calibration status.ATTRACT_VICTIM_ONSET, state.rs `phase_path16402_for` (the
 //! attract pre-pass), `spawn_with`, `phase_reap` and `deploy_countdown` (Entities::attract_from).
 //!
-//! THE READING (client16635_seen_last_update, shipped at its old arm same_tick): a pulling area moves on tick t only the
+//! THE READING (client16635_seen_last_update, shipped since parity r100): a pulling area moves on tick t only the
 //! units its update on t - 1 saw, alive and not waiting out a formation stagger at that tick's move pass. A unit made in
 //! the Spawn phase is first pulled on its creation tick + 1; one made after the tick's main pre-pass (a release, a death
 //! spawn, a cube, a Move-phase spawner unit), and a member whose stagger ran out, on that tick + 2. Measured on client
@@ -24,7 +24,7 @@
 //!      r + 2; under same_tick (the vacuity check) on r;
 //!   3. a battle under the new arm saved with a member's attract_from set resumes identically, and one under the old arm
 //!      saves no attract_from;
-//!   4. the shipped value is same_tick.
+//!   4. the shipped value is client16635_seen_last_update (same_tick before parity r100).
 //!
 //! PLANT (regression):
 //!   * `attract_victim_same_tick` -- the new arm still pulls a unit made this tick, a waiting member and a release on its
@@ -37,7 +37,7 @@ mod common;
 use common::*;
 use royalesim::entity::EntityKind;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{AttractOnset, AttractVictimOnset, BattleConfig, BattleState, Calib};
+use royalesim::state::{AttractOnset, AttractVictimOnset, BattleConfig, BattleState};
 use royalesim::{EntityId, Team};
 
 /// The Tornado's centre and the Bats' tap in scene 1, native.
@@ -226,9 +226,15 @@ fn a_battle_under_the_new_arm_resumes_identically_after_a_save() {
     assert!(!String::from_utf8_lossy(&old.save()).contains("attract_from"), "same_tick saved an attract_from");
 }
 
-/// status.ATTRACT_VICTIM_ONSET ships at same_tick (client16635_seen_last_update is a candidate until scored).
+// status.ATTRACT_VICTIM_ONSET ships client16635_seen_last_update since parity r100 (same_tick before it): its pin is the
+// last test, the_shipped_arm_is_client16635_seen_last_update.
+
+/// Since parity r100 for clients 16.402 and 16.635 (same_tick before it; client 15.535.29 keeps same_tick).
 #[test]
-fn the_shipped_value_is_same_tick() {
-    assert_eq!(Calib::shipped().attract_victim_onset, AttractVictimOnset::SameTick);
-    assert_eq!(config().calib.attract_victim_onset, AttractVictimOnset::SameTick);
+fn the_shipped_arm_is_client16635_seen_last_update() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().attract_victim_onset,
+        royalesim::state::AttractVictimOnset::Client16635SeenLastUpdate
+    );
+    assert_eq!(config().calib.attract_victim_onset, royalesim::state::AttractVictimOnset::Client16635SeenLastUpdate);
 }

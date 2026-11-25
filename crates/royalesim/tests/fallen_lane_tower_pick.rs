@@ -27,7 +27,7 @@
 //!   4. all three values: with both princess towers standing, the one created at 8500 heads for the right princess
 //!      tower;
 //!   5. under FIRST_TOWER_PICK = current_x, which keeps no spawn lane, the new value reads nothing: the right princess;
-//!   6. the shipped value is client16402_spawn_lane_king;
+//!   6. the shipped value is client16635_king_distance (client16402_spawn_lane_king from parity r4 to r100);
 //!   7. client16635_king_distance: with the RIGHT princess tower down, the Baby Dragon created at 8500 (spawn lane left)
 //!      heads for the left princess tower from its kill at x 9800 or so (the tower's octagonal length about 12,900, the
 //!      king's distance about 13,800); client16402_spawn_lane_king and current_x send it to the king (the vacuity check);
@@ -43,7 +43,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, FallenLaneTowerPick, FirstTowerPick};
+use royalesim::state::{BattleState, FallenLaneTowerPick, FirstTowerPick};
 use royalesim::target::princess_nearer_than_king;
 use royalesim::Team;
 
@@ -170,10 +170,8 @@ fn with_both_princess_towers_standing_the_value_does_not_matter() {
     }
 }
 
-#[test]
-fn the_shipped_value_is_the_new_one() {
-    assert_eq!(Calib::shipped().fallen_lane_tower_pick, NEW);
-}
+// targeting.FALLEN_LANE_TOWER_PICK ships client16635_king_distance since parity r100 (client16402_spawn_lane_king before
+// it): its pin is the last test, the_shipped_arm_is_client16635_king_distance.
 
 /// targeting.FALLEN_LANE_TOWER_PICK = client16635_king_distance (client 16.635, parity r100, the oracle's il-mg-16635 set:
 /// the 12 troops that separate it from client16402_spawn_lane_king took their lane's tower): with the Red RIGHT princess
@@ -212,4 +210,15 @@ fn under_client16635_king_distance_the_tower_reads_its_octagonal_length_against_
         d * d < kx * kx + ky * ky
     };
     assert!(exact((5032, 10243)) && exact((4292, 14082)), "the vacuity check: the exact distance does not take the tower at (5032, 10243) and (4292, 14082)");
+}
+
+/// Since parity r100 for clients 16.402 and 16.635 (client16402_spawn_lane_king before it; client 15.535.29 keeps
+/// client16402_spawn_lane_king).
+#[test]
+fn the_shipped_arm_is_client16635_king_distance() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().fallen_lane_tower_pick,
+        royalesim::state::FallenLaneTowerPick::Client16635KingDistance
+    );
+    assert_eq!(config().calib.fallen_lane_tower_pick, royalesim::state::FallenLaneTowerPick::Client16635KingDistance);
 }

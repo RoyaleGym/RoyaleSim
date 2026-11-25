@@ -14,7 +14,8 @@ default tower, and the heading between the kill and the first crown tower it nam
 WHY THE CONTROLS ARE HERE. "Walks to the king" also passes for an engine that sends every troop to the king once any
 princess tower is down, so a Baby Dragon created at x 9500 (its spawn lane's tower standing) must still head for the
 right princess tower under both values; and with both princess towers standing the value must not matter. The old
-value is the one the engine ran before the flip, and the shipped value is the new one.
+value is the one the engine ran before the flip. The shipped value is client16635_king_distance since parity r100
+(tests/test_walk_lane16635.py); client16402_spawn_lane_king shipped before it.
 
 PLANTS. Each is a cfg in the engine source, aimed at the tests named. Prove one on a plant build of the module in a
 scratch venv (`RUSTFLAGS='--cfg clash_plant="NAME"' CARGO_TARGET_DIR=target/plant maturin develop --release`), then
@@ -142,7 +143,7 @@ def test_with_both_princess_towers_standing_the_value_does_not_matter(arm):
     assert slot == 2, f"{arm}: with both towers standing it walked to tower slot {slot}, not the right princess"
 
 
-def test_the_shipped_value_is_the_new_arm():
+def test_the_shipped_value_is_king_distance():
     entry = json.loads(LEDGER.read_text(encoding="utf-8"))["targeting"]["FALLEN_LANE_TOWER_PICK"]
-    assert entry["value"] == NEW_ARM
+    assert entry["value"] == KING_ARM
     assert entry["candidates"] == [OLD_ARM, NEW_ARM, KING_ARM]

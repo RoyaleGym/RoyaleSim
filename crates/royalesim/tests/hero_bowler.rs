@@ -153,7 +153,8 @@ fn its_far_entry_reaches_a_knight_9000_off_from_150_out() {
 #[test]
 fn its_siege_form_lasts_its_buffs_7300_ms() {
     // No enemy near: the hero is its siege form from the trigger, P + 4 (the cast's start P + 1, its TriggerDelay 200 less
-    // a tick), for 146 ticks, then its own row again.
+    // a tick), through its buffs' 146 ticks and, under combat.SIEGE_END_TICK = client16635_after_attack (shipped since
+    // parity r100), the tick after them, then its own row again on the trigger + 147 (+ 146 under buff_end).
     let (mut s, hero, _) = start(&[]);
     // P: the tick the press is issued on, the last one run (its first frame, the cast's start, is P + 1).
     let p = s.tick_count() - 1;
@@ -170,7 +171,7 @@ fn its_siege_form_lasts_its_buffs_7300_ms() {
     let on = rows.iter().find(|r| r.1 == "BowlerHero_Siege").expect("the siege form").0;
     assert_eq!(on, p + 4, "the siege's trigger, from the press");
     let off = rows.iter().find(|r| r.0 > on && r.1 == "Bowler_hero").map(|r| r.0);
-    assert_eq!(off, Some(on + 146), "its own row again 7300 ms on");
+    assert_eq!(off, Some(on + 147), "its own row again 7300 ms and a tick on");
 }
 
 /// The far Knight's first shell, in ticks from the press (P, the tick the press is issued on), under `arm`.
@@ -268,9 +269,12 @@ fn under_client16635_after_attack_the_hero_walks_a_tick_after_its_siege_buff() {
     assert_eq!(new.shots, old.shots, "the shells before the trigger + 146 alike under both arms");
 }
 
-/// combat.SIEGE_END_TICK ships at buff_end (client16635_after_attack is a candidate until scored).
+/// Since parity r100 for clients 16.402 and 16.635 (buff_end before it; client 15.535.29 keeps buff_end).
 #[test]
-fn the_shipped_arm_is_buff_end() {
-    assert_eq!(royalesim::state::Calib::shipped().siege_end_tick, SiegeEndTick::BuffEnd);
-    assert_eq!(config().calib.siege_end_tick, SiegeEndTick::BuffEnd);
+fn the_shipped_arm_is_client16635_after_attack() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().siege_end_tick,
+        royalesim::state::SiegeEndTick::Client16635AfterAttack
+    );
+    assert_eq!(config().calib.siege_end_tick, royalesim::state::SiegeEndTick::Client16635AfterAttack);
 }

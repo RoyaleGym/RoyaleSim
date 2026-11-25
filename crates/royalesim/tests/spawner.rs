@@ -1882,9 +1882,12 @@ fn under_client16635_end_of_tick_a_shot_slow_on_the_release_tick_holds_the_relea
     assert!(!held.is_empty(), "the scene drifted: no put-down tick's first hit landed on a release tick (widen the sweep?)");
 }
 
-/// spawner.SPAWN_SPEED_READ ships at move_phase (client16635_end_of_tick is a candidate until scored).
+/// Since parity r100 for clients 16.402 and 16.635 (move_phase before it; client 15.535.29 keeps move_phase).
 #[test]
-fn the_shipped_arm_is_move_phase() {
-    assert_eq!(Calib::shipped().spawn_speed_read, SpawnSpeedRead::MovePhase);
-    assert_eq!(config().calib.spawn_speed_read, SpawnSpeedRead::MovePhase);
+fn the_shipped_arm_is_client16635_end_of_tick() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().spawn_speed_read,
+        royalesim::state::SpawnSpeedRead::Client16635EndOfTick
+    );
+    assert_eq!(config().calib.spawn_speed_read, royalesim::state::SpawnSpeedRead::Client16635EndOfTick);
 }
