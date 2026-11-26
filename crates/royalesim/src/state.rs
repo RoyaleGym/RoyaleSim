@@ -2584,6 +2584,10 @@ pub struct Calib {
     /// arm, `BuffEnd`, what a battle saved before it ran.
     #[serde(default = "siege_end_tick_default")]
     pub siege_end_tick: SiegeEndTick,
+    /// placement.TAP_REFUSAL (which troop and building taps are refused, which moved). Added after SNAPSHOT_FORMAT 20; the
+    /// default is the old arm, `TouchedCells`, what a battle saved before it ran.
+    #[serde(default = "tap_refusal_default")]
+    pub tap_refusal: TapRefusal,
 }
 
 impl Calib {
@@ -4017,6 +4021,10 @@ fn siege_end_tick_default() -> SiegeEndTick {
     SiegeEndTick::BuffEnd
 }
 
+fn tap_refusal_default() -> TapRefusal {
+    TapRefusal::TouchedCells
+}
+
 fn grounded_flier_body_default() -> GroundedFlierBody {
     GroundedFlierBody::AirLayer
 }
@@ -5013,6 +5021,21 @@ calib_enum!(
         /// its target while in its attack (movement.ATTACK_FACING) and never lands its swing (`phase_attack_for`); its
         /// fixed ring's members start with its facing (`phase_reap`).
         Client16635BuildingTarget = "client16635_building_target",
+    }
+);
+calib_enum!(
+    /// placement.TAP_REFUSAL -- which taps of a troop or a building are refused, and which are moved to the nearest legal
+    /// point (`own_cell_taps`, check_position, resolve_point_judged, building_placement).
+    TapRefusal {
+        /// The engine's: a tap is judged by every cell it touches and by its territory. A building tap outside its
+        /// territory, or touching a water or NO_DEPLOY cell, is refused; a troop's is moved only under
+        /// placement.ILLEGAL_TROOP_TAP and only when out of territory.
+        TouchedCells = "touched_cells",
+        /// Client 16.635: a tap is refused only outside the arena or on a half-cell the tilemap marks WATER or NO_DEPLOY,
+        /// the tap's own cell (arena.rs `own_cell_refusal`). Any other illegal tap is moved: a building's to its nearest
+        /// fit (`building_placement`'s search, the box judged by every rule), a troop's under placement.ILLEGAL_TROOP_TAP
+        /// (`troop_tap_target`).
+        Client16635OwnCell = "client16635_own_cell",
     }
 );
 calib_enum!(
@@ -14324,6 +14347,7 @@ impl Calib {
             reroll_hold_end: pick(&v, &["spells", "REROLL_HOLD_END", "value"], RerollHoldEnd::from_calibration_name)?,
             deflect_return_tower_share: pick(&v, &["combat", "DEFLECT_RETURN_TOWER_SHARE", "value"], DeflectReturnTowerShare::from_calibration_name)?,
             fixed_ring_facing: pick(&v, &["spawner", "FIXED_RING_FACING", "value"], FixedRingFacing::from_calibration_name)?,
+            tap_refusal: pick(&v, &["placement", "TAP_REFUSAL", "value"], TapRefusal::from_calibration_name)?,
             throw_landing_blow: pick(&v, &["combat", "THROW_LANDING_BLOW", "value"], ThrowLandingBlow::from_calibration_name)?,
             thrown_unit_first_update: pick(&v, &["spawner", "THROWN_UNIT_FIRST_UPDATE", "value"], ThrownUnitFirstUpdate::from_calibration_name)?,
             spin_reach_step: pick(&v, &["combat", "SPIN_REACH_STEP", "value"], SpinReachStep::from_calibration_name)?,
@@ -40630,6 +40654,24 @@ impl BattleState {
     fn check_position(&self, team: Team, idx: u16, pos: Vec2) -> Result<(), DeployError> {
         let card = self.cfg.cards.get(idx);
         let (territory, footprint_rule) = deploy_rule(&self.cfg.calib, card);
+        // placement.TAP_REFUSAL = client16635_own_cell: refused on the tap's own cell only; a building is then judged by
+        // its relocation, a troop by `own_cell_troop_tap`, and either by its footprint where it will stand.
+        if self.own_cell_taps(idx) {
+            if let Some(e) = self.cfg.arena.own_cell_refusal(pos) {
+                return Err(e.into());
+            }
+            if card.kind == CardKind::Building {
+                return self.building_placement(team, idx, pos).map(|_| ()).ok_or(DeployError::Occupied);
+            }
+            if self.own_cell_troop_tap(team, idx, pos).is_none() {
+                return Err(DeployError::OutOfTerritory);
+            }
+            let at = self.resolve_point(team, idx, pos);
+            if footprint_rule && self.footprint_covers(at, 0) {
+                return Err(DeployError::Occupied);
+            }
+            return Ok(());
+        }
         #[cfg(not(clash_plant = "territory_ignores_king_rect"))]
         let rects = self.enemy_no_deploy_rects(team);
         #[cfg(clash_plant = "territory_ignores_king_rect")]
@@ -40790,7 +40832,11 @@ impl BattleState {
         // played exactly as the tap at (.., 14999) (truth identical over 62 ticks, 4 of 4; sp-sk-souls-own-s0 t256,
         // where the engine laid all three on y 14500); sp-il-208a, three Blue singles tapped at (8500, 20500) created on
         // (8499, 14500); a Valkyrie tapped at (9500, 20500) stood at (9500, 14500) (match.MIRROR_PLACEMENT).
-        if self.clamps_troop_tap(card) && self.troop_tap_out_of_territory(team, idx, p) {
+        if card.kind == CardKind::Troop && self.own_cell_taps(idx) {
+            if let Some(c) = self.own_cell_troop_tap(team, idx, p) {
+                p = c;
+            }
+        } else if self.clamps_troop_tap(card) && self.troop_tap_out_of_territory(team, idx, p) {
             if let Some(c) = self.troop_tap_target(team, idx, p) {
                 p = c;
             }
@@ -40898,6 +40944,52 @@ impl BattleState {
             let _ = card;
             false // PLANT (regression): the new arm still refuses, and a scenario play goes down where tapped.
         }
+    }
+
+    /// placement.TAP_REFUSAL = client16635_own_cell selected for card `idx`: a building, or a troop that does not lay a line
+    /// (a line keeps its own law, `lays_a_line`). Such a tap is refused only on its own cell (arena.rs `own_cell_refusal`)
+    /// and moved from anywhere else that is illegal for it.
+    ///
+    /// Measured on client 16.635.1's own battle engine, run headless (2026-11-24): a Cannon, a Knight and the Archers
+    /// tapped on every tile centre of the arena, 14 grids of 576 points, with no princess tower down, the left, the right
+    /// or both, Blue and Red. The client refused the same 72 points in every grid, each one on a WATER (28) or NO_DEPLOY
+    /// (44) half-cell, and moved or placed every other: into the placer's half or an opened pocket, from inside a standing
+    /// princess tower's rect, the enemy king's, a cell beside a king block or the river's bridge edge. The touched-cell
+    /// rule refused 264 of the Cannon's points with no tower down.
+    fn own_cell_taps(&self, idx: u16) -> bool {
+        #[cfg(not(clash_plant = "tap_refusal_touched_cells"))]
+        let on = self.cfg.calib.tap_refusal == TapRefusal::Client16635OwnCell;
+        #[cfg(clash_plant = "tap_refusal_touched_cells")]
+        let on = false; // PLANT (regression): the new arm still refuses by the touched cells.
+        let kind = self.cfg.cards.get(idx).kind;
+        on && (kind == CardKind::Building || (kind == CardKind::Troop && !self.lays_a_line(idx)))
+    }
+
+    /// The troop zone the play path judges a tap of `idx` by (`check_position`): `zone_for`, or the king blocks
+    /// half-open under placement.TROOP_TOWER_TAPS = client16402_half_open_relocate.
+    fn troop_zone(&self, team: Team, idx: u16, p: Vec2) -> Result<(), crate::arena::ZoneError> {
+        let card = self.cfg.cards.get(idx);
+        let (territory, _) = deploy_rule(&self.cfg.calib, card);
+        let rects = self.enemy_no_deploy_rects(team);
+        if card.kind == CardKind::Troop && self.cfg.calib.placement_troop_tower_taps == TroopTowerTaps::HalfOpenRelocate {
+            self.cfg.arena.deploy_zone_king_half_open(p, team, territory, &rects)
+        } else {
+            self.zone_for(card, p, team, territory, &rects)
+        }
+    }
+
+    /// Under `own_cell_taps`, where a troop tap goes before the own-tower relocations: the tap itself when the troop zone
+    /// takes it or it is on a bridge into an open lane, else placement.ILLEGAL_TROOP_TAP's point (`troop_tap_target`);
+    /// None when that finds none, or when the arm refuses. `check_position` and `resolve_point_judged` both ask this, so
+    /// the play is never taken on one point and laid on another.
+    fn own_cell_troop_tap(&self, team: Team, idx: u16, p: Vec2) -> Option<Vec2> {
+        if self.troop_zone(team, idx, p).is_ok() || self.bridge_into_open_lane(team, idx, p) {
+            return Some(p);
+        }
+        if !self.clamps_troop_tap(self.cfg.cards.get(idx)) {
+            return None;
+        }
+        self.troop_tap_target(team, idx, p)
     }
 
     /// A troop tap placement.ILLEGAL_TROOP_TAP moves: outside its territory (OUT_OF_TERRITORY: the river band, an
@@ -41199,8 +41291,11 @@ impl BattleState {
         // and every recorded relocation is inside the placer's own half. Without
         // this the query answers for taps `check_deploy` refuses, and a caller
         // that trusts it would show a landing the engine will not build.
+        // Under placement.TAP_REFUSAL = client16635_own_cell only the tap's own cell refuses it (`own_cell_taps`); from
+        // anywhere else the box is moved to its nearest fit.
         let rects = self.enemy_no_deploy_rects(team);
-        if arena.deploy_zone(tap, team, territory, &rects).is_err() {
+        let refused = if self.own_cell_taps(idx) { arena.own_cell_refusal(tap).is_some() } else { arena.deploy_zone(tap, team, territory, &rects).is_err() };
+        if refused {
             return None;
         }
         let snapped = match self.cfg.calib.placement_snap_even {
@@ -47130,6 +47225,8 @@ impl BattleState {
 /// 20, unchanged, parity r100 (combat.SIEGE_END_TICK): Calib gained siege_end_tick (serde default the old arm, buff_end),
 ///    no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
 ///    arm.
+/// 20, unchanged (placement.TAP_REFUSAL): Calib gained tap_refusal (serde default the old arm, touched_cells), no new
+///    state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old arm.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -48455,6 +48552,8 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_speed_read".into(), serde_json::to_value(SpawnSpeedRead::MovePhase).map_err(|e| e.to_string())?);
     // combat.SIEGE_END_TICK: a format-3 battle ran its old arm.
     sh.insert("siege_end_tick".into(), serde_json::to_value(SiegeEndTick::BuffEnd).map_err(|e| e.to_string())?);
+    // placement.TAP_REFUSAL: a format-3 battle ran its old arm.
+    sh.insert("tap_refusal".into(), serde_json::to_value(TapRefusal::TouchedCells).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

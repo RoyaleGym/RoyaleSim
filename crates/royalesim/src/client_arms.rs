@@ -519,6 +519,7 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   reborn Phoenix deploying, untimed).
 ///   spawner.DESTROY_AT_LIMIT = stays: unread on client 15.535.29.
 ///   placement.SPELL_AS_DEPLOY_NO_DEPLOY_CELLS = refuse: unread on client 15.535.29.
+///   placement.TAP_REFUSAL = touched_cells: unread on client 15.535.29.
 ///   spells.CROWN_SQUARE_HALF_SIDE = fixed_1000: client 15.535.29's own (ub-b1-ec4-zap: a Zap at offset (-3500, -500) did
 ///   not take the King).
 ///   combat.DASH_STAND_CLOCK = ticks: unread on client 15.535.29 (its dash scenes ran unbuffed, where both arms agree).
@@ -888,6 +889,7 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.SPAWN_SPEED_READ", "\"move_phase\""),
     ("combat.SIEGE_END_TICK", "\"buff_end\""),
     ("targeting.FALLEN_LANE_TOWER_PICK", "\"client16402_spawn_lane_king\""),
+    ("placement.TAP_REFUSAL", "\"touched_cells\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

@@ -989,6 +989,24 @@ impl Arena {
         }
     }
 
+    /// placement.TAP_REFUSAL = client16635_own_cell: why a tap at `p` is refused outright, or None. Outside the arena (as
+    /// `deploy_zone` bounds it), or on a half-cell (`subtile_to_half`) the tilemap marks WATER or NO_DEPLOY. Only the tap's
+    /// own cell is read, not the cells it touches. Every other illegal tap is moved (state.rs `own_cell_taps`).
+    pub fn own_cell_refusal(&self, p: Vec2) -> Option<ZoneError> {
+        if !(p.x > 0 && p.y > 0 && p.x < self.width && p.y < self.height) {
+            return Some(ZoneError::OutOfArena);
+        }
+        let (col, row) = self.subtile_to_half(p);
+        let bits = self.cell_bits(col, row);
+        if bits & self.bit_water != 0 {
+            Some(ZoneError::Water)
+        } else if bits & self.bit_no_deploy != 0 {
+            Some(ZoneError::NoDeploy)
+        } else {
+            None
+        }
+    }
+
     /// `touching_bits` over the cells whose centre is outside every rect in `skip`.
     fn touching_bits_outside(&self, p: Vec2, skip: &[Rect]) -> u8 {
         if !self.in_bounds(p) {

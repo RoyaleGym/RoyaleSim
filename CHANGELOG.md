@@ -3,6 +3,15 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## Unreleased
+
+- `placement.TAP_REFUSAL` is new: which troop and building taps are refused. `"touched_cells"`, the default, refuses
+  as before. `"client16635_own_cell"`, measured on client 16.635's own engine, refuses a tap only on its own water or
+  no-deploy cell, or off the arena; with `placement.ILLEGAL_TROOP_TAP = "client16635_nearest_legal_tile"` every other
+  illegal tap is moved to the nearest legal point instead (a tap in the enemy half, inside a standing princess
+  tower's or the king's area, beside a king block or on a bridge edge). The defaults are unchanged, and battles saved
+  by 0.1.58 still load.
+
 ## 0.1.58 (2026-11-25)
 
 - 4 more settings default to the current client's behaviour, each measured against its recorded battles (3 of the
