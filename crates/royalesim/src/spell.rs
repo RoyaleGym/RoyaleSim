@@ -1447,6 +1447,7 @@ fn strike(ctx: &SpellCtx, team: Team, card: u16, level: i32, damage: i32, def: &
         firer_card: Some(card),
         firer: None,
         deflected: false,
+        flight_start: None,
         held: false,
         straight: None,
         hook: None,
@@ -1515,6 +1516,7 @@ fn launch_hop(ctx: &SpellCtx, team: Team, card: u16, level: i32, hd: &crate::car
         firer_card: Some(card),
         firer: None,
         deflected: false,
+        flight_start: None,
         held: false,
         straight: None,
         hook: None,
@@ -1544,7 +1546,11 @@ fn launch_hop(ctx: &SpellCtx, team: Team, card: u16, level: i32, hd: &crate::car
 ///   FilterInvisible (spells.TARGET_FILTER_ABSENT_FLAG);
 /// - within the strike's radius plus the unit's own radius of `pos`, on this tick's post-move position
 ///   (spells.SELECTOR_REACH = radius_plus_target_radius; measured on client 15.535.29: the Vines caught a Skeleton at
-///   centre 2633-2718 from their 2500 circle, the Void hit a Knight at 2874-2993 and missed it at 3352).
+///   centre 2633-2718 from their 2500 circle, the Void hit a Knight at 2874-2993 and missed it at 3352);
+/// - under spells.SELECTOR_REACH = client16635_crown_square_strict, a crown tower when the distance from `pos` to its
+///   crown square (`crown_square_half`) is strictly below the strike's radius, as an ordinary spell's impact reaches it
+///   (parity r101, the oracle's il-mg-16635 set), and an ordinary building by its square as under
+///   client16635_building_square_strict.
 fn selector_candidates(ctx: &SpellCtx, team: Team, def: &StrikeDef, sel: &SelectorDef, pos: Vec2, nb: &mut Vec<u32>) -> Vec<usize> {
     let e = ctx.ents;
     let f = sel.filter;
@@ -1552,7 +1558,17 @@ fn selector_candidates(ctx: &SpellCtx, team: Team, def: &StrikeDef, sel: &Select
     let skip_hidden = f.skip_hidden;
     #[cfg(clash_plant = "void_counts_hidden")]
     let skip_hidden = false; // PLANT: FilterHidden not read, so the Void counts and strikes a hidden Tesla.
-    ctx.hash.neighbours_within(e, pos, def.hit.radius + ctx.hash.max_radius(), nb);
+    // spells.SELECTOR_REACH = client16635_crown_square_strict reaches a crown tower's square corner (`crown_square_corner`)
+    // and an ordinary building's (its radius x 1.415).
+    use crate::state::SelectorReach;
+    let crown_square = ctx.calib.selector_reach == SelectorReach::Client16635CrownSquareStrict;
+    let wide = if crown_square {
+        let corner = crown_square_corner(ctx.calib.crown_square_half_side, ctx.hash.max_radius());
+        ctx.hash.max_radius().max(corner).max(ctx.hash.max_radius() * 1415 / 1000 + 1)
+    } else {
+        ctx.hash.max_radius()
+    };
+    ctx.hash.neighbours_within(e, pos, def.hit.radius + wide, nb);
     let mut out: Vec<usize> = nb
         .iter()
         .map(|&v| v as usize)
@@ -1585,11 +1601,26 @@ fn selector_candidates(ctx: &SpellCtx, team: Team, def: &StrikeDef, sel: &Select
             // divergence, a Cannon 3162 from the centre). PLANT (regression) selector_building_circle: the new arm reads the
             // circle.
             #[cfg(not(clash_plant = "selector_building_circle"))]
-            let square = ctx.calib.selector_reach == crate::state::SelectorReach::Client16635BuildingSquareStrict && e.kind[v] == EntityKind::Building;
+            let square = matches!(ctx.calib.selector_reach, SelectorReach::Client16635BuildingSquareStrict | SelectorReach::Client16635CrownSquareStrict)
+                && e.kind[v] == EntityKind::Building;
             #[cfg(clash_plant = "selector_building_circle")]
             let square = false;
             if square {
                 return in_square(pos, e.pos[v], e.radius[v], def.hit.radius);
+            }
+            // spells.SELECTOR_REACH = client16635_crown_square_strict: a crown tower by its crown square, strictly, as an
+            // ordinary spell's impact reaches it (spells.CROWN_TOWER_SPELL_REACH, spells.CROWN_SQUARE_HALF_SIDE). Client
+            // 16.635 (parity r101, the oracle's il-mg-16635 set): a Void 3605 from a princess tower's centre (its square
+            // 2236 away) struck it at each strike, and a Vines so cast caught it, 2 of 2; the 17 other casts that reached
+            // a crown tower agree under both readings. PLANT (regression) selector_crown_circle: the new arm reads the
+            // circle.
+            #[cfg(not(clash_plant = "selector_crown_circle"))]
+            let crown = crown_square && e.kind[v].is_crown_tower();
+            #[cfg(clash_plant = "selector_crown_circle")]
+            let crown = false;
+            if crown {
+                let half = crown_square_half(ctx.calib.crown_square_half_side, e, v);
+                return in_crown_square_half(pos, e.pos[v], half, def.hit.radius);
             }
             in_range_edge(pos, e.pos[v], def.hit.radius, edge)
         })

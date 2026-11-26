@@ -2584,6 +2584,18 @@ pub struct Calib {
     /// arm, `BuffEnd`, what a battle saved before it ran.
     #[serde(default = "siege_end_tick_default")]
     pub siege_end_tick: SiegeEndTick,
+    /// combat.CHAIN_HOP_REACH (the base chained shot's hop reach, combat.rs `chain_next`). Added after SNAPSHOT_FORMAT 20;
+    /// the default is the old arm, `Inclusive`, what a battle saved before it ran.
+    #[serde(default = "chain_hop_reach_default")]
+    pub chain_hop_reach: ChainHopReach,
+    /// combat.DIRECT_NON_HOMING_SHOT (how a direct non-homing shot starts and aims, combat.rs `fire`). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `FollowsTarget`, what a battle saved before it ran.
+    #[serde(default = "direct_non_homing_shot_default")]
+    pub direct_non_homing_shot: DirectNonHomingShot,
+    /// combat.DEFLECT_CATCH (where a deflecting champion's area catches a shot, `step_projectiles`). Added after
+    /// SNAPSHOT_FORMAT 20; the default is the old arm, `FlatEdge`, what a battle saved before it ran.
+    #[serde(default = "deflect_catch_default")]
+    pub deflect_catch: DeflectCatch,
 }
 
 impl Calib {
@@ -4017,6 +4029,18 @@ fn siege_end_tick_default() -> SiegeEndTick {
     SiegeEndTick::BuffEnd
 }
 
+fn chain_hop_reach_default() -> ChainHopReach {
+    ChainHopReach::Inclusive
+}
+
+fn direct_non_homing_shot_default() -> DirectNonHomingShot {
+    DirectNonHomingShot::FollowsTarget
+}
+
+fn deflect_catch_default() -> DeflectCatch {
+    DeflectCatch::FlatEdge
+}
+
 fn grounded_flier_body_default() -> GroundedFlierBody {
     GroundedFlierBody::AirLayer
 }
@@ -4872,6 +4896,56 @@ macro_rules! calib_enum {
     };
 }
 
+calib_enum!(
+    /// combat.DEFLECT_CATCH -- where a deflecting champion's area (card.rs `AbilityEffect::Deflect::radius`, the Monk's
+    /// 1500) catches an enemy shot at him and where the caught shot goes back from (combat.rs `step_projectiles`,
+    /// `deflect_reaches`, `flight_height`). The window it is open in is status.DEFLECT_TRIGGER_TICK's.
+    DeflectCatch {
+        /// The engine's: a single-target shot at a champion whose deflect window is open is caught on the tick its step
+        /// brings its ground point within the area's radius of him (dist2 at most r2); a splash shot is not caught and
+        /// lands; the caught shot goes back from his centre.
+        FlatEdge = "flat_edge",
+        /// Client 16.635 (parity r101, the oracle's il-mg-16635 set: 72 of 72 caught shots in 12 deflect windows, 667 of
+        /// 667 tick decisions, princess-tower arrows, Ice Wizard and Cannon shots; flat_edge fits 23 of the 72): the area
+        /// is a sphere standing on the ground. A shot is caught on the tick its point after the step, at its flight height
+        /// there (combat.rs `flight_height`), lies strictly inside it, or on its arrival. A splash shot is caught too and
+        /// lands on him alone (5 of 5 Ice Wizard shots: 50 of 143 off him, nothing off his neighbours, 143 off the wizard).
+        /// The caught shot goes back from its own point, its point before the step on an arrival (66 of 66 returned tower
+        /// arrows landed on the tick that predicts). A firer with no flight row (`DEFLECT_FLIGHT_ROWS`) is caught on the
+        /// ground plane, as under flat_edge.
+        Client16635FlightHeight = "client16635_flight_height",
+    }
+);
+calib_enum!(
+    /// combat.DIRECT_NON_HOMING_SHOT -- how a direct shot of a row that is not Homing is launched and flown (combat.rs
+    /// `fire`, `direct_shot_fixed`, `launch_point`); a splash shot keeps combat.NON_HOMING_AIM's rule and a spark carrier
+    /// its own.
+    DirectNonHomingShot {
+        /// The engine's: a direct shot (no splash, no sparks) of a row that is not Homing is born no farther than its
+        /// target (`launch_point`'s clamped reading) and is re-aimed at its target on every tick of its flight, as a homing
+        /// shot is.
+        FollowsTarget = "follows_target",
+        /// Client 16.635 (parity r101, the oracle's il-mg-16635 set: 1385 of 1385 shots of the walking Furnace and its
+        /// evolution born 2000 out along the line to the target's start-of-tick point, past a nearer target too; 1384 of
+        /// 1385 landing on the tick their 600 steps from there reach that point; 1074 of 1075 targets alive on that tick
+        /// hit, wherever they stood): the shot is born its whole ProjectileStartRadius out, past a nearer target, and keeps
+        /// the aim it is fired with (`Projectile::fixed`), landing there on its target.
+        Client16635FixedPastTarget = "client16635_fixed_past_target",
+    }
+);
+calib_enum!(
+    /// combat.CHAIN_HOP_REACH -- which units a chained shot's hop reaches from the unit it hit (combat.rs `chain_next`, the
+    /// base chain of card.rs `ChainHitDef`: the Electro Dragon's, the Electro Spirit's; ChainedHitRadius, centre to centre)
+    ChainHopReach {
+        /// The engine's: a chained shot's hop reaches every enemy at or inside ChainedHitRadius of the unit it hit.
+        Inclusive = "inclusive",
+        /// Client 16.635 (parity r101, the oracle's il-mg-16635 set: an Electro Dragon's shot on a deploying Knight passed
+        /// over a deploying Hero Ice Wizard exactly 4000 off, and an Electro Spirit's on a Cannon passed over one exactly
+        /// 3000 off, 2 of 2, where the engine hopped to both; 0 against): strictly inside it, so a unit at exactly the
+        /// radius is passed over, as combat.EVO_CHAIN_HOP_REACH's client15535_strict reads the Evo Electro Dragon's hop.
+        Client16635Strict = "client16635_strict",
+    }
+);
 calib_enum!(
     /// combat.SIEGE_END_TICK -- the tick the Hero Bowler's siege ends on (`siege_pass`; the siege's rate in `fire_ability`)
     SiegeEndTick {
@@ -10721,6 +10795,12 @@ calib_enum!(
         /// Client 16.635 (parity r90, live15n): an ordinary building is reached by its square of half-side its collision
         /// radius, strictly inside the radius (spell.rs `in_square`, as spells.BUILDING_SPELL_REACH); troops as before.
         Client16635BuildingSquareStrict = "client16635_building_square_strict",
+        /// Client 16.635 (parity r101, the oracle's il-mg-16635 set: a Void and a Vines cast 3605 from a princess
+        /// tower's centre, 105 past the troop law's reach and 2236 from its square, struck and caught it, 2 of 2, 0
+        /// against): client16635_building_square_strict, and a crown tower is reached by its crown square (the half-side
+        /// of spells.CROWN_SQUARE_HALF_SIDE, spell.rs `crown_square_half`), strictly inside the radius, as an ordinary
+        /// spell's impact reaches it (spells.CROWN_TOWER_SPELL_REACH).
+        Client16635CrownSquareStrict = "client16635_crown_square_strict",
     }
 );
 calib_enum!(
@@ -14315,6 +14395,9 @@ impl Calib {
             troop_splash_crown_reach: pick(&v, &["combat", "TROOP_SPLASH_CROWN_REACH", "value"], TroopSplashCrownReach::from_calibration_name)?,
             building_territory: pick(&v, &["placement", "BUILDING_TERRITORY", "value"], BuildingTerritory::from_calibration_name)?,
             grounded_flier_body: pick(&v, &["movement", "GROUNDED_FLIER_BODY", "value"], GroundedFlierBody::from_calibration_name)?,
+            deflect_catch: pick(&v, &["combat", "DEFLECT_CATCH", "value"], DeflectCatch::from_calibration_name)?,
+            direct_non_homing_shot: pick(&v, &["combat", "DIRECT_NON_HOMING_SHOT", "value"], DirectNonHomingShot::from_calibration_name)?,
+            chain_hop_reach: pick(&v, &["combat", "CHAIN_HOP_REACH", "value"], ChainHopReach::from_calibration_name)?,
             siege_end_tick: pick(&v, &["combat", "SIEGE_END_TICK", "value"], SiegeEndTick::from_calibration_name)?,
             spawn_speed_read: pick(&v, &["spawner", "SPAWN_SPEED_READ", "value"], SpawnSpeedRead::from_calibration_name)?,
             ice_release_spawner: pick(&v, &["spawner", "ICE_RELEASE_SPAWNER", "value"], IceReleaseSpawner::from_calibration_name)?,
@@ -21203,6 +21286,7 @@ impl BattleState {
                     firer_card: Some(self.ents.card[i]),
                     firer: Some(self.ents.id_of(i)),
                     deflected: false,
+                    flight_start: None,
                     held: false,
                     straight: None,
                     hook: None,
@@ -25996,6 +26080,7 @@ impl BattleState {
                 firer_card: Some(self.ents.card[i]),
                 firer: Some(self.ents.id_of(i)),
                 deflected: false,
+                flight_start: None,
                 held: false,
                 straight: None,
                 hook: None,
@@ -26052,6 +26137,7 @@ impl BattleState {
             firer_card: Some(self.ents.card[i]),
             firer: Some(self.ents.id_of(i)),
             deflected: false,
+            flight_start: None,
             held: false,
             straight: None,
             hook: None,
@@ -28620,6 +28706,7 @@ impl BattleState {
                         firer_card: Some(self.ents.card[wi]),
                         firer: Some(th.tower),
                         deflected: false,
+                        flight_start: None,
                         held: false,
                         straight: None,
                         hook: None,
@@ -44237,6 +44324,13 @@ impl BattleState {
                 if p.held {
                     h.u32(0x484c_4444);
                 }
+                // combat.DEFLECT_CATCH = client16635_flight_height: a shot's noted flight start
+                // (`Projectile::flight_start`), only when noted.
+                if let Some((at, by)) = p.flight_start {
+                    h.u32(0x464c_5354);
+                    h.vec(at);
+                    h.id(by);
+                }
                 // combat.SPECIAL_HOOK: a hook's thrower, only on a hook.
                 if let Some(by) = p.hook {
                     h.id(by);
@@ -47130,6 +47224,18 @@ impl BattleState {
 /// 20, unchanged, parity r100 (combat.SIEGE_END_TICK): Calib gained siege_end_tick (serde default the old arm, buff_end),
 ///    no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
 ///    arm.
+/// 20, unchanged, parity r101 (combat.CHAIN_HOP_REACH): Calib gained chain_hop_reach (serde default the old arm,
+///    inclusive), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle
+///    at the old arm.
+/// 20, unchanged, parity r101 (combat.DIRECT_NON_HOMING_SHOT): Calib gained direct_non_homing_shot (serde default the old
+///    arm, follows_target), no new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a
+///    migrated battle at the old arm.
+/// 20, unchanged, parity r101 (combat.DEFLECT_CATCH): Calib gained deflect_catch (serde default the old arm, flat_edge), no
+///    new state, so a blob saved before it deserializes and hashes as it did. migrate_v3 runs a migrated battle at the old
+///    arm.
+/// 20, unchanged, parity r101 (combat.DEFLECT_CATCH = client16635_flight_height): Projectile gained flight_start
+///    (serde default None, skipped when None, noted only under the new arm and hashed only when noted), so a
+///    blob saved before it loads and hashes as it did.
 pub const SNAPSHOT_FORMAT: u32 = 20;
 
 mod push_model_serde {
@@ -48455,6 +48561,12 @@ fn migrate_v3(v: &mut Value, cards: &CardDb) -> Result<Vec<u16>, String> {
     sh.insert("spawn_speed_read".into(), serde_json::to_value(SpawnSpeedRead::MovePhase).map_err(|e| e.to_string())?);
     // combat.SIEGE_END_TICK: a format-3 battle ran its old arm.
     sh.insert("siege_end_tick".into(), serde_json::to_value(SiegeEndTick::BuffEnd).map_err(|e| e.to_string())?);
+    // combat.CHAIN_HOP_REACH: a format-3 battle ran its old arm.
+    sh.insert("chain_hop_reach".into(), serde_json::to_value(ChainHopReach::Inclusive).map_err(|e| e.to_string())?);
+    // combat.DIRECT_NON_HOMING_SHOT: a format-3 battle ran its old arm.
+    sh.insert("direct_non_homing_shot".into(), serde_json::to_value(DirectNonHomingShot::FollowsTarget).map_err(|e| e.to_string())?);
+    // combat.DEFLECT_CATCH: a format-3 battle ran its old arm.
+    sh.insert("deflect_catch".into(), serde_json::to_value(DeflectCatch::FlatEdge).map_err(|e| e.to_string())?);
     for (k, val) in sh.iter() {
         calib.entry(k.clone()).or_insert_with(|| val.clone());
     }

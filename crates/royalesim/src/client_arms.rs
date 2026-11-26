@@ -468,6 +468,12 @@ pub const CARD_VALUES_KEY: &str = "cards.CLIENT16402_VALUES";
 ///   combat.TROOP_SPLASH_CROWN_REACH = disc: unread on client 15.535.29.
 ///   placement.BUILDING_TERRITORY = own_half: unread on client 15.535.29 (no building tapped past the river).
 ///   movement.GROUNDED_FLIER_BODY = air_layer: unread on client 15.535.29 (its Vines scenes caught no flier over a ground unit).
+///   combat.DEFLECT_CATCH = flat_edge: measured on client 15.535.29 at this arm only (sp-champ-Monk-s0: three Musketeer
+///   shots of three caught at the area's edge); its flight heights are unread.
+///   combat.DIRECT_NON_HOMING_SHOT = follows_target: unread on client 15.535.29 (no Furnace shot at a near or moving target
+///   was read there).
+///   combat.CHAIN_HOP_REACH = inclusive: unread on client 15.535.29 (its one boundary unit was an Evo Electro Dragon's hop,
+///   combat.EVO_CHAIN_HOP_REACH).
 ///   targeting.FALLEN_LANE_TOWER_PICK = client16402_spawn_lane_king: unread on client 15.535.29; its 10 one-tower-down
 ///   default picks agree with client16402_spawn_lane_king.
 ///   combat.SIEGE_END_TICK = buff_end: client 15.535.29's row switch 146 ticks after the trigger (sp-bowler-siege-s0) read
@@ -888,6 +894,9 @@ pub const CLIENT15535_ARMS: &[(&str, &str)] = &[
     ("spawner.SPAWN_SPEED_READ", "\"move_phase\""),
     ("combat.SIEGE_END_TICK", "\"buff_end\""),
     ("targeting.FALLEN_LANE_TOWER_PICK", "\"client16402_spawn_lane_king\""),
+    ("combat.CHAIN_HOP_REACH", "\"inclusive\""),
+    ("combat.DIRECT_NON_HOMING_SHOT", "\"follows_target\""),
+    ("combat.DEFLECT_CATCH", "\"flat_edge\""),
 ];
 
 /// THE CALIBRATION OVERRIDES THAT RUN ONE CLIENT'S MEASURED SETUP, `section.KEY` -> JSON value, ready for a battle's

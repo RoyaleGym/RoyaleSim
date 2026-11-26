@@ -168,6 +168,12 @@ pub struct Projectile {
     /// A shot a deflect sent back: it is not deflected again. False on every other shot; hashed only when set.
     #[serde(default)]
     pub deflected: bool,
+    /// combat.DEFLECT_CATCH = client16635_flight_height: where this shot's flight began (its point before its first step,
+    /// noted there by `step_projectiles`) and the unit it flew at then, read for its flight height at a deflecting
+    /// champion's area (`flight_height`). Noted only under that arm and only on a shot at a champion with a Deflect; None
+    /// on every other shot. `default` so a snapshot saved before it still loads, skipped when None, hashed only when set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flight_start: Option<(Vec2, EntityId)>,
     /// HELD FOR A DASH'S END (combat.DASH_IMMUNE_HITS = client16402_held_to_immunity_end): the shot was flying at its target
     /// when the target's dash began (state.rs `phase_path16402_for` marks it), so it waits on a dash-immune target and lands
     /// on its first tick out of the immunity. False on every other shot, and on every shot under the shipped discarded;
@@ -466,15 +472,25 @@ pub const EVO_CHAIN_HOP_WAIT_TICKS: u8 = 2;
 /// the shot landed on, or under combat.CHAIN_HOP_DEAD_TARGET = client16402_hops_on_from_last_point the dead target's last
 /// point), centre to centre and within the chain's radius, that the shot has not hit: alive, visible, above the ground,
 /// in the air or on it as the shot hits (a crown tower included, as the default targets are). Ties by creation order.
+/// combat.CHAIN_HOP_REACH: inclusive reaches a unit at exactly the radius; client16635_strict passes it over.
 #[allow(clippy::too_many_arguments)]
 pub fn chain_next(ents: &Entities, cards: &CardDb, calib: &Calib, tick: u32, team: Team, at: Vec2, hop: &ChainHop, hits_air: bool, hits_ground: bool) -> Option<EntityId> {
     let r2 = (hop.radius as i64) * (hop.radius as i64);
+    // combat.CHAIN_HOP_REACH = client16635_strict: a unit at exactly the radius is passed over. Measured on client 16.635
+    // (parity r101, the oracle's il-mg-16635 set): 966be339 t602, an Electro Dragon's shot on a deploying Knight passed
+    // over a deploying Hero Ice Wizard exactly 4000 off; 626b9b83 t863, an Electro Spirit's on a Cannon passed over one
+    // exactly 3000 off; the engine hopped to both, 0 against. PLANT (regression) chain_hop_reach_inclusive: the new arm
+    // still reaches a unit at exactly the radius.
+    #[cfg(not(clash_plant = "chain_hop_reach_inclusive"))]
+    let strict = calib.chain_hop_reach == crate::state::ChainHopReach::Client16635Strict;
+    #[cfg(clash_plant = "chain_hop_reach_inclusive")]
+    let strict = false;
     (0..ents.capacity())
         .filter(|&j| ents.alive[j] && ents.hp[j] > 0 && ents.team[j] != team && !hop.hit.contains(&ents.id_of(j)))
         .filter(|&j| if ents.in_air(j) { hits_air } else { hits_ground })
         .filter(|&j| !ents.underground(j) && !crate::target::invisible_at(calib, cards, ents, tick, j))
         .map(|j| (ents.pos[j].dist2(at), ents.creation_seq[j], j))
-        .filter(|(d2, _, _)| *d2 <= r2)
+        .filter(|(d2, _, _)| if strict { *d2 < r2 } else { *d2 <= r2 })
         .min()
         .map(|(_, _, j)| ents.id_of(j))
 }
@@ -1455,6 +1471,7 @@ pub fn fire(
             firer_card: Some(ents.card[a]),
             firer: Some(ents.id_of(a)),
             deflected: false,
+            flight_start: None,
             held: false,
             straight: None,
             hook: None,
@@ -1639,6 +1656,7 @@ pub fn fire(
                         firer_card: Some(ents.card[a]),
                         firer: Some(ents.id_of(a)),
                         deflected: false,
+                        flight_start: None,
                         held: false,
                         carrier: None,
                         fixed: false,
@@ -1748,7 +1766,10 @@ pub fn fire(
             Some(sg) if ents.attack_seq[a] == 2 => sg.near_start,
             _ => card.projectile_start_radius,
         };
-        let (pos, fresh) = launch_point(ents, calib, start_radius, card.projectile_y_offset, always, card.projectile_homing, a, ti);
+        // combat.DIRECT_NON_HOMING_SHOT = client16635_fixed_past_target: a direct shot of a row that is not Homing is born
+        // past a nearer target as a homing shot is (`direct_shot_fixed`), and keeps its aim (`fixed`, below).
+        let direct_fixed = direct_shot_fixed(calib, card, splash_r, custom.is_some());
+        let (pos, fresh) = launch_point(ents, calib, start_radius, card.projectile_y_offset, always, card.projectile_homing || direct_fixed, a, ti);
         // combat.SPAWN_PROJECTILE = client_spark_fan: a card whose shot releases sparks
         // (`CardDef::spark`, the Firecracker's rocket) fires a CARRIER, aimed at the target's
         // start-of-tick centre and flown there whatever the target does (measured on client
@@ -1776,9 +1797,11 @@ pub fn fire(
         // it there, lands it there and splashes there. Measured on client 16.402: every Princess, Bomber and
         // Mortar shot at a moving target kept its end point for the whole flight, and the Princess's area landed
         // on that point, not on her target. The Princess's CustomFirstProjectile row is not Homing either. A
-        // direct hit (no splash) and a spark carrier are left as they were.
+        // direct hit (no splash) keeps its aim only under combat.DIRECT_NON_HOMING_SHOT = client16635_fixed_past_target
+        // (`direct_fixed`), and lands on its target wherever it then stands; a spark carrier is left as it was.
         #[cfg(not(clash_plant = "non_homing_shot_follows"))]
-        let fixed = calib.non_homing_aim == crate::state::NonHomingAim::FixedAtFire && !card.projectile_homing && splash_r > 0 && carrier.is_none();
+        let fixed = (calib.non_homing_aim == crate::state::NonHomingAim::FixedAtFire && !card.projectile_homing && splash_r > 0 && carrier.is_none())
+            || (direct_fixed && carrier.is_none());
         #[cfg(clash_plant = "non_homing_shot_follows")]
         let fixed = {
             let _ = calib.non_homing_aim;
@@ -1819,6 +1842,7 @@ pub fn fire(
             firer_card: Some(ents.card[a]),
             firer: Some(ents.id_of(a)),
             deflected: false,
+            flight_start: None,
             held: false,
             straight: None,
             hook: None,
@@ -1997,6 +2021,27 @@ pub fn combo_counts(calib: &Calib) -> bool {
     calib.attack_combo != AttackCombo::NotRead || calib.combo_pushback != ComboPushback::NotRead
 }
 
+/// combat.DIRECT_NON_HOMING_SHOT = client16635_fixed_past_target: is a shot of `card` (`splash_r` its splash radius,
+/// `custom` whether a CustomFirstProjectile row carries it) a direct shot of a row that is not Homing (no splash, no
+/// sparks: the walking Furnace's and its evolution's), born its whole ProjectileStartRadius out past a nearer target
+/// (`launch_point`'s unclamped reading) and keeping the aim it is fired with (`Projectile::fixed`)? Measured on client
+/// 16.635 (parity r101, the oracle's il-mg-16635 set): 1385 of 1385 Furnace shots born 2000 out along the line to the
+/// target's start-of-tick point, past a nearer target too, and 1384 of 1385 landing on the tick their 600 steps from
+/// there reach that point, on their target wherever it stood (1074 of 1075 targets alive on that tick took the hit). The
+/// engine's old arm landed 111 of them a tick early before their battle's first divergence (62 on a target nearer than
+/// the radius, 49 on a target walking at the Furnace). PLANT (regression) direct_shot_follows: the new arm's direct
+/// shot is still born no farther than its target and follows it.
+fn direct_shot_fixed(calib: &Calib, card: &CardDef, splash_r: i32, custom: bool) -> bool {
+    #[cfg(not(clash_plant = "direct_shot_follows"))]
+    let on = calib.direct_non_homing_shot == crate::state::DirectNonHomingShot::Client16635FixedPastTarget;
+    #[cfg(clash_plant = "direct_shot_follows")]
+    let on = {
+        let _ = calib.direct_non_homing_shot;
+        false
+    };
+    on && !card.projectile_homing && splash_r == 0 && !custom && card.spark.is_none()
+}
+
 /// Where attacker `a`'s shot at entity `ti` is born, and whether its first step is the
 /// next tick's (combat.PROJECTILE_LAUNCH): ProjectileStartRadius (`start_radius`, subtiles)
 /// from the attacker's centre toward the target, first step the next tick (the live tower
@@ -2087,6 +2132,7 @@ pub fn launch_hook(ents: &Entities, cards: &CardDb, calib: &Calib, a: usize, tar
         firer_card: Some(ents.card[a]),
         firer: Some(ents.id_of(a)),
         deflected: false,
+        flight_start: None,
         held: false,
         straight: None,
         hook: Some(ents.id_of(a)),
@@ -2509,6 +2555,64 @@ fn step_straight(
 /// (DEFLECTED_PRJ_UNITS_DMG_MUL 100).
 pub const DEFLECTED_PRJ_TOWERS_DMG_MUL: i32 = 25;
 
+/// combat.DEFLECT_CATCH = client16635_flight_height: (firer's unit name, ProjectileStartZ, its shot's Gravity) of the
+/// firers whose shots a deflect catch measures at their flight height (`flight_height`), from the client 16.635 tables:
+/// the PrincessTower building's row (TowerPrincessProjectile), the IceWizard's (ice_wizardProjectile) and the Cannon's
+/// (TowerCannonball, no Gravity). Kept here, not on `CardDef`, whose Debug is the card fingerprint. These are the firers
+/// measured on the oracle's il-mg-16635 set; every other firer's shot is caught on the ground plane, as under flat_edge.
+pub const DEFLECT_FLIGHT_ROWS: [(&str, i32, i32); 3] = [("PrincessTower", 3000, 60), ("IceWizard", 1500, 50), ("Cannon", 2500, 0)];
+
+/// Does unit `id` carry a Deflect (card.rs `AbilityEffect::Deflect`, the Monk's)?
+fn carries_deflect(cards: &CardDb, ents: &Entities, id: EntityId) -> bool {
+    matches!(cards.get(ents.card[id.index as usize]).ability.as_ref().map(|a| &a.effect), Some(crate::card::AbilityEffect::Deflect { .. }))
+}
+
+/// combat.DEFLECT_CATCH = client16635_flight_height: shot `p`'s flight height (native units) at `np`, on its way to `tp`,
+/// the arc that fits the client's catches: its firer's ProjectileStartZ (`DEFLECT_FLIGHT_ROWS`) less the share t / total
+/// of it (the climb to the ground), plus (t less total) t times Gravity x -500 / 1000, each division truncated, where t and
+/// total are whole ticks of flight: the isqrt of the native distance from its flight start (`Projectile::flight_start`) to
+/// `np`, and to `tp`, over its speed a tick (total at least 1). None for a shot with no flight start noted for its target,
+/// a firer with no row or a hero record.
+fn flight_height(cards: &CardDb, p: &Projectile, np: Vec2, tp: Vec2) -> Option<i64> {
+    let (start, by) = p.flight_start?;
+    let card = p.firer_card?;
+    if by != p.target || cards.is_hero_record(card) {
+        return None;
+    }
+    let unit = cards.get(card).unit_name.as_str();
+    let &(_, start_z, gravity) = DEFLECT_FLIGHT_ROWS.iter().find(|(name, _, _)| *name == unit)?;
+    let k = i64::from(K);
+    let speed = (i64::from(p.speed) / k).max(1);
+    let native = |a: Vec2, b: Vec2| -> i64 {
+        let (dx, dy) = (i64::from(a.x - b.x) / k, i64::from(a.y - b.y) / k);
+        isqrt(dx * dx + dy * dy)
+    };
+    let total = (native(tp, start) / speed).max(1);
+    let t = native(np, start) / speed;
+    let (z0, g) = (i64::from(start_z), i64::from(gravity));
+    Some((t - total) * t * (g * -500 / 1000) + -z0 * t / total + z0)
+}
+
+/// combat.DEFLECT_CATCH: does a deflecting champion's area (radius `r`, SUBTILES, about his point `tp`) reach shot `p`,
+/// which this tick's step has brought to `np`? Under flat_edge (`flight` false, the engine's) when its ground point lies
+/// within `r` (dist2 at most r2). Under client16635_flight_height on its arrival (`np` its aim) as under flat_edge, else
+/// when its point at its flight height (`flight_height`) lies strictly within `r` in native units; a shot with no
+/// flight height is measured on the ground plane.
+fn deflect_reaches(cards: &CardDb, p: &Projectile, np: Vec2, tp: Vec2, r: i32, flight: bool) -> bool {
+    let ground = np.dist2(tp) <= i64::from(r) * i64::from(r);
+    if !flight || np == p.aim {
+        return ground;
+    }
+    match flight_height(cards, p, np, tp) {
+        Some(z) => {
+            let k = i64::from(K);
+            let (dx, dy, rn) = (i64::from(np.x - tp.x) / k, i64::from(np.y - tp.y) / k, i64::from(r) / k);
+            dx * dx + dy * dy + z * z < rn * rn
+        }
+        None => ground,
+    }
+}
+
 /// Advance every projectile; arrivals write into the damage buffer. Each
 /// projectile depends only on its own state and the (unchanging during this
 /// phase) entity positions, so processing order is irrelevant. A straight shot
@@ -2534,6 +2638,17 @@ pub fn step_projectiles(
     deflecting: &[(EntityId, i32)],
 ) {
     let rounding = calib.crown_rounding;
+    // combat.DEFLECT_CATCH = client16635_flight_height: a deflect catch at the shot's flight height, a splash shot caught
+    // too, the caught shot sent back from its own point (`deflect_reaches`, below). PLANT (regression)
+    // deflect_catch_on_ground: the new arm still catches on the ground plane, a single-target shot only, back from his
+    // centre.
+    #[cfg(not(clash_plant = "deflect_catch_on_ground"))]
+    let flight = calib.deflect_catch == crate::state::DeflectCatch::Client16635FlightHeight;
+    #[cfg(clash_plant = "deflect_catch_on_ground")]
+    let flight = {
+        let _ = calib.deflect_catch;
+        false
+    };
     // combat.SPAWN_PROJECTILE = client_spark_fan: the sparks the carriers landing this tick release,
     // appended after every projectile has stepped, so each first steps next tick. In a cell so that the pass's step
     // can be run again on the tick's Evo hops (combat.EVO_CHAIN_HOP_FIRST_STEP, below).
@@ -2606,6 +2721,11 @@ pub fn step_projectiles(
                 }
             }
         }
+        // combat.DEFLECT_CATCH = client16635_flight_height: a shot at a champion with a Deflect notes where its flight
+        // begins, its point before its first step, and the unit it flies at (`Projectile::flight_start`).
+        if flight && alive && !p.flight_start.is_some_and(|(_, by)| by == p.target) && carries_deflect(cards, ents, p.target) {
+            p.flight_start = Some((p.pos, p.target));
+        }
         // combat.PROJECTILE_STEP: the aim is the target's position after it moved this tick.
         let np = projectile_advance(calib.projectile_step, p.pos, p.aim, p.speed, &mut p.frac, p.team);
         p.pos = np;
@@ -2613,10 +2733,16 @@ pub fn step_projectiles(
         // champion whose deflect is active lands on the tick its step brings it within the area's radius of him, not at
         // his centre. Measured on client 15.535.29 (sp-champ-Monk-s0): a Musketeer 5996 away, three shots of three a tick
         // before a flight to his centre would land (t233, t253, t273), their returns a tick earlier too.
+        // combat.DEFLECT_CATCH = client16635_flight_height: his area is a sphere standing on the ground. The shot is caught
+        // on the tick its point after the step, at its flight height there, lies strictly inside it, or on its arrival
+        // (`deflect_reaches`); a splash shot is caught too. Measured on client 16.635 (parity r101, the oracle's
+        // il-mg-16635 set: 72 of 72 caught shots in 12 deflect windows, 667 of 667 tick decisions; the ground plane fits
+        // 23 of the 72, a tick early on the others: the tower arrows 1,160 to 1,435 from him after a step flew on).
         #[cfg(not(clash_plant = "deflect_catches_at_body"))]
-        let caught = alive && p.splash == 0 && !p.deflected && {
+        let caught = alive && (p.splash == 0 || flight) && !p.deflected && {
             let tp = ents.pos[p.target.index as usize];
-            deflecting.iter().any(|(id, r)| *id == p.target && np.dist2(tp) <= i64::from(*r) * i64::from(*r))
+            let shot: &Projectile = p;
+            deflecting.iter().any(|(id, r)| *id == shot.target && deflect_reaches(cards, shot, np, tp, *r, flight))
         };
         #[cfg(clash_plant = "deflect_catches_at_body")]
         let caught = false; // PLANT (regression): the shot flies to his centre.
@@ -2682,7 +2808,12 @@ pub fn step_projectiles(
             && p.chain.as_ref().is_some_and(|c| c.left > 0 && c.evo.is_none() && c.hit.len() >= 2);
         #[cfg(clash_plant = "dead_hop_ends")]
         let dead_hop_goes_on = false;
-        if p.splash > 0 {
+        // combat.DEFLECT_CATCH = client16635_flight_height: a splash shot his area caught lands on him alone, as a
+        // single-target shot (the branch below), and goes back. Measured on client 16.635 (parity r101, the oracle's
+        // il-mg-16635 set: 5 of 5 Ice Wizard shots took 50 of 143 off the deflecting Monk and nothing off the neighbours
+        // in their splash, 3 of them inside 1,500, and 143 off the wizard).
+        let caught_splash = caught && flight;
+        if p.splash > 0 && !caught_splash {
             let from = dmg.hits.len();
             let crown_square = (calib.troop_splash_crown_reach == crate::state::TroopSplashCrownReach::Client16635CrownSquareStrict).then_some(calib.crown_square_half_side);
             splash_passing_sq(ents, hash, p.team, p.aim, p.splash, p.hits_air, p.hits_ground, p.damage, p.crown_pct, rounding, dmg, scratch, Some((tick, true, Some(p.target))), crown_square);
@@ -2783,13 +2914,28 @@ pub fn step_projectiles(
                 let _ = deflecting;
                 false // PLANT (regression): the deflect sends nothing back.
             };
+            // combat.DEFLECT_CATCH = client16635_flight_height: the shot goes back from its own point, where his area
+            // caught it (on its arrival, its point before this tick's step), not from his centre. Measured on client
+            // 16.635 (parity r101, the oracle's il-mg-16635 set: 66 of 66 returned tower arrows landed on the tick a
+            // return from that point predicts; from his centre the engine's landed a tick late on 15 caught on the
+            // client's tick).
+            let back_from = if !flight {
+                ents.pos[ti]
+            } else if p.pos != p.aim {
+                p.pos
+            } else {
+                start
+            };
             if let (true, Some(f)) = (returns, p.firer.filter(|f| ents.is_alive(*f))) {
                 let fi = f.index as usize;
                 released.borrow_mut().push(Projectile {
                     team: ents.team[ti],
-                    pos: ents.pos[ti],
+                    pos: back_from,
                     target: f,
                     aim: ents.pos[fi],
+                    // A returned shot carries its damage only: no splash (a caught splash shot under
+                    // combat.DEFLECT_CATCH = client16635_flight_height; every other caught shot has none).
+                    splash: 0,
                     frac: Vec2::default(),
                     fresh: false,
                     buff: None,
@@ -2797,6 +2943,7 @@ pub fn step_projectiles(
                     firer_card: Some(ents.card[ti]),
                     firer: Some(p.target),
                     deflected: true,
+                    flight_start: None,
                     held: false,
                     release: None,
                     enchant: None,
@@ -3017,6 +3164,7 @@ fn release_sparks(
             firer_card: p.firer_card,
             firer: p.firer,
             deflected: false,
+            flight_start: None,
             held: false,
             carrier: None,
             fixed: false,
