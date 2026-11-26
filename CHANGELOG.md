@@ -3,6 +3,28 @@
 The battle logic changes often, as it is measured against the real game. This file lists changes to how you install
 and call the engine. Logic changes are listed by release in the [GitHub Releases](https://github.com/RoyaleGym/RoyaleSim/releases).
 
+## 0.1.59 (2026-11-25)
+
+- 3 more settings default to the current client's behaviour, each measured against its recorded battles (2 of the
+  settings are new, marked new):
+  - A Void's strikes and a Vines' catch reach a crown tower by its crown square, strictly inside the radius, as an
+    ordinary spell's impact does (`spells.SELECTOR_REACH`, new value `"client16635_crown_square_strict"`).
+  - The walking Furnace's shot, and its evolution's, starts 2000 out toward its target, past the target when it stands
+    nearer, keeps the aim it was fired with, and on landing hits its target wherever the target then stands
+    (`combat.DIRECT_NON_HOMING_SHOT`, new).
+  - A Monk's deflect catches a shot on the tick its point, at its flight height, comes strictly inside his 1500 (a
+    princess tower's arrow, an Ice Wizard's or a Cannon's shot), or on its arrival. A splash shot is caught too and
+    lands on him alone, and the caught shot goes back from where it was caught (`combat.DEFLECT_CATCH`, new).
+- One new setting whose default is unchanged: `combat.CHAIN_HOP_REACH` (default `"inclusive"`, also
+  `"client16635_strict"`).
+- A tower level far past the game's levels is refused with an error. A level of about 366 or more in
+  `reset(tower_levels=...)` used to abort the process.
+- Each older behaviour stays available as that setting's old value, and `client_arms("15.535.29")` and `replay_parity`
+  keep the older client's values for its battles.
+- A battle or bank saved by 0.1.58 loads on 0.1.59, but it keeps the settings it was saved with, so it plays the three
+  changes above the old way. The new settings read their old values from a save that lacks them. Save banks again on
+  0.1.59 to get the new behaviour.
+
 ## 0.1.58 (2026-11-25)
 
 - 4 more settings default to the current client's behaviour, each measured against its recorded battles (3 of the
