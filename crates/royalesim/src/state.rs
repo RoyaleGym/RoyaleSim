@@ -13627,7 +13627,8 @@ pub fn tower_multiplier_percent(calib: &Calib, kind: EntityKind, level: i32, pct
     let mut p: i64 = 100;
     for l in 2..=level {
         let rate = if l <= calib.tower_ladder_cap_level { per_level } else { pct.after_cap };
-        p = p * (100 + rate as i64) / 100;
+        // Checked: a level far past the ladder overflows the i64 product (from about 366), an Err as the i32 one is.
+        p = p.checked_mul(100 + rate as i64).map(|x| x / 100).ok_or_else(|| format!("tower level {level}: multiplier overflow"))?;
     }
     i32::try_from(p).map_err(|_| format!("tower level {level}: multiplier overflow"))
 }

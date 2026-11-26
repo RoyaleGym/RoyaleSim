@@ -21,7 +21,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, SelectorReach};
+use royalesim::state::{BattleState, SelectorReach};
 use royalesim::Team;
 
 /// Under spells.SELECTOR_REACH = `arm`: Blue's Void cast `off` (native: across, along, both toward the arena's middle) from
@@ -69,10 +69,13 @@ fn a_tower_whose_square_is_out_of_reach_is_struck_under_neither_arm() {
     }
 }
 
-/// spells.SELECTOR_REACH ships at client16635_building_square_strict (client16635_crown_square_strict is a candidate until
-/// scored).
+/// Since parity r101 for clients 16.402 and 16.635 (client16635_building_square_strict before it; client 15.535.29
+/// keeps radius_plus_target_radius).
 #[test]
-fn the_shipped_arm_is_client16635_building_square_strict() {
-    assert_eq!(Calib::shipped().selector_reach, SelectorReach::Client16635BuildingSquareStrict);
-    assert_eq!(config().calib.selector_reach, SelectorReach::Client16635BuildingSquareStrict);
+fn the_shipped_arm_is_client16635_crown_square_strict() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().selector_reach,
+        royalesim::state::SelectorReach::Client16635CrownSquareStrict
+    );
+    assert_eq!(config().calib.selector_reach, royalesim::state::SelectorReach::Client16635CrownSquareStrict);
 }

@@ -40,7 +40,7 @@ use common::*;
 use royalesim::card::CardDb;
 use royalesim::combat::DEFLECT_FLIGHT_ROWS;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleConfig, BattleState, Calib, CardTable, DeflectCatch};
+use royalesim::state::{BattleConfig, BattleState, CardTable, DeflectCatch};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["Monk", "Knight", "IceWizard", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -257,8 +257,12 @@ fn under_client16635_flight_height_a_splash_shot_is_caught_and_lands_on_him_alon
     assert!(back_new, "client16635_flight_height: the caught shot goes back");
 }
 
-/// combat.DEFLECT_CATCH ships at flat_edge (client16635_flight_height is a candidate until scored).
+/// Since parity r101 for clients 16.402 and 16.635 (flat_edge before it; client 15.535.29 keeps flat_edge).
 #[test]
-fn the_shipped_arm_is_flat_edge() {
-    assert_eq!(Calib::shipped().deflect_catch, DeflectCatch::FlatEdge);
+fn the_shipped_arm_is_client16635_flight_height() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().deflect_catch,
+        royalesim::state::DeflectCatch::Client16635FlightHeight
+    );
+    assert_eq!(config().calib.deflect_catch, royalesim::state::DeflectCatch::Client16635FlightHeight);
 }

@@ -15,14 +15,15 @@
 //!   * `direct_shot_follows` -- the new arm's direct shot is still born no farther than its target and follows it:
 //!     `under_client16635_fixed_past_target_a_near_target_is_shot_from_past_it` and
 //!     `under_client16635_fixed_past_target_the_shot_keeps_its_aim_on_a_walking_target` go red.
-//!   RUSTFLAGS='--cfg clash_plant="direct_shot_follows"' CARGO_TARGET_DIR=target/plant cargo test --profile gate
-//!   --test direct_non_homing_shot
+//!
+//!     RUSTFLAGS='--cfg clash_plant="direct_shot_follows"' CARGO_TARGET_DIR=target/plant cargo test --profile gate
+//!     --test direct_non_homing_shot
 #![allow(unexpected_cfgs)]
 mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, Calib, DirectNonHomingShot};
+use royalesim::state::{BattleState, DirectNonHomingShot};
 use royalesim::Team;
 
 const FURNACE: (i32, i32) = (9000, 12000);
@@ -109,7 +110,12 @@ fn under_client16635_fixed_past_target_the_shot_keeps_its_aim_on_a_walking_targe
     assert!(old.flight < new.flight, "follows_target: the shot at a Giant walking at the Furnace lands earlier ({} against {})", old.flight, new.flight);
 }
 
+/// Since parity r101 for clients 16.402 and 16.635 (follows_target before it; client 15.535.29 keeps follows_target).
 #[test]
-fn the_shipped_arm_is_follows_target() {
-    assert_eq!(Calib::shipped().direct_non_homing_shot, DirectNonHomingShot::FollowsTarget);
+fn the_shipped_arm_is_client16635_fixed_past_target() {
+    assert_eq!(
+        royalesim::state::Calib::shipped().direct_non_homing_shot,
+        royalesim::state::DirectNonHomingShot::Client16635FixedPastTarget
+    );
+    assert_eq!(config().calib.direct_non_homing_shot, royalesim::state::DirectNonHomingShot::Client16635FixedPastTarget);
 }

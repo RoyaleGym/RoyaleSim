@@ -275,3 +275,20 @@ fn the_crown_towers_scale_on_the_globals_percent_ladder_the_live_captures_measur
     assert_eq!(old, [3584, 6144].into_iter().collect(), "the card ladder's towers at 11 (x 256 %)");
     assert_ne!(old, live[&11], "the card ladder is refuted by the live rows");
 }
+
+/// A tower level far past the ladder is refused with an Err, not an arithmetic overflow (the release profile checks
+/// overflow and aborts): the multiplier's i32 result overflows from about level 200 and its i64 product from about 366.
+#[test]
+fn a_tower_level_far_past_the_ladder_is_an_error_not_an_overflow() {
+    let calib = Calib::shipped();
+    for kind in [EntityKind::KingTower, EntityKind::PrincessTower] {
+        for level in [400, 1000, 10_000] {
+            assert!(tower_multiplier_percent(&calib, kind, level, calib.tower_hp_pct).is_err(), "{kind:?}'s hitpoints at tower level {level}");
+            // The damage ladder is read too: whatever it gives, it returns.
+            let _ = tower_multiplier_percent(&calib, kind, level, calib.tower_dmg_pct);
+        }
+    }
+    let mut cfg = config();
+    cfg.tower_level = [1000, 1000];
+    assert!(BattleState::try_new(1, cfg).is_err(), "a battle at tower level 1000 is refused");
+}

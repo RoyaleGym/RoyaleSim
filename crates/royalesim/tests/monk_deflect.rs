@@ -41,7 +41,7 @@ mod common;
 
 use common::*;
 use royalesim::fixed::{isqrt, Vec2, SUBTILE_PER_MILLITILE as K};
-use royalesim::state::{BattleState, DeflectBuffLanding, DeployError};
+use royalesim::state::{BattleState, DeflectBuffLanding, DeflectCatch, DeployError};
 use royalesim::{EntityId, Team};
 
 const DECK: [&str; 8] = ["Monk", "Knight", "Archers", "Musketeer", "Fireball", "Arrows", "Minions", "Zap"];
@@ -59,6 +59,9 @@ struct Row {
 
 fn scene() -> (BattleState, EntityId, EntityId) {
     let mut cfg = config_pre_flip();
+    // combat.DEFLECT_CATCH: a client 15.535.29 scene runs that client's flat_edge (CLIENT15535_ARMS; client 16.635's
+    // client16635_flight_height sends a return from the caught shot's own point, a tick nearer her).
+    cfg.calib.deflect_catch = DeflectCatch::FlatEdge;
     cfg.decks = [DECK.iter().map(|s| s.to_string()).collect(), DECK.iter().map(|s| s.to_string()).collect()];
     cfg.card_level = [11, 11];
     cfg.tower_level = [11, 11];
